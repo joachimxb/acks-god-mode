@@ -3130,6 +3130,60 @@ function commitTurn(campaign, domains, proposal, helpers){
         stepsApplied,
         remainingInvested: hex.landImprovementInvested
       });
+
+      // Wave Construction-B — mirror this hex's agricultural progress onto the unified Project
+      // model and record a typed construction-progress event. PURELY ADDITIVE: the economic
+      // state above (treasury, landImprovementInvested, landImprovementBonus) is untouched, so
+      // the monthly land-value outcome is byte-identical to the pre-refactor engine (zero-drift;
+      // see tests/agricultural-projects.smoke.js). Wrapped so a mirror failure can never break
+      // the economic turn. The hex stays the source of truth; the Project is the activity record
+      // the Day Clock / day-tick consumer and integrators read.
+      try {
+        const agProj = global.ACKS.syncAgriculturalProject(campaign, hex, {
+          domainId: d.id,
+          turn: currentTurnNum,
+          historyType: 'progress',
+          historyNarrative: '+' + affordable.toLocaleString() + 'gp this month'
+            + (stepsApplied > 0 ? ' — +' + stepsApplied + ' land value (now +' + (hex.landImprovementBonus || 0) + ')' : '')
+        });
+        if(agProj){
+          const atCapNow = (hex.landImprovementBonus || 0) >= global.ACKS.AGRICULTURAL_IMPROVEMENT_MAX_BONUS
+            || (hex.valuePerFamily || 0) + (hex.landImprovementBonus || 0) >= global.ACKS.AGRICULTURAL_IMPROVEMENT_VALUE_CAP;
+          const progEv = global.ACKS.newEvent('construction-progress', {
+            submittedBy: 'engine',
+            targetTurn: currentTurnNum,
+            payload: {
+              projectId: agProj.id,
+              // narrative is the schema's optional human field; the extras below are integrator
+              // metadata (agricultural is gp-denominated, not worker-days — no laborInvested).
+              narrative: 'Agricultural works at ' + ord.coordStr + ' in ' + d.name + ': +' + affordable.toLocaleString() + 'gp'
+                + (stepsApplied > 0 ? ', +' + stepsApplied + ' land value (now +' + (hex.landImprovementBonus || 0) + ')' : ' (accumulating)') + '.',
+              gpThisTurn: affordable,
+              stepsApplied: stepsApplied,
+              bonusAfter: hex.landImprovementBonus || 0,
+              completed: atCapNow
+            }
+          });
+          progEv.status = global.ACKS.EVENT_STATUS.APPLIED;
+          progEv.appliedAtTurn = currentTurnNum;
+          global.ACKS.setEventContext(progEv, {
+            primaryHexId: hex.id,
+            domainId: d.id,
+            relatedEntities: [{ kind: 'project', id: agProj.id, role: 'subject' }]
+          });
+          campaign.eventLog.push({
+            event: progEv,
+            result: {
+              projectId: agProj.id,
+              domainsChanged: [d.id], charactersChanged: [], hexesChanged: [hex.id],
+              treasuryDelta: -affordable,
+              narrativeSummary: progEv.payload.narrative
+            },
+            appliedAtTurn: currentTurnNum,
+            appliedAt: new Date().toISOString()
+          });
+        }
+      } catch(e){ /* mirror is additive — never let it fail the economic turn */ }
     });
     // Clear queue prep — the order has been consumed regardless of how much the GM ultimately spent.
     (d.geography?.hexes || []).forEach(hex => { if(hex.queuedImprovementGp) hex.queuedImprovementGp = 0; });
