@@ -245,8 +245,14 @@ document.addEventListener('alpine:init', () => {
                 <div class="flex items-center justify-between gap-2 py-0.5 border-b border-dashed border-gray-300" :class="r.rejected ? 'opacity-40 line-through' : ''">
                   <span class="text-xs" x-text="r.label || (r.kind + ' record')"></span>
                   <span class="flex items-center gap-1 shrink-0">
-                    <template x-if="typeof r.newLaborInvested === 'number'">
+                    <!-- Worker-built projects expose an editable committed-labor (cf) field. Monthly-cadence
+                         records (agricultural improvement — gp-denominated, advances at month-end) have no
+                         per-day labor to edit, so the field is suppressed (Wave Construction-B). -->
+                    <template x-if="typeof r.newLaborInvested === 'number' && r.cadence !== 'monthly'">
                       <input type="number" x-model.number="r.newLaborInvested" class="w-20 text-xs border border-ink rounded px-1" title="Edit committed labor (cf)">
+                    </template>
+                    <template x-if="r.cadence === 'monthly'">
+                      <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
                     </template>
                     <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
                   </span>
