@@ -214,6 +214,26 @@ throws('missing required payload field rejected', () => ACKS.validateEvent(ACKS.
 throws('bad submittedBy rejected', () => ACKS.validateEvent({ id: 'evt-y', kind: 'treasury-grant', submittedBy: 'hacker!!', submittedAt: 'now', targetTurn: 1, status: 'pending', payload: { domainId: 'd', amount: 1, label: 'x' } }));
 
 // =============================================================================
+section('Domain classification — stored wins, derived is a suggestion (RR p.340)');
+// =============================================================================
+ok('effectiveDomainClassification exported', typeof ACKS.effectiveDomainClassification === 'function');
+ok('suggestDomainClassification exported', typeof ACKS.suggestDomainClassification === 'function');
+// A domain whose families/morale/hexes would DERIVE Civilized, but is authored Borderlands.
+const authoredBorder = { classification: 'Borderlands', demographics: { peasantFamilies: 400, morale: 1 }, geography: { controlledHexes: 8 } };
+ok('derived suggestion would be Civilized', ACKS.suggestDomainClassification(authoredBorder) === 'Civilized');
+ok('stored Borderlands wins over derived Civilized', ACKS.effectiveDomainClassification(authoredBorder) === 'Borderlands');
+ok('Borderlands → garrison rate 3 (not 2)', ACKS.REQUIRED_GARRISON_PER_FAMILY[ACKS.effectiveDomainClassification(authoredBorder)] === 3);
+ok('Borderlands → base morale -1 (not 0)', ACKS.baseMoraleFromClassification(ACKS.effectiveDomainClassification(authoredBorder), { personalAuthority: 0 }) === -1);
+// No stored value → falls back to the suggestion.
+const noStored = { demographics: { peasantFamilies: 400, morale: 1 }, geography: { controlledHexes: 8 } };
+ok('no stored classification → uses suggestion (Civilized)', ACKS.effectiveDomainClassification(noStored) === 'Civilized');
+// Invalid stored value is ignored (falls back to suggestion).
+ok('invalid stored value ignored', ACKS.effectiveDomainClassification({ classification: 'Atlantis', demographics: { peasantFamilies: 10 } }) === 'Outlands');
+// Suggestion thresholds (preserve prior heuristic exactly).
+ok('suggest Outlands when sparse', ACKS.suggestDomainClassification({ demographics: { peasantFamilies: 40 } }) === 'Outlands');
+ok('suggest Borderlands at fam>=75 low morale', ACKS.suggestDomainClassification({ demographics: { peasantFamilies: 200, morale: 0 } }) === 'Borderlands');
+
+// =============================================================================
 section('Stronghold-inadequacy morale penalty (RR p.349 — acks-authority Critical)');
 // =============================================================================
 ok('strongholdMoralePenalty exported', typeof ACKS.strongholdMoralePenalty === 'function');

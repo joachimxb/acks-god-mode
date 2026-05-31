@@ -665,7 +665,19 @@ document.addEventListener('alpine:init', () => {
             <div class="vellum border border-ink p-3 rounded">
               <h2 class="font-bold text-lg mb-2">Overview</h2>
               <table class="bookkeeping text-sm">
-                <tr><td>Classification</td><td class="text-right font-semibold" x-text="effectiveClassification(selectedDomain)"></td></tr>
+                <tr><td>Classification
+                  <span class="opacity-50 cursor-help" title="RR p.340 — a GM judgment (settlement density + proximity). Stored value wins; pick Auto to use the families/morale/hexes suggestion.">ⓘ</span>
+                </td>
+                  <td class="text-right">
+                    <select class="text-sm border border-ink rounded px-1 py-0.5 font-semibold"
+                      @change="commitStatEdit({entityType:'domain', entityId:selectedDomain.id, entity:selectedDomain, fieldPath:'classification', label:'Classification', oldValue:(selectedDomain.classification||null), newValue:($event.target.value||null)})">
+                      <option value="" :selected="!selectedDomain.classification" x-text="'Auto — ' + suggestedClassification(selectedDomain)"></option>
+                      <option value="Civilized" :selected="selectedDomain.classification==='Civilized'">Civilized</option>
+                      <option value="Borderlands" :selected="selectedDomain.classification==='Borderlands'">Borderlands</option>
+                      <option value="Outlands" :selected="selectedDomain.classification==='Outlands'">Outlands</option>
+                    </select>
+                    <span class="block text-xs opacity-60" x-show="selectedDomain.classification && selectedDomain.classification !== suggestedClassification(selectedDomain)" x-text="'(GM-set; suggestion: ' + suggestedClassification(selectedDomain) + ')'"></span>
+                  </td></tr>
                 <tr><td>Families</td><td class="text-right font-semibold" x-text="totalFamilies(selectedDomain).toLocaleString()"></td></tr>
                 <tr x-show="banditCount(selectedDomain) > 0">
                   <td class="accent-red">⚔ Bandits</td>
@@ -10891,15 +10903,12 @@ return {
     return 0;
   },
 
-  effectiveClassification(d){
-    const fam=d.demographics?.peasantFamilies||0;
-    const morale=d.demographics?.morale||0;
-    const hexes=d.geography?.controlledHexes||0;
-    if(morale>=1&&(fam>=375||(fam>=1200&&hexes>=7)))return 'Civilized';
-    if(fam>=75)return 'Borderlands';
-    return 'Outlands';
-  },
-  suggestedClassification(d){return this.effectiveClassification(d);},
+  // RR p.340 — classification is a GM judgment. Stored domain.classification wins; the
+  // families/morale/hexes heuristic is only a suggestion. Both lifted to the engine
+  // (ACKS.effectiveDomainClassification / suggestDomainClassification) so display + the
+  // garrison-rate/base-morale math agree, and the GM can override (editable on Overview).
+  effectiveClassification(d){return window.ACKS.effectiveDomainClassification(d);},
+  suggestedClassification(d){return window.ACKS.suggestDomainClassification(d);},
 
   // Per RAW (RR pp.340, 349) hex classification is a domain property, not a per-hex one.
   // Default mode: every hex inherits the domain's class. Families-per-hex-tracking ON:

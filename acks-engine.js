@@ -534,6 +534,27 @@ function strongholdMoralePenalty(strongholdValue, strongholdRequired){
   return -3;
 }
 
+// RR p.340 — domain classification (Civilized / Borderlands / Outlands) is ultimately a GM
+// judgment: RAW turns on settlement density + proximity, which the tool can't see. So the
+// GM's stored domain.classification WINS; the families/morale/hexes heuristic is only a
+// suggestion. (Bug this fixes: the UI derived classification and ignored the authored value,
+// so the demo's authored-Borderlands march was treated Civilized — wrong garrison rate +
+// base morale, with no way for the GM to correct it.)
+const DOMAIN_CLASSIFICATIONS = Object.freeze(['Civilized', 'Borderlands', 'Outlands']);
+function suggestDomainClassification(d){
+  const fam    = (d && d.demographics && d.demographics.peasantFamilies) || 0;
+  const morale = (d && d.demographics && d.demographics.morale) || 0;
+  const hexes  = (d && d.geography && d.geography.controlledHexes) || 0;
+  if(morale >= 1 && (fam >= 375 || (fam >= 1200 && hexes >= 7))) return 'Civilized';
+  if(fam >= 75) return 'Borderlands';
+  return 'Outlands';
+}
+function effectiveDomainClassification(d){
+  const stored = d && d.classification;
+  if(stored && DOMAIN_CLASSIFICATIONS.indexOf(stored) !== -1) return stored; // GM authored value wins
+  return suggestDomainClassification(d);
+}
+
 // =============================================================================
 // 6.5 REFERENCE DATA CATALOGS — MOVED to acks-engine-catalogs.js (2026-05-28).
 // Loaded as a separate <script> tag before this file in index.html. The
@@ -3652,6 +3673,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   rollD6, rollD20, rollD10x, clamp,
   rollNaturalIncrease, rollNaturalDecrease, rollMoraleExtra,
   moraleChangeFromRoll, baseMoraleFromClassification, strongholdMoralePenalty,
+  DOMAIN_CLASSIFICATIONS, suggestDomainClassification, effectiveDomainClassification,
 
   // Foundation #241 — rural population: canonical setter + reconciliation.
   // Tools/UI MUST go through setPeasantPopulation for any rural population change.
