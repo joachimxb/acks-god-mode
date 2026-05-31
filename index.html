@@ -1265,13 +1265,15 @@ document.addEventListener('alpine:init', () => {
 
           <!-- Agricultural Improvement Tracker (baseline ACKS RR p.341).
                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family.
-               Without the immediate-construction house rule, projects complete after 2 turns.
-               Supervisor + labor cap requirements come from the realistic-construction house rule. -->
+               RAW (RR p.174): land improvement is a labor-paid construction project that takes time
+               (~50 days/step at a typical workforce) and needs a siege-engineer supervisor. The
+               time-based model + this panel's rework land with the construction rework — see
+               _handoffs/Agricultural_Time_Based_Spec.md. -->
           <template x-if="true">
             <div class="vellum border border-ink p-3 rounded mt-3">
               <h2 class="font-bold text-lg mb-1">⚒ Agricultural improvements <span class="text-sm opacity-60 font-normal">(RR p.341)</span></h2>
               <p class="text-sm opacity-70 mb-3">
-                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family. Without the immediate-construction house rule, projects complete two turns after they're ordered.
+                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family.
               </p>
 
               <!-- Hexes with investment accumulating toward the next +1 step. -->

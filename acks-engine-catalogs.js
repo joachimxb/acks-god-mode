@@ -197,9 +197,14 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',
     description:'Track strongholds as a list of individual structures (Tower, Wall, Gatehouse, Building Stone) rather than a single aggregate value. Useful for detailed sieges and modular stronghold construction.' },
-  { id:'immediate-construction', category:'construction', name:'Immediate construction completion',
-    source:'ACKS II RR p.353 default text',
-    description:"RAW's main text deducts construction costs immediately and completes the project the same turn. When this rule is on, all qualifying construction projects complete the same turn they're ordered." },
+  // immediate-construction REMOVED 2026-05-31 (Joachim): RAW builds land/structures over time as
+  // labor-paid construction projects (RR p.174) — instant completion is not a RAW variant. A GM who
+  // wants to skip the timeline uses the admin/creation tools (Inspector: set a Project's
+  // lifecycleState to 'complete', or set a hex's landImprovementBonus directly), not a house rule.
+  // realistic-construction is RAW's DEFAULT, not a toggle; its default-flip + removal lands with the
+  // time-based construction rework (see _handoffs/Agricultural_Time_Based_Spec.md). Kept as a toggle
+  // for now so the supervisor requirement doesn't hard-block existing campaigns before the rework's
+  // friendly-prompt UX ships.
   { id:'realistic-construction', category:'construction', name:'Realistic construction — supervisors + labor cap',
     source:'ACKS II RR p.174 (Wage and Construction Rates; Siege Engineer / Engineer supervision caps)',
     description:"Construction projects (currently agricultural improvements; later stronghold construction) require an assigned supervisor character — siege engineer caps at 25,000gp per project, engineer caps at 100,000gp. Each domain also has a monthly labor cap representing available workforce; total construction allocations across all projects in a domain may not exceed it in a single month. When off, gp is the only constraint." },
