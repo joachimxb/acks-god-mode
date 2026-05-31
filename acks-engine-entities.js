@@ -895,7 +895,11 @@ function blankHenchmanship(opts={}){
     currentLoyalty: opts.currentLoyalty || 0,
     loyaltyHistory: opts.loyaltyHistory || [],
     history: opts.history || [],
-    status: opts.status || 'active'
+    status: opts.status || 'active',
+    // End-of-lifecycle field, set by _endRelation on dismissal/termination. Emitted as
+    // null from creation so it is part of the factory shape (lets the Inspector schema
+    // reference it; closes the schema⊆factory drift). (Wave C Step 2.)
+    endedAtTurn: opts.endedAtTurn || null
   };
 }
 
@@ -909,7 +913,11 @@ function blankSpecialistContract(opts={}){
     wageStreamGpMo: opts.wageStreamGpMo || 0,
     serviceCategory: opts.serviceCategory || '',
     history: opts.history || [],
-    status: opts.status || 'active'
+    status: opts.status || 'active',
+    // End-of-lifecycle field, set by _endRelation on dismissal/termination. Emitted as
+    // null from creation so it is part of the factory shape (lets the Inspector schema
+    // reference it; closes the schema⊆factory drift). (Wave C Step 2.)
+    endedAtTurn: opts.endedAtTurn || null
   };
 }
 
@@ -922,7 +930,11 @@ function blankHirelingContract(opts={}){
     hiredAtTurn: opts.hiredAtTurn || 1,
     wageStreamGpMo: opts.wageStreamGpMo || 0,
     history: opts.history || [],
-    status: opts.status || 'active'
+    status: opts.status || 'active',
+    // End-of-lifecycle field, set by _endRelation on dismissal/termination. Emitted as
+    // null from creation so it is part of the factory shape (lets the Inspector schema
+    // reference it; closes the schema⊆factory drift). (Wave C Step 2.)
+    endedAtTurn: opts.endedAtTurn || null
   };
 }
 
@@ -937,7 +949,11 @@ function blankMagistracy(opts={}){
     salaryCategory: opts.salaryCategory || '',
     performanceLog: opts.performanceLog || [],
     history: opts.history || [],
-    status: opts.status || 'active'
+    status: opts.status || 'active',
+    // End-of-lifecycle field, set by _endRelation on dismissal/termination. Emitted as
+    // null from creation so it is part of the factory shape (lets the Inspector schema
+    // reference it; closes the schema⊆factory drift). (Wave C Step 2.)
+    endedAtTurn: opts.endedAtTurn || null
   };
 }
 
@@ -953,7 +969,11 @@ function blankVassalage(opts={}){
     witnessCharacterIds: opts.witnessCharacterIds || [],
     recognitionStatus: opts.recognitionStatus || 'recognized',
     history: opts.history || [],
-    status: opts.status || 'active'
+    status: opts.status || 'active',
+    // End-of-lifecycle field, set by _endRelation on dismissal/termination. Emitted as
+    // null from creation so it is part of the factory shape (lets the Inspector schema
+    // reference it; closes the schema⊆factory drift). (Wave C Step 2.)
+    endedAtTurn: opts.endedAtTurn || null
   };
 }
 
@@ -969,7 +989,31 @@ function blankTributaryAgreement(opts={}){
     establishedAtTurn: opts.establishedAtTurn || 1,
     renegotiationHistory: opts.renegotiationHistory || [],
     history: opts.history || [],
-    status: opts.status || 'active'
+    status: opts.status || 'active',
+    // End-of-lifecycle field, set by _endRelation on dismissal/termination. Emitted as
+    // null from creation so it is part of the factory shape (lets the Inspector schema
+    // reference it; closes the schema⊆factory drift). (Wave C Step 2.)
+    endedAtTurn: opts.endedAtTurn || null
+  };
+}
+
+// =============================================================================
+// Outpost (Phase 2.95 Stash §H / Phase 3 Military §13) — persistent waypoint owning
+// a garrison + treasury cache. The field-schema (Inspector §4.1) + the Entity Registry
+// already referenced factory:'blankOutpost' but no factory existed (Wave C Step 2 fix).
+// =============================================================================
+function blankOutpost(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.outpost),
+    name: opts.name || '',
+    kind: opts.kind || 'watchtower',
+    hexId: opts.hexId || null,
+    controllingDomainId: opts.controllingDomainId || null,
+    commanderCharacterId: opts.commanderCharacterId || null,
+    garrisonGroupId: opts.garrisonGroupId || null,
+    foundedAtTurn: opts.foundedAtTurn || 1,
+    history: opts.history || []
   };
 }
 
@@ -1158,7 +1202,7 @@ function blankConstructible(opts={}){
 Object.assign(ACKS, {
   blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
-  blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement,
+  blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement, blankOutpost,
   // Wave B.5 — Notable items + custody factories (2026-05-29)
   blankNotableItem, blankItemCustody,
   // #442 — Group entity factory (Architecture.md §2.4, 2026-05-29)

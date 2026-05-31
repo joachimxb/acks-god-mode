@@ -332,6 +332,38 @@ ok('stash items itemSchema sub-fields ⊆ blankStashItem keys', stashSubExtras.l
 ok('stash field-schema validates clean', ACKS.validateFieldSchema('stash', stashSchema).ok);
 
 // =============================================================================
+section('Global schema ⊆ factory invariant (Wave C Step 2 — closes the drift bug class)');
+// =============================================================================
+// For every kind with a field-schema: the named factory must exist, and every schema
+// field (top-level + object sub-fields, excluding computed/derived) must be a key the
+// factory actually emits. Generalizes the B.6/Step-0 stash check so schema↔factory drift
+// (the WIS/label/coins/blankOutpost class of bug) can never recur silently.
+(function () {
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  for (const kind of ACKS.kindsWithSchema()) {
+    const schema = ACKS.fieldSchemaFor(kind);
+    const factoryName = schema.factory || ('blank' + cap(kind));
+    const factory = ACKS[factoryName];
+    ok('schema "' + kind + '" names a real factory (' + factoryName + ')', typeof factory === 'function');
+    if (typeof factory !== 'function') continue;
+    let blank;
+    try { blank = factory({}); } catch (e) { ok('factory ' + factoryName + '({}) constructs', false, e.message); continue; }
+    const keys = new Set(Object.keys(blank));
+    const topExtras = schema.fields.filter(f => f.type !== 'computed').map(f => f.name).filter(n => !keys.has(n));
+    ok('schema "' + kind + '" top-level fields ⊆ ' + factoryName + ' keys', topExtras.length === 0, 'extras: [' + topExtras.join(', ') + ']');
+    // object sub-fields ⊆ the factory's nested object keys (when the factory pre-populates one)
+    for (const f of schema.fields.filter(f => f.type === 'object')) {
+      const nested = blank[f.name];
+      if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        const nestedKeys = new Set(Object.keys(nested));
+        const subExtras = (f.fields || []).filter(s => s.type !== 'computed').map(s => s.name).filter(n => !nestedKeys.has(n));
+        ok('schema "' + kind + '" object "' + f.name + '" sub-fields ⊆ factory nested keys', subExtras.length === 0, 'extras: [' + subExtras.join(', ') + ']');
+      }
+    }
+  }
+})();
+
+// =============================================================================
 section('object field-type validator + convention (Wave C Step 1)');
 // =============================================================================
 ok('object is a valid field type', ACKS.isValidFieldType('object'));
