@@ -516,6 +516,117 @@ console.log('--- Time-based construction R1: rate + supervisor adequacy (RR p.17
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// R2/R3 — time-based drip + monthly budget accumulation (realistic-construction ON).
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('--- Time-based construction R2/R3: budget + day-tick drip (realistic-construction ON) ---');
+{
+  const RATE = ACKS.AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY; // 500
+
+  function buildTimed(opts){
+    opts = opts || {};
+    const c = ACKS.blankCampaign({ name: 'timed' });
+    c.houseRules = c.houseRules || {};
+    c.houseRules['realistic-construction'] = { enabled: true };
+    c.projects = [];
+    const d = ACKS.blankDomain({ name: 'D' });
+    d.treasury = { gp: opts.treasury == null ? 1000000 : opts.treasury };
+    const hex = ACKS.blankHex({ id: 'hex-t', coord: { q:0, r:0 } });
+    hex.valuePerFamily = opts.base == null ? 6 : opts.base;
+    hex.landImprovementBonus = opts.bonus || 0;
+    hex.landImprovementInvested = opts.invested || 0;
+    hex.improvementBudgetGp = opts.budget == null ? 25000 : opts.budget;
+    hex.domainId = d.id;
+    if(opts.supervisor !== false){
+      const eng = ACKS.blankCharacter({ name: 'Eng' });
+      eng.id = 'chr-eng'; eng.constructionSupervisorCap = 25000; eng.currentHexId = 'hex-t';
+      c.characters = [eng];
+      hex.constructionSupervisorCharacterIds = ['chr-eng'];
+    }
+    d.geography.hexes = [hex]; c.hexes = [hex]; c.domains = [d];
+    ACKS.syncAgriculturalProject(c, hex, { domainId: d.id });
+    return { c, d, hex, project: ACKS.findAgriculturalProject(c, 'hex-t') };
+  }
+  const drip1 = t => ACKS.commitConstructionRecord(t.c, { projectId: t.project.id, agriculturalDrip: true, daysAdded: 1 });
+
+  // computeAgriculturalDrip clipping
+  let t = buildTimed({});
+  check('R2 drip: 1 day = 500gp', ACKS.computeAgriculturalDrip(t.c, t.project, 1).drip === RATE);
+  check('R2 drip: 10 days = 5000gp', ACKS.computeAgriculturalDrip(t.c, t.project, 10).drip === RATE * 10);
+  check('R2 drip: clipped by budget (25000)', ACKS.computeAgriculturalDrip(t.c, t.project, 100).drip === 25000);
+  t = buildTimed({ treasury: 300 });
+  check('R2 drip: clipped by treasury (300)', ACKS.computeAgriculturalDrip(t.c, t.project, 1).drip === 300);
+  t = buildTimed({ supervisor: false });
+  check('R2 drip: no supervisor -> blocked, 0', (() => { const r = ACKS.computeAgriculturalDrip(t.c, t.project, 1); return r.drip === 0 && r.blocked && /supervisor/i.test(r.blockReason); })());
+  t = buildTimed({ budget: 0 });
+  check('R2 drip: no budget -> 0', ACKS.computeAgriculturalDrip(t.c, t.project, 1).drip === 0);
+  t = buildTimed({ base: 8 }); // 8+1=9 value cap -> only one step's worth of cost-to-cap
+  check('R2 drip: value-cap limits cost-to-cap (drips up to one step)', ACKS.computeAgriculturalDrip(t.c, t.project, 100).drip === 25000);
+
+  // 50-day drip completes a +1 step (direct day-tick simulation, bypassing the 30-day month cap)
+  t = buildTimed({});
+  for(let day = 0; day < 50; day++) drip1(t);
+  check('R2 drip: after 50 days, hex bonus +1', t.hex.landImprovementBonus === 1, 'bonus ' + t.hex.landImprovementBonus);
+  check('R2 drip: after 50 days, invested ratcheted to 0', t.hex.landImprovementInvested === 0, 'invested ' + t.hex.landImprovementInvested);
+  check('R2 drip: after 50 days, budget drained to 0', t.hex.improvementBudgetGp === 0, 'budget ' + t.hex.improvementBudgetGp);
+  check('R2 drip: after 50 days, treasury -25000 (pay-as-you-build)', t.d.treasury.gp === 1000000 - 25000, 'treasury ' + t.d.treasury.gp);
+  drip1(t);
+  check('R2 drip: budget exhausted -> further ticks are no-ops', t.hex.improvementBudgetGp === 0 && t.d.treasury.gp === 975000);
+
+  // mid-stream partial: 30 days -> 15000 invested, no step yet
+  t = buildTimed({});
+  for(let day = 0; day < 30; day++) drip1(t);
+  check('R2 drip: 30 days -> 15000 invested, bonus still 0', t.hex.landImprovementInvested === 15000 && t.hex.landImprovementBonus === 0, JSON.stringify({ i: t.hex.landImprovementInvested, b: t.hex.landImprovementBonus }));
+  check('R2 drip: 30 days -> 10000gp budget left', t.hex.improvementBudgetGp === 10000, 'budget ' + t.hex.improvementBudgetGp);
+
+  // supervisor gating blocks the apply (no spend)
+  t = buildTimed({ supervisor: false });
+  drip1(t);
+  check('R2 drip: no supervisor -> apply is a no-op (treasury/budget/invested untouched)', t.d.treasury.gp === 1000000 && t.hex.improvementBudgetGp === 25000 && t.hex.landImprovementInvested === 0);
+
+  // monthly commit accumulates budget (no instant spend) when realistic-construction is ON
+  {
+    const c = ACKS.blankCampaign({ name: 'budget' }); c.projects = [];
+    const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 }; d.demographics = { peasantFamilies:1000, urbanFamilies:0, morale:0 };
+    const hex = ACKS.blankHex({ id: 'hex-b', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.domainId = d.id;
+    d.geography.hexes = [hex]; c.domains = [d]; // NO calendar -> isolate budget accumulation (no month-end drip)
+    const helpers = Object.assign({}, mockHelpers(), { isHouseRuleEnabled: (id) => id === 'realistic-construction' });
+    const proposal = { turnEventProposals: [], turnVentureProposals: [], turnProposal: [{
+      domainId: d.id, skip:false, tithePaid:true, tributePaid:true, hasLiege:false, administersThisMonth:false,
+      incomeFactor:1, moraleRoll:0, moraleBefore:0, classification:'Borderlands', ruler:{ name:'R', level:1 },
+      income:[], expenses:[], moraleMods:[], urbanInvestments:[],
+      agriculturalOrders: [{ hexIndex:0, hexId:'hex-b', coordStr:'(0,0)', gpAmount:25000, supervisorCharacterIds:[] }]
+    }]};
+    ACKS.commitTurn(c, c.domains, proposal, helpers);
+    check('R3 monthly: realistic ON accumulates budget (25000)', hex.improvementBudgetGp === 25000, 'budget ' + hex.improvementBudgetGp);
+    check('R3 monthly: realistic ON does NOT instant-spend (invested 0, bonus 0)', hex.landImprovementInvested === 0 && hex.landImprovementBonus === 0);
+    check('R3 monthly: realistic ON did NOT debit treasury for ag', d.treasury.gp === 1000000);
+    check('R3 monthly: an under-construction agricultural Project exists', (c.projects||[]).some(p => p.constructibleKind === 'agricultural-improvement' && p.lifecycleState === 'under-construction'));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full day-tick pipeline end-to-end (proposeDayTick clone -> commitDayTick real campaign).
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('--- Time-based construction: full day-tick pipeline (proposeDayTick + commitDayTick) ---');
+{
+  const c = ACKS.blankCampaign({ name: 'pipe' });
+  c.houseRules = c.houseRules || {};
+  c.houseRules['realistic-construction'] = { enabled: true };
+  c.projects = []; c.currentDayInMonth = 1; c.calendar = { year:1, month:1, day:1, kind:'default' };
+  const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 };
+  const hex = ACKS.blankHex({ id: 'hex-p', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.domainId = d.id; hex.improvementBudgetGp = 25000;
+  const eng = ACKS.blankCharacter({ name: 'Eng' }); eng.id = 'chr-e'; eng.constructionSupervisorCap = 25000; eng.currentHexId = 'hex-p';
+  c.characters = [eng]; hex.constructionSupervisorCharacterIds = ['chr-e'];
+  d.geography.hexes = [hex]; c.hexes = [hex]; c.domains = [d];
+  ACKS.syncAgriculturalProject(c, hex, { domainId: d.id });
+  ACKS.tickDay(c, 5); // 5 days through the real propose/commit pipeline
+  check('pipeline: 5 day-ticks drip 2500gp into invested', hex.landImprovementInvested === 2500, 'invested ' + hex.landImprovementInvested);
+  check('pipeline: 5 day-ticks debit treasury 2500 (pay-as-you-build)', d.treasury.gp === 997500, 'treasury ' + d.treasury.gp);
+  check('pipeline: 5 day-ticks reduce budget to 22500', hex.improvementBudgetGp === 22500, 'budget ' + hex.improvementBudgetGp);
+  check('pipeline: day clock advanced to day 6', c.currentDayInMonth === 6, 'day ' + c.currentDayInMonth);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);

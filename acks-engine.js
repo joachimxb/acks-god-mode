@@ -963,6 +963,57 @@ function agriculturalSupervisorAdequacy(campaign, hex, remainingStepCost){
   return { ok: true, totalCap, report, blockReason: '' };
 }
 
+// Find a hex by id from BOTH the top-level collection and nested domain geography (robust to the
+// pre-lift split-domains shape, like migrateAgriculturalToProjects).
+function _hexByIdAnywhere(campaign, hexId){
+  if(!campaign || !hexId) return null;
+  const top = (campaign.hexes || []).find(h => h && h.id === hexId);
+  if(top) return top;
+  for(const d of (campaign.domains || [])){
+    const h = d && d.geography && (d.geography.hexes || []).find(x => x && x.id === hexId);
+    if(h) return h;
+  }
+  return null;
+}
+
+// Compute ONE day-tick's agricultural drip for a Project, authoritatively against the current
+// campaign state (treasury, hex budget, supervisor, caps). PURE — does not mutate. The day-tick
+// PROPOSE half uses it to project the record; the COMMIT half uses it to apply, so projection and
+// apply always agree. The drip is clipped to: rate*days, the hex budget, the domain treasury, and
+// the gp remaining to the value/bonus cap. Returns a result object (drip 0 + a blockReason/atCap
+// when it can't progress).
+function computeAgriculturalDrip(campaign, project, days){
+  days = (typeof days === 'number' && days > 0) ? days : 1;
+  const COST = global.ACKS.AGRICULTURAL_IMPROVEMENT_COST_PER_STEP;
+  const MAXB = global.ACKS.AGRICULTURAL_IMPROVEMENT_MAX_BONUS;
+  const VCAP = global.ACKS.AGRICULTURAL_IMPROVEMENT_VALUE_CAP;
+  const out = { drip: 0, blocked: false, blockReason: '', atCap: false, hex: null, domain: null,
+    rate: 0, base: 0, bonus: 0, invested: 0, budget: 0, treasury: 0, remainingStep: 0,
+    supervisorReport: [], stepsWillComplete: 0 };
+  if(!project || project.constructibleKind !== 'agricultural-improvement') return out;
+  const hex = _hexByIdAnywhere(campaign, project.siteHexId);
+  if(!hex){ out.blocked = true; out.blockReason = 'hex not found'; return out; }
+  const domain = (campaign.domains || []).find(d => d && d.id === project.ownerDomainId) || null;
+  const base = hex.valuePerFamily || 0, bonus = hex.landImprovementBonus || 0;
+  const invested = hex.landImprovementInvested || 0, budget = hex.improvementBudgetGp || 0;
+  const treasury = (domain && domain.treasury && domain.treasury.gp) || 0;
+  Object.assign(out, { hex, domain, base, bonus, invested, budget, treasury });
+  if(bonus >= MAXB || base + bonus >= VCAP){ out.atCap = true; out.blockReason = 'at cap'; return out; }
+  if(budget <= 0){ out.blockReason = 'no budget allocated'; return out; }
+  const remainingStep = COST - invested;
+  out.remainingStep = remainingStep;
+  const sup = agriculturalSupervisorAdequacy(campaign, hex, remainingStep);
+  out.supervisorReport = sup.report;
+  if(!sup.ok){ out.blocked = true; out.blockReason = sup.blockReason; return out; }
+  const stepsAllowed = Math.min(MAXB - bonus, VCAP - (base + bonus));   // integer +1 steps to the cap
+  const costToCap = Math.max(0, stepsAllowed * COST - invested);        // gp from now to the cap
+  const rate = agriculturalConstructionRatePerDay(campaign, domain, hex);
+  out.rate = rate;
+  out.drip = Math.max(0, Math.min(rate * days, budget, Math.max(0, treasury), costToCap));
+  out.stepsWillComplete = Math.floor((invested + out.drip) / COST) - Math.floor(invested / COST);
+  return out;
+}
+
 // Backfill migration: lift existing in-progress agricultural improvements onto Project entities.
 // Walks campaign.hexes (the canonical top-level collection — it carries hex.domainId and, after
 // liftToTopLevelCollections, is reference-unified with domain.geography.hexes). Only hexes with
@@ -3120,6 +3171,22 @@ function commitTurn(campaign, domains, proposal, helpers){
       const bonus = hex.landImprovementBonus || 0;
       if(bonus >= global.ACKS.AGRICULTURAL_IMPROVEMENT_MAX_BONUS) return;
       if(base + bonus >= global.ACKS.AGRICULTURAL_IMPROVEMENT_VALUE_CAP) return;
+      // Time-based construction (RR p.174): when realistic-construction is ON, the monthly commit
+      // does NOT spend or ratchet. It accumulates the GM's allocation into the hex's improvement
+      // BUDGET and hands off to the day-tick, which drips it at the construction rate (~500gp/day)
+      // over ~50 days/step (pay-as-you-build). Supervisor adequacy is checked at drip time so the GM
+      // can budget before assigning an engineer (Option A). The instant path below runs only when OFF.
+      if(realisticOn){
+        hex.improvementBudgetGp = (hex.improvementBudgetGp || 0) + gpAmount;
+        try { global.ACKS.syncAgriculturalProject(campaign, hex, { domainId: d.id, turn: currentTurnNum }); } catch(e){}
+        agOrdersResults.push({
+          hexIndex: ord.hexIndex, coordStr: ord.coordStr, baseValue: base,
+          gpSpent: 0, budgeted: gpAmount, oldBonus: bonus, newBonus: bonus, stepsApplied: 0,
+          remainingInvested: hex.landImprovementInvested || 0,
+          timed: true, budgetGp: hex.improvementBudgetGp
+        });
+        return;
+      }
       // Realistic-construction supervisor validation. Multiple supervisors can co-supervise
       // (caps are additive per RR p.174); only on-site supervisors count. A supervisor is
       // considered on-site if currentHexId === hex.id, OR if currentHexId is unset (permissive
@@ -3944,19 +4011,39 @@ function proposeConstructionDay(campaign, dayContext){
     : ((wc) => Object.values(wc||{}).reduce((s,n) => s + (n||0)*5, 0));
   for(const p of campaign.projects){
     if(!p || p.lifecycleState !== 'under-construction') continue;
-    // Wave Construction-B — agricultural improvement is a MONTHLY gp investment, not per-day
-    // worker labor (design decision flagged for Joachim — Phase_4_Construction_Plan.md Wave
-    // Construction-B §4). The Day Clock LISTS it (so the GM sees the activity in flight) but its
-    // progress lands at month-end via commitTurn's ratchet — per-day delta is 0. Do NOT run
-    // totalDailyOutputCf: it returns 0 for gp-denominated work and would render a misleading
-    // "+0 cf" label. The record is a no-op for commitConstructionRecord (labor/days unchanged,
-    // willComplete false), so day-tick subsumption never corrupts the Project.
+    // Agricultural improvement is gp-denominated, not worker-cf, so it never runs totalDailyOutputCf.
     if(p.constructibleKind === 'agricultural-improvement'){
       const nm = p.name || 'Agricultural improvement';
+      if(useRealisticCap){
+        // TIME-BASED (RAW RR p.174): drip the GM's committed budget at the construction rate. Project
+        // this day's drip for review; commitConstructionRecord recomputes + applies authoritatively.
+        const calc = computeAgriculturalDrip(campaign, p, days);
+        let label;
+        if(calc.atCap)            label = nm + ' — complete (at the cap)';
+        else if(calc.blocked)     label = nm + ' — paused: ' + calc.blockReason;
+        else if(calc.drip <= 0)   label = nm + ' — ' + (calc.blockReason || 'idle');
+        else                      label = nm + ': +' + Math.round(calc.drip) + 'gp'
+                                    + (calc.stepsWillComplete > 0 ? ' (+' + calc.stepsWillComplete + ' land value)' : '')
+                                    + ' · ' + Math.max(0, Math.round(calc.budget - calc.drip)).toLocaleString() + 'gp budget left';
+        pendingRecords.push({
+          kind: 'construction-progress', projectId: p.id, agriculturalDrip: true,
+          label: label, daysAdded: days, dripProjected: calc.drip,
+          paused: !!calc.blocked, blockReason: calc.blockReason || '',
+          willComplete: false, primaryHexId: p.siteHexId || null
+        });
+        // Option A — friendly "needs a siege engineer" notice (not a silent stall) when blocked on a supervisor.
+        if(calc.blocked && /supervisor/i.test(calc.blockReason || '')){
+          notableEvents.push({ kind: 'construction-vagary', type: 'agricultural-supervisor-needed',
+            trigger: 'navigation-fail', projectId: p.id, primaryHexId: p.siteHexId || null,
+            label: nm + ' — needs an on-site siege engineer to proceed' });
+        }
+        continue;
+      }
+      // realistic-construction OFF (current default): monthly no-op. Progress lands at month-end via
+      // the instant monthly path in commitTurn; this record is a no-op for commitConstructionRecord.
       pendingRecords.push({
         kind: 'construction-progress', projectId: p.id,
-        label: nm + ' — monthly investment (advances at month-end)',
-        cadence: 'monthly',
+        label: nm + ' — monthly investment (advances at month-end)', cadence: 'monthly',
         daysAdded: days, laborGained: 0,
         fromLaborInvested: p.laborInvested || 0, newLaborInvested: p.laborInvested || 0,
         fromDaysElapsed: p.daysElapsed || 0, newDaysElapsed: p.daysElapsed || 0,
@@ -4006,6 +4093,25 @@ function commitConstructionRecord(campaign, record){
   if(!campaign || !record || !record.projectId) return;
   const p = (campaign.projects || []).find(x => x && x.id === record.projectId);
   if(!p) return;
+  // Time-based agricultural drip (RR p.174). Recompute the drip authoritatively against the CURRENT
+  // campaign state (so sequential same-month records deplete the treasury/budget correctly) and
+  // apply it: drip gp from the treasury into the hex's invested (pay-as-you-build), reduce the
+  // budget, ratchet the bonus on step completion, resync the Project mirror. A blocked / at-cap /
+  // no-budget tick is a no-op. Non-drip agricultural records (the OFF-path monthly no-op) do nothing.
+  if(p.constructibleKind === 'agricultural-improvement'){
+    if(record.agriculturalDrip){
+      const calc = computeAgriculturalDrip(campaign, p, record.daysAdded || 1);
+      if(calc.drip > 0 && calc.domain && calc.hex){
+        _applyDomainTreasuryDelta(campaign, calc.domain, -calc.drip, { reason: 'agricultural-improvement', label: 'agricultural land improvement (construction)' });
+        calc.hex.improvementBudgetGp = Math.max(0, (calc.hex.improvementBudgetGp || 0) - calc.drip);
+        calc.hex.landImprovementInvested = (calc.hex.landImprovementInvested || 0) + calc.drip;
+        global.ACKS.ratchetAgriculturalImprovement(calc.hex);
+        try { global.ACKS.syncAgriculturalProject(campaign, calc.hex, { domainId: calc.domain.id, turn: campaign.currentTurn || null }); } catch(e){}
+      }
+      p.daysElapsed = (p.daysElapsed || 0) + (record.daysAdded || 1);
+    }
+    return;
+  }
   p.laborInvested = (typeof record.newLaborInvested === 'number')
     ? record.newLaborInvested : (p.laborInvested || 0) + (record.laborGained || 0);
   p.daysElapsed = (typeof record.newDaysElapsed === 'number')
@@ -4207,8 +4313,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findProject, findConstructible, projectsAtHex, constructiblesAtHex, projectsForDomain, constructiblesForDomain,
   // Wave Construction-B — agricultural-improvement on the unified Project model
   migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
-  // Time-based construction (RR p.174) — rate + supervisor-adequacy foundation
+  // Time-based construction (RR p.174) — rate + supervisor-adequacy + per-day drip
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
+  computeAgriculturalDrip,
   // Schema + identity
   SCHEMA_VERSION, ID_PREFIXES, newId, slugify,
 
