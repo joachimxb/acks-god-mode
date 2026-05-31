@@ -214,6 +214,27 @@ throws('missing required payload field rejected', () => ACKS.validateEvent(ACKS.
 throws('bad submittedBy rejected', () => ACKS.validateEvent({ id: 'evt-y', kind: 'treasury-grant', submittedBy: 'hacker!!', submittedAt: 'now', targetTurn: 1, status: 'pending', payload: { domainId: 'd', amount: 1, label: 'x' } }));
 
 // =============================================================================
+section('Security — prototype-pollution guard (appsec C1)');
+// =============================================================================
+ok('_setByPath exported', typeof ACKS._setByPath === 'function');
+throws('_setByPath blocks __proto__.x', () => ACKS._setByPath({}, '__proto__.polluted', 'PWNED'));
+ok('Object.prototype not polluted via __proto__', ({}).polluted === undefined);
+throws('_setByPath blocks constructor.prototype.x', () => ACKS._setByPath({}, 'constructor.prototype.polluted2', 'PWNED'));
+ok('Object.prototype not polluted via constructor', ({}).polluted2 === undefined);
+doesNotThrow('_setByPath allows a normal nested path', () => { const o = {}; ACKS._setByPath(o, 'a.b.c', 1); ok('normal path wrote', o.a.b.c === 1); });
+// validateEvent fieldPath checks
+throws('validateEvent rejects __proto__ in gm-fiat mutation.fieldPath', () => ACKS.validateEvent(ACKS.newEvent('gm-fiat', { payload: { target: { kind: 'campaign', id: 'x' }, mutation: { fieldPath: '__proto__.polluted', newValue: 1 } } })));
+throws('validateEvent rejects __proto__ in character-update fieldUpdates key', () => ACKS.validateEvent(ACKS.newEvent('character-update', { payload: { characterId: 'chr-x', fieldUpdates: { '__proto__.x': 1 } } })));
+doesNotThrow('validateEvent allows a legit hyphenated gm-fiat path', () => ACKS.validateEvent(ACKS.newEvent('gm-fiat', { payload: { target: { kind: 'domain', id: 'd' }, mutation: { fieldPath: 'magistrates.captain-of-the-guard.administersThisMonth', newValue: true } } })));
+doesNotThrow('validateEvent allows a numeric-index gm-fiat path', () => ACKS.validateEvent(ACKS.newEvent('gm-fiat', { payload: { target: { kind: 'character', id: 'c' }, mutation: { fieldPath: 'inventory.0.gp', newValue: 5 } } })));
+// end-to-end: applyEvent (which calls validateEvent) refuses the pollution event
+throws('applyEvent refuses __proto__ gm-fiat end-to-end', () => {
+  const c = ACKS.blankCampaign({ name: 'sec' });
+  ACKS.applyEvent(c, ACKS.newEvent('gm-fiat', { payload: { target: { kind: 'campaign', id: c.id }, mutation: { fieldPath: '__proto__.polluted3', newValue: 'x' } } }));
+});
+ok('Object.prototype still clean after end-to-end attempt', ({}).polluted3 === undefined);
+
+// =============================================================================
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);

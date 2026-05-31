@@ -14,6 +14,12 @@
 <script src="acks-engine-field-schemas.js?v=2026-05-31-a"></script>
 <script src="acks-engine-events.js?v=2026-05-28-g"></script>
 <script src="acks-engine-subsystems.js?v=2026-05-28-g"></script>
+<!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
+     crafted shared .acks.json can never poison it via a dotted write path. The engine's
+     _setByPath + validateEvent already block __proto__/constructor/prototype segments;
+     this is the belt-and-suspenders backstop. Guarded so a hostile environment that
+     pre-freezes (throwing) can't block app start. No app code writes to Object.prototype. -->
+<script>try{ Object.freeze(Object.prototype); }catch(e){ /* already frozen / non-configurable */ }</script>
 <!-- Inlined Established March template for the welcome banner's "Try the demo" CTA.
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
@@ -7770,8 +7776,18 @@ return {
   // new array as newValue and includes a clearer narrative in the campaign log.
   // opts: { entityType, entityId, entity, fieldPath, label, action: 'add' | 'remove',
   //         value: the string/object being added or removed, index? (for remove by index) }
+  // Prototype-pollution guard for the UI write paths (appsec audit C1, 2026-05-31).
+  // The engine's _setByPath + validateEvent already reject __proto__/constructor/prototype,
+  // so a bad path would fail safely inside applyEvent anyway — this rejects it earlier,
+  // before an event is even constructed. Delegates to the engine's segment blacklist.
+  isSafeFieldPath(fp){
+    const segs = window.ACKS && window.ACKS.DANGEROUS_PATH_SEGMENTS;
+    if(!segs) return true; // engine not loaded — don't block (defensive)
+    return String(fp == null ? '' : fp).split('.').every(s => segs.indexOf(s) === -1);
+  },
   commitListMutation(opts){
     if(!opts || !opts.entityType || !opts.entityId || !opts.fieldPath || !opts.action) return false;
+    if(!this.isSafeFieldPath(opts.fieldPath)){ console.error('commitListMutation: refusing unsafe fieldPath', opts.fieldPath); this.showToast('Refused unsafe field path: '+opts.fieldPath, 5000); return false; }
     const entity = opts.entity;
     if(!entity) return false;
     // Read current array via path.
@@ -7871,6 +7887,7 @@ return {
       opts.entityId = opts.entity.id;
     }
     if(!opts || !opts.entityType || !opts.entityId || !opts.fieldPath) return false;
+    if(!this.isSafeFieldPath(opts.fieldPath)){ console.error('commitStatEdit: refusing unsafe fieldPath', opts.fieldPath); this.showToast('Refused unsafe field path: '+opts.fieldPath, 5000); return false; }
     const oldV = opts.oldValue;
     const newV = opts.newValue;
     // Equality check — no event for no-ops.
@@ -10014,6 +10031,23 @@ return {
   loadCampaignFromObject(obj,sourceName){
     if(!obj||obj.kind!=='campaign')throw new Error('Not a campaign file (kind="'+(obj&&obj.kind||'?')+'")');
     const camp=migrateCampaign(obj);
+    // Security/integrity gate (appsec audit C1/I2, 2026-05-31). A shared .acks.json is
+    // untrusted input — validateCampaign flags duplicate ids, non-unique hex coords, and
+    // missing/non-array core collections. Surface issues and let the GM decide rather than
+    // silently trusting the file (the old guard only checked kind==='campaign'). Validate
+    // here while domains are still populated + hexes still nested (before the lift empties them).
+    try{
+      const vr = window.ACKS.validateCampaign(camp);
+      if(vr && vr.ok === false && Array.isArray(vr.errors) && vr.errors.length){
+        const shown = vr.errors.slice(0,8).map(e => '• '+e).join('\n');
+        const more = vr.errors.length > 8 ? ('\n…and '+(vr.errors.length-8)+' more.') : '';
+        const proceed = window.confirm('This campaign file has '+vr.errors.length+' data-integrity issue(s):\n\n'+shown+more+'\n\nLoading anyway may cause incorrect behavior. Load it regardless?');
+        if(!proceed) throw new Error('Load cancelled — campaign failed validation ('+vr.errors.length+' issue(s)).');
+      }
+    }catch(verr){
+      if(/Load cancelled/.test(verr.message)) throw verr; // user explicitly aborted
+      console.warn('validateCampaign check skipped (validator error):', verr); // never let a validator bug block a good file
+    }
     // Turn Cycle v2: ensure the new event arrays exist (additive schema) for older v2 saves.
     if(!Array.isArray(camp.pendingEvents))camp.pendingEvents=[];
     if(!Array.isArray(camp.eventLog))camp.eventLog=[];

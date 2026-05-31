@@ -79,10 +79,13 @@ try {
 check('validateEvent rejects missing required field', threw);
 
 console.log('--- Apply-order sort (Decision 2, locked) ---');
-const a = ACKS.newEvent('gm-fiat', { payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'A'} } });
-const b = ACKS.newEvent('gm-fiat', { payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'B'} } });
-const tEarly = ACKS.newEvent('gm-fiat', { payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'TE'} }, gameTimeAt:{year:1,month:1,day:5} });
-const tLate = ACKS.newEvent('gm-fiat', { payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'TL'} }, gameTimeAt:{year:1,month:1,day:12} });
+// Explicit submittedAt values so the untimed insertion-order tiebreak is deterministic
+// (newEvent auto-stamps "now", which can collide on the same millisecond and fall through
+// to a random id tiebreak — that made this check intermittently flaky).
+const a = ACKS.newEvent('gm-fiat', { submittedAt:'2026-01-01T00:00:01.000Z', payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'A'} } });
+const b = ACKS.newEvent('gm-fiat', { submittedAt:'2026-01-01T00:00:02.000Z', payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'B'} } });
+const tEarly = ACKS.newEvent('gm-fiat', { submittedAt:'2026-01-01T00:00:03.000Z', payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'TE'} }, gameTimeAt:{year:1,month:1,day:5} });
+const tLate = ACKS.newEvent('gm-fiat', { submittedAt:'2026-01-01T00:00:04.000Z', payload: { target:{kind:'campaign',id:'x'}, mutation:{fieldPath:'name',newValue:'TL'} }, gameTimeAt:{year:1,month:1,day:12} });
 const sorted = ACKS.sortEventsForApply([a, tLate, b, tEarly]);
 check('timed events sort first', !!sorted[0].gameTimeAt && !!sorted[1].gameTimeAt);
 check('within timed, earlier day first', sorted[0] === tEarly, 'expected tEarly first, got ' + sorted[0].id);

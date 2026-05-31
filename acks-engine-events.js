@@ -421,6 +421,27 @@ function validateEvent(event){
       else if(expected !== 'array' && expected !== 'object' && typeof v !== expected) throw new Error('validateEvent: '+event.kind+'.'+field+' must be '+expected+', got '+typeof v);
     });
   }
+  // Field-path safety — any event carrying a dotted write path (gm-fiat's
+  // mutation.fieldPath, character-update's fieldUpdates keys) must use only the
+  // allowlisted grammar and never a prototype-pollution segment. Rejecting at
+  // validation time keeps a crafted shared .acks.json from reaching _setByPath.
+  // (Security: appsec audit C1, 2026-05-31.)
+  function checkFieldPath(fp, where){
+    if(typeof fp !== 'string' || !SAFE_FIELDPATH_RE.test(fp)){
+      throw new Error('validateEvent: '+where+' "'+fp+'" is not a valid field path (allowed: '+SAFE_FIELDPATH_RE.source+')');
+    }
+    fp.split('.').forEach(seg => {
+      if(DANGEROUS_PATH_SEGMENTS.indexOf(seg) !== -1){
+        throw new Error('validateEvent: '+where+' "'+fp+'" contains forbidden segment "'+seg+'" (prototype-pollution guard)');
+      }
+    });
+  }
+  if(event.kind === 'gm-fiat' && event.payload && event.payload.mutation && event.payload.mutation.fieldPath != null){
+    checkFieldPath(event.payload.mutation.fieldPath, 'gm-fiat mutation.fieldPath');
+  }
+  if(event.kind === 'character-update' && event.payload && event.payload.fieldUpdates && typeof event.payload.fieldUpdates === 'object'){
+    Object.keys(event.payload.fieldUpdates).forEach(fp => checkFieldPath(fp, 'character-update fieldUpdates key'));
+  }
   // gameTimeAt validation when present
   if(event.gameTimeAt){
     const gt = event.gameTimeAt;
@@ -608,9 +629,30 @@ function _autoEmitRumor(campaign, opts){
   }
 }
 
+// Path segments that must never be written through — writing to __proto__/constructor/
+// prototype lets a crafted gm-fiat / character-update event (e.g. inside a shared
+// .acks.json) poison Object.prototype. (Security: appsec audit C1, 2026-05-31.)
+const DANGEROUS_PATH_SEGMENTS = Object.freeze(['__proto__', 'constructor', 'prototype']);
+// Allowlist for a well-formed dotted field path. The audit's suggested grammar was
+// [A-Za-z0-9_]; widened to also allow '-' because real paths address kebab-case keys
+// (e.g. magistrates.captain-of-the-guard.administersThisMonth) and numeric array
+// indices (inventory.0.gp). Safety is preserved by the separate DANGEROUS_PATH_SEGMENTS
+// blacklist — none of __proto__/constructor/prototype contain a hyphen.
+const SAFE_FIELDPATH_RE = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/;
+
+function assertSafeFieldPath(path){
+  const parts = String(path == null ? '' : path).split('.');
+  for(const seg of parts){
+    if(DANGEROUS_PATH_SEGMENTS.indexOf(seg) !== -1){
+      throw new Error('_setByPath: refusing to write through dangerous path segment "' + seg + '" in "' + path + '" (prototype-pollution guard)');
+    }
+  }
+}
+
 // Helper: walk a dotted fieldPath on a target object and set the value.
 // Returns the previous value (for audit / undo).
 function _setByPath(obj, path, value){
+  assertSafeFieldPath(path);
   const parts = (path||'').split('.');
   let cur = obj;
   for(let i=0; i<parts.length-1; i++){
@@ -1574,6 +1616,9 @@ function defaultPayloadFor(kind){
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   EVENT_KINDS, EVENT_STATUS, EVENT_SCHEMAS, EVENT_WIZARD_OPTOUT, isWizardEmittable, wizardEmittableKinds, defaultPayloadFor, EVENT_SUBMITTER_PATTERN, newEvent, validateEvent, isEventKindKnown, isEventStatusValid, eventsTargetingTurn, eventsTargetingDomain, eventsByKind, eventsBySubmitter, pendingEventCount, compareEventOrder, sortEventsForApply, applyEvent, registerEventHandler, migratePendingPlayerInputToEvents,
+  // Safe dotted-path writer + its guard (prototype-pollution hardening, appsec C1).
+  // Exposed so the safe-write contract is testable + reusable by integrators.
+  _setByPath, assertSafeFieldPath, SAFE_FIELDPATH_RE, DANGEROUS_PATH_SEGMENTS,
   // Exposed so handlers in other modules (acks-engine-subsystems.js) can
   // auto-emit rumors. Gated internally on the 'rumors-auto-emit' house rule.
   _autoEmitRumor
