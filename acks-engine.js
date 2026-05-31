@@ -1035,6 +1035,15 @@ function migrateAgriculturalToProjects(campaign){
   addHexes(campaign.hexes);
   if(Array.isArray(campaign.domains)){ for(const d of campaign.domains){ if(d && d.geography) addHexes(d.geography.hexes); } }
   const allHexes = Object.keys(hexById).map(k => hexById[k]);
+  // Normalize any hex carrying landImprovementInvested >= one full step. The old monthly model
+  // ratcheted at commit, but the timed model ratchets at drip time — so an authored/legacy hex with
+  // >= 25,000gp banked (and no active budget to drip) would otherwise never advance. Ratcheting here
+  // on load converts the overflow into earned bonus immediately. Idempotent (ratchet leaves < step).
+  for(const hex of allHexes){
+    if(hex && (hex.landImprovementInvested || 0) >= global.ACKS.AGRICULTURAL_IMPROVEMENT_COST_PER_STEP){
+      global.ACKS.ratchetAgriculturalImprovement(hex);
+    }
+  }
   // Reconcile EXISTING agricultural Projects to their hex's canonical state. Catches lifecycleState
   // / gpSpent drift — e.g. a Project left 'under-construction' after its hex reached the value or
   // bonus cap (whether via a GM hex edit in the Inspector, the legacy landImprovementProjects

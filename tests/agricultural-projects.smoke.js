@@ -381,6 +381,18 @@ if(typeof ACKS.migrateAgriculturalToProjects !== 'function'){
     check('session-restore: post-lift reconcile completes the capped Project', cc.projects.find(p => p.id === 'prj-sr').lifecycleState === 'complete');
   }
 
+  // NORMALIZE: a hex carrying >= one full step of invested gp (authored/legacy) is ratcheted on
+  // load (the timed model ratchets at drip time, so banked overflow would otherwise never advance).
+  {
+    const nc = ACKS.blankCampaign({ name: 'Normalize' }); nc.projects = [];
+    nc.hexes = [ Object.assign(ACKS.blankHex({ id: 'hex-ovf', coord:{q:0,r:0} }),
+      { valuePerFamily: 6, landImprovementBonus: 0, landImprovementInvested: 37500, domainId: 'dom-x' }) ]; // 37500 = 1 step + 12500
+    ACKS.migrateAgriculturalToProjects(nc);
+    const h = nc.hexes[0];
+    check('normalize: invested>=25000 ratchets bonus +1 on load', h.landImprovementBonus === 1, 'bonus ' + h.landImprovementBonus);
+    check('normalize: invested reduced below one step (12500)', h.landImprovementInvested === 12500, 'invested ' + h.landImprovementInvested);
+  }
+
   // demo template carries hex-saltspur-vale invested=12500 -> migrate yields a live consumer
   try {
     const demoMod = require(path.join(__dirname, '..', 'acks-demo-template.js'));

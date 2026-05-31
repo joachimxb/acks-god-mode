@@ -1088,9 +1088,10 @@ document.addEventListener('alpine:init', () => {
                 </span>
               </div>
 
-              <!-- Foundation #18 — monthly labor cap. Only visible when the realistic-construction
-                   house rule is on; engine treats 0 as unlimited. -->
-              <template x-if="!isHouseRuleEnabled('abstract-construction')">
+              <!-- Monthly labor cap is an abstract-path (instant) concept. The timed RAW default
+                   (RR p.174) is paced by the per-day construction rate, not a monthly gp cap, so
+                   this editor is hidden by default. -->
+              <template x-if="isHouseRuleEnabled('abstract-construction')">
                 <div class="mt-3 p-2 border border-ink/40 rounded" style="background:#f4ecd2"
                      title="Monthly labor budget for construction projects. Total gp allocated across all in-progress projects in this domain may not exceed this in a single month. 0 = unlimited (no cap). Per ACKS RR p.174 labor is paid daily; this models the practical workforce ceiling.">
                   <h3 class="text-sm font-semibold">⚒ Construction labor pool</h3>
@@ -1279,7 +1280,7 @@ document.addEventListener('alpine:init', () => {
               <!-- Hexes with investment accumulating toward the next +1 step. -->
               <h3 class="font-semibold text-sm mb-1">Investment in progress</h3>
               <template x-if="(selectedDomain.geography.hexes||[]).every(h => (h.landImprovementInvested||0) === 0)">
-                <p class="text-sm italic opacity-60 mb-3">No investment accumulating. Allocate gp via the queue below.</p>
+                <p class="text-sm italic opacity-60 mb-3">No improvements under way. Fund one below.</p>
               </template>
               <template x-if="(selectedDomain.geography.hexes||[]).some(h => (h.landImprovementInvested||0) > 0)">
                 <table class="bookkeeping text-sm w-full mb-3">
@@ -1301,11 +1302,11 @@ document.addEventListener('alpine:init', () => {
 
               <!-- Prep flow: queue arbitrary gp amount per hex for next advance-month. -->
               <div class="border-t border-ink/30 pt-3">
-                <h3 class="font-semibold text-sm mb-1">Queue improvements for next month</h3>
+                <h3 class="font-semibold text-sm mb-1">Fund improvements (built over time — RR p.174)</h3>
                 <p class="text-sm opacity-70 mb-2">
-                  Allocate any gp amount per hex — it accumulates toward the next +1 step (25,000gp each). The next Advance Month modal pre-fills these values; you can still adjust during review. After commit, the queue resets to zero.
+                  Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW builds land as a construction project: the budget is spent as the work proceeds — about 500gp/day (the Typical Laborer rate), so each +1 step (25,000gp) takes ~50 days and needs an on-site <strong>siege engineer</strong>. Tick days or advance the month to watch it build; stopping just halts further spend (no refund). Instant completion is available via the Inspector.
                   <span x-show="(selectedDomain.geography.hexes||[]).some(h => (h.queuedImprovementGp||0) > 0)" class="accent-green ml-1">
-                    Currently queued: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0).toLocaleString()"></strong>gp
+                    Adding this commit: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0).toLocaleString()"></strong>gp
                   </span>
                 </p>
                 <table class="bookkeeping text-sm w-full">
@@ -1314,8 +1315,8 @@ document.addEventListener('alpine:init', () => {
                     <th>Land value</th>
                     <th>Bonus / next step</th>
                     <th>Eligibility</th>
-                    <th x-show="!isHouseRuleEnabled('abstract-construction')">Supervisor</th>
-                    <th class="text-center">Queue gp</th>
+                    <th x-show="!isHouseRuleEnabled('abstract-construction')">Supervisor (siege engineer)</th>
+                    <th class="text-center">Add to budget</th>
                   </tr></thead>
                   <tbody>
                     <template x-for="(h, hi) in selectedDomain.geography.hexes" :key="h.id || hi">
@@ -1326,6 +1327,9 @@ document.addEventListener('alpine:init', () => {
                           <span x-text="'+' + (h.landImprovementBonus||0)"></span>
                           <template x-if="(h.landImprovementInvested||0) > 0">
                             <span class="opacity-60 ml-1" x-text="'(' + (h.landImprovementInvested||0).toLocaleString() + ' / 25,000 toward next)'"></span>
+                          </template>
+                          <template x-if="(h.improvementBudgetGp||0) > 0">
+                            <span class="accent-green ml-1" x-text="'· budget ' + (h.improvementBudgetGp||0).toLocaleString() + 'gp building'"></span>
                           </template>
                         </td>
                         <td class="text-sm"
@@ -1387,9 +1391,9 @@ document.addEventListener('alpine:init', () => {
                     </template>
                   </tbody>
                 </table>
-                <!-- Foundation #18 — labor cap snapshot. Tied to selectedDomain.monthlyLaborCapGp;
-                     edited on the Economy tab. Shown here as a planning aid. -->
-                <p x-show="!isHouseRuleEnabled('abstract-construction')" class="text-sm mt-2 opacity-80">
+                <!-- Monthly labor cap is an abstract-path (instant) concept; the timed RAW default is
+                     limited by the per-day construction rate, not a monthly gp cap. Hidden by default. -->
+                <p x-show="isHouseRuleEnabled('abstract-construction')" class="text-sm mt-2 opacity-80">
                   <span>Monthly labor cap:
                     <strong x-text="(selectedDomain.monthlyLaborCapGp||0) > 0 ? (selectedDomain.monthlyLaborCapGp||0).toLocaleString() + 'gp' : '— unlimited (set on Economy tab) —'"></strong>
                   </span>
@@ -2849,18 +2853,9 @@ document.addEventListener('alpine:init', () => {
             <div class="mt-3 p-2 border border-ink rounded" style="background:#e8f0d4" :class="p.skip ? 'skipped' : ''">
               <div class="flex justify-between items-baseline">
                 <h4 class="font-semibold text-sm">🌾 Agricultural investments this month</h4>
-                <span class="text-sm opacity-70">Incremental — accumulates 25,000gp per +1gp/family step (RR p.341 + p.174)</span>
+                <span class="text-sm opacity-70">Built over time — ~500gp/day, ~50 days per +1gp/family step (RR p.341 + p.174)</span>
               </div>
-              <p class="text-sm opacity-70 mb-2">Allocate any gp amount per hex. It accumulates toward the next +1 step (25,000gp each). When accumulated reaches 25k, the bonus ratchets +1 and the remainder rolls over. Cap rules per RR p.341: max +3 per hex; hard cap at 9gp/family absolute.</p>
-              <!-- Foundation #18 — labor cap header, gated by realistic-construction. -->
-              <template x-if="!isHouseRuleEnabled('abstract-construction')">
-                <p class="text-sm opacity-80 mb-2">
-                  <strong>Realistic construction is on.</strong>
-                  Labor cap: <strong x-text="(selectedDomain?.monthlyLaborCapGp||0) > 0 ? (selectedDomain?.monthlyLaborCapGp||0).toLocaleString() + 'gp/mo' : 'unlimited'"></strong>.
-                  Each hex needs a supervisor whose cap ≥ remaining step cost (25,000gp − invested).
-                  Allocations are clipped at commit if they exceed the labor cap; supervisor failures skip that hex.
-                </p>
-              </template>
+              <p class="text-sm opacity-70 mb-2">Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW (RR p.174) builds land over time: the budget is spent as the work proceeds (~500gp/day), so each +1 step (25,000gp) takes ~50 days and needs an on-site <strong>siege engineer</strong> whose cap ≥ the remaining step cost. Caps per RR p.341: max +3 per hex; 9gp/family absolute. Progress lands via the day-tick — tick days or advance the month; instant completion is via the Inspector.</p>
               <table class="bookkeeping text-sm">
                 <thead><tr>
                   <th>Hex</th>
@@ -2868,8 +2863,8 @@ document.addEventListener('alpine:init', () => {
                   <th>Bonus</th>
                   <th>Toward next +1</th>
                   <th>Status</th>
-                  <th x-show="!isHouseRuleEnabled('abstract-construction')">Supervisor</th>
-                  <th>Allocate this turn</th>
+                  <th x-show="!isHouseRuleEnabled('abstract-construction')">Supervisor (siege engineer)</th>
+                  <th>Add to budget</th>
                 </tr></thead>
                 <tbody>
                   <template x-for="(ord, oi) in p.agriculturalOrders" :key="oi">
@@ -2933,15 +2928,15 @@ document.addEventListener('alpine:init', () => {
                     </tr>
                   </template>
                   <tr class="subtotal">
-                    <td :colspan="!isHouseRuleEnabled('abstract-construction') ? 6 : 5">Total allocated this turn</td>
+                    <td :colspan="!isHouseRuleEnabled('abstract-construction') ? 6 : 5">Total added to budget this turn</td>
                     <td x-text="agriculturalOrderTotal(p).toLocaleString() + ' gp'"></td>
                   </tr>
                 </tbody>
               </table>
               <p class="text-sm accent-red mt-1" x-show="agriculturalOrderTotal(p) > (selectedDomain?.treasury?.gp || 0) + Math.round(incomeSum(p)*p.incomeFactor) - expenseSum(p) - urbanInvestmentTotal(p)">⚠ Total agricultural allocations may leave treasury negative after this month's other costs.</p>
-              <!-- Foundation #18 — labor cap warning. -->
+              <!-- Labor cap is an abstract-path concept; hidden in the timed RAW default. -->
               <p class="text-sm accent-red mt-1"
-                 x-show="!isHouseRuleEnabled('abstract-construction') && (selectedDomain?.monthlyLaborCapGp||0) > 0 && agriculturalOrderTotal(p) > (selectedDomain?.monthlyLaborCapGp||0)"
+                 x-show="isHouseRuleEnabled('abstract-construction') && (selectedDomain?.monthlyLaborCapGp||0) > 0 && agriculturalOrderTotal(p) > (selectedDomain?.monthlyLaborCapGp||0)"
                  x-text="'⚠ Total (' + agriculturalOrderTotal(p).toLocaleString() + 'gp) exceeds monthly labor cap (' + (selectedDomain?.monthlyLaborCapGp||0).toLocaleString() + 'gp). Engine will clip excess at commit.'"></p>
             </div>
           </template>
@@ -4218,11 +4213,11 @@ document.addEventListener('alpine:init', () => {
               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
             </span>
           </div>
-          <!-- Foundation #18 — construction supervisor cap (RR p.174). Always visible in the
-               sheet; only read by the engine when the realistic-construction house rule is on.
+          <!-- Foundation #18 — construction supervisor cap (RR p.174). Read by the timed-construction
+               default when assigning a hex's improvement supervisor.
                Reference values: 25,000gp = Siege Engineer; 100,000gp = Engineer. -->
           <div class="block text-sm flex items-center gap-2"
-               title="Per ACKS RR p.174 Wage and Construction Rates: Siege Engineers can supervise projects up to 25,000gp; Engineers up to 100,000gp. 0 means this character is not a construction supervisor. Used by the realistic-construction house rule when assigning a hex's agricultural improvement supervisor.">
+               title="Per ACKS RR p.174 Wage and Construction Rates: Siege Engineers can supervise projects up to 25,000gp; Engineers up to 100,000gp. 0 means this character is not a construction supervisor. Used when assigning a hex's agricultural-improvement supervisor (RAW default, RR p.174).">
             <span class="w-32">Construction cap</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'constructionSupervisorCap', label:'Construction supervisor cap', kind:'number', min:0})">
               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><span class="text-sm opacity-60">gp</span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
