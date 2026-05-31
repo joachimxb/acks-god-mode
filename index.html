@@ -6537,6 +6537,11 @@ return {
           this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToAccumulatedImprovement(h)));
           // Foundation #18 followup — migrate single supervisor field to multi-supervisor array.
           this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToMultiSupervisor(h)));
+          // Wave Construction-B — reconcile/create agricultural Projects now that hexes are lifted
+          // into currentCampaign.hexes. migrateCampaign() ran earlier with an EMPTY
+          // currentCampaign.domains (this session-restore shape keeps domains in this.domains), so
+          // its agricultural reconcile pass saw no hexes; re-run it against the hydrated hexes here.
+          window.ACKS.migrateAgriculturalToProjects(this.currentCampaign);
           // Officers — idempotent shape-ensure for domain.magistrates (RR p.344).
           this.domains.forEach(d => window.ACKS.ensureMagistratesShape(d));
           // Foundation #244 — strip mining-tagged income.other entries when dwarven-mining is off.
@@ -10269,6 +10274,10 @@ return {
     camp.hexes = liftSynth.hexes;
     camp.settlements = liftSynth.settlements;
     camp.rumors = liftSynth.rumors;
+    // Wave Construction-B — reconcile/create agricultural Projects now that hexes are lifted into
+    // camp.hexes. migrateCampaign() ran earlier with an empty campaign.domains (split-domains shape),
+    // so its agricultural reconcile pass saw no hexes; re-run against the hydrated hexes here.
+    window.ACKS.migrateAgriculturalToProjects(camp);
     this.selectedDomainId=this.domains[0]?this.domains[0].id:null;
     this.fileName=sourceName||'';
     // A freshly loaded campaign is the clean baseline. Clear dirty, then release the

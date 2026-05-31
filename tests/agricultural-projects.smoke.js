@@ -355,6 +355,26 @@ if(typeof ACKS.migrateAgriculturalToProjects !== 'function'){
     check('reconcile(nested): finds hex via domain.geography.hexes when campaign.hexes is empty', fixed2 && fixed2.lifecycleState === 'complete', 'got ' + (fixed2 && fixed2.lifecycleState));
   }
 
+  // END-TO-END session-restore shape: domains are stored separately, so migrateCampaign runs with
+  // an EMPTY campaign.domains (reconcile sees nothing); the UI then attaches domains + lifts hexes
+  // and re-runs migrateAgriculturalToProjects. This guards the exact path that left a capped hex's
+  // Project stuck 'under-construction' across reloads (index.html session-restore + open-file paths).
+  {
+    const dm = ACKS.blankDomain({ name: 'M3' });
+    const capHex = Object.assign(ACKS.blankHex({ id: 'hex-sr-cap', coord: { q:0, r:0 } }),
+      { valuePerFamily: 7, landImprovementBonus: 2, landImprovementInvested: 0, domainId: dm.id }); // 7+2 = 9 cap
+    dm.geography.hexes = [capHex];
+    const stuck = ACKS.blankProject({ id: 'prj-sr', constructibleKind: 'agricultural-improvement',
+      siteHexId: 'hex-sr-cap', ownerDomainId: dm.id, lifecycleState: 'under-construction', gpSpent: 0 });
+    const sess = ACKS.blankCampaign({ name: 'SR' }); sess.domains = []; sess.projects = [stuck]; sess.hexes = [];
+    const cc = ACKS.migrateCampaign(sess); // blind (empty domains)
+    check('session-restore: migrateCampaign alone leaves it stuck (blind)', cc.projects.find(p => p.id === 'prj-sr').lifecycleState === 'under-construction');
+    const ls = { domains: [dm], hexes: cc.hexes, settlements: cc.settlements, rumors: cc.rumors };
+    ACKS.liftToTopLevelCollections(ls); cc.hexes = ls.hexes;
+    ACKS.migrateAgriculturalToProjects(cc); // the post-lift reconcile the UI now runs
+    check('session-restore: post-lift reconcile completes the capped Project', cc.projects.find(p => p.id === 'prj-sr').lifecycleState === 'complete');
+  }
+
   // demo template carries hex-saltspur-vale invested=12500 -> migrate yields a live consumer
   try {
     const demoMod = require(path.join(__dirname, '..', 'acks-demo-template.js'));
