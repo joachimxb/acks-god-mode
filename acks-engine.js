@@ -518,6 +518,22 @@ function baseMoraleFromClassification(classification,ruler){
   return base;
 }
 
+// RR p.349 — stronghold-adequacy morale penalty. A domain whose stronghold value falls
+// below the minimum (15,000gp per controlled hex, RR p.348) takes a morale-roll penalty by
+// band: at/above min → 0; ≥½ → −1; ≥¼ → −2; below ¼ → −3. Bands mirror the UI's
+// strongholdState() so the *displayed* adequacy and the *applied* penalty never diverge
+// (the bug this fixes: the UI showed "−1 base morale" but the roll ignored it). The UI
+// computes value + required (house-rule + catalog aware) and passes the two numbers here.
+function strongholdMoralePenalty(strongholdValue, strongholdRequired){
+  const req = Number(strongholdRequired) || 0;
+  if(req <= 0) return 0;                 // no hexes claimed → no requirement
+  const val = Number(strongholdValue) || 0;
+  if(val >= req)     return 0;
+  if(val >= req / 2) return -1;
+  if(val >= req / 4) return -2;
+  return -3;
+}
+
 // =============================================================================
 // 6.5 REFERENCE DATA CATALOGS — MOVED to acks-engine-catalogs.js (2026-05-28).
 // Loaded as a separate <script> tag before this file in index.html. The
@@ -3635,7 +3651,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Dice + rolls
   rollD6, rollD20, rollD10x, clamp,
   rollNaturalIncrease, rollNaturalDecrease, rollMoraleExtra,
-  moraleChangeFromRoll, baseMoraleFromClassification,
+  moraleChangeFromRoll, baseMoraleFromClassification, strongholdMoralePenalty,
 
   // Foundation #241 — rural population: canonical setter + reconciliation.
   // Tools/UI MUST go through setPeasantPopulation for any rural population change.

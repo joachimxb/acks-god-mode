@@ -214,6 +214,21 @@ throws('missing required payload field rejected', () => ACKS.validateEvent(ACKS.
 throws('bad submittedBy rejected', () => ACKS.validateEvent({ id: 'evt-y', kind: 'treasury-grant', submittedBy: 'hacker!!', submittedAt: 'now', targetTurn: 1, status: 'pending', payload: { domainId: 'd', amount: 1, label: 'x' } }));
 
 // =============================================================================
+section('Stronghold-inadequacy morale penalty (RR p.349 — acks-authority Critical)');
+// =============================================================================
+ok('strongholdMoralePenalty exported', typeof ACKS.strongholdMoralePenalty === 'function');
+ok('no hexes / req 0 → 0', ACKS.strongholdMoralePenalty(0, 0) === 0);
+ok('at minimum → 0', ACKS.strongholdMoralePenalty(150000, 150000) === 0);
+ok('above minimum → 0', ACKS.strongholdMoralePenalty(200000, 150000) === 0);
+ok('half (>=½ min) → -1', ACKS.strongholdMoralePenalty(80000, 150000) === -1);
+ok('exactly half → -1', ACKS.strongholdMoralePenalty(75000, 150000) === -1);
+ok('quarter (>=¼ min) → -2', ACKS.strongholdMoralePenalty(40000, 150000) === -2);
+ok('exactly quarter → -2', ACKS.strongholdMoralePenalty(37500, 150000) === -2);
+// acks-authority worked example: a 5,000gp tower over 10 hexes (req 150,000gp) → -3
+ok('5,000gp tower over 10 hexes → -3 (audit example)', ACKS.strongholdMoralePenalty(5000, 10 * ACKS.STRONGHOLD_VALUE_PER_HEX) === -3);
+ok('just below quarter → -3', ACKS.strongholdMoralePenalty(37499, 150000) === -3);
+
+// =============================================================================
 section('Security — prototype-pollution guard (appsec C1)');
 // =============================================================================
 ok('_setByPath exported', typeof ACKS._setByPath === 'function');

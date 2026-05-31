@@ -11317,6 +11317,12 @@ return {
     const reqRate=REQUIRED_GARRISON_PER_FAMILY[this.effectiveClassification(d)]||2;
     const gpf=fam>0?this.garrisonCost(d)/fam:reqRate;
     if(gpf<reqRate&&fam>0)mods.push({label:'Garrison below required ('+reqRate+'gp/family)',value:-Math.max(1,Math.ceil(reqRate-gpf))});
+    // RR p.349 — stronghold-adequacy penalty. Previously displayed (strongholdState) but
+    // never applied to the roll; now emitted as a row so it flows through moraleModSum like
+    // the garrison/tax/tithe modifiers. Engine owns the band math (ACKS.strongholdMoralePenalty).
+    const strongholdReq=this.strongholdRequired(d), strongholdVal=this.strongholdValue(d);
+    const strongholdPen=window.ACKS.strongholdMoralePenalty(strongholdVal, strongholdReq);
+    if(strongholdPen<0)mods.push({label:'Stronghold below minimum ('+strongholdVal.toLocaleString()+'/'+strongholdReq.toLocaleString()+'gp, RR p.349)',value:strongholdPen});
     if(taxRate>2)mods.push({label:'Taxes high ('+taxRate+'gp)',value:-(taxRate-2)});
     else if(taxRate<2)mods.push({label:'Taxes low ('+taxRate+'gp)',value:(2-taxRate)});
     if(liturgy>1)mods.push({label:'Liturgy above baseline',value:Math.floor(liturgy-1)});
