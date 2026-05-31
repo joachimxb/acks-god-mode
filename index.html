@@ -206,6 +206,61 @@ document.addEventListener('alpine:init', () => {
       <span class="flex-grow"></span>
       <span x-show="(currentCampaign?.pendingEvents||[]).filter(e=>e.status==='pending'&&(e.targetTurn||0)<=(currentCampaign?.currentTurn||1)).length > 0" class="text-base px-2 py-0.5 rounded accent-green" style="background:#e8f3df" :title="'Pending events targeting this turn — will appear in the Advance Month modal'" x-text="'📥 ' + (currentCampaign?.pendingEvents||[]).filter(e=>e.status==='pending'&&(e.targetTurn||0)<=(currentCampaign?.currentTurn||1)).length + ' event' + ((currentCampaign?.pendingEvents||[]).filter(e=>e.status==='pending'&&(e.targetTurn||0)<=(currentCampaign?.currentTurn||1)).length===1?'':'s') + ' pending'"></span>
       <button @click="proposeMonthlyTurn()" class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold text-base" :disabled="domains.length===0">▶ Advance month</button>
+      <!-- Day Clock widget (Phase 2.95 §11) — auto-engages mid-month or when day-aware activity is in flight -->
+      <template x-if="currentCampaign && dayModeEngaged()">
+        <div class="flex items-center gap-1 px-2 py-1 border border-ink rounded bg-sky-50" title="Day-tick controls — the campaign is mid-month or has day-aware activity in flight">
+          <span class="text-xs font-semibold whitespace-nowrap">🕑 <span x-text="dayClockLabel()"></span></span>
+          <button @click="tickDay()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">+1 day</button>
+          <button @click="tickWeek()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">+1 week</button>
+          <button @click="tickToMonthEnd()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">&rarr; month end</button>
+          <span x-show="dayTickProposal && dayTickProposal.paused" class="text-xs font-bold text-red-700" title="A consumer requested a pause for review">&#9208; paused</span>
+        </div>
+      </template>
+      <!-- Day-tick review surface (Phase 2.95 §10/§11) — consumer-agnostic propose-review-commit. Generic so Journeys/Hijinks slot in with no rework. -->
+      <template x-if="dayTickProposal">
+        <div class="fixed top-24 right-4 z-50 w-96 max-h-[70vh] overflow-auto border-2 border-ink rounded-lg bg-white shadow-xl p-3 text-sm">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-black">Day-tick review</h3>
+            <button @click="cancelDayTick()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100">&times; cancel</button>
+          </div>
+          <p class="text-xs opacity-70 mb-2">
+            <span x-text="'Advancing ' + (dayTickProposal.daysAdvanced||0) + ' day(s): day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay"></span>
+            <span x-show="dayTickProposal.monthEndReached" class="font-semibold"> &middot; month end reached</span>
+          </p>
+          <template x-if="dayTickProposal.paused">
+            <div class="mb-2 p-2 border border-red-400 bg-red-50 rounded text-xs">
+              <strong>&#9208; Paused for review.</strong>
+              <template x-for="(rsn, ri) in dayTickProposal.pauseReasons" :key="ri">
+                <div x-text="'- ' + (rsn.label||rsn.trigger) + ' (' + rsn.trigger + ', day ' + rsn.dayInMonth + ')'"></div>
+              </template>
+            </div>
+          </template>
+          <template x-if="(dayTickProposal.pendingRecords||[]).length === 0">
+            <p class="text-xs italic opacity-60">No pending records this tick.</p>
+          </template>
+          <template x-for="grp in dayTickRecordGroups()" :key="grp.consumer">
+            <div class="mb-2">
+              <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="grp.consumer"></div>
+              <template x-for="(r, ri) in grp.records" :key="grp.consumer + '-' + ri">
+                <div class="flex items-center justify-between gap-2 py-0.5 border-b border-dashed border-gray-300" :class="r.rejected ? 'opacity-40 line-through' : ''">
+                  <span class="text-xs" x-text="r.label || (r.kind + ' record')"></span>
+                  <span class="flex items-center gap-1 shrink-0">
+                    <template x-if="typeof r.newLaborInvested === 'number'">
+                      <input type="number" x-model.number="r.newLaborInvested" class="w-20 text-xs border border-ink rounded px-1" title="Edit committed labor (cf)">
+                    </template>
+                    <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
+                  </span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <div class="flex items-center gap-2 mt-3">
+            <button @click="commitDayTick()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-xs">&check; Commit tick</button>
+            <button @click="cancelDayTick()" class="px-3 py-1 border border-ink rounded hover:bg-gray-100 text-xs">Discard</button>
+            <span x-show="dayTickError" class="text-xs text-red-700" x-text="dayTickError"></span>
+          </div>
+        </div>
+      </template>
     </div>
   </template>
 
@@ -6432,6 +6487,8 @@ return {
   showTurnModal:false,turnProposal:null,turnProposalError:'',
   turnVentureProposals:null, // Phase 2b.5 — per-turn vagaries for in-transit ventures, set in proposeMonthlyTurn
   turnEventProposals:null, // Turn Cycle v2 — per-turn pending event proposals (accept/edit/reject), set in proposeMonthlyTurn
+  dayTickProposal:null, // Phase 2.95 — active proposed day-tick (null when none pending)
+  dayTickError:null,    // Phase 2.95 — last day-tick error string for inline display
   rawJsonError:'',toast:'',_toastTimer:null,
 
   init(){
@@ -11602,6 +11659,47 @@ return {
   // Foundation #15 — orchestration lifted into ACKS.proposeMonthlyTurn.
   // This Alpine method is now a thin shell that supplies UI-bound helpers and surfaces UI state.
   // The engine builds the proposal shape; we copy the result onto this.* for Alpine reactivity.
+  // ----- Calendar day-tick controls (Phase 2.95 §10/§11) -----
+  dayModeEngaged(){
+    const c = this.currentCampaign;
+    if(!c) return false;
+    try { return (c.currentDayInMonth || 1) > 1 || window.ACKS.dayTickActivityInFlight(c); }
+    catch(e){ return (c.currentDayInMonth || 1) > 1; }
+  },
+  dayClockLabel(){
+    try { return window.ACKS.currentDateString(this.currentCampaign) || ''; } catch(e){ return ''; }
+  },
+  _proposeDayTick(days){
+    this.dayTickError = null;
+    try { this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {}); }
+    catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
+  },
+  tickDay(){ this._proposeDayTick(1); },
+  tickWeek(){ this._proposeDayTick(7); },
+  tickToMonthEnd(){
+    const dim = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || 1;
+    this._proposeDayTick(Math.max(1, 30 - dim));
+  },
+  dayTickRecordGroups(){
+    const p = this.dayTickProposal; const map = {};
+    if(p){ (p.pendingRecords || []).forEach(r => { (map[r.consumer] = map[r.consumer] || []).push(r); }); }
+    return Object.keys(map).map(k => ({ consumer: k, records: map[k] }));
+  },
+  toggleRejectDayTickRecord(r){ if(r) r.rejected = !r.rejected; },
+  cancelDayTick(){ this.dayTickProposal = null; this.dayTickError = null; },
+  _persistDayTick(){
+    try { if(typeof this.autosave === 'function') return this.autosave(); } catch(e){}
+    try { if(typeof this.saveCampaign === 'function') return this.saveCampaign(); } catch(e){}
+    try { if(typeof this.persistCampaignToDisk === 'function') return this.persistCampaignToDisk(); } catch(e){}
+  },
+  commitDayTick(){
+    if(!this.dayTickProposal) return;
+    try {
+      window.ACKS.commitDayTick(this.currentCampaign, this.dayTickProposal, null);
+      this.dayTickProposal = null;
+      this._persistDayTick();
+    } catch(e){ console.error('commitDayTick error', e); this.dayTickError = String((e && e.message) || e); }
+  },
   proposeMonthlyTurn(){
     console.log('proposeMonthlyTurn() called, domains:', this.domains.length);
     this.turnProposalError = '';
