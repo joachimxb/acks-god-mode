@@ -722,6 +722,10 @@ function migrateCampaign(raw){
   // Idempotent. Ensures Campaign/Hex/Character/Settlement/Event new optional fields
   // exist on legacy saves. See Data_Dictionary.md §13.2 + §13.3.
   lazyDefaultV1ScopeReservations(current);
+  // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
+  // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
+  // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
+  migrateAgriculturalToProjects(current);
   return current;
 }
 
@@ -836,6 +840,101 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof e.cadence !== 'string') e.cadence = 'monthly-turn';
       if(typeof e.subdayContext === 'undefined') e.subdayContext = null;
     }
+  }
+  return campaign;
+}
+
+// ── Wave Construction-B — agricultural-improvement on the unified Project model ──
+// Architecture.md §10 + Phase_4_Construction_Plan.md (Wave Construction-B). Agricultural
+// improvement (Foundation #17 incremental model) becomes a `constructibleKind` in the one
+// unified Construction subsystem. The HEX remains the economic source of truth — its
+// landImprovementBonus (earned +N) and landImprovementInvested (gp toward the next step) are
+// untouched by this layer. The Project is an additive ACTIVITY RECORD so the Day Clock /
+// day-tick consumer have a live consumer and integrators get a typed entity + typed
+// construction-progress events. Because the economic math is never moved, the monthly
+// land-value outcome is byte-identical to the pre-refactor engine (see
+// tests/agricultural-projects.smoke.js — the zero-drift oracle).
+//
+// gpSpent semantics: the implied CUMULATIVE gp at this hex = bonus×step + current accumulation
+// (well-defined from hex state alone, so migration and the commitTurn mirror always agree and
+// the resync is idempotent). Per-turn actual spend is reported on the construction-progress
+// events, not here.
+function findAgriculturalProject(campaign, hexId){
+  if(!campaign || !hexId || !Array.isArray(campaign.projects)) return null;
+  return campaign.projects.find(p => p && p.constructibleKind === 'agricultural-improvement' && p.siteHexId === hexId) || null;
+}
+
+// Create (if absent) and resync the agricultural-improvement Project that mirrors a hex's
+// current incremental state. Returns the Project (or null if inputs are unusable).
+//   opts.domainId   — owner domain id (falls back to hex.domainId)
+//   opts.turn       — current turn number (stamps startedAtTurn/completedAtTurn + history)
+//   opts.historyType / opts.historyNarrative — optional history entry to append this call
+function syncAgriculturalProject(campaign, hex, opts){
+  opts = opts || {};
+  if(!campaign || !hex || !hex.id) return null;
+  if(!Array.isArray(campaign.projects)) campaign.projects = [];
+  const COST = global.ACKS.AGRICULTURAL_IMPROVEMENT_COST_PER_STEP;
+  const MAXB = global.ACKS.AGRICULTURAL_IMPROVEMENT_MAX_BONUS;
+  const VCAP = global.ACKS.AGRICULTURAL_IMPROVEMENT_VALUE_CAP;
+  const base     = hex.valuePerFamily || 0;
+  const bonus    = hex.landImprovementBonus || 0;
+  const invested = hex.landImprovementInvested || 0;
+  const atCap      = bonus >= MAXB || base + bonus >= VCAP;
+  const cumulative = bonus * COST + invested;
+  const maxSteps   = Math.max(0, Math.min(MAXB, VCAP - base));
+  let proj = findAgriculturalProject(campaign, hex.id);
+  if(!proj){
+    const coordStr = hex.coord ? ('(' + (hex.coord.q || 0) + ',' + (hex.coord.r || 0) + ')') : '';
+    proj = global.ACKS.blankProject({
+      constructibleKind: 'agricultural-improvement',
+      siteHexId: hex.id,
+      ownerDomainId: opts.domainId || hex.domainId || null,
+      name: 'Agricultural improvement' + (coordStr ? ' — ' + coordStr : ''),
+      lifecycleState: atCap ? 'complete' : 'under-construction',
+      totalCost: maxSteps * COST,
+      gpSpent: cumulative,
+      startedAtTurn: (typeof opts.turn === 'number') ? opts.turn : null
+    });
+    campaign.projects.push(proj);
+  }
+  // Resync the derived fields from canonical hex state (idempotent).
+  if(!proj.ownerDomainId) proj.ownerDomainId = opts.domainId || hex.domainId || null;
+  proj.gpSpent        = cumulative;
+  proj.totalCost      = maxSteps * COST;
+  proj.lifecycleState = atCap ? 'complete' : 'under-construction';
+  if(atCap && typeof opts.turn === 'number' && !proj.completedAtTurn) proj.completedAtTurn = opts.turn;
+  if(opts.historyType || opts.historyNarrative){
+    (proj.history = proj.history || []).push({
+      turn: (typeof opts.turn === 'number') ? opts.turn : null,
+      type: opts.historyType || 'progress',
+      narrative: opts.historyNarrative || ''
+    });
+  }
+  return proj;
+}
+
+// Backfill migration: lift existing in-progress agricultural improvements onto Project entities.
+// Walks campaign.hexes (the canonical top-level collection — it carries hex.domainId and, after
+// liftToTopLevelCollections, is reference-unified with domain.geography.hexes). Only hexes with
+// landImprovementInvested > 0 get a live Project (an active step in progress = the Day Clock
+// consumer the day-tick pipeline needs). Completed/plateau hexes (invested 0) stay as the
+// derived landImprovementBonus on the hex; the commitTurn mirror creates a Project on the fly if
+// the GM resumes investment. Idempotent: skips any hex that already has an agricultural Project.
+function migrateAgriculturalToProjects(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(!Array.isArray(campaign.projects)) campaign.projects = [];
+  const hexes = Array.isArray(campaign.hexes) ? campaign.hexes : [];
+  for(const hex of hexes){
+    if(!hex || !hex.id) continue;
+    const invested = hex.landImprovementInvested || 0;
+    if(invested <= 0) continue;
+    if(findAgriculturalProject(campaign, hex.id)) continue; // idempotent
+    syncAgriculturalProject(campaign, hex, {
+      domainId: hex.domainId || null,
+      historyType: 'migrated',
+      historyNarrative: 'Agricultural improvement lifted onto the unified Project model (bonus +'
+        + (hex.landImprovementBonus || 0) + ', ' + invested.toLocaleString() + 'gp toward the next step).'
+    });
   }
   return campaign;
 }
@@ -3960,6 +4059,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   displayConstructibleKind,
   // Construction lookups
   findProject, findConstructible, projectsAtHex, constructiblesAtHex, projectsForDomain, constructiblesForDomain,
+  // Wave Construction-B — agricultural-improvement on the unified Project model
+  migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
   // Schema + identity
   SCHEMA_VERSION, ID_PREFIXES, newId, slugify,
 
