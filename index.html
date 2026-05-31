@@ -10902,10 +10902,10 @@ return {
       // Errata §1.2 (RR r4 Ch.8): tribute by realm families table rounds to nearest 5gp.
       // Applies to both auto-percentage and manual tribute paths.
       const raw=grossExclTribute*pct;
-      return Math.round(raw/5)*5;
+      return window.ACKS.roundToNearest5(raw);
     }
     // Manual path — round to 5gp too for consistency.
-    return Math.round((d.expenses?.tributeToLiege||0)/5)*5;
+    return window.ACKS.roundToNearest5(d.expenses?.tributeToLiege||0);
   },
 
   // Effective per-hex land value INCLUDING agricultural improvements (Phase 2a.5).

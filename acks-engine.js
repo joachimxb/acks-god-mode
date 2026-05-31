@@ -41,6 +41,13 @@ function bankersRound(x){
   return Math.round(x);
 }
 
+// Round a gp amount to the nearest 5gp. Canonical home for the tribute-by-realm-families
+// rounding policy (RR r4 errata §1.2: "tribute … rounds to nearest 5gp"). Lifted out of the
+// UI (index.html) so the policy lives in one tested place rather than duplicated inline.
+function roundToNearest5(gp){
+  return Math.round((Number(gp) || 0) / 5) * 5;
+}
+
 const SCHEMA_VERSION = 2;
 
 // ID prefix scheme — three-letter where possible, lowercased, dash-separated.
@@ -3622,6 +3629,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Errata §1.3 — banker's rounding (half-to-even)
   bankersRound,
+  // Errata §1.2 — tribute rounds to nearest 5gp (canonical home; UI delegates here)
+  roundToNearest5,
 
   // Dice + rolls
   rollD6, rollD20, rollD10x, clamp,

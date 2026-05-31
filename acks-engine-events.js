@@ -28,6 +28,11 @@ const blankParty          = function(...a){ return global.ACKS.blankParty(...a);
 const blankPassiveInvestment = function(...a){ return global.ACKS.blankPassiveInvestment(...a); };
 const blankVenture        = function(...a){ return global.ACKS.blankVenture(...a); };
 const bankersRound        = function(...a){ return global.ACKS.bankersRound(...a); };
+// settlementsForDomain lives in acks-engine.js; the adventure-result handler resolves
+// the nearest settlement for treasure/rumor placement. Missing alias made the handler
+// throw under strict Node (the live tool tolerated it via the window.ACKS global) —
+// caught by the turn-cycle smoke after the 2026-05-28 module split. (Foundation audit fix.)
+const settlementsForDomain = function(...a){ return global.ACKS.settlementsForDomain ? global.ACKS.settlementsForDomain(...a) : []; };
 const SCHEMA_VERSION = 2; // mirror of acks-engine.js core constant
 const ID_PREFIXES = new Proxy({}, { get(_, key){ return (global.ACKS.ID_PREFIXES||{})[key]; } });
 

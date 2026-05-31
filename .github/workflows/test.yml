@@ -1,0 +1,21 @@
+name: tests
+
+# Runs the engine smoke suites on every push and pull request. The engine modules
+# are pure (each an IIFE with module.exports) and load headless in Node — no build
+# step, no dependencies. This is the regression net for the data layer + rules math.
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # The GitHub repo root IS the "ACKS God Mode/" folder (package.json + tests/ live
+      # here), so no working-directory override is needed.
+      - name: Run smoke suites
+        run: npm test
