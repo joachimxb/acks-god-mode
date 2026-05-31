@@ -337,6 +337,24 @@ if(typeof ACKS.migrateAgriculturalToProjects !== 'function'){
     check('reconcile: did not duplicate the Project', rc.projects.filter(p => p.constructibleKind === 'agricultural-improvement').length === 1);
   }
 
+  // RECONCILE via domain.geography.hexes when campaign.hexes is empty/stale (the pre-lift,
+  // session-restore shape — migrateCampaign runs before liftToTopLevelCollections).
+  {
+    const rc2 = ACKS.blankCampaign({ name: 'Reconcile-nested' });
+    rc2.projects = [];
+    rc2.hexes = []; // top-level empty (not yet lifted)
+    const dm = ACKS.blankDomain({ name: 'M2' });
+    const nestedCapped = Object.assign(ACKS.blankHex({ id: 'hex-nested-cap', coord: { q:9, r:9 } }),
+      { valuePerFamily: 6, landImprovementBonus: 3, landImprovementInvested: 0, domainId: dm.id }); // bonus cap
+    dm.geography.hexes = [nestedCapped];
+    rc2.domains = [dm];
+    rc2.projects.push(ACKS.blankProject({ id: 'prj-stuck2', constructibleKind: 'agricultural-improvement',
+      siteHexId: 'hex-nested-cap', ownerDomainId: dm.id, lifecycleState: 'under-construction', gpSpent: 0 }));
+    ACKS.migrateAgriculturalToProjects(rc2);
+    const fixed2 = rc2.projects.find(p => p.id === 'prj-stuck2');
+    check('reconcile(nested): finds hex via domain.geography.hexes when campaign.hexes is empty', fixed2 && fixed2.lifecycleState === 'complete', 'got ' + (fixed2 && fixed2.lifecycleState));
+  }
+
   // demo template carries hex-saltspur-vale invested=12500 -> migrate yields a live consumer
   try {
     const demoMod = require(path.join(__dirname, '..', 'acks-demo-template.js'));

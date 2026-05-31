@@ -923,9 +923,17 @@ function syncAgriculturalProject(campaign, hex, opts){
 function migrateAgriculturalToProjects(campaign){
   if(!campaign || typeof campaign !== 'object') return campaign;
   if(!Array.isArray(campaign.projects)) campaign.projects = [];
-  const hexes = Array.isArray(campaign.hexes) ? campaign.hexes : [];
+  // Collect every hex from BOTH the top-level campaign.hexes collection AND each domain's nested
+  // geography.hexes. migrateCampaign runs BEFORE liftToTopLevelCollections, so at this point one of
+  // the two can be stale/empty while the other holds the live values (e.g. a session-restored save
+  // whose top-level campaign.hexes hasn't been re-unified yet). Reading both makes the reconcile +
+  // create passes robust to either storage shape. campaign.hexes wins on id collision (it is the
+  // canonical top-level copy; the nested copy can lag, as in the shipped templates).
   const hexById = Object.create(null);
-  for(const h of hexes){ if(h && h.id) hexById[h.id] = h; }
+  const addHexes = (arr) => { if(Array.isArray(arr)){ for(const h of arr){ if(h && h.id && !hexById[h.id]) hexById[h.id] = h; } } };
+  addHexes(campaign.hexes);
+  if(Array.isArray(campaign.domains)){ for(const d of campaign.domains){ if(d && d.geography) addHexes(d.geography.hexes); } }
+  const allHexes = Object.keys(hexById).map(k => hexById[k]);
   // Reconcile EXISTING agricultural Projects to their hex's canonical state. Catches lifecycleState
   // / gpSpent drift — e.g. a Project left 'under-construction' after its hex reached the value or
   // bonus cap (whether via a GM hex edit in the Inspector, the legacy landImprovementProjects
@@ -938,7 +946,7 @@ function migrateAgriculturalToProjects(campaign){
     if(hex) syncAgriculturalProject(campaign, hex, { domainId: proj.ownerDomainId || hex.domainId || null });
   }
   // Create live Projects for in-progress hexes (landImprovementInvested > 0) that lack one.
-  for(const hex of hexes){
+  for(const hex of allHexes){
     if(!hex || !hex.id) continue;
     const invested = hex.landImprovementInvested || 0;
     if(invested <= 0) continue;
