@@ -65,7 +65,7 @@
       displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
 
     // ── BUILDINGS + WORK IN PROGRESS ──
-    { kind: 'project', label: 'Project (under construction)', pluralLabel: 'Projects', icon: '🚧',
+    { kind: 'project', label: 'Project', pluralLabel: 'Projects', icon: '🚧',
       addressable: true, chronicleable: true,
       list: (c) => (c && c.projects) || [],
       find: (c, id) => ((c && c.projects) || []).find(x => x && x.id === id),

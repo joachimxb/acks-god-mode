@@ -3078,7 +3078,15 @@ document.addEventListener('alpine:init', () => {
             <template x-for="entity in inspectorBrowseList()" :key="entity.id">
               <li class="py-1 flex justify-between items-center hover:bg-yellow-50 cursor-pointer px-1" @click="inspectorOpenInspect(inspectorSelectedKind, entity.id)">
                 <span class="font-semibold" x-text="inspectorDisplayName(inspectorSelectedKind, entity.id)"></span>
-                <span class="text-sm opacity-50 font-mono" x-text="entity.id"></span>
+                <span class="flex items-center gap-2 shrink-0">
+                  <!-- Lifecycle/state badge — lets you tell e.g. a complete agricultural Project from an in-progress one at a glance. Generic: shows for any entity carrying a lifecycleState. -->
+                  <template x-if="entity.lifecycleState">
+                    <span class="text-xs px-1.5 rounded border whitespace-nowrap"
+                          :class="entity.lifecycleState === 'complete' ? 'border-green-700 text-green-800 bg-green-50' : (entity.lifecycleState === 'under-construction' ? 'border-amber-700 text-amber-800 bg-amber-50' : 'border-ink/40 opacity-70')"
+                          x-text="entity.lifecycleState"></span>
+                  </template>
+                  <span class="text-sm opacity-50 font-mono" x-text="entity.id"></span>
+                </span>
               </li>
             </template>
           </ul>
