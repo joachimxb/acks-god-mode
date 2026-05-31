@@ -3159,7 +3159,12 @@ function commitTurn(campaign, domains, proposal, helpers){
     }
 
     const investBlurb = totalInvestmentSpent > 0 ? ', urban inv −' + totalInvestmentSpent.toLocaleString() + 'gp (+' + totalUrbanFamiliesGained + ' families)' : '';
-    const agBlurb = totalAgriculturalSpent > 0 ? ', ag inv −' + totalAgriculturalSpent.toLocaleString() + 'gp (' + agOrdersResults.length + ' ' + (immediateConstruction ? 'completed' : 'queued') + ')' : '';
+    // Incremental agricultural improvement (Foundation #17) applies gp at commit time — there is
+    // no deferred "queued" path (that was the legacy landImprovementProjects model). Count the
+    // orders that actually moved gp this turn. (Fixes a latent ReferenceError: the prior code read
+    // an undefined `immediateConstruction`, which threw on every commit with agricultural spend.)
+    const agAppliedCount = agOrdersResults.filter(r => !r.blocked && (r.gpSpent || 0) > 0).length;
+    const agBlurb = totalAgriculturalSpent > 0 ? ', ag inv −' + totalAgriculturalSpent.toLocaleString() + 'gp (' + agAppliedCount + ' applied)' : '';
     const projDoneBlurb = projectsCompleted.length > 0 ? ', ' + projectsCompleted.length + ' improvement(s) completed' : '';
     const rulerForBlurb = helpers.rulerCharacter(d);
     const xpBlurb = rulerXpAwarded > 0 ? ', +' + rulerXpAwarded.toLocaleString() + 'XP to ' + (rulerForBlurb?.name || 'ruler') : '';
