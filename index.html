@@ -202,6 +202,7 @@ document.addEventListener('alpine:init', () => {
       </span>
       <span class="opacity-60 text-base" x-text="'(' + domains.length + ' domains)'"></span>
       <span class="opacity-60 text-base accent-red" x-show="currentCampaign && !fileName" title="This campaign hasn't been written to disk yet — use 💾 Save campaign or 💾 Save as… to give it a file.">· No campaign save file yet</span>
+      <span class="text-base accent-red font-semibold" x-show="dirty" title="You have content changes that haven't been written to your .acks.json file yet. Use 💾 Save campaign to save them.">● unsaved changes</span>
       <span class="flex-grow"></span>
       <span x-show="(currentCampaign?.pendingEvents||[]).filter(e=>e.status==='pending'&&(e.targetTurn||0)<=(currentCampaign?.currentTurn||1)).length > 0" class="text-base px-2 py-0.5 rounded accent-green" style="background:#e8f3df" :title="'Pending events targeting this turn — will appear in the Advance Month modal'" x-text="'📥 ' + (currentCampaign?.pendingEvents||[]).filter(e=>e.status==='pending'&&(e.targetTurn||0)<=(currentCampaign?.currentTurn||1)).length + ' event' + ((currentCampaign?.pendingEvents||[]).filter(e=>e.status==='pending'&&(e.targetTurn||0)<=(currentCampaign?.currentTurn||1)).length===1?'':'s') + ' pending'"></span>
       <button @click="proposeMonthlyTurn()" class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 font-semibold text-base" :disabled="domains.length===0">▶ Advance month</button>
@@ -6344,6 +6345,10 @@ return {
   fsaOpenSupported:'showOpenFilePicker' in window,
   fsaSaveSupported:'showSaveFilePicker' in window,
   fileHandle:null,fileName:'',
+  // Data-durability (ux-product audit Critical, 2026-05-31). dirty = there are content
+  // changes not yet written to the bound .acks.json file. Drives the header indicator +
+  // the beforeunload guard. _persistTimer backs the debounced localStorage session cache.
+  dirty:false, _persistTimer:null, _ignoreMutations:false,
   currentCampaign:null,domains:[],selectedDomainId:null,
   // Top-level view tabs. Extensible — add Phase 2.7 syndicates, Phase 4 senates, etc. by adding entries here.
   currentView:'domains',
@@ -6417,20 +6422,58 @@ return {
       setTimeout(()=>{ try{ this.showToast('Previous session was on an older schema and could not be restored. Open a fresh campaign from Templates/ to continue.', 7000); }catch(_){} }, 200);
     }
     this.$watch('currentCampaign',()=>{
-      this.persistSession();
+      this.markDirty();
+      this.schedulePersist();
       // If a house rule toggle removed the currently-active tab, snap back to Overview
       if(this.activeTab && !this.tabs.includes(this.activeTab))this.activeTab='overview';
     },{deep:true});
-    this.$watch('domains',()=>this.persistSession(),{deep:true});
-    this.$watch('selectedDomainId',()=>this.persistSession());
+    this.$watch('domains',()=>{ this.markDirty(); this.schedulePersist(); },{deep:true});
+    this.$watch('selectedDomainId',()=>this.schedulePersist()); // selecting a domain isn't a content change
+    // Data-durability guard (ux audit Critical): warn before unload when there are
+    // content changes not yet written to the .acks.json file, and flush the debounced
+    // session cache so a tab-reopen recovers the latest state.
+    window.addEventListener('beforeunload',(e)=>{
+      this.flushPersist();
+      if(this.dirty){ e.preventDefault(); e.returnValue=''; return ''; }
+    });
+  },
+
+  // Mark the campaign as having unsaved content changes. Suppressed during load (the
+  // deep watchers fire as the campaign hydrates, which isn't a user edit).
+  markDirty(){ if(this._ignoreMutations) return; this.dirty = true; },
+
+  // Debounced session-cache write. The deep $watch fires on every keystroke; without a
+  // debounce that meant a full-campaign JSON.stringify per character typed (perf audit C1).
+  // Trailing 800ms — the latest state lands shortly after the user pauses, and beforeunload
+  // flushes any pending write so nothing is lost on close.
+  schedulePersist(){
+    if(this._persistTimer){ clearTimeout(this._persistTimer); }
+    this._persistTimer = setTimeout(()=>{ this._persistTimer = null; this.persistSession(); }, 800);
+  },
+  flushPersist(){
+    if(this._persistTimer){ clearTimeout(this._persistTimer); this._persistTimer = null; this.persistSession(); }
   },
 
   persistSession(){
-    try{localStorage.setItem('acks-domain-session-v3',JSON.stringify({
-      currentCampaign:this.currentCampaign,domains:this.domains,
-      selectedDomainId:this.selectedDomainId,fileName:this.fileName,
-      currentView:this.currentView}));
-    }catch(e){console.warn('Persist failed',e);}
+    let json;
+    try{
+      json = JSON.stringify({
+        currentCampaign:this.currentCampaign,domains:this.domains,
+        selectedDomainId:this.selectedDomainId,fileName:this.fileName,
+        currentView:this.currentView});
+    }catch(e){ console.warn('Persist serialize failed',e); return; }
+    try{
+      localStorage.setItem('acks-domain-session-v3', json);
+    }catch(e){
+      // Surface quota exhaustion instead of swallowing it (perf/qa audit C2). At ~5MB the
+      // browser refuses the write; a GM with a long campaign would otherwise silently lose
+      // their crash-recovery cache. The bound .acks.json file (💾 Save) is unaffected.
+      const quota = e && (e.name === 'QuotaExceededError' || e.code === 22 || /quota/i.test(e.message||''));
+      console.warn('Persist failed', e);
+      if(quota && typeof this.showToast === 'function'){
+        this.showToast('Browser storage is full — auto-recovery cache could not update. Use 💾 Save campaign to write your work to disk.', 8000);
+      }
+    }
   },
 
   // Top-level views. Extensible — add entries here when new campaign-level views land.
@@ -10042,6 +10085,9 @@ return {
 
   loadCampaignFromObject(obj,sourceName){
     if(!obj||obj.kind!=='campaign')throw new Error('Not a campaign file (kind="'+(obj&&obj.kind||'?')+'")');
+    // Suppress dirty-marking while the campaign hydrates: the deep watchers fire as
+    // currentCampaign/domains are assigned, which is a load, not a user edit.
+    this._ignoreMutations = true;
     const camp=migrateCampaign(obj);
     // Security/integrity gate (appsec audit C1/I2, 2026-05-31). A shared .acks.json is
     // untrusted input — validateCampaign flags duplicate ids, non-unique hex coords, and
@@ -10092,6 +10138,12 @@ return {
     camp.rumors = liftSynth.rumors;
     this.selectedDomainId=this.domains[0]?this.domains[0].id:null;
     this.fileName=sourceName||'';
+    // A freshly loaded campaign is the clean baseline. Clear dirty, then release the
+    // mutation guard after Alpine has flushed the load-triggered watcher callbacks.
+    this.dirty = false;
+    const release = () => { this._ignoreMutations = false; };
+    if(typeof this.$nextTick === 'function') this.$nextTick(release); else setTimeout(release, 0);
+    setTimeout(()=>{ this._ignoreMutations = false; this.dirty = false; }, 0); // belt-and-suspenders
     this.showToast('Loaded "'+this.currentCampaign.name+'" ('+this.pluralize(this.domains.length, 'domain')+').');
   },
 
@@ -10195,6 +10247,7 @@ return {
         const w=await this.fileHandle.createWritable();
         await w.write(json);await w.close();
         this.currentCampaign.lastModifiedAt=payload.lastModifiedAt;
+        this.dirty=false; // written to the bound file — no unsaved content changes
         this.showToast('Saved to '+this.fileName+'.');
       }catch(e){
         console.error(e);alert('Save failed: '+e.message+'\n\nTry Save again, or your browser may have revoked file access.');
@@ -10214,6 +10267,7 @@ return {
         const w=await handle.createWritable();
         await w.write(json);await w.close();
         this.currentCampaign.lastModifiedAt=payload.lastModifiedAt;
+        this.dirty=false; // written to the newly bound file
         this.showToast('Saved to '+handle.name+'.');
       }catch(e){
         if(e.name!=='AbortError'){console.error(e);alert('Save failed: '+e.message);}
@@ -10224,6 +10278,7 @@ return {
     // Path C: fallback — trigger a download
     this.downloadJSON(payload,suggestedName);
     this.currentCampaign.lastModifiedAt=payload.lastModifiedAt;
+    this.dirty=false; // exported a complete copy to the user's downloads
     this.showToast('Downloaded '+suggestedName+'.');
   },
 
