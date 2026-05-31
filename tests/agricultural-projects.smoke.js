@@ -97,7 +97,10 @@ function mockHelpers(){
     applyVagaryToVenture: () => '',
     processPassiveInvestmentsForTurn: () => ({ totalGp: 0, payouts: [] }),
     checkAllCharacterLevelUps: () => [],
-    isHouseRuleEnabled: () => false,
+    // Post-default-flip: construction is RAW (timed) by default. The oracle exercises the legacy
+    // INSTANT path via the internal `abstract-construction` flag (true here -> the ag block's
+    // !isHouseRuleEnabled('abstract-construction') is false -> instant). All other rules stay off.
+    isHouseRuleEnabled: (id) => id === 'abstract-construction',
   };
 }
 
@@ -105,6 +108,9 @@ function mockHelpers(){
 // the economic oracle deterministic — calendar/day-tick is exercised separately below).
 function buildOracleCampaign(hexSpecs){
   const campaign = ACKS.blankCampaign({ name: 'Ag oracle' });
+  // Oracle guards the legacy INSTANT economic math -> opt into the abstract path (post-flip the
+  // engine's proposeConstructionDay reads this flag too, so Section 6's calendar run stays instant).
+  campaign.houseRules = { 'abstract-construction': { enabled: true } };
   campaign.projects = campaign.projects || [];
   const domain = ACKS.blankDomain({ name: 'Ag March' });
   domain.treasury = { gp: 1000000 };
@@ -472,8 +478,9 @@ try {
   const agRec = recs.find(r => r && /agricultural/i.test((r.label || '') + ''));
   check('UI: proposeDayTick lists the agricultural Project', !!agRec, 'records: ' + JSON.stringify(recs.map(r => r.label)));
   if(agRec){
-    check('UI: agricultural day record is monthly cadence', agRec.cadence === 'monthly', 'cadence: ' + agRec.cadence);
-    check('UI: agricultural day record has zero per-day labor', (agRec.laborGained || 0) === 0, 'got ' + agRec.laborGained);
+    // Post-default-flip: the demo is time-based (RAW) out of the box, so the day-tick emits a DRIP
+    // record. The demo hex has no budget + no supervisor yet, so it lists as paused/idle (drip 0).
+    check('UI: agricultural day record is a time-based drip record', agRec.agriculturalDrip === true, 'agriculturalDrip: ' + agRec.agriculturalDrip);
     check('UI: agricultural day record routed under the construction consumer', agRec.consumer === 'construction', 'consumer: ' + agRec.consumer);
     check('UI: agricultural label is not the misleading "+0 cf"', !/\+0 cf/.test(agRec.label || ''), 'label: ' + agRec.label);
   }

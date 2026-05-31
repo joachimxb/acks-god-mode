@@ -197,17 +197,13 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',
     description:'Track strongholds as a list of individual structures (Tower, Wall, Gatehouse, Building Stone) rather than a single aggregate value. Useful for detailed sieges and modular stronghold construction.' },
-  // immediate-construction REMOVED 2026-05-31 (Joachim): RAW builds land/structures over time as
-  // labor-paid construction projects (RR p.174) — instant completion is not a RAW variant. A GM who
-  // wants to skip the timeline uses the admin/creation tools (Inspector: set a Project's
-  // lifecycleState to 'complete', or set a hex's landImprovementBonus directly), not a house rule.
-  // realistic-construction is RAW's DEFAULT, not a toggle; its default-flip + removal lands with the
-  // time-based construction rework (see _handoffs/Agricultural_Time_Based_Spec.md). Kept as a toggle
-  // for now so the supervisor requirement doesn't hard-block existing campaigns before the rework's
-  // friendly-prompt UX ships.
-  { id:'realistic-construction', category:'construction', name:'Realistic construction — supervisors + labor cap',
-    source:'ACKS II RR p.174 (Wage and Construction Rates; Siege Engineer / Engineer supervision caps)',
-    description:"Construction projects (currently agricultural improvements; later stronghold construction) require an assigned supervisor character — siege engineer caps at 25,000gp per project, engineer caps at 100,000gp. Each domain also has a monthly labor cap representing available workforce; total construction allocations across all projects in a domain may not exceed it in a single month. When off, gp is the only constraint." },
+  // immediate-construction + realistic-construction BOTH REMOVED 2026-05-31 (Joachim): RAW (RR p.174)
+  // builds land/structures over time as labor-paid, supervised construction projects — that is now the
+  // tool's DEFAULT, not a toggle. Neither instant completion nor the supervised/timed model is a house
+  // rule. A GM who wants to skip the timeline uses the admin tools (Inspector: set a Project's
+  // lifecycleState to 'complete', or a hex's landImprovementBonus directly). The engine keeps an
+  // internal `abstract-construction` flag (NOT user-facing) for the instant/gp-only path used by the
+  // zero-drift oracle. See _handoffs/Agricultural_Time_Based_Spec.md + RAW_Posture_HouseRule_Audit.md.
   { id:'alternative-farming-methods', category:'construction', name:'Alternative farming methods (8× population density)',
     source:'ACKS II RR p.340 (variant — not yet implemented)',
     description:"Intensive cultivation of high-yield crops twice per year could yield 8× the standard population density per hex. When enabled, individual hexes can be flagged as using alternative farming, raising their max-families ceiling." },

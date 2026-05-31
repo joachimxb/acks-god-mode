@@ -3136,7 +3136,10 @@ function commitTurn(campaign, domains, proposal, helpers){
     //   - Allocations without a supervisor or that exceed the labor pool are skipped + logged.
     const agOrdersResults = [];
     let totalAgriculturalSpent = 0;
-    const realisticOn = helpers.isHouseRuleEnabled('realistic-construction');
+    // RAW DEFAULT (RR p.174): construction is labor-paid, supervised, and takes time. The internal
+    // `abstract-construction` flag opts into the old instant/gp-only path (fast play; the oracle).
+    // Instant completion for GMs is via the admin tools (Inspector force-complete), not a house rule.
+    const realisticOn = !helpers.isHouseRuleEnabled('abstract-construction');
     const laborCap = (realisticOn && (d.monthlyLaborCapGp || 0) > 0) ? d.monthlyLaborCapGp : Infinity;
     let laborConsumed = 0;
     // Look up a character on the campaign roster by id (legacy-safe).
@@ -3948,7 +3951,7 @@ function tickConstructionByDays(campaign, days){
   if(!campaign || !Array.isArray(campaign.projects) || days <= 0) return { ticked: 0, completed: [] };
   const completed = [];
   let ticked = 0;
-  const useRealisticCap = isHouseRuleEnabled(campaign, 'realistic-construction');
+  const useRealisticCap = !isHouseRuleEnabled(campaign, 'abstract-construction'); // RAW default (RR p.174)
   const useMageAssist   = isHouseRuleEnabled(campaign, 'mage-assisted-construction');
   const CW = (typeof global !== 'undefined' && global.ACKS && global.ACKS.totalDailyOutputCf)
     ? global.ACKS.totalDailyOutputCf
@@ -4004,7 +4007,7 @@ function proposeConstructionDay(campaign, dayContext){
   const pendingRecords = [];
   const notableEvents = [];
   if(!campaign || !Array.isArray(campaign.projects)) return { pendingRecords, notableEvents, encounters: [] };
-  const useRealisticCap = isHouseRuleEnabled(campaign, 'realistic-construction');
+  const useRealisticCap = !isHouseRuleEnabled(campaign, 'abstract-construction'); // RAW default (RR p.174)
   const useMageAssist   = isHouseRuleEnabled(campaign, 'mage-assisted-construction');
   const CW = (typeof global !== 'undefined' && global.ACKS && global.ACKS.totalDailyOutputCf)
     ? global.ACKS.totalDailyOutputCf
