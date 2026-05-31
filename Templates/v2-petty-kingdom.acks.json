@@ -1,0 +1,1840 @@
+{
+  "schemaVersion": 2,
+  "kind": "campaign",
+  "id": "cmp-vellengard-kingdom-demo",
+  "name": "Kingdom of Vellengard (v2 demo)",
+  "createdAt": "2026-05-26",
+  "lastModifiedAt": "2026-05-26",
+  "currentTurn": 1,
+  "calendar": {
+    "year": null,
+    "month": null,
+    "day": null,
+    "season": null
+  },
+  "houseRules": {
+    "families-per-hex-tracking": true
+  },
+  "campaignContext": {
+    "theme": "Petty kingdom with full vassal pyramid",
+    "tone": "Settled realm of the late medieval sort — king, dukes, barons, with tribute flowing up and authority flowing down",
+    "season": "",
+    "aiNotes": "Full 3-tier vassalage demo. King Othmund rules the crownlands directly and has two ducal vassals. Duke Calder holds the eastern Duchy of Brennstone and has two baronial vassals of his own (Highmark and Stoneford). Duchess Sigrid holds the western priestly Duchy of Westfen with no further vassals. Demonstrates vassal-of-vassal tribute chains, mixed classes (Fighter and Cleric domain rulers), and a realm at the scale where domains-at-war becomes relevant."
+  },
+  "domains": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-kingdom-of-vellengard",
+      "name": "Kingdom of Vellengard (Crownlands)",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "rural",
+      "classification": "Civilized",
+      "tags": [
+        "kingdom",
+        "crownlands",
+        "seat-of-realm"
+      ],
+      "rulerCharacterId": "chr-king-othmund",
+      "administersThisMonth": false,
+      "liegeId": null,
+      "vassalIds": [
+        "dom-duchy-brennstone",
+        "dom-duchy-westfen"
+      ],
+      "isRealm": true,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 0,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 18,
+        "claimedHexes": 22,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-vellengard-capital",
+            "coord": {
+              "q": 0,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 0,
+            "valuePerFamily": 8,
+            "landImprovementBonus": 1,
+            "landImprovementProjects": [],
+            "terrain": "river plain",
+            "primaryStructure": "Royal Citadel of Vellengard",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-vellengard-city",
+              "name": "Vellengard",
+              "families": 2400,
+              "totalInvestment": 200000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": null,
+              "demandModifiers": {
+                "grain-vegetables": -1,
+                "wine-spirits": 0,
+                "armor-weapons": 1,
+                "spices": 2,
+                "silk": 2
+              },
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class III royal city on the great river. Population 12,000+. Seat of king, parliament, and royal mint."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-royal-citadel",
+                "name": "Royal Citadel of Vellengard",
+                "kind": "landmark",
+                "description": "Five-towered stone citadel above the river bend. Royal seat for nine generations."
+              }
+            ],
+            "monsterNotes": "",
+            "notes": "Capital hex. The city and citadel share it."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-vellengard-royal-domain",
+            "coord": {
+              "q": 1,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 320,
+            "valuePerFamily": 7,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "plains",
+            "primaryStructure": "Royal granary",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Royal demesne farmland."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-vellengard-vineyards",
+            "coord": {
+              "q": 0,
+              "r": 1
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 240,
+            "valuePerFamily": 8,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "hills",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Royal vineyards. The kingdom's wine."
+          }
+        ],
+        "terrain": "river plain",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 560,
+        "urbanFamilies": 2400,
+        "morale": 1,
+        "moraleNotes": ""
+      },
+      "treasury": {
+        "gp": 95000
+      },
+      "income": {
+        "landRevenuePerFamily": 7,
+        "serviceRevenuePerFamily": 4,
+        "taxPerFamily": 2,
+        "tributesIn": [
+          {
+            "fromDomainId": "dom-duchy-brennstone",
+            "amount": 0
+          },
+          {
+            "fromDomainId": "dom-duchy-westfen",
+            "amount": 0
+          }
+        ],
+        "tariffs": 1200,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": false,
+        "tributePct": 0,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-royal-foot",
+            "displayName": "Heavy Infantry (Royal)",
+            "unitTypeKey": "heavy-infantry",
+            "count": 200,
+            "monthlyWage": 12,
+            "brPerSoldier": 0.083,
+            "stationedAtHexId": "hex-vellengard-capital"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-royal-bows",
+            "displayName": "Composite Bowmen",
+            "unitTypeKey": "bowmen-composite",
+            "count": 80,
+            "monthlyWage": 12,
+            "brPerSoldier": 0.083,
+            "stationedAtHexId": "hex-vellengard-capital"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-royal-horse",
+            "displayName": "Heavy Cavalry (Royal Guard)",
+            "unitTypeKey": "heavy-cavalry",
+            "count": 50,
+            "monthlyWage": 50,
+            "brPerSoldier": 0.25,
+            "stationedAtHexId": "hex-vellengard-capital"
+          }
+        ],
+        "totalMonthlyCost": 5860,
+        "totalBR": 35.7
+      },
+      "stronghold": {
+        "type": "Citadel",
+        "buildValue": 400000,
+        "maintenancePerMonth": 167,
+        "garrisonCapacity": 800,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-royal-citadel",
+            "structureKey": "citadel-stone",
+            "quantity": 1,
+            "notes": "Royal Citadel of Vellengard. Five towers, three baileys, stone curtain walls."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [
+        "chr-lord-marshal-bren",
+        "chr-chancellor-elin"
+      ],
+      "urban": {
+        "marketClass": "III",
+        "totalInvestment": 200000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Kingdom's crownlands. Top of the vassal pyramid."
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-duchy-brennstone",
+      "name": "Duchy of Brennstone",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "rural",
+      "classification": "Civilized",
+      "tags": [
+        "duchy",
+        "vassal",
+        "martial"
+      ],
+      "rulerCharacterId": "chr-duke-calder",
+      "administersThisMonth": false,
+      "liegeId": "dom-kingdom-of-vellengard",
+      "vassalIds": [
+        "dom-barony-highmark",
+        "dom-barony-stoneford"
+      ],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 4,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 9,
+        "claimedHexes": 11,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-brennstone-seat",
+            "coord": {
+              "q": 4,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 280,
+            "valuePerFamily": 7,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "hills",
+            "primaryStructure": "Brennstone Castle",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-brennstone-town",
+              "name": "Brennstone",
+              "families": 380,
+              "totalInvestment": 45000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": null,
+              "demandModifiers": {
+                "armor-weapons": -1
+              },
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class IV market town. Famous for its blacksmiths."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Duke's seat."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-brennstone-march",
+            "coord": {
+              "q": 4,
+              "r": 1
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 500,
+            "valuePerFamily": 6,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "plains",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Cropland."
+          }
+        ],
+        "terrain": "hills and plains",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 500,
+        "urbanFamilies": 380,
+        "morale": 0,
+        "moraleNotes": ""
+      },
+      "treasury": {
+        "gp": 22000
+      },
+      "income": {
+        "landRevenuePerFamily": 6,
+        "serviceRevenuePerFamily": 4,
+        "taxPerFamily": 2,
+        "tributesIn": [
+          {
+            "fromDomainId": "dom-barony-highmark",
+            "amount": 0
+          },
+          {
+            "fromDomainId": "dom-barony-stoneford",
+            "amount": 0
+          }
+        ],
+        "tariffs": 380,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 10,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-brennstone-foot",
+            "displayName": "Heavy Infantry",
+            "unitTypeKey": "heavy-infantry",
+            "count": 90,
+            "monthlyWage": 12,
+            "brPerSoldier": 0.083,
+            "stationedAtHexId": "hex-brennstone-seat"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-brennstone-horse",
+            "displayName": "Medium Cavalry",
+            "unitTypeKey": "medium-cavalry",
+            "count": 30,
+            "monthlyWage": 25,
+            "brPerSoldier": 0.15,
+            "stationedAtHexId": "hex-brennstone-seat"
+          }
+        ],
+        "totalMonthlyCost": 1830,
+        "totalBR": 11.97
+      },
+      "stronghold": {
+        "type": "Castle (medium)",
+        "buildValue": 150000,
+        "maintenancePerMonth": 62,
+        "garrisonCapacity": 400,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-brennstone-castle",
+            "structureKey": "castle-stone",
+            "quantity": 1,
+            "notes": "Brennstone Castle — stone curtain wall, twin gatehouses, central keep."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [
+        "chr-sir-roland-lieutenant"
+      ],
+      "urban": {
+        "marketClass": "IV",
+        "totalInvestment": 45000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Duke Calder's duchy. Middle tier of the kingdom — vassal to the King, liege to two barons. Demonstrates vassal-of-vassal tribute chain."
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-duchy-westfen",
+      "name": "Duchy of Westfen",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "rural",
+      "classification": "Civilized",
+      "tags": [
+        "duchy",
+        "vassal",
+        "priestly"
+      ],
+      "rulerCharacterId": "chr-duchess-sigrid",
+      "administersThisMonth": false,
+      "liegeId": "dom-kingdom-of-vellengard",
+      "vassalIds": [],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": -4,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 7,
+        "claimedHexes": 7,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-westfen-cathedral",
+            "coord": {
+              "q": -4,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 200,
+            "valuePerFamily": 6,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "marsh",
+            "primaryStructure": "Cathedral of the Reed Saint",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-westfen-town",
+              "name": "Westfen Town",
+              "families": 320,
+              "totalInvestment": 38000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": null,
+              "demandModifiers": {
+                "salt": 1,
+                "grain-vegetables": 1
+              },
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class IV cathedral town. The duchess rules from the cathedral close."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-reed-cathedral",
+                "name": "Cathedral of the Reed Saint",
+                "kind": "temple",
+                "description": "Massive river-stone cathedral. Site of the duchess's investiture and the realm's main pilgrimage."
+              }
+            ],
+            "monsterNotes": "",
+            "notes": "Duchess's seat. Town and cathedral share the hex."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-westfen-marshlands",
+            "coord": {
+              "q": -3,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 380,
+            "valuePerFamily": 5,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "marsh",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Reclaimed fenland."
+          }
+        ],
+        "terrain": "marshland",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 380,
+        "urbanFamilies": 320,
+        "morale": 1,
+        "moraleNotes": "Devout, loyal."
+      },
+      "treasury": {
+        "gp": 14000
+      },
+      "income": {
+        "landRevenuePerFamily": 5,
+        "serviceRevenuePerFamily": 4,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 220,
+        "urbanRevenue": 0,
+        "other": [
+          {
+            "label": "Pilgrim offerings",
+            "amount": 80
+          }
+        ]
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 10,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-westfen-foot",
+            "displayName": "Medium Infantry (Temple Guard)",
+            "unitTypeKey": "medium-infantry",
+            "count": 70,
+            "monthlyWage": 9,
+            "brPerSoldier": 0.063,
+            "stationedAtHexId": "hex-westfen-cathedral"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-westfen-bows",
+            "displayName": "Bowmen",
+            "unitTypeKey": "bowmen",
+            "count": 25,
+            "monthlyWage": 9,
+            "brPerSoldier": 0.063,
+            "stationedAtHexId": "hex-westfen-cathedral"
+          }
+        ],
+        "totalMonthlyCost": 855,
+        "totalBR": 5.99
+      },
+      "stronghold": {
+        "type": "Cathedral-fortress",
+        "buildValue": 95000,
+        "maintenancePerMonth": 40,
+        "garrisonCapacity": 250,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-reed-cathedral",
+            "structureKey": "cathedral-fortified",
+            "quantity": 1,
+            "notes": "Stone cathedral with attached fortified chapter-house and curtain wall."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [],
+      "urban": {
+        "marketClass": "IV",
+        "totalInvestment": 38000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Duchess Sigrid's duchy. Vassal to the King, no further vassals — the priestly counterweight to Brennstone."
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-barony-highmark",
+      "name": "Barony of Highmark",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "rural",
+      "classification": "Borderlands",
+      "tags": [
+        "barony",
+        "vassal-of-vassal",
+        "border"
+      ],
+      "rulerCharacterId": "chr-baron-edrun",
+      "administersThisMonth": false,
+      "liegeId": "dom-duchy-brennstone",
+      "vassalIds": [],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 6,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 4,
+        "claimedHexes": 5,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-highmark-keep",
+            "coord": {
+              "q": 6,
+              "r": 0
+            },
+            "classification": "Borderlands",
+            "explored": true,
+            "families": 95,
+            "valuePerFamily": 6,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "hills",
+            "primaryStructure": "Highmark Keep",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-highmark-village",
+              "name": "Highmark Village",
+              "families": 70,
+              "totalInvestment": 6000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": null,
+              "demandModifiers": {},
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class VI hamlet under the keep walls."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Baron's seat. The bottom rung of the kingdom's vassal pyramid."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-highmark-pasture",
+            "coord": {
+              "q": 7,
+              "r": 0
+            },
+            "classification": "Borderlands",
+            "explored": true,
+            "families": 145,
+            "valuePerFamily": 5,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "hills",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Sheep country."
+          }
+        ],
+        "terrain": "hills",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 145,
+        "urbanFamilies": 70,
+        "morale": 0,
+        "moraleNotes": ""
+      },
+      "treasury": {
+        "gp": 1400
+      },
+      "income": {
+        "landRevenuePerFamily": 5,
+        "serviceRevenuePerFamily": 4,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 0,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 10,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-highmark-foot",
+            "displayName": "Light Infantry",
+            "unitTypeKey": "light-infantry",
+            "count": 22,
+            "monthlyWage": 6,
+            "brPerSoldier": 0.034,
+            "stationedAtHexId": "hex-highmark-keep"
+          }
+        ],
+        "totalMonthlyCost": 132,
+        "totalBR": 0.75
+      },
+      "stronghold": {
+        "type": "Keep (small)",
+        "buildValue": 22000,
+        "maintenancePerMonth": 0,
+        "garrisonCapacity": 80,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-highmark-keep",
+            "structureKey": "keep-stone-small",
+            "quantity": 1,
+            "notes": "Small stone keep on the high pasture."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [],
+      "urban": {
+        "marketClass": "VI",
+        "totalInvestment": 6000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Vassal of Duke Calder. Vassal-of-vassal to the King. Bottom rung — tribute flows up through Brennstone to Vellengard."
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-barony-stoneford",
+      "name": "Barony of Stoneford",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "rural",
+      "classification": "Civilized",
+      "tags": [
+        "barony",
+        "vassal-of-vassal",
+        "river-crossing"
+      ],
+      "rulerCharacterId": "chr-baroness-vela",
+      "administersThisMonth": false,
+      "liegeId": "dom-duchy-brennstone",
+      "vassalIds": [],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 5,
+          "r": 2
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 3,
+        "claimedHexes": 4,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-stoneford-bridge",
+            "coord": {
+              "q": 5,
+              "r": 2
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 110,
+            "valuePerFamily": 7,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "river plain",
+            "primaryStructure": "Stoneford Bridge-keep",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-stoneford-town",
+              "name": "Stoneford",
+              "families": 130,
+              "totalInvestment": 9000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": null,
+              "demandModifiers": {},
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class V market town at the river crossing."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Baroness's seat. Tolls from the bridge are significant."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-stoneford-orchards",
+            "coord": {
+              "q": 4,
+              "r": 2
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 185,
+            "valuePerFamily": 7,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "plains",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Orchards. Source of Stoneford's cider trade."
+          }
+        ],
+        "terrain": "river plain",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 185,
+        "urbanFamilies": 130,
+        "morale": 0,
+        "moraleNotes": ""
+      },
+      "treasury": {
+        "gp": 2200
+      },
+      "income": {
+        "landRevenuePerFamily": 7,
+        "serviceRevenuePerFamily": 4,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 110,
+        "urbanRevenue": 0,
+        "other": [
+          {
+            "label": "Bridge tolls",
+            "amount": 60
+          }
+        ]
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 10,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-stoneford-foot",
+            "displayName": "Medium Infantry",
+            "unitTypeKey": "medium-infantry",
+            "count": 30,
+            "monthlyWage": 9,
+            "brPerSoldier": 0.063,
+            "stationedAtHexId": "hex-stoneford-bridge"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-stoneford-bows",
+            "displayName": "Bowmen",
+            "unitTypeKey": "bowmen",
+            "count": 12,
+            "monthlyWage": 9,
+            "brPerSoldier": 0.063,
+            "stationedAtHexId": "hex-stoneford-bridge"
+          }
+        ],
+        "totalMonthlyCost": 378,
+        "totalBR": 2.65
+      },
+      "stronghold": {
+        "type": "Bridge-keep",
+        "buildValue": 25000,
+        "maintenancePerMonth": 0,
+        "garrisonCapacity": 80,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-stoneford-keep",
+            "structureKey": "bridge-keep",
+            "quantity": 1,
+            "notes": "Stone bridge-keep with twin gatetowers commanding the river crossing."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [],
+      "urban": {
+        "marketClass": "V",
+        "totalInvestment": 9000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Vassal of Duke Calder. Sister-barony to Highmark. Two of these under one Duke, two Dukes under the King — full vassal pyramid."
+    }
+  ],
+  "characters": [
+    {
+      "schemaVersion": 2,
+      "id": "chr-king-othmund",
+      "name": "Othmund III, King of Vellengard",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 11,
+      "xp": 360000,
+      "hp": {
+        "current": 66,
+        "max": 66,
+        "hitDice": "9d8+2"
+      },
+      "ac": 8,
+      "attackThrow": 4,
+      "abilities": {
+        "STR": 16,
+        "INT": 14,
+        "WIS": 14,
+        "DEX": 12,
+        "CON": 15,
+        "CHA": 16
+      },
+      "savingThrows": {
+        "paralysis": 5,
+        "death": 6,
+        "blast": 7,
+        "implements": 8,
+        "spells": 9
+      },
+      "proficiencies": [
+        "Leadership",
+        "Diplomacy",
+        "Manual of Arms",
+        "Riding",
+        "Heraldry"
+      ],
+      "classPowers": [],
+      "henchmanCap": 7,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-vellengard-capital",
+      "currentDomainId": "dom-kingdom-of-vellengard",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Third of his line to wear the crown. Took the throne at twenty-four after his father's death in the Reaver Wars. Twenty-two years on the throne. Married to Queen Vanya (not in roster).",
+      "personality": "Politic, even-handed, jealous of royal prerogative but careful never to humiliate his vassals.",
+      "goals": [
+        "Marry his eldest to a foreign princess",
+        "Build a navy",
+        "Bind the Dukes more tightly to the throne"
+      ],
+      "relationships": [],
+      "secrets": "",
+      "voice": "Measured, regal, never raised.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 800,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Top of the pyramid.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-lord-marshal-bren",
+      "name": "Lord Bren, Lord Marshal of Vellengard",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 8,
+      "xp": 120000,
+      "hp": {
+        "current": 48,
+        "max": 48,
+        "hitDice": "8d8"
+      },
+      "ac": 7,
+      "attackThrow": 6,
+      "abilities": {
+        "STR": 16,
+        "INT": 12,
+        "WIS": 11,
+        "DEX": 13,
+        "CON": 14,
+        "CHA": 12
+      },
+      "savingThrows": {
+        "paralysis": 8,
+        "death": 9,
+        "blast": 10,
+        "implements": 11,
+        "spells": 12
+      },
+      "proficiencies": [
+        "Manual of Arms",
+        "Leadership",
+        "Riding"
+      ],
+      "classPowers": [],
+      "henchmanCap": 5,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-vellengard-capital",
+      "currentDomainId": "dom-kingdom-of-vellengard",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Veteran of the Reaver Wars, served as the king's captain. Raised to Lord Marshal a decade ago.",
+      "personality": "Direct, soldier's plainness, deep loyalty.",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-king-othmund",
+      "loyalty": 3,
+      "monthlyWage": 200,
+      "upkeepMonthly": 250,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": false,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Royal Marshal — commands the royal army in the field.",
+      "controlledBy": "gm",
+      "socialTier": "henchman",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-chancellor-elin",
+      "name": "Master Elin, Royal Chancellor",
+      "alignment": "L",
+      "race": "human",
+      "class": "Mage",
+      "level": 7,
+      "xp": 75000,
+      "hp": {
+        "current": 22,
+        "max": 22,
+        "hitDice": "7d4"
+      },
+      "ac": 2,
+      "attackThrow": 9,
+      "abilities": {
+        "STR": 9,
+        "INT": 17,
+        "WIS": 14,
+        "DEX": 12,
+        "CON": 11,
+        "CHA": 13
+      },
+      "savingThrows": {
+        "paralysis": 13,
+        "death": 12,
+        "blast": 14,
+        "implements": 7,
+        "spells": 9
+      },
+      "proficiencies": [
+        "Loremastery",
+        "Magical Engineering",
+        "Diplomacy"
+      ],
+      "classPowers": [
+        "Cast arcane spells",
+        "Loremastery"
+      ],
+      "henchmanCap": 5,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-vellengard-capital",
+      "currentDomainId": "dom-kingdom-of-vellengard",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "A scholar-mage raised to high office for his administrative competence. Runs the chancery and the kingdom's day-to-day record-keeping.",
+      "personality": "Reserved, observant, dryly witty in private.",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "Precise, slightly clipped.",
+      "liegeCharacterId": "chr-king-othmund",
+      "loyalty": 2,
+      "monthlyWage": 250,
+      "upkeepMonthly": 200,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": false,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Chancellor — runs the chancery. Highest-level spellcaster in the demo.",
+      "controlledBy": "gm",
+      "socialTier": "henchman",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-duke-calder",
+      "name": "Duke Calder of Brennstone",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 9,
+      "xp": 180000,
+      "hp": {
+        "current": 54,
+        "max": 54,
+        "hitDice": "9d8"
+      },
+      "ac": 7,
+      "attackThrow": 5,
+      "abilities": {
+        "STR": 16,
+        "INT": 12,
+        "WIS": 12,
+        "DEX": 13,
+        "CON": 14,
+        "CHA": 13
+      },
+      "savingThrows": {
+        "paralysis": 7,
+        "death": 8,
+        "blast": 9,
+        "implements": 10,
+        "spells": 11
+      },
+      "proficiencies": [
+        "Leadership",
+        "Manual of Arms",
+        "Riding"
+      ],
+      "classPowers": [],
+      "henchmanCap": 6,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-brennstone-seat",
+      "currentDomainId": "dom-duchy-brennstone",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Younger half-brother to the late Duke; inherited when his brother died without heir eight years ago. Considered the most dangerous swordsman in the realm.",
+      "personality": "Hard, soldierly, jealous of his prerogatives. Loyal to the King but resents the priestly preference for Westfen.",
+      "goals": [
+        "Marry his daughter to the King's son",
+        "Acquire a third vassal barony",
+        "Block any encroachment by Westfen"
+      ],
+      "relationships": [
+        {
+          "characterId": "chr-king-othmund",
+          "kind": "liege",
+          "notes": "Sworn vassal."
+        },
+        {
+          "characterId": "chr-duchess-sigrid",
+          "kind": "rival",
+          "notes": "Court rival."
+        }
+      ],
+      "secrets": "",
+      "voice": "Curt, plain, occasionally cutting.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 500,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Duke. Vassal to King, liege to two Barons.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-sir-roland-lieutenant",
+      "name": "Sir Roland, Lieutenant of Brennstone",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 6,
+      "xp": 60000,
+      "hp": {
+        "current": 36,
+        "max": 36,
+        "hitDice": "6d8"
+      },
+      "ac": 6,
+      "attackThrow": 8,
+      "abilities": {
+        "STR": 14,
+        "INT": 11,
+        "WIS": 12,
+        "DEX": 13,
+        "CON": 13,
+        "CHA": 11
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 10,
+        "blast": 11,
+        "implements": 12,
+        "spells": 13
+      },
+      "proficiencies": [
+        "Manual of Arms",
+        "Riding"
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-brennstone-seat",
+      "currentDomainId": "dom-duchy-brennstone",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Sworn to Calder from boyhood.",
+      "personality": "Loyal to a fault.",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-duke-calder",
+      "loyalty": 3,
+      "monthlyWage": 150,
+      "upkeepMonthly": 150,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": false,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Calder's right hand.",
+      "controlledBy": "gm",
+      "socialTier": "henchman",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-duchess-sigrid",
+      "name": "Duchess Sigrid of Westfen",
+      "alignment": "L",
+      "race": "human",
+      "class": "Cleric",
+      "level": 9,
+      "xp": 175000,
+      "hp": {
+        "current": 42,
+        "max": 42,
+        "hitDice": "9d6"
+      },
+      "ac": 4,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 11,
+        "INT": 14,
+        "WIS": 17,
+        "DEX": 11,
+        "CON": 13,
+        "CHA": 15
+      },
+      "savingThrows": {
+        "paralysis": 6,
+        "death": 5,
+        "blast": 8,
+        "implements": 4,
+        "spells": 6
+      },
+      "proficiencies": [
+        "Theology",
+        "Healing",
+        "Diplomacy",
+        "Leadership"
+      ],
+      "classPowers": [
+        "Turn undead",
+        "Cast divine spells"
+      ],
+      "henchmanCap": 6,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-westfen-cathedral",
+      "currentDomainId": "dom-duchy-westfen",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Daughter of the previous duke, took holy orders young, was invested as duchess when her father died. Combines secular and religious authority in the western reaches.",
+      "personality": "Pious, deliberate, slow to anger but immovable once decided.",
+      "goals": [
+        "Found a daughter-house monastery in the marshlands",
+        "Marry her cousin into Stoneford",
+        "Outlast Calder politically"
+      ],
+      "relationships": [
+        {
+          "characterId": "chr-king-othmund",
+          "kind": "liege",
+          "notes": "Sworn vassal."
+        },
+        {
+          "characterId": "chr-duke-calder",
+          "kind": "rival",
+          "notes": "Court rival."
+        }
+      ],
+      "secrets": "",
+      "voice": "Soft, formal, devotional.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 400,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Duchess. Cleric. Second-most-senior vassal of the King.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-baron-edrun",
+      "name": "Baron Edrun of Highmark",
+      "alignment": "N",
+      "race": "human",
+      "class": "Fighter",
+      "level": 6,
+      "xp": 60000,
+      "hp": {
+        "current": 36,
+        "max": 36,
+        "hitDice": "6d8"
+      },
+      "ac": 5,
+      "attackThrow": 8,
+      "abilities": {
+        "STR": 14,
+        "INT": 10,
+        "WIS": 12,
+        "DEX": 12,
+        "CON": 14,
+        "CHA": 11
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 10,
+        "blast": 11,
+        "implements": 12,
+        "spells": 13
+      },
+      "proficiencies": [
+        "Manual of Arms",
+        "Survival",
+        "Animal Husbandry"
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-highmark-keep",
+      "currentDomainId": "dom-barony-highmark",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Originally Calder's lieutenant; invested as Baron when the Duke needed a loyal man on his eastern frontier.",
+      "personality": "Plainspoken, practical, watchful of borderlands threats.",
+      "goals": [
+        "Clear the eastern pasture of wolves",
+        "Recruit a sergeant"
+      ],
+      "relationships": [
+        {
+          "characterId": "chr-duke-calder",
+          "kind": "liege",
+          "notes": "Sworn vassal."
+        }
+      ],
+      "secrets": "",
+      "voice": "Direct.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 200,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Vassal of Duke Calder. Three tiers below the king (king > duke > baron).",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-baroness-vela",
+      "name": "Baroness Vela of Stoneford",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 5,
+      "xp": 30000,
+      "hp": {
+        "current": 30,
+        "max": 30,
+        "hitDice": "5d8"
+      },
+      "ac": 5,
+      "attackThrow": 9,
+      "abilities": {
+        "STR": 13,
+        "INT": 13,
+        "WIS": 12,
+        "DEX": 14,
+        "CON": 12,
+        "CHA": 13
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 11,
+        "blast": 12,
+        "implements": 13,
+        "spells": 14
+      },
+      "proficiencies": [
+        "Manual of Arms",
+        "Diplomacy",
+        "Riding"
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-stoneford-bridge",
+      "currentDomainId": "dom-barony-stoneford",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Inherited the bridge-keep from her father. Has managed the toll books since fifteen.",
+      "personality": "Mercantile, sharp, diplomatic.",
+      "goals": [
+        "Negotiate a chartered fair",
+        "Reduce the toll-share owed to Brennstone"
+      ],
+      "relationships": [
+        {
+          "characterId": "chr-duke-calder",
+          "kind": "liege",
+          "notes": "Sworn vassal."
+        }
+      ],
+      "secrets": "",
+      "voice": "Brisk, polite.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 180,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Vassal of Duke Calder. Sister-barony to Highmark.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    }
+  ],
+  "parties": [],
+  "ventures": [],
+  "passiveInvestments": [],
+  "deities": [],
+  "banks": [],
+  "loans": [],
+  "pendingEvents": [],
+  "eventLog": [],
+  "henchmanships": [
+    {
+      "schemaVersion": 2,
+      "id": "hen-re2otku",
+      "subjectCharacterId": "chr-lord-marshal-bren",
+      "patronCharacterId": "chr-king-othmund",
+      "hiredAtTurn": 1,
+      "signingBonusPaidGp": 0,
+      "wageStreamGpMo": 200,
+      "currentLoyalty": 3,
+      "loyaltyHistory": [],
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hen-oj4ctqg",
+      "subjectCharacterId": "chr-chancellor-elin",
+      "patronCharacterId": "chr-king-othmund",
+      "hiredAtTurn": 1,
+      "signingBonusPaidGp": 0,
+      "wageStreamGpMo": 250,
+      "currentLoyalty": 2,
+      "loyaltyHistory": [],
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hen-1g5rxal",
+      "subjectCharacterId": "chr-sir-roland-lieutenant",
+      "patronCharacterId": "chr-duke-calder",
+      "hiredAtTurn": 1,
+      "signingBonusPaidGp": 0,
+      "wageStreamGpMo": 150,
+      "currentLoyalty": 3,
+      "loyaltyHistory": [],
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    }
+  ],
+  "vassalages": [
+    {
+      "schemaVersion": 2,
+      "id": "vas-93txz9y",
+      "vassalRulerCharacterId": "chr-duke-calder",
+      "suzerainCharacterId": "chr-king-othmund",
+      "vassalDomainId": "dom-duchy-brennstone",
+      "suzerainDomainId": "dom-kingdom-of-vellengard",
+      "oathTakenAtTurn": 1,
+      "witnessCharacterIds": [],
+      "recognitionStatus": "recognized",
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "vas-y961atu",
+      "vassalRulerCharacterId": "chr-duchess-sigrid",
+      "suzerainCharacterId": "chr-king-othmund",
+      "vassalDomainId": "dom-duchy-westfen",
+      "suzerainDomainId": "dom-kingdom-of-vellengard",
+      "oathTakenAtTurn": 1,
+      "witnessCharacterIds": [],
+      "recognitionStatus": "recognized",
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "vas-6o20thf",
+      "vassalRulerCharacterId": "chr-baron-edrun",
+      "suzerainCharacterId": "chr-duke-calder",
+      "vassalDomainId": "dom-barony-highmark",
+      "suzerainDomainId": "dom-duchy-brennstone",
+      "oathTakenAtTurn": 1,
+      "witnessCharacterIds": [],
+      "recognitionStatus": "recognized",
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "vas-j36yrex",
+      "vassalRulerCharacterId": "chr-baroness-vela",
+      "suzerainCharacterId": "chr-duke-calder",
+      "vassalDomainId": "dom-barony-stoneford",
+      "suzerainDomainId": "dom-duchy-brennstone",
+      "oathTakenAtTurn": 1,
+      "witnessCharacterIds": [],
+      "recognitionStatus": "recognized",
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    }
+  ]
+}

@@ -1,0 +1,445 @@
+{
+  "schemaVersion": 2,
+  "kind": "campaign",
+  "id": "cmp-frontier-barony-demo",
+  "name": "Frontier Barony (v2 demo)",
+  "createdAt": "2026-05-26",
+  "lastModifiedAt": "2026-05-26",
+  "currentTurn": 1,
+  "calendar": {
+    "year": null,
+    "month": null,
+    "day": null,
+    "season": null
+  },
+  "houseRules": {
+    "families-per-hex-tracking": true
+  },
+  "campaignContext": {
+    "theme": "Frontier settlement",
+    "tone": "Hard-edged border country",
+    "season": "",
+    "aiNotes": "Small-scale GM-tracker example. Sir Halvard rules a recently-secured Borderlands barony with one peasant settlement and a watchtower-strength stronghold."
+  },
+  "domains": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-barony-of-thornreach",
+      "name": "Barony of Thornreach",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "rural",
+      "classification": "Borderlands",
+      "tags": [
+        "frontier",
+        "borderlands"
+      ],
+      "rulerCharacterId": "chr-halvard-bold",
+      "administersThisMonth": false,
+      "liegeId": null,
+      "vassalIds": [],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 0,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 3,
+        "claimedHexes": 4,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-tower-of-thornreach",
+            "coord": {
+              "q": 0,
+              "r": 0
+            },
+            "classification": "Borderlands",
+            "explored": true,
+            "families": 75,
+            "valuePerFamily": 6,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "hills",
+            "primaryStructure": "Tower of Thornreach (stronghold seat)",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-thornreach-town",
+              "name": "Thornreach Town",
+              "families": 80,
+              "totalInvestment": 10000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": "chr-halvard-bold",
+              "demandModifiers": {},
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "A walled hamlet hard against the Tower. Hosts the Sunday market."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Domain seat. Both the Tower and the town stand here."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-northern-farmsteads",
+            "coord": {
+              "q": 0,
+              "r": -1
+            },
+            "classification": "Borderlands",
+            "explored": true,
+            "families": 110,
+            "valuePerFamily": 7,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "plains",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Better soil than the rest of the barony. Targeted for land improvement."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-thorn-wood",
+            "coord": {
+              "q": 1,
+              "r": 0
+            },
+            "classification": "Outlands",
+            "explored": false,
+            "families": 0,
+            "valuePerFamily": 4,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "forest",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [
+              {
+                "schemaVersion": 2,
+                "id": "lai-thorn-wood-goblins",
+                "name": "Splinter-Tooth Goblin Warren",
+                "creatureType": "goblins",
+                "hd": "1-1",
+                "numberAppearing": "2d10",
+                "description": "Old badger setts colonized by goblins. Skirmish the Northern Farmsteads in the fortnight before harvest."
+              }
+            ],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-thorn-cairn",
+                "name": "The Thorn Cairn",
+                "kind": "ruin",
+                "description": "A pre-imperial barrow at the wood's edge. Local elders forbid disturbing it."
+              }
+            ],
+            "monsterNotes": "Goblins, wolves, occasional wandering boar.",
+            "notes": "The hex Sir Halvard intends to clear once the goblins are dealt with."
+          }
+        ],
+        "terrain": "hills and woodland",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 110,
+        "urbanFamilies": 0,
+        "morale": 0,
+        "moraleNotes": ""
+      },
+      "treasury": {
+        "gp": 2400
+      },
+      "income": {
+        "landRevenuePerFamily": 6,
+        "serviceRevenuePerFamily": 4,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 0,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 10,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-thornreach-foot",
+            "displayName": "Light Infantry",
+            "unitTypeKey": "light-infantry",
+            "count": 30,
+            "monthlyWage": 6,
+            "brPerSoldier": 0.034,
+            "stationedAtHexId": "hex-tower-of-thornreach"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-thornreach-bows",
+            "displayName": "Bowmen",
+            "unitTypeKey": "bowmen",
+            "count": 12,
+            "monthlyWage": 9,
+            "brPerSoldier": 0.063,
+            "stationedAtHexId": "hex-tower-of-thornreach"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-thornreach-horse",
+            "displayName": "Light Cavalry",
+            "unitTypeKey": "light-cavalry",
+            "count": 6,
+            "monthlyWage": 15,
+            "brPerSoldier": 0.083,
+            "stationedAtHexId": null
+          }
+        ],
+        "totalMonthlyCost": 378,
+        "totalBR": 2.27
+      },
+      "stronghold": {
+        "type": "Tower",
+        "buildValue": 15000,
+        "maintenancePerMonth": 0,
+        "garrisonCapacity": 60,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-thornreach-tower",
+            "structureKey": "tower-small-round",
+            "quantity": 1,
+            "notes": "Tower of Thornreach. 30' high × 20' diameter."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [
+        "chr-edrik-steady"
+      ],
+      "urban": {
+        "marketClass": null,
+        "totalInvestment": 0,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Small frontier holding. Sir Halvard secured it from goblin and bandit pressure two years ago and is still consolidating his hold."
+    }
+  ],
+  "characters": [
+    {
+      "schemaVersion": 2,
+      "id": "chr-halvard-bold",
+      "name": "Sir Halvard the Bold",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 7,
+      "xp": 70000,
+      "hp": {
+        "current": 42,
+        "max": 42,
+        "hitDice": "7d8"
+      },
+      "ac": 6,
+      "attackThrow": 7,
+      "abilities": {
+        "STR": 16,
+        "INT": 11,
+        "WIS": 12,
+        "DEX": 13,
+        "CON": 14,
+        "CHA": 13
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 10,
+        "blast": 11,
+        "implements": 12,
+        "spells": 13
+      },
+      "proficiencies": [
+        "Leadership",
+        "Manual of Arms",
+        "Mounted Combat",
+        "Land Surveying"
+      ],
+      "classPowers": [],
+      "henchmanCap": 5,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-tower-of-thornreach",
+      "currentDomainId": "dom-barony-of-thornreach",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Younger son of a minor lord. Won his spurs in the Yarmuk campaigns, then took up the Thornreach grant when the previous baron died without heir.",
+      "personality": "Cautious, principled, slow to anger but unyielding once committed.",
+      "goals": [
+        "Clear the Thorn Wood goblins",
+        "Recruit a chaplain",
+        "Found a second settlement on the northern farmsteads"
+      ],
+      "relationships": [],
+      "secrets": "",
+      "voice": "Plain, measured, sparing with words.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 200,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-edrik-steady",
+      "name": "Edrik the Steady",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 4,
+      "xp": 8500,
+      "hp": {
+        "current": 24,
+        "max": 24,
+        "hitDice": "4d8"
+      },
+      "ac": 4,
+      "attackThrow": 9,
+      "abilities": {
+        "STR": 14,
+        "INT": 10,
+        "WIS": 11,
+        "DEX": 12,
+        "CON": 13,
+        "CHA": 9
+      },
+      "savingThrows": {
+        "paralysis": 11,
+        "death": 12,
+        "blast": 13,
+        "implements": 14,
+        "spells": 15
+      },
+      "proficiencies": [
+        "Manual of Arms",
+        "Endurance"
+      ],
+      "classPowers": [],
+      "henchmanCap": 3,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-tower-of-thornreach",
+      "currentDomainId": "dom-barony-of-thornreach",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "A veteran sergeant who followed Halvard from the Yarmuk campaign and stayed when his lord took the barony.",
+      "personality": "Loyal, dry-humored, distrustful of strangers.",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-halvard-bold",
+      "loyalty": 1,
+      "monthlyWage": 75,
+      "upkeepMonthly": 80,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": false,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Captain of the Guard.",
+      "controlledBy": "gm",
+      "socialTier": "henchman",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    }
+  ],
+  "parties": [],
+  "ventures": [],
+  "passiveInvestments": [],
+  "deities": [],
+  "banks": [],
+  "loans": [],
+  "pendingEvents": [],
+  "eventLog": [],
+  "henchmanships": [
+    {
+      "schemaVersion": 2,
+      "id": "hen-up0scha",
+      "subjectCharacterId": "chr-edrik-steady",
+      "patronCharacterId": "chr-halvard-bold",
+      "hiredAtTurn": 1,
+      "signingBonusPaidGp": 0,
+      "wageStreamGpMo": 75,
+      "currentLoyalty": 1,
+      "loyaltyHistory": [],
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    }
+  ]
+}

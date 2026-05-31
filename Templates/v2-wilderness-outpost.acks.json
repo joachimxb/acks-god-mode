@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 2,
+  "kind": "campaign",
+  "id": "cmp-wilderness-outpost-demo",
+  "name": "Hawk's Reach Outpost (v2 demo)",
+  "createdAt": "2026-05-26",
+  "lastModifiedAt": "2026-05-26",
+  "currentTurn": 1,
+  "calendar": {
+    "year": null,
+    "month": null,
+    "day": null,
+    "season": null
+  },
+  "houseRules": {
+    "families-per-hex-tracking": true,
+    "agricultural-investments": false
+  },
+  "campaignContext": {
+    "theme": "Wilderness outpost",
+    "tone": "Lonely, raw, full of promise and danger",
+    "season": "",
+    "aiNotes": "Smallest-scale demo. A young knight has just planted his pennant on a single Outlands hex with thirty families of settlers. No henchmen yet, no vassals, no liege — pure entry-level domain play. Good starter template for new GMs."
+  },
+  "domains": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-hawks-reach",
+      "name": "Hawk's Reach Outpost",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "rural",
+      "classification": "Outlands",
+      "tags": [
+        "frontier",
+        "outlands",
+        "outpost"
+      ],
+      "rulerCharacterId": "chr-sir-corwin-hawk",
+      "administersThisMonth": false,
+      "liegeId": null,
+      "vassalIds": [],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 0,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 1,
+        "claimedHexes": 1,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-hawks-reach-core",
+            "coord": {
+              "q": 0,
+              "r": 0
+            },
+            "classification": "Outlands",
+            "explored": true,
+            "families": 32,
+            "valuePerFamily": 5,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "hills",
+            "primaryStructure": "Palisade fort (in progress)",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-hawk-stone",
+                "name": "The Hawk Stone",
+                "kind": "landmark",
+                "description": "A weathered monolith on the south ridge, older than any local memory. Hawks roost here in summer."
+              }
+            ],
+            "monsterNotes": "Wolves in winter. Occasional goblin scouts from the eastern wastes.",
+            "notes": "The whole domain right now. Sir Corwin pitched his pennant here three months ago; the palisade is half-built."
+          }
+        ],
+        "terrain": "hills",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 32,
+        "urbanFamilies": 0,
+        "morale": 0,
+        "moraleNotes": "Settlers are nervous but hopeful. First winter is the test."
+      },
+      "treasury": {
+        "gp": 600
+      },
+      "income": {
+        "landRevenuePerFamily": 5,
+        "serviceRevenuePerFamily": 3,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 0,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 0,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-hawks-foot",
+            "displayName": "Light Infantry (militia)",
+            "unitTypeKey": "light-infantry",
+            "count": 8,
+            "monthlyWage": 6,
+            "brPerSoldier": 0.034,
+            "stationedAtHexId": "hex-hawks-reach-core"
+          }
+        ],
+        "totalMonthlyCost": 48,
+        "totalBR": 0.27
+      },
+      "stronghold": {
+        "type": "Palisade fort (under construction)",
+        "buildValue": 2500,
+        "maintenancePerMonth": 0,
+        "garrisonCapacity": 20,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-hawks-palisade",
+            "structureKey": "palisade-wooden",
+            "quantity": 1,
+            "notes": "Half complete. Sir Corwin's first major expense once the harvest comes in."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [],
+      "urban": {
+        "marketClass": null,
+        "totalInvestment": 0,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "A solo knight, one hex, thirty-odd families. The simplest possible domain configuration. Good starter for new players."
+    }
+  ],
+  "characters": [
+    {
+      "schemaVersion": 2,
+      "id": "chr-sir-corwin-hawk",
+      "name": "Sir Corwin Hawk",
+      "alignment": "L",
+      "race": "human",
+      "class": "Fighter",
+      "level": 3,
+      "xp": 4500,
+      "hp": {
+        "current": 22,
+        "max": 22,
+        "hitDice": "3d8"
+      },
+      "ac": 5,
+      "attackThrow": 8,
+      "abilities": {
+        "STR": 15,
+        "INT": 11,
+        "WIS": 12,
+        "DEX": 12,
+        "CON": 14,
+        "CHA": 13
+      },
+      "savingThrows": {
+        "paralysis": 12,
+        "death": 13,
+        "blast": 14,
+        "implements": 15,
+        "spells": 16
+      },
+      "proficiencies": [
+        "Leadership",
+        "Manual of Arms",
+        "Survival"
+      ],
+      "classPowers": [],
+      "henchmanCap": 4,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-hawks-reach-core",
+      "currentDomainId": "dom-hawks-reach",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Third son of a borderlands knight. Received a small grant of land and forty settlers as an inheritance — barely enough to call a domain.",
+      "personality": "Eager, idealistic, untested. Has read books about lordship but is learning the reality.",
+      "goals": [
+        "Finish the palisade",
+        "Survive the first winter",
+        "Recruit a sergeant"
+      ],
+      "relationships": [],
+      "secrets": "",
+      "voice": "Earnest, a touch formal, given to quoting his grandfather.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 100,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "The whole leadership of Hawk's Reach. No henchmen yet — recruiting one is on his agenda.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    }
+  ],
+  "parties": [],
+  "ventures": [],
+  "passiveInvestments": [],
+  "deities": [],
+  "banks": [],
+  "loans": [],
+  "pendingEvents": [],
+  "eventLog": []
+}

@@ -1,0 +1,493 @@
+{
+  "schemaVersion": 2,
+  "kind": "campaign",
+  "id": "cmp-cyfaraun-demo",
+  "name": "Cyfaraun (v2 mercantile demo)",
+  "createdAt": "2026-05-26",
+  "lastModifiedAt": "2026-05-26",
+  "currentTurn": 1,
+  "calendar": {
+    "year": null,
+    "month": null,
+    "day": null,
+    "season": null
+  },
+  "houseRules": {
+    "families-per-hex-tracking": false,
+    "agricultural-investments": false,
+    "random-merchandise-rolling": false
+  },
+  "campaignContext": {
+    "theme": "Mercantile city-state",
+    "tone": "Bustling, commercial, politically intricate",
+    "season": "",
+    "aiNotes": "Demonstrates an urban-heavy domain: Class III city, active venturer with a passive investment, settled hexes with shrines and ruins, ruler is a venturer with mercantile network."
+  },
+  "domains": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-cyfaraun",
+      "name": "Cyfaraun",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "urban",
+      "classification": "Civilized",
+      "tags": [
+        "city-state",
+        "mercantile",
+        "river-port"
+      ],
+      "rulerCharacterId": "chr-archon-tessalia",
+      "administersThisMonth": false,
+      "liegeId": null,
+      "vassalIds": [],
+      "isRealm": true,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 0,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 4,
+        "claimedHexes": 5,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-cyfaraun-city",
+            "coord": {
+              "q": 0,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 0,
+            "valuePerFamily": 7,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "river plain",
+            "primaryStructure": "Citadel of Cyfaraun",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-cyfaraun-city",
+              "name": "Cyfaraun",
+              "families": 3200,
+              "totalInvestment": 200000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": null,
+              "demandModifiers": {
+                "grain-vegetables": -1,
+                "wine-spirits": -2,
+                "spices": 2,
+                "silk": 3,
+                "armor-weapons": 1
+              },
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class III city on the river. Famous for its quayside markets and the Citadel that dominates the bend."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-citadel",
+                "name": "Citadel of Cyfaraun",
+                "kind": "landmark",
+                "description": "Seat of the Archon. Three concentric walls. The inner keep was built by an earlier dynasty and predates the city's republican government by three centuries."
+              }
+            ],
+            "monsterNotes": "",
+            "notes": "The city proper. All urban families and the seat of government."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-orchards-east",
+            "coord": {
+              "q": 1,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 240,
+            "valuePerFamily": 7,
+            "landImprovementBonus": 1,
+            "landImprovementProjects": [],
+            "terrain": "orchards",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-grove-of-iolla",
+                "name": "Grove of Iolla",
+                "kind": "shrine",
+                "description": "A small shrine to the goddess of orchards. The peasants leave offerings of the first fruit each autumn."
+              }
+            ],
+            "monsterNotes": "",
+            "notes": "Eastern orchards. Bulk of the domain's commodity wine production."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-fields-west",
+            "coord": {
+              "q": -1,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 280,
+            "valuePerFamily": 6,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "farmland",
+            "primaryStructure": "Granaries of Old Caspar",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "Western grain fields. Feed the city; surplus is exported downriver."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-old-vault",
+            "coord": {
+              "q": 0,
+              "r": 1
+            },
+            "classification": "Borderlands",
+            "explored": true,
+            "families": 60,
+            "valuePerFamily": 5,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "hills",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [
+              {
+                "schemaVersion": 2,
+                "id": "dun-the-old-vault",
+                "name": "The Old Vault",
+                "levels": 4,
+                "description": "Pre-imperial dwarven sub-fortress. Two upper levels have been cleared by adventurers; the lower levels remain sealed and rumored haunted."
+              }
+            ],
+            "pointsOfInterest": [],
+            "monsterNotes": "Lower-level dungeon denizens occasionally surface in the surrounding hills.",
+            "notes": "Hill country south of the city. The Vault is the major adventure hook in this hex."
+          }
+        ],
+        "terrain": "river valley + surrounding farmland and hills",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 580,
+        "urbanFamilies": 3200,
+        "morale": 1,
+        "moraleNotes": "Good year for the orchards. The Archon is popular."
+      },
+      "treasury": {
+        "gp": 48000
+      },
+      "income": {
+        "landRevenuePerFamily": 7,
+        "serviceRevenuePerFamily": 4,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 500,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 10,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-cyfaraun-watch",
+            "displayName": "City Watch",
+            "unitTypeKey": "heavy-infantry",
+            "count": 120,
+            "monthlyWage": 12,
+            "brPerSoldier": 0.067,
+            "stationedAtHexId": "hex-cyfaraun-city"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-cyfaraun-bows",
+            "displayName": "Bowmen",
+            "unitTypeKey": "bowmen",
+            "count": 60,
+            "monthlyWage": 9,
+            "brPerSoldier": 0.063,
+            "stationedAtHexId": "hex-cyfaraun-city"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-cyfaraun-cavalry",
+            "displayName": "Heavy Cavalry",
+            "unitTypeKey": "heavy-cavalry",
+            "count": 18,
+            "monthlyWage": 60,
+            "brPerSoldier": 0.333,
+            "stationedAtHexId": null
+          }
+        ],
+        "totalMonthlyCost": 3060,
+        "totalBR": 18.04
+      },
+      "stronghold": {
+        "type": "Citadel",
+        "buildValue": 200000,
+        "maintenancePerMonth": 0,
+        "garrisonCapacity": 500,
+        "structures": []
+      },
+      "specialists": [
+        {
+          "schemaVersion": 2,
+          "id": "spe-cyfaraun-clerks",
+          "type": "Clerks (Treasury)",
+          "count": 6,
+          "monthlyNet": -180,
+          "characterId": null,
+          "notes": "Tax collectors and accountants on the Archon's staff."
+        },
+        {
+          "schemaVersion": 2,
+          "id": "spe-cyfaraun-sage",
+          "type": "Sage",
+          "count": 1,
+          "monthlyNet": -250,
+          "characterId": "chr-sage-rommius",
+          "notes": "Sage Rommius — historian, on retainer."
+        }
+      ],
+      "henchmenCharacterIds": [],
+      "urban": {
+        "marketClass": null,
+        "totalInvestment": 0,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Republican city-state on the river. The Archon serves a five-year term and is currently in her fourth year. Famed for its wine exports and its venturer guild."
+    }
+  ],
+  "characters": [
+    {
+      "schemaVersion": 2,
+      "id": "chr-archon-tessalia",
+      "name": "Archon Tessalia of Cyfaraun",
+      "alignment": "N",
+      "race": "human",
+      "class": "Venturer",
+      "level": 8,
+      "xp": 130000,
+      "hp": {
+        "current": 36,
+        "max": 36,
+        "hitDice": "8d6"
+      },
+      "ac": 4,
+      "attackThrow": 8,
+      "abilities": {
+        "STR": 11,
+        "INT": 14,
+        "WIS": 13,
+        "DEX": 13,
+        "CON": 12,
+        "CHA": 16
+      },
+      "savingThrows": {
+        "paralysis": 10,
+        "death": 10,
+        "blast": 10,
+        "implements": 11,
+        "spells": 12
+      },
+      "proficiencies": [
+        "Bargaining",
+        "Diplomacy",
+        "Leadership",
+        "Profession (merchant)",
+        "Riding"
+      ],
+      "classPowers": [
+        "Mercantile Network",
+        "Mercantile Contacts"
+      ],
+      "henchmanCap": 6,
+      "inventory": [],
+      "personalGp": 12000,
+      "currentHexId": "hex-cyfaraun-city",
+      "currentDomainId": "dom-cyfaraun",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Tessalia made her fortune trading silk and spices along the Yarmuk-Anpur road before her fourth term in the Cyfaraun Assembly elevated her to the archonship.",
+      "personality": "Sharp, charming, transactional but honest in her dealings. Famously hard to flatter.",
+      "goals": [
+        "Negotiate a downriver trade compact with Aura",
+        "Excavate the lower levels of the Old Vault",
+        "Acquire a guildhouse for her venturer interests"
+      ],
+      "relationships": [],
+      "secrets": "Quietly funds the expedition to the Old Vault through cutouts — she suspects it conceals a dwarven artifact relevant to her family's heritage.",
+      "voice": "Brisk, precise, prone to a wry half-smile.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 500,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [
+        "dom-cyfaraun"
+      ],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "",
+      "controlledBy": "player",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-sage-rommius",
+      "name": "Sage Rommius",
+      "alignment": "L",
+      "race": "human",
+      "class": "Mage",
+      "level": 9,
+      "xp": 310000,
+      "hp": {
+        "current": 22,
+        "max": 22,
+        "hitDice": "9d4"
+      },
+      "ac": 0,
+      "attackThrow": 9,
+      "abilities": {
+        "STR": 9,
+        "INT": 17,
+        "WIS": 14,
+        "DEX": 11,
+        "CON": 10,
+        "CHA": 12
+      },
+      "savingThrows": {
+        "paralysis": 11,
+        "death": 11,
+        "blast": 13,
+        "implements": 9,
+        "spells": 10
+      },
+      "proficiencies": [
+        "Loremastery",
+        "Magical Engineering",
+        "Language (Old Auran)",
+        "Land Surveying"
+      ],
+      "classPowers": [],
+      "henchmanCap": 5,
+      "inventory": [],
+      "personalGp": 800,
+      "currentHexId": "hex-cyfaraun-city",
+      "currentDomainId": "dom-cyfaraun",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Retained scholar to the Archon. Trained at the Tower of Knowledge.",
+      "personality": "Pedantic. Disapproves of carousing. Reluctantly indispensable.",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "Dry, professorial, occasionally arch.",
+      "liegeCharacterId": null,
+      "loyalty": 1,
+      "monthlyWage": 250,
+      "upkeepMonthly": 250,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": false,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Specialist on the Cyfaraun payroll. NPC, not a henchman.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    }
+  ],
+  "parties": [],
+  "ventures": [],
+  "passiveInvestments": [
+    {
+      "schemaVersion": 2,
+      "id": "inv-tessalia-silk-route",
+      "name": "Silk Route — Cyfaraun to Aura",
+      "ownerCharacterId": "chr-archon-tessalia",
+      "type": "commercial-expedition",
+      "riskTier": "balanced",
+      "capital": 25000,
+      "destinationDomainId": null,
+      "enabled": true,
+      "createdTurn": 1,
+      "vagaries": [],
+      "notes": "Quarterly silk caravan to Aura, run on the Archon's behalf by a hired venturer."
+    }
+  ],
+  "deities": [],
+  "banks": [],
+  "loans": [],
+  "pendingEvents": [],
+  "eventLog": []
+}

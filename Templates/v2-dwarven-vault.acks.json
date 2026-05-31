@@ -1,0 +1,751 @@
+{
+  "schemaVersion": 2,
+  "kind": "campaign",
+  "id": "cmp-kazad-doln-vault-demo",
+  "name": "Vault of Kazad-Doln (v2 demo)",
+  "createdAt": "2026-05-26",
+  "lastModifiedAt": "2026-05-26",
+  "currentTurn": 1,
+  "calendar": {
+    "year": null,
+    "month": null,
+    "day": null,
+    "season": null
+  },
+  "houseRules": {
+    "families-per-hex-tracking": true,
+    "agricultural-investments": false
+  },
+  "campaignContext": {
+    "theme": "Dwarven vault and tributary thane-hold",
+    "tone": "Mountain hold deep in the bones of the earth — stone, hammers, ancestor-shrines",
+    "season": "",
+    "aiNotes": "Dwarven racial variant demo per By This Axe! supplement. Vaultlord Thorgrim rules the great vault of Kazad-Doln in the mountain heart. His vassal Thane Brokk holds a smaller daughter-vault devoted to weaponcraft. Demonstrates: Dwarven Vaultguard rulers, mountain hexes constraining domain growth, workshop-heavy economy with high revenue per family, single tier of vassalage between Vaultlord and Thane."
+  },
+  "domains": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-vault-of-kazad-doln",
+      "name": "Vault of Kazad-Doln",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "urban",
+      "classification": "Civilized",
+      "tags": [
+        "dwarven",
+        "vault",
+        "mountain",
+        "racial"
+      ],
+      "rulerCharacterId": "chr-vaultlord-thorgrim",
+      "administersThisMonth": false,
+      "liegeId": null,
+      "vassalIds": [
+        "dom-thane-hold-of-brokk"
+      ],
+      "isRealm": true,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 0,
+          "r": 0
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 3,
+        "claimedHexes": 4,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-kazad-doln-gates",
+            "coord": {
+              "q": 0,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 0,
+            "valuePerFamily": 9,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "mountain",
+            "primaryStructure": "Great Gates of Kazad-Doln",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-kazad-doln-vault",
+              "name": "Kazad-Doln (the Great Vault)",
+              "families": 850,
+              "totalInvestment": 240000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": null,
+              "demandModifiers": {
+                "armor-weapons": -2,
+                "metals-ores": -3,
+                "stone-products": -2,
+                "grain-vegetables": 2
+              },
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class IV underground city. Vault halls cut into living stone over twelve generations. Forges, vaults, ancestor-shrines, and the Vaultlord's hall."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-ancestor-hall",
+                "name": "Hall of Ancestors",
+                "kind": "temple",
+                "description": "Burial-vault of every Vaultlord since the founding. Site of investiture and oath-taking."
+              },
+              {
+                "schemaVersion": 2,
+                "id": "poi-deep-forges",
+                "name": "Deep Forges",
+                "kind": "industry",
+                "description": "Three master forges and twenty journeyman-forges. The vault's economic engine."
+              }
+            ],
+            "monsterNotes": "Deep tunnels below the vault host kobold and worse. The Vaultguards keep them out.",
+            "notes": "Domain seat. The vault itself."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-kazad-doln-mines",
+            "coord": {
+              "q": 1,
+              "r": 0
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 120,
+            "valuePerFamily": 9,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "mountain",
+            "primaryStructure": "Iron-mine complex",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-iron-mine",
+                "name": "Kazad-Doln Iron Mine",
+                "kind": "industry",
+                "description": "Active iron mine. Worked by a clan of journeyman miners."
+              }
+            ],
+            "monsterNotes": "Occasional deep-tunnel intruders.",
+            "notes": "The vault's iron supply."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-kazad-doln-farms",
+            "coord": {
+              "q": -1,
+              "r": 1
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 60,
+            "valuePerFamily": 5,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "mountain valley",
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "The little surface-farming the vault tolerates. Most grain is bought in from the lowlands."
+          }
+        ],
+        "terrain": "mountain",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 180,
+        "urbanFamilies": 850,
+        "morale": 1,
+        "moraleNotes": "Vault loyalty is structural; morale is solid."
+      },
+      "treasury": {
+        "gp": 65000
+      },
+      "income": {
+        "landRevenuePerFamily": 8,
+        "serviceRevenuePerFamily": 5,
+        "taxPerFamily": 3,
+        "tributesIn": [
+          {
+            "fromDomainId": "dom-thane-hold-of-brokk",
+            "amount": 0
+          }
+        ],
+        "tariffs": 850,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": false,
+        "tributePct": 0,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-kazad-vaultguard",
+            "displayName": "Dwarven Vaultguard",
+            "unitTypeKey": "dwarven-vaultguard",
+            "count": 80,
+            "monthlyWage": 15,
+            "brPerSoldier": 0.125,
+            "stationedAtHexId": "hex-kazad-doln-gates"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "gar-kazad-arbalest",
+            "displayName": "Dwarven Crossbowmen",
+            "unitTypeKey": "dwarven-crossbow",
+            "count": 40,
+            "monthlyWage": 12,
+            "brPerSoldier": 0.1,
+            "stationedAtHexId": "hex-kazad-doln-gates"
+          }
+        ],
+        "totalMonthlyCost": 1680,
+        "totalBR": 14
+      },
+      "stronghold": {
+        "type": "Dwarven Vault (great)",
+        "buildValue": 220000,
+        "maintenancePerMonth": 92,
+        "garrisonCapacity": 400,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-kazad-doln-gates",
+            "structureKey": "vault-gates-great",
+            "quantity": 1,
+            "notes": "Great Gates — twin stone gatetowers with iron-bound doors weighing 20 tons each."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "str-kazad-doln-halls",
+            "structureKey": "vault-halls",
+            "quantity": 1,
+            "notes": "Twelve halls cut from living stone."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [
+        "chr-master-smith-durin"
+      ],
+      "urban": {
+        "marketClass": "IV",
+        "totalInvestment": 240000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "The great vault. Dwarven domain template — note the high revenue per family, the urban-classified mountain hexes, the racial unit types in the garrison."
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-thane-hold-of-brokk",
+      "name": "Thane-Hold of Brokk",
+      "createdAt": "2026-05-26",
+      "lastModifiedAt": "2026-05-26",
+      "type": "urban",
+      "classification": "Civilized",
+      "tags": [
+        "dwarven",
+        "thane-hold",
+        "mountain",
+        "vassal",
+        "racial",
+        "weaponcraft"
+      ],
+      "rulerCharacterId": "chr-thane-brokk",
+      "administersThisMonth": false,
+      "liegeId": "dom-vault-of-kazad-doln",
+      "vassalIds": [],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 2,
+          "r": -1
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 1,
+        "claimedHexes": 1,
+        "controlledHexList": [],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-brokk-hold",
+            "coord": {
+              "q": 2,
+              "r": -1
+            },
+            "classification": "Civilized",
+            "explored": true,
+            "families": 0,
+            "valuePerFamily": 8,
+            "landImprovementBonus": 0,
+            "landImprovementProjects": [],
+            "terrain": "mountain",
+            "primaryStructure": "Brokk's Hold (daughter-vault)",
+            "settlement": {
+              "schemaVersion": 2,
+              "id": "set-brokk-hold",
+              "name": "Brokk's Hold",
+              "families": 220,
+              "totalInvestment": 55000,
+              "foundedTurn": 1,
+              "foundedByCharacterId": "chr-thane-brokk",
+              "demandModifiers": {
+                "armor-weapons": -3
+              },
+              "rumors": [],
+              "entryways": null,
+              "regulatedAssets": null,
+              "notes": "Class VI weaponcraft daughter-vault. Specializes in war-axes and crossbows."
+            },
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [
+              {
+                "schemaVersion": 2,
+                "id": "poi-brokk-forge",
+                "name": "Brokk's Forge",
+                "kind": "industry",
+                "description": "The thane's master forge. His personal axe was forged here three decades ago."
+              }
+            ],
+            "monsterNotes": "",
+            "notes": "Brokk's seat. Single-hex domain — the hold is the whole domain."
+          }
+        ],
+        "terrain": "mountain",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 0,
+        "urbanFamilies": 220,
+        "morale": 1,
+        "moraleNotes": ""
+      },
+      "treasury": {
+        "gp": 8000
+      },
+      "income": {
+        "landRevenuePerFamily": 8,
+        "serviceRevenuePerFamily": 5,
+        "taxPerFamily": 3,
+        "tributesIn": [],
+        "tariffs": 220,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": true,
+        "tributePct": 10,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [
+          {
+            "schemaVersion": 2,
+            "id": "gar-brokk-vaultguard",
+            "displayName": "Dwarven Vaultguard",
+            "unitTypeKey": "dwarven-vaultguard",
+            "count": 25,
+            "monthlyWage": 15,
+            "brPerSoldier": 0.125,
+            "stationedAtHexId": "hex-brokk-hold"
+          }
+        ],
+        "totalMonthlyCost": 375,
+        "totalBR": 3.13
+      },
+      "stronghold": {
+        "type": "Dwarven Vault (small)",
+        "buildValue": 50000,
+        "maintenancePerMonth": 21,
+        "garrisonCapacity": 80,
+        "structures": [
+          {
+            "schemaVersion": 2,
+            "id": "str-brokk-gates",
+            "structureKey": "vault-gates-small",
+            "quantity": 1,
+            "notes": "Reinforced stone gate."
+          },
+          {
+            "schemaVersion": 2,
+            "id": "str-brokk-halls",
+            "structureKey": "vault-halls-small",
+            "quantity": 1,
+            "notes": "Two halls and the master forge."
+          }
+        ]
+      },
+      "specialists": [],
+      "henchmenCharacterIds": [],
+      "urban": {
+        "marketClass": "VI",
+        "totalInvestment": 55000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "Vassal of Kazad-Doln. Brokk pays tribute up to the Vaultlord."
+    }
+  ],
+  "characters": [
+    {
+      "schemaVersion": 2,
+      "id": "chr-vaultlord-thorgrim",
+      "name": "Vaultlord Thorgrim Stonehammer",
+      "alignment": "L",
+      "race": "dwarf",
+      "class": "Dwarven Vaultguard",
+      "level": 9,
+      "xp": 220000,
+      "hp": {
+        "current": 60,
+        "max": 60,
+        "hitDice": "9d8"
+      },
+      "ac": 7,
+      "attackThrow": 5,
+      "abilities": {
+        "STR": 16,
+        "INT": 12,
+        "WIS": 13,
+        "DEX": 11,
+        "CON": 17,
+        "CHA": 13
+      },
+      "savingThrows": {
+        "paralysis": 7,
+        "death": 6,
+        "blast": 9,
+        "implements": 10,
+        "spells": 11
+      },
+      "proficiencies": [
+        "Leadership",
+        "Manual of Arms",
+        "Magical Engineering",
+        "Craft (smithing)"
+      ],
+      "classPowers": [
+        "Dwarven darkvision",
+        "Dwarven detect-stone",
+        "Vaultguard initiative bonus"
+      ],
+      "henchmanCap": 6,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-kazad-doln-gates",
+      "currentDomainId": "dom-vault-of-kazad-doln",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Eighth Vaultlord of the Stonehammer line. Took the throne 32 years ago after his father's death in the deep-tunnel war. Has consolidated the vault and added the daughter-hold under Brokk.",
+      "personality": "Patient on the scale of stones. Forty years feels short to him.",
+      "goals": [
+        "Reopen the lower forge",
+        "Find his wandering nephew Durdan",
+        "Strike an alliance with the elven March of Silvanir"
+      ],
+      "relationships": [],
+      "secrets": "",
+      "voice": "Slow, deep, measured. Speaks in maxims.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 500,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "The Vaultlord. Dwarven Vaultguard — note the racial class and the high CON.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-master-smith-durin",
+      "name": "Master Smith Durin Forgehand",
+      "alignment": "L",
+      "race": "dwarf",
+      "class": "Dwarven Craftpriest",
+      "level": 6,
+      "xp": 65000,
+      "hp": {
+        "current": 30,
+        "max": 30,
+        "hitDice": "6d6"
+      },
+      "ac": 4,
+      "attackThrow": 9,
+      "abilities": {
+        "STR": 13,
+        "INT": 13,
+        "WIS": 16,
+        "DEX": 11,
+        "CON": 15,
+        "CHA": 12
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 8,
+        "blast": 11,
+        "implements": 7,
+        "spells": 9
+      },
+      "proficiencies": [
+        "Craft (smithing)",
+        "Theology",
+        "Magical Engineering"
+      ],
+      "classPowers": [
+        "Cast divine spells",
+        "Craftpriest sanctification"
+      ],
+      "henchmanCap": 5,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-kazad-doln-gates",
+      "currentDomainId": "dom-vault-of-kazad-doln",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Master of the deep forges. Combines smithing and the vault's ancestor-religion.",
+      "personality": "Stern, reverent, blunt about quality of work.",
+      "goals": [],
+      "relationships": [],
+      "secrets": "",
+      "voice": "",
+      "liegeCharacterId": "chr-vaultlord-thorgrim",
+      "loyalty": 2,
+      "monthlyWage": 150,
+      "upkeepMonthly": 120,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": false,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Craftpriest henchman. Dwarven divine caster.",
+      "controlledBy": "gm",
+      "socialTier": "henchman",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-thane-brokk",
+      "name": "Thane Brokk Axesinger",
+      "alignment": "L",
+      "race": "dwarf",
+      "class": "Dwarven Vaultguard",
+      "level": 6,
+      "xp": 65000,
+      "hp": {
+        "current": 42,
+        "max": 42,
+        "hitDice": "6d8"
+      },
+      "ac": 6,
+      "attackThrow": 8,
+      "abilities": {
+        "STR": 15,
+        "INT": 11,
+        "WIS": 12,
+        "DEX": 12,
+        "CON": 15,
+        "CHA": 11
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 8,
+        "blast": 11,
+        "implements": 12,
+        "spells": 13
+      },
+      "proficiencies": [
+        "Craft (smithing)",
+        "Manual of Arms",
+        "Leadership"
+      ],
+      "classPowers": [
+        "Dwarven darkvision",
+        "Dwarven detect-stone"
+      ],
+      "henchmanCap": 4,
+      "inventory": [],
+      "personalGp": 0,
+      "currentHexId": "hex-brokk-hold",
+      "currentDomainId": "dom-thane-hold-of-brokk",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "A master smith elevated to thaneship by Thorgrim three decades ago. Founded his own daughter-vault and rules it under oath to the Vaultlord.",
+      "personality": "Direct, craft-proud, deeply loyal to Thorgrim.",
+      "goals": [
+        "Expand the daughter-vault by one hall",
+        "Train his nephew as successor"
+      ],
+      "relationships": [
+        {
+          "characterId": "chr-vaultlord-thorgrim",
+          "kind": "liege",
+          "notes": "Sworn vassal."
+        }
+      ],
+      "secrets": "",
+      "voice": "Gruff, given to craft-metaphors.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 200,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Vassal Thane. Owes tribute to Kazad-Doln.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null
+    }
+  ],
+  "parties": [],
+  "ventures": [],
+  "passiveInvestments": [],
+  "deities": [],
+  "banks": [],
+  "loans": [],
+  "pendingEvents": [],
+  "eventLog": [],
+  "henchmanships": [
+    {
+      "schemaVersion": 2,
+      "id": "hen-1hndt8j",
+      "subjectCharacterId": "chr-master-smith-durin",
+      "patronCharacterId": "chr-vaultlord-thorgrim",
+      "hiredAtTurn": 1,
+      "signingBonusPaidGp": 0,
+      "wageStreamGpMo": 150,
+      "currentLoyalty": 2,
+      "loyaltyHistory": [],
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    }
+  ],
+  "vassalages": [
+    {
+      "schemaVersion": 2,
+      "id": "vas-j0j53rr",
+      "vassalRulerCharacterId": "chr-thane-brokk",
+      "suzerainCharacterId": "chr-vaultlord-thorgrim",
+      "vassalDomainId": "dom-thane-hold-of-brokk",
+      "suzerainDomainId": "dom-vault-of-kazad-doln",
+      "oathTakenAtTurn": 1,
+      "witnessCharacterIds": [],
+      "recognitionStatus": "recognized",
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "migrated-from-legacy-scalar"
+        }
+      ],
+      "status": "active"
+    }
+  ]
+}

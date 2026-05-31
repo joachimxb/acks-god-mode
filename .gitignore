@@ -1,0 +1,34 @@
+# Local archives (recovery snapshots — kept locally for rollback, not public)
+_archive/
+
+# Personal campaign saves and gameplay-private folders
+Campaigns/
+Armies/
+Domains/
+Maps/
+
+# Temp + backup files
+*.tmp
+*.bak
+*.swp
+*~
+
+# OS-specific clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+nppBackup/
+
+# Node (none used today, but defensive)
+node_modules/
+package-lock.json
+
+# Recovery / dev scripts that aren't part of the tool
+outputs/
+*.tmp.js
