@@ -3076,7 +3076,95 @@ document.addEventListener('alpine:init', () => {
                                 </template>
                               </select>
                             </template>
-                            <template x-if="!['string','longText','number','gp','boolean','enum','id'].includes(field.type)">
+                            <!-- array (Wave B.6) — sub-list of records, one bordered row per item.
+                                 Leaf edits inside an item commit a dotted/indexed path (coins.0.amount);
+                                 add/remove change array length and go through the clone-first helpers. -->
+                            <template x-if="field.type === 'array'">
+                              <div class="space-y-2">
+                                <template x-for="(item, i) in (inspectorFieldValue(inspectorCurrentEntity(), field.name) || [])" :key="i">
+                                  <div class="border border-ink/40 rounded p-2 space-y-1">
+                                    <div class="flex justify-between items-center">
+                                      <span class="text-sm opacity-60" x-text="'#' + (i + 1)"></span>
+                                      <button @click="inspectorRemoveArrayItem(inspectorCurrentEntity(), field.name, i)" class="text-sm accent-red">✕ remove</button>
+                                    </div>
+                                    <template x-for="sub in (field.itemSchema && field.itemSchema.fields ? field.itemSchema.fields : [])" :key="sub.name">
+                                      <div class="text-sm flex items-baseline gap-2 flex-wrap">
+                                        <label class="w-32 opacity-70" x-text="sub.label || sub.name"></label>
+                                        <div class="flex-1">
+                                          <template x-if="sub.type === 'string'">
+                                            <input :value="inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name) || ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name, $event.target.value)" class="w-full text-sm border border-ink rounded px-2 py-1">
+                                          </template>
+                                          <template x-if="sub.type === 'number' || sub.type === 'gp'">
+                                            <input type="number" :value="inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name) ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name, $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:8rem">
+                                          </template>
+                                          <template x-if="sub.type === 'boolean'">
+                                            <input type="checkbox" :checked="!!inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name)" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name, $event.target.checked)">
+                                          </template>
+                                          <template x-if="sub.type === 'enum'">
+                                            <select @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name, $event.target.value)" class="text-sm border border-ink rounded px-2 py-1">
+                                              <option value="" :selected="!inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name)">—</option>
+                                              <template x-for="v in (sub.enumValues || [])" :key="v">
+                                                <option :value="v" :selected="v === inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name)" x-text="v"></option>
+                                              </template>
+                                            </select>
+                                          </template>
+                                          <template x-if="sub.type === 'id'">
+                                            <select @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name, $event.target.value || null)" class="text-sm border border-ink rounded px-2 py-1" style="min-width:12rem">
+                                              <option value="" :selected="!inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name)">—</option>
+                                              <template x-for="e in inspectorIdPickerOptions(sub.idKind)" :key="e.id">
+                                                <option :value="e.id" :selected="e.id === inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + i + '.' + sub.name)" x-text="inspectorDisplayName(sub.idKind, e.id) + ' (' + e.id + ')'"></option>
+                                              </template>
+                                            </select>
+                                          </template>
+                                        </div>
+                                      </div>
+                                    </template>
+                                  </div>
+                                </template>
+                                <button @click="inspectorAddArrayItem(inspectorCurrentEntity(), field.name, field)" class="text-sm border border-ink rounded px-2 py-1 hover:bg-yellow-100">+ add</button>
+                              </div>
+                            </template>
+                            <!-- enumMulti (Wave B.6) — pick-many; value is a string array of enumValues. -->
+                            <template x-if="field.type === 'enumMulti'">
+                              <div class="space-y-1">
+                                <template x-for="v in (field.enumValues || [])" :key="v">
+                                  <label class="flex items-center gap-2 text-sm">
+                                    <input type="checkbox" :checked="(inspectorFieldValue(inspectorCurrentEntity(), field.name) || []).includes(v)" @change="inspectorToggleEnumMulti(inspectorCurrentEntity(), field.name, v, $event.target.checked)">
+                                    <span x-text="v"></span>
+                                  </label>
+                                </template>
+                              </div>
+                            </template>
+                            <!-- idArray (Wave B.6) — array of id refs; list-with-remove + add-via-select picker. -->
+                            <template x-if="field.type === 'idArray'">
+                              <div class="space-y-1">
+                                <template x-for="(id, i) in (inspectorFieldValue(inspectorCurrentEntity(), field.name) || [])" :key="id">
+                                  <div class="flex items-center gap-2 text-sm">
+                                    <span x-text="inspectorDisplayName(field.idKind, id) + ' (' + id + ')'"></span>
+                                    <button @click="inspectorRemoveIdArrayItem(inspectorCurrentEntity(), field.name, i)" class="accent-red">✕ remove</button>
+                                  </div>
+                                </template>
+                                <select @change="inspectorAddIdArrayItem(inspectorCurrentEntity(), field.name, $event.target.value); $event.target.value = ''" class="text-sm border border-ink rounded px-2 py-1" style="min-width:14rem">
+                                  <option value="">+ add…</option>
+                                  <template x-for="e in inspectorIdPickerOptions(field.idKind)" :key="e.id">
+                                    <option :value="e.id" x-text="inspectorDisplayName(field.idKind, e.id) + ' (' + e.id + ')'"></option>
+                                  </template>
+                                </select>
+                              </div>
+                            </template>
+                            <!-- coord (Wave B.6) — {q, r}; two small number inputs, each committed by axis path. -->
+                            <template x-if="field.type === 'coord'">
+                              <div class="flex items-center gap-2 text-sm">
+                                <label class="flex items-baseline gap-1">q
+                                  <input type="number" :value="(inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}).q ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.q', $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                                </label>
+                                <label class="flex items-baseline gap-1">r
+                                  <input type="number" :value="(inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}).r ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.r', $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                                </label>
+                              </div>
+                            </template>
+                            <!-- Deferred: 'object' (needs a fields[] sub-schema convention + validator support — define in Wave C with the first object-using schema) and 'date' (defer until the Calendar layer ships a date primitive). -->
+                            <template x-if="!['string','longText','number','gp','boolean','enum','id','array','enumMulti','idArray','coord'].includes(field.type)">
                               <span class="text-sm opacity-60 italic">
                                 Editor for type <code x-text="field.type"></code> coming in a later wave. Current value: <span x-text="inspectorFormatField(field, inspectorFieldValue(inspectorCurrentEntity(), field.name))"></span>
                               </span>
@@ -6501,6 +6589,62 @@ return {
     });
   },
 
+  // ─── Composite-field edit helpers (Wave B.6 — 2026-05-31) ───
+  // Array-length-changing edits commit the WHOLE array as newValue. CRITICAL: clone
+  // the array first, mutate the clone, never the live array — inspectorSetField early-
+  // returns when oldValue === newValue (same reference), so an in-place mutation would
+  // be silently swallowed. (Same idiom as the constructionSupervisorCharacterIds editor.)
+  // Leaf edits inside an item, and coord axes, don't change length — the markup commits
+  // those via a dotted/indexed path inline (same idiom as the inventory editor).
+
+  // Append a blank item to an array field, shaped by itemSchema.fields defaults.
+  inspectorAddArrayItem(entity, fieldName, field){
+    const cur = this.inspectorFieldValue(entity, fieldName);
+    const list = Array.isArray(cur) ? cur.slice() : [];
+    const item = {};
+    const subs = (field && field.itemSchema && Array.isArray(field.itemSchema.fields)) ? field.itemSchema.fields : [];
+    for(const sub of subs){
+      if(sub.default !== undefined){ item[sub.name] = sub.default; continue; }
+      switch(sub.type){
+        case 'number': case 'gp': case 'id': item[sub.name] = null; break;
+        case 'boolean': item[sub.name] = false; break;
+        case 'enum': item[sub.name] = (Array.isArray(sub.enumValues) && sub.enumValues.length) ? sub.enumValues[0] : ''; break;
+        default: item[sub.name] = ''; break; // string + any other leaf sub-type
+      }
+    }
+    list.push(item);
+    this.inspectorSetField(entity, fieldName, list);
+  },
+  inspectorRemoveArrayItem(entity, fieldName, i){
+    const cur = this.inspectorFieldValue(entity, fieldName);
+    const list = Array.isArray(cur) ? cur.slice() : [];
+    if(i < 0 || i >= list.length) return;
+    list.splice(i, 1);
+    this.inspectorSetField(entity, fieldName, list);
+  },
+  inspectorToggleEnumMulti(entity, fieldName, val, on){
+    const cur = this.inspectorFieldValue(entity, fieldName);
+    const list = Array.isArray(cur) ? cur.slice() : [];
+    const idx = list.indexOf(val);
+    if(on){ if(idx === -1) list.push(val); }
+    else if(idx !== -1){ list.splice(idx, 1); }
+    this.inspectorSetField(entity, fieldName, list);
+  },
+  inspectorAddIdArrayItem(entity, fieldName, id){
+    if(!id) return;
+    const cur = this.inspectorFieldValue(entity, fieldName);
+    const list = Array.isArray(cur) ? cur.slice() : [];
+    if(!list.includes(id)) list.push(id);
+    this.inspectorSetField(entity, fieldName, list);
+  },
+  inspectorRemoveIdArrayItem(entity, fieldName, i){
+    const cur = this.inspectorFieldValue(entity, fieldName);
+    const list = Array.isArray(cur) ? cur.slice() : [];
+    if(i < 0 || i >= list.length) return;
+    list.splice(i, 1);
+    this.inspectorSetField(entity, fieldName, list);
+  },
+
   // Picker options for type='id' fields — lists all entities of the schema-declared idKind.
   inspectorIdPickerOptions(idKind){
     return this.inspectorListEntities(idKind);
@@ -6543,6 +6687,7 @@ return {
       const label = this.inspectorDisplayName(field.idKind, value);
       return label + ' (' + value + ')';
     }
+    if(field.type === 'enumMulti' && Array.isArray(value)) return value.length ? value.join(', ') : '—';
     if(field.type === 'idArray' && Array.isArray(value)) return '[' + value.length + ' refs]';
     if(field.type === 'gp' && typeof value === 'number') return value.toLocaleString() + ' gp';
     if(field.type === 'coord' && value && value.q != null) return '(' + value.q + ',' + value.r + ')';
