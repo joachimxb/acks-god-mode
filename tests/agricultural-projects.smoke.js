@@ -398,6 +398,33 @@ console.log('--- Calendar integration (commitTurn drives runDayTickToMonthEnd) -
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SECTION 7 — UI CONTRACT. The wave's payoff: the shipped demo carries a live day-tick
+// consumer, so the Day Clock auto-engages and lists agricultural improvement as a
+// monthly-cadence activity. This exercises the exact engine surface index.html reads
+// (dayTickActivityInFlight + proposeDayTick) without needing a browser — the wave touched
+// no index.html, so the only question is whether the engine feeds the existing UI correctly.
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('--- UI contract: Day Clock engages on the agricultural Project (demo) ---');
+try {
+  require(path.join(__dirname, '..', 'acks-demo-template.js'));
+  const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
+  check('UI: demo ships an under-construction agricultural Project',
+    (demo.projects||[]).some(p => p.constructibleKind === 'agricultural-improvement' && p.lifecycleState === 'under-construction'));
+  check('UI: dayTickActivityInFlight(demo) is true (Day Clock auto-engages)',
+    ACKS.dayTickActivityInFlight(demo) === true);
+  const tick = ACKS.proposeDayTick(demo, 1);
+  const recs = (tick && tick.pendingRecords) || [];
+  const agRec = recs.find(r => r && /agricultural/i.test((r.label || '') + ''));
+  check('UI: proposeDayTick lists the agricultural Project', !!agRec, 'records: ' + JSON.stringify(recs.map(r => r.label)));
+  if(agRec){
+    check('UI: agricultural day record is monthly cadence', agRec.cadence === 'monthly', 'cadence: ' + agRec.cadence);
+    check('UI: agricultural day record has zero per-day labor', (agRec.laborGained || 0) === 0, 'got ' + agRec.laborGained);
+    check('UI: agricultural day record routed under the construction consumer', agRec.consumer === 'construction', 'consumer: ' + agRec.consumer);
+    check('UI: agricultural label is not the misleading "+0 cf"', !/\+0 cf/.test(agRec.label || ''), 'label: ' + agRec.label);
+  }
+} catch(e){ check('UI: contract section ran without throwing', false, e.message); }
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);
