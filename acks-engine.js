@@ -913,6 +913,56 @@ function syncAgriculturalProject(campaign, hex, opts){
   return proj;
 }
 
+// ── Time-based construction (RAW RR p.174 — 2026-05-31) ──
+// RAW: construction is labor-paid and takes TIME — each day, workers add a gp "construction rate"
+// toward the cost. RAW's "Typical Laborer" simplification (RR p.174): 3,000 laborers build 500gp/day,
+// so a 25,000gp land-improvement step takes ~50 days. We default agricultural improvement to this
+// flat rate; a workforce-driven per-domain rate is an optional refinement. These helpers are the
+// shared foundation for the day-tick drip; they are inert until the day-tick consumer uses them.
+const AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY = 500; // gp/day (RR p.174 "Typical Laborer")
+
+// gp/day at which an agricultural improvement progresses. Flat Typical-Laborer default for now;
+// the signature carries campaign/domain/hex so a workforce-driven model can layer in without churn.
+function agriculturalConstructionRatePerDay(campaign, domain, hex){
+  return AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY;
+}
+
+// Supervisor adequacy for a hex's agricultural improvement (RR p.174: a structure/vessel project
+// MUST be overseen by a siege engineer [≤25,000gp] or engineer [≤100,000gp]; multiple may
+// co-supervise, caps additive). On-site = supervisor.currentHexId is this hex, or unset (permissive
+// for legacy data whose character locations aren't filled in). Returns { ok, totalCap, report[],
+// blockReason }. When remainingStepCost is given, enforces the cap-covers-the-remaining-step rule.
+// Extracted from the commitTurn ag block so the day-tick consumer and the monthly path agree.
+function agriculturalSupervisorAdequacy(campaign, hex, remainingStepCost){
+  const ids = (hex && Array.isArray(hex.constructionSupervisorCharacterIds)) ? hex.constructionSupervisorCharacterIds
+            : (hex && hex.constructionSupervisorCharacterId ? [hex.constructionSupervisorCharacterId] : []);
+  const report = [];
+  let totalCap = 0;
+  const findCh = (id) => ((campaign && campaign.characters) || []).find(c => c && c.id === id) || null;
+  if(!ids || ids.length === 0){
+    return { ok: false, totalCap: 0, report, blockReason: 'no supervisor assigned' };
+  }
+  ids.forEach(sid => {
+    const sup = findCh(sid);
+    if(!sup){ report.push({ id: sid, name: '(missing)', onSite: false, cap: 0, reason: 'character not found' }); return; }
+    const cap = sup.constructionSupervisorCap || 0;
+    const onSite = !sup.currentHexId || sup.currentHexId === hex.id;
+    if(cap <= 0){ report.push({ id: sid, name: sup.name, onSite, cap, reason: 'not a construction supervisor (cap = 0)' }); return; }
+    if(!onSite){ report.push({ id: sid, name: sup.name, onSite: false, cap, reason: 'not on-site (at a different hex)' }); return; }
+    report.push({ id: sid, name: sup.name, onSite: true, cap });
+    totalCap += cap;
+  });
+  if(totalCap <= 0){
+    const issues = report.filter(r => r.reason).map(r => r.name + ': ' + r.reason).join('; ');
+    return { ok: false, totalCap: 0, report, blockReason: 'no eligible on-site supervisor (' + (issues || 'none') + ')' };
+  }
+  if(remainingStepCost != null && totalCap < remainingStepCost){
+    return { ok: false, totalCap, report,
+      blockReason: 'combined on-site supervisor cap (' + totalCap.toLocaleString() + 'gp) below remaining step cost (' + Number(remainingStepCost).toLocaleString() + 'gp)' };
+  }
+  return { ok: true, totalCap, report, blockReason: '' };
+}
+
 // Backfill migration: lift existing in-progress agricultural improvements onto Project entities.
 // Walks campaign.hexes (the canonical top-level collection — it carries hex.domainId and, after
 // liftToTopLevelCollections, is reference-unified with domain.geography.hexes). Only hexes with
@@ -4157,6 +4207,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findProject, findConstructible, projectsAtHex, constructiblesAtHex, projectsForDomain, constructiblesForDomain,
   // Wave Construction-B — agricultural-improvement on the unified Project model
   migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
+  // Time-based construction (RR p.174) — rate + supervisor-adequacy foundation
+  AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
   // Schema + identity
   SCHEMA_VERSION, ID_PREFIXES, newId, slugify,
 

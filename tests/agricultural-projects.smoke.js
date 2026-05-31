@@ -480,6 +480,42 @@ try {
 } catch(e){ check('UI: contract section ran without throwing', false, e.message); }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// R1 — time-based construction foundation: rate + supervisor adequacy (RR p.174).
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('--- Time-based construction R1: rate + supervisor adequacy (RR p.174) ---');
+{
+  check('R1: rate constant = 500 gp/day (Typical Laborer)', ACKS.AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY === 500);
+  check('R1: 25,000gp step / 500 per day = 50 days', COST / ACKS.AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY === 50);
+  check('R1: agriculturalConstructionRatePerDay default is 500', ACKS.agriculturalConstructionRatePerDay({}, {}, {}) === 500);
+
+  const camp = ACKS.blankCampaign({ name: 'sup' });
+  const hex = ACKS.blankHex({ id: 'hex-s', coord: { q:0, r:0 } });
+  const eng = ACKS.blankCharacter({ name: 'Engy' });
+  eng.id = 'chr-eng'; eng.constructionSupervisorCap = 25000; eng.currentHexId = 'hex-s';
+  camp.characters = [eng];
+
+  check('R1 sup: none assigned -> not ok', (() => { const r = ACKS.agriculturalSupervisorAdequacy(camp, hex, COST); return r.ok === false && /no supervisor/.test(r.blockReason); })());
+
+  hex.constructionSupervisorCharacterIds = ['chr-eng'];
+  let r = ACKS.agriculturalSupervisorAdequacy(camp, hex, COST);
+  check('R1 sup: on-site siege engineer (cap 25k) covers a 25k step -> ok', r.ok === true && r.totalCap === 25000, JSON.stringify({ok:r.ok,cap:r.totalCap}));
+
+  r = ACKS.agriculturalSupervisorAdequacy(camp, hex, 30000);
+  check('R1 sup: cap below remaining step cost -> not ok', r.ok === false && /below remaining/.test(r.blockReason), r.blockReason);
+
+  eng.currentHexId = 'hex-other';
+  r = ACKS.agriculturalSupervisorAdequacy(camp, hex, COST);
+  check('R1 sup: off-site supervisor -> not ok', r.ok === false);
+  eng.currentHexId = 'hex-s';
+
+  const eng2 = { id: 'chr-eng2', name: 'Engy2', constructionSupervisorCap: 100000, currentHexId: 'hex-s' };
+  camp.characters.push(eng2);
+  hex.constructionSupervisorCharacterIds = ['chr-eng', 'chr-eng2'];
+  r = ACKS.agriculturalSupervisorAdequacy(camp, hex, COST);
+  check('R1 sup: multiple supervisors -> caps additive (125k)', r.ok === true && r.totalCap === 125000, JSON.stringify({ok:r.ok,cap:r.totalCap}));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);
