@@ -303,6 +303,35 @@ ok('demo eventLog entries all carry a known kind (no kind:undefined)', (DEMO.eve
 })();
 
 // =============================================================================
+section('Stash field-schema ↔ factory reconciliation (Wave B.6 Step 0)');
+// =============================================================================
+// The Inspector's stash editor writes through the field-schema, so every field it
+// references must be one blankStash/blankStashItem actually emits — else the GM edits
+// phantom fields the setters never read. (Mirrors the registry-vs-factory invariant.)
+const stashSchema = ACKS.fieldSchemaFor('stash');
+ok('stash field-schema exists', !!stashSchema);
+const stashKeys = new Set(Object.keys(ACKS.blankStash({})));
+const stashFieldNames = ((stashSchema && stashSchema.fields) || []).map(f => f.name);
+const stashExtras = stashFieldNames.filter(n => !stashKeys.has(n));
+ok('stash schema fields ⊆ blankStash keys', stashExtras.length === 0, 'extras: [' + stashExtras.join(', ') + ']');
+ok('stash uses canonical name (not label)', stashFieldNames.includes('name') && !stashFieldNames.includes('label'));
+ok('stash uses canonical kind (not stashKind)', stashFieldNames.includes('kind') && !stashFieldNames.includes('stashKind'));
+ok('stash uses canonical isHidden (not hidden)', stashFieldNames.includes('isHidden') && !stashFieldNames.includes('hidden'));
+ok('stash has no separate coins[] (coins are items with kind:coin)', !stashFieldNames.includes('coins'));
+// items itemSchema sub-fields ⊆ the union of blankStashItem's coin/bulk/item variant keys
+const stashItemKeys = new Set([
+  ...Object.keys(ACKS.blankStashItem({ kind: 'coin' })),
+  ...Object.keys(ACKS.blankStashItem({ kind: 'bulk' })),
+  ...Object.keys(ACKS.blankStashItem({ kind: 'item' })),
+]);
+const itemsField = ((stashSchema && stashSchema.fields) || []).find(f => f.name === 'items');
+ok('stash items is an array field with an itemSchema', !!itemsField && itemsField.type === 'array' && !!(itemsField.itemSchema && itemsField.itemSchema.fields));
+const stashSubNames = ((itemsField && itemsField.itemSchema && itemsField.itemSchema.fields) || []).map(f => f.name);
+const stashSubExtras = stashSubNames.filter(n => !stashItemKeys.has(n));
+ok('stash items itemSchema sub-fields ⊆ blankStashItem keys', stashSubExtras.length === 0, 'extras: [' + stashSubExtras.join(', ') + ']');
+ok('stash field-schema validates clean', ACKS.validateFieldSchema('stash', stashSchema).ok);
+
+// =============================================================================
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);

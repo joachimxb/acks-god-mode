@@ -131,32 +131,43 @@
       ]
     },
 
-    // Worked example 4.2 — complex entity with nested arrays
+    // Worked example 4.2 — complex entity with a nested array.
+    // RECONCILED 2026-05-31 (Wave B.6 Step 0) to match blankStash + blankStashItem +
+    // the stash setters (depositToStash/withdrawFromStash). Canonical shape: `name`
+    // (not label), `kind` (not stashKind), `isHidden` (not hidden), and ONE `items[]`
+    // array — coins are NOT a separate array; they are items with kind:'coin' +
+    // denomination + qty (see depositToStash's coin-merge-by-denomination). Every field
+    // here is one blankStash emits; every items sub-field is one blankStashItem emits
+    // (union across its coin/bulk/item variants). Guarded by a smoke invariant.
     'stash': {
       factory: 'blankStash',
       groups: ['Identity', 'Location', 'Ownership', 'Contents', 'History'],
       fields: [
         { name: 'id',          type: 'string', readonly: true, group: 'Identity' },
-        { name: 'label',       type: 'string', required: true,  group: 'Identity', description: 'Display name for this stash' },
-        { name: 'stashKind',   type: 'enum',   enumValues: ['treasury','personal','hex-cache','outpost-cache','venture-payload','party-loot','custom'], group: 'Identity' },
+        { name: 'name',        type: 'string', required: true,  group: 'Identity', description: 'Display name for this stash' },
+        { name: 'kind',        type: 'enum',   enumValues: ['treasury','personal','hex-cache','outpost-cache','venture-payload','party-loot','custom'], group: 'Identity', default: 'personal' },
         { name: 'hexId',       type: 'id',     idKind: 'hex', group: 'Location' },
         { name: 'ownerCharacterId', type: 'id', idKind: 'character', group: 'Ownership' },
+        { name: 'ownerPartyId',     type: 'id', idKind: 'party', group: 'Ownership' },
         { name: 'ownerDomainId',    type: 'id', idKind: 'domain', group: 'Ownership' },
-        { name: 'hidden',      type: 'boolean', group: 'Ownership', description: 'Gated by hidden-stashes house rule' },
-        { name: 'coins',       type: 'array', group: 'Contents', itemSchema: {
-          fields: [
-            { name: 'denomination', type: 'enum', enumValues: ['gp','sp','cp','pp','ep'], default: 'gp' },
-            { name: 'amount',       type: 'number', min: 0, required: true }
-          ]
-        }},
+        { name: 'isHidden',    type: 'boolean', group: 'Ownership', description: 'Gated by the hidden-stashes house rule' },
+        // One heterogeneous items array, discriminated by `kind`: coin {denomination, qty},
+        // bulk {label, qty, unit, encumbranceSt}, item {name, qty, encumbranceSt, magicItemId, notes}.
         { name: 'items',       type: 'array', group: 'Contents', itemSchema: {
           fields: [
-            { name: 'name',          type: 'string', required: true },
-            { name: 'quantity',      type: 'number', min: 0, default: 1 },
-            { name: 'gpValue',       type: 'gp' },
-            { name: 'notableItemId', type: 'id', idKind: 'notableItem', description: 'Set if this is a tracked Notable Item' }
+            { name: 'kind',         type: 'enum', enumValues: ['coin','bulk','item'], default: 'item', description: 'coin = currency · bulk = measured goods · item = discrete object' },
+            { name: 'denomination', type: 'enum', enumValues: ['gp','sp','cp','pp','ep'], default: 'gp', description: 'coin entries' },
+            { name: 'name',         type: 'string', description: 'item entries' },
+            { name: 'label',        type: 'string', description: 'bulk entries' },
+            { name: 'qty',          type: 'number', min: 0, default: 1 },
+            { name: 'unit',         type: 'string', description: 'bulk entries (e.g. stones)' },
+            { name: 'encumbranceSt', type: 'number', min: 0, description: 'encumbrance in stone' },
+            { name: 'magicItemId',  type: 'id', idKind: 'notableItem', description: 'set if this is a tracked Notable Item' },
+            { name: 'notes',        type: 'string' }
           ]
         }},
+        { name: 'notes',       type: 'string', group: 'Contents' },
+        { name: 'createdAtTurn', type: 'number', readonly: true, group: 'History' },
         { name: 'history',     type: 'history', readonly: true, group: 'History' }
       ]
     },
