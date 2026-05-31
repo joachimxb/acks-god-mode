@@ -332,6 +332,29 @@ ok('stash items itemSchema sub-fields ⊆ blankStashItem keys', stashSubExtras.l
 ok('stash field-schema validates clean', ACKS.validateFieldSchema('stash', stashSchema).ok);
 
 // =============================================================================
+section('object field-type validator + convention (Wave C Step 1)');
+// =============================================================================
+ok('object is a valid field type', ACKS.isValidFieldType('object'));
+// A well-formed object field carries a non-empty fields[] (sub-schema), recursively validated.
+const goodObjSchema = { fields: [
+  { name: 'groupTemplate', type: 'object', fields: [
+    { name: 'monsterCatalogKey', type: 'string' },
+    { name: 'creatureTypes', type: 'enumMulti', enumValues: ['humanoid', 'beast', 'dragon'] },
+    { name: 'hitDice', type: 'number' },
+  ] },
+] };
+const goodObj = ACKS.validateFieldSchema('test', goodObjSchema);
+ok('valid object-field schema passes', goodObj.ok === true, (goodObj.errors || []).join('; '));
+// Malformed: object with no fields[] is rejected.
+const noFields = ACKS.validateFieldSchema('test', { fields: [{ name: 'tmpl', type: 'object' }] });
+ok('object without fields[] rejected', noFields.ok === false && noFields.errors.some(e => /object type requires/.test(e)));
+// Malformed: empty fields[] is rejected.
+ok('object with empty fields[] rejected', ACKS.validateFieldSchema('test', { fields: [{ name: 'tmpl', type: 'object', fields: [] }] }).ok === false);
+// A bad sub-field inside an object is caught recursively.
+const badSub = ACKS.validateFieldSchema('test', { fields: [{ name: 'tmpl', type: 'object', fields: [{ name: 'x', type: 'notatype' }] }] });
+ok('bad sub-field type inside object rejected', badSub.ok === false && badSub.errors.some(e => /invalid type/.test(e)));
+
+// =============================================================================
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);

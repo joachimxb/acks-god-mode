@@ -76,6 +76,19 @@
     if(field.type === 'array' && !field.itemSchema){
       errors.push(tag + ': array type requires itemSchema');
     }
+    // object — nested record. Carries fields:[] directly (same shape as an array's
+    // itemSchema.fields). One level of nesting (object-of-scalars + enumMulti/idArray);
+    // recursively validate each sub-field. (Wave C — the deferred B.6 type.)
+    if(field.type === 'object'){
+      if(!Array.isArray(field.fields) || field.fields.length === 0){
+        errors.push(tag + ': object type requires a non-empty fields[] (the sub-schema)');
+      } else {
+        for(const sub of field.fields){
+          const subResult = validateFieldEntry(sub, tag + '{}');
+          if(!subResult.ok) errors.push.apply(errors, subResult.errors);
+        }
+      }
+    }
     if(field.group != null && typeof field.group !== 'string') errors.push(tag + ': group must be a string when set');
     return { ok: errors.length === 0, errors };
   }

@@ -3185,8 +3185,75 @@ document.addEventListener('alpine:init', () => {
                                 </label>
                               </div>
                             </template>
-                            <!-- Deferred: 'object' (needs a fields[] sub-schema convention + validator support — define in Wave C with the first object-using schema) and 'date' (defer until the Calendar layer ships a date primitive). -->
-                            <template x-if="!['string','longText','number','gp','boolean','enum','id','array','enumMulti','idArray','coord'].includes(field.type)">
+                            <!-- object (Wave C) — nested record. Sub-fields live in field.fields[] (same shape
+                                 as an array's itemSchema.fields). Each sub-field commits via a dotted path
+                                 (groupTemplate.creatureTypes); _setByPath auto-creates the object on first write,
+                                 so a null object initializes itself. One level deep: scalars + enumMulti/idArray.
+                                 Reuses the existing dotted-path-aware helpers (no new helpers needed). -->
+                            <template x-if="field.type === 'object'">
+                              <div class="border border-ink/40 rounded p-2 space-y-1" style="background:#fbf7e8">
+                                <template x-for="sub in (field.fields || [])" :key="sub.name">
+                                  <div class="text-sm flex items-baseline gap-2 flex-wrap">
+                                    <label class="w-32 opacity-70" :title="sub.description || ''" x-text="sub.label || sub.name"></label>
+                                    <div class="flex-1">
+                                      <template x-if="sub.type === 'string' || sub.type === 'longText'">
+                                        <input :value="inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name) || ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + sub.name, $event.target.value)" class="w-full text-sm border border-ink rounded px-2 py-1">
+                                      </template>
+                                      <template x-if="sub.type === 'number' || sub.type === 'gp'">
+                                        <input type="number" :value="inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name) ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + sub.name, $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:8rem">
+                                      </template>
+                                      <template x-if="sub.type === 'boolean'">
+                                        <input type="checkbox" :checked="!!inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name)" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + sub.name, $event.target.checked)">
+                                      </template>
+                                      <template x-if="sub.type === 'enum'">
+                                        <select @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + sub.name, $event.target.value)" class="text-sm border border-ink rounded px-2 py-1">
+                                          <option value="" :selected="!inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name)">—</option>
+                                          <template x-for="v in (sub.enumValues || [])" :key="v">
+                                            <option :value="v" :selected="v === inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name)" x-text="v"></option>
+                                          </template>
+                                        </select>
+                                      </template>
+                                      <template x-if="sub.type === 'id'">
+                                        <select @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.' + sub.name, $event.target.value || null)" class="text-sm border border-ink rounded px-2 py-1" style="min-width:12rem">
+                                          <option value="" :selected="!inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name)">—</option>
+                                          <template x-for="e in inspectorIdPickerOptions(sub.idKind)" :key="e.id">
+                                            <option :value="e.id" :selected="e.id === inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name)" x-text="inspectorDisplayName(sub.idKind, e.id) + ' (' + e.id + ')'"></option>
+                                          </template>
+                                        </select>
+                                      </template>
+                                      <template x-if="sub.type === 'enumMulti'">
+                                        <div class="space-y-1">
+                                          <template x-for="v in (sub.enumValues || [])" :key="v">
+                                            <label class="flex items-center gap-2">
+                                              <input type="checkbox" :checked="(inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name) || []).includes(v)" @change="inspectorToggleEnumMulti(inspectorCurrentEntity(), field.name + '.' + sub.name, v, $event.target.checked)">
+                                              <span x-text="v"></span>
+                                            </label>
+                                          </template>
+                                        </div>
+                                      </template>
+                                      <template x-if="sub.type === 'idArray'">
+                                        <div class="space-y-1">
+                                          <template x-for="(id, j) in (inspectorFieldValue(inspectorCurrentEntity(), field.name + '.' + sub.name) || [])" :key="id">
+                                            <div class="flex items-center gap-2">
+                                              <span x-text="inspectorDisplayName(sub.idKind, id) + ' (' + id + ')'"></span>
+                                              <button @click="inspectorRemoveIdArrayItem(inspectorCurrentEntity(), field.name + '.' + sub.name, j)" class="accent-red">✕ remove</button>
+                                            </div>
+                                          </template>
+                                          <select @change="inspectorAddIdArrayItem(inspectorCurrentEntity(), field.name + '.' + sub.name, $event.target.value); $event.target.value = ''" class="text-sm border border-ink rounded px-2 py-1" style="min-width:12rem">
+                                            <option value="">+ add…</option>
+                                            <template x-for="e in inspectorIdPickerOptions(sub.idKind)" :key="e.id">
+                                              <option :value="e.id" x-text="inspectorDisplayName(sub.idKind, e.id) + ' (' + e.id + ')'"></option>
+                                            </template>
+                                          </select>
+                                        </div>
+                                      </template>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </template>
+                            <!-- Deferred: 'date' only (needs the Calendar date primitive — Phase 2.95). -->
+                            <template x-if="!['string','longText','number','gp','boolean','enum','id','array','enumMulti','idArray','coord','object'].includes(field.type)">
                               <span class="text-sm opacity-60 italic">
                                 Editor for type <code x-text="field.type"></code> coming in a later wave. Current value: <span x-text="inspectorFormatField(field, inspectorFieldValue(inspectorCurrentEntity(), field.name))"></span>
                               </span>
