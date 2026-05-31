@@ -194,10 +194,10 @@
       "abilities": {
         "STR": 15,
         "INT": 11,
-        "WIS": 12,
         "DEX": 12,
         "CON": 14,
-        "CHA": 13
+        "CHA": 13,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 12,
@@ -250,7 +250,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     }
   ],
   "parties": [],
@@ -260,5 +263,17 @@
   "banks": [],
   "loans": [],
   "pendingEvents": [],
-  "eventLog": []
+  "eventLog": [],
+  "currentDayInMonth": 1,
+  "dungeons": [],
+  "journeys": [],
+  "outposts": [],
+  "congregations": [],
+  "divineFavors": [],
+  "attunements": [],
+  "settlementVisits": [],
+  "oaths": [],
+  "vagaryOfIncursionEvents": [],
+  "projects": [],
+  "constructibles": []
 }

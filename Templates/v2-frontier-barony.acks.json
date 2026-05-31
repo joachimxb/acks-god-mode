@@ -281,10 +281,10 @@
       "abilities": {
         "STR": 16,
         "INT": 11,
-        "WIS": 12,
         "DEX": 13,
         "CON": 14,
-        "CHA": 13
+        "CHA": 13,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 9,
@@ -338,7 +338,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -359,10 +362,10 @@
       "abilities": {
         "STR": 14,
         "INT": 10,
-        "WIS": 11,
         "DEX": 12,
         "CON": 13,
-        "CHA": 9
+        "CHA": 9,
+        "WIL": 11
       },
       "savingThrows": {
         "paralysis": 11,
@@ -410,7 +413,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     }
   ],
   "parties": [],
@@ -441,5 +447,17 @@
       ],
       "status": "active"
     }
-  ]
+  ],
+  "currentDayInMonth": 1,
+  "dungeons": [],
+  "journeys": [],
+  "outposts": [],
+  "congregations": [],
+  "divineFavors": [],
+  "attunements": [],
+  "settlementVisits": [],
+  "oaths": [],
+  "vagaryOfIncursionEvents": [],
+  "projects": [],
+  "constructibles": []
 }

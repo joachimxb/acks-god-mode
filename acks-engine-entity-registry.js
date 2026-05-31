@@ -88,7 +88,8 @@
       addressable: true, chronicleable: true,
       list: (c) => (c && c.stashes) || [],
       find: (c, id) => ((c && c.stashes) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => (obj && obj.label) || (obj && obj.id) },
+      // blankStash emits `name`, not `label` (integration audit fix, 2026-05-31).
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
 
     { kind: 'notableItem', label: 'Notable Item', pluralLabel: 'Notable Items', icon: '⚔',
       addressable: true, chronicleable: true,
@@ -101,7 +102,8 @@
       addressable: true, chronicleable: true,
       list: (c) => (c && c.ventures) || [],
       find: (c, id) => ((c && c.ventures) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+      // blankVenture emits no `name`; describe by venturer → destination (integration audit fix).
+      displayName: (c, obj) => obj ? ((obj.venturerCharacterId || '?') + ' → ' + (obj.destinationDomainId || '?')) : '' },
 
     { kind: 'rumor', label: 'Rumor', pluralLabel: 'Rumors', icon: '💬',
       addressable: true, chronicleable: true,
@@ -127,7 +129,8 @@
       addressable: true, chronicleable: false,
       list: (c) => (c && c.henchmanships) || [],
       find: (c, id) => ((c && c.henchmanships) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => obj ? ((obj.henchmanCharacterId || '?') + ' under ' + (obj.patronCharacterId || '?')) : '' },
+      // blankHenchmanship emits `subjectCharacterId`, not `henchmanCharacterId` (integration audit fix).
+      displayName: (c, obj) => obj ? ((obj.subjectCharacterId || '?') + ' under ' + (obj.patronCharacterId || '?')) : '' },
 
     { kind: 'specialistContract', label: 'Specialist Contract', pluralLabel: 'Specialist Contracts', icon: '🛠',
       addressable: true, chronicleable: false,
@@ -157,7 +160,8 @@
       addressable: true, chronicleable: false,
       list: (c) => (c && c.tributaryAgreements) || [],
       find: (c, id) => ((c && c.tributaryAgreements) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => obj ? ((obj.payerDomainId || '?') + ' → ' + (obj.payeeDomainId || '?')) : '' },
+      // blankTributaryAgreement emits `recipientDomainId`, not `payeeDomainId` (integration audit fix).
+      displayName: (c, obj) => obj ? ((obj.payerDomainId || '?') + ' → ' + (obj.recipientDomainId || '?')) : '' },
 
     // ── RESERVED (collections defined; subsystems not yet shipped) ──
     { kind: 'congregation', label: 'Congregation', pluralLabel: 'Congregations', icon: '⛪',

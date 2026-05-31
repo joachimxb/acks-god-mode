@@ -1,6 +1,8 @@
-// Auto-generated from Templates/v2-established-march.acks.json on 2026-05-28.
-// Re-run outputs/build_demo_template_js.js after editing the source template.
-// Exposes window.ACKS_DEMO_TEMPLATE for the welcome-banner "Try the demo" CTA.
+// Auto-generated from Templates/v2-established-march.acks.json, then run through
+// ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces
+// (WIS→WIL, settlement entryways/regulatedAssets → [], v1-scope reservations, typed
+// eventLog). Regenerated 2026-05-31 (Foundation audit Step 5) — migrateCampaign is a
+// no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
   global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
@@ -727,10 +729,10 @@
       "abilities": {
         "STR": 16,
         "INT": 13,
-        "WIS": 13,
         "DEX": 12,
         "CON": 14,
-        "CHA": 15
+        "CHA": 15,
+        "WIL": 13
       },
       "savingThrows": {
         "paralysis": 8,
@@ -785,7 +787,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -806,10 +811,10 @@
       "abilities": {
         "STR": 14,
         "INT": 12,
-        "WIS": 11,
         "DEX": 13,
         "CON": 12,
-        "CHA": 11
+        "CHA": 11,
+        "WIL": 11
       },
       "savingThrows": {
         "paralysis": 10,
@@ -859,7 +864,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -880,10 +888,10 @@
       "abilities": {
         "STR": 15,
         "INT": 11,
-        "WIS": 12,
         "DEX": 13,
         "CON": 14,
-        "CHA": 11
+        "CHA": 11,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 9,
@@ -942,7 +950,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -963,10 +974,10 @@
       "abilities": {
         "STR": 11,
         "INT": 13,
-        "WIS": 16,
         "DEX": 11,
         "CON": 13,
-        "CHA": 14
+        "CHA": 14,
+        "WIL": 16
       },
       "savingThrows": {
         "paralysis": 9,
@@ -1028,7 +1039,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1048,10 +1062,10 @@
       "abilities": {
         "STR": 11,
         "INT": 14,
-        "WIS": 12,
         "DEX": 13,
         "CON": 11,
-        "CHA": 15
+        "CHA": 15,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 15,
@@ -1097,7 +1111,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1113,8 +1130,8 @@
         "DEX": 10,
         "CON": 11,
         "INT": 12,
-        "WIS": 14,
-        "CHA": 11
+        "CHA": 11,
+        "WIL": 14
       },
       "hp": {
         "current": 14,
@@ -1153,7 +1170,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     }
   ],
   "parties": [],
@@ -1240,7 +1260,9 @@
       "gmNotes": "",
       "appliedAtTurn": null,
       "parentEventId": null,
-      "supersededBy": null
+      "supersededBy": null,
+      "cadence": "monthly-turn",
+      "subdayContext": null
     },
     {
       "schemaVersion": 2,
@@ -1258,7 +1280,9 @@
       "gmNotes": "",
       "appliedAtTurn": null,
       "parentEventId": null,
-      "supersededBy": null
+      "supersededBy": null,
+      "cadence": "monthly-turn",
+      "subdayContext": null
     }
   ],
   "eventLog": [
@@ -1695,7 +1719,9 @@
       "pointsOfInterest": [],
       "monsterNotes": "",
       "notes": "Seat of the March. Town and keep share the hex.",
-      "domainId": "dom-march-of-saltspur"
+      "domainId": "dom-march-of-saltspur",
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1735,7 +1761,9 @@
       "monsterNotes": "",
       "notes": "Grain country. The march's breadbasket.",
       "domainId": "dom-march-of-saltspur",
-      "landImprovementInvested": 12500
+      "landImprovementInvested": 12500,
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1766,7 +1794,9 @@
       ],
       "monsterNotes": "",
       "notes": "Source of the march's salt wealth and identity.",
-      "domainId": "dom-march-of-saltspur"
+      "domainId": "dom-march-of-saltspur",
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1789,7 +1819,9 @@
       "pointsOfInterest": [],
       "monsterNotes": "",
       "notes": "Fishing villages along the coast.",
-      "domainId": "dom-march-of-saltspur"
+      "domainId": "dom-march-of-saltspur",
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1825,7 +1857,9 @@
       "pointsOfInterest": [],
       "monsterNotes": "",
       "notes": "Yorick's seat. Forward-watchtower against the wastes.",
-      "domainId": "dom-barony-northwatch"
+      "domainId": "dom-barony-northwatch",
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1848,7 +1882,9 @@
       "pointsOfInterest": [],
       "monsterNotes": "",
       "notes": "Mixed farmland.",
-      "domainId": "dom-barony-northwatch"
+      "domainId": "dom-barony-northwatch",
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1894,7 +1930,9 @@
       ],
       "monsterNotes": "",
       "notes": "Mira's seat. The shrine is the barony's identity.",
-      "domainId": "dom-barony-saltcombe"
+      "domainId": "dom-barony-saltcombe",
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1917,7 +1955,9 @@
       "pointsOfInterest": [],
       "monsterNotes": "",
       "notes": "Pilgrim-road farms.",
-      "domainId": "dom-barony-saltcombe"
+      "domainId": "dom-barony-saltcombe",
+      "economyType": "agricultural",
+      "terrainTransformationState": null
     }
   ],
   "settlements": [
@@ -1984,8 +2024,8 @@
       "foundedByCharacterId": null,
       "demandModifiers": {},
       "rumors": [],
-      "entryways": null,
-      "regulatedAssets": null,
+      "entryways": [],
+      "regulatedAssets": [],
       "notes": "A market hamlet under the tower's walls.",
       "hexId": "hex-northwatch-tower",
       "placesOfPower": []
@@ -2002,8 +2042,8 @@
         "salt": -1
       },
       "rumors": [],
-      "entryways": null,
-      "regulatedAssets": null,
+      "entryways": [],
+      "regulatedAssets": [],
       "notes": "A small priestly town built around the shrine.",
       "hexId": "hex-saltcombe-shrine",
       "placesOfPower": []
@@ -2324,6 +2364,18 @@
       ],
       "status": "active"
     }
-  ]
+  ],
+  "currentDayInMonth": 1,
+  "dungeons": [],
+  "journeys": [],
+  "outposts": [],
+  "congregations": [],
+  "divineFavors": [],
+  "attunements": [],
+  "settlementVisits": [],
+  "oaths": [],
+  "vagaryOfIncursionEvents": [],
+  "projects": [],
+  "constructibles": []
 };
-})(typeof window !== 'undefined' ? window : globalThis);
+})(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

@@ -1066,10 +1066,10 @@
       "abilities": {
         "STR": 16,
         "INT": 14,
-        "WIS": 14,
         "DEX": 12,
         "CON": 15,
-        "CHA": 16
+        "CHA": 16,
+        "WIL": 14
       },
       "savingThrows": {
         "paralysis": 5,
@@ -1124,7 +1124,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1145,10 +1148,10 @@
       "abilities": {
         "STR": 16,
         "INT": 12,
-        "WIS": 11,
         "DEX": 13,
         "CON": 14,
-        "CHA": 12
+        "CHA": 12,
+        "WIL": 11
       },
       "savingThrows": {
         "paralysis": 8,
@@ -1197,7 +1200,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1218,10 +1224,10 @@
       "abilities": {
         "STR": 9,
         "INT": 17,
-        "WIS": 14,
         "DEX": 12,
         "CON": 11,
-        "CHA": 13
+        "CHA": 13,
+        "WIL": 14
       },
       "savingThrows": {
         "paralysis": 13,
@@ -1273,7 +1279,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1294,10 +1303,10 @@
       "abilities": {
         "STR": 16,
         "INT": 12,
-        "WIS": 12,
         "DEX": 13,
         "CON": 14,
-        "CHA": 13
+        "CHA": 13,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 7,
@@ -1361,7 +1370,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1382,10 +1394,10 @@
       "abilities": {
         "STR": 14,
         "INT": 11,
-        "WIS": 12,
         "DEX": 13,
         "CON": 13,
-        "CHA": 11
+        "CHA": 11,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 9,
@@ -1433,7 +1445,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1454,10 +1469,10 @@
       "abilities": {
         "STR": 11,
         "INT": 14,
-        "WIS": 17,
         "DEX": 11,
         "CON": 13,
-        "CHA": 15
+        "CHA": 15,
+        "WIL": 17
       },
       "savingThrows": {
         "paralysis": 6,
@@ -1525,7 +1540,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1546,10 +1564,10 @@
       "abilities": {
         "STR": 14,
         "INT": 10,
-        "WIS": 12,
         "DEX": 12,
         "CON": 14,
-        "CHA": 11
+        "CHA": 11,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 9,
@@ -1607,7 +1625,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     },
     {
       "schemaVersion": 2,
@@ -1628,10 +1649,10 @@
       "abilities": {
         "STR": 13,
         "INT": 13,
-        "WIS": 12,
         "DEX": 14,
         "CON": 12,
-        "CHA": 13
+        "CHA": 13,
+        "WIL": 12
       },
       "savingThrows": {
         "paralysis": 10,
@@ -1689,7 +1710,10 @@
         "humanoid"
       ],
       "isEnchantedCreature": false,
-      "hitDice": null
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null
     }
   ],
   "parties": [],
@@ -1836,5 +1860,17 @@
       ],
       "status": "active"
     }
-  ]
+  ],
+  "currentDayInMonth": 1,
+  "dungeons": [],
+  "journeys": [],
+  "outposts": [],
+  "congregations": [],
+  "divineFavors": [],
+  "attunements": [],
+  "settlementVisits": [],
+  "oaths": [],
+  "vagaryOfIncursionEvents": [],
+  "projects": [],
+  "constructibles": []
 }

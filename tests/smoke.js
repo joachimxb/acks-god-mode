@@ -270,6 +270,39 @@ throws('applyEvent refuses __proto__ gm-fiat end-to-end', () => {
 ok('Object.prototype still clean after end-to-end attempt', ({}).polluted3 === undefined);
 
 // =============================================================================
+section('Data integrity — demo is a migrate no-op; registry matches factories');
+// =============================================================================
+// The shipped demo was regenerated through migrateCampaign, so loading it and migrating
+// again must change nothing (integration audit Critical: the sample must agree with the loader).
+deepEq('migrate(demo) is a no-op (demo === migrate(demo))', ACKS.migrateCampaign(clone(DEMO)), clone(DEMO));
+ok('demo ships WIL, not WIS', /"WIL"/.test(JSON.stringify(DEMO)) && !/"WIS"/.test(JSON.stringify(DEMO)));
+ok('demo settlements have array entryways/regulatedAssets', (DEMO.settlements || []).every(s => Array.isArray(s.entryways) && Array.isArray(s.regulatedAssets)));
+ok('demo eventLog entries all carry a known kind (no kind:undefined)', (DEMO.eventLog || []).every(e => ACKS.EVENT_KINDS.includes((e.event && e.event.kind) || e.kind)));
+
+// Entity Registry displayName accessors must only reference fields the matching blankX()
+// factory emits (integration audit: stash/venture/henchmanship/tributaryAgreement read
+// fields the factory didn't write → undefined/'?'). General check via an access-recording Proxy.
+(function () {
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  const entries = ACKS.ENTITY_KINDS_LIST || [];
+  let checked = 0, bad = 0;
+  for (const e of entries) {
+    if (!e || !e.kind || typeof e.displayName !== 'function') continue;
+    const factory = ACKS['blank' + cap(e.kind)];
+    if (typeof factory !== 'function') continue; // kinds without a blankX factory (campaign-level collections etc.)
+    let blank; try { blank = factory({}); } catch (_) { continue; }
+    const factoryKeys = new Set(Object.keys(blank));
+    const accessed = new Set();
+    const proxy = new Proxy(blank, { get(t, k) { if (typeof k === 'string') accessed.add(k); return t[k]; } });
+    try { e.displayName({}, proxy); } catch (_) { /* nested access on a null field */ }
+    const extras = [...accessed].filter(k => !factoryKeys.has(k));
+    checked++;
+    if (extras.length) { bad++; ok('registry ' + e.kind + ' displayName reads only factory fields', false, 'reads [' + extras.join(', ') + '] not emitted by blank' + cap(e.kind)); }
+  }
+  ok('all registry displayName accessors match their factories (' + checked + ' kinds checked)', bad === 0);
+})();
+
+// =============================================================================
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);
