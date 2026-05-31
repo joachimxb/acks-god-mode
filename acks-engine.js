@@ -3872,6 +3872,26 @@ function proposeConstructionDay(campaign, dayContext){
     : ((wc) => Object.values(wc||{}).reduce((s,n) => s + (n||0)*5, 0));
   for(const p of campaign.projects){
     if(!p || p.lifecycleState !== 'under-construction') continue;
+    // Wave Construction-B — agricultural improvement is a MONTHLY gp investment, not per-day
+    // worker labor (design decision flagged for Joachim — Phase_4_Construction_Plan.md Wave
+    // Construction-B §4). The Day Clock LISTS it (so the GM sees the activity in flight) but its
+    // progress lands at month-end via commitTurn's ratchet — per-day delta is 0. Do NOT run
+    // totalDailyOutputCf: it returns 0 for gp-denominated work and would render a misleading
+    // "+0 cf" label. The record is a no-op for commitConstructionRecord (labor/days unchanged,
+    // willComplete false), so day-tick subsumption never corrupts the Project.
+    if(p.constructibleKind === 'agricultural-improvement'){
+      const nm = p.name || 'Agricultural improvement';
+      pendingRecords.push({
+        kind: 'construction-progress', projectId: p.id,
+        label: nm + ' — monthly investment (advances at month-end)',
+        cadence: 'monthly',
+        daysAdded: days, laborGained: 0,
+        fromLaborInvested: p.laborInvested || 0, newLaborInvested: p.laborInvested || 0,
+        fromDaysElapsed: p.daysElapsed || 0, newDaysElapsed: p.daysElapsed || 0,
+        willComplete: false, primaryHexId: p.siteHexId || null
+      });
+      continue;
+    }
     let outputCfPerDay = CW(p.workerCounts);
     if(useRealisticCap){
       const cap = supervisorCapTotal(p);
