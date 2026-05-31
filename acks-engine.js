@@ -924,6 +924,20 @@ function migrateAgriculturalToProjects(campaign){
   if(!campaign || typeof campaign !== 'object') return campaign;
   if(!Array.isArray(campaign.projects)) campaign.projects = [];
   const hexes = Array.isArray(campaign.hexes) ? campaign.hexes : [];
+  const hexById = Object.create(null);
+  for(const h of hexes){ if(h && h.id) hexById[h.id] = h; }
+  // Reconcile EXISTING agricultural Projects to their hex's canonical state. Catches lifecycleState
+  // / gpSpent drift — e.g. a Project left 'under-construction' after its hex reached the value or
+  // bonus cap (whether via a GM hex edit in the Inspector, the legacy landImprovementProjects
+  // completion path, or a save written by an older build). Canonical-setter doctrine, CLAUDE.md
+  // principle #10: stored fields that should agree must never drift — reconcile at load. Resync
+  // only; no history entry appended.
+  for(const proj of campaign.projects){
+    if(!proj || proj.constructibleKind !== 'agricultural-improvement') continue;
+    const hex = hexById[proj.siteHexId];
+    if(hex) syncAgriculturalProject(campaign, hex, { domainId: proj.ownerDomainId || hex.domainId || null });
+  }
+  // Create live Projects for in-progress hexes (landImprovementInvested > 0) that lack one.
   for(const hex of hexes){
     if(!hex || !hex.id) continue;
     const invested = hex.landImprovementInvested || 0;

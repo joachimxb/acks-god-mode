@@ -320,6 +320,23 @@ if(typeof ACKS.migrateAgriculturalToProjects !== 'function'){
   ACKS.migrateAgriculturalToProjects(c);
   check('migration: idempotent (still one Project)', c.projects.filter(p => p.constructibleKind === 'agricultural-improvement').length === 1);
 
+  // RECONCILE (canonical-setter doctrine): a Project left 'under-construction' after its hex
+  // reached the cap (e.g. via a GM hex edit) is corrected to 'complete' on the next load.
+  {
+    const rc = ACKS.blankCampaign({ name: 'Reconcile' });
+    rc.projects = [];
+    const cappedHex = Object.assign(ACKS.blankHex({ id: 'hex-capped', coord: { q:5, r:5 } }),
+      { valuePerFamily: 7, landImprovementBonus: 2, landImprovementInvested: 0, domainId: 'dom-x' }); // 7+2 = 9 value cap
+    rc.hexes = [cappedHex];
+    rc.projects.push(ACKS.blankProject({ id: 'prj-stuck', constructibleKind: 'agricultural-improvement',
+      siteHexId: 'hex-capped', ownerDomainId: 'dom-x', lifecycleState: 'under-construction', gpSpent: 0 }));
+    ACKS.migrateAgriculturalToProjects(rc);
+    const fixed = rc.projects.find(p => p.id === 'prj-stuck');
+    check('reconcile: stuck under-construction Project on a capped hex -> complete', fixed && fixed.lifecycleState === 'complete', 'got ' + (fixed && fixed.lifecycleState));
+    check('reconcile: gpSpent resynced to cumulative (2*25000)', fixed && fixed.gpSpent === 2*COST, 'got ' + (fixed && fixed.gpSpent));
+    check('reconcile: did not duplicate the Project', rc.projects.filter(p => p.constructibleKind === 'agricultural-improvement').length === 1);
+  }
+
   // demo template carries hex-saltspur-vale invested=12500 -> migrate yields a live consumer
   try {
     const demoMod = require(path.join(__dirname, '..', 'acks-demo-template.js'));
