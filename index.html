@@ -598,7 +598,10 @@ document.addEventListener('alpine:init', () => {
                 <td>
                   <template x-if="rulerCharacter(entry.domain)">
                     <span>
-                      <span x-text="rulerCharacter(entry.domain).name || '(unnamed)'"></span>
+                      <button type="button" @click.stop="openCharacterEditor(rulerCharacter(entry.domain))"
+                        class="underline decoration-dotted hover:decoration-solid cursor-pointer"
+                        title="Open character sheet"
+                        x-text="rulerCharacter(entry.domain).name || '(unnamed)'"></button>
                       <span class="opacity-70" x-text="' · ' + (rulerCharacter(entry.domain).class || '?') + ' L' + (rulerCharacter(entry.domain).level || '?')"></span>
                     </span>
                   </template>
