@@ -387,6 +387,116 @@ const badSub = ACKS.validateFieldSchema('test', { fields: [{ name: 'tmpl', type:
 ok('bad sub-field type inside object rejected', badSub.ok === false && badSub.errors.some(e => /invalid type/.test(e)));
 
 // =============================================================================
+// -----------------------------------------------------------------------------
+// Calendar day-tick pipeline (Phase 2.95 C3/C4/C6/C7)
+// -----------------------------------------------------------------------------
+section('Calendar day-tick pipeline (Phase 2.95)');
+(function dayTickTests(){
+  function mkCamp(){
+    const c = ACKS.blankCampaign({ name: 'day-tick' });
+    if(!c.calendar) c.calendar = { year:1, month:1, day:1 };
+    c.currentDayInMonth = 1; c.calendar.day = 1;
+    c.projects = c.projects || [];
+    c.eventLog = c.eventLog || [];
+    c.houseRules = c.houseRules || {};
+    return c;
+  }
+  function mkProject(over){
+    return Object.assign({ id:'prj-'+Math.random().toString(36).slice(2,8), constructibleKind:'tower', lifecycleState:'under-construction', workerCounts:{ laborers:10 }, laborInvested:0, laborRequired:1e9, daysElapsed:0 }, over||{});
+  }
+
+  ok('day-tick: registerDayConsumer exported', typeof ACKS.registerDayConsumer === 'function');
+  ok('day-tick: proposeDayTick exported', typeof ACKS.proposeDayTick === 'function');
+  ok('day-tick: commitDayTick exported', typeof ACKS.commitDayTick === 'function');
+  ok('day-tick: runDayTickToMonthEnd exported', typeof ACKS.runDayTickToMonthEnd === 'function');
+  ok('day-tick: advanceCalendarOneDay exported', typeof ACKS.advanceCalendarOneDay === 'function');
+  ok('day-tick: 10 day-tick house rules registered', ACKS.HOUSERULES_REGISTRY.filter(function(r){return r.category==='world' && /pause|journey|weather|fatigue|wandering|rations|subsumes/.test(r.id);}).length >= 10);
+
+  // advanceCalendarOneDay increments + clamps at 30, no month rollover
+  const ca = mkCamp();
+  ACKS.advanceCalendarOneDay(ca);
+  ok('advanceCalendarOneDay: 1 -> 2', ca.currentDayInMonth === 2);
+  ca.currentDayInMonth = 30; ACKS.advanceCalendarOneDay(ca);
+  ok('advanceCalendarOneDay: clamps at 30 (no rollover)', ca.currentDayInMonth === 30);
+
+  // Construction advances via the day-tick: propose is non-mutating, commit applies
+  const cc = mkCamp();
+  cc.projects.push(mkProject({ id:'prj-c1', laborRequired:1000 }));
+  const prop = ACKS.proposeDayTick(cc, 1, {});
+  ok('day-tick: one pending construction record after Tick Day', prop.pendingRecords.length === 1);
+  ok('day-tick: propose does NOT mutate the real campaign', cc.projects[0].laborInvested === 0);
+  ACKS.commitDayTick(cc, prop, null);
+  ok('day-tick: commit advances construction (daysElapsed)', cc.projects[0].daysElapsed === 1);
+  ok('day-tick: commit advances the day clock 1 -> 2', cc.currentDayInMonth === 2);
+
+  // A campaign with no day-aware activity is unchanged (idle state)
+  const ci = mkCamp();
+  const pi = ACKS.proposeDayTick(ci, 1, {});
+  ok('day-tick: idle campaign produces no pending records', pi.pendingRecords.length === 0);
+  ok('day-tick: idle campaign not in-flight', ACKS.dayTickActivityInFlight(ci) === false);
+
+  // Tick Week advances up to 7 days, one construction record per day
+  const cw = mkCamp();
+  cw.projects.push(mkProject({ id:'prj-w' }));
+  const pw = ACKS.proposeDayTick(cw, 7, {});
+  ok('day-tick: Tick Week advances 7 days', pw.daysAdvanced === 7);
+  ok('day-tick: 7 construction records (one per day)', pw.pendingRecords.length === 7);
+  ACKS.commitDayTick(cw, pw, null);
+  ok('day-tick: clock at day 8 after Tick Week from day 1', cw.currentDayInMonth === 8);
+  ok('day-tick: clock past day 1 => in-flight', ACKS.dayTickActivityInFlight(cw) === true);
+
+  // tick -> pause -> resume -> commit cycle (mock consumer surfaces an encounter on day 3)
+  const cp = mkCamp();
+  ACKS.registerDayConsumer('test-pauser', {
+    order: 35, pauseTriggers: ['encounter'],
+    handler: function(camp, ctx){
+      return {
+        pendingRecords: [{ kind:'test', label:'day ' + ctx.dayInMonth }],
+        notableEvents: (ctx.dayInMonth === 3) ? [{ kind:'encounter-check', type:'encounter', pauseTrigger:'encounter', primaryHexId:'hex-1', label:'goblins ambush!' }] : [],
+        encounters: []
+      };
+    },
+    commit: function(){}
+  });
+  const pp = ACKS.proposeDayTick(cp, 7, {});
+  ok('day-tick: pipeline pauses when an encounter fires + auto-pause on', pp.paused === true);
+  ok('day-tick: a pause reason was recorded', pp.pauseReasons.length >= 1);
+  ok('day-tick: paused on the encounter day (day 3)', pp.toDay === 3);
+  const cr = ACKS.commitDayTick(cp, pp, null);
+  ok('day-tick: commit emits the encounter event to the log', cr.eventsEmitted >= 1);
+  ok('day-tick: event landed in eventLog', (cp.eventLog || []).length >= 1);
+  const lastEv = cp.eventLog[cp.eventLog.length - 1].event;
+  ok('day-tick: emitted event carries the Event.context envelope', !!(lastEv && lastEv.context && ('primaryHexId' in lastEv.context)));
+  ok('day-tick: context.primaryHexId populated from the record', lastEv.context.primaryHexId === 'hex-1');
+  ok('day-tick: emitted event carries the gameTimeAt day stamp', !!(lastEv && lastEv.gameTimeAt && typeof lastEv.gameTimeAt.day === 'number'));
+  ok('day-tick: emitted event uses the daily cadence', lastEv.cadence === 'daily');
+  const pp2 = ACKS.proposeDayTick(cp, 7, {});
+  ok('day-tick: resume advances further after a pause', pp2.daysAdvanced >= 1);
+  ACKS.unregisterDayConsumer('test-pauser');
+
+  // auto-pause OFF -> no pause (house rule gates the pause)
+  const cn = mkCamp();
+  cn.houseRules['auto-pause-on-encounter'] = false;
+  ACKS.registerDayConsumer('test-pauser2', {
+    order: 35, pauseTriggers: ['encounter'],
+    handler: function(camp, ctx){ return { pendingRecords:[], notableEvents:[{ kind:'encounter-check', pauseTrigger:'encounter', label:'x' }], encounters:[] }; },
+    commit: function(){}
+  });
+  const pn = ACKS.proposeDayTick(cn, 5, {});
+  ok('day-tick: no pause when auto-pause-on-encounter is OFF', pn.paused === false);
+  ok('day-tick: full 5 days advance when not paused', pn.daysAdvanced === 5);
+  ACKS.unregisterDayConsumer('test-pauser2');
+
+  // month-end subsume + currentDayInMonth lands on day 30
+  const cm = mkCamp();
+  cm.projects.push(mkProject({ id:'prj-m' }));
+  cm.currentDayInMonth = 5; cm.calendar.day = 5;
+  const beforeLabor = cm.projects[0].laborInvested;
+  ACKS.runDayTickToMonthEnd(cm);
+  ok('day-tick: runDayTickToMonthEnd advances construction (daysElapsed)', cm.projects[0].daysElapsed > 0);
+  ok('day-tick: runDayTickToMonthEnd lands the clock on day 30', cm.currentDayInMonth === 30);
+})();
+
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);

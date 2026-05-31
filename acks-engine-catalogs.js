@@ -175,6 +175,17 @@ function sampleEvent(currentMorale){
 // House Rules registry. Each entry: { id, category, name, source, description }.
 // Categories indexed via HOUSERULE_CATEGORIES below.
 const HOUSERULES_REGISTRY = Object.freeze([
+  // ----- Calendar day-tick layer (Phase 2.95 §13) -----
+  { id:'auto-pause-on-encounter', category:'world', name:'Auto-pause on encounter', source:'Phase 2.95 Calendar §13', description:'The day-tick pipeline pauses for GM review when a consumer surfaces an encounter. Default on.' },
+  { id:'auto-pause-on-navigation-fail', category:'world', name:'Auto-pause on navigation failure', source:'Phase 2.95 Calendar §13', description:'Pause the day-tick when a journey navigation throw fails. Default on.' },
+  { id:'auto-pause-on-supplies-low', category:'world', name:'Auto-pause on low supplies', source:'Phase 2.95 Calendar §13', description:'Pause the day-tick when supplies drop below three days of stores. Default on.' },
+  { id:'monthly-commit-subsumes-in-flight', category:'world', name:'Monthly commit subsumes in-flight activity', source:'Phase 2.95 Calendar §13', description:'At month end, unresolved day-aware activities auto-complete at their current state. When off, the GM must resolve them day-by-day before the monthly commit. Default on.' },
+  { id:'journey-batching-routine', category:'world', name:'Journey batching (routine)', source:'Phase 2.95 Calendar §13', description:'Silent-advance routine travel until a consumer surfaces a notable event. Effect lands with Journeys. Default off.' },
+  { id:'journey-fast-travel', category:'world', name:'Journey fast-travel', source:'Phase 2.95 Calendar §13', description:'Collapse known-safe travel stretches to single-roll summary outcomes. Effect lands with Journeys. Default off.' },
+  { id:'realistic-weather', category:'world', name:'Realistic weather', source:'Phase 2.95 Calendar §13', description:'Roll weather per day on regional tables instead of GM fiat. Effect lands with the weather consumer. Default off.' },
+  { id:'realistic-fatigue', category:'world', name:'Realistic fatigue', source:'JJ p.84', description:'Use the strict four-phase fatigue cycle instead of a simplified single counter. Effect lands with Journeys. Default off.' },
+  { id:'persistent-wandering-monsters', category:'world', name:'Persistent wandering monsters', source:'Phase 2.95 Calendar §13 / #476', description:'Wandering-encounter survivors become placed Group entities in the hex pool. Effect lands with Monster Persistence. Default off.' },
+  { id:'mandatory-rations', category:'world', name:'Mandatory rations', source:'Phase 2.95 Calendar §13', description:'The engine strictly tracks rations and applies hunger and dehydration. Effect lands with Journeys. Default off.' },
   // ----- Domain mechanics -----
   { id:'families-per-hex-tracking', category:'domain', name:'Families-per-hex tracking',
     source:'ACKS II RR (advanced granularity beyond RAW)',

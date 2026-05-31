@@ -3269,6 +3269,16 @@ function commitTurn(campaign, domains, proposal, helpers){
       } else if(!campaign.calendar.kind){
         campaign.calendar.kind = 'default';
       }
+      // Calendar §10.4 — day-tick subsumption at the monthly rollover. Advance day-aware
+      // consumers (construction; future journeys/hijinks) to month end, then roll the day
+      // clock back to 1. Subsuming is default-ON (monthly-commit-subsumes-in-flight); when
+      // off and activity is mid-flight, the GM resolves day-by-day in the UI before commit.
+      try {
+        if(isDayTickRuleOn(campaign, 'monthly-commit-subsumes-in-flight') || (campaign.currentDayInMonth || 1) <= 1){
+          global.ACKS.runDayTickToMonthEnd(campaign);
+        }
+      } catch(e){ /* never let day-tick subsumption fail the monthly commit */ }
+      campaign.currentDayInMonth = 1;
       global.ACKS.advanceCalendarOneMonth(campaign);
     }
   }
@@ -3314,19 +3324,245 @@ function isHouseRuleEnabled(campaign, id){
 
 // ── Day-tick consumer registry (Architecture.md §7 + Phase 2.95 Calendar §10) ──
 const DAY_CONSUMERS = {};
-function registerDayConsumer(name, fn){
-  if(!name || typeof fn !== 'function') return;
-  DAY_CONSUMERS[name] = fn;
+
+// Calendar §14 consumer registration. Accepts either the legacy (name, fn) form
+// (Construction Wave A) or the §14 (name, {handler, order, pauseTriggers, commit}) form.
+// Stored canonically as {handler, order, pauseTriggers, commit}:
+//   handler(campaign, dayContext) -> { pendingRecords[], notableEvents[], encounters[] }
+//     PURE — proposes the day's records WITHOUT mutating the campaign.
+//   order        : §10.2 sequencing slot (lower runs first; a legacy fn gets slot 50).
+//   pauseTriggers: trigger keys ('encounter','navigation-fail','supplies-low', ...) that,
+//                  when surfaced on a notableEvent and the matching auto-pause-* house rule
+//                  is on, pause the tick for GM review (§10.3 / §13).
+//   commit(campaign, record): applies one ratified pendingRecord to the real campaign.
+function registerDayConsumer(name, spec){
+  if(!name) return;
+  let entry = null;
+  if(typeof spec === 'function'){
+    entry = { handler: spec, order: 50, pauseTriggers: [], commit: null };
+  } else if(spec && typeof spec.handler === 'function'){
+    entry = {
+      handler: spec.handler,
+      order: (typeof spec.order === 'number') ? spec.order : 50,
+      pauseTriggers: Array.isArray(spec.pauseTriggers) ? spec.pauseTriggers.slice() : [],
+      commit: (typeof spec.commit === 'function') ? spec.commit : null
+    };
+  }
+  if(entry) DAY_CONSUMERS[name] = entry;
 }
-function tickDay(campaign, daysElapsed){
-  // Fire every registered consumer in registration order. Default 1 day per call.
-  const days = (daysElapsed == null ? 1 : daysElapsed);
-  const out = {};
-  for(const [name, fn] of Object.entries(DAY_CONSUMERS)){
-    try { out[name] = fn(campaign, days); }
-    catch(err){ out[name] = { error: String(err && err.message || err) }; }
+function unregisterDayConsumer(name){ if(name) delete DAY_CONSUMERS[name]; }
+function dayConsumersInOrder(){
+  return Object.keys(DAY_CONSUMERS)
+    .map(name => Object.assign({ name }, DAY_CONSUMERS[name]))
+    .sort((a, b) => (a.order - b.order) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+// Build the per-day context handed to each consumer (Calendar §14).
+function dayTickContext(campaign, dayInMonth){
+  const cal = (campaign && campaign.calendar) || {};
+  return {
+    year: cal.year || 1,
+    month: cal.month || 1,
+    dayInMonth: dayInMonth || (campaign && campaign.currentDayInMonth) || 1,
+    days: 1,
+    calendarKind: cal.kind || 'default',
+    weather: null,
+    regionalTables: null
+  };
+}
+
+// Default-ON gate for the day-tick governance rules (auto-pause-*, monthly-commit-
+// subsumes-in-flight). These default ON (Calendar §13): unlike the canonical
+// isHouseRuleEnabled (absent => off), an absent value reads as ON here, so saves that
+// predate these rules behave per the documented default without a migration. Only an
+// explicit false / {enabled:false} turns them off.
+function isDayTickRuleOn(campaign, id){
+  const hr = campaign && campaign.houseRules;
+  const v = hr ? hr[id] : undefined;
+  if(v === false) return false;
+  if(v && typeof v === 'object' && v.enabled === false) return false;
+  return true;
+}
+
+function _deepCloneCampaign(c){
+  try { if(typeof structuredClone === 'function') return structuredClone(c); } catch(e){}
+  return JSON.parse(JSON.stringify(c));
+}
+
+// Single-day fan-out over a (possibly working-copy) campaign. Runs every registered
+// consumer's PURE handler in §10.2 order, accumulating pending records, notable events
+// and encounters (each tagged with the emitting consumer + dayInMonth). Does NOT mutate;
+// callers that want the records applied use the consumer's commit().
+// Reserved §10.2 slots (handlers land with their subsystems): 10 weather · 20 npc-migration
+// · 30 journeys · 40 hijinks · 50 construction · 60 spell-research · 70 calendar-events
+// · 80 collision-sweep · 90 event-emit.
+function tickDayOnce(campaign, dayInMonth){
+  const ctx = dayTickContext(campaign, dayInMonth);
+  const out = { dayInMonth: ctx.dayInMonth, byConsumer: {}, pendingRecords: [], notableEvents: [], encounters: [] };
+  for(const c of dayConsumersInOrder()){
+    // collision sweep — Calendar §12, lands with Journeys/Monster-Persistence (no-op here).
+    let res;
+    try { res = c.handler(campaign, ctx); }
+    catch(err){ res = { error: String((err && err.message) || err) }; }
+    out.byConsumer[c.name] = res;
+    if(res && typeof res === 'object' && !res.error){
+      (res.pendingRecords || []).forEach(r => out.pendingRecords.push(Object.assign({ consumer: c.name, dayInMonth: ctx.dayInMonth }, r)));
+      (res.notableEvents  || []).forEach(e => out.notableEvents.push(Object.assign({ consumer: c.name, dayInMonth: ctx.dayInMonth }, e)));
+      (res.encounters     || []).forEach(e => out.encounters.push(Object.assign({ consumer: c.name, dayInMonth: ctx.dayInMonth }, e)));
+    }
   }
   return out;
+}
+
+// Which pause triggers fired this day, gated by the auto-pause-* house rules + the
+// emitting consumer's declared pauseTriggers (Calendar §10.3 / §13).
+function dayTickPauseReasons(campaign, notableEvents){
+  const reasons = [];
+  (notableEvents || []).forEach(e => {
+    const trig = e && (e.pauseTrigger || e.trigger);
+    if(!trig) return;
+    const consumer = DAY_CONSUMERS[e.consumer];
+    if(consumer && Array.isArray(consumer.pauseTriggers) && consumer.pauseTriggers.indexOf(trig) < 0) return;
+    if(isDayTickRuleOn(campaign, 'auto-pause-on-' + trig)){
+      reasons.push({ trigger: trig, consumer: e.consumer, dayInMonth: e.dayInMonth, label: e.label || e.summary || trig });
+    }
+  });
+  return reasons;
+}
+
+// Is any day-aware activity in flight? (Calendar §10.1.) Day-mode engages when the clock
+// has advanced past day 1, or a consumer reports in-flight work (construction counts an
+// under-construction project).
+function dayTickActivityInFlight(campaign){
+  if(!campaign) return false;
+  if((campaign.currentDayInMonth || 1) > 1) return true;
+  if(Array.isArray(campaign.projects) && campaign.projects.some(p => p && p.lifecycleState === 'under-construction')) return true;
+  return false;
+}
+
+// PROPOSE half of the day-tick commit pipeline (Calendar §10). Advances up to `days`
+// days on a deep-cloned working copy so the real campaign is untouched, accumulating
+// pending records for GM review. Stops early (paused) when a consumer surfaces a
+// notableEvent whose pauseTrigger has its auto-pause-* rule on — unless opts.force.
+// Also stops at month end (day 30). Returns a tick proposal:
+//   { fromDay, toDay, daysAdvanced, monthEndReached, paused, pauseReasons[],
+//     pendingRecords[], notableEvents[], encounters[] }
+function proposeDayTick(campaign, days, opts){
+  opts = opts || {};
+  const force = !!opts.force;
+  const MONTH_LEN = 30;
+  const fromDay = (campaign && campaign.currentDayInMonth) || 1;
+  const want = (typeof days === 'number' && days > 0) ? days : 1;
+  const work = _deepCloneCampaign(campaign);
+  const proposal = {
+    fromDay: fromDay, toDay: fromDay, daysAdvanced: 0, monthEndReached: false,
+    paused: false, pauseReasons: [],
+    pendingRecords: [], notableEvents: [], encounters: []
+  };
+  let day = fromDay;
+  for(let i = 0; i < want; i++){
+    if(day >= MONTH_LEN){ proposal.monthEndReached = true; break; }
+    const nextDay = day + 1;
+    const tick = tickDayOnce(work, nextDay);
+    // Apply this day's records to the working copy so multi-day proposals accumulate.
+    tick.pendingRecords.forEach(r => {
+      const c = DAY_CONSUMERS[r.consumer];
+      if(c && c.commit){ try { c.commit(work, r); } catch(e){} }
+    });
+    work.currentDayInMonth = nextDay;
+    if(work.calendar) work.calendar.day = nextDay;
+    proposal.pendingRecords.push.apply(proposal.pendingRecords, tick.pendingRecords);
+    proposal.notableEvents.push.apply(proposal.notableEvents, tick.notableEvents);
+    proposal.encounters.push.apply(proposal.encounters, tick.encounters);
+    day = nextDay;
+    proposal.toDay = day;
+    proposal.daysAdvanced++;
+    if(day >= MONTH_LEN) proposal.monthEndReached = true;
+    if(!force){
+      const reasons = dayTickPauseReasons(campaign, tick.notableEvents);
+      if(reasons.length){ proposal.paused = true; proposal.pauseReasons = reasons; break; }
+    }
+  }
+  return proposal;
+}
+
+// COMMIT half of the pipeline. Applies a ratified proposal's pending records to the REAL
+// campaign (via each consumer's commit()), advances the day clock, and emits the
+// proposal's notable events to the event log with the Event.context envelope populated
+// (Architecture §3.5 — primaryHexId + gameTimeAt day stamp; cadence 'daily'). A record or
+// event flagged {rejected:true} by the GM is skipped. Returns a commit summary.
+function commitDayTick(campaign, proposal, helpers){
+  if(!campaign || !proposal) return { committed: 0, eventsEmitted: 0 };
+  let committed = 0;
+  (proposal.pendingRecords || []).forEach(r => {
+    if(r && r.rejected) return;
+    const c = DAY_CONSUMERS[r.consumer];
+    if(c && c.commit){ try { c.commit(campaign, r); committed++; } catch(e){} }
+  });
+  campaign.currentDayInMonth = proposal.toDay || campaign.currentDayInMonth || 1;
+  if(campaign.calendar) campaign.calendar.day = campaign.currentDayInMonth;
+  const eventsEmitted = emitDayTickEvents(campaign, proposal);
+  return { committed: committed, eventsEmitted: eventsEmitted, toDay: campaign.currentDayInMonth, paused: !!proposal.paused };
+}
+
+function emitDayTickEvents(campaign, proposal){
+  const evs = (proposal.notableEvents || []).filter(e => e && !e.rejected);
+  if(!evs.length) return 0;
+  campaign.eventLog = campaign.eventLog || [];
+  const cal = campaign.calendar || {};
+  let n = 0;
+  evs.forEach(e => {
+    try {
+      const _mkEv = (k) => global.ACKS.newEvent(k, {
+        submittedBy: 'engine',
+        status: (global.ACKS.EVENT_STATUS && global.ACKS.EVENT_STATUS.APPLIED) || 'applied',
+        cadence: 'daily',
+        targetTurn: campaign.currentTurn || 1,
+        gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: e.dayInMonth || campaign.currentDayInMonth || 1 },
+        context: {
+          primaryHexId: e.primaryHexId || null,
+          involvedHexIds: e.involvedHexIds || [],
+          settlementId: e.settlementId || null,
+          domainId: e.domainId || null,
+          relatedEntities: e.relatedEntities || []
+        },
+        payload: e.payload || { consumer: e.consumer, type: e.type || null, label: e.label || null }
+      });
+      let ev;
+      try { ev = _mkEv(e.kind || 'gm-narrative'); }
+      catch(_e){ try { ev = _mkEv('gm-narrative'); } catch(_e2){ return; } }
+      ev.appliedAtTurn = campaign.currentTurn || 1;
+      campaign.eventLog.push({
+        event: ev,
+        result: { narrativeSummary: e.label || e.summary || ((e.consumer || 'day-tick') + ' event') },
+        appliedAtTurn: campaign.currentTurn || 1,
+        appliedAt: new Date().toISOString()
+      });
+      n++;
+    } catch(err){ /* swallow — never let event emission fail the tick */ }
+  });
+  return n;
+}
+
+// Run the pipeline forward to month end and commit it (subsumption — Calendar §10.4).
+// days = 30 - currentDay, so an untouched month advances ~29 day-ticks of work and a
+// partially-ticked month tops up to day 30. Forced (no pause). Used by commitTurn at the
+// monthly rollover, and by the UI "Tick to Month End" control.
+function runDayTickToMonthEnd(campaign){
+  const dim = (campaign && campaign.currentDayInMonth) || 1;
+  const days = (30 - dim);
+  if(days <= 0) return { committed: 0, eventsEmitted: 0 };
+  const proposal = proposeDayTick(campaign, days, { force: true });
+  return commitDayTick(campaign, proposal, null);
+}
+
+// Legacy primitive, retained for back-compat: advance the REAL campaign by daysElapsed
+// days, committing each consumer's records as it goes. No external callers today; the
+// propose/commit pipeline above is the GM-facing path.
+function tickDay(campaign, daysElapsed){
+  const proposal = proposeDayTick(campaign, (daysElapsed == null ? 1 : daysElapsed), { force: true });
+  commitDayTick(campaign, proposal, null);
+  return proposal;
 }
 
 // ── A.4 — Supervisor + site eligibility helpers ──
@@ -3462,11 +3698,88 @@ function tickConstructionMonthly(campaign, daysPerMonth){
   return tickConstructionByDays(campaign, daysPerMonth || 30);
 }
 
-// Register the construction consumer in the day-tick registry. When Calendar C2
-// ships its day-tick orchestrator, it calls tickDay(campaign, n) which fans out
-// to all registered consumers. Until then commitTurn calls tickConstructionMonthly
-// directly.
-registerDayConsumer('construction', tickConstructionByDays);
+// §14 day-handler for construction (Calendar §10.2 slot 50 — in-flight constructions).
+// PURE: proposes one day's labor for every under-construction project WITHOUT mutating;
+// commitConstructionRecord applies a ratified record. Mirrors tickConstructionByDays' math
+// (which remains as the immediate-apply helper used by the legacy monthly path + tests).
+function proposeConstructionDay(campaign, dayContext){
+  const days = (dayContext && typeof dayContext.days === 'number') ? dayContext.days : 1;
+  const pendingRecords = [];
+  const notableEvents = [];
+  if(!campaign || !Array.isArray(campaign.projects)) return { pendingRecords, notableEvents, encounters: [] };
+  const useRealisticCap = isHouseRuleEnabled(campaign, 'realistic-construction');
+  const useMageAssist   = isHouseRuleEnabled(campaign, 'mage-assisted-construction');
+  const CW = (typeof global !== 'undefined' && global.ACKS && global.ACKS.totalDailyOutputCf)
+    ? global.ACKS.totalDailyOutputCf
+    : ((wc) => Object.values(wc||{}).reduce((s,n) => s + (n||0)*5, 0));
+  for(const p of campaign.projects){
+    if(!p || p.lifecycleState !== 'under-construction') continue;
+    let outputCfPerDay = CW(p.workerCounts);
+    if(useRealisticCap){
+      const cap = supervisorCapTotal(p);
+      const total = Object.values(p.workerCounts||{}).reduce((s,n) => s + (n||0), 0);
+      if(total > cap && cap > 0) outputCfPerDay = outputCfPerDay * (cap / total);
+    }
+    if(useMageAssist && p.magicAssist && p.magicAssist.multipliers){
+      const mult = Object.values(p.magicAssist.multipliers).reduce((s,n) => s + (n||0), 1);
+      outputCfPerDay = outputCfPerDay * mult;
+    }
+    const laborGained = outputCfPerDay * days;
+    const fromLaborInvested = p.laborInvested || 0;
+    const newLaborInvested = fromLaborInvested + laborGained;
+    const fromDaysElapsed = p.daysElapsed || 0;
+    const newDaysElapsed = fromDaysElapsed + days;
+    const willComplete = !!(p.laborRequired && newLaborInvested >= p.laborRequired);
+    const name = p.name || p.constructibleSubtype || p.constructibleKind || 'project';
+    const label = name + ': +' + Math.round(laborGained) + ' cf (' + Math.round(newLaborInvested) +
+      (p.laborRequired ? ('/' + p.laborRequired) : '') + ' cf)' + (willComplete ? ' — complete' : '');
+    pendingRecords.push({
+      kind: 'construction-progress', projectId: p.id, label: label,
+      daysAdded: days, laborGained: laborGained,
+      fromLaborInvested: fromLaborInvested, newLaborInvested: newLaborInvested,
+      fromDaysElapsed: fromDaysElapsed, newDaysElapsed: newDaysElapsed,
+      willComplete: willComplete, primaryHexId: p.siteHexId || null
+    });
+    if(willComplete){
+      notableEvents.push({
+        kind: 'construction-completed', type: 'construction-complete', projectId: p.id,
+        primaryHexId: p.siteHexId || null,
+        label: name + ' completed',
+        payload: { projectId: p.id, kind: p.constructibleKind, subtype: p.constructibleSubtype }
+      });
+    }
+  }
+  return { pendingRecords: pendingRecords, notableEvents: notableEvents, encounters: [] };
+}
+
+function commitConstructionRecord(campaign, record){
+  if(!campaign || !record || !record.projectId) return;
+  const p = (campaign.projects || []).find(x => x && x.id === record.projectId);
+  if(!p) return;
+  p.laborInvested = (typeof record.newLaborInvested === 'number')
+    ? record.newLaborInvested : (p.laborInvested || 0) + (record.laborGained || 0);
+  p.daysElapsed = (typeof record.newDaysElapsed === 'number')
+    ? record.newDaysElapsed : (p.daysElapsed || 0) + (record.daysAdded || 0);
+  if(record.willComplete || (p.laborRequired && p.laborInvested >= p.laborRequired)){
+    p.lifecycleState = 'complete';
+    p.completedAtTurn = campaign.currentTurn || null;
+    (p.history = p.history || []).push({
+      turn: campaign.currentTurn || null, type: 'completed',
+      narrative: 'Project completed after ' + p.daysElapsed + ' days of work.'
+    });
+  }
+}
+
+// Register the construction consumer in the §14 shape (Calendar §14). The day-tick
+// orchestrator (proposeDayTick/commitDayTick) fans out to it; commitTurn drives it to
+// month end via runDayTickToMonthEnd. tickConstructionMonthly remains the non-day-aware
+// immediate-apply helper.
+registerDayConsumer('construction', {
+  handler: proposeConstructionDay,
+  order: 50,
+  pauseTriggers: [],
+  commit: commitConstructionRecord
+});
 
 // ── A.8 — Construction predicates (Architecture.md §10) ──
 
@@ -3630,7 +3943,10 @@ const ACKS = Object.assign(global.ACKS || {}, {
   setEventContext,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
-  registerDayConsumer, tickDay,
+  registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
+  dayTickContext, isDayTickRuleOn, dayTickPauseReasons, dayTickActivityInFlight,
+  proposeDayTick, commitDayTick, runDayTickToMonthEnd, emitDayTickEvents,
+  proposeConstructionDay, commitConstructionRecord,
   // Construction-specific helpers
   isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind,
   tickConstructionByDays, tickConstructionMonthly,

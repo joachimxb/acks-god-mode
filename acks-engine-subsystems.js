@@ -132,6 +132,19 @@ function advanceCalendarOneMonth(campaign){
   campaign.calendar.season = seasonFor(campaign, m);
 }
 
+// Advance the global day clock by one day within the current month (Calendar §10.1).
+// Does NOT roll over to the next month — month rollover is the monthly commit's job
+// (commitTurn -> runDayTickToMonthEnd). Clamps at day 30 (the month length). Returns the
+// new currentDayInMonth.
+function advanceCalendarOneDay(campaign){
+  if(!campaign) return 1;
+  let d = campaign.currentDayInMonth || 1;
+  if(d < 30) d += 1;
+  campaign.currentDayInMonth = d;
+  if(campaign.calendar) campaign.calendar.day = d;
+  return d;
+}
+
 // =============================================================================
 // 9.54 HIRELINGS & LOYALTY (Phase 2.95)
 // =============================================================================
@@ -1403,7 +1416,7 @@ function applyTravelTick(campaign, options){
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
-  CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
+  CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty
