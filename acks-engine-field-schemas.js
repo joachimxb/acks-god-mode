@@ -198,6 +198,151 @@
         { name: 'endedAtTurn',           type: 'number', group: 'Lifecycle', description: 'Set on dismissal — null while active' },
         { name: 'isActive',              type: 'computed', readonly: true, group: 'Lifecycle', description: 'True when endedAtTurn is null' }
       ]
+    },
+
+    // ─── Wave C schemas (authored against the factories in acks-engine-entities.js).
+    // Every field is a key the factory emits (guarded by the global schema⊆factory
+    // invariant in tests/smoke.js). Freeform-map fields the factories default to {}
+    // (intrinsic, workerCounts, functionData, identification, magicAssist.multipliers)
+    // are intentionally omitted — there is no map field-type yet; edit those via Raw JSON.
+    // adminCreate:'schemaForm' = the generic Inspector form (the two-verb Admin path).
+
+    // ── Live data layers ──
+
+    'group': {
+      factory: 'blankGroup',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Template', 'Strength', 'Classification', 'Location', 'History'],
+      fields: [
+        { name: 'id',          type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',        type: 'string', group: 'Identity', description: 'Optional descriptive label (e.g. "Gnoll raiding band")' },
+        { name: 'groupTemplate', type: 'object', group: 'Template', description: 'Shared template copied into individuated creatures', fields: [
+          { name: 'monsterCatalogKey', type: 'string', description: 'Key into the planned MONSTER_CATALOG' },
+          { name: 'creatureTypes',     type: 'enumMulti', enumValues: ['humanoid','beastman-humanoid','animal','construct','giant','incarnation','monstrosity','ooze','plant','undead','vermin'] },
+          { name: 'hitDice',           type: 'string', description: "RAW HD string e.g. '1-1', '4+1'" }
+        ] },
+        { name: 'count',       type: 'number', min: 0, group: 'Strength', description: 'Roster strength' },
+        { name: 'casualties',  type: 'number', min: 0, group: 'Strength', description: 'Combat losses (active = count − casualties)' },
+        { name: 'socialTier',  type: 'enum', enumValues: ['independent','henchman','hireling','mercenary','specialist','follower'], group: 'Classification' },
+        { name: 'lifecycleState', type: 'string', group: 'Classification', description: "Same axis as Character (e.g. 'wild', 'active') — not a fixed engine set" },
+        { name: 'currentHexId',    type: 'id', idKind: 'hex', group: 'Location' },
+        { name: 'currentDomainId', type: 'id', idKind: 'domain', group: 'Location' },
+        { name: 'commanderCharacterId', type: 'id', idKind: 'character', group: 'Location', description: 'Optional named commander' },
+        { name: 'notes',       type: 'longText', group: 'History' },
+        { name: 'history',     type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'notableItem': {
+      factory: 'blankNotableItem',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Provenance', 'History'],
+      fields: [
+        { name: 'id',     type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',   type: 'string', group: 'Identity', description: 'Named-item label (optional)' },
+        { name: 'kind',   type: 'enum', enumValues: ['magic-weapon','magic-armor','potion','scroll','wand','rod','staff','misc-magic','book','relic','regalia','masterwork'], group: 'Identity' },
+        { name: 'baseCatalogKey', type: 'string', group: 'Identity', description: 'Key into the item catalog (optional)' },
+        { name: 'provenance', type: 'object', group: 'Provenance', fields: [
+          { name: 'makerCharacterId', type: 'id', idKind: 'character' },
+          { name: 'createdAtTurn',    type: 'number' },
+          { name: 'originLore',       type: 'longText' },
+          { name: 'knownMakeAndAuthenticity', type: 'boolean', description: 'RAW JJ p.130 — 2× sale multiplier when true' }
+        ] },
+        { name: 'status', type: 'enum', enumValues: ['active','destroyed','lost'], group: 'History' },
+        { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'itemCustody': {
+      factory: 'blankItemCustody',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Custody', 'Lifecycle'],
+      fields: [
+        { name: 'id',     type: 'string', readonly: true, group: 'Identity' },
+        { name: 'itemId', type: 'id', idKind: 'notableItem', required: true, group: 'Identity', description: 'The Notable Item in custody' },
+        { name: 'custodianKind', type: 'enum', enumValues: ['character','group','outpost','stronghold-vault','hex','monster-hoard','merchant-stock','unknown'], group: 'Custody' },
+        { name: 'custodianId',   type: 'string', group: 'Custody', description: 'ID into the collection matching custodianKind (chr-/grp-/out-/dom-/hex-/lair-/set-) — polymorphic, so plain text' },
+        { name: 'sinceTurn',     type: 'number', group: 'Lifecycle' },
+        { name: 'acquiredViaEventId', type: 'string', group: 'Lifecycle', description: 'Event id that created this custody (optional)' },
+        { name: 'status',  type: 'enum', enumValues: ['active','ended'], group: 'Lifecycle' },
+        { name: 'history', type: 'history', readonly: true, group: 'Lifecycle' }
+      ]
+    },
+
+    'project': {
+      factory: 'blankProject',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Site', 'Owner', 'Repair', 'Budget', 'Workforce', 'State', 'History'],
+      fields: [
+        { name: 'id',   type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name', type: 'string', group: 'Identity', description: 'Flows to the Constructible on completion' },
+        { name: 'constructibleKind', type: 'enum', enumValues: ['stronghold-component','agricultural-improvement','vessel','war-machine','settlement-building','sanctum','dungeon','mine','vault','hideout','civic-monument','trap','field-fortification','road'], group: 'Identity' },
+        { name: 'constructibleSubtype', type: 'string', group: 'Identity', description: "e.g. 'keep', 'galley-2-rower'" },
+        { name: 'siteHexId',          type: 'id', idKind: 'hex', group: 'Site' },
+        { name: 'siteSettlementId',   type: 'id', idKind: 'settlement', group: 'Site' },
+        { name: 'siteConstructibleId', type: 'id', idKind: 'constructible', group: 'Site', description: 'For sub-projects (naval fitting on a ship, etc.)' },
+        { name: 'ownerCharacterId', type: 'id', idKind: 'character', group: 'Owner' },
+        { name: 'ownerDomainId',    type: 'id', idKind: 'domain', group: 'Owner' },
+        { name: 'isRepair', type: 'boolean', group: 'Repair' },
+        { name: 'repairTargetConstructibleId', type: 'id', idKind: 'constructible', group: 'Repair', description: 'The damaged Constructible this repairs' },
+        { name: 'totalCost', type: 'gp', group: 'Budget' },
+        { name: 'gpSpent',   type: 'gp', group: 'Budget' },
+        { name: 'laborInvested', type: 'number', group: 'Workforce', description: 'Worker-days expended' },
+        { name: 'laborRequired', type: 'number', group: 'Workforce', description: 'Worker-days to completion (estimate)' },
+        { name: 'workerCapPerDay', type: 'number', group: 'Workforce', description: 'Peak worker cap' },
+        { name: 'supervisorCharacterIds', type: 'idArray', idKind: 'character', group: 'Workforce' },
+        { name: 'requiredSupervisorRating', type: 'number', group: 'Workforce' },
+        { name: 'magicAssist', type: 'object', group: 'Workforce', description: 'Magical construction assists (RR/JJ)', fields: [
+          { name: 'ditches', type: 'boolean' },
+          { name: 'mire',    type: 'boolean' },
+          { name: 'walls',   type: 'boolean' }
+        ] },
+        { name: 'lifecycleState', type: 'enum', enumValues: ['planning','under-construction','paused','complete','abandoned'], group: 'State' },
+        { name: 'startedAtTurn',   type: 'number', group: 'State' },
+        { name: 'completedAtTurn', type: 'number', group: 'State' },
+        { name: 'estimatedCompletionTurn', type: 'number', group: 'State' },
+        { name: 'daysElapsed', type: 'number', group: 'State', description: 'Since startedAtTurn — used by the day-tick consumer' },
+        { name: 'notes',   type: 'longText', group: 'History' },
+        { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'constructible': {
+      factory: 'blankConstructible',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Classification', 'Site', 'Owner', 'Economics', 'Combat', 'State', 'History'],
+      fields: [
+        { name: 'id',   type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name', type: 'string', group: 'Identity' },
+        // Six-axis classification (Architecture.md §10.3) — each axis independent.
+        { name: 'constructibleKind', type: 'enum', enumValues: ['stronghold-component','agricultural-improvement','vessel','war-machine','settlement-building','sanctum','dungeon','mine','vault','hideout','civic-monument','trap','field-fortification','road'], group: 'Classification' },
+        { name: 'constructibleSubtype', type: 'string', group: 'Classification', description: "e.g. 'keep', 'sanctum', 'merchant-guildhouse'" },
+        { name: 'constructionState', type: 'enum', enumValues: ['planning','under-construction','complete','in-repair','being-demolished'], group: 'Classification' },
+        { name: 'damageState',  type: 'enum', enumValues: ['intact','damaged','breached','ruined','destroyed'], group: 'Classification' },
+        { name: 'ownership',    type: 'enum', enumValues: ['domain','character','settlement-civic','abandoned','contested'], group: 'Classification' },
+        { name: 'siteType',     type: 'enum', enumValues: ['wilderness-hex','settlement-embedded','stronghold-courtyard','sub-structure','naval','special'], group: 'Classification' },
+        { name: 'operationalState', type: 'enum', enumValues: ['operational','understaffed','abandoned','contested'], group: 'Classification' },
+        { name: 'hexId',        type: 'id', idKind: 'hex', group: 'Site' },
+        { name: 'settlementId', type: 'id', idKind: 'settlement', group: 'Site' },
+        { name: 'parentConstructibleId', type: 'id', idKind: 'constructible', group: 'Site', description: 'For sub-structures' },
+        { name: 'ownerCharacterId', type: 'id', idKind: 'character', group: 'Owner' },
+        { name: 'ownerDomainId',    type: 'id', idKind: 'domain', group: 'Owner' },
+        { name: 'buildValue', type: 'gp', group: 'Economics', description: 'gp cost at completion — sets stronghold value contribution' },
+        { name: 'monthlyMaintenance', type: 'gp', group: 'Economics' },
+        { name: 'maxShp',     type: 'number', group: 'Combat', description: 'Structural HP (D@W Battles)' },
+        { name: 'currentShp', type: 'number', group: 'Combat', description: 'null = intact (treat as maxShp)' },
+        { name: 'armorClass', type: 'number', group: 'Combat' },
+        { name: 'subStructures', type: 'array', group: 'Combat', description: 'Multi-story sub-structures, each with own SHP', itemSchema: { fields: [
+          { name: 'label',       type: 'string' },
+          { name: 'maxShp',      type: 'number' },
+          { name: 'currentShp',  type: 'number' },
+          { name: 'damageState', type: 'enum', enumValues: ['intact','damaged','breached','ruined','destroyed'] },
+          { name: 'level',       type: 'number' }
+        ] } },
+        { name: 'completedAtTurn', type: 'number', group: 'State' },
+        { name: 'notes',   type: 'longText', group: 'History' },
+        { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
     }
   };
 
