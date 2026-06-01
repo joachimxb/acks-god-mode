@@ -897,7 +897,10 @@ function applyEvent_treasuryGrant(campaign, event){
   // Foundation #14 auto-emit hook: when a grant exceeds a settlement's transaction threshold,
   // notable-transaction rumors emit. Gated by both markets-transaction-threshold (so the
   // threshold mechanic is on) and rumors-auto-emit (so the engine is allowed to push events).
-  if(campaign.houseRules?.['markets-transaction-threshold'] && Math.abs(p.amount) > 0){
+  // Delta audit I1 (2026-06-01): route through isHouseRuleEnabled — a raw houseRules[id]
+  // truthiness check fires when the rule is {enabled:false} (the object is truthy). This was
+  // the last instance of the pattern the project's conventions forbid (feedback-house-rule-shape).
+  if(global.ACKS.isHouseRuleEnabled(campaign, 'markets-transaction-threshold') && Math.abs(p.amount) > 0){
     const primarySet = settlementsForDomain(campaign, p.domainId)[0];
     if(primarySet){
       const threshold = global.ACKS.computeTransactionThreshold(primarySet);
