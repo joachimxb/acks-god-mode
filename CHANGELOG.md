@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Removed
 - The placeholder default-off `realistic-fatigue` and `mandatory-rations` house rules — superseded by the RAW-default posture above.
 
+### Fixed
+- **House-rule toggles now take effect for rules stored as a bare boolean.** Some rules (e.g. families-per-hex tracking) ship in templates as `true` rather than `{enabled: true}`; the House Rules UI only understood the object form, so those rules displayed as off and their toggle wouldn't flip. The UI now uses the engine's canonical accessor (which accepts both shapes) and normalizes the value when toggling. This is what made families-per-hex tracking look broken — the per-hex columns never appeared even with the rule "on".
+- **Families-per-hex tracking** no longer loses per-hex edits. With the house rule on, the hexes are the source of truth: the domain's family total is now derived from the sum of its hexes, instead of per-hex family counts being silently rescaled back to the old domain total on reload (which also threw off the next monthly population-growth roll). Editing a hex's families now updates the domain total immediately.
+
 ## [0.10.0] - 2026-06-01
 
 ### Added

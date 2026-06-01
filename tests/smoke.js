@@ -500,6 +500,70 @@ section('Calendar day-tick pipeline (Phase 2.95)');
   ok('day-tick: runDayTickToMonthEnd lands the clock on day 30', cm.currentDayInMonth === 30);
 })();
 
+// =============================================================================
+section('families-per-hex-tracking — reconcile canonical direction (RR p.340 + CLAUDE #10)');
+// =============================================================================
+(function () {
+  function mk(on) {
+    const c = ACKS.blankCampaign();
+    if (on) c.houseRules['families-per-hex-tracking'] = true;
+    const d = ACKS.blankDomain({ name: 'Saltmark' });
+    d.geography.hexes = [{ id: 'h1', families: 50 }, { id: 'h2', families: 30 }];
+    d.demographics.peasantFamilies = 80; // initially consistent (80 == 50 + 30)
+    c.domains = [d];
+    return { c, d };
+  }
+  const hexFams = d => d.geography.hexes.map(h => h.families);
+  const hexSum = d => d.geography.hexes.reduce((s, h) => s + (h.families || 0), 0);
+
+  // Rule ON: a GM per-hex edit is canonical — reconcile derives the domain total from
+  // the hexes and must NOT rescale them back to the stale peasantFamilies (the bug).
+  let { c, d } = mk(true);
+  d.geography.hexes[0].families = 100; // GM edits h1 50 -> 100 (hexSum now 130, pf stale 80)
+  ACKS.reconcileRuralPopulation(c);
+  ok('ON: per-hex edit preserved (not rescaled away)', hexFams(d)[0] === 100 && hexFams(d)[1] === 30);
+  ok('ON: peasantFamilies derived from hex sum (130)', d.demographics.peasantFamilies === 130);
+
+  // Rule ON but hexes still empty (just enabled): seed from the domain total, never zero it.
+  ({ c, d } = mk(true));
+  d.geography.hexes.forEach(h => h.families = 0);
+  d.demographics.peasantFamilies = 200;
+  ACKS.reconcileRuralPopulation(c);
+  ok('ON + empty hexes: population seeded, not lost', hexSum(d) === 200 && d.demographics.peasantFamilies === 200);
+
+  // Rule OFF (RAW default): peasantFamilies is canonical — redistribute across hexes (unchanged).
+  ({ c, d } = mk(false));
+  d.geography.hexes[0].families = 100;
+  ACKS.reconcileRuralPopulation(c);
+  ok('OFF: domain total stays canonical (80)', d.demographics.peasantFamilies === 80);
+  ok('OFF: hexes redistributed to sum to the domain total', hexSum(d) === 80);
+
+  // Canonical inverse setter.
+  ({ c, d } = mk(true));
+  d.geography.hexes = [{ id: 'h1', families: 11 }, { id: 'h2', families: 22 }];
+  ok('syncRuralPopulationFromHexes sets pf = Σ(hex.families)',
+    ACKS.syncRuralPopulationFromHexes(d) === 33 && d.demographics.peasantFamilies === 33);
+  ACKS.reconcileRuralPopulation(c);
+  ok('ON: a synced campaign is a reconcile no-op', d.demographics.peasantFamilies === 33 && hexSum(d) === 33);
+})();
+
+// =============================================================================
+section('isHouseRuleEnabled — canonical accessor accepts every stored shape');
+// =============================================================================
+// The UI's isHouseRuleEnabled delegates to this engine accessor, so it MUST treat a
+// bare boolean (how the templates store some rules, e.g. families-per-hex-tracking:true)
+// the same as {enabled:bool}. A UI that only read `.enabled` rendered bare-true rules as
+// OFF — the families-per-hex columns never showed and the toggle couldn't flip them.
+(function () {
+  const mk = (val) => { const c = ACKS.blankCampaign(); if (val !== undefined) c.houseRules['x'] = val; return c; };
+  ok('bare true → enabled', ACKS.isHouseRuleEnabled(mk(true), 'x') === true);
+  ok('{enabled:true} → enabled', ACKS.isHouseRuleEnabled(mk({ enabled: true }), 'x') === true);
+  ok('bare false → disabled', ACKS.isHouseRuleEnabled(mk(false), 'x') === false);
+  ok('{enabled:false} → disabled', ACKS.isHouseRuleEnabled(mk({ enabled: false }), 'x') === false);
+  ok('absent rule → disabled', ACKS.isHouseRuleEnabled(mk(undefined), 'x') === false);
+  ok('null campaign → disabled (no throw)', ACKS.isHouseRuleEnabled(null, 'x') === false);
+})();
+
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);
