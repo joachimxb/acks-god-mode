@@ -547,6 +547,23 @@ section('families-per-hex-tracking — reconcile canonical direction (RR p.340 +
   ok('ON: a synced campaign is a reconcile no-op', d.demographics.peasantFamilies === 33 && hexSum(d) === 33);
 })();
 
+// =============================================================================
+section('isHouseRuleEnabled — canonical accessor accepts every stored shape');
+// =============================================================================
+// The UI's isHouseRuleEnabled delegates to this engine accessor, so it MUST treat a
+// bare boolean (how the templates store some rules, e.g. families-per-hex-tracking:true)
+// the same as {enabled:bool}. A UI that only read `.enabled` rendered bare-true rules as
+// OFF — the families-per-hex columns never showed and the toggle couldn't flip them.
+(function () {
+  const mk = (val) => { const c = ACKS.blankCampaign(); if (val !== undefined) c.houseRules['x'] = val; return c; };
+  ok('bare true → enabled', ACKS.isHouseRuleEnabled(mk(true), 'x') === true);
+  ok('{enabled:true} → enabled', ACKS.isHouseRuleEnabled(mk({ enabled: true }), 'x') === true);
+  ok('bare false → disabled', ACKS.isHouseRuleEnabled(mk(false), 'x') === false);
+  ok('{enabled:false} → disabled', ACKS.isHouseRuleEnabled(mk({ enabled: false }), 'x') === false);
+  ok('absent rule → disabled', ACKS.isHouseRuleEnabled(mk(undefined), 'x') === false);
+  ok('null campaign → disabled (no throw)', ACKS.isHouseRuleEnabled(null, 'x') === false);
+})();
+
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);

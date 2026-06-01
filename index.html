@@ -11075,13 +11075,26 @@ return {
     }
     this.showToast('Synced '+hexes.length+' hexes → '+totalFam.toLocaleString()+' families, avg '+(d.income.landRevenuePerFamily).toFixed(2)+'gp/family.');
   },
-  // House rules
-  isHouseRuleEnabled(id){return !!(this.currentCampaign?.houseRules?.[id]?.enabled);},
+  // House rules.
+  // Delegate to the engine's canonical accessor so the UI agrees with the engine on
+  // EVERY stored shape. Templates ship some rules as a bare boolean (e.g.
+  // "families-per-hex-tracking": true); the engine treats `true` and {enabled:true}
+  // alike, but this method used to read only `.enabled`, so a bare-true rule rendered
+  // as OFF — the per-hex columns never appeared and the toggle couldn't flip it.
+  // (2026-06-01 — user-reported "families per hex is broken".)
+  isHouseRuleEnabled(id){
+    if(window.ACKS && window.ACKS.isHouseRuleEnabled) return window.ACKS.isHouseRuleEnabled(this.currentCampaign, id);
+    const v = this.currentCampaign?.houseRules?.[id];
+    return v === true || !!(v && v.enabled === true);
+  },
   toggleHouseRule(id){
     if(!this.currentCampaign)return;
     if(!this.currentCampaign.houseRules||typeof this.currentCampaign.houseRules!=='object'||Array.isArray(this.currentCampaign.houseRules))this.currentCampaign.houseRules={};
-    if(!this.currentCampaign.houseRules[id])this.currentCampaign.houseRules[id]={enabled:false};
-    this.currentCampaign.houseRules[id].enabled=!this.currentCampaign.houseRules[id].enabled;
+    // Normalize ANY stored shape (undefined / bare boolean / object) to the canonical
+    // {enabled:bool} before flipping. Without this, a bare-boolean rule from a template
+    // can't be toggled — `(true).enabled = …` is a silent no-op on a primitive, so the
+    // rule would stick on (or off) forever.
+    this.currentCampaign.houseRules[id]={enabled:!this.isHouseRuleEnabled(id)};
   },
   incomeFactor(morale){return INCOME_FACTOR_BY_MORALE[String(clamp(morale||0,-4,4))]??1;},
   baseMorale(d){return baseMoraleFromClassification(this.effectiveClassification(d),this.effectiveRuler(d));},
