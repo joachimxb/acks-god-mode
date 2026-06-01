@@ -33,7 +33,7 @@ Builds meant for someone else to test are cut as **pre-releases** (`-beta` / `-r
 
 ## Versioning
 
-The project follows **[Semantic Versioning](https://semver.org/)** (`MAJOR.MINOR.PATCH`): PATCH for bug fixes, MINOR for backward-compatible features, MAJOR for breaking changes. **Current version: `0.10.0`** (the first tagged release; `0.9.0` was the Community Preview baseline).
+The project follows **[Semantic Versioning](https://semver.org/)** (`MAJOR.MINOR.PATCH`): PATCH for bug fixes, MINOR for backward-compatible features, MAJOR for breaking changes. **Current version: `0.11.0`** (`0.10.0` was the first tagged release).
 
 While the project is pre-1.0 (`0.x`), anything may still change between minor versions — a MINOR bump may carry both features and the occasional breaking tweak. `1.0.0` will land once the roadmap milestones are complete and the `.acks.json` save contract is stable enough to promise a MAJOR bump before any breaking change. (Roadmap "Milestone A–D" labels are planning buckets, not version tags.)
 

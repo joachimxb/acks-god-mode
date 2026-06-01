@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-01
+
 ### Added
 - **Journeys (overland travel)** — the first real travel consumer of the day-tick layer. Plan a foot journey between hexes, set it in motion, and the Day Clock advances it day by day — movement (terrain/weather/pace), navigation throws (getting lost in trackless country), food + water, and fatigue — until the party arrives. Create and drive one through the Entity Inspector plus the Day Clock (a dedicated Journeys panel comes later).
 - Travel-relevant hex geography (road / trail / river / elevation) and per-character travel state (fatigue, hunger, dehydration) that persists from one journey into the next.
@@ -64,5 +66,6 @@ The Community Preview — first public release.
 ### Security
 - Prototype-pollution guards on the event field-path writer, campaign validation on load, and a frozen `Object.prototype` at startup.
 
-[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.11.0
 [0.10.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.10.0
