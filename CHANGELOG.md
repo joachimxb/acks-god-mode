@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Editing a per-hex family count (or the domain-level Peasant families field) no longer throws an error and reverts the edit. The internal sync that keeps the domain total and per-hex counts in agreement was calling engine helpers that weren't reachable from the event module; it now routes through the exported setters.
+
 ## [0.11.0] - 2026-06-01
 
 ### Added

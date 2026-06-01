@@ -890,16 +890,17 @@ function applyEvent_gmFiat(campaign, event){
   // Foundation #241 — keep peasantFamilies and hex.families in sync. If the GM edited either,
   // reconcile the other side automatically. Without this, an inline edit on the Demographics
   // tab would re-introduce the drift this Foundation step exists to prevent.
+  // These MUST route through the EXPORTED engine setters: the underlying redistribution helpers
+  // (_redistributeRuralFamilies / _ruralHexes) are private to acks-engine.js and are NOT on the
+  // ACKS namespace, so a bare reference from this module throws ReferenceError. The bug was
+  // dormant until the families-per-hex per-hex editor became reachable. (2026-06-01.)
+  const _eng = (typeof global !== 'undefined' ? global.ACKS : (typeof window !== 'undefined' ? window.ACKS : null)) || {};
   if(target.kind === 'domain' && mutation.fieldPath === 'demographics.peasantFamilies'){
-    _redistributeRuralFamilies(entity, mutation.newValue);
+    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(entity, mutation.newValue);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'families'){
     const owningDomain = (campaign.domains||[]).find(dd =>
       (dd.geography?.hexes||[]).some(h => h.id === target.id));
-    if(owningDomain){
-      const hexes = _ruralHexes(owningDomain);
-      const sum = hexes.reduce((s,h) => s + (h.families||0), 0);
-      owningDomain.demographics.peasantFamilies = sum;
-    }
+    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(owningDomain);
   }
   return {
     result: {

@@ -244,6 +244,38 @@ console.log('  applyEvent exercised on ' + applyExercised + ' kinds; deferred (o
 ok('every kind is validate-tested; apply-tested unless explicitly deferred',
   EVENT_KINDS.every(k => EVENT_SCHEMAS[k]) && (applyExercised + APPLY_DEFERRED.size) === EVENT_KINDS.length);
 
+// =============================================================================
+section('gm-fiat population sync — hex.families / peasantFamilies route through exported setters');
+// =============================================================================
+// Regression for `ReferenceError: _ruralHexes is not defined` (2026-06-01). applyEvent_gmFiat's
+// Foundation #241 sync hook called the private acks-engine.js helpers (_ruralHexes /
+// _redistributeRuralFamilies) by bare name — they aren't on the ACKS namespace, so the reference
+// threw once the families-per-hex per-hex editor made this path reachable. The hook must use the
+// EXPORTED setters (syncRuralPopulationFromHexes / setPeasantPopulation). The P3.7 table above only
+// exercises gm-fiat on `notes`, so this branch had no coverage.
+(function () {
+  function fixture() {
+    const c = ACKS.blankCampaign();
+    c.domains = [{
+      id: 'dom-1', name: 'Mark', demographics: { peasantFamilies: 80 },
+      geography: { hexes: [{ id: 'h1', families: 50 }, { id: 'h2', families: 30 }] }
+    }];
+    return c;
+  }
+  // Editing a hex's families must not throw, and must sync peasantFamilies = Σ(rural hexes).
+  const c1 = fixture();
+  const ev1 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'h1' }, mutation: { fieldPath: 'families', newValue: 100 } } });
+  doesNotThrow('gm-fiat hex.families edit applies without ReferenceError', () => ACKS.applyEvent(c1, ev1));
+  ok('  hex.families set to 100', c1.domains[0].geography.hexes[0].families === 100);
+  ok('  peasantFamilies synced to hex sum (130)', c1.domains[0].demographics.peasantFamilies === 130);
+  // Editing domain peasantFamilies must not throw, and must redistribute across the hexes.
+  const c2 = fixture();
+  const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'domain', id: 'dom-1' }, mutation: { fieldPath: 'demographics.peasantFamilies', newValue: 160 } } });
+  doesNotThrow('gm-fiat peasantFamilies edit applies without ReferenceError', () => ACKS.applyEvent(c2, ev2));
+  ok('  peasantFamilies set to 160', c2.domains[0].demographics.peasantFamilies === 160);
+  ok('  hexes redistributed to sum to 160', c2.domains[0].geography.hexes.reduce((s, h) => s + (h.families || 0), 0) === 160);
+})();
+
 // ─── summary ───
 console.log('\n=============================================');
 console.log('events.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
