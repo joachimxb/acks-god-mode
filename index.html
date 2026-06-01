@@ -1304,7 +1304,7 @@ document.addEventListener('alpine:init', () => {
               <div class="border-t border-ink/30 pt-3">
                 <h3 class="font-semibold text-sm mb-1">Fund improvements (built over time — RR p.174)</h3>
                 <p class="text-sm opacity-70 mb-2">
-                  Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW builds land as a construction project: the budget is spent as the work proceeds — about 500gp/day (the Typical Laborer rate), so each +1 step (25,000gp) takes ~50 days and needs an on-site <strong>siege engineer</strong>. Tick days or advance the month to watch it build; stopping just halts further spend (no refund). Instant completion is available via the Inspector.
+                  Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW builds land as a construction project: the budget is spent as the work proceeds — about 500gp/day (the Typical Laborer rate), so each +1 step (25,000gp) takes ~50 days (no engineer needed — the supervisor rule is for strongholds and ships, not land; RR p.174). Tick days or advance the month to watch it build; stopping just halts further spend (no refund). Instant completion is available via the Inspector.
                   <span x-show="(selectedDomain.geography.hexes||[]).some(h => (h.improvementBudgetGp||0) > 0)" class="accent-green ml-1">
                     Total budget in flight: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.improvementBudgetGp||0), 0).toLocaleString()"></strong>gp
                   </span>
@@ -1315,7 +1315,7 @@ document.addEventListener('alpine:init', () => {
                     <th>Land value</th>
                     <th>Bonus / next step</th>
                     <th>Eligibility</th>
-                    <th x-show="!isHouseRuleEnabled('abstract-construction')">Supervisor (siege engineer)</th>
+                    <th x-show="false">Supervisor</th>
                     <th class="text-center">Budget (drips ~500/day)</th>
                   </tr></thead>
                   <tbody>
@@ -1342,7 +1342,7 @@ document.addEventListener('alpine:init', () => {
                         <!-- Foundation #18 followup — multi-supervisor picker. Per RR p.174,
                              multiple engineers/siege engineers can co-supervise (caps additive).
                              Only on-site supervisors (currentHexId matches) count at commit. -->
-                        <td x-show="!isHouseRuleEnabled('abstract-construction')" class="text-sm">
+                        <td x-show="false" class="text-sm">
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
                             <span class="block">
                               <!-- Chip list — one per assigned supervisor. -->
@@ -2855,7 +2855,7 @@ document.addEventListener('alpine:init', () => {
                 <h4 class="font-semibold text-sm">🌾 Agricultural investments this month</h4>
                 <span class="text-sm opacity-70">Built over time — ~500gp/day, ~50 days per +1gp/family step (RR p.341 + p.174)</span>
               </div>
-              <p class="text-sm opacity-70 mb-2">Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW (RR p.174) builds land over time: the budget is spent as the work proceeds (~500gp/day), so each +1 step (25,000gp) takes ~50 days and needs an on-site <strong>siege engineer</strong> whose cap ≥ the remaining step cost. Caps per RR p.341: max +3 per hex; 9gp/family absolute. Progress lands via the day-tick — tick days or advance the month; instant completion is via the Inspector.</p>
+              <p class="text-sm opacity-70 mb-2">Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW (RR p.174) builds land over time: the budget is spent as the work proceeds (~500gp/day), so each +1 step (25,000gp) takes ~50 days (no engineer needed — that supervisor rule is for strongholds and ships, not land; RR p.174). Caps per RR p.341: max +3 per hex; 9gp/family absolute. Progress lands via the day-tick — tick days or advance the month; instant completion is via the Inspector.</p>
               <table class="bookkeeping text-sm">
                 <thead><tr>
                   <th>Hex</th>
@@ -2863,7 +2863,7 @@ document.addEventListener('alpine:init', () => {
                   <th>Bonus</th>
                   <th>Toward next +1</th>
                   <th>Status</th>
-                  <th x-show="!isHouseRuleEnabled('abstract-construction')">Supervisor (siege engineer)</th>
+                  <th x-show="false">Supervisor</th>
                   <th>Add to budget</th>
                 </tr></thead>
                 <tbody>
@@ -2881,7 +2881,7 @@ document.addEventListener('alpine:init', () => {
                            Mutates ord.supervisorCharacterIds (array) which commitTurn transcribes
                            to hex.constructionSupervisorCharacterIds. On-site = supervisor's
                            currentHexId matches the order's hexId (permissive if unset). -->
-                      <td x-show="!isHouseRuleEnabled('abstract-construction')" class="text-sm">
+                      <td x-show="false" class="text-sm">
                         <template x-if="ord.eligible">
                           <span class="flex flex-col gap-0.5">
                             <!-- Existing supervisors as chips. -->
@@ -2928,7 +2928,7 @@ document.addEventListener('alpine:init', () => {
                     </tr>
                   </template>
                   <tr class="subtotal">
-                    <td :colspan="!isHouseRuleEnabled('abstract-construction') ? 6 : 5">Total added to budget this turn</td>
+                    <td :colspan="5">Total added to budget this turn</td>
                     <td x-text="agriculturalOrderTotal(p).toLocaleString() + ' gp'"></td>
                   </tr>
                 </tbody>

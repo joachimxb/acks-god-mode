@@ -592,7 +592,7 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
   t = buildTimed({ treasury: 300 });
   check('R2 drip: clipped by treasury (300)', ACKS.computeAgriculturalDrip(t.c, t.project, 1).drip === 300);
   t = buildTimed({ supervisor: false });
-  check('R2 drip: no supervisor -> blocked, 0', (() => { const r = ACKS.computeAgriculturalDrip(t.c, t.project, 1); return r.drip === 0 && r.blocked && /supervisor/i.test(r.blockReason); })());
+  check('R2 drip: land improvement needs NO supervisor (RR p.174) — drips at the labor rate', ACKS.computeAgriculturalDrip(t.c, t.project, 1).drip === RATE, 'drip ' + ACKS.computeAgriculturalDrip(t.c, t.project, 1).drip);
   t = buildTimed({ budget: 0 });
   check('R2 drip: no budget -> 0', ACKS.computeAgriculturalDrip(t.c, t.project, 1).drip === 0);
   t = buildTimed({ base: 8 }); // 8+1=9 value cap -> only one step's worth of cost-to-cap
@@ -614,17 +614,17 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
   check('R2 drip: 30 days -> 15000 invested, bonus still 0', t.hex.landImprovementInvested === 15000 && t.hex.landImprovementBonus === 0, JSON.stringify({ i: t.hex.landImprovementInvested, b: t.hex.landImprovementBonus }));
   check('R2 drip: 30 days -> 10000gp budget left', t.hex.improvementBudgetGp === 10000, 'budget ' + t.hex.improvementBudgetGp);
 
-  // supervisor gating blocks the apply (no spend)
+  // no supervisor required for land improvement: the drip still applies
   t = buildTimed({ supervisor: false });
   drip1(t);
-  check('R2 drip: no supervisor -> apply is a no-op (treasury/budget/invested untouched)', t.d.treasury.gp === 1000000 && t.hex.improvementBudgetGp === 25000 && t.hex.landImprovementInvested === 0);
+  check('R2 drip: no supervisor -> drip still applies (treasury -500, budget 24500, invested 500)', t.d.treasury.gp === 1000000 - RATE && t.hex.improvementBudgetGp === 25000 - RATE && t.hex.landImprovementInvested === RATE, JSON.stringify({t:t.d.treasury.gp,b:t.hex.improvementBudgetGp,i:t.hex.landImprovementInvested}));
 
   // monthly commit accumulates budget (no instant spend) when realistic-construction is ON
   {
-    const c = ACKS.blankCampaign({ name: 'budget' }); c.projects = [];
+    const c = ACKS.blankCampaign({ name: 'budget' }); c.projects = []; c.calendar = null; // null the calendar so runDayTickToMonthEnd does NOT drip — isolates the monthly ag block's budget accumulation
     const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 }; d.demographics = { peasantFamilies:1000, urbanFamilies:0, morale:0 };
     const hex = ACKS.blankHex({ id: 'hex-b', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.domainId = d.id;
-    d.geography.hexes = [hex]; c.domains = [d]; // NO calendar -> isolate budget accumulation (no month-end drip)
+    d.geography.hexes = [hex]; c.domains = [d];
     const helpers = Object.assign({}, mockHelpers(), { isHouseRuleEnabled: (id) => id === 'realistic-construction' });
     const proposal = { turnEventProposals: [], turnVentureProposals: [], turnProposal: [{
       domainId: d.id, skip:false, tithePaid:true, tributePaid:true, hasLiege:false, administersThisMonth:false,

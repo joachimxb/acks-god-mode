@@ -1000,11 +1000,13 @@ function computeAgriculturalDrip(campaign, project, days){
   Object.assign(out, { hex, domain, base, bonus, invested, budget, treasury });
   if(bonus >= MAXB || base + bonus >= VCAP){ out.atCap = true; out.blockReason = 'at cap'; return out; }
   if(budget <= 0){ out.blockReason = 'no budget allocated'; return out; }
-  const remainingStep = COST - invested;
-  out.remainingStep = remainingStep;
-  const sup = agriculturalSupervisorAdequacy(campaign, hex, remainingStep);
-  out.supervisorReport = sup.report;
-  if(!sup.ok){ out.blocked = true; out.blockReason = sup.blockReason; return out; }
+  // RAW (RR p.174): the siege-engineer/engineer supervisor requirement is for "a construction
+  // project of a STRUCTURE or VESSEL". Land improvement (RR p.341 — irrigation/drainage/terracing,
+  // ordered by the ruler) is neither, so it needs NO engineer; it builds at the labor rate. The ruler
+  // or munerator may OPTIONALLY oversee it for a speed bonus (RR p.353), a future refinement. So no
+  // supervisor gate here. agriculturalSupervisorAdequacy is retained for the structure/vessel
+  // construction that lands later (and that check should derive from Engineering/Siege Engineering
+  // PROFICIENCY, not a manual cap field — see constructionSupervisorCapForCharacter).
   const stepsAllowed = Math.min(MAXB - bonus, VCAP - (base + bonus));   // integer +1 steps to the cap
   const costToCap = Math.max(0, stepsAllowed * COST - invested);        // gp from now to the cap
   const rate = agriculturalConstructionRatePerDay(campaign, domain, hex);
@@ -4055,12 +4057,8 @@ function proposeConstructionDay(campaign, dayContext){
           paused: !!calc.blocked, blockReason: calc.blockReason || '',
           willComplete: false, primaryHexId: p.siteHexId || null
         });
-        // Option A — friendly "needs a siege engineer" notice (not a silent stall) when blocked on a supervisor.
-        if(calc.blocked && /supervisor/i.test(calc.blockReason || '')){
-          notableEvents.push({ kind: 'construction-vagary', type: 'agricultural-supervisor-needed',
-            trigger: 'navigation-fail', projectId: p.id, primaryHexId: p.siteHexId || null,
-            label: nm + ' — needs an on-site siege engineer to proceed' });
-        }
+        // (Land improvement needs no engineer supervisor — RR p.174 reserves that for structures/
+        // vessels. It builds at the labor rate; it only pauses for no budget or at the cap.)
         continue;
       }
       // realistic-construction OFF (current default): monthly no-op. Progress lands at month-end via
