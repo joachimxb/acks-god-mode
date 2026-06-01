@@ -6458,7 +6458,11 @@ function buildDomainFromTemplate(tpl){
   const characters=[];
   if(tpl.ruler && tpl.ruler.name){
     const rulerCh = window.ACKS.blankCharacter({
-      name:tpl.ruler.name, kind:tpl.ruler.isPC?'PC':'NPC',
+      // Delta audit I3 (2026-06-01): set the canonical five-axis fields directly
+      // rather than passing the deprecated c.kind vocabulary. blankCharacter derives
+      // the same values from kind, but emitting kind here re-introduced a field the
+      // five-axis migration strips — so a template-built domain was not a migrate-no-op.
+      name:tpl.ruler.name, controlledBy:tpl.ruler.isPC?'player':'gm', socialTier:'independent',
       class:tpl.ruler.class||'', level:tpl.ruler.level||1,
       currentDomainId:d.id
     });
@@ -6467,7 +6471,7 @@ function buildDomainFromTemplate(tpl){
   }
   (tpl.henchmen||[]).forEach(h => {
     const henchCh = window.ACKS.blankCharacter({
-      name:h.name, kind:'henchman', class:h.class||'', level:h.level||1,
+      name:h.name, controlledBy:'gm', socialTier:'henchman', class:h.class||'', level:h.level||1,
       loyalty:h.loyalty||0, liegeCharacterId:d.rulerCharacterId,
       currentDomainId:d.id, notes:h.role||''
     });

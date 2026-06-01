@@ -134,8 +134,34 @@ ok('migrateAllDomainTreasuries ran (treasury stash linked)', !!legacy.domains[0]
 ok('treasury stash carries the 500gp', ACKS.domainTreasuryGp(legacy, 'dom-legacy') === 500);
 
 // =============================================================================
-//   ── further sections appended by later commits in this pass ──
-//   P2.4 classification-build no-op · P3.6 all-templates guard loop
+section('P2.4 — template-built characters carry no c.kind and are migrate-no-ops (delta audit I3)');
+// =============================================================================
+// buildDomainFromTemplate (index.html — not Node-requireable; jsdom harness deferred)
+// now sets the five-axis fields directly instead of the deprecated kind vocabulary.
+// We guard the blankCharacter contract it depends on: those opts produce no c.kind
+// and survive migrateCharacterClassification untouched. We also assert the refactor is
+// behaviour-preserving — five-axis opts match what kind:'PC'/'henchman' derived.
+const ruler = ACKS.blankCharacter({ name: 'Ruler', controlledBy: 'player', socialTier: 'independent' });
+ok('five-axis ruler build has no c.kind', !('kind' in ruler));
+ok('five-axis ruler → player/independent', ruler.controlledBy === 'player' && ruler.socialTier === 'independent');
+const rulerBefore = clone(ruler);
+ACKS.migrateCharacterClassification(ruler);
+ok('ruler build is a migrate-no-op', JSON.stringify(ruler) === JSON.stringify(rulerBefore));
+
+const hench = ACKS.blankCharacter({ name: 'Hench', controlledBy: 'gm', socialTier: 'henchman' });
+ok('five-axis henchman build has no c.kind', !('kind' in hench));
+ok('five-axis henchman → gm/henchman', hench.controlledBy === 'gm' && hench.socialTier === 'henchman');
+const henchBefore = clone(hench);
+ACKS.migrateCharacterClassification(hench);
+ok('henchman build is a migrate-no-op', JSON.stringify(hench) === JSON.stringify(henchBefore));
+
+// behaviour-preserving: the old kind-based opts derived the same axes, and never stored kind
+const viaKindPC = ACKS.blankCharacter({ kind: 'PC' });
+ok('kind:PC and five-axis opts agree', viaKindPC.controlledBy === ruler.controlledBy && viaKindPC.socialTier === ruler.socialTier);
+ok('blankCharacter never emits c.kind regardless of input', !('kind' in viaKindPC));
+
+// =============================================================================
+//   ── further section appended by a later commit in this pass: P3.6 templates loop ──
 // =============================================================================
 
 // ─── summary ───
