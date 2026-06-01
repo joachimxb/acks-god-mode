@@ -669,6 +669,31 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
     c.domains = [d]; // attach (what the UI day-tick now does)
     check('split-shape: domains attached -> drips 500 (the fix)', ACKS.computeAgriculturalDrip(c, proj, 1).drip === 500);
   }
+
+  // ADVANCE MONTH must drip in-flight improvements via runDayTickToMonthEnd, even in the UI's
+  // split-domains shape (campaign.domains EMPTY, domains passed as the commitTurn param). commitTurn's
+  // event-apply pass restores campaign.domains to the (empty) original, so the month-end drip must
+  // re-attach domains or it silently fails to progress — exactly the reported "advance month didn't
+  // progress it" bug.
+  {
+    const c = ACKS.blankCampaign({ name: 'advance' }); c.projects = [];
+    c.calendar = { year:1, month:1, day:1, kind:'default' }; c.currentDayInMonth = 1;
+    const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 }; d.demographics = { peasantFamilies:1000, urbanFamilies:0, morale:0 };
+    const hex = ACKS.blankHex({ id: 'hex-adv', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.improvementBudgetGp = 25000; hex.domainId = d.id;
+    d.geography.hexes = [hex]; c.hexes = [hex]; c.domains = []; // split shape: domains NOT on the campaign
+    ACKS.syncAgriculturalProject(c, hex, { domainId: d.id });
+    const helpers = Object.assign({}, mockHelpers(), { isHouseRuleEnabled: () => false }); // all off -> time-based
+    const proposal = { turnEventProposals: [], turnVentureProposals: [], turnProposal: [{
+      domainId: d.id, skip:false, tithePaid:true, tributePaid:true, hasLiege:false, administersThisMonth:false,
+      incomeFactor:1, moraleRoll:0, moraleBefore:0, classification:'Borderlands', ruler:{ name:'R', level:1 },
+      income:[], expenses:[], moraleMods:[], urbanInvestments:[], agriculturalOrders: []
+    }]};
+    ACKS.commitTurn(c, [d], proposal, helpers);
+    // day 1 -> 30 = 29 ticks at 500/day = 14,500 dripped
+    check('advance-month: month-end drip ran (invested 14,500)', hex.landImprovementInvested === 14500, 'invested ' + hex.landImprovementInvested);
+    check('advance-month: budget reduced to 10,500', hex.improvementBudgetGp === 10500, 'budget ' + hex.improvementBudgetGp);
+    check('advance-month: treasury debited 14,500 (pay-as-you-build)', d.treasury.gp === 1000000 - 14500, 'treasury ' + d.treasury.gp);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

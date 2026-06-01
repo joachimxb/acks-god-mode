@@ -3616,7 +3616,14 @@ function commitTurn(campaign, domains, proposal, helpers){
       // off and activity is mid-flight, the GM resolves day-by-day in the UI before commit.
       try {
         if(isDayTickRuleOn(campaign, 'monthly-commit-subsumes-in-flight') || (campaign.currentDayInMonth || 1) <= 1){
-          global.ACKS.runDayTickToMonthEnd(campaign);
+          // Day-tick consumers (construction) read the domain treasury via campaign.domains; the
+          // event-apply pass earlier restored it to the caller's original (empty in the split-domains
+          // UI shape). Re-attach `domains` so the month-end drip can find treasuries — otherwise
+          // Advance Month silently fails to progress in-flight improvements.
+          const _odm = campaign.domains;
+          campaign.domains = domains;
+          try { global.ACKS.runDayTickToMonthEnd(campaign); }
+          finally { campaign.domains = _odm; }
         }
       } catch(e){ /* never let day-tick subsumption fail the monthly commit */ }
       campaign.currentDayInMonth = 1;
