@@ -161,8 +161,33 @@ ok('kind:PC and five-axis opts agree', viaKindPC.controlledBy === ruler.controll
 ok('blankCharacter never emits c.kind regardless of input', !('kind' in viaKindPC));
 
 // =============================================================================
-//   ── further section appended by a later commit in this pass: P3.6 templates loop ──
+section('P3.6 — every shipped template migrates clean, validates, and is a migrate-no-op (qa I2)');
 // =============================================================================
+// Five of six templates were previously validated only incidentally. Guard all of
+// them: each v2-*.acks.json must migrate without throwing, pass validateCampaign, and
+// migration must CONVERGE — migrateCampaign(migrateCampaign(file)) equals
+// migrateCampaign(file) byte-for-byte (the migrated form is a stable fixed point).
+// NOTE: the on-disk templates are NOT currently byte-equal to their migrated form —
+// they predate the J1 Journeys work (2026-06-01), which added four additive character
+// fields that migrateCampaign backfills on load (currentJourneyId / personalFatigue /
+// hungerDays / dehydrationDays). That is benign additive backfill, not a migration bug;
+// the templates want a regeneration pass (strip-not-live + elide-defaults per #511/#512)
+// in a follow-up. Idempotency is the correctness property that matters here.
+const tplDir = path.join(DIR, 'Templates');
+const tplFiles = fs.readdirSync(tplDir).filter(f => /^v2-.*\.acks\.json$/.test(f));
+ok('found the six shipped templates', tplFiles.length === 6, 'got ' + tplFiles.length);
+tplFiles.forEach(f => {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(path.join(tplDir, f), 'utf8')); }
+  catch (e) { ok('parses: ' + f, false, e.message); return; }
+  let migrated;
+  try { migrated = ACKS.migrateCampaign(clone(raw)); ok('migrates clean: ' + f, true); }
+  catch (e) { ok('migrates clean: ' + f, false, e.message); return; }
+  try { ACKS.validateCampaign(migrated); ok('validates: ' + f, true); }
+  catch (e) { ok('validates: ' + f, false, e.message); }
+  const reMigrated = ACKS.migrateCampaign(clone(migrated));
+  ok('migration converges (idempotent fixed point): ' + f, JSON.stringify(reMigrated) === JSON.stringify(migrated));
+});
 
 // ─── summary ───
 console.log('\n=============================================');
