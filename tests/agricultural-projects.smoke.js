@@ -694,6 +694,24 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
     check('advance-month: budget reduced to 10,500', hex.improvementBudgetGp === 10500, 'budget ' + hex.improvementBudgetGp);
     check('advance-month: treasury debited 14,500 (pay-as-you-build)', d.treasury.gp === 1000000 - 14500, 'treasury ' + d.treasury.gp);
   }
+
+  // A funded hex with no Project yet engages the Day Clock (the panel writes the budget directly;
+  // the Project is materialized just before the tick).
+  {
+    const c = ACKS.blankCampaign({ name: 'dtaif' }); c.projects = [];
+    c.hexes = [ Object.assign(ACKS.blankHex({ id: 'hex-bud2', coord:{q:0,r:0} }), { valuePerFamily:6, improvementBudgetGp: 10000 }) ];
+    check('dayClock: a funded hex (no Project yet) engages the Day Clock', ACKS.dayTickActivityInFlight(c) === true);
+    c.hexes[0].improvementBudgetGp = 0;
+    check('dayClock: no budget + no project -> not in flight', ACKS.dayTickActivityInFlight(c) === false);
+  }
+
+  // Stranded budget on a capped hex is cleared on migrate (the drip can't spend past the cap).
+  {
+    const c = ACKS.blankCampaign({ name: 'capbud' }); c.projects = [];
+    c.hexes = [ Object.assign(ACKS.blankHex({ id: 'hex-capbud', coord:{q:0,r:0} }), { valuePerFamily:7, landImprovementBonus:2, improvementBudgetGp: 45500, domainId:'dom-x' }) ]; // 7+2 = 9 cap
+    ACKS.migrateAgriculturalToProjects(c);
+    check('cap-budget: stranded budget on a capped hex is cleared', c.hexes[0].improvementBudgetGp === 0, 'budget ' + c.hexes[0].improvementBudgetGp);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

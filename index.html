@@ -11697,7 +11697,12 @@ return {
     // real campaign isn't mutated — the clone just needs to see the domains).
     const _origDomains = this.currentCampaign.domains;
     this.currentCampaign.domains = this.domains;
-    try { this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {}); }
+    try {
+      // Materialize Projects for any funded-but-not-yet-projected hex (the panel writes the budget
+      // field directly) so the tick finds + advances them; also clears capped budgets. Idempotent.
+      window.ACKS.migrateAgriculturalToProjects(this.currentCampaign);
+      this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {});
+    }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
     finally { this.currentCampaign.domains = _origDomains; }
   },

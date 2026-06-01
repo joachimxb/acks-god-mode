@@ -1060,8 +1060,15 @@ function migrateAgriculturalToProjects(campaign){
   // >= 25,000gp banked (and no active budget to drip) would otherwise never advance. Ratcheting here
   // on load converts the overflow into earned bonus immediately. Idempotent (ratchet leaves < step).
   for(const hex of allHexes){
-    if(hex && (hex.landImprovementInvested || 0) >= global.ACKS.AGRICULTURAL_IMPROVEMENT_COST_PER_STEP){
+    if(!hex) continue;
+    if((hex.landImprovementInvested || 0) >= global.ACKS.AGRICULTURAL_IMPROVEMENT_COST_PER_STEP){
       global.ACKS.ratchetAgriculturalImprovement(hex);
+    }
+    // Clear stranded budget on a capped hex — the drip can't spend past the value/bonus cap
+    // (pay-as-you-build stops there), so leftover budget would just sit misleadingly.
+    const _base = hex.valuePerFamily || 0, _bonus = hex.landImprovementBonus || 0;
+    if((_bonus >= global.ACKS.AGRICULTURAL_IMPROVEMENT_MAX_BONUS || _base + _bonus >= global.ACKS.AGRICULTURAL_IMPROVEMENT_VALUE_CAP) && (hex.improvementBudgetGp || 0) > 0){
+      hex.improvementBudgetGp = 0;
     }
   }
   // Reconcile EXISTING agricultural Projects to their hex's canonical state. Catches lifecycleState
@@ -3622,7 +3629,10 @@ function commitTurn(campaign, domains, proposal, helpers){
           // Advance Month silently fails to progress in-flight improvements.
           const _odm = campaign.domains;
           campaign.domains = domains;
-          try { global.ACKS.runDayTickToMonthEnd(campaign); }
+          // Materialize Projects for any funded-but-not-yet-projected hex (the panel writes the
+          // budget field directly) so the month-end drip finds + advances them; also clears capped
+          // budgets. Idempotent.
+          try { migrateAgriculturalToProjects(campaign); global.ACKS.runDayTickToMonthEnd(campaign); }
           finally { campaign.domains = _odm; }
         }
       } catch(e){ /* never let day-tick subsumption fail the monthly commit */ }
@@ -3785,6 +3795,11 @@ function dayTickActivityInFlight(campaign){
   if(!campaign) return false;
   if((campaign.currentDayInMonth || 1) > 1) return true;
   if(Array.isArray(campaign.projects) && campaign.projects.some(p => p && p.lifecycleState === 'under-construction')) return true;
+  // A funded-but-not-yet-projected agricultural improvement also counts as in flight: the panel
+  // writes hex.improvementBudgetGp directly, and the Project is materialized just before the tick.
+  const budgeted = (arr) => Array.isArray(arr) && arr.some(h => h && (h.improvementBudgetGp || 0) > 0);
+  if(budgeted(campaign.hexes)) return true;
+  if(Array.isArray(campaign.domains) && campaign.domains.some(d => d && d.geography && budgeted(d.geography.hexes))) return true;
   return false;
 }
 
