@@ -8181,6 +8181,17 @@ return {
       // #453 — c.kind retired; the editor surface no longer exists and the engine
       // doesn't expose reDeriveClassificationFromKind anymore. Future kind-coupled
       // sync hooks (if needed) belong here in this slot.
+      // families-per-hex-tracking: a per-hex family edit makes the hexes canonical, so
+      // push the owning domain's peasantFamilies up to the rural-hex sum (the engine's
+      // reconcileRuralPopulation does the same on load). Keeps the domain total, service
+      // revenue + tax consistent within the session and stops the next monthly turn from
+      // computing growth off a stale total. Canonical-setter doctrine (CLAUDE #10).
+      if(opts.entityType === 'hex' && opts.fieldPath === 'families' &&
+         this.isHouseRuleEnabled && this.isHouseRuleEnabled('families-per-hex-tracking') &&
+         window.ACKS && window.ACKS.syncRuralPopulationFromHexes){
+        const _famDom = (this.domains || []).find(dd => (dd.geography?.hexes || []).some(hx => hx.id === opts.entityId));
+        if(_famDom) window.ACKS.syncRuralPopulationFromHexes(_famDom);
+      }
       // Log the applied event in the event log (matching commitTurn's pattern).
       if(!Array.isArray(this.currentCampaign.eventLog)) this.currentCampaign.eventLog = [];
       ev.status = window.ACKS.EVENT_STATUS.APPLIED;

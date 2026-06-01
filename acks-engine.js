@@ -485,21 +485,41 @@ function setPeasantPopulation(d, newTotal){
   d.demographics.peasantFamilies = newTotal;
   _redistributeRuralFamilies(d, newTotal);
 }
-// On load, if peasantFamilies and sum(rural hex.families) disagree, reconcile.
-// Trust peasantFamilies (it's been actively maintained by monthly commits) and
-// redistribute across hexes by current weight. Returns the number of domains touched.
+// Inverse of setPeasantPopulation: derive the domain's peasant total FROM its rural
+// hexes. This is the canonical direction when families-per-hex-tracking is ON — the GM
+// edits per-hex family counts directly, so the hexes are the source of truth and the
+// domain total is simply their sum. Returns the new total.
+function syncRuralPopulationFromHexes(d){
+  if(!d || !d.demographics) return 0;
+  const sum = _ruralHexes(d).reduce((s,h) => s + (h.families||0), 0);
+  d.demographics.peasantFamilies = sum;
+  return sum;
+}
+// On load, reconcile any drift between peasantFamilies and Σ(rural hex.families). The
+// CANONICAL DIRECTION depends on the mode (CLAUDE principle #10 — canonical setters):
+//   • families-per-hex-tracking ON  → the GM edits hexes directly, so the HEXES win:
+//     derive peasantFamilies = Σ(hex.families). (Edge case: when the hexes are still
+//     empty — hexSum 0 with a positive domain total — seed them from the total instead,
+//     so a domain that just enabled the rule doesn't lose its population.)
+//   • OFF (RAW default)             → peasantFamilies is the canonical domain-level
+//     figure; redistribute it across the hexes by current weight.
+// Returns the number of domains touched.
 function reconcileRuralPopulation(campaign){
   if(!campaign || !Array.isArray(campaign.domains)) return 0;
+  const perHexCanonical = isHouseRuleEnabled(campaign, 'families-per-hex-tracking');
   let fixed = 0;
   campaign.domains.forEach(d => {
     const hexes = _ruralHexes(d);
     if(hexes.length === 0) return;
     const pf = (d.demographics && d.demographics.peasantFamilies) || 0;
     const hexSum = hexes.reduce((s,h) => s + (h.families||0), 0);
-    if(pf !== hexSum){
-      _redistributeRuralFamilies(d, pf);
-      fixed++;
+    if(pf === hexSum) return;
+    if(perHexCanonical && hexSum > 0){
+      syncRuralPopulationFromHexes(d);   // hexes canonical → peasantFamilies = Σ(hex.families)
+    } else {
+      _redistributeRuralFamilies(d, pf); // domain total canonical (or seeding empty hexes)
     }
+    fixed++;
   });
   return fixed;
 }
@@ -4551,7 +4571,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Foundation #241 — rural population: canonical setter + reconciliation.
   // Tools/UI MUST go through setPeasantPopulation for any rural population change.
-  setPeasantPopulation, reconcileRuralPopulation,
+  setPeasantPopulation, syncRuralPopulationFromHexes, reconcileRuralPopulation,
 
   // Entity-factory exports attached by acks-engine-entities.js (loaded after).
 
