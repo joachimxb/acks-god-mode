@@ -91,6 +91,14 @@ const EVENT_KINDS = Object.freeze([
   'construction-damaged',
   'construction-repair-started',
   'construction-demolished',
+  // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick events. Engine-emitted
+  // (day-tick consumer + startJourney); opted out of the Event Wizard below.
+  'journey-start',
+  'journey-day-tick',
+  'journey-arrived',
+  'journey-lost',
+  'journey-resupply',
+  'journey-encounter',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
   'gm-narrative'
 ]);
@@ -326,6 +334,31 @@ const EVENT_SCHEMAS = Object.freeze({
   'construction-demolished': {
     R: { constructibleId: 'string' },
     O: { reason: 'string', narrative: 'string' }
+  },
+  // Phase 2.5 Journeys (#475 — J1). All carry journeyId; context envelope carries the hex(es).
+  'journey-start': {
+    R: { journeyId: 'string' },
+    O: { startHexId: 'string', destinationHexId: 'string', narrative: 'string' }
+  },
+  'journey-day-tick': {
+    R: { journeyId: 'string' },
+    O: { dayIndex: 'number', milesTraveled: 'number', hexesTraveled: 'number', narrative: 'string' }
+  },
+  'journey-arrived': {
+    R: { journeyId: 'string' },
+    O: { destinationHexId: 'string', narrative: 'string' }
+  },
+  'journey-lost': {
+    R: { journeyId: 'string' },
+    O: { dayIndex: 'number', narrative: 'string' }
+  },
+  'journey-resupply': {
+    R: { journeyId: 'string' },
+    O: { rations: 'number', waterRations: 'number', narrative: 'string' }
+  },
+  'journey-encounter': {
+    R: { journeyId: 'string' },
+    O: { dayIndex: 'number', hexId: 'string', narrative: 'string' }
   },
   // #551 Wave Entity-B Chronicle Entry. Title + body + attached entities via context envelope.
   'gm-narrative': {
@@ -1572,6 +1605,24 @@ function applyEvent_constructionDemolished(campaign, event){
 }
 registerEventHandler('construction-demolished', applyEvent_constructionDemolished);
 
+// ─── Phase 2.5 Journeys (#475 — J1) — defensive event handlers ───
+// The Journey day-tick consumer mutates journey state in its commit() and emits these
+// events as an audit trail via emitDayTickEvents (which constructs + pushes the event
+// directly, NOT through applyEvent). These handlers exist only so the events are
+// well-formed and self-describing if ever replayed through the apply pipeline (e.g. a
+// future Portal log replay). They DO NOT re-advance the journey — that already happened
+// in the consumer commit — so applying one is a safe no-op beyond recording a narrative.
+function applyEvent_journeyAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { journeyId: p.journeyId || null, narrativeSummary: p.narrative || (event && event.kind) || 'journey event' } };
+}
+registerEventHandler('journey-start', applyEvent_journeyAudit);
+registerEventHandler('journey-day-tick', applyEvent_journeyAudit);
+registerEventHandler('journey-arrived', applyEvent_journeyAudit);
+registerEventHandler('journey-lost', applyEvent_journeyAudit);
+registerEventHandler('journey-resupply', applyEvent_journeyAudit);
+registerEventHandler('journey-encounter', applyEvent_journeyAudit);
+
 
 
 // ─── #541 Event Wizard support (Architecture.md §10.12 — 2026-05-30) ───
@@ -1584,7 +1635,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'venture-launch',        // owned by Launch Venture modal — skips investment validation
   'character-level-up',    // owned by level-up auto-flow — skips XP/class progression
   'character-death',       // owned by character sheet retire/delete — too consequential for raw emit
-  'gm-narrative'           // owned by Chronicle Entry sub-tab — has its own rich UI
+  'gm-narrative',          // owned by Chronicle Entry sub-tab — has its own rich UI
+  // Phase 2.5 Journeys (#475 — J1) — emitted by the day-tick consumer + startJourney,
+  // not authored raw (raw emit would skip the journey state transitions).
+  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

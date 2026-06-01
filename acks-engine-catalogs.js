@@ -183,9 +183,12 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'journey-batching-routine', category:'world', name:'Journey batching (routine)', source:'Phase 2.95 Calendar §13', description:'Silent-advance routine travel until a consumer surfaces a notable event. Effect lands with Journeys. Default off.' },
   { id:'journey-fast-travel', category:'world', name:'Journey fast-travel', source:'Phase 2.95 Calendar §13', description:'Collapse known-safe travel stretches to single-roll summary outcomes. Effect lands with Journeys. Default off.' },
   { id:'realistic-weather', category:'world', name:'Realistic weather', source:'Phase 2.95 Calendar §13', description:'Roll weather per day on regional tables instead of GM fiat. Effect lands with the weather consumer. Default off.' },
-  { id:'realistic-fatigue', category:'world', name:'Realistic fatigue', source:'JJ p.84', description:'Use the strict four-phase fatigue cycle instead of a simplified single counter. Effect lands with Journeys. Default off.' },
+  // RAW-default posture (CLAUDE §6, the fatigue/rations flip-queue): on a Journey the engine
+  // tracks RAW rations + the JJ p.84 strenuous-day fatigue cycle BY DEFAULT (no toggle). These
+  // two opt-ins SIMPLIFY away from RAW — they are the simplification, never RAW-behind-a-toggle.
+  { id:'simplified-fatigue', category:'world', name:'Simplified fatigue', source:'JJ p.84 (simplification)', description:'Opt out of the RAW JJ p.84 six-day strenuous-fatigue cycle in favour of a single soft counter that never forces a rest. RAW (the six-day cycle) is the default; this is the simplification. Default off.' },
   { id:'persistent-wandering-monsters', category:'world', name:'Persistent wandering monsters', source:'Phase 2.95 Calendar §13 / #476', description:'Wandering-encounter survivors become placed Group entities in the hex pool. Effect lands with Monster Persistence. Default off.' },
-  { id:'mandatory-rations', category:'world', name:'Mandatory rations', source:'Phase 2.95 Calendar §13', description:'The engine strictly tracks rations and applies hunger and dehydration. Effect lands with Journeys. Default off.' },
+  { id:'ignore-rations', category:'world', name:'Ignore rations', source:'RR p.275 (abstraction)', description:'Abstract away food + water logistics on Journeys — the engine stops tracking rations and never applies hunger or dehydration. RAW (strict ration tracking) is the default; this is the abstraction. Default off.' },
   // ----- Domain mechanics -----
   { id:'families-per-hex-tracking', category:'domain', name:'Families-per-hex tracking',
     source:'ACKS II RR (advanced granularity beyond RAW)',
@@ -546,10 +549,63 @@ function totalDailyWageGp(workerCounts){
   return total;
 }
 
+// =============================================================================
+// Phase 2.5 Journeys (#475) — overland travel catalogs (J1). RAW: RR ch.6
+// Wilderness Expeditions (pp.272-279) + JJ ch.3 (pp.84-95). Sea/air reserved.
+// =============================================================================
+
+// Hex is 6 miles across; a typical unencumbered foot party makes 24 mi/day
+// (RR p.272 expedition-speed table, 120'/turn row → 24 mi/day → 4 six-mile hexes).
+const JOURNEY_MILES_PER_HEX = 6;
+const JOURNEY_BASE_SPEED_MILES_PER_DAY = 24;
+
+// Terrain speed multipliers (RR p.272). Applied to the base expedition speed.
+const JOURNEY_TERRAIN_SPEED = Object.freeze({
+  grassland: 1, scrubland: 1, plains: 1,
+  barrens: 2/3, desert: 2/3, hills: 2/3, forest: 2/3,
+  jungle: 1/2, mountains: 1/2, mountain: 1/2, swamp: 1/2,
+  road: 3/2
+});
+
+// Navigation throw target by terrain (RR p.275). The party's best Land Surveying /
+// Navigation / Pathfinding proficiency adds a bonus; rolled secretly on the party's behalf.
+const JOURNEY_NAV_THROWS = Object.freeze({
+  barrens: 6, desert: 6, grassland: 6, mountains: 6, mountain: 6, scrubland: 6, plains: 6,
+  forest: 8, hills: 8,
+  swamp: 10,
+  jungle: 14
+});
+
+// Weather speed multiplier (RR p.277 "Weathering the Wild"). J1 uses GM-set or 'fair'.
+const JOURNEY_WEATHER_SPEED = Object.freeze({
+  fair: 1, drizzly: 1, flurry: 1, foggy: 1, sunbaked: 1,
+  rainy: 1, stormy: 3/4, snowy: 1/2
+});
+
+// Pace multipliers (RR p.272 + JJ p.84). forced-march is strenuous + consumes ancillaries.
+const JOURNEY_PACE_SPEED = Object.freeze({
+  'forced-march': 3/2, 'normal': 1, 'cautious': 1/2, 'half-ancillary': 0.1
+});
+
+// Survival (RR p.275): one ration = 1 stone = 2 lb food + 1 gallon water per person per day.
+const JOURNEY_RATION_PER_PERSON_DAY = 1;       // food rations
+const JOURNEY_WATER_PER_PERSON_DAY  = 1;       // water rations
+// Low-stock warning when fewer than this many person-days of stores remain.
+const JOURNEY_SUPPLY_LOW_DAYS = 3;
+
+// Fatigue (JJ p.84): six game days of strenuous activity without a rest day makes a
+// party fatigued. A seventh strenuous day forces a rest (which resets the counter).
+const JOURNEY_FATIGUE_CYCLE_DAYS = 6;
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   STRONGHOLD_CATALOG, MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE, EVENT_TABLE, HOUSERULES_REGISTRY, HOUSERULE_CATEGORIES, lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff, rollVagary, lookupVagary, sampleEvent, lookupHouseRule, lookupStrongholdStructure,
+  // Phase 2.5 Journeys (#475) — overland travel catalogs (J1).
+  JOURNEY_MILES_PER_HEX, JOURNEY_BASE_SPEED_MILES_PER_DAY, JOURNEY_TERRAIN_SPEED,
+  JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_PACE_SPEED,
+  JOURNEY_RATION_PER_PERSON_DAY, JOURNEY_WATER_PER_PERSON_DAY, JOURNEY_SUPPLY_LOW_DAYS,
+  JOURNEY_FATIGUE_CYCLE_DAYS,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.

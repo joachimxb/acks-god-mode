@@ -343,6 +343,47 @@
         { name: 'notes',   type: 'longText', group: 'History' },
         { name: 'history', type: 'history', readonly: true, group: 'History' }
       ]
+    },
+
+    // Phase 2.5 Journeys (#475 — J1). Overland/foot travel. Every field is a key
+    // blankJourney emits (global schema⊆factory invariant). Engine-managed logs
+    // (days[], encounters[]) are omitted — they're driven by the day-tick consumer,
+    // not GM-authored; edit via Raw JSON if ever needed. mode enum reserves sea/air.
+    'journey': {
+      factory: 'blankJourney',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Participants', 'Route', 'Progress', 'Supplies', 'History'],
+      fields: [
+        { name: 'id',     type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',   type: 'string', group: 'Identity', description: 'e.g. "Saltspur to the Tablelands"' },
+        { name: 'status', type: 'enum', enumValues: ['planning','in-transit','resting','arrived','aborted','lost'], group: 'Identity', description: 'Only in-transit journeys advance on a day-tick' },
+        { name: 'purpose', type: 'enum', enumValues: ['expedition','commercial-venture','pilgrimage','embassy','patrol','rescue','courier','hijink-travel','other'], group: 'Identity' },
+        { name: 'mode',   type: 'enum', enumValues: ['foot','mounted-light','mounted-medium','mounted-heavy','wagon','voyage-row','voyage-sail','voyage-galley','voyage-longship','aerial-mount','aerial-spell','mixed'], group: 'Identity', description: 'J1 acts on land modes only; sea/air reserved' },
+        { name: 'pace',   type: 'enum', enumValues: ['forced-march','normal','cautious','half-ancillary'], group: 'Identity' },
+        { name: 'partyId', type: 'id', idKind: 'party', group: 'Participants', description: 'Optional convenience pointer — participantCharacterIds is the source of truth' },
+        { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
+        { name: 'startHexId',       type: 'id', idKind: 'hex', group: 'Route' },
+        { name: 'destinationHexId', type: 'id', idKind: 'hex', group: 'Route' },
+        { name: 'currentHexId',     type: 'id', idKind: 'hex', group: 'Route', description: 'Advances to the destination on arrival (per-hex stepping is a later slice)' },
+        { name: 'waypoints', type: 'array', group: 'Route', description: 'Ordered intermediate stops', itemSchema: { fields: [
+          { name: 'hexId',          type: 'id', idKind: 'hex' },
+          { name: 'label',          type: 'string' },
+          { name: 'plannedPurpose', type: 'string' }
+        ] } },
+        { name: 'currentDayIndex', type: 'number', group: 'Progress', description: 'Days elapsed into the journey' },
+        { name: 'startedAtTurn',   type: 'number', group: 'Progress' },
+        { name: 'isLost',          type: 'boolean', group: 'Progress' },
+        { name: 'fatigueDays',     type: 'number', group: 'Progress', description: 'Strenuous-day streak (JJ p.84)' },
+        { name: 'supplies', type: 'object', group: 'Supplies', description: 'Person-day stores (J1 tracks food + water)', fields: [
+          { name: 'rations',      type: 'number', min: 0, description: 'Food rations (person-days)' },
+          { name: 'waterRations', type: 'number', min: 0, description: 'Water rations (person-days)' },
+          { name: 'animalFeed',   type: 'number', min: 0 },
+          { name: 'animalWater',  type: 'number', min: 0 },
+          { name: 'shipStores',   type: 'number', min: 0, description: 'Voyage modes only' }
+        ] },
+        { name: 'notes',   type: 'longText', group: 'History' },
+        { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
     }
   };
 

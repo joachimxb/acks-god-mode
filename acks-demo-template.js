@@ -1,9 +1,9 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces
 // (WIS->WIL, settlement entryways/regulatedAssets -> [], v1-scope reservations, typed
-// eventLog, Wave Construction-B agricultural-improvement Projects). Regenerated 2026-05-31
-// (Wave Construction-B) - migrateCampaign is a no-op on this file, asserted by tests/smoke.js.
-// Exposes window.ACKS_DEMO_TEMPLATE.
+// eventLog, Wave Construction-B agricultural Projects, Phase 2.5 Journeys hex/character
+// fields). Regenerated 2026-06-01 (Journeys J1) - migrateCampaign is a no-op on this
+// file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
   global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
@@ -791,7 +791,11 @@
       "hitDice": null,
       "heroicCode": null,
       "fatePoints": null,
-      "transformationState": null
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0
     },
     {
       "schemaVersion": 2,
@@ -868,7 +872,11 @@
       "hitDice": null,
       "heroicCode": null,
       "fatePoints": null,
-      "transformationState": null
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0
     },
     {
       "schemaVersion": 2,
@@ -954,7 +962,11 @@
       "hitDice": null,
       "heroicCode": null,
       "fatePoints": null,
-      "transformationState": null
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0
     },
     {
       "schemaVersion": 2,
@@ -1043,7 +1055,11 @@
       "hitDice": null,
       "heroicCode": null,
       "fatePoints": null,
-      "transformationState": null
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0
     },
     {
       "schemaVersion": 2,
@@ -1115,7 +1131,11 @@
       "hitDice": null,
       "heroicCode": null,
       "fatePoints": null,
-      "transformationState": null
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0
     },
     {
       "schemaVersion": 2,
@@ -1174,7 +1194,11 @@
       "hitDice": null,
       "heroicCode": null,
       "fatePoints": null,
-      "transformationState": null
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0
     }
   ],
   "parties": [],
@@ -1722,7 +1746,11 @@
       "notes": "Seat of the March. Town and keep share the hex.",
       "domainId": "dom-march-of-saltspur",
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     },
     {
       "schemaVersion": 2,
@@ -1764,7 +1792,11 @@
       "domainId": "dom-march-of-saltspur",
       "landImprovementInvested": 12500,
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     },
     {
       "schemaVersion": 2,
@@ -1797,7 +1829,11 @@
       "notes": "Source of the march's salt wealth and identity.",
       "domainId": "dom-march-of-saltspur",
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     },
     {
       "schemaVersion": 2,
@@ -1822,7 +1858,11 @@
       "notes": "Fishing villages along the coast.",
       "domainId": "dom-march-of-saltspur",
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     },
     {
       "schemaVersion": 2,
@@ -1860,7 +1900,11 @@
       "notes": "Yorick's seat. Forward-watchtower against the wastes.",
       "domainId": "dom-barony-northwatch",
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     },
     {
       "schemaVersion": 2,
@@ -1885,7 +1929,11 @@
       "notes": "Mixed farmland.",
       "domainId": "dom-barony-northwatch",
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     },
     {
       "schemaVersion": 2,
@@ -1933,7 +1981,11 @@
       "notes": "Mira's seat. The shrine is the barony's identity.",
       "domainId": "dom-barony-saltcombe",
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     },
     {
       "schemaVersion": 2,
@@ -1958,7 +2010,11 @@
       "notes": "Pilgrim-road farms.",
       "domainId": "dom-barony-saltcombe",
       "economyType": "agricultural",
-      "terrainTransformationState": null
+      "terrainTransformationState": null,
+      "hasRoad": false,
+      "hasTrail": false,
+      "riverCount": 0,
+      "elevationFt": 0
     }
   ],
   "settlements": [
