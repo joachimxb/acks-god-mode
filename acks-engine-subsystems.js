@@ -11,10 +11,9 @@
  *
  * Each subsystem uses helpers from acks-engine-catalogs.js (HOUSERULES_REGISTRY
  * lookups) and from acks-engine.js (newId, factories). All access is via
- * global.ACKS so load order is: catalogs → engine → subsystems is fine,
- * but the current order is catalogs → subsystems → engine which means the
- * subsystems can't call engine helpers at definition time. They only need
- * them at runtime, so that's fine.
+ * global.ACKS. This module loads LAST in index.html (catalogs → engine →
+ * entities → entity-registry → field-schemas → events → subsystems), so every
+ * engine helper is already present on global.ACKS by the time these functions run.
  *
  * Load order: AFTER acks-engine-catalogs.js, AFTER acks-engine.js so that
  * global.ACKS.newId etc. are available at runtime when subsystem functions
