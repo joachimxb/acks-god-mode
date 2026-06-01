@@ -574,6 +574,21 @@ function registerEventHandler(kind, fn){
   EVENT_HANDLERS[kind] = fn;
 }
 
+// Deep clone / in-place restore helpers backing the transactional dispatch below.
+// Campaign state is pure JSON data (the .acks.json contract), so structuredClone
+// (or its JSON fallback) is lossless. _restoreCampaignInPlace mutates the SAME
+// campaign object reference back to the snapshot so callers holding the reference
+// (and Alpine's reactive proxy) see the rolled-back state.
+function _cloneForRollback(c){
+  try { if(typeof structuredClone === 'function') return structuredClone(c); } catch(e){}
+  return JSON.parse(JSON.stringify(c));
+}
+function _restoreCampaignInPlace(target, snap){
+  if(!target || !snap || typeof snap !== 'object') return;
+  for(const k of Object.keys(target)){ if(!(k in snap)) delete target[k]; }
+  for(const k of Object.keys(snap)){ target[k] = snap[k]; }
+}
+
 function applyEvent(campaign, event){
   validateEvent(event);
   const handler = EVENT_HANDLERS[event.kind];
@@ -587,7 +602,21 @@ function applyEvent(campaign, event){
       }
     };
   }
-  return handler(campaign, event);
+  // Transactional dispatch (delta audit C2, 2026-06-01). A multi-step handler
+  // (e.g. adventure-result: treasure → XP → casualties → rumor) that throws
+  // partway must not leave partial mutations behind — reject ≠ rollback. Snapshot
+  // the campaign, run the handler in place (the success path is unchanged, so
+  // fine-grained reactivity at the call sites is preserved), and on throw restore
+  // the pre-event state before re-throwing. The existing catch at the call site
+  // (commitTurn ~3114 / resolvePendingEvent ~11916) then marks the event rejected,
+  // logs the engine error, and toasts — now with no orphaned partial state.
+  const _snapshot = _cloneForRollback(campaign);
+  try {
+    return handler(campaign, event);
+  } catch(err){
+    _restoreCampaignInPlace(campaign, _snapshot);
+    throw err;
+  }
 }
 
 // Helper used by handlers to apply a treasury delta and return change metadata.

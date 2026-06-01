@@ -13,6 +13,7 @@
  */
 'use strict';
 const path = require('path');
+const assert = require('assert');
 
 const DIR = path.join(__dirname, '..');
 [
@@ -40,6 +41,11 @@ function throws(label, fn) {
   ok(label, threw, 'expected a throw');
 }
 const clone = o => JSON.parse(JSON.stringify(o));
+function deepEq(label, a, b) {
+  let eq = true, msg = '';
+  try { assert.deepStrictEqual(a, b); } catch (e) { eq = false; msg = (e.message || '').split('\n').slice(0, 4).join(' '); }
+  ok(label, eq, msg);
+}
 
 // =============================================================================
 section('P2.3 — markets-transaction-threshold gate routes through isHouseRuleEnabled (delta audit I1)');
@@ -78,8 +84,50 @@ ok('{enabled:true}  → auto-emit hook fires (one rumor-emit)', grantAndCountRum
 ok('absent rule → does NOT fire (off by default)', grantAndCountRumors(undefined) === 0);
 
 // =============================================================================
+section('P1.2 — applyEvent is transactional: rolls back partial mutations on handler throw (delta audit C2)');
+// =============================================================================
+// adventure-result marks the target hex explored (mutation #1, line ~994), then
+// walks treasureAwarded; an entry whose destinationDomainId names a non-existent
+// domain throws inside _applyTreasuryDelta (line ~607) AFTER the hex mutation.
+// Pre-fix, hex.explored stayed true once the handler threw (reject ≠ rollback).
+function txnFixture() {
+  const c = ACKS.blankCampaign();
+  c.currentTurn = 1;
+  c.domains = [{
+    id: 'dom-1', name: 'Mark', treasury: { gp: 0 },
+    geography: { hexes: [{ id: 'hex-1', explored: false }] }
+  }];
+  c.pendingEvents = [];
+  return c;
+}
+const throwingEv = ACKS.newEvent('adventure-result', {
+  submittedBy: 'gm',
+  payload: {
+    outcome: 'cleared', hexId: 'hex-1',
+    treasureAwarded: [{ kind: 'gp', amount: 1000, destinationDomainId: 'dom-DOES-NOT-EXIST', label: 'loot' }]
+  }
+});
+const cThrow = txnFixture();
+const before = clone(cThrow);
+throws('adventure-result with unknown destinationDomainId throws', () => ACKS.applyEvent(cThrow, throwingEv));
+deepEq('campaign fully unchanged after the throw (no partial mutation)', cThrow, before);
+ok('  → target hex.explored rolled back to false', cThrow.domains[0].geography.hexes[0].explored === false);
+
+// Success path is preserved: a well-formed adventure-result still mutates in place.
+const cOk = txnFixture();
+ACKS.applyEvent(cOk, ACKS.newEvent('adventure-result', {
+  submittedBy: 'gm',
+  payload: {
+    outcome: 'cleared', hexId: 'hex-1',
+    treasureAwarded: [{ kind: 'gp', amount: 500, destinationDomainId: 'dom-1', label: 'loot' }]
+  }
+}));
+ok('success path: hex marked explored', cOk.domains[0].geography.hexes[0].explored === true);
+ok('success path: treasury credited 500gp', cOk.domains[0].treasury.gp === 500);
+
+// =============================================================================
 //   ── further sections appended by later commits in this pass ──
-//   P1.2 applyEvent transactional rollback · P3.7 table-driven event-kind smoke
+//   P3.7 table-driven event-kind smoke
 // =============================================================================
 
 // ─── summary ───
