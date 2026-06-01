@@ -11715,9 +11715,13 @@ return {
   toggleRejectDayTickRecord(r){ if(r) r.rejected = !r.rejected; },
   cancelDayTick(){ this.dayTickProposal = null; this.dayTickError = null; },
   _persistDayTick(){
-    try { if(typeof this.autosave === 'function') return this.autosave(); } catch(e){}
-    try { if(typeof this.saveCampaign === 'function') return this.saveCampaign(); } catch(e){}
-    try { if(typeof this.persistCampaignToDisk === 'function') return this.persistCampaignToDisk(); } catch(e){}
+    // A day-tick is a content mutation — mark dirty + persist to the SESSION cache (debounced),
+    // exactly like every other edit. Do NOT write the bound .acks.json file; that stays explicit
+    // (Save campaign). The old fallback chain (autosave -> saveCampaign -> persistCampaignToDisk)
+    // landed on saveCampaign() because the intended autosave() was never implemented, so every tick
+    // was silently writing the user's file + flashing a "Saved" toast.
+    this.markDirty();
+    this.schedulePersist();
   },
   commitDayTick(){
     if(!this.dayTickProposal) return;
