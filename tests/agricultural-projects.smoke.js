@@ -654,6 +654,21 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
     check('R3 monthly: realistic ON did NOT debit treasury for ag', d.treasury.gp === 1000000);
     check('R3 monthly: an under-construction agricultural Project exists', (c.projects||[]).some(p => p.constructibleKind === 'agricultural-improvement' && p.lifecycleState === 'under-construction'));
   }
+
+  // Day-tick needs campaign.domains attached to find the treasury. The UI keeps domains in
+  // this.domains separate from currentCampaign.domains (empty), so the day-tick must attach them —
+  // without the attach, the drip can't find the treasury and reports 0 ("idle"), even with a budget.
+  {
+    const c = ACKS.blankCampaign({ name: 'split' }); c.projects = [];
+    const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 };
+    const hex = ACKS.blankHex({ id: 'hex-sp', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.improvementBudgetGp = 25000; hex.domainId = d.id;
+    d.geography.hexes = [hex]; c.hexes = [hex]; c.domains = []; // split shape: hex lifted, domains NOT attached
+    ACKS.syncAgriculturalProject(c, hex, { domainId: d.id });
+    const proj = ACKS.findAgriculturalProject(c, 'hex-sp');
+    check('split-shape: domains NOT attached -> drip 0 (the reported "idle" bug)', ACKS.computeAgriculturalDrip(c, proj, 1).drip === 0);
+    c.domains = [d]; // attach (what the UI day-tick now does)
+    check('split-shape: domains attached -> drips 500 (the fix)', ACKS.computeAgriculturalDrip(c, proj, 1).drip === 500);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -11691,8 +11691,15 @@ return {
   },
   _proposeDayTick(days){
     this.dayTickError = null;
+    // Day-tick consumers (construction) read the domain treasury via campaign.domains, but the UI
+    // keeps domains in this.domains separate from currentCampaign.domains (empty). Attach them so the
+    // agricultural drip can find the domain + treasury; restore after (proposeDayTick clones, so the
+    // real campaign isn't mutated — the clone just needs to see the domains).
+    const _origDomains = this.currentCampaign.domains;
+    this.currentCampaign.domains = this.domains;
     try { this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {}); }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
+    finally { this.currentCampaign.domains = _origDomains; }
   },
   tickDay(){ this._proposeDayTick(1); },
   tickWeek(){ this._proposeDayTick(7); },
@@ -11714,11 +11721,15 @@ return {
   },
   commitDayTick(){
     if(!this.dayTickProposal) return;
+    // Attach domains so the construction commit can debit the real domain treasury (see _proposeDayTick).
+    const _origDomains = this.currentCampaign.domains;
+    this.currentCampaign.domains = this.domains;
     try {
       window.ACKS.commitDayTick(this.currentCampaign, this.dayTickProposal, null);
       this.dayTickProposal = null;
-      this._persistDayTick();
     } catch(e){ console.error('commitDayTick error', e); this.dayTickError = String((e && e.message) || e); }
+    finally { this.currentCampaign.domains = _origDomains; }
+    this._persistDayTick();   // persist AFTER restoring domains so the saved currentCampaign.domains stays empty
   },
   proposeMonthlyTurn(){
     console.log('proposeMonthlyTurn() called, domains:', this.domains.length);
