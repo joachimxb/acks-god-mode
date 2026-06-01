@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Journeys (overland travel)** — the first real travel consumer of the day-tick layer. Plan a foot journey between hexes, set it in motion, and the Day Clock advances it day by day — movement (terrain/weather/pace), navigation throws (getting lost in trackless country), food + water, and fatigue — until the party arrives. Create and drive one through the Entity Inspector plus the Day Clock (a dedicated Journeys panel comes later).
+- Travel-relevant hex geography (road / trail / river / elevation) and per-character travel state (fatigue, hunger, dehydration) that persists from one journey into the next.
+- An in-flight journey now shows on a participant's **Activity** strip (Roster, character sheet, henchmen tables) — e.g. "🥾 on journey to (5,-3) · Saltspur".
+
+### Changed
+- Travel logistics are **RAW by default**: rations and the six-day fatigue cycle (JJ p.84) apply out of the box. The new `simplified-fatigue` and `ignore-rations` house rules opt *out* toward a lighter-weight game.
+
+### Removed
+- The placeholder default-off `realistic-fatigue` and `mandatory-rations` house rules — superseded by the RAW-default posture above.
 
 ## [0.10.0] - 2026-06-01
 
