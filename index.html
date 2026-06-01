@@ -1318,7 +1318,7 @@ document.addEventListener('alpine:init', () => {
                     <th>Bonus / next step</th>
                     <th>Eligibility</th>
                     <th x-show="false">Supervisor</th>
-                    <th class="text-center">Budget (drips ~500/day)</th>
+                    <th>Budget (drips ~500/day)</th>
                   </tr></thead>
                   <tbody>
                     <template x-for="(h, hi) in selectedDomain.geography.hexes" :key="h.id || hi">
@@ -1378,7 +1378,7 @@ document.addEventListener('alpine:init', () => {
                             <span class="opacity-40">—</span>
                           </template>
                         </td>
-                        <td class="text-center">
+                        <td>
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
                             <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + h.coord?.q + ',' + h.coord?.r + ')', kind:'number', min:0})">
                               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
