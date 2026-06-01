@@ -3810,6 +3810,77 @@ function dayTickActivityInFlight(campaign){
 // Also stops at month end (day 30). Returns a tick proposal:
 //   { fromDay, toDay, daysAdvanced, monthEndReached, paused, pauseReasons[],
 //     pendingRecords[], notableEvents[], encounters[] }
+// Regenerate a merged record's summary label from its accumulated totals (week/month tick).
+function _dayRecordLabel(m){
+  const nm = m.name || 'project';
+  const days = m.daysAdded || 0;
+  const dsuf = (days === 1 ? ' day' : ' days');
+  if(m.agriculturalDrip){
+    const drip = Math.round(m._sumDrip || 0);
+    if(drip <= 0) return m._lastLabel || (nm + ' — idle');
+    const steps = m._sumSteps || 0;
+    const budgetLeft = Math.max(0, Math.round(m.budgetLeftAfter || 0));
+    return nm + ': +' + drip.toLocaleString() + 'gp over ' + days + dsuf
+      + (steps > 0 ? ' (+' + steps + ' land value)' : '')
+      + ' · ' + budgetLeft.toLocaleString() + 'gp budget left';
+  }
+  if(typeof m.newLaborInvested === 'number'){
+    const gained = Math.round(m._sumLabor || 0);
+    const inv = Math.round(m.newLaborInvested || 0);
+    return nm + ': +' + gained + ' cf over ' + days + dsuf
+      + ' (' + inv + (m.laborRequired ? ('/' + m.laborRequired) : '') + ' cf)'
+      + (m.willComplete ? ' — complete' : '');
+  }
+  return m._lastLabel || m.label || (nm + ' — ' + days + dsuf);
+}
+
+// Collapse a multi-day proposal's per-day construction records into ONE record per
+// (consumer, project) so a week/month tick shows a single summary line per project instead
+// of N daily spam lines. Single-day groups pass through untouched (a 1-day tick is unchanged).
+// The merged record sums daysAdded + drip/labor and keeps the LAST day's cumulative state, so
+// commitConstructionRecord — which recomputes agricultural drip from daysAdded and reads the
+// absolute newLaborInvested for workers — applies the correct weekly/monthly total.
+function _mergeDayRecords(records){
+  if(!Array.isArray(records) || records.length < 2) return records || [];
+  const groups = new Map();
+  const order = [];
+  const passthrough = [];
+  records.forEach(r => {
+    if(!r || !r.projectId){ passthrough.push(r); return; }
+    const key = (r.consumer || '') + '|' + r.projectId + '|' + (r.kind || '');
+    if(!groups.has(key)){
+      const seed = Object.assign({}, r);
+      seed._count = 0; seed._sumDrip = 0; seed._sumSteps = 0; seed._sumLabor = 0;
+      seed.daysAdded = 0;
+      groups.set(key, seed);
+      order.push(key);
+    }
+    const m = groups.get(key);
+    m._count++;
+    m.daysAdded = (m.daysAdded || 0) + (r.daysAdded || 0);
+    m._sumDrip  += (r.dripProjected || 0);
+    m._sumSteps += (r.stepsWillComplete || 0);
+    m._sumLabor += (r.laborGained || 0);
+    if(typeof r.newLaborInvested === 'number') m.newLaborInvested = r.newLaborInvested;
+    if(typeof r.newDaysElapsed === 'number')   m.newDaysElapsed   = r.newDaysElapsed;
+    if(typeof r.budgetLeftAfter === 'number')  m.budgetLeftAfter  = r.budgetLeftAfter;
+    if(r.willComplete) m.willComplete = true;
+    if(r.paused){ m.paused = true; if(r.blockReason) m.blockReason = r.blockReason; }
+    m.dripProjected = m._sumDrip;
+    m.laborGained = m._sumLabor;
+    m._lastLabel = r.label;
+    if(r.dayInMonth != null) m.dayInMonth = r.dayInMonth;
+  });
+  const out = [];
+  order.forEach(key => {
+    const m = groups.get(key);
+    if(m._count > 1) m.label = _dayRecordLabel(m);
+    delete m._count; delete m._sumDrip; delete m._sumSteps; delete m._sumLabor; delete m._lastLabel;
+    out.push(m);
+  });
+  return out.concat(passthrough);
+}
+
 function proposeDayTick(campaign, days, opts){
   opts = opts || {};
   const force = !!opts.force;
@@ -3846,6 +3917,8 @@ function proposeDayTick(campaign, days, opts){
       if(reasons.length){ proposal.paused = true; proposal.pauseReasons = reasons; break; }
     }
   }
+  // Collapse per-day construction records into one summary line per project (week/month tick).
+  proposal.pendingRecords = _mergeDayRecords(proposal.pendingRecords);
   return proposal;
 }
 
@@ -4093,7 +4166,9 @@ function proposeConstructionDay(campaign, dayContext){
                                     + ' · ' + Math.max(0, Math.round(calc.budget - calc.drip)).toLocaleString() + 'gp budget left';
         pendingRecords.push({
           kind: 'construction-progress', projectId: p.id, agriculturalDrip: true,
-          label: label, daysAdded: days, dripProjected: calc.drip,
+          name: nm, label: label, daysAdded: days, dripProjected: calc.drip,
+          stepsWillComplete: calc.stepsWillComplete || 0,
+          budgetLeftAfter: Math.max(0, (calc.budget || 0) - (calc.drip || 0)),
           paused: !!calc.blocked, blockReason: calc.blockReason || '',
           willComplete: false, primaryHexId: p.siteHexId || null
         });
@@ -4133,8 +4208,8 @@ function proposeConstructionDay(campaign, dayContext){
     const label = name + ': +' + Math.round(laborGained) + ' cf (' + Math.round(newLaborInvested) +
       (p.laborRequired ? ('/' + p.laborRequired) : '') + ' cf)' + (willComplete ? ' — complete' : '');
     pendingRecords.push({
-      kind: 'construction-progress', projectId: p.id, label: label,
-      daysAdded: days, laborGained: laborGained,
+      kind: 'construction-progress', projectId: p.id, name: name, label: label,
+      daysAdded: days, laborGained: laborGained, laborRequired: p.laborRequired || 0,
       fromLaborInvested: fromLaborInvested, newLaborInvested: newLaborInvested,
       fromDaysElapsed: fromDaysElapsed, newDaysElapsed: newDaysElapsed,
       willComplete: willComplete, primaryHexId: p.siteHexId || null

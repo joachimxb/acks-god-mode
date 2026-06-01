@@ -435,12 +435,15 @@ section('Calendar day-tick pipeline (Phase 2.95)');
   ok('day-tick: idle campaign produces no pending records', pi.pendingRecords.length === 0);
   ok('day-tick: idle campaign not in-flight', ACKS.dayTickActivityInFlight(ci) === false);
 
-  // Tick Week advances up to 7 days, one construction record per day
+  // Tick Week advances up to 7 days; the per-day construction records collapse to ONE
+  // summary line per project (no per-day spam), summing daysAdded for the commit.
   const cw = mkCamp();
   cw.projects.push(mkProject({ id:'prj-w' }));
   const pw = ACKS.proposeDayTick(cw, 7, {});
   ok('day-tick: Tick Week advances 7 days', pw.daysAdvanced === 7);
-  ok('day-tick: 7 construction records (one per day)', pw.pendingRecords.length === 7);
+  ok('day-tick: 7 per-day records collapse to 1 summary record per project', pw.pendingRecords.length === 1);
+  ok('day-tick: the merged record sums daysAdded to 7', pw.pendingRecords[0].daysAdded === 7);
+  ok('day-tick: the merged label reads "over 7 days"', /over 7 days/.test(pw.pendingRecords[0].label || ''));
   ACKS.commitDayTick(cw, pw, null);
   ok('day-tick: clock at day 8 after Tick Week from day 1', cw.currentDayInMonth === 8);
   ok('day-tick: clock past day 1 => in-flight', ACKS.dayTickActivityInFlight(cw) === true);

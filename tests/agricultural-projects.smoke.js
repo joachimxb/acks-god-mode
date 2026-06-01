@@ -737,6 +737,51 @@ console.log('--- Time-based construction: full day-tick pipeline (proposeDayTick
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Week/month aggregation — a multi-day tick collapses to ONE summary line per project
+// (no per-day spam), and the merged record still commits the correct weekly total.
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('--- Time-based construction: week/month record aggregation ---');
+{
+  function buildTwo(){
+    const c = ACKS.blankCampaign({ name: 'agg' });
+    c.houseRules = {}; c.projects = []; c.currentDayInMonth = 1;
+    c.calendar = { year:1, month:1, day:1, kind:'default' };
+    const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 };
+    const h1 = ACKS.blankHex({ id: 'hex-a1', coord:{q:0,r:0} }); h1.valuePerFamily = 6; h1.domainId = d.id; h1.improvementBudgetGp = 25000;
+    const h2 = ACKS.blankHex({ id: 'hex-a2', coord:{q:1,r:0} }); h2.valuePerFamily = 6; h2.domainId = d.id; h2.improvementBudgetGp = 25000;
+    d.geography.hexes = [h1, h2]; c.hexes = [h1, h2]; c.domains = [d];
+    ACKS.syncAgriculturalProject(c, h1, { domainId: d.id });
+    ACKS.syncAgriculturalProject(c, h2, { domainId: d.id });
+    return { c, d, h1, h2, p1: ACKS.findAgriculturalProject(c, 'hex-a1'), p2: ACKS.findAgriculturalProject(c, 'hex-a2') };
+  }
+
+  // A 7-day tick over two projects: 14 per-day records collapse to 2 (one per project).
+  let t = buildTwo();
+  const weekProposal = ACKS.proposeDayTick(t.c, 7);
+  const agRecs = weekProposal.pendingRecords.filter(r => r.agriculturalDrip);
+  check('week-agg: 7-day tick over 2 projects -> ONE record per project (not 14)', agRecs.length === 2, 'records ' + agRecs.length + ' :: ' + JSON.stringify(weekProposal.pendingRecords.map(r => r.label)));
+  const r1 = agRecs.find(r => r.projectId === t.p1.id);
+  check('week-agg: merged record daysAdded summed to 7', r1 && r1.daysAdded === 7, r1 && ('days ' + r1.daysAdded));
+  check('week-agg: merged record dripProjected summed to 3500 (7×500)', r1 && r1.dripProjected === 3500, r1 && ('drip ' + r1.dripProjected));
+  check('week-agg: merged label reads "over 7 days"', r1 && /over 7 days/.test(r1.label || ''), r1 && r1.label);
+  check('week-agg: merged label carries the weekly total (+3,?500gp)', r1 && /\+3.?500gp/.test(r1.label || ''), r1 && r1.label);
+
+  // …and the merged record commits the full weekly total (commitConstructionRecord recomputes drip from daysAdded).
+  ACKS.commitDayTick(t.c, weekProposal, null);
+  check('week-agg: commit applies the weekly total (project 1 invested 3500)', t.h1.landImprovementInvested === 3500, 'invested ' + t.h1.landImprovementInvested);
+  check('week-agg: commit applies the weekly total (project 2 invested 3500)', t.h2.landImprovementInvested === 3500, 'invested ' + t.h2.landImprovementInvested);
+  check('week-agg: treasury debited 7000 total (2 × 3500 pay-as-you-build)', t.d.treasury.gp === 1000000 - 7000, 'treasury ' + t.d.treasury.gp);
+  check('week-agg: day clock advanced to day 8', t.c.currentDayInMonth === 8, 'day ' + t.c.currentDayInMonth);
+
+  // A single-day tick is unchanged: the per-day label is NOT rewritten to "over 1 day".
+  t = buildTwo();
+  const dayProposal = ACKS.proposeDayTick(t.c, 1);
+  const oneRec = dayProposal.pendingRecords.find(r => r.projectId === t.p1.id);
+  check('week-agg: single-day tick keeps the per-day label (no "over" rewrite)', oneRec && !/over 1 day/.test(oneRec.label || '') && /\+500gp/.test(oneRec.label || ''), oneRec && oneRec.label);
+  check('week-agg: single-day tick still commits 500 into invested', (function(){ ACKS.commitDayTick(t.c, dayProposal, null); return t.h1.landImprovementInvested === 500; })(), 'invested ' + t.h1.landImprovementInvested);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);
