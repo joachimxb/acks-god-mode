@@ -6701,6 +6701,7 @@ return {
     switch(kind){
       case 'character': return () => this.openNewCharacterEditor({ kind: 'NPC' });
       case 'domain':    return () => this.addBlankDomain();  // queued: Domain Wizard (#435) replaces this when shipped
+      case 'journey':   return () => this.inspectorCreateBlankJourney();  // Phase 2.5 #475 — Admin verb (free-form); set status=in-transit + Tick Day to drive
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -6709,6 +6710,21 @@ return {
       //   case 'settlement': return null;  // requires hex context — stays a stub pointing to + Found Settlement
     }
     return null;
+  },
+
+  // Phase 2.5 #475 — Admin-verb create for a Journey: spawn a blank Journey and open it
+  // in the Inspector's edit form. The GM fills in participants + start/destination hex,
+  // sets status to 'in-transit' (or calls Start from a future J2 sub-tab), then drives it
+  // with the Day Clock (Tick Day). No in-fiction cost — this is the free-form Admin verb.
+  inspectorCreateBlankJourney(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.journeys)) this.currentCampaign.journeys = [];
+    const j = window.ACKS.blankJourney({ name: 'New Journey' });
+    this.currentCampaign.journeys.push(j);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('journey', j.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Journey created — set participants, start + destination hexes, then status = in-transit.');
   },
 
   // Friendly description of the wizard situation for the current kind.
@@ -7813,9 +7829,50 @@ return {
       }
     }
 
+    // ── Contributor 4: Journeys (Priority 1) — Phase 2.5 #475 ───────────────
+    // An in-flight (or resting) Journey the character is participating in. Mode-
+    // discriminated icon per the Journeys plan §15. deepLinkTo reserved for the
+    // Journeys sub-tab (J2) / inspectorOpen.
+    const journeys = (this.currentCampaign?.journeys || [])
+      .filter(j => j && (j.status === 'in-transit' || j.status === 'resting') && (j.participantCharacterIds || []).includes(c.id));
+    for(const j of journeys){
+      const destLabel = this._journeyHexLabel(j.destinationHexId);
+      const curLabel = this._journeyHexLabel(j.currentHexId);
+      const dayN = (j.currentDayIndex || 0) + 1;
+      const link = {entity:'journey', id:j.id};
+      if(j.isLost){
+        acts.push({kind:'journey-lost:' + j.id, icon:'🧭', label:'lost en route to ' + destLabel, priority:1, deepLinkTo:link});
+      } else if(j.status === 'resting'){
+        acts.push({kind:'journey-resting:' + j.id, icon:'⛺', label:'resting at ' + curLabel, priority:1, deepLinkTo:link});
+      } else if((j.mode || '').startsWith('voyage-')){
+        acts.push({kind:'journey-voyage:' + j.id, icon:'⛵', label:'voyaging to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
+      } else if((j.mode || '').startsWith('aerial-')){
+        acts.push({kind:'journey-aerial:' + j.id, icon:'🦅', label:'flying to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
+      } else {
+        acts.push({kind:'journey-overland:' + j.id, icon:'🥾', label:'on journey to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
+      }
+    }
+
     // ── Future contributors land here. Each adds zero or more descriptors. ──
 
     return acts.sort((a,b) => a.priority - b.priority || a.kind.localeCompare(b.kind));
+  },
+
+  // Resolve a hex id to a "(q,r) · Settlement" label for Activity descriptors.
+  // Checks the canonical top-level hexes, then per-domain geography (the UI split).
+  _journeyHexLabel(hexId){
+    if(!hexId) return 'destination';
+    let h = (this.currentCampaign?.hexes || []).find(x => x && x.id === hexId);
+    if(!h){
+      for(const d of (this.domains || [])){
+        const hh = (d.geography?.hexes || []).find(x => x && x.id === hexId);
+        if(hh){ h = hh; break; }
+      }
+    }
+    if(!h) return hexId;
+    const coord = '(' + (h.coord?.q ?? 0) + ',' + (h.coord?.r ?? 0) + ')';
+    const setName = h.settlement && h.settlement.name;
+    return coord + (setName ? ' · ' + setName : '');
   },
 
   // ─── Unified role + income + XP helpers (Roster + Officers) ──────────────
