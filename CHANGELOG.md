@@ -10,15 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.11.0] - 2026-06-01
 
 ### Added
-- **Journeys (overland travel)** — the first real travel consumer of the day-tick layer. Plan a foot journey between hexes, set it in motion, and the Day Clock advances it day by day — movement (terrain/weather/pace), navigation throws (getting lost in trackless country), food + water, and fatigue — until the party arrives. Create and drive one through the Entity Inspector plus the Day Clock (a dedicated Journeys panel comes later).
-- Travel-relevant hex geography (road / trail / river / elevation) and per-character travel state (fatigue, hunger, dehydration) that persists from one journey into the next.
-- An in-flight journey now shows on a participant's **Activity** strip (Roster, character sheet, henchmen tables) — e.g. "🥾 on journey to (5,-3) · Saltspur".
+- **Groundwork for overland travel** (engine + data layer — there's no Journeys UI yet). Under the hood, the engine can now model a journey day by day — movement, navigation, rations, and fatigue (JJ p.84), advanced by the Day Clock. You can't plan or run one from the interface yet; a dedicated Journeys panel comes in a later release. This release just lays the foundation it will build on.
 
 ### Changed
-- Travel logistics are **RAW by default**: rations and the six-day fatigue cycle (JJ p.84) apply out of the box. The new `simplified-fatigue` and `ignore-rations` house rules opt *out* toward a lighter-weight game.
+- Internal travel logistics default to RAW (rations + the six-day fatigue cycle, JJ p.84); the `simplified-fatigue` and `ignore-rations` opt-out house rules are reserved for when the travel UI ships.
 
 ### Removed
-- The placeholder default-off `realistic-fatigue` and `mandatory-rations` house rules — superseded by the RAW-default posture above.
+- Two unused placeholder house rules (`realistic-fatigue`, `mandatory-rations`), folded into the RAW-default approach above.
 
 ### Fixed
 - **House-rule toggles now take effect for rules stored as a bare boolean.** Some rules (e.g. families-per-hex tracking) ship in templates as `true` rather than `{enabled: true}`; the House Rules UI only understood the object form, so those rules displayed as off and their toggle wouldn't flip. The UI now uses the engine's canonical accessor (which accepts both shapes) and normalizes the value when toggling. This is what made families-per-hex tracking look broken — the per-hex columns never appeared even with the rule "on".
