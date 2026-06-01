@@ -5,6 +5,6 @@
   "description": "ACKS God Mode — ACKS II campaign engine + world-state data layer. Engine modules load headless in Node; this manifest exists to run the smoke suites (no runtime dependencies).",
   "license": "AGPL-3.0-only",
   "scripts": {
-    "test": "node tests/smoke.js && node tests/turn-cycle-v2.smoke.js"
+    "test": "node tests/smoke.js && node tests/turn-cycle-v2.smoke.js && node tests/agricultural-projects.smoke.js"
   }
 }

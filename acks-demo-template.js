@@ -1,8 +1,9 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces
-// (WIS→WIL, settlement entryways/regulatedAssets → [], v1-scope reservations, typed
-// eventLog). Regenerated 2026-05-31 (Foundation audit Step 5) — migrateCampaign is a
-// no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
+// (WIS->WIL, settlement entryways/regulatedAssets -> [], v1-scope reservations, typed
+// eventLog, Wave Construction-B agricultural-improvement Projects). Regenerated 2026-05-31
+// (Wave Construction-B) - migrateCampaign is a no-op on this file, asserted by tests/smoke.js.
+// Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
   global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
@@ -2375,7 +2376,49 @@
   "settlementVisits": [],
   "oaths": [],
   "vagaryOfIncursionEvents": [],
-  "projects": [],
+  "projects": [
+    {
+      "schemaVersion": 2,
+      "id": "prj-azzevak",
+      "constructibleKind": "agricultural-improvement",
+      "constructibleSubtype": null,
+      "name": "Agricultural improvement — (1,0)",
+      "siteHexId": "hex-saltspur-fields",
+      "siteSettlementId": null,
+      "siteConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-march-of-saltspur",
+      "isRepair": false,
+      "repairTargetConstructibleId": null,
+      "totalCost": 50000,
+      "gpSpent": 12500,
+      "laborInvested": 0,
+      "laborRequired": 0,
+      "workerCounts": {},
+      "workerCapPerDay": 0,
+      "supervisorCharacterIds": [],
+      "requiredSupervisorRating": 0,
+      "magicAssist": {
+        "ditches": false,
+        "mire": false,
+        "walls": false,
+        "multipliers": {}
+      },
+      "lifecycleState": "under-construction",
+      "startedAtTurn": null,
+      "completedAtTurn": null,
+      "estimatedCompletionTurn": null,
+      "daysElapsed": 0,
+      "history": [
+        {
+          "turn": null,
+          "type": "migrated",
+          "narrative": "Agricultural improvement lifted onto the unified Project model (bonus +0, 12 500gp toward the next step)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "constructibles": []
 };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
