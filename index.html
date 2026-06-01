@@ -5286,7 +5286,7 @@ document.addEventListener('alpine:init', () => {
     <div class="p-4 space-y-3 max-h-[80vh] overflow-y-auto" x-show="worldHexEditingHex()">
       <!-- Identity — all GM edits routed through gm-fiat events (logged).
            Coord (q,r) is foundational identity and rarely changes; staying as plain inputs.
-           valuePerFamily is RAW (3d3 rolled at hex secure) — display only, never editable. -->
+           valuePerFamily is RAW (3d3 rolled at hex secure) but GM-settable here (logged via gm-fiat). -->
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-sm">Coord (q, r) <span class="opacity-60 text-sm">— hex identifier (foundational, edit cautiously)</span>
           <span class="flex items-center gap-1">
@@ -5339,9 +5339,13 @@ document.addEventListener('alpine:init', () => {
               <span class="opacity-70 italic">~<span x-text="Math.round(((worldHexEditingDomain()?.demographics?.peasantFamilies)||0) / ((worldHexEditingDomain()?.geography?.hexes?.length)||1)).toLocaleString()"></span> est (RAW tracks at domain level; enable families-per-hex-tracking to track here)</span>
             </template>
           </div>
-          <div class="block text-sm flex items-center gap-2">
+          <div class="block text-sm flex items-center gap-2 flex-wrap">
             <span style="min-width:9rem">Land value</span>
-            <span class="font-mono" x-text="Math.round(worldHexEditingHex().valuePerFamily||0)"></span>
+            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'valuePerFamily', label:'Land value', kind:'number', min:0})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+            <span class="opacity-60 text-sm">(RAW 3d3 at hex secure; GM-settable)</span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span style="min-width:9rem">Land improvement</span>
