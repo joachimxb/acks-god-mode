@@ -808,6 +808,11 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(!h) continue;
       if(typeof h.economyType !== 'string') h.economyType = 'agricultural';
       if(typeof h.terrainTransformationState === 'undefined') h.terrainTransformationState = null;
+      // Phase 2.5 Journeys (#475) — travel-relevant hex geography.
+      if(typeof h.hasRoad !== 'boolean')  h.hasRoad = false;
+      if(typeof h.hasTrail !== 'boolean') h.hasTrail = false;
+      if(typeof h.riverCount !== 'number') h.riverCount = 0;
+      if(typeof h.elevationFt !== 'number') h.elevationFt = 0;
     }
   }
   // Per-character new fields
@@ -817,6 +822,11 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof c.heroicCode === 'undefined')          c.heroicCode = null;
       if(typeof c.fatePoints === 'undefined')          c.fatePoints = null;
       if(typeof c.transformationState === 'undefined') c.transformationState = null;
+      // Phase 2.5 Journeys (#475) — per-character travel + survival state (persists across journeys).
+      if(typeof c.currentJourneyId === 'undefined')    c.currentJourneyId = null;
+      if(typeof c.personalFatigue !== 'number')        c.personalFatigue = 0;
+      if(typeof c.hungerDays !== 'number')             c.hungerDays = 0;
+      if(typeof c.dehydrationDays !== 'number')        c.dehydrationDays = 0;
     }
   }
   // Per-settlement new fields
@@ -1279,6 +1289,44 @@ function settlementForHex(campaign, hexId){
   if(!campaign || !Array.isArray(campaign.settlements)) return null;
   return campaign.settlements.find(s => s.hexId === hexId) || null;
 }
+
+// ── Phase 2.5 Journeys (#475) — lookups + a pure hex-distance helper ──
+function findJourney(campaign, journeyId){
+  if(!campaign || !Array.isArray(campaign.journeys)) return null;
+  return campaign.journeys.find(j => j && j.id === journeyId) || null;
+}
+function journeysInTransit(campaign){
+  if(!campaign || !Array.isArray(campaign.journeys)) return [];
+  return campaign.journeys.filter(j => j && j.status === 'in-transit');
+}
+function journeysWithParticipant(campaign, characterId){
+  if(!campaign || !Array.isArray(campaign.journeys) || !characterId) return [];
+  return campaign.journeys.filter(j => j && Array.isArray(j.participantCharacterIds) && j.participantCharacterIds.indexOf(characterId) >= 0);
+}
+// Resolve a hex by id from the canonical top-level collection, falling back to per-domain
+// geography (the UI keeps hexes split across domains' geography.hexes). Pure read.
+function resolveHexAnywhere(campaign, hexId){
+  if(!campaign || !hexId) return null;
+  const top = findHex(campaign, hexId);
+  if(top) return top;
+  if(Array.isArray(campaign.domains)){
+    for(const d of campaign.domains){
+      const hexes = d && d.geography && d.geography.hexes;
+      if(Array.isArray(hexes)){
+        const h = hexes.find(x => x && x.id === hexId);
+        if(h) return h;
+      }
+    }
+  }
+  return null;
+}
+// Axial hex distance between two {q, r} coords (cube-coordinate metric). Pure.
+function hexAxialDistance(a, b){
+  if(!a || !b) return 0;
+  const aq = a.q || 0, ar = a.r || 0, bq = b.q || 0, br = b.r || 0;
+  return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(aq + ar - bq - br)) / 2;
+}
+function isJourney(o){ return !!(o && typeof o.id === 'string' && o.id.startsWith('jrn-')); }
 
 function settlementsForDomain(campaign, domainId){
   if(!campaign) return [];
@@ -3801,6 +3849,8 @@ function dayTickActivityInFlight(campaign){
   if(!campaign) return false;
   if((campaign.currentDayInMonth || 1) > 1) return true;
   if(Array.isArray(campaign.projects) && campaign.projects.some(p => p && p.lifecycleState === 'under-construction')) return true;
+  // Phase 2.5 Journeys (#475) — an in-transit journey is day-aware activity in flight.
+  if(Array.isArray(campaign.journeys) && campaign.journeys.some(j => j && (j.status === 'in-transit' || j.status === 'resting'))) return true;
   // A funded-but-not-yet-projected agricultural improvement also counts as in flight: the panel
   // writes hex.improvementBudgetGp directly, and the Project is materialized just before the tick.
   const budgeted = (arr) => Array.isArray(arr) && arr.some(h => h && (h.improvementBudgetGp || 0) > 0);
@@ -4560,6 +4610,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   settlementForHex, settlementsForDomain, rumorsAtSettlement, rumorsInDomain, rumorReachAt,
   addRumorReach, removeRumorReach,
   liftToTopLevelCollections,
+  // Phase 2.5 Journeys (#475) — lookups + helpers (J1)
+  findJourney, journeysInTransit, journeysWithParticipant, resolveHexAnywhere, hexAxialDistance, isJourney,
 
   // Turn orchestration (Foundation #15 — partial lift, helpers-callback pattern)
   proposeMonthlyTurn, commitTurn

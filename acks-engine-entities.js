@@ -251,6 +251,12 @@ function blankHex(opts={}){
     constructionSupervisorCharacterIds: opts.constructionSupervisorCharacterIds
       || (opts.constructionSupervisorCharacterId ? [opts.constructionSupervisorCharacterId] : []),
     terrain: opts.terrain || '',
+    // Phase 2.5 Journeys (#475) — travel-relevant hex geography. terrain (above) keys the
+    // speed + navigation catalogs; these refine route cost. GM-settable on the hex card.
+    hasRoad: opts.hasRoad === true,        // built road — ×3/2 speed, no navigation throw (RR p.272/275)
+    hasTrail: opts.hasTrail === true,      // marked trail — eases navigation but no speed bonus
+    riverCount: opts.riverCount || 0,      // crossings cost time when no bridge (RR p.492)
+    elevationFt: opts.elevationFt || 0,    // feeds visibility/sighting (Journeys §11)
     primaryStructure: opts.primaryStructure || '',
     settlement: opts.settlement || null,
     lairs: opts.lairs || [],
@@ -723,6 +729,13 @@ function blankCharacter(opts={}){
     partyId: opts.partyId || null,
     travelDestination: opts.travelDestination || null,
     travelPace: opts.travelPace || 'walking',
+    // Phase 2.5 Journeys (#475) — per-character travel + survival state. currentJourneyId is
+    // the inverse pointer to an in-flight Journey; personalFatigue / hungerDays / dehydrationDays
+    // PERSIST across journeys (fatigue from a journey carries into the next month — JJ p.84 §10.4).
+    currentJourneyId: opts.currentJourneyId || null,
+    personalFatigue: opts.personalFatigue || 0,
+    hungerDays: opts.hungerDays || 0,
+    dehydrationDays: opts.dehydrationDays || 0,
     // RP dossier
     background: opts.background || '',
     personality: opts.personality || '',
@@ -1108,6 +1121,65 @@ function blankGroup(opts={}){
   };
 }
 
+// =============================================================================
+// Phase 2.5 Journeys (#475) — the Journey entity (J1: overland/foot only).
+// Architecture.md §3 (event-like, its own top-level collection) + Phase_2.5_Journeys_Plan.md
+// §4.1. One Journey models 1..N travelers; partyId is an OPTIONAL convenience pointer
+// (cardinality-1 journeys — a lone courier — are first-class). The `mode` enum reserves
+// sea/air; J1 only acts on land modes. The day-tick consumer (acks-engine-subsystems.js)
+// advances in-transit journeys one day per tick.
+// =============================================================================
+function blankJourney(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.journey),
+    name: opts.name || '',                              // GM-set, e.g. "Saltspur to the Tablelands"
+    status: opts.status || 'planning',                  // planning | in-transit | resting | arrived | aborted | lost
+    // Participants — participantCharacterIds is the source of truth; partyId is optional.
+    partyId: opts.partyId || null,
+    participantCharacterIds: opts.participantCharacterIds || [],
+    packAnimalIds: opts.packAnimalIds || [],
+    shipId: opts.shipId || null,                        // voyage modes only (reserved)
+    // Origin / destination / route
+    startedAtTurn: opts.startedAtTurn || null,
+    startedAtDayInMonth: opts.startedAtDayInMonth || null,
+    startHexId: opts.startHexId || null,
+    destinationHexId: opts.destinationHexId || null,
+    waypoints: opts.waypoints || [],                    // ordered [{hexId, label, plannedPurpose}]
+    currentHexId: opts.currentHexId || null,            // advances on arrival (per-hex stepping is J2/Portal)
+    currentDayIndex: opts.currentDayIndex || 0,         // 0..N days into the journey
+    daysRemainingEstimate: opts.daysRemainingEstimate != null ? opts.daysRemainingEstimate : null,
+    // Mode + pace
+    mode: opts.mode || 'foot',                          // J1: land modes only; enum reserves sea/air (§13)
+    pace: opts.pace || 'normal',                        // forced-march | normal | cautious | half-ancillary
+    // Purpose (folds the old venture/journey split — §17.1)
+    purpose: opts.purpose || 'expedition',
+    ventureAnnotation: opts.ventureAnnotation || null,  // commercial-venture payload (cargo/investment/vagaries)
+    // Splitting + merging audit (§16) — reserved for a later slice
+    parentJourneyId: opts.parentJourneyId || null,
+    splitFromAtDayIndex: opts.splitFromAtDayIndex != null ? opts.splitFromAtDayIndex : null,
+    mergedIntoJourneyId: opts.mergedIntoJourneyId || null,
+    mergedAtDayIndex: opts.mergedAtDayIndex != null ? opts.mergedAtDayIndex : null,
+    // Per-day navigation state
+    isLost: opts.isLost === true,
+    lastKnownHexId: opts.lastKnownHexId || null,
+    fatigueDays: opts.fatigueDays || 0,                 // strenuous-day streak (JJ p.84)
+    // Engine-managed logs (each day-tick appends one Day record; encounters tie to #141/#476)
+    days: opts.days || [],                              // §4.2 Day records
+    encounters: opts.encounters || [],                  // §4.3 encounter records
+    // Supplies — person-day quantities (J1 tracks food + water; animal/ship reserved)
+    supplies: opts.supplies || {
+      rations: 0,
+      waterRations: 0,
+      animalFeed: 0,
+      animalWater: 0,
+      shipStores: 0
+    },
+    notes: opts.notes || '',
+    history: opts.history || []                         // append-only audit (start, day-tick, arrival, …)
+  };
+}
+
 const ACKS = global.ACKS = global.ACKS || {};
 // ─── Phase 4 Construction Wave A (Architecture.md §10.2 — 2026-05-30) ─────
 // Project = work-in-progress construction. Constructible = the completed major
@@ -1213,6 +1285,8 @@ Object.assign(ACKS, {
   blankNotableItem, blankItemCustody,
   // #442 — Group entity factory (Architecture.md §2.4, 2026-05-29)
   blankGroup,
+  // Phase 2.5 Journeys (#475) — Journey entity factory (J1)
+  blankJourney,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   blankProject, blankConstructible,
   MAGISTRATE_ROLES, MAGISTRATE_ROLE_KEYS, MAGISTRATE_SALARY_FRACTION, emptyMagistrates, ensureMagistratesShape, isCharacterQualifiedForRole,
