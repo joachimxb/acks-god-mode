@@ -933,6 +933,24 @@ function agriculturalConstructionRatePerDay(campaign, domain, hex){
 // for legacy data whose character locations aren't filled in). Returns { ok, totalCap, report[],
 // blockReason }. When remainingStepCost is given, enforces the cap-covers-the-remaining-step rule.
 // Extracted from the commitTurn ag block so the day-tick consumer and the monthly path agree.
+//
+// Derive a character's construction-supervision cap from PROFICIENCY, not from a hired-specialist
+// title (RR p.353: "a character with sufficient ranks of Engineering or Siege Engineering proficiency
+// can serve as the construction supervisor"). Engineering -> <=100,000gp (engineer); Siege Engineering
+// -> <=25,000gp (siege engineer), per RR p.174. A manually-set character.constructionSupervisorCap is
+// honored as a fallback/override (NPCs entered without proficiency detail). 0 = not a supervisor.
+// NOTE: RR p.174 says one rank of Siege Engineering counts as a skilled laborer, not a siege engineer;
+// a ranks check is a future refinement once the proficiency model tracks ranks (it stores names today).
+function constructionSupervisorCapForCharacter(character){
+  if(!character) return 0;
+  const manual = character.constructionSupervisorCap || 0;
+  const profs = (character.proficiencies || []).map(p => (typeof p === 'string' ? p : (p && p.key) || '').toLowerCase());
+  let derived = 0;
+  if(profs.some(p => p.includes('engineering') && !p.includes('siege'))) derived = 100000;      // Engineer
+  else if(profs.some(p => p.includes('siege engineering'))) derived = 25000;                     // Siege Engineer
+  return Math.max(derived, manual);
+}
+
 function agriculturalSupervisorAdequacy(campaign, hex, remainingStepCost){
   const ids = (hex && Array.isArray(hex.constructionSupervisorCharacterIds)) ? hex.constructionSupervisorCharacterIds
             : (hex && hex.constructionSupervisorCharacterId ? [hex.constructionSupervisorCharacterId] : []);
@@ -945,7 +963,7 @@ function agriculturalSupervisorAdequacy(campaign, hex, remainingStepCost){
   ids.forEach(sid => {
     const sup = findCh(sid);
     if(!sup){ report.push({ id: sid, name: '(missing)', onSite: false, cap: 0, reason: 'character not found' }); return; }
-    const cap = sup.constructionSupervisorCap || 0;
+    const cap = constructionSupervisorCapForCharacter(sup);   // proficiency-derived (RR p.353), manual field as fallback
     const onSite = !sup.currentHexId || sup.currentHexId === hex.id;
     if(cap <= 0){ report.push({ id: sid, name: sup.name, onSite, cap, reason: 'not a construction supervisor (cap = 0)' }); return; }
     if(!onSite){ report.push({ id: sid, name: sup.name, onSite: false, cap, reason: 'not on-site (at a different hex)' }); return; }
@@ -4337,7 +4355,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
   // Time-based construction (RR p.174) — rate + supervisor-adequacy + per-day drip
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
-  computeAgriculturalDrip,
+  constructionSupervisorCapForCharacter, computeAgriculturalDrip,
   // Schema + identity
   SCHEMA_VERSION, ID_PREFIXES, newId, slugify,
 

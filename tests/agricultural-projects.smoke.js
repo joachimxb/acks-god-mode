@@ -549,6 +549,22 @@ console.log('--- Time-based construction R1: rate + supervisor adequacy (RR p.17
   hex.constructionSupervisorCharacterIds = ['chr-eng', 'chr-eng2'];
   r = ACKS.agriculturalSupervisorAdequacy(camp, hex, COST);
   check('R1 sup: multiple supervisors -> caps additive (125k)', r.ok === true && r.totalCap === 125000, JSON.stringify({ok:r.ok,cap:r.totalCap}));
+
+  // Proficiency-derived supervisor cap (RR p.353 — capability comes from the proficiency, not a
+  // hired-specialist title; manual constructionSupervisorCap is an NPC fallback).
+  check('R1 prof: Engineering proficiency -> 100,000gp cap', ACKS.constructionSupervisorCapForCharacter({ proficiencies:['Engineering'] }) === 100000);
+  check('R1 prof: Siege Engineering proficiency -> 25,000gp cap', ACKS.constructionSupervisorCapForCharacter({ proficiencies:['Siege Engineering'] }) === 25000);
+  check('R1 prof: {key} proficiency-object form works', ACKS.constructionSupervisorCapForCharacter({ proficiencies:[{ key:'Engineering' }] }) === 100000);
+  check('R1 prof: a non-engineering proficiency grants nothing', ACKS.constructionSupervisorCapForCharacter({ proficiencies:['Persuasion'] }) === 0);
+  check('R1 prof: manual cap honored as a fallback', ACKS.constructionSupervisorCapForCharacter({ proficiencies:[], constructionSupervisorCap:25000 }) === 25000);
+  check('R1 prof: proficiency beats a lower manual cap', ACKS.constructionSupervisorCapForCharacter({ proficiencies:['Engineering'], constructionSupervisorCap:25000 }) === 100000);
+  {
+    const c2 = ACKS.blankCampaign({ name:'prof' });
+    const ruler = ACKS.blankCharacter({ name:'Ruler' }); ruler.id='chr-r'; ruler.proficiencies=['Engineering']; ruler.currentHexId='hex-s';
+    c2.characters=[ruler];
+    const hx = ACKS.blankHex({ id:'hex-s', coord:{q:0,r:0} }); hx.constructionSupervisorCharacterIds=['chr-r'];
+    check('R1 prof: a ruler with Engineering proficiency (no manual cap) qualifies as supervisor', ACKS.agriculturalSupervisorAdequacy(c2, hx, 25000).ok === true);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
