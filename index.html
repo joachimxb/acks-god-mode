@@ -6458,7 +6458,11 @@ function buildDomainFromTemplate(tpl){
   const characters=[];
   if(tpl.ruler && tpl.ruler.name){
     const rulerCh = window.ACKS.blankCharacter({
-      name:tpl.ruler.name, kind:tpl.ruler.isPC?'PC':'NPC',
+      // Delta audit I3 (2026-06-01): set the canonical five-axis fields directly
+      // rather than passing the deprecated c.kind vocabulary. blankCharacter derives
+      // the same values from kind, but emitting kind here re-introduced a field the
+      // five-axis migration strips — so a template-built domain was not a migrate-no-op.
+      name:tpl.ruler.name, controlledBy:tpl.ruler.isPC?'player':'gm', socialTier:'independent',
       class:tpl.ruler.class||'', level:tpl.ruler.level||1,
       currentDomainId:d.id
     });
@@ -6467,7 +6471,7 @@ function buildDomainFromTemplate(tpl){
   }
   (tpl.henchmen||[]).forEach(h => {
     const henchCh = window.ACKS.blankCharacter({
-      name:h.name, kind:'henchman', class:h.class||'', level:h.level||1,
+      name:h.name, controlledBy:'gm', socialTier:'henchman', class:h.class||'', level:h.level||1,
       loyalty:h.loyalty||0, liegeCharacterId:d.rulerCharacterId,
       currentDomainId:d.id, notes:h.role||''
     });
@@ -6701,6 +6705,7 @@ return {
     switch(kind){
       case 'character': return () => this.openNewCharacterEditor({ kind: 'NPC' });
       case 'domain':    return () => this.addBlankDomain();  // queued: Domain Wizard (#435) replaces this when shipped
+      case 'journey':   return () => this.inspectorCreateBlankJourney();  // Phase 2.5 #475 — Admin verb (free-form); set status=in-transit + Tick Day to drive
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -6709,6 +6714,21 @@ return {
       //   case 'settlement': return null;  // requires hex context — stays a stub pointing to + Found Settlement
     }
     return null;
+  },
+
+  // Phase 2.5 #475 — Admin-verb create for a Journey: spawn a blank Journey and open it
+  // in the Inspector's edit form. The GM fills in participants + start/destination hex,
+  // sets status to 'in-transit' (or calls Start from a future J2 sub-tab), then drives it
+  // with the Day Clock (Tick Day). No in-fiction cost — this is the free-form Admin verb.
+  inspectorCreateBlankJourney(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.journeys)) this.currentCampaign.journeys = [];
+    const j = window.ACKS.blankJourney({ name: 'New Journey' });
+    this.currentCampaign.journeys.push(j);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('journey', j.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Journey created — set participants, start + destination hexes, then status = in-transit.');
   },
 
   // Friendly description of the wizard situation for the current kind.
@@ -7813,9 +7833,50 @@ return {
       }
     }
 
+    // ── Contributor 4: Journeys (Priority 1) — Phase 2.5 #475 ───────────────
+    // An in-flight (or resting) Journey the character is participating in. Mode-
+    // discriminated icon per the Journeys plan §15. deepLinkTo reserved for the
+    // Journeys sub-tab (J2) / inspectorOpen.
+    const journeys = (this.currentCampaign?.journeys || [])
+      .filter(j => j && (j.status === 'in-transit' || j.status === 'resting') && (j.participantCharacterIds || []).includes(c.id));
+    for(const j of journeys){
+      const destLabel = this._journeyHexLabel(j.destinationHexId);
+      const curLabel = this._journeyHexLabel(j.currentHexId);
+      const dayN = (j.currentDayIndex || 0) + 1;
+      const link = {entity:'journey', id:j.id};
+      if(j.isLost){
+        acts.push({kind:'journey-lost:' + j.id, icon:'🧭', label:'lost en route to ' + destLabel, priority:1, deepLinkTo:link});
+      } else if(j.status === 'resting'){
+        acts.push({kind:'journey-resting:' + j.id, icon:'⛺', label:'resting at ' + curLabel, priority:1, deepLinkTo:link});
+      } else if((j.mode || '').startsWith('voyage-')){
+        acts.push({kind:'journey-voyage:' + j.id, icon:'⛵', label:'voyaging to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
+      } else if((j.mode || '').startsWith('aerial-')){
+        acts.push({kind:'journey-aerial:' + j.id, icon:'🦅', label:'flying to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
+      } else {
+        acts.push({kind:'journey-overland:' + j.id, icon:'🥾', label:'on journey to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
+      }
+    }
+
     // ── Future contributors land here. Each adds zero or more descriptors. ──
 
     return acts.sort((a,b) => a.priority - b.priority || a.kind.localeCompare(b.kind));
+  },
+
+  // Resolve a hex id to a "(q,r) · Settlement" label for Activity descriptors.
+  // Checks the canonical top-level hexes, then per-domain geography (the UI split).
+  _journeyHexLabel(hexId){
+    if(!hexId) return 'destination';
+    let h = (this.currentCampaign?.hexes || []).find(x => x && x.id === hexId);
+    if(!h){
+      for(const d of (this.domains || [])){
+        const hh = (d.geography?.hexes || []).find(x => x && x.id === hexId);
+        if(hh){ h = hh; break; }
+      }
+    }
+    if(!h) return hexId;
+    const coord = '(' + (h.coord?.q ?? 0) + ',' + (h.coord?.r ?? 0) + ')';
+    const setName = h.settlement && h.settlement.name;
+    return coord + (setName ? ' · ' + setName : '');
   },
 
   // ─── Unified role + income + XP helpers (Roster + Officers) ──────────────
@@ -8124,6 +8185,17 @@ return {
       // #453 — c.kind retired; the editor surface no longer exists and the engine
       // doesn't expose reDeriveClassificationFromKind anymore. Future kind-coupled
       // sync hooks (if needed) belong here in this slot.
+      // families-per-hex-tracking: a per-hex family edit makes the hexes canonical, so
+      // push the owning domain's peasantFamilies up to the rural-hex sum (the engine's
+      // reconcileRuralPopulation does the same on load). Keeps the domain total, service
+      // revenue + tax consistent within the session and stops the next monthly turn from
+      // computing growth off a stale total. Canonical-setter doctrine (CLAUDE #10).
+      if(opts.entityType === 'hex' && opts.fieldPath === 'families' &&
+         this.isHouseRuleEnabled && this.isHouseRuleEnabled('families-per-hex-tracking') &&
+         window.ACKS && window.ACKS.syncRuralPopulationFromHexes){
+        const _famDom = (this.domains || []).find(dd => (dd.geography?.hexes || []).some(hx => hx.id === opts.entityId));
+        if(_famDom) window.ACKS.syncRuralPopulationFromHexes(_famDom);
+      }
       // Log the applied event in the event log (matching commitTurn's pattern).
       if(!Array.isArray(this.currentCampaign.eventLog)) this.currentCampaign.eventLog = [];
       ev.status = window.ACKS.EVENT_STATUS.APPLIED;
@@ -8688,16 +8760,6 @@ return {
           detectedMarketClassIdx = this.recruitMarketClassStrToIdx(inRuled.marketClass);
         }
       }
-      // Diagnostic — surface what got picked so issues are debuggable from the
-      // browser console. Remove once §310 stabilizes.
-      try {
-        console.log('[recruitStart] patron=' + (patron.name||patron.id) +
-          ' currentHexId=' + (patron.currentHexId||'(none)') +
-          ' currentDomainId=' + (patron.currentDomainId||'(none)') +
-          ' → detectedSettlementId=' + (detectedSettlementId||'(none)') +
-          ' marketClassIdx=' + detectedMarketClassIdx +
-          ' (sets.length=' + sets.length + ')');
-      } catch(e){}
       // (3) any settlement
       if(!detectedSettlementId && sets.length > 0){
         detectedSettlementId = idFor(sets[0]);
@@ -8836,16 +8898,6 @@ return {
     }
     if(opts.roleToFill)   this.recruitState.roleToFill   = opts.roleToFill;
     if(opts.roleDomainId) this.recruitState.roleDomainId = opts.roleDomainId;
-    // §310.3f-fix9 — diagnostic: confirm settlementId survives the deep-link
-    // config block. If it's empty here, the bug is in deepLink itself. If
-    // it's set here but the dropdown shows blank, the bug is the Alpine
-    // select+x-for race (fixed by :selected on each option).
-    try {
-      console.log('[recruitDeepLink] AFTER config — settlementId=' + (this.recruitState.settlementId||'(empty)') +
-        ' hireCategory=' + this.recruitState.hireCategory +
-        ' hireTypeId=' + this.recruitState.hireTypeId +
-        ' roleToFill=' + this.recruitState.roleToFill);
-    } catch(e){}
     this.currentView      = 'characters';
     this.charactersSubView = 'recruit';
   },
@@ -11007,13 +11059,26 @@ return {
     }
     this.showToast('Synced '+hexes.length+' hexes → '+totalFam.toLocaleString()+' families, avg '+(d.income.landRevenuePerFamily).toFixed(2)+'gp/family.');
   },
-  // House rules
-  isHouseRuleEnabled(id){return !!(this.currentCampaign?.houseRules?.[id]?.enabled);},
+  // House rules.
+  // Delegate to the engine's canonical accessor so the UI agrees with the engine on
+  // EVERY stored shape. Templates ship some rules as a bare boolean (e.g.
+  // "families-per-hex-tracking": true); the engine treats `true` and {enabled:true}
+  // alike, but this method used to read only `.enabled`, so a bare-true rule rendered
+  // as OFF — the per-hex columns never appeared and the toggle couldn't flip it.
+  // (2026-06-01 — user-reported "families per hex is broken".)
+  isHouseRuleEnabled(id){
+    if(window.ACKS && window.ACKS.isHouseRuleEnabled) return window.ACKS.isHouseRuleEnabled(this.currentCampaign, id);
+    const v = this.currentCampaign?.houseRules?.[id];
+    return v === true || !!(v && v.enabled === true);
+  },
   toggleHouseRule(id){
     if(!this.currentCampaign)return;
     if(!this.currentCampaign.houseRules||typeof this.currentCampaign.houseRules!=='object'||Array.isArray(this.currentCampaign.houseRules))this.currentCampaign.houseRules={};
-    if(!this.currentCampaign.houseRules[id])this.currentCampaign.houseRules[id]={enabled:false};
-    this.currentCampaign.houseRules[id].enabled=!this.currentCampaign.houseRules[id].enabled;
+    // Normalize ANY stored shape (undefined / bare boolean / object) to the canonical
+    // {enabled:bool} before flipping. Without this, a bare-boolean rule from a template
+    // can't be toggled — `(true).enabled = …` is a silent no-op on a primitive, so the
+    // rule would stick on (or off) forever.
+    this.currentCampaign.houseRules[id]={enabled:!this.isHouseRuleEnabled(id)};
   },
   incomeFactor(morale){return INCOME_FACTOR_BY_MORALE[String(clamp(morale||0,-4,4))]??1;},
   baseMorale(d){return baseMoraleFromClassification(this.effectiveClassification(d),this.effectiveRuler(d));},
@@ -11753,7 +11818,6 @@ return {
     this._persistDayTick();   // persist AFTER restoring domains so the saved currentCampaign.domains stays empty
   },
   proposeMonthlyTurn(){
-    console.log('proposeMonthlyTurn() called, domains:', this.domains.length);
     this.turnProposalError = '';
     try {
       const helpers = this._buildTurnHelpers();
@@ -11767,7 +11831,6 @@ return {
       this.turnVentureProposals = result.turnVentureProposals;
       this.turnProposal         = result.turnProposal;
       this.showTurnModal = true;
-      console.log('Modal opened with', this.turnProposal.length, 'proposals');
     } catch(e){
       console.error('proposeMonthlyTurn error', e);
       this.turnProposalError = 'Failed to propose turn: ' + e.message;
@@ -11994,7 +12057,6 @@ return {
       this.showToast('Committed ' + p(committed, 'domain') + '. Now on Turn ' + (this.currentCampaign?.currentTurn || 1) + '.' + ventureBlurb + passiveBlurb + levelUpBlurb, 5000);
     } catch(e){
       console.error('showToast threw:', e);
-      console.log('Committed ' + committed + ' domain(s).');
     }
   },
 };

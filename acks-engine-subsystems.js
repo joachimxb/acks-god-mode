@@ -11,10 +11,9 @@
  *
  * Each subsystem uses helpers from acks-engine-catalogs.js (HOUSERULES_REGISTRY
  * lookups) and from acks-engine.js (newId, factories). All access is via
- * global.ACKS so load order is: catalogs → engine → subsystems is fine,
- * but the current order is catalogs → subsystems → engine which means the
- * subsystems can't call engine helpers at definition time. They only need
- * them at runtime, so that's fine.
+ * global.ACKS. This module loads LAST in index.html (catalogs → engine →
+ * entities → entity-registry → field-schemas → events → subsystems), so every
+ * engine helper is already present on global.ACKS by the time these functions run.
  *
  * Load order: AFTER acks-engine-catalogs.js, AFTER acks-engine.js so that
  * global.ACKS.newId etc. are available at runtime when subsystem functions
@@ -1390,26 +1389,321 @@ function blankRegulatedAsset(opts){
 }
 
 // =============================================================================
-// 9.6 TRAVEL + ENCOUNTER HOOKS (Phase 2.6.7 stubs — Phase 2.5/3 will fill)
+// 9.6 JOURNEYS — overland travel day-tick consumer (Phase 2.5 #475, J1)
 // =============================================================================
-// These are intentional no-op functions that future phases (Phase 2.5 wilderness
-// travel, Phase 3 random encounters) will implement. Companion tools and the UI
-// can call them today and get harmless null responses; the moment those phases
-// land, the same call sites become live.
+// Journey is the first real travel consumer of the Calendar day-tick pipeline (the
+// construction consumer is the proof). Per Phase_2.5_Journeys_Plan.md §5: an in-transit
+// Journey contributes one Day record per tick; movement (§6), navigation (§7), survival
+// (§8), and the JJ p.84 fatigue cycle (§10) resolve each day. The handler is PURE (it
+// proposes records without mutating); commitJourneyRecord replays the recorded absolutes
+// onto the real campaign, so a stochastic day (nav/encounter rolls) commits exactly what
+// the GM reviewed. RAW is the DEFAULT — `simplified-fatigue` and `ignore-rations` are the
+// opt-outs, never RAW-behind-a-toggle (CLAUDE §6 + the flip-queue). Sea/air modes (§13),
+// the pool-first encounter draw (#476), and splitting/merging (§16) are later slices.
 
+// global.ACKS is fully assembled by the time any of these run (subsystems loads last).
+function _jACKS(){ return global.ACKS; }
+
+// §6 — distance covered/remaining, in 6-mile hexes (axial). Pure.
+function computeJourneyDistance(campaign, journey){
+  const A = _jACKS();
+  const startHex = A.resolveHexAnywhere(campaign, journey.startHexId);
+  const destHex  = A.resolveHexAnywhere(campaign, journey.destinationHexId);
+  let total = 0;
+  if(startHex && destHex && startHex.coord && destHex.coord) total = A.hexAxialDistance(startHex.coord, destHex.coord);
+  const covered = (journey.days || []).reduce((s, d) => s + ((d && d.hexesTraveled) || 0), 0);
+  const remaining = Math.max(0, total - covered);
+  return { total, covered, remaining, startHex, destHex };
+}
+
+// §7 — navigation throw (1d20 + party proficiency bonus ≥ terrain target). Pure given rng.
+function rollNavigation(navTarget, bonus, rng){
+  rng = rng || Math.random;
+  const rolled = 1 + Math.floor(rng() * 20);
+  const total = rolled + (bonus || 0);
+  return { rolled, target: navTarget, bonus: bonus || 0, total, success: total >= navTarget };
+}
+
+// Best of the party's travel proficiencies → a simplified +2 for J1 (full throw math is
+// Phase 3.6 Proficiency Throws). Pure read.
+function _journeyNavBonus(campaign, journey){
+  const ids = journey.participantCharacterIds || [];
+  const RE = /(navigation|pathfinding|land surveying|adventuring|survival|seafaring)/i;
+  let bonus = 0;
+  for(const c of (campaign.characters || [])){
+    if(!c || ids.indexOf(c.id) < 0) continue;
+    for(const p of (c.proficiencies || [])){
+      const name = (typeof p === 'string') ? p : ((p && (p.name || p.id || p.proficiency)) || '');
+      if(RE.test(name)) bonus = Math.max(bonus, 2);
+    }
+  }
+  return bonus;
+}
+
+// §12 (J1 STUB) — per-day wilderness encounter check. On a hit, returns a placeholder
+// "GM, resolve this" encounter + notable event (pauseTrigger 'encounter'); the real
+// pool-first draw (lairs / persistent wanderers / rival journeys) lands with #476, and
+// Phase 3 #141 owns the actual tables. Roads are safe in J1. Pure given rng.
+function rollEncounter(campaign, journey, opts){
+  opts = opts || {};
+  const rng = opts.rng || Math.random;
+  const chance = opts.hasRoad ? 0 : (1 / 6); // ~1-in-6 wilderness; roads safe for J1
+  if(chance <= 0 || rng() >= chance) return null;
+  const hexId = (journey && journey.startHexId) || null;
+  const dayIndex = opts.dayIndex || ((journey && journey.currentDayIndex) || 0) + 1;
+  const encId = 'enc-' + Math.floor(rng() * 2176782336).toString(36); // 'enc' is not a registered ID prefix
+  const encounterRecord = {
+    id: encId, dayIndex, hexId, triggeredBy: 'wandering-roll', encounterTableUsed: null,
+    monsters: [], rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
+    partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null
+  };
+  const notableEvent = {
+    kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
+    label: ((journey && journey.name) || 'Journey') + ': encounter check — GM, resolve this encounter (' + (opts.terrain || 'wilderness') + ')',
+    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId }
+  };
+  return { encounterRecord, notableEvent };
+}
+
+// §5.1 — resolve ONE day for ONE in-transit journey. PURE: returns the pending record
+// (carrying the §4.2 Day record + the post-state absolutes commit replays) plus any
+// notable events + encounters. Does not mutate the campaign.
+function tickJourneyDay(campaign, journey, ctx){
+  const A = _jACKS();
+  ctx = ctx || {};
+  const rng = ctx.rng || Math.random;
+  const participants = Math.max(1, (journey.participantCharacterIds || []).length);
+  const dist = computeJourneyDistance(campaign, journey);
+  const startHex = dist.startHex;
+  const newDayIndex = (journey.currentDayIndex || 0) + 1;
+  const pace = journey.pace || 'normal';
+  const weather = (ctx.weather && ctx.weather.condition) ? ctx.weather : { condition: 'fair', temperature: 'moderate', rolledOrSet: 'gm-fiat' };
+
+  // carry-forward absolutes
+  let fatigueDays = journey.fatigueDays || 0;
+  let isLost = !!journey.isLost;
+  let rations = (journey.supplies && journey.supplies.rations) || 0;
+  let waterRations = (journey.supplies && journey.supplies.waterRations) || 0;
+  const firstChar = (campaign.characters || []).find(c => c && c.id === (journey.participantCharacterIds || [])[0]);
+  let hungerDays = (firstChar && firstChar.hungerDays) || 0;
+  let dehydrationDays = (firstChar && firstChar.dehydrationDays) || 0;
+
+  const notableEvents = [];
+  const encounters = [];
+
+  // ── speed (§6): base × terrain × weather × pace ──
+  const baseTerrain = (startHex && startHex.terrain) || 'grassland';
+  const hasRoad = !!(startHex && startHex.hasRoad);
+  const terrainMult = hasRoad ? A.JOURNEY_TERRAIN_SPEED.road
+    : (A.JOURNEY_TERRAIN_SPEED[baseTerrain] != null ? A.JOURNEY_TERRAIN_SPEED[baseTerrain] : 1);
+  const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
+  const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
+  const milesPerDay = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * terrainMult * weatherMult * paceMult;
+  let hexesPerDay = Math.floor(milesPerDay / A.JOURNEY_MILES_PER_HEX);
+  if(hexesPerDay < 1) hexesPerDay = 1; // a travel day always covers at least one hex
+
+  // ── fatigue (§10 / JJ p.84): a 6-day strenuous streak forces a rest day ──
+  const simplifiedFatigue = A.isHouseRuleEnabled(campaign, 'simplified-fatigue');
+  const strenuousPace = (pace === 'normal' || pace === 'forced-march');
+  const restDay = (!simplifiedFatigue && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
+
+  // ── navigation (§7): skip on road/trail; roll only while actually traveling ──
+  let navRecord = null;
+  if(!restDay && !hasRoad && !(startHex && startHex.hasTrail) && dist.remaining > 0){
+    const navTarget = (A.JOURNEY_NAV_THROWS[baseTerrain] != null) ? A.JOURNEY_NAV_THROWS[baseTerrain] : 6;
+    const bonus = _journeyNavBonus(campaign, journey);
+    const nav = rollNavigation(navTarget, bonus, rng);
+    navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonus ? [{ source: 'party-proficiency', value: bonus }] : [], result: nav.success ? 'success' : 'fail-known-lost' };
+    if(!nav.success){
+      isLost = true;
+      notableEvents.push({
+        kind: 'journey-lost', type: 'navigation-fail', pauseTrigger: 'navigation-fail', primaryHexId: journey.startHexId || null,
+        label: (journey.name || 'Journey') + ': lost in ' + baseTerrain + ' (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
+        payload: { journeyId: journey.id, dayIndex: newDayIndex }
+      });
+    }
+  }
+
+  // ── movement: none on a rest day or a freshly-lost day ──
+  const hexesToday = (!restDay && !isLost) ? Math.min(hexesPerDay, dist.remaining) : 0;
+  const milesToday = hexesToday * A.JOURNEY_MILES_PER_HEX;
+  const newCovered = dist.covered + hexesToday;
+  const willArrive = (dist.total > 0) ? (newCovered >= dist.total) : true; // 0-distance arrives at once
+
+  // ── survival (§8): RAW default; ignore-rations opts out ──
+  const ignoreRations = A.isHouseRuleEnabled(campaign, 'ignore-rations');
+  let rationsConsumed = 0, waterConsumed = 0;
+  if(!ignoreRations){
+    rationsConsumed = Math.min(rations, participants);
+    waterConsumed = Math.min(waterRations, participants);
+    rations = Math.max(0, rations - participants);
+    waterRations = Math.max(0, waterRations - participants);
+    const hungry = rationsConsumed < participants;
+    const thirsty = waterConsumed < participants;
+    hungerDays = hungry ? (hungerDays + 1) : 0;
+    dehydrationDays = thirsty ? (dehydrationDays + 1) : 0;
+    if(hungry) notableEvents.push({ kind: 'journey-day-tick', type: 'hunger', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': out of food — party hungry (day ' + hungerDays + ')', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+    if(thirsty) notableEvents.push({ kind: 'journey-day-tick', type: 'dehydration', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': out of water — party dehydrated (day ' + dehydrationDays + ')', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+    const lowAt = participants * A.JOURNEY_SUPPLY_LOW_DAYS;
+    if(!hungry && rations > 0 && rations < lowAt) notableEvents.push({ kind: 'journey-day-tick', type: 'supplies-low', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': supplies low (' + rations + ' rations left)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+  }
+
+  // ── fatigue accrual / reset ──
+  let fatigueAccumulated = 0;
+  if(restDay){
+    fatigueDays = 0; // a rest day clears the streak (JJ p.84 §10.3)
+    notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (JJ p.84)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+  } else if(strenuousPace){
+    fatigueDays += 1; fatigueAccumulated = 1; // simplified-fatigue still counts, just never forces a rest
+  }
+
+  // ── encounter check (§12 — J1 stub) ──
+  const enc = rollEncounter(campaign, journey, { rng, terrain: baseTerrain, hasRoad, dayIndex: newDayIndex });
+  if(enc){ encounters.push(enc.encounterRecord); notableEvents.push(enc.notableEvent); }
+
+  // ── status transition + arrival event ──
+  let newStatus = 'in-transit';
+  let newCurrentHexId = journey.currentHexId || journey.startHexId || null;
+  if(willArrive){
+    newStatus = 'arrived';
+    newCurrentHexId = journey.destinationHexId || newCurrentHexId;
+    notableEvents.push({ kind: 'journey-arrived', type: 'arrived', primaryHexId: journey.destinationHexId || null, involvedHexIds: [journey.startHexId, journey.destinationHexId].filter(Boolean), label: (journey.name || 'Journey') + ': arrived at destination (day ' + newDayIndex + ')', payload: { journeyId: journey.id, destinationHexId: journey.destinationHexId } });
+  }
+
+  // ── the review-surface summary label (every day; routine travel emits NO event) ──
+  let summaryLabel;
+  if(willArrive)      summaryLabel = (journey.name || 'Journey') + ': arrived (day ' + newDayIndex + ')';
+  else if(restDay)    summaryLabel = (journey.name || 'Journey') + ': forced rest (day ' + newDayIndex + ')';
+  else if(isLost)     summaryLabel = (journey.name || 'Journey') + ': lost — no progress (day ' + newDayIndex + ')';
+  else                summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi), day ' + newDayIndex;
+
+  // ── §4.2 Day record ──
+  const dayRecord = {
+    dayIndex: newDayIndex,
+    hexId: journey.startHexId || null,
+    weather: { condition: weather.condition, temperature: weather.temperature || 'moderate', rolledOrSet: weather.rolledOrSet || 'gm-fiat' },
+    pace: restDay ? 'rest' : pace,
+    milesTraveled: milesToday,
+    hexesTraveled: hexesToday,
+    arrivedAt: newCurrentHexId,
+    navigationThrow: navRecord,
+    rationsConsumed: { food: rationsConsumed, water: waterConsumed, animalFeed: 0, animalWater: 0, shipStores: 0 },
+    fatigueAccumulated,
+    encounters: encounters.map(e => ({ kind: e.triggeredBy || 'wandering-roll', encounterId: e.id })),
+    notableEvents: notableEvents.map(n => ({ kind: n.kind, text: n.label })),
+    status: 'pending'
+  };
+
+  const record = {
+    kind: 'journey-day', journeyId: journey.id, name: journey.name || 'Journey', label: summaryLabel,
+    dayRecord,
+    newDayIndex, newFatigueDays: fatigueDays, newIsLost: isLost,
+    newRations: rations, newWaterRations: waterRations,
+    newHungerDays: hungerDays, newDehydrationDays: dehydrationDays,
+    newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null
+  };
+  return { record, notableEvents, encounters };
+}
+
+// §14 day-handler for journeys (Calendar §10.2 slot 30). PURE: proposes one day per
+// in-transit journey without mutating. commitJourneyRecord applies a ratified record.
+function proposeJourneyDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [], encounters = [];
+  if(!campaign || !Array.isArray(campaign.journeys)) return { pendingRecords, notableEvents, encounters };
+  for(const j of campaign.journeys){
+    if(!j || j.status !== 'in-transit') continue;
+    const out = tickJourneyDay(campaign, j, ctx);
+    if(out && out.record){
+      pendingRecords.push(out.record);
+      (out.notableEvents || []).forEach(e => notableEvents.push(e));
+      (out.encounters || []).forEach(e => encounters.push(e));
+    }
+  }
+  return { pendingRecords, notableEvents, encounters };
+}
+
+// Apply a ratified Day record to the REAL campaign (replay of recorded absolutes — no
+// re-rolling, so the commit matches exactly what the GM reviewed). Called on the working
+// clone between days during propose, and on the real campaign during commit.
+function commitJourneyRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'journey-day' || !record.journeyId) return;
+  const j = (campaign.journeys || []).find(x => x && x.id === record.journeyId);
+  if(!j) return;
+  const dr = JSON.parse(JSON.stringify(record.dayRecord || {}));
+  dr.status = 'committed';
+  (j.days = j.days || []).push(dr);
+  j.currentDayIndex = record.newDayIndex;
+  j.fatigueDays = record.newFatigueDays;
+  j.isLost = record.newIsLost;
+  j.supplies = j.supplies || {};
+  j.supplies.rations = record.newRations;
+  j.supplies.waterRations = record.newWaterRations;
+  j.currentHexId = record.newCurrentHexId;
+  j.status = record.newStatus;
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: record.newDayIndex, type: (record.newStatus === 'arrived' ? 'arrived' : 'day-tick'), narrative: record.label || ('day ' + record.newDayIndex) });
+  // mirror survival state onto participants (persists across journeys — §10.4)
+  const ids = j.participantCharacterIds || [];
+  for(const c of (campaign.characters || [])){
+    if(!c || ids.indexOf(c.id) < 0) continue;
+    c.personalFatigue = record.newFatigueDays;
+    c.hungerDays = record.newHungerDays;
+    c.dehydrationDays = record.newDehydrationDays;
+    if(record.newStatus === 'arrived'){ c.currentHexId = j.destinationHexId || c.currentHexId; c.currentJourneyId = null; }
+    else { c.currentJourneyId = j.id; }
+  }
+  if(record.newStatus === 'arrived' && j.partyId){
+    const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
+    if(pt){ pt.activeJourneyId = null; pt.currentHexId = j.destinationHexId || pt.currentHexId; }
+  }
+}
+
+// Transition a planning journey to in-transit: set the clock + pointers, link the party
+// + participants, and emit a journey-start event with the context envelope. The day-tick
+// only advances in-transit journeys, so this is the entry point (called from the UI / a
+// Player Portal queue / a test). Returns the journey.
+function startJourney(campaign, journey){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!j) return null;
+  j.status = 'in-transit';
+  j.currentHexId = j.startHexId || j.currentHexId || null;
+  j.currentDayIndex = 0;
+  j.isLost = false;
+  j.fatigueDays = j.fatigueDays || 0;
+  j.startedAtTurn = (campaign.currentTurn != null) ? campaign.currentTurn : (j.startedAtTurn || null);
+  j.startedAtDayInMonth = campaign.currentDayInMonth || j.startedAtDayInMonth || 1;
+  const dist = computeJourneyDistance(campaign, j);
+  j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.total / 4)) : 0;
+  const ids = j.participantCharacterIds || [];
+  for(const c of (campaign.characters || [])){ if(c && ids.indexOf(c.id) >= 0) c.currentJourneyId = j.id; }
+  if(j.partyId){
+    const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
+    if(pt) pt.activeJourneyId = j.id;
+  }
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, type: 'started', narrative: 'Journey began' + (j.destinationHexId ? (' toward ' + j.destinationHexId) : '') + '.' });
+  try {
+    campaign.eventLog = campaign.eventLog || [];
+    const cal = campaign.calendar || {};
+    const ev = A.newEvent('journey-start', {
+      submittedBy: 'engine', status: (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
+      targetTurn: campaign.currentTurn || 1,
+      gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
+      context: { primaryHexId: j.startHexId || null, involvedHexIds: [j.startHexId, j.destinationHexId].filter(Boolean), settlementId: null, domainId: null, relatedEntities: ids.map(id => ({ kind: 'character', id, role: 'subject' })) },
+      payload: { journeyId: j.id, startHexId: j.startHexId, destinationHexId: j.destinationHexId, narrative: (j.name || 'Journey') + ' set out.' }
+    });
+    ev.appliedAtTurn = campaign.currentTurn || 1;
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' set out.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+  } catch(e){ /* never let event emission block a journey start */ }
+  return j;
+}
+
+// Compatibility stubs retained for older call sites (superseded by the Journey model).
 function travelEstimate(character, destinationHexId, options){
-  // STUB: returns null. Phase 2.5 will return { eta:turn, route:[hexIds], chanceOfEncounter:n }
+  // Superseded by computeJourneyDistance + the Journey day-tick. Kept as a harmless null.
   return null;
 }
-
-function rollEncounter(hexOrParty, options){
-  // STUB: returns null. Phase 3 Encounters (#141) will roll wilderness/dungeon encounter tables.
-  return null;
-}
-
 function applyTravelTick(campaign, options){
-  // STUB: no-op. Called per turn by commitTurn once Phase 2.5 lands; will advance characters along
-  // their travelDestination, decrement remaining distance, surface arrivals as events.
+  // Superseded by the day-tick pipeline (registerDayConsumer 'journeys'). No-op.
   return { arrivals: [], encounters: [], inTransit: [] };
 }
 
@@ -1417,10 +1711,24 @@ function applyTravelTick(campaign, options){
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
+  // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick consumer.
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, computeJourneyDistance, rollNavigation,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty
 });
+
+// Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
+// registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
+// so ACKS.registerDayConsumer is available here. pauseTriggers wire the auto-pause-* rules.
+if(typeof ACKS.registerDayConsumer === 'function'){
+  ACKS.registerDayConsumer('journeys', {
+    handler: proposeJourneyDay,
+    order: 30,
+    pauseTriggers: ['encounter', 'navigation-fail', 'supplies-low'],
+    commit: commitJourneyRecord
+  });
+}
 
 if(typeof module !== 'undefined' && module.exports){
   module.exports = ACKS;

@@ -91,6 +91,14 @@ const EVENT_KINDS = Object.freeze([
   'construction-damaged',
   'construction-repair-started',
   'construction-demolished',
+  // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick events. Engine-emitted
+  // (day-tick consumer + startJourney); opted out of the Event Wizard below.
+  'journey-start',
+  'journey-day-tick',
+  'journey-arrived',
+  'journey-lost',
+  'journey-resupply',
+  'journey-encounter',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
   'gm-narrative'
 ]);
@@ -327,6 +335,31 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { constructibleId: 'string' },
     O: { reason: 'string', narrative: 'string' }
   },
+  // Phase 2.5 Journeys (#475 — J1). All carry journeyId; context envelope carries the hex(es).
+  'journey-start': {
+    R: { journeyId: 'string' },
+    O: { startHexId: 'string', destinationHexId: 'string', narrative: 'string' }
+  },
+  'journey-day-tick': {
+    R: { journeyId: 'string' },
+    O: { dayIndex: 'number', milesTraveled: 'number', hexesTraveled: 'number', narrative: 'string' }
+  },
+  'journey-arrived': {
+    R: { journeyId: 'string' },
+    O: { destinationHexId: 'string', narrative: 'string' }
+  },
+  'journey-lost': {
+    R: { journeyId: 'string' },
+    O: { dayIndex: 'number', narrative: 'string' }
+  },
+  'journey-resupply': {
+    R: { journeyId: 'string' },
+    O: { rations: 'number', waterRations: 'number', narrative: 'string' }
+  },
+  'journey-encounter': {
+    R: { journeyId: 'string' },
+    O: { dayIndex: 'number', hexId: 'string', narrative: 'string' }
+  },
   // #551 Wave Entity-B Chronicle Entry. Title + body + attached entities via context envelope.
   'gm-narrative': {
     R: { title: 'string', body: 'string' },
@@ -541,6 +574,21 @@ function registerEventHandler(kind, fn){
   EVENT_HANDLERS[kind] = fn;
 }
 
+// Deep clone / in-place restore helpers backing the transactional dispatch below.
+// Campaign state is pure JSON data (the .acks.json contract), so structuredClone
+// (or its JSON fallback) is lossless. _restoreCampaignInPlace mutates the SAME
+// campaign object reference back to the snapshot so callers holding the reference
+// (and Alpine's reactive proxy) see the rolled-back state.
+function _cloneForRollback(c){
+  try { if(typeof structuredClone === 'function') return structuredClone(c); } catch(e){}
+  return JSON.parse(JSON.stringify(c));
+}
+function _restoreCampaignInPlace(target, snap){
+  if(!target || !snap || typeof snap !== 'object') return;
+  for(const k of Object.keys(target)){ if(!(k in snap)) delete target[k]; }
+  for(const k of Object.keys(snap)){ target[k] = snap[k]; }
+}
+
 function applyEvent(campaign, event){
   validateEvent(event);
   const handler = EVENT_HANDLERS[event.kind];
@@ -554,7 +602,21 @@ function applyEvent(campaign, event){
       }
     };
   }
-  return handler(campaign, event);
+  // Transactional dispatch (delta audit C2, 2026-06-01). A multi-step handler
+  // (e.g. adventure-result: treasure → XP → casualties → rumor) that throws
+  // partway must not leave partial mutations behind — reject ≠ rollback. Snapshot
+  // the campaign, run the handler in place (the success path is unchanged, so
+  // fine-grained reactivity at the call sites is preserved), and on throw restore
+  // the pre-event state before re-throwing. The existing catch at the call site
+  // (commitTurn ~3114 / resolvePendingEvent ~11916) then marks the event rejected,
+  // logs the engine error, and toasts — now with no orphaned partial state.
+  const _snapshot = _cloneForRollback(campaign);
+  try {
+    return handler(campaign, event);
+  } catch(err){
+    _restoreCampaignInPlace(campaign, _snapshot);
+    throw err;
+  }
 }
 
 // Helper used by handlers to apply a treasury delta and return change metadata.
@@ -864,7 +926,10 @@ function applyEvent_treasuryGrant(campaign, event){
   // Foundation #14 auto-emit hook: when a grant exceeds a settlement's transaction threshold,
   // notable-transaction rumors emit. Gated by both markets-transaction-threshold (so the
   // threshold mechanic is on) and rumors-auto-emit (so the engine is allowed to push events).
-  if(campaign.houseRules?.['markets-transaction-threshold'] && Math.abs(p.amount) > 0){
+  // Delta audit I1 (2026-06-01): route through isHouseRuleEnabled — a raw houseRules[id]
+  // truthiness check fires when the rule is {enabled:false} (the object is truthy). This was
+  // the last instance of the pattern the project's conventions forbid (feedback-house-rule-shape).
+  if(global.ACKS.isHouseRuleEnabled(campaign, 'markets-transaction-threshold') && Math.abs(p.amount) > 0){
     const primarySet = settlementsForDomain(campaign, p.domainId)[0];
     if(primarySet){
       const threshold = global.ACKS.computeTransactionThreshold(primarySet);
@@ -1572,6 +1637,24 @@ function applyEvent_constructionDemolished(campaign, event){
 }
 registerEventHandler('construction-demolished', applyEvent_constructionDemolished);
 
+// ─── Phase 2.5 Journeys (#475 — J1) — defensive event handlers ───
+// The Journey day-tick consumer mutates journey state in its commit() and emits these
+// events as an audit trail via emitDayTickEvents (which constructs + pushes the event
+// directly, NOT through applyEvent). These handlers exist only so the events are
+// well-formed and self-describing if ever replayed through the apply pipeline (e.g. a
+// future Portal log replay). They DO NOT re-advance the journey — that already happened
+// in the consumer commit — so applying one is a safe no-op beyond recording a narrative.
+function applyEvent_journeyAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { journeyId: p.journeyId || null, narrativeSummary: p.narrative || (event && event.kind) || 'journey event' } };
+}
+registerEventHandler('journey-start', applyEvent_journeyAudit);
+registerEventHandler('journey-day-tick', applyEvent_journeyAudit);
+registerEventHandler('journey-arrived', applyEvent_journeyAudit);
+registerEventHandler('journey-lost', applyEvent_journeyAudit);
+registerEventHandler('journey-resupply', applyEvent_journeyAudit);
+registerEventHandler('journey-encounter', applyEvent_journeyAudit);
+
 
 
 // ─── #541 Event Wizard support (Architecture.md §10.12 — 2026-05-30) ───
@@ -1584,7 +1667,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'venture-launch',        // owned by Launch Venture modal — skips investment validation
   'character-level-up',    // owned by level-up auto-flow — skips XP/class progression
   'character-death',       // owned by character sheet retire/delete — too consequential for raw emit
-  'gm-narrative'           // owned by Chronicle Entry sub-tab — has its own rich UI
+  'gm-narrative',          // owned by Chronicle Entry sub-tab — has its own rich UI
+  // Phase 2.5 Journeys (#475 — J1) — emitted by the day-tick consumer + startJourney,
+  // not authored raw (raw emit would skip the journey state transitions).
+  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

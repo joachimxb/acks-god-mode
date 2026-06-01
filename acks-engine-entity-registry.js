@@ -1,4 +1,4 @@
-/* ACKS God Mode — acks-engine-objects.js
+/* ACKS God Mode — acks-engine-entity-registry.js
  * Entity Registry (#550 — 2026-05-31 (renamed Object → Entity 2026-05-31)).
  *
  * The canonical registry of every "thing" in the data layer that can be:

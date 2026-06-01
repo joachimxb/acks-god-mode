@@ -485,21 +485,41 @@ function setPeasantPopulation(d, newTotal){
   d.demographics.peasantFamilies = newTotal;
   _redistributeRuralFamilies(d, newTotal);
 }
-// On load, if peasantFamilies and sum(rural hex.families) disagree, reconcile.
-// Trust peasantFamilies (it's been actively maintained by monthly commits) and
-// redistribute across hexes by current weight. Returns the number of domains touched.
+// Inverse of setPeasantPopulation: derive the domain's peasant total FROM its rural
+// hexes. This is the canonical direction when families-per-hex-tracking is ON — the GM
+// edits per-hex family counts directly, so the hexes are the source of truth and the
+// domain total is simply their sum. Returns the new total.
+function syncRuralPopulationFromHexes(d){
+  if(!d || !d.demographics) return 0;
+  const sum = _ruralHexes(d).reduce((s,h) => s + (h.families||0), 0);
+  d.demographics.peasantFamilies = sum;
+  return sum;
+}
+// On load, reconcile any drift between peasantFamilies and Σ(rural hex.families). The
+// CANONICAL DIRECTION depends on the mode (CLAUDE principle #10 — canonical setters):
+//   • families-per-hex-tracking ON  → the GM edits hexes directly, so the HEXES win:
+//     derive peasantFamilies = Σ(hex.families). (Edge case: when the hexes are still
+//     empty — hexSum 0 with a positive domain total — seed them from the total instead,
+//     so a domain that just enabled the rule doesn't lose its population.)
+//   • OFF (RAW default)             → peasantFamilies is the canonical domain-level
+//     figure; redistribute it across the hexes by current weight.
+// Returns the number of domains touched.
 function reconcileRuralPopulation(campaign){
   if(!campaign || !Array.isArray(campaign.domains)) return 0;
+  const perHexCanonical = isHouseRuleEnabled(campaign, 'families-per-hex-tracking');
   let fixed = 0;
   campaign.domains.forEach(d => {
     const hexes = _ruralHexes(d);
     if(hexes.length === 0) return;
     const pf = (d.demographics && d.demographics.peasantFamilies) || 0;
     const hexSum = hexes.reduce((s,h) => s + (h.families||0), 0);
-    if(pf !== hexSum){
-      _redistributeRuralFamilies(d, pf);
-      fixed++;
+    if(pf === hexSum) return;
+    if(perHexCanonical && hexSum > 0){
+      syncRuralPopulationFromHexes(d);   // hexes canonical → peasantFamilies = Σ(hex.families)
+    } else {
+      _redistributeRuralFamilies(d, pf); // domain total canonical (or seeding empty hexes)
     }
+    fixed++;
   });
   return fixed;
 }
@@ -808,6 +828,11 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(!h) continue;
       if(typeof h.economyType !== 'string') h.economyType = 'agricultural';
       if(typeof h.terrainTransformationState === 'undefined') h.terrainTransformationState = null;
+      // Phase 2.5 Journeys (#475) — travel-relevant hex geography.
+      if(typeof h.hasRoad !== 'boolean')  h.hasRoad = false;
+      if(typeof h.hasTrail !== 'boolean') h.hasTrail = false;
+      if(typeof h.riverCount !== 'number') h.riverCount = 0;
+      if(typeof h.elevationFt !== 'number') h.elevationFt = 0;
     }
   }
   // Per-character new fields
@@ -817,6 +842,11 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof c.heroicCode === 'undefined')          c.heroicCode = null;
       if(typeof c.fatePoints === 'undefined')          c.fatePoints = null;
       if(typeof c.transformationState === 'undefined') c.transformationState = null;
+      // Phase 2.5 Journeys (#475) — per-character travel + survival state (persists across journeys).
+      if(typeof c.currentJourneyId === 'undefined')    c.currentJourneyId = null;
+      if(typeof c.personalFatigue !== 'number')        c.personalFatigue = 0;
+      if(typeof c.hungerDays !== 'number')             c.hungerDays = 0;
+      if(typeof c.dehydrationDays !== 'number')        c.dehydrationDays = 0;
     }
   }
   // Per-settlement new fields
@@ -1279,6 +1309,44 @@ function settlementForHex(campaign, hexId){
   if(!campaign || !Array.isArray(campaign.settlements)) return null;
   return campaign.settlements.find(s => s.hexId === hexId) || null;
 }
+
+// ── Phase 2.5 Journeys (#475) — lookups + a pure hex-distance helper ──
+function findJourney(campaign, journeyId){
+  if(!campaign || !Array.isArray(campaign.journeys)) return null;
+  return campaign.journeys.find(j => j && j.id === journeyId) || null;
+}
+function journeysInTransit(campaign){
+  if(!campaign || !Array.isArray(campaign.journeys)) return [];
+  return campaign.journeys.filter(j => j && j.status === 'in-transit');
+}
+function journeysWithParticipant(campaign, characterId){
+  if(!campaign || !Array.isArray(campaign.journeys) || !characterId) return [];
+  return campaign.journeys.filter(j => j && Array.isArray(j.participantCharacterIds) && j.participantCharacterIds.indexOf(characterId) >= 0);
+}
+// Resolve a hex by id from the canonical top-level collection, falling back to per-domain
+// geography (the UI keeps hexes split across domains' geography.hexes). Pure read.
+function resolveHexAnywhere(campaign, hexId){
+  if(!campaign || !hexId) return null;
+  const top = findHex(campaign, hexId);
+  if(top) return top;
+  if(Array.isArray(campaign.domains)){
+    for(const d of campaign.domains){
+      const hexes = d && d.geography && d.geography.hexes;
+      if(Array.isArray(hexes)){
+        const h = hexes.find(x => x && x.id === hexId);
+        if(h) return h;
+      }
+    }
+  }
+  return null;
+}
+// Axial hex distance between two {q, r} coords (cube-coordinate metric). Pure.
+function hexAxialDistance(a, b){
+  if(!a || !b) return 0;
+  const aq = a.q || 0, ar = a.r || 0, bq = b.q || 0, br = b.r || 0;
+  return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(aq + ar - bq - br)) / 2;
+}
+function isJourney(o){ return !!(o && typeof o.id === 'string' && o.id.startsWith('jrn-')); }
 
 function settlementsForDomain(campaign, domainId){
   if(!campaign) return [];
@@ -3801,6 +3869,8 @@ function dayTickActivityInFlight(campaign){
   if(!campaign) return false;
   if((campaign.currentDayInMonth || 1) > 1) return true;
   if(Array.isArray(campaign.projects) && campaign.projects.some(p => p && p.lifecycleState === 'under-construction')) return true;
+  // Phase 2.5 Journeys (#475) — an in-transit journey is day-aware activity in flight.
+  if(Array.isArray(campaign.journeys) && campaign.journeys.some(j => j && (j.status === 'in-transit' || j.status === 'resting'))) return true;
   // A funded-but-not-yet-projected agricultural improvement also counts as in flight: the panel
   // writes hex.improvementBudgetGp directly, and the Project is materialized just before the tick.
   const budgeted = (arr) => Array.isArray(arr) && arr.some(h => h && (h.improvementBudgetGp || 0) > 0);
@@ -4501,7 +4571,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
 
   // Foundation #241 — rural population: canonical setter + reconciliation.
   // Tools/UI MUST go through setPeasantPopulation for any rural population change.
-  setPeasantPopulation, reconcileRuralPopulation,
+  setPeasantPopulation, syncRuralPopulationFromHexes, reconcileRuralPopulation,
 
   // Entity-factory exports attached by acks-engine-entities.js (loaded after).
 
@@ -4560,6 +4630,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   settlementForHex, settlementsForDomain, rumorsAtSettlement, rumorsInDomain, rumorReachAt,
   addRumorReach, removeRumorReach,
   liftToTopLevelCollections,
+  // Phase 2.5 Journeys (#475) — lookups + helpers (J1)
+  findJourney, journeysInTransit, journeysWithParticipant, resolveHexAnywhere, hexAxialDistance, isJourney,
 
   // Turn orchestration (Foundation #15 — partial lift, helpers-callback pattern)
   proposeMonthlyTurn, commitTurn
