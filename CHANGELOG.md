@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.10.0] - 2026-06-01
+
 ### Added
+- Contributor and release policy docs (`CONTRIBUTING.md`, `CHANGELOG.md`).
 - Time-based agricultural land improvement (RR p.174): a +1 land-value step is a labour-paid construction project built over time (~50 days at the typical-labourer rate), paid as the work proceeds from the domain treasury, advanced via the day-tick / Day Clock.
 - Hex **land value** is GM-editable (the Hex detail modal and the Domain ▸ Hexes table), logged like any other edit.
 - Day-tick drip labels note when progress was **limited by the domain treasury** (cash ran out before the budget did).
@@ -44,5 +49,5 @@ The Community Preview — first public release.
 ### Security
 - Prototype-pollution guards on the event field-path writer, campaign validation on load, and a frozen `Object.prototype` at startup.
 
-[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.9.0...HEAD
-[0.9.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.9.0
+[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.10.0
