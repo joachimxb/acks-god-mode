@@ -40,6 +40,9 @@ function throws(label, fn) {
   try { fn(); } catch (e) { threw = true; }
   ok(label, threw, 'expected a throw');
 }
+function doesNotThrow(label, fn) {
+  try { fn(); ok(label, true); } catch (e) { ok(label, false, e.message); }
+}
 const clone = o => JSON.parse(JSON.stringify(o));
 function deepEq(label, a, b) {
   let eq = true, msg = '';
@@ -126,9 +129,120 @@ ok('success path: hex marked explored', cOk.domains[0].geography.hexes[0].explor
 ok('success path: treasury credited 500gp', cOk.domains[0].treasury.gp === 500);
 
 // =============================================================================
-//   ── further sections appended by later commits in this pass ──
-//   P3.7 table-driven event-kind smoke
+section('P3.7 — table-driven smoke across every EVENT_KINDS kind (qa C2)');
 // =============================================================================
+// For every kind: (1) it has an EVENT_SCHEMAS entry, (2) a minimal valid payload
+// passes validateEvent, (3) dropping a required field is rejected, (4) the context
+// envelope round-trips, and (5) applyEvent runs without throwing on a shared fixture.
+// applyEvent is deferred for kinds already exercised by a dedicated suite (the
+// construction + journey families) and for the heavy-individuation recruit/calamity
+// handlers — listed explicitly so adding a NEW kind forces a coverage decision here.
+const EVENT_KINDS = ACKS.EVENT_KINDS;
+const EVENT_SCHEMAS = ACKS.EVENT_SCHEMAS;
+
+function eventFixture() {
+  const c = ACKS.blankCampaign();
+  c.currentTurn = 1;
+  c.houseRules['rumors-auto-emit'] = { enabled: true };
+  const dom = ACKS.blankDomain({ name: 'Testmark' });
+  dom.id = 'dom-1';
+  dom.treasury = { gp: 1000 };
+  dom.geography = { hexes: [{ id: 'hex-1', explored: true, domainId: 'dom-1' }] };
+  c.domains = [dom];
+  c.hexes = [{ id: 'hex-1', domainId: 'dom-1' }];
+  c.settlements = [ACKS.blankSettlement({ id: 'set-1', hexId: 'hex-1', name: 'Town', families: 800 })];
+  c.characters = [
+    ACKS.blankCharacter({ id: 'chr-1', name: 'Aldric', controlledBy: 'gm', socialTier: 'independent', level: 3, currentDomainId: 'dom-1' }),
+    ACKS.blankCharacter({ id: 'chr-2', name: 'Mira', socialTier: 'henchman', liegeCharacterId: 'chr-1', level: 2, currentDomainId: 'dom-1' }),
+  ];
+  c.ventures = [ACKS.blankVenture({ id: 'vnt-1', venturerCharacterId: 'chr-1', originDomainId: 'dom-1', destinationDomainId: 'dom-1' })];
+  c.passiveInvestments = [ACKS.blankPassiveInvestment({ id: 'inv-1', ownerCharacterId: 'chr-1' })];
+  c.pendingEvents = [];
+  return c;
+}
+
+const FIXTURE_IDS = {
+  domainId: 'dom-1', characterId: 'chr-1', settlementId: 'set-1', hexId: 'hex-1',
+  ownerCharacterId: 'chr-1', venturerCharacterId: 'chr-1', patronCharacterId: 'chr-1',
+  ventureId: 'vnt-1', investmentId: 'inv-1', projectId: 'prj-1', constructibleId: 'cst-1',
+  journeyId: 'jrn-1', repairTargetConstructibleId: 'cst-1',
+};
+const PAYLOAD_OVERRIDES = {
+  'gm-fiat': { target: { kind: 'domain', id: 'dom-1' }, mutation: { fieldPath: 'notes', newValue: 'fiat', reason: 'test' } },
+  'character-update': { characterId: 'chr-1', fieldUpdates: { notes: 'updated' } },
+  'adventure-result': { outcome: 'narrative-only' },
+  'daw-result': { outcome: 'narrative-only' },
+  'claude-event': { scope: 'campaign', title: 'T', narrativeText: 'N' },
+  'rumor-emit': { scope: 'campaign', rumorText: 'whispers in the market', apparentLevel: 'common' },
+  'population-shock': { domainId: 'dom-1', deltaFamilies: -5, label: 'plague', kind: 'plague' },
+  'venture-result': { ventureId: 'vnt-1', outcome: 'arrived' },
+  'venture-launch': { ventureId: 'vnt-2', venturerCharacterId: 'chr-1', totalInvestment: 500 },
+  'passive-investment-create': { investmentId: 'inv-2', ownerCharacterId: 'chr-1', capital: 1000, type: 'workshop' },
+  'passive-investment-delete': { investmentId: 'inv-1' },
+  'character-level-up': { characterId: 'chr-1', newLevel: 4 },
+  'character-death': { characterId: 'chr-1' },
+  'loyalty-check': { characterId: 'chr-1' },
+  'hireling-restored': { characterId: 'chr-1', restoredKind: 'wound' },
+  'hireling-calamity': { characterId: 'chr-2', kind: 'rations' },
+  'recruit-hireling': { patronCharacterId: 'chr-1', hireCategory: 'henchman', hireTypeId: 'henchman-1' },
+  'domain-transfer': { domainId: 'dom-1', reason: 'conquest' },
+  'engine-standard-turn': { domainId: 'dom-1', turnSnapshot: {} },
+  'gm-narrative': { title: 'Chronicle', body: 'Something happened in the realm.' },
+};
+function buildPayload(kind) {
+  if (PAYLOAD_OVERRIDES[kind]) return clone(PAYLOAD_OVERRIDES[kind]);
+  const R = (EVENT_SCHEMAS[kind] && EVENT_SCHEMAS[kind].R) || {};
+  const p = {};
+  for (const field of Object.keys(R)) {
+    const type = R[field];
+    if (FIXTURE_IDS[field]) p[field] = FIXTURE_IDS[field];
+    else if (type === 'number') p[field] = 1;
+    else if (type === 'array') p[field] = [];
+    else if (type === 'object') p[field] = {};
+    else if (type === 'boolean') p[field] = false;
+    else p[field] = 'x';
+  }
+  return p;
+}
+function ctxEnvelope() {
+  return { primaryHexId: 'hex-1', involvedHexIds: ['hex-1'], settlementId: 'set-1', domainId: 'dom-1', relatedEntities: [] };
+}
+
+// applyEvent deferred — with an explicit reason (no silent caps):
+const APPLY_DEFERRED = new Set([
+  // Construction family — exercised through applyEvent by tests/agricultural-projects.smoke.js
+  'construction-project-started', 'construction-progress', 'construction-completed',
+  'construction-vagary', 'construction-damaged', 'construction-repair-started', 'construction-demolished',
+  // Journey family — exercised through the day-tick pipeline by tests/journeys.smoke.js
+  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter',
+  // Heavy individuation fixtures (candidate generation / employment transfer) — out of scope for a table smoke
+  'recruit-hireling', 'hireling-calamity',
+]);
+
+let applyExercised = 0;
+EVENT_KINDS.forEach(kind => {
+  ok('EVENT_SCHEMAS has an entry: ' + kind, !!EVENT_SCHEMAS[kind]);
+  const ev = ACKS.newEvent(kind, { submittedBy: 'gm', payload: buildPayload(kind), context: ctxEnvelope() });
+  doesNotThrow('validateEvent passes: ' + kind, () => ACKS.validateEvent(ev));
+  ok('context envelope round-trips: ' + kind, ev.context && ev.context.domainId === 'dom-1' && ev.context.primaryHexId === 'hex-1');
+  const reqFields = Object.keys((EVENT_SCHEMAS[kind] && EVENT_SCHEMAS[kind].R) || {});
+  if (reqFields.length) {
+    const badPayload = clone(buildPayload(kind)); delete badPayload[reqFields[0]];
+    const bad = ACKS.newEvent(kind, { submittedBy: 'gm', payload: badPayload });
+    throws('validateEvent rejects missing "' + reqFields[0] + '": ' + kind, () => ACKS.validateEvent(bad));
+  }
+  if (!APPLY_DEFERRED.has(kind)) {
+    const fresh = eventFixture();
+    const ae = ACKS.newEvent(kind, { submittedBy: 'gm', payload: buildPayload(kind), context: ctxEnvelope() });
+    let threw = null;
+    try { ACKS.applyEvent(fresh, ae); } catch (e) { threw = e.message; }
+    ok('applyEvent no-throw: ' + kind, threw === null, threw);
+    if (threw === null) applyExercised++;
+  }
+});
+console.log('  applyEvent exercised on ' + applyExercised + ' kinds; deferred (own suite / out of scope): ' + APPLY_DEFERRED.size);
+ok('every kind is validate-tested; apply-tested unless explicitly deferred',
+  EVENT_KINDS.every(k => EVENT_SCHEMAS[k]) && (applyExercised + APPLY_DEFERRED.size) === EVENT_KINDS.length);
 
 // ─── summary ───
 console.log('\n=============================================');
