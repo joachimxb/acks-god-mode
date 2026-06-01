@@ -1055,17 +1055,29 @@ function migrateAgriculturalToProjects(campaign){
     const hex = hexById[proj.siteHexId];
     if(hex) syncAgriculturalProject(campaign, hex, { domainId: proj.ownerDomainId || hex.domainId || null });
   }
-  // Create live Projects for in-progress hexes (landImprovementInvested > 0) that lack one.
+  // Carry any legacy per-month queue (queuedImprovementGp) into the persistent dripping budget.
+  // Under the timed model the panel writes improvementBudgetGp directly; this preserves allocations
+  // a GM set under the old queue-then-commit flow. Idempotent (the queue is zeroed after the move).
+  for(const hex of allHexes){
+    if(hex && (hex.queuedImprovementGp || 0) > 0){
+      hex.improvementBudgetGp = (hex.improvementBudgetGp || 0) + hex.queuedImprovementGp;
+      hex.queuedImprovementGp = 0;
+    }
+  }
+  // Create live Projects for hexes with work in flight — invested gp OR a dripping budget — that
+  // lack one, so the day-tick can find and advance them.
   for(const hex of allHexes){
     if(!hex || !hex.id) continue;
     const invested = hex.landImprovementInvested || 0;
-    if(invested <= 0) continue;
+    const budget = hex.improvementBudgetGp || 0;
+    if(invested <= 0 && budget <= 0) continue;
     if(findAgriculturalProject(campaign, hex.id)) continue; // idempotent
     syncAgriculturalProject(campaign, hex, {
       domainId: hex.domainId || null,
       historyType: 'migrated',
       historyNarrative: 'Agricultural improvement lifted onto the unified Project model (bonus +'
-        + (hex.landImprovementBonus || 0) + ', ' + invested.toLocaleString() + 'gp toward the next step).'
+        + (hex.landImprovementBonus || 0) + ', ' + invested.toLocaleString() + 'gp invested, '
+        + budget.toLocaleString() + 'gp budget).'
     });
   }
   return campaign;

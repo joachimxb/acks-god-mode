@@ -1305,8 +1305,8 @@ document.addEventListener('alpine:init', () => {
                 <h3 class="font-semibold text-sm mb-1">Fund improvements (built over time — RR p.174)</h3>
                 <p class="text-sm opacity-70 mb-2">
                   Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW builds land as a construction project: the budget is spent as the work proceeds — about 500gp/day (the Typical Laborer rate), so each +1 step (25,000gp) takes ~50 days and needs an on-site <strong>siege engineer</strong>. Tick days or advance the month to watch it build; stopping just halts further spend (no refund). Instant completion is available via the Inspector.
-                  <span x-show="(selectedDomain.geography.hexes||[]).some(h => (h.queuedImprovementGp||0) > 0)" class="accent-green ml-1">
-                    Adding this commit: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0).toLocaleString()"></strong>gp
+                  <span x-show="(selectedDomain.geography.hexes||[]).some(h => (h.improvementBudgetGp||0) > 0)" class="accent-green ml-1">
+                    Total budget in flight: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.improvementBudgetGp||0), 0).toLocaleString()"></strong>gp
                   </span>
                 </p>
                 <table class="bookkeeping text-sm w-full">
@@ -1316,7 +1316,7 @@ document.addEventListener('alpine:init', () => {
                     <th>Bonus / next step</th>
                     <th>Eligibility</th>
                     <th x-show="!isHouseRuleEnabled('abstract-construction')">Supervisor (siege engineer)</th>
-                    <th class="text-center">Add to budget</th>
+                    <th class="text-center">Budget (drips ~500/day)</th>
                   </tr></thead>
                   <tbody>
                     <template x-for="(h, hi) in selectedDomain.geography.hexes" :key="h.id || hi">
@@ -1378,7 +1378,7 @@ document.addEventListener('alpine:init', () => {
                         </td>
                         <td class="text-center">
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
-                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'queuedImprovementGp', label:'Queue improvement (' + h.coord?.q + ',' + h.coord?.r + ')', kind:'number', min:0})">
+                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + h.coord?.q + ',' + h.coord?.r + ')', kind:'number', min:0})">
                               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
                               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                             </span>

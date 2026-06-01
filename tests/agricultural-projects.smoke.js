@@ -393,6 +393,23 @@ if(typeof ACKS.migrateAgriculturalToProjects !== 'function'){
     check('normalize: invested reduced below one step (12500)', h.landImprovementInvested === 12500, 'invested ' + h.landImprovementInvested);
   }
 
+  // BUDGET migration: a hex with only a dripping budget (no invested) gets a Project so the day-tick
+  // can find it; a legacy queuedImprovementGp allocation is carried into improvementBudgetGp.
+  {
+    const bc = ACKS.blankCampaign({ name: 'Budget' }); bc.projects = [];
+    bc.hexes = [
+      Object.assign(ACKS.blankHex({ id: 'hex-bud', coord:{q:0,r:0} }), { valuePerFamily: 6, improvementBudgetGp: 50000, domainId: 'dom-x' }),
+      Object.assign(ACKS.blankHex({ id: 'hex-q',   coord:{q:1,r:0} }), { valuePerFamily: 6, queuedImprovementGp: 30000, domainId: 'dom-x' }),
+    ];
+    ACKS.migrateAgriculturalToProjects(bc);
+    check('budget-migrate: budget-only hex gets a Project', !!ACKS.findAgriculturalProject(bc, 'hex-bud'));
+    check('budget-migrate: legacy queue carried into improvementBudgetGp', bc.hexes[1].improvementBudgetGp === 30000 && bc.hexes[1].queuedImprovementGp === 0, JSON.stringify({b:bc.hexes[1].improvementBudgetGp,q:bc.hexes[1].queuedImprovementGp}));
+    check('budget-migrate: queue->budget hex also gets a Project', !!ACKS.findAgriculturalProject(bc, 'hex-q'));
+    // idempotent
+    ACKS.migrateAgriculturalToProjects(bc);
+    check('budget-migrate: idempotent (2 ag Projects)', bc.projects.filter(p => p.constructibleKind === 'agricultural-improvement').length === 2);
+  }
+
   // demo template carries hex-saltspur-vale invested=12500 -> migrate yields a live consumer
   try {
     const demoMod = require(path.join(__dirname, '..', 'acks-demo-template.js'));
