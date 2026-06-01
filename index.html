@@ -11207,14 +11207,17 @@ return {
     const fam=d.demographics.peasantFamilies||0;
     const urb=this.effectiveUrbanFamilies(d);
     const taxRate=DEFAULT_TAX_RATES[d.taxPolicy?.rate]??(d.income.taxPerFamily||2);
-    // Land revenue (RR p.339–341). RAW is per-hex: each peasant family generates the land value OF
-    // ITS HEX ("this value is the monthly land revenue per peasant family in that hex"), so the true
-    // figure is Σ (families-in-hex × hex effective-value). The families-per-hex-tracking house rule
-    // computes exactly that. The DEFAULT (RAW tracks families at the domain level) approximates it as
-    // the AVERAGE effective land value across hexes × peasantFamilies — which is EXACT for a single-hex
-    // domain and for a uniform-value domain (RAW's own "treat all land values as 6" simplification,
-    // RR p.339), and only diverges for a mixed-value domain with uneven family distribution.
-    // "effective value" = base valuePerFamily + landImprovementBonus, capped at 9 (RR p.341).
+    // Land revenue (RR p.339–340). RAW counts peasant families at the DOMAIN level (population total +
+    // the monthly growth roll are "per 1,000 families in the domain", RR p.340); the hex carries the
+    // land value (3d3, RR p.339) and a population ceiling by classification, but NOT a stored family
+    // count. So the RAW model is: domain family total × land value. The revenue rule is phrased per-hex
+    // ("the monthly land revenue per peasant family in that hex"), yet every domain RAW presents is
+    // single-hex or uniform-value ("treat all land values as 6"), where AVERAGE hex value × domain
+    // families equals the per-hex sum exactly — so the DEFAULT below (average effective value ×
+    // peasantFamilies) IS the RAW model, not an approximation of it. families-per-hex-tracking is a
+    // BEYOND-RAW high-fidelity overlay: it stores a per-hex family count RAW doesn't track, to compute
+    // the literal per-hex sum for a mixed-value domain. "effective value" = base valuePerFamily +
+    // landImprovementBonus, capped at 9 (RR p.341).
     let landRow;
     const hexes = d.geography?.hexes || [];
     const totalImprovementBonus = this.domainTotalLandImprovementBonus(d);

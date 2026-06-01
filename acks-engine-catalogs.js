@@ -189,7 +189,7 @@ const HOUSERULES_REGISTRY = Object.freeze([
   // ----- Domain mechanics -----
   { id:'families-per-hex-tracking', category:'domain', name:'Families-per-hex tracking',
     source:'ACKS II RR (advanced granularity beyond RAW)',
-    description:"ACKS RAW tracks land value per hex (each hex gets its own 3d3 roll at securing) but families at the domain level. When this rule is enabled, individual hexes also track their own family counts. Population growth distributes across hexes by capacity (Phase 2.5+ map mode). The Hexes tab is always visible — this rule just adds the families column and per-hex growth distribution." },
+    description:"ACKS RAW tracks land value per hex (each hex gets its own 3d3 roll at securing, RR p.339) but families at the DOMAIN level (RR p.340). By default, land revenue is therefore the domain family total × the average hex land value — which is RAW-exact for the single-hex and uniform-value domains RAW presents. This rule is a high-fidelity overlay BEYOND RAW: each hex tracks its own family count, and land revenue becomes the literal per-hex sum Σ(families-in-hex × hex value), which only matters for a mixed-value, multi-hex domain. Adds the per-hex families column; population growth distributes across hexes by capacity (Phase 2.5+ map mode)." },
   { id:'separating-land-and-lordship', category:'domain', name:'Separating land and lordship',
     source:'ACKS II RR p.355-ish (Phase 2/4 — not yet implemented)',
     description:"Splits domain ownership between a landowner (collects land + service revenue) and a governor (collects tax + tribute + urban revenue). When on, each domain can declare distinct landowner and governor character ids." },
