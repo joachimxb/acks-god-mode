@@ -6458,7 +6458,11 @@ function buildDomainFromTemplate(tpl){
   const characters=[];
   if(tpl.ruler && tpl.ruler.name){
     const rulerCh = window.ACKS.blankCharacter({
-      name:tpl.ruler.name, kind:tpl.ruler.isPC?'PC':'NPC',
+      // Delta audit I3 (2026-06-01): set the canonical five-axis fields directly
+      // rather than passing the deprecated c.kind vocabulary. blankCharacter derives
+      // the same values from kind, but emitting kind here re-introduced a field the
+      // five-axis migration strips — so a template-built domain was not a migrate-no-op.
+      name:tpl.ruler.name, controlledBy:tpl.ruler.isPC?'player':'gm', socialTier:'independent',
       class:tpl.ruler.class||'', level:tpl.ruler.level||1,
       currentDomainId:d.id
     });
@@ -6467,7 +6471,7 @@ function buildDomainFromTemplate(tpl){
   }
   (tpl.henchmen||[]).forEach(h => {
     const henchCh = window.ACKS.blankCharacter({
-      name:h.name, kind:'henchman', class:h.class||'', level:h.level||1,
+      name:h.name, controlledBy:'gm', socialTier:'henchman', class:h.class||'', level:h.level||1,
       loyalty:h.loyalty||0, liegeCharacterId:d.rulerCharacterId,
       currentDomainId:d.id, notes:h.role||''
     });
@@ -8756,16 +8760,6 @@ return {
           detectedMarketClassIdx = this.recruitMarketClassStrToIdx(inRuled.marketClass);
         }
       }
-      // Diagnostic — surface what got picked so issues are debuggable from the
-      // browser console. Remove once §310 stabilizes.
-      try {
-        console.log('[recruitStart] patron=' + (patron.name||patron.id) +
-          ' currentHexId=' + (patron.currentHexId||'(none)') +
-          ' currentDomainId=' + (patron.currentDomainId||'(none)') +
-          ' → detectedSettlementId=' + (detectedSettlementId||'(none)') +
-          ' marketClassIdx=' + detectedMarketClassIdx +
-          ' (sets.length=' + sets.length + ')');
-      } catch(e){}
       // (3) any settlement
       if(!detectedSettlementId && sets.length > 0){
         detectedSettlementId = idFor(sets[0]);
@@ -8904,16 +8898,6 @@ return {
     }
     if(opts.roleToFill)   this.recruitState.roleToFill   = opts.roleToFill;
     if(opts.roleDomainId) this.recruitState.roleDomainId = opts.roleDomainId;
-    // §310.3f-fix9 — diagnostic: confirm settlementId survives the deep-link
-    // config block. If it's empty here, the bug is in deepLink itself. If
-    // it's set here but the dropdown shows blank, the bug is the Alpine
-    // select+x-for race (fixed by :selected on each option).
-    try {
-      console.log('[recruitDeepLink] AFTER config — settlementId=' + (this.recruitState.settlementId||'(empty)') +
-        ' hireCategory=' + this.recruitState.hireCategory +
-        ' hireTypeId=' + this.recruitState.hireTypeId +
-        ' roleToFill=' + this.recruitState.roleToFill);
-    } catch(e){}
     this.currentView      = 'characters';
     this.charactersSubView = 'recruit';
   },
@@ -11834,7 +11818,6 @@ return {
     this._persistDayTick();   // persist AFTER restoring domains so the saved currentCampaign.domains stays empty
   },
   proposeMonthlyTurn(){
-    console.log('proposeMonthlyTurn() called, domains:', this.domains.length);
     this.turnProposalError = '';
     try {
       const helpers = this._buildTurnHelpers();
@@ -11848,7 +11831,6 @@ return {
       this.turnVentureProposals = result.turnVentureProposals;
       this.turnProposal         = result.turnProposal;
       this.showTurnModal = true;
-      console.log('Modal opened with', this.turnProposal.length, 'proposals');
     } catch(e){
       console.error('proposeMonthlyTurn error', e);
       this.turnProposalError = 'Failed to propose turn: ' + e.message;
@@ -12075,7 +12057,6 @@ return {
       this.showToast('Committed ' + p(committed, 'domain') + '. Now on Turn ' + (this.currentCampaign?.currentTurn || 1) + '.' + ventureBlurb + passiveBlurb + levelUpBlurb, 5000);
     } catch(e){
       console.error('showToast threw:', e);
-      console.log('Committed ' + committed + ' domain(s).');
     }
   },
 };
