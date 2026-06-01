@@ -189,7 +189,7 @@ const HOUSERULES_REGISTRY = Object.freeze([
   // ----- Domain mechanics -----
   { id:'families-per-hex-tracking', category:'domain', name:'Families-per-hex tracking',
     source:'ACKS II RR (advanced granularity beyond RAW)',
-    description:"ACKS RAW tracks land value per hex (each hex gets its own 3d3 roll at securing) but families at the domain level. When this rule is enabled, individual hexes also track their own family counts. Population growth distributes across hexes by capacity (Phase 2.5+ map mode). The Hexes tab is always visible — this rule just adds the families column and per-hex growth distribution." },
+    description:"ACKS RAW tracks land value per hex (each hex gets its own 3d3 roll at securing, RR p.339) but families at the DOMAIN level (RR p.340). By default, land revenue is therefore the domain family total × the average hex land value — which is RAW-exact for the single-hex and uniform-value domains RAW presents. This rule is a high-fidelity overlay BEYOND RAW: each hex tracks its own family count, and land revenue becomes the literal per-hex sum Σ(families-in-hex × hex value), which only matters for a mixed-value, multi-hex domain. Adds the per-hex families column; population growth distributes across hexes by capacity (Phase 2.5+ map mode)." },
   { id:'separating-land-and-lordship', category:'domain', name:'Separating land and lordship',
     source:'ACKS II RR p.355-ish (Phase 2/4 — not yet implemented)',
     description:"Splits domain ownership between a landowner (collects land + service revenue) and a governor (collects tax + tribute + urban revenue). When on, each domain can declare distinct landowner and governor character ids." },
@@ -197,12 +197,13 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',
     description:'Track strongholds as a list of individual structures (Tower, Wall, Gatehouse, Building Stone) rather than a single aggregate value. Useful for detailed sieges and modular stronghold construction.' },
-  { id:'immediate-construction', category:'construction', name:'Immediate construction completion',
-    source:'ACKS II RR p.353 default text',
-    description:"RAW's main text deducts construction costs immediately and completes the project the same turn. When this rule is on, all qualifying construction projects complete the same turn they're ordered." },
-  { id:'realistic-construction', category:'construction', name:'Realistic construction — supervisors + labor cap',
-    source:'ACKS II RR p.174 (Wage and Construction Rates; Siege Engineer / Engineer supervision caps)',
-    description:"Construction projects (currently agricultural improvements; later stronghold construction) require an assigned supervisor character — siege engineer caps at 25,000gp per project, engineer caps at 100,000gp. Each domain also has a monthly labor cap representing available workforce; total construction allocations across all projects in a domain may not exceed it in a single month. When off, gp is the only constraint." },
+  // immediate-construction + realistic-construction BOTH REMOVED 2026-05-31 (Joachim): RAW (RR p.174)
+  // builds land/structures over time as labor-paid, supervised construction projects — that is now the
+  // tool's DEFAULT, not a toggle. Neither instant completion nor the supervised/timed model is a house
+  // rule. A GM who wants to skip the timeline uses the admin tools (Inspector: set a Project's
+  // lifecycleState to 'complete', or a hex's landImprovementBonus directly). The engine keeps an
+  // internal `abstract-construction` flag (NOT user-facing) for the instant/gp-only path used by the
+  // zero-drift oracle. See _handoffs/Agricultural_Time_Based_Spec.md + RAW_Posture_HouseRule_Audit.md.
   { id:'alternative-farming-methods', category:'construction', name:'Alternative farming methods (8× population density)',
     source:'ACKS II RR p.340 (variant — not yet implemented)',
     description:"Intensive cultivation of high-yield crops twice per year could yield 8× the standard population density per hex. When enabled, individual hexes can be flagged as using alternative farming, raising their max-families ceiling." },

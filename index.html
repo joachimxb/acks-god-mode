@@ -221,7 +221,6 @@ document.addEventListener('alpine:init', () => {
         <div class="fixed top-24 right-4 z-50 w-96 max-h-[70vh] overflow-auto border-2 border-ink rounded-lg bg-white shadow-xl p-3 text-sm">
           <div class="flex items-center justify-between mb-2">
             <h3 class="font-black">Day-tick review</h3>
-            <button @click="cancelDayTick()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100">&times; cancel</button>
           </div>
           <p class="text-xs opacity-70 mb-2">
             <span x-text="'Advancing ' + (dayTickProposal.daysAdvanced||0) + ' day(s): day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay"></span>
@@ -245,8 +244,14 @@ document.addEventListener('alpine:init', () => {
                 <div class="flex items-center justify-between gap-2 py-0.5 border-b border-dashed border-gray-300" :class="r.rejected ? 'opacity-40 line-through' : ''">
                   <span class="text-xs" x-text="r.label || (r.kind + ' record')"></span>
                   <span class="flex items-center gap-1 shrink-0">
-                    <template x-if="typeof r.newLaborInvested === 'number'">
+                    <!-- Worker-built projects expose an editable committed-labor (cf) field. Monthly-cadence
+                         records (agricultural improvement — gp-denominated, advances at month-end) have no
+                         per-day labor to edit, so the field is suppressed (Wave Construction-B). -->
+                    <template x-if="typeof r.newLaborInvested === 'number' && r.cadence !== 'monthly'">
                       <input type="number" x-model.number="r.newLaborInvested" class="w-20 text-xs border border-ink rounded px-1" title="Edit committed labor (cf)">
+                    </template>
+                    <template x-if="r.cadence === 'monthly'">
+                      <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
                     </template>
                     <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
                   </span>
@@ -256,7 +261,7 @@ document.addEventListener('alpine:init', () => {
           </template>
           <div class="flex items-center gap-2 mt-3">
             <button @click="commitDayTick()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold text-xs">&check; Commit tick</button>
-            <button @click="cancelDayTick()" class="px-3 py-1 border border-ink rounded hover:bg-gray-100 text-xs">Discard</button>
+            <button @click="cancelDayTick()" class="px-3 py-1 border border-ink rounded hover:bg-gray-100 text-xs">Cancel</button>
             <span x-show="dayTickError" class="text-xs text-red-700" x-text="dayTickError"></span>
           </div>
         </div>
@@ -1082,9 +1087,10 @@ document.addEventListener('alpine:init', () => {
                 </span>
               </div>
 
-              <!-- Foundation #18 — monthly labor cap. Only visible when the realistic-construction
-                   house rule is on; engine treats 0 as unlimited. -->
-              <template x-if="isHouseRuleEnabled('realistic-construction')">
+              <!-- Monthly labor cap is an abstract-path (instant) concept. The timed RAW default
+                   (RR p.174) is paced by the per-day construction rate, not a monthly gp cap, so
+                   this editor is hidden by default. -->
+              <template x-if="isHouseRuleEnabled('abstract-construction')">
                 <div class="mt-3 p-2 border border-ink/40 rounded" style="background:#f4ecd2"
                      title="Monthly labor budget for construction projects. Total gp allocated across all in-progress projects in this domain may not exceed this in a single month. 0 = unlimited (no cap). Per ACKS RR p.174 labor is paid daily; this models the practical workforce ceiling.">
                   <h3 class="text-sm font-semibold">⚒ Construction labor pool</h3>
@@ -1201,7 +1207,10 @@ document.addEventListener('alpine:init', () => {
                       </template>
                     </td>
                     <td>
-                      <span class="font-mono" x-text="Math.round(h.valuePerFamily||0)"></span>
+                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                      </span>
                     </td>
                     <td class="text-sm">
                       <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
@@ -1259,19 +1268,21 @@ document.addEventListener('alpine:init', () => {
 
           <!-- Agricultural Improvement Tracker (baseline ACKS RR p.341).
                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family.
-               Without the immediate-construction house rule, projects complete after 2 turns.
-               Supervisor + labor cap requirements come from the realistic-construction house rule. -->
+               RAW (RR p.174): land improvement is a labor-paid construction project that takes time
+               (~50 days/step at a typical workforce) and needs a siege-engineer supervisor. The
+               time-based model + this panel's rework land with the construction rework — see
+               _handoffs/Agricultural_Time_Based_Spec.md. -->
           <template x-if="true">
             <div class="vellum border border-ink p-3 rounded mt-3">
               <h2 class="font-bold text-lg mb-1">⚒ Agricultural improvements <span class="text-sm opacity-60 font-normal">(RR p.341)</span></h2>
               <p class="text-sm opacity-70 mb-3">
-                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family. Without the immediate-construction house rule, projects complete two turns after they're ordered.
+                25,000gp per +1 land value, max +3 per hex, cap at 9gp/family.
               </p>
 
               <!-- Hexes with investment accumulating toward the next +1 step. -->
               <h3 class="font-semibold text-sm mb-1">Investment in progress</h3>
               <template x-if="(selectedDomain.geography.hexes||[]).every(h => (h.landImprovementInvested||0) === 0)">
-                <p class="text-sm italic opacity-60 mb-3">No investment accumulating. Allocate gp via the queue below.</p>
+                <p class="text-sm italic opacity-60 mb-3">No improvements under way. Fund one below.</p>
               </template>
               <template x-if="(selectedDomain.geography.hexes||[]).some(h => (h.landImprovementInvested||0) > 0)">
                 <table class="bookkeeping text-sm w-full mb-3">
@@ -1293,11 +1304,11 @@ document.addEventListener('alpine:init', () => {
 
               <!-- Prep flow: queue arbitrary gp amount per hex for next advance-month. -->
               <div class="border-t border-ink/30 pt-3">
-                <h3 class="font-semibold text-sm mb-1">Queue improvements for next month</h3>
+                <h3 class="font-semibold text-sm mb-1">Fund improvements (built over time — RR p.174)</h3>
                 <p class="text-sm opacity-70 mb-2">
-                  Allocate any gp amount per hex — it accumulates toward the next +1 step (25,000gp each). The next Advance Month modal pre-fills these values; you can still adjust during review. After commit, the queue resets to zero.
-                  <span x-show="(selectedDomain.geography.hexes||[]).some(h => (h.queuedImprovementGp||0) > 0)" class="accent-green ml-1">
-                    Currently queued: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.queuedImprovementGp||0), 0).toLocaleString()"></strong>gp
+                  Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW builds land as a construction project: the budget is spent as the work proceeds — about 500gp/day (the Typical Laborer rate), so each +1 step (25,000gp) takes ~50 days (no engineer needed — the supervisor rule is for strongholds and ships, not land; RR p.174). Tick days or advance the month to watch it build; stopping just halts further spend (no refund). Instant completion is available via the Inspector.
+                  <span x-show="(selectedDomain.geography.hexes||[]).some(h => (h.improvementBudgetGp||0) > 0)" class="accent-green ml-1">
+                    Total budget in flight: <strong x-text="(selectedDomain.geography.hexes||[]).reduce((s,h) => s + (h.improvementBudgetGp||0), 0).toLocaleString()"></strong>gp
                   </span>
                 </p>
                 <table class="bookkeeping text-sm w-full">
@@ -1306,8 +1317,8 @@ document.addEventListener('alpine:init', () => {
                     <th>Land value</th>
                     <th>Bonus / next step</th>
                     <th>Eligibility</th>
-                    <th x-show="isHouseRuleEnabled('realistic-construction')">Supervisor</th>
-                    <th class="text-center">Queue gp</th>
+                    <th x-show="false">Supervisor</th>
+                    <th>Budget (drips ~500/day)</th>
                   </tr></thead>
                   <tbody>
                     <template x-for="(h, hi) in selectedDomain.geography.hexes" :key="h.id || hi">
@@ -1318,6 +1329,9 @@ document.addEventListener('alpine:init', () => {
                           <span x-text="'+' + (h.landImprovementBonus||0)"></span>
                           <template x-if="(h.landImprovementInvested||0) > 0">
                             <span class="opacity-60 ml-1" x-text="'(' + (h.landImprovementInvested||0).toLocaleString() + ' / 25,000 toward next)'"></span>
+                          </template>
+                          <template x-if="(h.improvementBudgetGp||0) > 0">
+                            <span class="accent-green ml-1" x-text="'· budget ' + (h.improvementBudgetGp||0).toLocaleString() + 'gp building'"></span>
                           </template>
                         </td>
                         <td class="text-sm"
@@ -1330,7 +1344,7 @@ document.addEventListener('alpine:init', () => {
                         <!-- Foundation #18 followup — multi-supervisor picker. Per RR p.174,
                              multiple engineers/siege engineers can co-supervise (caps additive).
                              Only on-site supervisors (currentHexId matches) count at commit. -->
-                        <td x-show="isHouseRuleEnabled('realistic-construction')" class="text-sm">
+                        <td x-show="false" class="text-sm">
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
                             <span class="block">
                               <!-- Chip list — one per assigned supervisor. -->
@@ -1364,9 +1378,9 @@ document.addEventListener('alpine:init', () => {
                             <span class="opacity-40">—</span>
                           </template>
                         </td>
-                        <td class="text-center">
+                        <td>
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
-                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'queuedImprovementGp', label:'Queue improvement (' + h.coord?.q + ',' + h.coord?.r + ')', kind:'number', min:0})">
+                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + h.coord?.q + ',' + h.coord?.r + ')', kind:'number', min:0})">
                               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
                               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                             </span>
@@ -1379,9 +1393,9 @@ document.addEventListener('alpine:init', () => {
                     </template>
                   </tbody>
                 </table>
-                <!-- Foundation #18 — labor cap snapshot. Tied to selectedDomain.monthlyLaborCapGp;
-                     edited on the Economy tab. Shown here as a planning aid. -->
-                <p x-show="isHouseRuleEnabled('realistic-construction')" class="text-sm mt-2 opacity-80">
+                <!-- Monthly labor cap is an abstract-path (instant) concept; the timed RAW default is
+                     limited by the per-day construction rate, not a monthly gp cap. Hidden by default. -->
+                <p x-show="isHouseRuleEnabled('abstract-construction')" class="text-sm mt-2 opacity-80">
                   <span>Monthly labor cap:
                     <strong x-text="(selectedDomain.monthlyLaborCapGp||0) > 0 ? (selectedDomain.monthlyLaborCapGp||0).toLocaleString() + 'gp' : '— unlimited (set on Economy tab) —'"></strong>
                   </span>
@@ -2841,18 +2855,9 @@ document.addEventListener('alpine:init', () => {
             <div class="mt-3 p-2 border border-ink rounded" style="background:#e8f0d4" :class="p.skip ? 'skipped' : ''">
               <div class="flex justify-between items-baseline">
                 <h4 class="font-semibold text-sm">🌾 Agricultural investments this month</h4>
-                <span class="text-sm opacity-70">Incremental — accumulates 25,000gp per +1gp/family step (RR p.341 + p.174)</span>
+                <span class="text-sm opacity-70">Built over time — ~500gp/day, ~50 days per +1gp/family step (RR p.341 + p.174)</span>
               </div>
-              <p class="text-sm opacity-70 mb-2">Allocate any gp amount per hex. It accumulates toward the next +1 step (25,000gp each). When accumulated reaches 25k, the bonus ratchets +1 and the remainder rolls over. Cap rules per RR p.341: max +3 per hex; hard cap at 9gp/family absolute.</p>
-              <!-- Foundation #18 — labor cap header, gated by realistic-construction. -->
-              <template x-if="isHouseRuleEnabled('realistic-construction')">
-                <p class="text-sm opacity-80 mb-2">
-                  <strong>Realistic construction is on.</strong>
-                  Labor cap: <strong x-text="(selectedDomain?.monthlyLaborCapGp||0) > 0 ? (selectedDomain?.monthlyLaborCapGp||0).toLocaleString() + 'gp/mo' : 'unlimited'"></strong>.
-                  Each hex needs a supervisor whose cap ≥ remaining step cost (25,000gp − invested).
-                  Allocations are clipped at commit if they exceed the labor cap; supervisor failures skip that hex.
-                </p>
-              </template>
+              <p class="text-sm opacity-70 mb-2">Allocate gp per hex to add to that hex's improvement <strong>budget</strong>. RAW (RR p.174) builds land over time: the budget is spent as the work proceeds (~500gp/day), so each +1 step (25,000gp) takes ~50 days (no engineer needed — that supervisor rule is for strongholds and ships, not land; RR p.174). Caps per RR p.341: max +3 per hex; 9gp/family absolute. Progress lands via the day-tick — tick days or advance the month; instant completion is via the Inspector.</p>
               <table class="bookkeeping text-sm">
                 <thead><tr>
                   <th>Hex</th>
@@ -2860,8 +2865,8 @@ document.addEventListener('alpine:init', () => {
                   <th>Bonus</th>
                   <th>Toward next +1</th>
                   <th>Status</th>
-                  <th x-show="isHouseRuleEnabled('realistic-construction')">Supervisor</th>
-                  <th>Allocate this turn</th>
+                  <th x-show="false">Supervisor</th>
+                  <th>Add to budget</th>
                 </tr></thead>
                 <tbody>
                   <template x-for="(ord, oi) in p.agriculturalOrders" :key="oi">
@@ -2878,7 +2883,7 @@ document.addEventListener('alpine:init', () => {
                            Mutates ord.supervisorCharacterIds (array) which commitTurn transcribes
                            to hex.constructionSupervisorCharacterIds. On-site = supervisor's
                            currentHexId matches the order's hexId (permissive if unset). -->
-                      <td x-show="isHouseRuleEnabled('realistic-construction')" class="text-sm">
+                      <td x-show="false" class="text-sm">
                         <template x-if="ord.eligible">
                           <span class="flex flex-col gap-0.5">
                             <!-- Existing supervisors as chips. -->
@@ -2925,15 +2930,15 @@ document.addEventListener('alpine:init', () => {
                     </tr>
                   </template>
                   <tr class="subtotal">
-                    <td :colspan="isHouseRuleEnabled('realistic-construction') ? 6 : 5">Total allocated this turn</td>
+                    <td :colspan="5">Total added to budget this turn</td>
                     <td x-text="agriculturalOrderTotal(p).toLocaleString() + ' gp'"></td>
                   </tr>
                 </tbody>
               </table>
               <p class="text-sm accent-red mt-1" x-show="agriculturalOrderTotal(p) > (selectedDomain?.treasury?.gp || 0) + Math.round(incomeSum(p)*p.incomeFactor) - expenseSum(p) - urbanInvestmentTotal(p)">⚠ Total agricultural allocations may leave treasury negative after this month's other costs.</p>
-              <!-- Foundation #18 — labor cap warning. -->
+              <!-- Labor cap is an abstract-path concept; hidden in the timed RAW default. -->
               <p class="text-sm accent-red mt-1"
-                 x-show="isHouseRuleEnabled('realistic-construction') && (selectedDomain?.monthlyLaborCapGp||0) > 0 && agriculturalOrderTotal(p) > (selectedDomain?.monthlyLaborCapGp||0)"
+                 x-show="isHouseRuleEnabled('abstract-construction') && (selectedDomain?.monthlyLaborCapGp||0) > 0 && agriculturalOrderTotal(p) > (selectedDomain?.monthlyLaborCapGp||0)"
                  x-text="'⚠ Total (' + agriculturalOrderTotal(p).toLocaleString() + 'gp) exceeds monthly labor cap (' + (selectedDomain?.monthlyLaborCapGp||0).toLocaleString() + 'gp). Engine will clip excess at commit.'"></p>
             </div>
           </template>
@@ -3072,7 +3077,15 @@ document.addEventListener('alpine:init', () => {
             <template x-for="entity in inspectorBrowseList()" :key="entity.id">
               <li class="py-1 flex justify-between items-center hover:bg-yellow-50 cursor-pointer px-1" @click="inspectorOpenInspect(inspectorSelectedKind, entity.id)">
                 <span class="font-semibold" x-text="inspectorDisplayName(inspectorSelectedKind, entity.id)"></span>
-                <span class="text-sm opacity-50 font-mono" x-text="entity.id"></span>
+                <span class="flex items-center gap-2 shrink-0">
+                  <!-- Lifecycle/state badge — lets you tell e.g. a complete agricultural Project from an in-progress one at a glance. Generic: shows for any entity carrying a lifecycleState. -->
+                  <template x-if="entity.lifecycleState">
+                    <span class="text-xs px-1.5 rounded border whitespace-nowrap"
+                          :class="entity.lifecycleState === 'complete' ? 'border-green-700 text-green-800 bg-green-50' : (entity.lifecycleState === 'under-construction' ? 'border-amber-700 text-amber-800 bg-amber-50' : 'border-ink/40 opacity-70')"
+                          x-text="entity.lifecycleState"></span>
+                  </template>
+                  <span class="text-sm opacity-50 font-mono" x-text="entity.id"></span>
+                </span>
               </li>
             </template>
           </ul>
@@ -4202,11 +4215,11 @@ document.addEventListener('alpine:init', () => {
               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
             </span>
           </div>
-          <!-- Foundation #18 — construction supervisor cap (RR p.174). Always visible in the
-               sheet; only read by the engine when the realistic-construction house rule is on.
+          <!-- Foundation #18 — construction supervisor cap (RR p.174). Read by the timed-construction
+               default when assigning a hex's improvement supervisor.
                Reference values: 25,000gp = Siege Engineer; 100,000gp = Engineer. -->
           <div class="block text-sm flex items-center gap-2"
-               title="Per ACKS RR p.174 Wage and Construction Rates: Siege Engineers can supervise projects up to 25,000gp; Engineers up to 100,000gp. 0 means this character is not a construction supervisor. Used by the realistic-construction house rule when assigning a hex's agricultural improvement supervisor.">
+               title="Per ACKS RR p.174 Wage and Construction Rates: Siege Engineers can supervise projects up to 25,000gp; Engineers up to 100,000gp. 0 means this character is not a construction supervisor. Used when assigning a hex's agricultural-improvement supervisor (RAW default, RR p.174).">
             <span class="w-32">Construction cap</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'constructionSupervisorCap', label:'Construction supervisor cap', kind:'number', min:0})">
               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><span class="text-sm opacity-60">gp</span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
@@ -5275,7 +5288,7 @@ document.addEventListener('alpine:init', () => {
     <div class="p-4 space-y-3 max-h-[80vh] overflow-y-auto" x-show="worldHexEditingHex()">
       <!-- Identity — all GM edits routed through gm-fiat events (logged).
            Coord (q,r) is foundational identity and rarely changes; staying as plain inputs.
-           valuePerFamily is RAW (3d3 rolled at hex secure) — display only, never editable. -->
+           valuePerFamily is RAW (3d3 rolled at hex secure) but GM-settable here (logged via gm-fiat). -->
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-sm">Coord (q, r) <span class="opacity-60 text-sm">— hex identifier (foundational, edit cautiously)</span>
           <span class="flex items-center gap-1">
@@ -5328,9 +5341,13 @@ document.addEventListener('alpine:init', () => {
               <span class="opacity-70 italic">~<span x-text="Math.round(((worldHexEditingDomain()?.demographics?.peasantFamilies)||0) / ((worldHexEditingDomain()?.geography?.hexes?.length)||1)).toLocaleString()"></span> est (RAW tracks at domain level; enable families-per-hex-tracking to track here)</span>
             </template>
           </div>
-          <div class="block text-sm flex items-center gap-2">
+          <div class="block text-sm flex items-center gap-2 flex-wrap">
             <span style="min-width:9rem">Land value</span>
-            <span class="font-mono" x-text="Math.round(worldHexEditingHex().valuePerFamily||0)"></span>
+            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'valuePerFamily', label:'Land value', kind:'number', min:0, max:9})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+            <span class="opacity-60 text-sm">(RAW 3d3 at hex secure, 3–9; GM-settable)</span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span style="min-width:9rem">Land improvement</span>
@@ -6531,6 +6548,11 @@ return {
           this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToAccumulatedImprovement(h)));
           // Foundation #18 followup — migrate single supervisor field to multi-supervisor array.
           this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToMultiSupervisor(h)));
+          // Wave Construction-B — reconcile/create agricultural Projects now that hexes are lifted
+          // into currentCampaign.hexes. migrateCampaign() ran earlier with an EMPTY
+          // currentCampaign.domains (this session-restore shape keeps domains in this.domains), so
+          // its agricultural reconcile pass saw no hexes; re-run it against the hydrated hexes here.
+          window.ACKS.migrateAgriculturalToProjects(this.currentCampaign);
           // Officers — idempotent shape-ensure for domain.magistrates (RR p.344).
           this.domains.forEach(d => window.ACKS.ensureMagistratesShape(d));
           // Foundation #244 — strip mining-tagged income.other entries when dwarven-mining is off.
@@ -10263,6 +10285,10 @@ return {
     camp.hexes = liftSynth.hexes;
     camp.settlements = liftSynth.settlements;
     camp.rumors = liftSynth.rumors;
+    // Wave Construction-B — reconcile/create agricultural Projects now that hexes are lifted into
+    // camp.hexes. migrateCampaign() ran earlier with an empty campaign.domains (split-domains shape),
+    // so its agricultural reconcile pass saw no hexes; re-run against the hydrated hexes here.
+    window.ACKS.migrateAgriculturalToProjects(camp);
     this.selectedDomainId=this.domains[0]?this.domains[0].id:null;
     this.fileName=sourceName||'';
     // A freshly loaded campaign is the clean baseline. Clear dirty, then release the
@@ -11180,11 +11206,17 @@ return {
     const fam=d.demographics.peasantFamilies||0;
     const urb=this.effectiveUrbanFamilies(d);
     const taxRate=DEFAULT_TAX_RATES[d.taxPolicy?.rate]??(d.income.taxPerFamily||2);
-    // Land revenue.
-    // If families-per-hex tracking is ON: sum of (families × effective-value) per hex — full per-hex resolution.
-    // Otherwise: aggregate uses the AVERAGE effective land value across hexes (when hexes exist) × peasantFamilies,
-    //   which is RAW-aligned since each hex DOES have its own land value but families track at domain level.
-    // "effective value" = base valuePerFamily + landImprovementBonus, capped at 9 (RR p.341).
+    // Land revenue (RR p.339–340). RAW counts peasant families at the DOMAIN level (population total +
+    // the monthly growth roll are "per 1,000 families in the domain", RR p.340); the hex carries the
+    // land value (3d3, RR p.339) and a population ceiling by classification, but NOT a stored family
+    // count. So the RAW model is: domain family total × land value. The revenue rule is phrased per-hex
+    // ("the monthly land revenue per peasant family in that hex"), yet every domain RAW presents is
+    // single-hex or uniform-value ("treat all land values as 6"), where AVERAGE hex value × domain
+    // families equals the per-hex sum exactly — so the DEFAULT below (average effective value ×
+    // peasantFamilies) IS the RAW model, not an approximation of it. families-per-hex-tracking is a
+    // BEYOND-RAW high-fidelity overlay: it stores a per-hex family count RAW doesn't track, to compute
+    // the literal per-hex sum for a mixed-value domain. "effective value" = base valuePerFamily +
+    // landImprovementBonus, capped at 9 (RR p.341).
     let landRow;
     const hexes = d.geography?.hexes || [];
     const totalImprovementBonus = this.domainTotalLandImprovementBonus(d);
@@ -11671,8 +11703,20 @@ return {
   },
   _proposeDayTick(days){
     this.dayTickError = null;
-    try { this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {}); }
+    // Day-tick consumers (construction) read the domain treasury via campaign.domains, but the UI
+    // keeps domains in this.domains separate from currentCampaign.domains (empty). Attach them so the
+    // agricultural drip can find the domain + treasury; restore after (proposeDayTick clones, so the
+    // real campaign isn't mutated — the clone just needs to see the domains).
+    const _origDomains = this.currentCampaign.domains;
+    this.currentCampaign.domains = this.domains;
+    try {
+      // Materialize Projects for any funded-but-not-yet-projected hex (the panel writes the budget
+      // field directly) so the tick finds + advances them; also clears capped budgets. Idempotent.
+      window.ACKS.migrateAgriculturalToProjects(this.currentCampaign);
+      this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {});
+    }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
+    finally { this.currentCampaign.domains = _origDomains; }
   },
   tickDay(){ this._proposeDayTick(1); },
   tickWeek(){ this._proposeDayTick(7); },
@@ -11688,17 +11732,25 @@ return {
   toggleRejectDayTickRecord(r){ if(r) r.rejected = !r.rejected; },
   cancelDayTick(){ this.dayTickProposal = null; this.dayTickError = null; },
   _persistDayTick(){
-    try { if(typeof this.autosave === 'function') return this.autosave(); } catch(e){}
-    try { if(typeof this.saveCampaign === 'function') return this.saveCampaign(); } catch(e){}
-    try { if(typeof this.persistCampaignToDisk === 'function') return this.persistCampaignToDisk(); } catch(e){}
+    // A day-tick is a content mutation — mark dirty + persist to the SESSION cache (debounced),
+    // exactly like every other edit. Do NOT write the bound .acks.json file; that stays explicit
+    // (Save campaign). The old fallback chain (autosave -> saveCampaign -> persistCampaignToDisk)
+    // landed on saveCampaign() because the intended autosave() was never implemented, so every tick
+    // was silently writing the user's file + flashing a "Saved" toast.
+    this.markDirty();
+    this.schedulePersist();
   },
   commitDayTick(){
     if(!this.dayTickProposal) return;
+    // Attach domains so the construction commit can debit the real domain treasury (see _proposeDayTick).
+    const _origDomains = this.currentCampaign.domains;
+    this.currentCampaign.domains = this.domains;
     try {
       window.ACKS.commitDayTick(this.currentCampaign, this.dayTickProposal, null);
       this.dayTickProposal = null;
-      this._persistDayTick();
     } catch(e){ console.error('commitDayTick error', e); this.dayTickError = String((e && e.message) || e); }
+    finally { this.currentCampaign.domains = _origDomains; }
+    this._persistDayTick();   // persist AFTER restoring domains so the saved currentCampaign.domains stays empty
   },
   proposeMonthlyTurn(){
     console.log('proposeMonthlyTurn() called, domains:', this.domains.length);

@@ -236,6 +236,12 @@ function blankHex(opts={}){
     landImprovementProjects: opts.landImprovementProjects || [],
     // Per-hex queue prep: amount of gp the GM has pre-committed for next advance-month (any value).
     queuedImprovementGp: opts.queuedImprovementGp || 0,
+    // Time-based construction (RR p.174): when realistic-construction drives improvement through the
+    // day-tick, this is the GM's committed BUDGET — it drips into landImprovementInvested at the
+    // construction rate (~500gp/day) over ~50 days/step, paying as the work proceeds. 0 = nothing in
+    // flight. Existing hexes without the field read as 0 (no migration needed). Unused when the
+    // realistic-construction model is off (the monthly path spends queuedImprovementGp instantly).
+    improvementBudgetGp: opts.improvementBudgetGp || 0,
     // Foundation #18 — supervisors assigned to this hex's construction project (when the
     // realistic-construction house rule is on). Multiple supervisors may co-supervise large
     // projects; their caps are additive (RR p.174: "Multiple engineers or siege engineers may
