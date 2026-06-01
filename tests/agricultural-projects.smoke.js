@@ -782,6 +782,46 @@ console.log('--- Time-based construction: week/month record aggregation ---');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Treasury-limited drip — pay-as-you-build clips the drip to the domain's actual cash, and the
+// label says so (resolves the "+1,500 over 7 days but 33,500 budget left" confusion).
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('--- Time-based construction: treasury-limited drip annotation ---');
+{
+  function buildPoor(treasuryGp){
+    const c = ACKS.blankCampaign({ name: 'tlim' });
+    c.houseRules = {}; c.projects = []; c.currentDayInMonth = 1;
+    c.calendar = { year:1, month:1, day:1, kind:'default' };
+    const d = ACKS.blankDomain({ name: 'Poor' }); d.treasury = { gp: treasuryGp };
+    const h = ACKS.blankHex({ id:'hex-tl', coord:{q:0,r:0} }); h.valuePerFamily = 6; h.domainId = d.id; h.improvementBudgetGp = 25000;
+    d.geography.hexes = [h]; c.hexes = [h]; c.domains = [d];
+    ACKS.syncAgriculturalProject(c, h, { domainId: d.id });
+    return { c, d, h, proj: ACKS.findAgriculturalProject(c, 'hex-tl') };
+  }
+
+  // Single-day: cash ≥ the daily rate is not limited; cash < rate drips the cash and flags it.
+  const rich1 = buildPoor(1000000);
+  check('treasury-limit: cash ≥ rate → not treasury-limited', ACKS.computeAgriculturalDrip(rich1.c, rich1.proj, 1).treasuryLimited === false);
+  const t200 = buildPoor(200);
+  const d200 = ACKS.computeAgriculturalDrip(t200.c, t200.proj, 1);
+  check('treasury-limit: cash < rate (200) → drips 200 + flags treasuryLimited', d200.drip === 200 && d200.treasuryLimited === true, JSON.stringify({drip:d200.drip, tl:d200.treasuryLimited}));
+  const t0 = buildPoor(0);
+  const d0 = ACKS.computeAgriculturalDrip(t0.c, t0.proj, 1);
+  check('treasury-limit: empty treasury → drip 0, blockReason "treasury empty", flagged', d0.drip === 0 && d0.blockReason === 'treasury empty' && d0.treasuryLimited === true, JSON.stringify({drip:d0.drip, br:d0.blockReason}));
+
+  // A week with 1,200gp: 2 full days (1,000) + a 200 partial, then dry → 1,200 total, flagged + labeled.
+  const wk = buildPoor(1200);
+  const rec = ACKS.proposeDayTick(wk.c, 7).pendingRecords.find(r => r.agriculturalDrip);
+  check('treasury-limit: week drip clipped to treasury (1,200, not 3,500)', rec && rec.dripProjected === 1200, rec && ('drip ' + rec.dripProjected));
+  check('treasury-limit: merged record flagged treasuryLimited', rec && rec.treasuryLimited === true, rec && JSON.stringify({tl:rec.treasuryLimited}));
+  check('treasury-limit: merged label says "limited by treasury"', rec && /limited by treasury/.test(rec.label || ''), rec && rec.label);
+  check('treasury-limit: merged label still shows budget left (budget was NOT the limiter)', rec && /budget left/.test(rec.label || ''), rec && rec.label);
+
+  // A fully-funded week is NOT flagged or annotated (no false positives).
+  const richRec = ACKS.proposeDayTick(buildPoor(1000000).c, 7).pendingRecords.find(r => r.agriculturalDrip);
+  check('treasury-limit: well-funded week is NOT treasury-limited (3,500, no annotation)', richRec && richRec.dripProjected === 3500 && !richRec.treasuryLimited && !/limited by treasury/.test(richRec.label || ''), richRec && richRec.label);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);

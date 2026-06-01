@@ -1007,7 +1007,7 @@ function computeAgriculturalDrip(campaign, project, days){
   const VCAP = global.ACKS.AGRICULTURAL_IMPROVEMENT_VALUE_CAP;
   const out = { drip: 0, blocked: false, blockReason: '', atCap: false, hex: null, domain: null,
     rate: 0, base: 0, bonus: 0, invested: 0, budget: 0, treasury: 0, remainingStep: 0,
-    supervisorReport: [], stepsWillComplete: 0 };
+    supervisorReport: [], stepsWillComplete: 0, treasuryLimited: false };
   if(!project || project.constructibleKind !== 'agricultural-improvement') return out;
   const hex = _hexByIdAnywhere(campaign, project.siteHexId);
   if(!hex){ out.blocked = true; out.blockReason = 'hex not found'; return out; }
@@ -1031,6 +1031,12 @@ function computeAgriculturalDrip(campaign, project, days){
   out.rate = rate;
   out.drip = Math.max(0, Math.min(rate * days, budget, Math.max(0, treasury), costToCap));
   out.stepsWillComplete = Math.floor((invested + out.drip) / COST) - Math.floor(invested / COST);
+  // Flag when the DOMAIN TREASURY was the binding constraint — i.e. pay-as-you-build ran the domain's
+  // cash below the full rate, even though budget + cost-to-cap still had room. Lets the UI explain a
+  // drip that fell short despite budget remaining (the "+1,500 over 7 days but 33,500 budget left" case).
+  const want = rate * days, cash = Math.max(0, treasury);
+  out.treasuryLimited = cash < want && cash < budget && cash < costToCap;
+  if(out.drip <= 0 && cash <= 0 && budget > 0){ out.blockReason = 'treasury empty'; }
   return out;
 }
 
@@ -3822,7 +3828,8 @@ function _dayRecordLabel(m){
     const budgetLeft = Math.max(0, Math.round(m.budgetLeftAfter || 0));
     return nm + ': +' + drip.toLocaleString() + 'gp over ' + days + dsuf
       + (steps > 0 ? ' (+' + steps + ' land value)' : '')
-      + ' · ' + budgetLeft.toLocaleString() + 'gp budget left';
+      + ' · ' + budgetLeft.toLocaleString() + 'gp budget left'
+      + (m.treasuryLimited ? ' · limited by treasury' : '');
   }
   if(typeof m.newLaborInvested === 'number'){
     const gained = Math.round(m._sumLabor || 0);
@@ -3865,6 +3872,7 @@ function _mergeDayRecords(records){
     if(typeof r.newDaysElapsed === 'number')   m.newDaysElapsed   = r.newDaysElapsed;
     if(typeof r.budgetLeftAfter === 'number')  m.budgetLeftAfter  = r.budgetLeftAfter;
     if(r.willComplete) m.willComplete = true;
+    if(r.treasuryLimited) m.treasuryLimited = true;
     if(r.paused){ m.paused = true; if(r.blockReason) m.blockReason = r.blockReason; }
     m.dripProjected = m._sumDrip;
     m.laborGained = m._sumLabor;
@@ -4163,11 +4171,13 @@ function proposeConstructionDay(campaign, dayContext){
         else if(calc.drip <= 0)   label = nm + ' — ' + (calc.blockReason || 'idle');
         else                      label = nm + ': +' + Math.round(calc.drip) + 'gp'
                                     + (calc.stepsWillComplete > 0 ? ' (+' + calc.stepsWillComplete + ' land value)' : '')
-                                    + ' · ' + Math.max(0, Math.round(calc.budget - calc.drip)).toLocaleString() + 'gp budget left';
+                                    + ' · ' + Math.max(0, Math.round(calc.budget - calc.drip)).toLocaleString() + 'gp budget left'
+                                    + (calc.treasuryLimited ? ' · limited by treasury' : '');
         pendingRecords.push({
           kind: 'construction-progress', projectId: p.id, agriculturalDrip: true,
           name: nm, label: label, daysAdded: days, dripProjected: calc.drip,
           stepsWillComplete: calc.stepsWillComplete || 0,
+          treasuryLimited: !!calc.treasuryLimited,
           budgetLeftAfter: Math.max(0, (calc.budget || 0) - (calc.drip || 0)),
           paused: !!calc.blocked, blockReason: calc.blockReason || '',
           willComplete: false, primaryHexId: p.siteHexId || null
