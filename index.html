@@ -3037,7 +3037,7 @@ document.addEventListener('alpine:init', () => {
               <option value="">— pick a character —</option>
               <template x-for="c in journeyParticipantOptions()" :key="c.id"><option :value="c.id" x-text="(c.name||'(unnamed)') + (c.currentJourneyId ? ' · on a journey' : '')"></option></template>
             </select>
-            <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0">No unattached characters available — pick a party above, or add a character in the Characters tab.</span>
+            <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0" x-text="journeyWizard.startHexId ? ('No more unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + ' — change the start hex, or pick a party above.') : 'No unattached characters — add one in the Characters tab, or pick a party above.'"></span>
           </div>
           <!-- selected travellers (removable chips) -->
           <div class="flex flex-wrap gap-1.5 mt-2" x-show="journeyWizard.participantIds.length">
@@ -8382,10 +8382,16 @@ return {
   },
   // ── Pickers ──
   // Individual travellers pickable from the "Add traveller" dropdown: alive, NOT already in a
-  // party (party members travel via the Party dropdown above), and not already added.
+  // party (party members travel via the Party dropdown above), and not already added. Once a
+  // start hex is chosen (directly or by picking the first traveller), only characters AT that
+  // hex are offered — a journey sets out from one place. With no start hex yet, all loose
+  // characters show so the first pick can establish the departure point.
   journeyParticipantOptions(){
     const chosen = new Set(this.journeyWizard?.participantIds || []);
-    return (this.currentCampaign?.characters||[]).filter(c => c && c.alive !== false && !c.partyId && !chosen.has(c.id));
+    const startHex = this.journeyWizard?.startHexId || null;
+    return (this.currentCampaign?.characters||[]).filter(c =>
+      c && c.alive !== false && !c.partyId && !chosen.has(c.id) &&
+      (!startHex || c.currentHexId === startHex));
   },
   journeyParticipantName(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return (c&&c.name)||'(unknown)'; },
   journeyPartyOptions(){ return (this.currentCampaign?.parties||[]).filter(p => p && p.status !== 'disbanded'); },
