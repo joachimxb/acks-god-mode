@@ -19,3 +19,8 @@ jobs:
       # here), so no working-directory override is needed.
       - name: Run smoke suites
         run: npm test
+      # Doc-drift backstop: flags a removed engine token still referenced as live in the
+      # public docs (README/CHANGELOG/CONTRIBUTING). The broad DEV-root design-doc check
+      # runs in the doc-pass (_audits/doc_drift_lint.js) — those docs aren't in this repo.
+      - name: Doc-drift lint (public docs vs engine)
+        run: npm run lint:docs
