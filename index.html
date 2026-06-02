@@ -587,7 +587,50 @@ document.addEventListener('alpine:init', () => {
             <span x-text="L.label"></span>
           </label>
         </template>
-        <button @click="mapResetView()" class="ml-auto text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Fit the whole map in view">⤢ Fit</button>
+        <span class="ml-auto flex items-center gap-2">
+          <button @click="mapStandardView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Reset to the standard composite — terrain + settlements + strongholds + roads/rivers + domain borders + journeys">⌂ Standard view</button>
+          <button @click="mapResetView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Fit the whole map in view">⤢ Fit</button>
+        </span>
+      </div>
+
+      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 create-hex ("Add hexes") mode. -->
+      <div class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <span class="font-semibold">Show:</span>
+        <template x-for="L in mapSymbolLayers()" :key="'sym-'+L.id">
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" x-model="mapSymbolToggles[L.id]" @change="schedulePersist()">
+            <span x-text="L.label"></span>
+          </label>
+        </template>
+        <span class="opacity-40">|</span>
+        <template x-for="L in mapEdgeLayers()" :key="'edge-'+L.id">
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" x-model="mapEdgeToggles[L.id]" @change="schedulePersist()">
+            <span x-text="L.label"></span>
+          </label>
+        </template>
+        <span class="opacity-40">|</span>
+        <label class="flex items-center gap-1 cursor-pointer">
+          <input type="checkbox" x-model="mapShowJourneys" @change="schedulePersist()">
+          <span>Journeys</span>
+        </label>
+        <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Show faint addable cells around the map — click one to create a hex there">
+          <input type="checkbox" x-model="mapShowEmptyCells" @change="schedulePersist()">
+          <span>✛ Add hexes</span>
+        </label>
+      </div>
+
+      <!-- Create-hex picker (M5) — appears when a faint empty cell is clicked. -->
+      <div x-show="mapCreateAt" class="vellum border border-sky-400 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <span>Create hex at <strong class="font-mono" x-text="mapCreateAt ? ('(' + mapCreateAt.q + ',' + mapCreateAt.r + ')') : ''"></strong> in:</span>
+        <select x-model="mapCreateDomainId" class="border border-ink rounded px-2 py-0.5">
+          <option value="">Unclaimed wilderness</option>
+          <template x-for="d in domains" :key="d.id">
+            <option :value="d.id" x-text="d.name"></option>
+          </template>
+        </select>
+        <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300">Create</button>
+        <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
       </div>
 
       <!-- Legend for the active fill layer. -->
@@ -7069,6 +7112,10 @@ return {
         if(sess.mapPrefs){
           if(sess.mapPrefs.fillLayer) this.mapFillLayer = sess.mapPrefs.fillLayer;
           if(sess.mapPrefs.viewBox)   this.mapViewBox   = sess.mapPrefs.viewBox;
+          if(sess.mapPrefs.symbolToggles) this.mapSymbolToggles = Object.assign(this.mapSymbolToggles, sess.mapPrefs.symbolToggles);
+          if(sess.mapPrefs.edgeToggles)   this.mapEdgeToggles   = Object.assign(this.mapEdgeToggles, sess.mapPrefs.edgeToggles);
+          if(typeof sess.mapPrefs.showJourneys === 'boolean')   this.mapShowJourneys   = sess.mapPrefs.showJourneys;
+          if(typeof sess.mapPrefs.showEmptyCells === 'boolean') this.mapShowEmptyCells = sess.mapPrefs.showEmptyCells;
         }
         // Foundation #193 — ensure top-level collections exist + migrate from any legacy nested
         // storage in the restored session. Idempotent.
@@ -7159,9 +7206,11 @@ return {
         currentCampaign:this.currentCampaign,domains:this.domains,
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
         currentView:this.currentView,
-        // #225 Map Mode — ephemeral viewport prefs only (active fill layer + viewBox). Never
-        // part of the .acks.json (plan §8); mode always restores to 'inspect' (select is transient).
-        mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox }});
+        // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
+        // (plan §8); mode always restores to 'inspect' (select is transient).
+        mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox,
+          symbolToggles:this.mapSymbolToggles, edgeToggles:this.mapEdgeToggles,
+          showJourneys:this.mapShowJourneys, showEmptyCells:this.mapShowEmptyCells }});
     }catch(e){ console.warn('Persist serialize failed',e); return; }
     try{
       localStorage.setItem('acks-domain-session-v3', json);
@@ -10955,6 +11004,13 @@ return {
   _mapDragged: false,        // set true once a drag moves; suppresses the trailing @click
   _mapSelectCb: null,        // select-mode callback (hexId, entry) => void
   _mapSelectHint: '',        // banner text shown while in select mode
+  // M3–M6 layer toggles (symbols / edges / journeys / empty-cells), persisted in mapPrefs.
+  mapSymbolToggles: { settlements:true, strongholds:true, lairs:true, dungeons:true, pois:true },
+  mapEdgeToggles:   { borders:true, roads:true, rivers:true, trails:false },
+  mapShowJourneys: true,
+  mapShowEmptyCells: false,  // M5 — faint addable cells for click-to-create
+  mapCreateAt: null,         // {q,r} when the create-hex picker is open
+  mapCreateDomainId: '',     // chosen domain for the new hex ('' = unclaimed wilderness)
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -10980,9 +11036,21 @@ return {
     });
     return out;
   },
-  mapFill(hex){ return window.ACKS.hexFillColor(hex, this.mapFillLayer); },
+  mapFill(hex){ return window.ACKS.hexFillColor(hex, this.mapFillLayer, this.mapFillContext()); },
   mapFillLayers(){ return window.ACKS.hexFillLayers(); },
+  mapSymbolLayers(){ return window.ACKS.mapSymbolLayers(); },
+  mapEdgeLayers(){ return window.ACKS.mapEdgeLayers(); },
   mapLegend(){ return window.ACKS.hexFillLegend(this.mapFillLayer, this.domains); },
+  // Per-domain aggregates for the domain-aware fills (secured/morale) — the engine has no campaign
+  // reference, so the UI precomputes these and hands them to hexFillColor as ctx (computed once/render).
+  mapFillContext(){
+    const securedStateByDomain = {}, moraleByDomain = {};
+    (this.domains || []).forEach(d => {
+      securedStateByDomain[d.id] = this.strongholdState(d);
+      moraleByDomain[d.id] = (d.demographics && d.demographics.morale) || 0;
+    });
+    return { securedStateByDomain, moraleByDomain };
+  },
   mapHexTitle(entry){
     const h = entry.hex;
     const bits = [entry.label + '  (q=' + (h.coord?.q ?? '?') + ', r=' + (h.coord?.r ?? '?') + ')'];
@@ -10996,25 +11064,176 @@ return {
   // when the hex set or active fill layer changes (both read here). Each polygon carries
   // data-hex-id so the delegated click handler (mapSvgClick) can resolve which hex was clicked.
   mapSvgMarkup(){
-    const size = this.MAP_HEX_SIZE;
+    const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    const sw = (size * 0.04).toFixed(2), fs = (size * 0.26).toFixed(2);
-    return this.mapHexEntries().map(e =>
-      '<g>' +
-        '<polygon data-hex-id="' + esc(e.hex.id) + '" points="' + e.points + '" fill="' + this.mapFill(e.hex) + '" ' +
-          'stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;">' +
-          '<title>' + esc(this.mapHexTitle(e)) + '</title>' +
-        '</polygon>' +
-        '<text x="' + e.cx.toFixed(2) + '" y="' + e.cy.toFixed(2) + '" text-anchor="middle" dominant-baseline="central" ' +
-          'font-size="' + fs + '" fill="#2b2b2b" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(e.label) + '</text>' +
-      '</g>'
-    ).join('');
+    const entries = this.mapHexEntries();
+    const ctx = this.mapFillContext();
+    const layer = this.mapFillLayer;
+    const sw = (size * 0.04).toFixed(2), labelFs = (size * 0.22).toFixed(1);
+    const deltas = A.hexNeighborDeltas();
+    const byCoord = {};
+    entries.forEach(e => { byCoord[e.hex.coord.q + ',' + e.hex.coord.r] = e; });
+    const parts = [];
+
+    // 1) FILLS (bottom) — clickable hex polygons.
+    entries.forEach(e => {
+      parts.push('<polygon data-hex-id="' + esc(e.hex.id) + '" points="' + e.points + '" fill="' + A.hexFillColor(e.hex, layer, ctx) + '" ' +
+        'stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(this.mapHexTitle(e)) + '</title></polygon>');
+    });
+
+    // 2) EMPTY CELLS (M5) — faint addable hexes (click → create-hex picker).
+    if(this.mapShowEmptyCells){
+      this.mapEmptyCells().forEach(c => {
+        parts.push('<polygon data-empty-q="' + c.q + '" data-empty-r="' + c.r + '" points="' + c.points + '" fill="#000000" fill-opacity="0.04" ' +
+          'stroke="#4b3f2f" stroke-opacity="0.35" stroke-dasharray="' + (size*0.12).toFixed(1) + ',' + (size*0.08).toFixed(1) + '" stroke-width="' + sw + '" style="cursor:copy;"><title>Add a hex here (' + esc(c.label) + ')</title></polygon>');
+      });
+    }
+
+    // 3) EDGES (M4) — domain borders (inset, so adjacent realms each show their own) + road/river/trail networks.
+    const edgeMid = (q, r, i) => { const p = A.hexEdgePoints(q, r, size, i); return { x:(p[0].x+p[1].x)/2, y:(p[0].y+p[1].y)/2 }; };
+    const inset = (p, c, f) => ({ x: c.x + (p.x - c.x) * (1 - f), y: c.y + (p.y - c.y) * (1 - f) });
+    entries.forEach(e => {
+      const q = e.hex.coord.q, r = e.hex.coord.r, c = { x:e.cx, y:e.cy };
+      if(this.mapEdgeToggles.borders && e.hex.domainId){
+        deltas.forEach((d, i) => {
+          const nb = byCoord[(q+d[0]) + ',' + (r+d[1])];
+          if(nb && nb.hex.domainId === e.hex.domainId) return; // interior edge — skip
+          const ep = A.hexEdgePoints(q, r, size, i), a = inset(ep[0], c, 0.07), b = inset(ep[1], c, 0.07);
+          parts.push('<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="#3b2f1c" stroke-width="'+(size*0.07).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>');
+        });
+      }
+      const net = (color, width, dash) => (flag) => deltas.forEach((d, i) => {
+        const nb = byCoord[(q+d[0]) + ',' + (r+d[1])];
+        if(!nb || !flag(nb.hex)) return;
+        const m = edgeMid(q, r, i);
+        parts.push('<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+m.x.toFixed(1)+'" y2="'+m.y.toFixed(1)+'" stroke="'+color+'" stroke-width="'+width+'" stroke-linecap="round"'+(dash?' stroke-dasharray="'+dash+'"':'')+' style="pointer-events:none;"/>');
+      });
+      if(this.mapEdgeToggles.roads  && e.hex.hasRoad)            net('#6b4a2b', (size*0.08).toFixed(2), '')(h => h.hasRoad);
+      if(this.mapEdgeToggles.trails && e.hex.hasTrail)           net('#8a6d3b', (size*0.05).toFixed(2), (size*0.10).toFixed(1)+','+(size*0.08).toFixed(1))(h => h.hasTrail);
+      if(this.mapEdgeToggles.rivers && (e.hex.riverCount||0) > 0) net('#3f73b8', (size*0.07).toFixed(2), '')(h => (h.riverCount||0) > 0);
+    });
+
+    // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring.
+    if(this.mapShowJourneys){
+      this.mapJourneyRoutes().forEach(rt => {
+        if(rt.pts.length >= 2){
+          const dd = rt.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+          parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
+        }
+        if(rt.current){
+          parts.push('<circle cx="'+rt.current.x.toFixed(1)+'" cy="'+rt.current.y.toFixed(1)+'" r="'+(size*0.15).toFixed(1)+'" fill="#d9762b" stroke="#fff" stroke-width="'+(size*0.03).toFixed(2)+'" style="pointer-events:none;"><title>'+esc(rt.name)+' (current position)</title></circle>');
+        }
+      });
+    }
+
+    // 5) SYMBOLS (M3) — glyphs on top; pointer-events:none so clicks fall through to the hex polygon.
+    const T = this.mapSymbolToggles;
+    entries.forEach(e => {
+      const h = e.hex, cx = e.cx, cy = e.cy;
+      if(T.settlements && h.settlement){
+        const rr = (size * A.settlementGlyphScale(h.settlement.families || 0)).toFixed(1);
+        parts.push('<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="'+rr+'" fill="#f3ecd8" stroke="#4b3f2f" stroke-width="'+(size*0.04).toFixed(2)+'" style="pointer-events:none;"/>');
+      }
+      if(T.strongholds && h.primaryStructure){
+        parts.push('<text x="'+cx.toFixed(1)+'" y="'+(cy - size*0.03).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+(size*0.34).toFixed(1)+'" style="pointer-events:none;user-select:none;">♜</text>');
+      }
+      const badges = [];
+      if(T.lairs    && (h.lairs||[]).length)            badges.push('⚔' + (h.lairs.length > 1 ? h.lairs.length : ''));
+      if(T.dungeons && (h.dungeons||[]).length)         badges.push('🏛' + (h.dungeons.length > 1 ? h.dungeons.length : ''));
+      if(T.pois     && (h.pointsOfInterest||[]).length) badges.push('⛯' + (h.pointsOfInterest.length > 1 ? h.pointsOfInterest.length : ''));
+      if(badges.length){
+        parts.push('<text x="'+cx.toFixed(1)+'" y="'+(cy + size*0.5).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+(size*0.2).toFixed(1)+'" style="pointer-events:none;user-select:none;">'+esc(badges.join(' '))+'</text>');
+      }
+    });
+
+    // 6) LABELS (top) — RAW column-row, near the top edge so symbols own the centre.
+    entries.forEach(e => {
+      parts.push('<text x="'+e.cx.toFixed(1)+'" y="'+(e.cy - size*0.58).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+labelFs+'" fill="#2b2b2b" fill-opacity="0.75" style="pointer-events:none;user-select:none;font-family:monospace;">'+esc(e.label)+'</text>');
+    });
+
+    return parts.join('');
+  },
+  // The faint "addable" empty cells (M5): every axial neighbour of an existing hex that isn't itself
+  // an existing hex. Clicking one opens the create-hex picker.
+  mapEmptyCells(){
+    const size = this.MAP_HEX_SIZE, A = window.ACKS, deltas = A.hexNeighborDeltas();
+    const entries = this.mapHexEntries();
+    const have = new Set(entries.map(e => e.hex.coord.q + ',' + e.hex.coord.r));
+    const out = [], seen = new Set();
+    entries.forEach(e => {
+      const q = e.hex.coord.q, r = e.hex.coord.r;
+      deltas.forEach(d => {
+        const nq = q + d[0], nr = r + d[1], key = nq + ',' + nr;
+        if(have.has(key) || seen.has(key)) return;
+        seen.add(key);
+        out.push({ q:nq, r:nr, points:A.hexPolygonPoints(nq, nr, size), label:A.hexDisplayLabel(nq, nr) });
+      });
+    });
+    return out;
+  },
+  // Active journey routes (M6): each → ordered {x,y} centres for a polyline + the current-position centre.
+  mapJourneyRoutes(){
+    const size = this.MAP_HEX_SIZE, A = window.ACKS;
+    const hexById = {};
+    (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.id) hexById[h.id] = h; });
+    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.id && !hexById[h.id]) hexById[h.id] = h; }));
+    const centre = id => { const h = hexById[id]; if(!h || !h.coord) return null; const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size); return { x:c.x, y:c.y }; };
+    const routes = [];
+    (this.currentCampaign?.journeys || []).forEach(j => {
+      if(!j || j.status === 'aborted') return;
+      const ids = [j.startHexId].concat((j.waypoints || []).map(w => w.hexId), [j.destinationHexId]).filter(Boolean);
+      const pts = ids.map(centre).filter(Boolean);
+      if(!pts.length) return;
+      routes.push({ id:j.id, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.startHexId) });
+    });
+    return routes;
+  },
+  // M5 create-hex flow — open the picker on an empty cell, then create into a domain or unclaimed.
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapCreateDomainId = ''; },
+  mapCancelCreate(){ this.mapCreateAt = null; },
+  mapCreateHex(){
+    const at = this.mapCreateAt; if(!at) return;
+    const coord = { q: at.q, r: at.r };
+    const hex = window.ACKS.blankHex({ coord });
+    const domId = this.mapCreateDomainId || '';
+    if(domId){
+      const d = this.domains.find(x => x.id === domId);
+      if(!d){ this.mapCreateAt = null; return; }
+      hex.domainId = d.id;
+      if(!d.geography) d.geography = {};
+      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
+      d.geography.hexes.push(hex);
+      if(Array.isArray(this.currentCampaign?.hexes)) this.currentCampaign.hexes.push(hex); // reference-unified (#193)
+      this.showToast('Created hex ' + window.ACKS.hexDisplayLabel(coord.q, coord.r) + ' in ' + (d.name || 'domain') + '.');
+    } else {
+      hex.domainId = null;
+      if(!Array.isArray(this.currentCampaign.hexes)) this.currentCampaign.hexes = [];
+      this.currentCampaign.hexes.push(hex);
+      this.showToast('Created wilderness hex ' + window.ACKS.hexDisplayLabel(coord.q, coord.r) + ' (unclaimed).');
+    }
+    this.markDirty(); this.schedulePersist();
+    this.mapCreateAt = null;
+  },
+  // M5 "Standard view" composite — terrain fill + all symbols + borders/roads/rivers + journeys.
+  mapStandardView(){
+    this.mapFillLayer = 'terrain';
+    this.mapSymbolToggles = { settlements:true, strongholds:true, lairs:true, dungeons:true, pois:true };
+    this.mapEdgeToggles   = { borders:true, roads:true, rivers:true, trails:false };
+    this.mapShowJourneys = true;
+    this.mapShowEmptyCells = false;
+    this.mapCreateAt = null;
+    this.schedulePersist();
   },
   // Delegated click on the SVG → resolve the clicked hex via its data-hex-id, then dispatch
   // (mapClickHex owns the drag-suppression + inspect/select mode handling).
   mapSvgClick(e){
-    const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id]') : null;
+    const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id],[data-empty-q]') : null;
     if(!el) return;
+    if(el.hasAttribute('data-empty-q')){
+      if(this._mapDragged){ this._mapDragged = false; return; } // a drag, not a click
+      this.mapClickEmpty(parseInt(el.getAttribute('data-empty-q'), 10), parseInt(el.getAttribute('data-empty-r'), 10));
+      return;
+    }
     const entry = this.mapHexEntries().find(x => x.hex.id === el.getAttribute('data-hex-id'));
     if(entry) this.mapClickHex(entry);
   },
