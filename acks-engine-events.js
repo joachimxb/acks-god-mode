@@ -825,6 +825,20 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
       }
     }
   }
+  // ----- Party location: party.currentHexId (GM moves a party between hexes) -----
+  if(target.kind === 'party' && mutation.fieldPath === 'currentHexId'){
+    const partyName = (entity && entity.name) || target.id;
+    const A = (typeof global !== 'undefined' && global.ACKS) ? global.ACKS : null;
+    const hexLabel = function(id){
+      if(!id) return null;
+      const h = (A && A.resolveHexAnywhere) ? A.resolveHexAnywhere(campaign, id) : null;
+      if(h && h.coord) return '(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')' + (h.settlement && h.settlement.name ? ' · ' + h.settlement.name : '');
+      return id;
+    };
+    if(mutation.newValue == null) return 'Cleared the location of ' + partyName + reasonNote;
+    if(previousValue == null) return 'Placed ' + partyName + ' at ' + hexLabel(mutation.newValue) + reasonNote;
+    return 'Moved ' + partyName + ' to ' + hexLabel(mutation.newValue) + ' (from ' + hexLabel(previousValue) + ')' + reasonNote;
+  }
   return null;
 }
 

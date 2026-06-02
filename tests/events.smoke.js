@@ -276,6 +276,44 @@ section('gm-fiat population sync — hex.families / peasantFamilies route throug
   ok('  hexes redistributed to sum to 160', c2.domains[0].geography.hexes.reduce((s, h) => s + (h.families || 0), 0) === 160);
 })();
 
+// =============================================================================
+section('gm-fiat party location — emits a logged event with a humane narrative');
+// =============================================================================
+// A GM moving a party between hexes routes through commitStatEdit -> gm-fiat, so the move lands
+// in the log. The party resolves via the Entity Registry default case in applyEvent_gmFiat;
+// _humanizeFiatNarrative renders "Placed/Moved/Cleared <party> ... (q,r) · Settlement" rather than
+// the raw-id generic template.
+(function () {
+  function fixture() {
+    const c = ACKS.blankCampaign();
+    c.hexes = [
+      { id: 'hex-a', coord: { q: 0, r: 0 }, settlement: { id: 'set-a', name: 'Saltspur' } },
+      { id: 'hex-b', coord: { q: 2, r: -1 } }
+    ];
+    c.parties = [{ id: 'prt-1', name: "Aelric's party", currentHexId: null }];
+    return c;
+  }
+  // null -> hex : applies + "Placed ... at (0,0) · Saltspur"
+  const c1 = fixture();
+  const ev1 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'currentHexId', newValue: 'hex-a' } } });
+  let r1;
+  doesNotThrow('gm-fiat party currentHexId applies (party resolves via Entity Registry)', () => { r1 = ACKS.applyEvent(c1, ev1); });
+  ok('  party.currentHexId set to hex-a', c1.parties[0].currentHexId === 'hex-a');
+  ok('  narrative: Placed ... at (0,0) · Saltspur', /^Placed .* at \(0,0\) · Saltspur/.test((r1 && r1.result && r1.result.narrativeSummary) || ''), (r1 && r1.result && r1.result.narrativeSummary));
+  // hex -> hex : "Moved ... to (2,-1) (from (0,0) · Saltspur)"
+  const c2 = fixture(); c2.parties[0].currentHexId = 'hex-a';
+  const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'currentHexId', newValue: 'hex-b' } } });
+  const r2 = ACKS.applyEvent(c2, ev2);
+  ok('  party moved to hex-b', c2.parties[0].currentHexId === 'hex-b');
+  ok('  narrative: Moved ... to (2,-1) (from (0,0) · Saltspur)', /^Moved .* to \(2,-1\).*from \(0,0\) · Saltspur/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
+  // hex -> null : "Cleared the location of ..."
+  const c3 = fixture(); c3.parties[0].currentHexId = 'hex-a';
+  const ev3 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'currentHexId', newValue: null } } });
+  const r3 = ACKS.applyEvent(c3, ev3);
+  ok('  party location cleared', !c3.parties[0].currentHexId);
+  ok('  narrative: Cleared the location of ...', /^Cleared the location of /.test((r3 && r3.result && r3.result.narrativeSummary) || ''), (r3 && r3.result && r3.result.narrativeSummary));
+})();
+
 // ─── summary ───
 console.log('\n=============================================');
 console.log('events.smoke.js — Passed: ' + pass + ', Failed: ' + fail);

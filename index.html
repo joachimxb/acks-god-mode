@@ -3894,8 +3894,10 @@ document.addEventListener('alpine:init', () => {
                       <template x-if="pt._hexEditing">
                         <span class="flex items-center gap-2 flex-wrap">
                           <!-- @change + :selected (not x-model): with x-for-rendered options, x-model
-                               doesn't reliably pre-select the current value on open. -->
-                          <select @change="pt.currentHexId = ($event.target.value || null); markDirty(); schedulePersist()" class="text-sm">
+                               doesn't reliably pre-select the current value on open. The change is
+                               routed through commitStatEdit so a GM moving the party emits a logged
+                               gm-fiat event (Campaign Log + Event Log), not a silent mutation. -->
+                          <select @change="commitStatEdit({entityType:'party', entityId:pt.id, entity:pt, fieldPath:'currentHexId', label:'Party location', oldValue:(pt.currentHexId||null), newValue:($event.target.value||null)}); markDirty(); schedulePersist()" class="text-sm">
                             <option value="" :selected="!pt.currentHexId">— none —</option>
                             <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
                               <option :value="h.id" :selected="pt.currentHexId === h.id" x-text="h.label"></option>
