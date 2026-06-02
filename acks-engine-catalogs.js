@@ -586,8 +586,7 @@ const JOURNEY_NAV_THROWS = Object.freeze({
 // expedition-speed *halving* conditions are exactly Frigid/Foggy/Muddy/Snowy/Sweltering, so
 // only foggy + snowy halve here (temperature frigid/sweltering + ground mud/snow are separate
 // axes, below). Rain and STORMY do NOT reduce base travel speed — "stormy" is a JJ activity-
-// penalty condition, and no RAW weather imposes ×1/4 (the prior ×1/4 was unsupported). If a GM
-// wants storms to slow travel, ×1/2 (treat stormy as foggy-equivalent) is the sanctioned value.
+// penalty condition, and no RAW weather imposes ×1/4 (the prior ×1/4 was unsupported).
 const JOURNEY_WEATHER_SPEED = Object.freeze({
   fair: 1, drizzly: 1, flurry: 1, sunbaked: 1, rainy: 1, stormy: 1,
   foggy: 1/2, snowy: 1/2
