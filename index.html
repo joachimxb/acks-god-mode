@@ -3966,6 +3966,11 @@ document.addEventListener('alpine:init', () => {
                     </li>
                   </template>
                 </ul>
+                <!-- Total party headcount = characters + the mercenaries that travel with them. -->
+                <div class="text-sm mt-1 pt-1 border-t border-ink/30" x-show="partyMembers(pt).length > 0">
+                  <span class="font-semibold">Total party: <span x-text="partyTotalHeadcount(pt).toLocaleString()"></span></span>
+                  <span class="opacity-60" x-text="'(' + partyMemberCount(pt) + ' character' + (partyMemberCount(pt)===1?'':'s') + (partyMercTotal(pt) ? (' + ' + partyMercTotal(pt).toLocaleString() + ' mercenaries') : '') + ')'"></span>
+                </div>
                 <div class="mt-2 flex items-center gap-2 text-sm flex-wrap">
                   <span class="opacity-70">Add member <span class="text-xs opacity-60">(same hex: <span x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set'"></span>)</span>:</span>
                   <template x-if="charactersInPartyHex(pt).length > 0">
@@ -10086,6 +10091,14 @@ return {
       byType[label] = (byType[label] || 0) + (u.count || 0);
     }
     return Object.keys(byType).map(label => ({ label, count: byType[label] })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  },
+  // Total mercenary soldiers across all members of the party.
+  partyMercTotal(pt){
+    return this.partyMembers(pt).reduce((sum, ch) => sum + this.partyMemberMercSummary(ch).reduce((s, m) => s + m.count, 0), 0);
+  },
+  // Total party headcount = character members + the mercenaries traveling with them.
+  partyTotalHeadcount(pt){
+    return this.partyMembers(pt).length + this.partyMercTotal(pt);
   },
   charactersNotInAnyParty(){
     if(!this.currentCampaign)return [];
