@@ -147,6 +147,26 @@ lo2.j.status = 'in-transit'; lo2.j.currentHexId = 'hex-a';
 check('auto-pause-on-navigation-fail rule is wired to the journeys consumer', ACKS.dayConsumersInOrder().find(c => c.name === 'journeys').pauseTriggers.indexOf('navigation-fail') >= 0);
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Navigation recovery (bugfix) — a success clears lost + resumes movement');
+
+// Regression for the "journey never arrives" bug: a successful nav throw did not clear isLost,
+// so once lost the party made 0 progress forever despite succeeding. A success must recover.
+const rec = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(rec.c, rec.j);
+rec.c.journeys[0].isLost = true; // simulate being lost from a prior day
+const recP = ACKS.proposeJourneyDay(rec.c, { dayInMonth: 2, rng: () => 0.99 }); // d20 = 20 ⇒ nav success
+const recR = recP.pendingRecords[0];
+check('a successful nav clears isLost (recovers)', recR.newIsLost === false);
+check('after recovery the party makes progress (hexesTraveled > 0)', recR.dayRecord.hexesTraveled > 0, 'hexes ' + recR.dayRecord.hexesTraveled);
+check('the recovery day is marked success-recovered', recR.dayRecord.navigationThrow && recR.dayRecord.navigationThrow.result === 'success-recovered');
+check('recovery surfaces a "found the way again" notable', recP.notableEvents.some(e => e.type === 'navigation-recovered'));
+// a normal (not-previously-lost) success also moves
+const frs = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(frs.c, frs.j);
+const frR = ACKS.proposeJourneyDay(frs.c, { dayInMonth: 2, rng: () => 0.99 }).pendingRecords[0];
+check('a normal nav success moves (not lost, plain success)', frR.newIsLost === false && frR.dayRecord.hexesTraveled > 0 && frR.dayRecord.navigationThrow.result === 'success');
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('Supply depletion → hunger + dehydration (RAW default)');
 
 const su = build({ supplies: { rations: 2, waterRations: 2 }, destCoord: { q: 500, r: 0 } }); // never arrives

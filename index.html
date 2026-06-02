@@ -3152,6 +3152,9 @@ document.addEventListener('alpine:init', () => {
           <span class="opacity-50 text-xs ml-1">(text route — map mode #225 will draw it)</span>
         </div>
 
+        <!-- distance: total + remaining miles (6-mile hexes) -->
+        <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+
         <!-- supplies tracker + status conditions -->
         <div class="border border-dashed border-ink rounded p-2 text-sm">
           <div class="flex flex-wrap gap-4">
@@ -3191,7 +3194,7 @@ document.addEventListener('alpine:init', () => {
                 <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
                 <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
                 <span class="capitalize" x-text="d.pace"></span>
-                <span x-show="d.navigationThrow" class="font-mono" :class="(d.navigationThrow && (d.navigationThrow.result==='success'||d.navigationThrow.result==='auto-pass-magical')) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
+                <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
                 <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + ne.text"></span></template>
                 <!-- GM reroll — only the latest day (downstream days depend on it). -->
                 <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
@@ -8323,8 +8326,20 @@ return {
     const parts=['🎲 '+nav.rolled];
     bonuses.forEach(b=>parts.push((b.value>=0?'+':'')+b.value+' ('+(b.source||'mod')+')'));
     const total=nav.rolled+bonuses.reduce((s,b)=>s+(b.value||0),0);
-    const ok=nav.result==='success'||nav.result==='auto-pass-magical';
-    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+(ok?'success ✓':'lost ✗');
+    const recovered=nav.result==='success-recovered';
+    const ok=nav.result==='success'||recovered||nav.result==='auto-pass-magical';
+    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+(recovered?'recovered ✓':(ok?'success ✓':'lost ✗'));
+  },
+  journeyNavOk(nav){ return !!(nav && (nav.result==='success'||nav.result==='success-recovered'||nav.result==='auto-pass-magical')); },
+  // Total + remaining distance in miles (computeJourneyDistance returns 6-mile hexes).
+  journeyMiles(j){
+    if(!j) return null;
+    try {
+      const dist = this._journeyWithDomains(() => window.ACKS.computeJourneyDistance(this.currentCampaign, j));
+      const mph = window.ACKS.JOURNEY_MILES_PER_HEX || 6;
+      return { totalHexes: dist.total||0, coveredHexes: dist.covered||0, remainingHexes: dist.remaining||0,
+               totalMiles: (dist.total||0)*mph, coveredMiles: (dist.covered||0)*mph, remainingMiles: (dist.remaining||0)*mph };
+    } catch(e){ return null; }
   },
   // GM reroll of the latest day — only available when the day carries a pre-state snapshot.
   journeyCanReroll(j){ const days=(j&&j.days)||[]; return days.length>0 && !!days[days.length-1]._preDay; },

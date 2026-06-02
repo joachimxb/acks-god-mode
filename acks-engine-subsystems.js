@@ -1521,6 +1521,17 @@ function tickJourneyDay(campaign, journey, ctx){
         label: (journey.name || 'Journey') + ': lost in ' + baseTerrain + ' (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex }
       });
+    } else if(isLost){
+      // A successful throw re-orients a previously-lost party (RR p.275 recovery). Without this,
+      // isLost carried forward forever and the party made 0 progress despite succeeding — the
+      // "journey never arrives" bug. Recovering clears lost so movement resumes this day.
+      isLost = false;
+      navRecord.result = 'success-recovered';
+      notableEvents.push({
+        kind: 'journey-day-tick', type: 'navigation-recovered', primaryHexId: journey.startHexId || null,
+        label: (journey.name || 'Journey') + ': found the way again (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
+        payload: { journeyId: journey.id, dayIndex: newDayIndex }
+      });
     }
   }
 
