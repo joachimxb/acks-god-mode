@@ -8,7 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **Campaign map — a clickable, zoomable hex map of the world** (the new 🗺 Map tab). Every hex renders as a flat-top hexagon in its true position, labelled with a RAW-style column-row coordinate (RR p.273); **scroll to zoom, drag to pan**, and **click a hex to open its existing card**. A **Color by** switch recolours the whole map by **terrain** (the nine base types), **domain** (a stable colour per realm; unclaimed hexes grey), **land value** (a 3–9 gp/family heatmap, RR p.341), or **classification** (civilised → borderlands → outlands), each with a legend; hover a hex for its terrain, domain, land value, and settlement. It is a pure view of the hexes you already have — nothing new to save — and the first surface that makes the whole world legible at a glance. (Settlement / stronghold / lair symbols, roads & rivers, and creating hexes from the map come in later updates.)
+- **Campaign map — a clickable, zoomable, layered hex map of the world** (the new 🗺 Map tab). Every hex renders as a flat-top hexagon in its true position, labelled with a RAW-style column-row coordinate (RR p.273); **scroll to zoom, drag to pan**, and **click a hex to open its existing card**. Three kinds of layer build the map you expect:
+  - **Color by** (one at a time, with a legend) — **terrain** (nine base types), **domain** (a stable colour per realm; unclaimed grey), **land value** (3–9 gp/family heatmap, RR p.341), **classification**, **population** (vs the RR p.340 ceiling), **domain morale**, **secured** (stronghold adequacy, RR p.338), **economy**, and **exploration**.
+  - **Symbols** (toggleable) — settlements as circles sized by market class (RR p.351), strongholds, and lair / dungeon / point-of-interest markers.
+  - **Edges** (toggleable) — computed **domain borders**, plus **roads / rivers / trails** drawn between connected hexes. Active **journeys** show their route as a highlighted path with a marker at the party's current hex.
+  - A one-click **Standard view** sets the familiar composite, and an **Add hexes** mode lets you click an empty cell to create a hex there — in a domain or as unclaimed wilderness (the first time the map reaches the lands between domains).
+
+  It is a pure view of the hexes you already have — nothing new is written to your campaign file — and the first surface that makes the whole world legible at a glance.
 
 ## [0.12.0] - 2026-06-02
 
