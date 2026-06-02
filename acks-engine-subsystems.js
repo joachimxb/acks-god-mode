@@ -1888,6 +1888,358 @@ function applyTravelTick(campaign, options){
   return { arrivals: [], encounters: [], inTransit: [] };
 }
 
+// =============================================================================
+// 9.7 MAP — hex geometry + fill layers (Phase 2.5 Map Mode, #225 — M0–M2)
+// =============================================================================
+// Pure, deterministic helpers backing the SVG hex map (Phase_2.5_Map_Mode_Plan.md;
+// Architecture §11). The map is a PURE VIEW over campaign.hexes[] — these functions add
+// no persisted data. Coordinate convention (Architecture §11.3): the canonical store is
+// axial {q,r}; render FLAT-TOP. Every function here is side-effect-free and stable per
+// input so it unit-tests cleanly (tests/map.smoke.js).
+
+const MAP_DEFAULT_HEX_SIZE = 40; // internal SVG units (center→corner); the viewBox scales it.
+
+// Flat-top axial {q,r} → pixel center (Architecture §11.3: x = size·3/2·q, y = size·√3·(r + q/2)).
+function hexAxialToPixel(q, r, size){
+  size = size || MAP_DEFAULT_HEX_SIZE;
+  return { x: size * 1.5 * q, y: size * Math.sqrt(3) * (r + q / 2) };
+}
+
+// The 6 corner points of a flat-top hexagon centered at (cx,cy). Corner i at angle 60°·i
+// (i=0 is due-right), so the top + bottom edges run flat — i.e. a flat-top hex.
+function hexCornerPoints(cx, cy, size){
+  size = size || MAP_DEFAULT_HEX_SIZE;
+  const pts = [];
+  for(let i = 0; i < 6; i++){
+    const a = Math.PI / 180 * (60 * i);
+    pts.push({ x: cx + size * Math.cos(a), y: cy + size * Math.sin(a) });
+  }
+  return pts;
+}
+
+// Convenience: the SVG `points` attribute string for the hex at axial (q,r).
+function hexPolygonPoints(q, r, size){
+  size = size || MAP_DEFAULT_HEX_SIZE;
+  const c = hexAxialToPixel(q, r, size);
+  const round = n => Math.round(n * 100) / 100;
+  return hexCornerPoints(c.x, c.y, size).map(p => round(p.x) + ',' + round(p.y)).join(' ');
+}
+
+// Bounding box (pixel space) over a set of hexes + a margin (pixels). Each item carries
+// either `.coord {q,r}` (the persisted shape) or a bare `{q,r}`. Returns null for an empty
+// set. Accounts for each hex's full extent (±size in x, ±√3/2·size in y).
+function hexMapBounds(hexes, size, margin){
+  size = size || MAP_DEFAULT_HEX_SIZE;
+  margin = (margin == null) ? size * 1.5 : margin;
+  const list = (hexes || []).filter(h => h && (h.coord || typeof h.q === 'number'));
+  if(!list.length) return null;
+  const halfH = Math.sqrt(3) / 2 * size;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for(const h of list){
+    const q = h.coord ? h.coord.q : h.q;
+    const r = h.coord ? h.coord.r : h.r;
+    const c = hexAxialToPixel(q, r, size);
+    if(c.x - size  < minX) minX = c.x - size;
+    if(c.x + size  > maxX) maxX = c.x + size;
+    if(c.y - halfH < minY) minY = c.y - halfH;
+    if(c.y + halfH > maxY) maxY = c.y + halfH;
+  }
+  minX -= margin; minY -= margin; maxX += margin; maxY += margin;
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+// Flat-top axial neighbour deltas in EDGE order (M4): edge i (between corner i and corner
+// (i+1)%6 of hexCornerPoints) faces the neighbour at (q+dq, r+dr). This pairing lets the UI
+// compute domain borders (an edge whose neighbour is in a different domain / absent) and
+// road/river networks (segments toward like-featured neighbours) — Architecture §11.4.
+const HEX_EDGE_DELTAS = Object.freeze([ [1,0], [0,1], [-1,1], [-1,0], [0,-1], [1,-1] ]);
+function hexNeighborDeltas(){ return HEX_EDGE_DELTAS.map(d => d.slice()); }
+// The two endpoints [{x,y},{x,y}] of edge `i` (0..5) of the hex at axial (q,r). Edge i spans
+// corner i → corner (i+1)%6, and faces neighbour (q,r)+HEX_EDGE_DELTAS[i].
+function hexEdgePoints(q, r, size, i){
+  size = size || MAP_DEFAULT_HEX_SIZE;
+  const c = hexAxialToPixel(q, r, size);
+  const cor = hexCornerPoints(c.x, c.y, size);
+  return [ cor[((i % 6) + 6) % 6], cor[(((i % 6) + 6) % 6 + 1) % 6] ];
+}
+// Midpoint of edge i (0..5) — the point a road "from the middle" reaches out to.
+function hexEdgeMidpoint(q, r, size, i){
+  const p = hexEdgePoints(q, r, size, i);
+  return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+}
+// Per-side RIVER geometry (#225 Add/Edit hexes): a river runs ALONG the chosen hex edges (the hex
+// boundary), so each side i in `sides` yields the straight segment corner i → corner (i+1)%6.
+// Returns [{x1,y1,x2,y2}, …]. (Contrast roads, which run from the centre out to side midpoints.)
+function hexRiverSegments(q, r, size, sides){
+  const out = [];
+  Array.from(new Set((sides || []).map(i => ((i % 6) + 6) % 6))).forEach(i => {
+    const p = hexEdgePoints(q, r, size, i);
+    out.push({ x1: p[0].x, y1: p[0].y, x2: p[1].x, y2: p[1].y });
+  });
+  return out;
+}
+// Per-side ROAD geometry (#225): a road "goes from the middle" out to each chosen side's midpoint,
+// with FAINTLY CIRCULAR bends where segments meet at the centre. Returns an SVG path `d` string:
+//   • 0 sides → ''                                            (no road)
+//   • 1 side  → centre → side-midpoint                        (a stub / dead-end, e.g. to a settlement)
+//   • 2 sides → mid(a) → [Q control = centre] → mid(b)        (the common through-road; the quadratic's
+//               centre control rounds the bend — straight for opposite sides, a gentle arc for adjacent)
+//   • 3+ sides → centre → each side-midpoint                  (a junction; the centre hub is rounded by
+//               the caller drawing a small disc — see index.html)
+function hexRoadPathD(q, r, size, sides){
+  const uniq = Array.from(new Set((sides || []).map(i => ((i % 6) + 6) % 6))).sort((a, b) => a - b);
+  if(uniq.length === 0) return '';
+  const c = hexAxialToPixel(q, r, size);
+  const mid = i => hexEdgeMidpoint(q, r, size, i);
+  const f = n => n.toFixed(2);
+  if(uniq.length === 1){
+    const m = mid(uniq[0]);
+    return 'M' + f(c.x) + ' ' + f(c.y) + 'L' + f(m.x) + ' ' + f(m.y);
+  }
+  if(uniq.length === 2){
+    const a = mid(uniq[0]), b = mid(uniq[1]);
+    return 'M' + f(a.x) + ' ' + f(a.y) + 'Q' + f(c.x) + ' ' + f(c.y) + ' ' + f(b.x) + ' ' + f(b.y);
+  }
+  return uniq.map(i => { const m = mid(i); return 'M' + f(c.x) + ' ' + f(c.y) + 'L' + f(m.x) + ' ' + f(m.y); }).join('');
+}
+// Crossing (ford/bridge) mark on edge i: a short segment centred on the edge midpoint, PERPENDICULAR
+// to the edge (i.e. along the centre→midpoint spoke — for a regular hexagon that line is perpendicular
+// to the edge), `len` long. Drawn over a river to read as "you can cross here". Returns {x1,y1,x2,y2}.
+function hexCrossingSegment(q, r, size, i, len){
+  const c = hexAxialToPixel(q, r, size);
+  const m = hexEdgeMidpoint(q, r, size, i);
+  let dx = m.x - c.x, dy = m.y - c.y;
+  const d = Math.hypot(dx, dy) || 1;
+  dx /= d; dy /= d;
+  const h = (len != null ? len : size * 0.34) / 2;
+  return { x1: m.x - dx * h, y1: m.y - dy * h, x2: m.x + dx * h, y2: m.y + dy * h };
+}
+
+// RAW-style column-row display label (RR p.273 "hex 401" convention; published Auran maps use
+// 4-digit COLROW). Axial {q,r} stays the canonical truth (shown in the tooltip); this is the
+// GM-familiar secondary. Flat-top: column = q; the row undoes the half-column vertical shear
+// (odd-q axial→offset, redblobgames) so hexes at the same visual height share a row number.
+// Coords can be negative (the store is relative to no fixed origin), so negatives carry a '-'.
+function hexDisplayLabel(q, r){
+  const col = q;
+  const row = r + ((q - (q & 1)) >> 1); // odd-q axial→offset row (exact: numerator is always even)
+  const pad = n => (n < 0 ? '-' : '') + String(Math.abs(n)).padStart(2, '0');
+  return pad(col) + pad(row);
+}
+
+// THE canonical hex display name — used everywhere a hex is referred to in prose (the hex card,
+// World › Hexes, Activities, journey routes, character location). Standard (Architecture §11.3):
+//   • a hex with a settlement →  "<Settlement> (<coords>)"   e.g. "Saltspur (0000)"
+//   • else a hex with terrain →  "<Terrain> (<coords>)"      e.g. "Forest (0100)"
+//   • else                     →  "<coords>"                  e.g. "0301"
+// <coords> is the RAW column-row label (hexDisplayLabel). This does NOT replace the bare
+// column-row number drawn at the top of each hex on the map. Terrain is Title-cased; the domain
+// is NOT part of the name (callers add "in <domain>" separately where useful).
+function hexName(hex){
+  if(!hex) return '';
+  const coords = hex.coord ? hexDisplayLabel(hex.coord.q, hex.coord.r) : '';
+  const settlement = (hex.settlement && hex.settlement.name) ? String(hex.settlement.name).trim() : '';
+  let base = settlement;
+  if(!base && hex.terrain){
+    const t = String(hex.terrain).trim();
+    base = t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+  }
+  if(!base) return coords;
+  return coords ? (base + ' (' + coords + ')') : base;
+}
+
+// ── Fill-layer palettes (M2). Color a hex by one attribute at a time. ──
+const HEX_TERRAIN_COLORS = Object.freeze({
+  barrens:'#cdbfa6', desert:'#e7d9a0', forest:'#3f7d4e', grassland:'#9cc46b',
+  hills:'#bda05a', jungle:'#2f6b3a', mountains:'#8d9095', scrubland:'#c2b46a', swamp:'#6b7d52',
+  // Water — oceans, seas, big lakes. RAW lists "Ocean" (and "River") as terrain types in the
+  // encounter-by-terrain tables (JJ); a hex map needs open-water hexes for coastal/island realms.
+  // CARTOGRAPHIC only here — land travel can't cross water (you need a vessel: RR Ch.7 Voyages),
+  // so 'water' is deliberately absent from JOURNEY_TERRAIN_SPEED / JOURNEY_NAV_THROWS.
+  water:'#6ea4d4'
+});
+// Common GM/author synonyms → the canonical base types, so a campaign that says "plains" or
+// "woods" still colors (RAW has no single master terrain list — §2.2; the templates + demo use
+// "plains"/"coast"). Unknown terms stay neutral. "coast" is a water-adjacent LAND hex, not open
+// water — it stays grassland; sea/ocean/lake map to the new 'water' fill.
+const HEX_TERRAIN_ALIASES = Object.freeze({
+  plains:'grassland', plain:'grassland', steppe:'grassland', prairie:'grassland', meadow:'grassland',
+  farmland:'grassland', fields:'grassland', pasture:'grassland', savanna:'grassland', savannah:'grassland',
+  coast:'grassland', coastal:'grassland', shore:'grassland', shoreline:'grassland', seaside:'grassland', beach:'grassland',
+  sea:'water', seas:'water', ocean:'water', oceans:'water', lake:'water', lakes:'water', waters:'water',
+  woods:'forest', woodland:'forest', woodlands:'forest', taiga:'forest', boreal:'forest',
+  mountain:'mountains', peaks:'mountains', alpine:'mountains',
+  hill:'hills', highlands:'hills',
+  marsh:'swamp', marshland:'swamp', bog:'swamp', fen:'swamp', wetland:'swamp', wetlands:'swamp',
+  scrub:'scrubland', heath:'scrubland', moor:'scrubland', moorland:'scrubland',
+  waste:'barrens', wastes:'barrens', wasteland:'barrens', tundra:'barrens', badlands:'barrens',
+  sand:'desert', dunes:'desert', sandy:'desert',
+  rainforest:'jungle', rainforests:'jungle', tropical:'jungle'
+});
+const HEX_CLASSIFICATION_COLORS = Object.freeze({
+  civilized:'#2c7fb8', borderlands:'#7fcdbb', outlands:'#edf8b1', unsettled:'#d9d2c0'
+});
+// Sequential YlGn ramp for land value 3..9 (RR p.341) — 7 distinct buckets.
+const HEX_LANDVALUE_RAMP = Object.freeze(['#f7fcb9','#d9f0a3','#addd8e','#78c679','#41ab5d','#238443','#005a32']);
+const HEX_FILL_UNKNOWN   = '#d9d2c0'; // neutral parchment — blank/unknown attribute
+const HEX_FILL_UNCLAIMED = '#cbc6b8'; // neutral grey — domainId == null
+// M6 domain-aware + extra fill palettes (the rest of the §4.1 catalog).
+const HEX_SECURED_COLORS = Object.freeze({ // RR p.338/348 stronghold-adequacy bands (per domain)
+  adequate:'#3aa35a', half:'#e8c34a', quarter:'#e08a3c', critical:'#cc4125', none:HEX_FILL_UNKNOWN
+});
+const HEX_ECONOMY_COLORS = Object.freeze({ agricultural:'#9cc46b', pastoralist:'#cda85b', mining:'#9a8aa8' });
+const HEX_POP_CEILING    = Object.freeze({ civilized:780, borderlands:375, outlands:185, unsettled:185 }); // RR p.340
+// Diverging red→green morale ramp for −4..+4 (9 steps), index = clamp(round(m),−4,4)+4.
+const HEX_MORALE_RAMP = Object.freeze(['#cc4125','#e0653c','#e8a24a','#e8c34a','#dcdc8c','#bfe08a','#8fd06a','#5cb85c','#3aa35a']);
+function _moraleColor(m){ return HEX_MORALE_RAMP[Math.max(-4, Math.min(4, Math.round(Number(m) || 0))) + 4]; }
+
+// Stable hue (0..359) from a string id — deterministic, so a domain keeps its color across renders.
+function _mapHashHue(str){
+  str = String(str || '');
+  let h = 0;
+  for(let i = 0; i < str.length; i++){ h = (h * 31 + str.charCodeAt(i)) >>> 0; }
+  return h % 360;
+}
+function _domainFill(domainId){
+  if(!domainId) return HEX_FILL_UNCLAIMED;
+  return 'hsl(' + _mapHashHue(domainId) + ', 55%, 72%)';
+}
+
+// The fill color for a hex under a given layer. Deterministic + stable per input (M2 DoD).
+// Hex-only layers (terrain/domain/land-value/classification/population/economy/exploration) ignore
+// `ctx`; domain-aggregate layers (secured/morale) read precomputed per-domain maps from `ctx`
+// (the engine has no campaign reference) — `ctx.securedStateByDomain[id]`, `ctx.moraleByDomain[id]`.
+// Unknown/blank values fall back to neutral parchment so the map never renders a hole.
+function hexFillColor(hex, layer, ctx){
+  hex = hex || {};
+  switch(layer){
+    case 'domain':
+      return _domainFill(hex.domainId);
+    case 'land-value': {
+      const v = Number(hex.valuePerFamily);
+      if(!Number.isFinite(v) || v < 3) return HEX_FILL_UNKNOWN;
+      return HEX_LANDVALUE_RAMP[Math.min(9, Math.max(3, Math.round(v))) - 3];
+    }
+    case 'classification': {
+      const c = String(hex.classification || '').trim().toLowerCase();
+      return HEX_CLASSIFICATION_COLORS[c] || HEX_FILL_UNKNOWN;
+    }
+    case 'population': { // families as a fraction of the classification ceiling (RR p.340)
+      const fam = Number(hex.families) || 0;
+      if(fam <= 0) return HEX_FILL_UNKNOWN;
+      const cap = HEX_POP_CEILING[String(hex.classification || '').trim().toLowerCase()] || 185;
+      const ratio = Math.max(0, Math.min(1, fam / cap));
+      return HEX_LANDVALUE_RAMP[Math.round(ratio * (HEX_LANDVALUE_RAMP.length - 1))];
+    }
+    case 'morale': { // domain morale −4..+4 (diverging); needs ctx.moraleByDomain
+      if(!hex.domainId) return HEX_FILL_UNCLAIMED;
+      const m = ctx && ctx.moraleByDomain ? ctx.moraleByDomain[hex.domainId] : null;
+      return (m == null) ? HEX_FILL_UNKNOWN : _moraleColor(m);
+    }
+    case 'secured': { // per-domain stronghold adequacy (RR p.338); needs ctx.securedStateByDomain
+      if(!hex.domainId) return HEX_FILL_UNCLAIMED;
+      const st = ctx && ctx.securedStateByDomain ? ctx.securedStateByDomain[hex.domainId] : null;
+      return HEX_SECURED_COLORS[st] || HEX_FILL_UNKNOWN;
+    }
+    case 'economy': {
+      const e = String(hex.economyType || 'agricultural').trim().toLowerCase().split('-')[0];
+      return HEX_ECONOMY_COLORS[e] || HEX_FILL_UNKNOWN;
+    }
+    case 'exploration':
+      return hex.explored === false ? '#6b6450' : '#cfe3b0'; // fogged vs explored
+    case 'terrain':
+    default: {
+      // Tolerate MM biome sub-types ("Forest (Taiga)" → "forest"), any casing, and common synonyms.
+      const t = String(hex.terrain || '').split('(')[0].trim().toLowerCase();
+      return HEX_TERRAIN_COLORS[HEX_TERRAIN_ALIASES[t] || t] || HEX_FILL_UNKNOWN;
+    }
+  }
+}
+
+// The fill-layer catalog driving the "Color by:" radio (the full §4.1 set). Adding another
+// layer is one entry here + one case in hexFillColor + one branch in hexFillLegend.
+function hexFillLayers(){
+  return [
+    { id:'terrain',        label:'Terrain' },
+    { id:'domain',         label:'Domain' },
+    { id:'land-value',     label:'Land value' },
+    { id:'classification', label:'Classification' },
+    { id:'population',     label:'Population' },
+    { id:'morale',         label:'Domain morale' },
+    { id:'secured',        label:'Secured' },
+    { id:'economy',        label:'Economy' },
+    { id:'exploration',    label:'Exploration' }
+  ];
+}
+
+// Legend rows [{label, color}] for the active fill layer. The 'domain' layer needs the
+// campaign's domains (array of {id,name}) to enumerate; the rest are static palettes.
+function hexFillLegend(layer, domains){
+  switch(layer){
+    case 'domain': {
+      const rows = (domains || []).map(d => ({ label: d.name || d.id, color: _domainFill(d.id) }));
+      rows.push({ label: 'Unclaimed', color: HEX_FILL_UNCLAIMED });
+      return rows;
+    }
+    case 'land-value':
+      return HEX_LANDVALUE_RAMP.map((c, i) => ({ label: (i + 3) + ' gp', color: c }));
+    case 'classification':
+      return [['Civilized','civilized'],['Borderlands','borderlands'],['Outlands','outlands'],['Unsettled','unsettled']]
+        .map(pair => ({ label: pair[0], color: HEX_CLASSIFICATION_COLORS[pair[1]] }));
+    case 'population':
+      return [{ label:'Low', color:HEX_LANDVALUE_RAMP[0] }, { label:'Mid', color:HEX_LANDVALUE_RAMP[3] }, { label:'At ceiling', color:HEX_LANDVALUE_RAMP[HEX_LANDVALUE_RAMP.length - 1] }];
+    case 'morale':
+      return [{ label:'−4', color:_moraleColor(-4) }, { label:'0', color:_moraleColor(0) }, { label:'+4', color:_moraleColor(4) }];
+    case 'secured':
+      return [['Adequate','adequate'],['Below min','half'],['Below ½','quarter'],['Critical','critical']]
+        .map(pair => ({ label: pair[0], color: HEX_SECURED_COLORS[pair[1]] })).concat([{ label:'Unclaimed', color:HEX_FILL_UNCLAIMED }]);
+    case 'economy':
+      return [['Agricultural','agricultural'],['Pastoralist','pastoralist'],['Mining','mining']]
+        .map(pair => ({ label: pair[0], color: HEX_ECONOMY_COLORS[pair[1]] }));
+    case 'exploration':
+      return [{ label:'Explored', color:'#cfe3b0' }, { label:'Unexplored', color:'#6b6450' }];
+    case 'terrain':
+    default:
+      return Object.keys(HEX_TERRAIN_COLORS).map(k => ({ label: k.charAt(0).toUpperCase() + k.slice(1), color: HEX_TERRAIN_COLORS[k] }));
+  }
+}
+
+// ── M3 symbols + M4 edges: layer catalogs (toggle checkboxes) + glyph sizing. ──
+// Settlement glyph radius as a multiple of `size`, ramped by the RR p.351 population
+// benchmarks (Hamlet → Metropolis) so a glyph grows with market class.
+function settlementGlyphScale(families){
+  const n = Number(families) || 0;
+  if(n >= 5000) return 0.42; // Large City / Metropolis (market I–II)
+  if(n >= 1250) return 0.36; // City (III)
+  if(n >= 500)  return 0.30; // Town (IV)
+  if(n >= 100)  return 0.24; // Village (V–VI)
+  if(n >= 1)    return 0.19; // Hamlet / small village
+  return 0.16;
+}
+function mapSymbolLayers(){
+  return [
+    { id:'settlements', label:'Settlements' },
+    { id:'strongholds', label:'Strongholds' },
+    { id:'lairs',       label:'Lairs' },
+    { id:'dungeons',    label:'Dungeons' },
+    { id:'pois',        label:'POIs' }
+  ];
+}
+function mapEdgeLayers(){
+  return [
+    { id:'borders', label:'Domain borders' },
+    { id:'roads',   label:'Roads' },
+    { id:'rivers',  label:'Rivers' },
+    { id:'trails',  label:'Trails' }
+  ];
+}
+// The 9 ACKS base terrain types (RR p.272/275; §2.2) for the create-hex picker — the same set
+// the terrain fill palette and the travel/navigation catalogs key on. value = engine key
+// (lowercase, what the catalogs expect), label = Title Case for display.
+function mapTerrainTypes(){
+  return Object.keys(HEX_TERRAIN_COLORS).map(k => ({ value: k, label: k.charAt(0).toUpperCase() + k.slice(1) }));
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -1896,7 +2248,12 @@ Object.assign(ACKS, {
   tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
-  findPersistentCandidates, computeEffectiveLoyalty
+  findPersistentCandidates, computeEffectiveLoyalty,
+  // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
+  // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
+  MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel, hexName,
+  hexNeighborDeltas, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
+  HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).

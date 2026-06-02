@@ -296,9 +296,13 @@ document.addEventListener('alpine:init', () => {
   </template>
 </nav>
 
-<!-- ═══════════ VIEW: WORLD (Phase 2.7) ═══════════ -->
-<div x-show="currentView === 'world'" class="p-4" x-cloak>
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3 mb-3">
+<!-- ═══════════ VIEW: WORLD (Phase 2.7) — parent of Map / Domains / Hexes / Rumors ═══════════ -->
+<!-- #225 (2026-06-02): Map + Domains moved under World as sub-views (order Map, Domains, Hexes).
+     The sub-tab bar is its own always-visible block; each sub-view's content is a sibling gated on
+     worldSubView. The Map + Domains content divs live further down (their large markup stayed put —
+     only their x-show flipped from a top-level currentView to this World sub-view). -->
+<div x-show="currentCampaign && currentView === 'world'" class="px-4 pt-3" x-cloak>
+  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in worldSubTabs" :key="tab.id">
       <button @click="worldSubView=tab.id"
               :class="worldSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
@@ -307,11 +311,15 @@ document.addEventListener('alpine:init', () => {
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
   </div>
+</div>
+
+<!-- World content — Hexes + Rumors. (Map + Domains are separate blocks below, also gated on worldSubView.) -->
+<div x-show="currentView === 'world' && (worldSubView==='hexes' || worldSubView==='rumors')" class="p-4" x-cloak>
 
   <!-- ───── Sub-tab: HEXES ───── -->
   <div x-show="worldSubView==='hexes'" class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-      <h3 class="font-bold text-lg">🗺 Hexes</h3>
+      <h3 class="font-bold text-lg">⬡ Hexes</h3>
       <div class="flex gap-2 items-center text-sm">
         <input type="text" x-model="worldHexSearch" placeholder="Search hex name, terrain, lairs, POIs…" class="w-72">
         <select x-model="worldHexFilter" class="text-sm">
@@ -338,7 +346,7 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <template x-if="allHexes().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No hexes yet. Add hexes to a domain via the picker above, or from the Domains tab → Hexes section.</p>
+      <p class="text-sm italic opacity-60 py-6 text-center">No hexes yet. Add hexes to a domain via the picker above, or from the World → Domains → Hexes section.</p>
     </template>
 
     <template x-if="allHexes().length > 0">
@@ -358,10 +366,10 @@ document.addEventListener('alpine:init', () => {
           <template x-for="entry in filteredHexes()" :key="entry.domainId + ':' + entry.hexIndex">
             <tr>
               <td>
-                <button @click="openHexDetail(entry)" class="underline font-mono font-semibold">(<span x-text="entry.hex.coord?.q||0"></span>,<span x-text="entry.hex.coord?.r||0"></span>)</button>
+                <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="window.ACKS.hexName(entry.hex)"></button>
               </td>
               <td class="text-base">
-                <button @click="selectedDomainId=entry.domainId; currentView='domains'" class="underline" x-text="entry.domainName"></button>
+                <button @click="selectedDomainId=entry.domainId; currentView='world'; worldSubView='domains'" class="underline" x-text="entry.domainName"></button>
               </td>
               <td class="text-base" x-text="effectiveHexClassification(domains.find(x=>x.id===entry.domainId), entry.hex)"></td>
               <td class="text-base" x-text="entry.hex.terrain || '—'"></td>
@@ -554,8 +562,147 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- ═══════════ VIEW: DOMAINS (default) ═══════════ -->
-<div x-show="currentView === 'domains'" x-cloak>
+<!-- ═══════════ VIEW: MAP (Phase 2.5 Map Mode #225 — M0–M2) ═══════════ -->
+<!-- A first-class SVG hex map: a PURE VIEW over the campaign's hexes (Architecture §11). Geometry
+     + fill-layer math live in the engine (acks-engine-subsystems.js §9.7); this is the render +
+     pan/zoom/click wiring. Click → the EXISTING hex card (mapClickHex → openHexDetail), via a
+     mode-aware dispatcher so a later Journey planner / wizard can reuse the map as a hex picker. -->
+<div x-show="currentView === 'world' && worldSubView === 'map'" class="p-4" x-cloak>
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
+    <h2 class="text-lg font-semibold">🗺 Campaign Map</h2>
+    <span class="text-sm opacity-60" x-text="'· ' + mapHexEntries().length + ' hexes'"></span>
+    <span class="text-sm opacity-60 italic">Scroll to zoom · drag to pan · click a hex to open its card</span>
+  </div>
+
+  <!-- Select-mode banner — the picker seam (plan §9.1); shown only when a caller put the map into select mode. -->
+  <div x-show="mapMode === 'select'" class="mb-3 px-3 py-2 border border-sky-400 bg-sky-50 rounded flex items-center gap-3 text-sm" x-cloak>
+    <span x-text="_mapSelectHint || 'Click a hex to select it.'"></span>
+    <button @click="mapEndSelect()" class="underline opacity-70 hover:opacity-100">cancel</button>
+  </div>
+
+  <template x-if="mapHexEntries().length === 0">
+    <p class="text-sm italic opacity-60 py-10 text-center">No hexes to map yet. Add hexes to a domain via the World tab or Domains → Hexes, and they'll appear here.</p>
+  </template>
+
+  <template x-if="mapHexEntries().length > 0">
+    <div>
+      <!-- "Color by:" radio + Fit. Adding a §4.1 layer later is one engine entry + one radio. -->
+      <div class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span class="text-sm font-semibold">Color by:</span>
+        <template x-for="L in mapFillLayers()" :key="L.id">
+          <label class="text-sm flex items-center gap-1 cursor-pointer">
+            <input type="radio" :value="L.id" x-model="mapFillLayer">
+            <span x-text="L.label"></span>
+          </label>
+        </template>
+        <span class="ml-auto flex items-center gap-2">
+          <button @click="mapStandardView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Reset to the standard composite — terrain + settlements + strongholds + roads/rivers + domain borders + journeys">⌂ Standard view</button>
+          <button @click="mapResetView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Fit the whole map in view">⤢ Fit</button>
+        </span>
+      </div>
+
+      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. -->
+      <div class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <span class="font-semibold">Show:</span>
+        <template x-for="L in mapSymbolLayers()" :key="'sym-'+L.id">
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" x-model="mapSymbolToggles[L.id]" @change="schedulePersist()">
+            <span x-text="L.label"></span>
+          </label>
+        </template>
+        <span class="opacity-40">|</span>
+        <template x-for="L in mapEdgeLayers()" :key="'edge-'+L.id">
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" x-model="mapEdgeToggles[L.id]" @change="schedulePersist()">
+            <span x-text="L.label"></span>
+          </label>
+        </template>
+        <span class="opacity-40">|</span>
+        <label class="flex items-center gap-1 cursor-pointer">
+          <input type="checkbox" x-model="mapShowJourneys" @change="schedulePersist()">
+          <span>Journeys</span>
+        </label>
+        <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Add/Edit hexes — faint addable cells appear (click one to create a hex there), and clicking an existing hex opens a quick editor (domain, terrain, rivers, roads) instead of its full card">
+          <input type="checkbox" x-model="mapEditAddMode" @change="schedulePersist(); if(!mapEditAddMode) mapCancelCreate()">
+          <span>✎ Add/Edit hexes</span>
+        </label>
+      </div>
+
+      <!-- Create / Edit hex picker (M5) — opens on a faint empty cell (create) or, in Edit/Add mode, on an existing hex (edit, pre-filled). -->
+      <div x-show="mapCreateAt" class="vellum border border-sky-400 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <span><span x-text="mapEditHexId ? 'Edit hex' : 'Create hex'"></span> <strong class="font-mono" x-text="mapCreateAt ? window.ACKS.hexDisplayLabel(mapCreateAt.q, mapCreateAt.r) : ''"></strong></span>
+        <span>· domain:</span>
+        <select x-model="mapCreateDomainId" class="border border-ink rounded px-2 py-0.5">
+          <option value="">Unclaimed wilderness</option>
+          <template x-for="d in domains" :key="d.id">
+            <option :value="d.id" x-text="d.name"></option>
+          </template>
+        </select>
+        <span>· terrain:</span>
+        <select x-model="mapCreateTerrain" class="border border-ink rounded px-2 py-0.5">
+          <option value="">— unset —</option>
+          <template x-for="t in mapTerrainOptions()" :key="t.value">
+            <option :value="t.value" x-text="t.label"></option>
+          </template>
+        </select>
+        <!-- #225 per-side rivers + roads — click the mini-hex's sides. Rivers run ALONG edges; roads
+             run from the centre out to the chosen sides (with faintly circular bends). -->
+        <span class="flex items-center gap-1" title="Click a side to cycle: none → river (along the edge) → river + ford/bridge → none. A road that crosses a river is auto-bridged.">
+          <span class="opacity-70">· rivers:</span>
+          <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
+            <g x-html="mapMiniHexMarkup('river')"></g>
+          </svg>
+        </span>
+        <span class="flex items-center gap-1" title="Click the sides the road reaches from the hex centre — bends are faintly circular">
+          <span class="opacity-70">· roads:</span>
+          <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
+            <g x-html="mapMiniHexMarkup('road')"></g>
+          </svg>
+        </span>
+        <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300" x-text="mapEditHexId ? 'Save' : 'Create'"></button>
+        <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+      </div>
+
+      <!-- Legend for the active fill layer. -->
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 text-sm">
+        <span class="opacity-60">Legend:</span>
+        <template x-for="row in mapLegend()" :key="row.label">
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block w-3 h-3 rounded-sm border border-ink/40" :style="'background:' + row.color"></span>
+            <span x-text="row.label"></span>
+          </span>
+        </template>
+      </div>
+
+      <!-- The SVG hex map. Pan/zoom mutate the viewBox so vectors stay crisp at any scale — no raster tiles, no map library. -->
+      <div class="border border-ink rounded overflow-hidden" style="height:70vh; background:#f3ecd8;">
+        <!-- Hexes are generated as an SVG markup STRING via x-html (innerHTML on an SVG <g> parses
+             in the SVG namespace). Alpine's <template x-for> does NOT work inside <svg> — a
+             <template> in the SVG namespace has no .content fragment to clone. x-html re-renders
+             reactively when the hex set or fill layer changes; clicks are delegated to the <svg>
+             (mapSvgClick reads each polygon's data-hex-id), since x-html content isn't Alpine-managed. -->
+        <!-- viewBox is set via x-effect, not :viewBox — the HTML parser lowercases `:viewBox` to
+             `:viewbox`, and SVG's viewBox attribute is case-sensitive, so the binding would be
+             silently ignored. setAttribute with the exact case works and re-runs on pan/zoom. -->
+        <svg x-ref="mapSvg" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+             x-effect="$el.setAttribute('viewBox', mapViewBoxStr())"
+             :style="'cursor:' + (_mapPan ? 'grabbing' : 'grab')"
+             @wheel.prevent="mapWheel($event)"
+             @mousedown.prevent="mapPanStart($event)"
+             @mousemove.window="mapPanMove($event)"
+             @mouseup.window="mapPanEnd()"
+             @click="mapSvgClick($event)">
+          <g x-html="mapSvgMarkup()"></g>
+        </svg>
+      </div>
+      <p class="text-xs opacity-50 mt-1">Labels are RAW-style column-row (RR p.273); hover a hex for its name, terrain, domain, and land value. The map is a view — clicking a hex opens the existing hex card.</p>
+    </div>
+  </template>
+</div>
+
+<!-- ═══════════ VIEW: DOMAINS — now a World sub-view (#225, 2026-06-02). Markup unchanged; only the
+     x-show flipped from top-level currentView==='domains' to currentView==='world' && worldSubView. ═══════════ -->
+<div x-show="currentView === 'world' && worldSubView === 'domains'" x-cloak>
 
   <main class="p-4">
     <template x-if="!currentCampaign">
@@ -1195,7 +1342,7 @@ document.addEventListener('alpine:init', () => {
                   <tr>
                     <!-- (1) Hex coord: clean link — opens the detail modal for editing. -->
                     <td class="whitespace-nowrap">
-                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-mono font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)">(<span x-text="h.coord?.q||0"></span>,<span x-text="h.coord?.r||0"></span>)</button>
+                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)" x-text="window.ACKS.hexName(h)"></button>
                     </td>
                     <!-- (2) Class: plain text. Derived from domain (or per-hex families when the house rule is on). -->
                     <td x-text="effectiveHexClassification(selectedDomain, h)"></td>
@@ -3856,7 +4003,7 @@ document.addEventListener('alpine:init', () => {
                   <!-- Structural roles: ruler (with vassal prefix when liege exists) + magistrate slots. -->
                   <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + r.domainId + ':' + r.label">
                     <div>
-                      <button @click="selectedDomainId = r.domainId; currentView='domains'; closeCharacterEditor && closeCharacterEditor()"
+                      <button @click="selectedDomainId = r.domainId; currentView='world'; worldSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
                               class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : '🏰 ') + r.label + ' →'"></button>
                     </div>
                   </template>
@@ -4681,7 +4828,7 @@ document.addEventListener('alpine:init', () => {
                     <td class="text-right font-mono" x-text="(domainIncome(d)||0).toLocaleString() + 'gp/mo'"></td>
                     <td class="text-right font-mono" :class="computePersonalAuthority(characterEditing.level||1, domainIncome(d))>=0?'accent-green':'accent-red'" x-text="(computePersonalAuthority(characterEditing.level||1, domainIncome(d))>=0?'+':'') + computePersonalAuthority(characterEditing.level||1, domainIncome(d))"></td>
                     <td class="text-right font-mono" x-text="computeGpThreshold(characterEditing.level||1).toLocaleString() + 'gp'"></td>
-                    <td><button @click="closeCharacterEditor(); selectedDomainId=d.id; currentView='domains'" class="text-sm underline" title="Go to this domain">→ view</button></td>
+                    <td><button @click="closeCharacterEditor(); selectedDomainId=d.id; currentView='world'; worldSubView='domains'" class="text-sm underline" title="Go to this domain">→ view</button></td>
                   </tr>
                 </template>
               </tbody>
@@ -5708,10 +5855,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-panel">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">
-        🗺 Hex
-        <span class="font-mono" x-show="worldHexEditingHex()">
-          (<span x-text="worldHexEditingHex()?.coord?.q||0"></span>,<span x-text="worldHexEditingHex()?.coord?.r||0"></span>)
-        </span>
+        🗺 <span x-text="worldHexEditingHex() ? window.ACKS.hexName(worldHexEditingHex()) : 'Hex'"></span>
         <span class="text-sm opacity-70 font-normal" x-show="worldHexEditingDomain()"> · <span x-text="worldHexEditingDomain()?.name||''"></span></span>
       </h2>
       <button @click="closeHexDetail()" class="text-xl px-2">×</button>
@@ -6960,7 +7104,9 @@ return {
   dirty:false, _persistTimer:null, _ignoreMutations:false,
   currentCampaign:null,domains:[],selectedDomainId:null,
   // Top-level view tabs. Extensible — add Phase 2.7 syndicates, Phase 4 senates, etc. by adding entries here.
-  currentView:'domains',
+  // #225 (2026-06-02): default is now World; the Domains manager (which hosts the first-run welcome
+  // banner) is the default World sub-view, so the landing experience is unchanged.
+  currentView:'world',
   campaignLogFilter:'',
   activeTab:'overview',
   // Tabs: Hexes is standard (land value per hex is RAW ACKS). House-rule-gated tabs in later phases
@@ -6991,6 +7137,22 @@ return {
         this.selectedDomainId=sess.selectedDomainId||(this.domains[0]?this.domains[0].id:null);
         this.fileName=sess.fileName||'';
         if(sess.currentView)this.currentView=sess.currentView;
+        // #225 (2026-06-02): Map + Domains moved under World as sub-views. Migrate any stale
+        // top-level 'map'/'domains' currentView (incl. the OLD default 'domains') into World + the
+        // matching sub-view, then restore the persisted sub-view if present.
+        if(this.currentView==='map' || this.currentView==='domains'){ this.worldSubView=this.currentView; this.currentView='world'; }
+        if(sess.worldSubView)this.worldSubView=sess.worldSubView;
+        if(!this.topViews.some(v=>v.id===this.currentView))this.currentView='world';
+        // #225 Map Mode — restore ephemeral viewport prefs (fill layer + viewBox). mapMode stays
+        // 'inspect' (select is transient). A null/absent viewBox lazily re-fits on first map open.
+        if(sess.mapPrefs){
+          if(sess.mapPrefs.fillLayer) this.mapFillLayer = sess.mapPrefs.fillLayer;
+          if(sess.mapPrefs.viewBox)   this.mapViewBox   = sess.mapPrefs.viewBox;
+          if(sess.mapPrefs.symbolToggles) this.mapSymbolToggles = Object.assign(this.mapSymbolToggles, sess.mapPrefs.symbolToggles);
+          if(sess.mapPrefs.edgeToggles)   this.mapEdgeToggles   = Object.assign(this.mapEdgeToggles, sess.mapPrefs.edgeToggles);
+          if(typeof sess.mapPrefs.showJourneys === 'boolean')   this.mapShowJourneys   = sess.mapPrefs.showJourneys;
+          if(typeof sess.mapPrefs.editAddMode === 'boolean') this.mapEditAddMode = sess.mapPrefs.editAddMode;
+        }
         // Foundation #193 — ensure top-level collections exist + migrate from any legacy nested
         // storage in the restored session. Idempotent.
         if(this.currentCampaign){
@@ -7045,6 +7207,12 @@ return {
     },{deep:true});
     this.$watch('domains',()=>{ this.markDirty(); this.schedulePersist(); },{deep:true});
     this.$watch('selectedDomainId',()=>this.schedulePersist()); // selecting a domain isn't a content change
+    // #225 Map Mode — persist the active fill layer; lazily fit the viewport when the Map sub-view opens.
+    this.$watch('mapFillLayer',()=>this.schedulePersist());
+    // #225 Map is now a World sub-view: fit the viewport when World opens on Map, or when the
+    // sub-view switches to Map; persist the active sub-view so a reload restores it.
+    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); });
+    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); });
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -7076,7 +7244,12 @@ return {
       json = JSON.stringify({
         currentCampaign:this.currentCampaign,domains:this.domains,
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
-        currentView:this.currentView});
+        currentView:this.currentView, worldSubView:this.worldSubView,
+        // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
+        // (plan §8); mode always restores to 'inspect' (select is transient).
+        mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox,
+          symbolToggles:this.mapSymbolToggles, edgeToggles:this.mapEdgeToggles,
+          showJourneys:this.mapShowJourneys, editAddMode:this.mapEditAddMode }});
     }catch(e){ console.warn('Persist serialize failed',e); return; }
     try{
       localStorage.setItem('acks-domain-session-v3', json);
@@ -7100,8 +7273,8 @@ return {
     const pendingEv = (this.currentCampaign?.pendingEvents||[]).filter(e => e.status === 'pending').length;
     const loggedEv  = (this.currentCampaign?.eventLog||[]).length;
     return [
+      // #225 (2026-06-02): Map + Domains are now World sub-views (see worldSubTabs), not top-level tabs.
       { id:'world',        label:'🌍 World',           count: hexCount || null },
-      { id:'domains',      label:'🏰 Domains' },
       { id:'characters',   label:'👥 Characters',      count: aliveChars || null },
       { id:'activities',   label:'🎭 Activities',      count: (this.currentCampaign?.ventures||[]).length },
       { id:'events',       label:'📜 Events',      count: (pendingEv + loggedEv) || null },
@@ -7856,7 +8029,7 @@ return {
 
 
   // Phase 2.7 World — UI state for the World view
-  worldSubView:'hexes', // 'hexes' | 'rumors' | future: 'map', 'wilderness', 'lairs'
+  worldSubView:'domains', // 'map' | 'domains' | 'hexes' | 'rumors' (default Domains — the heart of the tool + first-run welcome)
   worldHexSearch:'',
   worldHexFilter:'all', // 'all' | 'settled' | 'lairs' | 'dungeons' | 'unexplored'
   worldHexEditing:null, // {domainId, hexIndex} for the hex detail modal
@@ -7865,9 +8038,15 @@ return {
   rumorFilter:{ topic:'', apparent:'', truth:'', settlementId:'', search:'' },
   rumorAddTarget:'',   // bound to the "Add rumor at" picker; cleared after add
 
-  // The list of World sub-tabs is dynamic — Rumors only appears when rumors-manual is on.
+  // The list of World sub-tabs. Order (#225, 2026-06-02): Map, Domains, Hexes, then Rumors.
+  // Map + Domains were promoted from top-level tabs into World sub-views. Rumors only appears
+  // when rumors-manual is on. (Hexes uses ⬡ since Map now owns the 🗺 glyph.)
   get worldSubTabs(){
-    const tabs = [ { id:'hexes', label:'🗺 Hexes', count: null } ];
+    const tabs = [
+      { id:'map',     label:'🗺 Map',     count: null },
+      { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null },
+      { id:'hexes',   label:'⬡ Hexes',    count: null },
+    ];
     if(this.isHouseRuleEnabled('rumors-manual')){
       tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
     }
@@ -8349,9 +8528,7 @@ return {
       }
     }
     if(!h) return hexId;
-    const coord = '(' + (h.coord?.q ?? 0) + ',' + (h.coord?.r ?? 0) + ')';
-    const setName = h.settlement && h.settlement.name;
-    return coord + (setName ? ' · ' + setName : '');
+    return window.ACKS.hexName(h) || hexId;   // canonical hex name (Architecture §11.3)
   },
 
   // ─── Phase 2.5 Journeys (#475 — J2) UI methods ─────────────────────────────
@@ -9203,8 +9380,10 @@ return {
     if(c.currentHexId){
       for(const d of (this.domains||[])){
         const hex = (d.geography?.hexes||[]).find(h => h.id === c.currentHexId);
-        if(hex){ return 'hex ('+hex.coord.q+','+hex.coord.r+') in '+d.name; }
+        if(hex){ return window.ACKS.hexName(hex) + ' in ' + d.name; }
       }
+      const wild = (this.currentCampaign?.hexes||[]).find(h => h.id === c.currentHexId);
+      if(wild) return window.ACKS.hexName(wild);
       return 'hex '+c.currentHexId;
     }
     return '—';
@@ -10838,21 +11017,526 @@ return {
   worldHexEditingHex(){
     if(!this.worldHexEditing) return null;
     const d = this.domains.find(x => x.id === this.worldHexEditing.domainId);
-    if(!d) return null;
-    return d.geography?.hexes?.[this.worldHexEditing.hexIndex] || null;
+    const viaIndex = d ? (d.geography?.hexes?.[this.worldHexEditing.hexIndex] || null) : null;
+    if(viaIndex) return viaIndex;
+    // Domainless / unindexed hex (e.g. a wilderness hex opened from the Map) — resolve by id
+    // from the top-level collection so the full hex card works for it too.
+    const id = this.worldHexEditing.hexId;
+    return id ? ((this.currentCampaign?.hexes || []).find(h => h.id === id) || null) : null;
   },
   worldHexEditingDomain(){
     if(!this.worldHexEditing) return null;
     return this.domains.find(x => x.id === this.worldHexEditing.domainId) || null;
   },
   openHexDetail(entry){
-    this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex};
+    this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex, hexId:(entry.hex && entry.hex.id) || null};
     this.showHexDetailModal = true;
   },
   closeHexDetail(){
     this.showHexDetailModal = false;
     this.worldHexEditing = null;
   },
+
+  // ─── #225 Map Mode (M0–M2, 2026-06-02) — SVG hex map state + methods ───────
+  // The map is a PURE VIEW over the campaign's hexes (Architecture §11; the geometry +
+  // fill-layer math lives in the engine, acks-engine-subsystems.js §9.7). All viewport state
+  // here is EPHEMERAL — persisted to the session cache (localStorage) only, never to the
+  // .acks.json (plan §8). Clicking a hex reuses the EXISTING hex card (openHexDetail) — no
+  // second hex editor. The click dispatch is mode-aware (inspect vs select) so a later
+  // Journey-planner / generation-wizard can reuse the map as a hex PICKER with no rework.
+  MAP_HEX_SIZE: 40,          // mirrors engine MAP_DEFAULT_HEX_SIZE; internal SVG units.
+  mapFillLayer: 'terrain',   // active "Color by:" layer (terrain|domain|land-value|classification)
+  mapMode: 'inspect',        // 'inspect' (click→hex card) | 'select' (click→hand id to a caller)
+  mapViewBox: null,          // {x,y,w,h} — the SVG viewBox; null = not yet fitted
+  _mapPan: null,             // in-flight drag-pan bookkeeping
+  _mapDragged: false,        // set true once a drag moves; suppresses the trailing @click
+  _mapSelectCb: null,        // select-mode callback (hexId, entry) => void
+  _mapSelectHint: '',        // banner text shown while in select mode
+  // M3–M6 layer toggles (symbols / edges / journeys / empty-cells), persisted in mapPrefs.
+  mapSymbolToggles: { settlements:true, strongholds:true, lairs:true, dungeons:true, pois:true },
+  mapEdgeToggles:   { borders:true, roads:true, rivers:true, trails:false },
+  mapShowJourneys: true,
+  mapEditAddMode: false,     // M5 — "Add/Edit hexes": faint addable empty cells + click an existing hex to edit it
+  mapCreateAt: null,         // {q,r} when the create/edit-hex picker is open
+  mapEditHexId: null,        // when the picker is editing an existing hex (vs creating); null = create
+  mapCreateDomainId: '',     // chosen domain for the hex ('' = unclaimed wilderness)
+  mapCreateTerrain: '',      // chosen terrain for the hex ('' = unset)
+  mapCreateRiverSides: [],   // #225 — hex sides (0..5) carrying a river (drawn along those edges; a movement barrier)
+  mapCreateRoadSides: [],    // #225 — hex sides (0..5) the road reaches from the centre (with circular bends)
+  mapCreateCrossingSides: [], // #225 — river sides (0..5) carrying a ford/bridge (negates the barrier); road×river is an implicit bridge
+
+  // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
+  // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
+  // wilderness hexes (campaign.hexes[] with no domain match) render too and open the full hex
+  // card by id (worldHexEditingHex resolves them via campaign.hexes — domainId/hexIndex are null).
+  mapHexEntries(){
+    const size = this.MAP_HEX_SIZE, A = window.ACKS;
+    const out = [], seen = new Set();
+    this.allHexes().forEach(e => {
+      const h = e.hex; if(!h || !h.coord) return;
+      seen.add(h.id);
+      const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
+      out.push({ hex:h, domainId:e.domainId, domainName:e.domainName, hexIndex:e.hexIndex,
+                 cx:c.x, cy:c.y, points:A.hexPolygonPoints(h.coord.q, h.coord.r, size),
+                 label:A.hexDisplayLabel(h.coord.q, h.coord.r), domainless:false });
+    });
+    (this.currentCampaign?.hexes||[]).forEach(h => {
+      if(!h || !h.coord || seen.has(h.id)) return;
+      const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
+      out.push({ hex:h, domainId:h.domainId||null, domainName:null, hexIndex:-1,
+                 cx:c.x, cy:c.y, points:A.hexPolygonPoints(h.coord.q, h.coord.r, size),
+                 label:A.hexDisplayLabel(h.coord.q, h.coord.r), domainless:true });
+    });
+    return out;
+  },
+  mapFill(hex){ return window.ACKS.hexFillColor(hex, this.mapFillLayer, this.mapFillContext()); },
+  mapFillLayers(){ return window.ACKS.hexFillLayers(); },
+  mapSymbolLayers(){ return window.ACKS.mapSymbolLayers(); },
+  mapEdgeLayers(){ return window.ACKS.mapEdgeLayers(); },
+  mapTerrainTypes(){ return window.ACKS.mapTerrainTypes(); },
+  mapLegend(){ return window.ACKS.hexFillLegend(this.mapFillLayer, this.domains); },
+  // Per-domain aggregates for the domain-aware fills (secured/morale) — the engine has no campaign
+  // reference, so the UI precomputes these and hands them to hexFillColor as ctx (computed once/render).
+  mapFillContext(){
+    const securedStateByDomain = {}, moraleByDomain = {};
+    (this.domains || []).forEach(d => {
+      securedStateByDomain[d.id] = this.strongholdState(d);
+      moraleByDomain[d.id] = (d.demographics && d.demographics.morale) || 0;
+    });
+    return { securedStateByDomain, moraleByDomain };
+  },
+  mapHexTitle(entry){
+    const h = entry.hex;
+    const bits = [window.ACKS.hexName(h) || entry.label];      // canonical hex name (Architecture §11.3)
+    if(h.settlement && h.settlement.name && h.terrain) bits.push(h.terrain); // terrain isn't in the name → show it
+    bits.push(entry.domainName || (entry.domainless ? 'unclaimed' : ''));
+    if(h.valuePerFamily != null) bits.push(h.valuePerFamily + ' gp/family');
+    return bits.filter(Boolean).join('  ·  ');
+  },
+  // Build the full SVG inner markup (all hexes) as a string for x-html. Re-renders reactively
+  // when the hex set or active fill layer changes (both read here). Each polygon carries
+  // data-hex-id so the delegated click handler (mapSvgClick) can resolve which hex was clicked.
+  mapSvgMarkup(){
+    const size = this.MAP_HEX_SIZE, A = window.ACKS;
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const entries = this.mapHexEntries();
+    const ctx = this.mapFillContext();
+    const layer = this.mapFillLayer;
+    const sw = (size * 0.04).toFixed(2), labelFs = (size * 0.22).toFixed(1);
+    const deltas = A.hexNeighborDeltas();
+    const byCoord = {};
+    entries.forEach(e => { byCoord[e.hex.coord.q + ',' + e.hex.coord.r] = e; });
+    const parts = [];
+
+    // 1) FILLS (bottom) — clickable hex polygons.
+    entries.forEach(e => {
+      parts.push('<polygon data-hex-id="' + esc(e.hex.id) + '" points="' + e.points + '" fill="' + A.hexFillColor(e.hex, layer, ctx) + '" ' +
+        'stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(this.mapHexTitle(e)) + '</title></polygon>');
+    });
+
+    // 2) EMPTY CELLS (M5) — faint addable hexes (click → create-hex picker).
+    if(this.mapEditAddMode){
+      this.mapEmptyCells().forEach(c => {
+        parts.push('<polygon data-empty-q="' + c.q + '" data-empty-r="' + c.r + '" points="' + c.points + '" fill="#000000" fill-opacity="0.04" ' +
+          'stroke="#4b3f2f" stroke-opacity="0.35" stroke-dasharray="' + (size*0.12).toFixed(1) + ',' + (size*0.08).toFixed(1) + '" stroke-width="' + sw + '" style="cursor:copy;"><title>Add a hex here (' + esc(c.label) + ')</title></polygon>');
+      });
+    }
+
+    // 3) EDGES (M4) — domain borders (inset, so adjacent realms each show their own) + road/river/trail networks.
+    const edgeMid = (q, r, i) => { const p = A.hexEdgePoints(q, r, size, i); return { x:(p[0].x+p[1].x)/2, y:(p[0].y+p[1].y)/2 }; };
+    const inset = (p, c, f) => ({ x: c.x + (p.x - c.x) * (1 - f), y: c.y + (p.y - c.y) * (1 - f) });
+    entries.forEach(e => {
+      const q = e.hex.coord.q, r = e.hex.coord.r, c = { x:e.cx, y:e.cy };
+      if(this.mapEdgeToggles.borders && e.hex.domainId){
+        deltas.forEach((d, i) => {
+          const nb = byCoord[(q+d[0]) + ',' + (r+d[1])];
+          if(nb && nb.hex.domainId === e.hex.domainId) return; // interior edge — skip
+          const ep = A.hexEdgePoints(q, r, size, i), a = inset(ep[0], c, 0.07), b = inset(ep[1], c, 0.07);
+          parts.push('<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="#3b2f1c" stroke-width="'+(size*0.07).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>');
+        });
+      }
+      const net = (color, width, dash) => (flag) => deltas.forEach((d, i) => {
+        const nb = byCoord[(q+d[0]) + ',' + (r+d[1])];
+        if(!nb || !flag(nb.hex)) return;
+        const m = edgeMid(q, r, i);
+        parts.push('<line x1="'+c.x.toFixed(1)+'" y1="'+c.y.toFixed(1)+'" x2="'+m.x.toFixed(1)+'" y2="'+m.y.toFixed(1)+'" stroke="'+color+'" stroke-width="'+width+'" stroke-linecap="round"'+(dash?' stroke-dasharray="'+dash+'"':'')+' style="pointer-events:none;"/>');
+      });
+      // ROADS — prefer the GM-drawn per-side geometry (#225: centre → chosen sides, faintly circular
+      // bends); fall back to the legacy auto-network (spokes toward like-roaded neighbours) for hexes
+      // carrying only the legacy hasRoad flag. roadSides is CARTOGRAPHIC and independent of hasRoad
+      // (the coarse travel flag); hex-by-hex journeys will derive the road bonus from roadSides
+      // (Phase_2.5_Journeys_Plan §24). They don't connect through the legacy network — by design.
+      if(this.mapEdgeToggles.roads){
+        const rs = e.hex.roadSides || [];
+        if(rs.length){
+          const dd = A.hexRoadPathD(q, r, size, rs);
+          if(dd) parts.push('<path d="'+dd+'" fill="none" stroke="#6b4a2b" stroke-width="'+(size*0.09).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"/>');
+          if(rs.length >= 3) parts.push('<circle cx="'+c.x.toFixed(1)+'" cy="'+c.y.toFixed(1)+'" r="'+(size*0.07).toFixed(2)+'" fill="#6b4a2b" style="pointer-events:none;"/>');
+        } else if(e.hex.hasRoad){
+          net('#6b4a2b', (size*0.08).toFixed(2), '')(h => h.hasRoad);
+        }
+      }
+      if(this.mapEdgeToggles.trails && e.hex.hasTrail) net('#8a6d3b', (size*0.05).toFixed(2), (size*0.10).toFixed(1)+','+(size*0.08).toFixed(1))(h => h.hasTrail);
+      // RIVERS (#225) — drawn ALONG the chosen edges (a movement barrier). Plus CROSSINGS (ford/bridge):
+      // a short brown mark across the river where the GM placed a ford/bridge (crossingSides) OR where a
+      // road crosses the river edge (roadSides ∩ riverSides — an implicit bridge). The river BARRIER + the
+      // RAW fording cost are documented for hex-by-hex journeys (Phase_2.5_Journeys_Plan §24), not yet wired.
+      if(this.mapEdgeToggles.rivers){
+        const vs = e.hex.riverSides || [], cross = e.hex.crossingSides || [], rsR = e.hex.roadSides || [];
+        A.hexRiverSegments(q, r, size, vs).forEach(s => parts.push('<line x1="'+s.x1.toFixed(1)+'" y1="'+s.y1.toFixed(1)+'" x2="'+s.x2.toFixed(1)+'" y2="'+s.y2.toFixed(1)+'" stroke="#3f73b8" stroke-width="'+(size*0.09).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>'));
+        for(let i = 0; i < 6; i++){
+          if(vs.includes(i) && (cross.includes(i) || rsR.includes(i))){
+            const cs = A.hexCrossingSegment(q, r, size, i, size * 0.40);
+            parts.push('<line x1="'+cs.x1.toFixed(1)+'" y1="'+cs.y1.toFixed(1)+'" x2="'+cs.x2.toFixed(1)+'" y2="'+cs.y2.toFixed(1)+'" stroke="#6b4a2b" stroke-width="'+(size*0.11).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>');
+          }
+        }
+      }
+    });
+
+    // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring.
+    if(this.mapShowJourneys){
+      this.mapJourneyRoutes().forEach(rt => {
+        if(rt.pts.length >= 2){
+          const dd = rt.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+          parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
+        }
+        if(rt.current){
+          parts.push('<circle cx="'+rt.current.x.toFixed(1)+'" cy="'+rt.current.y.toFixed(1)+'" r="'+(size*0.15).toFixed(1)+'" fill="#d9762b" stroke="#fff" stroke-width="'+(size*0.03).toFixed(2)+'" style="pointer-events:none;"><title>'+esc(rt.name)+' (current position)</title></circle>');
+        }
+      });
+    }
+
+    // 5) SYMBOLS (M3) — glyphs on top; pointer-events:none so clicks fall through to the hex polygon.
+    const T = this.mapSymbolToggles;
+    entries.forEach(e => {
+      const h = e.hex, cx = e.cx, cy = e.cy;
+      if(T.settlements && h.settlement){
+        const rr = (size * A.settlementGlyphScale(h.settlement.families || 0)).toFixed(1);
+        parts.push('<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="'+rr+'" fill="#f3ecd8" stroke="#4b3f2f" stroke-width="'+(size*0.04).toFixed(2)+'" style="pointer-events:none;"/>');
+      }
+      if(T.strongholds && h.primaryStructure){
+        parts.push('<text x="'+cx.toFixed(1)+'" y="'+(cy - size*0.03).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+(size*0.34).toFixed(1)+'" style="pointer-events:none;user-select:none;">♜</text>');
+      }
+      const badges = [];
+      if(T.lairs    && (h.lairs||[]).length)            badges.push('⚔' + (h.lairs.length > 1 ? h.lairs.length : ''));
+      if(T.dungeons && (h.dungeons||[]).length)         badges.push('🏛' + (h.dungeons.length > 1 ? h.dungeons.length : ''));
+      if(T.pois     && (h.pointsOfInterest||[]).length) badges.push('⛯' + (h.pointsOfInterest.length > 1 ? h.pointsOfInterest.length : ''));
+      if(badges.length){
+        parts.push('<text x="'+cx.toFixed(1)+'" y="'+(cy + size*0.5).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+(size*0.2).toFixed(1)+'" style="pointer-events:none;user-select:none;">'+esc(badges.join(' '))+'</text>');
+      }
+    });
+
+    // 6) LABELS (top) — RAW column-row, near the top edge so symbols own the centre.
+    entries.forEach(e => {
+      parts.push('<text x="'+e.cx.toFixed(1)+'" y="'+(e.cy - size*0.58).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+labelFs+'" fill="#2b2b2b" fill-opacity="0.75" style="pointer-events:none;user-select:none;font-family:monospace;">'+esc(e.label)+'</text>');
+    });
+
+    return parts.join('');
+  },
+  // The faint "addable" empty cells (M5): every axial neighbour of an existing hex that isn't itself
+  // an existing hex. Clicking one opens the create-hex picker.
+  mapEmptyCells(){
+    const size = this.MAP_HEX_SIZE, A = window.ACKS, deltas = A.hexNeighborDeltas();
+    const entries = this.mapHexEntries();
+    const have = new Set(entries.map(e => e.hex.coord.q + ',' + e.hex.coord.r));
+    const out = [], seen = new Set();
+    entries.forEach(e => {
+      const q = e.hex.coord.q, r = e.hex.coord.r;
+      deltas.forEach(d => {
+        const nq = q + d[0], nr = r + d[1], key = nq + ',' + nr;
+        if(have.has(key) || seen.has(key)) return;
+        seen.add(key);
+        out.push({ q:nq, r:nr, points:A.hexPolygonPoints(nq, nr, size), label:A.hexDisplayLabel(nq, nr) });
+      });
+    });
+    return out;
+  },
+  // Active journey routes (M6): each → ordered {x,y} centres for a polyline + the current-position centre.
+  mapJourneyRoutes(){
+    const size = this.MAP_HEX_SIZE, A = window.ACKS;
+    const hexById = {};
+    (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.id) hexById[h.id] = h; });
+    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.id && !hexById[h.id]) hexById[h.id] = h; }));
+    const centre = id => { const h = hexById[id]; if(!h || !h.coord) return null; const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size); return { x:c.x, y:c.y }; };
+    const routes = [];
+    (this.currentCampaign?.journeys || []).forEach(j => {
+      if(!j || j.status === 'aborted') return;
+      const ids = [j.startHexId].concat((j.waypoints || []).map(w => w.hexId), [j.destinationHexId]).filter(Boolean);
+      const pts = ids.map(centre).filter(Boolean);
+      if(!pts.length) return;
+      routes.push({ id:j.id, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.startHexId) });
+    });
+    return routes;
+  },
+  // M5 "Add/Edit hexes" flow — the picker opens on an empty cell (create) OR an existing hex (edit).
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  // Open the picker on an existing hex, pre-filled with its current domain + terrain + rivers + roads + crossings.
+  mapEditExistingHex(entry){
+    const h = entry.hex;
+    this.mapCreateAt = { q: h.coord.q, r: h.coord.r };
+    this.mapEditHexId = h.id;
+    this.mapCreateDomainId = h.domainId || '';
+    this.mapCreateTerrain = h.terrain || '';
+    this.mapCreateRiverSides    = Array.isArray(h.riverSides)    ? h.riverSides.slice()    : [];
+    this.mapCreateRoadSides     = Array.isArray(h.roadSides)     ? h.roadSides.slice()     : [];
+    this.mapCreateCrossingSides = Array.isArray(h.crossingSides) ? h.crossingSides.slice() : [];
+  },
+  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  // Toggle hex side `i` (0..5) in the road picker. `which` is 'mapCreateRoadSides'. (Rivers use the
+  // 3-state cycle in mapMiniSideClick — none → river → river+ford/bridge → none.)
+  mapToggleSide(which, i){
+    const arr = this[which] || [];
+    this[which] = arr.includes(i) ? arr.filter(x => x !== i) : arr.concat(i).sort((a, b) => a - b);
+  },
+  // Delegated click for the mini-hex side pickers (rivers click edges, roads click spokes). Reads the
+  // data-mini-side / data-mini-kind attrs off the clicked element — same pattern as the main map SVG.
+  // Roads toggle. Rivers cycle 3 states on each edge: none → river → river + ford/bridge → none.
+  mapMiniSideClick(ev){
+    const el = ev.target.closest('[data-mini-side]'); if(!el) return;
+    const side = parseInt(el.getAttribute('data-mini-side'), 10);
+    const kind = el.getAttribute('data-mini-kind');
+    if(Number.isNaN(side)) return;
+    if(kind !== 'river'){ this.mapToggleSide('mapCreateRoadSides', side); return; }
+    const hasRiver = this.mapCreateRiverSides.includes(side);
+    const hasCross = this.mapCreateCrossingSides.includes(side);
+    if(!hasRiver){ this.mapCreateRiverSides = this.mapCreateRiverSides.concat(side).sort((a, b) => a - b); }           // none → river
+    else if(!hasCross){ this.mapCreateCrossingSides = this.mapCreateCrossingSides.concat(side).sort((a, b) => a - b); } // river → river + crossing
+    else { this.mapCreateRiverSides = this.mapCreateRiverSides.filter(x => x !== side); this.mapCreateCrossingSides = this.mapCreateCrossingSides.filter(x => x !== side); } // → none
+  },
+  // Mini interactive hex for the picker (kind='river'|'road'). Rivers: clickable edges (drawn along the
+  // edge, blue when on). Roads: clickable spokes from the centre to each side (the active set drawn with
+  // circular bends via hexRoadPathD, brown). Built as an x-html string + a delegated click (the same
+  // <template x-for>-doesn't-work-in-SVG workaround the main map uses). Fixed size, independent of zoom.
+  mapMiniHexMarkup(kind){
+    const A = window.ACKS, S = 40;
+    const on = kind === 'river' ? (this.mapCreateRiverSides || []) : (this.mapCreateRoadSides || []);
+    const isOn = i => on.includes(i);
+    const f = n => n.toFixed(1);
+    const parts = ['<polygon points="' + A.hexPolygonPoints(0, 0, S) + '" fill="#faf6ec" stroke="#bcae93" stroke-width="1.5"/>'];
+    if(kind === 'river'){
+      const cross = this.mapCreateCrossingSides || [];
+      for(let i = 0; i < 6; i++){
+        const p = A.hexEdgePoints(0, 0, S, i), act = isOn(i);
+        parts.push('<line x1="' + f(p[0].x) + '" y1="' + f(p[0].y) + '" x2="' + f(p[1].x) + '" y2="' + f(p[1].y) + '" stroke="' + (act ? '#3f73b8' : '#d9d2c0') + '" stroke-width="' + (act ? 5 : 2) + '" stroke-linecap="round" style="pointer-events:none;"/>');
+        if(act && cross.includes(i)){ const cs = A.hexCrossingSegment(0, 0, S, i, S * 0.40); parts.push('<line x1="' + f(cs.x1) + '" y1="' + f(cs.y1) + '" x2="' + f(cs.x2) + '" y2="' + f(cs.y2) + '" stroke="#6b4a2b" stroke-width="4.5" stroke-linecap="round" style="pointer-events:none;"/>'); }
+        parts.push('<line data-mini-side="' + i + '" data-mini-kind="river" x1="' + f(p[0].x) + '" y1="' + f(p[0].y) + '" x2="' + f(p[1].x) + '" y2="' + f(p[1].y) + '" stroke="transparent" stroke-width="13" style="cursor:pointer;pointer-events:stroke;"/>');
+      }
+    } else {
+      for(let i = 0; i < 6; i++){
+        const m = A.hexEdgeMidpoint(0, 0, S, i);
+        if(!isOn(i)) parts.push('<line x1="0" y1="0" x2="' + f(m.x) + '" y2="' + f(m.y) + '" stroke="#d9d2c0" stroke-width="2" stroke-linecap="round" style="pointer-events:none;"/>');
+        parts.push('<line data-mini-side="' + i + '" data-mini-kind="road" x1="0" y1="0" x2="' + f(m.x) + '" y2="' + f(m.y) + '" stroke="transparent" stroke-width="13" style="cursor:pointer;pointer-events:stroke;"/>');
+      }
+      const d = A.hexRoadPathD(0, 0, S, on);
+      if(d) parts.push('<path d="' + d + '" fill="none" stroke="#6b4a2b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"/>');
+      if(on.length >= 3) parts.push('<circle cx="0" cy="0" r="4.5" fill="#6b4a2b" style="pointer-events:none;"/>');
+    }
+    return parts.join('');
+  },
+  // Terrain options for the picker: the 9 base types, plus — when editing a hex whose terrain
+  // isn't one of them (e.g. legacy "plains"/"coast") — its current value, so it's shown + preserved.
+  mapTerrainOptions(){
+    const base = window.ACKS.mapTerrainTypes();
+    const cur = (this.mapCreateTerrain || '').trim();
+    if(cur && !base.some(t => t.value === cur)) return [{ value: cur, label: cur + ' (current)' }].concat(base);
+    return base;
+  },
+  _mapFindHexById(id){
+    let h = (this.currentCampaign?.hexes || []).find(x => x.id === id);
+    if(h) return h;
+    for(const d of (this.domains || [])){
+      h = (d.geography?.hexes || []).find(x => x.id === id);
+      if(h) return h;
+    }
+    return null;
+  },
+  _mapFindHexByCoord(q, r){
+    return (this.currentCampaign?.hexes || []).find(x => x.coord && x.coord.q === q && x.coord.r === r) || null;
+  },
+  // #225 — apply per-side rivers + crossings to `hex` AND mirror each shared edge to the neighbour's
+  // opposite edge: a river (and any ford/bridge on it) lives ON the boundary, so it belongs to BOTH
+  // hexes. The editing hex is authoritative for its 6 shared edges (its loaded state already reflects
+  // prior mirrors), so we sync all 6 — idempotent. A crossing is only kept on an edge that has a river.
+  _mapApplyWaterFeatures(hex, riverSides, crossingSides){
+    const A = window.ACKS, deltas = A.hexNeighborDeltas();
+    const norm = a => Array.from(new Set((a || []).map(i => ((i % 6) + 6) % 6))).sort((x, y) => x - y);
+    const nwR = norm(riverSides);
+    const nwC = norm(crossingSides).filter(i => nwR.includes(i));
+    hex.riverSides = nwR;
+    hex.crossingSides = nwC;
+    for(let i = 0; i < 6; i++){
+      const nb = this._mapFindHexByCoord(hex.coord.q + deltas[i][0], hex.coord.r + deltas[i][1]);
+      if(!nb) continue;
+      const opp = (i + 3) % 6;
+      const setEdge = (arr, on) => { const s = new Set(arr || []); if(on) s.add(opp); else s.delete(opp); return Array.from(s).sort((a, b) => a - b); };
+      nb.riverSides    = setEdge(nb.riverSides,    nwR.includes(i));
+      nb.crossingSides = setEdge(nb.crossingSides, nwC.includes(i));
+    }
+  },
+  // Move a hex between domains (or to/from unclaimed). Preserves the (reference-unified, #193) hex
+  // object: drop it from the old domain's nested geography, set domainId, add to the new domain's.
+  mapRehomeHex(hex, newDomainId){
+    const cur = hex.domainId || null, next = newDomainId || null;
+    if(cur === next) return;
+    if(cur){
+      const od = this.domains.find(d => d.id === cur);
+      if(od && od.geography && Array.isArray(od.geography.hexes)) od.geography.hexes = od.geography.hexes.filter(h => h.id !== hex.id);
+    }
+    hex.domainId = next;
+    if(next){
+      const nd = this.domains.find(d => d.id === next);
+      if(nd){
+        if(!nd.geography) nd.geography = {};
+        if(!Array.isArray(nd.geography.hexes)) nd.geography.hexes = [];
+        if(!nd.geography.hexes.some(h => h.id === hex.id)) nd.geography.hexes.push(hex);
+      }
+    }
+    if(Array.isArray(this.currentCampaign?.hexes) && !this.currentCampaign.hexes.some(h => h.id === hex.id)) this.currentCampaign.hexes.push(hex);
+  },
+  // The picker's Create/Save button. Branches on mapEditHexId (edit existing) vs create new.
+  mapCreateHex(){
+    const at = this.mapCreateAt; if(!at) return;
+    // EDIT branch — an existing hex was clicked in Edit/Add mode.
+    if(this.mapEditHexId){
+      const hex = this._mapFindHexById(this.mapEditHexId);
+      if(hex){
+        this.mapRehomeHex(hex, this.mapCreateDomainId || '');
+        hex.terrain = this.mapCreateTerrain || '';
+        hex.roadSides = (this.mapCreateRoadSides || []).slice(); // CARTOGRAPHIC; hasRoad (travel flag) left untouched — see Phase_2.5_Journeys_Plan §24
+        this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides);
+        this.markDirty(); this.schedulePersist();
+        const d = this.mapCreateDomainId ? this.domains.find(x => x.id === this.mapCreateDomainId) : null;
+        this.showToast('Updated hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + (d ? ' (' + d.name + ')' : ' (unclaimed)') + '.');
+      }
+      this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+      return;
+    }
+    // CREATE branch — a new hex at the clicked empty cell.
+    const coord = { q: at.q, r: at.r };
+    const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
+      roadSides: (this.mapCreateRoadSides || []).slice() }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
+    const domId = this.mapCreateDomainId || '';
+    if(domId){
+      const d = this.domains.find(x => x.id === domId);
+      if(!d){ this.mapCreateAt = null; return; }
+      hex.domainId = d.id;
+      if(!d.geography) d.geography = {};
+      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
+      d.geography.hexes.push(hex);
+      if(Array.isArray(this.currentCampaign?.hexes)) this.currentCampaign.hexes.push(hex); // reference-unified (#193)
+      this.showToast('Created hex ' + window.ACKS.hexDisplayLabel(coord.q, coord.r) + ' in ' + (d.name || 'domain') + '.');
+    } else {
+      hex.domainId = null;
+      if(!Array.isArray(this.currentCampaign.hexes)) this.currentCampaign.hexes = [];
+      this.currentCampaign.hexes.push(hex);
+      this.showToast('Created wilderness hex ' + window.ACKS.hexDisplayLabel(coord.q, coord.r) + ' (unclaimed).');
+    }
+    this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides); // rivers + crossings (+ mirror to neighbours)
+    this.markDirty(); this.schedulePersist();
+    this.mapCreateAt = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+  },
+  // M5 "Standard view" composite — terrain fill + all symbols + borders/roads/rivers + journeys.
+  mapStandardView(){
+    this.mapFillLayer = 'terrain';
+    this.mapSymbolToggles = { settlements:true, strongholds:true, lairs:true, dungeons:true, pois:true };
+    this.mapEdgeToggles   = { borders:true, roads:true, rivers:true, trails:false };
+    this.mapShowJourneys = true;
+    this.mapEditAddMode = false;
+    this.mapCreateAt = null;
+    this.mapEditHexId = null;
+    this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+    this.schedulePersist();
+  },
+  // Delegated click on the SVG → resolve the clicked hex via its data-hex-id, then dispatch
+  // (mapClickHex owns the drag-suppression + inspect/select mode handling).
+  mapSvgClick(e){
+    const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id],[data-empty-q]') : null;
+    if(!el) return;
+    if(el.hasAttribute('data-empty-q')){
+      if(this._mapDragged){ this._mapDragged = false; return; } // a drag, not a click
+      this.mapClickEmpty(parseInt(el.getAttribute('data-empty-q'), 10), parseInt(el.getAttribute('data-empty-r'), 10));
+      return;
+    }
+    const entry = this.mapHexEntries().find(x => x.hex.id === el.getAttribute('data-hex-id'));
+    if(entry) this.mapClickHex(entry);
+  },
+
+  // Fit the viewBox to all hexes (+ a margin). Called when entering the map with no viewport,
+  // on campaign load, and by the "Fit" button.
+  mapResetView(){
+    const A = window.ACKS;
+    const hexes = this.mapHexEntries().map(e => e.hex);
+    const b = A.hexMapBounds(hexes, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5);
+    if(!b){ const s = this.MAP_HEX_SIZE; this.mapViewBox = { x:-s*2, y:-s*2, w:s*4, h:s*4 }; }
+    else  { this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+    this.schedulePersist();
+  },
+  mapEnsureView(){ if(!this.mapViewBox) this.mapResetView(); },
+  mapViewBoxStr(){ const v = this.mapViewBox; return v ? (v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h) : '0 0 100 100'; },
+
+  // Screen point → world (viewBox) coords, accounting for preserveAspectRatio="meet" letterboxing
+  // (uniform scale s, content centered). Lets pan + zoom track the cursor exactly regardless of the
+  // container's aspect ratio. Pan/zoom then just re-pin: shift the viewBox so the grabbed/pointed
+  // world point stays under the cursor (changing viewBox x/y shifts the mapped world 1:1).
+  _mapScreenToWorld(svg, clientX, clientY){
+    const vb = this.mapViewBox, rect = svg.getBoundingClientRect();
+    if(!vb || !rect.width || !rect.height) return { x:0, y:0 };
+    const s = Math.min(rect.width / vb.w, rect.height / vb.h);
+    const ox = (rect.width - vb.w * s) / 2, oy = (rect.height - vb.h * s) / 2;
+    return { x: vb.x + ((clientX - rect.left) - ox) / s, y: vb.y + ((clientY - rect.top) - oy) / s };
+  },
+  // Wheel = zoom about the cursor.
+  mapWheel(e){
+    const svg = e.currentTarget; if(!this.mapViewBox || !svg) return;
+    const vb = this.mapViewBox;
+    const before = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    const factor = e.deltaY > 0 ? 1.15 : 0.87;
+    const newW = vb.w * factor, newH = vb.h * factor;
+    const minW = this.MAP_HEX_SIZE * 0.5, maxW = this.MAP_HEX_SIZE * 4000; // clamp degenerate zoom
+    if(newW < minW || newW > maxW) return;
+    vb.w = newW; vb.h = newH;
+    const after = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    vb.x += before.x - after.x; vb.y += before.y - after.y; // re-pin the cursor's world point
+    this.schedulePersist();
+  },
+  // Drag = pan (keep the grabbed world point under the cursor).
+  mapPanStart(e){
+    const svg = e.currentTarget; if(!this.mapViewBox || !svg) return;
+    const g = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    this._mapPan = { sx:e.clientX, sy:e.clientY, gx:g.x, gy:g.y };
+    this._mapDragged = false;
+  },
+  mapPanMove(e){
+    const p = this._mapPan, svg = this.$refs.mapSvg;
+    if(!p || !this.mapViewBox || !svg) return;
+    if(Math.abs(e.clientX - p.sx) + Math.abs(e.clientY - p.sy) > 3) this._mapDragged = true;
+    const w = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    this.mapViewBox.x += p.gx - w.x; this.mapViewBox.y += p.gy - w.y;
+  },
+  mapPanEnd(){ if(this._mapPan){ this._mapPan = null; this.schedulePersist(); } },
+
+  // Mode-aware click dispatch — the seam that lets the map be reused as a hex picker (plan §9.1).
+  mapClickHex(entry){
+    if(this._mapDragged){ this._mapDragged = false; return; } // a drag, not a click
+    if(this.mapMode === 'select' && typeof this._mapSelectCb === 'function'){
+      this._mapSelectCb(entry.hex.id, entry);
+      return;
+    }
+    // Edit/Add mode — clicking an existing hex opens the quick edit picker (domain + terrain),
+    // pre-filled with the hex's current values. Works for domainless hexes too (this is how you
+    // assign a wilderness hex to a domain). The full hex card is still one inspect-mode click away.
+    if(this.mapEditAddMode){
+      this.mapEditExistingHex(entry);
+      return;
+    }
+    // inspect mode (default) — open the EXISTING hex card (no second editor). Works for domainless
+    // wilderness hexes too: worldHexEditingHex() resolves them by id from campaign.hexes.
+    this.openHexDetail({ domainId:entry.domainId, hexIndex:entry.hexIndex, hex:entry.hex, domainName:entry.domainName });
+  },
+  // Public seam for future callers (Journey planner, generation wizards): put the map into
+  // select mode; clicking a hex hands its id to `cb`. Call mapEndSelect() to restore inspect.
+  mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'world'; this.worldSubView = 'map'; this.mapEnsureView(); },
+  mapEndSelect(){ this._mapSelectCb = null; this._mapSelectHint = ''; this.mapMode = 'inspect'; },
   // Create a new blank hex on the picked domain. Same shape as Domain > Hexes "+ add hex"
   // so a hex created from either view is structurally identical.
   addHexToDomain(domainId){
@@ -11140,6 +11824,7 @@ return {
     this.currentCampaign=blankCampaign({name});
     this.domains=[];this.selectedDomainId=null;
     this.fileHandle=null;this.fileName='';
+    this.mapViewBox=null; // #225 re-fit the map to the new campaign on next open
     this.showToast('Campaign "'+name+'" created (unsaved).');
   },
 
@@ -11171,6 +11856,7 @@ return {
     if(!Array.isArray(camp.eventLog))camp.eventLog=[];
     const inlineDomains=Array.isArray(camp.domains)?camp.domains:[];
     this.currentCampaign=camp;
+    this.mapViewBox=null; // #225 re-fit the map to the loaded campaign on next open
     // v2: campaign-level migrateCampaign already validated each domain; no per-domain migration.
     this.domains=inlineDomains;
     this.currentCampaign.domains=[]; // free duplicate reference; rebuilt at save time
@@ -12287,15 +12973,14 @@ return {
     if(!ch) return '—';
     const hexId = ch.currentHexId;
     if(!hexId) return '—';
+    // domained hex (nested geography) → "<hex name> · <domain>" (canonical hex name, Architecture §11.3)
     for(const d of (this.domains||[])){
-      const hexes = d.geography?.hexes || [];
-      for(const h of hexes){
-        if(h.id === hexId){
-          const setName = h.settlement && h.settlement.name;
-          return '(' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')' + (setName ? ' · ' + setName : '') + ' · ' + d.name;
-        }
-      }
+      const h = (d.geography?.hexes||[]).find(x => x.id === hexId);
+      if(h) return window.ACKS.hexName(h) + ' · ' + d.name;
     }
+    // domainless wilderness hex (top-level only)
+    const wild = (this.currentCampaign?.hexes||[]).find(x => x.id === hexId);
+    if(wild) return window.ACKS.hexName(wild);
     return '(unknown hex)';
   },
 

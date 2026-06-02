@@ -253,9 +253,22 @@ function blankHex(opts={}){
     terrain: opts.terrain || '',
     // Phase 2.5 Journeys (#475) — travel-relevant hex geography. terrain (above) keys the
     // speed + navigation catalogs; these refine route cost. GM-settable on the hex card.
-    hasRoad: opts.hasRoad === true,        // built road — ×3/2 speed, no navigation throw (RR p.272/275)
+    hasRoad: opts.hasRoad === true,        // legacy COARSE travel flag (×3/2 speed, RR p.272) read by the
+                                           // current distance-based journey engine. The per-side roadSides[]
+                                           // below is the precise map geometry; hex-by-hex journeys will
+                                           // derive the road bonus from it (Phase_2.5_Journeys_Plan §24).
     hasTrail: opts.hasTrail === true,      // marked trail — eases navigation but no speed bonus
-    riverCount: opts.riverCount || 0,      // crossings cost time when no bridge (RR p.492)
+    // #225 Map Mode "Add/Edit hexes" — per-side CARTOGRAPHY (which of the 6 hex sides, 0..5, carry a
+    // feature; edge indexing matches hexEdgePoints / HEX_EDGE_DELTAS). riverSides: a river runs ALONG the
+    // edge (a movement BARRIER). roadSides: a road runs from the hex centre out to the side midpoint
+    // (circular bends). crossingSides: a ford/bridge ON a river edge that negates the barrier (a road that
+    // crosses a river edge is an implicit bridge — drawn, not stored here). These are map-drawing truth;
+    // the travel EFFECTS (road bonus, river barrier + RAW fording) are documented for hex-by-hex journeys
+    // (Phase_2.5_Journeys_Plan §24), not yet wired into the current engine. (riverCount dropped #225 —
+    // it cited a non-existent RAW rule and was unused; RAW crossing = Swimming throws, RR p.271.)
+    roadSides: Array.isArray(opts.roadSides) ? opts.roadSides.slice() : [],
+    riverSides: Array.isArray(opts.riverSides) ? opts.riverSides.slice() : [],
+    crossingSides: Array.isArray(opts.crossingSides) ? opts.crossingSides.slice() : [],
     elevationFt: opts.elevationFt || 0,    // feeds visibility/sighting (Journeys §11)
     groundCondition: opts.groundCondition || 'clear', // 'clear'|'mud'|'snow' — mud/snow ×1/2 speed (RR p.272)
     primaryStructure: opts.primaryStructure || '',

@@ -834,7 +834,7 @@ function lazyDefaultV1ScopeReservations(campaign){
       // Phase 2.5 Journeys (#475) — travel-relevant hex geography.
       if(typeof h.hasRoad !== 'boolean')  h.hasRoad = false;
       if(typeof h.hasTrail !== 'boolean') h.hasTrail = false;
-      if(typeof h.riverCount !== 'number') h.riverCount = 0;
+      if('riverCount' in h) delete h.riverCount; // #225 dropped: not RAW-grounded (no overland crossing-cost rule) + unused; rivers are riverSides[] edges now (RAW crossing = Swimming throws, RR p.271)
       if(typeof h.elevationFt !== 'number') h.elevationFt = 0;
       // NB: groundCondition (mud/snow ×1/2, RR p.272) is deliberately NOT backfilled — it's a sparse
       // GM-set transient that the engine + hex card default to 'clear' when absent, so stamping an

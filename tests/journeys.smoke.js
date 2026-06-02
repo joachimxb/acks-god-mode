@@ -77,7 +77,7 @@ const legacy = { schemaVersion: 2, kind: 'campaign', id: 'cmp-legacy', name: 'L'
 const migrated = ACKS.migrateCampaign(JSON.parse(JSON.stringify(legacy)));
 check('migration: campaign.journeys[] exists', Array.isArray(migrated.journeys));
 const mh = migrated.hexes[0], mc = migrated.characters[0];
-check('migration: hex gains hasRoad/hasTrail/riverCount/elevationFt', mh.hasRoad === false && mh.hasTrail === false && mh.riverCount === 0 && mh.elevationFt === 0);
+check('migration: hex gains hasRoad/hasTrail/elevationFt; riverCount dropped (#225)', mh.hasRoad === false && mh.hasTrail === false && mh.elevationFt === 0 && !('riverCount' in mh));
 check('migration: character gains currentJourneyId/personalFatigue/hungerDays/dehydrationDays',
   mc.currentJourneyId === null && mc.personalFatigue === 0 && mc.hungerDays === 0 && mc.dehydrationDays === 0);
 

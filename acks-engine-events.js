@@ -881,10 +881,15 @@ function applyEvent_gmFiat(campaign, event){
     case 'domain':     entity = (campaign.domains||[]).find(x => x.id === target.id); break;
     case 'character':  entity = (campaign.characters||[]).find(x => x.id === target.id); break;
     case 'hex':
-      (campaign.domains||[]).forEach(d => {
-        const h = (d.geography?.hexes||[]).find(h => h.id === target.id);
-        if(h) entity = h;
-      });
+      // Top-level collection first (Foundation #14/#193 — domainless wilderness hexes live ONLY
+      // here; domained hexes are reference-unified, same object). Then walk legacy nested storage.
+      entity = (campaign.hexes||[]).find(h => h.id === target.id) || null;
+      if(!entity){
+        (campaign.domains||[]).forEach(d => {
+          const h = (d.geography?.hexes||[]).find(h => h.id === target.id);
+          if(h) entity = h;
+        });
+      }
       break;
     case 'settlement':
       // Check top-level collection first (Foundation #14), then walk legacy nested storage.
