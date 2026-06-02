@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
   It is a pure view of the hexes you already have — nothing new is written to your campaign file — and the first surface that makes the whole world legible at a glance.
 
+### Changed
+- **Hexes now have a consistent name everywhere they're referred to** — `<Settlement> (coords)` if the hex has a settlement, otherwise `<Terrain> (coords)` (e.g. "Saltspur (0000)", "Forest (0100)"). It shows in the hex card, World › Hexes, the Inspector, journeys, and character locations — replacing the bare `(q, r)` coordinates that appeared before. (The terse number at the top of each hex on the map is unchanged.)
+
 ## [0.12.0] - 2026-06-02
 
 ### Added
