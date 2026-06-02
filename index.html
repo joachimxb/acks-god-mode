@@ -228,10 +228,7 @@ document.addEventListener('alpine:init', () => {
           </p>
           <template x-if="dayTickProposal.paused">
             <div class="mb-2 p-2 border border-red-400 bg-red-50 rounded text-xs">
-              <strong>&#9208; Paused for review.</strong>
-              <template x-for="(rsn, ri) in dayTickProposal.pauseReasons" :key="ri">
-                <div x-text="'- ' + (rsn.label||rsn.trigger) + ' (' + rsn.trigger + ', day ' + rsn.dayInMonth + ')'"></div>
-              </template>
+              <strong>&#9208; Paused for review.</strong> <span class="opacity-70">A consumer flagged the items shown in red below — review, then commit or cancel.</span>
             </div>
           </template>
           <template x-if="(dayTickProposal.pendingRecords||[]).length === 0">
@@ -241,20 +238,29 @@ document.addEventListener('alpine:init', () => {
             <div class="mb-2">
               <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="grp.consumer"></div>
               <template x-for="(r, ri) in grp.records" :key="grp.consumer + '-' + ri">
-                <div class="flex items-center justify-between gap-2 py-0.5 border-b border-dashed border-gray-300" :class="r.rejected ? 'opacity-40 line-through' : ''">
-                  <span class="text-xs" x-text="r.label || (r.kind + ' record')"></span>
-                  <span class="flex items-center gap-1 shrink-0">
-                    <!-- Worker-built projects expose an editable committed-labor (cf) field. Monthly-cadence
-                         records (agricultural improvement — gp-denominated, advances at month-end) have no
-                         per-day labor to edit, so the field is suppressed (Wave Construction-B). -->
-                    <template x-if="typeof r.newLaborInvested === 'number' && r.cadence !== 'monthly'">
-                      <input type="number" x-model.number="r.newLaborInvested" class="w-20 text-xs border border-ink rounded px-1" title="Edit committed labor (cf)">
+                <div class="border-b border-dashed border-gray-300">
+                  <div class="flex items-center justify-between gap-2 py-0.5" :class="r.rejected ? 'opacity-40 line-through' : ''">
+                    <span class="text-xs" x-text="r.label || (r.kind + ' record')"></span>
+                    <span class="flex items-center gap-1 shrink-0">
+                      <!-- Worker-built projects expose an editable committed-labor (cf) field. Monthly-cadence
+                           records (agricultural improvement — gp-denominated, advances at month-end) have no
+                           per-day labor to edit, so the field is suppressed (Wave Construction-B). -->
+                      <template x-if="typeof r.newLaborInvested === 'number' && r.cadence !== 'monthly'">
+                        <input type="number" x-model.number="r.newLaborInvested" class="w-20 text-xs border border-ink rounded px-1" title="Edit committed labor (cf)">
+                      </template>
+                      <template x-if="r.cadence === 'monthly'">
+                        <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
+                      </template>
+                      <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
+                    </span>
+                  </div>
+                  <!-- This record's notable events (lost / hungry / dehydrated / encounter …), in red,
+                       under their own record — the journey label above isn't repeated. -->
+                  <div x-show="!r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
+                    <template x-for="(ne, nei) in (r._notables||[])" :key="grp.consumer + '-' + ri + '-ntl-' + nei">
+                      <div class="text-xs text-red-700 leading-snug" x-text="'• ' + dayTickNotableText(ne)"></div>
                     </template>
-                    <template x-if="r.cadence === 'monthly'">
-                      <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
-                    </template>
-                    <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
-                  </span>
+                  </div>
                 </div>
               </template>
             </div>
@@ -12438,6 +12444,12 @@ return {
       // field directly) so the tick finds + advances them; also clears capped budgets. Idempotent.
       window.ACKS.migrateAgriculturalToProjects(this.currentCampaign);
       this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {});
+      // Pre-attach each record's notable events as a STABLE array on the record. Calling a helper
+      // inside the review surface's nested x-for mis-renders under Alpine (only one record's
+      // notables show); iterating r._notables is reliable.
+      if(this.dayTickProposal){
+        (this.dayTickProposal.pendingRecords||[]).forEach(r => { if(r) r._notables = this.dayTickRecordNotables(r); });
+      }
     }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
     finally { this.currentCampaign.domains = _origDomains; }
@@ -12452,6 +12464,26 @@ return {
     const p = this.dayTickProposal; const map = {};
     if(p){ (p.pendingRecords || []).forEach(r => { (map[r.consumer] = map[r.consumer] || []).push(r); }); }
     return Object.keys(map).map(k => ({ consumer: k, records: map[k] }));
+  },
+  // Notable events (lost / hungry / dehydrated / encounter …) attributed to a specific pending
+  // record, so they render UNDER their own record instead of in one shared top banner. Journey
+  // records match by journeyId (correct with multiple journeys); other consumers fall back to
+  // same-consumer attribution. tickDayOnce tags every notable with {consumer, payload.journeyId}.
+  dayTickRecordNotables(record){
+    const p = this.dayTickProposal;
+    if(!p || !record) return [];
+    return (p.notableEvents || []).filter(e => {
+      if(!e || e.consumer !== record.consumer) return false;
+      if(record.journeyId) return !!(e.payload && e.payload.journeyId === record.journeyId);
+      return true;
+    });
+  },
+  // The relevant text of a notable, with the leading "<journey/record name>: " stripped so we
+  // don't repeat the journey label the record already shows.
+  dayTickNotableText(ne){
+    const t = (ne && (ne.label || ne.summary || ne.type || ne.kind)) || 'event';
+    const i = t.indexOf(': ');
+    return (i > 0 && i < 80) ? t.slice(i + 2) : t;
   },
   toggleRejectDayTickRecord(r){ if(r) r.rejected = !r.rejected; },
   cancelDayTick(){ this.dayTickProposal = null; this.dayTickError = null; },
