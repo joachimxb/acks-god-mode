@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Parties are now started by a founding character** (Characters › Parties). **+ New party** asks you to pick a character to found the party; the party is named after them (“&lt;founder&gt;’s party”) and placed at their hex, with the founder as the first member and leader. Adding members is then scoped to characters **in the same hex** as the party (so a party you’ve gathered in one place can be sent on a journey together). The leader is marked with a ★, and reassigns automatically if they leave.
 
 ### Fixed
+- A party's **Current hex** now shows its actual location (defaulting to the founder's hex) instead of always reading “(none)”. The picker is now a lock-edit control: while the party is on a journey its hex is driven by the journey (locked, with a link to it); otherwise the GM can unlock, pick a hex, and lock it. (The old picker was wired to an internal list that never populated, so no hex could ever be selected.)
 - Editing a per-hex family count (or the domain-level Peasant families field) no longer throws an error and reverts the edit. The internal sync that keeps the domain total and per-hex counts in agreement was calling engine helpers that weren't reachable from the event module; it now routes through the exported setters.
 
 ## [0.11.0] - 2026-06-01
