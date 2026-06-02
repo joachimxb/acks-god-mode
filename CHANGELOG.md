@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-02
+
 ### Added
 - **Campaign map — a clickable, zoomable, layered hex map of the world** (a new 🗺 Map view under the World tab). Every hex renders as a flat-top hexagon in its true position, labelled with a RAW-style column-row coordinate (RR p.273); **scroll to zoom, drag to pan**, and **click a hex to open its existing card**. Three kinds of layer build the map you expect:
   - **Color by** (one at a time, with a legend) — **terrain** (ten base types — nine land plus **open water** for oceans, seas, and big lakes), **domain** (a stable colour per realm; unclaimed grey), **land value** (3–9 gp/family heatmap, RR p.341), **classification**, **population** (vs the RR p.340 ceiling), **domain morale**, **secured** (stronghold adequacy, RR p.338), **economy**, and **exploration**.
@@ -94,7 +96,8 @@ The Community Preview — first public release.
 ### Security
 - Prototype-pollution guards on the event field-path writer, campaign validation on load, and a frozen `Object.prototype` at startup.
 
-[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.13.0
 [0.12.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.12.0
 [0.11.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.11.0
 [0.10.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.10.0
