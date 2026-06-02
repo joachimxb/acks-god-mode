@@ -93,9 +93,11 @@ check('RAW-default flip: simplified-fatigue + ignore-rations are the opt-ins', r
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('Catalogs — RAW corrections (weather / temperature / ground / nav split / pace)');
-// 2026-06-02 RAW audit (Fix A + B + C5). A1/A2 weather speed: foggy + snowy halve, stormy
-// quarters, rain does NOT slow travel (RR pp.277-279).
-check('weather speed: stormy ×1/4 (was wrongly ×3/4)', ACKS.JOURNEY_WEATHER_SPEED.stormy === 0.25);
+// 2026-06-02 RAW audit (Fix A + B + C5), storm corrected 2026-06-02 (deeper RAW re-check).
+// A1/A2 weather speed: foggy + snowy halve; rain AND stormy do NOT slow base travel (RR
+// pp.277-278 / JJ p.38 — the halving set is Frigid/Foggy/Muddy/Snowy/Sweltering; "stormy" is
+// a JJ activity-penalty condition, not a speed reducer, and no RAW weather imposes ×1/4).
+check('weather speed: stormy ×1 — RAW activity-penalty, not a speed reducer (was wrongly ×1/4)', ACKS.JOURNEY_WEATHER_SPEED.stormy === 1);
 check('weather speed: foggy ×1/2 (was wrongly ×1)', ACKS.JOURNEY_WEATHER_SPEED.foggy === 0.5);
 check('weather speed: snowy ×1/2, rain + fair ×1', ACKS.JOURNEY_WEATHER_SPEED.snowy === 0.5 && ACKS.JOURNEY_WEATHER_SPEED.rainy === 1 && ACKS.JOURNEY_WEATHER_SPEED.fair === 1);
 // A3 temperature: frigid + sweltering halve speed (RR pp.277-278).
@@ -378,7 +380,7 @@ check('the mid-trip pace change increased day-2 distance vs day-1', (jpRunDays[1
 section('RAW speed factors — weather / temperature / ground compound (Fix A)');
 
 // Drive weather/temperature via ctx; ground via the start hex. Road grassland = 24 × 3/2 = 36
-// mi/day base ⇒ 6 hexes at fair/moderate/clear. Each ×1/2 factor halves it; stormy quarters it.
+// mi/day base ⇒ 6 hexes at fair/moderate/clear. Each ×1/2 factor halves it; rain + stormy don't slow.
 // (A travel day always covers ≥1 hex, so sub-6-mile days clamp to 1.)
 function jdistW(weather, ground){
   const b = build({ destCoord: { q: 500, r: 0 } }); // road grassland, far dest ⇒ deterministic, no nav
@@ -390,7 +392,7 @@ function jdistW(weather, ground){
 }
 const wFair = jdistW({ condition: 'fair', temperature: 'moderate' });
 check('fair/moderate/clear: 6 hexes on a road (baseline)', wFair === 6, String(wFair));
-check('stormy quarters speed (6 → 1 hex)', jdistW({ condition: 'stormy', temperature: 'moderate' }) === 1);
+check('stormy does NOT slow base travel — still 6 hexes (RAW: activity-penalty, not speed)', jdistW({ condition: 'stormy', temperature: 'moderate' }) === 6);
 check('foggy halves speed (6 → 3 hexes)', jdistW({ condition: 'foggy', temperature: 'moderate' }) === 3);
 check('snowy halves speed (6 → 3 hexes)', jdistW({ condition: 'snowy', temperature: 'moderate' }) === 3);
 check('rain does NOT slow travel (still 6 hexes)', jdistW({ condition: 'rainy', temperature: 'moderate' }) === 6);

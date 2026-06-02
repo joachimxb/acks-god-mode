@@ -582,12 +582,15 @@ const JOURNEY_NAV_THROWS = Object.freeze({
   jungle: 14, 'swamp-forested': 14
 });
 
-// Weather speed multiplier (RR pp.277-279 "Weathering the Wild"). Foggy + snowy halve speed;
-// stormy quarters it; rain does NOT slow travel (only visibility/missiles). Temperature is a
-// separate axis (below). J1 reads GM-set weather or a constant 'fair'.
+// Weather speed multiplier (RR pp.277-278 / JJ p.38 "Weathering the Wild"). Per RAW the
+// expedition-speed *halving* conditions are exactly Frigid/Foggy/Muddy/Snowy/Sweltering, so
+// only foggy + snowy halve here (temperature frigid/sweltering + ground mud/snow are separate
+// axes, below). Rain and STORMY do NOT reduce base travel speed — "stormy" is a JJ activity-
+// penalty condition, and no RAW weather imposes ×1/4 (the prior ×1/4 was unsupported). If a GM
+// wants storms to slow travel, ×1/2 (treat stormy as foggy-equivalent) is the sanctioned value.
 const JOURNEY_WEATHER_SPEED = Object.freeze({
-  fair: 1, drizzly: 1, flurry: 1, sunbaked: 1, rainy: 1,
-  foggy: 1/2, snowy: 1/2, stormy: 1/4
+  fair: 1, drizzly: 1, flurry: 1, sunbaked: 1, rainy: 1, stormy: 1,
+  foggy: 1/2, snowy: 1/2
 });
 
 // Temperature speed multiplier (RR pp.277-278). Frigid (<=0F) and Sweltering (>=95F) each
