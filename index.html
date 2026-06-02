@@ -3088,32 +3088,12 @@ document.addEventListener('alpine:init', () => {
           </details>
         </div>
 
-        <!-- Pace + mode -->
-        <div>
-          <div class="wizard-step-header"><span class="font-semibold">Pace &amp; mode</span></div>
-          <div class="flex flex-wrap gap-3 items-end text-sm">
-            <div>
-              <label class="opacity-70 block text-xs">Pace</label>
-              <select x-model="journeyWizard.pace" class="border border-ink rounded px-2 py-0.5">
-                <option value="normal">Normal (×1)</option>
-                <option value="half-speed">Half speed (×½ — travel as an ancillary activity)</option>
-                <option value="forced-march">Forced march (×1½ — fatigued at once, RR p.279)</option>
-              </select>
-            </div>
-            <div>
-              <label class="opacity-70 block text-xs">Mode</label>
-              <select x-model="journeyWizard.mode" class="border border-ink rounded px-2 py-0.5">
-                <option value="foot">On foot / overland</option>
-                <option value="voyage-sail" disabled>Voyage — coming (Phase 3 Voyages)</option>
-                <option value="aerial-mount" disabled>Aerial — coming</option>
-              </select>
-            </div>
-          </div>
-        </div>
+        <!-- Pace + mode now live on the journey itself (set in the Journey Detail panel after
+             starting). New journeys take the defaults: Normal pace, on-foot mode. -->
 
         <!-- Supplies -->
         <div>
-          <div class="wizard-step-header"><span class="font-semibold">Supplies</span> <span class="text-xs opacity-60">— person-day rations (RAW: 1 food + 1 water per person/day; JJ p.84)</span></div>
+          <div class="wizard-step-header"><span class="font-semibold">Supplies</span> <span class="text-xs opacity-60">— person-day rations (RAW: 1 food + 1 water per person/day; RR p.276)</span></div>
           <div class="flex flex-wrap gap-3 items-end text-sm">
             <div><label class="opacity-70 block text-xs">Food rations</label><input type="number" min="0" x-model.number="journeyWizard.rations" class="w-24 border border-ink rounded px-2 py-0.5"></div>
             <div><label class="opacity-70 block text-xs">Water rations</label><input type="number" min="0" x-model.number="journeyWizard.waterRations" class="w-24 border border-ink rounded px-2 py-0.5"></div>
@@ -3232,6 +3212,16 @@ document.addEventListener('alpine:init', () => {
           <span class="text-xs opacity-50">— applies to the next day ticked</span>
         </div>
 
+        <!-- mode — also lives on the journey now (set after starting); foot only for now, voyage/aerial reserved -->
+        <div class="text-sm flex items-center gap-2 flex-wrap" x-show="journeyDetail().status==='in-transit'">
+          <span class="opacity-60">Mode:</span>
+          <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
+            <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
+            <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'" disabled>Voyage — coming (Phase 3 Voyages)</option>
+            <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
+          </select>
+        </div>
+
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
           <button @click="journeyTickDay()" class="px-4 py-1.5 border-2 border-ink rounded bg-sky-300 hover:bg-sky-400 font-bold text-base" title="Advance one day through the shared day-tick pipeline (review + commit in the Day-tick panel, top-right)" x-show="journeyDetail().status==='in-transit'">🕑 Tick day</button>
@@ -3271,7 +3261,7 @@ document.addEventListener('alpine:init', () => {
         <div class="flex items-baseline justify-between flex-wrap gap-2">
           <div>
             <h2 class="font-bold text-xl">⛺ Journeys</h2>
-            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (JJ p.84), encounters. Drive them with the Day Clock (top-right).</p>
+            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. Drive them with the Day Clock (top-right).</p>
           </div>
           <button @click="startJourneyDeepLink({})" class="px-3 py-1 border border-ink rounded bg-yellow-300 hover:bg-yellow-400 font-semibold text-sm">🧭 Start a journey</button>
         </div>
@@ -8425,7 +8415,7 @@ return {
     if(f>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
     return out;
   },
-  // Render a navigation throw with its die roll + modifiers + target + result (JJ p.84 / RR p.275).
+  // Render a navigation throw with its die roll + modifiers + target + result (RR p.275).
   journeyNavDetail(nav){
     if(!nav) return '';
     const bonuses=(nav.bonuses||[]);
@@ -8592,6 +8582,11 @@ return {
   setJourneyPace(j, pace){
     if(!j || !pace || j.pace === pace) return;
     this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace });
+    this.markDirty(); this.schedulePersist();
+  },
+  setJourneyMode(j, mode){
+    if(!j || !mode || j.mode === mode) return;
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode, newValue:mode });
     this.markDirty(); this.schedulePersist();
   },
   abortJourneyUI(j){
