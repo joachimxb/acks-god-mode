@@ -3028,15 +3028,25 @@ document.addEventListener('alpine:init', () => {
               <template x-for="p in journeyPartyOptions()" :key="p.id"><option :value="p.id" :selected="journeyWizard.partyId === p.id" x-text="p.name||'(unnamed party)'"></option></template>
             </select>
           </div>
-          <div class="wizard-eligibility-list max-h-40 overflow-auto border border-ink rounded p-2">
-            <template x-for="c in journeyParticipantOptions()" :key="c.id">
-              <label class="wizard-eligibility-item flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" :checked="journeyWizard.participantIds.includes(c.id)" @change="journeyToggleParticipant(c.id)">
-                <span x-text="c.name||'(unnamed)'"></span>
-                <span class="text-xs opacity-50" x-show="c.currentJourneyId">· already on a journey</span>
-              </label>
+          <!-- Add an individual traveller via dropdown. Excludes characters already in a party
+               (they travel via the Party picker above) and ones already added. Picking one sets
+               the start hex from that character's current location. -->
+          <div class="text-sm flex items-center gap-2 flex-wrap">
+            <label class="opacity-70">Add traveller:</label>
+            <select @change="journeyAddParticipant($event.target.value); $event.target.value=''" class="border border-ink rounded px-2 py-0.5">
+              <option value="">— pick a character —</option>
+              <template x-for="c in journeyParticipantOptions()" :key="c.id"><option :value="c.id" x-text="(c.name||'(unnamed)') + (c.currentJourneyId ? ' · on a journey' : '')"></option></template>
+            </select>
+            <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0">No unattached characters available — pick a party above, or add a character in the Characters tab.</span>
+          </div>
+          <!-- selected travellers (removable chips) -->
+          <div class="flex flex-wrap gap-1.5 mt-2" x-show="journeyWizard.participantIds.length">
+            <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
+              <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-yellow-50">
+                <span x-text="journeyParticipantName(cid)"></span>
+                <button @click="journeyToggleParticipant(cid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove from journey">×</button>
+              </span>
             </template>
-            <p class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0">No characters yet — add one in the Characters tab first.</p>
           </div>
           <p class="text-xs opacity-60 mt-1" x-text="journeyWizard.participantIds.length + ' selected'"></p>
         </div>
@@ -8371,7 +8381,13 @@ return {
     try { return fn(); } finally { this.currentCampaign.domains = _orig; }
   },
   // ── Pickers ──
-  journeyParticipantOptions(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.alive !== false); },
+  // Individual travellers pickable from the "Add traveller" dropdown: alive, NOT already in a
+  // party (party members travel via the Party dropdown above), and not already added.
+  journeyParticipantOptions(){
+    const chosen = new Set(this.journeyWizard?.participantIds || []);
+    return (this.currentCampaign?.characters||[]).filter(c => c && c.alive !== false && !c.partyId && !chosen.has(c.id));
+  },
+  journeyParticipantName(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return (c&&c.name)||'(unknown)'; },
   journeyPartyOptions(){ return (this.currentCampaign?.parties||[]).filter(p => p && p.status !== 'disbanded'); },
   journeyHexOptions(){
     const out=[]; const seen=new Set();
@@ -8383,6 +8399,15 @@ return {
   // ── Wizard (Action verb) ──
   _journeyResetWizard(){ this.journeyWizard = { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null }; },
   journeyToggleParticipant(id){ const a=this.journeyWizard.participantIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
+  // Add an individual traveller from the picker + default the start hex to their current location
+  // (RAW: a journey sets out from where the traveller is). Only fills the start hex if unset, so a
+  // GM-chosen or party-derived start hex isn't clobbered by adding more travellers.
+  journeyAddParticipant(id){
+    if(!id) return;
+    if(!this.journeyWizard.participantIds.includes(id)) this.journeyWizard.participantIds.push(id);
+    const c = (this.currentCampaign?.characters||[]).find(x=>x.id===id);
+    if(c && c.currentHexId && !this.journeyWizard.startHexId) this.journeyWizard.startHexId = c.currentHexId;
+  },
   journeyToggleWaypoint(id){ const a=this.journeyWizard.waypointIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
   journeyOnPartyChange(){
     const pid = this.journeyWizard.partyId; if(!pid) return;
