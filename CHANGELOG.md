@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - **Journeys panel — start and run overland travel from the interface** (Activities › Journeys). A guided **Start a journey** action lets you pick the travellers (individual characters or a whole party), a start and destination hex (plus optional waypoints), a pace, a mode, and starting rations, with a distance-and-days forecast before you commit. A **Journey Detail** panel shows the route, a day-by-day log, a supplies tracker with low-stock warnings, and **Tick day** / **Abort** controls. **Send on journey** shortcuts sit on the character sheet, the party panel, and the hex card; the hex card also lists journeys passing through it. Advancing a journey's days runs through the shared Day Clock (the same propose → review → commit the construction layer uses), so travel stays in lockstep with everything else on the calendar. (The travel engine shipped in 0.11.0; this release makes it hands-on — previously a journey could only be authored through the Inspector and driven from the Day Clock.)
 
+### Changed
+- **Parties are now started by a founding character** (Characters › Parties). **+ New party** asks you to pick a character to found the party; the party is named after them (“&lt;founder&gt;’s party”) and placed at their hex, with the founder as the first member and leader. Adding members is then scoped to characters **in the same hex** as the party (so a party you’ve gathered in one place can be sent on a journey together). The leader is marked with a ★, and reassigns automatically if they leave.
+
 ### Fixed
 - Editing a per-hex family count (or the domain-level Peasant families field) no longer throws an error and reverts the edit. The internal sync that keeps the domain total and per-hex counts in agreement was calling engine helpers that weren't reachable from the event module; it now routes through the exported setters.
 
