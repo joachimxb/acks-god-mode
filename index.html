@@ -3201,25 +3201,26 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
-        <!-- current pace — changeable mid-journey (logged); the next day ticked uses it -->
-        <div class="text-sm flex items-center gap-2 flex-wrap" x-show="journeyDetail().status==='in-transit'">
-          <span class="opacity-60">Current pace:</span>
-          <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyPace(journeyDetail(), $event.target.value)" title="Change the marching pace — applies to the next day ticked (logged)">
-            <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
-            <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
-            <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
-          </select>
-          <span class="text-xs opacity-50">— applies to the next day ticked</span>
-        </div>
-
-        <!-- mode — also lives on the journey now (set after starting); foot only for now, voyage/aerial reserved -->
-        <div class="text-sm flex items-center gap-2 flex-wrap" x-show="journeyDetail().status==='in-transit'">
-          <span class="opacity-60">Mode:</span>
-          <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
-            <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
-            <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'" disabled>Voyage — coming (Phase 3 Voyages)</option>
-            <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
-          </select>
+        <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control
+             blocks (the old Start-wizard "Pace & mode" style), stacked vertically so the dropdowns align. -->
+        <div class="flex flex-col gap-2 text-sm" x-show="journeyDetail().status==='in-transit'">
+          <div>
+            <label class="opacity-70 block text-xs">Pace</label>
+            <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyPace(journeyDetail(), $event.target.value)" title="Change the marching pace — applies to the next day ticked (logged)">
+              <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
+              <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
+              <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
+            </select>
+            <span class="text-xs opacity-50 ml-2">— applies to the next day ticked</span>
+          </div>
+          <div>
+            <label class="opacity-70 block text-xs">Mode</label>
+            <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
+              <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
+              <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'" disabled>Voyage — coming (Phase 3 Voyages)</option>
+              <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
+            </select>
+          </div>
         </div>
 
         <!-- actions -->
