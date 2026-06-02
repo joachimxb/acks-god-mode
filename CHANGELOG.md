@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-02
+
 ### Added
 - **Journeys panel — plan and run overland travel from the interface** (Activities › Journeys). A guided **Start a journey** action picks the travellers (individual characters or a whole party, with the mercenaries that travel with them, RR p.166), a start and destination hex (plus optional waypoints), and starting rations — with a distance-and-days forecast before you commit. A **Journey Detail** panel shows the route, a day-by-day log (each day's navigation throw in full, with a GM **reroll** on the current day), a supplies tracker with low-stock warnings, a **Members** table (each traveller, their survival conditions, and their mercenaries), and **Tick day** / **Abort** controls; **pace and travel mode** are set on the journey itself (and can be changed mid-journey). **Send on journey** shortcuts sit on the character sheet, the party panel, and the hex card (which also lists journeys passing through it). Advancing a journey runs through the shared **Day Clock** — the same propose → review → commit as construction — so travel stays in lockstep with the calendar, and it is RAW-accurate: pace is **Normal / Half speed (×½) / Forced march (×1½, fatigued at once)** (RR pp.272, 279) and survival reads **Hungry → Underfed → Starving** with a single **Dehydrated** stage (RR p.276). (The travel engine shipped in 0.11.0; this release makes it hands-on.)
 - **Parties panel — founder-based parties you can send travelling together** (Characters › Parties). **+ New party** picks a founding character; the party is named after them, placed at their hex, with the founder as the first member and leader. Members are added from the **same hex** (so a party gathered in one place can set out together); the leader is marked ★ and reassigns automatically, or by **make leader**; and the party's name, notes, and current hex are **lock-edit** fields logged on save. Member names open the character sheet, and each member's **Mercenary Company** (RR p.166) rolls up into a party headcount total.
@@ -76,6 +78,7 @@ The Community Preview — first public release.
 ### Security
 - Prototype-pollution guards on the event field-path writer, campaign validation on load, and a frozen `Object.prototype` at startup.
 
-[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.12.0
 [0.11.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.11.0
 [0.10.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.10.0
