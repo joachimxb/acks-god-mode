@@ -3947,7 +3947,10 @@ document.addEventListener('alpine:init', () => {
                           <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name"></button>
                           <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
                         </span>
-                        <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
+                        <span class="flex items-center gap-3 shrink-0">
+                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-sm underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
+                          <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
+                        </span>
                       </div>
                       <!-- Mercenaries (character.mercenaryCompany.units, RR p.166) travel with this
                            character into the party — listed as numbers per type. -->
@@ -10145,6 +10148,12 @@ return {
         pt.leaderCharacterId = others.length ? others[0].id : null;
       }
     }
+  },
+  // Hand party leadership to a member — logged via gm-fiat ("Made <ch> leader of <party> …").
+  makePartyLeader(pt, ch){
+    if(!pt || !ch || pt.leaderCharacterId === ch.id) return;
+    this.commitStatEdit({ entityType:'party', entityId:pt.id, entity:pt, fieldPath:'leaderCharacterId', label:'Party leader', oldValue:(pt.leaderCharacterId||null), newValue:ch.id });
+    this.markDirty(); this.schedulePersist();
   },
   // (Foundation #193) Deprecated — kept as a thin shim. The canonical add path is
   // addRumorAtSettlement(settlementId) which writes to top-level campaign.rumors with a reach

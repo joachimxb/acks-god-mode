@@ -314,6 +314,29 @@ section('gm-fiat party location — emits a logged event with a humane narrative
   ok('  narrative: Cleared the location of ...', /^Cleared the location of /.test((r3 && r3.result && r3.result.narrativeSummary) || ''), (r3 && r3.result && r3.result.narrativeSummary));
 })();
 
+// =============================================================================
+section('gm-fiat party leader — humane narrative on leaderCharacterId');
+// =============================================================================
+// "Make leader" routes through commitStatEdit -> gm-fiat on party.leaderCharacterId.
+// _humanizeFiatNarrative renders "Made <new> leader of <party> (replacing <old>)".
+(function () {
+  const c = ACKS.blankCampaign();
+  c.characters = [{ id: 'chr-a', name: 'Aelric' }, { id: 'chr-b', name: 'Tomas' }];
+  c.parties = [{ id: 'prt-1', name: "Aelric's party", leaderCharacterId: 'chr-a' }];
+  const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'leaderCharacterId', newValue: 'chr-b' } } });
+  let r;
+  doesNotThrow('gm-fiat party leaderCharacterId applies (resolves via Entity Registry)', () => { r = ACKS.applyEvent(c, ev); });
+  ok('  leaderCharacterId set to chr-b', c.parties[0].leaderCharacterId === 'chr-b');
+  ok('  narrative: Made Tomas leader of … (replacing Aelric)', /^Made Tomas leader of .*\(replacing Aelric\)/.test((r && r.result && r.result.narrativeSummary) || ''), (r && r.result && r.result.narrativeSummary));
+  // null -> a leader : "Made … leader of …" with no "(replacing …)"
+  const c2 = ACKS.blankCampaign();
+  c2.characters = [{ id: 'chr-a', name: 'Aelric' }];
+  c2.parties = [{ id: 'prt-1', name: 'Scouts', leaderCharacterId: null }];
+  const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'leaderCharacterId', newValue: 'chr-a' } } });
+  const r2 = ACKS.applyEvent(c2, ev2);
+  ok('  narrative: Made Aelric leader of Scouts (no "replacing")', /^Made Aelric leader of Scouts/.test((r2 && r2.result && r2.result.narrativeSummary) || '') && !/replacing/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
+})();
+
 // ─── summary ───
 console.log('\n=============================================');
 console.log('events.smoke.js — Passed: ' + pass + ', Failed: ' + fail);

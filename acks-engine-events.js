@@ -839,6 +839,22 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
     if(previousValue == null) return 'Placed ' + partyName + ' at ' + hexLabel(mutation.newValue) + reasonNote;
     return 'Moved ' + partyName + ' to ' + hexLabel(mutation.newValue) + ' (from ' + hexLabel(previousValue) + ')' + reasonNote;
   }
+  // ----- Party leader: party.leaderCharacterId (GM hands command to a member) -----
+  if(target.kind === 'party' && mutation.fieldPath === 'leaderCharacterId'){
+    const partyName = (entity && entity.name) || target.id;
+    const lookup = function(id){
+      if(!id) return null;
+      const list = (campaign && campaign.characters) || [];
+      for(let i=0;i<list.length;i++){ if(list[i] && list[i].id === id) return list[i]; }
+      return null;
+    };
+    const newLeader = lookup(mutation.newValue);
+    const oldLeader = lookup(previousValue);
+    if(mutation.newValue == null) return 'Cleared the leader of ' + partyName + reasonNote;
+    const newName = (newLeader && newLeader.name) || mutation.newValue;
+    if(oldLeader && oldLeader.id !== mutation.newValue) return 'Made ' + newName + ' leader of ' + partyName + ' (replacing ' + (oldLeader.name || oldLeader.id) + ')' + reasonNote;
+    return 'Made ' + newName + ' leader of ' + partyName + reasonNote;
+  }
   return null;
 }
 
