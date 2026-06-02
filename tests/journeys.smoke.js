@@ -236,6 +236,28 @@ ACKS.abortJourney(ab2.c, 'jrn-1'); // accepts a journey id, not just the object
 check('abortJourney accepts a journey id (string) as well as the object', ab2.j.status === 'aborted');
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('rerollJourneyDay (J2 feedback) — revert + re-tick the latest day');
+
+const rr = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(rr.c, rr.j);
+const rrp = ACKS.proposeJourneyDay(rr.c, { dayInMonth: 2, rng: () => 0 }); // rng 0 ⇒ nav fail ⇒ lost
+ACKS.commitJourneyRecord(rr.c, rrp.pendingRecords[0]);
+check('committed day carries a _preDay snapshot (for reroll)', !!rr.c.journeys[0].days[0]._preDay);
+check('after first tick: exactly 1 day, lost', rr.c.journeys[0].days.length === 1 && rr.c.journeys[0].isLost === true);
+const rrBeforeIdx = rr.c.journeys[0].currentDayIndex;
+const rrRec = ACKS.rerollJourneyDay(rr.c, rr.j);
+check('rerollJourneyDay returns a record', !!rrRec);
+check('after reroll: still exactly 1 day (popped + re-added)', rr.c.journeys[0].days.length === 1);
+check('after reroll: currentDayIndex unchanged', rr.c.journeys[0].currentDayIndex === rrBeforeIdx);
+check('after reroll: the day has a fresh navigationThrow + a new _preDay', !!rr.c.journeys[0].days[0].navigationThrow && !!rr.c.journeys[0].days[0]._preDay);
+// guard: a day with no _preDay (legacy save) is not rerollable
+const rrng = build();
+ACKS.startJourney(rrng.c, rrng.j);
+rrng.c.journeys[0].days = [{ dayIndex: 1, navigationThrow: null }];
+rrng.c.journeys[0].currentDayIndex = 1;
+check('rerollJourneyDay returns null when the latest day lacks a _preDay snapshot', ACKS.rerollJourneyDay(rrng.c, rrng.j) === null);
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);

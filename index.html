@@ -3146,12 +3146,22 @@ document.addEventListener('alpine:init', () => {
           <span class="opacity-50 text-xs ml-1">(text route — map mode #225 will draw it)</span>
         </div>
 
-        <!-- supplies tracker -->
-        <div class="flex flex-wrap gap-4 text-sm border border-dashed border-ink rounded p-2">
-          <span>🍖 Food: <span class="font-semibold" x-text="(journeyDetail().supplies?.rations)||0"></span></span>
-          <span>💧 Water: <span class="font-semibold" x-text="(journeyDetail().supplies?.waterRations)||0"></span></span>
-          <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
-          <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) of supplies left'"></span>
+        <!-- supplies tracker + status conditions -->
+        <div class="border border-dashed border-ink rounded p-2 text-sm">
+          <div class="flex flex-wrap gap-4">
+            <span>🍖 Food: <span class="font-semibold" x-text="(journeyDetail().supplies?.rations)||0"></span></span>
+            <span>💧 Water: <span class="font-semibold" x-text="(journeyDetail().supplies?.waterRations)||0"></span></span>
+            <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
+            <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) of supplies left'"></span>
+          </div>
+          <!-- status conditions (hunger / dehydration / fatigue), under Food + Water -->
+          <div class="flex flex-wrap items-center gap-2 mt-1.5 pt-1.5 border-t border-dashed border-gray-300">
+            <span class="text-xs uppercase tracking-wide opacity-60">Conditions:</span>
+            <template x-if="journeyConditions(journeyDetail()).length===0"><span class="text-xs opacity-50 italic">none</span></template>
+            <template x-for="cond in journeyConditions(journeyDetail())" :key="cond.key">
+              <span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span>
+            </template>
+          </div>
         </div>
 
         <!-- actions -->
@@ -3175,8 +3185,10 @@ document.addEventListener('alpine:init', () => {
                 <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
                 <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
                 <span class="capitalize" x-text="d.pace"></span>
-                <span x-show="d.navigationThrow" x-text="d.navigationThrow ? ('nav ' + d.navigationThrow.rolled + '/' + d.navigationThrow.target + (d.navigationThrow.result==='success'?' ✓':' ✗ lost')) : ''"></span>
+                <span x-show="d.navigationThrow" class="font-mono" :class="(d.navigationThrow && (d.navigationThrow.result==='success'||d.navigationThrow.result==='auto-pass-magical')) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
                 <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + ne.text"></span></template>
+                <!-- GM reroll — only the latest day (downstream days depend on it). -->
+                <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
               </div>
             </template>
           </div>
@@ -8283,6 +8295,39 @@ return {
   journeySupplyDaysLeft(j){
     const n = Math.max(1, (j?.participantCharacterIds||[]).length);
     return Math.floor(Math.min((j?.supplies?.rations)||0, (j?.supplies?.waterRations)||0) / n);
+  },
+  // Survival status (hunger/dehydration) lives on the participants — the engine mirrors the
+  // same counter onto each (firstChar drives it). Read the first participant.
+  journeyHungerDays(j){ const id=(j?.participantCharacterIds||[])[0]; const c=(this.currentCampaign?.characters||[]).find(x=>x&&x.id===id); return (c&&c.hungerDays)||0; },
+  journeyDehydrationDays(j){ const id=(j?.participantCharacterIds||[])[0]; const c=(this.currentCampaign?.characters||[]).find(x=>x&&x.id===id); return (c&&c.dehydrationDays)||0; },
+  // Adverse status conditions to surface under Food/Water (RR p.275 cascade).
+  journeyConditions(j){
+    const out=[];
+    const h=this.journeyHungerDays(j);
+    if(h>0) out.push({ key:'hunger', label:(h>=2?'Famished':'Hungry'), detail:'day '+h, cls:'bg-orange-200 text-orange-900' });
+    const d=this.journeyDehydrationDays(j);
+    if(d>0) out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d, cls:'bg-sky-200 text-sky-900' });
+    if((j?.fatigueDays||0)>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
+    return out;
+  },
+  // Render a navigation throw with its die roll + modifiers + target + result (JJ p.84 / RR p.275).
+  journeyNavDetail(nav){
+    if(!nav) return '';
+    const bonuses=(nav.bonuses||[]);
+    const parts=['🎲 '+nav.rolled];
+    bonuses.forEach(b=>parts.push((b.value>=0?'+':'')+b.value+' ('+(b.source||'mod')+')'));
+    const total=nav.rolled+bonuses.reduce((s,b)=>s+(b.value||0),0);
+    const ok=nav.result==='success'||nav.result==='auto-pass-magical';
+    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+(ok?'success ✓':'lost ✗');
+  },
+  // GM reroll of the latest day — only available when the day carries a pre-state snapshot.
+  journeyCanReroll(j){ const days=(j&&j.days)||[]; return days.length>0 && !!days[days.length-1]._preDay; },
+  journeyRerollDay(j){
+    if(!j) return;
+    const rec = this._journeyWithDomains(() => window.ACKS.rerollJourneyDay(this.currentCampaign, j));
+    if(!rec){ this.showToast('Reroll unavailable for this day (it was ticked before this update).', 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Day ' + (rec.newDayIndex||'') + ' rerolled.');
   },
   // Attach this.domains so the engine's resolveHexAnywhere sees per-domain hexes (the UI
   // keeps domains in this.domains; currentCampaign.domains stays empty) — same dance as
