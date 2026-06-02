@@ -296,9 +296,13 @@ document.addEventListener('alpine:init', () => {
   </template>
 </nav>
 
-<!-- ═══════════ VIEW: WORLD (Phase 2.7) ═══════════ -->
-<div x-show="currentView === 'world'" class="p-4" x-cloak>
-  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3 mb-3">
+<!-- ═══════════ VIEW: WORLD (Phase 2.7) — parent of Map / Domains / Hexes / Rumors ═══════════ -->
+<!-- #225 (2026-06-02): Map + Domains moved under World as sub-views (order Map, Domains, Hexes).
+     The sub-tab bar is its own always-visible block; each sub-view's content is a sibling gated on
+     worldSubView. The Map + Domains content divs live further down (their large markup stayed put —
+     only their x-show flipped from a top-level currentView to this World sub-view). -->
+<div x-show="currentCampaign && currentView === 'world'" class="px-4 pt-3" x-cloak>
+  <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
     <template x-for="tab in worldSubTabs" :key="tab.id">
       <button @click="worldSubView=tab.id"
               :class="worldSubView===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'"
@@ -307,11 +311,15 @@ document.addEventListener('alpine:init', () => {
               x-text="tab.label + (tab.count != null ? ' · ' + tab.count : '')"></button>
     </template>
   </div>
+</div>
+
+<!-- World content — Hexes + Rumors. (Map + Domains are separate blocks below, also gated on worldSubView.) -->
+<div x-show="currentView === 'world' && (worldSubView==='hexes' || worldSubView==='rumors')" class="p-4" x-cloak>
 
   <!-- ───── Sub-tab: HEXES ───── -->
   <div x-show="worldSubView==='hexes'" class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-      <h3 class="font-bold text-lg">🗺 Hexes</h3>
+      <h3 class="font-bold text-lg">⬡ Hexes</h3>
       <div class="flex gap-2 items-center text-sm">
         <input type="text" x-model="worldHexSearch" placeholder="Search hex name, terrain, lairs, POIs…" class="w-72">
         <select x-model="worldHexFilter" class="text-sm">
@@ -338,7 +346,7 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <template x-if="allHexes().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No hexes yet. Add hexes to a domain via the picker above, or from the Domains tab → Hexes section.</p>
+      <p class="text-sm italic opacity-60 py-6 text-center">No hexes yet. Add hexes to a domain via the picker above, or from the World → Domains → Hexes section.</p>
     </template>
 
     <template x-if="allHexes().length > 0">
@@ -361,7 +369,7 @@ document.addEventListener('alpine:init', () => {
                 <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="window.ACKS.hexName(entry.hex)"></button>
               </td>
               <td class="text-base">
-                <button @click="selectedDomainId=entry.domainId; currentView='domains'" class="underline" x-text="entry.domainName"></button>
+                <button @click="selectedDomainId=entry.domainId; currentView='world'; worldSubView='domains'" class="underline" x-text="entry.domainName"></button>
               </td>
               <td class="text-base" x-text="effectiveHexClassification(domains.find(x=>x.id===entry.domainId), entry.hex)"></td>
               <td class="text-base" x-text="entry.hex.terrain || '—'"></td>
@@ -559,7 +567,7 @@ document.addEventListener('alpine:init', () => {
      + fill-layer math live in the engine (acks-engine-subsystems.js §9.7); this is the render +
      pan/zoom/click wiring. Click → the EXISTING hex card (mapClickHex → openHexDetail), via a
      mode-aware dispatcher so a later Journey planner / wizard can reuse the map as a hex picker. -->
-<div x-show="currentView === 'map'" class="p-4" x-cloak>
+<div x-show="currentView === 'world' && worldSubView === 'map'" class="p-4" x-cloak>
   <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
     <h2 class="text-lg font-semibold">🗺 Campaign Map</h2>
     <span class="text-sm opacity-60" x-text="'· ' + mapHexEntries().length + ' hexes'"></span>
@@ -673,13 +681,14 @@ document.addEventListener('alpine:init', () => {
           <g x-html="mapSvgMarkup()"></g>
         </svg>
       </div>
-      <p class="text-xs opacity-50 mt-1">Labels are RAW-style column-row (RR p.273); hover a hex for its axial (q,r), terrain, domain, and land value. The map is a view — clicking a hex opens the existing hex card.</p>
+      <p class="text-xs opacity-50 mt-1">Labels are RAW-style column-row (RR p.273); hover a hex for its name, terrain, domain, and land value. The map is a view — clicking a hex opens the existing hex card.</p>
     </div>
   </template>
 </div>
 
-<!-- ═══════════ VIEW: DOMAINS (default) ═══════════ -->
-<div x-show="currentView === 'domains'" x-cloak>
+<!-- ═══════════ VIEW: DOMAINS — now a World sub-view (#225, 2026-06-02). Markup unchanged; only the
+     x-show flipped from top-level currentView==='domains' to currentView==='world' && worldSubView. ═══════════ -->
+<div x-show="currentView === 'world' && worldSubView === 'domains'" x-cloak>
 
   <main class="p-4">
     <template x-if="!currentCampaign">
@@ -3980,7 +3989,7 @@ document.addEventListener('alpine:init', () => {
                   <!-- Structural roles: ruler (with vassal prefix when liege exists) + magistrate slots. -->
                   <template x-for="r in characterAllRoles(c)" :key="r.kind + ':' + r.domainId + ':' + r.label">
                     <div>
-                      <button @click="selectedDomainId = r.domainId; currentView='domains'; closeCharacterEditor && closeCharacterEditor()"
+                      <button @click="selectedDomainId = r.domainId; currentView='world'; worldSubView='domains'; closeCharacterEditor && closeCharacterEditor()"
                               class="underline" x-text="(r.kind === 'magistrate' ? '⚖ ' : '🏰 ') + r.label + ' →'"></button>
                     </div>
                   </template>
@@ -4805,7 +4814,7 @@ document.addEventListener('alpine:init', () => {
                     <td class="text-right font-mono" x-text="(domainIncome(d)||0).toLocaleString() + 'gp/mo'"></td>
                     <td class="text-right font-mono" :class="computePersonalAuthority(characterEditing.level||1, domainIncome(d))>=0?'accent-green':'accent-red'" x-text="(computePersonalAuthority(characterEditing.level||1, domainIncome(d))>=0?'+':'') + computePersonalAuthority(characterEditing.level||1, domainIncome(d))"></td>
                     <td class="text-right font-mono" x-text="computeGpThreshold(characterEditing.level||1).toLocaleString() + 'gp'"></td>
-                    <td><button @click="closeCharacterEditor(); selectedDomainId=d.id; currentView='domains'" class="text-sm underline" title="Go to this domain">→ view</button></td>
+                    <td><button @click="closeCharacterEditor(); selectedDomainId=d.id; currentView='world'; worldSubView='domains'" class="text-sm underline" title="Go to this domain">→ view</button></td>
                   </tr>
                 </template>
               </tbody>
@@ -7081,7 +7090,9 @@ return {
   dirty:false, _persistTimer:null, _ignoreMutations:false,
   currentCampaign:null,domains:[],selectedDomainId:null,
   // Top-level view tabs. Extensible — add Phase 2.7 syndicates, Phase 4 senates, etc. by adding entries here.
-  currentView:'domains',
+  // #225 (2026-06-02): default is now World; the Domains manager (which hosts the first-run welcome
+  // banner) is the default World sub-view, so the landing experience is unchanged.
+  currentView:'world',
   campaignLogFilter:'',
   activeTab:'overview',
   // Tabs: Hexes is standard (land value per hex is RAW ACKS). House-rule-gated tabs in later phases
@@ -7112,6 +7123,12 @@ return {
         this.selectedDomainId=sess.selectedDomainId||(this.domains[0]?this.domains[0].id:null);
         this.fileName=sess.fileName||'';
         if(sess.currentView)this.currentView=sess.currentView;
+        // #225 (2026-06-02): Map + Domains moved under World as sub-views. Migrate any stale
+        // top-level 'map'/'domains' currentView (incl. the OLD default 'domains') into World + the
+        // matching sub-view, then restore the persisted sub-view if present.
+        if(this.currentView==='map' || this.currentView==='domains'){ this.worldSubView=this.currentView; this.currentView='world'; }
+        if(sess.worldSubView)this.worldSubView=sess.worldSubView;
+        if(!this.topViews.some(v=>v.id===this.currentView))this.currentView='world';
         // #225 Map Mode — restore ephemeral viewport prefs (fill layer + viewBox). mapMode stays
         // 'inspect' (select is transient). A null/absent viewBox lazily re-fits on first map open.
         if(sess.mapPrefs){
@@ -7176,9 +7193,12 @@ return {
     },{deep:true});
     this.$watch('domains',()=>{ this.markDirty(); this.schedulePersist(); },{deep:true});
     this.$watch('selectedDomainId',()=>this.schedulePersist()); // selecting a domain isn't a content change
-    // #225 Map Mode — persist the active fill layer; lazily fit the viewport when the Map tab opens.
+    // #225 Map Mode — persist the active fill layer; lazily fit the viewport when the Map sub-view opens.
     this.$watch('mapFillLayer',()=>this.schedulePersist());
-    this.$watch('currentView',v=>{ if(v==='map') this.mapEnsureView(); });
+    // #225 Map is now a World sub-view: fit the viewport when World opens on Map, or when the
+    // sub-view switches to Map; persist the active sub-view so a reload restores it.
+    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); });
+    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); });
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -7210,7 +7230,7 @@ return {
       json = JSON.stringify({
         currentCampaign:this.currentCampaign,domains:this.domains,
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
-        currentView:this.currentView,
+        currentView:this.currentView, worldSubView:this.worldSubView,
         // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
         // (plan §8); mode always restores to 'inspect' (select is transient).
         mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox,
@@ -7239,9 +7259,8 @@ return {
     const pendingEv = (this.currentCampaign?.pendingEvents||[]).filter(e => e.status === 'pending').length;
     const loggedEv  = (this.currentCampaign?.eventLog||[]).length;
     return [
+      // #225 (2026-06-02): Map + Domains are now World sub-views (see worldSubTabs), not top-level tabs.
       { id:'world',        label:'🌍 World',           count: hexCount || null },
-      { id:'map',          label:'🗺 Map' },  // #225 Map Mode M0–M2 (2026-06-02) — SVG hex map
-      { id:'domains',      label:'🏰 Domains' },
       { id:'characters',   label:'👥 Characters',      count: aliveChars || null },
       { id:'activities',   label:'🎭 Activities',      count: (this.currentCampaign?.ventures||[]).length },
       { id:'events',       label:'📜 Events',      count: (pendingEv + loggedEv) || null },
@@ -7996,7 +8015,7 @@ return {
 
 
   // Phase 2.7 World — UI state for the World view
-  worldSubView:'hexes', // 'hexes' | 'rumors' | future: 'map', 'wilderness', 'lairs'
+  worldSubView:'domains', // 'map' | 'domains' | 'hexes' | 'rumors' (default Domains — the heart of the tool + first-run welcome)
   worldHexSearch:'',
   worldHexFilter:'all', // 'all' | 'settled' | 'lairs' | 'dungeons' | 'unexplored'
   worldHexEditing:null, // {domainId, hexIndex} for the hex detail modal
@@ -8005,9 +8024,15 @@ return {
   rumorFilter:{ topic:'', apparent:'', truth:'', settlementId:'', search:'' },
   rumorAddTarget:'',   // bound to the "Add rumor at" picker; cleared after add
 
-  // The list of World sub-tabs is dynamic — Rumors only appears when rumors-manual is on.
+  // The list of World sub-tabs. Order (#225, 2026-06-02): Map, Domains, Hexes, then Rumors.
+  // Map + Domains were promoted from top-level tabs into World sub-views. Rumors only appears
+  // when rumors-manual is on. (Hexes uses ⬡ since Map now owns the 🗺 glyph.)
   get worldSubTabs(){
-    const tabs = [ { id:'hexes', label:'🗺 Hexes', count: null } ];
+    const tabs = [
+      { id:'map',     label:'🗺 Map',     count: null },
+      { id:'domains', label:'🏰 Domains', count: (this.domains||[]).length || null },
+      { id:'hexes',   label:'⬡ Hexes',    count: null },
+    ];
     if(this.isHouseRuleEnabled('rumors-manual')){
       tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
     }
@@ -11384,7 +11409,7 @@ return {
   },
   // Public seam for future callers (Journey planner, generation wizards): put the map into
   // select mode; clicking a hex hands its id to `cb`. Call mapEndSelect() to restore inspect.
-  mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'map'; this.mapEnsureView(); },
+  mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'world'; this.worldSubView = 'map'; this.mapEnsureView(); },
   mapEndSelect(){ this._mapSelectCb = null; this._mapSelectHint = ''; this.mapMode = 'inspect'; },
   // Create a new blank hex on the picked domain. Same shape as Domain > Hexes "+ add hex"
   // so a hex created from either view is structurally identical.

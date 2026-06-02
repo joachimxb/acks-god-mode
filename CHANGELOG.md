@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **Campaign map — a clickable, zoomable, layered hex map of the world** (the new 🗺 Map tab). Every hex renders as a flat-top hexagon in its true position, labelled with a RAW-style column-row coordinate (RR p.273); **scroll to zoom, drag to pan**, and **click a hex to open its existing card**. Three kinds of layer build the map you expect:
+- **Campaign map — a clickable, zoomable, layered hex map of the world** (a new 🗺 Map view under the World tab). Every hex renders as a flat-top hexagon in its true position, labelled with a RAW-style column-row coordinate (RR p.273); **scroll to zoom, drag to pan**, and **click a hex to open its existing card**. Three kinds of layer build the map you expect:
   - **Color by** (one at a time, with a legend) — **terrain** (nine base types), **domain** (a stable colour per realm; unclaimed grey), **land value** (3–9 gp/family heatmap, RR p.341), **classification**, **population** (vs the RR p.340 ceiling), **domain morale**, **secured** (stronghold adequacy, RR p.338), **economy**, and **exploration**.
   - **Symbols** (toggleable) — settlements as circles sized by market class (RR p.351), strongholds, and lair / dungeon / point-of-interest markers.
   - **Edges** (toggleable) — computed **domain borders**, plus **roads / rivers / trails** drawn between connected hexes. Active **journeys** show their route as a highlighted path with a marker at the party's current hex.
@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   It is a pure view of the hexes you already have — nothing new is written to your campaign file — and the first surface that makes the whole world legible at a glance.
 
 ### Changed
+- **The World tab is now a hub for Map, Domains, and Hexes.** Map, Domains, and Hexes are sub-views under World (in that order) rather than separate top-level tabs — Domains, previously its own top-level tab, now lives under World ▸ Domains. The tool still opens on the domain manager (now World ▸ Domains), and which World sub-view you were last on is remembered across reloads.
 - **Hexes now have a consistent name everywhere they're referred to** — `<Settlement> (coords)` if the hex has a settlement, otherwise `<Terrain> (coords)` (e.g. "Saltspur (0000)", "Forest (0100)"). It shows in the hex card, World › Hexes, the Inspector, journeys, and character locations — replacing the bare `(q, r)` coordinates that appeared before. (The terse number at the top of each hex on the map is unchanged.)
 
 ## [0.12.0] - 2026-06-02
