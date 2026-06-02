@@ -3174,6 +3174,7 @@ document.addEventListener('alpine:init', () => {
             <thead>
               <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                 <th class="font-normal py-0.5 pr-4">Traveller</th>
+                <th class="font-normal py-0.5 pr-4">Conditions</th>
                 <th class="font-normal py-0.5">Mercenaries</th>
               </tr>
             </thead>
@@ -3183,6 +3184,14 @@ document.addEventListener('alpine:init', () => {
                   <td class="py-1 pr-4">
                     <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
                     <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1)"></span>
+                  </td>
+                  <td class="py-1 pr-4">
+                    <template x-if="characterJourneyConditions(ch).length">
+                      <span class="flex flex-wrap gap-1">
+                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                      </span>
+                    </template>
+                    <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
                   </td>
                   <td class="py-1">
                     <template x-if="partyMemberMercSummary(ch).length">
@@ -3209,14 +3218,6 @@ document.addEventListener('alpine:init', () => {
             <span>💧 Water: <span class="font-semibold" x-text="(journeyDetail().supplies?.waterRations)||0"></span></span>
             <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
             <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) of supplies left'"></span>
-          </div>
-          <!-- status conditions (hunger / dehydration / fatigue), under Food + Water -->
-          <div class="flex flex-wrap items-center gap-2 mt-1.5 pt-1.5 border-t border-dashed border-gray-300">
-            <span class="text-xs uppercase tracking-wide opacity-60">Conditions:</span>
-            <template x-if="journeyConditions(journeyDetail()).length===0"><span class="text-xs opacity-50 italic">none</span></template>
-            <template x-for="cond in journeyConditions(journeyDetail())" :key="cond.key">
-              <span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span>
-            </template>
           </div>
         </div>
 
@@ -8389,18 +8390,17 @@ return {
     const n = Math.max(1, (j?.participantCharacterIds||[]).length);
     return Math.floor(Math.min((j?.supplies?.rations)||0, (j?.supplies?.waterRations)||0) / n);
   },
-  // Survival status (hunger/dehydration) lives on the participants — the engine mirrors the
-  // same counter onto each (firstChar drives it). Read the first participant.
-  journeyHungerDays(j){ const id=(j?.participantCharacterIds||[])[0]; const c=(this.currentCampaign?.characters||[]).find(x=>x&&x.id===id); return (c&&c.hungerDays)||0; },
-  journeyDehydrationDays(j){ const id=(j?.participantCharacterIds||[])[0]; const c=(this.currentCampaign?.characters||[]).find(x=>x&&x.id===id); return (c&&c.dehydrationDays)||0; },
-  // Adverse status conditions to surface under Food/Water (RR p.275 cascade).
-  journeyConditions(j){
+  // Per-traveller survival status for the Members table (RR p.275 cascade). The day-tick mirrors
+  // the party's hunger / dehydration / fatigue onto each participant, so these read off the
+  // character. A GM-facing tracker — no auto-penalty wired yet (escalating effects are a follow-up).
+  characterJourneyConditions(ch){
     const out=[];
-    const h=this.journeyHungerDays(j);
+    const h=(ch&&ch.hungerDays)||0;
     if(h>0) out.push({ key:'hunger', label:(h>=2?'Famished':'Hungry'), detail:'day '+h, cls:'bg-orange-200 text-orange-900' });
-    const d=this.journeyDehydrationDays(j);
+    const d=(ch&&ch.dehydrationDays)||0;
     if(d>0) out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d, cls:'bg-sky-200 text-sky-900' });
-    if((j?.fatigueDays||0)>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
+    const f=(ch&&ch.personalFatigue)||0;
+    if(f>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
     return out;
   },
   // Render a navigation throw with its die roll + modifiers + target + result (JJ p.84 / RR p.275).
