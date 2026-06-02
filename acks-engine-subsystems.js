@@ -2002,6 +2002,18 @@ function hexRoadPathD(q, r, size, sides){
   }
   return uniq.map(i => { const m = mid(i); return 'M' + f(c.x) + ' ' + f(c.y) + 'L' + f(m.x) + ' ' + f(m.y); }).join('');
 }
+// Crossing (ford/bridge) mark on edge i: a short segment centred on the edge midpoint, PERPENDICULAR
+// to the edge (i.e. along the centre→midpoint spoke — for a regular hexagon that line is perpendicular
+// to the edge), `len` long. Drawn over a river to read as "you can cross here". Returns {x1,y1,x2,y2}.
+function hexCrossingSegment(q, r, size, i, len){
+  const c = hexAxialToPixel(q, r, size);
+  const m = hexEdgeMidpoint(q, r, size, i);
+  let dx = m.x - c.x, dy = m.y - c.y;
+  const d = Math.hypot(dx, dy) || 1;
+  dx /= d; dy /= d;
+  const h = (len != null ? len : size * 0.34) / 2;
+  return { x1: m.x - dx * h, y1: m.y - dy * h, x2: m.x + dx * h, y2: m.y + dy * h };
+}
 
 // RAW-style column-row display label (RR p.273 "hex 401" convention; published Auran maps use
 // 4-digit COLROW). Axial {q,r} stays the canonical truth (shown in the tooltip); this is the
@@ -2039,16 +2051,22 @@ function hexName(hex){
 // ── Fill-layer palettes (M2). Color a hex by one attribute at a time. ──
 const HEX_TERRAIN_COLORS = Object.freeze({
   barrens:'#cdbfa6', desert:'#e7d9a0', forest:'#3f7d4e', grassland:'#9cc46b',
-  hills:'#bda05a', jungle:'#2f6b3a', mountains:'#8d9095', scrubland:'#c2b46a', swamp:'#6b7d52'
+  hills:'#bda05a', jungle:'#2f6b3a', mountains:'#8d9095', scrubland:'#c2b46a', swamp:'#6b7d52',
+  // Water — oceans, seas, big lakes. RAW lists "Ocean" (and "River") as terrain types in the
+  // encounter-by-terrain tables (JJ); a hex map needs open-water hexes for coastal/island realms.
+  // CARTOGRAPHIC only here — land travel can't cross water (you need a vessel: RR Ch.7 Voyages),
+  // so 'water' is deliberately absent from JOURNEY_TERRAIN_SPEED / JOURNEY_NAV_THROWS.
+  water:'#6ea4d4'
 });
-// Common GM/author synonyms → the 9 canonical base types, so a campaign that says "plains" or
+// Common GM/author synonyms → the canonical base types, so a campaign that says "plains" or
 // "woods" still colors (RAW has no single master terrain list — §2.2; the templates + demo use
-// "plains"/"coast"). Unknown terms stay neutral. "coast" is a water-adjacent LAND hex, not a base
-// type — mapped to grassland for now (a distinct coastal / Sea fill is reserved, plan §2.2).
+// "plains"/"coast"). Unknown terms stay neutral. "coast" is a water-adjacent LAND hex, not open
+// water — it stays grassland; sea/ocean/lake map to the new 'water' fill.
 const HEX_TERRAIN_ALIASES = Object.freeze({
   plains:'grassland', plain:'grassland', steppe:'grassland', prairie:'grassland', meadow:'grassland',
   farmland:'grassland', fields:'grassland', pasture:'grassland', savanna:'grassland', savannah:'grassland',
   coast:'grassland', coastal:'grassland', shore:'grassland', shoreline:'grassland', seaside:'grassland', beach:'grassland',
+  sea:'water', seas:'water', ocean:'water', oceans:'water', lake:'water', lakes:'water', waters:'water',
   woods:'forest', woodland:'forest', woodlands:'forest', taiga:'forest', boreal:'forest',
   mountain:'mountains', peaks:'mountains', alpine:'mountains',
   hill:'hills', highlands:'hills',
@@ -2234,7 +2252,7 @@ Object.assign(ACKS, {
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel, hexName,
-  hexNeighborDeltas, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
+  hexNeighborDeltas, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 

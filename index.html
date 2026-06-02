@@ -647,7 +647,7 @@ document.addEventListener('alpine:init', () => {
         </select>
         <!-- #225 per-side rivers + roads — click the mini-hex's sides. Rivers run ALONG edges; roads
              run from the centre out to the chosen sides (with faintly circular bends). -->
-        <span class="flex items-center gap-1" title="Click the hex sides that carry a river — rivers run along those edges">
+        <span class="flex items-center gap-1" title="Click a side to cycle: none → river (along the edge) → river + ford/bridge → none. A road that crosses a river is auto-bridged.">
           <span class="opacity-70">· rivers:</span>
           <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
             <g x-html="mapMiniHexMarkup('river')"></g>
@@ -11061,8 +11061,9 @@ return {
   mapEditHexId: null,        // when the picker is editing an existing hex (vs creating); null = create
   mapCreateDomainId: '',     // chosen domain for the hex ('' = unclaimed wilderness)
   mapCreateTerrain: '',      // chosen terrain for the hex ('' = unset)
-  mapCreateRiverSides: [],   // #225 — hex sides (0..5) carrying a river (drawn along those edges)
+  mapCreateRiverSides: [],   // #225 — hex sides (0..5) carrying a river (drawn along those edges; a movement barrier)
   mapCreateRoadSides: [],    // #225 — hex sides (0..5) the road reaches from the centre (with circular bends)
+  mapCreateCrossingSides: [], // #225 — river sides (0..5) carrying a ford/bridge (negates the barrier); road×river is an implicit bridge
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11162,8 +11163,9 @@ return {
       });
       // ROADS — prefer the GM-drawn per-side geometry (#225: centre → chosen sides, faintly circular
       // bends); fall back to the legacy auto-network (spokes toward like-roaded neighbours) for hexes
-      // carrying only the legacy hasRoad flag. (Per-side hexes keep hasRoad in sync, so a legacy
-      // neighbour still connects to them through the network.)
+      // carrying only the legacy hasRoad flag. roadSides is CARTOGRAPHIC and independent of hasRoad
+      // (the coarse travel flag); hex-by-hex journeys will derive the road bonus from roadSides
+      // (Phase_2.5_Journeys_Plan §21). They don't connect through the legacy network — by design.
       if(this.mapEdgeToggles.roads){
         const rs = e.hex.roadSides || [];
         if(rs.length){
@@ -11175,14 +11177,18 @@ return {
         }
       }
       if(this.mapEdgeToggles.trails && e.hex.hasTrail) net('#8a6d3b', (size*0.05).toFixed(2), (size*0.10).toFixed(1)+','+(size*0.08).toFixed(1))(h => h.hasTrail);
-      // RIVERS — prefer per-side geometry (#225: drawn ALONG the chosen edges); fall back to the legacy
-      // network (riverCount > 0) for hexes without explicit river sides.
+      // RIVERS (#225) — drawn ALONG the chosen edges (a movement barrier). Plus CROSSINGS (ford/bridge):
+      // a short brown mark across the river where the GM placed a ford/bridge (crossingSides) OR where a
+      // road crosses the river edge (roadSides ∩ riverSides — an implicit bridge). The river BARRIER + the
+      // RAW fording cost are documented for hex-by-hex journeys (Phase_2.5_Journeys_Plan §21), not yet wired.
       if(this.mapEdgeToggles.rivers){
-        const vs = e.hex.riverSides || [];
-        if(vs.length){
-          A.hexRiverSegments(q, r, size, vs).forEach(s => parts.push('<line x1="'+s.x1.toFixed(1)+'" y1="'+s.y1.toFixed(1)+'" x2="'+s.x2.toFixed(1)+'" y2="'+s.y2.toFixed(1)+'" stroke="#3f73b8" stroke-width="'+(size*0.09).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>'));
-        } else if((e.hex.riverCount||0) > 0){
-          net('#3f73b8', (size*0.07).toFixed(2), '')(h => (h.riverCount||0) > 0);
+        const vs = e.hex.riverSides || [], cross = e.hex.crossingSides || [], rsR = e.hex.roadSides || [];
+        A.hexRiverSegments(q, r, size, vs).forEach(s => parts.push('<line x1="'+s.x1.toFixed(1)+'" y1="'+s.y1.toFixed(1)+'" x2="'+s.x2.toFixed(1)+'" y2="'+s.y2.toFixed(1)+'" stroke="#3f73b8" stroke-width="'+(size*0.09).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>'));
+        for(let i = 0; i < 6; i++){
+          if(vs.includes(i) && (cross.includes(i) || rsR.includes(i))){
+            const cs = A.hexCrossingSegment(q, r, size, i, size * 0.40);
+            parts.push('<line x1="'+cs.x1.toFixed(1)+'" y1="'+cs.y1.toFixed(1)+'" x2="'+cs.x2.toFixed(1)+'" y2="'+cs.y2.toFixed(1)+'" stroke="#6b4a2b" stroke-width="'+(size*0.11).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>');
+          }
         }
       }
     });
@@ -11263,31 +11269,39 @@ return {
     return routes;
   },
   // M5 "Add/Edit hexes" flow — the picker opens on an empty cell (create) OR an existing hex (edit).
-  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; },
-  // Open the picker on an existing hex, pre-filled with its current domain + terrain + rivers + roads.
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  // Open the picker on an existing hex, pre-filled with its current domain + terrain + rivers + roads + crossings.
   mapEditExistingHex(entry){
     const h = entry.hex;
     this.mapCreateAt = { q: h.coord.q, r: h.coord.r };
     this.mapEditHexId = h.id;
     this.mapCreateDomainId = h.domainId || '';
     this.mapCreateTerrain = h.terrain || '';
-    this.mapCreateRiverSides = Array.isArray(h.riverSides) ? h.riverSides.slice() : [];
-    this.mapCreateRoadSides  = Array.isArray(h.roadSides)  ? h.roadSides.slice()  : [];
+    this.mapCreateRiverSides    = Array.isArray(h.riverSides)    ? h.riverSides.slice()    : [];
+    this.mapCreateRoadSides     = Array.isArray(h.roadSides)     ? h.roadSides.slice()     : [];
+    this.mapCreateCrossingSides = Array.isArray(h.crossingSides) ? h.crossingSides.slice() : [];
   },
-  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; },
-  // Toggle hex side `i` (0..5) in the river/road picker. `which` is 'mapCreateRiverSides' | 'mapCreateRoadSides'.
+  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  // Toggle hex side `i` (0..5) in the road picker. `which` is 'mapCreateRoadSides'. (Rivers use the
+  // 3-state cycle in mapMiniSideClick — none → river → river+ford/bridge → none.)
   mapToggleSide(which, i){
     const arr = this[which] || [];
     this[which] = arr.includes(i) ? arr.filter(x => x !== i) : arr.concat(i).sort((a, b) => a - b);
   },
   // Delegated click for the mini-hex side pickers (rivers click edges, roads click spokes). Reads the
   // data-mini-side / data-mini-kind attrs off the clicked element — same pattern as the main map SVG.
+  // Roads toggle. Rivers cycle 3 states on each edge: none → river → river + ford/bridge → none.
   mapMiniSideClick(ev){
     const el = ev.target.closest('[data-mini-side]'); if(!el) return;
     const side = parseInt(el.getAttribute('data-mini-side'), 10);
     const kind = el.getAttribute('data-mini-kind');
     if(Number.isNaN(side)) return;
-    this.mapToggleSide(kind === 'river' ? 'mapCreateRiverSides' : 'mapCreateRoadSides', side);
+    if(kind !== 'river'){ this.mapToggleSide('mapCreateRoadSides', side); return; }
+    const hasRiver = this.mapCreateRiverSides.includes(side);
+    const hasCross = this.mapCreateCrossingSides.includes(side);
+    if(!hasRiver){ this.mapCreateRiverSides = this.mapCreateRiverSides.concat(side).sort((a, b) => a - b); }           // none → river
+    else if(!hasCross){ this.mapCreateCrossingSides = this.mapCreateCrossingSides.concat(side).sort((a, b) => a - b); } // river → river + crossing
+    else { this.mapCreateRiverSides = this.mapCreateRiverSides.filter(x => x !== side); this.mapCreateCrossingSides = this.mapCreateCrossingSides.filter(x => x !== side); } // → none
   },
   // Mini interactive hex for the picker (kind='river'|'road'). Rivers: clickable edges (drawn along the
   // edge, blue when on). Roads: clickable spokes from the centre to each side (the active set drawn with
@@ -11300,9 +11314,11 @@ return {
     const f = n => n.toFixed(1);
     const parts = ['<polygon points="' + A.hexPolygonPoints(0, 0, S) + '" fill="#faf6ec" stroke="#bcae93" stroke-width="1.5"/>'];
     if(kind === 'river'){
+      const cross = this.mapCreateCrossingSides || [];
       for(let i = 0; i < 6; i++){
         const p = A.hexEdgePoints(0, 0, S, i), act = isOn(i);
         parts.push('<line x1="' + f(p[0].x) + '" y1="' + f(p[0].y) + '" x2="' + f(p[1].x) + '" y2="' + f(p[1].y) + '" stroke="' + (act ? '#3f73b8' : '#d9d2c0') + '" stroke-width="' + (act ? 5 : 2) + '" stroke-linecap="round" style="pointer-events:none;"/>');
+        if(act && cross.includes(i)){ const cs = A.hexCrossingSegment(0, 0, S, i, S * 0.40); parts.push('<line x1="' + f(cs.x1) + '" y1="' + f(cs.y1) + '" x2="' + f(cs.x2) + '" y2="' + f(cs.y2) + '" stroke="#6b4a2b" stroke-width="4.5" stroke-linecap="round" style="pointer-events:none;"/>'); }
         parts.push('<line data-mini-side="' + i + '" data-mini-kind="river" x1="' + f(p[0].x) + '" y1="' + f(p[0].y) + '" x2="' + f(p[1].x) + '" y2="' + f(p[1].y) + '" stroke="transparent" stroke-width="13" style="cursor:pointer;pointer-events:stroke;"/>');
       }
     } else {
@@ -11334,6 +11350,29 @@ return {
     }
     return null;
   },
+  _mapFindHexByCoord(q, r){
+    return (this.currentCampaign?.hexes || []).find(x => x.coord && x.coord.q === q && x.coord.r === r) || null;
+  },
+  // #225 — apply per-side rivers + crossings to `hex` AND mirror each shared edge to the neighbour's
+  // opposite edge: a river (and any ford/bridge on it) lives ON the boundary, so it belongs to BOTH
+  // hexes. The editing hex is authoritative for its 6 shared edges (its loaded state already reflects
+  // prior mirrors), so we sync all 6 — idempotent. A crossing is only kept on an edge that has a river.
+  _mapApplyWaterFeatures(hex, riverSides, crossingSides){
+    const A = window.ACKS, deltas = A.hexNeighborDeltas();
+    const norm = a => Array.from(new Set((a || []).map(i => ((i % 6) + 6) % 6))).sort((x, y) => x - y);
+    const nwR = norm(riverSides);
+    const nwC = norm(crossingSides).filter(i => nwR.includes(i));
+    hex.riverSides = nwR;
+    hex.crossingSides = nwC;
+    for(let i = 0; i < 6; i++){
+      const nb = this._mapFindHexByCoord(hex.coord.q + deltas[i][0], hex.coord.r + deltas[i][1]);
+      if(!nb) continue;
+      const opp = (i + 3) % 6;
+      const setEdge = (arr, on) => { const s = new Set(arr || []); if(on) s.add(opp); else s.delete(opp); return Array.from(s).sort((a, b) => a - b); };
+      nb.riverSides    = setEdge(nb.riverSides,    nwR.includes(i));
+      nb.crossingSides = setEdge(nb.crossingSides, nwC.includes(i));
+    }
+  },
   // Move a hex between domains (or to/from unclaimed). Preserves the (reference-unified, #193) hex
   // object: drop it from the old domain's nested geography, set domainId, add to the new domain's.
   mapRehomeHex(hex, newDomainId){
@@ -11363,21 +11402,19 @@ return {
       if(hex){
         this.mapRehomeHex(hex, this.mapCreateDomainId || '');
         hex.terrain = this.mapCreateTerrain || '';
-        hex.riverSides = (this.mapCreateRiverSides || []).slice();
-        hex.roadSides  = (this.mapCreateRoadSides  || []).slice();
-        hex.hasRoad    = hex.roadSides.length > 0; // a road drawn through the hex = it has a road for travel (RR p.272)
+        hex.roadSides = (this.mapCreateRoadSides || []).slice(); // CARTOGRAPHIC; hasRoad (travel flag) left untouched — see Phase_2.5_Journeys_Plan §21
+        this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides);
         this.markDirty(); this.schedulePersist();
         const d = this.mapCreateDomainId ? this.domains.find(x => x.id === this.mapCreateDomainId) : null;
         this.showToast('Updated hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + (d ? ' (' + d.name + ')' : ' (unclaimed)') + '.');
       }
-      this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = [];
+      this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
       return;
     }
     // CREATE branch — a new hex at the clicked empty cell.
     const coord = { q: at.q, r: at.r };
     const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
-      riverSides: (this.mapCreateRiverSides || []).slice(), roadSides: (this.mapCreateRoadSides || []).slice(),
-      hasRoad: (this.mapCreateRoadSides || []).length > 0 });
+      roadSides: (this.mapCreateRoadSides || []).slice() }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
     const domId = this.mapCreateDomainId || '';
     if(domId){
       const d = this.domains.find(x => x.id === domId);
@@ -11394,8 +11431,9 @@ return {
       this.currentCampaign.hexes.push(hex);
       this.showToast('Created wilderness hex ' + window.ACKS.hexDisplayLabel(coord.q, coord.r) + ' (unclaimed).');
     }
+    this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides); // rivers + crossings (+ mirror to neighbours)
     this.markDirty(); this.schedulePersist();
-    this.mapCreateAt = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = [];
+    this.mapCreateAt = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
   },
   // M5 "Standard view" composite — terrain fill + all symbols + borders/roads/rivers + journeys.
   mapStandardView(){
@@ -11406,7 +11444,7 @@ return {
     this.mapEditAddMode = false;
     this.mapCreateAt = null;
     this.mapEditHexId = null;
-    this.mapCreateRiverSides = []; this.mapCreateRoadSides = [];
+    this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
     this.schedulePersist();
   },
   // Delegated click on the SVG → resolve the clicked hex via its data-hex-id, then dispatch

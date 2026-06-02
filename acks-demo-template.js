@@ -1749,7 +1749,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     },
     {
@@ -1795,7 +1794,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     },
     {
@@ -1832,7 +1830,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     },
     {
@@ -1861,7 +1858,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     },
     {
@@ -1903,7 +1899,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     },
     {
@@ -1932,7 +1927,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     },
     {
@@ -1984,7 +1978,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     },
     {
@@ -2013,7 +2006,6 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "riverCount": 0,
       "elevationFt": 0
     }
   ],

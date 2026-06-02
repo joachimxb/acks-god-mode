@@ -132,14 +132,16 @@ check('case-insensitive', ACKS.hexFillColor({ terrain: 'GRASSLAND' }, 'terrain')
 check('MM biome sub-type stripped ("Forest (Taiga)" → forest)', ACKS.hexFillColor({ terrain: 'Forest (Taiga)' }, 'terrain') === ACKS.hexFillColor({ terrain: 'forest' }, 'terrain'));
 check('blank terrain → neutral', /^#[0-9a-f]{6}$/i.test(ACKS.hexFillColor({}, 'terrain')));
 check('unknown terrain → neutral (same as blank)', ACKS.hexFillColor({ terrain: 'lava' }, 'terrain') === ACKS.hexFillColor({}, 'terrain'));
-check('all 9 base terrains map to distinct colors', (() => {
-  const names = ['barrens','desert','forest','grassland','hills','jungle','mountains','scrubland','swamp'];
+check('all 10 base terrains map to distinct colors (9 land + water)', (() => {
+  const names = ['barrens','desert','forest','grassland','hills','jungle','mountains','scrubland','swamp','water'];
   const set = new Set(names.map(t => ACKS.hexFillColor({ terrain: t }, 'terrain')));
-  return set.size === 9;
+  return set.size === 10;
 })());
-// synonym aliasing — common GM/author terms (incl. the demo's "plains"/"coast") resolve to the 9
+// synonym aliasing — common GM/author terms (incl. the demo's "plains"/"coast") resolve to the bases
 check('alias "plains" → grassland', ACKS.hexFillColor({ terrain: 'plains' }, 'terrain') === ACKS.hexFillColor({ terrain: 'grassland' }, 'terrain'));
-check('alias "coast" → grassland (land hex)', ACKS.hexFillColor({ terrain: 'coast' }, 'terrain') === ACKS.hexFillColor({ terrain: 'grassland' }, 'terrain'));
+check('alias "coast" → grassland (land hex, not open water)', ACKS.hexFillColor({ terrain: 'coast' }, 'terrain') === ACKS.hexFillColor({ terrain: 'grassland' }, 'terrain'));
+check('alias "sea"/"ocean"/"lake" → water', ACKS.hexFillColor({ terrain: 'sea' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain') && ACKS.hexFillColor({ terrain: 'Ocean' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain') && ACKS.hexFillColor({ terrain: 'lake' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain'));
+check('water is distinct from grassland (open water ≠ coastal land)', ACKS.hexFillColor({ terrain: 'water' }, 'terrain') !== ACKS.hexFillColor({ terrain: 'grassland' }, 'terrain'));
 check('alias "woods" → forest', ACKS.hexFillColor({ terrain: 'Woods' }, 'terrain') === ACKS.hexFillColor({ terrain: 'forest' }, 'terrain'));
 check('alias "mountain" → mountains', ACKS.hexFillColor({ terrain: 'mountain' }, 'terrain') === ACKS.hexFillColor({ terrain: 'mountains' }, 'terrain'));
 check('alias "marsh" → swamp', ACKS.hexFillColor({ terrain: 'marsh' }, 'terrain') === ACKS.hexFillColor({ terrain: 'swamp' }, 'terrain'));
@@ -179,7 +181,7 @@ check('full §4.1 catalog (9 layers)', Array.isArray(layers) && layers.length ==
 check('terrain is first (default)', layers[0].id === 'terrain');
 check('every layer has id + label', layers.every(l => l.id && l.label));
 check('the M0–M2 four lead the catalog', layers.slice(0, 4).map(l => l.id).join(',') === 'terrain,domain,land-value,classification');
-check('legend(terrain) → 9 rows', ACKS.hexFillLegend('terrain').length === 9);
+check('legend(terrain) → 10 rows (9 land + water)', ACKS.hexFillLegend('terrain').length === 10);
 check('legend(land-value) → 7 rows', ACKS.hexFillLegend('land-value').length === 7);
 check('legend(classification) → 4 rows', ACKS.hexFillLegend('classification').length === 4);
 const dleg = ACKS.hexFillLegend('domain', [{ id: 'dom-a', name: 'Alpha' }, { id: 'dom-b', name: 'Beta' }]);
@@ -257,6 +259,20 @@ check('3+ sides → a junction: a spoke per side, all from the centre', (() => {
   return (d.match(/M0.00 0.00L/g) || []).length === 3 && !d.includes('Q');
 })());
 check('hexRoadPathD dedups + wraps indices (6 ≡ 0)', ACKS.hexRoadPathD(0, 0, SIZE, [0, 6, 0]) === ACKS.hexRoadPathD(0, 0, SIZE, [0]));
+// crossing (ford/bridge) mark — centred on the edge midpoint, perpendicular to the edge
+check('hexCrossingSegment is centred on the edge midpoint', (() => {
+  const m = ACKS.hexEdgeMidpoint(0, 0, SIZE, 0), s = ACKS.hexCrossingSegment(0, 0, SIZE, 0, 20);
+  return Math.abs((s.x1 + s.x2) / 2 - m.x) < 1e-6 && Math.abs((s.y1 + s.y2) / 2 - m.y) < 1e-6;
+})());
+check('hexCrossingSegment has the requested length, perpendicular to the edge', (() => {
+  const s = ACKS.hexCrossingSegment(0, 0, SIZE, 0, 20);
+  const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+  const ep = ACKS.hexEdgePoints(0, 0, SIZE, 0);
+  // dot product of the crossing direction with the edge direction ≈ 0 (perpendicular)
+  const cd = [s.x2 - s.x1, s.y2 - s.y1], ed = [ep[1].x - ep[0].x, ep[1].y - ep[0].y];
+  const dot = cd[0] * ed[0] + cd[1] * ed[1];
+  return Math.abs(len - 20) < 1e-6 && Math.abs(dot) < 1e-3;
+})());
 
 // ─── M3 settlement glyph ramp + layer catalogs ───
 section('settlementGlyphScale + symbol/edge catalogs (M3)');
@@ -268,9 +284,9 @@ check('glyph scale is non-decreasing with families', (() => {
 check('a metropolis glyph is larger than a hamlet glyph', ACKS.settlementGlyphScale(40000) > ACKS.settlementGlyphScale(40));
 check('5 symbol layers (settlements/strongholds/lairs/dungeons/pois)', ACKS.mapSymbolLayers().length === 5 && ACKS.mapSymbolLayers()[0].id === 'settlements');
 check('4 edge layers (borders/roads/rivers/trails)', ACKS.mapEdgeLayers().length === 4 && ACKS.mapEdgeLayers()[0].id === 'borders');
-check('mapTerrainTypes: the 9 ACKS base types, value+label', (() => {
+check('mapTerrainTypes: the 10 base types (9 land + water), value+label', (() => {
   const tt = ACKS.mapTerrainTypes();
-  return tt.length === 9 && tt.every(t => t.value && t.label) && tt.find(t => t.value === 'grassland').label === 'Grassland';
+  return tt.length === 10 && tt.every(t => t.value && t.label) && tt.find(t => t.value === 'grassland').label === 'Grassland' && tt.some(t => t.value === 'water');
 })());
 check('mapTerrainTypes values are all recognized by hexFillColor (terrain)', ACKS.mapTerrainTypes().every(t => ACKS.hexFillColor({ terrain: t.value }, 'terrain') !== ACKS.hexFillColor({ terrain: 'lava' }, 'terrain')));
 

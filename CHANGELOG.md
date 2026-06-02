@@ -9,16 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Campaign map — a clickable, zoomable, layered hex map of the world** (a new 🗺 Map view under the World tab). Every hex renders as a flat-top hexagon in its true position, labelled with a RAW-style column-row coordinate (RR p.273); **scroll to zoom, drag to pan**, and **click a hex to open its existing card**. Three kinds of layer build the map you expect:
-  - **Color by** (one at a time, with a legend) — **terrain** (nine base types), **domain** (a stable colour per realm; unclaimed grey), **land value** (3–9 gp/family heatmap, RR p.341), **classification**, **population** (vs the RR p.340 ceiling), **domain morale**, **secured** (stronghold adequacy, RR p.338), **economy**, and **exploration**.
+  - **Color by** (one at a time, with a legend) — **terrain** (ten base types — nine land plus **open water** for oceans, seas, and big lakes), **domain** (a stable colour per realm; unclaimed grey), **land value** (3–9 gp/family heatmap, RR p.341), **classification**, **population** (vs the RR p.340 ceiling), **domain morale**, **secured** (stronghold adequacy, RR p.338), **economy**, and **exploration**.
   - **Symbols** (toggleable) — settlements as circles sized by market class (RR p.351), strongholds, and lair / dungeon / point-of-interest markers.
-  - **Edges** (toggleable) — computed **domain borders**, plus **roads / rivers / trails** drawn between connected hexes. Active **journeys** show their route as a highlighted path with a marker at the party's current hex.
-  - A one-click **Standard view** sets the familiar composite, and an **Add/Edit hexes** mode lets you click an empty cell to **create** a hex or click an existing hex to quickly **edit** it — setting its domain (including assigning an unclaimed wilderness hex to a domain), terrain, and now its **rivers and roads**: click a small hex diagram's sides to lay a **river** along an edge or run a **road** from the hex centre out to a side (roads bend through the centre with a faintly circular curve). The first time the map reaches *and* shapes the lands between domains.
+  - **Edges** (toggleable) — computed **domain borders**; **rivers** drawn along hex edges; **roads** running from a hex's centre out to its sides (bending through the centre with a faintly circular curve); **trails**; and **ford/bridge** marks where a river is crossed. Active **journeys** show their route as a highlighted path with a marker at the party's current hex.
+  - A one-click **Standard view** sets the familiar composite, and an **Add/Edit hexes** mode lets you click an empty cell to **create** a hex or click an existing hex to quickly **edit** it — setting its domain (including assigning an unclaimed wilderness hex to a domain), its terrain (now including open water), and its **rivers, roads, and crossings**: on a small hex diagram, click a side to run a **road** out from the centre, or cycle a side through **river → river + ford/bridge → none**; a road that crosses a river is automatically bridged. The first time the map reaches *and* shapes the lands between domains.
 
   It is a pure view of the hexes you already have — nothing new is written to your campaign file — and the first surface that makes the whole world legible at a glance.
 
 ### Changed
 - **The World tab is now a hub for Map, Domains, and Hexes.** Map, Domains, and Hexes are sub-views under World (in that order) rather than separate top-level tabs — Domains, previously its own top-level tab, now lives under World ▸ Domains. The tool still opens on the domain manager (now World ▸ Domains), and which World sub-view you were last on is remembered across reloads.
 - **Hexes now have a consistent name everywhere they're referred to** — `<Settlement> (coords)` if the hex has a settlement, otherwise `<Terrain> (coords)` (e.g. "Saltspur (0000)", "Forest (0100)"). It shows in the hex card, World › Hexes, the Inspector, journeys, and character locations — replacing the bare `(q, r)` coordinates that appeared before. (The terse number at the top of each hex on the map is unchanged.)
+
+### Removed
+- The unused `hex.riverCount` field. It was never wired to anything and cited a movement-cost rule that doesn't exist in RAW; rivers are now modelled as the edges they run along, with ford/bridge crossing marks. (Dropped automatically when a campaign loads — no action needed.)
 
 ## [0.12.0] - 2026-06-02
 
