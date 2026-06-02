@@ -164,15 +164,13 @@ ok('blankCharacter never emits c.kind regardless of input', !('kind' in viaKindP
 section('P3.6 — every shipped template migrates clean, validates, and is a migrate-no-op (qa I2)');
 // =============================================================================
 // Five of six templates were previously validated only incidentally. Guard all of
-// them: each v2-*.acks.json must migrate without throwing, pass validateCampaign, and
-// migration must CONVERGE — migrateCampaign(migrateCampaign(file)) equals
-// migrateCampaign(file) byte-for-byte (the migrated form is a stable fixed point).
-// NOTE: the on-disk templates are NOT currently byte-equal to their migrated form —
-// they predate the J1 Journeys work (2026-06-01), which added four additive character
-// fields that migrateCampaign backfills on load (currentJourneyId / personalFatigue /
-// hungerDays / dehydrationDays). That is benign additive backfill, not a migration bug;
-// the templates want a regeneration pass (strip-not-live + elide-defaults per #511/#512)
-// in a follow-up. Idempotency is the correctness property that matters here.
+// them: each v2-*.acks.json must migrate without throwing, pass validateCampaign,
+// converge (migrate∘migrate === migrate), AND be a TRUE migrate-no-op — the on-disk
+// file already equals its migrated form, so loading a shipped template changes nothing.
+// The templates were regenerated through migrateCampaign on 2026-06-02 (the J1 follow-up:
+// they had lacked the four additive character fields currentJourneyId / personalFatigue /
+// hungerDays / dehydrationDays that migrate backfills). The true-no-op check below locks
+// that in — any future migrate addition not reflected in the shipped templates fails here.
 const tplDir = path.join(DIR, 'Templates');
 const tplFiles = fs.readdirSync(tplDir).filter(f => /^v2-.*\.acks\.json$/.test(f));
 ok('found the six shipped templates', tplFiles.length === 6, 'got ' + tplFiles.length);
@@ -187,6 +185,7 @@ tplFiles.forEach(f => {
   catch (e) { ok('validates: ' + f, false, e.message); }
   const reMigrated = ACKS.migrateCampaign(clone(migrated));
   ok('migration converges (idempotent fixed point): ' + f, JSON.stringify(reMigrated) === JSON.stringify(migrated));
+  ok('on-disk template is already migrated (true no-op): ' + f, JSON.stringify(migrated) === JSON.stringify(raw));
 });
 
 // ─── summary ───

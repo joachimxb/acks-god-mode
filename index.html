@@ -213,7 +213,7 @@ document.addEventListener('alpine:init', () => {
           <button @click="tickDay()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">+1 day</button>
           <button @click="tickWeek()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">+1 week</button>
           <button @click="tickToMonthEnd()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">&rarr; month end</button>
-          <span x-show="dayTickProposal && dayTickProposal.paused" class="text-xs font-bold text-red-700" title="A consumer requested a pause for review">&#9208; paused</span>
+          <span x-show="dayTickPausedEarly()" class="text-xs font-bold text-red-700" title="A consumer paused a multi-day advance for review">&#9208; paused</span>
         </div>
       </template>
       <!-- Day-tick review surface (Phase 2.95 §10/§11) — consumer-agnostic propose-review-commit. Generic so Journeys/Hijinks slot in with no rework. -->
@@ -226,12 +226,9 @@ document.addEventListener('alpine:init', () => {
             <span x-text="'Advancing ' + (dayTickProposal.daysAdvanced||0) + ' day(s): day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay"></span>
             <span x-show="dayTickProposal.monthEndReached" class="font-semibold"> &middot; month end reached</span>
           </p>
-          <template x-if="dayTickProposal.paused">
+          <template x-if="dayTickPausedEarly()">
             <div class="mb-2 p-2 border border-red-400 bg-red-50 rounded text-xs">
-              <strong>&#9208; Paused for review.</strong>
-              <template x-for="(rsn, ri) in dayTickProposal.pauseReasons" :key="ri">
-                <div x-text="'- ' + (rsn.label||rsn.trigger) + ' (' + rsn.trigger + ', day ' + rsn.dayInMonth + ')'"></div>
-              </template>
+              <strong>&#9208; Paused for review.</strong> <span class="opacity-70" x-text="'Stopped early at day ' + dayTickProposal.toDay + ' of a ' + dayTickProposal.daysRequested + '-day advance — a consumer flagged the items in red below. Review, then commit or cancel.'"></span>
             </div>
           </template>
           <template x-if="(dayTickProposal.pendingRecords||[]).length === 0">
@@ -241,20 +238,29 @@ document.addEventListener('alpine:init', () => {
             <div class="mb-2">
               <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="grp.consumer"></div>
               <template x-for="(r, ri) in grp.records" :key="grp.consumer + '-' + ri">
-                <div class="flex items-center justify-between gap-2 py-0.5 border-b border-dashed border-gray-300" :class="r.rejected ? 'opacity-40 line-through' : ''">
-                  <span class="text-xs" x-text="r.label || (r.kind + ' record')"></span>
-                  <span class="flex items-center gap-1 shrink-0">
-                    <!-- Worker-built projects expose an editable committed-labor (cf) field. Monthly-cadence
-                         records (agricultural improvement — gp-denominated, advances at month-end) have no
-                         per-day labor to edit, so the field is suppressed (Wave Construction-B). -->
-                    <template x-if="typeof r.newLaborInvested === 'number' && r.cadence !== 'monthly'">
-                      <input type="number" x-model.number="r.newLaborInvested" class="w-20 text-xs border border-ink rounded px-1" title="Edit committed labor (cf)">
+                <div class="border-b border-dashed border-gray-300">
+                  <div class="flex items-center justify-between gap-2 py-0.5" :class="r.rejected ? 'opacity-40 line-through' : ''">
+                    <span class="text-xs" x-text="r.label || (r.kind + ' record')"></span>
+                    <span class="flex items-center gap-1 shrink-0">
+                      <!-- Worker-built projects expose an editable committed-labor (cf) field. Monthly-cadence
+                           records (agricultural improvement — gp-denominated, advances at month-end) have no
+                           per-day labor to edit, so the field is suppressed (Wave Construction-B). -->
+                      <template x-if="typeof r.newLaborInvested === 'number' && r.cadence !== 'monthly'">
+                        <input type="number" x-model.number="r.newLaborInvested" class="w-20 text-xs border border-ink rounded px-1" title="Edit committed labor (cf)">
+                      </template>
+                      <template x-if="r.cadence === 'monthly'">
+                        <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
+                      </template>
+                      <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
+                    </span>
+                  </div>
+                  <!-- This record's notable events (lost / hungry / dehydrated / encounter …), in red,
+                       under their own record — the journey label above isn't repeated. -->
+                  <div x-show="!r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
+                    <template x-for="(ne, nei) in (r._notables||[])" :key="grp.consumer + '-' + ri + '-ntl-' + nei">
+                      <div class="text-xs text-red-700 leading-snug" x-text="'• ' + dayTickNotableText(ne)"></div>
                     </template>
-                    <template x-if="r.cadence === 'monthly'">
-                      <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
-                    </template>
-                    <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
-                  </span>
+                  </div>
                 </div>
               </template>
             </div>
@@ -2389,14 +2395,14 @@ document.addEventListener('alpine:init', () => {
                 <td class="text-sm" x-text="ventureStatusLabel(v)"></td>
                 <td class="text-sm">
                   <template x-if="v.status==='in-transit'">
-                    <span :class="(v.expectedArrivalTurn||0) <= (currentCampaign?.currentTurn||1) ? 'accent-amber font-semibold' : ''" x-text="(v.expectedArrivalTurn||0) <= (currentCampaign?.currentTurn||1) ? 'ARRIVED' : ('arrives Turn ' + (v.expectedArrivalTurn||'?'))"></span>
+                    <span :class="(v.expectedArrivalTurn||0) <= (currentCampaign?.currentTurn||1) ? 'accent-amber font-semibold' : ''" :title="'Expected arrival: Turn ' + (v.expectedArrivalTurn||'?')" x-text="(() => { const left=(v.expectedArrivalTurn||0)-(currentCampaign?.currentTurn||1); return left<=0 ? 'ARRIVED' : ('in ' + left + ' turn' + (left===1?'':'s')); })()"></span>
                   </template>
                   <template x-if="v.status==='selling'">
                     <span x-text="'arrived Turn ' + (v.arrivalTurn||'?')"></span>
                   </template>
                 </td>
                 <td class="text-right text-sm">
-                  <button @click="advanceVentureStatus(v)" class="underline mr-2" x-text="v.status==='in-transit' ? '→ arrive' : '→ sell'"></button>
+                  <button @click="advanceVentureStatus(v)" class="underline mr-2" :title="(v.status==='in-transit' && (v.expectedArrivalTurn||0) > (currentCampaign?.currentTurn||1)) ? 'GM override: force arrival now, before the expected turn' : ''" x-text="v.status==='in-transit' ? (((v.expectedArrivalTurn||0) > (currentCampaign?.currentTurn||1)) ? 'GM-arrive' : '→ arrive') : '→ sell'"></button>
                   <button @click="abortVenture(v)" class="underline accent-red" title="Abort and book full loss">abort</button>
                 </td>
               </tr>
@@ -2492,7 +2498,7 @@ document.addEventListener('alpine:init', () => {
             </tr>
           </tbody>
         </table>
-        <p class="text-sm opacity-70 mt-2 italic">Per RAW (RR pp.370-380), a named venturer can run only one active arbitrage venture at a time. Multiple-active is allowed via guildhouse followers (9th level) or by registering different venturer names (e.g., "Caleför's Apprentice"). Creating a venture for a venturer already in transit prompts a confirmation.</p>
+        <p class="text-sm opacity-70 mt-2 italic">Per RAW (RR pp.370-380), a named venturer can run only one active arbitrage venture at a time. A character already away on a venture (or a journey) is hidden from the New-venture picker until they return; to run concurrent ventures, register a separate venturer (a guildhouse follower at 9th level, or a differently-named henchman like "Caleför's Apprentice") as their own character.</p>
       </template>
     </div>
 
@@ -2997,15 +3003,315 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- Sub-panel: Journeys (Phase 2.5 placeholder). -->
+<!-- Sub-panel: Journeys (Phase 2.5 #475 — J2). Action-verb wizard + lists + detail.
+     Tick Day routes through the GLOBAL day-tick pipeline (the Day Clock, top-right). -->
 <div x-show="currentView === 'activities' && activitiesSubView === 'journeys'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
-    <div class="vellum border border-ink rounded p-6 text-center">
-      <h2 class="font-bold text-xl mb-2">⛺ Journeys</h2>
-      <p class="text-sm opacity-70 mb-3">Per-day wilderness travel, navigation, weather, fatigue, encounters — unified for land, sea, and air.</p>
-      <p class="text-sm italic opacity-60">Coming in Phase 2.5. Spec lives at <code>Phase_2.5_Journeys_Plan.md</code> (DEV root).</p>
-      <p class="text-sm opacity-60 mt-3">Depends on: Phase 2.95 Calendar (day-tick + collision-check pipeline) · Map Mode (#225) · Outposts (#395).</p>
-    </div>
+
+    <!-- ───── (A) START JOURNEY WIZARD (Action verb — Recruiting-Wizard shape) ───── -->
+    <template x-if="journeyWizard.open">
+      <div class="vellum border border-ink rounded p-4 space-y-4">
+        <div class="flex items-baseline justify-between flex-wrap gap-2">
+          <h2 class="font-bold text-xl">🧭 Start a Journey</h2>
+          <span class="text-xs opacity-60">Action verb — sets out a real journey. Free-form authoring lives in 🔍 Inspector › Create.</span>
+        </div>
+
+        <!-- Participants -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">Participants</span> <span class="text-xs opacity-60">— who travels (the participant set is the source of truth)</span></div>
+          <div class="mb-2 text-sm">
+            <label class="opacity-70">Party (optional — autofills its members):</label>
+            <!-- @change + :selected (not x-model): x-for-rendered options don't pre-select a
+                 deep-link-prefilled value under x-model (the party/start hex set before render). -->
+            <select @change="journeyWizard.partyId = $event.target.value; journeyOnPartyChange()" class="ml-2 border border-ink rounded px-2 py-0.5">
+              <option value="" :selected="!journeyWizard.partyId">— none —</option>
+              <template x-for="p in journeyPartyOptions()" :key="p.id"><option :value="p.id" :selected="journeyWizard.partyId === p.id" x-text="p.name||'(unnamed party)'"></option></template>
+            </select>
+          </div>
+          <!-- Add an individual traveller via dropdown. Excludes characters already in a party
+               (they travel via the Party picker above) and ones already added. Picking one sets
+               the start hex from that character's current location. -->
+          <div class="text-sm flex items-center gap-2 flex-wrap">
+            <label class="opacity-70">Add traveller:</label>
+            <select @change="journeyAddParticipant($event.target.value); $event.target.value=''" class="border border-ink rounded px-2 py-0.5">
+              <option value="">— pick a character —</option>
+              <template x-for="c in journeyParticipantOptions()" :key="c.id"><option :value="c.id" x-text="c.name||'(unnamed)'"></option></template>
+            </select>
+            <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0" x-text="journeyWizard.startHexId ? ('No more unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + ' — change the start hex, or pick a party above.') : 'No unattached characters — add one in the Characters tab, or pick a party above.'"></span>
+          </div>
+          <!-- selected travellers (removable chips) -->
+          <div class="flex flex-wrap gap-1.5 mt-2" x-show="journeyWizard.participantIds.length">
+            <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
+              <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-yellow-50">
+                <span x-text="journeyParticipantName(cid)"></span>
+                <span class="opacity-60" x-show="characterMercCountById(cid)" :title="characterMercCountById(cid) + ' mercenaries travel with this character'" x-text="'+'+characterMercCountById(cid)+'⚔'"></span>
+                <button @click="journeyToggleParticipant(cid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove from journey">×</button>
+              </span>
+            </template>
+          </div>
+          <p class="text-xs opacity-60 mt-1" x-text="journeyWizardHeadcountLabel()"></p>
+        </div>
+
+        <!-- Route -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">Route</span></div>
+          <div class="flex flex-wrap gap-3 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Start hex</label>
+              <select @change="journeyWizard.startHexId = ($event.target.value || '')" class="border border-ink rounded px-2 py-0.5">
+                <option value="" :selected="!journeyWizard.startHexId">— pick —</option>
+                <template x-for="h in journeyHexOptions()" :key="'s-'+h.id"><option :value="h.id" :selected="journeyWizard.startHexId === h.id" x-text="h.label"></option></template>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Destination hex</label>
+              <select @change="journeyWizard.destinationHexId = ($event.target.value || '')" class="border border-ink rounded px-2 py-0.5">
+                <option value="" :selected="!journeyWizard.destinationHexId">— pick —</option>
+                <template x-for="h in journeyHexOptions()" :key="'d-'+h.id"><option :value="h.id" :selected="journeyWizard.destinationHexId === h.id" x-text="h.label"></option></template>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Name (optional)</label>
+              <input x-model="journeyWizard.name" placeholder="auto from route" class="border border-ink rounded px-2 py-0.5">
+            </div>
+          </div>
+          <details class="mt-2">
+            <summary class="text-xs opacity-70 cursor-pointer">Waypoints (optional)</summary>
+            <div class="max-h-32 overflow-auto border border-ink rounded p-2 mt-1">
+              <template x-for="h in journeyHexOptions()" :key="'w-'+h.id">
+                <label class="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" :checked="journeyWizard.waypointIds.includes(h.id)" @change="journeyToggleWaypoint(h.id)">
+                  <span x-text="h.label"></span>
+                </label>
+              </template>
+            </div>
+          </details>
+        </div>
+
+        <!-- Pace + mode now live on the journey itself (set in the Journey Detail panel after
+             starting). New journeys take the defaults: Normal pace, on-foot mode. -->
+
+        <!-- Supplies -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">Supplies</span> <span class="text-xs opacity-60">— person-day rations (RAW: 1 food + 1 water per person/day; RR p.276)</span></div>
+          <div class="flex flex-wrap gap-3 items-end text-sm">
+            <div><label class="opacity-70 block text-xs">Food rations</label><input type="number" min="0" x-model.number="journeyWizard.rations" class="w-24 border border-ink rounded px-2 py-0.5"></div>
+            <div><label class="opacity-70 block text-xs">Water rations</label><input type="number" min="0" x-model.number="journeyWizard.waterRations" class="w-24 border border-ink rounded px-2 py-0.5"></div>
+            <span class="text-xs opacity-60" x-show="journeyWizard.participantIds.length && (journeyWizard.rations||journeyWizard.waterRations)" x-text="'≈ ' + Math.floor(Math.min(journeyWizard.rations||0, journeyWizard.waterRations||0)/Math.max(1,journeyWizard.participantIds.length)) + ' days at this party size'"></span>
+          </div>
+        </div>
+
+        <!-- Forecast + submit gate -->
+        <template x-if="journeyForecast()">
+          <div class="wizard-forecast-row" :class="journeyForecast().totalHexes===0 ? 'wizard-no-chance' : ''">
+            <span x-text="'Forecast: ~' + journeyForecast().totalHexes + ' hexes (' + journeyForecast().miles + ' mi), about ' + journeyForecast().estDays + ' day' + (journeyForecast().estDays===1?'':'s') + ' at normal pace on open ground (terrain + nav rolls vary it).'"></span>
+          </div>
+        </template>
+        <div class="wizard-submit-gate flex items-center gap-2 flex-wrap">
+          <button @click="startJourneySubmit()" :disabled="!startJourneyCanSubmit()" :class="startJourneyCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" :title="startJourneySubmitDisabledReason() || 'Set out on the journey'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">🧭 Start journey</button>
+          <button @click="startJourneyCancel()" class="px-3 py-1 border border-ink rounded hover:bg-gray-100 text-sm">Cancel</button>
+          <span class="wizard-submit-disabled-reason text-xs text-red-700" x-show="!startJourneyCanSubmit()" x-text="startJourneySubmitDisabledReason()"></span>
+        </div>
+      </div>
+    </template>
+
+    <!-- ───── (B) JOURNEY DETAIL ───── -->
+    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail()">
+      <div class="vellum border border-ink rounded p-4 space-y-3">
+        <div class="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-bold text-xl"><span x-text="journeyModeIcon(journeyDetail())"></span> <span x-text="journeyDetail().name || 'Journey'"></span></h2>
+            <p class="text-sm opacity-70">
+              <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span> →
+              <span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
+              · <span x-text="journeyDayLabel(journeyDetail())"></span>
+              · <span class="capitalize" x-text="journeyDetail().pace"></span>
+              · <span x-text="journeyDetail().mode"></span>
+              · <span class="font-semibold" :class="journeyDetail().isLost ? 'text-red-700' : (journeyDetail().status==='arrived' ? 'text-green-800' : '')" x-text="journeyStatusLabel(journeyDetail())"></span>
+            </p>
+            <p class="text-sm mt-1" x-show="journeyDetail().participantCharacterIds.length"><span class="opacity-60">Travellers:</span> <span x-text="journeyHeadcountLabel(journeyDetail())"></span></p>
+          </div>
+          <button @click="journeyCloseDetail()" class="text-xs px-2 py-1 border border-ink rounded hover:bg-gray-100">← all journeys</button>
+        </div>
+
+        <!-- text route (map mode #225 will render this graphically) -->
+        <div class="text-sm">
+          <span class="opacity-60">Route:</span>
+          <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span>
+          <template x-for="(wp,wi) in (journeyDetail().waypoints||[])" :key="'rt-'+wi"><span> → <span x-text="journeyHexLabel(wp.hexId)"></span></span></template>
+          <span> → </span><span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
+          <span class="opacity-50 text-xs ml-1">(text route — map mode #225 will draw it)</span>
+        </div>
+
+        <!-- distance: total + remaining miles (6-mile hexes) -->
+        <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+
+        <!-- Members table (mirrors the Parties panel): each traveller + the mercenaries (RR p.166)
+             that travel with them. Room for more per-character columns later. -->
+        <div x-show="journeyDetail().participantCharacterIds.length">
+          <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
+          <table class="text-sm w-full max-w-2xl">
+            <thead>
+              <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                <th class="font-normal py-0.5 pr-4">Traveller</th>
+                <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                <th class="font-normal py-0.5">Conditions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="ch in journeyParticipants(journeyDetail())" :key="'jm-'+ch.id">
+                <tr class="border-b border-dashed border-gray-200 align-top">
+                  <td class="py-1 pr-4">
+                    <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                    <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1)"></span>
+                  </td>
+                  <td class="py-1 pr-4">
+                    <template x-if="partyMemberMercSummary(ch).length">
+                      <span class="text-xs">
+                        <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
+                      </span>
+                    </template>
+                    <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                  </td>
+                  <td class="py-1">
+                    <template x-if="characterJourneyConditions(ch).length">
+                      <span class="flex flex-wrap gap-1">
+                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                      </span>
+                    </template>
+                    <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="text-sm mt-1">
+            <span class="font-semibold">Total: <span x-text="journeyHeadcount(journeyDetail()).toLocaleString()"></span></span>
+            <span class="opacity-60" x-text="'(' + journeyParticipants(journeyDetail()).length + ' character' + (journeyParticipants(journeyDetail()).length===1?'':'s') + (journeyMercTotal(journeyDetail()) ? (' + ' + journeyMercTotal(journeyDetail()).toLocaleString() + ' mercenaries') : '') + ')'"></span>
+          </div>
+        </div>
+
+        <!-- supplies tracker + status conditions -->
+        <div class="border border-dashed border-ink rounded p-2 text-sm">
+          <div class="flex flex-wrap gap-4">
+            <span>🍖 Food: <span class="font-semibold" x-text="(journeyDetail().supplies?.rations)||0"></span></span>
+            <span>💧 Water: <span class="font-semibold" x-text="(journeyDetail().supplies?.waterRations)||0"></span></span>
+            <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
+            <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) of supplies left'"></span>
+          </div>
+        </div>
+
+        <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
+             side by side (the old Start-wizard "Pace & mode" layout). -->
+        <div x-show="journeyDetail().status==='in-transit'">
+          <div class="flex flex-wrap gap-4 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Pace</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyPace(journeyDetail(), $event.target.value)" title="Change the marching pace — applies to the next day ticked (logged)">
+                <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
+                <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
+                <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Mode</label>
+              <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
+                <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
+                <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'" disabled>Voyage — coming (Phase 3 Voyages)</option>
+                <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
+              </select>
+            </div>
+          </div>
+          <span class="text-xs opacity-50">Pace applies to the next day ticked.</span>
+        </div>
+
+        <!-- actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <button @click="journeyTickDay()" class="px-4 py-1.5 border-2 border-ink rounded bg-sky-300 hover:bg-sky-400 font-bold text-base" title="Advance one day through the shared day-tick pipeline (review + commit in the Day-tick panel, top-right)" x-show="journeyDetail().status==='in-transit'">🕑 Tick day</button>
+          <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base bg-green-200 text-green-900 border-2 border-green-700">✓ Arrived</span>
+          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base bg-red-100 text-red-800 border-2 border-red-500">✖ Aborted</span>
+          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)">✖ Abort</button>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Tick routes through the Day Clock's propose → review → commit (top-right) — the same pipeline construction and every day consumer share.</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins advancing once in-transit (start it via the day-tick once linked), or abort to discard.</span>
+        </div>
+
+        <!-- day log -->
+        <div>
+          <h3 class="font-semibold text-sm mb-1">Day log</h3>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — Tick day to advance.</p></template>
+          <div class="space-y-1">
+            <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
+              <div class="text-xs border-b border-dashed border-gray-300 py-0.5 flex flex-wrap gap-x-3 items-baseline">
+                <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
+                <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
+                <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
+                <span class="capitalize" x-text="d.pace"></span>
+                <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
+                <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                <!-- GM reroll — only the latest day (downstream days depend on it). -->
+                <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
+              </div>
+            </template>
+          </div>
+          <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
+        </div>
+      </div>
+    </template>
+
+    <!-- ───── (C) LISTS (default) ───── -->
+    <template x-if="!journeyWizard.open && !journeyDetailId">
+      <div class="space-y-4">
+        <div class="flex items-baseline justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-bold text-xl">⛺ Journeys</h2>
+            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. Drive them with the Day Clock (top-right).</p>
+          </div>
+          <button @click="startJourneyDeepLink({})" class="px-3 py-1 border border-ink rounded bg-yellow-300 hover:bg-yellow-400 font-semibold text-sm">🧭 Start a journey</button>
+        </div>
+
+        <!-- Active -->
+        <div class="vellum border border-ink rounded">
+          <div class="px-3 py-2 border-b border-ink font-semibold text-sm">Active <span class="opacity-60" x-text="'· ' + activeJourneys().length"></span></div>
+          <template x-if="activeJourneys().length===0"><p class="p-3 text-sm italic opacity-60">No active journeys. Start one above — or from a character sheet, a party, or a hex card.</p></template>
+          <template x-for="j in activeJourneys()" :key="j.id">
+            <div class="px-3 py-2 border-b border-dashed border-gray-300 flex items-center gap-2 hover:bg-yellow-50 cursor-pointer" @click="journeyOpenDetail(j.id)">
+              <span class="text-lg shrink-0" x-text="journeyModeIcon(j)"></span>
+              <div class="flex-grow min-w-0">
+                <div class="text-sm font-semibold truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></div>
+                <div class="text-xs opacity-70 truncate">
+                  <span x-text="journeyParticipantNames(j)"></span>
+                  · <span x-text="journeyHexLabel(j.currentHexId || j.startHexId)"></span> → <span x-text="journeyHexLabel(j.destinationHexId)"></span>
+                  · <span x-text="journeyDayLabel(j)"></span>
+                </div>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded shrink-0" :class="j.isLost ? 'bg-red-200' : (j.status==='planning' ? 'bg-gray-200' : 'bg-sky-100')" x-text="journeyStatusLabel(j)"></span>
+              <span class="text-xs shrink-0" :class="journeySupplyDaysLeft(j) < 3 ? 'text-red-700 font-semibold' : 'opacity-50'" title="approx. days of supplies left" x-text="'🍖' + journeySupplyDaysLeft(j) + 'd'"></span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Completed / aborted (collapsed) -->
+        <div class="vellum border border-ink rounded">
+          <button @click="journeyShowCompleted = !journeyShowCompleted" class="w-full text-left px-3 py-2 border-b border-ink font-semibold text-sm flex items-center justify-between">
+            <span>Completed &amp; aborted <span class="opacity-60" x-text="'· ' + completedJourneys().length"></span></span>
+            <span x-text="journeyShowCompleted ? '▾' : '▸'"></span>
+          </button>
+          <template x-if="journeyShowCompleted">
+            <div>
+              <template x-if="completedJourneys().length===0"><p class="p-3 text-sm italic opacity-60">Nothing finished yet.</p></template>
+              <template x-for="j in completedJourneys()" :key="j.id">
+                <div class="px-3 py-1.5 border-b border-dashed border-gray-300 flex items-center gap-2 hover:bg-yellow-50 cursor-pointer text-sm" @click="journeyOpenDetail(j.id)">
+                  <span class="shrink-0" x-text="j.status==='arrived' ? '✅' : '✖'"></span>
+                  <span class="flex-grow truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></span>
+                  <span class="text-xs opacity-60 shrink-0" x-text="j.status + ' · day ' + (j.currentDayIndex||0)"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
   </div>
 </div>
 
@@ -3602,37 +3908,109 @@ document.addEventListener('alpine:init', () => {
     <div x-show="charactersSubView==='parties'" class="vellum border border-ink rounded p-4">
       <div class="flex justify-between items-baseline mb-3">
         <h3 class="font-bold text-lg">🧭 Parties <span class="text-sm opacity-70 font-normal" x-text="'· ' + (currentCampaign?.parties?.length || 0) + ' part' + ((currentCampaign?.parties?.length || 0) === 1 ? 'y' : 'ies')"></span></h3>
-        <button @click="addBlankParty()" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">+ New party</button>
+        <button @click="newPartyPickerOpen = !newPartyPickerOpen; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">+ New party</button>
       </div>
+      <!-- Founder picker: a party is started by one character; others join from the same hex. -->
+      <template x-if="newPartyPickerOpen">
+        <div class="border border-ink rounded p-3 mb-3 bg-yellow-50 flex flex-wrap items-end gap-2">
+          <label class="text-sm">Start a party with
+            <select x-model="newPartyFounderId" class="block mt-0.5">
+              <option value="">— pick a character —</option>
+              <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
+                <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1) + (ch.currentHexId ? (' · ' + journeyHexLabel(ch.currentHexId)) : ' · no hex')"></option>
+              </template>
+            </select>
+          </label>
+          <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">Create party</button>
+          <button @click="newPartyPickerOpen=false; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+          <span class="text-xs opacity-60 w-full">The party is named after its founder and placed at their hex. Add others from the same hex below; or <strong>Send on journey</strong> to put the whole party on the road.</span>
+          <p class="text-xs italic opacity-60 w-full" x-show="charactersNotInAnyParty().length === 0">Everyone is already in a party — free a character first (remove them from their party).</p>
+        </div>
+      </template>
       <template x-if="(currentCampaign?.parties?.length || 0) === 0">
-        <p class="text-sm italic opacity-60 py-6 text-center">No parties yet. Use <strong>+ New party</strong> to group characters for shared expeditions, treasure-splits, or campaign-tracking. A character can belong to at most one party at a time (set via their sheet's Location tab).</p>
+        <p class="text-sm italic opacity-60 py-6 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex. You can then add anyone in the same hex as members, or <strong>Send on journey</strong> to put the whole party on the road. A character belongs to at most one party at a time.</p>
       </template>
       <template x-if="(currentCampaign?.parties?.length || 0) > 0">
         <div class="space-y-3">
           <template x-for="pt in (currentCampaign?.parties || [])" :key="pt.id">
-            <div class="border border-ink rounded p-3">
+            <div :id="'party-card-'+pt.id" class="border border-ink rounded p-3" style="transition:box-shadow .3s">
               <div class="flex justify-between items-center gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                  <input x-model="pt.name" class="font-semibold text-base" style="width:18rem" placeholder="Party name">
+                  <!-- Party name — ✏ / ✓ / × lock-edit (editableStat), saved via gm-fiat like other fields. -->
+                  <span class="ed-stat" x-data="editableStat({entityType:'party', entity:pt, fieldPath:'name', label:'Party name', kind:'text', placeholder:'(unnamed party)'})">
+                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-base font-semibold" style="font-family:inherit" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit name (logged)">✏</button></span></template>
+                    <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-base font-semibold" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  </span>
                   <span class="text-sm opacity-60 font-mono" x-text="pt.id"></span>
                 </div>
                 <div class="flex items-center gap-2">
                   <span class="text-sm opacity-70" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt) === 1 ? '' : 's')"></span>
+                  <button x-show="pt.activeJourneyId && journeyById(pt.activeJourneyId)" @click="journeyOpenDetail(pt.activeJourneyId)" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200" title="This party is on a journey — open it">⛺ on journey</button>
+                  <button x-show="!pt.activeJourneyId" @click="startJourneyDeepLink({ partyId: pt.id })" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-200 hover:bg-sky-300" title="Start a journey with this whole party">🧭 Send on journey</button>
                   <button @click="removeParty(pt.id)" class="text-sm accent-red px-2 py-0.5 border border-ink rounded hover:bg-red-50">× delete</button>
                 </div>
               </div>
-              <div class="mt-2 grid grid-cols-2 gap-2 text-sm">
-                <label>Current hex
-                  <select x-model="pt.currentHexId" class="w-full">
-                    <option :value="null">(none)</option>
-                    <template x-for="h in allHexes" :key="h.id">
-                      <option :value="h.id" x-text="h.label"></option>
+              <div class="mt-2 space-y-2 text-sm">
+                <!-- Current hex + Notes, stacked (Notes under Current hex). Current hex is a lock-edit:
+                     on a journey it's journey-driven ("Command" style — locked, links to the journey);
+                     otherwise the GM edits it with the ✏ / ✓ / × control ("Generate" style override). -->
+                <div>
+                  <span class="block text-xs opacity-70">Current hex</span>
+                  <template x-if="pt.activeJourneyId && journeyById(pt.activeJourneyId)">
+                    <span class="flex items-center gap-2">
+                      <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
+                      <button @click="journeyOpenDetail(pt.activeJourneyId)" class="text-xs opacity-70 underline whitespace-nowrap" title="On a journey — the party's hex moves with it. Open the journey.">🔒 on journey ›</button>
+                    </span>
+                  </template>
+                  <!-- Generate style — same ✏ / ✓ / × draft-edit mechanic as every other GM-edited
+                       field (editableStat): ✏ opens, the pick lives in a draft, ✓ commits via
+                       commitStatEdit (emits a logged gm-fiat event ONLY on save), × discards. -->
+                  <template x-if="!(pt.activeJourneyId && journeyById(pt.activeJourneyId))">
+                    <span class="ed-stat">
+                      <template x-if="!pt._hexEditing">
+                        <span class="ed-stat">
+                          <span class="ed-val" x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></span>
+                          <button @click="partyHexEditStart(pt)" class="ed-edit" title="Set the party's hex manually (logged on save)">✏</button>
+                        </span>
+                      </template>
+                      <template x-if="pt._hexEditing">
+                        <span class="ed-stat">
+                          <!-- @change + :selected (not x-model): an x-for option list doesn't pre-select
+                               reliably under x-model. Writes only the DRAFT — no emit until ✓. -->
+                          <select class="ed-input" @change="pt._hexDraft = ($event.target.value || null)" x-init="$nextTick(() => $el.focus())">
+                            <option value="" :selected="!pt._hexDraft">— none —</option>
+                            <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
+                              <option :value="h.id" :selected="pt._hexDraft === h.id" x-text="h.label"></option>
+                            </template>
+                          </select>
+                          <button @click="partyHexEditSave(pt)" class="ed-btn" title="Save & lock (logged)">✓</button>
+                          <button @click="partyHexEditCancel(pt)" class="ed-btn" title="Cancel">×</button>
+                        </span>
+                      </template>
+                    </span>
+                  </template>
+                </div>
+                <!-- Notes — ✏ / ✓ / × lock-edit (editableStat), saved via gm-fiat like every other field. -->
+                <div x-data="editableStat({entityType:'party', entity:pt, fieldPath:'notes', label:'Party notes', kind:'text', placeholder:'(no notes yet — click ✏ to add)'})">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs opacity-70">Notes</span>
+                    <template x-if="!editing">
+                      <button @click="start()" class="ed-edit" title="Edit notes (logged on save)">✏</button>
                     </template>
-                  </select>
-                </label>
-                <label>Notes
-                  <input x-model="pt.notes" class="w-full" placeholder="Free notes about this party">
-                </label>
+                    <template x-if="editing">
+                      <span class="flex gap-1">
+                        <button @click="save()" class="ed-btn" title="Save & lock">✓</button>
+                        <button @click="cancel()" class="ed-btn" title="Cancel">×</button>
+                      </span>
+                    </template>
+                  </div>
+                  <template x-if="!editing">
+                    <p class="text-sm whitespace-pre-wrap" :class="(currentValue==null || currentValue==='') ? 'opacity-60 italic' : ''" x-text="displayValue"></p>
+                  </template>
+                  <template x-if="editing">
+                    <textarea class="w-full h-20" x-model="draft" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="Free notes about this party"></textarea>
+                  </template>
+                </div>
               </div>
               <div class="mt-3">
                 <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
@@ -3641,24 +4019,56 @@ document.addEventListener('alpine:init', () => {
                 </template>
                 <ul class="text-sm space-y-1" x-show="partyMembers(pt).length > 0">
                   <template x-for="ch in partyMembers(pt)" :key="ch.id">
-                    <li class="flex justify-between items-center py-0.5">
-                      <span>
-                        <span x-text="ch.name"></span>
-                        <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
-                      </span>
-                      <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
+                    <li class="py-1 border-b border-dashed border-gray-200 last:border-0">
+                      <div class="flex justify-between items-center">
+                        <span>
+                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★ </span>
+                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name"></button>
+                          <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
+                        </span>
+                        <span class="flex items-center gap-3 shrink-0">
+                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-sm underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
+                          <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
+                        </span>
+                      </div>
+                      <!-- Mercenaries (character.mercenaryCompany.units, RR p.166) travel with this
+                           character into the party — listed as numbers per type. -->
+                      <template x-if="partyMemberMercSummary(ch).length">
+                        <table class="text-xs ml-5 mt-0.5 opacity-80">
+                          <tbody>
+                            <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id + '-' + m.label">
+                              <tr>
+                                <td class="pr-4 py-0">⚔ <span x-text="m.label"></span></td>
+                                <td class="font-mono py-0" x-text="'× ' + m.count.toLocaleString()"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </template>
                     </li>
                   </template>
                 </ul>
-                <div class="mt-2 flex items-center gap-2 text-sm">
-                  <span class="opacity-70">Add member:</span>
-                  <select x-model="pt._addMemberPick" class="text-sm">
-                    <option value="">— pick a character —</option>
-                    <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
-                      <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1)"></option>
-                    </template>
-                  </select>
-                  <button @click="if(pt._addMemberPick){ addCharacterToParty(pt, pt._addMemberPick); pt._addMemberPick=''; }" :disabled="!pt._addMemberPick" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :class="pt._addMemberPick ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
+                <!-- Total party headcount = characters + the mercenaries that travel with them. -->
+                <div class="text-sm mt-1 pt-1 border-t border-ink/30" x-show="partyMembers(pt).length > 0">
+                  <span class="font-semibold">Total party: <span x-text="partyTotalHeadcount(pt).toLocaleString()"></span></span>
+                  <span class="opacity-60" x-text="'(' + partyMemberCount(pt) + ' character' + (partyMemberCount(pt)===1?'':'s') + (partyMercTotal(pt) ? (' + ' + partyMercTotal(pt).toLocaleString() + ' mercenaries') : '') + ')'"></span>
+                </div>
+                <div class="mt-2 flex items-center gap-2 text-sm flex-wrap">
+                  <span class="opacity-70">Add member <span class="text-xs opacity-60">(same hex: <span x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set'"></span>)</span>:</span>
+                  <template x-if="charactersInPartyHex(pt).length > 0">
+                    <span class="flex items-center gap-2">
+                      <select x-model="pt._addMemberPick" class="text-sm">
+                        <option value="">— pick a character —</option>
+                        <template x-for="ch in charactersInPartyHex(pt)" :key="ch.id">
+                          <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1)"></option>
+                        </template>
+                      </select>
+                      <button @click="if(pt._addMemberPick){ addCharacterToParty(pt, pt._addMemberPick); pt._addMemberPick=''; }" :disabled="!pt._addMemberPick" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :class="pt._addMemberPick ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
+                    </span>
+                  </template>
+                  <template x-if="charactersInPartyHex(pt).length === 0">
+                    <span class="text-xs italic opacity-60">No unassigned characters in this hex. Change the party's hex above, or move a character here first.</span>
+                  </template>
                 </div>
               </div>
             </div>
@@ -4102,6 +4512,24 @@ document.addEventListener('alpine:init', () => {
           </span>
         </template>
       </div>
+      <!-- Affiliations + quick actions: party + journey (Start when free; a link when engaged). -->
+      <div class="text-sm mt-1.5 flex flex-wrap items-center gap-2" x-show="!characterEditingIsNew">
+        <template x-if="characterPartyOf(characterEditing)">
+          <button @click="openPartyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-yellow-50 hover:bg-yellow-100 text-xs" title="Open this character's party">🛡 Party: <span class="font-semibold" x-text="characterPartyOf(characterEditing).name || '(unnamed party)'"></span> →</button>
+        </template>
+        <template x-if="!characterPartyOf(characterEditing)">
+          <button @click="startPartyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs" title="Found a new party led by this character">🛡 Start party</button>
+        </template>
+        <template x-if="characterJourneyOf(characterEditing)">
+          <button @click="openJourneyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-50 hover:bg-sky-100 text-xs" title="Open this character's journey">🧭 On journey: <span class="font-semibold" x-text="characterJourneyOf(characterEditing).name || '(journey)'"></span> →</button>
+        </template>
+        <template x-if="!characterJourneyOf(characterEditing) && characterActiveVenture(characterEditing)">
+          <button @click="openVenturesForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-50 hover:bg-sky-100 text-xs" title="Away on a venture — can't start a journey until it resolves">🛒 On venture →</button>
+        </template>
+        <template x-if="!characterJourneyOf(characterEditing) && !characterActiveVenture(characterEditing)">
+          <button @click="startJourneyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200 text-xs" :title="characterPartyOf(characterEditing) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 <span x-text="characterPartyOf(characterEditing) ? 'Start party journey' : 'Start journey'"></span></button>
+        </template>
+      </div>
     </div>
     <!-- Sub-tab bar inside the modal -->
     <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
@@ -4308,8 +4736,11 @@ document.addEventListener('alpine:init', () => {
             <h4 class="font-semibold text-base">Retainers <span class="text-sm font-normal opacity-60">· liegeCharacterId references + mercenary company</span></h4>
             <p class="text-sm opacity-70 italic">Everyone personally tied to <span x-text="characterEditing.name || 'this character'"></span> — henchmen, hirelings, specialists, followers, and units of the personal mercenary company.</p>
           </div>
-          <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); recruitDeepLink({ patronId: id }); })()"
-                  class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400 whitespace-nowrap" title="Open the Recruit workflow with this character as patron">+ Recruit</button>
+          <div class="flex items-center gap-2">
+            <!-- journey controls moved to the character-sheet header (Start / On-journey link); see top of modal -->
+            <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); recruitDeepLink({ patronId: id }); })()"
+                    class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400 whitespace-nowrap" title="Open the Recruit workflow with this character as patron">+ Recruit</button>
+          </div>
         </div>
 
         <!-- Empty state -->
@@ -5305,6 +5736,17 @@ document.addEventListener('alpine:init', () => {
           </span>
         </div>
         <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Ground</span>
+          <!-- mud/snow underfoot — ×½ travel speed (RR p.272); commits immediately via gm-fiat -->
+          <select :value="worldHexEditingHex().groundCondition || 'clear'"
+                  @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'groundCondition', label:'Ground condition', oldValue:worldHexEditingHex().groundCondition || 'clear', newValue:$event.target.value})"
+                  class="text-sm" style="width:10rem" title="Mud or snow underfoot halves travel speed (RR p.272)">
+            <option value="clear">Clear</option>
+            <option value="mud">Mud (×½)</option>
+            <option value="snow">Snow (×½)</option>
+          </select>
+        </div>
+        <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Exploration</span>
           <!-- Direct dropdown (binary): selecting an option immediately commits via gm-fiat. -->
           <select :value="String(worldHexEditingHex().explored !== false)"
@@ -5322,6 +5764,26 @@ document.addEventListener('alpine:init', () => {
           </span>
           <span class="text-sm opacity-60">(RR p.340)</span>
         </div>
+      </div>
+
+      <!-- Journeys passing through this hex (Phase 2.5 #475 — J2) -->
+      <div class="vellum border border-ink/40 rounded p-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h4 class="font-semibold text-sm">⛺ Journeys</h4>
+          <button @click="startJourneyDeepLink({ startHexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-200 hover:bg-sky-300" title="Start a journey beginning at this hex">🧭 Send on journey from here</button>
+        </div>
+        <template x-if="journeysThroughHex(worldHexEditingHex().id).length === 0">
+          <p class="text-xs italic opacity-60 mt-1">No active journeys passing through this hex.</p>
+        </template>
+        <ul class="text-sm mt-1 space-y-0.5">
+          <template x-for="j in journeysThroughHex(worldHexEditingHex().id)" :key="'hxj-'+j.id">
+            <li class="flex items-center gap-2 cursor-pointer hover:bg-yellow-50 rounded px-1" @click="journeyOpenDetail(j.id); closeHexDetail();">
+              <span x-text="journeyModeIcon(j)"></span>
+              <span class="flex-grow truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></span>
+              <span class="text-xs opacity-60 shrink-0" x-text="journeyStatusLabel(j) + ' · ' + journeyDayLabel(j)"></span>
+            </li>
+          </template>
+        </ul>
       </div>
 
       <!-- Domain-relevant slim view -->
@@ -5909,10 +6371,11 @@ document.addEventListener('alpine:init', () => {
         <label class="block text-sm">Venturer
           <select x-model="ventureDraft.venturerCharacterId" @change="onVentureVenturerChange()" class="w-full">
             <option value="">— pick a character —</option>
-            <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false)" :key="c.id">
+            <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false && !characterIsTravelCommitted(c))" :key="c.id">
               <option :value="c.id" x-text="c.name + ' · ' + (c.class||'—') + ' L' + (c.level||1) + ' · ' + ACKS.displayKind(c) + (c.class==='Venturer'?' ⚖':'')"></option>
             </template>
           </select>
+          <span class="text-xs italic opacity-50 block" x-show="(currentCampaign?.characters||[]).filter(c=>c.alive!==false && !characterIsTravelCommitted(c)).length===0">Every character is already away on a venture or journey — they're eligible again once they return.</span>
           <span class="text-sm opacity-60 block mt-1">Venturer-class characters get class powers (RR p.43). Non-venturers can still launch ventures.
             <button @click="openNewCharacterEditor({class:'Venturer', kind:'NPC'})" class="underline ml-1">+ new venturer</button>
           </span>
@@ -7569,12 +8032,17 @@ return {
   venturesSubView:'active', // 'active' | 'history' | 'venturers' | 'passive' | 'reference'
   // Phase 2.6 — UI state for the Characters view
   charactersSubView:'roster', // 'roster' | 'parties'
+  // Party creation (redesigned 2026-06-02): a party is started by a founding character
+  // and named after them; others join from the same hex. character.partyId stays the
+  // single source of membership truth.
+  newPartyPickerOpen:false,
+  newPartyFounderId:'',
   // Activities top panel (Phase 2.5 prep, #477) — Ventures lifted + placeholders for Journeys / Hijinks / Spell Research
   activitiesSubView: 'ventures',
   get activitiesSubTabs(){
     return [
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
-      { id:'journeys',       label:'⛺ Journeys',      ready: false, count: null, placeholderNote: 'Phase 2.5 — see Phase_2.5_Journeys_Plan.md' },
+      { id:'journeys',       label:'⛺ Journeys',      ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
@@ -7586,6 +8054,13 @@ return {
       this.activitiesSubView = 'ventures';
     }
   },
+  // ─── Phase 2.5 Journeys (#475 — J2) UI state ───────────────────────────────
+  // Start Journey is the ACTION verb (this wizard, in the Recruiting-Wizard shape).
+  // Inspector › Create is the ADMIN verb (J1 — free-form authoring). journeyDetailId
+  // opens the Detail panel; journeyWizard.open shows the wizard; neither ⇒ the lists.
+  journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null },
+  journeyDetailId: null,
+  journeyShowCompleted: false,
   // #447 — Faceted Roster filter. Four parallel axes intersect with AND.
   // Default lifecycleState:'active' hides deceased/retired by default
   // (replacing the old charactersShowDeceased checkbox, which was opt-in).
@@ -7877,6 +8352,262 @@ return {
     const coord = '(' + (h.coord?.q ?? 0) + ',' + (h.coord?.r ?? 0) + ')';
     const setName = h.settlement && h.settlement.name;
     return coord + (setName ? ' · ' + setName : '');
+  },
+
+  // ─── Phase 2.5 Journeys (#475 — J2) UI methods ─────────────────────────────
+  // Lists. 'planning' journeys (Inspector Admin-verb create) show in Active with a
+  // Start affordance so an authored-but-not-started journey isn't invisible.
+  activeJourneys(){ return (this.currentCampaign?.journeys||[]).filter(j => j && ['planning','in-transit','resting','lost'].includes(j.status)); },
+  completedJourneys(){ return (this.currentCampaign?.journeys||[]).filter(j => j && (j.status==='arrived'||j.status==='aborted')); },
+  journeyById(id){ return (this.currentCampaign?.journeys||[]).find(j => j && j.id === id) || null; },
+  journeyDetail(){ return this.journeyById(this.journeyDetailId); },
+  journeyHexLabel(id){ return this._journeyHexLabel(id); },
+  journeyParticipantNames(j){
+    if(!j) return '';
+    const names = (j.participantCharacterIds||[]).map(id => { const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return c ? (c.name||'(unnamed)') : id; });
+    if(!names.length) return '(no participants)';
+    return names.length <= 3 ? names.join(', ') : (names.slice(0,3).join(', ') + ' +' + (names.length-3) + ' more');
+  },
+  // ── Journey membership + headcount (mercenaries travel with their character — RR p.166,
+  //    same rollup as the Parties panel) ──
+  _charsByIds(ids){ const all=this.currentCampaign?.characters||[]; return (ids||[]).map(id => all.find(c => c && c.id===id)).filter(Boolean); },
+  characterMercCount(ch){ return this.partyMemberMercSummary(ch).reduce((s,m)=>s+m.count,0); },
+  characterMercCountById(id){ const ch=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return ch ? this.characterMercCount(ch) : 0; },
+  _mercTotalForChars(chars){ return (chars||[]).reduce((s,ch)=>s+this.characterMercCount(ch),0); },
+  journeyParticipants(j){ return this._charsByIds((j&&j.participantCharacterIds)||[]); },
+  journeyMercTotal(j){ return this._mercTotalForChars(this.journeyParticipants(j)); },
+  journeyHeadcount(j){ const c=this.journeyParticipants(j); return c.length + this._mercTotalForChars(c); },
+  _headcountLabel(chars){ const n=chars.length; const m=this._mercTotalForChars(chars); let s=n+' character'+(n===1?'':'s'); if(m) s+=' + '+m.toLocaleString()+' mercenaries ('+(n+m).toLocaleString()+' total)'; return s; },
+  journeyHeadcountLabel(j){ return this._headcountLabel(this.journeyParticipants(j)); },
+  journeyWizardHeadcountLabel(){ const chars=this._charsByIds(this.journeyWizard.participantIds); const n=chars.length; if(!n) return '0 selected'; const m=this._mercTotalForChars(chars); let s=n+' selected'; if(m) s+=' · '+m.toLocaleString()+' mercenaries ('+(n+m).toLocaleString()+' total)'; return s; },
+  journeyModeIcon(j){
+    if(!j) return '🥾';
+    if(j.isLost) return '🧭';
+    if(j.status==='resting') return '⛺';
+    if((j.mode||'').startsWith('voyage-')) return '⛵';
+    if((j.mode||'').startsWith('aerial-')) return '🦅';
+    return '🥾';
+  },
+  journeyStatusLabel(j){ if(!j) return ''; return (j.status==='in-transit' && j.isLost) ? 'lost' : j.status; },
+  journeyDayLabel(j){
+    if(!j) return '';
+    const n = (j.currentDayIndex||0); const est = j.daysRemainingEstimate;
+    return est ? ('day ' + n + ' of ~' + (n + est)) : ('day ' + n);
+  },
+  journeySupplyDaysLeft(j){
+    const n = Math.max(1, (j?.participantCharacterIds||[]).length);
+    return Math.floor(Math.min((j?.supplies?.rations)||0, (j?.supplies?.waterRations)||0) / n);
+  },
+  // Per-traveller survival status for the Members table (RR p.275 cascade). The day-tick mirrors
+  // the party's hunger / dehydration / fatigue onto each participant, so these read off the
+  // character. A GM-facing tracker — no auto-penalty wired yet (escalating effects are a follow-up).
+  characterJourneyConditions(ch){
+    const out=[];
+    // RAW hunger cascade (RR p.276): hungry after 1 day < full rations; underfed after 2 days
+    // with no food; starving after ~5 further underfed days (≈ day 7 of no food). The penalty
+    // wiring (−1 throws / CON loss) is deferred — this is the GM-facing stage label only.
+    const h=(ch&&ch.hungerDays)||0;
+    if(h>0){
+      const stage = (h>=7) ? 'Starving' : (h>=2 ? 'Underfed' : 'Hungry');
+      out.push({ key:'hunger', label:stage, detail:'day '+h, cls:'bg-orange-200 text-orange-900' });
+    }
+    // RAW dehydration (RR p.276): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor.
+    const d=(ch&&ch.dehydrationDays)||0;
+    if(d>0) out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d, cls:'bg-sky-200 text-sky-900' });
+    const f=(ch&&ch.personalFatigue)||0;
+    if(f>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
+    return out;
+  },
+  // Render a navigation throw with its die roll + modifiers + target + result (RR p.275).
+  journeyNavDetail(nav){
+    if(!nav) return '';
+    const bonuses=(nav.bonuses||[]);
+    const parts=['🎲 '+nav.rolled];
+    bonuses.forEach(b=>parts.push((b.value>=0?'+':'')+b.value+' ('+(b.source||'mod')+')'));
+    const total=nav.rolled+bonuses.reduce((s,b)=>s+(b.value||0),0);
+    const recovered=nav.result==='success-recovered';
+    const ok=nav.result==='success'||recovered||nav.result==='auto-pass-magical';
+    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+(recovered?'recovered ✓':(ok?'success ✓':'lost ✗'));
+  },
+  journeyNavOk(nav){ return !!(nav && (nav.result==='success'||nav.result==='success-recovered'||nav.result==='auto-pass-magical')); },
+  // Total + remaining distance in miles (computeJourneyDistance returns 6-mile hexes).
+  journeyMiles(j){
+    if(!j) return null;
+    try {
+      const dist = this._journeyWithDomains(() => window.ACKS.computeJourneyDistance(this.currentCampaign, j));
+      const mph = window.ACKS.JOURNEY_MILES_PER_HEX || 6;
+      return { totalHexes: dist.total||0, coveredHexes: dist.covered||0, remainingHexes: dist.remaining||0,
+               totalMiles: (dist.total||0)*mph, coveredMiles: (dist.covered||0)*mph, remainingMiles: (dist.remaining||0)*mph };
+    } catch(e){ return null; }
+  },
+  // GM reroll of the latest day — only available when the day carries a pre-state snapshot AND
+  // the world clock still stands on it (locks once +1 day / Advance month moves past it).
+  journeyCanReroll(j){ return !!window.ACKS.journeyLastDayRerollable(this.currentCampaign, j); },
+  journeyRerollDay(j){
+    if(!j) return;
+    const rec = this._journeyWithDomains(() => window.ACKS.rerollJourneyDay(this.currentCampaign, j));
+    if(!rec){ this.showToast('Reroll unavailable for this day (it was ticked before this update).', 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Day ' + (rec.newDayIndex||'') + ' rerolled.');
+  },
+  // Attach this.domains so the engine's resolveHexAnywhere sees per-domain hexes (the UI
+  // keeps domains in this.domains; currentCampaign.domains stays empty) — same dance as
+  // _proposeDayTick. Restores after.
+  _journeyWithDomains(fn){
+    const _orig = this.currentCampaign.domains;
+    this.currentCampaign.domains = this.domains;
+    try { return fn(); } finally { this.currentCampaign.domains = _orig; }
+  },
+  // ── Pickers ──
+  // Individual travellers pickable from the "Add traveller" dropdown: alive, NOT already in a
+  // party (party members travel via the Party dropdown above), and not already added. Once a
+  // start hex is chosen (directly or by picking the first traveller), only characters AT that
+  // hex are offered — a journey sets out from one place. With no start hex yet, all loose
+  // characters show so the first pick can establish the departure point.
+  journeyParticipantOptions(){
+    const chosen = new Set(this.journeyWizard?.participantIds || []);
+    const startHex = this.journeyWizard?.startHexId || null;
+    return (this.currentCampaign?.characters||[]).filter(c =>
+      c && c.alive !== false && !c.partyId && !chosen.has(c.id) &&
+      !this.characterIsTravelCommitted(c) &&
+      (!startHex || c.currentHexId === startHex));
+  },
+  journeyParticipantName(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return (c&&c.name)||'(unknown)'; },
+  journeyPartyOptions(){ return (this.currentCampaign?.parties||[]).filter(p => p && p.status !== 'disbanded'); },
+  journeyHexOptions(){
+    const out=[]; const seen=new Set();
+    const add = (h)=>{ if(h && h.id && !seen.has(h.id)){ seen.add(h.id); out.push({ id:h.id, label:this._journeyHexLabel(h.id), q:(h.coord?.q??0), r:(h.coord?.r??0) }); } };
+    (this.currentCampaign?.hexes||[]).forEach(add);
+    (this.domains||[]).forEach(d => (d.geography?.hexes||[]).forEach(add));
+    return out.sort((a,b)=> a.q-b.q || a.r-b.r);
+  },
+  // ── Wizard (Action verb) ──
+  _journeyResetWizard(){ this.journeyWizard = { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null }; },
+  journeyToggleParticipant(id){ const a=this.journeyWizard.participantIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
+  // Add an individual traveller from the picker + default the start hex to their current location
+  // (RAW: a journey sets out from where the traveller is). Only fills the start hex if unset, so a
+  // GM-chosen or party-derived start hex isn't clobbered by adding more travellers.
+  journeyAddParticipant(id){
+    if(!id) return;
+    if(!this.journeyWizard.participantIds.includes(id)) this.journeyWizard.participantIds.push(id);
+    const c = (this.currentCampaign?.characters||[]).find(x=>x.id===id);
+    if(c && c.currentHexId && !this.journeyWizard.startHexId) this.journeyWizard.startHexId = c.currentHexId;
+  },
+  journeyToggleWaypoint(id){ const a=this.journeyWizard.waypointIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
+  journeyOnPartyChange(){
+    const pid = this.journeyWizard.partyId; if(!pid) return;
+    const members = (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === pid).map(c=>c.id);
+    const set = new Set(this.journeyWizard.participantIds); members.forEach(id => set.add(id));
+    this.journeyWizard.participantIds = Array.from(set);
+    const pt = (this.currentCampaign?.parties||[]).find(p=>p.id===pid);
+    if(pt && pt.currentHexId && !this.journeyWizard.startHexId) this.journeyWizard.startHexId = pt.currentHexId;
+  },
+  journeyForecast(){
+    const w = this.journeyWizard;
+    if(!w.startHexId || !w.destinationHexId || w.startHexId===w.destinationHexId) return null;
+    try {
+      const tmp = { startHexId:w.startHexId, destinationHexId:w.destinationHexId, days:[] };
+      const dist = this._journeyWithDomains(() => window.ACKS.computeJourneyDistance(this.currentCampaign, tmp));
+      const totalHexes = dist.total||0;
+      const estDays = totalHexes>0 ? Math.max(1, Math.ceil(totalHexes/4)) : 0;
+      return { totalHexes, estDays, miles: totalHexes * (window.ACKS.JOURNEY_MILES_PER_HEX||6) };
+    } catch(e){ return null; }
+  },
+  startJourneySubmitDisabledReason(){
+    const w = this.journeyWizard;
+    if(!w.participantIds || w.participantIds.length===0) return 'Pick at least one participant (a character or a party).';
+    if(!w.startHexId) return 'Pick a start hex.';
+    if(!w.destinationHexId) return 'Pick a destination hex.';
+    if(w.startHexId === w.destinationHexId) return 'Start and destination are the same hex.';
+    return '';
+  },
+  startJourneyCanSubmit(){ return this.startJourneySubmitDisabledReason() === ''; },
+  // Deep-link contract (mirrors recruitDeepLink): opts {characterId?, partyId?, startHexId?}.
+  startJourneyDeepLink(opts){
+    opts = opts || {};
+    this._journeyResetWizard();
+    const origin = { view:this.currentView, charactersSubView:this.charactersSubView, activitiesSubView:this.activitiesSubView };
+    if(opts.characterId){
+      this.journeyWizard.participantIds = [opts.characterId];
+      const c = (this.currentCampaign?.characters||[]).find(x=>x.id===opts.characterId);
+      if(c && c.currentHexId) this.journeyWizard.startHexId = c.currentHexId;
+    }
+    if(opts.partyId){ this.journeyWizard.partyId = opts.partyId; this.journeyOnPartyChange(); }
+    if(opts.startHexId) this.journeyWizard.startHexId = opts.startHexId;
+    this.journeyWizard.origin = origin;
+    this.journeyWizard.open = true;
+    this.journeyDetailId = null;
+    this.currentView = 'activities';
+    this.activitiesSubView = 'journeys';
+  },
+  startJourneyCancel(){
+    const origin = this.journeyWizard.origin;
+    this._journeyResetWizard();
+    if(origin){
+      this.currentView = origin.view || 'activities';
+      this.activitiesSubView = origin.activitiesSubView || 'journeys';
+      if(origin.charactersSubView) this.charactersSubView = origin.charactersSubView;
+    }
+  },
+  startJourneySubmit(){
+    const reason = this.startJourneySubmitDisabledReason();
+    if(reason){ this.showToast(reason, 3000); return; }
+    const w = this.journeyWizard;
+    if(!Array.isArray(this.currentCampaign.journeys)) this.currentCampaign.journeys = [];
+    const j = window.ACKS.blankJourney({
+      name: (w.name||'').trim() || (this._journeyHexLabel(w.startHexId) + ' → ' + this._journeyHexLabel(w.destinationHexId)),
+      participantCharacterIds: w.participantIds.slice(),
+      partyId: w.partyId || null,
+      startHexId: w.startHexId,
+      destinationHexId: w.destinationHexId,
+      waypoints: (w.waypointIds||[]).map(id => ({ hexId:id, label:'', plannedPurpose:'' })),
+      mode: w.mode || 'foot',
+      pace: w.pace || 'normal',
+      supplies: { rations:Number(w.rations)||0, waterRations:Number(w.waterRations)||0, animalFeed:0, animalWater:0, shipStores:0 }
+    });
+    this.currentCampaign.journeys.push(j);
+    this._journeyWithDomains(() => window.ACKS.startJourney(this.currentCampaign, j));
+    this.markDirty(); this.schedulePersist();
+    const id = j.id;
+    this._journeyResetWizard();
+    this.journeyDetailId = id;
+    this.showToast('Journey started: ' + (j.name||'(unnamed)'));
+  },
+  // ── Detail ──
+  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
+  journeyCloseDetail(){ this.journeyDetailId = null; },
+  // Tick Day MUST route through the GLOBAL day-tick pipeline (shared with construction +
+  // every future day consumer) — NOT a journey-private tick; forking would desync them.
+  // This is just a convenience entry to the same propose → review → commit the Day Clock drives.
+  journeyTickDay(){ this.tickDay(); },
+  // Change a journey's marching pace mid-trip — logged via gm-fiat; the engine reads journey.pace
+  // fresh on each day-tick, so the next day ticked uses the new pace (per-day pace stays in the log).
+  setJourneyPace(j, pace){
+    if(!j || !pace || j.pace === pace) return;
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace });
+    this.markDirty(); this.schedulePersist();
+  },
+  setJourneyMode(j, mode){
+    if(!j || !mode || j.mode === mode) return;
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode, newValue:mode });
+    this.markDirty(); this.schedulePersist();
+  },
+  abortJourneyUI(j){
+    if(!j) return;
+    const reason = window.prompt('Abort "' + (j.name||'journey') + '"? Optional reason (Cancel keeps it going):', '');
+    if(reason === null) return;
+    window.ACKS.abortJourney(this.currentCampaign, j, (reason||'').trim() || null);
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Journey aborted.');
+  },
+  // ── Hex card ──
+  journeysThroughHex(hexId){
+    if(!hexId) return [];
+    return (this.currentCampaign?.journeys||[]).filter(j => {
+      if(!j || !['in-transit','resting','lost'].includes(j.status)) return false;
+      if(j.currentHexId===hexId || j.startHexId===hexId || j.destinationHexId===hexId) return true;
+      return (j.waypoints||[]).some(w => w && w.hexId===hexId);
+    });
   },
 
   // ─── Unified role + income + XP helpers (Roster + Officers) ──────────────
@@ -8185,17 +8916,11 @@ return {
       // #453 — c.kind retired; the editor surface no longer exists and the engine
       // doesn't expose reDeriveClassificationFromKind anymore. Future kind-coupled
       // sync hooks (if needed) belong here in this slot.
-      // families-per-hex-tracking: a per-hex family edit makes the hexes canonical, so
-      // push the owning domain's peasantFamilies up to the rural-hex sum (the engine's
-      // reconcileRuralPopulation does the same on load). Keeps the domain total, service
-      // revenue + tax consistent within the session and stops the next monthly turn from
-      // computing growth off a stale total. Canonical-setter doctrine (CLAUDE #10).
-      if(opts.entityType === 'hex' && opts.fieldPath === 'families' &&
-         this.isHouseRuleEnabled && this.isHouseRuleEnabled('families-per-hex-tracking') &&
-         window.ACKS && window.ACKS.syncRuralPopulationFromHexes){
-        const _famDom = (this.domains || []).find(dd => (dd.geography?.hexes || []).some(hx => hx.id === opts.entityId));
-        if(_famDom) window.ACKS.syncRuralPopulationFromHexes(_famDom);
-      }
+      // (The families-per-hex ↔ peasantFamilies sync used to live here as a UI hook; it is
+      // now owned by the engine gm-fiat handler — applyEvent_gmFiat (above) routes a
+      // hex.families edit through the exported syncRuralPopulationFromHexes setter (commit
+      // d3bbef1), which already ran inside the applyEvent call above with domains attached.
+      // The UI duplicate was removed 2026-06-02 to avoid a double-sync.)
       // Log the applied event in the event log (matching commitTurn's pattern).
       if(!Array.isArray(this.currentCampaign.eventLog)) this.currentCampaign.eventLog = [];
       ev.status = window.ACKS.EVENT_STATUS.APPLIED;
@@ -8461,6 +9186,9 @@ return {
   },
   // Active venture for this character (if any)
   characterActiveVenture(c){if(!c)return null;return (this.currentCampaign?.ventures||[]).find(v=>v.venturerCharacterId===c.id && (v.status==='in-transit'||v.status==='selling')) || null;},
+  // A character is "away" / committed while on an active venture (in-transit or selling) OR on an
+  // active journey — they can't be picked for a NEW venture or journey until they're back.
+  characterIsTravelCommitted(c){ return !!(c && (c.currentJourneyId || this.characterActiveVenture(c))); },
   // Party membership
   characterParty(c){if(!c||!c.partyId)return null;return (this.currentCampaign?.parties||[]).find(p=>p.id===c.partyId)||null;},
   // Location string for display
@@ -9508,11 +10236,81 @@ return {
   },
 
   // Phase 2.6.5 — Parties sub-view + party CRUD.
+  // Admin/programmatic blank party (Inspector Create, etc.). The GM-facing "+ New party"
+  // button uses the founder flow below.
   addBlankParty(){
     if(!this.currentCampaign){alert('Open a campaign first.');return;}
     if(!Array.isArray(this.currentCampaign.parties))this.currentCampaign.parties=[];
     const pt = window.ACKS.blankParty({ name: 'New Party' });
     this.currentCampaign.parties.push(pt);
+    return pt;
+  },
+  // Start a party with one founding character: named after them, placed at their hex,
+  // founder added as the first member + leader. Others join from the same hex (below).
+  createPartyWithFounder(founderId){
+    if(!this.currentCampaign){ alert('Open a campaign first.'); return null; }
+    const fid = founderId || this.newPartyFounderId;
+    const ch = (this.currentCampaign.characters||[]).find(c => c.id === fid);
+    if(!ch){ this.showToast('Pick a character to start the party with.', 3000); return null; }
+    if(ch.partyId){ this.showToast('That character is already in a party.', 3000); return null; }
+    if(!Array.isArray(this.currentCampaign.parties)) this.currentCampaign.parties = [];
+    const pt = window.ACKS.blankParty({
+      name: (ch.name ? (ch.name + "'s party") : 'New Party'),
+      currentHexId: ch.currentHexId || null,
+      leaderCharacterId: ch.id,
+      formedAtTurn: this.currentCampaign.currentTurn || null
+    });
+    this.currentCampaign.parties.push(pt);
+    this.addCharacterToParty(pt, ch.id);   // sets ch.partyId
+    this.newPartyPickerOpen = false;
+    this.newPartyFounderId = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Party started: ' + pt.name);
+    return pt;
+  },
+  // ── Character-sheet affiliations (party / journey): start when free, link when engaged ──
+  characterPartyOf(ch){ return (ch && ch.partyId) ? ((this.currentCampaign?.parties||[]).find(p => p && p.id === ch.partyId) || null) : null; },
+  characterJourneyOf(ch){ return (ch && ch.currentJourneyId) ? (this.journeyById(ch.currentJourneyId) || null) : null; },
+  startPartyForCharacter(ch){
+    if(!ch) return;
+    const pt = this.createPartyWithFounder(ch.id);
+    if(!pt) return;
+    this.closeCharacterEditor();
+    this.openPartyView(pt.id);
+  },
+  openPartyForCharacter(ch){
+    if(!ch || !ch.partyId) return;
+    this.closeCharacterEditor();
+    this.openPartyView(ch.partyId);
+  },
+  // Jump to Characters › Parties and scroll the party's card into view with a brief highlight.
+  openPartyView(partyId){
+    this.currentView = 'characters';
+    this.charactersSubView = 'parties';
+    setTimeout(() => {
+      const el = partyId && document.getElementById('party-card-' + partyId);
+      if(el){ el.scrollIntoView({ behavior:'smooth', block:'center' }); el.style.boxShadow = '0 0 0 3px #facc15'; setTimeout(() => { el.style.boxShadow = ''; }, 1800); }
+    }, 80);
+  },
+  openJourneyForCharacter(ch){
+    if(!ch || !ch.currentJourneyId) return;
+    this.closeCharacterEditor();
+    this.journeyOpenDetail(ch.currentJourneyId);
+  },
+  // Jump to Activities › Ventures (where this character's active venture is listed).
+  openVenturesForCharacter(ch){
+    this.closeCharacterEditor();
+    this.currentView = 'activities';
+    this.activitiesSubView = 'ventures';
+  },
+  // Start a journey FROM a character: if they're in a party, set up the journey for the whole
+  // party (prefills its members + start hex); otherwise just this character.
+  startJourneyForCharacter(ch){
+    if(!ch) return;
+    const pt = this.characterPartyOf(ch);
+    this.closeCharacterEditor();
+    if(pt) this.startJourneyDeepLink({ partyId: pt.id });
+    else this.startJourneyDeepLink({ characterId: ch.id });
   },
   removeParty(partyId){
     if(!this.currentCampaign)return;
@@ -9528,19 +10326,85 @@ return {
     return (this.currentCampaign.characters||[]).filter(ch => ch.partyId === pt.id);
   },
   partyMemberCount(pt){ return this.partyMembers(pt).length; },
+  // Canonical label for a mercenary unit (matches the character-sheet Mercenary Company table).
+  mercUnitLabel(u){
+    if(!u) return 'Unit';
+    const rows = (window.ACKS && window.ACKS.HIRELING_MERCENARIES) || [];
+    const found = rows.find(r => r.id === u.unitTypeKey);
+    return (found && found.label) || u.displayName || u.unitTypeKey || 'Unit';
+  },
+  // A character's mercenaries (character.mercenaryCompany.units — the Retainers tab) travel with
+  // them into a party. Summed per unit type for the party muster display. Returns [{label, count}].
+  partyMemberMercSummary(ch){
+    const units = ((ch && ch.mercenaryCompany && ch.mercenaryCompany.units) || []).filter(u => (u.count || 0) > 0);
+    const byType = {};
+    for(const u of units){
+      const label = this.mercUnitLabel(u);
+      byType[label] = (byType[label] || 0) + (u.count || 0);
+    }
+    return Object.keys(byType).map(label => ({ label, count: byType[label] })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  },
+  // Total mercenary soldiers across all members of the party.
+  partyMercTotal(pt){
+    return this.partyMembers(pt).reduce((sum, ch) => sum + this.partyMemberMercSummary(ch).reduce((s, m) => s + m.count, 0), 0);
+  },
+  // Total party headcount = character members + the mercenaries traveling with them.
+  partyTotalHeadcount(pt){
+    return this.partyMembers(pt).length + this.partyMercTotal(pt);
+  },
   charactersNotInAnyParty(){
     if(!this.currentCampaign)return [];
     return (this.currentCampaign.characters||[]).filter(ch => ch.alive !== false && !ch.partyId);
+  },
+  // Party-less characters in the same hex as the party — the candidates who can join it.
+  charactersInPartyHex(pt){
+    if(!pt || !this.currentCampaign)return [];
+    const hex = pt.currentHexId || null;
+    return (this.currentCampaign.characters||[]).filter(ch => ch.alive !== false && !ch.partyId && (ch.currentHexId||null) === hex);
+  },
+  // Party Current-hex lock-edit (Generate style), same ✏/✓/× draft mechanic as editableStat.
+  // The pick lives in a draft; the logged gm-fiat event fires ONLY on save (partyHexEditSave),
+  // never on the dropdown @change.
+  partyHexEditStart(pt){ if(!pt) return; pt._hexDraft = pt.currentHexId || null; pt._hexEditing = true; },
+  partyHexEditCancel(pt){ if(!pt) return; pt._hexEditing = false; pt._hexDraft = null; },
+  partyHexEditSave(pt){
+    if(!pt) return;
+    const oldV = pt.currentHexId || null;
+    const newV = pt._hexDraft || null;
+    if(oldV !== newV){
+      // commitStatEdit emits + applies a gm-fiat event ("Moved/Placed/Cleared <party> …").
+      this.commitStatEdit({ entityType:'party', entityId:pt.id, entity:pt, fieldPath:'currentHexId', label:'Party location', oldValue:oldV, newValue:newV });
+      this.markDirty(); this.schedulePersist();
+    }
+    pt._hexEditing = false; pt._hexDraft = null;
   },
   addCharacterToParty(pt, characterId){
     if(!pt || !characterId)return;
     const ch = (this.currentCampaign?.characters||[]).find(x => x.id === characterId);
     if(!ch)return;
     ch.partyId = pt.id;
+    if(!pt.leaderCharacterId) pt.leaderCharacterId = ch.id;   // first member founds/leads
+    window.ACKS.reconcilePartyMembership(this.currentCampaign);   // keep the memberCharacterIds mirror live (#521)
   },
   removeCharacterFromParty(ch){
     if(!ch)return;
+    const pid = ch.partyId;
     ch.partyId = null;
+    // keep leaderCharacterId pointing at an actual current member (or null)
+    if(pid){
+      const pt = (this.currentCampaign?.parties||[]).find(p => p.id === pid);
+      if(pt && pt.leaderCharacterId === ch.id){
+        const others = (this.currentCampaign?.characters||[]).filter(c => c.partyId === pid);
+        pt.leaderCharacterId = others.length ? others[0].id : null;
+      }
+    }
+    window.ACKS.reconcilePartyMembership(this.currentCampaign);   // rebuild mirror + re-validate leader (#521)
+  },
+  // Hand party leadership to a member — logged via gm-fiat ("Made <ch> leader of <party> …").
+  makePartyLeader(pt, ch){
+    if(!pt || !ch || pt.leaderCharacterId === ch.id) return;
+    this.commitStatEdit({ entityType:'party', entityId:pt.id, entity:pt, fieldPath:'leaderCharacterId', label:'Party leader', oldValue:(pt.leaderCharacterId||null), newValue:ch.id });
+    this.markDirty(); this.schedulePersist();
   },
   // (Foundation #193) Deprecated — kept as a thin shim. The canonical add path is
   // addRumorAtSettlement(settlementId) which writes to top-level campaign.rumors with a reach
@@ -9553,15 +10417,10 @@ return {
   },
 
   // Aggregated hex list with friendly labels for the party hex picker. Cached per evaluation; cheap to recompute.
-  get allHexes(){
-    const out = [];
-    (this.domains||[]).forEach(d => {
-      (d.geography?.hexes||[]).forEach(h => {
-        out.push({ id: h.id, label: '('+(h.coord?.q||0)+','+(h.coord?.r||0)+') · '+d.name+(h.settlement?(' · '+h.settlement.name):'') });
-      });
-    });
-    return out;
-  },
+  // (Removed the `get allHexes()` accessor that lived here — it was shadowed by the
+  // allHexes() method defined later in this object, so it never ran. The only consumer
+  // (the Parties hex picker) now uses journeyHexOptions(), which merges top-level +
+  // per-domain hexes. See the Parties panel lock-edit hex control.)
   openNewCharacterEditor(opts={}){
     if(!this.currentCampaign){alert('Open a campaign first.');return;}
     const ch = blankCharacter(opts);
@@ -11779,6 +12638,13 @@ return {
       // field directly) so the tick finds + advances them; also clears capped budgets. Idempotent.
       window.ACKS.migrateAgriculturalToProjects(this.currentCampaign);
       this.dayTickProposal = window.ACKS.proposeDayTick(this.currentCampaign, days, {});
+      // Pre-attach each record's notable events as a STABLE array on the record. Calling a helper
+      // inside the review surface's nested x-for mis-renders under Alpine (only one record's
+      // notables show); iterating r._notables is reliable.
+      if(this.dayTickProposal){
+        this.dayTickProposal.daysRequested = days;  // for the "paused early" check (see dayTickPausedEarly)
+        (this.dayTickProposal.pendingRecords||[]).forEach(r => { if(r) r._notables = this.dayTickRecordNotables(r); });
+      }
     }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
     finally { this.currentCampaign.domains = _origDomains; }
@@ -11793,6 +12659,36 @@ return {
     const p = this.dayTickProposal; const map = {};
     if(p){ (p.pendingRecords || []).forEach(r => { (map[r.consumer] = map[r.consumer] || []).push(r); }); }
     return Object.keys(map).map(k => ({ consumer: k, records: map[k] }));
+  },
+  // True only when a pause genuinely cut a MULTI-day advance short (asked for N days, stopped at
+  // fewer). A single-day tick always opens the review surface, so it isn't meaningfully "paused".
+  dayTickPausedEarly(){
+    const p = this.dayTickProposal;
+    return !!(p && p.paused && (p.daysAdvanced||0) < (p.daysRequested||1));
+  },
+  // Notable events (lost / hungry / dehydrated / encounter …) attributed to a specific pending
+  // record, so they render UNDER their own record instead of in one shared top banner. Journey
+  // records match by journeyId (correct with multiple journeys); other consumers fall back to
+  // same-consumer attribution. tickDayOnce tags every notable with {consumer, payload.journeyId}.
+  dayTickRecordNotables(record){
+    const p = this.dayTickProposal;
+    if(!p || !record) return [];
+    return (p.notableEvents || []).filter(e => {
+      if(!e || e.consumer !== record.consumer) return false;
+      if(record.journeyId) return !!(e.payload && e.payload.journeyId === record.journeyId);
+      return true;
+    });
+  },
+  // The relevant text of a notable, with the leading "<journey/record name>: " stripped so we
+  // don't repeat the journey label the record already shows.
+  // A notable event's text with the leading "‹journey name / route›: " prefix stripped — the
+  // route is already shown once at the top of the panel (and in the review surface header), so
+  // repeating it on every line is noise. Handles both shapes: day-record notables carry `.text`,
+  // day-tick proposal notables carry `.label`.
+  dayTickNotableText(ne){
+    const t = (ne && (ne.text || ne.label || ne.summary || ne.type || ne.kind)) || 'event';
+    const i = t.indexOf(': ');
+    return (i > 0 && i < 80) ? t.slice(i + 2) : t;
   },
   toggleRejectDayTickRecord(r){ if(r) r.rejected = !r.rejected; },
   cancelDayTick(){ this.dayTickProposal = null; this.dayTickError = null; },

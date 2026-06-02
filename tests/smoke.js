@@ -564,6 +564,55 @@ section('isHouseRuleEnabled — canonical accessor accepts every stored shape');
   ok('null campaign → disabled (no throw)', ACKS.isHouseRuleEnabled(null, 'x') === false);
 })();
 
+// =============================================================================
+section('Party membership reconcile — mirror derived from character.partyId (#521 follow-up)');
+// =============================================================================
+// character.partyId is the canonical membership truth (Architecture §3.3); party.memberCharacterIds
+// is a derived self-describing mirror that reconcilePartyMembership rebuilds, and the leader is
+// always an actual member (or null). The stash-access consumer reads the partyId truth directly.
+(function () {
+  function setup() {
+    const c = ACKS.blankCampaign();
+    if (!Array.isArray(c.characters)) c.characters = [];
+    if (!Array.isArray(c.parties)) c.parties = [];
+    const a = ACKS.blankCharacter({ name: 'Aelric' });
+    const b = ACKS.blankCharacter({ name: 'Tomas' });
+    const pt = ACKS.blankParty({ name: "Aelric's party" });
+    a.partyId = pt.id; b.partyId = pt.id;
+    pt.memberCharacterIds = [];          // deliberately stale
+    pt.leaderCharacterId = a.id;
+    c.characters.push(a, b); c.parties.push(pt);
+    return { c, a, b, pt };
+  }
+  const { c, a, b, pt } = setup();
+  ACKS.reconcilePartyMembership(c);
+  ok('rebuilds memberCharacterIds from partyId truth', pt.memberCharacterIds.length === 2 && pt.memberCharacterIds.includes(a.id) && pt.memberCharacterIds.includes(b.id));
+  ok('keeps a still-valid leader', pt.leaderCharacterId === a.id);
+  const before = JSON.stringify(pt);
+  ACKS.reconcilePartyMembership(c);
+  ok('reconcile is idempotent', JSON.stringify(pt) === before);
+
+  const s2 = setup();
+  s2.pt.leaderCharacterId = 'chr-ghost';   // leader who is not a member
+  ACKS.reconcilePartyMembership(s2.c);
+  ok('invalid leader reassigned to a current member', s2.pt.leaderCharacterId === s2.a.id);
+
+  const s3 = setup();
+  s3.a.partyId = null; s3.b.partyId = null;
+  ACKS.reconcilePartyMembership(s3.c);
+  ok('no members → empty mirror + null leader', s3.pt.memberCharacterIds.length === 0 && s3.pt.leaderCharacterId === null);
+
+  const s4 = setup();
+  s4.c.stashes = [{ id: 'stash-party', ownerPartyId: s4.pt.id }];   // mirror still stale here
+  ok('member reaches the party stash via partyId (pre-reconcile)', ACKS.stashesAccessibleToCharacter(s4.c, s4.a.id).map(x => x.id).includes('stash-party'));
+  const stranger = ACKS.blankCharacter({ name: 'Stranger' }); s4.c.characters.push(stranger);
+  ok('non-member cannot reach the party stash', !ACKS.stashesAccessibleToCharacter(s4.c, stranger.id).map(x => x.id).includes('stash-party'));
+
+  const s5 = setup();
+  ACKS.migrateCampaign(s5.c);
+  ok('migrateCampaign runs the reconcile (mirror populated on load)', s5.c.parties[0].memberCharacterIds.length === 2);
+})();
+
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);
