@@ -3861,7 +3861,11 @@ document.addEventListener('alpine:init', () => {
             <div class="border border-ink rounded p-3">
               <div class="flex justify-between items-center gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                  <input x-model="pt.name" class="font-semibold text-base" style="width:18rem" placeholder="Party name">
+                  <!-- Party name — ✏ / ✓ / × lock-edit (editableStat), saved via gm-fiat like other fields. -->
+                  <span class="ed-stat" x-data="editableStat({entityType:'party', entity:pt, fieldPath:'name', label:'Party name', kind:'text', placeholder:'(unnamed party)'})">
+                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-base font-semibold" style="font-family:inherit" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit name (logged)">✏</button></span></template>
+                    <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-base font-semibold" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  </span>
                   <span class="text-sm opacity-60 font-mono" x-text="pt.id"></span>
                 </div>
                 <div class="flex items-center gap-2">
