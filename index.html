@@ -3943,7 +3943,7 @@ document.addEventListener('alpine:init', () => {
                     <li class="flex justify-between items-center py-0.5">
                       <span>
                         <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★ </span>
-                        <span x-text="ch.name"></span>
+                        <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name"></button>
                         <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
                       </span>
                       <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
