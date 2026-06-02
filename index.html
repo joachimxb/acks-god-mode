@@ -3849,6 +3849,8 @@ document.addEventListener('alpine:init', () => {
                 </div>
                 <div class="flex items-center gap-2">
                   <span class="text-sm opacity-70" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt) === 1 ? '' : 's')"></span>
+                  <button x-show="pt.activeJourneyId && journeyById(pt.activeJourneyId)" @click="journeyOpenDetail(pt.activeJourneyId)" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200" title="This party is on a journey — open it">⛺ on journey</button>
+                  <button x-show="!pt.activeJourneyId" @click="startJourneyDeepLink({ partyId: pt.id })" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-200 hover:bg-sky-300" title="Start a journey with this whole party">🧭 Send on journey</button>
                   <button @click="removeParty(pt.id)" class="text-sm accent-red px-2 py-0.5 border border-ink rounded hover:bg-red-50">× delete</button>
                 </div>
               </div>
@@ -4539,8 +4541,12 @@ document.addEventListener('alpine:init', () => {
             <h4 class="font-semibold text-base">Retainers <span class="text-sm font-normal opacity-60">· liegeCharacterId references + mercenary company</span></h4>
             <p class="text-sm opacity-70 italic">Everyone personally tied to <span x-text="characterEditing.name || 'this character'"></span> — henchmen, hirelings, specialists, followers, and units of the personal mercenary company.</p>
           </div>
-          <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); recruitDeepLink({ patronId: id }); })()"
-                  class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400 whitespace-nowrap" title="Open the Recruit workflow with this character as patron">+ Recruit</button>
+          <div class="flex items-center gap-2">
+            <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); startJourneyDeepLink({ characterId: id }); })()"
+                    class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-sky-200 hover:bg-sky-300 whitespace-nowrap" title="Start a journey with this character as a participant">🧭 Send on journey</button>
+            <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); recruitDeepLink({ patronId: id }); })()"
+                    class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400 whitespace-nowrap" title="Open the Recruit workflow with this character as patron">+ Recruit</button>
+          </div>
         </div>
 
         <!-- Empty state -->
@@ -5553,6 +5559,26 @@ document.addEventListener('alpine:init', () => {
           </span>
           <span class="text-sm opacity-60">(RR p.340)</span>
         </div>
+      </div>
+
+      <!-- Journeys passing through this hex (Phase 2.5 #475 — J2) -->
+      <div class="vellum border border-ink/40 rounded p-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h4 class="font-semibold text-sm">⛺ Journeys</h4>
+          <button @click="startJourneyDeepLink({ startHexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-200 hover:bg-sky-300" title="Start a journey beginning at this hex">🧭 Send on journey from here</button>
+        </div>
+        <template x-if="journeysThroughHex(worldHexEditingHex().id).length === 0">
+          <p class="text-xs italic opacity-60 mt-1">No active journeys passing through this hex.</p>
+        </template>
+        <ul class="text-sm mt-1 space-y-0.5">
+          <template x-for="j in journeysThroughHex(worldHexEditingHex().id)" :key="'hxj-'+j.id">
+            <li class="flex items-center gap-2 cursor-pointer hover:bg-yellow-50 rounded px-1" @click="journeyOpenDetail(j.id); closeHexDetail();">
+              <span x-text="journeyModeIcon(j)"></span>
+              <span class="flex-grow truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></span>
+              <span class="text-xs opacity-60 shrink-0" x-text="journeyStatusLabel(j) + ' · ' + journeyDayLabel(j)"></span>
+            </li>
+          </template>
+        </ul>
       </div>
 
       <!-- Domain-relevant slim view -->
