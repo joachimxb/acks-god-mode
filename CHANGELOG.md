@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **Color by** (one at a time, with a legend) — **terrain** (nine base types), **domain** (a stable colour per realm; unclaimed grey), **land value** (3–9 gp/family heatmap, RR p.341), **classification**, **population** (vs the RR p.340 ceiling), **domain morale**, **secured** (stronghold adequacy, RR p.338), **economy**, and **exploration**.
   - **Symbols** (toggleable) — settlements as circles sized by market class (RR p.351), strongholds, and lair / dungeon / point-of-interest markers.
   - **Edges** (toggleable) — computed **domain borders**, plus **roads / rivers / trails** drawn between connected hexes. Active **journeys** show their route as a highlighted path with a marker at the party's current hex.
-  - A one-click **Standard view** sets the familiar composite, and an **Add hexes** mode lets you click an empty cell to create a hex there — in a domain or as unclaimed wilderness (the first time the map reaches the lands between domains).
+  - A one-click **Standard view** sets the familiar composite, and an **Edit/Add hex** mode lets you click an empty cell to **create** a hex (choosing its domain and terrain) or click an existing hex to quickly **edit** its domain and terrain — including assigning an unclaimed wilderness hex to a domain. The first time the map reaches *and* shapes the lands between domains.
 
   It is a pure view of the hexes you already have — nothing new is written to your campaign file — and the first surface that makes the whole world legible at a glance.
 
