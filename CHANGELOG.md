@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Campaign map — a clickable, zoomable hex map of the world** (the new 🗺 Map tab). Every hex renders as a flat-top hexagon in its true position, labelled with a RAW-style column-row coordinate (RR p.273); **scroll to zoom, drag to pan**, and **click a hex to open its existing card**. A **Color by** switch recolours the whole map by **terrain** (the nine base types), **domain** (a stable colour per realm; unclaimed hexes grey), **land value** (a 3–9 gp/family heatmap, RR p.341), or **classification** (civilised → borderlands → outlands), each with a legend; hover a hex for its terrain, domain, land value, and settlement. It is a pure view of the hexes you already have — nothing new to save — and the first surface that makes the whole world legible at a glance. (Settlement / stronghold / lair symbols, roads & rivers, and creating hexes from the map come in later updates.)
+
 ## [0.12.0] - 2026-06-02
 
 ### Added
