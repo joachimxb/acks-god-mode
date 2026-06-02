@@ -3095,9 +3095,9 @@ document.addEventListener('alpine:init', () => {
             <div>
               <label class="opacity-70 block text-xs">Pace</label>
               <select x-model="journeyWizard.pace" class="border border-ink rounded px-2 py-0.5">
-                <option value="cautious">Cautious (×½ — thorough scouting)</option>
                 <option value="normal">Normal (×1)</option>
-                <option value="forced-march">Forced march (×1½ — +1 fatigue, JJ p.84)</option>
+                <option value="half-speed">Half speed (×½ — travel as an ancillary activity)</option>
+                <option value="forced-march">Forced march (×1½ — fatigued at once, RR p.279)</option>
               </select>
             </div>
             <div>
@@ -3225,9 +3225,9 @@ document.addEventListener('alpine:init', () => {
         <div class="text-sm flex items-center gap-2 flex-wrap" x-show="journeyDetail().status==='in-transit'">
           <span class="opacity-60">Current pace:</span>
           <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyPace(journeyDetail(), $event.target.value)" title="Change the marching pace — applies to the next day ticked (logged)">
-            <option value="cautious" :selected="journeyDetail().pace==='cautious'">Cautious (×½ — thorough scouting)</option>
             <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
-            <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — +1 fatigue, JJ p.84)</option>
+            <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
+            <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
           </select>
           <span class="text-xs opacity-50">— applies to the next day ticked</span>
         </div>
@@ -5741,6 +5741,17 @@ document.addEventListener('alpine:init', () => {
             <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
             <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="forest, hills, marsh…"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
           </span>
+        </div>
+        <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Ground</span>
+          <!-- mud/snow underfoot — ×½ travel speed (RR p.272); commits immediately via gm-fiat -->
+          <select :value="worldHexEditingHex().groundCondition || 'clear'"
+                  @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'groundCondition', label:'Ground condition', oldValue:worldHexEditingHex().groundCondition || 'clear', newValue:$event.target.value})"
+                  class="text-sm" style="width:10rem" title="Mud or snow underfoot halves travel speed (RR p.272)">
+            <option value="clear">Clear</option>
+            <option value="mud">Mud (×½)</option>
+            <option value="snow">Snow (×½)</option>
+          </select>
         </div>
         <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Exploration</span>
@@ -8399,8 +8410,15 @@ return {
   // character. A GM-facing tracker — no auto-penalty wired yet (escalating effects are a follow-up).
   characterJourneyConditions(ch){
     const out=[];
+    // RAW hunger cascade (RR p.276): hungry after 1 day < full rations; underfed after 2 days
+    // with no food; starving after ~5 further underfed days (≈ day 7 of no food). The penalty
+    // wiring (−1 throws / CON loss) is deferred — this is the GM-facing stage label only.
     const h=(ch&&ch.hungerDays)||0;
-    if(h>0) out.push({ key:'hunger', label:(h>=2?'Famished':'Hungry'), detail:'day '+h, cls:'bg-orange-200 text-orange-900' });
+    if(h>0){
+      const stage = (h>=7) ? 'Starving' : (h>=2 ? 'Underfed' : 'Hungry');
+      out.push({ key:'hunger', label:stage, detail:'day '+h, cls:'bg-orange-200 text-orange-900' });
+    }
+    // RAW dehydration (RR p.276): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor.
     const d=(ch&&ch.dehydrationDays)||0;
     if(d>0) out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d, cls:'bg-sky-200 text-sky-900' });
     const f=(ch&&ch.personalFatigue)||0;
