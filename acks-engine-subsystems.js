@@ -1948,6 +1948,21 @@ function hexMapBounds(hexes, size, margin){
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
+// Flat-top axial neighbour deltas in EDGE order (M4): edge i (between corner i and corner
+// (i+1)%6 of hexCornerPoints) faces the neighbour at (q+dq, r+dr). This pairing lets the UI
+// compute domain borders (an edge whose neighbour is in a different domain / absent) and
+// road/river networks (segments toward like-featured neighbours) — Architecture §11.4.
+const HEX_EDGE_DELTAS = Object.freeze([ [1,0], [0,1], [-1,1], [-1,0], [0,-1], [1,-1] ]);
+function hexNeighborDeltas(){ return HEX_EDGE_DELTAS.map(d => d.slice()); }
+// The two endpoints [{x,y},{x,y}] of edge `i` (0..5) of the hex at axial (q,r). Edge i spans
+// corner i → corner (i+1)%6, and faces neighbour (q,r)+HEX_EDGE_DELTAS[i].
+function hexEdgePoints(q, r, size, i){
+  size = size || MAP_DEFAULT_HEX_SIZE;
+  const c = hexAxialToPixel(q, r, size);
+  const cor = hexCornerPoints(c.x, c.y, size);
+  return [ cor[((i % 6) + 6) % 6], cor[(((i % 6) + 6) % 6 + 1) % 6] ];
+}
+
 // RAW-style column-row display label (RR p.273 "hex 401" convention; published Auran maps use
 // 4-digit COLROW). Axial {q,r} stays the canonical truth (shown in the tooltip); this is the
 // GM-familiar secondary. Flat-top: column = q; the row undoes the half-column vertical shear
@@ -1989,6 +2004,15 @@ const HEX_CLASSIFICATION_COLORS = Object.freeze({
 const HEX_LANDVALUE_RAMP = Object.freeze(['#f7fcb9','#d9f0a3','#addd8e','#78c679','#41ab5d','#238443','#005a32']);
 const HEX_FILL_UNKNOWN   = '#d9d2c0'; // neutral parchment — blank/unknown attribute
 const HEX_FILL_UNCLAIMED = '#cbc6b8'; // neutral grey — domainId == null
+// M6 domain-aware + extra fill palettes (the rest of the §4.1 catalog).
+const HEX_SECURED_COLORS = Object.freeze({ // RR p.338/348 stronghold-adequacy bands (per domain)
+  adequate:'#3aa35a', half:'#e8c34a', quarter:'#e08a3c', critical:'#cc4125', none:HEX_FILL_UNKNOWN
+});
+const HEX_ECONOMY_COLORS = Object.freeze({ agricultural:'#9cc46b', pastoralist:'#cda85b', mining:'#9a8aa8' });
+const HEX_POP_CEILING    = Object.freeze({ civilized:780, borderlands:375, outlands:185, unsettled:185 }); // RR p.340
+// Diverging red→green morale ramp for −4..+4 (9 steps), index = clamp(round(m),−4,4)+4.
+const HEX_MORALE_RAMP = Object.freeze(['#cc4125','#e0653c','#e8a24a','#e8c34a','#dcdc8c','#bfe08a','#8fd06a','#5cb85c','#3aa35a']);
+function _moraleColor(m){ return HEX_MORALE_RAMP[Math.max(-4, Math.min(4, Math.round(Number(m) || 0))) + 4]; }
 
 // Stable hue (0..359) from a string id — deterministic, so a domain keeps its color across renders.
 function _mapHashHue(str){
@@ -2003,8 +2027,11 @@ function _domainFill(domainId){
 }
 
 // The fill color for a hex under a given layer. Deterministic + stable per input (M2 DoD).
+// Hex-only layers (terrain/domain/land-value/classification/population/economy/exploration) ignore
+// `ctx`; domain-aggregate layers (secured/morale) read precomputed per-domain maps from `ctx`
+// (the engine has no campaign reference) — `ctx.securedStateByDomain[id]`, `ctx.moraleByDomain[id]`.
 // Unknown/blank values fall back to neutral parchment so the map never renders a hole.
-function hexFillColor(hex, layer){
+function hexFillColor(hex, layer, ctx){
   hex = hex || {};
   switch(layer){
     case 'domain':
@@ -2018,6 +2045,29 @@ function hexFillColor(hex, layer){
       const c = String(hex.classification || '').trim().toLowerCase();
       return HEX_CLASSIFICATION_COLORS[c] || HEX_FILL_UNKNOWN;
     }
+    case 'population': { // families as a fraction of the classification ceiling (RR p.340)
+      const fam = Number(hex.families) || 0;
+      if(fam <= 0) return HEX_FILL_UNKNOWN;
+      const cap = HEX_POP_CEILING[String(hex.classification || '').trim().toLowerCase()] || 185;
+      const ratio = Math.max(0, Math.min(1, fam / cap));
+      return HEX_LANDVALUE_RAMP[Math.round(ratio * (HEX_LANDVALUE_RAMP.length - 1))];
+    }
+    case 'morale': { // domain morale −4..+4 (diverging); needs ctx.moraleByDomain
+      if(!hex.domainId) return HEX_FILL_UNCLAIMED;
+      const m = ctx && ctx.moraleByDomain ? ctx.moraleByDomain[hex.domainId] : null;
+      return (m == null) ? HEX_FILL_UNKNOWN : _moraleColor(m);
+    }
+    case 'secured': { // per-domain stronghold adequacy (RR p.338); needs ctx.securedStateByDomain
+      if(!hex.domainId) return HEX_FILL_UNCLAIMED;
+      const st = ctx && ctx.securedStateByDomain ? ctx.securedStateByDomain[hex.domainId] : null;
+      return HEX_SECURED_COLORS[st] || HEX_FILL_UNKNOWN;
+    }
+    case 'economy': {
+      const e = String(hex.economyType || 'agricultural').trim().toLowerCase().split('-')[0];
+      return HEX_ECONOMY_COLORS[e] || HEX_FILL_UNKNOWN;
+    }
+    case 'exploration':
+      return hex.explored === false ? '#6b6450' : '#cfe3b0'; // fogged vs explored
     case 'terrain':
     default: {
       // Tolerate MM biome sub-types ("Forest (Taiga)" → "forest"), any casing, and common synonyms.
@@ -2027,15 +2077,19 @@ function hexFillColor(hex, layer){
   }
 }
 
-// The fill-layer catalog driving the "Color by:" radio. Adding a §4.1 layer later
-// (population, morale, secured, economy, exploration) is one entry here + one case in
-// hexFillColor + one branch in hexFillLegend.
+// The fill-layer catalog driving the "Color by:" radio (the full §4.1 set). Adding another
+// layer is one entry here + one case in hexFillColor + one branch in hexFillLegend.
 function hexFillLayers(){
   return [
     { id:'terrain',        label:'Terrain' },
     { id:'domain',         label:'Domain' },
     { id:'land-value',     label:'Land value' },
-    { id:'classification', label:'Classification' }
+    { id:'classification', label:'Classification' },
+    { id:'population',     label:'Population' },
+    { id:'morale',         label:'Domain morale' },
+    { id:'secured',        label:'Secured' },
+    { id:'economy',        label:'Economy' },
+    { id:'exploration',    label:'Exploration' }
   ];
 }
 
@@ -2053,10 +2107,52 @@ function hexFillLegend(layer, domains){
     case 'classification':
       return [['Civilized','civilized'],['Borderlands','borderlands'],['Outlands','outlands'],['Unsettled','unsettled']]
         .map(pair => ({ label: pair[0], color: HEX_CLASSIFICATION_COLORS[pair[1]] }));
+    case 'population':
+      return [{ label:'Low', color:HEX_LANDVALUE_RAMP[0] }, { label:'Mid', color:HEX_LANDVALUE_RAMP[3] }, { label:'At ceiling', color:HEX_LANDVALUE_RAMP[HEX_LANDVALUE_RAMP.length - 1] }];
+    case 'morale':
+      return [{ label:'−4', color:_moraleColor(-4) }, { label:'0', color:_moraleColor(0) }, { label:'+4', color:_moraleColor(4) }];
+    case 'secured':
+      return [['Adequate','adequate'],['Below min','half'],['Below ½','quarter'],['Critical','critical']]
+        .map(pair => ({ label: pair[0], color: HEX_SECURED_COLORS[pair[1]] })).concat([{ label:'Unclaimed', color:HEX_FILL_UNCLAIMED }]);
+    case 'economy':
+      return [['Agricultural','agricultural'],['Pastoralist','pastoralist'],['Mining','mining']]
+        .map(pair => ({ label: pair[0], color: HEX_ECONOMY_COLORS[pair[1]] }));
+    case 'exploration':
+      return [{ label:'Explored', color:'#cfe3b0' }, { label:'Unexplored', color:'#6b6450' }];
     case 'terrain':
     default:
       return Object.keys(HEX_TERRAIN_COLORS).map(k => ({ label: k.charAt(0).toUpperCase() + k.slice(1), color: HEX_TERRAIN_COLORS[k] }));
   }
+}
+
+// ── M3 symbols + M4 edges: layer catalogs (toggle checkboxes) + glyph sizing. ──
+// Settlement glyph radius as a multiple of `size`, ramped by the RR p.351 population
+// benchmarks (Hamlet → Metropolis) so a glyph grows with market class.
+function settlementGlyphScale(families){
+  const n = Number(families) || 0;
+  if(n >= 5000) return 0.42; // Large City / Metropolis (market I–II)
+  if(n >= 1250) return 0.36; // City (III)
+  if(n >= 500)  return 0.30; // Town (IV)
+  if(n >= 100)  return 0.24; // Village (V–VI)
+  if(n >= 1)    return 0.19; // Hamlet / small village
+  return 0.16;
+}
+function mapSymbolLayers(){
+  return [
+    { id:'settlements', label:'Settlements' },
+    { id:'strongholds', label:'Strongholds' },
+    { id:'lairs',       label:'Lairs' },
+    { id:'dungeons',    label:'Dungeons' },
+    { id:'pois',        label:'POIs' }
+  ];
+}
+function mapEdgeLayers(){
+  return [
+    { id:'borders', label:'Domain borders' },
+    { id:'roads',   label:'Roads' },
+    { id:'rivers',  label:'Rivers' },
+    { id:'trails',  label:'Trails' }
+  ];
 }
 
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
@@ -2068,8 +2164,10 @@ Object.assign(ACKS, {
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
-  // Phase 2.5 Map Mode (#225 — M0–M2) — pure geometry + fill-layer helpers (Architecture §11).
+  // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
+  // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel,
+  hexNeighborDeltas, hexEdgePoints, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 

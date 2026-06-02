@@ -1,4 +1,4 @@
-/* Phase 2.5 Map Mode (#225 — M0–M2) smoke test — the SVG hex map's pure helpers.
+/* Phase 2.5 Map Mode (#225 — M0–M6) smoke test — the SVG hex map's pure helpers.
  *
  * Run from the "ACKS God Mode/" directory (or via `npm test`):
  *   node tests/map.smoke.js
@@ -164,10 +164,10 @@ check('unknown classification → neutral', ACKS.hexFillColor({ classification: 
 // ─── hexFillLayers / hexFillLegend ───
 section('hexFillLayers + hexFillLegend');
 const layers = ACKS.hexFillLayers();
-check('4 layers in the v1 catalog', Array.isArray(layers) && layers.length === 4);
+check('full §4.1 catalog (9 layers)', Array.isArray(layers) && layers.length === 9);
 check('terrain is first (default)', layers[0].id === 'terrain');
 check('every layer has id + label', layers.every(l => l.id && l.label));
-check('catalog ids match the hexFillColor layers', layers.map(l => l.id).join(',') === 'terrain,domain,land-value,classification');
+check('the M0–M2 four lead the catalog', layers.slice(0, 4).map(l => l.id).join(',') === 'terrain,domain,land-value,classification');
 check('legend(terrain) → 9 rows', ACKS.hexFillLegend('terrain').length === 9);
 check('legend(land-value) → 7 rows', ACKS.hexFillLegend('land-value').length === 7);
 check('legend(classification) → 4 rows', ACKS.hexFillLegend('classification').length === 4);
@@ -185,12 +185,70 @@ check('adjacent columns are size·√3 apart (centers)', approx(dist, SIZE * SQR
 const cC = ACKS.hexAxialToPixel(0, 1, SIZE);   // same column, next row
 check('same-column neighbours are size·√3 apart vertically', approx(cC.y - cA.y, SIZE * SQRT3, 1e-4));
 
+// ─── M4 adjacency + edge geometry (domain borders / road networks) ───
+section('hexNeighborDeltas + hexEdgePoints (M4)');
+const deltas = ACKS.hexNeighborDeltas();
+check('6 edge deltas', Array.isArray(deltas) && deltas.length === 6);
+check('opposite edges are negated deltas (edge i ↔ edge (i+3)%6)',
+  [0,1,2].every(i => deltas[(i+3)%6][0] === -deltas[i][0] && deltas[(i+3)%6][1] === -deltas[i][1]));
+check('deltas are the 6 distinct unit axial steps',
+  new Set(deltas.map(d => d.join(','))).size === 6);
+// the strong invariant: a shared edge has the same two endpoints from both adjacent hexes.
+// hex (q,r) edge i is hex (q,r)+delta[i] edge (i+3)%6 — endpoints must coincide (as a set).
+const sharedEdgeOK = (() => {
+  const q = 2, r = -1;
+  for (let i = 0; i < 6; i++) {
+    const [dq, dr] = deltas[i];
+    const a = ACKS.hexEdgePoints(q, r, SIZE, i);
+    const b = ACKS.hexEdgePoints(q + dq, r + dr, SIZE, (i + 3) % 6);
+    const key = pts => pts.map(p => Math.round(p.x * 100) + ',' + Math.round(p.y * 100)).sort().join('|');
+    if (key(a) !== key(b)) return false;
+  }
+  return true;
+})();
+check('a shared edge has identical endpoints from both hexes (borders align, no double-draw)', sharedEdgeOK);
+check('hexEdgePoints returns 2 points', ACKS.hexEdgePoints(0, 0, SIZE, 0).length === 2);
+check('hexEdgePoints wraps negative/large indices', ACKS.hexEdgePoints(0,0,SIZE,6).length === 2 && ACKS.hexEdgePoints(0,0,SIZE,-1).length === 2);
+
+// ─── M3 settlement glyph ramp + layer catalogs ───
+section('settlementGlyphScale + symbol/edge catalogs (M3)');
+check('glyph scale is non-decreasing with families', (() => {
+  const fams = [0, 50, 100, 500, 1250, 5000, 40000];
+  const sizes = fams.map(ACKS.settlementGlyphScale);
+  return sizes.every((s, i) => i === 0 || s >= sizes[i-1]);
+})());
+check('a metropolis glyph is larger than a hamlet glyph', ACKS.settlementGlyphScale(40000) > ACKS.settlementGlyphScale(40));
+check('5 symbol layers (settlements/strongholds/lairs/dungeons/pois)', ACKS.mapSymbolLayers().length === 5 && ACKS.mapSymbolLayers()[0].id === 'settlements');
+check('4 edge layers (borders/roads/rivers/trails)', ACKS.mapEdgeLayers().length === 4 && ACKS.mapEdgeLayers()[0].id === 'borders');
+
+// ─── M6 extra fill layers (population / morale / secured / economy / exploration) ───
+section('hexFillColor — M6 layers + ctx');
+check('catalog now lists all 9 §4.1 fills', ACKS.hexFillLayers().length === 9);
+// secured (per-domain via ctx)
+const secCtx = { securedStateByDomain: { 'dom-a': 'adequate', 'dom-b': 'critical' } };
+check('secured: adequate vs critical differ', ACKS.hexFillColor({ domainId:'dom-a' }, 'secured', secCtx) !== ACKS.hexFillColor({ domainId:'dom-b' }, 'secured', secCtx));
+check('secured: unclaimed → neutral grey', ACKS.hexFillColor({ domainId:null }, 'secured', secCtx) === ACKS.hexFillColor({}, 'domain'));
+check('secured: missing ctx entry → neutral', /^#[0-9a-f]{6}$/i.test(ACKS.hexFillColor({ domainId:'dom-z' }, 'secured', secCtx)));
+// morale (diverging via ctx)
+const morCtx = { moraleByDomain: { 'dom-a': 4, 'dom-b': -4, 'dom-c': 0 } };
+check('morale: +4, 0, −4 are three distinct colours', new Set(['dom-a','dom-b','dom-c'].map(id => ACKS.hexFillColor({ domainId:id }, 'morale', morCtx))).size === 3);
+check('morale: clamps out-of-range', ACKS.hexFillColor({ domainId:'x' }, 'morale', { moraleByDomain:{ x:99 } }) === ACKS.hexFillColor({ domainId:'y' }, 'morale', { moraleByDomain:{ y:4 } }));
+// population (families / classification ceiling)
+check('population: at-ceiling darker than low', ACKS.hexFillColor({ families:780, classification:'Civilized' }, 'population') !== ACKS.hexFillColor({ families:40, classification:'Civilized' }, 'population'));
+check('population: 0 families → neutral', ACKS.hexFillColor({ families:0, classification:'Civilized' }, 'population') === ACKS.hexFillColor({}, 'land-value'));
+check('population: same ratio, different ceiling → same bucket (375/borderlands ≈ 780/civilized)', ACKS.hexFillColor({ families:375, classification:'Borderlands' }, 'population') === ACKS.hexFillColor({ families:780, classification:'Civilized' }, 'population'));
+// economy + exploration (hex-only)
+check('economy: agricultural vs mining differ', ACKS.hexFillColor({ economyType:'agricultural' }, 'economy') !== ACKS.hexFillColor({ economyType:'mining' }, 'economy'));
+check('exploration: explored vs unexplored differ', ACKS.hexFillColor({ explored:true }, 'exploration') !== ACKS.hexFillColor({ explored:false }, 'exploration'));
+check('legends present for all new layers', ['population','morale','secured','economy','exploration'].every(L => ACKS.hexFillLegend(L).length >= 2));
+check('ctx is optional — hex-only layers ignore it', ACKS.hexFillColor({ terrain:'forest' }, 'terrain') === ACKS.hexFillColor({ terrain:'forest' }, 'terrain', undefined));
+
 // ─────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);
 if(failed === 0){
-  console.log('\nAll Map Mode (Phase 2.5 #225 — M0–M2) smoke checks passed.');
+  console.log('\nAll Map Mode (Phase 2.5 #225 — M0–M6) smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nSome checks failed. Review output above.');
