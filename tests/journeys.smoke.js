@@ -324,6 +324,36 @@ check('journeyLastDayRerollable FALSE for an aborted journey', ACKS.journeyLastD
 check('rerollJourneyDay returns null once the journey has been ABORTED', ACKS.rerollJourneyDay(rrab.c, rrab.j) === null);
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('mid-journey pace change affects subsequent days (J2 feedback)');
+
+// The engine reads journey.pace fresh on each day-tick — the UI's "Current pace" control just
+// sets journey.pace via gm-fiat — so changing it mid-trip changes the next day's travel.
+// (Weather defaults to a constant 'fair' when ctx.weather is omitted, so pace is the only variable.)
+function jpaceHexes(pace){
+  const b = build({ destCoord: { q: 500, r: 0 } }); // far ⇒ never arrives; road ⇒ deterministic, no nav fail
+  b.j.pace = pace;
+  ACKS.startJourney(b.c, b.j);
+  const p = ACKS.proposeJourneyDay(b.c, { dayInMonth: 2, rng: () => 0.5 });
+  ACKS.commitJourneyRecord(b.c, p.pendingRecords[0]);
+  return b.c.journeys[0].days[0].hexesTraveled || 0;
+}
+const jpCautious = jpaceHexes('cautious'), jpNormal = jpaceHexes('normal'), jpForced = jpaceHexes('forced-march');
+check('forced-march covers more ground than normal (same terrain + weather)', jpForced > jpNormal, jpForced + ' vs ' + jpNormal);
+check('cautious covers less ground than normal', jpCautious < jpNormal, jpCautious + ' vs ' + jpNormal);
+
+// changing pace BETWEEN days: day 1 at the starting pace, day 2 at the new pace; each day record
+// stamps the pace actually used that day (history preserved across a mid-trip change).
+const jpRun = build({ destCoord: { q: 500, r: 0 } });
+ACKS.startJourney(jpRun.c, jpRun.j); // blankJourney default pace = normal
+const jpRunD1 = ACKS.proposeJourneyDay(jpRun.c, { dayInMonth: 2, rng: () => 0.5 }); ACKS.commitJourneyRecord(jpRun.c, jpRunD1.pendingRecords[0]);
+jpRun.j.pace = 'forced-march'; // GM changes pace mid-trip (what the UI's gm-fiat setJourneyPace does)
+const jpRunD2 = ACKS.proposeJourneyDay(jpRun.c, { dayInMonth: 3, rng: () => 0.5 }); ACKS.commitJourneyRecord(jpRun.c, jpRunD2.pendingRecords[0]);
+const jpRunDays = jpRun.c.journeys[0].days;
+check('day 1 record stamped the original pace (normal)', jpRunDays[0].pace === 'normal');
+check('day 2 record stamped the changed pace (forced-march) — pace read fresh each day', jpRunDays[1].pace === 'forced-march');
+check('the mid-trip pace change increased day-2 distance vs day-1', (jpRunDays[1].hexesTraveled||0) > (jpRunDays[0].hexesTraveled||0));
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);

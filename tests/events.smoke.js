@@ -337,6 +337,26 @@ section('gm-fiat party leader — humane narrative on leaderCharacterId');
   ok('  narrative: Made Aelric leader of Scouts (no "replacing")', /^Made Aelric leader of Scouts/.test((r2 && r2.result && r2.result.narrativeSummary) || '') && !/replacing/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
 })();
 
+section('gm-fiat journey pace — humane narrative on journey.pace');
+// =============================================================================
+// "Current pace" (changeable mid-journey) routes through commitStatEdit -> gm-fiat on
+// journey.pace. _humanizeFiatNarrative renders "Set <journey> to <pace> pace (was <old>)".
+(function () {
+  const c = ACKS.blankCampaign();
+  c.journeys = [{ schemaVersion: 2, kind: 'journey', id: 'jrn-1', name: 'Saltspur Run', pace: 'normal', status: 'in-transit', participantCharacterIds: [], days: [] }];
+  const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'journey', id: 'jrn-1' }, mutation: { fieldPath: 'pace', newValue: 'forced-march' } } });
+  let r;
+  doesNotThrow('gm-fiat journey pace applies (resolves via Entity Registry)', () => { r = ACKS.applyEvent(c, ev); });
+  ok('  journey.pace set to forced-march', c.journeys[0].pace === 'forced-march');
+  ok('  narrative: Set Saltspur Run to forced march pace (was normal)', /^Set Saltspur Run to forced march pace \(was normal\)/.test((r && r.result && r.result.narrativeSummary) || ''), (r && r.result && r.result.narrativeSummary));
+  // no prior pace recorded : "Set … to … pace" with no "(was …)"
+  const c2 = ACKS.blankCampaign();
+  c2.journeys = [{ schemaVersion: 2, kind: 'journey', id: 'jrn-1', name: 'Trail', pace: null, status: 'in-transit', participantCharacterIds: [], days: [] }];
+  const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'journey', id: 'jrn-1' }, mutation: { fieldPath: 'pace', newValue: 'cautious' } } });
+  const r2 = ACKS.applyEvent(c2, ev2);
+  ok('  narrative: Set Trail to cautious pace (no "was")', /^Set Trail to cautious pace/.test((r2 && r2.result && r2.result.narrativeSummary) || '') && !/\(was/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
+})();
+
 // ─── summary ───
 console.log('\n=============================================');
 console.log('events.smoke.js — Passed: ' + pass + ', Failed: ' + fail);

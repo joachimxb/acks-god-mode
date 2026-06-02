@@ -3173,6 +3173,17 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
+        <!-- current pace — changeable mid-journey (logged); the next day ticked uses it -->
+        <div class="text-sm flex items-center gap-2 flex-wrap" x-show="journeyDetail().status==='in-transit'">
+          <span class="opacity-60">Current pace:</span>
+          <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyPace(journeyDetail(), $event.target.value)" title="Change the marching pace — applies to the next day ticked (logged)">
+            <option value="cautious" :selected="journeyDetail().pace==='cautious'">Cautious (×½ — thorough scouting)</option>
+            <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
+            <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — +1 fatigue, JJ p.84)</option>
+          </select>
+          <span class="text-xs opacity-50">— applies to the next day ticked</span>
+        </div>
+
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
           <button @click="journeyTickDay()" class="px-4 py-1.5 border-2 border-ink rounded bg-sky-300 hover:bg-sky-400 font-bold text-base" title="Advance one day through the shared day-tick pipeline (review + commit in the Day-tick panel, top-right)" x-show="journeyDetail().status==='in-transit'">🕑 Tick day</button>
@@ -8459,6 +8470,13 @@ return {
   // every future day consumer) — NOT a journey-private tick; forking would desync them.
   // This is just a convenience entry to the same propose → review → commit the Day Clock drives.
   journeyTickDay(){ this.tickDay(); },
+  // Change a journey's marching pace mid-trip — logged via gm-fiat; the engine reads journey.pace
+  // fresh on each day-tick, so the next day ticked uses the new pace (per-day pace stays in the log).
+  setJourneyPace(j, pace){
+    if(!j || !pace || j.pace === pace) return;
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace });
+    this.markDirty(); this.schedulePersist();
+  },
   abortJourneyUI(j){
     if(!j) return;
     const reason = window.prompt('Abort "' + (j.name||'journey') + '"? Optional reason (Cancel keeps it going):', '');
