@@ -3872,14 +3872,41 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </div>
               <div class="mt-2 grid grid-cols-2 gap-2 text-sm">
-                <label>Current hex
-                  <select x-model="pt.currentHexId" class="w-full">
-                    <option :value="null">(none)</option>
-                    <template x-for="h in allHexes" :key="h.id">
-                      <option :value="h.id" x-text="h.label"></option>
-                    </template>
-                  </select>
-                </label>
+                <!-- Current hex — lock-edit. While on a journey the hex is driven BY the journey
+                     ("Command" style — locked, links to the journey). Otherwise the GM unlocks (✏),
+                     picks a hex, and locks (🔒) — the "Generate" style manual override. -->
+                <div>
+                  <span class="block text-xs opacity-70">Current hex</span>
+                  <template x-if="pt.activeJourneyId && journeyById(pt.activeJourneyId)">
+                    <span class="flex items-center gap-2">
+                      <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
+                      <button @click="journeyOpenDetail(pt.activeJourneyId)" class="text-xs opacity-70 underline whitespace-nowrap" title="On a journey — the party's hex moves with it. Open the journey.">🔒 on journey ›</button>
+                    </span>
+                  </template>
+                  <template x-if="!(pt.activeJourneyId && journeyById(pt.activeJourneyId))">
+                    <span>
+                      <template x-if="!pt._hexEditing">
+                        <span class="flex items-center gap-2">
+                          <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
+                          <button @click="pt._hexEditing = true" class="ed-edit" title="Set the party's hex manually">✏</button>
+                        </span>
+                      </template>
+                      <template x-if="pt._hexEditing">
+                        <span class="flex items-center gap-2 flex-wrap">
+                          <!-- @change + :selected (not x-model): with x-for-rendered options, x-model
+                               doesn't reliably pre-select the current value on open. -->
+                          <select @change="pt.currentHexId = ($event.target.value || null); markDirty(); schedulePersist()" class="text-sm">
+                            <option value="" :selected="!pt.currentHexId">— none —</option>
+                            <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
+                              <option :value="h.id" :selected="pt.currentHexId === h.id" x-text="h.label"></option>
+                            </template>
+                          </select>
+                          <button @click="pt._hexEditing = false; markDirty(); schedulePersist()" class="ed-btn" title="Lock the party at this hex">🔒 Lock</button>
+                        </span>
+                      </template>
+                    </span>
+                  </template>
+                </div>
                 <label>Notes
                   <input x-model="pt.notes" class="w-full" placeholder="Free notes about this party">
                 </label>
@@ -10045,15 +10072,10 @@ return {
   },
 
   // Aggregated hex list with friendly labels for the party hex picker. Cached per evaluation; cheap to recompute.
-  get allHexes(){
-    const out = [];
-    (this.domains||[]).forEach(d => {
-      (d.geography?.hexes||[]).forEach(h => {
-        out.push({ id: h.id, label: '('+(h.coord?.q||0)+','+(h.coord?.r||0)+') · '+d.name+(h.settlement?(' · '+h.settlement.name):'') });
-      });
-    });
-    return out;
-  },
+  // (Removed the `get allHexes()` accessor that lived here — it was shadowed by the
+  // allHexes() method defined later in this object, so it never ran. The only consumer
+  // (the Parties hex picker) now uses journeyHexOptions(), which merges top-level +
+  // per-domain hexes. See the Parties panel lock-edit hex control.)
   openNewCharacterEditor(opts={}){
     if(!this.currentCampaign){alert('Open a campaign first.');return;}
     const ch = blankCharacter(opts);
