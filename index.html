@@ -11068,7 +11068,7 @@ return {
   },
   mapHexTitle(entry){
     const h = entry.hex;
-    const bits = [entry.label + '  (q=' + (h.coord?.q ?? '?') + ', r=' + (h.coord?.r ?? '?') + ')'];
+    const bits = [entry.label];
     if(h.terrain) bits.push(h.terrain);
     bits.push(entry.domainName || (entry.domainless ? 'unclaimed' : ''));
     if(h.valuePerFamily != null) bits.push(h.valuePerFamily + ' gp/family');
