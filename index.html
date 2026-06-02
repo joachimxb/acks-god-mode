@@ -213,7 +213,7 @@ document.addEventListener('alpine:init', () => {
           <button @click="tickDay()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">+1 day</button>
           <button @click="tickWeek()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">+1 week</button>
           <button @click="tickToMonthEnd()" class="px-2 py-0.5 border border-ink rounded bg-white hover:bg-sky-100 text-xs">&rarr; month end</button>
-          <span x-show="dayTickProposal && dayTickProposal.paused" class="text-xs font-bold text-red-700" title="A consumer requested a pause for review">&#9208; paused</span>
+          <span x-show="dayTickPausedEarly()" class="text-xs font-bold text-red-700" title="A consumer paused a multi-day advance for review">&#9208; paused</span>
         </div>
       </template>
       <!-- Day-tick review surface (Phase 2.95 §10/§11) — consumer-agnostic propose-review-commit. Generic so Journeys/Hijinks slot in with no rework. -->
@@ -226,9 +226,9 @@ document.addEventListener('alpine:init', () => {
             <span x-text="'Advancing ' + (dayTickProposal.daysAdvanced||0) + ' day(s): day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay"></span>
             <span x-show="dayTickProposal.monthEndReached" class="font-semibold"> &middot; month end reached</span>
           </p>
-          <template x-if="dayTickProposal.paused">
+          <template x-if="dayTickPausedEarly()">
             <div class="mb-2 p-2 border border-red-400 bg-red-50 rounded text-xs">
-              <strong>&#9208; Paused for review.</strong> <span class="opacity-70">A consumer flagged the items shown in red below — review, then commit or cancel.</span>
+              <strong>&#9208; Paused for review.</strong> <span class="opacity-70" x-text="'Stopped early at day ' + dayTickProposal.toDay + ' of a ' + dayTickProposal.daysRequested + '-day advance — a consumer flagged the items in red below. Review, then commit or cancel.'"></span>
             </div>
           </template>
           <template x-if="(dayTickProposal.pendingRecords||[]).length === 0">
@@ -12448,6 +12448,7 @@ return {
       // inside the review surface's nested x-for mis-renders under Alpine (only one record's
       // notables show); iterating r._notables is reliable.
       if(this.dayTickProposal){
+        this.dayTickProposal.daysRequested = days;  // for the "paused early" check (see dayTickPausedEarly)
         (this.dayTickProposal.pendingRecords||[]).forEach(r => { if(r) r._notables = this.dayTickRecordNotables(r); });
       }
     }
@@ -12464,6 +12465,12 @@ return {
     const p = this.dayTickProposal; const map = {};
     if(p){ (p.pendingRecords || []).forEach(r => { (map[r.consumer] = map[r.consumer] || []).push(r); }); }
     return Object.keys(map).map(k => ({ consumer: k, records: map[k] }));
+  },
+  // True only when a pause genuinely cut a MULTI-day advance short (asked for N days, stopped at
+  // fewer). A single-day tick always opens the review surface, so it isn't meaningfully "paused".
+  dayTickPausedEarly(){
+    const p = this.dayTickProposal;
+    return !!(p && p.paused && (p.daysAdvanced||0) < (p.daysRequested||1));
   },
   // Notable events (lost / hungry / dehydrated / encounter …) attributed to a specific pending
   // record, so they render UNDER their own record instead of in one shared top banner. Journey
