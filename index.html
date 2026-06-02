@@ -3833,10 +3833,27 @@ document.addEventListener('alpine:init', () => {
     <div x-show="charactersSubView==='parties'" class="vellum border border-ink rounded p-4">
       <div class="flex justify-between items-baseline mb-3">
         <h3 class="font-bold text-lg">🧭 Parties <span class="text-sm opacity-70 font-normal" x-text="'· ' + (currentCampaign?.parties?.length || 0) + ' part' + ((currentCampaign?.parties?.length || 0) === 1 ? 'y' : 'ies')"></span></h3>
-        <button @click="addBlankParty()" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">+ New party</button>
+        <button @click="newPartyPickerOpen = !newPartyPickerOpen; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">+ New party</button>
       </div>
+      <!-- Founder picker: a party is started by one character; others join from the same hex. -->
+      <template x-if="newPartyPickerOpen">
+        <div class="border border-ink rounded p-3 mb-3 bg-yellow-50 flex flex-wrap items-end gap-2">
+          <label class="text-sm">Start a party with
+            <select x-model="newPartyFounderId" class="block mt-0.5">
+              <option value="">— pick a character —</option>
+              <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
+                <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1) + (ch.currentHexId ? (' · ' + journeyHexLabel(ch.currentHexId)) : ' · no hex')"></option>
+              </template>
+            </select>
+          </label>
+          <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">Create party</button>
+          <button @click="newPartyPickerOpen=false; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+          <span class="text-xs opacity-60 w-full">The party is named after its founder and placed at their hex. Add others from the same hex below; or <strong>Send on journey</strong> to put the whole party on the road.</span>
+          <p class="text-xs italic opacity-60 w-full" x-show="charactersNotInAnyParty().length === 0">Everyone is already in a party — free a character first (remove them from their party).</p>
+        </div>
+      </template>
       <template x-if="(currentCampaign?.parties?.length || 0) === 0">
-        <p class="text-sm italic opacity-60 py-6 text-center">No parties yet. Use <strong>+ New party</strong> to group characters for shared expeditions, treasure-splits, or campaign-tracking. A character can belong to at most one party at a time (set via their sheet's Location tab).</p>
+        <p class="text-sm italic opacity-60 py-6 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex. You can then add anyone in the same hex as members, or <strong>Send on journey</strong> to put the whole party on the road. A character belongs to at most one party at a time.</p>
       </template>
       <template x-if="(currentCampaign?.parties?.length || 0) > 0">
         <div class="space-y-3">
@@ -3876,6 +3893,7 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="ch in partyMembers(pt)" :key="ch.id">
                     <li class="flex justify-between items-center py-0.5">
                       <span>
+                        <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★ </span>
                         <span x-text="ch.name"></span>
                         <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
                       </span>
@@ -3883,15 +3901,22 @@ document.addEventListener('alpine:init', () => {
                     </li>
                   </template>
                 </ul>
-                <div class="mt-2 flex items-center gap-2 text-sm">
-                  <span class="opacity-70">Add member:</span>
-                  <select x-model="pt._addMemberPick" class="text-sm">
-                    <option value="">— pick a character —</option>
-                    <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
-                      <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1)"></option>
-                    </template>
-                  </select>
-                  <button @click="if(pt._addMemberPick){ addCharacterToParty(pt, pt._addMemberPick); pt._addMemberPick=''; }" :disabled="!pt._addMemberPick" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :class="pt._addMemberPick ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
+                <div class="mt-2 flex items-center gap-2 text-sm flex-wrap">
+                  <span class="opacity-70">Add member <span class="text-xs opacity-60">(same hex: <span x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set'"></span>)</span>:</span>
+                  <template x-if="charactersInPartyHex(pt).length > 0">
+                    <span class="flex items-center gap-2">
+                      <select x-model="pt._addMemberPick" class="text-sm">
+                        <option value="">— pick a character —</option>
+                        <template x-for="ch in charactersInPartyHex(pt)" :key="ch.id">
+                          <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1)"></option>
+                        </template>
+                      </select>
+                      <button @click="if(pt._addMemberPick){ addCharacterToParty(pt, pt._addMemberPick); pt._addMemberPick=''; }" :disabled="!pt._addMemberPick" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :class="pt._addMemberPick ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
+                    </span>
+                  </template>
+                  <template x-if="charactersInPartyHex(pt).length === 0">
+                    <span class="text-xs italic opacity-60">No unassigned characters in this hex. Change the party's hex above, or move a character here first.</span>
+                  </template>
                 </div>
               </div>
             </div>
@@ -7826,6 +7851,11 @@ return {
   venturesSubView:'active', // 'active' | 'history' | 'venturers' | 'passive' | 'reference'
   // Phase 2.6 — UI state for the Characters view
   charactersSubView:'roster', // 'roster' | 'parties'
+  // Party creation (redesigned 2026-06-02): a party is started by a founding character
+  // and named after them; others join from the same hex. character.partyId stays the
+  // single source of membership truth.
+  newPartyPickerOpen:false,
+  newPartyFounderId:'',
   // Activities top panel (Phase 2.5 prep, #477) — Ventures lifted + placeholders for Journeys / Hijinks / Spell Research
   activitiesSubView: 'ventures',
   get activitiesSubTabs(){
@@ -9930,11 +9960,35 @@ return {
   },
 
   // Phase 2.6.5 — Parties sub-view + party CRUD.
+  // Admin/programmatic blank party (Inspector Create, etc.). The GM-facing "+ New party"
+  // button uses the founder flow below.
   addBlankParty(){
     if(!this.currentCampaign){alert('Open a campaign first.');return;}
     if(!Array.isArray(this.currentCampaign.parties))this.currentCampaign.parties=[];
     const pt = window.ACKS.blankParty({ name: 'New Party' });
     this.currentCampaign.parties.push(pt);
+    return pt;
+  },
+  // Start a party with one founding character: named after them, placed at their hex,
+  // founder added as the first member + leader. Others join from the same hex (below).
+  createPartyWithFounder(){
+    if(!this.currentCampaign){ alert('Open a campaign first.'); return; }
+    const ch = (this.currentCampaign.characters||[]).find(c => c.id === this.newPartyFounderId);
+    if(!ch){ this.showToast('Pick a character to start the party with.', 3000); return; }
+    if(ch.partyId){ this.showToast('That character is already in a party.', 3000); return; }
+    if(!Array.isArray(this.currentCampaign.parties)) this.currentCampaign.parties = [];
+    const pt = window.ACKS.blankParty({
+      name: (ch.name ? (ch.name + "'s party") : 'New Party'),
+      currentHexId: ch.currentHexId || null,
+      leaderCharacterId: ch.id,
+      formedAtTurn: this.currentCampaign.currentTurn || null
+    });
+    this.currentCampaign.parties.push(pt);
+    this.addCharacterToParty(pt, ch.id);   // sets ch.partyId
+    this.newPartyPickerOpen = false;
+    this.newPartyFounderId = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Party started: ' + pt.name);
   },
   removeParty(partyId){
     if(!this.currentCampaign)return;
@@ -9954,15 +10008,31 @@ return {
     if(!this.currentCampaign)return [];
     return (this.currentCampaign.characters||[]).filter(ch => ch.alive !== false && !ch.partyId);
   },
+  // Party-less characters in the same hex as the party — the candidates who can join it.
+  charactersInPartyHex(pt){
+    if(!pt || !this.currentCampaign)return [];
+    const hex = pt.currentHexId || null;
+    return (this.currentCampaign.characters||[]).filter(ch => ch.alive !== false && !ch.partyId && (ch.currentHexId||null) === hex);
+  },
   addCharacterToParty(pt, characterId){
     if(!pt || !characterId)return;
     const ch = (this.currentCampaign?.characters||[]).find(x => x.id === characterId);
     if(!ch)return;
     ch.partyId = pt.id;
+    if(!pt.leaderCharacterId) pt.leaderCharacterId = ch.id;   // first member founds/leads
   },
   removeCharacterFromParty(ch){
     if(!ch)return;
+    const pid = ch.partyId;
     ch.partyId = null;
+    // keep leaderCharacterId pointing at an actual current member (or null)
+    if(pid){
+      const pt = (this.currentCampaign?.parties||[]).find(p => p.id === pid);
+      if(pt && pt.leaderCharacterId === ch.id){
+        const others = (this.currentCampaign?.characters||[]).filter(c => c.partyId === pid);
+        pt.leaderCharacterId = others.length ? others[0].id : null;
+      }
+    }
   },
   // (Foundation #193) Deprecated — kept as a thin shim. The canonical add path is
   // addRumorAtSettlement(settlementId) which writes to top-level campaign.rumors with a reach
