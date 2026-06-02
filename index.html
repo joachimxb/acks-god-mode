@@ -3044,11 +3044,12 @@ document.addEventListener('alpine:init', () => {
             <template x-for="cid in journeyWizard.participantIds" :key="'jchip-'+cid">
               <span class="inline-flex items-center gap-1 text-xs border border-ink rounded px-1.5 py-0.5 bg-yellow-50">
                 <span x-text="journeyParticipantName(cid)"></span>
+                <span class="opacity-60" x-show="characterMercCountById(cid)" :title="characterMercCountById(cid) + ' mercenaries travel with this character'" x-text="'+'+characterMercCountById(cid)+'⚔'"></span>
                 <button @click="journeyToggleParticipant(cid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove from journey">×</button>
               </span>
             </template>
           </div>
-          <p class="text-xs opacity-60 mt-1" x-text="journeyWizard.participantIds.length + ' selected'"></p>
+          <p class="text-xs opacity-60 mt-1" x-text="journeyWizardHeadcountLabel()"></p>
         </div>
 
         <!-- Route -->
@@ -3148,7 +3149,7 @@ document.addEventListener('alpine:init', () => {
               · <span x-text="journeyDetail().mode"></span>
               · <span class="font-semibold" :class="journeyDetail().isLost ? 'text-red-700' : (journeyDetail().status==='arrived' ? 'text-green-800' : '')" x-text="journeyStatusLabel(journeyDetail())"></span>
             </p>
-            <p class="text-sm mt-1" x-show="journeyDetail().participantCharacterIds.length"><span class="opacity-60">Party:</span> <span x-text="journeyParticipantNames(journeyDetail())"></span></p>
+            <p class="text-sm mt-1" x-show="journeyDetail().participantCharacterIds.length"><span class="opacity-60">Travellers:</span> <span x-text="journeyHeadcountLabel(journeyDetail())"></span></p>
           </div>
           <button @click="journeyCloseDetail()" class="text-xs px-2 py-1 border border-ink rounded hover:bg-gray-100">← all journeys</button>
         </div>
@@ -3164,6 +3165,42 @@ document.addEventListener('alpine:init', () => {
 
         <!-- distance: total + remaining miles (6-mile hexes) -->
         <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
+
+        <!-- Members table (mirrors the Parties panel): each traveller + the mercenaries (RR p.166)
+             that travel with them. Room for more per-character columns later. -->
+        <div x-show="journeyDetail().participantCharacterIds.length">
+          <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
+          <table class="text-sm w-full max-w-2xl">
+            <thead>
+              <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                <th class="font-normal py-0.5 pr-4">Traveller</th>
+                <th class="font-normal py-0.5">Mercenaries</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="ch in journeyParticipants(journeyDetail())" :key="'jm-'+ch.id">
+                <tr class="border-b border-dashed border-gray-200 align-top">
+                  <td class="py-1 pr-4">
+                    <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                    <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1)"></span>
+                  </td>
+                  <td class="py-1">
+                    <template x-if="partyMemberMercSummary(ch).length">
+                      <span class="text-xs">
+                        <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
+                      </span>
+                    </template>
+                    <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="text-sm mt-1">
+            <span class="font-semibold">Total: <span x-text="journeyHeadcount(journeyDetail()).toLocaleString()"></span></span>
+            <span class="opacity-60" x-text="'(' + journeyParticipants(journeyDetail()).length + ' character' + (journeyParticipants(journeyDetail()).length===1?'':'s') + (journeyMercTotal(journeyDetail()) ? (' + ' + journeyMercTotal(journeyDetail()).toLocaleString() + ' mercenaries') : '') + ')'"></span>
+          </div>
+        </div>
 
         <!-- supplies tracker + status conditions -->
         <div class="border border-dashed border-ink rounded p-2 text-sm">
@@ -8322,6 +8359,18 @@ return {
     if(!names.length) return '(no participants)';
     return names.length <= 3 ? names.join(', ') : (names.slice(0,3).join(', ') + ' +' + (names.length-3) + ' more');
   },
+  // ── Journey membership + headcount (mercenaries travel with their character — RR p.166,
+  //    same rollup as the Parties panel) ──
+  _charsByIds(ids){ const all=this.currentCampaign?.characters||[]; return (ids||[]).map(id => all.find(c => c && c.id===id)).filter(Boolean); },
+  characterMercCount(ch){ return this.partyMemberMercSummary(ch).reduce((s,m)=>s+m.count,0); },
+  characterMercCountById(id){ const ch=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return ch ? this.characterMercCount(ch) : 0; },
+  _mercTotalForChars(chars){ return (chars||[]).reduce((s,ch)=>s+this.characterMercCount(ch),0); },
+  journeyParticipants(j){ return this._charsByIds((j&&j.participantCharacterIds)||[]); },
+  journeyMercTotal(j){ return this._mercTotalForChars(this.journeyParticipants(j)); },
+  journeyHeadcount(j){ const c=this.journeyParticipants(j); return c.length + this._mercTotalForChars(c); },
+  _headcountLabel(chars){ const n=chars.length; const m=this._mercTotalForChars(chars); let s=n+' character'+(n===1?'':'s'); if(m) s+=' + '+m.toLocaleString()+' mercenaries ('+(n+m).toLocaleString()+' total)'; return s; },
+  journeyHeadcountLabel(j){ return this._headcountLabel(this.journeyParticipants(j)); },
+  journeyWizardHeadcountLabel(){ const chars=this._charsByIds(this.journeyWizard.participantIds); const n=chars.length; if(!n) return '0 selected'; const m=this._mercTotalForChars(chars); let s=n+' selected'; if(m) s+=' · '+m.toLocaleString()+' mercenaries ('+(n+m).toLocaleString()+' total)'; return s; },
   journeyModeIcon(j){
     if(!j) return '🥾';
     if(j.isLost) return '🧭';
