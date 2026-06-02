@@ -4493,7 +4493,7 @@ document.addEventListener('alpine:init', () => {
           <button @click="openJourneyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-50 hover:bg-sky-100 text-xs" title="Open this character's journey">🧭 On journey: <span class="font-semibold" x-text="characterJourneyOf(characterEditing).name || '(journey)'"></span> →</button>
         </template>
         <template x-if="!characterJourneyOf(characterEditing)">
-          <button @click="(() => { const id=characterEditing.id; closeCharacterEditor(); startJourneyDeepLink({ characterId:id }); })()" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200 text-xs" title="Start a journey with this character">🧭 Start journey</button>
+          <button @click="startJourneyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200 text-xs" :title="characterPartyOf(characterEditing) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 <span x-text="characterPartyOf(characterEditing) ? 'Start party journey' : 'Start journey'"></span></button>
         </template>
       </div>
     </div>
@@ -10229,6 +10229,15 @@ return {
     if(!ch || !ch.currentJourneyId) return;
     this.closeCharacterEditor();
     this.journeyOpenDetail(ch.currentJourneyId);
+  },
+  // Start a journey FROM a character: if they're in a party, set up the journey for the whole
+  // party (prefills its members + start hex); otherwise just this character.
+  startJourneyForCharacter(ch){
+    if(!ch) return;
+    const pt = this.characterPartyOf(ch);
+    this.closeCharacterEditor();
+    if(pt) this.startJourneyDeepLink({ partyId: pt.id });
+    else this.startJourneyDeepLink({ characterId: ch.id });
   },
   removeParty(partyId){
     if(!this.currentCampaign)return;
