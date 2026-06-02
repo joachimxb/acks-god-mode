@@ -554,6 +554,79 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- ═══════════ VIEW: MAP (Phase 2.5 Map Mode #225 — M0–M2) ═══════════ -->
+<!-- A first-class SVG hex map: a PURE VIEW over the campaign's hexes (Architecture §11). Geometry
+     + fill-layer math live in the engine (acks-engine-subsystems.js §9.7); this is the render +
+     pan/zoom/click wiring. Click → the EXISTING hex card (mapClickHex → openHexDetail), via a
+     mode-aware dispatcher so a later Journey planner / wizard can reuse the map as a hex picker. -->
+<div x-show="currentView === 'map'" class="p-4" x-cloak>
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
+    <h2 class="text-lg font-semibold">🗺 Campaign Map</h2>
+    <span class="text-sm opacity-60" x-text="'· ' + mapHexEntries().length + ' hexes'"></span>
+    <span class="text-sm opacity-60 italic">Scroll to zoom · drag to pan · click a hex to open its card</span>
+  </div>
+
+  <!-- Select-mode banner — the picker seam (plan §9.1); shown only when a caller put the map into select mode. -->
+  <div x-show="mapMode === 'select'" class="mb-3 px-3 py-2 border border-sky-400 bg-sky-50 rounded flex items-center gap-3 text-sm" x-cloak>
+    <span x-text="_mapSelectHint || 'Click a hex to select it.'"></span>
+    <button @click="mapEndSelect()" class="underline opacity-70 hover:opacity-100">cancel</button>
+  </div>
+
+  <template x-if="mapHexEntries().length === 0">
+    <p class="text-sm italic opacity-60 py-10 text-center">No hexes to map yet. Add hexes to a domain via the World tab or Domains → Hexes, and they'll appear here.</p>
+  </template>
+
+  <template x-if="mapHexEntries().length > 0">
+    <div>
+      <!-- "Color by:" radio + Fit. Adding a §4.1 layer later is one engine entry + one radio. -->
+      <div class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span class="text-sm font-semibold">Color by:</span>
+        <template x-for="L in mapFillLayers()" :key="L.id">
+          <label class="text-sm flex items-center gap-1 cursor-pointer">
+            <input type="radio" :value="L.id" x-model="mapFillLayer">
+            <span x-text="L.label"></span>
+          </label>
+        </template>
+        <button @click="mapResetView()" class="ml-auto text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Fit the whole map in view">⤢ Fit</button>
+      </div>
+
+      <!-- Legend for the active fill layer. -->
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 text-sm">
+        <span class="opacity-60">Legend:</span>
+        <template x-for="row in mapLegend()" :key="row.label">
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block w-3 h-3 rounded-sm border border-ink/40" :style="'background:' + row.color"></span>
+            <span x-text="row.label"></span>
+          </span>
+        </template>
+      </div>
+
+      <!-- The SVG hex map. Pan/zoom mutate the viewBox so vectors stay crisp at any scale — no raster tiles, no map library. -->
+      <div class="border border-ink rounded overflow-hidden" style="height:70vh; background:#f3ecd8;">
+        <!-- Hexes are generated as an SVG markup STRING via x-html (innerHTML on an SVG <g> parses
+             in the SVG namespace). Alpine's <template x-for> does NOT work inside <svg> — a
+             <template> in the SVG namespace has no .content fragment to clone. x-html re-renders
+             reactively when the hex set or fill layer changes; clicks are delegated to the <svg>
+             (mapSvgClick reads each polygon's data-hex-id), since x-html content isn't Alpine-managed. -->
+        <!-- viewBox is set via x-effect, not :viewBox — the HTML parser lowercases `:viewBox` to
+             `:viewbox`, and SVG's viewBox attribute is case-sensitive, so the binding would be
+             silently ignored. setAttribute with the exact case works and re-runs on pan/zoom. -->
+        <svg x-ref="mapSvg" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+             x-effect="$el.setAttribute('viewBox', mapViewBoxStr())"
+             :style="'cursor:' + (_mapPan ? 'grabbing' : 'grab')"
+             @wheel.prevent="mapWheel($event)"
+             @mousedown.prevent="mapPanStart($event)"
+             @mousemove.window="mapPanMove($event)"
+             @mouseup.window="mapPanEnd()"
+             @click="mapSvgClick($event)">
+          <g x-html="mapSvgMarkup()"></g>
+        </svg>
+      </div>
+      <p class="text-xs opacity-50 mt-1">Labels are RAW-style column-row (RR p.273); hover a hex for its axial (q,r), terrain, domain, and land value. The map is a view — clicking a hex opens the existing hex card.</p>
+    </div>
+  </template>
+</div>
+
 <!-- ═══════════ VIEW: DOMAINS (default) ═══════════ -->
 <div x-show="currentView === 'domains'" x-cloak>
 
@@ -6991,6 +7064,12 @@ return {
         this.selectedDomainId=sess.selectedDomainId||(this.domains[0]?this.domains[0].id:null);
         this.fileName=sess.fileName||'';
         if(sess.currentView)this.currentView=sess.currentView;
+        // #225 Map Mode — restore ephemeral viewport prefs (fill layer + viewBox). mapMode stays
+        // 'inspect' (select is transient). A null/absent viewBox lazily re-fits on first map open.
+        if(sess.mapPrefs){
+          if(sess.mapPrefs.fillLayer) this.mapFillLayer = sess.mapPrefs.fillLayer;
+          if(sess.mapPrefs.viewBox)   this.mapViewBox   = sess.mapPrefs.viewBox;
+        }
         // Foundation #193 — ensure top-level collections exist + migrate from any legacy nested
         // storage in the restored session. Idempotent.
         if(this.currentCampaign){
@@ -7045,6 +7124,9 @@ return {
     },{deep:true});
     this.$watch('domains',()=>{ this.markDirty(); this.schedulePersist(); },{deep:true});
     this.$watch('selectedDomainId',()=>this.schedulePersist()); // selecting a domain isn't a content change
+    // #225 Map Mode — persist the active fill layer; lazily fit the viewport when the Map tab opens.
+    this.$watch('mapFillLayer',()=>this.schedulePersist());
+    this.$watch('currentView',v=>{ if(v==='map') this.mapEnsureView(); });
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -7076,7 +7158,10 @@ return {
       json = JSON.stringify({
         currentCampaign:this.currentCampaign,domains:this.domains,
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
-        currentView:this.currentView});
+        currentView:this.currentView,
+        // #225 Map Mode — ephemeral viewport prefs only (active fill layer + viewBox). Never
+        // part of the .acks.json (plan §8); mode always restores to 'inspect' (select is transient).
+        mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox }});
     }catch(e){ console.warn('Persist serialize failed',e); return; }
     try{
       localStorage.setItem('acks-domain-session-v3', json);
@@ -7101,6 +7186,7 @@ return {
     const loggedEv  = (this.currentCampaign?.eventLog||[]).length;
     return [
       { id:'world',        label:'🌍 World',           count: hexCount || null },
+      { id:'map',          label:'🗺 Map' },  // #225 Map Mode M0–M2 (2026-06-02) — SVG hex map
       { id:'domains',      label:'🏰 Domains' },
       { id:'characters',   label:'👥 Characters',      count: aliveChars || null },
       { id:'activities',   label:'🎭 Activities',      count: (this.currentCampaign?.ventures||[]).length },
@@ -10853,6 +10939,158 @@ return {
     this.showHexDetailModal = false;
     this.worldHexEditing = null;
   },
+
+  // ─── #225 Map Mode (M0–M2, 2026-06-02) — SVG hex map state + methods ───────
+  // The map is a PURE VIEW over the campaign's hexes (Architecture §11; the geometry +
+  // fill-layer math lives in the engine, acks-engine-subsystems.js §9.7). All viewport state
+  // here is EPHEMERAL — persisted to the session cache (localStorage) only, never to the
+  // .acks.json (plan §8). Clicking a hex reuses the EXISTING hex card (openHexDetail) — no
+  // second hex editor. The click dispatch is mode-aware (inspect vs select) so a later
+  // Journey-planner / generation-wizard can reuse the map as a hex PICKER with no rework.
+  MAP_HEX_SIZE: 40,          // mirrors engine MAP_DEFAULT_HEX_SIZE; internal SVG units.
+  mapFillLayer: 'terrain',   // active "Color by:" layer (terrain|domain|land-value|classification)
+  mapMode: 'inspect',        // 'inspect' (click→hex card) | 'select' (click→hand id to a caller)
+  mapViewBox: null,          // {x,y,w,h} — the SVG viewBox; null = not yet fitted
+  _mapPan: null,             // in-flight drag-pan bookkeeping
+  _mapDragged: false,        // set true once a drag moves; suppresses the trailing @click
+  _mapSelectCb: null,        // select-mode callback (hexId, entry) => void
+  _mapSelectHint: '',        // banner text shown while in select mode
+
+  // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
+  // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
+  // wilderness hexes (campaign.hexes[] with no domain match) render too but can't open the
+  // existing card yet (that arrives with the create-hex slice, M5).
+  mapHexEntries(){
+    const size = this.MAP_HEX_SIZE, A = window.ACKS;
+    const out = [], seen = new Set();
+    this.allHexes().forEach(e => {
+      const h = e.hex; if(!h || !h.coord) return;
+      seen.add(h.id);
+      const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
+      out.push({ hex:h, domainId:e.domainId, domainName:e.domainName, hexIndex:e.hexIndex,
+                 cx:c.x, cy:c.y, points:A.hexPolygonPoints(h.coord.q, h.coord.r, size),
+                 label:A.hexDisplayLabel(h.coord.q, h.coord.r), domainless:false });
+    });
+    (this.currentCampaign?.hexes||[]).forEach(h => {
+      if(!h || !h.coord || seen.has(h.id)) return;
+      const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
+      out.push({ hex:h, domainId:h.domainId||null, domainName:null, hexIndex:-1,
+                 cx:c.x, cy:c.y, points:A.hexPolygonPoints(h.coord.q, h.coord.r, size),
+                 label:A.hexDisplayLabel(h.coord.q, h.coord.r), domainless:true });
+    });
+    return out;
+  },
+  mapFill(hex){ return window.ACKS.hexFillColor(hex, this.mapFillLayer); },
+  mapFillLayers(){ return window.ACKS.hexFillLayers(); },
+  mapLegend(){ return window.ACKS.hexFillLegend(this.mapFillLayer, this.domains); },
+  mapHexTitle(entry){
+    const h = entry.hex;
+    const bits = [entry.label + '  (q=' + (h.coord?.q ?? '?') + ', r=' + (h.coord?.r ?? '?') + ')'];
+    if(h.terrain) bits.push(h.terrain);
+    bits.push(entry.domainName || (entry.domainless ? 'unclaimed' : ''));
+    if(h.valuePerFamily != null) bits.push(h.valuePerFamily + ' gp/family');
+    if(h.settlement?.name) bits.push('⌂ ' + h.settlement.name);
+    return bits.filter(Boolean).join('  ·  ');
+  },
+  // Build the full SVG inner markup (all hexes) as a string for x-html. Re-renders reactively
+  // when the hex set or active fill layer changes (both read here). Each polygon carries
+  // data-hex-id so the delegated click handler (mapSvgClick) can resolve which hex was clicked.
+  mapSvgMarkup(){
+    const size = this.MAP_HEX_SIZE;
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sw = (size * 0.04).toFixed(2), fs = (size * 0.26).toFixed(2);
+    return this.mapHexEntries().map(e =>
+      '<g>' +
+        '<polygon data-hex-id="' + esc(e.hex.id) + '" points="' + e.points + '" fill="' + this.mapFill(e.hex) + '" ' +
+          'stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;">' +
+          '<title>' + esc(this.mapHexTitle(e)) + '</title>' +
+        '</polygon>' +
+        '<text x="' + e.cx.toFixed(2) + '" y="' + e.cy.toFixed(2) + '" text-anchor="middle" dominant-baseline="central" ' +
+          'font-size="' + fs + '" fill="#2b2b2b" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(e.label) + '</text>' +
+      '</g>'
+    ).join('');
+  },
+  // Delegated click on the SVG → resolve the clicked hex via its data-hex-id, then dispatch
+  // (mapClickHex owns the drag-suppression + inspect/select mode handling).
+  mapSvgClick(e){
+    const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id]') : null;
+    if(!el) return;
+    const entry = this.mapHexEntries().find(x => x.hex.id === el.getAttribute('data-hex-id'));
+    if(entry) this.mapClickHex(entry);
+  },
+
+  // Fit the viewBox to all hexes (+ a margin). Called when entering the map with no viewport,
+  // on campaign load, and by the "Fit" button.
+  mapResetView(){
+    const A = window.ACKS;
+    const hexes = this.mapHexEntries().map(e => e.hex);
+    const b = A.hexMapBounds(hexes, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5);
+    if(!b){ const s = this.MAP_HEX_SIZE; this.mapViewBox = { x:-s*2, y:-s*2, w:s*4, h:s*4 }; }
+    else  { this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+    this.schedulePersist();
+  },
+  mapEnsureView(){ if(!this.mapViewBox) this.mapResetView(); },
+  mapViewBoxStr(){ const v = this.mapViewBox; return v ? (v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h) : '0 0 100 100'; },
+
+  // Screen point → world (viewBox) coords, accounting for preserveAspectRatio="meet" letterboxing
+  // (uniform scale s, content centered). Lets pan + zoom track the cursor exactly regardless of the
+  // container's aspect ratio. Pan/zoom then just re-pin: shift the viewBox so the grabbed/pointed
+  // world point stays under the cursor (changing viewBox x/y shifts the mapped world 1:1).
+  _mapScreenToWorld(svg, clientX, clientY){
+    const vb = this.mapViewBox, rect = svg.getBoundingClientRect();
+    if(!vb || !rect.width || !rect.height) return { x:0, y:0 };
+    const s = Math.min(rect.width / vb.w, rect.height / vb.h);
+    const ox = (rect.width - vb.w * s) / 2, oy = (rect.height - vb.h * s) / 2;
+    return { x: vb.x + ((clientX - rect.left) - ox) / s, y: vb.y + ((clientY - rect.top) - oy) / s };
+  },
+  // Wheel = zoom about the cursor.
+  mapWheel(e){
+    const svg = e.currentTarget; if(!this.mapViewBox || !svg) return;
+    const vb = this.mapViewBox;
+    const before = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    const factor = e.deltaY > 0 ? 1.15 : 0.87;
+    const newW = vb.w * factor, newH = vb.h * factor;
+    const minW = this.MAP_HEX_SIZE * 0.5, maxW = this.MAP_HEX_SIZE * 4000; // clamp degenerate zoom
+    if(newW < minW || newW > maxW) return;
+    vb.w = newW; vb.h = newH;
+    const after = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    vb.x += before.x - after.x; vb.y += before.y - after.y; // re-pin the cursor's world point
+    this.schedulePersist();
+  },
+  // Drag = pan (keep the grabbed world point under the cursor).
+  mapPanStart(e){
+    const svg = e.currentTarget; if(!this.mapViewBox || !svg) return;
+    const g = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    this._mapPan = { sx:e.clientX, sy:e.clientY, gx:g.x, gy:g.y };
+    this._mapDragged = false;
+  },
+  mapPanMove(e){
+    const p = this._mapPan, svg = this.$refs.mapSvg;
+    if(!p || !this.mapViewBox || !svg) return;
+    if(Math.abs(e.clientX - p.sx) + Math.abs(e.clientY - p.sy) > 3) this._mapDragged = true;
+    const w = this._mapScreenToWorld(svg, e.clientX, e.clientY);
+    this.mapViewBox.x += p.gx - w.x; this.mapViewBox.y += p.gy - w.y;
+  },
+  mapPanEnd(){ if(this._mapPan){ this._mapPan = null; this.schedulePersist(); } },
+
+  // Mode-aware click dispatch — the seam that lets the map be reused as a hex picker (plan §9.1).
+  mapClickHex(entry){
+    if(this._mapDragged){ this._mapDragged = false; return; } // a drag, not a click
+    if(this.mapMode === 'select' && typeof this._mapSelectCb === 'function'){
+      this._mapSelectCb(entry.hex.id, entry);
+      return;
+    }
+    // inspect mode (default) — open the EXISTING hex card (no second editor).
+    if(entry.domainless || entry.hexIndex < 0){
+      this.showToast('This wilderness hex isn’t in a domain yet — editing domainless hexes from the map arrives with the create-hex slice. For now, add it to a domain via Domains → Hexes.', 6000);
+      return;
+    }
+    this.openHexDetail({ domainId:entry.domainId, hexIndex:entry.hexIndex, hex:entry.hex, domainName:entry.domainName });
+  },
+  // Public seam for future callers (Journey planner, generation wizards): put the map into
+  // select mode; clicking a hex hands its id to `cb`. Call mapEndSelect() to restore inspect.
+  mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'map'; this.mapEnsureView(); },
+  mapEndSelect(){ this._mapSelectCb = null; this._mapSelectHint = ''; this.mapMode = 'inspect'; },
   // Create a new blank hex on the picked domain. Same shape as Domain > Hexes "+ add hex"
   // so a hex created from either view is structurally identical.
   addHexToDomain(domainId){
@@ -11140,6 +11378,7 @@ return {
     this.currentCampaign=blankCampaign({name});
     this.domains=[];this.selectedDomainId=null;
     this.fileHandle=null;this.fileName='';
+    this.mapViewBox=null; // #225 re-fit the map to the new campaign on next open
     this.showToast('Campaign "'+name+'" created (unsaved).');
   },
 
@@ -11171,6 +11410,7 @@ return {
     if(!Array.isArray(camp.eventLog))camp.eventLog=[];
     const inlineDomains=Array.isArray(camp.domains)?camp.domains:[];
     this.currentCampaign=camp;
+    this.mapViewBox=null; // #225 re-fit the map to the loaded campaign on next open
     // v2: campaign-level migrateCampaign already validated each domain; no per-domain migration.
     this.domains=inlineDomains;
     this.currentCampaign.domains=[]; // free duplicate reference; rebuilt at save time
