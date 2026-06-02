@@ -3902,7 +3902,7 @@ document.addEventListener('alpine:init', () => {
       <template x-if="(currentCampaign?.parties?.length || 0) > 0">
         <div class="space-y-3">
           <template x-for="pt in (currentCampaign?.parties || [])" :key="pt.id">
-            <div class="border border-ink rounded p-3">
+            <div :id="'party-card-'+pt.id" class="border border-ink rounded p-3" style="transition:box-shadow .3s">
               <div class="flex justify-between items-center gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
                   <!-- Party name — ✏ / ✓ / × lock-edit (editableStat), saved via gm-fiat like other fields. -->
@@ -4481,6 +4481,21 @@ document.addEventListener('alpine:init', () => {
           </span>
         </template>
       </div>
+      <!-- Affiliations + quick actions: party + journey (Start when free; a link when engaged). -->
+      <div class="text-sm mt-1.5 flex flex-wrap items-center gap-2" x-show="!characterEditingIsNew">
+        <template x-if="characterPartyOf(characterEditing)">
+          <button @click="openPartyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-yellow-50 hover:bg-yellow-100 text-xs" title="Open this character's party">🛡 Party: <span class="font-semibold" x-text="characterPartyOf(characterEditing).name || '(unnamed party)'"></span> →</button>
+        </template>
+        <template x-if="!characterPartyOf(characterEditing)">
+          <button @click="startPartyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs" title="Found a new party led by this character">🛡 Start party</button>
+        </template>
+        <template x-if="characterJourneyOf(characterEditing)">
+          <button @click="openJourneyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-50 hover:bg-sky-100 text-xs" title="Open this character's journey">🧭 On journey: <span class="font-semibold" x-text="characterJourneyOf(characterEditing).name || '(journey)'"></span> →</button>
+        </template>
+        <template x-if="!characterJourneyOf(characterEditing)">
+          <button @click="(() => { const id=characterEditing.id; closeCharacterEditor(); startJourneyDeepLink({ characterId:id }); })()" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200 text-xs" title="Start a journey with this character">🧭 Start journey</button>
+        </template>
+      </div>
     </div>
     <!-- Sub-tab bar inside the modal -->
     <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
@@ -4688,8 +4703,7 @@ document.addEventListener('alpine:init', () => {
             <p class="text-sm opacity-70 italic">Everyone personally tied to <span x-text="characterEditing.name || 'this character'"></span> — henchmen, hirelings, specialists, followers, and units of the personal mercenary company.</p>
           </div>
           <div class="flex items-center gap-2">
-            <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); startJourneyDeepLink({ characterId: id }); })()"
-                    class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-sky-200 hover:bg-sky-300 whitespace-nowrap" title="Start a journey with this character as a participant">🧭 Send on journey</button>
+            <!-- journey controls moved to the character-sheet header (Start / On-journey link); see top of modal -->
             <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); recruitDeepLink({ patronId: id }); })()"
                     class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400 whitespace-nowrap" title="Open the Recruit workflow with this character as patron">+ Recruit</button>
           </div>
@@ -10166,11 +10180,12 @@ return {
   },
   // Start a party with one founding character: named after them, placed at their hex,
   // founder added as the first member + leader. Others join from the same hex (below).
-  createPartyWithFounder(){
-    if(!this.currentCampaign){ alert('Open a campaign first.'); return; }
-    const ch = (this.currentCampaign.characters||[]).find(c => c.id === this.newPartyFounderId);
-    if(!ch){ this.showToast('Pick a character to start the party with.', 3000); return; }
-    if(ch.partyId){ this.showToast('That character is already in a party.', 3000); return; }
+  createPartyWithFounder(founderId){
+    if(!this.currentCampaign){ alert('Open a campaign first.'); return null; }
+    const fid = founderId || this.newPartyFounderId;
+    const ch = (this.currentCampaign.characters||[]).find(c => c.id === fid);
+    if(!ch){ this.showToast('Pick a character to start the party with.', 3000); return null; }
+    if(ch.partyId){ this.showToast('That character is already in a party.', 3000); return null; }
     if(!Array.isArray(this.currentCampaign.parties)) this.currentCampaign.parties = [];
     const pt = window.ACKS.blankParty({
       name: (ch.name ? (ch.name + "'s party") : 'New Party'),
@@ -10184,6 +10199,36 @@ return {
     this.newPartyFounderId = '';
     this.markDirty(); this.schedulePersist();
     this.showToast('Party started: ' + pt.name);
+    return pt;
+  },
+  // ── Character-sheet affiliations (party / journey): start when free, link when engaged ──
+  characterPartyOf(ch){ return (ch && ch.partyId) ? ((this.currentCampaign?.parties||[]).find(p => p && p.id === ch.partyId) || null) : null; },
+  characterJourneyOf(ch){ return (ch && ch.currentJourneyId) ? (this.journeyById(ch.currentJourneyId) || null) : null; },
+  startPartyForCharacter(ch){
+    if(!ch) return;
+    const pt = this.createPartyWithFounder(ch.id);
+    if(!pt) return;
+    this.closeCharacterEditor();
+    this.openPartyView(pt.id);
+  },
+  openPartyForCharacter(ch){
+    if(!ch || !ch.partyId) return;
+    this.closeCharacterEditor();
+    this.openPartyView(ch.partyId);
+  },
+  // Jump to Characters › Parties and scroll the party's card into view with a brief highlight.
+  openPartyView(partyId){
+    this.currentView = 'characters';
+    this.charactersSubView = 'parties';
+    setTimeout(() => {
+      const el = partyId && document.getElementById('party-card-' + partyId);
+      if(el){ el.scrollIntoView({ behavior:'smooth', block:'center' }); el.style.boxShadow = '0 0 0 3px #facc15'; setTimeout(() => { el.style.boxShadow = ''; }, 1800); }
+    }, 80);
+  },
+  openJourneyForCharacter(ch){
+    if(!ch || !ch.currentJourneyId) return;
+    this.closeCharacterEditor();
+    this.journeyOpenDetail(ch.currentJourneyId);
   },
   removeParty(partyId){
     if(!this.currentCampaign)return;
