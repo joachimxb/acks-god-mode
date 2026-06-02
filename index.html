@@ -3195,7 +3195,7 @@ document.addEventListener('alpine:init', () => {
                 <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
                 <span class="capitalize" x-text="d.pace"></span>
                 <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
-                <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + ne.text"></span></template>
+                <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
                 <!-- GM reroll — only the latest day (downstream days depend on it). -->
                 <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
               </div>
@@ -12503,8 +12503,12 @@ return {
   },
   // The relevant text of a notable, with the leading "<journey/record name>: " stripped so we
   // don't repeat the journey label the record already shows.
+  // A notable event's text with the leading "‹journey name / route›: " prefix stripped — the
+  // route is already shown once at the top of the panel (and in the review surface header), so
+  // repeating it on every line is noise. Handles both shapes: day-record notables carry `.text`,
+  // day-tick proposal notables carry `.label`.
   dayTickNotableText(ne){
-    const t = (ne && (ne.label || ne.summary || ne.type || ne.kind)) || 'event';
+    const t = (ne && (ne.text || ne.label || ne.summary || ne.type || ne.kind)) || 'event';
     const i = t.indexOf(': ');
     return (i > 0 && i < 80) ? t.slice(i + 2) : t;
   },
