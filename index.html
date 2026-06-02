@@ -614,15 +614,16 @@ document.addEventListener('alpine:init', () => {
           <input type="checkbox" x-model="mapShowJourneys" @change="schedulePersist()">
           <span>Journeys</span>
         </label>
-        <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Show faint addable cells around the map — click one to create a hex there">
-          <input type="checkbox" x-model="mapShowEmptyCells" @change="schedulePersist()">
-          <span>✛ Add hexes</span>
+        <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Edit/Add hex mode — faint addable cells appear (click one to create a hex there), and clicking an existing hex opens a quick domain + terrain editor instead of its full card">
+          <input type="checkbox" x-model="mapEditAddMode" @change="schedulePersist(); if(!mapEditAddMode) mapCancelCreate()">
+          <span>✎ Edit/Add hex</span>
         </label>
       </div>
 
-      <!-- Create-hex picker (M5) — appears when a faint empty cell is clicked. -->
+      <!-- Create / Edit hex picker (M5) — opens on a faint empty cell (create) or, in Edit/Add mode, on an existing hex (edit, pre-filled). -->
       <div x-show="mapCreateAt" class="vellum border border-sky-400 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
-        <span>Create hex at <strong class="font-mono" x-text="mapCreateAt ? ('(' + mapCreateAt.q + ',' + mapCreateAt.r + ')') : ''"></strong> in:</span>
+        <span><span x-text="mapEditHexId ? 'Edit hex' : 'Create hex at'"></span> <strong class="font-mono" x-text="mapCreateAt ? ('(' + mapCreateAt.q + ',' + mapCreateAt.r + ')') : ''"></strong></span>
+        <span>· domain:</span>
         <select x-model="mapCreateDomainId" class="border border-ink rounded px-2 py-0.5">
           <option value="">Unclaimed wilderness</option>
           <template x-for="d in domains" :key="d.id">
@@ -632,11 +633,11 @@ document.addEventListener('alpine:init', () => {
         <span>· terrain:</span>
         <select x-model="mapCreateTerrain" class="border border-ink rounded px-2 py-0.5">
           <option value="">— unset —</option>
-          <template x-for="t in mapTerrainTypes()" :key="t.value">
+          <template x-for="t in mapTerrainOptions()" :key="t.value">
             <option :value="t.value" x-text="t.label"></option>
           </template>
         </select>
-        <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300">Create</button>
+        <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300" x-text="mapEditHexId ? 'Save' : 'Create'"></button>
         <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
       </div>
 
@@ -7122,7 +7123,7 @@ return {
           if(sess.mapPrefs.symbolToggles) this.mapSymbolToggles = Object.assign(this.mapSymbolToggles, sess.mapPrefs.symbolToggles);
           if(sess.mapPrefs.edgeToggles)   this.mapEdgeToggles   = Object.assign(this.mapEdgeToggles, sess.mapPrefs.edgeToggles);
           if(typeof sess.mapPrefs.showJourneys === 'boolean')   this.mapShowJourneys   = sess.mapPrefs.showJourneys;
-          if(typeof sess.mapPrefs.showEmptyCells === 'boolean') this.mapShowEmptyCells = sess.mapPrefs.showEmptyCells;
+          if(typeof sess.mapPrefs.editAddMode === 'boolean') this.mapEditAddMode = sess.mapPrefs.editAddMode;
         }
         // Foundation #193 — ensure top-level collections exist + migrate from any legacy nested
         // storage in the restored session. Idempotent.
@@ -7217,7 +7218,7 @@ return {
         // (plan §8); mode always restores to 'inspect' (select is transient).
         mapPrefs:{ fillLayer:this.mapFillLayer, viewBox:this.mapViewBox,
           symbolToggles:this.mapSymbolToggles, edgeToggles:this.mapEdgeToggles,
-          showJourneys:this.mapShowJourneys, showEmptyCells:this.mapShowEmptyCells }});
+          showJourneys:this.mapShowJourneys, editAddMode:this.mapEditAddMode }});
     }catch(e){ console.warn('Persist serialize failed',e); return; }
     try{
       localStorage.setItem('acks-domain-session-v3', json);
@@ -11015,10 +11016,11 @@ return {
   mapSymbolToggles: { settlements:true, strongholds:true, lairs:true, dungeons:true, pois:true },
   mapEdgeToggles:   { borders:true, roads:true, rivers:true, trails:false },
   mapShowJourneys: true,
-  mapShowEmptyCells: false,  // M5 — faint addable cells for click-to-create
-  mapCreateAt: null,         // {q,r} when the create-hex picker is open
-  mapCreateDomainId: '',     // chosen domain for the new hex ('' = unclaimed wilderness)
-  mapCreateTerrain: '',      // chosen terrain for the new hex ('' = unset)
+  mapEditAddMode: false,     // M5 — "Edit/Add hex": faint addable empty cells + click an existing hex to edit it
+  mapCreateAt: null,         // {q,r} when the create/edit-hex picker is open
+  mapEditHexId: null,        // when the picker is editing an existing hex (vs creating); null = create
+  mapCreateDomainId: '',     // chosen domain for the hex ('' = unclaimed wilderness)
+  mapCreateTerrain: '',      // chosen terrain for the hex ('' = unset)
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11091,7 +11093,7 @@ return {
     });
 
     // 2) EMPTY CELLS (M5) — faint addable hexes (click → create-hex picker).
-    if(this.mapShowEmptyCells){
+    if(this.mapEditAddMode){
       this.mapEmptyCells().forEach(c => {
         parts.push('<polygon data-empty-q="' + c.q + '" data-empty-r="' + c.r + '" points="' + c.points + '" fill="#000000" fill-opacity="0.04" ' +
           'stroke="#4b3f2f" stroke-opacity="0.35" stroke-dasharray="' + (size*0.12).toFixed(1) + ',' + (size*0.08).toFixed(1) + '" stroke-width="' + sw + '" style="cursor:copy;"><title>Add a hex here (' + esc(c.label) + ')</title></polygon>');
@@ -11197,11 +11199,71 @@ return {
     });
     return routes;
   },
-  // M5 create-hex flow — open the picker on an empty cell, then create into a domain or unclaimed.
-  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; },
-  mapCancelCreate(){ this.mapCreateAt = null; },
+  // M5 "Edit/Add hex" flow — the picker opens on an empty cell (create) OR an existing hex (edit).
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; },
+  // Open the picker on an existing hex, pre-filled with its current domain + terrain.
+  mapEditExistingHex(entry){
+    const h = entry.hex;
+    this.mapCreateAt = { q: h.coord.q, r: h.coord.r };
+    this.mapEditHexId = h.id;
+    this.mapCreateDomainId = h.domainId || '';
+    this.mapCreateTerrain = h.terrain || '';
+  },
+  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; },
+  // Terrain options for the picker: the 9 base types, plus — when editing a hex whose terrain
+  // isn't one of them (e.g. legacy "plains"/"coast") — its current value, so it's shown + preserved.
+  mapTerrainOptions(){
+    const base = window.ACKS.mapTerrainTypes();
+    const cur = (this.mapCreateTerrain || '').trim();
+    if(cur && !base.some(t => t.value === cur)) return [{ value: cur, label: cur + ' (current)' }].concat(base);
+    return base;
+  },
+  _mapFindHexById(id){
+    let h = (this.currentCampaign?.hexes || []).find(x => x.id === id);
+    if(h) return h;
+    for(const d of (this.domains || [])){
+      h = (d.geography?.hexes || []).find(x => x.id === id);
+      if(h) return h;
+    }
+    return null;
+  },
+  // Move a hex between domains (or to/from unclaimed). Preserves the (reference-unified, #193) hex
+  // object: drop it from the old domain's nested geography, set domainId, add to the new domain's.
+  mapRehomeHex(hex, newDomainId){
+    const cur = hex.domainId || null, next = newDomainId || null;
+    if(cur === next) return;
+    if(cur){
+      const od = this.domains.find(d => d.id === cur);
+      if(od && od.geography && Array.isArray(od.geography.hexes)) od.geography.hexes = od.geography.hexes.filter(h => h.id !== hex.id);
+    }
+    hex.domainId = next;
+    if(next){
+      const nd = this.domains.find(d => d.id === next);
+      if(nd){
+        if(!nd.geography) nd.geography = {};
+        if(!Array.isArray(nd.geography.hexes)) nd.geography.hexes = [];
+        if(!nd.geography.hexes.some(h => h.id === hex.id)) nd.geography.hexes.push(hex);
+      }
+    }
+    if(Array.isArray(this.currentCampaign?.hexes) && !this.currentCampaign.hexes.some(h => h.id === hex.id)) this.currentCampaign.hexes.push(hex);
+  },
+  // The picker's Create/Save button. Branches on mapEditHexId (edit existing) vs create new.
   mapCreateHex(){
     const at = this.mapCreateAt; if(!at) return;
+    // EDIT branch — an existing hex was clicked in Edit/Add mode.
+    if(this.mapEditHexId){
+      const hex = this._mapFindHexById(this.mapEditHexId);
+      if(hex){
+        this.mapRehomeHex(hex, this.mapCreateDomainId || '');
+        hex.terrain = this.mapCreateTerrain || '';
+        this.markDirty(); this.schedulePersist();
+        const d = this.mapCreateDomainId ? this.domains.find(x => x.id === this.mapCreateDomainId) : null;
+        this.showToast('Updated hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + (d ? ' (' + d.name + ')' : ' (unclaimed)') + '.');
+      }
+      this.mapCreateAt = null; this.mapEditHexId = null;
+      return;
+    }
+    // CREATE branch — a new hex at the clicked empty cell.
     const coord = { q: at.q, r: at.r };
     const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '' });
     const domId = this.mapCreateDomainId || '';
@@ -11229,8 +11291,9 @@ return {
     this.mapSymbolToggles = { settlements:true, strongholds:true, lairs:true, dungeons:true, pois:true };
     this.mapEdgeToggles   = { borders:true, roads:true, rivers:true, trails:false };
     this.mapShowJourneys = true;
-    this.mapShowEmptyCells = false;
+    this.mapEditAddMode = false;
     this.mapCreateAt = null;
+    this.mapEditHexId = null;
     this.schedulePersist();
   },
   // Delegated click on the SVG → resolve the clicked hex via its data-hex-id, then dispatch
@@ -11306,6 +11369,13 @@ return {
     if(this._mapDragged){ this._mapDragged = false; return; } // a drag, not a click
     if(this.mapMode === 'select' && typeof this._mapSelectCb === 'function'){
       this._mapSelectCb(entry.hex.id, entry);
+      return;
+    }
+    // Edit/Add mode — clicking an existing hex opens the quick edit picker (domain + terrain),
+    // pre-filled with the hex's current values. Works for domainless hexes too (this is how you
+    // assign a wilderness hex to a domain). The full hex card is still one inspect-mode click away.
+    if(this.mapEditAddMode){
+      this.mapEditExistingHex(entry);
       return;
     }
     // inspect mode (default) — open the EXISTING hex card (no second editor).
