@@ -3174,8 +3174,8 @@ document.addEventListener('alpine:init', () => {
             <thead>
               <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                 <th class="font-normal py-0.5 pr-4">Traveller</th>
-                <th class="font-normal py-0.5 pr-4">Conditions</th>
-                <th class="font-normal py-0.5">Mercenaries</th>
+                <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                <th class="font-normal py-0.5">Conditions</th>
               </tr>
             </thead>
             <tbody>
@@ -3186,20 +3186,20 @@ document.addEventListener('alpine:init', () => {
                     <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1)"></span>
                   </td>
                   <td class="py-1 pr-4">
-                    <template x-if="characterJourneyConditions(ch).length">
-                      <span class="flex flex-wrap gap-1">
-                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
-                      </span>
-                    </template>
-                    <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
-                  </td>
-                  <td class="py-1">
                     <template x-if="partyMemberMercSummary(ch).length">
                       <span class="text-xs">
                         <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
                       </span>
                     </template>
                     <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                  </td>
+                  <td class="py-1">
+                    <template x-if="characterJourneyConditions(ch).length">
+                      <span class="flex flex-wrap gap-1">
+                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                      </span>
+                    </template>
+                    <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
                   </td>
                 </tr>
               </template>
