@@ -253,7 +253,11 @@
       "hitDice": null,
       "heroicCode": null,
       "fatePoints": null,
-      "transformationState": null
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0
     }
   ],
   "parties": [],

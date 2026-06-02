@@ -92,6 +92,29 @@ check('RAW-default flip: realistic-fatigue + mandatory-rations RETIRED', ruleIds
 check('RAW-default flip: simplified-fatigue + ignore-rations are the opt-ins', ruleIds.indexOf('simplified-fatigue') >= 0 && ruleIds.indexOf('ignore-rations') >= 0);
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Catalogs — RAW corrections (weather / temperature / ground / nav split / pace)');
+// 2026-06-02 RAW audit (Fix A + B + C5), storm corrected 2026-06-02 (deeper RAW re-check).
+// A1/A2 weather speed: foggy + snowy halve; rain AND stormy do NOT slow base travel (RR
+// pp.277-278 / JJ p.38 — the halving set is Frigid/Foggy/Muddy/Snowy/Sweltering; "stormy" is
+// a JJ activity-penalty condition, not a speed reducer, and no RAW weather imposes ×1/4).
+check('weather speed: stormy ×1 — RAW activity-penalty, not a speed reducer (was wrongly ×1/4)', ACKS.JOURNEY_WEATHER_SPEED.stormy === 1);
+check('weather speed: foggy ×1/2 (was wrongly ×1)', ACKS.JOURNEY_WEATHER_SPEED.foggy === 0.5);
+check('weather speed: snowy ×1/2, rain + fair ×1', ACKS.JOURNEY_WEATHER_SPEED.snowy === 0.5 && ACKS.JOURNEY_WEATHER_SPEED.rainy === 1 && ACKS.JOURNEY_WEATHER_SPEED.fair === 1);
+// A3 temperature: frigid + sweltering halve speed (RR pp.277-278).
+check('temperature speed: frigid + sweltering ×1/2, temperate ×1', ACKS.JOURNEY_TEMPERATURE_SPEED.frigid === 0.5 && ACKS.JOURNEY_TEMPERATURE_SPEED.sweltering === 0.5 && ACKS.JOURNEY_TEMPERATURE_SPEED.moderate === 1 && ACKS.JOURNEY_TEMPERATURE_SPEED.cold === 1);
+// A4 ground condition: mud/snow underfoot ×1/2 (RR p.272).
+check('ground speed: mud + snow ×1/2, clear ×1', ACKS.JOURNEY_GROUND_SPEED.mud === 0.5 && ACKS.JOURNEY_GROUND_SPEED.snow === 0.5 && ACKS.JOURNEY_GROUND_SPEED.clear === 1);
+// B5 nav split: dense scrubland 8+, forested swamp 14+ (RR p.275); bare keys keep the easy throw.
+check('nav split: scrubland 6+ / scrubland-dense 8+', ACKS.JOURNEY_NAV_THROWS.scrubland === 6 && ACKS.JOURNEY_NAV_THROWS['scrubland-dense'] === 8);
+check('nav split: swamp 10+ / swamp-forested 14+', ACKS.JOURNEY_NAV_THROWS.swamp === 10 && ACKS.JOURNEY_NAV_THROWS['swamp-forested'] === 14);
+check('terrain split shares speed: scrubland-dense ×1, swamp-forested ×1/2', ACKS.JOURNEY_TERRAIN_SPEED['scrubland-dense'] === 1 && ACKS.JOURNEY_TERRAIN_SPEED['swamp-forested'] === 0.5);
+// B6 road driver rate ×2 (RR p.272) — present in the catalog, selected once vehicle modes land.
+check('terrain: road-driving ×2 (vehicle + Driving)', ACKS.JOURNEY_TERRAIN_SPEED['road-driving'] === 2);
+// C5 pace set is now pure RAW: forced-march / normal / half-speed; cautious + half-ancillary retired.
+check('pace catalog: forced-march 3/2, normal 1, half-speed 1/2', ACKS.JOURNEY_PACE_SPEED['forced-march'] === 1.5 && ACKS.JOURNEY_PACE_SPEED.normal === 1 && ACKS.JOURNEY_PACE_SPEED['half-speed'] === 0.5);
+check('pace catalog: cautious + half-ancillary RETIRED', ACKS.JOURNEY_PACE_SPEED.cautious === undefined && ACKS.JOURNEY_PACE_SPEED['half-ancillary'] === undefined);
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('Consumer registration');
 
 const consumers = ACKS.dayConsumersInOrder();
@@ -145,6 +168,26 @@ const lo2 = build({ hasRoad: false, terrain: 'jungle', houseRules: { 'auto-pause
 lo2.j.status = 'in-transit'; lo2.j.currentHexId = 'hex-a';
 // (proposeDayTick uses Math.random; jungle 14+ with no bonus fails ~65% — assert the seam exists, not the roll)
 check('auto-pause-on-navigation-fail rule is wired to the journeys consumer', ACKS.dayConsumersInOrder().find(c => c.name === 'journeys').pauseTriggers.indexOf('navigation-fail') >= 0);
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Navigation recovery (bugfix) — a success clears lost + resumes movement');
+
+// Regression for the "journey never arrives" bug: a successful nav throw did not clear isLost,
+// so once lost the party made 0 progress forever despite succeeding. A success must recover.
+const rec = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(rec.c, rec.j);
+rec.c.journeys[0].isLost = true; // simulate being lost from a prior day
+const recP = ACKS.proposeJourneyDay(rec.c, { dayInMonth: 2, rng: () => 0.99 }); // d20 = 20 ⇒ nav success
+const recR = recP.pendingRecords[0];
+check('a successful nav clears isLost (recovers)', recR.newIsLost === false);
+check('after recovery the party makes progress (hexesTraveled > 0)', recR.dayRecord.hexesTraveled > 0, 'hexes ' + recR.dayRecord.hexesTraveled);
+check('the recovery day is marked success-recovered', recR.dayRecord.navigationThrow && recR.dayRecord.navigationThrow.result === 'success-recovered');
+check('recovery surfaces a "found the way again" notable', recP.notableEvents.some(e => e.type === 'navigation-recovered'));
+// a normal (not-previously-lost) success also moves
+const frs = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(frs.c, frs.j);
+const frR = ACKS.proposeJourneyDay(frs.c, { dayInMonth: 2, rng: () => 0.99 }).pendingRecords[0];
+check('a normal nav success moves (not lost, plain success)', frR.newIsLost === false && frR.dayRecord.hexesTraveled > 0 && frR.dayRecord.navigationThrow.result === 'success');
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('Supply depletion → hunger + dehydration (RAW default)');
@@ -213,11 +256,182 @@ const erp = ACKS.proposeJourneyDay(er.c, { dayInMonth: 2, rng: () => 0 });
 check('roads are safe (no encounter on a road in J1)', erp.encounters.length === 0);
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('abortJourney (J2) — unlinks + emits journey-aborted + cannot re-tick');
+
+const ab = build();
+ab.c.parties = [{ schemaVersion: 2, id: 'pty-1', name: 'Scouts', currentHexId: 'hex-a', activeJourneyId: null }];
+ab.j.partyId = 'pty-1';
+ACKS.startJourney(ab.c, ab.j);
+check('precondition: started + party + participant linked', ab.j.status === 'in-transit' && ab.c.parties[0].activeJourneyId === 'jrn-1' && ab.c.characters[0].currentJourneyId === 'jrn-1');
+const abRet = ACKS.abortJourney(ab.c, ab.j, 'recalled by liege');
+check('abortJourney flips status to aborted (returns the journey)', ab.j.status === 'aborted' && abRet === ab.j);
+check('abortJourney unlinks participant currentJourneyId', ab.c.characters[0].currentJourneyId === null);
+check('abortJourney unlinks party activeJourneyId', ab.c.parties[0].activeJourneyId === null);
+check('abortJourney appends an aborted history entry carrying the reason', ab.j.history.some(h => h.type === 'aborted' && /recalled by liege/.test(h.narrative)));
+check('abortJourney emits a journey-aborted event', ab.c.eventLog.some(e => e.event && e.event.kind === 'journey-aborted'));
+check('journey-aborted carries the context envelope (primaryHexId = stop hex) + reason payload', (function(){ const e = ab.c.eventLog.find(x => x.event.kind === 'journey-aborted').event; return e.context && e.context.primaryHexId === 'hex-a' && e.cadence === 'daily' && e.payload.reason === 'recalled by liege'; })());
+const abTick = ACKS.proposeJourneyDay(ab.c, { dayInMonth: 3, rng: () => 0.99 });
+check('an aborted journey is skipped by the day-tick consumer (cannot re-tick)', abTick.pendingRecords.every(r => r.journeyId !== 'jrn-1'));
+check('journey-aborted is a known kind + opted out of the Event Wizard', ACKS.isEventKindKnown('journey-aborted') && ACKS.wizardEmittableKinds().indexOf('journey-aborted') < 0);
+const ab2 = build();
+ACKS.startJourney(ab2.c, ab2.j);
+ACKS.abortJourney(ab2.c, 'jrn-1'); // accepts a journey id, not just the object
+check('abortJourney accepts a journey id (string) as well as the object', ab2.j.status === 'aborted');
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('rerollJourneyDay (J2 feedback) — revert + re-tick the latest day');
+
+const rr = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(rr.c, rr.j);
+const rrp = ACKS.proposeJourneyDay(rr.c, { dayInMonth: 2, rng: () => 0 }); // rng 0 ⇒ nav fail ⇒ lost
+ACKS.commitJourneyRecord(rr.c, rrp.pendingRecords[0]);
+check('committed day carries a _preDay snapshot (for reroll)', !!rr.c.journeys[0].days[0]._preDay);
+check('after first tick: exactly 1 day, lost', rr.c.journeys[0].days.length === 1 && rr.c.journeys[0].isLost === true);
+const rrBeforeIdx = rr.c.journeys[0].currentDayIndex;
+const rrRec = ACKS.rerollJourneyDay(rr.c, rr.j);
+check('rerollJourneyDay returns a record', !!rrRec);
+check('after reroll: still exactly 1 day (popped + re-added)', rr.c.journeys[0].days.length === 1);
+check('after reroll: currentDayIndex unchanged', rr.c.journeys[0].currentDayIndex === rrBeforeIdx);
+check('after reroll: the day has a fresh navigationThrow + a new _preDay', !!rr.c.journeys[0].days[0].navigationThrow && !!rr.c.journeys[0].days[0]._preDay);
+// guard: a day with no _preDay (legacy save) is not rerollable
+const rrng = build();
+ACKS.startJourney(rrng.c, rrng.j);
+rrng.c.journeys[0].days = [{ dayIndex: 1, navigationThrow: null }];
+rrng.c.journeys[0].currentDayIndex = 1;
+check('rerollJourneyDay returns null when the latest day lacks a _preDay snapshot', ACKS.rerollJourneyDay(rrng.c, rrng.j) === null);
+
+// guard (J2 feedback): the LATEST day is rerollable only while the WORLD CLOCK still stands on
+// the day the leg happened — a just-arrived leg stays rerollable, but +1 day / Advance month
+// rolls the world past it and locks it (compare absolute ordinal turn*30 + dayInMonth).
+const wc = build(); // road ⇒ arrives within a couple of days
+ACKS.startJourney(wc.c, wc.j);
+let wcGuard = 0;
+while(wc.c.journeys[0].status === 'in-transit' && wcGuard++ < 6){ const p = ACKS.proposeDayTick(wc.c, 1, {}); ACKS.commitDayTick(wc.c, p, null); }
+const wcJ = wc.c.journeys[0];
+const wcLast = wcJ.days[wcJ.days.length - 1];
+check('setup: journey arrived via the day-tick pipeline', wcJ.status === 'arrived');
+check('each committed day carries a worldDay {turn, dayInMonth} stamp', !!wcLast.worldDay && typeof wcLast.worldDay.turn === 'number' && typeof wcLast.worldDay.dayInMonth === 'number');
+check('worldDay.dayInMonth = the world day the leg landed on (clock is on it now)', wcLast.worldDay.dayInMonth === wc.c.currentDayInMonth);
+check('journeyLastDayRerollable TRUE while the world is still on the arrival day', ACKS.journeyLastDayRerollable(wc.c, wcJ) === true);
+// advance the world one more day past the arrival (journey is no longer in-transit, but the clock moves)
+const wcAfter = ACKS.proposeDayTick(wc.c, 1, {}); ACKS.commitDayTick(wc.c, wcAfter, null);
+check('the world clock advanced past the arrival day', wc.c.currentDayInMonth > wcLast.worldDay.dayInMonth);
+check('journeyLastDayRerollable FALSE once the world rolled past the arrival day', ACKS.journeyLastDayRerollable(wc.c, wcJ) === false);
+check('rerollJourneyDay returns null once the world has moved past the last leg', ACKS.rerollJourneyDay(wc.c, wcJ) === null);
+const wcDaysBefore = wcJ.days.length;
+ACKS.rerollJourneyDay(wc.c, wcJ);
+check('a world-locked reroll leaves the journey untouched (no day popped)', wcJ.days.length === wcDaysBefore && wcJ.status === 'arrived');
+
+// reroll a JUST-ARRIVED journey works while the world is still on its day, and round-trips the
+// party/participant arrival bookkeeping (no stranded pointers if the redo un-arrives).
+const ra = build({ destCoord: { q: 6, r: 0 } }); // 6 hexes ⇒ road arrives in one day
+const raParty = { schemaVersion: 2, id: 'pty-ra', kind: 'party', name: 'Trail Party', memberCharacterIds: ['chr-1'], leaderCharacterId: 'chr-1', currentHexId: 'hex-a', status: 'active', activeJourneyId: null };
+ra.c.parties = [raParty]; ra.j.partyId = 'pty-ra';
+ACKS.startJourney(ra.c, ra.j); raParty.activeJourneyId = ra.j.id;
+const raP = ACKS.proposeDayTick(ra.c, 1, {}); ACKS.commitDayTick(ra.c, raP, null);
+check('setup: single-day road journey arrived; party moved to dest + unlinked', ra.c.journeys[0].status === 'arrived' && raParty.currentHexId === 'hex-b' && raParty.activeJourneyId === null);
+check('journeyLastDayRerollable TRUE for the just-arrived journey (clock still on its day)', ACKS.journeyLastDayRerollable(ra.c, ra.j) === true);
+check('rerollJourneyDay re-runs the just-arrived leg (returns a record)', !!ACKS.rerollJourneyDay(ra.c, ra.j));
+check('after reroll the party bookkeeping is consistent with the journey status (no stranded pointers)',
+  (ra.c.journeys[0].status === 'arrived')
+    ? (raParty.activeJourneyId === null && raParty.currentHexId === 'hex-b' && ra.c.characters[0].currentHexId === 'hex-b')
+    : (raParty.activeJourneyId === ra.j.id && raParty.currentHexId === 'hex-a' && ra.c.characters[0].currentHexId === 'hex-a'));
+
+// guard: an ABORTED journey is never rerollable (abort is a deliberate GM decision, not a roll)
+const rrab = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(rrab.c, rrab.j);
+const rrabp = ACKS.proposeJourneyDay(rrab.c, { dayInMonth: 2, rng: () => 0 });
+ACKS.commitJourneyRecord(rrab.c, rrabp.pendingRecords[0]);
+ACKS.abortJourney(rrab.c, rrab.j, 'test abort');
+check('journeyLastDayRerollable FALSE for an aborted journey', ACKS.journeyLastDayRerollable(rrab.c, rrab.j) === false);
+check('rerollJourneyDay returns null once the journey has been ABORTED', ACKS.rerollJourneyDay(rrab.c, rrab.j) === null);
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('mid-journey pace change affects subsequent days (J2 feedback)');
+
+// The engine reads journey.pace fresh on each day-tick — the UI's "Current pace" control just
+// sets journey.pace via gm-fiat — so changing it mid-trip changes the next day's travel.
+// (Weather defaults to a constant 'fair' when ctx.weather is omitted, so pace is the only variable.)
+function jpaceHexes(pace){
+  const b = build({ destCoord: { q: 500, r: 0 } }); // far ⇒ never arrives; road ⇒ deterministic, no nav fail
+  b.j.pace = pace;
+  ACKS.startJourney(b.c, b.j);
+  const p = ACKS.proposeJourneyDay(b.c, { dayInMonth: 2, rng: () => 0.5 });
+  ACKS.commitJourneyRecord(b.c, p.pendingRecords[0]);
+  return b.c.journeys[0].days[0].hexesTraveled || 0;
+}
+const jpHalf = jpaceHexes('half-speed'), jpNormal = jpaceHexes('normal'), jpForced = jpaceHexes('forced-march');
+check('forced-march covers more ground than normal (same terrain + weather)', jpForced > jpNormal, jpForced + ' vs ' + jpNormal);
+check('half-speed covers less ground than normal', jpHalf < jpNormal, jpHalf + ' vs ' + jpNormal);
+
+// changing pace BETWEEN days: day 1 at the starting pace, day 2 at the new pace; each day record
+// stamps the pace actually used that day (history preserved across a mid-trip change).
+const jpRun = build({ destCoord: { q: 500, r: 0 } });
+ACKS.startJourney(jpRun.c, jpRun.j); // blankJourney default pace = normal
+const jpRunD1 = ACKS.proposeJourneyDay(jpRun.c, { dayInMonth: 2, rng: () => 0.5 }); ACKS.commitJourneyRecord(jpRun.c, jpRunD1.pendingRecords[0]);
+jpRun.j.pace = 'forced-march'; // GM changes pace mid-trip (what the UI's gm-fiat setJourneyPace does)
+const jpRunD2 = ACKS.proposeJourneyDay(jpRun.c, { dayInMonth: 3, rng: () => 0.5 }); ACKS.commitJourneyRecord(jpRun.c, jpRunD2.pendingRecords[0]);
+const jpRunDays = jpRun.c.journeys[0].days;
+check('day 1 record stamped the original pace (normal)', jpRunDays[0].pace === 'normal');
+check('day 2 record stamped the changed pace (forced-march) — pace read fresh each day', jpRunDays[1].pace === 'forced-march');
+check('the mid-trip pace change increased day-2 distance vs day-1', (jpRunDays[1].hexesTraveled||0) > (jpRunDays[0].hexesTraveled||0));
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('RAW speed factors — weather / temperature / ground compound (Fix A)');
+
+// Drive weather/temperature via ctx; ground via the start hex. Road grassland = 24 × 3/2 = 36
+// mi/day base ⇒ 6 hexes at fair/moderate/clear. Each ×1/2 factor halves it; rain + stormy don't slow.
+// (A travel day always covers ≥1 hex, so sub-6-mile days clamp to 1.)
+function jdistW(weather, ground){
+  const b = build({ destCoord: { q: 500, r: 0 } }); // road grassland, far dest ⇒ deterministic, no nav
+  if(ground) b.c.hexes[0].groundCondition = ground;
+  ACKS.startJourney(b.c, b.j);
+  const p = ACKS.proposeJourneyDay(b.c, { dayInMonth: 2, rng: () => 0.5, weather: weather });
+  ACKS.commitJourneyRecord(b.c, p.pendingRecords[0]);
+  return b.c.journeys[0].days[0].hexesTraveled || 0;
+}
+const wFair = jdistW({ condition: 'fair', temperature: 'moderate' });
+check('fair/moderate/clear: 6 hexes on a road (baseline)', wFair === 6, String(wFair));
+check('stormy does NOT slow base travel — still 6 hexes (RAW: activity-penalty, not speed)', jdistW({ condition: 'stormy', temperature: 'moderate' }) === 6);
+check('foggy halves speed (6 → 3 hexes)', jdistW({ condition: 'foggy', temperature: 'moderate' }) === 3);
+check('snowy halves speed (6 → 3 hexes)', jdistW({ condition: 'snowy', temperature: 'moderate' }) === 3);
+check('rain does NOT slow travel (still 6 hexes)', jdistW({ condition: 'rainy', temperature: 'moderate' }) === 6);
+check('frigid temperature halves speed (6 → 3 hexes)', jdistW({ condition: 'fair', temperature: 'frigid' }) === 3);
+check('sweltering temperature halves speed (6 → 3 hexes)', jdistW({ condition: 'fair', temperature: 'sweltering' }) === 3);
+check('mud underfoot halves speed (6 → 3 hexes)', jdistW({ condition: 'fair', temperature: 'moderate' }, 'mud') === 3);
+check('factors compound: foggy + mud (36 × ½ × ½ = 9 mi → 1 hex)', jdistW({ condition: 'foggy', temperature: 'moderate' }, 'mud') === 1);
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Forced march = fatigued at once (Fix C1, RR p.279)');
+
+// RAW: a single forced march jumps the fatigue streak straight to the cycle cap; the next
+// strenuous day is then a forced rest. Normal travel only accrues +1/day.
+const fmN = build({ destCoord: { q: 500, r: 0 } }); ACKS.startJourney(fmN.c, fmN.j);
+ACKS.commitJourneyRecord(fmN.c, ACKS.proposeJourneyDay(fmN.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0]);
+check('normal travel accrues +1 fatigue day', fmN.c.journeys[0].fatigueDays === 1, String(fmN.c.journeys[0].fatigueDays));
+
+const fmF = build({ destCoord: { q: 500, r: 0 } }); fmF.j.pace = 'forced-march'; ACKS.startJourney(fmF.c, fmF.j);
+ACKS.commitJourneyRecord(fmF.c, ACKS.proposeJourneyDay(fmF.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0]);
+check('one forced march jumps fatigue to the 6-day cap', fmF.c.journeys[0].fatigueDays === 6, String(fmF.c.journeys[0].fatigueDays));
+check('the forced-march day still moved (×3/2)', (fmF.c.journeys[0].days[0].hexesTraveled || 0) > 6);
+// the next forced-march day ⇒ forced rest (RR p.279): streak resets, no movement
+ACKS.commitJourneyRecord(fmF.c, ACKS.proposeJourneyDay(fmF.c, { dayInMonth: 3, rng: () => 0.5 }).pendingRecords[0]);
+const fmF2 = fmF.c.journeys[0].days[1];
+check('the day after a forced march is a forced rest (pace=rest, 0 hexes)', fmF2.pace === 'rest' && (fmF2.hexesTraveled || 0) === 0);
+check('the forced rest cleared the streak back to 0', fmF.c.journeys[0].fatigueDays === 0);
+
+// simplified-fatigue opt-out: forced march still maxes the counter but NEVER forces a rest
+const fmS = build({ destCoord: { q: 500, r: 0 }, houseRules: { 'simplified-fatigue': true } }); fmS.j.pace = 'forced-march'; ACKS.startJourney(fmS.c, fmS.j);
+ACKS.commitJourneyRecord(fmS.c, ACKS.proposeJourneyDay(fmS.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0]);
+ACKS.commitJourneyRecord(fmS.c, ACKS.proposeJourneyDay(fmS.c, { dayInMonth: 3, rng: () => 0.5 }).pendingRecords[0]);
+check('simplified-fatigue: forced march never forces a rest (both days moved)', (fmS.c.journeys[0].days[0].hexesTraveled || 0) > 0 && (fmS.c.journeys[0].days[1].hexesTraveled || 0) > 0 && fmS.c.journeys[0].days[1].pace !== 'rest');
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);
 if(failed === 0){
-  console.log('\nAll Journeys (Phase 2.5 #475 — J1) smoke checks passed.');
+  console.log('\nAll Journeys (Phase 2.5 #475 — J1 + J2) smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nSome checks failed. Review output above.');

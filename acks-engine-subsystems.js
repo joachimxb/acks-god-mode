@@ -1491,14 +1491,19 @@ function tickJourneyDay(campaign, journey, ctx){
   const notableEvents = [];
   const encounters = [];
 
-  // ── speed (§6): base × terrain × weather × pace ──
+  // ── speed (§6): base × terrain × weather × temperature × ground × pace ──
   const baseTerrain = (startHex && startHex.terrain) || 'grassland';
   const hasRoad = !!(startHex && startHex.hasRoad);
   const terrainMult = hasRoad ? A.JOURNEY_TERRAIN_SPEED.road
     : (A.JOURNEY_TERRAIN_SPEED[baseTerrain] != null ? A.JOURNEY_TERRAIN_SPEED[baseTerrain] : 1);
   const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
+  // RR pp.277-278: frigid/sweltering temperatures each halve speed (a separate axis from precipitation).
+  const tempMult = (A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1;
+  // RR p.272: mud/snow underfoot is a further ×1/2 that compounds on terrain. GM-set per hex.
+  const groundCond = (startHex && startHex.groundCondition) || 'clear';
+  const groundMult = (A.JOURNEY_GROUND_SPEED[groundCond] != null) ? A.JOURNEY_GROUND_SPEED[groundCond] : 1;
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
-  const milesPerDay = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * terrainMult * weatherMult * paceMult;
+  const milesPerDay = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * terrainMult * weatherMult * tempMult * groundMult * paceMult;
   let hexesPerDay = Math.floor(milesPerDay / A.JOURNEY_MILES_PER_HEX);
   if(hexesPerDay < 1) hexesPerDay = 1; // a travel day always covers at least one hex
 
@@ -1519,6 +1524,17 @@ function tickJourneyDay(campaign, journey, ctx){
       notableEvents.push({
         kind: 'journey-lost', type: 'navigation-fail', pauseTrigger: 'navigation-fail', primaryHexId: journey.startHexId || null,
         label: (journey.name || 'Journey') + ': lost in ' + baseTerrain + ' (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
+        payload: { journeyId: journey.id, dayIndex: newDayIndex }
+      });
+    } else if(isLost){
+      // A successful throw re-orients a previously-lost party (RR p.275 recovery). Without this,
+      // isLost carried forward forever and the party made 0 progress despite succeeding — the
+      // "journey never arrives" bug. Recovering clears lost so movement resumes this day.
+      isLost = false;
+      navRecord.result = 'success-recovered';
+      notableEvents.push({
+        kind: 'journey-day-tick', type: 'navigation-recovered', primaryHexId: journey.startHexId || null,
+        label: (journey.name || 'Journey') + ': found the way again (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex }
       });
     }
@@ -1548,13 +1564,21 @@ function tickJourneyDay(campaign, journey, ctx){
     if(!hungry && rations > 0 && rations < lowAt) notableEvents.push({ kind: 'journey-day-tick', type: 'supplies-low', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': supplies low (' + rations + ' rations left)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
   }
 
-  // ── fatigue accrual / reset ──
+  // ── fatigue accrual / reset (RR p.279 "Rest and Recuperation") ──
   let fatigueAccumulated = 0;
   if(restDay){
-    fatigueDays = 0; // a rest day clears the streak (JJ p.84 §10.3)
-    notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (JJ p.84)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+    fatigueDays = 0; // a dedicated rest day clears the streak (RR p.279)
+    notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (RR p.279)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+  } else if(pace === 'forced-march'){
+    // RAW (RR p.279): a single forced march fatigues the party at once — it "counts as six days
+    // of strenuous activity, immediately requiring rest." Jump the streak to the cycle cap so the
+    // NEXT strenuous day becomes a forced rest. (The cumulative −1-to-throws penalty is deferred
+    // with the rest of survival; fatigueDays is the counter the GM-facing tracker reads.)
+    const before = fatigueDays;
+    fatigueDays = Math.max(fatigueDays, A.JOURNEY_FATIGUE_CYCLE_DAYS);
+    fatigueAccumulated = fatigueDays - before;
   } else if(strenuousPace){
-    fatigueDays += 1; fatigueAccumulated = 1; // simplified-fatigue still counts, just never forces a rest
+    fatigueDays += 1; fatigueAccumulated = 1; // ordinary travel = one strenuous day (RR p.279)
   }
 
   // ── encounter check (§12 — J1 stub) ──
@@ -1630,6 +1654,30 @@ function commitJourneyRecord(campaign, record){
   const j = (campaign.journeys || []).find(x => x && x.id === record.journeyId);
   if(!j) return;
   const dr = JSON.parse(JSON.stringify(record.dayRecord || {}));
+  // Pre-day snapshot so the GM can reroll the LATEST day (revert + re-tick — rerollJourneyDay).
+  // Captured BEFORE the record's post-state absolutes are applied below, so it holds the state
+  // the day started from. Survival (hunger/dehydration) lives on participants — capture the first.
+  const _firstC = (campaign.characters || []).find(c => c && c.id === (j.participantCharacterIds || [])[0]);
+  dr._preDay = {
+    currentDayIndex: j.currentDayIndex || 0,
+    fatigueDays: j.fatigueDays || 0,
+    isLost: !!j.isLost,
+    rations: (j.supplies && j.supplies.rations) || 0,
+    waterRations: (j.supplies && j.supplies.waterRations) || 0,
+    currentHexId: j.currentHexId || j.startHexId || null,
+    status: j.status || 'in-transit',
+    hungerDays: (_firstC && _firstC.hungerDays) || 0,
+    dehydrationDays: (_firstC && _firstC.dehydrationDays) || 0
+  };
+  // World-date stamp: which world day this leg happened on, so the GM can reroll the LATEST
+  // day only while the clock still stands on it (Journeys J2 feedback — once +1 day / Advance
+  // month moves the world past, the leg is history and locks). The day-tick tags the record
+  // with the leg's dayInMonth (tickDayOnce); a day-tick never changes the turn, so the month
+  // is the current turn. Direct/reroll commits (no tag) fall back to the settled clock.
+  dr.worldDay = {
+    turn: campaign.currentTurn || 1,
+    dayInMonth: (typeof record.dayInMonth === 'number') ? record.dayInMonth : (campaign.currentDayInMonth || 1)
+  };
   dr.status = 'committed';
   (j.days = j.days || []).push(dr);
   j.currentDayIndex = record.newDayIndex;
@@ -1655,6 +1703,103 @@ function commitJourneyRecord(campaign, record){
     const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
     if(pt){ pt.activeJourneyId = null; pt.currentHexId = j.destinationHexId || pt.currentHexId; }
   }
+}
+
+// Can the journey's LATEST day be rerolled right now? (Journeys J2 feedback.) Yes only when:
+//   (a) that day carries a _preDay snapshot to revert to, AND
+//   (b) the journey wasn't deliberately aborted (abort is a GM decision, not a die roll), AND
+//   (c) the world clock still stands on the day the leg happened — once the world rolls past
+//       it (+1 day / Advance month), the leg is history and locks.
+// A just-ARRIVED leg stays rerollable while the clock is still on its day (the GM may redo a
+// bad-luck final leg). Legacy day records (no worldDay stamp) fall back to the snapshot-only
+// rule so older saves behave as before. Compares an absolute day ordinal (turn*30 + day).
+function journeyLastDayRerollable(campaign, journey){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!j || j.status === 'aborted' || !Array.isArray(j.days) || !j.days.length) return false;
+  const last = j.days[j.days.length - 1];
+  if(!last || !last._preDay) return false;
+  const wd = last.worldDay;
+  if(!wd) return true; // pre-stamp record — preserve the old snapshot-only behavior
+  const nowOrd = (((campaign && campaign.currentTurn) || 1) * 30) + (((campaign && campaign.currentDayInMonth) || 1));
+  const legOrd = ((wd.turn || 1) * 30) + (wd.dayInMonth || 1);
+  return nowOrd <= legOrd; // world hasn't advanced past the leg's day
+}
+
+// GM reroll of the LATEST committed day: revert the journey + participants to the day's pre-state
+// snapshot, prune that day's journey events from the eventLog, re-run the day with fresh
+// randomness, re-commit, and re-emit the new day's notable events. Only the latest day is
+// rerollable (downstream days depend on it) and only while the world clock still stands on it
+// (journeyLastDayRerollable). Returns the new record, or null if not possible.
+function rerollJourneyDay(campaign, journey){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!journeyLastDayRerollable(campaign, j)) return null; // no snapshot, aborted, or the world has moved past this day
+  const lastDay = j.days[j.days.length - 1];
+  const pre = lastDay._preDay;
+  const wasArrival = (j.status === 'arrived'); // reverting an arrival must also un-do the move-to-destination
+  const dayNum = lastDay.dayIndex;
+  // 1. prune this day's journey events from the eventLog (lost / hunger / dehydration / encounter / arrived)
+  campaign.eventLog = (campaign.eventLog || []).filter(entry => {
+    const ev = entry && entry.event;
+    if(!ev || !ev.payload || ev.payload.journeyId !== j.id) return true;
+    if(ev.payload.dayIndex === dayNum) return false;
+    if(ev.kind === 'journey-arrived') return false; // a journey arrives once = its latest day
+    return true;
+  });
+  // 2. revert journey + participants to the pre-day snapshot
+  j.days.pop();
+  j.currentDayIndex = pre.currentDayIndex;
+  j.fatigueDays = pre.fatigueDays;
+  j.isLost = pre.isLost;
+  j.supplies = j.supplies || {};
+  j.supplies.rations = pre.rations;
+  j.supplies.waterRations = pre.waterRations;
+  j.currentHexId = pre.currentHexId;
+  j.status = pre.status;
+  const ids = j.participantCharacterIds || [];
+  for(const c of (campaign.characters || [])){
+    if(c && ids.indexOf(c.id) >= 0){
+      c.hungerDays = pre.hungerDays || 0;
+      c.dehydrationDays = pre.dehydrationDays || 0;
+      c.personalFatigue = pre.fatigueDays || 0;
+      c.currentJourneyId = j.id; // re-link (a revert may have un-done an arrival)
+      if(wasArrival) c.currentHexId = pre.currentHexId; // un-do the arrival's move-to-destination
+    }
+  }
+  // reverting an arrival also un-does the party's arrival bookkeeping (commitJourneyRecord
+  // had cleared activeJourneyId + moved the party to the destination on arrival).
+  if(wasArrival && j.partyId){
+    const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
+    if(pt){ pt.activeJourneyId = j.id; pt.currentHexId = pre.currentHexId || pt.currentHexId; }
+  }
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: dayNum, type: 'reroll', narrative: 'GM rerolled day ' + dayNum + '.' });
+  // 3. re-run the day with fresh randomness (Math.random in the live app / tests)
+  const out = tickJourneyDay(campaign, j, {});
+  if(!out || !out.record) return null;
+  // 4. commit the new record (updates journey.days + participant survival state)
+  commitJourneyRecord(campaign, out.record);
+  // 5. re-emit the new day's notable events to the eventLog (best-effort; mirrors emitDayTickEvents)
+  try {
+    campaign.eventLog = campaign.eventLog || [];
+    const cal = campaign.calendar || {};
+    const dayInMonth = (j.startedAtDayInMonth || 1) + Math.max(0, (out.record.newDayIndex || 1) - 1);
+    (out.notableEvents || []).forEach(e => {
+      let ev;
+      try {
+        ev = A.newEvent(e.kind || 'gm-narrative', {
+          submittedBy: 'engine', status: (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
+          targetTurn: campaign.currentTurn || 1,
+          gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: dayInMonth },
+          context: { primaryHexId: e.primaryHexId || null, involvedHexIds: e.involvedHexIds || [], settlementId: null, domainId: null, relatedEntities: (ids || []).map(id => ({ kind: 'character', id, role: 'subject' })) },
+          payload: e.payload || { journeyId: j.id }
+        });
+      } catch(_e){ return; }
+      ev.appliedAtTurn = campaign.currentTurn || 1;
+      campaign.eventLog.push({ event: ev, result: { narrativeSummary: e.label || 'journey event' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+    });
+  } catch(e){ /* never let event emission block a reroll */ }
+  return out.record;
 }
 
 // Transition a planning journey to in-transit: set the clock + pointers, link the party
@@ -1697,6 +1842,42 @@ function startJourney(campaign, journey){
   return j;
 }
 
+// Abort an in-flight (or planning/resting/lost) journey: flip status to 'aborted',
+// unlink each participant's currentJourneyId + the party's activeJourneyId, append a
+// history entry, and emit a journey-aborted event with the §3.5 context envelope
+// (primaryHexId = the hex the party was at when it stopped). The day-tick only advances
+// in-transit journeys, so an aborted journey can never be re-ticked. Returns the journey.
+function abortJourney(campaign, journey, reason){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!j) return null;
+  const atHex = j.currentHexId || j.startHexId || null;
+  j.status = 'aborted';
+  const ids = j.participantCharacterIds || [];
+  for(const c of (campaign.characters || [])){
+    if(c && ids.indexOf(c.id) >= 0 && c.currentJourneyId === j.id) c.currentJourneyId = null;
+  }
+  if(j.partyId){
+    const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
+    if(pt && pt.activeJourneyId === j.id) pt.activeJourneyId = null;
+  }
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'aborted', narrative: 'Journey aborted' + (reason ? (': ' + reason) : '') + '.' });
+  try {
+    campaign.eventLog = campaign.eventLog || [];
+    const cal = campaign.calendar || {};
+    const ev = A.newEvent('journey-aborted', {
+      submittedBy: 'engine', status: (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
+      targetTurn: campaign.currentTurn || 1,
+      gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
+      context: { primaryHexId: atHex, involvedHexIds: [atHex].filter(Boolean), settlementId: null, domainId: null, relatedEntities: ids.map(id => ({ kind: 'character', id, role: 'subject' })) },
+      payload: { journeyId: j.id, reason: reason || null, narrative: (j.name || 'Journey') + ' was aborted' + (reason ? (' (' + reason + ')') : '') + '.' }
+    });
+    ev.appliedAtTurn = campaign.currentTurn || 1;
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' aborted.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+  } catch(e){ /* never let event emission block an abort */ }
+  return j;
+}
+
 // Compatibility stubs retained for older call sites (superseded by the Journey model).
 function travelEstimate(character, destinationHexId, options){
   // Superseded by computeJourneyDistance + the Journey day-tick. Kept as a harmless null.
@@ -1711,8 +1892,8 @@ function applyTravelTick(campaign, options){
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
-  // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, computeJourneyDistance, rollNavigation,
+  // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty

@@ -99,6 +99,7 @@ const EVENT_KINDS = Object.freeze([
   'journey-lost',
   'journey-resupply',
   'journey-encounter',
+  'journey-aborted',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
   'gm-narrative'
 ]);
@@ -359,6 +360,10 @@ const EVENT_SCHEMAS = Object.freeze({
   'journey-encounter': {
     R: { journeyId: 'string' },
     O: { dayIndex: 'number', hexId: 'string', narrative: 'string' }
+  },
+  'journey-aborted': {
+    R: { journeyId: 'string' },
+    O: { reason: 'string', narrative: 'string' }
   },
   // #551 Wave Entity-B Chronicle Entry. Title + body + attached entities via context envelope.
   'gm-narrative': {
@@ -820,6 +825,44 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
       }
     }
   }
+  // ----- Party location: party.currentHexId (GM moves a party between hexes) -----
+  if(target.kind === 'party' && mutation.fieldPath === 'currentHexId'){
+    const partyName = (entity && entity.name) || target.id;
+    const A = (typeof global !== 'undefined' && global.ACKS) ? global.ACKS : null;
+    const hexLabel = function(id){
+      if(!id) return null;
+      const h = (A && A.resolveHexAnywhere) ? A.resolveHexAnywhere(campaign, id) : null;
+      if(h && h.coord) return '(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')' + (h.settlement && h.settlement.name ? ' · ' + h.settlement.name : '');
+      return id;
+    };
+    if(mutation.newValue == null) return 'Cleared the location of ' + partyName + reasonNote;
+    if(previousValue == null) return 'Placed ' + partyName + ' at ' + hexLabel(mutation.newValue) + reasonNote;
+    return 'Moved ' + partyName + ' to ' + hexLabel(mutation.newValue) + ' (from ' + hexLabel(previousValue) + ')' + reasonNote;
+  }
+  // ----- Party leader: party.leaderCharacterId (GM hands command to a member) -----
+  if(target.kind === 'party' && mutation.fieldPath === 'leaderCharacterId'){
+    const partyName = (entity && entity.name) || target.id;
+    const lookup = function(id){
+      if(!id) return null;
+      const list = (campaign && campaign.characters) || [];
+      for(let i=0;i<list.length;i++){ if(list[i] && list[i].id === id) return list[i]; }
+      return null;
+    };
+    const newLeader = lookup(mutation.newValue);
+    const oldLeader = lookup(previousValue);
+    if(mutation.newValue == null) return 'Cleared the leader of ' + partyName + reasonNote;
+    const newName = (newLeader && newLeader.name) || mutation.newValue;
+    if(oldLeader && oldLeader.id !== mutation.newValue) return 'Made ' + newName + ' leader of ' + partyName + ' (replacing ' + (oldLeader.name || oldLeader.id) + ')' + reasonNote;
+    return 'Made ' + newName + ' leader of ' + partyName + reasonNote;
+  }
+  // ----- Journey pace: journey.pace (GM changes the marching pace mid-trip) -----
+  if(target.kind === 'journey' && mutation.fieldPath === 'pace'){
+    const jName = (entity && entity.name) || target.id;
+    const paceLabel = function(v){ return v ? (({ 'forced-march':'forced march', 'half-speed':'half speed' })[v] || String(v)) : v; };
+    const to = paceLabel(mutation.newValue);
+    if(previousValue && previousValue !== mutation.newValue) return 'Set ' + jName + ' to ' + to + ' pace (was ' + paceLabel(previousValue) + ')' + reasonNote;
+    return 'Set ' + jName + ' to ' + to + ' pace' + reasonNote;
+  }
   return null;
 }
 
@@ -890,16 +933,17 @@ function applyEvent_gmFiat(campaign, event){
   // Foundation #241 — keep peasantFamilies and hex.families in sync. If the GM edited either,
   // reconcile the other side automatically. Without this, an inline edit on the Demographics
   // tab would re-introduce the drift this Foundation step exists to prevent.
+  // These MUST route through the EXPORTED engine setters: the underlying redistribution helpers
+  // (_redistributeRuralFamilies / _ruralHexes) are private to acks-engine.js and are NOT on the
+  // ACKS namespace, so a bare reference from this module throws ReferenceError. The bug was
+  // dormant until the families-per-hex per-hex editor became reachable. (2026-06-01.)
+  const _eng = (typeof global !== 'undefined' ? global.ACKS : (typeof window !== 'undefined' ? window.ACKS : null)) || {};
   if(target.kind === 'domain' && mutation.fieldPath === 'demographics.peasantFamilies'){
-    _redistributeRuralFamilies(entity, mutation.newValue);
+    if(_eng.setPeasantPopulation) _eng.setPeasantPopulation(entity, mutation.newValue);
   } else if(target.kind === 'hex' && mutation.fieldPath === 'families'){
     const owningDomain = (campaign.domains||[]).find(dd =>
       (dd.geography?.hexes||[]).some(h => h.id === target.id));
-    if(owningDomain){
-      const hexes = _ruralHexes(owningDomain);
-      const sum = hexes.reduce((s,h) => s + (h.families||0), 0);
-      owningDomain.demographics.peasantFamilies = sum;
-    }
+    if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(owningDomain);
   }
   return {
     result: {
@@ -1654,6 +1698,7 @@ registerEventHandler('journey-arrived', applyEvent_journeyAudit);
 registerEventHandler('journey-lost', applyEvent_journeyAudit);
 registerEventHandler('journey-resupply', applyEvent_journeyAudit);
 registerEventHandler('journey-encounter', applyEvent_journeyAudit);
+registerEventHandler('journey-aborted', applyEvent_journeyAudit);
 
 
 
@@ -1670,7 +1715,7 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'gm-narrative',          // owned by Chronicle Entry sub-tab — has its own rich UI
   // Phase 2.5 Journeys (#475 — J1) — emitted by the day-tick consumer + startJourney,
   // not authored raw (raw emit would skip the journey state transitions).
-  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter'
+  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter', 'journey-aborted'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
