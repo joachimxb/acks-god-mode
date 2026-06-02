@@ -3940,13 +3940,29 @@ document.addEventListener('alpine:init', () => {
                 </template>
                 <ul class="text-sm space-y-1" x-show="partyMembers(pt).length > 0">
                   <template x-for="ch in partyMembers(pt)" :key="ch.id">
-                    <li class="flex justify-between items-center py-0.5">
-                      <span>
-                        <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★ </span>
-                        <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name"></button>
-                        <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
-                      </span>
-                      <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
+                    <li class="py-1 border-b border-dashed border-gray-200 last:border-0">
+                      <div class="flex justify-between items-center">
+                        <span>
+                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★ </span>
+                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name"></button>
+                          <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
+                        </span>
+                        <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
+                      </div>
+                      <!-- Mercenaries (character.mercenaryCompany.units, RR p.166) travel with this
+                           character into the party — listed as numbers per type. -->
+                      <template x-if="partyMemberMercSummary(ch).length">
+                        <table class="text-xs ml-5 mt-0.5 opacity-80">
+                          <tbody>
+                            <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id + '-' + m.label">
+                              <tr>
+                                <td class="pr-4 py-0">⚔ <span x-text="m.label"></span></td>
+                                <td class="font-mono py-0" x-text="'× ' + m.count.toLocaleString()"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </template>
                     </li>
                   </template>
                 </ul>
@@ -10053,6 +10069,24 @@ return {
     return (this.currentCampaign.characters||[]).filter(ch => ch.partyId === pt.id);
   },
   partyMemberCount(pt){ return this.partyMembers(pt).length; },
+  // Canonical label for a mercenary unit (matches the character-sheet Mercenary Company table).
+  mercUnitLabel(u){
+    if(!u) return 'Unit';
+    const rows = (window.ACKS && window.ACKS.HIRELING_MERCENARIES) || [];
+    const found = rows.find(r => r.id === u.unitTypeKey);
+    return (found && found.label) || u.displayName || u.unitTypeKey || 'Unit';
+  },
+  // A character's mercenaries (character.mercenaryCompany.units — the Retainers tab) travel with
+  // them into a party. Summed per unit type for the party muster display. Returns [{label, count}].
+  partyMemberMercSummary(ch){
+    const units = ((ch && ch.mercenaryCompany && ch.mercenaryCompany.units) || []).filter(u => (u.count || 0) > 0);
+    const byType = {};
+    for(const u of units){
+      const label = this.mercUnitLabel(u);
+      byType[label] = (byType[label] || 0) + (u.count || 0);
+    }
+    return Object.keys(byType).map(label => ({ label, count: byType[label] })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  },
   charactersNotInAnyParty(){
     if(!this.currentCampaign)return [];
     return (this.currentCampaign.characters||[]).filter(ch => ch.alive !== false && !ch.partyId);
