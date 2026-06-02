@@ -1962,6 +1962,46 @@ function hexEdgePoints(q, r, size, i){
   const cor = hexCornerPoints(c.x, c.y, size);
   return [ cor[((i % 6) + 6) % 6], cor[(((i % 6) + 6) % 6 + 1) % 6] ];
 }
+// Midpoint of edge i (0..5) — the point a road "from the middle" reaches out to.
+function hexEdgeMidpoint(q, r, size, i){
+  const p = hexEdgePoints(q, r, size, i);
+  return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+}
+// Per-side RIVER geometry (#225 Add/Edit hexes): a river runs ALONG the chosen hex edges (the hex
+// boundary), so each side i in `sides` yields the straight segment corner i → corner (i+1)%6.
+// Returns [{x1,y1,x2,y2}, …]. (Contrast roads, which run from the centre out to side midpoints.)
+function hexRiverSegments(q, r, size, sides){
+  const out = [];
+  Array.from(new Set((sides || []).map(i => ((i % 6) + 6) % 6))).forEach(i => {
+    const p = hexEdgePoints(q, r, size, i);
+    out.push({ x1: p[0].x, y1: p[0].y, x2: p[1].x, y2: p[1].y });
+  });
+  return out;
+}
+// Per-side ROAD geometry (#225): a road "goes from the middle" out to each chosen side's midpoint,
+// with FAINTLY CIRCULAR bends where segments meet at the centre. Returns an SVG path `d` string:
+//   • 0 sides → ''                                            (no road)
+//   • 1 side  → centre → side-midpoint                        (a stub / dead-end, e.g. to a settlement)
+//   • 2 sides → mid(a) → [Q control = centre] → mid(b)        (the common through-road; the quadratic's
+//               centre control rounds the bend — straight for opposite sides, a gentle arc for adjacent)
+//   • 3+ sides → centre → each side-midpoint                  (a junction; the centre hub is rounded by
+//               the caller drawing a small disc — see index.html)
+function hexRoadPathD(q, r, size, sides){
+  const uniq = Array.from(new Set((sides || []).map(i => ((i % 6) + 6) % 6))).sort((a, b) => a - b);
+  if(uniq.length === 0) return '';
+  const c = hexAxialToPixel(q, r, size);
+  const mid = i => hexEdgeMidpoint(q, r, size, i);
+  const f = n => n.toFixed(2);
+  if(uniq.length === 1){
+    const m = mid(uniq[0]);
+    return 'M' + f(c.x) + ' ' + f(c.y) + 'L' + f(m.x) + ' ' + f(m.y);
+  }
+  if(uniq.length === 2){
+    const a = mid(uniq[0]), b = mid(uniq[1]);
+    return 'M' + f(a.x) + ' ' + f(a.y) + 'Q' + f(c.x) + ' ' + f(c.y) + ' ' + f(b.x) + ' ' + f(b.y);
+  }
+  return uniq.map(i => { const m = mid(i); return 'M' + f(c.x) + ' ' + f(c.y) + 'L' + f(m.x) + ' ' + f(m.y); }).join('');
+}
 
 // RAW-style column-row display label (RR p.273 "hex 401" convention; published Auran maps use
 // 4-digit COLROW). Axial {q,r} stays the canonical truth (shown in the tooltip); this is the
@@ -2194,7 +2234,7 @@ Object.assign(ACKS, {
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel, hexName,
-  hexNeighborDeltas, hexEdgePoints, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
+  hexNeighborDeltas, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 

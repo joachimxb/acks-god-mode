@@ -221,6 +221,43 @@ check('a shared edge has identical endpoints from both hexes (borders align, no 
 check('hexEdgePoints returns 2 points', ACKS.hexEdgePoints(0, 0, SIZE, 0).length === 2);
 check('hexEdgePoints wraps negative/large indices', ACKS.hexEdgePoints(0,0,SIZE,6).length === 2 && ACKS.hexEdgePoints(0,0,SIZE,-1).length === 2);
 
+// ─── per-side rivers + roads (Add/Edit hexes #225) ───
+section('hexEdgeMidpoint + hexRiverSegments + hexRoadPathD (Add/Edit hexes)');
+// midpoint is the average of the edge's two endpoints, and sits one apothem (size·√3/2) from centre
+check('hexEdgeMidpoint = average of the edge endpoints', (() => {
+  const p = ACKS.hexEdgePoints(0, 0, SIZE, 1), m = ACKS.hexEdgeMidpoint(0, 0, SIZE, 1);
+  return Math.abs(m.x - (p[0].x + p[1].x) / 2) < 1e-6 && Math.abs(m.y - (p[0].y + p[1].y) / 2) < 1e-6;
+})());
+check('hexEdgeMidpoint sits one apothem from the centre (flat-top: size·√3/2)', (() => {
+  const m = ACKS.hexEdgeMidpoint(0, 0, SIZE, 0); // centre of hex (0,0) is the origin
+  return Math.abs(Math.hypot(m.x, m.y) - SIZE * Math.sqrt(3) / 2) < 1e-6;
+})());
+// rivers run ALONG edges — one segment per side, matching the edge endpoints
+check('hexRiverSegments([]) is empty', ACKS.hexRiverSegments(0, 0, SIZE, []).length === 0);
+check('hexRiverSegments: one segment per side, on the edge', (() => {
+  const segs = ACKS.hexRiverSegments(0, 0, SIZE, [2]);
+  if(segs.length !== 1) return false;
+  const ep = ACKS.hexEdgePoints(0, 0, SIZE, 2);
+  return Math.abs(segs[0].x1 - ep[0].x) < 1e-6 && Math.abs(segs[0].y2 - ep[1].y) < 1e-6;
+})());
+check('hexRiverSegments dedups + wraps indices', ACKS.hexRiverSegments(0, 0, SIZE, [1, 1, 7]).length === 1);
+check('hexRiverSegments: N distinct sides → N segments', ACKS.hexRiverSegments(0, 0, SIZE, [0, 2, 4]).length === 3);
+// roads run from the CENTRE out to side midpoints, with circular bends
+check('hexRoadPathD([]) is empty', ACKS.hexRoadPathD(0, 0, SIZE, []) === '');
+check('1 side → a spoke from the centre (M at origin, then L)', (() => {
+  const d = ACKS.hexRoadPathD(0, 0, SIZE, [0]);
+  return d.startsWith('M0.00 0.00L') && !d.includes('Q');
+})());
+check('2 sides → a quadratic with the centre as control (the rounded bend)', (() => {
+  const d = ACKS.hexRoadPathD(0, 0, SIZE, [0, 3]);
+  return d.includes('Q0.00 0.00 ') && d.startsWith('M');
+})());
+check('3+ sides → a junction: a spoke per side, all from the centre', (() => {
+  const d = ACKS.hexRoadPathD(0, 0, SIZE, [0, 2, 4]);
+  return (d.match(/M0.00 0.00L/g) || []).length === 3 && !d.includes('Q');
+})());
+check('hexRoadPathD dedups + wraps indices (6 ≡ 0)', ACKS.hexRoadPathD(0, 0, SIZE, [0, 6, 0]) === ACKS.hexRoadPathD(0, 0, SIZE, [0]));
+
 // ─── M3 settlement glyph ramp + layer catalogs ───
 section('settlementGlyphScale + symbol/edge catalogs (M3)');
 check('glyph scale is non-decreasing with families', (() => {

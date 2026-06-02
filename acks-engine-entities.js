@@ -256,6 +256,13 @@ function blankHex(opts={}){
     hasRoad: opts.hasRoad === true,        // built road — ×3/2 speed, no navigation throw (RR p.272/275)
     hasTrail: opts.hasTrail === true,      // marked trail — eases navigation but no speed bonus
     riverCount: opts.riverCount || 0,      // crossings cost time when no bridge (RR p.492)
+    // #225 Map Mode "Add/Edit hexes" — per-side CARTOGRAPHY (which of the 6 hex sides, 0..5, carry a
+    // feature). Rivers run ALONG the chosen edges; roads run from the hex centre out to the chosen side
+    // midpoints (with circular bends). Edge indexing matches hexEdgePoints/HEX_EDGE_DELTAS. These are
+    // map-drawing truth and are independent of riverCount (crossing cost); hasRoad is kept in sync with
+    // roadSides by the map editor. Empty = nothing drawn (legacy hasRoad/riverCount still auto-network).
+    roadSides: Array.isArray(opts.roadSides) ? opts.roadSides.slice() : [],
+    riverSides: Array.isArray(opts.riverSides) ? opts.riverSides.slice() : [],
     elevationFt: opts.elevationFt || 0,    // feeds visibility/sighting (Journeys §11)
     groundCondition: opts.groundCondition || 'clear', // 'clear'|'mud'|'snow' — mud/snow ×1/2 speed (RR p.272)
     primaryStructure: opts.primaryStructure || '',
