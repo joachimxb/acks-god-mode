@@ -1697,6 +1697,42 @@ function startJourney(campaign, journey){
   return j;
 }
 
+// Abort an in-flight (or planning/resting/lost) journey: flip status to 'aborted',
+// unlink each participant's currentJourneyId + the party's activeJourneyId, append a
+// history entry, and emit a journey-aborted event with the §3.5 context envelope
+// (primaryHexId = the hex the party was at when it stopped). The day-tick only advances
+// in-transit journeys, so an aborted journey can never be re-ticked. Returns the journey.
+function abortJourney(campaign, journey, reason){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!j) return null;
+  const atHex = j.currentHexId || j.startHexId || null;
+  j.status = 'aborted';
+  const ids = j.participantCharacterIds || [];
+  for(const c of (campaign.characters || [])){
+    if(c && ids.indexOf(c.id) >= 0 && c.currentJourneyId === j.id) c.currentJourneyId = null;
+  }
+  if(j.partyId){
+    const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
+    if(pt && pt.activeJourneyId === j.id) pt.activeJourneyId = null;
+  }
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'aborted', narrative: 'Journey aborted' + (reason ? (': ' + reason) : '') + '.' });
+  try {
+    campaign.eventLog = campaign.eventLog || [];
+    const cal = campaign.calendar || {};
+    const ev = A.newEvent('journey-aborted', {
+      submittedBy: 'engine', status: (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
+      targetTurn: campaign.currentTurn || 1,
+      gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
+      context: { primaryHexId: atHex, involvedHexIds: [atHex].filter(Boolean), settlementId: null, domainId: null, relatedEntities: ids.map(id => ({ kind: 'character', id, role: 'subject' })) },
+      payload: { journeyId: j.id, reason: reason || null, narrative: (j.name || 'Journey') + ' was aborted' + (reason ? (' (' + reason + ')') : '') + '.' }
+    });
+    ev.appliedAtTurn = campaign.currentTurn || 1;
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' aborted.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+  } catch(e){ /* never let event emission block an abort */ }
+  return j;
+}
+
 // Compatibility stubs retained for older call sites (superseded by the Journey model).
 function travelEstimate(character, destinationHexId, options){
   // Superseded by computeJourneyDistance + the Journey day-tick. Kept as a harmless null.
@@ -1711,8 +1747,8 @@ function applyTravelTick(campaign, options){
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
-  // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, computeJourneyDistance, rollNavigation,
+  // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, computeJourneyDistance, rollNavigation,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty

@@ -99,6 +99,7 @@ const EVENT_KINDS = Object.freeze([
   'journey-lost',
   'journey-resupply',
   'journey-encounter',
+  'journey-aborted',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
   'gm-narrative'
 ]);
@@ -359,6 +360,10 @@ const EVENT_SCHEMAS = Object.freeze({
   'journey-encounter': {
     R: { journeyId: 'string' },
     O: { dayIndex: 'number', hexId: 'string', narrative: 'string' }
+  },
+  'journey-aborted': {
+    R: { journeyId: 'string' },
+    O: { reason: 'string', narrative: 'string' }
   },
   // #551 Wave Entity-B Chronicle Entry. Title + body + attached entities via context envelope.
   'gm-narrative': {
@@ -1655,6 +1660,7 @@ registerEventHandler('journey-arrived', applyEvent_journeyAudit);
 registerEventHandler('journey-lost', applyEvent_journeyAudit);
 registerEventHandler('journey-resupply', applyEvent_journeyAudit);
 registerEventHandler('journey-encounter', applyEvent_journeyAudit);
+registerEventHandler('journey-aborted', applyEvent_journeyAudit);
 
 
 
@@ -1671,7 +1677,7 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'gm-narrative',          // owned by Chronicle Entry sub-tab — has its own rich UI
   // Phase 2.5 Journeys (#475 — J1) — emitted by the day-tick consumer + startJourney,
   // not authored raw (raw emit would skip the journey state transitions).
-  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter'
+  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter', 'journey-aborted'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

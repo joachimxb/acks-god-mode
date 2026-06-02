@@ -213,11 +213,34 @@ const erp = ACKS.proposeJourneyDay(er.c, { dayInMonth: 2, rng: () => 0 });
 check('roads are safe (no encounter on a road in J1)', erp.encounters.length === 0);
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('abortJourney (J2) — unlinks + emits journey-aborted + cannot re-tick');
+
+const ab = build();
+ab.c.parties = [{ schemaVersion: 2, id: 'pty-1', name: 'Scouts', currentHexId: 'hex-a', activeJourneyId: null }];
+ab.j.partyId = 'pty-1';
+ACKS.startJourney(ab.c, ab.j);
+check('precondition: started + party + participant linked', ab.j.status === 'in-transit' && ab.c.parties[0].activeJourneyId === 'jrn-1' && ab.c.characters[0].currentJourneyId === 'jrn-1');
+const abRet = ACKS.abortJourney(ab.c, ab.j, 'recalled by liege');
+check('abortJourney flips status to aborted (returns the journey)', ab.j.status === 'aborted' && abRet === ab.j);
+check('abortJourney unlinks participant currentJourneyId', ab.c.characters[0].currentJourneyId === null);
+check('abortJourney unlinks party activeJourneyId', ab.c.parties[0].activeJourneyId === null);
+check('abortJourney appends an aborted history entry carrying the reason', ab.j.history.some(h => h.type === 'aborted' && /recalled by liege/.test(h.narrative)));
+check('abortJourney emits a journey-aborted event', ab.c.eventLog.some(e => e.event && e.event.kind === 'journey-aborted'));
+check('journey-aborted carries the context envelope (primaryHexId = stop hex) + reason payload', (function(){ const e = ab.c.eventLog.find(x => x.event.kind === 'journey-aborted').event; return e.context && e.context.primaryHexId === 'hex-a' && e.cadence === 'daily' && e.payload.reason === 'recalled by liege'; })());
+const abTick = ACKS.proposeJourneyDay(ab.c, { dayInMonth: 3, rng: () => 0.99 });
+check('an aborted journey is skipped by the day-tick consumer (cannot re-tick)', abTick.pendingRecords.every(r => r.journeyId !== 'jrn-1'));
+check('journey-aborted is a known kind + opted out of the Event Wizard', ACKS.isEventKindKnown('journey-aborted') && ACKS.wizardEmittableKinds().indexOf('journey-aborted') < 0);
+const ab2 = build();
+ACKS.startJourney(ab2.c, ab2.j);
+ACKS.abortJourney(ab2.c, 'jrn-1'); // accepts a journey id, not just the object
+check('abortJourney accepts a journey id (string) as well as the object', ab2.j.status === 'aborted');
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);
 if(failed === 0){
-  console.log('\nAll Journeys (Phase 2.5 #475 — J1) smoke checks passed.');
+  console.log('\nAll Journeys (Phase 2.5 #475 — J1 + J2) smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nSome checks failed. Review output above.');
