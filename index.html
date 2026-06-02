@@ -2997,15 +2997,246 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- Sub-panel: Journeys (Phase 2.5 placeholder). -->
+<!-- Sub-panel: Journeys (Phase 2.5 #475 — J2). Action-verb wizard + lists + detail.
+     Tick Day routes through the GLOBAL day-tick pipeline (the Day Clock, top-right). -->
 <div x-show="currentView === 'activities' && activitiesSubView === 'journeys'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
-    <div class="vellum border border-ink rounded p-6 text-center">
-      <h2 class="font-bold text-xl mb-2">⛺ Journeys</h2>
-      <p class="text-sm opacity-70 mb-3">Per-day wilderness travel, navigation, weather, fatigue, encounters — unified for land, sea, and air.</p>
-      <p class="text-sm italic opacity-60">Coming in Phase 2.5. Spec lives at <code>Phase_2.5_Journeys_Plan.md</code> (DEV root).</p>
-      <p class="text-sm opacity-60 mt-3">Depends on: Phase 2.95 Calendar (day-tick + collision-check pipeline) · Map Mode (#225) · Outposts (#395).</p>
-    </div>
+
+    <!-- ───── (A) START JOURNEY WIZARD (Action verb — Recruiting-Wizard shape) ───── -->
+    <template x-if="journeyWizard.open">
+      <div class="vellum border border-ink rounded p-4 space-y-4">
+        <div class="flex items-baseline justify-between flex-wrap gap-2">
+          <h2 class="font-bold text-xl">🧭 Start a Journey</h2>
+          <span class="text-xs opacity-60">Action verb — sets out a real journey. Free-form authoring lives in 🔍 Inspector › Create.</span>
+        </div>
+
+        <!-- Participants -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">Participants</span> <span class="text-xs opacity-60">— who travels (the participant set is the source of truth)</span></div>
+          <div class="mb-2 text-sm">
+            <label class="opacity-70">Party (optional — autofills its members):</label>
+            <select x-model="journeyWizard.partyId" @change="journeyOnPartyChange()" class="ml-2 border border-ink rounded px-2 py-0.5">
+              <option value="">— none —</option>
+              <template x-for="p in journeyPartyOptions()" :key="p.id"><option :value="p.id" x-text="p.name||'(unnamed party)'"></option></template>
+            </select>
+          </div>
+          <div class="wizard-eligibility-list max-h-40 overflow-auto border border-ink rounded p-2">
+            <template x-for="c in journeyParticipantOptions()" :key="c.id">
+              <label class="wizard-eligibility-item flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" :checked="journeyWizard.participantIds.includes(c.id)" @change="journeyToggleParticipant(c.id)">
+                <span x-text="c.name||'(unnamed)'"></span>
+                <span class="text-xs opacity-50" x-show="c.currentJourneyId">· already on a journey</span>
+              </label>
+            </template>
+            <p class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0">No characters yet — add one in the Characters tab first.</p>
+          </div>
+          <p class="text-xs opacity-60 mt-1" x-text="journeyWizard.participantIds.length + ' selected'"></p>
+        </div>
+
+        <!-- Route -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">Route</span></div>
+          <div class="flex flex-wrap gap-3 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Start hex</label>
+              <select x-model="journeyWizard.startHexId" class="border border-ink rounded px-2 py-0.5">
+                <option value="">— pick —</option>
+                <template x-for="h in journeyHexOptions()" :key="'s-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Destination hex</label>
+              <select x-model="journeyWizard.destinationHexId" class="border border-ink rounded px-2 py-0.5">
+                <option value="">— pick —</option>
+                <template x-for="h in journeyHexOptions()" :key="'d-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Name (optional)</label>
+              <input x-model="journeyWizard.name" placeholder="auto from route" class="border border-ink rounded px-2 py-0.5">
+            </div>
+          </div>
+          <details class="mt-2">
+            <summary class="text-xs opacity-70 cursor-pointer">Waypoints (optional)</summary>
+            <div class="max-h-32 overflow-auto border border-ink rounded p-2 mt-1">
+              <template x-for="h in journeyHexOptions()" :key="'w-'+h.id">
+                <label class="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" :checked="journeyWizard.waypointIds.includes(h.id)" @change="journeyToggleWaypoint(h.id)">
+                  <span x-text="h.label"></span>
+                </label>
+              </template>
+            </div>
+          </details>
+        </div>
+
+        <!-- Pace + mode -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">Pace &amp; mode</span></div>
+          <div class="flex flex-wrap gap-3 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Pace</label>
+              <select x-model="journeyWizard.pace" class="border border-ink rounded px-2 py-0.5">
+                <option value="cautious">Cautious (×½ — thorough scouting)</option>
+                <option value="normal">Normal (×1)</option>
+                <option value="forced-march">Forced march (×1½ — +1 fatigue, JJ p.84)</option>
+              </select>
+            </div>
+            <div>
+              <label class="opacity-70 block text-xs">Mode</label>
+              <select x-model="journeyWizard.mode" class="border border-ink rounded px-2 py-0.5">
+                <option value="foot">On foot / overland</option>
+                <option value="voyage-sail" disabled>Voyage — coming (Phase 3 Voyages)</option>
+                <option value="aerial-mount" disabled>Aerial — coming</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Supplies -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">Supplies</span> <span class="text-xs opacity-60">— person-day rations (RAW: 1 food + 1 water per person/day; JJ p.84)</span></div>
+          <div class="flex flex-wrap gap-3 items-end text-sm">
+            <div><label class="opacity-70 block text-xs">Food rations</label><input type="number" min="0" x-model.number="journeyWizard.rations" class="w-24 border border-ink rounded px-2 py-0.5"></div>
+            <div><label class="opacity-70 block text-xs">Water rations</label><input type="number" min="0" x-model.number="journeyWizard.waterRations" class="w-24 border border-ink rounded px-2 py-0.5"></div>
+            <span class="text-xs opacity-60" x-show="journeyWizard.participantIds.length && (journeyWizard.rations||journeyWizard.waterRations)" x-text="'≈ ' + Math.floor(Math.min(journeyWizard.rations||0, journeyWizard.waterRations||0)/Math.max(1,journeyWizard.participantIds.length)) + ' days at this party size'"></span>
+          </div>
+        </div>
+
+        <!-- Forecast + submit gate -->
+        <template x-if="journeyForecast()">
+          <div class="wizard-forecast-row" :class="journeyForecast().totalHexes===0 ? 'wizard-no-chance' : ''">
+            <span x-text="'Forecast: ~' + journeyForecast().totalHexes + ' hexes (' + journeyForecast().miles + ' mi), about ' + journeyForecast().estDays + ' day' + (journeyForecast().estDays===1?'':'s') + ' at normal pace on open ground (terrain + nav rolls vary it).'"></span>
+          </div>
+        </template>
+        <div class="wizard-submit-gate flex items-center gap-2 flex-wrap">
+          <button @click="startJourneySubmit()" :disabled="!startJourneyCanSubmit()" :class="startJourneyCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" :title="startJourneySubmitDisabledReason() || 'Set out on the journey'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">🧭 Start journey</button>
+          <button @click="startJourneyCancel()" class="px-3 py-1 border border-ink rounded hover:bg-gray-100 text-sm">Cancel</button>
+          <span class="wizard-submit-disabled-reason text-xs text-red-700" x-show="!startJourneyCanSubmit()" x-text="startJourneySubmitDisabledReason()"></span>
+        </div>
+      </div>
+    </template>
+
+    <!-- ───── (B) JOURNEY DETAIL ───── -->
+    <template x-if="!journeyWizard.open && journeyDetailId && journeyDetail()">
+      <div class="vellum border border-ink rounded p-4 space-y-3">
+        <div class="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-bold text-xl"><span x-text="journeyModeIcon(journeyDetail())"></span> <span x-text="journeyDetail().name || 'Journey'"></span></h2>
+            <p class="text-sm opacity-70">
+              <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span> →
+              <span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
+              · <span x-text="journeyDayLabel(journeyDetail())"></span>
+              · <span class="capitalize" x-text="journeyDetail().pace"></span>
+              · <span x-text="journeyDetail().mode"></span>
+              · <span class="font-semibold" :class="journeyDetail().isLost ? 'text-red-700' : ''" x-text="journeyStatusLabel(journeyDetail())"></span>
+            </p>
+            <p class="text-sm mt-1" x-show="journeyDetail().participantCharacterIds.length"><span class="opacity-60">Party:</span> <span x-text="journeyParticipantNames(journeyDetail())"></span></p>
+          </div>
+          <button @click="journeyCloseDetail()" class="text-xs px-2 py-1 border border-ink rounded hover:bg-gray-100">← all journeys</button>
+        </div>
+
+        <!-- text route (map mode #225 will render this graphically) -->
+        <div class="text-sm">
+          <span class="opacity-60">Route:</span>
+          <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span>
+          <template x-for="(wp,wi) in (journeyDetail().waypoints||[])" :key="'rt-'+wi"><span> → <span x-text="journeyHexLabel(wp.hexId)"></span></span></template>
+          <span> → </span><span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
+          <span class="opacity-50 text-xs ml-1">(text route — map mode #225 will draw it)</span>
+        </div>
+
+        <!-- supplies tracker -->
+        <div class="flex flex-wrap gap-4 text-sm border border-dashed border-ink rounded p-2">
+          <span>🍖 Food: <span class="font-semibold" x-text="(journeyDetail().supplies?.rations)||0"></span></span>
+          <span>💧 Water: <span class="font-semibold" x-text="(journeyDetail().supplies?.waterRations)||0"></span></span>
+          <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
+          <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) of supplies left'"></span>
+        </div>
+
+        <!-- actions -->
+        <div class="flex flex-wrap items-center gap-2">
+          <button @click="journeyTickDay()" class="px-3 py-1 border border-ink rounded bg-sky-100 hover:bg-sky-200 font-semibold text-sm" title="Advance one day through the shared day-tick pipeline (review + commit in the Day-tick panel, top-right)" x-show="journeyDetail().status==='in-transit'">🕑 Tick day</button>
+          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)">✖ Abort</button>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Tick routes through the Day Clock's propose → review → commit (top-right) — the same pipeline construction and every day consumer share.</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='arrived'">Arrived. ✓</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='aborted'">Aborted.</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins advancing once in-transit (start it via the day-tick once linked), or abort to discard.</span>
+        </div>
+
+        <!-- day log -->
+        <div>
+          <h3 class="font-semibold text-sm mb-1">Day log</h3>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — Tick day to advance.</p></template>
+          <div class="space-y-1">
+            <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
+              <div class="text-xs border-b border-dashed border-gray-300 py-0.5 flex flex-wrap gap-x-3 items-baseline">
+                <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
+                <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
+                <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
+                <span class="capitalize" x-text="d.pace"></span>
+                <span x-show="d.navigationThrow" x-text="d.navigationThrow ? ('nav ' + d.navigationThrow.rolled + '/' + d.navigationThrow.target + (d.navigationThrow.result==='success'?' ✓':' ✗ lost')) : ''"></span>
+                <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + ne.text"></span></template>
+              </div>
+            </template>
+          </div>
+          <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
+        </div>
+      </div>
+    </template>
+
+    <!-- ───── (C) LISTS (default) ───── -->
+    <template x-if="!journeyWizard.open && !journeyDetailId">
+      <div class="space-y-4">
+        <div class="flex items-baseline justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-bold text-xl">⛺ Journeys</h2>
+            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (JJ p.84), encounters. Drive them with the Day Clock (top-right).</p>
+          </div>
+          <button @click="startJourneyDeepLink({})" class="px-3 py-1 border border-ink rounded bg-yellow-300 hover:bg-yellow-400 font-semibold text-sm">🧭 Start a journey</button>
+        </div>
+
+        <!-- Active -->
+        <div class="vellum border border-ink rounded">
+          <div class="px-3 py-2 border-b border-ink font-semibold text-sm">Active <span class="opacity-60" x-text="'· ' + activeJourneys().length"></span></div>
+          <template x-if="activeJourneys().length===0"><p class="p-3 text-sm italic opacity-60">No active journeys. Start one above — or from a character sheet, a party, or a hex card.</p></template>
+          <template x-for="j in activeJourneys()" :key="j.id">
+            <div class="px-3 py-2 border-b border-dashed border-gray-300 flex items-center gap-2 hover:bg-yellow-50 cursor-pointer" @click="journeyOpenDetail(j.id)">
+              <span class="text-lg shrink-0" x-text="journeyModeIcon(j)"></span>
+              <div class="flex-grow min-w-0">
+                <div class="text-sm font-semibold truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></div>
+                <div class="text-xs opacity-70 truncate">
+                  <span x-text="journeyParticipantNames(j)"></span>
+                  · <span x-text="journeyHexLabel(j.currentHexId || j.startHexId)"></span> → <span x-text="journeyHexLabel(j.destinationHexId)"></span>
+                  · <span x-text="journeyDayLabel(j)"></span>
+                </div>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded shrink-0" :class="j.isLost ? 'bg-red-200' : (j.status==='planning' ? 'bg-gray-200' : 'bg-sky-100')" x-text="journeyStatusLabel(j)"></span>
+              <span class="text-xs shrink-0" :class="journeySupplyDaysLeft(j) < 3 ? 'text-red-700 font-semibold' : 'opacity-50'" title="approx. days of supplies left" x-text="'🍖' + journeySupplyDaysLeft(j) + 'd'"></span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Completed / aborted (collapsed) -->
+        <div class="vellum border border-ink rounded">
+          <button @click="journeyShowCompleted = !journeyShowCompleted" class="w-full text-left px-3 py-2 border-b border-ink font-semibold text-sm flex items-center justify-between">
+            <span>Completed &amp; aborted <span class="opacity-60" x-text="'· ' + completedJourneys().length"></span></span>
+            <span x-text="journeyShowCompleted ? '▾' : '▸'"></span>
+          </button>
+          <template x-if="journeyShowCompleted">
+            <div>
+              <template x-if="completedJourneys().length===0"><p class="p-3 text-sm italic opacity-60">Nothing finished yet.</p></template>
+              <template x-for="j in completedJourneys()" :key="j.id">
+                <div class="px-3 py-1.5 border-b border-dashed border-gray-300 flex items-center gap-2 hover:bg-yellow-50 cursor-pointer text-sm" @click="journeyOpenDetail(j.id)">
+                  <span class="shrink-0" x-text="j.status==='arrived' ? '✅' : '✖'"></span>
+                  <span class="flex-grow truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></span>
+                  <span class="text-xs opacity-60 shrink-0" x-text="j.status + ' · day ' + (j.currentDayIndex||0)"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
   </div>
 </div>
 
@@ -7574,7 +7805,7 @@ return {
   get activitiesSubTabs(){
     return [
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
-      { id:'journeys',       label:'⛺ Journeys',      ready: false, count: null, placeholderNote: 'Phase 2.5 — see Phase_2.5_Journeys_Plan.md' },
+      { id:'journeys',       label:'⛺ Journeys',      ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
@@ -7586,6 +7817,13 @@ return {
       this.activitiesSubView = 'ventures';
     }
   },
+  // ─── Phase 2.5 Journeys (#475 — J2) UI state ───────────────────────────────
+  // Start Journey is the ACTION verb (this wizard, in the Recruiting-Wizard shape).
+  // Inspector › Create is the ADMIN verb (J1 — free-form authoring). journeyDetailId
+  // opens the Detail panel; journeyWizard.open shows the wizard; neither ⇒ the lists.
+  journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null },
+  journeyDetailId: null,
+  journeyShowCompleted: false,
   // #447 — Faceted Roster filter. Four parallel axes intersect with AND.
   // Default lifecycleState:'active' hides deceased/retired by default
   // (replacing the old charactersShowDeceased checkbox, which was opt-in).
@@ -7877,6 +8115,164 @@ return {
     const coord = '(' + (h.coord?.q ?? 0) + ',' + (h.coord?.r ?? 0) + ')';
     const setName = h.settlement && h.settlement.name;
     return coord + (setName ? ' · ' + setName : '');
+  },
+
+  // ─── Phase 2.5 Journeys (#475 — J2) UI methods ─────────────────────────────
+  // Lists. 'planning' journeys (Inspector Admin-verb create) show in Active with a
+  // Start affordance so an authored-but-not-started journey isn't invisible.
+  activeJourneys(){ return (this.currentCampaign?.journeys||[]).filter(j => j && ['planning','in-transit','resting','lost'].includes(j.status)); },
+  completedJourneys(){ return (this.currentCampaign?.journeys||[]).filter(j => j && (j.status==='arrived'||j.status==='aborted')); },
+  journeyById(id){ return (this.currentCampaign?.journeys||[]).find(j => j && j.id === id) || null; },
+  journeyDetail(){ return this.journeyById(this.journeyDetailId); },
+  journeyHexLabel(id){ return this._journeyHexLabel(id); },
+  journeyParticipantNames(j){
+    if(!j) return '';
+    const names = (j.participantCharacterIds||[]).map(id => { const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return c ? (c.name||'(unnamed)') : id; });
+    if(!names.length) return '(no participants)';
+    return names.length <= 3 ? names.join(', ') : (names.slice(0,3).join(', ') + ' +' + (names.length-3) + ' more');
+  },
+  journeyModeIcon(j){
+    if(!j) return '🥾';
+    if(j.isLost) return '🧭';
+    if(j.status==='resting') return '⛺';
+    if((j.mode||'').startsWith('voyage-')) return '⛵';
+    if((j.mode||'').startsWith('aerial-')) return '🦅';
+    return '🥾';
+  },
+  journeyStatusLabel(j){ if(!j) return ''; return (j.status==='in-transit' && j.isLost) ? 'lost' : j.status; },
+  journeyDayLabel(j){
+    if(!j) return '';
+    const n = (j.currentDayIndex||0); const est = j.daysRemainingEstimate;
+    return est ? ('day ' + n + ' of ~' + (n + est)) : ('day ' + n);
+  },
+  journeySupplyDaysLeft(j){
+    const n = Math.max(1, (j?.participantCharacterIds||[]).length);
+    return Math.floor(Math.min((j?.supplies?.rations)||0, (j?.supplies?.waterRations)||0) / n);
+  },
+  // Attach this.domains so the engine's resolveHexAnywhere sees per-domain hexes (the UI
+  // keeps domains in this.domains; currentCampaign.domains stays empty) — same dance as
+  // _proposeDayTick. Restores after.
+  _journeyWithDomains(fn){
+    const _orig = this.currentCampaign.domains;
+    this.currentCampaign.domains = this.domains;
+    try { return fn(); } finally { this.currentCampaign.domains = _orig; }
+  },
+  // ── Pickers ──
+  journeyParticipantOptions(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.alive !== false); },
+  journeyPartyOptions(){ return (this.currentCampaign?.parties||[]).filter(p => p && p.status !== 'disbanded'); },
+  journeyHexOptions(){
+    const out=[]; const seen=new Set();
+    const add = (h)=>{ if(h && h.id && !seen.has(h.id)){ seen.add(h.id); out.push({ id:h.id, label:this._journeyHexLabel(h.id), q:(h.coord?.q??0), r:(h.coord?.r??0) }); } };
+    (this.currentCampaign?.hexes||[]).forEach(add);
+    (this.domains||[]).forEach(d => (d.geography?.hexes||[]).forEach(add));
+    return out.sort((a,b)=> a.q-b.q || a.r-b.r);
+  },
+  // ── Wizard (Action verb) ──
+  _journeyResetWizard(){ this.journeyWizard = { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null }; },
+  journeyToggleParticipant(id){ const a=this.journeyWizard.participantIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
+  journeyToggleWaypoint(id){ const a=this.journeyWizard.waypointIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
+  journeyOnPartyChange(){
+    const pid = this.journeyWizard.partyId; if(!pid) return;
+    const members = (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === pid).map(c=>c.id);
+    const set = new Set(this.journeyWizard.participantIds); members.forEach(id => set.add(id));
+    this.journeyWizard.participantIds = Array.from(set);
+    const pt = (this.currentCampaign?.parties||[]).find(p=>p.id===pid);
+    if(pt && pt.currentHexId && !this.journeyWizard.startHexId) this.journeyWizard.startHexId = pt.currentHexId;
+  },
+  journeyForecast(){
+    const w = this.journeyWizard;
+    if(!w.startHexId || !w.destinationHexId || w.startHexId===w.destinationHexId) return null;
+    try {
+      const tmp = { startHexId:w.startHexId, destinationHexId:w.destinationHexId, days:[] };
+      const dist = this._journeyWithDomains(() => window.ACKS.computeJourneyDistance(this.currentCampaign, tmp));
+      const totalHexes = dist.total||0;
+      const estDays = totalHexes>0 ? Math.max(1, Math.ceil(totalHexes/4)) : 0;
+      return { totalHexes, estDays, miles: totalHexes * (window.ACKS.JOURNEY_MILES_PER_HEX||6) };
+    } catch(e){ return null; }
+  },
+  startJourneySubmitDisabledReason(){
+    const w = this.journeyWizard;
+    if(!w.participantIds || w.participantIds.length===0) return 'Pick at least one participant (a character or a party).';
+    if(!w.startHexId) return 'Pick a start hex.';
+    if(!w.destinationHexId) return 'Pick a destination hex.';
+    if(w.startHexId === w.destinationHexId) return 'Start and destination are the same hex.';
+    return '';
+  },
+  startJourneyCanSubmit(){ return this.startJourneySubmitDisabledReason() === ''; },
+  // Deep-link contract (mirrors recruitDeepLink): opts {characterId?, partyId?, startHexId?}.
+  startJourneyDeepLink(opts){
+    opts = opts || {};
+    this._journeyResetWizard();
+    const origin = { view:this.currentView, charactersSubView:this.charactersSubView, activitiesSubView:this.activitiesSubView };
+    if(opts.characterId){
+      this.journeyWizard.participantIds = [opts.characterId];
+      const c = (this.currentCampaign?.characters||[]).find(x=>x.id===opts.characterId);
+      if(c && c.currentHexId) this.journeyWizard.startHexId = c.currentHexId;
+    }
+    if(opts.partyId){ this.journeyWizard.partyId = opts.partyId; this.journeyOnPartyChange(); }
+    if(opts.startHexId) this.journeyWizard.startHexId = opts.startHexId;
+    this.journeyWizard.origin = origin;
+    this.journeyWizard.open = true;
+    this.journeyDetailId = null;
+    this.currentView = 'activities';
+    this.activitiesSubView = 'journeys';
+  },
+  startJourneyCancel(){
+    const origin = this.journeyWizard.origin;
+    this._journeyResetWizard();
+    if(origin){
+      this.currentView = origin.view || 'activities';
+      this.activitiesSubView = origin.activitiesSubView || 'journeys';
+      if(origin.charactersSubView) this.charactersSubView = origin.charactersSubView;
+    }
+  },
+  startJourneySubmit(){
+    const reason = this.startJourneySubmitDisabledReason();
+    if(reason){ this.showToast(reason, 3000); return; }
+    const w = this.journeyWizard;
+    if(!Array.isArray(this.currentCampaign.journeys)) this.currentCampaign.journeys = [];
+    const j = window.ACKS.blankJourney({
+      name: (w.name||'').trim() || (this._journeyHexLabel(w.startHexId) + ' → ' + this._journeyHexLabel(w.destinationHexId)),
+      participantCharacterIds: w.participantIds.slice(),
+      partyId: w.partyId || null,
+      startHexId: w.startHexId,
+      destinationHexId: w.destinationHexId,
+      waypoints: (w.waypointIds||[]).map(id => ({ hexId:id, label:'', plannedPurpose:'' })),
+      mode: w.mode || 'foot',
+      pace: w.pace || 'normal',
+      supplies: { rations:Number(w.rations)||0, waterRations:Number(w.waterRations)||0, animalFeed:0, animalWater:0, shipStores:0 }
+    });
+    this.currentCampaign.journeys.push(j);
+    this._journeyWithDomains(() => window.ACKS.startJourney(this.currentCampaign, j));
+    this.markDirty(); this.schedulePersist();
+    const id = j.id;
+    this._journeyResetWizard();
+    this.journeyDetailId = id;
+    this.showToast('Journey started: ' + (j.name||'(unnamed)'));
+  },
+  // ── Detail ──
+  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
+  journeyCloseDetail(){ this.journeyDetailId = null; },
+  // Tick Day MUST route through the GLOBAL day-tick pipeline (shared with construction +
+  // every future day consumer) — NOT a journey-private tick; forking would desync them.
+  // This is just a convenience entry to the same propose → review → commit the Day Clock drives.
+  journeyTickDay(){ this.tickDay(); },
+  abortJourneyUI(j){
+    if(!j) return;
+    const reason = window.prompt('Abort "' + (j.name||'journey') + '"? Optional reason (Cancel keeps it going):', '');
+    if(reason === null) return;
+    window.ACKS.abortJourney(this.currentCampaign, j, (reason||'').trim() || null);
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Journey aborted.');
+  },
+  // ── Hex card ──
+  journeysThroughHex(hexId){
+    if(!hexId) return [];
+    return (this.currentCampaign?.journeys||[]).filter(j => {
+      if(!j || !['in-transit','resting','lost'].includes(j.status)) return false;
+      if(j.currentHexId===hexId || j.startHexId===hexId || j.destinationHexId===hexId) return true;
+      return (j.waypoints||[]).some(w => w && w.hexId===hexId);
+    });
   },
 
   // ─── Unified role + income + XP helpers (Roster + Officers) ──────────────
