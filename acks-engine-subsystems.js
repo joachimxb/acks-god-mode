@@ -2154,6 +2154,12 @@ function mapEdgeLayers(){
     { id:'trails',  label:'Trails' }
   ];
 }
+// The 9 ACKS base terrain types (RR p.272/275; §2.2) for the create-hex picker — the same set
+// the terrain fill palette and the travel/navigation catalogs key on. value = engine key
+// (lowercase, what the catalogs expect), label = Title Case for display.
+function mapTerrainTypes(){
+  return Object.keys(HEX_TERRAIN_COLORS).map(k => ({ value: k, label: k.charAt(0).toUpperCase() + k.slice(1) }));
+}
 
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
@@ -2167,7 +2173,7 @@ Object.assign(ACKS, {
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel,
-  hexNeighborDeltas, hexEdgePoints, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers,
+  hexNeighborDeltas, hexEdgePoints, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 

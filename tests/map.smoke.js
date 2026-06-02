@@ -220,6 +220,11 @@ check('glyph scale is non-decreasing with families', (() => {
 check('a metropolis glyph is larger than a hamlet glyph', ACKS.settlementGlyphScale(40000) > ACKS.settlementGlyphScale(40));
 check('5 symbol layers (settlements/strongholds/lairs/dungeons/pois)', ACKS.mapSymbolLayers().length === 5 && ACKS.mapSymbolLayers()[0].id === 'settlements');
 check('4 edge layers (borders/roads/rivers/trails)', ACKS.mapEdgeLayers().length === 4 && ACKS.mapEdgeLayers()[0].id === 'borders');
+check('mapTerrainTypes: the 9 ACKS base types, value+label', (() => {
+  const tt = ACKS.mapTerrainTypes();
+  return tt.length === 9 && tt.every(t => t.value && t.label) && tt.find(t => t.value === 'grassland').label === 'Grassland';
+})());
+check('mapTerrainTypes values are all recognized by hexFillColor (terrain)', ACKS.mapTerrainTypes().every(t => ACKS.hexFillColor({ terrain: t.value }, 'terrain') !== ACKS.hexFillColor({ terrain: 'lava' }, 'terrain')));
 
 // ─── M6 extra fill layers (population / morale / secured / economy / exploration) ───
 section('hexFillColor — M6 layers + ctx');

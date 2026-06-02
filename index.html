@@ -629,6 +629,13 @@ document.addEventListener('alpine:init', () => {
             <option :value="d.id" x-text="d.name"></option>
           </template>
         </select>
+        <span>· terrain:</span>
+        <select x-model="mapCreateTerrain" class="border border-ink rounded px-2 py-0.5">
+          <option value="">— unset —</option>
+          <template x-for="t in mapTerrainTypes()" :key="t.value">
+            <option :value="t.value" x-text="t.label"></option>
+          </template>
+        </select>
         <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300">Create</button>
         <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
       </div>
@@ -11011,6 +11018,7 @@ return {
   mapShowEmptyCells: false,  // M5 — faint addable cells for click-to-create
   mapCreateAt: null,         // {q,r} when the create-hex picker is open
   mapCreateDomainId: '',     // chosen domain for the new hex ('' = unclaimed wilderness)
+  mapCreateTerrain: '',      // chosen terrain for the new hex ('' = unset)
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11040,6 +11048,7 @@ return {
   mapFillLayers(){ return window.ACKS.hexFillLayers(); },
   mapSymbolLayers(){ return window.ACKS.mapSymbolLayers(); },
   mapEdgeLayers(){ return window.ACKS.mapEdgeLayers(); },
+  mapTerrainTypes(){ return window.ACKS.mapTerrainTypes(); },
   mapLegend(){ return window.ACKS.hexFillLegend(this.mapFillLayer, this.domains); },
   // Per-domain aggregates for the domain-aware fills (secured/morale) — the engine has no campaign
   // reference, so the UI precomputes these and hands them to hexFillColor as ctx (computed once/render).
@@ -11189,12 +11198,12 @@ return {
     return routes;
   },
   // M5 create-hex flow — open the picker on an empty cell, then create into a domain or unclaimed.
-  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapCreateDomainId = ''; },
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; },
   mapCancelCreate(){ this.mapCreateAt = null; },
   mapCreateHex(){
     const at = this.mapCreateAt; if(!at) return;
     const coord = { q: at.q, r: at.r };
-    const hex = window.ACKS.blankHex({ coord });
+    const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '' });
     const domId = this.mapCreateDomainId || '';
     if(domId){
       const d = this.domains.find(x => x.id === domId);
