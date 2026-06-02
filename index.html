@@ -10981,15 +10981,19 @@ return {
   worldHexEditingHex(){
     if(!this.worldHexEditing) return null;
     const d = this.domains.find(x => x.id === this.worldHexEditing.domainId);
-    if(!d) return null;
-    return d.geography?.hexes?.[this.worldHexEditing.hexIndex] || null;
+    const viaIndex = d ? (d.geography?.hexes?.[this.worldHexEditing.hexIndex] || null) : null;
+    if(viaIndex) return viaIndex;
+    // Domainless / unindexed hex (e.g. a wilderness hex opened from the Map) — resolve by id
+    // from the top-level collection so the full hex card works for it too.
+    const id = this.worldHexEditing.hexId;
+    return id ? ((this.currentCampaign?.hexes || []).find(h => h.id === id) || null) : null;
   },
   worldHexEditingDomain(){
     if(!this.worldHexEditing) return null;
     return this.domains.find(x => x.id === this.worldHexEditing.domainId) || null;
   },
   openHexDetail(entry){
-    this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex};
+    this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex, hexId:(entry.hex && entry.hex.id) || null};
     this.showHexDetailModal = true;
   },
   closeHexDetail(){
@@ -11024,8 +11028,8 @@ return {
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
-  // wilderness hexes (campaign.hexes[] with no domain match) render too but can't open the
-  // existing card yet (that arrives with the create-hex slice, M5).
+  // wilderness hexes (campaign.hexes[] with no domain match) render too and open the full hex
+  // card by id (worldHexEditingHex resolves them via campaign.hexes — domainId/hexIndex are null).
   mapHexEntries(){
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const out = [], seen = new Set();
@@ -11378,11 +11382,8 @@ return {
       this.mapEditExistingHex(entry);
       return;
     }
-    // inspect mode (default) — open the EXISTING hex card (no second editor).
-    if(entry.domainless || entry.hexIndex < 0){
-      this.showToast('This wilderness hex isn’t in a domain yet — editing domainless hexes from the map arrives with the create-hex slice. For now, add it to a domain via Domains → Hexes.', 6000);
-      return;
-    }
+    // inspect mode (default) — open the EXISTING hex card (no second editor). Works for domainless
+    // wilderness hexes too: worldHexEditingHex() resolves them by id from campaign.hexes.
     this.openHexDetail({ domainId:entry.domainId, hexIndex:entry.hexIndex, hex:entry.hex, domainName:entry.domainName });
   },
   // Public seam for future callers (Journey planner, generation wizards): put the map into
