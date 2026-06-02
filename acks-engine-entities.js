@@ -256,7 +256,7 @@ function blankHex(opts={}){
     hasRoad: opts.hasRoad === true,        // legacy COARSE travel flag (×3/2 speed, RR p.272) read by the
                                            // current distance-based journey engine. The per-side roadSides[]
                                            // below is the precise map geometry; hex-by-hex journeys will
-                                           // derive the road bonus from it (Phase_2.5_Journeys_Plan §21).
+                                           // derive the road bonus from it (Phase_2.5_Journeys_Plan §24).
     hasTrail: opts.hasTrail === true,      // marked trail — eases navigation but no speed bonus
     // #225 Map Mode "Add/Edit hexes" — per-side CARTOGRAPHY (which of the 6 hex sides, 0..5, carry a
     // feature; edge indexing matches hexEdgePoints / HEX_EDGE_DELTAS). riverSides: a river runs ALONG the
@@ -264,7 +264,7 @@ function blankHex(opts={}){
     // (circular bends). crossingSides: a ford/bridge ON a river edge that negates the barrier (a road that
     // crosses a river edge is an implicit bridge — drawn, not stored here). These are map-drawing truth;
     // the travel EFFECTS (road bonus, river barrier + RAW fording) are documented for hex-by-hex journeys
-    // (Phase_2.5_Journeys_Plan §21), not yet wired into the current engine. (riverCount dropped #225 —
+    // (Phase_2.5_Journeys_Plan §24), not yet wired into the current engine. (riverCount dropped #225 —
     // it cited a non-existent RAW rule and was unused; RAW crossing = Swimming throws, RR p.271.)
     roadSides: Array.isArray(opts.roadSides) ? opts.roadSides.slice() : [],
     riverSides: Array.isArray(opts.riverSides) ? opts.riverSides.slice() : [],

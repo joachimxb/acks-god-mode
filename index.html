@@ -11165,7 +11165,7 @@ return {
       // bends); fall back to the legacy auto-network (spokes toward like-roaded neighbours) for hexes
       // carrying only the legacy hasRoad flag. roadSides is CARTOGRAPHIC and independent of hasRoad
       // (the coarse travel flag); hex-by-hex journeys will derive the road bonus from roadSides
-      // (Phase_2.5_Journeys_Plan §21). They don't connect through the legacy network — by design.
+      // (Phase_2.5_Journeys_Plan §24). They don't connect through the legacy network — by design.
       if(this.mapEdgeToggles.roads){
         const rs = e.hex.roadSides || [];
         if(rs.length){
@@ -11180,7 +11180,7 @@ return {
       // RIVERS (#225) — drawn ALONG the chosen edges (a movement barrier). Plus CROSSINGS (ford/bridge):
       // a short brown mark across the river where the GM placed a ford/bridge (crossingSides) OR where a
       // road crosses the river edge (roadSides ∩ riverSides — an implicit bridge). The river BARRIER + the
-      // RAW fording cost are documented for hex-by-hex journeys (Phase_2.5_Journeys_Plan §21), not yet wired.
+      // RAW fording cost are documented for hex-by-hex journeys (Phase_2.5_Journeys_Plan §24), not yet wired.
       if(this.mapEdgeToggles.rivers){
         const vs = e.hex.riverSides || [], cross = e.hex.crossingSides || [], rsR = e.hex.roadSides || [];
         A.hexRiverSegments(q, r, size, vs).forEach(s => parts.push('<line x1="'+s.x1.toFixed(1)+'" y1="'+s.y1.toFixed(1)+'" x2="'+s.x2.toFixed(1)+'" y2="'+s.y2.toFixed(1)+'" stroke="#3f73b8" stroke-width="'+(size*0.09).toFixed(2)+'" stroke-linecap="round" style="pointer-events:none;"/>'));
@@ -11402,7 +11402,7 @@ return {
       if(hex){
         this.mapRehomeHex(hex, this.mapCreateDomainId || '');
         hex.terrain = this.mapCreateTerrain || '';
-        hex.roadSides = (this.mapCreateRoadSides || []).slice(); // CARTOGRAPHIC; hasRoad (travel flag) left untouched — see Phase_2.5_Journeys_Plan §21
+        hex.roadSides = (this.mapCreateRoadSides || []).slice(); // CARTOGRAPHIC; hasRoad (travel flag) left untouched — see Phase_2.5_Journeys_Plan §24
         this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides);
         this.markDirty(); this.schedulePersist();
         const d = this.mapCreateDomainId ? this.domains.find(x => x.id === this.mapCreateDomainId) : null;
