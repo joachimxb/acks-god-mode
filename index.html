@@ -2395,14 +2395,14 @@ document.addEventListener('alpine:init', () => {
                 <td class="text-sm" x-text="ventureStatusLabel(v)"></td>
                 <td class="text-sm">
                   <template x-if="v.status==='in-transit'">
-                    <span :class="(v.expectedArrivalTurn||0) <= (currentCampaign?.currentTurn||1) ? 'accent-amber font-semibold' : ''" x-text="(v.expectedArrivalTurn||0) <= (currentCampaign?.currentTurn||1) ? 'ARRIVED' : ('arrives Turn ' + (v.expectedArrivalTurn||'?'))"></span>
+                    <span :class="(v.expectedArrivalTurn||0) <= (currentCampaign?.currentTurn||1) ? 'accent-amber font-semibold' : ''" :title="'Expected arrival: Turn ' + (v.expectedArrivalTurn||'?')" x-text="(() => { const left=(v.expectedArrivalTurn||0)-(currentCampaign?.currentTurn||1); return left<=0 ? 'ARRIVED' : ('in ' + left + ' turn' + (left===1?'':'s')); })()"></span>
                   </template>
                   <template x-if="v.status==='selling'">
                     <span x-text="'arrived Turn ' + (v.arrivalTurn||'?')"></span>
                   </template>
                 </td>
                 <td class="text-right text-sm">
-                  <button @click="advanceVentureStatus(v)" class="underline mr-2" x-text="v.status==='in-transit' ? '→ arrive' : '→ sell'"></button>
+                  <button @click="advanceVentureStatus(v)" class="underline mr-2" :title="(v.status==='in-transit' && (v.expectedArrivalTurn||0) > (currentCampaign?.currentTurn||1)) ? 'GM override: force arrival now, before the expected turn' : ''" x-text="v.status==='in-transit' ? (((v.expectedArrivalTurn||0) > (currentCampaign?.currentTurn||1)) ? 'GM-arrive' : '→ arrive') : '→ sell'"></button>
                   <button @click="abortVenture(v)" class="underline accent-red" title="Abort and book full loss">abort</button>
                 </td>
               </tr>
@@ -2498,7 +2498,7 @@ document.addEventListener('alpine:init', () => {
             </tr>
           </tbody>
         </table>
-        <p class="text-sm opacity-70 mt-2 italic">Per RAW (RR pp.370-380), a named venturer can run only one active arbitrage venture at a time. Multiple-active is allowed via guildhouse followers (9th level) or by registering different venturer names (e.g., "Caleför's Apprentice"). Creating a venture for a venturer already in transit prompts a confirmation.</p>
+        <p class="text-sm opacity-70 mt-2 italic">Per RAW (RR pp.370-380), a named venturer can run only one active arbitrage venture at a time. A character already away on a venture (or a journey) is hidden from the New-venture picker until they return; to run concurrent ventures, register a separate venturer (a guildhouse follower at 9th level, or a differently-named henchman like "Caleför's Apprentice") as their own character.</p>
       </template>
     </div>
 
@@ -3035,7 +3035,7 @@ document.addEventListener('alpine:init', () => {
             <label class="opacity-70">Add traveller:</label>
             <select @change="journeyAddParticipant($event.target.value); $event.target.value=''" class="border border-ink rounded px-2 py-0.5">
               <option value="">— pick a character —</option>
-              <template x-for="c in journeyParticipantOptions()" :key="c.id"><option :value="c.id" x-text="(c.name||'(unnamed)') + (c.currentJourneyId ? ' · on a journey' : '')"></option></template>
+              <template x-for="c in journeyParticipantOptions()" :key="c.id"><option :value="c.id" x-text="c.name||'(unnamed)'"></option></template>
             </select>
             <span class="text-xs italic opacity-50" x-show="journeyParticipantOptions().length===0" x-text="journeyWizard.startHexId ? ('No more unattached characters at ' + journeyHexLabel(journeyWizard.startHexId) + ' — change the start hex, or pick a party above.') : 'No unattached characters — add one in the Characters tab, or pick a party above.'"></span>
           </div>
@@ -4530,7 +4530,10 @@ document.addEventListener('alpine:init', () => {
         <template x-if="characterJourneyOf(characterEditing)">
           <button @click="openJourneyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-50 hover:bg-sky-100 text-xs" title="Open this character's journey">🧭 On journey: <span class="font-semibold" x-text="characterJourneyOf(characterEditing).name || '(journey)'"></span> →</button>
         </template>
-        <template x-if="!characterJourneyOf(characterEditing)">
+        <template x-if="!characterJourneyOf(characterEditing) && characterActiveVenture(characterEditing)">
+          <button @click="openVenturesForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-50 hover:bg-sky-100 text-xs" title="Away on a venture — can't start a journey until it resolves">🛒 On venture →</button>
+        </template>
+        <template x-if="!characterJourneyOf(characterEditing) && !characterActiveVenture(characterEditing)">
           <button @click="startJourneyForCharacter(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200 text-xs" :title="characterPartyOf(characterEditing) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 <span x-text="characterPartyOf(characterEditing) ? 'Start party journey' : 'Start journey'"></span></button>
         </template>
       </div>
@@ -6364,10 +6367,11 @@ document.addEventListener('alpine:init', () => {
         <label class="block text-sm">Venturer
           <select x-model="ventureDraft.venturerCharacterId" @change="onVentureVenturerChange()" class="w-full">
             <option value="">— pick a character —</option>
-            <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false)" :key="c.id">
+            <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false && !characterIsTravelCommitted(c))" :key="c.id">
               <option :value="c.id" x-text="c.name + ' · ' + (c.class||'—') + ' L' + (c.level||1) + ' · ' + ACKS.displayKind(c) + (c.class==='Venturer'?' ⚖':'')"></option>
             </template>
           </select>
+          <span class="text-xs italic opacity-50 block" x-show="(currentCampaign?.characters||[]).filter(c=>c.alive!==false && !characterIsTravelCommitted(c)).length===0">Every character is already away on a venture or journey — they're eligible again once they return.</span>
           <span class="text-sm opacity-60 block mt-1">Venturer-class characters get class powers (RR p.43). Non-venturers can still launch ventures.
             <button @click="openNewCharacterEditor({class:'Venturer', kind:'NPC'})" class="underline ml-1">+ new venturer</button>
           </span>
@@ -8454,6 +8458,7 @@ return {
     const startHex = this.journeyWizard?.startHexId || null;
     return (this.currentCampaign?.characters||[]).filter(c =>
       c && c.alive !== false && !c.partyId && !chosen.has(c.id) &&
+      !this.characterIsTravelCommitted(c) &&
       (!startHex || c.currentHexId === startHex));
   },
   journeyParticipantName(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return (c&&c.name)||'(unknown)'; },
@@ -9171,6 +9176,9 @@ return {
   },
   // Active venture for this character (if any)
   characterActiveVenture(c){if(!c)return null;return (this.currentCampaign?.ventures||[]).find(v=>v.venturerCharacterId===c.id && (v.status==='in-transit'||v.status==='selling')) || null;},
+  // A character is "away" / committed while on an active venture (in-transit or selling) OR on an
+  // active journey — they can't be picked for a NEW venture or journey until they're back.
+  characterIsTravelCommitted(c){ return !!(c && (c.currentJourneyId || this.characterActiveVenture(c))); },
   // Party membership
   characterParty(c){if(!c||!c.partyId)return null;return (this.currentCampaign?.parties||[]).find(p=>p.id===c.partyId)||null;},
   // Location string for display
@@ -10278,6 +10286,12 @@ return {
     if(!ch || !ch.currentJourneyId) return;
     this.closeCharacterEditor();
     this.journeyOpenDetail(ch.currentJourneyId);
+  },
+  // Jump to Activities › Ventures (where this character's active venture is listed).
+  openVenturesForCharacter(ch){
+    this.closeCharacterEditor();
+    this.currentView = 'activities';
+    this.activitiesSubView = 'ventures';
   },
   // Start a journey FROM a character: if they're in a party, set up the journey for the whole
   // party (prefills its members + start hex); otherwise just this character.
