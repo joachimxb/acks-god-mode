@@ -3015,9 +3015,11 @@ document.addEventListener('alpine:init', () => {
           <div class="wizard-step-header"><span class="font-semibold">Participants</span> <span class="text-xs opacity-60">— who travels (the participant set is the source of truth)</span></div>
           <div class="mb-2 text-sm">
             <label class="opacity-70">Party (optional — autofills its members):</label>
-            <select x-model="journeyWizard.partyId" @change="journeyOnPartyChange()" class="ml-2 border border-ink rounded px-2 py-0.5">
-              <option value="">— none —</option>
-              <template x-for="p in journeyPartyOptions()" :key="p.id"><option :value="p.id" x-text="p.name||'(unnamed party)'"></option></template>
+            <!-- @change + :selected (not x-model): x-for-rendered options don't pre-select a
+                 deep-link-prefilled value under x-model (the party/start hex set before render). -->
+            <select @change="journeyWizard.partyId = $event.target.value; journeyOnPartyChange()" class="ml-2 border border-ink rounded px-2 py-0.5">
+              <option value="" :selected="!journeyWizard.partyId">— none —</option>
+              <template x-for="p in journeyPartyOptions()" :key="p.id"><option :value="p.id" :selected="journeyWizard.partyId === p.id" x-text="p.name||'(unnamed party)'"></option></template>
             </select>
           </div>
           <div class="wizard-eligibility-list max-h-40 overflow-auto border border-ink rounded p-2">
@@ -3039,16 +3041,16 @@ document.addEventListener('alpine:init', () => {
           <div class="flex flex-wrap gap-3 items-end text-sm">
             <div>
               <label class="opacity-70 block text-xs">Start hex</label>
-              <select x-model="journeyWizard.startHexId" class="border border-ink rounded px-2 py-0.5">
-                <option value="">— pick —</option>
-                <template x-for="h in journeyHexOptions()" :key="'s-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+              <select @change="journeyWizard.startHexId = ($event.target.value || '')" class="border border-ink rounded px-2 py-0.5">
+                <option value="" :selected="!journeyWizard.startHexId">— pick —</option>
+                <template x-for="h in journeyHexOptions()" :key="'s-'+h.id"><option :value="h.id" :selected="journeyWizard.startHexId === h.id" x-text="h.label"></option></template>
               </select>
             </div>
             <div>
               <label class="opacity-70 block text-xs">Destination hex</label>
-              <select x-model="journeyWizard.destinationHexId" class="border border-ink rounded px-2 py-0.5">
-                <option value="">— pick —</option>
-                <template x-for="h in journeyHexOptions()" :key="'d-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+              <select @change="journeyWizard.destinationHexId = ($event.target.value || '')" class="border border-ink rounded px-2 py-0.5">
+                <option value="" :selected="!journeyWizard.destinationHexId">— pick —</option>
+                <template x-for="h in journeyHexOptions()" :key="'d-'+h.id"><option :value="h.id" :selected="journeyWizard.destinationHexId === h.id" x-text="h.label"></option></template>
               </select>
             </div>
             <div>
