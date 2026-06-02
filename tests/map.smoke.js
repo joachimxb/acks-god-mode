@@ -113,6 +113,17 @@ check('negative column carries "-"', ACKS.hexDisplayLabel(-1, 1) === '-0100');
 check('two-digit zero pad (even-q: col 8, row 1+4=5)', ACKS.hexDisplayLabel(8, 1) === '0805');
 check('determinism', ACKS.hexDisplayLabel(4, -2) === ACKS.hexDisplayLabel(4, -2));
 
+// ─── hexName — the canonical display name (Settlement|Terrain + coords) ───
+section('hexName (display naming standard)');
+check('settlement hex → "Name (coords)"', ACKS.hexName({ coord:{q:0,r:0}, settlement:{name:'Saltspur'}, terrain:'plains' }) === 'Saltspur (0000)');
+check('settlement wins over terrain', ACKS.hexName({ coord:{q:1,r:0}, settlement:{name:'Northwatch'}, terrain:'hills' }) === 'Northwatch (0100)');
+check('terrain hex (no settlement) → "Terrain (coords)", Title-cased', ACKS.hexName({ coord:{q:1,r:0}, terrain:'forest' }) === 'Forest (0100)');
+check('lowercase terrain is Title-cased', ACKS.hexName({ coord:{q:0,r:1}, terrain:'coast' }) === 'Coast (0001)');
+check('no settlement + no terrain → coords only', ACKS.hexName({ coord:{q:-3,r:1} }) === '-03-01');
+check('negative coords format', ACKS.hexName({ coord:{q:-1,r:1}, terrain:'swamp' }) === 'Swamp (-0100)');
+check('null hex → empty string', ACKS.hexName(null) === '');
+check('determinism', ACKS.hexName({ coord:{q:2,r:2}, terrain:'desert' }) === ACKS.hexName({ coord:{q:2,r:2}, terrain:'desert' }));
+
 // ─── hexFillColor — TERRAIN ───
 section('hexFillColor — terrain');
 check('default layer falls to terrain', ACKS.hexFillColor({ terrain: 'forest' }) === ACKS.hexFillColor({ terrain: 'forest' }, 'terrain'));

@@ -358,7 +358,7 @@ document.addEventListener('alpine:init', () => {
           <template x-for="entry in filteredHexes()" :key="entry.domainId + ':' + entry.hexIndex">
             <tr>
               <td>
-                <button @click="openHexDetail(entry)" class="underline font-mono font-semibold">(<span x-text="entry.hex.coord?.q||0"></span>,<span x-text="entry.hex.coord?.r||0"></span>)</button>
+                <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="window.ACKS.hexName(entry.hex)"></button>
               </td>
               <td class="text-base">
                 <button @click="selectedDomainId=entry.domainId; currentView='domains'" class="underline" x-text="entry.domainName"></button>
@@ -1319,7 +1319,7 @@ document.addEventListener('alpine:init', () => {
                   <tr>
                     <!-- (1) Hex coord: clean link — opens the detail modal for editing. -->
                     <td class="whitespace-nowrap">
-                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-mono font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)">(<span x-text="h.coord?.q||0"></span>,<span x-text="h.coord?.r||0"></span>)</button>
+                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline font-semibold" title="Open hex detail (coords, terrain, lairs, dungeons, POIs, notes)" x-text="window.ACKS.hexName(h)"></button>
                     </td>
                     <!-- (2) Class: plain text. Derived from domain (or per-hex families when the house rule is on). -->
                     <td x-text="effectiveHexClassification(selectedDomain, h)"></td>
@@ -5832,10 +5832,7 @@ document.addEventListener('alpine:init', () => {
   <div class="modal-panel">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">
-        🗺 Hex
-        <span class="font-mono" x-show="worldHexEditingHex()">
-          (<span x-text="worldHexEditingHex()?.coord?.q||0"></span>,<span x-text="worldHexEditingHex()?.coord?.r||0"></span>)
-        </span>
+        🗺 <span x-text="worldHexEditingHex() ? window.ACKS.hexName(worldHexEditingHex()) : 'Hex'"></span>
         <span class="text-sm opacity-70 font-normal" x-show="worldHexEditingDomain()"> · <span x-text="worldHexEditingDomain()?.name||''"></span></span>
       </h2>
       <button @click="closeHexDetail()" class="text-xl px-2">×</button>
@@ -8492,9 +8489,7 @@ return {
       }
     }
     if(!h) return hexId;
-    const coord = '(' + (h.coord?.q ?? 0) + ',' + (h.coord?.r ?? 0) + ')';
-    const setName = h.settlement && h.settlement.name;
-    return coord + (setName ? ' · ' + setName : '');
+    return window.ACKS.hexName(h) || hexId;   // canonical hex name (Architecture §11.3)
   },
 
   // ─── Phase 2.5 Journeys (#475 — J2) UI methods ─────────────────────────────
@@ -9346,8 +9341,10 @@ return {
     if(c.currentHexId){
       for(const d of (this.domains||[])){
         const hex = (d.geography?.hexes||[]).find(h => h.id === c.currentHexId);
-        if(hex){ return 'hex ('+hex.coord.q+','+hex.coord.r+') in '+d.name; }
+        if(hex){ return window.ACKS.hexName(hex) + ' in ' + d.name; }
       }
+      const wild = (this.currentCampaign?.hexes||[]).find(h => h.id === c.currentHexId);
+      if(wild) return window.ACKS.hexName(wild);
       return 'hex '+c.currentHexId;
     }
     return '—';
@@ -11068,11 +11065,10 @@ return {
   },
   mapHexTitle(entry){
     const h = entry.hex;
-    const bits = [entry.label];
-    if(h.terrain) bits.push(h.terrain);
+    const bits = [window.ACKS.hexName(h) || entry.label];      // canonical hex name (Architecture §11.3)
+    if(h.settlement && h.settlement.name && h.terrain) bits.push(h.terrain); // terrain isn't in the name → show it
     bits.push(entry.domainName || (entry.domainless ? 'unclaimed' : ''));
     if(h.valuePerFamily != null) bits.push(h.valuePerFamily + ' gp/family');
-    if(h.settlement?.name) bits.push('⌂ ' + h.settlement.name);
     return bits.filter(Boolean).join('  ·  ');
   },
   // Build the full SVG inner markup (all hexes) as a string for x-html. Re-renders reactively
@@ -12826,15 +12822,14 @@ return {
     if(!ch) return '—';
     const hexId = ch.currentHexId;
     if(!hexId) return '—';
+    // domained hex (nested geography) → "<hex name> · <domain>" (canonical hex name, Architecture §11.3)
     for(const d of (this.domains||[])){
-      const hexes = d.geography?.hexes || [];
-      for(const h of hexes){
-        if(h.id === hexId){
-          const setName = h.settlement && h.settlement.name;
-          return '(' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')' + (setName ? ' · ' + setName : '') + ' · ' + d.name;
-        }
-      }
+      const h = (d.geography?.hexes||[]).find(x => x.id === hexId);
+      if(h) return window.ACKS.hexName(h) + ' · ' + d.name;
     }
+    // domainless wilderness hex (top-level only)
+    const wild = (this.currentCampaign?.hexes||[]).find(x => x.id === hexId);
+    if(wild) return window.ACKS.hexName(wild);
     return '(unknown hex)';
   },
 

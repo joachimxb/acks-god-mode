@@ -1975,6 +1975,27 @@ function hexDisplayLabel(q, r){
   return pad(col) + pad(row);
 }
 
+// THE canonical hex display name — used everywhere a hex is referred to in prose (the hex card,
+// World › Hexes, Activities, journey routes, character location). Standard (Architecture §11.3):
+//   • a hex with a settlement →  "<Settlement> (<coords>)"   e.g. "Saltspur (0000)"
+//   • else a hex with terrain →  "<Terrain> (<coords>)"      e.g. "Forest (0100)"
+//   • else                     →  "<coords>"                  e.g. "0301"
+// <coords> is the RAW column-row label (hexDisplayLabel). This does NOT replace the bare
+// column-row number drawn at the top of each hex on the map. Terrain is Title-cased; the domain
+// is NOT part of the name (callers add "in <domain>" separately where useful).
+function hexName(hex){
+  if(!hex) return '';
+  const coords = hex.coord ? hexDisplayLabel(hex.coord.q, hex.coord.r) : '';
+  const settlement = (hex.settlement && hex.settlement.name) ? String(hex.settlement.name).trim() : '';
+  let base = settlement;
+  if(!base && hex.terrain){
+    const t = String(hex.terrain).trim();
+    base = t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+  }
+  if(!base) return coords;
+  return coords ? (base + ' (' + coords + ')') : base;
+}
+
 // ── Fill-layer palettes (M2). Color a hex by one attribute at a time. ──
 const HEX_TERRAIN_COLORS = Object.freeze({
   barrens:'#cdbfa6', desert:'#e7d9a0', forest:'#3f7d4e', grassland:'#9cc46b',
@@ -2172,7 +2193,7 @@ Object.assign(ACKS, {
   findPersistentCandidates, computeEffectiveLoyalty,
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
-  MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel,
+  MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel, hexName,
   hexNeighborDeltas, hexEdgePoints, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
