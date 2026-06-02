@@ -746,6 +746,9 @@ function migrateCampaign(raw){
   // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
   // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
   migrateAgriculturalToProjects(current);
+  // #521 follow-up — rebuild each party's member mirror + validate leader from the
+  // character.partyId truth (Architecture §3.3). Idempotent; no-op on party-less templates.
+  reconcilePartyMembership(current);
   return current;
 }
 
@@ -1427,15 +1430,15 @@ function stashesAccessibleToCharacter(campaign, characterId){
       if(st.ownerCharacterId === characterId) out.push(st);
     }
   }
-  // Party stashes for parties this character is a member of
-  if(Array.isArray(campaign.parties) && Array.isArray(campaign.stashes)){
-    const memberPartyIds = campaign.parties
-      .filter(p => Array.isArray(p.memberCharacterIds) && p.memberCharacterIds.includes(characterId))
-      .map(p => p.id);
-    if(memberPartyIds.length){
-      const memberSet = new Set(memberPartyIds);
+  // Party stashes for the party this character belongs to. character.partyId is the canonical
+  // membership truth (Architecture §3.3); read it directly so this works even before
+  // reconcilePartyMembership has rebuilt the party.memberCharacterIds mirror.
+  if(Array.isArray(campaign.stashes)){
+    const ch = Array.isArray(campaign.characters) ? campaign.characters.find(c => c && c.id === characterId) : null;
+    const myPartyId = ch && ch.partyId;
+    if(myPartyId){
       for(const st of campaign.stashes){
-        if(st.ownerPartyId && memberSet.has(st.ownerPartyId)) out.push(st);
+        if(st.ownerPartyId === myPartyId) out.push(st);
       }
     }
   }
@@ -4515,12 +4518,31 @@ function partiesInDomain(campaign, domainId){
 function activeParties(campaign){
   return (campaign && Array.isArray(campaign.parties)) ? campaign.parties.filter(p => p && p.status !== 'disbanded') : [];
 }
+// Reconcile each party's stored member mirror + leader from the canonical truth
+// (character.partyId). Per Architecture §3.3 the live membership is the reverse index
+// character.partyId; party.memberCharacterIds is a derived mirror kept in the saved JSON so a
+// party is self-describing for integrators (principle #7). This rebuilds the mirror and
+// guarantees leaderCharacterId points at an actual current member (or null). Idempotent —
+// runs in migrateCampaign and after each UI membership mutation. (#521 follow-up, 2026-06-02.)
+function reconcilePartyMembership(campaign){
+  if(!campaign || !Array.isArray(campaign.parties)) return campaign;
+  const chars = Array.isArray(campaign.characters) ? campaign.characters : [];
+  for(const pt of campaign.parties){
+    if(!pt) continue;
+    const members = chars.filter(c => c && c.partyId === pt.id).map(c => c.id);
+    pt.memberCharacterIds = members;
+    if(!pt.leaderCharacterId || !members.includes(pt.leaderCharacterId)){
+      pt.leaderCharacterId = members.length ? members[0] : null;
+    }
+  }
+  return campaign;
+}
 
 const ACKS = Object.assign(global.ACKS || {}, {
   // Engine helpers
   isHouseRuleEnabled,
-  // #521 Party-as-actor helpers (2026-05-30)
-  findParty, partiesAtHex, partiesAtSettlement, partiesInDomain, activeParties,
+  // #521 Party-as-actor helpers (2026-05-30) + membership reconcile (2026-06-02)
+  findParty, partiesAtHex, partiesAtSettlement, partiesInDomain, activeParties, reconcilePartyMembership,
   // #528 Event Context Envelope (Architecture.md §3.5 Wave Hex-history — 2026-05-30)
   hexHistory, settlementHistory, constructibleHistory, groupHistory, notableItemHistory,
   domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory,

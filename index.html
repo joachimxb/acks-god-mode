@@ -10392,6 +10392,7 @@ return {
     if(!ch)return;
     ch.partyId = pt.id;
     if(!pt.leaderCharacterId) pt.leaderCharacterId = ch.id;   // first member founds/leads
+    window.ACKS.reconcilePartyMembership(this.currentCampaign);   // keep the memberCharacterIds mirror live (#521)
   },
   removeCharacterFromParty(ch){
     if(!ch)return;
@@ -10405,6 +10406,7 @@ return {
         pt.leaderCharacterId = others.length ? others[0].id : null;
       }
     }
+    window.ACKS.reconcilePartyMembership(this.currentCampaign);   // rebuild mirror + re-validate leader (#521)
   },
   // Hand party leadership to a member — logged via gm-fiat ("Made <ch> leader of <party> …").
   makePartyLeader(pt, ch){
