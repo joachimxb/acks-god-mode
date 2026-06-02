@@ -277,6 +277,28 @@ section('gm-fiat population sync — hex.families / peasantFamilies route throug
 })();
 
 // =============================================================================
+section('gm-fiat on a top-level / domainless hex (the Map create/edit-hex flow reaches these)');
+// The hex case must check campaign.hexes[] (Foundation #14/#193) — domainless wilderness hexes live
+// ONLY there, never in a domain.geography. Before the fix the handler walked only domain geography
+// and threw "target hex:… not found", so editing a map-created wilderness hex silently failed.
+// Regression guard for Map Mode #225 (create-hex into unclaimed wilderness + Edit/Add hex).
+(function () {
+  const c = ACKS.blankCampaign();
+  c.hexes = [{ id: 'wild-1', domainId: null, coord: { q: 5, r: 5 }, terrain: 'grassland', notes: '' }];
+  const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'wild-1' }, mutation: { fieldPath: 'terrain', newValue: 'jungle' } } });
+  doesNotThrow('gm-fiat on a domainless top-level hex applies (not "not found")', () => ACKS.applyEvent(c, ev));
+  ok('  domainless hex.terrain set to jungle', c.hexes[0].terrain === 'jungle');
+  // a domained hex still resolves (reference-unified: same object in campaign.hexes + domain geo)
+  const c2 = ACKS.blankCampaign();
+  const h = { id: 'h-shared', domainId: 'dom-9', coord: { q: 0, r: 0 }, notes: '' };
+  c2.hexes = [h];
+  c2.domains = [{ id: 'dom-9', name: 'D', geography: { hexes: [h] } }];
+  const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'h-shared' }, mutation: { fieldPath: 'notes', newValue: 'edited' } } });
+  doesNotThrow('gm-fiat on a domained hex still applies', () => ACKS.applyEvent(c2, ev2));
+  ok('  domained hex edit reflected in both views (reference-unified)', c2.hexes[0].notes === 'edited' && c2.domains[0].geography.hexes[0].notes === 'edited');
+})();
+
+// =============================================================================
 section('gm-fiat party location — emits a logged event with a humane narrative');
 // =============================================================================
 // A GM moving a party between hexes routes through commitStatEdit -> gm-fiat, so the move lands
