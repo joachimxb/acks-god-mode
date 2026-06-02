@@ -257,6 +257,7 @@ function blankHex(opts={}){
     hasTrail: opts.hasTrail === true,      // marked trail — eases navigation but no speed bonus
     riverCount: opts.riverCount || 0,      // crossings cost time when no bridge (RR p.492)
     elevationFt: opts.elevationFt || 0,    // feeds visibility/sighting (Journeys §11)
+    groundCondition: opts.groundCondition || 'clear', // 'clear'|'mud'|'snow' — mud/snow ×1/2 speed (RR p.272)
     primaryStructure: opts.primaryStructure || '',
     settlement: opts.settlement || null,
     lairs: opts.lairs || [],

@@ -858,7 +858,7 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
   // ----- Journey pace: journey.pace (GM changes the marching pace mid-trip) -----
   if(target.kind === 'journey' && mutation.fieldPath === 'pace'){
     const jName = (entity && entity.name) || target.id;
-    const paceLabel = function(v){ return v ? (({ 'forced-march':'forced march', 'half-ancillary':'half (slowest member)' })[v] || String(v)) : v; };
+    const paceLabel = function(v){ return v ? (({ 'forced-march':'forced march', 'half-speed':'half speed' })[v] || String(v)) : v; };
     const to = paceLabel(mutation.newValue);
     if(previousValue && previousValue !== mutation.newValue) return 'Set ' + jName + ' to ' + to + ' pace (was ' + paceLabel(previousValue) + ')' + reasonNote;
     return 'Set ' + jName + ' to ' + to + ' pace' + reasonNote;

@@ -1491,14 +1491,19 @@ function tickJourneyDay(campaign, journey, ctx){
   const notableEvents = [];
   const encounters = [];
 
-  // ── speed (§6): base × terrain × weather × pace ──
+  // ── speed (§6): base × terrain × weather × temperature × ground × pace ──
   const baseTerrain = (startHex && startHex.terrain) || 'grassland';
   const hasRoad = !!(startHex && startHex.hasRoad);
   const terrainMult = hasRoad ? A.JOURNEY_TERRAIN_SPEED.road
     : (A.JOURNEY_TERRAIN_SPEED[baseTerrain] != null ? A.JOURNEY_TERRAIN_SPEED[baseTerrain] : 1);
   const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
+  // RR pp.277-278: frigid/sweltering temperatures each halve speed (a separate axis from precipitation).
+  const tempMult = (A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1;
+  // RR p.272: mud/snow underfoot is a further ×1/2 that compounds on terrain. GM-set per hex.
+  const groundCond = (startHex && startHex.groundCondition) || 'clear';
+  const groundMult = (A.JOURNEY_GROUND_SPEED[groundCond] != null) ? A.JOURNEY_GROUND_SPEED[groundCond] : 1;
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
-  const milesPerDay = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * terrainMult * weatherMult * paceMult;
+  const milesPerDay = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * terrainMult * weatherMult * tempMult * groundMult * paceMult;
   let hexesPerDay = Math.floor(milesPerDay / A.JOURNEY_MILES_PER_HEX);
   if(hexesPerDay < 1) hexesPerDay = 1; // a travel day always covers at least one hex
 
@@ -1559,13 +1564,21 @@ function tickJourneyDay(campaign, journey, ctx){
     if(!hungry && rations > 0 && rations < lowAt) notableEvents.push({ kind: 'journey-day-tick', type: 'supplies-low', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': supplies low (' + rations + ' rations left)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
   }
 
-  // ── fatigue accrual / reset ──
+  // ── fatigue accrual / reset (RR p.279 "Rest and Recuperation") ──
   let fatigueAccumulated = 0;
   if(restDay){
-    fatigueDays = 0; // a rest day clears the streak (JJ p.84 §10.3)
-    notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (JJ p.84)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+    fatigueDays = 0; // a dedicated rest day clears the streak (RR p.279)
+    notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (RR p.279)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+  } else if(pace === 'forced-march'){
+    // RAW (RR p.279): a single forced march fatigues the party at once — it "counts as six days
+    // of strenuous activity, immediately requiring rest." Jump the streak to the cycle cap so the
+    // NEXT strenuous day becomes a forced rest. (The cumulative −1-to-throws penalty is deferred
+    // with the rest of survival; fatigueDays is the counter the GM-facing tracker reads.)
+    const before = fatigueDays;
+    fatigueDays = Math.max(fatigueDays, A.JOURNEY_FATIGUE_CYCLE_DAYS);
+    fatigueAccumulated = fatigueDays - before;
   } else if(strenuousPace){
-    fatigueDays += 1; fatigueAccumulated = 1; // simplified-fatigue still counts, just never forces a rest
+    fatigueDays += 1; fatigueAccumulated = 1; // ordinary travel = one strenuous day (RR p.279)
   }
 
   // ── encounter check (§12 — J1 stub) ──

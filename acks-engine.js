@@ -833,6 +833,10 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof h.hasTrail !== 'boolean') h.hasTrail = false;
       if(typeof h.riverCount !== 'number') h.riverCount = 0;
       if(typeof h.elevationFt !== 'number') h.elevationFt = 0;
+      // NB: groundCondition (mud/snow ×1/2, RR p.272) is deliberately NOT backfilled — it's a sparse
+      // GM-set transient that the engine + hex card default to 'clear' when absent, so stamping an
+      // inert default onto every legacy/template hex (breaking the migrate-no-op invariant + churning
+      // the templates) buys nothing. blankHex seeds it on new hexes.
     }
   }
   // Per-character new fields
@@ -847,6 +851,13 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof c.personalFatigue !== 'number')        c.personalFatigue = 0;
       if(typeof c.hungerDays !== 'number')             c.hungerDays = 0;
       if(typeof c.dehydrationDays !== 'number')        c.dehydrationDays = 0;
+    }
+  }
+  // Journeys — normalize the pace enum to RAW's three paces (RR p.272). The retired tool
+  // constructs 'cautious' (×1/2) and 'half-ancillary' (×0.1) both map to RAW 'half-speed' (×1/2).
+  if(Array.isArray(campaign.journeys)){
+    for(const j of campaign.journeys){
+      if(j && (j.pace === 'cautious' || j.pace === 'half-ancillary')) j.pace = 'half-speed';
     }
   }
   // Per-settlement new fields

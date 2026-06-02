@@ -559,32 +559,57 @@ function totalDailyWageGp(workerCounts){
 const JOURNEY_MILES_PER_HEX = 6;
 const JOURNEY_BASE_SPEED_MILES_PER_DAY = 24;
 
-// Terrain speed multipliers (RR p.272). Applied to the base expedition speed.
+// Terrain speed multipliers (RR p.272). Applied to the base expedition speed. Base scrubland
+// (sparse/savannah) and swamp (marshy) carry the easy navigation throw; the harder RAW
+// sub-types 'scrubland-dense' and 'swamp-forested' share the same SPEED but a worse nav target
+// (see JOURNEY_NAV_THROWS). 'road-driving' is the x2 road rate for a wheeled vehicle handled
+// with the Driving proficiency (RR p.272); selected once vehicle modes land.
 const JOURNEY_TERRAIN_SPEED = Object.freeze({
-  grassland: 1, scrubland: 1, plains: 1,
+  grassland: 1, scrubland: 1, 'scrubland-dense': 1, plains: 1,
   barrens: 2/3, desert: 2/3, hills: 2/3, forest: 2/3,
-  jungle: 1/2, mountains: 1/2, mountain: 1/2, swamp: 1/2,
-  road: 3/2
+  jungle: 1/2, mountains: 1/2, mountain: 1/2, swamp: 1/2, 'swamp-forested': 1/2,
+  road: 3/2, 'road-driving': 2
 });
 
-// Navigation throw target by terrain (RR p.275). The party's best Land Surveying /
-// Navigation / Pathfinding proficiency adds a bonus; rolled secretly on the party's behalf.
+// Navigation throw target by terrain (RR p.275). The party's best Navigation / Pathfinding
+// proficiency adds a bonus; rolled secretly on the party's behalf. RAW splits two terrains by
+// density: scrubland low/sparse 6+ vs high/dense 8+; swamp marshy 10+ vs forested 14+. The
+// bare 'scrubland'/'swamp' keys are the easy sub-type; '-dense'/'-forested' are the hard one.
 const JOURNEY_NAV_THROWS = Object.freeze({
   barrens: 6, desert: 6, grassland: 6, mountains: 6, mountain: 6, scrubland: 6, plains: 6,
-  forest: 8, hills: 8,
+  forest: 8, hills: 8, 'scrubland-dense': 8,
   swamp: 10,
-  jungle: 14
+  jungle: 14, 'swamp-forested': 14
 });
 
-// Weather speed multiplier (RR p.277 "Weathering the Wild"). J1 uses GM-set or 'fair'.
+// Weather speed multiplier (RR pp.277-279 "Weathering the Wild"). Foggy + snowy halve speed;
+// stormy quarters it; rain does NOT slow travel (only visibility/missiles). Temperature is a
+// separate axis (below). J1 reads GM-set weather or a constant 'fair'.
 const JOURNEY_WEATHER_SPEED = Object.freeze({
-  fair: 1, drizzly: 1, flurry: 1, foggy: 1, sunbaked: 1,
-  rainy: 1, stormy: 3/4, snowy: 1/2
+  fair: 1, drizzly: 1, flurry: 1, sunbaked: 1, rainy: 1,
+  foggy: 1/2, snowy: 1/2, stormy: 1/4
 });
 
-// Pace multipliers (RR p.272 + JJ p.84). forced-march is strenuous + consumes ancillaries.
+// Temperature speed multiplier (RR pp.277-278). Frigid (<=0F) and Sweltering (>=95F) each
+// halve expedition speed; the temperate bands don't slow travel. Read from the day's
+// weather.temperature, independent of the precipitation condition above.
+const JOURNEY_TEMPERATURE_SPEED = Object.freeze({
+  frigid: 1/2, cold: 1, moderate: 1, sweltering: 1/2
+});
+
+// Ground-condition speed multiplier (RR p.272 "Mud/Snow x1/2"). A separate x1/2 that COMPOUNDS
+// on top of terrain - mud (from sustained rain) or snow underfoot. GM-set per hex via
+// hex.groundCondition; defaults to 'clear'. (Auto-accumulation from multi-day weather is a
+// later weather-secondary-effects slice; this exposes the RAW modifier now.)
+const JOURNEY_GROUND_SPEED = Object.freeze({
+  clear: 1, mud: 1/2, snow: 1/2
+});
+
+// Pace multipliers - RAW's three overland paces (RR p.272). normal = expedition speed as the
+// dedicated activity (4 ancillaries free); forced-march = +50% but fatigued at once (RR p.279)
+// and no ancillaries; half-speed = travel as an ancillary activity (RAW gives it no name).
 const JOURNEY_PACE_SPEED = Object.freeze({
-  'forced-march': 3/2, 'normal': 1, 'cautious': 1/2, 'half-ancillary': 0.1
+  'forced-march': 3/2, 'normal': 1, 'half-speed': 1/2
 });
 
 // Survival (RR p.275): one ration = 1 stone = 2 lb food + 1 gallon water per person per day.
@@ -603,7 +628,7 @@ Object.assign(ACKS, {
   STRONGHOLD_CATALOG, MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE, EVENT_TABLE, HOUSERULES_REGISTRY, HOUSERULE_CATEGORIES, lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff, rollVagary, lookupVagary, sampleEvent, lookupHouseRule, lookupStrongholdStructure,
   // Phase 2.5 Journeys (#475) — overland travel catalogs (J1).
   JOURNEY_MILES_PER_HEX, JOURNEY_BASE_SPEED_MILES_PER_DAY, JOURNEY_TERRAIN_SPEED,
-  JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_PACE_SPEED,
+  JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_TEMPERATURE_SPEED, JOURNEY_GROUND_SPEED, JOURNEY_PACE_SPEED,
   JOURNEY_RATION_PER_PERSON_DAY, JOURNEY_WATER_PER_PERSON_DAY, JOURNEY_SUPPLY_LOW_DAYS,
   JOURNEY_FATIGUE_CYCLE_DAYS,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
