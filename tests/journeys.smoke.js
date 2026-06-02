@@ -92,6 +92,27 @@ check('RAW-default flip: realistic-fatigue + mandatory-rations RETIRED', ruleIds
 check('RAW-default flip: simplified-fatigue + ignore-rations are the opt-ins', ruleIds.indexOf('simplified-fatigue') >= 0 && ruleIds.indexOf('ignore-rations') >= 0);
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Catalogs — RAW corrections (weather / temperature / ground / nav split / pace)');
+// 2026-06-02 RAW audit (Fix A + B + C5). A1/A2 weather speed: foggy + snowy halve, stormy
+// quarters, rain does NOT slow travel (RR pp.277-279).
+check('weather speed: stormy ×1/4 (was wrongly ×3/4)', ACKS.JOURNEY_WEATHER_SPEED.stormy === 0.25);
+check('weather speed: foggy ×1/2 (was wrongly ×1)', ACKS.JOURNEY_WEATHER_SPEED.foggy === 0.5);
+check('weather speed: snowy ×1/2, rain + fair ×1', ACKS.JOURNEY_WEATHER_SPEED.snowy === 0.5 && ACKS.JOURNEY_WEATHER_SPEED.rainy === 1 && ACKS.JOURNEY_WEATHER_SPEED.fair === 1);
+// A3 temperature: frigid + sweltering halve speed (RR pp.277-278).
+check('temperature speed: frigid + sweltering ×1/2, temperate ×1', ACKS.JOURNEY_TEMPERATURE_SPEED.frigid === 0.5 && ACKS.JOURNEY_TEMPERATURE_SPEED.sweltering === 0.5 && ACKS.JOURNEY_TEMPERATURE_SPEED.moderate === 1 && ACKS.JOURNEY_TEMPERATURE_SPEED.cold === 1);
+// A4 ground condition: mud/snow underfoot ×1/2 (RR p.272).
+check('ground speed: mud + snow ×1/2, clear ×1', ACKS.JOURNEY_GROUND_SPEED.mud === 0.5 && ACKS.JOURNEY_GROUND_SPEED.snow === 0.5 && ACKS.JOURNEY_GROUND_SPEED.clear === 1);
+// B5 nav split: dense scrubland 8+, forested swamp 14+ (RR p.275); bare keys keep the easy throw.
+check('nav split: scrubland 6+ / scrubland-dense 8+', ACKS.JOURNEY_NAV_THROWS.scrubland === 6 && ACKS.JOURNEY_NAV_THROWS['scrubland-dense'] === 8);
+check('nav split: swamp 10+ / swamp-forested 14+', ACKS.JOURNEY_NAV_THROWS.swamp === 10 && ACKS.JOURNEY_NAV_THROWS['swamp-forested'] === 14);
+check('terrain split shares speed: scrubland-dense ×1, swamp-forested ×1/2', ACKS.JOURNEY_TERRAIN_SPEED['scrubland-dense'] === 1 && ACKS.JOURNEY_TERRAIN_SPEED['swamp-forested'] === 0.5);
+// B6 road driver rate ×2 (RR p.272) — present in the catalog, selected once vehicle modes land.
+check('terrain: road-driving ×2 (vehicle + Driving)', ACKS.JOURNEY_TERRAIN_SPEED['road-driving'] === 2);
+// C5 pace set is now pure RAW: forced-march / normal / half-speed; cautious + half-ancillary retired.
+check('pace catalog: forced-march 3/2, normal 1, half-speed 1/2', ACKS.JOURNEY_PACE_SPEED['forced-march'] === 1.5 && ACKS.JOURNEY_PACE_SPEED.normal === 1 && ACKS.JOURNEY_PACE_SPEED['half-speed'] === 0.5);
+check('pace catalog: cautious + half-ancillary RETIRED', ACKS.JOURNEY_PACE_SPEED.cautious === undefined && ACKS.JOURNEY_PACE_SPEED['half-ancillary'] === undefined);
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('Consumer registration');
 
 const consumers = ACKS.dayConsumersInOrder();
@@ -337,9 +358,9 @@ function jpaceHexes(pace){
   ACKS.commitJourneyRecord(b.c, p.pendingRecords[0]);
   return b.c.journeys[0].days[0].hexesTraveled || 0;
 }
-const jpCautious = jpaceHexes('cautious'), jpNormal = jpaceHexes('normal'), jpForced = jpaceHexes('forced-march');
+const jpHalf = jpaceHexes('half-speed'), jpNormal = jpaceHexes('normal'), jpForced = jpaceHexes('forced-march');
 check('forced-march covers more ground than normal (same terrain + weather)', jpForced > jpNormal, jpForced + ' vs ' + jpNormal);
-check('cautious covers less ground than normal', jpCautious < jpNormal, jpCautious + ' vs ' + jpNormal);
+check('half-speed covers less ground than normal', jpHalf < jpNormal, jpHalf + ' vs ' + jpNormal);
 
 // changing pace BETWEEN days: day 1 at the starting pace, day 2 at the new pace; each day record
 // stamps the pace actually used that day (history preserved across a mid-trip change).
@@ -352,6 +373,56 @@ const jpRunDays = jpRun.c.journeys[0].days;
 check('day 1 record stamped the original pace (normal)', jpRunDays[0].pace === 'normal');
 check('day 2 record stamped the changed pace (forced-march) — pace read fresh each day', jpRunDays[1].pace === 'forced-march');
 check('the mid-trip pace change increased day-2 distance vs day-1', (jpRunDays[1].hexesTraveled||0) > (jpRunDays[0].hexesTraveled||0));
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('RAW speed factors — weather / temperature / ground compound (Fix A)');
+
+// Drive weather/temperature via ctx; ground via the start hex. Road grassland = 24 × 3/2 = 36
+// mi/day base ⇒ 6 hexes at fair/moderate/clear. Each ×1/2 factor halves it; stormy quarters it.
+// (A travel day always covers ≥1 hex, so sub-6-mile days clamp to 1.)
+function jdistW(weather, ground){
+  const b = build({ destCoord: { q: 500, r: 0 } }); // road grassland, far dest ⇒ deterministic, no nav
+  if(ground) b.c.hexes[0].groundCondition = ground;
+  ACKS.startJourney(b.c, b.j);
+  const p = ACKS.proposeJourneyDay(b.c, { dayInMonth: 2, rng: () => 0.5, weather: weather });
+  ACKS.commitJourneyRecord(b.c, p.pendingRecords[0]);
+  return b.c.journeys[0].days[0].hexesTraveled || 0;
+}
+const wFair = jdistW({ condition: 'fair', temperature: 'moderate' });
+check('fair/moderate/clear: 6 hexes on a road (baseline)', wFair === 6, String(wFair));
+check('stormy quarters speed (6 → 1 hex)', jdistW({ condition: 'stormy', temperature: 'moderate' }) === 1);
+check('foggy halves speed (6 → 3 hexes)', jdistW({ condition: 'foggy', temperature: 'moderate' }) === 3);
+check('snowy halves speed (6 → 3 hexes)', jdistW({ condition: 'snowy', temperature: 'moderate' }) === 3);
+check('rain does NOT slow travel (still 6 hexes)', jdistW({ condition: 'rainy', temperature: 'moderate' }) === 6);
+check('frigid temperature halves speed (6 → 3 hexes)', jdistW({ condition: 'fair', temperature: 'frigid' }) === 3);
+check('sweltering temperature halves speed (6 → 3 hexes)', jdistW({ condition: 'fair', temperature: 'sweltering' }) === 3);
+check('mud underfoot halves speed (6 → 3 hexes)', jdistW({ condition: 'fair', temperature: 'moderate' }, 'mud') === 3);
+check('factors compound: foggy + mud (36 × ½ × ½ = 9 mi → 1 hex)', jdistW({ condition: 'foggy', temperature: 'moderate' }, 'mud') === 1);
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Forced march = fatigued at once (Fix C1, RR p.279)');
+
+// RAW: a single forced march jumps the fatigue streak straight to the cycle cap; the next
+// strenuous day is then a forced rest. Normal travel only accrues +1/day.
+const fmN = build({ destCoord: { q: 500, r: 0 } }); ACKS.startJourney(fmN.c, fmN.j);
+ACKS.commitJourneyRecord(fmN.c, ACKS.proposeJourneyDay(fmN.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0]);
+check('normal travel accrues +1 fatigue day', fmN.c.journeys[0].fatigueDays === 1, String(fmN.c.journeys[0].fatigueDays));
+
+const fmF = build({ destCoord: { q: 500, r: 0 } }); fmF.j.pace = 'forced-march'; ACKS.startJourney(fmF.c, fmF.j);
+ACKS.commitJourneyRecord(fmF.c, ACKS.proposeJourneyDay(fmF.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0]);
+check('one forced march jumps fatigue to the 6-day cap', fmF.c.journeys[0].fatigueDays === 6, String(fmF.c.journeys[0].fatigueDays));
+check('the forced-march day still moved (×3/2)', (fmF.c.journeys[0].days[0].hexesTraveled || 0) > 6);
+// the next forced-march day ⇒ forced rest (RR p.279): streak resets, no movement
+ACKS.commitJourneyRecord(fmF.c, ACKS.proposeJourneyDay(fmF.c, { dayInMonth: 3, rng: () => 0.5 }).pendingRecords[0]);
+const fmF2 = fmF.c.journeys[0].days[1];
+check('the day after a forced march is a forced rest (pace=rest, 0 hexes)', fmF2.pace === 'rest' && (fmF2.hexesTraveled || 0) === 0);
+check('the forced rest cleared the streak back to 0', fmF.c.journeys[0].fatigueDays === 0);
+
+// simplified-fatigue opt-out: forced march still maxes the counter but NEVER forces a rest
+const fmS = build({ destCoord: { q: 500, r: 0 }, houseRules: { 'simplified-fatigue': true } }); fmS.j.pace = 'forced-march'; ACKS.startJourney(fmS.c, fmS.j);
+ACKS.commitJourneyRecord(fmS.c, ACKS.proposeJourneyDay(fmS.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0]);
+ACKS.commitJourneyRecord(fmS.c, ACKS.proposeJourneyDay(fmS.c, { dayInMonth: 3, rng: () => 0.5 }).pendingRecords[0]);
+check('simplified-fatigue: forced march never forces a rest (both days moved)', (fmS.c.journeys[0].days[0].hexesTraveled || 0) > 0 && (fmS.c.journeys[0].days[1].hexesTraveled || 0) > 0 && fmS.c.journeys[0].days[1].pace !== 'rest');
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');

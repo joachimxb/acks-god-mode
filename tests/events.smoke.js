@@ -352,9 +352,9 @@ section('gm-fiat journey pace — humane narrative on journey.pace');
   // no prior pace recorded : "Set … to … pace" with no "(was …)"
   const c2 = ACKS.blankCampaign();
   c2.journeys = [{ schemaVersion: 2, kind: 'journey', id: 'jrn-1', name: 'Trail', pace: null, status: 'in-transit', participantCharacterIds: [], days: [] }];
-  const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'journey', id: 'jrn-1' }, mutation: { fieldPath: 'pace', newValue: 'cautious' } } });
+  const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'journey', id: 'jrn-1' }, mutation: { fieldPath: 'pace', newValue: 'half-speed' } } });
   const r2 = ACKS.applyEvent(c2, ev2);
-  ok('  narrative: Set Trail to cautious pace (no "was")', /^Set Trail to cautious pace/.test((r2 && r2.result && r2.result.narrativeSummary) || '') && !/\(was/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
+  ok('  narrative: Set Trail to half speed pace (no "was")', /^Set Trail to half speed pace/.test((r2 && r2.result && r2.result.narrativeSummary) || '') && !/\(was/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
 })();
 
 // ─── summary ───
