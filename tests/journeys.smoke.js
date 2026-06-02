@@ -277,6 +277,52 @@ rrng.c.journeys[0].days = [{ dayIndex: 1, navigationThrow: null }];
 rrng.c.journeys[0].currentDayIndex = 1;
 check('rerollJourneyDay returns null when the latest day lacks a _preDay snapshot', ACKS.rerollJourneyDay(rrng.c, rrng.j) === null);
 
+// guard (J2 feedback): the LATEST day is rerollable only while the WORLD CLOCK still stands on
+// the day the leg happened — a just-arrived leg stays rerollable, but +1 day / Advance month
+// rolls the world past it and locks it (compare absolute ordinal turn*30 + dayInMonth).
+const wc = build(); // road ⇒ arrives within a couple of days
+ACKS.startJourney(wc.c, wc.j);
+let wcGuard = 0;
+while(wc.c.journeys[0].status === 'in-transit' && wcGuard++ < 6){ const p = ACKS.proposeDayTick(wc.c, 1, {}); ACKS.commitDayTick(wc.c, p, null); }
+const wcJ = wc.c.journeys[0];
+const wcLast = wcJ.days[wcJ.days.length - 1];
+check('setup: journey arrived via the day-tick pipeline', wcJ.status === 'arrived');
+check('each committed day carries a worldDay {turn, dayInMonth} stamp', !!wcLast.worldDay && typeof wcLast.worldDay.turn === 'number' && typeof wcLast.worldDay.dayInMonth === 'number');
+check('worldDay.dayInMonth = the world day the leg landed on (clock is on it now)', wcLast.worldDay.dayInMonth === wc.c.currentDayInMonth);
+check('journeyLastDayRerollable TRUE while the world is still on the arrival day', ACKS.journeyLastDayRerollable(wc.c, wcJ) === true);
+// advance the world one more day past the arrival (journey is no longer in-transit, but the clock moves)
+const wcAfter = ACKS.proposeDayTick(wc.c, 1, {}); ACKS.commitDayTick(wc.c, wcAfter, null);
+check('the world clock advanced past the arrival day', wc.c.currentDayInMonth > wcLast.worldDay.dayInMonth);
+check('journeyLastDayRerollable FALSE once the world rolled past the arrival day', ACKS.journeyLastDayRerollable(wc.c, wcJ) === false);
+check('rerollJourneyDay returns null once the world has moved past the last leg', ACKS.rerollJourneyDay(wc.c, wcJ) === null);
+const wcDaysBefore = wcJ.days.length;
+ACKS.rerollJourneyDay(wc.c, wcJ);
+check('a world-locked reroll leaves the journey untouched (no day popped)', wcJ.days.length === wcDaysBefore && wcJ.status === 'arrived');
+
+// reroll a JUST-ARRIVED journey works while the world is still on its day, and round-trips the
+// party/participant arrival bookkeeping (no stranded pointers if the redo un-arrives).
+const ra = build({ destCoord: { q: 6, r: 0 } }); // 6 hexes ⇒ road arrives in one day
+const raParty = { schemaVersion: 2, id: 'pty-ra', kind: 'party', name: 'Trail Party', memberCharacterIds: ['chr-1'], leaderCharacterId: 'chr-1', currentHexId: 'hex-a', status: 'active', activeJourneyId: null };
+ra.c.parties = [raParty]; ra.j.partyId = 'pty-ra';
+ACKS.startJourney(ra.c, ra.j); raParty.activeJourneyId = ra.j.id;
+const raP = ACKS.proposeDayTick(ra.c, 1, {}); ACKS.commitDayTick(ra.c, raP, null);
+check('setup: single-day road journey arrived; party moved to dest + unlinked', ra.c.journeys[0].status === 'arrived' && raParty.currentHexId === 'hex-b' && raParty.activeJourneyId === null);
+check('journeyLastDayRerollable TRUE for the just-arrived journey (clock still on its day)', ACKS.journeyLastDayRerollable(ra.c, ra.j) === true);
+check('rerollJourneyDay re-runs the just-arrived leg (returns a record)', !!ACKS.rerollJourneyDay(ra.c, ra.j));
+check('after reroll the party bookkeeping is consistent with the journey status (no stranded pointers)',
+  (ra.c.journeys[0].status === 'arrived')
+    ? (raParty.activeJourneyId === null && raParty.currentHexId === 'hex-b' && ra.c.characters[0].currentHexId === 'hex-b')
+    : (raParty.activeJourneyId === ra.j.id && raParty.currentHexId === 'hex-a' && ra.c.characters[0].currentHexId === 'hex-a'));
+
+// guard: an ABORTED journey is never rerollable (abort is a deliberate GM decision, not a roll)
+const rrab = build({ hasRoad: false, terrain: 'forest' });
+ACKS.startJourney(rrab.c, rrab.j);
+const rrabp = ACKS.proposeJourneyDay(rrab.c, { dayInMonth: 2, rng: () => 0 });
+ACKS.commitJourneyRecord(rrab.c, rrabp.pendingRecords[0]);
+ACKS.abortJourney(rrab.c, rrab.j, 'test abort');
+check('journeyLastDayRerollable FALSE for an aborted journey', ACKS.journeyLastDayRerollable(rrab.c, rrab.j) === false);
+check('rerollJourneyDay returns null once the journey has been ABORTED', ACKS.rerollJourneyDay(rrab.c, rrab.j) === null);
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);

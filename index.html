@@ -8341,8 +8341,9 @@ return {
                totalMiles: (dist.total||0)*mph, coveredMiles: (dist.covered||0)*mph, remainingMiles: (dist.remaining||0)*mph };
     } catch(e){ return null; }
   },
-  // GM reroll of the latest day — only available when the day carries a pre-state snapshot.
-  journeyCanReroll(j){ const days=(j&&j.days)||[]; return days.length>0 && !!days[days.length-1]._preDay; },
+  // GM reroll of the latest day — only available when the day carries a pre-state snapshot AND
+  // the world clock still stands on it (locks once +1 day / Advance month moves past it).
+  journeyCanReroll(j){ return !!window.ACKS.journeyLastDayRerollable(this.currentCampaign, j); },
   journeyRerollDay(j){
     if(!j) return;
     const rec = this._journeyWithDomains(() => window.ACKS.rerollJourneyDay(this.currentCampaign, j));

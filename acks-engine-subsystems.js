@@ -1656,6 +1656,15 @@ function commitJourneyRecord(campaign, record){
     hungerDays: (_firstC && _firstC.hungerDays) || 0,
     dehydrationDays: (_firstC && _firstC.dehydrationDays) || 0
   };
+  // World-date stamp: which world day this leg happened on, so the GM can reroll the LATEST
+  // day only while the clock still stands on it (Journeys J2 feedback — once +1 day / Advance
+  // month moves the world past, the leg is history and locks). The day-tick tags the record
+  // with the leg's dayInMonth (tickDayOnce); a day-tick never changes the turn, so the month
+  // is the current turn. Direct/reroll commits (no tag) fall back to the settled clock.
+  dr.worldDay = {
+    turn: campaign.currentTurn || 1,
+    dayInMonth: (typeof record.dayInMonth === 'number') ? record.dayInMonth : (campaign.currentDayInMonth || 1)
+  };
   dr.status = 'committed';
   (j.days = j.days || []).push(dr);
   j.currentDayIndex = record.newDayIndex;
@@ -1683,17 +1692,39 @@ function commitJourneyRecord(campaign, record){
   }
 }
 
+// Can the journey's LATEST day be rerolled right now? (Journeys J2 feedback.) Yes only when:
+//   (a) that day carries a _preDay snapshot to revert to, AND
+//   (b) the journey wasn't deliberately aborted (abort is a GM decision, not a die roll), AND
+//   (c) the world clock still stands on the day the leg happened — once the world rolls past
+//       it (+1 day / Advance month), the leg is history and locks.
+// A just-ARRIVED leg stays rerollable while the clock is still on its day (the GM may redo a
+// bad-luck final leg). Legacy day records (no worldDay stamp) fall back to the snapshot-only
+// rule so older saves behave as before. Compares an absolute day ordinal (turn*30 + day).
+function journeyLastDayRerollable(campaign, journey){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!j || j.status === 'aborted' || !Array.isArray(j.days) || !j.days.length) return false;
+  const last = j.days[j.days.length - 1];
+  if(!last || !last._preDay) return false;
+  const wd = last.worldDay;
+  if(!wd) return true; // pre-stamp record — preserve the old snapshot-only behavior
+  const nowOrd = (((campaign && campaign.currentTurn) || 1) * 30) + (((campaign && campaign.currentDayInMonth) || 1));
+  const legOrd = ((wd.turn || 1) * 30) + (wd.dayInMonth || 1);
+  return nowOrd <= legOrd; // world hasn't advanced past the leg's day
+}
+
 // GM reroll of the LATEST committed day: revert the journey + participants to the day's pre-state
 // snapshot, prune that day's journey events from the eventLog, re-run the day with fresh
 // randomness, re-commit, and re-emit the new day's notable events. Only the latest day is
-// rerollable (downstream days depend on it). Returns the new record, or null if not possible.
+// rerollable (downstream days depend on it) and only while the world clock still stands on it
+// (journeyLastDayRerollable). Returns the new record, or null if not possible.
 function rerollJourneyDay(campaign, journey){
   const A = _jACKS();
   const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
-  if(!j || !Array.isArray(j.days) || !j.days.length) return null;
+  if(!journeyLastDayRerollable(campaign, j)) return null; // no snapshot, aborted, or the world has moved past this day
   const lastDay = j.days[j.days.length - 1];
-  const pre = lastDay && lastDay._preDay;
-  if(!pre) return null; // day ticked before snapshots existed — can't revert cleanly
+  const pre = lastDay._preDay;
+  const wasArrival = (j.status === 'arrived'); // reverting an arrival must also un-do the move-to-destination
   const dayNum = lastDay.dayIndex;
   // 1. prune this day's journey events from the eventLog (lost / hunger / dehydration / encounter / arrived)
   campaign.eventLog = (campaign.eventLog || []).filter(entry => {
@@ -1720,7 +1751,14 @@ function rerollJourneyDay(campaign, journey){
       c.dehydrationDays = pre.dehydrationDays || 0;
       c.personalFatigue = pre.fatigueDays || 0;
       c.currentJourneyId = j.id; // re-link (a revert may have un-done an arrival)
+      if(wasArrival) c.currentHexId = pre.currentHexId; // un-do the arrival's move-to-destination
     }
+  }
+  // reverting an arrival also un-does the party's arrival bookkeeping (commitJourneyRecord
+  // had cleared activeJourneyId + moved the party to the destination on arrival).
+  if(wasArrival && j.partyId){
+    const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
+    if(pt){ pt.activeJourneyId = j.id; pt.currentHexId = pre.currentHexId || pt.currentHexId; }
   }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: dayNum, type: 'reroll', narrative: 'GM rerolled day ' + dayNum + '.' });
   // 3. re-run the day with fresh randomness (Math.random in the live app / tests)
@@ -1842,7 +1880,7 @@ const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, rerollJourneyDay, computeJourneyDistance, rollNavigation,
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty
