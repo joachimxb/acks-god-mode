@@ -3883,27 +3883,29 @@ document.addEventListener('alpine:init', () => {
                       <button @click="journeyOpenDetail(pt.activeJourneyId)" class="text-xs opacity-70 underline whitespace-nowrap" title="On a journey — the party's hex moves with it. Open the journey.">🔒 on journey ›</button>
                     </span>
                   </template>
+                  <!-- Generate style — same ✏ / ✓ / × draft-edit mechanic as every other GM-edited
+                       field (editableStat): ✏ opens, the pick lives in a draft, ✓ commits via
+                       commitStatEdit (emits a logged gm-fiat event ONLY on save), × discards. -->
                   <template x-if="!(pt.activeJourneyId && journeyById(pt.activeJourneyId))">
-                    <span>
+                    <span class="ed-stat">
                       <template x-if="!pt._hexEditing">
-                        <span class="flex items-center gap-2">
-                          <strong x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></strong>
-                          <button @click="pt._hexEditing = true" class="ed-edit" title="Set the party's hex manually">✏</button>
+                        <span class="ed-stat">
+                          <span class="ed-val" x-text="pt.currentHexId ? journeyHexLabel(pt.currentHexId) : '— none —'"></span>
+                          <button @click="partyHexEditStart(pt)" class="ed-edit" title="Set the party's hex manually (logged on save)">✏</button>
                         </span>
                       </template>
                       <template x-if="pt._hexEditing">
-                        <span class="flex items-center gap-2 flex-wrap">
-                          <!-- @change + :selected (not x-model): with x-for-rendered options, x-model
-                               doesn't reliably pre-select the current value on open. The change is
-                               routed through commitStatEdit so a GM moving the party emits a logged
-                               gm-fiat event (Campaign Log + Event Log), not a silent mutation. -->
-                          <select @change="commitStatEdit({entityType:'party', entityId:pt.id, entity:pt, fieldPath:'currentHexId', label:'Party location', oldValue:(pt.currentHexId||null), newValue:($event.target.value||null)}); markDirty(); schedulePersist()" class="text-sm">
-                            <option value="" :selected="!pt.currentHexId">— none —</option>
+                        <span class="ed-stat">
+                          <!-- @change + :selected (not x-model): an x-for option list doesn't pre-select
+                               reliably under x-model. Writes only the DRAFT — no emit until ✓. -->
+                          <select class="ed-input" @change="pt._hexDraft = ($event.target.value || null)" x-init="$nextTick(() => $el.focus())">
+                            <option value="" :selected="!pt._hexDraft">— none —</option>
                             <template x-for="h in journeyHexOptions()" :key="'ph-'+pt.id+'-'+h.id">
-                              <option :value="h.id" :selected="pt.currentHexId === h.id" x-text="h.label"></option>
+                              <option :value="h.id" :selected="pt._hexDraft === h.id" x-text="h.label"></option>
                             </template>
                           </select>
-                          <button @click="pt._hexEditing = false; markDirty(); schedulePersist()" class="ed-btn" title="Lock the party at this hex">🔒 Lock</button>
+                          <button @click="partyHexEditSave(pt)" class="ed-btn" title="Save & lock (logged)">✓</button>
+                          <button @click="partyHexEditCancel(pt)" class="ed-btn" title="Cancel">×</button>
                         </span>
                       </template>
                     </span>
@@ -10042,6 +10044,22 @@ return {
     if(!pt || !this.currentCampaign)return [];
     const hex = pt.currentHexId || null;
     return (this.currentCampaign.characters||[]).filter(ch => ch.alive !== false && !ch.partyId && (ch.currentHexId||null) === hex);
+  },
+  // Party Current-hex lock-edit (Generate style), same ✏/✓/× draft mechanic as editableStat.
+  // The pick lives in a draft; the logged gm-fiat event fires ONLY on save (partyHexEditSave),
+  // never on the dropdown @change.
+  partyHexEditStart(pt){ if(!pt) return; pt._hexDraft = pt.currentHexId || null; pt._hexEditing = true; },
+  partyHexEditCancel(pt){ if(!pt) return; pt._hexEditing = false; pt._hexDraft = null; },
+  partyHexEditSave(pt){
+    if(!pt) return;
+    const oldV = pt.currentHexId || null;
+    const newV = pt._hexDraft || null;
+    if(oldV !== newV){
+      // commitStatEdit emits + applies a gm-fiat event ("Moved/Placed/Cleared <party> …").
+      this.commitStatEdit({ entityType:'party', entityId:pt.id, entity:pt, fieldPath:'currentHexId', label:'Party location', oldValue:oldV, newValue:newV });
+      this.markDirty(); this.schedulePersist();
+    }
+    pt._hexEditing = false; pt._hexDraft = null;
   },
   addCharacterToParty(pt, characterId){
     if(!pt || !characterId)return;
