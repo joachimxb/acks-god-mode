@@ -1164,6 +1164,12 @@ function blankJourney(opts={}){
     // at startJourney. The day handler derives the LIVE route on demand (ACKS.journeyRoute) — this is
     // a stable cache for the UI/integrators, not the movement source of truth. [] = compute on demand.
     routeCoords: opts.routeCoords || [],
+    // §24 mid-journey re-route: when the route's waypoints/destination are changed WHILE under way, the
+    // route is re-anchored to where the party is (routeAnchorHexId = current hex) and coveredBaseline is
+    // set to the hexes already walked, so the new route's progress counts from here. startHexId is kept
+    // as the TRUE origin (name + history). null/0 = never re-routed (route runs from startHexId).
+    routeAnchorHexId: opts.routeAnchorHexId || null,
+    coveredBaseline: opts.coveredBaseline || 0,
     currentHexId: opts.currentHexId || null,            // the hex the party is in now (advances hex-by-hex along the route — §24)
     currentDayIndex: opts.currentDayIndex || 0,         // 0..N days into the journey
     daysRemainingEstimate: opts.daysRemainingEstimate != null ? opts.daysRemainingEstimate : null,

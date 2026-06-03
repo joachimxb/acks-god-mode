@@ -863,6 +863,8 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(!j) continue;
       if(j.pace === 'cautious' || j.pace === 'half-ancillary') j.pace = 'half-speed';
       if(!Array.isArray(j.routeCoords)) j.routeCoords = [];  // §24 — informational route cache; [] = computed on demand
+      if(j.routeAnchorHexId === undefined) j.routeAnchorHexId = null;   // §24 mid-journey re-route anchor (null ⇒ route runs from startHexId)
+      if(typeof j.coveredBaseline !== 'number') j.coveredBaseline = 0;  // §24 — hexes walked under prior route epochs
     }
   }
   // Per-settlement new fields

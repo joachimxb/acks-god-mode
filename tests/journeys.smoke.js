@@ -584,6 +584,73 @@ section('§24 — per-day hex path + traveller placement (commit)');
   check('startJourney stamps routeCoords (path snapshot for UI/integrators)', Array.isArray(c.journeys[0].routeCoords) && c.journeys[0].routeCoords.length === 5, String((c.journeys[0].routeCoords||[]).length));
 })();
 
+section('§24 — waypoint distance is via-waypoint (not direct)');
+(function(){
+  // A waypoint OFF the direct line makes the journey travel its FULL via-waypoint route, not stop at the
+  // direct start→dest hex count (the pre-fix early-arrival/teleport bug). Direct (0,0)→(4,0)=4; via (2,-2)=6.
+  const c = ACKS.blankCampaign({ name:'wp' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year:1, month:1, day:1 }; c.houseRules = {};
+  c.hexes = [ ACKS.blankHex({ id:'hx-s', coord:{q:0,r:0}, terrain:'grassland' }),
+              ACKS.blankHex({ id:'hx-w', coord:{q:2,r:-2}, terrain:'grassland' }),
+              ACKS.blankHex({ id:'hx-d', coord:{q:4,r:0}, terrain:'grassland' }) ];
+  c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout' }) ];
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Detour', participantCharacterIds:['chr-1'], startHexId:'hx-s', destinationHexId:'hx-d', waypoints:[{hexId:'hx-w'}], supplies:{ rations:100, waterRations:100 } });
+  c.journeys = [j];
+  const directDist = ACKS.hexAxialDistance({q:0,r:0},{q:4,r:0});
+  const route = ACKS.journeyRoute(c, j);
+  const dist = ACKS.computeJourneyDistance(c, j);
+  check('waypoint detour routes VIA the waypoint (longer than direct)', route.length - 1 > directDist, (route.length-1) + ' vs ' + directDist);
+  check('computeJourneyDistance.total = via-waypoint route length, not direct', dist.total === route.length - 1 && dist.total === 6, String(dist.total));
+  ACKS.startJourney(c, j);
+  let guard = 0, walked = 0;
+  while(c.journeys[0].status === 'in-transit' && guard++ < 20){
+    const r = ACKS.tickJourneyDay(c, c.journeys[0], { rng:()=>0.5 });
+    walked += r.record.dayRecord.hexesTraveled;
+    ACKS.commitJourneyRecord(c, r.record);
+  }
+  check('a waypointed journey travels its WHOLE route before arriving', walked === 6 && c.journeys[0].status === 'arrived', 'walked ' + walked);
+  check('…and ends at the destination', c.journeys[0].currentHexId === 'hx-d');
+})();
+
+section('§24 — mid-journey re-route (reRouteJourney)');
+(function(){
+  // Party reaches hx-4 on day 1, then the GM re-routes to a vertical branch. They CONTINUE from hx-4
+  // (no teleport), startHexId stays the true origin, and epoch-covered resets so the new leg counts fresh.
+  const c = ACKS.blankCampaign({ name:'rr' });
+  c.currentTurn = 2; c.currentDayInMonth = 1; c.calendar = { year:1, month:1, day:1 }; c.houseRules = {};
+  c.hexes = [];
+  for(let q = 0; q <= 6; q++) c.hexes.push(ACKS.blankHex({ id:'hx-'+q, coord:{q,r:0}, terrain:'grassland' }));
+  c.hexes.push(ACKS.blankHex({ id:'hx-u1', coord:{q:4,r:1}, terrain:'grassland' }));
+  c.hexes.push(ACKS.blankHex({ id:'hx-u2', coord:{q:4,r:2}, terrain:'grassland' }));
+  c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout', currentHexId:'hx-0' }) ];
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Saltspur run', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-6', supplies:{ rations:100, waterRations:100 } });
+  c.journeys = [j];
+  ACKS.startJourney(c, j);
+  ACKS.commitJourneyRecord(c, ACKS.tickJourneyDay(c, c.journeys[0], { rng:()=>0.5 }).record); // day 1: 4 grassland hexes → hx-4
+  check('precondition: party reached hx-4 (covered 4)', c.journeys[0].currentHexId === 'hx-4' && ACKS.computeJourneyDistance(c, c.journeys[0]).covered === 4, c.journeys[0].currentHexId);
+  const evBefore = (c.eventLog || []).length;
+  ACKS.reRouteJourney(c, j.id, { destinationHexId:'hx-u2' });
+  const jj = c.journeys[0];
+  check('re-route re-anchors the route to the current hex', jj.routeAnchorHexId === 'hx-4', jj.routeAnchorHexId);
+  check('re-route banks the covered baseline (epoch covered resets to 0)', jj.coveredBaseline === 4 && ACKS.computeJourneyDistance(c, jj).covered === 0, jj.coveredBaseline + '/' + ACKS.computeJourneyDistance(c, jj).covered);
+  check('re-route preserves startHexId as the TRUE origin', jj.startHexId === 'hx-0');
+  check('re-route sets the new destination', jj.destinationHexId === 'hx-u2');
+  check('re-routed journeyRoute begins at the anchor (hx-4)', ACKS.journeyRoute(c, jj)[0].hexId === 'hx-4');
+  check('re-route emits a journey-rerouted event', (c.eventLog || []).length === evBefore + 1 && c.eventLog[c.eventLog.length - 1].event.kind === 'journey-rerouted');
+  ACKS.commitJourneyRecord(c, ACKS.tickJourneyDay(c, c.journeys[0], { rng:()=>0.5 }).record); // continue from hx-4 → hx-u2 (dist 2)
+  check('after re-route the party CONTINUES from hx-4 and reaches the new dest (no teleport)', c.journeys[0].currentHexId === 'hx-u2' && c.journeys[0].status === 'arrived', c.journeys[0].currentHexId);
+})();
+(function(){
+  // Editing a NOT-yet-started journey just sets the fields — no re-anchor.
+  const c = ACKS.blankCampaign({ name:'plan' }); c.houseRules = {};
+  c.hexes = [ ACKS.blankHex({ id:'a', coord:{q:0,r:0} }), ACKS.blankHex({ id:'b', coord:{q:3,r:0} }), ACKS.blankHex({ id:'w', coord:{q:1,r:0} }) ];
+  c.characters = [ ACKS.blankCharacter({ id:'chr-1' }) ];
+  const j = ACKS.blankJourney({ id:'jrn-1', startHexId:'a', destinationHexId:'b', participantCharacterIds:['chr-1'] }); // status 'planning'
+  c.journeys = [j];
+  ACKS.reRouteJourney(c, j.id, { waypointIds:['w'], destinationHexId:'b' });
+  check('planning-status edit sets waypoints without re-anchoring', j.waypoints.length === 1 && j.waypoints[0].hexId === 'w' && j.routeAnchorHexId === null && j.coveredBaseline === 0);
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);

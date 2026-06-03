@@ -1407,11 +1407,19 @@ function _jACKS(){ return global.ACKS; }
 // §6 — distance covered/remaining, in 6-mile hexes (axial). Pure.
 function computeJourneyDistance(campaign, journey){
   const A = _jACKS();
-  const startHex = A.resolveHexAnywhere(campaign, journey.startHexId);
+  // startHex = the route anchor (current position after a mid-journey re-route, else the true origin).
+  const startHex = A.resolveHexAnywhere(campaign, journey.routeAnchorHexId || journey.startHexId);
   const destHex  = A.resolveHexAnywhere(campaign, journey.destinationHexId);
+  // total = the actual VIA-WAYPOINT hex distance (route.length-1), not the direct start→dest distance —
+  // so a waypointed (or re-routed) journey travels its whole route instead of arriving early at the
+  // direct-line count. Falls back to the direct metric only if the route can't be built.
   let total = 0;
-  if(startHex && destHex && startHex.coord && destHex.coord) total = A.hexAxialDistance(startHex.coord, destHex.coord);
-  const covered = (journey.days || []).reduce((s, d) => s + ((d && d.hexesTraveled) || 0), 0);
+  try { const r = journeyRoute(campaign, journey); if(r && r.length) total = r.length - 1; } catch(e){ /* fall through */ }
+  if(!total && startHex && destHex && startHex.coord && destHex.coord) total = A.hexAxialDistance(startHex.coord, destHex.coord);
+  // covered is EPOCH-relative: total hexes walked minus the baseline banked at the last re-route, so a
+  // re-routed journey's progress counts from the anchor. coveredBaseline defaults 0 (never re-routed).
+  const rawCovered = (journey.days || []).reduce((s, d) => s + ((d && d.hexesTraveled) || 0), 0);
+  const covered = Math.max(0, rawCovered - (journey.coveredBaseline || 0));
   const remaining = Math.max(0, total - covered);
   return { total, covered, remaining, startHex, destHex };
 }
@@ -1426,7 +1434,9 @@ function computeJourneyDistance(campaign, journey){
 function journeyRoute(campaign, journey){
   const A = _jACKS();
   if(!campaign || !journey) return [];
-  const start = A.resolveHexAnywhere(campaign, journey.startHexId);
+  // §24 — the route runs from the re-route anchor when set (the party's position at the last mid-journey
+  // re-route), else from the true origin. So the live/remaining route reflects where they actually are.
+  const start = A.resolveHexAnywhere(campaign, journey.routeAnchorHexId || journey.startHexId);
   if(!start || !start.coord) return [];
   const dest = A.resolveHexAnywhere(campaign, journey.destinationHexId);
   const legs = [start.coord];
@@ -2071,6 +2081,56 @@ function abortJourney(campaign, journey, reason){
   return j;
 }
 
+// §24 — change a journey's remaining waypoints and/or destination, including MID-JOURNEY. opts:
+//   { waypointIds:[hexId,…], destinationHexId:'hex-…' }  (omit a key to leave that part unchanged).
+// The party stays exactly where it is and continues from there: when the journey is already under way
+// (some distance covered) we re-anchor the route to the current hex (routeAnchorHexId) and bank the
+// hexes walked so far (coveredBaseline), so the recomputed route — and its progress — start from the
+// party's position rather than teleporting them onto the Nth hex of the new line. startHexId is kept as
+// the TRUE origin (journey name + day-log history). A re-route also clears 'lost' (the GM has re-oriented
+// them) and, if applied to an already-'arrived' journey with a new destination, resumes travel. Emits a
+// 'journey-rerouted' audit event with the §3.5 context envelope. Returns the journey (null if not found).
+function reRouteJourney(campaign, journey, opts){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!j) return null;
+  opts = opts || {};
+  const has = k => Object.prototype.hasOwnProperty.call(opts, k);
+  const prevDestId = j.destinationHexId;
+  if(has('waypointIds')) j.waypoints = (opts.waypointIds || []).filter(Boolean).map(id => ({ hexId: id, label: '', plannedPurpose: null }));
+  if(has('destinationHexId')) j.destinationHexId = opts.destinationHexId || null;
+  const totalCovered = (j.days || []).reduce((s, d) => s + ((d && d.hexesTraveled) || 0), 0);
+  const resumingArrived = (j.status === 'arrived') && has('destinationHexId') && j.destinationHexId && j.destinationHexId !== prevDestId;
+  if(resumingArrived) j.status = 'in-transit';
+  const underway = (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost') && totalCovered > 0 && j.currentHexId;
+  if(underway){
+    j.routeAnchorHexId = j.currentHexId;   // the route now begins where the party is
+    j.coveredBaseline = totalCovered;      // …and its progress (epoch covered) restarts at 0
+  }
+  j.isLost = false;                        // a fresh heading re-orients a lost party
+  try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
+  const dist = computeJourneyDistance(campaign, j);
+  j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.remaining / 4)) : 0;
+  const wpN = (j.waypoints || []).length;
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'rerouted',
+    narrative: 'Re-routed' + (has('destinationHexId') ? (' to ' + (j.destinationHexId || '—')) : '') + (has('waypointIds') ? (' via ' + wpN + ' waypoint' + (wpN === 1 ? '' : 's')) : '') + '.' });
+  try {
+    campaign.eventLog = campaign.eventLog || [];
+    const cal = campaign.calendar || {};
+    const atHex = j.currentHexId || j.startHexId || null;
+    const ev = A.newEvent('journey-rerouted', {
+      submittedBy: 'engine', status: (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
+      targetTurn: campaign.currentTurn || 1,
+      gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
+      context: { primaryHexId: atHex, involvedHexIds: [atHex, j.destinationHexId].concat((j.waypoints || []).map(w => w.hexId)).filter(Boolean), settlementId: null, domainId: null, relatedEntities: (j.participantCharacterIds || []).map(id => ({ kind: 'character', id, role: 'subject' })) },
+      payload: { journeyId: j.id, destinationHexId: j.destinationHexId || null, waypointHexIds: (j.waypoints || []).map(w => w.hexId), narrative: (j.name || 'Journey') + ' re-routed.' }
+    });
+    ev.appliedAtTurn = campaign.currentTurn || 1;
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' re-routed.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+  } catch(e){ /* never block a re-route on event emission */ }
+  return j;
+}
+
 // Compatibility stubs retained for older call sites (superseded by the Journey model).
 function travelEstimate(character, destinationHexId, options){
   // Superseded by computeJourneyDistance + the Journey day-tick. Kept as a harmless null.
@@ -2525,7 +2585,7 @@ const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
