@@ -128,6 +128,11 @@ document.addEventListener('alpine:init', () => {
   table.bookkeeping { width: 100%; border-collapse: collapse; }
   table.bookkeeping td, table.bookkeeping th { padding: 3px 8px; border-bottom: 1px dotted #c4b88f; }
   table.bookkeeping th { text-align: left; font-weight: 600; }
+  /* let the text-right / text-center utilities win over the default left on bookkeeping headers
+     (the bare `table.bookkeeping th` rule outranks a plain `.text-right` class) so numeric
+     column headers line up over their right-aligned data cells. */
+  table.bookkeeping th.text-right { text-align: right; }
+  table.bookkeeping th.text-center { text-align: center; }
   table.bookkeeping tr.subtotal td { border-top: 1px solid #6b4f24; font-weight: 600; }
   table.bookkeeping tr.total td { border-top: 2px double #6b4f24; font-weight: 700; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 50;
