@@ -832,7 +832,7 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
     const hexLabel = function(id){
       if(!id) return null;
       const h = (A && A.resolveHexAnywhere) ? A.resolveHexAnywhere(campaign, id) : null;
-      if(h && h.coord) return '(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')' + (h.settlement && h.settlement.name ? ' · ' + h.settlement.name : '');
+      if(h && h.coord) return (A && A.hexDisplayLabel ? A.hexDisplayLabel(h.coord.q, h.coord.r) : ('(' + (h.coord.q || 0) + ',' + (h.coord.r || 0) + ')')) + (h.settlement && h.settlement.name ? ' · ' + h.settlement.name : '');
       return id;
     };
     if(mutation.newValue == null) return 'Cleared the location of ' + partyName + reasonNote;
@@ -854,6 +854,16 @@ function _humanizeFiatNarrative(campaign, target, entity, mutation, p, previousV
     const newName = (newLeader && newLeader.name) || mutation.newValue;
     if(oldLeader && oldLeader.id !== mutation.newValue) return 'Made ' + newName + ' leader of ' + partyName + ' (replacing ' + (oldLeader.name || oldLeader.id) + ')' + reasonNote;
     return 'Made ' + newName + ' leader of ' + partyName + reasonNote;
+  }
+  // ----- Hex domain reassignment: hex.domainId (GM moves a hex between domains / to the wild) -----
+  if(target.kind === 'hex' && mutation.fieldPath === 'domainId'){
+    const A = (typeof global !== 'undefined' && global.ACKS) ? global.ACKS : null;
+    const hexLabel = (entity && entity.coord && A && A.hexDisplayLabel) ? A.hexDisplayLabel(entity.coord.q, entity.coord.r) : ((entity && entity.id) || target.id);
+    const domName = function(id){ if(!id) return null; const d = ((campaign && campaign.domains) || []).find(x => x && x.id === id); return d ? (d.name || d.id) : id; };
+    const from = domName(previousValue), to = domName(mutation.newValue);
+    if(!mutation.newValue) return 'Released hex ' + hexLabel + (from ? ' from ' + from : '') + ' to unclaimed wilderness' + reasonNote;
+    if(previousValue) return 'Moved hex ' + hexLabel + ' from ' + from + ' to ' + to + reasonNote;
+    return 'Assigned hex ' + hexLabel + ' to ' + to + reasonNote;
   }
   // ----- Journey pace: journey.pace (GM changes the marching pace mid-trip) -----
   if(target.kind === 'journey' && mutation.fieldPath === 'pace'){
@@ -949,6 +959,11 @@ function applyEvent_gmFiat(campaign, event){
     const owningDomain = (campaign.domains||[]).find(dd =>
       (dd.geography?.hexes||[]).some(h => h.id === target.id));
     if(owningDomain && _eng.syncRuralPopulationFromHexes) _eng.syncRuralPopulationFromHexes(owningDomain);
+  } else if(target.kind === 'hex' && mutation.fieldPath === 'domainId'){
+    // Canonical setter (#10): a hex's domainId is the truth; moving it must move its geography.hexes
+    // mirror too. Routes through the exported reconciler so the hex panel, the Inspector, the Event
+    // Wizard, and any integrator that sets domainId all re-home the hex (not just the map editor).
+    if(_eng.reconcileHexDomainMembership) _eng.reconcileHexDomainMembership(campaign, entity);
   }
   return {
     result: {

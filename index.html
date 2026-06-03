@@ -334,14 +334,16 @@ document.addEventListener('alpine:init', () => {
         </select>
         <span class="text-sm opacity-70" x-text="filteredHexes().length + ' of ' + allHexes().length + ' hexes'"></span>
       </div>
-      <!-- Inline +add-hex control: pick a domain, push a new hex into its geography.hexes[].
-           Wilderness (unowned) hexes are reserved for a follow-up (task #121) and not addable here yet. -->
+      <!-- +add-hex control: pick a target (a domain, or unclaimed wilderness), then place the hex on
+           the Map in Add/Edit mode (addHexViaMap → returns here on create/cancel). On an empty map it
+           falls back to an inline create. The dropdown keeps its selection after adding. -->
       <div x-data="{addDomain:''}" class="flex items-center gap-1 text-sm">
         <select x-model="addDomain" class="text-sm">
           <option value="">— add hex to —</option>
+          <option value="__wild__">Unclaimed wilderness</option>
           <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
         </select>
-        <button @click="if(addDomain){ addHexToDomain(addDomain); addDomain=''; }" :disabled="!addDomain" :class="addDomain ? '' : 'opacity-50 cursor-not-allowed'" class="text-sm px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ add hex</button>
+        <button @click="if(addDomain){ addHexViaMap(addDomain, 'hexes'); }" :disabled="!addDomain" :class="addDomain ? '' : 'opacity-50 cursor-not-allowed'" class="text-sm px-2 py-1 border border-ink rounded hover:bg-yellow-100" title="Place the new hex on the Map (Add/Edit mode), then return to this list">+ add hex</button>
       </div>
     </div>
 
@@ -363,7 +365,7 @@ document.addEventListener('alpine:init', () => {
           <th class="text-right">Actions</th>
         </tr></thead>
         <tbody>
-          <template x-for="entry in filteredHexes()" :key="entry.domainId + ':' + entry.hexIndex">
+          <template x-for="entry in filteredHexes()" :key="entry.hex.id">
             <tr>
               <td>
                 <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="window.ACKS.hexName(entry.hex)"></button>
@@ -400,15 +402,16 @@ document.addEventListener('alpine:init', () => {
                 <span x-show="entry.hex.explored === false" class="opacity-70 italic">unexplored</span>
                 <span x-show="entry.hex.explored !== false" class="accent-green">✓ explored</span>
               </td>
-              <td class="text-right text-base">
+              <td class="text-right text-base whitespace-nowrap">
                 <button @click="openHexDetail(entry)" class="underline">edit</button>
+                <button @click="deleteHex(entry)" class="underline accent-red ml-2" title="Delete this hex entirely (and its settlement, if any) — cannot be undone">delete</button>
               </td>
             </tr>
           </template>
         </tbody>
       </table>
     </template>
-    <p class="text-sm opacity-60 mt-3 italic">Hex schema is currently stored per-domain (under <code>domain.geography.hexes[]</code>). The World view aggregates and edits across all domains — settlement/economy fields stay synced with the Domain &gt; Hexes tab. A future refactor will lift hexes into a top-level campaign collection so wilderness (unowned) hexes can live here too.</p>
+    <p class="text-sm opacity-60 mt-3 italic">Hexes live in the top-level <code>campaign.hexes[]</code> collection (mirrored per-domain under <code>domain.geography.hexes[]</code> for owned hexes). This view aggregates across all domains <em>and</em> unclaimed wilderness — use “+ add hex → Unclaimed wilderness” to create a domainless hex, or a hex's <strong>Domain</strong> field to claim/release it. Settlement/economy fields stay synced with the Domain &gt; Hexes tab.</p>
   </div>
 
   <!-- ───── Sub-tab: RUMORS (Phase 2.8) — cross-settlement view, gated by rumors-manual ───── -->
@@ -580,8 +583,41 @@ document.addEventListener('alpine:init', () => {
     <button @click="mapEndSelect()" class="underline opacity-70 hover:opacity-100">cancel</button>
   </div>
 
+  <!-- Create Map modal — lay out a blank W×H grid of unclaimed/unexplored hexes (world starter, #225). -->
+  <div x-show="mapGridModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" x-cloak @click.self="mapGridModalOpen = false" @keydown.escape.window="mapGridModalOpen = false">
+    <div class="vellum border border-ink rounded-lg shadow-xl max-w-md w-full mx-4 p-5 space-y-4">
+      <div class="flex justify-between items-center">
+        <h2 class="font-bold text-lg">➕ Create Map</h2>
+        <button @click="mapGridModalOpen = false" class="text-xl px-2 leading-none">×</button>
+      </div>
+      <p class="text-sm opacity-70">Lay out a rectangular grid of blank hexes — no terrain, unexplored, unclaimed — a clean canvas to build a world on. Hexes you already have are kept (never overwritten); the grid fills in around them.</p>
+      <div>
+        <div class="text-sm font-semibold mb-1">Size</div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="n in [10, 25, 50, 100]" :key="n">
+            <button @click="mapGridCols = n; mapGridRows = n" class="text-sm px-2.5 py-1 border border-ink rounded hover:bg-yellow-100" :class="(mapGridCols === n && mapGridRows === n) ? 'bg-yellow-200 font-semibold' : ''" x-text="n + '×' + n"></button>
+          </template>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <label class="flex items-center justify-between gap-2">Columns <input type="number" min="1" max="200" x-model.number="mapGridCols" class="w-24 border border-ink rounded px-2 py-1"></label>
+        <label class="flex items-center justify-between gap-2">Rows <input type="number" min="1" max="200" x-model.number="mapGridRows" class="w-24 border border-ink rounded px-2 py-1"></label>
+        <label class="flex items-center justify-between gap-2" title="Top-left hex number (column·row). Defaults to 1,1 — the Auran/JG '0101' convention.">Start col <input type="number" x-model.number="mapGridStartCol" class="w-24 border border-ink rounded px-2 py-1"></label>
+        <label class="flex items-center justify-between gap-2" title="Top-left hex number (column·row). Defaults to 1,1 — the Auran/JG '0101' convention.">Start row <input type="number" x-model.number="mapGridStartRow" class="w-24 border border-ink rounded px-2 py-1"></label>
+      </div>
+      <div class="text-sm opacity-80 border-t border-ink/20 pt-2" x-text="(() => { const p = mapGridPreview(); if(!p.total) return 'Set a size to preview.'; return 'Will create ' + p.create.toLocaleString() + ' new hex' + (p.create === 1 ? '' : 'es') + (p.skip ? (' · ' + p.skip.toLocaleString() + ' already in range (kept)') : '') + '.'; })()"></div>
+      <div class="flex justify-end gap-2">
+        <button @click="mapGridModalOpen = false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+        <button @click="mapCreateGrid()" :disabled="mapGridPreview().create === 0" :class="mapGridPreview().create === 0 ? 'opacity-50 cursor-not-allowed' : ''" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">Create</button>
+      </div>
+    </div>
+  </div>
+
   <template x-if="mapHexEntries().length === 0">
-    <p class="text-sm italic opacity-60 py-10 text-center">No hexes to map yet. Add hexes to a domain via the World tab or Domains → Hexes, and they'll appear here.</p>
+    <div class="py-10 text-center space-y-3">
+      <p class="text-sm italic opacity-60">No hexes to map yet. Lay down a blank grid to start a world, or add hexes to a domain via the World tab or Domains → Hexes.</p>
+      <button @click="mapGridModalOpen = true" class="px-4 py-2 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">➕ Create Map</button>
+    </div>
   </template>
 
   <template x-if="mapHexEntries().length > 0">
@@ -596,6 +632,7 @@ document.addEventListener('alpine:init', () => {
           </label>
         </template>
         <span class="ml-auto flex items-center gap-2">
+          <button @click="mapGridModalOpen = true" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Lay down a blank grid of hexes — existing hexes are kept; the grid fills in around them">➕ Create Map</button>
           <button @click="mapStandardView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Reset to the standard composite — terrain + settlements + strongholds + roads/rivers + domain borders + journeys">⌂ Standard view</button>
           <button @click="mapResetView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Fit the whole map in view">⤢ Fit</button>
         </span>
@@ -623,14 +660,23 @@ document.addEventListener('alpine:init', () => {
           <span>Journeys</span>
         </label>
         <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Add/Edit hexes — faint addable cells appear (click one to create a hex there), and clicking an existing hex opens a quick editor (domain, terrain, rivers, roads) instead of its full card">
-          <input type="checkbox" x-model="mapEditAddMode" @change="schedulePersist(); if(!mapEditAddMode) mapCancelCreate()">
+          <input type="checkbox" x-model="mapEditAddMode" @change="mapEditAddMode ? mapEnterAddMode() : mapCancelCreate()">
           <span>✎ Add/Edit hexes</span>
         </label>
       </div>
 
-      <!-- Create / Edit hex picker (M5) — opens on a faint empty cell (create) or, in Edit/Add mode, on an existing hex (edit, pre-filled). -->
-      <div x-show="mapCreateAt" class="vellum border border-sky-400 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
-        <span><span x-text="mapEditHexId ? 'Edit hex' : 'Create hex'"></span> <strong class="font-mono" x-text="mapCreateAt ? window.ACKS.hexDisplayLabel(mapCreateAt.q, mapCreateAt.r) : ''"></strong></span>
+      <!-- Add/Edit hex panel (M5) — PERSISTENT while Add/Edit mode is on (shown the moment the toggle
+           flips, before any cell is clicked). With no cell selected it's the "new-hex defaults" brush:
+           set domain/terrain, then click a faint empty cell to place a hex with those values (kept, not
+           reset), or click an existing hex to load it for editing. Rivers/roads + Save need a selected
+           cell, so they appear only then. -->
+      <div x-show="mapEditAddMode" class="vellum border border-sky-400 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <template x-if="mapCreateAt">
+          <span><span x-text="mapEditHexId ? 'Edit hex' : 'Create hex'"></span> <strong class="font-mono" x-text="window.ACKS.hexDisplayLabel(mapCreateAt.q, mapCreateAt.r)"></strong></span>
+        </template>
+        <template x-if="!mapCreateAt">
+          <span class="opacity-70 italic">No hex selected — click an empty cell to add one (with these settings), or a hex to edit. New-hex defaults:</span>
+        </template>
         <span>· domain:</span>
         <select x-model="mapCreateDomainId" class="border border-ink rounded px-2 py-0.5">
           <option value="">Unclaimed wilderness</option>
@@ -645,22 +691,31 @@ document.addEventListener('alpine:init', () => {
             <option :value="t.value" x-text="t.label"></option>
           </template>
         </select>
-        <!-- #225 per-side rivers + roads — click the mini-hex's sides. Rivers run ALONG edges; roads
-             run from the centre out to the chosen sides (with faintly circular bends). -->
-        <span class="flex items-center gap-1" title="Click a side to cycle: none → river (along the edge) → river + ford/bridge → none. A road that crosses a river is auto-bridged.">
-          <span class="opacity-70">· rivers:</span>
-          <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
-            <g x-html="mapMiniHexMarkup('river')"></g>
-          </svg>
-        </span>
-        <span class="flex items-center gap-1" title="Click the sides the road reaches from the hex centre — bends are faintly circular">
-          <span class="opacity-70">· roads:</span>
-          <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
-            <g x-html="mapMiniHexMarkup('road')"></g>
-          </svg>
-        </span>
-        <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300" x-text="mapEditHexId ? 'Save' : 'Create'"></button>
-        <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+        <!-- Rivers/roads + Save/Cancel only once a cell is selected (they act on that specific hex). -->
+        <template x-if="mapCreateAt">
+          <span class="flex flex-wrap items-center gap-2">
+            <!-- #225 per-side rivers + roads — click the mini-hex's sides. Rivers run ALONG edges; roads
+                 run from the centre out to the chosen sides (with faintly circular bends). -->
+            <span class="flex items-center gap-1" title="Click a side to cycle: none → river (along the edge) → river + ford/bridge → none. A road that crosses a river is auto-bridged.">
+              <span class="opacity-70">· rivers:</span>
+              <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
+                <g x-html="mapMiniHexMarkup('river')"></g>
+              </svg>
+            </span>
+            <span class="flex items-center gap-1" title="Click the sides the road reaches from the hex centre — bends are faintly circular">
+              <span class="opacity-70">· roads:</span>
+              <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
+                <g x-html="mapMiniHexMarkup('road')"></g>
+              </svg>
+            </span>
+            <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300" x-text="mapEditHexId ? 'Save' : 'Create'"></button>
+            <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+          </span>
+        </template>
+        <!-- No cell selected: a single exit affordance — return to the domain (add-hex flow) or just leave Add/Edit. -->
+        <template x-if="!mapCreateAt">
+          <button @click="if(_hexAddReturn){ _returnFromHexAdd(); } else { mapEditAddMode = false; schedulePersist(); }" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" x-text="_hexAddReturn ? 'Cancel · back to domain' : 'Done'"></button>
+        </template>
       </div>
 
       <!-- Legend for the active fill layer. -->
@@ -1088,7 +1143,7 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="entry in hexSettlements(selectedDomain)" :key="entry.hexIndex">
                     <tr>
                       <td class="font-semibold" x-text="entry.settlement.name || '(unnamed)'"></td>
-                      <td class="font-mono text-sm" x-text="'('+entry.hex.coord.q+','+entry.hex.coord.r+')'"></td>
+                      <td class="font-mono text-sm" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r)"></td>
                       <td x-text="settlementType(entry.settlement)"></td>
                       <td>
                         <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:entry.settlement, fieldPath:'families', label:'Settlement families', kind:'number', min:0})">
@@ -1327,15 +1382,13 @@ document.addEventListener('alpine:init', () => {
             <h2 class="font-bold text-lg mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="selectedDomain.geography.hexes && selectedDomain.geography.hexes.length > 0" x-text="'· ' + selectedDomain.geography.hexes.length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + selectedDomain.geography.hexes.reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
             <table class="bookkeeping text-sm">
               <thead><tr>
-                <th>Hex (q, r)</th>
+                <th>Hex</th>
                 <th>Class</th>
                 <th>Families</th>
                 <th>Land value</th>
                 <th title="Agricultural improvement bonus per RR p.341">Improvements</th>
                 <th x-show="isHouseRuleEnabled('families-per-hex-tracking')">Land income</th>
                 <th>Settlement</th>
-                <th class="text-sm">World</th>
-                <th></th>
               </tr></thead>
               <tbody>
                 <template x-for="(h, i) in selectedDomain.geography.hexes" :key="h.id || i">
@@ -1360,13 +1413,13 @@ document.addEventListener('alpine:init', () => {
                       </template>
                     </td>
                     <td>
-                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
+                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
                         <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
                         <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                       </span>
                     </td>
                     <td class="text-sm">
-                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
+                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
                         <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-semibold" x-text="'+' + (currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — GM shortcut, max +3. Proper flow is the Queue improvements panel below.">✏</button></span></template>
                         <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                       </span>
@@ -1405,18 +1458,14 @@ document.addEventListener('alpine:init', () => {
                         </div>
                       </template>
                     </td>
-                    <td class="text-sm">
-                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline" title="Open in World > Hexes detail (terrain, lairs, dungeons, POIs, notes, etc.)">edit ↗</button>
-                    </td>
-                    <td><button @click="selectedDomain.geography.hexes.splice(i,1)" class="accent-red px-2" title="Remove this hex from the domain">×</button></td>
                   </tr>
                 </template>
                 <template x-if="!selectedDomain.geography.hexes || selectedDomain.geography.hexes.length === 0">
-                  <tr><td :colspan="8 + (isHouseRuleEnabled('families-per-hex-tracking') ? 1 : 0)" class="italic opacity-60">No hexes added yet. Use the button below to start.</td></tr>
+                  <tr><td :colspan="6 + (isHouseRuleEnabled('families-per-hex-tracking') ? 1 : 0)" class="italic opacity-60">No hexes added yet. Use the button below to start.</td></tr>
                 </template>
               </tbody>
             </table>
-            <button @click="selectedDomain.geography.hexes.push({id:'hex-0_0-'+Math.random().toString(36).slice(2,5), coord:{q:0,r:0}, families:0, valuePerFamily:6, terrain:'', primaryStructure:'', notes:'', settlement:null, landImprovementBonus:0, landImprovementProjects:[], lairs:[], dungeons:[], pointsOfInterest:[], monsterNotes:'', explored:true, classification:'Borderlands'})" class="mt-2 text-sm underline">+ add hex</button>
+            <button @click="addHexViaMap(selectedDomain.id)" class="mt-2 text-sm underline" title="Open the Map in Add/Edit mode to place a new hex for this domain, then return here">+ add hex</button>
           </div>
 
           <!-- Agricultural Improvement Tracker (baseline ACKS RR p.341).
@@ -1443,7 +1492,7 @@ document.addEventListener('alpine:init', () => {
                   <tbody>
                     <template x-for="h in (selectedDomain.geography.hexes||[]).filter(x => (x.landImprovementInvested||0) > 0)" :key="h.id">
                       <tr>
-                        <td><span class="font-mono">(<span x-text="h.coord?.q||0"></span>,<span x-text="h.coord?.r||0"></span>)</span></td>
+                        <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
                         <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + 'gp'"></td>
                         <td x-text="'+' + (h.landImprovementBonus||0)"></td>
                         <td class="font-mono" x-text="(h.landImprovementInvested||0).toLocaleString() + ' / 25,000gp'"></td>
@@ -1476,7 +1525,7 @@ document.addEventListener('alpine:init', () => {
                   <tbody>
                     <template x-for="(h, hi) in selectedDomain.geography.hexes" :key="h.id || hi">
                       <tr>
-                        <td><span class="font-mono">(<span x-text="h.coord?.q||0"></span>,<span x-text="h.coord?.r||0"></span>)</span></td>
+                        <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
                         <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + ' / ' + Math.round(effectiveHexValue(h)) + 'gp'"></td>
                         <td class="text-sm">
                           <span x-text="'+' + (h.landImprovementBonus||0)"></span>
@@ -1508,12 +1557,12 @@ document.addEventListener('alpine:init', () => {
                                   <span class="text-[10px] opacity-70" x-text="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); if(!sup) return ''; const onSite = !sup.currentHexId || sup.currentHexId === h.id; return onSite ? '' : '⚠ off-site'; })()"></span>
                                   <button class="text-sm accent-red"
                                           title="Remove (logged)"
-                                          @click="(() => { const list = (h.constructionSupervisorCharacterIds||[]).slice(); list.splice(sIdx, 1); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + h.coord?.q + ',' + h.coord?.r + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); })()">×</button>
+                                          @click="(() => { const list = (h.constructionSupervisorCharacterIds||[]).slice(); list.splice(sIdx, 1); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); })()">×</button>
                                 </span>
                               </template>
                               <!-- + Add supervisor dropdown — filters out characters already assigned. -->
                               <select class="text-sm mt-1" style="max-width:11rem"
-                                      @change="(() => { const newId = $event.target.value; if(!newId) return; const list = (h.constructionSupervisorCharacterIds||[]).slice(); if(!list.includes(newId)) list.push(newId); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + h.coord?.q + ',' + h.coord?.r + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); $event.target.value = ''; })()">
+                                      @change="(() => { const newId = $event.target.value; if(!newId) return; const list = (h.constructionSupervisorCharacterIds||[]).slice(); if(!list.includes(newId)) list.push(newId); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); $event.target.value = ''; })()">
                                 <option value="">＋ Add supervisor…</option>
                                 <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false && (c.constructionSupervisorCap||0) > 0 && !(h.constructionSupervisorCharacterIds||[]).includes(c.id))" :key="c.id">
                                   <option :value="c.id" x-text="c.name + ' (' + (c.constructionSupervisorCap||0).toLocaleString() + 'gp' + (c.currentHexId && c.currentHexId !== h.id ? ', off-site' : '') + ')'"></option>
@@ -1533,7 +1582,7 @@ document.addEventListener('alpine:init', () => {
                         </td>
                         <td>
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
-                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + h.coord?.q + ',' + h.coord?.r + ')', kind:'number', min:0})">
+                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0})">
                               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
                               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                             </span>
@@ -2241,7 +2290,7 @@ document.addEventListener('alpine:init', () => {
       <div class="border border-ink/40 rounded p-3 space-y-2" x-show="emitWizardKind">
         <div class="wizard-step-header"><span class="wizard-step-n">Step 3</span>Context envelope</div>
         <div class="grid grid-cols-2 gap-2">
-          <label class="text-sm">Primary hex<select x-model="emitWizardCtxHexId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="h in (currentCampaign?.hexes || [])" :key="h.id"><option :value="h.id" x-text="(h.coord ? '('+h.coord.q+','+h.coord.r+')' : h.id) + (h.name ? ' · '+h.name : '')"></option></template></select></label>
+          <label class="text-sm">Primary hex<select x-model="emitWizardCtxHexId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="h in (currentCampaign?.hexes || [])" :key="h.id"><option :value="h.id" x-text="(h.coord ? window.ACKS.hexDisplayLabel(h.coord.q, h.coord.r) : h.id) + (h.name ? ' · '+h.name : '')"></option></template></select></label>
           <label class="text-sm">Settlement<select x-model="emitWizardCtxSettlementId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="st in (currentCampaign?.settlements || [])" :key="st.id"><option :value="st.id" x-text="st.name"></option></template></select></label>
           <label class="text-sm">Domain<select x-model="emitWizardCtxDomainId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="d in (currentCampaign?.domains || [])" :key="d.id"><option :value="d.id" x-text="d.name"></option></template></select></label>
           <label class="text-sm">Related entities <span class="opacity-50">JSON [{kind,id,role}]</span><input x-model="emitWizardCtxRelatedJson" placeholder="[]" class="w-full border border-ink rounded px-2 py-1 text-sm font-mono" /></label>
@@ -3695,14 +3744,16 @@ document.addEventListener('alpine:init', () => {
                                 </select>
                               </div>
                             </template>
-                            <!-- coord (Wave B.6) — {q, r}; two small number inputs, each committed by axis path. -->
+                            <!-- coord (Wave B.6) — GM-facing COLUMN·ROW (the map-label convention); stored
+                                 axial {q,r} (shown in the tooltip). Whole-coord commit via inspectorSetCoordColRow
+                                 (a column edit recomputes axial r, so it can't be a per-axis path). -->
                             <template x-if="field.type === 'coord'">
-                              <div class="flex items-center gap-2 text-sm">
-                                <label class="flex items-baseline gap-1">q
-                                  <input type="number" :value="(inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}).q ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.q', $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                              <div class="flex items-center gap-2 text-sm" :title="(() => { const v = inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}; return 'Internal axial q,r: ' + (v.q||0) + ', ' + (v.r||0); })()">
+                                <label class="flex items-baseline gap-1">col
+                                  <input type="text" inputmode="numeric" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).col" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, $event.target.value.trim() === '' ? 0 : parseInt($event.target.value)||0, null)" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
                                 </label>
-                                <label class="flex items-baseline gap-1">r
-                                  <input type="number" :value="(inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}).r ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.r', $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                                <label class="flex items-baseline gap-1">row
+                                  <input type="text" inputmode="numeric" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).row" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, null, $event.target.value.trim() === '' ? 0 : parseInt($event.target.value)||0)" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
                                 </label>
                               </div>
                             </template>
@@ -5499,7 +5550,7 @@ document.addEventListener('alpine:init', () => {
                 <span class="ed-val">
                   <template x-for="entry in allHexes()" :key="entry.hex.id">
                     <template x-if="entry.hex.id === characterEditing.currentHexId">
-                      <span x-text="'(' + entry.hex.coord.q + ',' + entry.hex.coord.r + ')  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></span>
+                      <span x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></span>
                     </template>
                   </template>
                 </span>
@@ -5515,7 +5566,7 @@ document.addEventListener('alpine:init', () => {
               <select x-model="hexDraft" class="ed-input" style="width:24rem" x-init="$nextTick(() => $el.focus())">
                 <option :value="null">— no specific hex —</option>
                 <template x-for="entry in allHexes()" :key="entry.hex.id">
-                  <option :value="entry.hex.id" x-text="'(' + entry.hex.coord.q + ',' + entry.hex.coord.r + ')  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></option>
+                  <option :value="entry.hex.id" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></option>
                 </template>
               </select>
               <button @click="saveHexEdit()" class="ed-btn" title="Save & log">✓</button>
@@ -5862,22 +5913,43 @@ document.addEventListener('alpine:init', () => {
     </div>
     <div class="p-4 space-y-3 max-h-[80vh] overflow-y-auto" x-show="worldHexEditingHex()">
       <!-- Identity — all GM edits routed through gm-fiat events (logged).
-           Coord (q,r) is foundational identity and rarely changes; staying as plain inputs.
-           valuePerFamily is RAW (3d3 rolled at hex secure) but GM-settable here (logged via gm-fiat). -->
+           Coord is the GM-facing COLUMN·ROW hex number (the JG/Auran convention the map labels use);
+           axial {q,r} stays the internal store (shown in the tooltip). worldHexSetColRow converts.
+           Foundational identity, rarely changes. valuePerFamily is RAW (3d3 at hex secure) but GM-settable. -->
       <div class="grid grid-cols-2 gap-3">
-        <label class="block text-sm">Coord (q, r) <span class="opacity-60 text-sm">— hex identifier (foundational, edit cautiously)</span>
-          <span class="flex items-center gap-1">
-            <input type="number" :value="worldHexEditingHex().coord?.q" @input="worldHexEditingHex().coord={q:parseInt($event.target.value)||0, r:worldHexEditingHex().coord?.r||0}" class="w-20">
+        <label class="block text-sm">Coord (column, row) <span class="opacity-60 text-sm">— hex number (foundational, edit cautiously)</span>
+          <span class="flex items-center gap-1" :title="'Internal axial q,r: ' + (worldHexEditingHex().coord?.q||0) + ', ' + (worldHexEditingHex().coord?.r||0)">
+            <input type="text" inputmode="numeric" title="Column" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).col" @change="worldHexSetColRow(parseInt($event.target.value)||0, null)" class="w-20">
             <span>,</span>
-            <input type="number" :value="worldHexEditingHex().coord?.r" @input="worldHexEditingHex().coord={q:worldHexEditingHex().coord?.q||0, r:parseInt($event.target.value)||0}" class="w-20">
+            <input type="text" inputmode="numeric" title="Row" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).row" @change="worldHexSetColRow(null, parseInt($event.target.value)||0)" class="w-20">
           </span>
         </label>
         <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Domain</span>
+          <!-- Reassign the hex across domains (or to unclaimed wilderness). Moves it via mapRehomeHex. -->
+          <!-- :selected per-option, NOT :value on the <select>. Alpine's x-bind:value can't reliably
+               select an option that's generated by x-for — the options aren't in the DOM when the bind
+               first evaluates, so the select falls back to option 0 ("Unclaimed") even when domainId is
+               set. Binding :selected on each option (incl. the static first one) is the robust pattern. -->
+          <select @change="worldHexSetDomain($event.target.value)"
+                  class="text-sm" style="width:14rem" title="Move this hex to another domain, or to unclaimed wilderness">
+            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().domainId)">Unclaimed wilderness</option>
+            <template x-for="d in domains" :key="d.id"><option :value="d.id" :selected="worldHexEditingHex() && worldHexEditingHex().domainId === d.id" x-text="d.name"></option></template>
+          </select>
+        </div>
+        <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Terrain</span>
-          <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'terrain', label:'Terrain', kind:'text', placeholder:'(none)'})">
-            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="forest, hills, marsh…"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
-          </span>
+          <!-- Terrain dropdown (same catalog as the map's Add/Edit-hexes editor). :selected per-option,
+               NOT :value — the options are x-for-generated, and Alpine's :value can't preselect an x-for
+               option (see the Domain select). hexPanelTerrainOptions() prepends a non-catalog current
+               value so an existing terrain stays selected. Commits via gm-fiat on change. -->
+          <select @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'terrain', label:'Terrain', oldValue:worldHexEditingHex().terrain || '', newValue:$event.target.value})"
+                  class="text-sm" style="width:14rem" title="Terrain type — drives the map's terrain colour and overland travel speed">
+            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().terrain)">— none —</option>
+            <template x-for="t in hexPanelTerrainOptions()" :key="t.value">
+              <option :value="t.value" :selected="worldHexEditingHex() && worldHexEditingHex().terrain === t.value" x-text="t.label"></option>
+            </template>
+          </select>
         </div>
         <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Ground</span>
@@ -7211,8 +7283,8 @@ return {
     this.$watch('mapFillLayer',()=>this.schedulePersist());
     // #225 Map is now a World sub-view: fit the viewport when World opens on Map, or when the
     // sub-view switches to Map; persist the active sub-view so a reload restores it.
-    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); });
-    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); });
+    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); if(v!=='world') this._hexAddReturn = null; }); // left World entirely → abandon the add-hex flow
+    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); else this._hexAddReturn = null; }); // left Map for another World sub-view → abandon the add-hex flow
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -7455,6 +7527,19 @@ return {
     });
   },
 
+  // Inspector coord edits are GM-facing COLUMN·ROW (the map-label convention), committed as a whole
+  // axial {q,r} via gm-fiat. A column·row edit isn't a single-axis change — moving the column while
+  // holding the displayed row recomputes axial r — so it can't use the per-axis dotted path; it
+  // commits the whole coord object. Pass null for the axis you're NOT changing (read back from current).
+  inspectorSetCoordColRow(entity, fieldName, col, row){
+    if(!entity || !fieldName || !window.ACKS) return;
+    const v = this.inspectorFieldValue(entity, fieldName) || {};
+    const cur = window.ACKS.hexAxialToColRow(v.q || 0, v.r || 0);
+    const c  = (col == null) ? cur.col : col;
+    const rw = (row == null) ? cur.row : row;
+    this.inspectorSetField(entity, fieldName, window.ACKS.hexColRowToAxial(c, rw));
+  },
+
   // ─── Composite-field edit helpers (Wave B.6 — 2026-05-31) ───
   // Array-length-changing edits commit the WHOLE array as newValue. CRITICAL: clone
   // the array first, mutate the clone, never the live array — inspectorSetField early-
@@ -7556,7 +7641,7 @@ return {
     if(field.type === 'enumMulti' && Array.isArray(value)) return value.length ? value.join(', ') : '—';
     if(field.type === 'idArray' && Array.isArray(value)) return '[' + value.length + ' refs]';
     if(field.type === 'gp' && typeof value === 'number') return value.toLocaleString() + ' gp';
-    if(field.type === 'coord' && value && value.q != null) return '(' + value.q + ',' + value.r + ')';
+    if(field.type === 'coord' && value && value.q != null) return window.ACKS.hexDisplayLabel(value.q, value.r); // GM-facing column·row
     if(field.type === 'computed') return '(computed — render in later wave)';
     return String(value);
   },
@@ -8433,7 +8518,7 @@ return {
             const h = destHexes.find(hex => hex.id === ruler.currentHexId);
             if(h){
               const setName = h.settlement && h.settlement.name;
-              destCoord = '(' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')' + (setName ? ' · ' + setName : '');
+              destCoord = window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + (setName ? ' · ' + setName : '');
             }
           }
         }
@@ -8441,12 +8526,12 @@ return {
           const settled = destHexes.find(h => h.settlement);
           if(settled){
             const setName = settled.settlement && settled.settlement.name;
-            destCoord = '(' + (settled.coord?.q||0) + ',' + (settled.coord?.r||0) + ')' + (setName ? ' · ' + setName : '');
+            destCoord = window.ACKS.hexDisplayLabel(settled.coord?.q||0, settled.coord?.r||0) + (setName ? ' · ' + setName : '');
           }
         }
         if(!destCoord && destHexes.length > 0){
           const h = destHexes[0];
-          destCoord = '(' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')';
+          destCoord = window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0);
         }
       }
       const dest = destCoord ? destCoord + ' · ' + destName : destName;
@@ -9122,7 +9207,7 @@ return {
       }
       // Campaign log for the at-a-glance feed.
       const entityName = opts.entity?.name || opts.entityId;
-      this.showToast(label + ' updated: ' + oldV + ' → ' + newV);
+      this.showToast(opts.toastMessage || (label + ' updated: ' + oldV + ' → ' + newV));
       return true;
     } catch(e){
       console.error('commitStatEdit failed', e);
@@ -10976,10 +11061,22 @@ return {
   // Returns array of {domainId, domainName, hexIndex, hex}. Used by the World > Hexes view.
   allHexes(){
     const out = [];
+    const seen = new Set();
     (this.domains||[]).forEach(d => {
       (d.geography?.hexes||[]).forEach((h, hi) => {
         out.push({domainId:d.id, domainName:d.name, hexIndex:hi, hex:h});
+        if(h && h.id) seen.add(h.id);
       });
+    });
+    // Domainless wilderness hexes live only in campaign.hexes (no domain geography). Include them so the
+    // Hexes tab + hex pickers show them (and "+ add hex → Unclaimed wilderness" lands somewhere visible).
+    // campaign.hexes is reference-unified with the domain mirrors, so dedupe by id to avoid doubles.
+    (this.currentCampaign?.hexes||[]).forEach(h => {
+      if(h && h.id && !seen.has(h.id)){
+        const d = h.domainId ? (this.domains||[]).find(x => x.id === h.domainId) : null;
+        out.push({domainId: d ? d.id : null, domainName: d ? d.name : 'Unclaimed', domainless: !d, hexIndex:-1, hex:h});
+        seen.add(h.id);
+      }
     });
     return out;
   },
@@ -11002,7 +11099,7 @@ return {
         const haystack = [
           h.terrain||'', h.primaryStructure||'', h.notes||'', h.monsterNotes||'',
           entry.domainName||'',
-          '('+(h.coord?.q||0)+','+(h.coord?.r||0)+')',
+          window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0),
           ...(h.lairs||[]).map(l=>(l.name||'')+' '+(l.description||'')),
           ...(h.dungeons||[]).map(l=>(l.name||'')+' '+(l.description||'')),
           ...(h.pointsOfInterest||[]).map(l=>(l.name||'')+' '+(l.description||'')),
@@ -11024,12 +11121,79 @@ return {
     const id = this.worldHexEditing.hexId;
     return id ? ((this.currentCampaign?.hexes || []).find(h => h.id === id) || null) : null;
   },
+  // Terrain dropdown options for the hex panel — the shared map catalog (mapTerrainTypes), plus the
+  // editing hex's CURRENT terrain prepended when it isn't in the catalog (e.g. legacy/demo "plains" /
+  // "coast"), so switching this field from a free text box to a dropdown never hides an existing value.
+  // Mirrors mapTerrainOptions (which does the same for the map editor's mapCreateTerrain).
+  hexPanelTerrainOptions(){
+    const base = window.ACKS.mapTerrainTypes();
+    const hex = this.worldHexEditingHex();
+    const cur = ((hex && hex.terrain) || '').trim();
+    if(cur && !base.some(t => t.value === cur)) return [{ value: cur, label: cur + ' (current)' }].concat(base);
+    return base;
+  },
+  // Set the editing hex's coord from a GM-facing COLUMN·ROW pair (the map-label convention), storing
+  // canonical axial {q,r}. Pass null for the axis you're NOT changing — it's read back from the current
+  // coord so editing one field holds the other's *displayed* value (which, for column edits, recomputes
+  // axial r). Direct mutation + persist (coord is foundational identity, not routed through gm-fiat — by
+  // the same "edit cautiously" choice the plain inputs always had).
+  worldHexSetColRow(col, row){
+    const hex = this.worldHexEditingHex(); if(!hex) return;
+    const cur = window.ACKS.hexAxialToColRow(hex.coord?.q || 0, hex.coord?.r || 0);
+    const c  = (col == null) ? cur.col : col;
+    const rw = (row == null) ? cur.row : row;
+    hex.coord = window.ACKS.hexColRowToAxial(c, rw);
+    if(this.schedulePersist) this.schedulePersist();
+  },
+  // The hex panel header's "· <domain>" suffix. Reads the hex's OWN domainId (the single source of
+  // truth, CLAUDE #10) — same field the Domain dropdown binds to — so the two can never disagree.
+  // (It used to read worldHexEditing.domainId, the navigation breadcrumb of which list you opened
+  // from, which stayed set even when the hex's scalar said otherwise — that was the "header says
+  // March of Saltspur, dropdown says Unclaimed" bug.) openHexDetail heals an empty scalar first.
   worldHexEditingDomain(){
-    if(!this.worldHexEditing) return null;
-    return this.domains.find(x => x.id === this.worldHexEditing.domainId) || null;
+    const hex = this.worldHexEditingHex();
+    const id = hex && hex.domainId;
+    return id ? (this.domains.find(x => x.id === id) || null) : null;
+  },
+  // A hex's domain claim lives canonically on hex.domainId, with each domain's geography.hexes[] as
+  // the reconciled mirror (CLAUDE #10). Legacy/template data, a save round-trip, or a pre-backfill
+  // session cache can leave a hex sitting in a domain's geography with an EMPTY scalar; adopt that
+  // membership onto the scalar so the panel reflects the truth the GM already sees in the per-domain
+  // Hexes table. Mirrors the engine's lift backfill (liftToTopLevelCollections) for the in-session
+  // case where reload hasn't re-run lift. Returns the resolved domain id (null = genuine wilderness).
+  _healHexDomainId(hex){
+    if(!hex || hex.domainId) return hex ? hex.domainId : null;
+    const owner = (this.domains||[]).find(d => d.geography && Array.isArray(d.geography.hexes) && d.geography.hexes.some(h => h && h.id === hex.id));
+    if(owner){ hex.domainId = owner.id; return owner.id; }
+    return null;
+  },
+  // Reassign the editing hex to another domain (or unclaimed wilderness) from the hex-detail modal.
+  // Reuses mapRehomeHex (the canonical move: drop from old geography, set hex.domainId, add to new +
+  // campaign.hexes), then re-anchors the modal to the moved hex by id (its index in the old domain is
+  // now stale). Direct mutation + persist — same posture as the foundational Coord field and the map
+  // editor (neither routes a hex's domain move through gm-fiat).
+  worldHexSetDomain(newDomainId){
+    const hex = this.worldHexEditingHex(); if(!hex) return;
+    const from = hex.domainId || null, to = newDomainId || null;
+    if(from === to) return;
+    const dTo = to ? this.domains.find(x => x.id === to) : null;
+    const label = window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r);
+    // Log the move as a gm-fiat event. The engine handler (applyEvent_gmFiat) re-homes the
+    // geography.hexes mirror to match the new domainId (reconcileHexDomainMembership) inside this
+    // call — so commitStatEdit does the structural move AND the audit trail.
+    const ok = this.commitStatEdit({
+      entityType: 'hex', entityId: hex.id, entity: hex, fieldPath: 'domainId',
+      oldValue: from, newValue: to, label: 'Domain', reason: 'Hex reassigned',
+      toastMessage: 'Moved hex ' + label + ' to ' + (dTo ? dTo.name : 'unclaimed wilderness') + '.'
+    });
+    if(ok){
+      this.worldHexEditing = { hexId: hex.id, domainId: hex.domainId || null }; // re-anchor to the moved hex
+      this.markDirty(); this.schedulePersist();
+    }
   },
   openHexDetail(entry){
     this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex, hexId:(entry.hex && entry.hex.id) || null};
+    this._healHexDomainId(this.worldHexEditingHex()); // self-heal an empty domainId from geography membership
     this.showHexDetailModal = true;
   },
   closeHexDetail(){
@@ -11064,6 +11228,15 @@ return {
   mapCreateRiverSides: [],   // #225 — hex sides (0..5) carrying a river (drawn along those edges; a movement barrier)
   mapCreateRoadSides: [],    // #225 — hex sides (0..5) the road reaches from the centre (with circular bends)
   mapCreateCrossingSides: [], // #225 — river sides (0..5) carrying a ford/bridge (negates the barrier); road×river is an implicit bridge
+  // "Create Map" — lay out a blank W×H grid of unclaimed/unexplored hexes (world starter).
+  mapGridModalOpen: false,
+  mapGridCols: 10,
+  mapGridRows: 10,
+  mapGridStartCol: 1,
+  mapGridStartRow: 1,
+  // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
+  // { domainId } to pre-select on the create picker and to return to when they create/cancel.
+  _hexAddReturn: null,
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11268,8 +11441,13 @@ return {
     });
     return routes;
   },
-  // M5 "Add/Edit hexes" flow — the picker opens on an empty cell (create) OR an existing hex (edit).
-  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  // M5 "Add/Edit hexes" flow — the persistent picker panel shows the moment the toggle flips. This
+  // resets it to the "no hex selected" state with default new-hex settings (the brush). mapEnterAddMode
+  // is for the USER toggle; addHexViaMap enters the same way but pre-sets the brush domain.
+  mapEnterAddMode(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; this.schedulePersist(); },
+  // Click an empty cell → select it for creation. KEEP the current domain/terrain brush (so settings
+  // chosen in the panel before clicking carry into the new hex); only the per-hex geometry resets.
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
   // Open the picker on an existing hex, pre-filled with its current domain + terrain + rivers + roads + crossings.
   mapEditExistingHex(entry){
     const h = entry.hex;
@@ -11281,7 +11459,7 @@ return {
     this.mapCreateRoadSides     = Array.isArray(h.roadSides)     ? h.roadSides.slice()     : [];
     this.mapCreateCrossingSides = Array.isArray(h.crossingSides) ? h.crossingSides.slice() : [];
   },
-  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; if(this._hexAddReturn) this._returnFromHexAdd(); },
   // Toggle hex side `i` (0..5) in the road picker. `which` is 'mapCreateRoadSides'. (Rivers use the
   // 3-state cycle in mapMiniSideClick — none → river → river+ford/bridge → none.)
   mapToggleSide(which, i){
@@ -11409,13 +11587,15 @@ return {
         this.showToast('Updated hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + (d ? ' (' + d.name + ')' : ' (unclaimed)') + '.');
       }
       this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+      if(this._hexAddReturn) this._returnFromHexAdd();
       return;
     }
     // CREATE branch — a new hex at the clicked empty cell.
     const coord = { q: at.q, r: at.r };
-    const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
-      roadSides: (this.mapCreateRoadSides || []).slice() }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
     const domId = this.mapCreateDomainId || '';
+    // Unclaimed wilderness starts UNexplored (uncharted); a hex placed into a domain stays explored.
+    const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
+      roadSides: (this.mapCreateRoadSides || []).slice(), explored: !!domId }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
     if(domId){
       const d = this.domains.find(x => x.id === domId);
       if(!d){ this.mapCreateAt = null; return; }
@@ -11434,6 +11614,7 @@ return {
     this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides); // rivers + crossings (+ mirror to neighbours)
     this.markDirty(); this.schedulePersist();
     this.mapCreateAt = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+    if(this._hexAddReturn) this._returnFromHexAdd(); // per-domain "+ add hex" flow → back to the domain view
   },
   // M5 "Standard view" composite — terrain fill + all symbols + borders/roads/rivers + journeys.
   mapStandardView(){
@@ -11537,22 +11718,136 @@ return {
   // select mode; clicking a hex hands its id to `cb`. Call mapEndSelect() to restore inspect.
   mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'world'; this.worldSubView = 'map'; this.mapEnsureView(); },
   mapEndSelect(){ this._mapSelectCb = null; this._mapSelectHint = ''; this.mapMode = 'inspect'; },
-  // Create a new blank hex on the picked domain. Same shape as Domain > Hexes "+ add hex"
-  // so a hex created from either view is structurally identical.
-  addHexToDomain(domainId){
-    const d = this.domains.find(x => x.id === domainId);
-    if(!d) return;
-    if(!d.geography) d.geography = {};
-    if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
-    d.geography.hexes.push({
-      id: 'hex-0_0-' + Math.random().toString(36).slice(2,5),
-      coord: {q:0, r:0}, families: 0, valuePerFamily: 6, terrain: '',
-      primaryStructure: '', notes: '', settlement: null,
-      landImprovementBonus: 0, landImprovementProjects: [],
-      lairs: [], dungeons: [], pointsOfInterest: [], monsterNotes: '',
-      explored: true, classification: 'Borderlands'
-    });
-    this.showToast('Added a new hex to ' + d.name + '. Set its coord/families in Domains → Hexes.');
+  // First unused {q,r} scanning q=0,1,2,… along row 0 — so "+ add hex" doesn't pile every new hex on
+  // (0,0) (which collides on the campaign-global coord-uniqueness rule). The GM sets the real
+  // column·row afterward in the hex panel.
+  _firstFreeHexCoord(){
+    const used = new Set();
+    (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); });
+    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); }));
+    let q = 0;
+    while(used.has(q + ',0')) q++;
+    return { q, r: 0 };
+  },
+  // "+ add hex" on World > Hexes. `target` is a domain id, or '__wild__' for an UNCLAIMED wilderness
+  // hex (domainId null — supported at the data layer; the GM-facing way to grow the map outward).
+  // Uses blankHex (the canonical shape incl. roadSides/etc.) + a free coord, sets domainId, and lands
+  // the hex in the top-level campaign.hexes (+ the domain's geography mirror when claimed).
+  addHex(target){
+    if(!this.currentCampaign) return;
+    const wild = (target === '__wild__' || !target);
+    const d = wild ? null : this.domains.find(x => x.id === target);
+    if(!wild && !d) return;
+    // Unclaimed wilderness starts UNexplored (uncharted territory you grow the map into); a hex added
+    // to a domain is known territory, so it stays explored (blankHex's default).
+    const hex = window.ACKS.blankHex({ coord: this._firstFreeHexCoord(), explored: !wild });
+    hex.domainId = d ? d.id : null;
+    if(!Array.isArray(this.currentCampaign.hexes)) this.currentCampaign.hexes = [];
+    this.currentCampaign.hexes.push(hex);
+    if(d){
+      if(!d.geography) d.geography = {};
+      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
+      d.geography.hexes.push(hex);
+    }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Added hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + ' to ' + (d ? d.name : 'unclaimed wilderness') + ' — set its coord in the hex panel.');
+  },
+  // Back-compat delegate (the World > Hexes "+ add hex" control is the only caller).
+  addHexToDomain(domainId){ this.addHex(domainId); },
+  // The per-domain "+ add hex" (Domain ▸ Demographics): instead of dropping a blank hex at a
+  // placeholder coord, jump to the Map in Add/Edit mode so the GM places it visually. mapClickEmpty
+  // pre-selects this domain on the create picker (it reads _hexAddReturn), and creating or cancelling
+  // returns to the domain view (mapCreateHex / mapCancelCreate call _returnFromHexAdd).
+  // `target` is a domain id, or '__wild__' for unclaimed wilderness. `returnSubView` is the World
+  // sub-view to come back to ('domains' for the per-domain table — default; 'hexes' for World ▸ Hexes).
+  addHexViaMap(target, returnSubView){
+    if(!target || !this.currentCampaign) return;
+    // The map flow needs at least one existing hex to anchor the faint addable cells (they're the
+    // neighbours of placed hexes). On a truly empty map there's nothing to click, so create inline.
+    if(!(this.currentCampaign.hexes || []).length){ this.addHex(target); return; }
+    const wild = (target === '__wild__');
+    const domainId = wild ? null : target;
+    this._hexAddReturn = { domainId, returnSubView: returnSubView || 'domains' };
+    this.mapEditAddMode = true;
+    // Enter add mode with the brush pre-set to this domain (no cell selected yet) — the persistent
+    // panel shows it immediately, and mapClickEmpty keeps it when the GM clicks a cell to place.
+    this.mapCreateAt = null; this.mapEditHexId = null;
+    this.mapCreateDomainId = domainId || ''; this.mapCreateTerrain = '';
+    this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+    this.worldSubView = 'map'; this.currentView = 'world'; // subView first so the currentView watch sees map
+    this.mapEnsureView();
+    this.schedulePersist();
+    const d = domainId ? this.domains.find(x => x.id === domainId) : null;
+    this.showToast('Click an empty hex on the map to add it' + (d ? (' to ' + d.name) : ' (unclaimed wilderness)') + ' (or cancel to go back).', 5000);
+  },
+  // Return to where the add-via-map flow started (create or cancel). Idempotent — gated on
+  // _hexAddReturn, which only addHexViaMap sets, so normal map create/cancel is unaffected.
+  _returnFromHexAdd(){
+    if(!this._hexAddReturn) return;
+    const { domainId, returnSubView } = this._hexAddReturn;
+    this._hexAddReturn = null;
+    this.mapEditAddMode = false;
+    this.mapCreateAt = null; this.mapEditHexId = null;
+    if(returnSubView === 'domains' && domainId) this.selectedDomainId = domainId;
+    this.worldSubView = (returnSubView === 'hexes') ? 'hexes' : 'domains'; this.currentView = 'world';
+    this.schedulePersist();
+  },
+  // Delete a hex entirely — the destructive counterpart to "+ add hex" (World ▸ Hexes Actions column).
+  // Removes it from campaign.hexes AND every domain's geography.hexes mirror, and drops its settlement
+  // from campaign.settlements (the settlement lives on the hex). Confirms first, naming any content that
+  // would be lost. Unlogged splice — matches the other collection deletes (deleteParty/deleteRumor) and
+  // sidesteps the gm-fiat path (no hex-deleted event kind; gm-fiat is for field edits, not removals).
+  deleteHex(entry){
+    const hex = entry && entry.hex; if(!hex || !this.currentCampaign) return;
+    const A = window.ACKS, label = A.hexName(hex);
+    const lost = [];
+    const set = hex.settlement || (this.currentCampaign.settlements || []).find(s => s && s.hexId === hex.id);
+    if(set) lost.push('the settlement "' + (set.name || 'unnamed') + '"');
+    if((hex.lairs || []).length)            lost.push(hex.lairs.length + ' lair' + (hex.lairs.length === 1 ? '' : 's'));
+    if((hex.dungeons || []).length)         lost.push(hex.dungeons.length + ' dungeon' + (hex.dungeons.length === 1 ? '' : 's'));
+    if((hex.pointsOfInterest || []).length) lost.push(hex.pointsOfInterest.length + ' point' + (hex.pointsOfInterest.length === 1 ? '' : 's') + ' of interest');
+    const warn = lost.length ? ('\n\nThis hex contains ' + lost.join(', ') + ' — they will be deleted too.') : '';
+    if(!confirm('Delete hex ' + label + '?' + warn + '\n\nThis removes it from the map and its domain, and cannot be undone.')) return;
+    this.currentCampaign.hexes = (this.currentCampaign.hexes || []).filter(h => h.id !== hex.id);
+    (this.domains || []).forEach(d => { if(d.geography && Array.isArray(d.geography.hexes)) d.geography.hexes = d.geography.hexes.filter(h => h.id !== hex.id); });
+    if(Array.isArray(this.currentCampaign.settlements)) this.currentCampaign.settlements = this.currentCampaign.settlements.filter(s => !(s && s.hexId === hex.id));
+    if(this.worldHexEditing && this.worldHexEditing.hexId === hex.id) this.closeHexDetail(); // close the panel if it was open on this hex
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Deleted hex ' + label + '.');
+  },
+  // "Create Map" — count what a W×H grid at the current origin would add vs. keep. Mirrors the engine's
+  // collision rule (skip cells whose axial coord is already occupied) so the modal previews honestly.
+  mapGridPreview(){
+    const A = window.ACKS, camp = this.currentCampaign;
+    const cols = Math.max(0, Math.floor(this.mapGridCols || 0));
+    const rows = Math.max(0, Math.floor(this.mapGridRows || 0));
+    const sC = Math.floor(this.mapGridStartCol || 1), sR = Math.floor(this.mapGridStartRow || 1);
+    const total = cols * rows;
+    if(!camp || !total) return { total, create: 0, skip: 0, cols, rows };
+    const used = new Set();
+    (camp.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); });
+    let skip = 0;
+    for(let r = 0; r < rows; r++) for(let c = 0; c < cols; c++){
+      const ax = A.hexColRowToAxial(sC + c, sR + r);
+      if(used.has(ax.q + ',' + ax.r)) skip++;
+    }
+    return { total, create: total - skip, skip, cols, rows };
+  },
+  // Lay out the grid. Clamps each dimension to 1..200 (≤40k cells); confirms past 2,500 (draw cost).
+  // Existing hexes in range are kept, never overwritten (engine generateBlankHexGrid). Re-fits the map.
+  mapCreateGrid(){
+    const camp = this.currentCampaign; if(!camp) return;
+    const cols = Math.max(1, Math.min(200, Math.floor(this.mapGridCols || 0)));
+    const rows = Math.max(1, Math.min(200, Math.floor(this.mapGridRows || 0)));
+    const sC = Math.floor(this.mapGridStartCol || 1), sR = Math.floor(this.mapGridStartRow || 1);
+    const cells = cols * rows;
+    if(cells > 2500 && !window.confirm('Create a ' + cols + '×' + rows + ' map (' + cells.toLocaleString() + ' hexes)? Very large maps can make the map view slower to draw.')) return;
+    const res = window.ACKS.generateBlankHexGrid(camp, { cols, rows, startCol: sC, startRow: sR });
+    this.markDirty(); this.schedulePersist();
+    this.mapGridModalOpen = false;
+    this.mapViewBox = null; this.mapEnsureView(); // re-fit so the new grid is in view
+    const kept = res.skipped ? (' · kept ' + res.skipped.toLocaleString() + ' existing') : '';
+    this.showToast('Created ' + res.created.toLocaleString() + ' blank hex' + (res.created === 1 ? '' : 'es') + ' (' + cols + '×' + rows + ' grid)' + kept + '.');
   },
   addHexLair(h){
     if(!h) return;
@@ -12127,7 +12422,7 @@ return {
             if(existingHexIds.has(h.id)){ skipped.push('hex '+h.id+' (duplicate id)'); continue; }
             const ckey = h.coord ? (h.coord.q + ',' + h.coord.r) : null;
             if(ckey && existingHexCoords.has(ckey)){
-              skipped.push('hex '+h.id+' (coordinate ('+h.coord.q+','+h.coord.r+') already taken)');
+              skipped.push('hex '+h.id+' (coordinate '+window.ACKS.hexDisplayLabel(h.coord.q, h.coord.r)+' already taken)');
               continue;
             }
             camp.hexes.push(h); existingHexIds.add(h.id);
@@ -12414,9 +12709,9 @@ return {
     if(n<75||n>249){alert('Initial founding requires 75-249 peasant families.');return;}
     if((d.demographics.peasantFamilies||0)<n){alert('Not enough peasant families ('+d.demographics.peasantFamilies+' available, '+n+' needed).');return;}
     if((d.treasury.gp||0)<cost){alert('Not enough treasury ('+(d.treasury.gp||0).toLocaleString()+'gp available, '+cost.toLocaleString()+'gp needed).');return;}
-    if(!confirm('Found settlement "'+trimmedName+'" on hex ('+hex.coord.q+','+hex.coord.r+')?\n\nCost: 10,000gp from treasury\nTransfer '+n+' peasant families to the settlement\n\nThis sets the settlement\'s initial investment tier (max 249 families).'))return;
+    if(!confirm('Found settlement "'+trimmedName+'" on hex '+window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r)+'?\n\nCost: 10,000gp from treasury\nTransfer '+n+' peasant families to the settlement\n\nThis sets the settlement\'s initial investment tier (max 249 families).'))return;
     // Apply
-    this.adjustTreasury(d, -cost, 'Founded "'+trimmedName+'" on hex ('+hex.coord.q+','+hex.coord.r+'), '+n+' families');
+    this.adjustTreasury(d, -cost, 'Founded "'+trimmedName+'" on hex '+window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r)+', '+n+' families');
     // Foundation #241 — go through the canonical setter so rural hex.families gets the matching haircut.
     window.ACKS.setPeasantPopulation(d, (d.demographics.peasantFamilies||0) - n);
     hex.settlement={name:trimmedName, families:n, totalInvestment:cost, foundedTurn:this.currentCampaign?.currentTurn||1, demandModifiers:{}};

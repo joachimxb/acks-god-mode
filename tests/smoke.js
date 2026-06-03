@@ -613,6 +613,39 @@ section('Party membership reconcile — mirror derived from character.partyId (#
   ok('migrateCampaign runs the reconcile (mirror populated on load)', s5.c.parties[0].memberCharacterIds.length === 2);
 })();
 
+// =============================================================================
+section('liftToTopLevelCollections — backfills domainId on the SURVIVING canonical hex (CLAUDE #10)');
+// =============================================================================
+// Regression for the "header says March of Saltspur, Domain dropdown says Unclaimed" bug. When
+// campaign.hexes already holds a hex (a save round-trip / pre-backfill session cache / shared
+// .acks.json whose top-level hexes lack domainId), lift used to backfill only the geography COPY,
+// then discard it in re-unification for the top-level copy that never got the scalar. Membership in
+// a domain's geography.hexes[] IS the claim — the surviving canonical hex must adopt domainId.
+(() => {
+  // Two SEPARATE objects with the same id (the post-JSON-parse shape): one nested in the domain's
+  // geography, one already in campaign.hexes — both WITHOUT domainId.
+  const geoHex = { schemaVersion: 2, id: 'hex-reunify', coord: { q: -1, r: 1 }, terrain: 'coast' };
+  const topHex = { schemaVersion: 2, id: 'hex-reunify', coord: { q: -1, r: 1 }, terrain: 'coast' };
+  const camp = {
+    schemaVersion: 2, kind: 'campaign', id: 'cmp-lift', name: 'Lift Fixture',
+    domains: [{ id: 'dom-x', name: 'March X', geography: { hexes: [geoHex] } }],
+    hexes: [topHex], settlements: [], rumors: [],
+  };
+  ACKS.liftToTopLevelCollections(camp);
+  const top = camp.hexes.find(h => h.id === 'hex-reunify');
+  const geo = camp.domains[0].geography.hexes.find(h => h.id === 'hex-reunify');
+  ok('surviving top-level hex got domainId backfilled', top && top.domainId === 'dom-x', 'got ' + (top && JSON.stringify(top.domainId)));
+  ok('geography hex is re-unified to the same object', geo === top);
+  ok('geography hex therefore reports the same domainId', geo && geo.domainId === 'dom-x');
+  // A genuine wilderness hex (in campaign.hexes, in NO domain's geography) keeps a null/absent domainId.
+  camp.hexes.push({ schemaVersion: 2, id: 'hex-wild', coord: { q: 9, r: 9 }, terrain: 'waste' });
+  ACKS.liftToTopLevelCollections(camp);
+  ok('wilderness hex (no geography membership) is NOT claimed', !camp.hexes.find(h => h.id === 'hex-wild').domainId);
+  // Idempotent: a second lift doesn't churn the now-correct scalar.
+  ACKS.liftToTopLevelCollections(camp);
+  ok('lift is idempotent on the healed scalar', camp.hexes.find(h => h.id === 'hex-reunify').domainId === 'dom-x');
+})();
+
 section('Summary');
 // =============================================================================
 console.log('  Passed: ' + pass);

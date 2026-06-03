@@ -42,6 +42,7 @@ const SQRT3 = Math.sqrt(3);
 // ─── exports present ───
 section('Exports on global.ACKS');
 ['hexAxialToPixel','hexCornerPoints','hexPolygonPoints','hexMapBounds','hexDisplayLabel',
+ 'hexAxialToColRow','hexColRowToAxial',
  'hexFillColor','hexFillLayers','hexFillLegend','MAP_DEFAULT_HEX_SIZE']
   .forEach(name => check('ACKS.' + name + ' exported', typeof ACKS[name] !== 'undefined'));
 
@@ -112,6 +113,54 @@ check('(0,1) → "0001"', ACKS.hexDisplayLabel(0, 1) === '0001');
 check('negative column carries "-"', ACKS.hexDisplayLabel(-1, 1) === '-0100');
 check('two-digit zero pad (even-q: col 8, row 1+4=5)', ACKS.hexDisplayLabel(8, 1) === '0805');
 check('determinism', ACKS.hexDisplayLabel(4, -2) === ACKS.hexDisplayLabel(4, -2));
+
+// ─── hexAxialToColRow / hexColRowToAxial — the axial↔column·row boundary (tester bug 2026-06-03) ───
+// The store is axial {q,r}; the GM-facing coordinate is column·row. These convert at the UI edge.
+// The reported quirk was the editor field showing raw axial while the label showed the sheared row.
+section('hexAxialToColRow / hexColRowToAxial (the GM-facing boundary)');
+check('axial→colrow: column = q', ACKS.hexAxialToColRow(151, 99).col === 151);
+check('axial→colrow: odd-q row shear (+75 for q=151)', ACKS.hexAxialToColRow(151, 99).row === 174);
+check('the reported case: axial(151,99) labels "151174"', ACKS.hexDisplayLabel(151, 99) === '151174');
+check('colrow→axial inverts the shear: (151,99)→axial(151,24)',
+  (() => { const a = ACKS.hexColRowToAxial(151, 99); return a.q === 151 && a.r === 24; })());
+check('GM entering column·row 151,099 round-trips to label "151099" (row padded to the column width)',
+  (() => { const a = ACKS.hexColRowToAxial(151, 99); return ACKS.hexDisplayLabel(a.q, a.r) === '151099'; })());
+// uniform-width padding (2026-06-03): col & row share a width = max(col-digits, row-digits, 2), so the
+// label splits unambiguously in half. A 3-digit column pads the row to 3; small maps stay 2-wide.
+check('uniform width: a 3-digit column pads the row → "151009" (col 151, row 9)',
+  (() => { const a = ACKS.hexColRowToAxial(151, 9); return ACKS.hexDisplayLabel(a.q, a.r) === '151009'; })());
+check('uniform width: small coords stay 2-wide ("0509")',
+  (() => { const a = ACKS.hexColRowToAxial(5, 9); return ACKS.hexDisplayLabel(a.q, a.r) === '0509'; })());
+check('label length is even (col & row equal width) → splits in half', (() => {
+  for(const [col, row] of [[151,9],[151,99],[5,9],[0,0],[12,340]]){
+    const a = ACKS.hexColRowToAxial(col, row);
+    const s = ACKS.hexDisplayLabel(a.q, a.r).replace(/^-/, '').replace(/(?<=.)-/, ''); // drop sign(s) for length
+    if(s.length % 2 !== 0) return false;
+  }
+  return true;
+})());
+check('col === q both directions', ACKS.hexAxialToColRow(7, 3).col === 7 && ACKS.hexColRowToAxial(7, 3).q === 7);
+check('round-trip axial→colrow→axial (spread incl. negatives, even/odd cols)', (() => {
+  for(const [q, r] of [[0,0],[1,0],[0,1],[-1,1],[8,1],[151,99],[151,173],[-7,-3],[150,100],[2,2]]){
+    const cr = ACKS.hexAxialToColRow(q, r);
+    const back = ACKS.hexColRowToAxial(cr.col, cr.row);
+    if(back.q !== q || back.r !== r) return false;
+  }
+  return true;
+})());
+check('round-trip colrow→axial→colrow (spread)', (() => {
+  for(const [col, row] of [[0,0],[151,99],[151,248],[150,175],[-3,4],[12,0],[7,7]]){
+    const ax = ACKS.hexColRowToAxial(col, row);
+    const cr = ACKS.hexAxialToColRow(ax.q, ax.r);
+    if(cr.col !== col || cr.row !== row) return false;
+  }
+  return true;
+})());
+check('hexDisplayLabel is built from the converter (parity)', (() => {
+  const cr = ACKS.hexAxialToColRow(151, 173);
+  const pad = n => (n < 0 ? '-' : '') + String(Math.abs(n)).padStart(2, '0');
+  return ACKS.hexDisplayLabel(151, 173) === (pad(cr.col) + pad(cr.row)) && ACKS.hexDisplayLabel(151, 173) === '151248';
+})());
 
 // ─── hexName — the canonical display name (Settlement|Terrain + coords) ───
 section('hexName (display naming standard)');
@@ -311,6 +360,41 @@ check('economy: agricultural vs mining differ', ACKS.hexFillColor({ economyType:
 check('exploration: explored vs unexplored differ', ACKS.hexFillColor({ explored:true }, 'exploration') !== ACKS.hexFillColor({ explored:false }, 'exploration'));
 check('legends present for all new layers', ['population','morale','secured','economy','exploration'].every(L => ACKS.hexFillLegend(L).length >= 2));
 check('ctx is optional — hex-only layers ignore it', ACKS.hexFillColor({ terrain:'forest' }, 'terrain') === ACKS.hexFillColor({ terrain:'forest' }, 'terrain', undefined));
+
+// ─────────────────────────────────────────────────────────────────────────
+section('generateBlankHexGrid — Create Map world starter (#225)');
+(function(){
+  // Fresh 10x10 → 100 blank, unclaimed, unexplored hexes at the Auran 0101 origin.
+  const c = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  const r = ACKS.generateBlankHexGrid(c, { cols: 10, rows: 10 });
+  check('10x10 fresh creates 100', r.created === 100 && r.skipped === 0, JSON.stringify(r));
+  check('campaign.hexes populated', c.hexes.length === 100);
+  const tl = ACKS.hexColRowToAxial(1, 1);
+  const tlHex = c.hexes.find(h => h.coord.q === tl.q && h.coord.r === tl.r);
+  check('top-left at colrow(1,1) = label 0101', !!tlHex && ACKS.hexDisplayLabel(tl.q, tl.r) === '0101');
+  check('grid hexes are blank/unexplored/unclaimed', c.hexes.every(h => h.terrain === '' && h.explored === false && h.domainId === null));
+  check('all coords unique', new Set(c.hexes.map(h => h.coord.q + ',' + h.coord.r)).size === 100);
+  // Idempotent — re-run incorporates, never duplicates.
+  const r2 = ACKS.generateBlankHexGrid(c, { cols: 10, rows: 10 });
+  check('re-run is idempotent (0 created, 100 skipped)', r2.created === 0 && r2.skipped === 100 && c.hexes.length === 100);
+  // Incorporates existing hexes without overwriting them.
+  const c2 = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  const a22 = ACKS.hexColRowToAxial(2, 2);
+  const pre = ACKS.blankHex({ coord: { q: a22.q, r: a22.r }, terrain: 'forest', explored: true });
+  pre.domainId = 'dom-x'; c2.hexes.push(pre);
+  const r3 = ACKS.generateBlankHexGrid(c2, { cols: 3, rows: 3 });
+  check('3x3 over 1 existing → 8 created, 1 skipped', r3.created === 8 && r3.skipped === 1 && c2.hexes.length === 9);
+  const keptHex = c2.hexes.find(h => h.coord.q === a22.q && h.coord.r === a22.r);
+  check('existing hex kept intact (terrain/explored/domain)', keptHex.terrain === 'forest' && keptHex.explored === true && keptHex.domainId === 'dom-x');
+  // Custom origin shifts the block.
+  const c3 = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  ACKS.generateBlankHexGrid(c3, { cols: 2, rows: 2, startCol: 50, startRow: 50 });
+  const o = ACKS.hexColRowToAxial(50, 50);
+  check('custom origin honored', c3.hexes.some(h => h.coord.q === o.q && h.coord.r === o.r));
+  // Degenerate input is a safe no-op.
+  const c4 = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  check('0x0 is a no-op', ACKS.generateBlankHexGrid(c4, { cols: 0, rows: 0 }).created === 0 && c4.hexes.length === 0);
+})();
 
 // ─────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
