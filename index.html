@@ -659,14 +659,23 @@ document.addEventListener('alpine:init', () => {
           <span>Journeys</span>
         </label>
         <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Add/Edit hexes — faint addable cells appear (click one to create a hex there), and clicking an existing hex opens a quick editor (domain, terrain, rivers, roads) instead of its full card">
-          <input type="checkbox" x-model="mapEditAddMode" @change="schedulePersist(); if(!mapEditAddMode) mapCancelCreate()">
+          <input type="checkbox" x-model="mapEditAddMode" @change="mapEditAddMode ? mapEnterAddMode() : mapCancelCreate()">
           <span>✎ Add/Edit hexes</span>
         </label>
       </div>
 
-      <!-- Create / Edit hex picker (M5) — opens on a faint empty cell (create) or, in Edit/Add mode, on an existing hex (edit, pre-filled). -->
-      <div x-show="mapCreateAt" class="vellum border border-sky-400 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
-        <span><span x-text="mapEditHexId ? 'Edit hex' : 'Create hex'"></span> <strong class="font-mono" x-text="mapCreateAt ? window.ACKS.hexDisplayLabel(mapCreateAt.q, mapCreateAt.r) : ''"></strong></span>
+      <!-- Add/Edit hex panel (M5) — PERSISTENT while Add/Edit mode is on (shown the moment the toggle
+           flips, before any cell is clicked). With no cell selected it's the "new-hex defaults" brush:
+           set domain/terrain, then click a faint empty cell to place a hex with those values (kept, not
+           reset), or click an existing hex to load it for editing. Rivers/roads + Save need a selected
+           cell, so they appear only then. -->
+      <div x-show="mapEditAddMode" class="vellum border border-sky-400 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <template x-if="mapCreateAt">
+          <span><span x-text="mapEditHexId ? 'Edit hex' : 'Create hex'"></span> <strong class="font-mono" x-text="window.ACKS.hexDisplayLabel(mapCreateAt.q, mapCreateAt.r)"></strong></span>
+        </template>
+        <template x-if="!mapCreateAt">
+          <span class="opacity-70 italic">No hex selected — click an empty cell to add one (with these settings), or a hex to edit. New-hex defaults:</span>
+        </template>
         <span>· domain:</span>
         <select x-model="mapCreateDomainId" class="border border-ink rounded px-2 py-0.5">
           <option value="">Unclaimed wilderness</option>
@@ -681,22 +690,31 @@ document.addEventListener('alpine:init', () => {
             <option :value="t.value" x-text="t.label"></option>
           </template>
         </select>
-        <!-- #225 per-side rivers + roads — click the mini-hex's sides. Rivers run ALONG edges; roads
-             run from the centre out to the chosen sides (with faintly circular bends). -->
-        <span class="flex items-center gap-1" title="Click a side to cycle: none → river (along the edge) → river + ford/bridge → none. A road that crosses a river is auto-bridged.">
-          <span class="opacity-70">· rivers:</span>
-          <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
-            <g x-html="mapMiniHexMarkup('river')"></g>
-          </svg>
-        </span>
-        <span class="flex items-center gap-1" title="Click the sides the road reaches from the hex centre — bends are faintly circular">
-          <span class="opacity-70">· roads:</span>
-          <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
-            <g x-html="mapMiniHexMarkup('road')"></g>
-          </svg>
-        </span>
-        <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300" x-text="mapEditHexId ? 'Save' : 'Create'"></button>
-        <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+        <!-- Rivers/roads + Save/Cancel only once a cell is selected (they act on that specific hex). -->
+        <template x-if="mapCreateAt">
+          <span class="flex flex-wrap items-center gap-2">
+            <!-- #225 per-side rivers + roads — click the mini-hex's sides. Rivers run ALONG edges; roads
+                 run from the centre out to the chosen sides (with faintly circular bends). -->
+            <span class="flex items-center gap-1" title="Click a side to cycle: none → river (along the edge) → river + ford/bridge → none. A road that crosses a river is auto-bridged.">
+              <span class="opacity-70">· rivers:</span>
+              <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
+                <g x-html="mapMiniHexMarkup('river')"></g>
+              </svg>
+            </span>
+            <span class="flex items-center gap-1" title="Click the sides the road reaches from the hex centre — bends are faintly circular">
+              <span class="opacity-70">· roads:</span>
+              <svg viewBox="-50 -46 100 92" width="58" height="53" class="select-none" @click="mapMiniSideClick($event)" style="cursor:pointer;overflow:visible;">
+                <g x-html="mapMiniHexMarkup('road')"></g>
+              </svg>
+            </span>
+            <button @click="mapCreateHex()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300" x-text="mapEditHexId ? 'Save' : 'Create'"></button>
+            <button @click="mapCancelCreate()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+          </span>
+        </template>
+        <!-- No cell selected: a single exit affordance — return to the domain (add-hex flow) or just leave Add/Edit. -->
+        <template x-if="!mapCreateAt">
+          <button @click="if(_hexAddReturn){ _returnFromHexAdd(); } else { mapEditAddMode = false; schedulePersist(); }" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" x-text="_hexAddReturn ? 'Cancel · back to domain' : 'Done'"></button>
+        </template>
       </div>
 
       <!-- Legend for the active fill layer. -->
@@ -11422,8 +11440,13 @@ return {
     });
     return routes;
   },
-  // M5 "Add/Edit hexes" flow — the picker opens on an empty cell (create) OR an existing hex (edit).
-  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = (this._hexAddReturn && this._hexAddReturn.domainId) || ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  // M5 "Add/Edit hexes" flow — the persistent picker panel shows the moment the toggle flips. This
+  // resets it to the "no hex selected" state with default new-hex settings (the brush). mapEnterAddMode
+  // is for the USER toggle; addHexViaMap enters the same way but pre-sets the brush domain.
+  mapEnterAddMode(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; this.schedulePersist(); },
+  // Click an empty cell → select it for creation. KEEP the current domain/terrain brush (so settings
+  // chosen in the panel before clicking carry into the new hex); only the per-hex geometry resets.
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
   // Open the picker on an existing hex, pre-filled with its current domain + terrain + rivers + roads + crossings.
   mapEditExistingHex(entry){
     const h = entry.hex;
@@ -11738,7 +11761,11 @@ return {
     if(!domainId || !this.currentCampaign) return;
     this._hexAddReturn = { domainId };
     this.mapEditAddMode = true;
-    this.mapCreateAt = null; this.mapEditHexId = null; // no stale picker
+    // Enter add mode with the brush pre-set to this domain (no cell selected yet) — the persistent
+    // panel shows it immediately, and mapClickEmpty keeps it when the GM clicks a cell to place.
+    this.mapCreateAt = null; this.mapEditHexId = null;
+    this.mapCreateDomainId = domainId; this.mapCreateTerrain = '';
+    this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
     this.worldSubView = 'map'; this.currentView = 'world'; // subView first so the currentView watch sees map
     this.mapEnsureView();
     this.schedulePersist();
