@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Items in stashes and carry inventory now use one composable shape.** Instead of a fixed coin / bulk / item split, an item line carries a set of toggleable *facets* — coin, valuable, gear, bulk, magical, readable, container — so a single line can be several things at once (a jewelled, enchanted blade is gear + valuable + magical). Coins can be any denomination (copper, silver, electrum, gold, platinum) and a line's weight and gold-piece value are computed automatically — coins weigh 1 stone per 1,000 (RR p.83), and gems and jewelry carry a per-piece value. A mundane line can be **promoted** into a tracked, named item with its own history once it starts to matter (the same "the world remembers" pattern as recurring monsters becoming lairs). Existing campaign files upgrade automatically on load. (Groundwork for the Stashes view, the character Vault card, and treasure — landing next.)
+
 ## [0.15.0] - 2026-06-03
 
 ### Added

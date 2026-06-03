@@ -733,6 +733,10 @@ function migrateCampaign(raw){
   // entities for each domain. Gated on inventory-stash-system house rule.
   // Idempotent. Per Phase_2.95_Stash_Plan.md §6.3.
   migrateAllDomainTreasuries(current);
+  // Items I1 (OQ9, 2026-06-03) — upgrade legacy coin|bulk|item stash/carry lines
+  // to the facet shape (facets[] + notableItemId) BEFORE reconcile reads them.
+  // Idempotent; skips free-text inventory strings.
+  migrateAllStashItemShapes(current);
   // #469 — Stash A.4 — item-consolidation reconcile + treasury-scalar reconcile.
   // Idempotent. Tidies legacy multi-entry stashes (e.g. multiple gp coin entries
   // from pre-A.2 data) and catches any scalar drift from external writers.
@@ -1503,9 +1507,10 @@ function _summarizeItems(items){
   if(!Array.isArray(items)) return [];
   return items.map(it => {
     if(!it) return null;
-    if(it.kind === 'coin') return { kind:'coin', label: it.denomination || 'gp', qty: it.qty || 0 };
-    if(it.kind === 'bulk') return { kind:'bulk', label: it.label || '(unnamed)', unit: it.unit || 'stones', qty: it.qty || 0 };
-    return { kind:'item', label: it.name || '(unnamed)', qty: it.qty || 1, magicItemId: it.magicItemId || null };
+    const pf = primaryFacet(it);
+    if(pf === 'coin') return { kind:'coin', label: it.denomination || 'gp', qty: it.qty || 0 };
+    if(pf === 'bulk') return { kind:'bulk', label: it.name || it.label || '(unnamed)', unit: it.unit || 'stones', qty: it.qty || 0 };
+    return { kind: pf, label: it.name || '(unnamed)', qty: it.qty || 1, notableItemId: it.notableItemId || it.magicItemId || null };
   }).filter(Boolean);
 }
 
@@ -1528,9 +1533,9 @@ function depositToStash(campaign, stashId, items, opts){
     const normalized = blankStashItem ? blankStashItem(incoming) : Object.assign({ id: 'si-?' }, incoming);
 
     // Coin merges by denomination.
-    if(normalized.kind === 'coin'){
+    if(itemHasFacet(normalized, 'coin')){
       const existing = stash.items.find(x =>
-        x.kind === 'coin' && (x.denomination || 'gp') === (normalized.denomination || 'gp')
+        itemHasFacet(x, 'coin') && (x.denomination || 'gp') === (normalized.denomination || 'gp')
       );
       if(existing){
         existing.qty = (existing.qty || 0) + (normalized.qty || 0);
@@ -1768,8 +1773,10 @@ function domainTreasuryGp(campaign, domainId){
   if(!stash || !Array.isArray(stash.items)) return 0;
   let total = 0;
   for(const it of stash.items){
-    if(it && it.kind === 'coin' && (it.denomination || 'gp') === 'gp'){
-      total += (it.qty || 0);
+    // gp-equivalent of every coin line (handles multi-denomination treasuries; a
+    // pure-gp treasury — the common case — is unchanged). Items I1, 2026-06-03.
+    if(it && itemHasFacet(it, 'coin')){
+      total += itemValueGp(it);
     }
   }
   return total;
@@ -1846,12 +1853,14 @@ function reconcileTreasuryScalars(campaign){
 }
 
 // --- Item-consolidation reconcile -------------------------------------------
-// Merge fungible entries in stash.items:
-//   - bulk: same (label, unit) → sum qty + encumbranceSt
-//   - item: same name AND no magicItemId → sum qty + encumbranceSt
+// Merge fungible facet-lines in stash.items (Items I1 facet model, 2026-06-03):
+//   - coin    facet: same denomination → sum qty
+//   - bulk    facet: same (name, unit) → sum qty + encumbranceSt
+//   - gear    facet (and NOT magical/valuable/notable, named) → sum qty + encumbranceSt
 // Coin is already merged on deposit by depositToStash, so this is a no-op for
 // coin in normal operation; we still pass through it defensively in case
-// historical data has multiple coin entries of the same denomination.
+// historical data has multiple coin entries of the same denomination. Notable
+// (promoted), valuable, and unnamed lines never merge — each is distinct.
 //
 // Notes are kept from the FIRST entry (consolidation preserves the oldest
 // audit context). Returns true when any merge happened.
@@ -1860,34 +1869,34 @@ function reconcileStashItems(stash){
   const items = stash.items;
   const coinBuckets = {};
   const bulkBuckets = {};
-  const itemBuckets = {};
+  const gearBuckets = {};
   const out = [];
   let merged = false;
 
   for(const it of items){
     if(!it){ continue; }
-    if(it.kind === 'coin'){
+    if(itemHasFacet(it, 'coin')){
       const key = it.denomination || 'gp';
       if(!coinBuckets[key]){ coinBuckets[key] = it; out.push(it); }
       else { coinBuckets[key].qty = (coinBuckets[key].qty || 0) + (it.qty || 0); merged = true; }
-    } else if(it.kind === 'bulk'){
-      const key = (it.label || '(unnamed)') + '|' + (it.unit || 'stones');
+    } else if(itemHasFacet(it, 'bulk')){
+      const key = (it.name || it.label || '(unnamed)') + '|' + (it.unit || 'stones');
       if(!bulkBuckets[key]){ bulkBuckets[key] = it; out.push(it); }
       else {
         bulkBuckets[key].qty           = (bulkBuckets[key].qty           || 0) + (it.qty           || 0);
         bulkBuckets[key].encumbranceSt = (bulkBuckets[key].encumbranceSt || 0) + (it.encumbranceSt || 0);
         merged = true;
       }
-    } else if(it.kind === 'item' && !it.magicItemId && it.name){
+    } else if(itemHasFacet(it, 'gear') && !it.notableItemId && !itemHasFacet(it, 'magical') && !itemHasFacet(it, 'valuable') && it.name){
       const key = it.name;
-      if(!itemBuckets[key]){ itemBuckets[key] = it; out.push(it); }
+      if(!gearBuckets[key]){ gearBuckets[key] = it; out.push(it); }
       else {
-        itemBuckets[key].qty           = (itemBuckets[key].qty           || 0) + (it.qty           || 0);
-        itemBuckets[key].encumbranceSt = (itemBuckets[key].encumbranceSt || 0) + (it.encumbranceSt || 0);
+        gearBuckets[key].qty           = (gearBuckets[key].qty           || 0) + (it.qty           || 0);
+        gearBuckets[key].encumbranceSt = (gearBuckets[key].encumbranceSt || 0) + (it.encumbranceSt || 0);
         merged = true;
       }
     } else {
-      // Magic items, unnamed items, unknown kinds — passthrough, never merge
+      // Notable/magical, valuable, unnamed — passthrough, never merge
       out.push(it);
     }
   }
@@ -1914,6 +1923,183 @@ function reconcileAllStashes(campaign){
     if(reconcileStashItems(st)) count++;
   }
   return count;
+}
+
+// =============================================================================
+// Items I1 (OQ9 resolved 2026-06-03) — item facets + valuation + promotion.
+// Composition over hierarchy (Architecture.md §2.2 + §3.7; DF_Study_2 §3.5): a
+// stash/carry line carries facets[] not a coin|bulk|item subtype. These accessors
+// are facet-canonical but fall back to the retired kind/magicItemId shape so an
+// un-migrated line still reads correctly (DF "resilient accessor" — a missed
+// migration stays harmless).
+// =============================================================================
+
+// ACKS II coin exchange, gp-equivalent. 1 pp = 5 gp; 1 gp = 10 sp = 100 cp;
+// 1 ep = 5 sp = 0.5 gp. (RR Money; gp/sp/cp ratio per Phase_2.95_Stash_Plan.md §5.2.)
+const COIN_GP_VALUE = { cp: 0.01, sp: 0.1, ep: 0.5, gp: 1, pp: 5 };
+
+function itemFacets(item){
+  if(!item) return [];
+  if(Array.isArray(item.facets) && item.facets.length) return item.facets;
+  // Legacy fallback — derive from the retired `kind` discriminator.
+  const k = item.kind;
+  let f;
+  if(k === 'coin') f = ['coin'];
+  else if(k === 'bulk') f = ['bulk'];
+  else if(k === 'valuable') f = ['valuable'];
+  else f = ['gear'];
+  if(item.magicItemId || item.notableItemId) f = f.concat('magical');
+  return f;
+}
+function itemHasFacet(item, facet){ return itemFacets(item).indexOf(facet) >= 0; }
+
+// Display precedence — the one facet that "names" the line.
+const _FACET_PRECEDENCE = ['coin','valuable','readable','magical','container','bulk','gear'];
+function primaryFacet(item){
+  const f = itemFacets(item);
+  for(const p of _FACET_PRECEDENCE){ if(f.indexOf(p) >= 0) return p; }
+  return f[0] || 'gear';
+}
+
+// Per-line stone weight (derived). Coin: 1,000 coins = 1 stone, any denomination
+// (RR p.83). Bulk in stones: weight = qty. Gear: explicit encumbranceSt, default
+// 1 stone when unset (Stash plan §12). Valuables/other: explicit or negligible.
+function itemEncumbranceSt(item){
+  if(!item) return 0;
+  if(itemHasFacet(item, 'coin')) return (item.qty || 0) / 1000;
+  if(item.encumbranceSt != null) return item.encumbranceSt;
+  if(itemHasFacet(item, 'bulk')) return (item.unit === 'stones') ? (item.qty || 0) : 0;
+  if(itemHasFacet(item, 'gear')) return 1;
+  return 0;
+}
+
+// Per-line gp value (derived). Coin: qty × denomination multiplier. Valuable:
+// qty × unitValueGp. Gear/bulk carry no liquid gp value here (sale price is a
+// mercantile concern, not stash wealth).
+function itemValueGp(item){
+  if(!item) return 0;
+  if(itemHasFacet(item, 'coin')){
+    const mult = COIN_GP_VALUE[item.denomination || 'gp'];
+    return (item.qty || 0) * (mult != null ? mult : 1);
+  }
+  if(itemHasFacet(item, 'valuable')){
+    return (item.qty || 0) * (item.unitValueGp || 0);
+  }
+  return 0;
+}
+
+// Stash / carry aggregates (derived; never stored — Stash plan §5.2 / §6.4).
+function stashTotalGp(stash){
+  if(!stash || !Array.isArray(stash.items)) return 0;
+  return stash.items.reduce((s, it) => s + itemValueGp(it), 0);
+}
+function stashTotalEncumbrance(stash){
+  if(!stash || !Array.isArray(stash.items)) return 0;
+  return stash.items.reduce((s, it) => s + itemEncumbranceSt(it), 0);
+}
+function carryTotalEncumbrance(character){
+  if(!character || !Array.isArray(character.inventory)) return 0;
+  return character.inventory.reduce((s, it) => s + itemEncumbranceSt(it), 0);
+}
+
+// Promotion: a fungible/gear line → tracked NotableItem (§3.7; wanderer→lair).
+// Creates a campaign.notableItems[] entry, points the line at it (notableItemId),
+// and tags the line with the magical/readable facet. Idempotent: a line that
+// already points at a notable returns that notable unchanged. Located-by-line —
+// no separate itemCustody record is created (the line's container IS the custody;
+// itemCustody is for UN-stashed notables: hoards, merchant stock — §3.7).
+function promoteLineToNotableItem(campaign, line, opts){
+  if(!campaign || !line) return null;
+  if(line.notableItemId) return findNotableItem(campaign, line.notableItemId);
+  const blankNotableItem = (global.ACKS && global.ACKS.blankNotableItem) || null;
+  if(!blankNotableItem) return null;
+  opts = opts || {};
+  if(!Array.isArray(campaign.notableItems)) campaign.notableItems = [];
+  const ni = blankNotableItem({
+    kind: opts.kind || 'masterwork',
+    name: opts.name || line.name || '',
+    baseCatalogKey: opts.baseCatalogKey || null,
+    intrinsic: opts.intrinsic || {},
+    history: opts.history || []
+  });
+  campaign.notableItems.push(ni);
+  line.notableItemId = ni.id;
+  const facet = opts.facet || (ni.kind === 'book' ? 'readable' : 'magical');
+  if(Array.isArray(line.facets) && line.facets.indexOf(facet) < 0) line.facets.push(facet);
+  return ni;
+}
+
+// Derived facet view of a NotableItem — uniform vocabulary with stash lines, so a
+// promoted item reads under the same facet model. NotableItem stored shape is NOT
+// restructured here (its intrinsic/provenance/identification stay as §3.7); this is
+// the bridge accessor.
+function notableItemFacets(ni){
+  if(!ni) return [];
+  const k = ni.kind;
+  if(k === 'book') return ['readable'];
+  if(k === 'potion' || k === 'scroll') return ['consumable','magical'];
+  if(k === 'regalia' || k === 'relic' || k === 'masterwork') return ['gear','valuable'];
+  return ['gear','magical'];  // weapons / armor / wands / rods / staves / misc-magic
+}
+
+// Migration: legacy {kind, magicItemId, label} stash/carry line → facet shape.
+// Idempotent — a line already carrying facets[] (and no legacy keys) is a no-op.
+// Non-object entries (free-text inventory strings) are skipped untouched (the
+// free-text→typed upgrade is Stash plan §8.3, a separate concern).
+function migrateStashItemShape(item){
+  if(!item || typeof item !== 'object') return false;
+  const hasFacets = Array.isArray(item.facets) && item.facets.length;
+  const hasLegacy = ('kind' in item) || ('magicItemId' in item) || ('label' in item);
+  if(hasFacets && !hasLegacy) return false;  // already migrated
+  if(!hasFacets){
+    const k = item.kind;
+    if(k === 'coin') item.facets = ['coin'];
+    else if(k === 'bulk') item.facets = ['bulk'];
+    else if(k === 'valuable') item.facets = ['valuable'];
+    else item.facets = ['gear'];
+  }
+  if('magicItemId' in item){
+    if(item.magicItemId && !item.notableItemId) item.notableItemId = item.magicItemId;
+    delete item.magicItemId;
+  }
+  if(item.notableItemId && item.facets.indexOf('magical') < 0 && item.facets.indexOf('readable') < 0){
+    item.facets.push('magical');
+  }
+  if('label' in item){
+    if(item.label && !item.name) item.name = item.label;
+    delete item.label;
+  }
+  // Ensure the superset fields exist (stable Inspector schema + accessors).
+  if(!('name' in item)) item.name = '';
+  if(!('denomination' in item)) item.denomination = item.facets.indexOf('coin') >= 0 ? 'gp' : null;
+  if(!('valuableType' in item)) item.valuableType = null;
+  if(!('valuableTier' in item)) item.valuableTier = null;
+  if(!('unitValueGp' in item)) item.unitValueGp = null;
+  if(!('encumbranceSt' in item)) item.encumbranceSt = null;
+  if(!('unit' in item)) item.unit = (item.facets.indexOf('bulk') >= 0 ? 'stones' : null);
+  if(!('notableItemId' in item)) item.notableItemId = null;
+  if(!('containerStashId' in item)) item.containerStashId = null;
+  if(!('notes' in item)) item.notes = '';
+  delete item.kind;
+  return true;
+}
+
+// Sweep every stash + every character carry inventory. Idempotent. Hooked into
+// migrateCampaign before reconcileAllStashes so reconcile reads facet-shaped lines.
+function migrateAllStashItemShapes(campaign){
+  if(!campaign) return 0;
+  let n = 0;
+  for(const st of (campaign.stashes || [])){
+    for(const it of (st && Array.isArray(st.items) ? st.items : [])){
+      if(migrateStashItemShape(it)) n++;
+    }
+  }
+  for(const ch of (campaign.characters || [])){
+    for(const it of (ch && Array.isArray(ch.inventory) ? ch.inventory : [])){
+      if(migrateStashItemShape(it)) n++;
+    }
+  }
+  return n;
 }
 
 // =============================================================================
@@ -4684,6 +4870,11 @@ const ACKS = Object.assign(global.ACKS || {}, {
   migrateDomainTreasuryToStash, migrateAllDomainTreasuries, domainTreasuryGp,
   // Phase 2.95 Stash A.4 — canonical-setter invariant + item-consolidation reconcile (#469 / 2026-05-29)
   reconcileStashItems, reconcileAllStashes, reconcileTreasuryScalars,
+  // Items I1 — facet item model + valuation + promotion + migration (OQ9, 2026-06-03)
+  itemFacets, itemHasFacet, primaryFacet, itemEncumbranceSt, itemValueGp, COIN_GP_VALUE,
+  stashTotalGp, stashTotalEncumbrance, carryTotalEncumbrance,
+  promoteLineToNotableItem, notableItemFacets,
+  migrateStashItemShape, migrateAllStashItemShapes,
   // Wave B.5 — Notable items + custody read-only lookups (2026-05-29)
   findNotableItem, findItemCustody, currentCustodyOfItem,
   notableItemsInCustodian, notableItemsHeldByCharacter, notableItemsAtHex,
