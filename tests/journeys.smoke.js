@@ -547,6 +547,36 @@ section('§24 — integration: fording an unbridged river (deterministic)');
   check('a ford/bridge lets the party cross freely (arrives, no fording record)', dC.record.newStatus === 'arrived' && !dC.record.dayRecord.fording, String(dC.record.dayRecord.hexesTraveled));
 })();
 
+section('§24 — per-day hex path + traveller placement (commit)');
+(function(){
+  // authored grassland line hx-0..hx-6; day 1 covers 4 hexes (24mi/6), reaching hx-4 mid-journey.
+  const { c, j } = lineCampaign(6);
+  c.characters[0].currentHexId = 'hx-0';
+  ACKS.startJourney(c, j);
+  const r1 = ACKS.tickJourneyDay(c, c.journeys[0], { rng: () => 0.5 }); // nav passes grassland 6+
+  const path = r1.record.dayRecord.hexPath || [];
+  check('day record carries hexPath of the hexes entered (4)', path.length === 4, JSON.stringify(path.map(s => s.hexId)));
+  check('hexPath entries carry hexId + coord', path.every(s => s.hexId && typeof s.q === 'number' && typeof s.r === 'number'));
+  check('hexPath last entry is the day-end hex (hx-4)', path[3] && path[3].hexId === 'hx-4');
+  ACKS.commitJourneyRecord(c, r1.record);
+  check('mid-journey: journey.currentHexId advanced to the authored hex reached (hx-4)', c.journeys[0].currentHexId === 'hx-4', c.journeys[0].currentHexId);
+  check('mid-journey: the traveller is PLACED at the journey current hex (not only on arrival)', c.characters[0].currentHexId === 'hx-4', c.characters[0].currentHexId);
+  check('mid-journey: still in-transit (6-hex trip, 4 covered)', c.journeys[0].status === 'in-transit');
+  // party placement: the party tracks the journey current hex each day too
+  const cp = lineCampaign(6);
+  cp.c.characters[0].currentHexId = 'hx-0';
+  cp.c.parties = [{ id: 'pty-1', name: 'Band', currentHexId: 'hx-0', activeJourneyId: null, memberCharacterIds: [], status: 'active' }];
+  cp.j.partyId = 'pty-1';
+  ACKS.startJourney(cp.c, cp.j);
+  ACKS.commitJourneyRecord(cp.c, ACKS.tickJourneyDay(cp.c, cp.c.journeys[0], { rng: () => 0.5 }).record);
+  check('party is placed at the journey current hex each day too (hx-4)', cp.c.parties[0].currentHexId === 'hx-4', cp.c.parties[0].currentHexId);
+  // a blocked/rest day records an empty hexPath (no hexes entered)
+  const rb = lineCampaign(2, q => (q === 0 ? { riverSides: [0] } : (q === 1 ? { riverSides: [3] } : {})));
+  ACKS.startJourney(rb.c, rb.j);
+  const dB = ACKS.tickJourneyDay(rb.c, rb.c.journeys[0], { rng: seq([0.95, 0, 0.95]) }); // fail the ford → 0 hexes
+  check('a blocked day records an empty hexPath', Array.isArray(dB.record.dayRecord.hexPath) && dB.record.dayRecord.hexPath.length === 0);
+})();
+
 // routeCoords snapshot stamped at startJourney (informational path cache)
 (function(){
   const { c, j } = lineCampaign(4);

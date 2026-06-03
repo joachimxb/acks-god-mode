@@ -3463,7 +3463,12 @@ document.addEventListener('alpine:init', () => {
                 <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
                 <!-- GM reroll — only the latest day (downstream days depend on it). -->
                 <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
-              </div>
+                <!-- §24 — the hexes entered this day; the latest day's last hex is the party's current position. -->
+                <div x-show="(d.hexPath||[]).length" class="w-full pl-3 text-[11px] opacity-80">
+                  <span class="opacity-50">via </span>
+                  <template x-for="(st,si) in (d.hexPath||[])" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===((d.hexPath||[]).length-1)) ? 'font-semibold text-emerald-800' : ''" x-text="journeyStepLabel(st)"></span></span></template>
+                  <span x-show="di===(journeyDetail().days.length-1)" class="text-emerald-800" title="The party is here now"> 📍 here now</span>
+                </div>
             </template>
           </div>
           <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
@@ -8641,6 +8646,13 @@ return {
   journeyById(id){ return (this.currentCampaign?.journeys||[]).find(j => j && j.id === id) || null; },
   journeyDetail(){ return this.journeyById(this.journeyDetailId); },
   journeyHexLabel(id){ return this._journeyHexLabel(id); },
+  // Label one §24 day-log path step: an authored hex shows its canonical name; an UNauthored coord
+  // (hexId null — a grid hex the GM hasn't placed) shows its column·row reference.
+  journeyStepLabel(step){
+    if(!step) return '?';
+    if(step.hexId){ const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===step.hexId); if(h) return window.ACKS.hexName(h) || window.ACKS.hexDisplayLabel(step.q||0, step.r||0); }
+    return window.ACKS.hexDisplayLabel(step.q||0, step.r||0);
+  },
   journeyParticipantNames(j){
     if(!j) return '';
     const names = (j.participantCharacterIds||[]).map(id => { const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return c ? (c.name||'(unnamed)') : id; });

@@ -1709,6 +1709,12 @@ function tickJourneyDay(campaign, journey, ctx){
     }
   }
   const dayRoaded = (hexesToday > 0) ? dayAllRoaded : roadBonusForStep(curHex, null, curStep ? curStep.exitSide : null);
+  // §24 — the hexes ENTERED this day, in order, for the day log. The party's current physical position
+  // is the last entry; unauthored coords carry hexId:null but still list (as a column·row step).
+  const hexPath = [];
+  for(let i = startPos + 1; i <= startPos + hexesToday && i < route.length; i++){
+    const s = route[i]; if(s && s.coord) hexPath.push({ hexId: s.hexId || null, q: s.coord.q, r: s.coord.r });
+  }
   const milesToday = hexesToday * A.JOURNEY_MILES_PER_HEX;
   const newCovered = dist.covered + hexesToday;
   const willArrive = (dist.total > 0) ? (newCovered >= dist.total) : true; // 0-distance arrives at once
@@ -1783,6 +1789,7 @@ function tickJourneyDay(campaign, journey, ctx){
     pace: restDay ? 'rest' : pace,
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,
+    hexPath,                                                 // §24 — [{hexId, q, r}] hexes entered this day (in order); last = current position
     arrivedAt: newCurrentHexId,
     navigationThrow: navRecord,
     fording: fordingRecord,                                  // §24 river-crossing record (null on a dry day)
@@ -1871,12 +1878,21 @@ function commitJourneyRecord(campaign, record){
     c.personalFatigue = record.newFatigueDays;
     c.hungerDays = record.newHungerDays;
     c.dehydrationDays = record.newDehydrationDays;
+    // Place each traveller at the journey's current hex EVERY day, not just on arrival — the party
+    // physically moves along the route. newCurrentHexId advances only to AUTHORED hexes (it holds at
+    // the last authored hex across unauthored stretches, since a character can only be located at a
+    // real hex), so this leaves them at the nearest settled hex they've reached. §24 hex-by-hex.
+    if(record.newCurrentHexId) c.currentHexId = record.newCurrentHexId;
     if(record.newStatus === 'arrived'){ c.currentHexId = j.destinationHexId || c.currentHexId; c.currentJourneyId = null; }
     else { c.currentJourneyId = j.id; }
   }
-  if(record.newStatus === 'arrived' && j.partyId){
+  // The party tracks the journey's current hex each day too (and clears its active-journey link on arrival).
+  if(j.partyId){
     const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
-    if(pt){ pt.activeJourneyId = null; pt.currentHexId = j.destinationHexId || pt.currentHexId; }
+    if(pt){
+      if(record.newCurrentHexId) pt.currentHexId = record.newCurrentHexId;
+      if(record.newStatus === 'arrived'){ pt.activeJourneyId = null; pt.currentHexId = j.destinationHexId || pt.currentHexId; }
+    }
   }
 }
 
@@ -1939,14 +1955,14 @@ function rerollJourneyDay(campaign, journey){
       c.dehydrationDays = pre.dehydrationDays || 0;
       c.personalFatigue = pre.fatigueDays || 0;
       c.currentJourneyId = j.id; // re-link (a revert may have un-done an arrival)
-      if(wasArrival) c.currentHexId = pre.currentHexId; // un-do the arrival's move-to-destination
+      c.currentHexId = pre.currentHexId; // revert the day's per-day placement (and any arrival move-to-destination)
     }
   }
-  // reverting an arrival also un-does the party's arrival bookkeeping (commitJourneyRecord
-  // had cleared activeJourneyId + moved the party to the destination on arrival).
-  if(wasArrival && j.partyId){
+  // revert the party to its pre-day hex too (commitJourneyRecord now moves it every day); an arrival
+  // reroll additionally re-links the activeJourneyId it had cleared.
+  if(j.partyId){
     const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
-    if(pt){ pt.activeJourneyId = j.id; pt.currentHexId = pre.currentHexId || pt.currentHexId; }
+    if(pt){ pt.currentHexId = pre.currentHexId || pt.currentHexId; if(wasArrival) pt.activeJourneyId = j.id; }
   }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: dayNum, type: 'reroll', narrative: 'GM rerolled day ' + dayNum + '.' });
   // 3. re-run the day with fresh randomness (Math.random in the live app / tests)
