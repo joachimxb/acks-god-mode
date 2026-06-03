@@ -660,7 +660,8 @@ document.addEventListener('alpine:init', () => {
                   <td class="text-right font-mono" x-text="window.ACKS.itemValueGp(it) ? (Math.round(window.ACKS.itemValueGp(it)).toLocaleString()+' gp') : '—'"></td>
                   <td class="text-right font-mono" x-text="(Math.round(window.ACKS.itemEncumbranceSt(it)*100)/100)+' st'"></td>
                   <td class="text-right whitespace-nowrap">
-                    <button x-show="!window.ACKS.itemHasFacet(it,'coin') && !it.notableItemId" @click="stashPromoteItem(it.id)" class="underline text-xs" title="Promote to a tracked Notable Item">★ promote</button>
+                    <button x-show="stashTakeCharacter()" @click="stashTakeItem(it)" class="underline text-xs" :title="'Take into '+((stashTakeCharacter()&&stashTakeCharacter().name)||'inventory')+(window.ACKS.itemHasFacet(it,'coin')?' (whole line)':'')">take</button>
+                    <button x-show="!window.ACKS.itemHasFacet(it,'coin') && !it.notableItemId" @click="stashPromoteItem(it.id)" class="underline text-xs ml-2" title="Promote to a tracked Notable Item">★ promote</button>
                     <button @click="stashRemoveItem(it.id)" class="underline accent-red text-xs ml-2">remove</button>
                   </td>
                 </tr>
@@ -11677,6 +11678,27 @@ return {
   },
   stashRemoveItem(itemId){ const s=this.stashDetailStash(); if(!s) return; window.ACKS.withdrawFromStash(this.currentCampaign, s.id, [{ itemId }], { reason:'gm-remove' }); this._afterStashMutation(); },
   stashPromoteItem(itemId){ const s=this.stashDetailStash(); if(!s) return; const it=(s.items||[]).find(x=>x.id===itemId); if(!it) return; window.ACKS.promoteLineToNotableItem(this.currentCampaign, it, { name: it.name||'' }); this._afterStashMutation(); },
+  // "Take" — the open character sheet's character (characterEditing), when standing on the stash's
+  // hex, can pull an item straight into their inventory (coins take the whole line). Routes through
+  // drawFromStash so coins land in the purse + over-encumbrance is flagged. Null ⇒ no take button.
+  stashTakeCharacter(){
+    const ch=this.characterEditing; const s=this.stashDetailStash();
+    if(!ch || !s || !s.hexId) return null;
+    return (ch.currentHexId && ch.currentHexId === s.hexId) ? ch : null;
+  },
+  stashTakeItem(it){
+    const ch=this.stashTakeCharacter(); const s=this.stashDetailStash();
+    if(!ch || !s || !it) return;
+    const spec = window.ACKS.itemHasFacet(it,'coin')
+      ? { coins: { [it.denomination||'gp']: (it.qty||0) } }   // coins: take the whole line
+      : { itemIds:[it.id] };
+    const res = window.ACKS.drawFromStash(this.currentCampaign, s.id, ch.id, spec);
+    if(!res || !res.ok){ this.showToast(this._stashTransferErr(res && res.error), 3500); return; }
+    this._afterStashMutation();
+    let msg = 'Taken into '+(ch.name||'inventory')+'.';
+    if(res.overEncumbered) msg += ' ⚠ Now overloaded (>20 st) — cannot move.';
+    this.showToast(msg, 4000);
+  },
   stashSettingsChanged(){ this._afterStashMutation(); },
   // Vault card (B.2): the stashes a character owns/shares + the treasury of any realm they rule
   characterStashes(ch){
