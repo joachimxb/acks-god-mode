@@ -318,12 +318,10 @@ ok('stash uses canonical name (not label)', stashFieldNames.includes('name') && 
 ok('stash uses canonical kind (not stashKind)', stashFieldNames.includes('kind') && !stashFieldNames.includes('stashKind'));
 ok('stash uses canonical isHidden (not hidden)', stashFieldNames.includes('isHidden') && !stashFieldNames.includes('hidden'));
 ok('stash has no separate coins[] (coins are items with kind:coin)', !stashFieldNames.includes('coins'));
-// items itemSchema sub-fields ⊆ the union of blankStashItem's coin/bulk/item variant keys
-const stashItemKeys = new Set([
-  ...Object.keys(ACKS.blankStashItem({ kind: 'coin' })),
-  ...Object.keys(ACKS.blankStashItem({ kind: 'bulk' })),
-  ...Object.keys(ACKS.blankStashItem({ kind: 'item' })),
-]);
+// items itemSchema sub-fields ⊆ blankStashItem's single (superset) facet shape (Items I1)
+const stashItemKeys = new Set(Object.keys(ACKS.blankStashItem({})));
+ok('blankStashItem emits facets[] (facet model, not a kind subtype)', stashItemKeys.has('facets') && !stashItemKeys.has('kind'));
+ok('blankStashItem emits notableItemId (renamed from magicItemId)', stashItemKeys.has('notableItemId') && !stashItemKeys.has('magicItemId'));
 const itemsField = ((stashSchema && stashSchema.fields) || []).find(f => f.name === 'items');
 ok('stash items is an array field with an itemSchema', !!itemsField && itemsField.type === 'array' && !!(itemsField.itemSchema && itemsField.itemSchema.fields));
 const stashSubNames = ((itemsField && itemsField.itemSchema && itemsField.itemSchema.fields) || []).map(f => f.name);

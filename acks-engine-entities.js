@@ -697,6 +697,12 @@ function blankCharacter(opts={}){
     _kind === 'candidate'  ? 'candidate' :
                              'active'
   );
+  // Items I1 — multi-denomination coin purse (RAW). coins.gp is canonical; the
+  // personalGp field below is a synced mirror (rule #10). Built from opts.coins
+  // when given, else folds a legacy opts.personalGp into coins.gp.
+  const _coins = (opts.coins && typeof opts.coins === 'object')
+    ? { pp:Number(opts.coins.pp)||0, gp:Number(opts.coins.gp)||0, ep:Number(opts.coins.ep)||0, sp:Number(opts.coins.sp)||0, cp:Number(opts.coins.cp)||0 }
+    : { pp:0, gp:Number(opts.personalGp)||0, ep:0, sp:0, cp:0 };
   return {
     schemaVersion: SCHEMA_VERSION,
     // #453 — c.kind retired. Five-axis fields below are canonical.
@@ -723,7 +729,8 @@ function blankCharacter(opts={}){
     classPowers: opts.classPowers || [],
     henchmanCap: opts.henchmanCap || 4,
     inventory: opts.inventory || [],
-    personalGp: opts.personalGp || 0,
+    coins: _coins,                  // {pp,gp,ep,sp,cp} multi-denomination purse (RAW)
+    personalGp: _coins.gp,          // synced mirror of coins.gp (canonical-setter rule #10)
     // 2026-05-30 post-survey reservations — additive optional fields.
     // Phase 6 Codes (gap I, JJ pp.394-398) — Heroic Codes + Heroic Fate. Research-first
     // per Joachim's response; reserved here so the schema is stable.
@@ -879,31 +886,47 @@ function blankStash(opts={}){
   };
 }
 
+// OQ9 resolved 2026-06-03 (Items I1) — composition over hierarchy
+// (Architecture.md §2.2 + §3.7; DF_Study_2_Code_and_Data_Layer.md §3.5).
+// ONE item-line shape carrying a multi-valued facets[] — 'coin' | 'valuable' |
+// 'gear' | 'bulk' | 'magical' | 'readable' | 'container' — NOT a coin|bulk|item
+// subtype. Facets compose: a jeweled +1 dagger is ['gear','valuable','magical'].
+// A line that accrues identity/story PROMOTES by pointing at a campaign.notableItems[]
+// entry via notableItemId (renamed from magicItemId), mirroring the wanderer→lair
+// pattern. Coin/valuable weight + value are DERIVED (ACKS.itemEncumbranceSt /
+// ACKS.itemValueGp), never stored — single source of truth (Stash plan §5.2).
+// Back-compat sugar: opts.kind ('coin'|'bulk'|'item'|'valuable') maps to a facet;
+// opts.facets[] wins when provided. Returns a single superset shape regardless of
+// facets so the Inspector field-schema + the schema⊆factory invariant stay simple.
 function blankStashItem(opts={}){
-  const kind = opts.kind || 'item';
-  const base = {
-    id: opts.id || newId(ID_PREFIXES.stashItem),
-    kind
-  };
-  if (kind === 'coin'){
-    return { ...base, denomination: opts.denomination || 'gp', qty: opts.qty || 0 };
+  const FACET_FOR_KIND = { coin:'coin', bulk:'bulk', valuable:'valuable', item:'gear' };
+  let facets = (Array.isArray(opts.facets) && opts.facets.length)
+    ? opts.facets.slice()
+    : [ FACET_FOR_KIND[opts.kind] || 'gear' ];
+  const notableItemId = opts.notableItemId || opts.magicItemId || null;
+  if(notableItemId && facets.indexOf('magical') < 0 && facets.indexOf('readable') < 0){
+    facets.push('magical');
   }
-  if (kind === 'bulk'){
-    return {
-      ...base,
-      label: opts.label || '',
-      qty: opts.qty || 0,
-      unit: opts.unit || 'stones',
-      encumbranceSt: opts.encumbranceSt || 0
-    };
-  }
-  // 'item' (default)
+  const isCoin = facets.indexOf('coin') >= 0;
+  const isBulk = facets.indexOf('bulk') >= 0;
   return {
-    ...base,
-    name: opts.name || '',
-    qty: opts.qty || 1,
-    encumbranceSt: (opts.encumbranceSt != null) ? opts.encumbranceSt : 1,
-    magicItemId: opts.magicItemId || null,
+    id: opts.id || newId(ID_PREFIXES.stashItem),
+    facets,
+    qty: (opts.qty != null) ? opts.qty : ((isCoin || isBulk) ? 0 : 1),
+    name: opts.name || opts.label || '',
+    // coin facet — ACKS denominations cp | sp | ep | gp | pp
+    denomination: opts.denomination || (isCoin ? 'gp' : null),
+    // valuable facet — Treasure_Tome_RAW_Survey.md §1.3 (gems / jewelry / special treasures)
+    valuableType: opts.valuableType || null,   // gem | jewelry | special-treasure
+    valuableTier: opts.valuableTier || null,   // ornamental|gem|brilliant / trinket|jewelry|regalia
+    unitValueGp: (opts.unitValueGp != null) ? opts.unitValueGp : null,
+    // physical (gear / bulk); coin + valuable weight is derived, not stored
+    encumbranceSt: (opts.encumbranceSt != null) ? opts.encumbranceSt : null,
+    unit: opts.unit || (isBulk ? 'stones' : null),
+    // promotion pointer → campaign.notableItems[] (was magicItemId)
+    notableItemId,
+    // container facet (reserved — nested stashes deferred)
+    containerStashId: opts.containerStashId || null,
     notes: opts.notes || ''
   };
 }

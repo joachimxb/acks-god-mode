@@ -128,6 +128,13 @@ document.addEventListener('alpine:init', () => {
   table.bookkeeping { width: 100%; border-collapse: collapse; }
   table.bookkeeping td, table.bookkeeping th { padding: 3px 8px; border-bottom: 1px dotted #c4b88f; }
   table.bookkeeping th { text-align: left; font-weight: 600; }
+  /* let the text-right / text-center utilities win over the default left on bookkeeping headers
+     (the bare `table.bookkeeping th` rule outranks a plain `.text-right` class) so numeric
+     column headers line up over their right-aligned data cells. */
+  table.bookkeeping th.text-right { text-align: right; }
+  table.bookkeeping th.text-center { text-align: center; }
+  /* Extra column gutter (outranks the base `table.bookkeeping td` padding, like the text-right rule above). */
+  table.bookkeeping th.col-gap-left, table.bookkeeping td.col-gap-left { padding-left: 1.75rem; }
   table.bookkeeping tr.subtotal td { border-top: 1px solid #6b4f24; font-weight: 600; }
   table.bookkeeping tr.total td { border-top: 2px double #6b4f24; font-weight: 700; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 50;
@@ -562,6 +569,300 @@ document.addEventListener('alpine:init', () => {
     </template>
 
     <p class="text-sm opacity-60 mt-3 italic">Spread copies a rumor to every other settlement in the same domain, downgrading apparent level one tier (common → uncommon → rare → obscure). Already-reached settlements are skipped, so the action is idempotent. Use this to model proliferation manually when you want finer control than the per-turn drift tick.</p>
+  </div>
+</div>
+
+<!-- ───── World sub-tab: STASHES (Items I1 / Phase 2.95 Stash B) — located wealth ───── -->
+<div x-show="currentView === 'world' && worldSubView === 'stashes'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🪙 Stashes <span class="text-sm opacity-70 font-normal" x-text="'· ' + allStashes().length + ' located'"></span></h3>
+      <div class="flex gap-2 items-center text-sm">
+        <input type="text" x-model="stashSearch" placeholder="Search name, owner, hex…" class="w-64">
+        <select x-model="stashOwnerFilter" class="text-sm">
+          <option value="all">All kinds</option>
+          <option value="treasury">Domain treasuries</option>
+          <option value="personal">Personal</option>
+          <option value="party">Party loot</option>
+          <option value="cache">Caches</option>
+          <option value="hidden">Hidden only</option>
+        </select>
+        <span class="text-sm opacity-70" x-text="filteredStashes().length + ' shown'"></span>
+      </div>
+    </div>
+    <template x-if="allStashes().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No stashes yet. A domain treasury materializes when the Stash system is on; caches and personal vaults appear as wealth is stored — create one from a character's Vault card or a hex's Located-Stashes card.</p>
+    </template>
+    <template x-if="allStashes().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Kind</th><th>Owner</th><th>Hex</th>
+          <th class="text-right">Total</th><th class="text-right">Items</th><th class="text-right">Weight</th><th>Hidden</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="row in filteredStashes()" :key="row.stash.id">
+            <tr>
+              <td><button @click="openStashDetail(row.stash.id)" class="underline font-semibold" x-text="row.stash.name || '(unnamed)'"></button></td>
+              <td x-text="stashKindLabel(row.stash)"></td>
+              <td x-text="row.ownerLabel"></td>
+              <td x-text="row.hexLabel"></td>
+              <td class="text-right font-mono" x-text="Math.round(row.totalGp).toLocaleString()+' gp'"></td>
+              <td class="text-right" x-text="row.itemCount"></td>
+              <td class="text-right font-mono" x-text="(Math.round(row.totalSt*10)/10)+' st'"></td>
+              <td x-text="row.stash.isHidden ? '🔒' : '—'"></td>
+              <td class="text-right"><button @click="openStashDetail(row.stash.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">Located, owned inventories in <code>campaign.stashes[]</code>. A domain's treasury is a stash that transfers with the office, not the ruler. Total sums all coin (gp-equivalent across cp/sp/ep/gp/pp) + valuables; weight derives per RR p.83 (1,000 coins = 1 stone).</p>
+  </div>
+</div>
+
+<!-- Stash detail modal (Stash B.4) -->
+<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
+    <template x-if="stashDetailStash()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg" x-text="stashDetailStash().name || '(unnamed stash)'"></h3>
+            <p class="text-sm opacity-70">
+              <span x-text="stashKindLabel(stashDetailStash())"></span><span> · </span><template x-if="stashOwnerLinkable(stashDetailStash())"><button @click="openStashOwner(stashDetailStash())" class="underline hover:opacity-80" :title="'Open ' + stashOwnerLabel(stashDetailStash())" x-text="stashOwnerLabel(stashDetailStash())"></button></template><template x-if="!stashOwnerLinkable(stashDetailStash())"><span x-text="stashOwnerLabel(stashDetailStash())"></span></template><span> · </span><span x-text="stashHexLabel(stashDetailStash())"></span>
+            </p>
+            <p class="text-sm font-mono mt-1" x-text="Math.round(window.ACKS.stashTotalGp(stashDetailStash())).toLocaleString() + ' gp · ' + (Math.round(window.ACKS.stashTotalEncumbrance(stashDetailStash())*10)/10) + ' st'"></p>
+          </div>
+          <button @click="closeStashDetail()" class="text-2xl leading-none px-2" title="Close">×</button>
+        </div>
+        <div class="flex gap-1 px-4 pt-2 border-b border-ink/20 text-sm">
+          <template x-for="t in [{id:'items',label:'Items'},{id:'activity',label:'Activity'},{id:'settings',label:'Settings'}]" :key="t.id">
+            <button @click="stashDetailTab=t.id" :class="stashDetailTab===t.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border-b-2" :style="stashDetailTab===t.id?'border-color:#2a1f12':'border-color:transparent'" x-text="t.label"></button>
+          </template>
+        </div>
+        <!-- ITEMS -->
+        <div x-show="stashDetailTab==='items'" class="p-4 space-y-3">
+          <template x-if="(stashDetailStash().items||[]).length===0"><p class="text-sm italic opacity-60">Empty.</p></template>
+          <table x-show="(stashDetailStash().items||[]).length>0" class="bookkeeping text-sm w-full">
+            <thead><tr><th>Item</th><th>Facets</th><th class="text-right">Value</th><th class="text-right">Weight</th><th class="text-right">Actions</th></tr></thead>
+            <tbody>
+              <template x-for="it in stashDetailStash().items" :key="it.id">
+                <tr>
+                  <td>
+                    <!-- A promoted line IS a Notable Item (a first-class entity) → click to open it in the Inspector.
+                         Plain/fungible lines are sub-records of the stash (no entity to open) — they stay plain text. -->
+                    <template x-if="it.notableItemId">
+                      <button @click="openNotableFromLine(it)" class="underline hover:opacity-80 text-left" title="Open this Notable Item in the Inspector" x-text="stashItemLabel(it)"></button>
+                    </template>
+                    <template x-if="!it.notableItemId">
+                      <span x-text="stashItemLabel(it)"></span>
+                    </template>
+                  </td>
+                  <td class="opacity-70 text-xs" x-text="stashItemFacetsLabel(it)"></td>
+                  <td class="text-right font-mono" x-text="window.ACKS.itemValueGp(it) ? (Math.round(window.ACKS.itemValueGp(it)).toLocaleString()+' gp') : '—'"></td>
+                  <td class="text-right font-mono" x-text="(Math.round(window.ACKS.itemEncumbranceSt(it)*100)/100)+' st'"></td>
+                  <td class="text-right whitespace-nowrap">
+                    <button x-show="stashTakeCharacter()" @click="stashTakeItem(it)" class="underline text-xs" :title="'Take into '+((stashTakeCharacter()&&stashTakeCharacter().name)||'inventory')+(window.ACKS.itemHasFacet(it,'coin')?' (whole line)':'')">take</button>
+                    <button x-show="!window.ACKS.itemHasFacet(it,'coin') && !it.notableItemId" @click="stashPromoteItem(it.id)" class="underline text-xs ml-2" title="Promote to a tracked Notable Item">★ promote</button>
+                    <button @click="stashRemoveItem(it.id)" class="underline accent-red text-xs ml-2">remove</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="flex flex-wrap gap-4 pt-2 border-t border-ink/20 text-sm items-end">
+            <div class="flex items-end gap-1">
+              <label class="text-xs opacity-70">Deposit coins<br><input type="number" min="0" x-model.number="_stashDepositDraft.qty" class="w-24"></label>
+              <select x-model="_stashDepositDraft.denomination" class="text-sm"><option>cp</option><option>sp</option><option>ep</option><option>gp</option><option>pp</option></select>
+              <button @click="stashDepositCoins()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ coins</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="text-xs opacity-70">Add item<br><input type="text" x-model="_stashItemDraft.name" placeholder="name" class="w-32"></label>
+              <label class="text-xs opacity-70">qty<br><input type="number" min="1" x-model.number="_stashItemDraft.qty" class="w-14"></label>
+              <label class="text-xs opacity-70">st<br><input type="number" min="0" step="0.1" x-model.number="_stashItemDraft.encumbranceSt" class="w-16"></label>
+              <button @click="stashAddItem()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ item</button>
+            </div>
+          </div>
+        </div>
+        <!-- ACTIVITY -->
+        <div x-show="stashDetailTab==='activity'" class="p-4">
+          <template x-if="(stashDetailStash().history||[]).length===0"><p class="text-sm italic opacity-60">No activity recorded.</p></template>
+          <ul class="text-sm space-y-1">
+            <template x-for="(h,hi) in [...(stashDetailStash().history||[])].reverse()" :key="hi">
+              <li class="border-b border-ink/10 pb-1">
+                <span class="opacity-60" x-text="'T'+(h.turn!=null?h.turn:'?')+' · '+(h.type||'?')"></span>
+                <span x-text="h.reason ? (' — '+h.reason) : ''"></span>
+                <template x-if="h.items && h.items.length"><span class="opacity-70 text-xs" x-text="' ['+h.items.map(x=>x.qty+' '+(x.label||x.kind)).join(', ')+']'"></span></template>
+              </li>
+            </template>
+          </ul>
+        </div>
+        <!-- SETTINGS -->
+        <div x-show="stashDetailTab==='settings'" class="p-4 space-y-3 text-sm">
+          <label class="block">Name<br><input type="text" x-model="stashDetailStash().name" @change="stashSettingsChanged()" class="w-full"></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="stashDetailStash().isHidden" @change="stashSettingsChanged()" :disabled="!isHouseRuleEnabled('hidden-stashes')"> Hidden (cache / smuggling vault)</label>
+          <p x-show="!isHouseRuleEnabled('hidden-stashes')" class="text-xs opacity-60 -mt-2">Enable the “Hidden caches” house rule to use this.</p>
+          <label class="block">Notes<br><textarea x-model="stashDetailStash().notes" @change="stashSettingsChanged()" class="w-full" rows="2"></textarea></label>
+          <p class="text-xs opacity-60" x-show="stashDetailStash().kind==='domain-treasury'">This is a domain treasury — it transfers with the office on ruler succession, not with the ruling character.</p>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Notable Item modal (Items I1 Step 3) — view/edit a promoted item in place, layered over the
+     stash modal (z-80, above the stash's z-60 and the character editor's z-50) so closing returns to the stash. Edits log via gm-fiat on the notableItem.
+     Plain/fungible lines never reach here — only promoted lines (which point at a notableItems[] entity). -->
+<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:80; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-xl my-6">
+    <template x-if="notableModalItem()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg" x-text="(notableModalItem().name || '(unnamed notable item)') + ' ★'"></h3>
+            <p class="text-sm opacity-70" x-text="notableKindLabel(notableModalItem().kind) + ' · ' + (notableModalItem().status||'active')"></p>
+          </div>
+          <button @click="closeNotableModal()" class="text-2xl leading-none px-2" title="Close">×</button>
+        </div>
+        <div class="p-4 space-y-2 text-sm">
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Name</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'name', label:'Name', kind:'text', placeholder:'(unnamed)'})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Kind</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'kind', label:'Kind', kind:'select', formatter(v){ return window.acksApp.notableKindLabel(v); }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="magic-weapon">Magic weapon</option><option value="magic-armor">Magic armor</option><option value="potion">Potion</option><option value="scroll">Scroll</option><option value="wand">Wand</option><option value="rod">Rod</option><option value="staff">Staff</option><option value="misc-magic">Misc. magic</option><option value="book">Book</option><option value="relic">Relic</option><option value="regalia">Regalia</option><option value="masterwork">Masterwork</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Status</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'status', label:'Status', kind:'select'})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:12rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="active">active</option><option value="destroyed">destroyed</option><option value="lost">lost</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">Provenance</h4>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Maker</span><span class="opacity-90" x-text="notableMakerName(notableModalItem()) || '— unknown —'"></span></div>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Created turn</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'provenance.createdAtTurn', label:'Created turn', kind:'number', min:0})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(displayValue ?? '—')"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <div><span class="w-28 opacity-70 block mb-1">Origin lore</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'provenance.originLore', label:'Origin lore', kind:'text', placeholder:'(none)'})" style="align-items:flex-start">
+              <template x-if="!editing"><span class="ed-stat" style="align-items:flex-start"><span class="ed-val whitespace-pre-wrap" style="font-family:inherit" x-text="displayValue || '(none)'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat" style="align-items:flex-start; flex-direction:column"><textarea x-model="draft" rows="2" class="w-full text-sm" x-init="$nextTick(() => $el.focus())" @keyup.escape="cancel()"></textarea><span class="flex gap-1 mt-1"><button @click="save()" class="ed-btn" title="Save & log">✓ save</button><button @click="cancel()" class="ed-btn" title="Cancel">× cancel</button></span></span></template>
+            </span>
+          </div>
+          <label class="flex items-center gap-2 mt-1"><input type="checkbox" :checked="!!(notableModalItem().provenance && notableModalItem().provenance.knownMakeAndAuthenticity)" @change="commitStatEdit({entityType:'notableItem', entityId:notableModalItem().id, entity:notableModalItem(), fieldPath:'provenance.knownMakeAndAuthenticity', label:'Make & authenticity known', oldValue:!!(notableModalItem().provenance && notableModalItem().provenance.knownMakeAndAuthenticity), newValue:$event.target.checked})"> <span>Make &amp; authenticity known <span class="opacity-60 text-xs">· RAW JJ p.130 — 2× sale price</span></span></label>
+          <template x-if="Object.keys(notableModalItem().intrinsic||{}).length">
+            <div class="pt-2 mt-1 border-t border-ink/20">
+              <span class="opacity-70">Intrinsic</span>
+              <ul class="font-mono text-xs mt-1">
+                <template x-for="k in Object.keys(notableModalItem().intrinsic||{})" :key="k">
+                  <li><span class="opacity-70" x-text="k+': '"></span><span x-text="JSON.stringify(notableModalItem().intrinsic[k])"></span></li>
+                </template>
+              </ul>
+              <p class="text-xs opacity-50 mt-1">Item-kind-specific data — edit in the Inspector (Raw JSON).</p>
+            </div>
+          </template>
+          <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">History</h4>
+          <template x-if="(notableModalItem().history||[]).length===0"><p class="text-xs italic opacity-60">No history recorded.</p></template>
+          <ul class="text-sm space-y-1">
+            <template x-for="(h,hi) in [...(notableModalItem().history||[])].reverse()" :key="hi">
+              <li class="border-b border-ink/10 pb-1"><span class="opacity-60" x-text="'T'+(h.turn!=null?h.turn:'?')+' · '+(h.type||'?')"></span><span x-text="h.reason ? (' — '+h.reason) : (h.narrative ? (' — '+h.narrative) : '')"></span></li>
+            </template>
+          </ul>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Carry ⇄ stash transfer modal (Items I1 Step 3) — the character's actor verb: cache carry
+     items/coins into a co-located stash, or draw them back. Layered above the character editor
+     (z-50) at z-70. Engine: ACKS.cacheToStash / drawFromStash (purse + Phase-2.6 carry shapes). -->
+<div x-show="stashTransferOpen" @keydown.escape.window="closeStashTransfer()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:70; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
+    <template x-if="characterEditing">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg">📦 Transfer — <span x-text="characterEditing.name || '(unnamed)'"></span></h3>
+            <p class="text-sm opacity-70">
+              <template x-if="characterTransferHexId()"><span>at <span class="font-semibold" x-text="characterTransferHexLabel()"></span> · a character can cache here, or draw from a stash at this hex</span></template>
+              <template x-if="!characterTransferHexId()"><span class="accent-red">No location set — set this character’s hex on the <span class="font-semibold">Location</span> tab to cache/draw here.</span></template>
+            </p>
+          </div>
+          <button @click="closeStashTransfer()" class="text-2xl leading-none px-2" title="Close">×</button>
+        </div>
+
+        <div class="p-4 space-y-3" x-show="characterTransferHexId()">
+          <!-- Target stash at this hex (or create a fresh cache) -->
+          <div class="flex flex-wrap items-end gap-2">
+            <label class="text-sm">Stash at this hex<br>
+              <select x-model="stashTransferStashId" class="text-sm" style="min-width:15rem">
+                <option :value="null" x-show="characterTransferStashes().length===0">— none here yet —</option>
+                <template x-for="s in characterTransferStashes()" :key="s.id">
+                  <option :value="s.id" x-text="(s.name||'(unnamed)')+' · '+stashKindLabel(s)+' · '+Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></option>
+                </template>
+              </select>
+            </label>
+            <button @click="createCacheForTransfer()" class="text-sm px-2 py-1 border border-ink rounded hover:bg-yellow-100" title="Create a new cache at this hex and leave it here">+ new cache here</button>
+          </div>
+
+          <template x-if="stashTransferStash()">
+            <div class="space-y-3">
+              <!-- Direction -->
+              <div class="flex flex-wrap gap-1 text-sm">
+                <button @click="setStashTransferDir('deposit')" :class="stashTransferDir==='deposit' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Carry → stash (deposit)</button>
+                <button @click="setStashTransferDir('withdraw')" :class="stashTransferDir==='withdraw' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Stash → carry (withdraw)</button>
+              </div>
+
+              <!-- Coins -->
+              <div class="border border-ink/20 rounded p-2">
+                <div class="text-sm font-semibold mb-1">🪙 Coins <span class="opacity-60 font-normal text-xs" x-text="stashTransferDir==='deposit' ? '· move from purse' : '· take from stash'"></span></div>
+                <div class="flex flex-wrap gap-x-4 gap-y-1">
+                  <template x-for="d in ['pp','gp','ep','sp','cp']" :key="d">
+                    <label class="text-sm flex items-center gap-1" x-show="stashTransferDir==='deposit' || stashTransferCoinAvail(d) > 0">
+                      <span class="font-mono uppercase opacity-70 w-5" x-text="d"></span>
+                      <input type="number" min="0" :max="stashTransferCoinAvail(d)" x-model.number="stashTransferCoins[d]" class="text-sm" style="width:6rem">
+                      <span class="text-xs opacity-50" x-text="'/ '+stashTransferCoinAvail(d).toLocaleString()"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Items -->
+              <div class="border border-ink/20 rounded p-2">
+                <div class="text-sm font-semibold mb-1" x-text="stashTransferDir==='deposit' ? 'Carry items' : 'Stash items'"></div>
+                <template x-if="stashTransferItemRows().length===0"><p class="text-xs italic opacity-60">No items to move.</p></template>
+                <div class="space-y-0.5">
+                  <template x-for="row in stashTransferItemRows()" :key="row.key">
+                    <label class="flex items-center gap-2 text-sm border-b border-ink/10 py-0.5">
+                      <input type="checkbox" :checked="!!stashTransferItemSel[row.key]" @change="stashTransferItemSel[row.key]=$event.target.checked">
+                      <span x-text="row.label"></span>
+                      <span x-show="row.notable" title="Notable item">★</span>
+                      <span class="opacity-50 text-xs ml-auto" x-text="row.sub"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+
+              <div class="flex justify-end items-center gap-2 pt-1">
+                <button @click="commitStashTransfer()" :disabled="!stashTransferAnythingSelected()" :class="stashTransferAnythingSelected() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" x-text="stashTransferDir==='deposit' ? 'Cache selected →' : '← Take selected'"></button>
+              </div>
+            </div>
+          </template>
+          <template x-if="!stashTransferStash()">
+            <p class="text-sm italic opacity-60">No stash selected. Use <span class="font-semibold">+ new cache here</span> to create one at this hex.</p>
+          </template>
+        </div>
+      </div>
+    </template>
   </div>
 </div>
 
@@ -4335,6 +4636,21 @@ document.addEventListener('alpine:init', () => {
                   </template>
                 </div>
               </div>
+              <!-- Party camp (Items I1 / Stash B) — the travelling stash that follows the party's hex.
+                   Gated on inventory-stash-system. Disbanding hands the camp to the leader. -->
+              <div x-show="stashSystemOn()" class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
+                <div class="flex justify-between items-center">
+                  <span class="text-sm uppercase tracking-wide opacity-70">⛺ Camp <span class="normal-case opacity-60 text-xs">· travels with the party</span></span>
+                  <button @click="disbandParty(pt)" class="text-xs underline accent-red opacity-80 hover:opacity-100" title="Dissolve the party — the leader takes the camp's equipment">disband party</button>
+                </div>
+                <template x-if="camp">
+                  <div class="flex justify-between items-center text-sm mt-1">
+                    <span><span x-text="camp.name || '(camp)'"></span> <span class="opacity-60 text-xs" x-text="'· at ' + (pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set')"></span></span>
+                    <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString()+' gp · '+(Math.round(window.ACKS.stashTotalEncumbrance(camp)*10)/10)+' st'"></span><button @click="openStashDetail(camp.id)" class="underline text-xs">open</button></span>
+                  </div>
+                </template>
+                <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
+              </div>
             </div>
           </template>
         </div>
@@ -4900,13 +5216,8 @@ document.addEventListener('alpine:init', () => {
               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
             </span>
           </div>
-          <div class="block text-sm flex items-center gap-2">
-            <span class="w-20">Personal GP</span>
-            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'personalGp', label:'Personal GP', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
-            </span>
-          </div>
+          <!-- Items I1 — the old "Personal GP" scalar moved to the multi-denomination Coins
+               purse on the Inventory tab (coins.gp is canonical; personalGp is now its mirror). -->
           <!-- Foundation #18 — construction supervisor cap (RR p.174). Read by the timed-construction
                default when assigning a hex's improvement supervisor.
                Reference values: 25,000gp = Siege Engineer; 100,000gp = Engineer. -->
@@ -5375,23 +5686,43 @@ document.addEventListener('alpine:init', () => {
            audit entries); × cancels. × remove deletes the row (logged). -->
       <div x-show="characterEditorTab==='inventory'" class="space-y-3" x-data="{
         showAdd: false,
-        addDraft: { name: '', stone: 0, gp: 0, notes: '' },
-        startAdd(){ this.addDraft = { name: '', stone: 0, gp: 0, notes: '' }; this.showAdd = true; },
+        addDraft: { name: '', stone: 0, notes: '' },
+        startAdd(){ this.addDraft = { name: '', stone: 0, notes: '' }; this.showAdd = true; },
         cancelAdd(){ this.showAdd = false; },
         saveAdd(){
           if(!this.addDraft.name || !this.addDraft.name.trim()){ window.acksApp?.showToast('Item name required.', 3000); return; }
           const item = {
             name: this.addDraft.name.trim(),
             stone: Number(this.addDraft.stone) || 0,
-            gp: Number(this.addDraft.gp) || 0,
             notes: this.addDraft.notes || ''
           };
           window.acksApp?.commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'inventory', label:'Inventory item', action:'add', value:item});
           this.showAdd = false;
         }
       }">
+        <!-- Coins purse (Items I1) — multi-denomination, RAW. coins.gp is canonical; personalGp mirrors it.
+             Weight (1,000 coins = 1 stone, RR p.83) feeds the carry-encumbrance readout below. -->
+        <div class="border border-ink/30 rounded p-3" x-data="{ coinDenoms:[{k:'pp'},{k:'gp'},{k:'ep'},{k:'sp'},{k:'cp'}] }">
+          <div class="flex justify-between items-baseline mb-2">
+            <h4 class="font-semibold text-sm">🪙 Coins <span class="opacity-60 font-normal text-xs">· purse</span></h4>
+            <span class="text-sm font-mono" x-text="characterCoinValueGp(characterEditing).toLocaleString()+' gp value'+(encumbranceShown() ? ' · '+(Math.round(characterCoinWeightSt(characterEditing)*10)/10)+' st' : '')"></span>
+          </div>
+          <div class="flex flex-wrap gap-x-5 gap-y-1">
+            <template x-for="d in coinDenoms" :key="d.k">
+              <label class="text-sm flex items-center gap-1">
+                <span class="font-mono uppercase opacity-70 w-5" x-text="d.k"></span>
+                <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'coins.'+d.k, label:'Coins ('+d.k+')', kind:'number', min:0})">
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                </span>
+              </label>
+            </template>
+          </div>
+          <p class="text-xs opacity-60 mt-1" x-show="encumbranceShown()">1,000 coins = 1 stone (RR p.83) — counted in carry encumbrance below.</p>
+        </div>
+
         <div class="flex justify-between items-baseline">
-          <h4 class="font-semibold text-sm">Inventory</h4>
+          <h4 class="font-semibold text-sm">Inventory <span class="opacity-60 font-normal text-xs">· gear &amp; valuables</span></h4>
           <button x-show="!showAdd" @click="startAdd()" class="text-sm underline">+ add item</button>
         </div>
 
@@ -5402,7 +5733,6 @@ document.addEventListener('alpine:init', () => {
             <div class="flex flex-wrap gap-2 items-end">
               <label class="text-sm">Name<br><input type="text" x-model="addDraft.name" placeholder="e.g. Long sword" class="text-sm" style="width:14rem" x-init="$nextTick(() => $el.focus())" @keyup.enter="saveAdd()" @keyup.escape="cancelAdd()"></label>
               <label class="text-sm">Stone<br><input type="number" min="0" step="0.5" x-model.number="addDraft.stone" class="text-sm" style="width:5rem" @keyup.enter="saveAdd()"></label>
-              <label class="text-sm">gp<br><input type="number" min="0" x-model.number="addDraft.gp" class="text-sm" style="width:6rem" @keyup.enter="saveAdd()"></label>
               <label class="text-sm flex-1" style="min-width:10rem">Notes<br><input type="text" x-model="addDraft.notes" placeholder="" class="text-sm w-full" @keyup.enter="saveAdd()"></label>
               <button @click="saveAdd()" class="ed-btn" title="Save & log">✓ save</button>
               <button @click="cancelAdd()" class="ed-btn" title="Cancel">× cancel</button>
@@ -5410,17 +5740,21 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
-        <table class="bookkeeping text-sm w-full">
-          <thead><tr><th>Item</th><th>Stone</th><th>gp</th><th>Notes</th><th></th></tr></thead>
+        <!-- table-fixed + colgroup so display-mode rows, edit-mode rows (whose inputs are w-full),
+             and the header all share the same column widths (otherwise an editing row's w-full
+             inputs make those columns greedy and the rows stop lining up). -->
+        <table class="bookkeeping text-sm w-full table-fixed">
+          <colgroup><col style="width:14rem"><col style="width:5rem"><col style="width:14rem"><col><col style="width:11rem"></colgroup>
+          <thead><tr><th>Item</th><th class="text-right">Stone</th><th class="col-gap-left">Notes</th><th></th><th class="text-right">Actions</th></tr></thead>
           <tbody>
             <template x-for="(item,ii) in characterEditing.inventory" :key="ii">
               <tr x-data="{
                 editing: false,
-                draft: { name: '', stone: 0, gp: 0, notes: '' },
-                orig: { name: '', stone: 0, gp: 0, notes: '' },
+                draft: { name: '', stone: 0, notes: '' },
+                orig: { name: '', stone: 0, notes: '' },
                 start(){
-                  this.orig = { name: item.name||'', stone: item.stone||0, gp: item.gp||0, notes: item.notes||'' };
-                  this.draft = { name: item.name||'', stone: item.stone||0, gp: item.gp||0, notes: item.notes||'' };
+                  this.orig = { name: item.name||'', stone: item.stone||0, notes: item.notes||'' };
+                  this.draft = { name: item.name||'', stone: item.stone||0, notes: item.notes||'' };
                   this.editing = true;
                 },
                 save(){
@@ -5429,13 +5763,12 @@ document.addEventListener('alpine:init', () => {
                   const fields = [
                     {k:'name',  label:'Item #'+(ii+1)+' name'},
                     {k:'stone', label:'Item #'+(ii+1)+' stone'},
-                    {k:'gp',    label:'Item #'+(ii+1)+' gp'},
                     {k:'notes', label:'Item #'+(ii+1)+' notes'}
                   ];
                   fields.forEach(f => {
                     let oldV = this.orig[f.k];
                     let newV = this.draft[f.k];
-                    if(f.k === 'stone' || f.k === 'gp'){ newV = Number(newV) || 0; }
+                    if(f.k === 'stone'){ newV = Number(newV) || 0; }
                     if(oldV !== newV){
                       app?.commitStatEdit({entityType:'character', entityId:ch.id, entity:ch, fieldPath:'inventory.'+ii+'.'+f.k, label:f.label, oldValue:oldV, newValue:newV});
                     }
@@ -5445,7 +5778,15 @@ document.addEventListener('alpine:init', () => {
                 cancel(){ this.editing = false; }
               }">
                 <template x-if="!editing">
-                  <td x-text="item.name || '(unnamed)'"></td>
+                  <td>
+                    <!-- A promoted carry item IS a Notable Item → click to open its modal (parity with stash items). -->
+                    <template x-if="item.notableItemId">
+                      <button @click="openNotableModal(item.notableItemId)" class="underline hover:opacity-80 text-left" title="Open this Notable Item" x-text="(item.name || '(unnamed)') + ' ★'"></button>
+                    </template>
+                    <template x-if="!item.notableItemId">
+                      <span x-text="item.name || '(unnamed)'"></span>
+                    </template>
+                  </td>
                 </template>
                 <template x-if="editing">
                   <td><input type="text" x-model="draft.name" class="w-full" x-init="$nextTick(() => $el.focus())" @keyup.enter="save()" @keyup.escape="cancel()"></td>
@@ -5454,24 +5795,20 @@ document.addEventListener('alpine:init', () => {
                   <td class="text-right font-mono" x-text="item.stone"></td>
                 </template>
                 <template x-if="editing">
-                  <td><input type="number" min="0" step="0.5" x-model.number="draft.stone" class="w-16 text-right" @keyup.enter="save()"></td>
+                  <td><input type="number" min="0" step="0.5" x-model.number="draft.stone" class="w-full text-right" @keyup.enter="save()"></td>
                 </template>
                 <template x-if="!editing">
-                  <td class="text-right font-mono" x-text="(item.gp||0).toLocaleString()"></td>
+                  <td class="opacity-80 col-gap-left" x-text="item.notes"></td>
                 </template>
                 <template x-if="editing">
-                  <td><input type="number" min="0" x-model.number="draft.gp" class="w-20 text-right" @keyup.enter="save()"></td>
+                  <td class="col-gap-left"><input type="text" x-model="draft.notes" class="w-full" @keyup.enter="save()"></td>
                 </template>
-                <template x-if="!editing">
-                  <td class="opacity-80" x-text="item.notes"></td>
-                </template>
-                <template x-if="editing">
-                  <td><input type="text" x-model="draft.notes" class="w-full" @keyup.enter="save()"></td>
-                </template>
-                <td class="whitespace-nowrap">
+                <td></td><!-- spacer column: absorbs the slack so Item/Stone/Notes stay tight on the left and Actions hugs the right -->
+                <td class="whitespace-nowrap text-right">
                   <template x-if="!editing">
                     <span>
                       <button @click="start()" class="ed-edit" title="Edit row (logged)">✏</button>
+                      <button x-show="!item.notableItemId" @click="promoteCarryItem(ii)" class="underline text-xs ml-1" title="Promote to a tracked Notable Item">★ promote</button>
                       <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'inventory', label:'Inventory item', action:'remove', index:ii})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
                     </span>
                   </template>
@@ -5485,14 +5822,48 @@ document.addEventListener('alpine:init', () => {
               </tr>
             </template>
             <tr class="subtotal">
-              <td>Total stone / gp value</td>
+              <td>Total stone</td>
               <td class="text-right font-mono" x-text="(characterEditing.inventory||[]).reduce((s,i)=>s+(parseFloat(i.stone)||0),0)"></td>
-              <td class="text-right font-mono" x-text="(characterEditing.inventory||[]).reduce((s,i)=>s+(parseFloat(i.gp)||0),0).toLocaleString()"></td>
-              <td colspan="2"></td>
+              <td colspan="3"></td>
             </tr>
           </tbody>
         </table>
-        <p class="text-sm opacity-70 italic">Encumbrance: tracked here in raw stone. Per-class load limits and movement penalties land with the Phase 2.5+ travel mechanics.</p>
+        <p class="text-sm opacity-70 italic">The list above is the carry inventory (raw stone per item). The RAW load band below reads it.</p>
+
+        <!-- Carry encumbrance readout (Stash B.5) — RAW by default (RR pp.83–84); the ignore-encumbrance opt-out hides it -->
+        <div x-show="encumbranceShown()" class="mt-3 border border-ink/30 rounded p-3" x-data="{ get info(){ return carryInfo(characterEditing); } }">
+          <div class="flex justify-between items-baseline mb-1">
+            <h4 class="font-semibold text-sm">Carry encumbrance <span class="opacity-60 font-normal text-xs">· RR pp.83–84</span></h4>
+            <span class="text-sm font-mono" :style="'color:'+carryBandColor(info.band.level)" x-text="(Math.round(info.totalSt*10)/10)+' st · '+info.band.label"></span>
+          </div>
+          <div class="w-full h-2 rounded bg-ink/10 overflow-hidden">
+            <div class="h-2" :style="'width:'+Math.min(100, info.totalSt/20*100)+'%; background:'+carryBandColor(info.band.level)"></div>
+          </div>
+          <p class="text-xs opacity-70 mt-1" x-text="info.band.level==='overloaded' ? 'Overloaded (>20 st) — cannot move.' : ('Movement: '+info.band.explorationFeet+' ft/turn · '+info.band.combatFeet+' ft/round · '+info.band.milesPerDay+' mi/day.  Bands: ≤5 unenc · ≤7 light · ≤10 heavy · ≤20 severe · >20 overloaded.')"></p>
+        </div>
+
+        <!-- Vault card (Stash B.2) — stashes this character owns/shares + treasuries held by office (derived; never copied onto the character) -->
+        <div x-show="stashSystemOn()" class="mt-3 border border-ink/30 rounded p-3" x-data="{ get vault(){ return characterStashes(characterEditing); } }">
+          <div class="flex justify-between items-baseline mb-1">
+            <h4 class="font-semibold text-sm">🪙 Vault <span class="opacity-60 font-normal text-xs">· located stashes</span></h4>
+            <button @click="openStashTransfer()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Cache carry items/coins here, or draw from a stash at this hex">📦 Transfer items / coins…</button>
+          </div>
+          <template x-if="vault.personal.length + vault.party.length + vault.treasuries.length === 0">
+            <p class="text-xs italic opacity-60">No stashes yet. Use <span class="font-semibold">📦 Transfer</span> above to cache items or coin at this character’s hex (creates a cache there).</p>
+          </template>
+          <template x-for="s in vault.treasuries" :key="s.id">
+            <div class="flex justify-between items-center text-sm border border-yellow-700/40 bg-yellow-50/40 rounded px-2 py-1 mb-1">
+              <span><span class="opacity-70">Treasury of</span> <span x-text="stashOwnerLabel(s).replace(' (domain)','')"></span> <span class="opacity-60 text-xs">· held by office</span></span>
+              <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></span><button @click="openStashDetail(s.id)" class="underline text-xs">open</button></span>
+            </div>
+          </template>
+          <template x-for="s in [...vault.personal, ...vault.party]" :key="s.id">
+            <div class="flex justify-between items-center text-sm border-b border-ink/10 px-1 py-0.5">
+              <span x-text="(s.name||'(unnamed)') + ' · ' + stashKindLabel(s) + ' · ' + stashHexLabel(s)"></span>
+              <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></span><button @click="openStashDetail(s.id)" class="underline text-xs">open</button></span>
+            </div>
+          </template>
+        </div>
       </div>
 
       <!-- BACKGROUND tab — free-text fields under the same lock-edit-save standard.
@@ -6063,6 +6434,27 @@ document.addEventListener('alpine:init', () => {
               <span x-text="journeyModeIcon(j)"></span>
               <span class="flex-grow truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></span>
               <span class="text-xs opacity-60 shrink-0" x-text="journeyStatusLabel(j) + ' · ' + journeyDayLabel(j)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+
+      <!-- Located stashes (Stash B.3) — wealth sitting in this hex -->
+      <div x-show="stashSystemOn()" class="vellum border border-ink/40 rounded p-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h4 class="font-semibold text-sm">🪙 Located stashes</h4>
+          <button @click="createCacheAtHex(worldHexEditingHex().id)" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Create a cache stash at this hex">+ cache here</button>
+        </div>
+        <template x-if="stashesAtHexId(worldHexEditingHex().id).length === 0">
+          <p class="text-xs italic opacity-60 mt-1">No stashes located here.</p>
+        </template>
+        <ul class="text-sm mt-1 space-y-0.5">
+          <template x-for="s in stashesAtHexId(worldHexEditingHex().id)" :key="'hxs-'+s.id">
+            <li class="flex items-center gap-2">
+              <span x-show="s.isHidden" title="Hidden">🔒</span>
+              <button class="underline flex-grow truncate text-left" @click="openStashDetail(s.id)" x-text="(s.name||'(unnamed)') + ' · ' + stashKindLabel(s)"></button>
+              <span class="text-xs opacity-70 shrink-0" x-text="stashOwnerLabel(s)"></span>
+              <span class="font-mono text-xs shrink-0" x-text="Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></span>
             </li>
           </template>
         </ul>
@@ -8200,6 +8592,9 @@ return {
     ];
     if(this.isHouseRuleEnabled('rumors-manual')){
       tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
+    }
+    if(this.isHouseRuleEnabled('inventory-stash-system')){
+      tabs.push({ id:'stashes', label:'🪙 Stashes', count: (this.currentCampaign && this.currentCampaign.stashes ? this.currentCampaign.stashes.length : 0) || null });
     }
     return tabs;
   },
@@ -10597,6 +10992,7 @@ return {
     if(!Array.isArray(this.currentCampaign.parties))this.currentCampaign.parties=[];
     const pt = window.ACKS.blankParty({ name: 'New Party' });
     this.currentCampaign.parties.push(pt);
+    if(this.stashSystemOn() && window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1)
     return pt;
   },
   // Start a party with one founding character: named after them, placed at their hex,
@@ -10616,6 +11012,7 @@ return {
     });
     this.currentCampaign.parties.push(pt);
     this.addCharacterToParty(pt, ch.id);   // sets ch.partyId
+    if(this.stashSystemOn() && window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1)
     this.newPartyPickerOpen = false;
     this.newPartyFounderId = '';
     this.markDirty(); this.schedulePersist();
@@ -10759,6 +11156,30 @@ return {
     if(!pt || !ch || pt.leaderCharacterId === ch.id) return;
     this.commitStatEdit({ entityType:'party', entityId:pt.id, entity:pt, fieldPath:'leaderCharacterId', label:'Party leader', oldValue:(pt.leaderCharacterId||null), newValue:ch.id });
     this.markDirty(); this.schedulePersist();
+  },
+  // Dissolve a party: the leader takes the camp (all its equipment + coin), members are released,
+  // the party is marked disbanded. The camp re-homes to the leader as a personal stash (or, if there's
+  // no leader, is left as an ownerless cache at the hex). Splitting the camp among members is a queued
+  // future feature (Stash plan §15). Routes the camp handoff through the engine (canonical setter).
+  disbandParty(pt){
+    if(!pt) return;
+    const leader = (this.currentCampaign?.characters||[]).find(c => c.id === pt.leaderCharacterId);
+    const members = this.partyMembers(pt);
+    const camp = window.ACKS.partyCampStash ? window.ACKS.partyCampStash(this.currentCampaign, pt.id) : null;
+    const campHasStuff = camp && (camp.items||[]).length;
+    let msg = 'Disband ' + (pt.name || 'this party') + '? ';
+    if(campHasStuff){ msg += leader ? ('Its camp (' + Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString() + ' gp + gear) goes to ' + (leader.name || 'the leader') + '. ') : 'Its camp will be left as a cache at the hex. '; }
+    msg += members.length ? (members.length + ' member' + (members.length===1?'':'s') + ' will be released.') : '';
+    if(!confirm(msg)) return;
+    if(window.ACKS.handOffPartyCampToLeader) window.ACKS.handOffPartyCampToLeader(this.currentCampaign, pt);   // leader takes the equipment (engine)
+    for(const ch of members){ if(ch) ch.partyId = null; }                                                     // release members
+    pt.status = 'disbanded';
+    pt.disbandedAtTurn = this.currentCampaign?.currentTurn || null;
+    (pt.history = pt.history || []).push({ turn: this.currentCampaign?.currentTurn || null, type:'disbanded', narrative: (pt.name||'Party') + ' disbanded' + (leader ? (' — camp to ' + (leader.name||'leader')) : '') });
+    pt.leaderCharacterId = null;
+    window.ACKS.reconcilePartyMembership(this.currentCampaign);
+    this.markDirty(); this.schedulePersist();
+    this.showToast((pt.name||'Party') + ' disbanded.' + (leader && campHasStuff ? (' Camp handed to ' + (leader.name||'the leader') + '.') : ''));
   },
   // (Foundation #193) Deprecated — kept as a thin shim. The canonical add path is
   // addRumorAtSettlement(settlementId) which writes to top-level campaign.rumors with a reach
@@ -11200,6 +11621,260 @@ return {
       return true;
     });
   },
+
+  // ───── Stash B (Items I1 / Phase 2.95) — located-wealth UI helpers ─────
+  stashSearch:'', stashOwnerFilter:'all',
+  stashDetailId:null, stashDetailTab:'items',
+  notableModalId:null,
+  _stashDepositDraft:{ denomination:'gp', qty:0 },
+  _stashItemDraft:{ name:'', qty:1, encumbranceSt:1 },
+  // Character ⇄ co-located stash transfer (Items I1 Step 3). Operates on characterEditing.
+  stashTransferOpen:false, stashTransferStashId:null, stashTransferDir:'deposit',
+  stashTransferCoins:{ pp:0, gp:0, ep:0, sp:0, cp:0 },
+  stashTransferItemSel:{},   // deposit: inventory-index → bool · withdraw: stash-item-id → bool
+  stashSystemOn(){ return this.isHouseRuleEnabled('inventory-stash-system'); },
+  allStashes(){
+    const camp = this.currentCampaign;
+    if(!camp || !Array.isArray(camp.stashes)) return [];
+    return camp.stashes.map(s => ({
+      stash: s,
+      totalGp: window.ACKS.stashTotalGp(s),
+      totalSt: window.ACKS.stashTotalEncumbrance(s),
+      itemCount: (s.items||[]).length,
+      ownerLabel: this.stashOwnerLabel(s),
+      hexLabel: this.stashHexLabel(s)
+    }));
+  },
+  filteredStashes(){
+    const q = (this.stashSearch||'').trim().toLowerCase();
+    const f = this.stashOwnerFilter || 'all';
+    return this.allStashes().filter(row => {
+      const s = row.stash;
+      if(f === 'treasury' && s.kind !== 'domain-treasury') return false;
+      if(f === 'personal' && s.kind !== 'personal') return false;
+      if(f === 'party' && s.kind !== 'party') return false;
+      if(f === 'cache' && s.kind !== 'cache') return false;
+      if(f === 'hidden' && !s.isHidden) return false;
+      if(q){
+        const hay = [s.name||'', s.kind||'', row.ownerLabel, row.hexLabel].join(' ').toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  },
+  stashOwnerLabel(s){
+    if(!s) return '—';
+    if(s.ownerCharacterId){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===s.ownerCharacterId); return c ? (c.name||'(unnamed)') : '(missing character)'; }
+    if(s.ownerDomainId){ const d=(this.domains||[]).find(x=>x.id===s.ownerDomainId); return d ? (d.name||'(unnamed)')+' (domain)' : '(missing domain)'; }
+    if(s.ownerPartyId){ const p=(this.currentCampaign?.parties||[]).find(x=>x.id===s.ownerPartyId); return p ? (p.name||'(party)')+' (party)' : '(missing party)'; }
+    return 'unowned';
+  },
+  stashHexLabel(s){
+    if(!s || !s.hexId) return '—';
+    const h=(this.currentCampaign?.hexes||[]).find(x=>x.id===s.hexId);
+    return h ? window.ACKS.hexName(h) : s.hexId;
+  },
+  stashKindLabel(s){ return ({ 'domain-treasury':'Treasury','personal':'Personal','party':'Party loot','cache':'Cache' })[s&&s.kind] || (s&&s.kind) || '—'; },
+  // The stash owner label is a clickable link to its entity's view, when there's a clean opener
+  // (character sheet / party view). Domain-treasury owners stay text (no per-domain opener yet).
+  stashOwnerLinkable(s){ return !!(s && (s.ownerCharacterId || s.ownerPartyId)); },
+  openStashOwner(s){
+    if(!s) return;
+    if(s.ownerCharacterId){
+      const c=(this.currentCampaign?.characters||[]).find(x=>x.id===s.ownerCharacterId);
+      if(c){ this.closeStashDetail(); this.openCharacterEditor(c); }
+      return;
+    }
+    if(s.ownerPartyId){
+      this.closeStashDetail();
+      if(this.showCharacterEditorModal) this.closeCharacterEditor();
+      this.openPartyView(s.ownerPartyId);
+    }
+  },
+  stashItemLabel(it){
+    if(!it) return '—';
+    const pf = window.ACKS.primaryFacet(it);
+    if(pf==='coin') return (it.qty||0).toLocaleString()+' '+(it.denomination||'gp');
+    if(pf==='valuable') return (it.name || (it.valuableTier ? it.valuableTier+' '+(it.valuableType||'valuable') : 'valuable')) + (it.qty>1?(' ×'+it.qty):'');
+    return (it.name||'(unnamed)') + (it.qty>1?(' ×'+it.qty):'') + (it.notableItemId?' ★':'');
+  },
+  stashItemFacetsLabel(it){ return (window.ACKS.itemFacets(it)||[]).join(' · '); },
+  openStashDetail(id){ this.stashDetailId=id; this.stashDetailTab='items'; },
+  // A promoted stash line points at a campaign.notableItems[] entity — open it in its own modal
+  // (layered over the stash modal, so closing returns to the stash; no tab diversion).
+  openNotableFromLine(it){
+    if(!it || !it.notableItemId) return;
+    this.openNotableModal(it.notableItemId);
+  },
+  openNotableModal(id){ this.notableModalId = id; },
+  closeNotableModal(){ this.notableModalId = null; },
+  notableModalItem(){ return this.notableModalId ? window.ACKS.findNotableItem(this.currentCampaign, this.notableModalId) : null; },
+  notableKindLabel(k){ return ({'magic-weapon':'Magic weapon','magic-armor':'Magic armor','potion':'Potion','scroll':'Scroll','wand':'Wand','rod':'Rod','staff':'Staff','misc-magic':'Misc. magic','book':'Book','relic':'Relic','regalia':'Regalia','masterwork':'Masterwork'})[k] || k || '—'; },
+  notableMakerName(it){ if(!it||!it.provenance||!it.provenance.makerCharacterId) return null; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===it.provenance.makerCharacterId); return c ? c.name : it.provenance.makerCharacterId; },
+  // Promote a carry-inventory line into a tracked Notable Item — parity with the stash's ★ promote.
+  // promoteLineToNotableItem tolerates the Phase 2.6 {name,stone,notes} shape (it only tags facets when a
+  // facets[] already exists), so here it just creates the NotableItem + sets the line's notableItemId.
+  promoteCarryItem(ii){
+    const ch = this.characterEditing; if(!ch || !Array.isArray(ch.inventory)) return;
+    const it = ch.inventory[ii]; if(!it || it.notableItemId) return;
+    window.ACKS.promoteLineToNotableItem(this.currentCampaign, it, { name: it.name||'' });
+    this.markDirty(); this.schedulePersist();
+  },
+  closeStashDetail(){ this.stashDetailId=null; },
+  stashDetailStash(){ return this.stashDetailId ? window.ACKS.findStash(this.currentCampaign, this.stashDetailId) : null; },
+  _afterStashMutation(){ this.markDirty(); this.schedulePersist(); },
+  stashDepositCoins(){
+    const s=this.stashDetailStash(); if(!s) return;
+    const qty=parseInt(this._stashDepositDraft.qty,10)||0; if(qty<=0) return;
+    window.ACKS.depositToStash(this.currentCampaign, s.id, [{ facets:['coin'], denomination:this._stashDepositDraft.denomination||'gp', qty }], { reason:'gm-deposit', atTurn:(this.currentCampaign.currentTurn||1) });
+    this._stashDepositDraft.qty=0; this._afterStashMutation();
+  },
+  stashAddItem(){
+    const s=this.stashDetailStash(); if(!s) return;
+    const d=this._stashItemDraft; if(!(d.name||'').trim()) return;
+    window.ACKS.depositToStash(this.currentCampaign, s.id, [{ facets:['gear'], name:d.name.trim(), qty:(parseInt(d.qty,10)||1), encumbranceSt:(parseFloat(d.encumbranceSt)||0) }], { reason:'gm-add-item', atTurn:(this.currentCampaign.currentTurn||1) });
+    this._stashItemDraft={ name:'', qty:1, encumbranceSt:1 }; this._afterStashMutation();
+  },
+  stashRemoveItem(itemId){ const s=this.stashDetailStash(); if(!s) return; window.ACKS.withdrawFromStash(this.currentCampaign, s.id, [{ itemId }], { reason:'gm-remove' }); this._afterStashMutation(); },
+  stashPromoteItem(itemId){ const s=this.stashDetailStash(); if(!s) return; const it=(s.items||[]).find(x=>x.id===itemId); if(!it) return; window.ACKS.promoteLineToNotableItem(this.currentCampaign, it, { name: it.name||'' }); this._afterStashMutation(); },
+  // "Take" — the open character sheet's character (characterEditing), when standing on the stash's
+  // hex, can pull an item straight into their inventory (coins take the whole line). Routes through
+  // drawFromStash so coins land in the purse + over-encumbrance is flagged. Null ⇒ no take button.
+  stashTakeCharacter(){
+    const ch=this.characterEditing; const s=this.stashDetailStash();
+    if(!ch || !s || !s.hexId) return null;
+    return (ch.currentHexId && ch.currentHexId === s.hexId) ? ch : null;
+  },
+  stashTakeItem(it){
+    const ch=this.stashTakeCharacter(); const s=this.stashDetailStash();
+    if(!ch || !s || !it) return;
+    const spec = window.ACKS.itemHasFacet(it,'coin')
+      ? { coins: { [it.denomination||'gp']: (it.qty||0) } }   // coins: take the whole line
+      : { itemIds:[it.id] };
+    const res = window.ACKS.drawFromStash(this.currentCampaign, s.id, ch.id, spec);
+    if(!res || !res.ok){ this.showToast(this._stashTransferErr(res && res.error), 3500); return; }
+    this._afterStashMutation();
+    let msg = 'Taken into '+(ch.name||'inventory')+'.';
+    if(res.overEncumbered) msg += ' ⚠ Now overloaded (>20 st) — cannot move.';
+    this.showToast(msg, 4000);
+  },
+  stashSettingsChanged(){ this._afterStashMutation(); },
+  // Vault card (B.2): the stashes a character owns/shares + the treasury of any realm they rule
+  characterStashes(ch){
+    const camp=this.currentCampaign;
+    if(!ch || !camp) return { personal:[], party:[], treasuries:[] };
+    const personal=(camp.stashes||[]).filter(s=>s.ownerCharacterId===ch.id);
+    const memberPartyIds=(camp.parties||[]).filter(p=>(p.memberCharacterIds||[]).includes(ch.id) || ch.partyId===p.id).map(p=>p.id);
+    const party=(camp.stashes||[]).filter(s=>s.ownerPartyId && memberPartyIds.includes(s.ownerPartyId));
+    const ruledDomainIds=(this.domains||[]).filter(d=>d.rulerCharacterId===ch.id).map(d=>d.id);
+    const treasuries=(camp.stashes||[]).filter(s=>s.kind==='domain-treasury' && ruledDomainIds.includes(s.ownerDomainId));
+    return { personal, party, treasuries };
+  },
+  stashesAtHexId(hexId){ if(!hexId || !this.currentCampaign) return []; return (this.currentCampaign.stashes||[]).filter(s=>s.hexId===hexId); },
+  createCacheAtHex(hexId){
+    if(!hexId || !this.currentCampaign) return;
+    if(!Array.isArray(this.currentCampaign.stashes)) this.currentCampaign.stashes=[];
+    const s = window.ACKS.blankStash({ kind:'cache', hexId, name:'Cache' });
+    s.createdAtTurn = this.currentCampaign.currentTurn || 1;
+    this.currentCampaign.stashes.push(s);
+    this._afterStashMutation();
+    this.openStashDetail(s.id);
+  },
+  // --- Character ⇄ co-located stash transfer (Items I1 Step 3) ---------------
+  // The actor-centric verb: cache carry items/coins into a stash at the character's
+  // current hex, or draw items/coins from a co-located stash back into carry.
+  // Engine: ACKS.cacheToStash / drawFromStash (purse + Phase-2.6 carry shapes).
+  characterTransferHexId(){ return (this.characterEditing && this.characterEditing.currentHexId) || null; },
+  characterTransferHexLabel(){
+    const id = this.characterTransferHexId(); if(!id) return null;
+    const h = (this.currentCampaign?.hexes||[]).find(x=>x.id===id);
+    return h ? window.ACKS.hexName(h) : id;
+  },
+  characterTransferStashes(){
+    const hexId = this.characterTransferHexId(); if(!hexId) return [];
+    return this.stashesAtHexId(hexId);
+  },
+  openStashTransfer(stashId){
+    const ch = this.characterEditing; if(!ch) return;
+    this.stashTransferDir = 'deposit';
+    this.stashTransferCoins = { pp:0, gp:0, ep:0, sp:0, cp:0 };
+    this.stashTransferItemSel = {};
+    const here = this.characterTransferStashes();
+    this.stashTransferStashId = stashId || (here[0] && here[0].id) || null;
+    this.stashTransferOpen = true;
+  },
+  closeStashTransfer(){ this.stashTransferOpen = false; },
+  setStashTransferDir(dir){ this.stashTransferDir = dir; this.stashTransferItemSel = {}; this.stashTransferCoins = { pp:0, gp:0, ep:0, sp:0, cp:0 }; },
+  stashTransferStash(){ return this.stashTransferStashId ? window.ACKS.findStash(this.currentCampaign, this.stashTransferStashId) : null; },
+  createCacheForTransfer(){
+    const hexId = this.characterTransferHexId();
+    if(!hexId){ this.showToast('Set this character’s location first (Location tab) to cache here.', 4000); return; }
+    const s = window.ACKS.findOrCreateStashAt(this.currentCampaign, { characterId:this.characterEditing.id }, hexId, { kind:'cache', name:'Cache' });
+    this._afterStashMutation();
+    this.stashTransferStashId = s.id;
+  },
+  // Coins available on the SOURCE side for the active direction.
+  stashTransferCoinAvail(d){
+    const ch = this.characterEditing;
+    if(this.stashTransferDir === 'deposit') return (ch && ch.coins && Number(ch.coins[d])) || 0;
+    const s = this.stashTransferStash(); if(!s) return 0;
+    const line = (s.items||[]).find(i => window.ACKS.itemHasFacet(i,'coin') && (i.denomination||'gp')===d);
+    return line ? (line.qty||0) : 0;
+  },
+  // Item rows on the SOURCE side: {key, label, sub, notable}. key = inventory index (deposit) or stash item id (withdraw).
+  stashTransferItemRows(){
+    if(this.stashTransferDir === 'deposit'){
+      const inv = (this.characterEditing && this.characterEditing.inventory) || [];
+      return inv.map((it,ix)=>({ key:ix, label:(it.name||'(unnamed)'), sub:(it.stone!=null?(it.stone+' st'):''), notable:!!it.notableItemId }));
+    }
+    const s = this.stashTransferStash(); if(!s) return [];
+    return (s.items||[]).filter(i=>!window.ACKS.itemHasFacet(i,'coin')).map(it=>({
+      key:it.id, label:this.stashItemLabel(it),
+      sub:(Math.round(window.ACKS.itemEncumbranceSt(it)*100)/100)+' st', notable:!!it.notableItemId
+    }));
+  },
+  stashTransferAnythingSelected(){
+    const anyItem = Object.keys(this.stashTransferItemSel).some(k=>this.stashTransferItemSel[k]);
+    const anyCoin = ['pp','gp','ep','sp','cp'].some(d=>(Number(this.stashTransferCoins[d])||0) > 0);
+    return anyItem || anyCoin;
+  },
+  commitStashTransfer(){
+    const ch = this.characterEditing; const s = this.stashTransferStash();
+    if(!ch || !s){ this.showToast('Pick (or create) a stash at this hex first.', 3500); return; }
+    const coins = {}; ['pp','gp','ep','sp','cp'].forEach(d => coins[d] = Math.max(0, Number(this.stashTransferCoins[d])||0));
+    let res;
+    if(this.stashTransferDir === 'deposit'){
+      const itemIndices = Object.keys(this.stashTransferItemSel).filter(k=>this.stashTransferItemSel[k]).map(k=>parseInt(k,10));
+      res = window.ACKS.cacheToStash(this.currentCampaign, ch.id, s.id, { itemIndices, coins });
+    } else {
+      const itemIds = Object.keys(this.stashTransferItemSel).filter(k=>this.stashTransferItemSel[k]);
+      res = window.ACKS.drawFromStash(this.currentCampaign, s.id, ch.id, { itemIds, coins });
+    }
+    if(!res || !res.ok){ this.showToast(this._stashTransferErr(res && res.error), 3800); return; }
+    this._afterStashMutation();
+    let msg = (this.stashTransferDir==='deposit' ? 'Cached into ' : 'Drew from ') + (s.name || 'the stash') + '.';
+    if(res.overEncumbered) msg += ' ⚠ Now overloaded (>20 st) — cannot move.';
+    this.showToast(msg, 4500);
+    this.stashTransferCoins = { pp:0, gp:0, ep:0, sp:0, cp:0 };
+    this.stashTransferItemSel = {};
+  },
+  _stashTransferErr(code){
+    return ({
+      'insufficient-coin':'Not enough coin available.',
+      'nothing-selected':'Select an item or enter a coin amount first.',
+      'item-not-found':'That item is no longer in the stash.',
+      'bad-index':'That item is no longer in the inventory.',
+      'not-found':'Character or stash not found.'
+    })[code] || ('Transfer failed' + (code ? (' ('+code+')') : '') + '.');
+  },
+  // Encumbrance (B.5) — RAW by default; the ignore-encumbrance opt-out hides it
+  encumbranceShown(){ return this.stashSystemOn() && !this.isHouseRuleEnabled('ignore-encumbrance'); },
+  carryInfo(ch){ return window.ACKS.carryEncumbranceInfo(ch); },
+  // Items I1 — coin purse readouts (derived; coins.gp canonical). Used by the Inventory-tab Coins section.
+  characterCoinValueGp(ch){ return window.ACKS.characterCoinValueGp(ch); },
+  characterCoinWeightSt(ch){ return window.ACKS.characterCoinWeightSt(ch); },
+  carryBandColor(level){ return ({ unencumbered:'#2f6b2f', light:'#7a6a17', heavy:'#9a5a13', severe:'#7a3b13', overloaded:'#7a1313' })[level] || '#444'; },
+
   // Resolve the hex currently being edited in the World > Hexes detail modal
   worldHexEditingHex(){
     if(!this.worldHexEditing) return null;
@@ -13202,7 +13877,23 @@ return {
     // {enabled:bool} before flipping. Without this, a bare-boolean rule from a template
     // can't be toggled — `(true).enabled = …` is a silent no-op on a primitive, so the
     // rule would stick on (or off) forever.
-    this.currentCampaign.houseRules[id]={enabled:!this.isHouseRuleEnabled(id)};
+    const enabling = !this.isHouseRuleEnabled(id);
+    this.currentCampaign.houseRules[id]={enabled:enabling};
+    // Enabling the Stash master rule materializes the domain treasuries NOW, so the
+    // Stashes view isn't empty until the next reload (Stash plan §8.4 OFF→ON migration).
+    // The engine reads campaign.domains, but the UI keeps domains in this.domains, so
+    // attach them for the call + restore (same dance as _journeyWithDomains). Idempotent.
+    if(id==='inventory-stash-system' && enabling && window.ACKS && window.ACKS.migrateAllDomainTreasuries){
+      const _orig=this.currentCampaign.domains;
+      this.currentCampaign.domains=this.domains;
+      try {
+        window.ACKS.migrateAllDomainTreasuries(this.currentCampaign);
+        if(window.ACKS.reconcileTreasuryScalars) window.ACKS.reconcileTreasuryScalars(this.currentCampaign);
+        // Every party gets its travelling camp stash too (Items I1 / Stash B), materialized now.
+        if(window.ACKS.syncAllPartyCampStashes) window.ACKS.syncAllPartyCampStashes(this.currentCampaign);
+      } finally { this.currentCampaign.domains=_orig; }
+      this.markDirty(); this.schedulePersist();
+    }
   },
   incomeFactor(morale){return INCOME_FACTOR_BY_MORALE[String(clamp(morale||0,-4,4))]??1;},
   baseMorale(d){return baseMoraleFromClassification(this.effectiveClassification(d),this.effectiveRuler(d));},

@@ -145,37 +145,42 @@
     },
 
     // Worked example 4.2 — complex entity with a nested array.
-    // RECONCILED 2026-05-31 (Wave B.6 Step 0) to match blankStash + blankStashItem +
-    // the stash setters (depositToStash/withdrawFromStash). Canonical shape: `name`
-    // (not label), `kind` (not stashKind), `isHidden` (not hidden), and ONE `items[]`
-    // array — coins are NOT a separate array; they are items with kind:'coin' +
-    // denomination + qty (see depositToStash's coin-merge-by-denomination). Every field
-    // here is one blankStash emits; every items sub-field is one blankStashItem emits
-    // (union across its coin/bulk/item variants). Guarded by a smoke invariant.
+    // RECONCILED 2026-05-31 (Wave B.6 Step 0); items reshaped to the facet model
+    // 2026-06-03 (Items I1 / OQ9). Matches blankStash + blankStashItem + the stash
+    // setters (depositToStash/withdrawFromStash). Canonical shape: `name` (not label),
+    // `kind` (not stashKind), `isHidden` (not hidden), and ONE `items[]` array. An
+    // item line carries a multi-valued `facets[]` (coin|valuable|gear|bulk|magical|
+    // readable|container) — NOT a coin|bulk|item subtype; coin/valuable value + weight
+    // are derived. Every field here is one blankStash emits; every items sub-field is
+    // one blankStashItem emits. Guarded by the global schema⊆factory smoke invariant.
     'stash': {
       factory: 'blankStash',
       groups: ['Identity', 'Location', 'Ownership', 'Contents', 'History'],
       fields: [
         { name: 'id',          type: 'string', readonly: true, group: 'Identity' },
         { name: 'name',        type: 'string', required: true,  group: 'Identity', description: 'Display name for this stash' },
-        { name: 'kind',        type: 'enum',   enumValues: ['treasury','personal','hex-cache','outpost-cache','venture-payload','party-loot','custom'], group: 'Identity', default: 'personal' },
+        { name: 'kind',        type: 'enum',   enumValues: ['personal','party','domain-treasury','cache'], group: 'Identity', default: 'personal' },
         { name: 'hexId',       type: 'id',     idKind: 'hex', group: 'Location' },
         { name: 'ownerCharacterId', type: 'id', idKind: 'character', group: 'Ownership' },
         { name: 'ownerPartyId',     type: 'id', idKind: 'party', group: 'Ownership' },
         { name: 'ownerDomainId',    type: 'id', idKind: 'domain', group: 'Ownership' },
         { name: 'isHidden',    type: 'boolean', group: 'Ownership', description: 'Gated by the hidden-stashes house rule' },
-        // One heterogeneous items array, discriminated by `kind`: coin {denomination, qty},
-        // bulk {label, qty, unit, encumbranceSt}, item {name, qty, encumbranceSt, magicItemId, notes}.
+        // One items array; each line is composed of toggleable facets (Items I1 / OQ9).
+        // coin → denomination+qty · valuable → valuableType/Tier+unitValueGp · gear/bulk →
+        // name/unit/encumbranceSt · magical|readable → notableItemId promotion pointer.
         { name: 'items',       type: 'array', group: 'Contents', itemSchema: {
           fields: [
-            { name: 'kind',         type: 'enum', enumValues: ['coin','bulk','item'], default: 'item', description: 'coin = currency · bulk = measured goods · item = discrete object' },
-            { name: 'denomination', type: 'enum', enumValues: ['gp','sp','cp','pp','ep'], default: 'gp', description: 'coin entries' },
-            { name: 'name',         type: 'string', description: 'item entries' },
-            { name: 'label',        type: 'string', description: 'bulk entries' },
+            { name: 'facets',       type: 'enumMulti', enumValues: ['coin','valuable','gear','bulk','magical','readable','container'], description: 'composable item facets (≥1)' },
             { name: 'qty',          type: 'number', min: 0, default: 1 },
-            { name: 'unit',         type: 'string', description: 'bulk entries (e.g. stones)' },
-            { name: 'encumbranceSt', type: 'number', min: 0, description: 'encumbrance in stone' },
-            { name: 'magicItemId',  type: 'id', idKind: 'notableItem', description: 'set if this is a tracked Notable Item' },
+            { name: 'name',         type: 'string', description: 'gear / valuable / named label' },
+            { name: 'denomination', type: 'enum', enumValues: ['cp','sp','ep','gp','pp'], description: 'coin facet' },
+            { name: 'valuableType', type: 'enum', enumValues: ['gem','jewelry','special-treasure'], description: 'valuable facet (Treasure Tome §1.3)' },
+            { name: 'valuableTier', type: 'string', description: 'gem/jewelry tier (ornamental|gem|brilliant / trinket|jewelry|regalia)' },
+            { name: 'unitValueGp',  type: 'gp', description: 'per-unit gp value (valuables)' },
+            { name: 'encumbranceSt', type: 'number', min: 0, description: 'stone weight (coin weight is derived: 1,000 coins = 1 st)' },
+            { name: 'unit',         type: 'string', description: 'bulk measure (e.g. stones)' },
+            { name: 'notableItemId', type: 'id', idKind: 'notableItem', description: 'promotion pointer → a tracked Notable Item' },
+            { name: 'containerStashId', type: 'id', idKind: 'stash', description: 'container facet (reserved — nested stashes)' },
             { name: 'notes',        type: 'string' }
           ]
         }},
