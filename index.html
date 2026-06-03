@@ -11468,9 +11468,13 @@ return {
       }
     });
 
-    // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring.
-    if(this.mapShowJourneys){
-      this.mapJourneyRoutes().forEach(rt => {
+    // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring. The Journeys layer
+    // toggle gates the WHOLE set, EXCEPT a journey the GM is actively viewing (_journeyMapView, set by
+    // "View on map") is ALWAYS drawn — so jumping to a journey shows it even with the layer switched off.
+    {
+      const allRoutes = this.mapJourneyRoutes();
+      const routes = this.mapShowJourneys ? allRoutes : allRoutes.filter(rt => rt.id === this._journeyMapView);
+      routes.forEach(rt => {
         if(rt.pts.length >= 2){
           const dd = rt.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
           parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
@@ -11921,9 +11925,8 @@ return {
   journeyViewOnMap(journeyId){
     const j = (this.currentCampaign?.journeys || []).find(x => x && x.id === journeyId);
     if(!j) return;
-    this._journeyMapView = journeyId;
-    this.mapShowJourneys = true;
-    this.mapEditAddMode = false;
+    this._journeyMapView = journeyId;   // the viewed journey is always drawn (see mapSvgMarkup §4),
+    this.mapEditAddMode = false;        // so we DON'T force the Journeys layer on — the GM's toggle stands.
     this.currentView = 'world'; this.worldSubView = 'map';
     this.mapEnsureView();
     this.mapFocusJourney(j);
