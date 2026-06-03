@@ -619,7 +619,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Stash detail modal (Stash B.4) -->
-<div x-show="stashDetailId" @keydown.escape.window="closeStashDetail()" class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style="background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style="background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="stashDetailStash()">
       <div>
@@ -699,6 +699,78 @@ document.addEventListener('alpine:init', () => {
           <p x-show="!isHouseRuleEnabled('hidden-stashes')" class="text-xs opacity-60 -mt-2">Enable the “Hidden caches” house rule to use this.</p>
           <label class="block">Notes<br><textarea x-model="stashDetailStash().notes" @change="stashSettingsChanged()" class="w-full" rows="2"></textarea></label>
           <p class="text-xs opacity-60" x-show="stashDetailStash().kind==='domain-treasury'">This is a domain treasury — it transfers with the office on ruler succession, not with the ruling character.</p>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Notable Item modal (Items I1 Step 3) — view/edit a promoted item in place, layered over the
+     stash modal (z-index 60) so closing returns to the stash. Edits log via gm-fiat on the notableItem.
+     Plain/fungible lines never reach here — only promoted lines (which point at a notableItems[] entity). -->
+<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-xl my-6">
+    <template x-if="notableModalItem()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg" x-text="(notableModalItem().name || '(unnamed notable item)') + ' ★'"></h3>
+            <p class="text-sm opacity-70" x-text="notableKindLabel(notableModalItem().kind) + ' · ' + (notableModalItem().status||'active')"></p>
+          </div>
+          <button @click="closeNotableModal()" class="text-2xl leading-none px-2" title="Close">×</button>
+        </div>
+        <div class="p-4 space-y-2 text-sm">
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Name</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'name', label:'Name', kind:'text', placeholder:'(unnamed)'})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Kind</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'kind', label:'Kind', kind:'select', formatter(v){ return window.acksApp.notableKindLabel(v); }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="magic-weapon">Magic weapon</option><option value="magic-armor">Magic armor</option><option value="potion">Potion</option><option value="scroll">Scroll</option><option value="wand">Wand</option><option value="rod">Rod</option><option value="staff">Staff</option><option value="misc-magic">Misc. magic</option><option value="book">Book</option><option value="relic">Relic</option><option value="regalia">Regalia</option><option value="masterwork">Masterwork</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Status</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'status', label:'Status', kind:'select'})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:12rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="active">active</option><option value="destroyed">destroyed</option><option value="lost">lost</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">Provenance</h4>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Maker</span><span class="opacity-90" x-text="notableMakerName(notableModalItem()) || '— unknown —'"></span></div>
+          <div class="flex items-center gap-2"><span class="w-28 opacity-70">Created turn</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'provenance.createdAtTurn', label:'Created turn', kind:'number', min:0})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(displayValue ?? '—')"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+          </div>
+          <div><span class="w-28 opacity-70 block mb-1">Origin lore</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'provenance.originLore', label:'Origin lore', kind:'text', placeholder:'(none)'})" style="align-items:flex-start">
+              <template x-if="!editing"><span class="ed-stat" style="align-items:flex-start"><span class="ed-val whitespace-pre-wrap" style="font-family:inherit" x-text="displayValue || '(none)'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat" style="align-items:flex-start; flex-direction:column"><textarea x-model="draft" rows="2" class="w-full text-sm" x-init="$nextTick(() => $el.focus())" @keyup.escape="cancel()"></textarea><span class="flex gap-1 mt-1"><button @click="save()" class="ed-btn" title="Save & log">✓ save</button><button @click="cancel()" class="ed-btn" title="Cancel">× cancel</button></span></span></template>
+            </span>
+          </div>
+          <label class="flex items-center gap-2 mt-1"><input type="checkbox" :checked="!!(notableModalItem().provenance && notableModalItem().provenance.knownMakeAndAuthenticity)" @change="commitStatEdit({entityType:'notableItem', entityId:notableModalItem().id, entity:notableModalItem(), fieldPath:'provenance.knownMakeAndAuthenticity', label:'Make & authenticity known', oldValue:!!(notableModalItem().provenance && notableModalItem().provenance.knownMakeAndAuthenticity), newValue:$event.target.checked})"> <span>Make &amp; authenticity known <span class="opacity-60 text-xs">· RAW JJ p.130 — 2× sale price</span></span></label>
+          <template x-if="Object.keys(notableModalItem().intrinsic||{}).length">
+            <div class="pt-2 mt-1 border-t border-ink/20">
+              <span class="opacity-70">Intrinsic</span>
+              <ul class="font-mono text-xs mt-1">
+                <template x-for="k in Object.keys(notableModalItem().intrinsic||{})" :key="k">
+                  <li><span class="opacity-70" x-text="k+': '"></span><span x-text="JSON.stringify(notableModalItem().intrinsic[k])"></span></li>
+                </template>
+              </ul>
+              <p class="text-xs opacity-50 mt-1">Item-kind-specific data — edit in the Inspector (Raw JSON).</p>
+            </div>
+          </template>
+          <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">History</h4>
+          <template x-if="(notableModalItem().history||[]).length===0"><p class="text-xs italic opacity-60">No history recorded.</p></template>
+          <ul class="text-sm space-y-1">
+            <template x-for="(h,hi) in [...(notableModalItem().history||[])].reverse()" :key="hi">
+              <li class="border-b border-ink/10 pb-1"><span class="opacity-60" x-text="'T'+(h.turn!=null?h.turn:'?')+' · '+(h.type||'?')"></span><span x-text="h.reason ? (' — '+h.reason) : (h.narrative ? (' — '+h.narrative) : '')"></span></li>
+            </template>
+          </ul>
         </div>
       </div>
     </template>
@@ -11406,6 +11478,7 @@ return {
   // ───── Stash B (Items I1 / Phase 2.95) — located-wealth UI helpers ─────
   stashSearch:'', stashOwnerFilter:'all',
   stashDetailId:null, stashDetailTab:'items',
+  notableModalId:null,
   _stashDepositDraft:{ denomination:'gp', qty:0 },
   _stashItemDraft:{ name:'', qty:1, encumbranceSt:1 },
   stashSystemOn(){ return this.isHouseRuleEnabled('inventory-stash-system'); },
@@ -11460,14 +11533,17 @@ return {
   },
   stashItemFacetsLabel(it){ return (window.ACKS.itemFacets(it)||[]).join(' · '); },
   openStashDetail(id){ this.stashDetailId=id; this.stashDetailTab='items'; },
-  // A promoted stash line points at a campaign.notableItems[] entity — open it in the Inspector
-  // (the "click an entity's name → open it" convention; same deep-link the journey detail uses).
-  // Closes the stash modal first so we don't navigate away with an overlay still up.
+  // A promoted stash line points at a campaign.notableItems[] entity — open it in its own modal
+  // (layered over the stash modal, so closing returns to the stash; no tab diversion).
   openNotableFromLine(it){
     if(!it || !it.notableItemId) return;
-    this.closeStashDetail();
-    this.inspectorOpen('notableItem', it.notableItemId);
+    this.openNotableModal(it.notableItemId);
   },
+  openNotableModal(id){ this.notableModalId = id; },
+  closeNotableModal(){ this.notableModalId = null; },
+  notableModalItem(){ return this.notableModalId ? window.ACKS.findNotableItem(this.currentCampaign, this.notableModalId) : null; },
+  notableKindLabel(k){ return ({'magic-weapon':'Magic weapon','magic-armor':'Magic armor','potion':'Potion','scroll':'Scroll','wand':'Wand','rod':'Rod','staff':'Staff','misc-magic':'Misc. magic','book':'Book','relic':'Relic','regalia':'Regalia','masterwork':'Masterwork'})[k] || k || '—'; },
+  notableMakerName(it){ if(!it||!it.provenance||!it.provenance.makerCharacterId) return null; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===it.provenance.makerCharacterId); return c ? c.name : it.provenance.makerCharacterId; },
   closeStashDetail(){ this.stashDetailId=null; },
   stashDetailStash(){ return this.stashDetailId ? window.ACKS.findStash(this.currentCampaign, this.stashDetailId) : null; },
   _afterStashMutation(){ this.markDirty(); this.schedulePersist(); },
