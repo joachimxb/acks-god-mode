@@ -1160,7 +1160,11 @@ function blankJourney(opts={}){
     startHexId: opts.startHexId || null,
     destinationHexId: opts.destinationHexId || null,
     waypoints: opts.waypoints || [],                    // ordered [{hexId, label, plannedPurpose}]
-    currentHexId: opts.currentHexId || null,            // advances on arrival (per-hex stepping is J2/Portal)
+    // §24 — informational snapshot of the planned hex path [{q,r},…] (start→waypoints→dest), stamped
+    // at startJourney. The day handler derives the LIVE route on demand (ACKS.journeyRoute) — this is
+    // a stable cache for the UI/integrators, not the movement source of truth. [] = compute on demand.
+    routeCoords: opts.routeCoords || [],
+    currentHexId: opts.currentHexId || null,            // the hex the party is in now (advances hex-by-hex along the route — §24)
     currentDayIndex: opts.currentDayIndex || 0,         // 0..N days into the journey
     daysRemainingEstimate: opts.daysRemainingEstimate != null ? opts.daysRemainingEstimate : null,
     // Mode + pace

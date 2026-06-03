@@ -1416,6 +1416,109 @@ function computeJourneyDistance(campaign, journey){
   return { total, covered, remaining, startHex, destHex };
 }
 
+// §24 — the ordered hexes a journey passes THROUGH, start→(waypoints)→destination, as a straight
+// hex-line over the grid (deterministic; the epsilon nudge makes every step edge-adjacent). Each
+// entry: { coord:{q,r}, hexId, hex, entrySide, exitSide }. hex/hexId are null where no hex is
+// authored at that coord (the route still crosses that geography — the day handler falls back to the
+// journey's base environment there, so per-side travel effects apply only where cartography exists).
+// entrySide/exitSide are the edge indices (0..5) crossed into / out of that hex (null at the ends).
+// Pure read; route.length-1 === computeJourneyDistance().total by construction.
+function journeyRoute(campaign, journey){
+  const A = _jACKS();
+  if(!campaign || !journey) return [];
+  const start = A.resolveHexAnywhere(campaign, journey.startHexId);
+  if(!start || !start.coord) return [];
+  const dest = A.resolveHexAnywhere(campaign, journey.destinationHexId);
+  const legs = [start.coord];
+  for(const wp of (journey.waypoints || [])){
+    const wh = A.resolveHexAnywhere(campaign, wp && wp.hexId);
+    if(wh && wh.coord) legs.push(wh.coord);
+  }
+  legs.push((dest && dest.coord) ? dest.coord : start.coord);
+  const coords = [];
+  for(let i = 0; i < legs.length - 1; i++){
+    const seg = hexLineDraw(legs[i], legs[i + 1]);
+    for(let j = (i === 0 ? 0 : 1); j < seg.length; j++) coords.push(seg[j]);
+  }
+  const route = coords.map(c => {
+    const hex = A.hexAtCoord(campaign, c.q, c.r);
+    return { coord: { q: c.q, r: c.r }, hexId: hex ? hex.id : null, hex: hex || null, entrySide: null, exitSide: null };
+  });
+  for(let i = 0; i < route.length - 1; i++){
+    const side = hexEdgeBetween(route[i].coord, route[i + 1].coord);
+    if(side >= 0){ route[i].exitSide = side; route[i + 1].entrySide = hexOppositeEdge(side); }
+  }
+  return route;
+}
+
+// §24 — does traversing `hex` (entering via entrySide, leaving via exitSide; either null at a route
+// end) earn the road movement bonus (×3/2, no getting lost, safe encounter column — RR p.272/p.275)?
+// The coarse legacy hex.hasRoad flag (the pre-§24 signal) counts as a road throughout the hex, so
+// existing saves keep their behaviour. Otherwise the per-side roadSides apply Joachim's rule: a
+// pass-through hex needs a road on BOTH the entered and exited sides (the road connects them); a hex
+// the journey ENDS in (no exit side) needs a road on the entered side; a hex it STARTS from (no entry
+// side) needs one on the exit side. Pure.
+function roadBonusForStep(hex, entrySide, exitSide){
+  if(!hex) return false;
+  if(hex.hasRoad === true) return true;
+  const rs = hex.roadSides;
+  if(!Array.isArray(rs) || !rs.length) return false;
+  const norm = s => (((s % 6) + 6) % 6);
+  const hasEntry = (entrySide == null) || rs.indexOf(norm(entrySide)) >= 0;
+  const hasExit  = (exitSide  == null) || rs.indexOf(norm(exitSide))  >= 0;
+  return hasEntry && hasExit;
+}
+
+// §24 — what happens crossing the edge between fromHex and toHex (exitSide on fromHex). The editor
+// mirrors river + crossing marks onto both hexes (a river on side i of A is recorded as side (i+3)%6
+// of B), so either hex answers. Returns { barrier, crossingType, swimmingThrowNeeded }:
+//   • no river on the edge                              → barrier:false, 'none'
+//   • river + ford/bridge mark (crossingSides)          → barrier:true,  'ford'            (free, RAW negates the barrier)
+//   • river + a road runs onto it (roadSides ∩ river)   → barrier:true,  'implicit-bridge' (free — a road crossing a river IS a bridge)
+//   • river, unbridged + unforded                       → barrier:true,  'swim'            (Swimming throw, RR p.271)
+// Pure.
+function riverCrossingForStep(fromHex, toHex, exitSide){
+  const none = { barrier: false, crossingType: 'none', swimmingThrowNeeded: false };
+  if(exitSide == null) return none;
+  const a = (((exitSide % 6) + 6) % 6), b = hexOppositeEdge(a);
+  const has = (hex, key, side) => !!(hex && Array.isArray(hex[key]) && hex[key].indexOf(side) >= 0);
+  if(!(has(fromHex, 'riverSides', a) || has(toHex, 'riverSides', b))) return none;
+  if(has(fromHex, 'crossingSides', a) || has(toHex, 'crossingSides', b)) return { barrier: true, crossingType: 'ford', swimmingThrowNeeded: false };
+  if(has(fromHex, 'roadSides', a)     || has(toHex, 'roadSides', b))     return { barrier: true, crossingType: 'implicit-bridge', swimmingThrowNeeded: false };
+  return { barrier: true, crossingType: 'swim', swimmingThrowNeeded: true };
+}
+
+// §24 / RR p.271 — simplified party Swimming throw to ford an UNbridged river edge. RAW is a per-round
+// 11+ throw modified by Strength/encumbrance, −2/−4 in cold/rough-or-fast water, with failure risking
+// drowning; full per-character per-round drowning resolution is deferred to Phase 3.6 Proficiency
+// Throws. For now this is ONE party throw — base 11+, +2 if a participant carries a relevant
+// proficiency (mirrors the J1 nav bonus), the cold/rough penalties folded into the target. On failure
+// the day handler holds the party at the near bank and surfaces a 'fording' pause event for the GM.
+function _journeyFordBonus(campaign, journey){
+  const ids = (journey && journey.participantCharacterIds) || [];
+  const RE = /(swimming|athletics|adventuring|survival|seafaring)/i;
+  let bonus = 0;
+  for(const c of ((campaign && campaign.characters) || [])){
+    if(!c || ids.indexOf(c.id) < 0) continue;
+    for(const p of (c.proficiencies || [])){
+      const name = (typeof p === 'string') ? p : ((p && (p.name || p.id || p.proficiency)) || '');
+      if(RE.test(name)) bonus = Math.max(bonus, 2);
+    }
+  }
+  return bonus;
+}
+function journeyFordingThrow(campaign, journey, opts){
+  opts = opts || {};
+  const rng = opts.rng || Math.random;
+  let target = 11;
+  if(opts.coldWater)  target += 2;   // a −2 to the throw is a +2 to the target
+  if(opts.roughWater) target += 4;
+  const bonus = _journeyFordBonus(campaign, journey);
+  const rolled = 1 + Math.floor(rng() * 20);
+  const total = rolled + bonus;
+  return { rolled, bonus, target, total, success: total >= target, coldWater: !!opts.coldWater, roughWater: !!opts.roughWater };
+}
+
 // §7 — navigation throw (1d20 + party proficiency bonus ≥ terrain target). Pure given rng.
 function rollNavigation(navTarget, bonus, rng){
   rng = rng || Math.random;
@@ -1491,39 +1594,59 @@ function tickJourneyDay(campaign, journey, ctx){
   const notableEvents = [];
   const encounters = [];
 
-  // ── speed (§6): base × terrain × weather × temperature × ground × pace ──
-  const baseTerrain = (startHex && startHex.terrain) || 'grassland';
-  const hasRoad = !!(startHex && startHex.hasRoad);
-  const terrainMult = hasRoad ? A.JOURNEY_TERRAIN_SPEED.road
-    : (A.JOURNEY_TERRAIN_SPEED[baseTerrain] != null ? A.JOURNEY_TERRAIN_SPEED[baseTerrain] : 1);
+  // ── route + base environment (§24): the journey steps hex-by-hex along journeyRoute. Where a route
+  // coord isn't authored we fall back to the START hex's coarse environment, so sparse campaigns
+  // travel exactly as the pre-§24 distance engine did and per-side road/river effects appear only
+  // where the GM has drawn them. ──
+  const route = (function(){ try { return journeyRoute(campaign, journey); } catch(e){ return []; } })();
+  const baseEnv = {
+    terrain: (startHex && startHex.terrain) || 'grassland',
+    hasRoad: !!(startHex && startHex.hasRoad),
+    hasTrail: !!(startHex && startHex.hasTrail),
+    groundCondition: (startHex && startHex.groundCondition) || 'clear',
+    roadSides: [], riverSides: [], crossingSides: []
+  };
+  const baseTerrain = baseEnv.terrain;
+  const hexAtPos = pos => { const s = route[pos]; return (s && s.hex) ? s.hex : baseEnv; };
+
+  // Day-level (non-terrain) speed factors — base × weather × temperature × pace. Terrain + ground are
+  // charged PER HEX during the walk below (a hex of speed-mult m costs MILES_PER_HEX / m of the day's
+  // budget), so the day's reach equals the old hexes/day when terrain is uniform and varies hex-by-hex
+  // when it isn't (RR p.272 / pp.277-278).
   const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
-  // RR pp.277-278: frigid/sweltering temperatures each halve speed (a separate axis from precipitation).
   const tempMult = (A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1;
-  // RR p.272: mud/snow underfoot is a further ×1/2 that compounds on terrain. GM-set per hex.
-  const groundCond = (startHex && startHex.groundCondition) || 'clear';
-  const groundMult = (A.JOURNEY_GROUND_SPEED[groundCond] != null) ? A.JOURNEY_GROUND_SPEED[groundCond] : 1;
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
-  const milesPerDay = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * terrainMult * weatherMult * tempMult * groundMult * paceMult;
-  let hexesPerDay = Math.floor(milesPerDay / A.JOURNEY_MILES_PER_HEX);
-  if(hexesPerDay < 1) hexesPerDay = 1; // a travel day always covers at least one hex
+  let milesBudget = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * weatherMult * tempMult * paceMult;
+  const coldWater = (weather.temperature === 'frigid' || weather.temperature === 'cold'); // −2 to a ford (§24)
 
   // ── fatigue (§10 / JJ p.84): a 6-day strenuous streak forces a rest day ──
   const simplifiedFatigue = A.isHouseRuleEnabled(campaign, 'simplified-fatigue');
   const strenuousPace = (pace === 'normal' || pace === 'forced-march');
   const restDay = (!simplifiedFatigue && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
 
-  // ── navigation (§7): skip on road/trail; roll only while actually traveling ──
+  // Route position = hexes already covered; the next hex to ENTER is pos+1.
+  const startPos = dist.covered;
+  const curStep = route.length ? (route[Math.min(startPos, route.length - 1)] || null) : null;
+  const curHex = (curStep && curStep.hex) ? curStep.hex : baseEnv;
+  const nextStep = (startPos + 1 < route.length) ? route[startPos + 1] : null;
+  const nextHex = nextStep ? hexAtPos(startPos + 1) : curHex;
+  const onRoadOrTrail =
+    roadBonusForStep(nextHex, nextStep ? nextStep.entrySide : null, nextStep ? nextStep.exitSide : null) || !!nextHex.hasTrail ||
+    roadBonusForStep(curHex, null, curStep ? curStep.exitSide : null) || !!curHex.hasTrail;
+
+  // ── navigation (§7): skip when heading onto a road/trail; roll against the terrain being entered ──
   let navRecord = null;
-  if(!restDay && !hasRoad && !(startHex && startHex.hasTrail) && dist.remaining > 0){
-    const navTarget = (A.JOURNEY_NAV_THROWS[baseTerrain] != null) ? A.JOURNEY_NAV_THROWS[baseTerrain] : 6;
+  if(!restDay && !onRoadOrTrail && dist.remaining > 0){
+    const navTerrain = nextHex.terrain || baseTerrain;
+    const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
     const bonus = _journeyNavBonus(campaign, journey);
     const nav = rollNavigation(navTarget, bonus, rng);
     navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonus ? [{ source: 'party-proficiency', value: bonus }] : [], result: nav.success ? 'success' : 'fail-known-lost' };
     if(!nav.success){
       isLost = true;
       notableEvents.push({
-        kind: 'journey-lost', type: 'navigation-fail', pauseTrigger: 'navigation-fail', primaryHexId: journey.startHexId || null,
-        label: (journey.name || 'Journey') + ': lost in ' + baseTerrain + ' (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
+        kind: 'journey-lost', type: 'navigation-fail', pauseTrigger: 'navigation-fail', primaryHexId: journey.currentHexId || journey.startHexId || null,
+        label: (journey.name || 'Journey') + ': lost in ' + navTerrain + ' (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex }
       });
     } else if(isLost){
@@ -1533,15 +1656,59 @@ function tickJourneyDay(campaign, journey, ctx){
       isLost = false;
       navRecord.result = 'success-recovered';
       notableEvents.push({
-        kind: 'journey-day-tick', type: 'navigation-recovered', primaryHexId: journey.startHexId || null,
+        kind: 'journey-day-tick', type: 'navigation-recovered', primaryHexId: journey.currentHexId || journey.startHexId || null,
         label: (journey.name || 'Journey') + ': found the way again (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex }
       });
     }
   }
 
-  // ── movement: none on a rest day or a freshly-lost day ──
-  const hexesToday = (!restDay && !isLost) ? Math.min(hexesPerDay, dist.remaining) : 0;
+  // ── movement (§6/§24): walk the route hex-by-hex, spending the day's mile budget. Each hex entered
+  // costs MILES_PER_HEX / (terrain × ground speed); the road bonus overrides terrain when the
+  // traversal qualifies (RR p.272). An UNforded river edge (riverSides with no crossing/bridge)
+  // triggers a Swimming throw (RR p.271): success crosses but ends the day (swim speed ¼), failure
+  // holds the party at the near bank with a 'fording' pause for the GM. No movement on a rest/lost day;
+  // a travel day always advances at least one hex (RAW floors progress ≥1). ──
+  let hexesToday = 0, dayAllRoaded = true, hardestNav = -1, representativeTerrain = baseTerrain, fordingRecord = null;
+  if(!restDay && !isLost && dist.remaining > 0 && route.length > 1){
+    let pos = startPos;
+    while(pos < route.length - 1 && (pos - startPos) < dist.remaining){
+      const fromStep = route[pos], toStep = route[pos + 1];
+      const fromHex = hexAtPos(pos), toHex = hexAtPos(pos + 1);
+      const roaded = roadBonusForStep(toHex, toStep ? toStep.entrySide : null, toStep ? toStep.exitSide : null);
+      const tMult = roaded ? A.JOURNEY_TERRAIN_SPEED.road : (A.JOURNEY_TERRAIN_SPEED[toHex.terrain] != null ? A.JOURNEY_TERRAIN_SPEED[toHex.terrain] : 1);
+      const gKey = toHex.groundCondition || 'clear';
+      const gMult = (A.JOURNEY_GROUND_SPEED[gKey] != null) ? A.JOURNEY_GROUND_SPEED[gKey] : 1;
+      const costMiles = A.JOURNEY_MILES_PER_HEX / Math.max(0.01, tMult * gMult);
+      if(hexesToday > 0 && milesBudget < costMiles) break; // can't afford another hex (but always take the first)
+      const crossing = riverCrossingForStep(fromHex, toHex, fromStep ? fromStep.exitSide : null);
+      const fromId = fromStep ? fromStep.hexId : null, toId = toStep ? toStep.hexId : null;
+      if(crossing.barrier && crossing.swimmingThrowNeeded){
+        const roughWater = !!(fromHex && fromHex.fastWater) || !!(toHex && toHex.fastWater);
+        const ford = journeyFordingThrow(campaign, journey, { rng, coldWater, roughWater });
+        if(!ford.success){
+          fordingRecord = { result: 'failed', crossingType: 'swim', rolled: ford.rolled, bonus: ford.bonus, target: ford.target, fromHexId: fromId, toHexId: toId };
+          notableEvents.push({ kind: 'journey-fording', type: 'fording-fail', pauseTrigger: 'fording', primaryHexId: fromId || journey.currentHexId || null, involvedHexIds: [fromId, toId].filter(Boolean),
+            label: (journey.name || 'Journey') + ': blocked at an unfordable river (Swimming ' + ford.rolled + (ford.bonus ? ('+' + ford.bonus) : '') + ' vs ' + ford.target + '+) — GM, resolve the crossing (drowning risk, RR p.271)',
+            payload: { journeyId: journey.id, dayIndex: newDayIndex, throw: ford } });
+          break; // held at the near bank — no further movement today
+        }
+        milesBudget -= costMiles; pos += 1; hexesToday += 1;
+        if(!roaded) dayAllRoaded = false;
+        { const nt = (A.JOURNEY_NAV_THROWS[toHex.terrain] != null) ? A.JOURNEY_NAV_THROWS[toHex.terrain] : 0; if(nt > hardestNav){ hardestNav = nt; representativeTerrain = toHex.terrain || baseTerrain; } }
+        fordingRecord = { result: 'forded-swim', crossingType: 'swim', rolled: ford.rolled, bonus: ford.bonus, target: ford.target, fromHexId: fromId, toHexId: toId };
+        notableEvents.push({ kind: 'journey-fording', type: 'fording-success', primaryHexId: toId || null, involvedHexIds: [fromId, toId].filter(Boolean),
+          label: (journey.name || 'Journey') + ': forded the river by swimming (Swimming ' + ford.rolled + (ford.bonus ? ('+' + ford.bonus) : '') + ' vs ' + ford.target + '+)',
+          payload: { journeyId: journey.id, dayIndex: newDayIndex, throw: ford } });
+        break; // swimming a river ends the day's march (swim speed ¼)
+      }
+      // free step — open ground, or a ford/bridge negates the river barrier
+      milesBudget -= costMiles; pos += 1; hexesToday += 1;
+      if(!roaded) dayAllRoaded = false;
+      { const nt = (A.JOURNEY_NAV_THROWS[toHex.terrain] != null) ? A.JOURNEY_NAV_THROWS[toHex.terrain] : 0; if(nt > hardestNav){ hardestNav = nt; representativeTerrain = toHex.terrain || baseTerrain; } }
+    }
+  }
+  const dayRoaded = (hexesToday > 0) ? dayAllRoaded : roadBonusForStep(curHex, null, curStep ? curStep.exitSide : null);
   const milesToday = hexesToday * A.JOURNEY_MILES_PER_HEX;
   const newCovered = dist.covered + hexesToday;
   const willArrive = (dist.total > 0) ? (newCovered >= dist.total) : true; // 0-distance arrives at once
@@ -1581,36 +1748,44 @@ function tickJourneyDay(campaign, journey, ctx){
     fatigueDays += 1; fatigueAccumulated = 1; // ordinary travel = one strenuous day (RR p.279)
   }
 
-  // ── encounter check (§12 — J1 stub) ──
-  const enc = rollEncounter(campaign, journey, { rng, terrain: baseTerrain, hasRoad, dayIndex: newDayIndex });
+  // ── encounter check (§12 — J1 stub). Safe on a day spent entirely on roads; flavour terrain is the
+  // hardest hex actually traversed (§24). ──
+  const enc = rollEncounter(campaign, journey, { rng, terrain: representativeTerrain, hasRoad: dayRoaded, dayIndex: newDayIndex });
   if(enc){ encounters.push(enc.encounterRecord); notableEvents.push(enc.notableEvent); }
 
-  // ── status transition + arrival event ──
+  // ── status transition + arrival event. currentHexId now advances hex-by-hex along the route to the
+  // authored hex the party is in (it stays put across UNauthored stretches — no hex id to move to). ──
   let newStatus = 'in-transit';
   let newCurrentHexId = journey.currentHexId || journey.startHexId || null;
   if(willArrive){
     newStatus = 'arrived';
     newCurrentHexId = journey.destinationHexId || newCurrentHexId;
     notableEvents.push({ kind: 'journey-arrived', type: 'arrived', primaryHexId: journey.destinationHexId || null, involvedHexIds: [journey.startHexId, journey.destinationHexId].filter(Boolean), label: (journey.name || 'Journey') + ': arrived at destination (day ' + newDayIndex + ')', payload: { journeyId: journey.id, destinationHexId: journey.destinationHexId } });
+  } else if(hexesToday > 0){
+    const here = route[startPos + hexesToday];
+    if(here && here.hexId) newCurrentHexId = here.hexId;
   }
 
   // ── the review-surface summary label (every day; routine travel emits NO event) ──
   let summaryLabel;
-  if(willArrive)      summaryLabel = (journey.name || 'Journey') + ': arrived (day ' + newDayIndex + ')';
-  else if(restDay)    summaryLabel = (journey.name || 'Journey') + ': forced rest (day ' + newDayIndex + ')';
-  else if(isLost)     summaryLabel = (journey.name || 'Journey') + ': lost — no progress (day ' + newDayIndex + ')';
-  else                summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi), day ' + newDayIndex;
+  if(willArrive)            summaryLabel = (journey.name || 'Journey') + ': arrived (day ' + newDayIndex + ')';
+  else if(restDay)          summaryLabel = (journey.name || 'Journey') + ': forced rest (day ' + newDayIndex + ')';
+  else if(fordingRecord && fordingRecord.result === 'failed')
+                            summaryLabel = (journey.name || 'Journey') + ': ' + (hexesToday > 0 ? ('+' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then ') : '') + 'blocked at a river (day ' + newDayIndex + ')';
+  else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — no progress (day ' + newDayIndex + ')';
+  else                      summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi)' + (fordingRecord && fordingRecord.result === 'forded-swim' ? ', forded a river' : '') + ', day ' + newDayIndex;
 
   // ── §4.2 Day record ──
   const dayRecord = {
     dayIndex: newDayIndex,
-    hexId: journey.startHexId || null,
+    hexId: (curStep && curStep.hexId) || journey.currentHexId || journey.startHexId || null,  // the hex the party was in at day start
     weather: { condition: weather.condition, temperature: weather.temperature || 'moderate', rolledOrSet: weather.rolledOrSet || 'gm-fiat' },
     pace: restDay ? 'rest' : pace,
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,
     arrivedAt: newCurrentHexId,
     navigationThrow: navRecord,
+    fording: fordingRecord,                                  // §24 river-crossing record (null on a dry day)
     rationsConsumed: { food: rationsConsumed, water: waterConsumed, animalFeed: 0, animalWater: 0, shipStores: 0 },
     fatigueAccumulated,
     encounters: encounters.map(e => ({ kind: e.triggeredBy || 'wandering-roll', encounterId: e.id })),
@@ -1819,6 +1994,8 @@ function startJourney(campaign, journey){
   j.startedAtDayInMonth = campaign.currentDayInMonth || j.startedAtDayInMonth || 1;
   const dist = computeJourneyDistance(campaign, j);
   j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.total / 4)) : 0;
+  // §24 — stamp the planned hex path so the UI/integrators can read it without recomputing.
+  try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ j.routeCoords = j.routeCoords || []; }
   const ids = j.participantCharacterIds || [];
   for(const c of (campaign.characters || [])){ if(c && ids.indexOf(c.id) >= 0) c.currentJourneyId = j.id; }
   if(j.partyId){
@@ -1954,6 +2131,42 @@ function hexMapBounds(hexes, size, margin){
 // road/river networks (segments toward like-featured neighbours) — Architecture §11.4.
 const HEX_EDGE_DELTAS = Object.freeze([ [1,0], [0,1], [-1,1], [-1,0], [0,-1], [1,-1] ]);
 function hexNeighborDeltas(){ return HEX_EDGE_DELTAS.map(d => d.slice()); }
+// The edge index (0..5) you EXIT a hex through to reach an adjacent neighbour, or -1 if the two
+// coords aren't adjacent. The neighbour's matching ENTRY edge is the opposite, (i+3)%6 — the deltas
+// are arranged so HEX_EDGE_DELTAS[(i+3)%6] === −HEX_EDGE_DELTAS[i].
+function hexEdgeBetween(from, to){
+  if(!from || !to) return -1;
+  const dq = (to.q || 0) - (from.q || 0), dr = (to.r || 0) - (from.r || 0);
+  return HEX_EDGE_DELTAS.findIndex(d => d[0] === dq && d[1] === dr);
+}
+function hexOppositeEdge(i){ return (((i % 6) + 6) % 6 + 3) % 6; }
+function _axialToCube(q, r){ return { x: q, y: -q - r, z: r }; }
+function _cubeRound(c){
+  let rx = Math.round(c.x), ry = Math.round(c.y), rz = Math.round(c.z);
+  const dx = Math.abs(rx - c.x), dy = Math.abs(ry - c.y), dz = Math.abs(rz - c.z);
+  if(dx > dy && dx > dz) rx = -ry - rz;
+  else if(dy > dz)       ry = -rx - rz;
+  else                   rz = -rx - ry;
+  return { q: rx, r: rz };
+}
+// Ordered axial coords along the straight line from a→b INCLUSIVE. With the tiny epsilon nudge
+// (the offsets sum to ~0 so the cube x+y+z≈0 constraint holds) every consecutive pair is exactly
+// one hex apart — i.e. a walkable, edge-adjacent path. Returns [{q,r},…]; a 0-distance line is [a].
+function hexLineDraw(a, b){
+  const N = _jACKS().hexAxialDistance(a, b);
+  if(!(N > 0)) return [{ q: a.q || 0, r: a.r || 0 }];
+  const ac = _axialToCube(a.q || 0, a.r || 0), bc = _axialToCube(b.q || 0, b.r || 0);
+  const out = [];
+  for(let i = 0; i <= N; i++){
+    const t = i / N;
+    out.push(_cubeRound({
+      x: ac.x + (bc.x - ac.x) * t + 1e-6,
+      y: ac.y + (bc.y - ac.y) * t + 1e-6,
+      z: ac.z + (bc.z - ac.z) * t - 2e-6
+    }));
+  }
+  return out;
+}
 // The two endpoints [{x,y},{x,y}] of edge `i` (0..5) of the hex at axial (q,r). Edge i spans
 // corner i → corner (i+1)%6, and faces neighbour (q,r)+HEX_EDGE_DELTAS[i].
 function hexEdgePoints(q, r, size, i){
@@ -2297,13 +2510,15 @@ Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
   tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
+  // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
+  journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName, generateBlankHexGrid,
-  hexNeighborDeltas, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
+  hexNeighborDeltas, hexEdgeBetween, hexOppositeEdge, hexLineDraw, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 
@@ -2314,7 +2529,7 @@ if(typeof ACKS.registerDayConsumer === 'function'){
   ACKS.registerDayConsumer('journeys', {
     handler: proposeJourneyDay,
     order: 30,
-    pauseTriggers: ['encounter', 'navigation-fail', 'supplies-low'],
+    pauseTriggers: ['encounter', 'navigation-fail', 'supplies-low', 'fording'],
     commit: commitJourneyRecord
   });
 }

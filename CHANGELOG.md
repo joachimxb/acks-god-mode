@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Journeys now travel hex by hex, following the roads and rivers you've drawn on the map.** Until now a journey moved by straight-line distance and read only a single coarse "this hex has a road" flag on its *starting* hex. It now walks the actual line of hexes between start and destination and resolves each one against the per-side **roads**, **rivers**, and **ford/bridge** marks from the map's Add/Edit-hexes editor:
+  - **Roads speed you up and keep you from getting lost** (RR p.272 / p.275). A hex you pass *through* earns the road bonus (×3/2 speed, no getting-lost throw, the safe wilderness-encounter column) when a road connects the side you enter by to the side you leave by; a hex you *end* in counts when a road touches the side you entered. A day spent entirely on roads rolls no navigation throw and draws no wandering encounter.
+  - **Rivers are a barrier you have to cross** (RR p.271). Reaching a river edge with no ford or bridge forces a Swimming throw: make it and the party fords across — but the crossing takes the rest of the day (you're swimming, not marching); miss it and they're held at the near bank and the day pauses for you to resolve the crossing (the drowning risk RAW spells out). A **ford/bridge** mark — or a **road that crosses the river** (an automatic bridge) — lets the party cross for free.
+  - **Terrain now varies along the route.** Each hex's own terrain (and any mud or snow underfoot) sets the pace for that leg, so a trek that starts in grassland and crosses a belt of forest or jungle slows down exactly where the hard ground is, instead of treating the whole trip as the starting hex's terrain.
+
+  Where you haven't drawn a particular hex along the way, the journey falls back to the starting hex's terrain and road state — so **existing campaigns travel exactly as before**, and the new detail rewards filling in the map. (The per-side road/river/ford cartography shipped in 0.13.0–0.14.0; this wires it into travel.)
+
 ## [0.14.0] - 2026-06-03
 
 ### Added

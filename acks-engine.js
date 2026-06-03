@@ -860,7 +860,9 @@ function lazyDefaultV1ScopeReservations(campaign){
   // constructs 'cautious' (×1/2) and 'half-ancillary' (×0.1) both map to RAW 'half-speed' (×1/2).
   if(Array.isArray(campaign.journeys)){
     for(const j of campaign.journeys){
-      if(j && (j.pace === 'cautious' || j.pace === 'half-ancillary')) j.pace = 'half-speed';
+      if(!j) continue;
+      if(j.pace === 'cautious' || j.pace === 'half-ancillary') j.pace = 'half-speed';
+      if(!Array.isArray(j.routeCoords)) j.routeCoords = [];  // §24 — informational route cache; [] = computed on demand
     }
   }
   // Per-settlement new fields
@@ -1359,6 +1361,26 @@ function hexAxialDistance(a, b){
   if(!a || !b) return 0;
   const aq = a.q || 0, ar = a.r || 0, bq = b.q || 0, br = b.r || 0;
   return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(aq + ar - bq - br)) / 2;
+}
+// The authored hex at axial coord (q,r), or null. Accepts (campaign, q, r) or (campaign, {q,r}).
+// Checks the canonical top-level store first, then the reference-unified nested geography mirror.
+// Used by hex-by-hex journey resolution to look up the hexes a route passes through (a route
+// step over an UNauthored coord returns null, and the caller falls back to the journey's base
+// environment — so per-hex/per-side travel effects apply only where cartography exists).
+function hexAtCoord(campaign, q, r){
+  if(!campaign) return null;
+  if(q && typeof q === 'object'){ r = q.r; q = q.q; }
+  if(typeof q !== 'number' || typeof r !== 'number') return null;
+  if(Array.isArray(campaign.hexes)){
+    for(const h of campaign.hexes){ if(h && h.coord && h.coord.q === q && h.coord.r === r) return h; }
+  }
+  if(Array.isArray(campaign.domains)){
+    for(const d of campaign.domains){
+      const gh = d && d.geography && d.geography.hexes;
+      if(Array.isArray(gh)){ for(const h of gh){ if(h && h.coord && h.coord.q === q && h.coord.r === r) return h; } }
+    }
+  }
+  return null;
 }
 function isJourney(o){ return !!(o && typeof o.id === 'string' && o.id.startsWith('jrn-')); }
 
@@ -4693,7 +4715,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   addRumorReach, removeRumorReach,
   liftToTopLevelCollections, reconcileHexDomainMembership,
   // Phase 2.5 Journeys (#475) — lookups + helpers (J1)
-  findJourney, journeysInTransit, journeysWithParticipant, resolveHexAnywhere, hexAxialDistance, isJourney,
+  findJourney, journeysInTransit, journeysWithParticipant, resolveHexAnywhere, hexAtCoord, hexAxialDistance, isJourney,
 
   // Turn orchestration (Foundation #15 — partial lift, helpers-callback pattern)
   proposeMonthlyTurn, commitTurn
