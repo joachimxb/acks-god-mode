@@ -1772,6 +1772,154 @@ function changeStashController(campaign, stashId, newOwner, opts){
   return stash;
 }
 
+// =============================================================================
+// Character ⇄ co-located stash transfer (Items I1 Step 3 — the GM-facing
+// "cache from inventory / draw from a cache" verbs, per Phase_2.95_Stash_Plan §6.2).
+// These operate on the SHIPPED carry shapes — the Phase 2.6 carry inventory
+// (index-addressed {name,stone,notes}, NO ids) + the character.coins purse — and
+// bridge them to/from facet stash items, so the §8.3 inventory→facet unification
+// is NOT a prerequisite. (transferCarryToStash/transferStashToCarry above stay the
+// id-based primitives for the future unified carry; the UI uses the two below.)
+// Coins are routed to/from character.coins (the purse), NOT carry lines.
+// =============================================================================
+
+// Phase-2.6 carry line ({name,stone,notes,notableItemId?}) → a facet stash-item
+// spec (depositToStash normalizes it). Stone → encumbranceSt so weight survives.
+// A facet-shaped line (future unified carry) passes through unchanged.
+function _carryLineToStashItem(line){
+  if(!line) return null;
+  if(Array.isArray(line.facets) && line.facets.length){
+    return Object.assign({}, line, { id: undefined });   // already facet-shaped — clone, fresh id on deposit
+  }
+  return {
+    facets: ['gear'],                                     // blankStashItem adds 'magical' if notableItemId set
+    name: line.name || '',
+    qty: (line.qty != null) ? line.qty : 1,
+    encumbranceSt: (line.stone != null) ? (parseFloat(line.stone) || 0) : null,
+    notableItemId: line.notableItemId || null,
+    notes: line.notes || ''
+  };
+}
+
+// Withdrawn facet stash item → a carry line. Keeps the full facet line (nothing
+// lost — a withdrawn valuable retains unitValueGp, a notable retains its pointer)
+// AND sets `stone` so the Phase 2.6 carry table renders its weight column.
+function _stashItemToCarryLine(item){
+  return Object.assign({}, item, {
+    stone: itemEncumbranceSt(item),
+    name: item.name || '',
+    notes: item.notes || ''
+  });
+}
+
+// --- Cache from carry → stash ("stash items/coins here") ----------------------
+// spec: { itemIndices:[int], coins:{pp,gp,ep,sp,cp} }. Items addressed by carry
+// index; coins drawn from the purse. Validate-all-then-apply (atomic). Returns
+// { ok, stash, movedItems, movedCoinGp } | { ok:false, error }.
+function cacheToStash(campaign, characterId, stashId, spec, opts){
+  if(!campaign) return { ok:false, error:'no-campaign' };
+  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
+  const stash = findStash(campaign, stashId);
+  if(!ch || !stash) return { ok:false, error:'not-found' };
+  spec = spec || {};
+  const indices = Array.isArray(spec.itemIndices) ? spec.itemIndices.slice() : [];
+  const coins = spec.coins || {};
+  if(!Array.isArray(ch.inventory)) ch.inventory = [];
+  reconcileCharacterCoins(ch);
+
+  // Validate item indices.
+  for(const ix of indices){
+    if(typeof ix !== 'number' || ix < 0 || ix >= ch.inventory.length || !Number.isInteger(ix)) return { ok:false, error:'bad-index' };
+  }
+  // Validate coins ≤ purse.
+  let anyCoin = false;
+  for(const d of COIN_DENOMINATIONS){
+    const amt = Number(coins[d]) || 0;
+    if(amt < 0) return { ok:false, error:'bad-coin' };
+    if(amt > (Number(ch.coins[d]) || 0)) return { ok:false, error:'insufficient-coin' };
+    if(amt > 0) anyCoin = true;
+  }
+  if(indices.length === 0 && !anyCoin) return { ok:false, error:'nothing-selected' };
+
+  // Apply: splice items high-index-first (so earlier indices stay valid), then coins.
+  const depositItems = [];
+  let movedItems = 0;
+  for(const ix of indices.slice().sort((a,b) => b - a)){
+    const line = ch.inventory[ix];
+    depositItems.push(_carryLineToStashItem(line));
+    ch.inventory.splice(ix, 1);
+    movedItems++;
+  }
+  let movedCoinGp = 0;
+  for(const d of COIN_DENOMINATIONS){
+    const amt = Number(coins[d]) || 0;
+    if(amt > 0){
+      depositItems.push({ facets:['coin'], denomination:d, qty:amt });
+      ch.coins[d] = (Number(ch.coins[d]) || 0) - amt;
+      movedCoinGp += amt * (COIN_GP_VALUE[d] != null ? COIN_GP_VALUE[d] : 1);
+    }
+  }
+  reconcileCharacterCoins(ch);   // keep personalGp mirror in lockstep (#10)
+
+  depositToStash(campaign, stashId, depositItems, {
+    reason: (opts && opts.reason) || 'cache-from-carry',
+    source: { kind:'character', id: characterId, label: ch.name || null },
+    atTurn: (opts && opts.atTurn) || campaign.currentTurn || 1
+  });
+  return { ok:true, stash, movedItems, movedCoinGp };
+}
+
+// --- Draw from a co-located stash → carry ("take items/coins") ----------------
+// spec: { itemIds:[id], coins:{pp,gp,ep,sp,cp} }. Coin lines route to the purse;
+// non-coin lines become carry lines (bridged). Warns over-encumbrance, never
+// blocks (RAW). Returns { ok, stash, band, overEncumbered } | { ok:false, error }.
+function drawFromStash(campaign, stashId, characterId, spec, opts){
+  if(!campaign) return { ok:false, error:'no-campaign' };
+  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
+  const stash = findStash(campaign, stashId);
+  if(!ch || !stash) return { ok:false, error:'not-found' };
+  spec = spec || {};
+  const itemIds = Array.isArray(spec.itemIds) ? spec.itemIds.slice() : [];
+  const coins = spec.coins || {};
+  if(!Array.isArray(stash.items)) stash.items = [];
+  if(!Array.isArray(ch.inventory)) ch.inventory = [];
+  reconcileCharacterCoins(ch);
+
+  const withdrawals = [];
+  for(const id of itemIds){
+    if(!stash.items.find(it => it && it.id === id)) return { ok:false, error:'item-not-found' };
+    withdrawals.push({ itemId: id });   // full withdrawal
+  }
+  for(const d of COIN_DENOMINATIONS){
+    const amt = Number(coins[d]) || 0;
+    if(amt < 0) return { ok:false, error:'bad-coin' };
+    if(amt === 0) continue;
+    const coinLine = stash.items.find(it => itemHasFacet(it, 'coin') && (it.denomination || 'gp') === d);
+    if(!coinLine || (coinLine.qty || 0) < amt) return { ok:false, error:'insufficient-coin' };
+    withdrawals.push({ itemId: coinLine.id, qty: amt });
+  }
+  if(withdrawals.length === 0) return { ok:false, error:'nothing-selected' };
+
+  const out = withdrawFromStash(campaign, stashId, withdrawals, {
+    reason: (opts && opts.reason) || 'draw-to-carry',
+    destination: { kind:'character', id: characterId, label: ch.name || null },
+    atTurn: (opts && opts.atTurn) || campaign.currentTurn || 1
+  });
+  if(!out) return { ok:false, error:'withdraw-failed' };
+
+  for(const line of out.withdrawn){
+    if(itemHasFacet(line, 'coin')){
+      const d = line.denomination || 'gp';
+      ch.coins[d] = (Number(ch.coins[d]) || 0) + (line.qty || 0);
+    } else {
+      ch.inventory.push(_stashItemToCarryLine(line));
+    }
+  }
+  reconcileCharacterCoins(ch);
+  const band = carryEncumbranceBandFor(carryTotalEncumbrance(ch));
+  return { ok:true, stash, band, overEncumbered: band.level === 'overloaded' };
+}
+
 // --- RAW carry-encumbrance bands (RR pp.83–84) -------------------------------
 // Carry weight is in stone (coins: 1,000 = 1 st). Movement by load band:
 // exploration ft/turn, combat ft/round (≈ 1/3 exploration), expedition miles/day.
@@ -5071,6 +5219,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   depositToStash, withdrawFromStash, transferBetweenStashes,
   // Phase 2.95 Stash B engine foundation — carry↔stash + controller + bands (2026-06-03)
   findOrCreateStashAt, transferCarryToStash, transferStashToCarry, changeStashController,
+  // Items I1 Step 3 — character⇄co-located-stash transfer (purse + Phase-2.6 carry; 2026-06-03)
+  cacheToStash, drawFromStash,
   carryEncumbranceLevel, carryEncumbranceInfo, carryEncumbranceBandFor, CARRY_ENCUMBRANCE_BANDS,
   // Phase 2.95 Stash A.3 — treasury migration + canonical gp read (#468 / 2026-05-29)
   migrateDomainTreasuryToStash, migrateAllDomainTreasuries, domainTreasuryGp,

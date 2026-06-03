@@ -262,6 +262,62 @@ if (reg.length) {
 }
 
 // =============================================================================
+section('Character ⇄ co-located stash transfer — cacheToStash / drawFromStash (Items I1 Step 3)');
+// =============================================================================
+// Operates on the SHIPPED carry shapes: the Phase-2.6 carry inventory (index-addressed
+// {name,stone,notes}, no ids) + the character.coins purse. Coins route to/from the purse.
+const tb = ACKS.blankCampaign();
+const tPc = ACKS.blankCharacter({ name: 'Brae', coins: { pp: 0, gp: 200, ep: 0, sp: 0, cp: 0 }, currentHexId: 'hex-1' });
+tPc.inventory = [
+  { name: 'Longsword', stone: 1, notes: 'heirloom' },
+  { name: 'Rations (1 week)', stone: 1, notes: '' }
+];
+tb.characters.push(tPc);
+const tStash = ACKS.findOrCreateStashAt(tb, { characterId: tPc.id }, 'hex-1', { kind: 'cache', name: 'Trail cache' });
+
+// cache: move carry item #0 (Longsword) + 50 gp from the purse into the stash
+const cRes = ACKS.cacheToStash(tb, tPc.id, tStash.id, { itemIndices: [0], coins: { gp: 50 } });
+ok('cacheToStash ok (1 item moved)', cRes.ok === true && cRes.movedItems === 1);
+ok('cacheToStash removes the cached item from carry', tPc.inventory.length === 1 && tPc.inventory[0].name === 'Rations (1 week)');
+ok('cacheToStash debits the purse (200 → 150 gp)', tPc.coins.gp === 150);
+ok('cacheToStash keeps the personalGp mirror in lockstep', tPc.personalGp === 150);
+ok('cacheToStash deposits 50 gp into the stash', ACKS.stashTotalGp(tStash) === 50);
+const cachedSword = tStash.items.find(i => i.name === 'Longsword');
+ok('cached Phase-2.6 line bridges to a facet gear line', !!cachedSword && ACKS.itemHasFacet(cachedSword, 'gear'));
+ok('cached gear line preserves the stone weight as encumbranceSt', cachedSword && ACKS.itemEncumbranceSt(cachedSword) === 1);
+
+// validation — no mutation on failure
+const beforeGp = tPc.coins.gp, beforeLen = tPc.inventory.length;
+ok('cacheToStash rejects insufficient coin (no mutation)', ACKS.cacheToStash(tb, tPc.id, tStash.id, { coins: { gp: 9999 } }).ok === false && tPc.coins.gp === beforeGp);
+ok('cacheToStash rejects a bad index (no mutation)', ACKS.cacheToStash(tb, tPc.id, tStash.id, { itemIndices: [9] }).ok === false && tPc.inventory.length === beforeLen);
+ok('cacheToStash rejects an empty selection', ACKS.cacheToStash(tb, tPc.id, tStash.id, { itemIndices: [], coins: {} }).ok === false);
+
+// promotion pointer survives carry → stash
+tPc.inventory.push({ name: 'Singing blade', stone: 1, notes: '', notableItemId: 'not-test' });
+ACKS.cacheToStash(tb, tPc.id, tStash.id, { itemIndices: [tPc.inventory.length - 1] });
+const cachedNotable = tStash.items.find(i => i.notableItemId === 'not-test');
+ok('cacheToStash preserves the notableItemId promotion pointer (+ magical facet)', !!cachedNotable && ACKS.itemHasFacet(cachedNotable, 'magical'));
+
+// draw: take 30 gp + the Longsword back to carry
+const swordId = tStash.items.find(i => i.name === 'Longsword').id;
+const dRes = ACKS.drawFromStash(tb, tStash.id, tPc.id, { itemIds: [swordId], coins: { gp: 30 } });
+ok('drawFromStash ok', dRes.ok === true);
+ok('drawFromStash credits the purse (150 → 180 gp)', tPc.coins.gp === 180);
+ok('drawFromStash routes coins to the purse, not a carry line', !tPc.inventory.find(i => ACKS.itemHasFacet(i, 'coin')));
+const drawnSword = tPc.inventory.find(i => i.name === 'Longsword');
+ok('drawFromStash returns the gear line to carry with its stone weight', !!drawnSword && (parseFloat(drawnSword.stone) || 0) === 1);
+ok('drawFromStash leaves 20 gp in the stash (50 − 30)', tStash.items.find(i => ACKS.itemHasFacet(i, 'coin') && (i.denomination || 'gp') === 'gp').qty === 20);
+ok('drawFromStash rejects insufficient coin', ACKS.drawFromStash(tb, tStash.id, tPc.id, { coins: { gp: 9999 } }).ok === false);
+
+// over-encumbrance is flagged, never blocked (RAW)
+const heavyPc = ACKS.blankCharacter({ name: 'Ox', currentHexId: 'hex-1' });
+tb.characters.push(heavyPc);
+const heavyCache = ACKS.findOrCreateStashAt(tb, { characterId: heavyPc.id }, 'hex-1', { kind: 'cache' });
+ACKS.depositToStash(tb, heavyCache.id, [{ facets: ['coin'], denomination: 'gp', qty: 30000 }], { reason: 't' });
+const ohRes = ACKS.drawFromStash(tb, heavyCache.id, heavyPc.id, { coins: { gp: 30000 } });
+ok('drawFromStash flags over-encumbrance (30,000 coins = 30 st), never blocks', ohRes.ok === true && ohRes.overEncumbered === true && heavyPc.coins.gp === 30000);
+
+// =============================================================================
 section('Character coins — multi-denomination purse · RAW weight · personalGp mirror');
 // =============================================================================
 const coinCamp = ACKS.blankCampaign();
