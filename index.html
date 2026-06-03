@@ -5920,10 +5920,17 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Terrain</span>
-          <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'terrain', label:'Terrain', kind:'text', placeholder:'(none)'})">
-            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="forest, hills, marsh…"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
-          </span>
+          <!-- Terrain dropdown (same catalog as the map's Add/Edit-hexes editor). :selected per-option,
+               NOT :value — the options are x-for-generated, and Alpine's :value can't preselect an x-for
+               option (see the Domain select). hexPanelTerrainOptions() prepends a non-catalog current
+               value so an existing terrain stays selected. Commits via gm-fiat on change. -->
+          <select @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'terrain', label:'Terrain', oldValue:worldHexEditingHex().terrain || '', newValue:$event.target.value})"
+                  class="text-sm" style="width:14rem" title="Terrain type — drives the map's terrain colour and overland travel speed">
+            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().terrain)">— none —</option>
+            <template x-for="t in hexPanelTerrainOptions()" :key="t.value">
+              <option :value="t.value" :selected="worldHexEditingHex() && worldHexEditingHex().terrain === t.value" x-text="t.label"></option>
+            </template>
+          </select>
         </div>
         <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Ground</span>
@@ -11094,6 +11101,17 @@ return {
     // from the top-level collection so the full hex card works for it too.
     const id = this.worldHexEditing.hexId;
     return id ? ((this.currentCampaign?.hexes || []).find(h => h.id === id) || null) : null;
+  },
+  // Terrain dropdown options for the hex panel — the shared map catalog (mapTerrainTypes), plus the
+  // editing hex's CURRENT terrain prepended when it isn't in the catalog (e.g. legacy/demo "plains" /
+  // "coast"), so switching this field from a free text box to a dropdown never hides an existing value.
+  // Mirrors mapTerrainOptions (which does the same for the map editor's mapCreateTerrain).
+  hexPanelTerrainOptions(){
+    const base = window.ACKS.mapTerrainTypes();
+    const hex = this.worldHexEditingHex();
+    const cur = ((hex && hex.terrain) || '').trim();
+    if(cur && !base.some(t => t.value === cur)) return [{ value: cur, label: cur + ' (current)' }].concat(base);
+    return base;
   },
   // Set the editing hex's coord from a GM-facing COLUMN·ROW pair (the map-label convention), storing
   // canonical axial {q,r}. Pass null for the axis you're NOT changing — it's read back from the current

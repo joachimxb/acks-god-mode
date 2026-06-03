@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Create and see unclaimed (wilderness) hexes in World ▸ Hexes.** The “+ add hex” control now offers *Unclaimed wilderness* alongside the domains, and the Hexes list shows domainless hexes too — it aggregates the whole campaign, not just owned hexes — so you can build the map out between and beyond your domains and claim a hex later via its Domain field. New hexes land on the first free coordinate instead of always `0000`, and unclaimed ones start **unexplored** (uncharted until you survey them).
 
 ### Changed
+- **The hex panel's Terrain field is now a dropdown** (the same terrain catalog the map's Add/Edit-hexes editor uses) instead of a free-text box, so terrains stay consistent with the map's colouring and travel rules. A hex whose terrain isn't in the catalog (e.g. an older "plains"/"coast") keeps its value — it's offered as a "(current)" choice and stays selected — and "— none —" clears it. The change is logged like any other hex edit.
 - The per-domain **Hexes** table (Domain ▸ Demographics) is tidier: the row-level **×** delete column and the trailing **World / edit ↗** column are both gone. The hex's coordinate is itself the link that opens the hex detail panel, so the separate edit link was redundant; and to take a hex out of a domain you open it and set its **Domain** to *Unclaimed wilderness* (which keeps the data consistent, unlike the old delete button).
 
 ### Fixed
