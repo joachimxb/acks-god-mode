@@ -11632,7 +11632,9 @@ return {
     const wild = (target === '__wild__' || !target);
     const d = wild ? null : this.domains.find(x => x.id === target);
     if(!wild && !d) return;
-    const hex = window.ACKS.blankHex({ coord: this._firstFreeHexCoord() });
+    // Unclaimed wilderness starts UNexplored (uncharted territory you grow the map into); a hex added
+    // to a domain is known territory, so it stays explored (blankHex's default).
+    const hex = window.ACKS.blankHex({ coord: this._firstFreeHexCoord(), explored: !wild });
     hex.domainId = d ? d.id : null;
     if(!Array.isArray(this.currentCampaign.hexes)) this.currentCampaign.hexes = [];
     this.currentCampaign.hexes.push(hex);
