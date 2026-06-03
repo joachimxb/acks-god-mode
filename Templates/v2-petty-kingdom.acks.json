@@ -1131,7 +1131,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1211,7 +1218,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1294,7 +1308,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1389,7 +1410,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1468,7 +1496,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1567,7 +1602,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1656,7 +1698,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1745,7 +1794,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     }
   ],
   "parties": [],

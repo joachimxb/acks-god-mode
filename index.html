@@ -5031,13 +5031,8 @@ document.addEventListener('alpine:init', () => {
               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
             </span>
           </div>
-          <div class="block text-sm flex items-center gap-2">
-            <span class="w-20">Personal GP</span>
-            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'personalGp', label:'Personal GP', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
-            </span>
-          </div>
+          <!-- Items I1 — the old "Personal GP" scalar moved to the multi-denomination Coins
+               purse on the Inventory tab (coins.gp is canonical; personalGp is now its mirror). -->
           <!-- Foundation #18 — construction supervisor cap (RR p.174). Read by the timed-construction
                default when assigning a hex's improvement supervisor.
                Reference values: 25,000gp = Siege Engineer; 100,000gp = Engineer. -->
@@ -5521,8 +5516,29 @@ document.addEventListener('alpine:init', () => {
           this.showAdd = false;
         }
       }">
+        <!-- Coins purse (Items I1) — multi-denomination, RAW. coins.gp is canonical; personalGp mirrors it.
+             Weight (1,000 coins = 1 stone, RR p.83) feeds the carry-encumbrance readout below. -->
+        <div class="border border-ink/30 rounded p-3" x-data="{ coinDenoms:[{k:'pp'},{k:'gp'},{k:'ep'},{k:'sp'},{k:'cp'}] }">
+          <div class="flex justify-between items-baseline mb-2">
+            <h4 class="font-semibold text-sm">🪙 Coins <span class="opacity-60 font-normal text-xs">· purse</span></h4>
+            <span class="text-sm font-mono" x-text="characterCoinValueGp(characterEditing).toLocaleString()+' gp'+(encumbranceShown() ? ' · '+(Math.round(characterCoinWeightSt(characterEditing)*10)/10)+' st' : '')"></span>
+          </div>
+          <div class="flex flex-wrap gap-x-5 gap-y-1">
+            <template x-for="d in coinDenoms" :key="d.k">
+              <label class="text-sm flex items-center gap-1">
+                <span class="font-mono uppercase opacity-70 w-5" x-text="d.k"></span>
+                <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'coins.'+d.k, label:'Coins ('+d.k+')', kind:'number', min:0})">
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                </span>
+              </label>
+            </template>
+          </div>
+          <p class="text-xs opacity-60 mt-1" x-show="encumbranceShown()">1,000 coins = 1 stone (RR p.83) — counted in carry encumbrance below.</p>
+        </div>
+
         <div class="flex justify-between items-baseline">
-          <h4 class="font-semibold text-sm">Inventory</h4>
+          <h4 class="font-semibold text-sm">Inventory <span class="opacity-60 font-normal text-xs">· gear &amp; valuables</span></h4>
           <button x-show="!showAdd" @click="startAdd()" class="text-sm underline">+ add item</button>
         </div>
 
@@ -5542,7 +5558,7 @@ document.addEventListener('alpine:init', () => {
         </template>
 
         <table class="bookkeeping text-sm w-full">
-          <thead><tr><th>Item</th><th>Stone</th><th>gp</th><th>Notes</th><th></th></tr></thead>
+          <thead><tr><th>Item</th><th class="text-right">Stone</th><th class="text-right">Value (gp)</th><th>Notes</th><th></th></tr></thead>
           <tbody>
             <template x-for="(item,ii) in characterEditing.inventory" :key="ii">
               <tr x-data="{
@@ -5616,7 +5632,7 @@ document.addEventListener('alpine:init', () => {
               </tr>
             </template>
             <tr class="subtotal">
-              <td>Total stone / gp value</td>
+              <td>Total stone / value (gp)</td>
               <td class="text-right font-mono" x-text="(characterEditing.inventory||[]).reduce((s,i)=>s+(parseFloat(i.stone)||0),0)"></td>
               <td class="text-right font-mono" x-text="(characterEditing.inventory||[]).reduce((s,i)=>s+(parseFloat(i.gp)||0),0).toLocaleString()"></td>
               <td colspan="2"></td>
@@ -11487,6 +11503,9 @@ return {
   // Encumbrance (B.5) — RAW by default; the ignore-encumbrance opt-out hides it
   encumbranceShown(){ return this.stashSystemOn() && !this.isHouseRuleEnabled('ignore-encumbrance'); },
   carryInfo(ch){ return window.ACKS.carryEncumbranceInfo(ch); },
+  // Items I1 — coin purse readouts (derived; coins.gp canonical). Used by the Inventory-tab Coins section.
+  characterCoinValueGp(ch){ return window.ACKS.characterCoinValueGp(ch); },
+  characterCoinWeightSt(ch){ return window.ACKS.characterCoinWeightSt(ch); },
   carryBandColor(level){ return ({ unencumbered:'#2f6b2f', light:'#7a6a17', heavy:'#9a5a13', severe:'#7a3b13', overloaded:'#7a1313' })[level] || '#444'; },
 
   // Resolve the hex currently being edited in the World > Hexes detail modal

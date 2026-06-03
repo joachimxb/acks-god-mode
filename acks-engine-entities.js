@@ -697,6 +697,12 @@ function blankCharacter(opts={}){
     _kind === 'candidate'  ? 'candidate' :
                              'active'
   );
+  // Items I1 — multi-denomination coin purse (RAW). coins.gp is canonical; the
+  // personalGp field below is a synced mirror (rule #10). Built from opts.coins
+  // when given, else folds a legacy opts.personalGp into coins.gp.
+  const _coins = (opts.coins && typeof opts.coins === 'object')
+    ? { pp:Number(opts.coins.pp)||0, gp:Number(opts.coins.gp)||0, ep:Number(opts.coins.ep)||0, sp:Number(opts.coins.sp)||0, cp:Number(opts.coins.cp)||0 }
+    : { pp:0, gp:Number(opts.personalGp)||0, ep:0, sp:0, cp:0 };
   return {
     schemaVersion: SCHEMA_VERSION,
     // #453 — c.kind retired. Five-axis fields below are canonical.
@@ -723,7 +729,8 @@ function blankCharacter(opts={}){
     classPowers: opts.classPowers || [],
     henchmanCap: opts.henchmanCap || 4,
     inventory: opts.inventory || [],
-    personalGp: opts.personalGp || 0,
+    coins: _coins,                  // {pp,gp,ep,sp,cp} multi-denomination purse (RAW)
+    personalGp: _coins.gp,          // synced mirror of coins.gp (canonical-setter rule #10)
     // 2026-05-30 post-survey reservations — additive optional fields.
     // Phase 6 Codes (gap I, JJ pp.394-398) — Heroic Codes + Heroic Fate. Research-first
     // per Joachim's response; reserved here so the schema is stable.

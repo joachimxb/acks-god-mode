@@ -724,6 +724,10 @@ function migrateCampaign(raw){
   // / hitDice fields. Legacy c.kind is preserved through stage 1 for display-string
   // compat; stage 2 will land the deletion after the index.html sweep.
   migrateAllCharacterClassification(current);
+  // Items I1 — character coin purse. Idempotent. Ensures every character has a
+  // coins:{pp,gp,ep,sp,cp} object (folding a legacy personalGp scalar into coins.gp)
+  // and keeps the personalGp mirror in lockstep (canonical-setter rule #10).
+  migrateAllCharacterCoins(current);
   // #445 — Wave A relation backfill. Idempotent. Lifts character.liegeCharacterId,
   // domain.magistrates, domain.liegeId, domain.expenses.tributeToLiege into
   // henchmanships / specialistContracts / hirelingContracts / magistracies /
@@ -2139,8 +2143,61 @@ function stashTotalEncumbrance(stash){
   return stash.items.reduce((s, it) => s + itemEncumbranceSt(it), 0);
 }
 function carryTotalEncumbrance(character){
-  if(!character || !Array.isArray(character.inventory)) return 0;
-  return character.inventory.reduce((s, it) => s + itemEncumbranceSt(it), 0);
+  if(!character) return 0;
+  let total = 0;
+  if(Array.isArray(character.inventory)) total += character.inventory.reduce((s, it) => s + itemEncumbranceSt(it), 0);
+  total += characterCoinWeightSt(character);   // RR p.83 — carried coins weigh
+  return total;
+}
+
+// =============================================================================
+// Character coins — multi-denomination purse (RAW; RR pp.83-84). coins.gp is the
+// canonical gp store; character.personalGp is a synced mirror (canonical-setter
+// rule #10), kept current by reconcileCharacterCoins (load-time migration + after
+// any gm-fiat coins.* edit — see applyEvent_gmFiat). Coin weight derives: 1,000
+// coins of ANY denomination = 1 stone. gp-equivalent uses COIN_GP_VALUE
+// (cp .01 / sp .1 / ep .5 / gp 1 / pp 5).
+// =============================================================================
+const COIN_DENOMINATIONS = ['pp', 'gp', 'ep', 'sp', 'cp'];   // display order, high → low
+function normalizeCoins(coins, personalGpFallback){
+  const c = (coins && typeof coins === 'object') ? coins : null;
+  return {
+    pp: c ? (Number(c.pp) || 0) : 0,
+    gp: c ? (Number(c.gp) || 0) : (Number(personalGpFallback) || 0),
+    ep: c ? (Number(c.ep) || 0) : 0,
+    sp: c ? (Number(c.sp) || 0) : 0,
+    cp: c ? (Number(c.cp) || 0) : 0
+  };
+}
+function characterCoinCount(character){
+  if(!character || !character.coins) return 0;
+  return COIN_DENOMINATIONS.reduce((s, d) => s + (Number(character.coins[d]) || 0), 0);
+}
+function characterCoinValueGp(character){
+  if(!character || !character.coins) return 0;
+  return COIN_DENOMINATIONS.reduce((s, d) => s + (Number(character.coins[d]) || 0) * COIN_GP_VALUE[d], 0);
+}
+function characterCoinWeightSt(character){
+  return characterCoinCount(character) / 1000;   // RR p.83 — 1,000 coins = 1 stone
+}
+// Idempotent reconcile: ensure character.coins exists (folding a legacy personalGp
+// scalar into coins.gp the first time it's seen), then refresh the personalGp mirror
+// from the canonical coins.gp. Returns true iff it created the coins object.
+function reconcileCharacterCoins(character){
+  if(!character || typeof character !== 'object') return false;
+  let created = false;
+  if(!character.coins || typeof character.coins !== 'object'){
+    character.coins = normalizeCoins(null, character.personalGp);
+    created = true;
+  }
+  character.personalGp = Number(character.coins.gp) || 0;
+  return created;
+}
+function migrateAllCharacterCoins(campaign){
+  if(!campaign || !Array.isArray(campaign.characters)) return 0;
+  let n = 0;
+  for(const c of campaign.characters){ if(reconcileCharacterCoins(c)) n++; }
+  return n;
 }
 
 // Promotion: a fungible/gear line → tracked NotableItem (§3.7; wanderer→lair).
@@ -5024,6 +5081,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   stashTotalGp, stashTotalEncumbrance, carryTotalEncumbrance,
   promoteLineToNotableItem, notableItemFacets,
   migrateStashItemShape, migrateAllStashItemShapes,
+  // Items I1 — character coin purse (multi-denomination; coins.gp canonical, personalGp mirror)
+  COIN_DENOMINATIONS, normalizeCoins, characterCoinCount, characterCoinValueGp, characterCoinWeightSt,
+  reconcileCharacterCoins, migrateAllCharacterCoins,
   // Wave B.5 — Notable items + custody read-only lookups (2026-05-29)
   findNotableItem, findItemCustody, currentCustodyOfItem,
   notableItemsInCustodian, notableItemsHeldByCharacter, notableItemsAtHex,

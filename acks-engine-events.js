@@ -969,6 +969,11 @@ function applyEvent_gmFiat(campaign, event){
     // mirror too. Routes through the exported reconciler so the hex panel, the Inspector, the Event
     // Wizard, and any integrator that sets domainId all re-home the hex (not just the map editor).
     if(_eng.reconcileHexDomainMembership) _eng.reconcileHexDomainMembership(campaign, entity);
+  } else if(target.kind === 'character' && typeof mutation.fieldPath === 'string' && mutation.fieldPath.indexOf('coins.') === 0){
+    // Canonical setter (#10): coins.gp is the truth; refresh the personalGp mirror after any coins.*
+    // edit so the award handler + external readers stay in lockstep. Every purse-editing surface —
+    // the character sheet's Coins section, the Inspector, the Event Wizard — routes through here.
+    if(_eng.reconcileCharacterCoins) _eng.reconcileCharacterCoins(entity);
   }
   return {
     result: {
@@ -1122,7 +1127,10 @@ function applyEvent_adventureResult(campaign, event){
       if(t.destinationCharacterId){
         const ch = (campaign.characters||[]).find(x => x.id === t.destinationCharacterId);
         if(ch){
-          ch.personalGp = (ch.personalGp || 0) + t.amount;
+          // Items I1 — route to the coin purse (coins.gp canonical) + keep the personalGp mirror (rule #10).
+          if(!ch.coins || typeof ch.coins !== 'object') ch.coins = { pp:0, gp:(Number(ch.personalGp)||0), ep:0, sp:0, cp:0 };
+          ch.coins.gp = (Number(ch.coins.gp) || 0) + t.amount;
+          ch.personalGp = ch.coins.gp;
           changed.charactersChanged.push(ch.id);
           summaryParts.push('+'+t.amount+'gp to '+ch.name);
         }

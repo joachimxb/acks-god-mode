@@ -2,8 +2,9 @@
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces
 // (WIS->WIL, settlement entryways/regulatedAssets -> [], v1-scope reservations, typed
 // eventLog, Wave Construction-B agricultural Projects, Phase 2.5 Journeys hex/character
-// fields). Regenerated 2026-06-01 (Journeys J1) - migrateCampaign is a no-op on this
-// file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
+// fields, Items I1 character.coins purse). Regenerated 2026-06-03 (Items I1 coins) -
+// migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes
+// window.ACKS_DEMO_TEMPLATE.
 (function(global){
   global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
@@ -795,7 +796,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -876,7 +884,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -966,7 +981,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1059,7 +1081,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1135,7 +1164,14 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     },
     {
       "schemaVersion": 2,
@@ -1198,7 +1234,15 @@
       "currentJourneyId": null,
       "personalFatigue": 0,
       "hungerDays": 0,
-      "dehydrationDays": 0
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 0,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 0
     }
   ],
   "parties": [],

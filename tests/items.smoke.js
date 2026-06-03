@@ -261,6 +261,38 @@ if (reg.length) {
   ok('enforce-carry-encumbrance retired', !reg.some(r => r.id === 'enforce-carry-encumbrance'));
 }
 
+// =============================================================================
+section('Character coins — multi-denomination purse · RAW weight · personalGp mirror');
+// =============================================================================
+const coinCamp = ACKS.blankCampaign();
+const coinPc = ACKS.blankCharacter({ name: 'Goldhand', coins: { pp: 1, gp: 10, ep: 2, sp: 5, cp: 50 } });
+coinCamp.characters.push(coinPc);
+ok('blankCharacter builds a coins purse', !!coinPc.coins && coinPc.coins.gp === 10 && coinPc.coins.pp === 1 && coinPc.coins.cp === 50);
+ok('personalGp mirrors coins.gp on build', coinPc.personalGp === 10);
+ok('characterCoinValueGp sums denominations (5+10+1+0.5+0.5 = 17 gp)', approx(ACKS.characterCoinValueGp(coinPc), 17));
+ok('characterCoinWeightSt = total coins / 1000 (68/1000, RR p.83)', approx(ACKS.characterCoinWeightSt(coinPc), 0.068));
+const coinFromGp = ACKS.blankCharacter({ name: 'X', personalGp: 75 });
+ok('blankCharacter folds opts.personalGp into coins.gp', coinFromGp.coins.gp === 75 && coinFromGp.personalGp === 75);
+ok('blankCharacter default purse is all-zero', (() => { const z = ACKS.blankCharacter({}); return z.coins.gp === 0 && z.coins.pp === 0 && z.personalGp === 0; })());
+// reconcile folds a legacy personalGp scalar, idempotently
+const coinLegacy = { name: 'Old', personalGp: 500 };
+ok('reconcileCharacterCoins folds legacy personalGp into coins.gp', ACKS.reconcileCharacterCoins(coinLegacy) === true && coinLegacy.coins.gp === 500 && coinLegacy.personalGp === 500);
+ok('reconcileCharacterCoins is idempotent', ACKS.reconcileCharacterCoins(coinLegacy) === false && coinLegacy.coins.gp === 500);
+const coinCamp2 = { characters: [{ name: 'A', personalGp: 250 }, { name: 'B' }] };
+ok('migrateAllCharacterCoins backfills legacy chars', ACKS.migrateAllCharacterCoins(coinCamp2) === 2 && coinCamp2.characters[0].coins.gp === 250 && coinCamp2.characters[1].coins.gp === 0);
+// coin weight counts toward carry encumbrance (4 st gear + 3 st coin = 7)
+const coinHauler = { inventory: [ACKS.blankStashItem({ facets: ['gear'], encumbranceSt: 4 })], coins: { pp: 0, gp: 3000, ep: 0, sp: 0, cp: 0 } };
+ok('carryTotalEncumbrance adds coin weight (4 + 3 = 7 st)', approx(ACKS.carryTotalEncumbrance(coinHauler), 7));
+ok('carryTotalEncumbrance with no coins is unchanged', ACKS.carryTotalEncumbrance({ inventory: [ACKS.blankStashItem({ facets: ['gear'], encumbranceSt: 2 })] }) === 2);
+// gm-fiat edit of coins.gp keeps the personalGp mirror in lockstep (#10)
+const coinEv = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', targetTurn: 1, payload: { target: { kind: 'character', id: coinPc.id }, mutation: { fieldPath: 'coins.gp', newValue: 999 }, reason: 'test' } });
+ACKS.applyEvent(coinCamp, coinEv);
+ok('gm-fiat coins.gp edit applies', coinPc.coins.gp === 999);
+ok('gm-fiat coins.gp edit refreshes personalGp mirror (#10)', coinPc.personalGp === 999);
+// shipped demo carries coins after migrate
+const coinDemo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(DEMO)));
+ok('demo characters all carry a coins purse after migrate', (coinDemo.characters || []).length > 0 && coinDemo.characters.every(c => c.coins && typeof c.coins.gp === 'number'));
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — items.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }
