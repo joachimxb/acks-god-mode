@@ -5876,6 +5876,15 @@ document.addEventListener('alpine:init', () => {
           </span>
         </label>
         <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Domain</span>
+          <!-- Reassign the hex across domains (or to unclaimed wilderness). Moves it via mapRehomeHex. -->
+          <select :value="worldHexEditingHex().domainId || ''" @change="worldHexSetDomain($event.target.value)"
+                  class="text-sm" style="width:14rem" title="Move this hex to another domain, or to unclaimed wilderness">
+            <option value="">Unclaimed wilderness</option>
+            <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+          </select>
+        </div>
+        <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Terrain</span>
           <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'terrain', label:'Terrain', kind:'text', placeholder:'(none)'})">
             <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
@@ -11056,6 +11065,21 @@ return {
   worldHexEditingDomain(){
     if(!this.worldHexEditing) return null;
     return this.domains.find(x => x.id === this.worldHexEditing.domainId) || null;
+  },
+  // Reassign the editing hex to another domain (or unclaimed wilderness) from the hex-detail modal.
+  // Reuses mapRehomeHex (the canonical move: drop from old geography, set hex.domainId, add to new +
+  // campaign.hexes), then re-anchors the modal to the moved hex by id (its index in the old domain is
+  // now stale). Direct mutation + persist — same posture as the foundational Coord field and the map
+  // editor (neither routes a hex's domain move through gm-fiat).
+  worldHexSetDomain(newDomainId){
+    const hex = this.worldHexEditingHex(); if(!hex) return;
+    const next = newDomainId || null;
+    if((hex.domainId || null) === next) return;
+    this.mapRehomeHex(hex, next);
+    this.worldHexEditing = { hexId: hex.id, domainId: hex.domainId || null };
+    this.markDirty(); this.schedulePersist();
+    const d = next ? this.domains.find(x => x.id === next) : null;
+    this.showToast('Moved hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + ' to ' + (d ? d.name : 'unclaimed wilderness') + '.');
   },
   openHexDetail(entry){
     this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex, hexId:(entry.hex && entry.hex.id) || null};
