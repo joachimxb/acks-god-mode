@@ -757,6 +757,10 @@ function migrateCampaign(raw){
   // #521 follow-up — rebuild each party's member mirror + validate leader from the
   // character.partyId truth (Architecture §3.3). Idempotent; no-op on party-less templates.
   reconcilePartyMembership(current);
+  // Items I1 / Stash B — every party has a camp stash that travels with it. Runs after
+  // membership reconcile (needs leader/members) + treasury migration. Gated on
+  // inventory-stash-system (no-op when the Stash subsystem is off). Idempotent.
+  syncAllPartyCampStashes(current);
   return current;
 }
 
@@ -1918,6 +1922,71 @@ function drawFromStash(campaign, stashId, characterId, spec, opts){
   reconcileCharacterCoins(ch);
   const band = carryEncumbranceBandFor(carryTotalEncumbrance(ch));
   return { ok:true, stash, band, overEncumbered: band.level === 'overloaded' };
+}
+
+// =============================================================================
+// Party camp stash (Items I1 / Stash B — "every party has a camp"). A party-owned
+// stash named "<Party>'s Camp" that TRAVELS with the party: its hexId mirrors
+// party.currentHexId (the party is the source of truth; the camp hex is a reconciled
+// mirror — Architecture §3.3). Materialization is gated on inventory-stash-system at
+// the ensure/sync sites, so nothing lands when the Stash subsystem is off.
+// =============================================================================
+function partyCampStash(campaign, partyId){
+  if(!campaign || !partyId || !Array.isArray(campaign.stashes)) return null;
+  return campaign.stashes.find(s => s && s.kind === 'party' && s.ownerPartyId === partyId) || null;
+}
+// Idempotent find-or-create. Keeps the camp's hexId tracking the party, and its name
+// tracking the party while it is still the auto-name (never clobbers a GM rename — a
+// custom name that doesn't end in "'s Camp" is left alone). Returns the camp stash.
+function ensurePartyCampStash(campaign, party){
+  if(!campaign || !party || !party.id) return null;
+  if(!Array.isArray(campaign.stashes)) campaign.stashes = [];
+  let camp = partyCampStash(campaign, party.id);
+  if(!camp){
+    const _blankStash = (global.ACKS && global.ACKS.blankStash) || null;
+    if(!_blankStash) return null;
+    camp = _blankStash({ kind:'party', ownerPartyId: party.id, hexId: party.currentHexId || null, name: (party.name || 'Party') + "'s Camp" });
+    camp.createdAtTurn = campaign.currentTurn || 1;
+    campaign.stashes.push(camp);
+  }
+  camp.hexId = party.currentHexId || null;                                   // travels with the party
+  if(!camp.name || /'s Camp$/.test(camp.name)) camp.name = (party.name || 'Party') + "'s Camp";
+  return camp;
+}
+// Reconcile pass — ensure a camp for every non-disbanded party. Gated on the stash rule.
+// Hooked into migrateCampaign (load) + the toggleHouseRule enable path.
+function syncAllPartyCampStashes(campaign){
+  if(!campaign || !Array.isArray(campaign.parties)) return 0;
+  if(!isHouseRuleEnabled(campaign, 'inventory-stash-system')) return 0;
+  let n = 0;
+  for(const p of campaign.parties){ if(p && p.status !== 'disbanded' && ensurePartyCampStash(campaign, p)) n++; }
+  return n;
+}
+// Light follow — used by the party-movement handlers (journey commit, gm-fiat). Does NOT
+// create (creation is gated at ensure/sync); just keeps an existing camp at the party's hex.
+function syncPartyCampHex(campaign, party){
+  if(!campaign || !party) return;
+  const camp = partyCampStash(campaign, party.id);
+  if(camp) camp.hexId = party.currentHexId || null;
+}
+// Party dissolved → the leader takes the camp: re-home it as the leader's personal stash
+// (all items + coins travel with ownership — "the leader takes all the equipment"). No
+// leader → leave it as an ownerless cache at the hex so nothing is lost. (Splitting the
+// camp among members on disband is a queued future feature — Stash plan §15 / Mech Ext.)
+function handOffPartyCampToLeader(campaign, party){
+  if(!campaign || !party) return null;
+  const camp = partyCampStash(campaign, party.id);
+  if(!camp) return null;
+  const leaderId = party.leaderCharacterId || (Array.isArray(party.memberCharacterIds) && party.memberCharacterIds[0]) || null;
+  if(leaderId){
+    changeStashController(campaign, camp.id, { characterId: leaderId }, { reason:'party-disbanded' });
+    camp.kind = 'personal';
+    camp.name = (party.name || 'Party') + ' camp (dissolved)';
+    return { camp, leaderId };
+  }
+  camp.kind = 'cache'; camp.ownerPartyId = null;
+  camp.name = (party.name || 'Party') + ' camp (abandoned)';
+  return { camp, leaderId: null };
 }
 
 // --- RAW carry-encumbrance bands (RR pp.83–84) -------------------------------
@@ -5221,6 +5290,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findOrCreateStashAt, transferCarryToStash, transferStashToCarry, changeStashController,
   // Items I1 Step 3 — character⇄co-located-stash transfer (purse + Phase-2.6 carry; 2026-06-03)
   cacheToStash, drawFromStash,
+  // Items I1 / Stash B — party camp stash (travels with the party; leader-takes-all on disband)
+  partyCampStash, ensurePartyCampStash, syncAllPartyCampStashes, syncPartyCampHex, handOffPartyCampToLeader,
   carryEncumbranceLevel, carryEncumbranceInfo, carryEncumbranceBandFor, CARRY_ENCUMBRANCE_BANDS,
   // Phase 2.95 Stash A.3 — treasury migration + canonical gp read (#468 / 2026-05-29)
   migrateDomainTreasuryToStash, migrateAllDomainTreasuries, domainTreasuryGp,

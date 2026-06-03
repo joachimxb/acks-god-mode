@@ -974,6 +974,10 @@ function applyEvent_gmFiat(campaign, event){
     // edit so the award handler + external readers stay in lockstep. Every purse-editing surface —
     // the character sheet's Coins section, the Inspector, the Event Wizard — routes through here.
     if(_eng.reconcileCharacterCoins) _eng.reconcileCharacterCoins(entity);
+  } else if(target.kind === 'party' && mutation.fieldPath === 'currentHexId'){
+    // The party's camp stash travels with it (Items I1 / Stash B) — keep the camp at the
+    // party's hex whenever the GM moves the party by fiat. The journey day-tick syncs too.
+    if(_eng.syncPartyCampHex) _eng.syncPartyCampHex(campaign, entity);
   }
   return {
     result: {

@@ -4634,6 +4634,21 @@ document.addEventListener('alpine:init', () => {
                   </template>
                 </div>
               </div>
+              <!-- Party camp (Items I1 / Stash B) — the travelling stash that follows the party's hex.
+                   Gated on inventory-stash-system. Disbanding hands the camp to the leader. -->
+              <div x-show="stashSystemOn()" class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
+                <div class="flex justify-between items-center">
+                  <span class="text-sm uppercase tracking-wide opacity-70">⛺ Camp <span class="normal-case opacity-60 text-xs">· travels with the party</span></span>
+                  <button @click="disbandParty(pt)" class="text-xs underline accent-red opacity-80 hover:opacity-100" title="Dissolve the party — the leader takes the camp's equipment">disband party</button>
+                </div>
+                <template x-if="camp">
+                  <div class="flex justify-between items-center text-sm mt-1">
+                    <span><span x-text="camp.name || '(camp)'"></span> <span class="opacity-60 text-xs" x-text="'· at ' + (pt.currentHexId ? journeyHexLabel(pt.currentHexId) : 'no hex set')"></span></span>
+                    <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString()+' gp · '+(Math.round(window.ACKS.stashTotalEncumbrance(camp)*10)/10)+' st'"></span><button @click="openStashDetail(camp.id)" class="underline text-xs">open</button></span>
+                  </div>
+                </template>
+                <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
+              </div>
             </div>
           </template>
         </div>
@@ -10975,6 +10990,7 @@ return {
     if(!Array.isArray(this.currentCampaign.parties))this.currentCampaign.parties=[];
     const pt = window.ACKS.blankParty({ name: 'New Party' });
     this.currentCampaign.parties.push(pt);
+    if(this.stashSystemOn() && window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1)
     return pt;
   },
   // Start a party with one founding character: named after them, placed at their hex,
@@ -10994,6 +11010,7 @@ return {
     });
     this.currentCampaign.parties.push(pt);
     this.addCharacterToParty(pt, ch.id);   // sets ch.partyId
+    if(this.stashSystemOn() && window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1)
     this.newPartyPickerOpen = false;
     this.newPartyFounderId = '';
     this.markDirty(); this.schedulePersist();
@@ -11137,6 +11154,30 @@ return {
     if(!pt || !ch || pt.leaderCharacterId === ch.id) return;
     this.commitStatEdit({ entityType:'party', entityId:pt.id, entity:pt, fieldPath:'leaderCharacterId', label:'Party leader', oldValue:(pt.leaderCharacterId||null), newValue:ch.id });
     this.markDirty(); this.schedulePersist();
+  },
+  // Dissolve a party: the leader takes the camp (all its equipment + coin), members are released,
+  // the party is marked disbanded. The camp re-homes to the leader as a personal stash (or, if there's
+  // no leader, is left as an ownerless cache at the hex). Splitting the camp among members is a queued
+  // future feature (Stash plan §15). Routes the camp handoff through the engine (canonical setter).
+  disbandParty(pt){
+    if(!pt) return;
+    const leader = (this.currentCampaign?.characters||[]).find(c => c.id === pt.leaderCharacterId);
+    const members = this.partyMembers(pt);
+    const camp = window.ACKS.partyCampStash ? window.ACKS.partyCampStash(this.currentCampaign, pt.id) : null;
+    const campHasStuff = camp && (camp.items||[]).length;
+    let msg = 'Disband ' + (pt.name || 'this party') + '? ';
+    if(campHasStuff){ msg += leader ? ('Its camp (' + Math.round(window.ACKS.stashTotalGp(camp)).toLocaleString() + ' gp + gear) goes to ' + (leader.name || 'the leader') + '. ') : 'Its camp will be left as a cache at the hex. '; }
+    msg += members.length ? (members.length + ' member' + (members.length===1?'':'s') + ' will be released.') : '';
+    if(!confirm(msg)) return;
+    if(window.ACKS.handOffPartyCampToLeader) window.ACKS.handOffPartyCampToLeader(this.currentCampaign, pt);   // leader takes the equipment (engine)
+    for(const ch of members){ if(ch) ch.partyId = null; }                                                     // release members
+    pt.status = 'disbanded';
+    pt.disbandedAtTurn = this.currentCampaign?.currentTurn || null;
+    (pt.history = pt.history || []).push({ turn: this.currentCampaign?.currentTurn || null, type:'disbanded', narrative: (pt.name||'Party') + ' disbanded' + (leader ? (' — camp to ' + (leader.name||'leader')) : '') });
+    pt.leaderCharacterId = null;
+    window.ACKS.reconcilePartyMembership(this.currentCampaign);
+    this.markDirty(); this.schedulePersist();
+    this.showToast((pt.name||'Party') + ' disbanded.' + (leader && campHasStuff ? (' Camp handed to ' + (leader.name||'the leader') + '.') : ''));
   },
   // (Foundation #193) Deprecated — kept as a thin shim. The canonical add path is
   // addRumorAtSettlement(settlementId) which writes to top-level campaign.rumors with a reach
@@ -13830,6 +13871,8 @@ return {
       try {
         window.ACKS.migrateAllDomainTreasuries(this.currentCampaign);
         if(window.ACKS.reconcileTreasuryScalars) window.ACKS.reconcileTreasuryScalars(this.currentCampaign);
+        // Every party gets its travelling camp stash too (Items I1 / Stash B), materialized now.
+        if(window.ACKS.syncAllPartyCampStashes) window.ACKS.syncAllPartyCampStashes(this.currentCampaign);
       } finally { this.currentCampaign.domains=_orig; }
       this.markDirty(); this.schedulePersist();
     }

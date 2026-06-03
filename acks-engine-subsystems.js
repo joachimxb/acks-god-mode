@@ -1902,6 +1902,8 @@ function commitJourneyRecord(campaign, record){
     if(pt){
       if(record.newCurrentHexId) pt.currentHexId = record.newCurrentHexId;
       if(record.newStatus === 'arrived'){ pt.activeJourneyId = null; pt.currentHexId = j.destinationHexId || pt.currentHexId; }
+      // The party's camp stash travels with it (Items I1 / Stash B) — follow the party's hex each day.
+      if(global.ACKS && global.ACKS.syncPartyCampHex) global.ACKS.syncPartyCampHex(campaign, pt);
     }
   }
 }

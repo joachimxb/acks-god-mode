@@ -318,6 +318,46 @@ const ohRes = ACKS.drawFromStash(tb, heavyCache.id, heavyPc.id, { coins: { gp: 3
 ok('drawFromStash flags over-encumbrance (30,000 coins = 30 st), never blocks', ohRes.ok === true && ohRes.overEncumbered === true && heavyPc.coins.gp === 30000);
 
 // =============================================================================
+section('Party camp stash — travels with the party · leader-takes-all on disband (Items I1 / Stash B)');
+// =============================================================================
+const pcCamp = ACKS.blankCampaign();
+pcCamp.houseRules = { 'inventory-stash-system': { enabled: true } };
+const pcLeader = ACKS.blankCharacter({ name: 'Captain', currentHexId: 'hex-A' });
+const pcMember = ACKS.blankCharacter({ name: 'Scout', currentHexId: 'hex-A' });
+pcCamp.characters.push(pcLeader, pcMember);
+const pcParty = ACKS.blankParty({ name: 'Vanguard', currentHexId: 'hex-A', leaderCharacterId: pcLeader.id, memberCharacterIds: [pcLeader.id, pcMember.id] });
+pcCamp.parties.push(pcParty);
+const camp1 = ACKS.ensurePartyCampStash(pcCamp, pcParty);
+ok('ensurePartyCampStash creates a party-owned camp', !!camp1 && camp1.kind === 'party' && camp1.ownerPartyId === pcParty.id);
+ok("camp is named \"<Party>'s Camp\"", camp1.name === "Vanguard's Camp");
+ok('camp starts at the party hex', camp1.hexId === 'hex-A');
+ok('ensurePartyCampStash is idempotent (one camp per party)', ACKS.ensurePartyCampStash(pcCamp, pcParty).id === camp1.id && pcCamp.stashes.filter(s => s.kind === 'party' && s.ownerPartyId === pcParty.id).length === 1);
+ok('partyCampStash finds the camp', (ACKS.partyCampStash(pcCamp, pcParty.id) || {}).id === camp1.id);
+// travels with the party
+pcParty.currentHexId = 'hex-B';
+ACKS.syncPartyCampHex(pcCamp, pcParty);
+ok('syncPartyCampHex moves the camp to the party hex', camp1.hexId === 'hex-B');
+// name tracks a party rename while still auto-named, but a GM rename is preserved
+pcParty.name = 'Rearguard'; ACKS.ensurePartyCampStash(pcCamp, pcParty);
+ok('camp name follows a party rename while auto-named', camp1.name === "Rearguard's Camp");
+camp1.name = 'The Wagon'; pcParty.name = 'Third'; ACKS.ensurePartyCampStash(pcCamp, pcParty);
+ok('a GM-renamed camp is not clobbered by a party rename', camp1.name === 'The Wagon');
+// gating
+const pcOff = ACKS.blankCampaign(); pcOff.parties.push(ACKS.blankParty({ name: 'P', currentHexId: 'hex-X' }));
+ok('syncAllPartyCampStashes is a no-op when the stash rule is off', ACKS.syncAllPartyCampStashes(pcOff) === 0 && (pcOff.stashes || []).length === 0);
+ok('syncAllPartyCampStashes materializes camps when the rule is on', ACKS.syncAllPartyCampStashes(pcCamp) >= 1);
+// disband: leader takes the camp (contents preserved)
+ACKS.depositToStash(pcCamp, camp1.id, [{ facets: ['coin'], denomination: 'gp', qty: 500 }, { facets: ['gear'], name: 'Tent', encumbranceSt: 2 }], { reason: 'setup' });
+const handoff = ACKS.handOffPartyCampToLeader(pcCamp, pcParty);
+ok('handOffPartyCampToLeader re-homes the camp to the leader', handoff && handoff.leaderId === pcLeader.id && camp1.ownerCharacterId === pcLeader.id && camp1.kind === 'personal' && !camp1.ownerPartyId);
+ok('the camp keeps its contents through the handoff', ACKS.stashTotalGp(camp1) === 500 && (camp1.items || []).some(i => i.name === 'Tent'));
+// disband with no leader → ownerless cache
+const pcParty2 = ACKS.blankParty({ name: 'Ghosts', currentHexId: 'hex-A' }); pcCamp.parties.push(pcParty2);
+const camp2 = ACKS.ensurePartyCampStash(pcCamp, pcParty2);
+const handoff2 = ACKS.handOffPartyCampToLeader(pcCamp, pcParty2);
+ok('handoff with no leader leaves an ownerless cache', handoff2 && handoff2.leaderId === null && camp2.kind === 'cache' && !camp2.ownerPartyId && !camp2.ownerCharacterId);
+
+// =============================================================================
 section('Character coins — multi-denomination purse · RAW weight · personalGp mirror');
 // =============================================================================
 const coinCamp = ACKS.blankCampaign();
