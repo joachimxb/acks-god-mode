@@ -303,7 +303,7 @@ section('gm-fiat party location — emits a logged event with a humane narrative
 // =============================================================================
 // A GM moving a party between hexes routes through commitStatEdit -> gm-fiat, so the move lands
 // in the log. The party resolves via the Entity Registry default case in applyEvent_gmFiat;
-// _humanizeFiatNarrative renders "Placed/Moved/Cleared <party> ... (q,r) · Settlement" rather than
+// _humanizeFiatNarrative renders "Placed/Moved/Cleared <party> ... <col·row> · Settlement" rather than
 // the raw-id generic template.
 (function () {
   function fixture() {
@@ -315,19 +315,19 @@ section('gm-fiat party location — emits a logged event with a humane narrative
     c.parties = [{ id: 'prt-1', name: "Aelric's party", currentHexId: null }];
     return c;
   }
-  // null -> hex : applies + "Placed ... at (0,0) · Saltspur"
+  // null -> hex : applies + "Placed ... at 0000 · Saltspur"
   const c1 = fixture();
   const ev1 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'currentHexId', newValue: 'hex-a' } } });
   let r1;
   doesNotThrow('gm-fiat party currentHexId applies (party resolves via Entity Registry)', () => { r1 = ACKS.applyEvent(c1, ev1); });
   ok('  party.currentHexId set to hex-a', c1.parties[0].currentHexId === 'hex-a');
-  ok('  narrative: Placed ... at (0,0) · Saltspur', /^Placed .* at \(0,0\) · Saltspur/.test((r1 && r1.result && r1.result.narrativeSummary) || ''), (r1 && r1.result && r1.result.narrativeSummary));
-  // hex -> hex : "Moved ... to (2,-1) (from (0,0) · Saltspur)"
+  ok('  narrative: Placed ... at 0000 · Saltspur', /^Placed .* at 0000 · Saltspur/.test((r1 && r1.result && r1.result.narrativeSummary) || ''), (r1 && r1.result && r1.result.narrativeSummary));
+  // hex -> hex : "Moved ... to 0200 (from 0000 · Saltspur)"
   const c2 = fixture(); c2.parties[0].currentHexId = 'hex-a';
   const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'currentHexId', newValue: 'hex-b' } } });
   const r2 = ACKS.applyEvent(c2, ev2);
   ok('  party moved to hex-b', c2.parties[0].currentHexId === 'hex-b');
-  ok('  narrative: Moved ... to (2,-1) (from (0,0) · Saltspur)', /^Moved .* to \(2,-1\).*from \(0,0\) · Saltspur/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
+  ok('  narrative: Moved ... to 0200 (from 0000 · Saltspur)', /^Moved .* to 0200.*from 0000 · Saltspur/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
   // hex -> null : "Cleared the location of ..."
   const c3 = fixture(); c3.parties[0].currentHexId = 'hex-a';
   const ev3 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'party', id: 'prt-1' }, mutation: { fieldPath: 'currentHexId', newValue: null } } });
@@ -377,6 +377,56 @@ section('gm-fiat journey pace — humane narrative on journey.pace');
   const ev2 = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'journey', id: 'jrn-1' }, mutation: { fieldPath: 'pace', newValue: 'half-speed' } } });
   const r2 = ACKS.applyEvent(c2, ev2);
   ok('  narrative: Set Trail to half speed pace (no "was")', /^Set Trail to half speed pace/.test((r2 && r2.result && r2.result.narrativeSummary) || '') && !/\(was/.test((r2 && r2.result && r2.result.narrativeSummary) || ''), (r2 && r2.result && r2.result.narrativeSummary));
+})();
+
+// =============================================================================
+section('Hex domain reassignment — gm-fiat moves the geography.hexes mirror + logs (2026-06-03)');
+// =============================================================================
+// hex.domainId is the canonical truth; each domain's geography.hexes[] is the mirror. Setting domainId
+// via gm-fiat (the hex panel / Inspector / an integrator) must re-home the hex AND read cleanly in the log.
+function domainMoveFixture() {
+  const c = ACKS.blankCampaign();
+  c.currentTurn = 1;
+  const hex = { id: 'hex-1', schemaVersion: 2, coord: { q: 151, r: 24 }, domainId: 'dom-a', terrain: 'plains' };
+  c.domains = [
+    { id: 'dom-a', name: 'March of Saltspur', geography: { hexes: [hex] } },
+    { id: 'dom-b', name: 'Barony of Vale',    geography: { hexes: [] } },
+  ];
+  c.hexes = [hex];
+  return { c, hex };
+}
+(() => { // direct reconciler
+  const { c, hex } = domainMoveFixture();
+  hex.domainId = 'dom-b';
+  ACKS.reconcileHexDomainMembership(c, hex);
+  ok('reconcile: removed from old domain geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('reconcile: added to new domain geography', c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('reconcile: still in campaign.hexes', c.hexes.some(h => h.id === 'hex-1'));
+  ACKS.reconcileHexDomainMembership(c, hex); // idempotent
+  ok('reconcile: idempotent (no duplicate)', c.domains[1].geography.hexes.filter(h => h.id === 'hex-1').length === 1);
+  hex.domainId = null;
+  ACKS.reconcileHexDomainMembership(c, hex);
+  ok('reconcile → wild: in no domain geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1') && !c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('reconcile → wild: still in campaign.hexes', c.hexes.some(h => h.id === 'hex-1'));
+})();
+(() => { // via gm-fiat (the path the hex panel + Inspector use)
+  const { c } = domainMoveFixture();
+  const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'hex-1' }, mutation: { fieldPath: 'domainId', newValue: 'dom-b' }, reason: 'Hex reassigned' } });
+  const r = ACKS.applyEvent(c, ev);
+  ok('gm-fiat: hex.domainId set to dom-b', c.hexes[0].domainId === 'dom-b');
+  ok('gm-fiat: moved out of dom-a geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('gm-fiat: moved into dom-b geography', c.domains[1].geography.hexes.some(h => h.id === 'hex-1'));
+  const narr = (r && r.result && r.result.narrativeSummary) || '';
+  ok('gm-fiat: clean narrative (Moved hex 151099 from … to …)', /^Moved hex 151099 from March of Saltspur to Barony of Vale/.test(narr), narr);
+})();
+(() => { // via gm-fiat to unclaimed wilderness
+  const { c } = domainMoveFixture();
+  const ev = ACKS.newEvent('gm-fiat', { submittedBy: 'gm', payload: { target: { kind: 'hex', id: 'hex-1' }, mutation: { fieldPath: 'domainId', newValue: null } } });
+  const r = ACKS.applyEvent(c, ev);
+  ok('gm-fiat → wild: removed from dom-a geography', !c.domains[0].geography.hexes.some(h => h.id === 'hex-1'));
+  ok('gm-fiat → wild: domainId cleared', !c.hexes[0].domainId);
+  const narr = (r && r.result && r.result.narrativeSummary) || '';
+  ok('gm-fiat → wild: narrative mentions unclaimed wilderness', /Released hex 151099 .*unclaimed wilderness/.test(narr), narr);
 })();
 
 // ─── summary ───

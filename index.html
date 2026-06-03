@@ -9147,7 +9147,7 @@ return {
       }
       // Campaign log for the at-a-glance feed.
       const entityName = opts.entity?.name || opts.entityId;
-      this.showToast(label + ' updated: ' + oldV + ' → ' + newV);
+      this.showToast(opts.toastMessage || (label + ' updated: ' + oldV + ' → ' + newV));
       return true;
     } catch(e){
       console.error('commitStatEdit failed', e);
@@ -11073,13 +11073,22 @@ return {
   // editor (neither routes a hex's domain move through gm-fiat).
   worldHexSetDomain(newDomainId){
     const hex = this.worldHexEditingHex(); if(!hex) return;
-    const next = newDomainId || null;
-    if((hex.domainId || null) === next) return;
-    this.mapRehomeHex(hex, next);
-    this.worldHexEditing = { hexId: hex.id, domainId: hex.domainId || null };
-    this.markDirty(); this.schedulePersist();
-    const d = next ? this.domains.find(x => x.id === next) : null;
-    this.showToast('Moved hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + ' to ' + (d ? d.name : 'unclaimed wilderness') + '.');
+    const from = hex.domainId || null, to = newDomainId || null;
+    if(from === to) return;
+    const dTo = to ? this.domains.find(x => x.id === to) : null;
+    const label = window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r);
+    // Log the move as a gm-fiat event. The engine handler (applyEvent_gmFiat) re-homes the
+    // geography.hexes mirror to match the new domainId (reconcileHexDomainMembership) inside this
+    // call — so commitStatEdit does the structural move AND the audit trail.
+    const ok = this.commitStatEdit({
+      entityType: 'hex', entityId: hex.id, entity: hex, fieldPath: 'domainId',
+      oldValue: from, newValue: to, label: 'Domain', reason: 'Hex reassigned',
+      toastMessage: 'Moved hex ' + label + ' to ' + (dTo ? dTo.name : 'unclaimed wilderness') + '.'
+    });
+    if(ok){
+      this.worldHexEditing = { hexId: hex.id, domainId: hex.domainId || null }; // re-anchor to the moved hex
+      this.markDirty(); this.schedulePersist();
+    }
   },
   openHexDetail(entry){
     this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex, hexId:(entry.hex && entry.hex.id) || null};

@@ -2843,6 +2843,28 @@ function removeRumorReach(rumor, settlementId){
 
 // --- Migration: lift nested storage to top-level collections ---
 
+// Canonical setter (CLAUDE #10): `hex.domainId` is the truth; each domain's nested `geography.hexes[]`
+// is a reference-unified MIRROR that must follow it. Ensure `hex` lives in exactly its domainId's
+// geography.hexes (creating the array if needed) and in NO other domain's, and that it's present in
+// the top-level campaign.hexes. Idempotent. The gm-fiat handler calls this whenever a hex's domainId
+// is set (the hex panel, the Inspector, the Event Wizard, an integrator) so the move never drifts from
+// the mirror; index.html's mapRehomeHex does the same move for the (unlogged, bulk) map editor.
+function reconcileHexDomainMembership(campaign, hex){
+  if(!campaign || !hex) return;
+  const want = hex.domainId || null;
+  (campaign.domains || []).forEach(d => {
+    if(!d) return;
+    if(d.id === want){
+      if(!d.geography) d.geography = {};
+      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
+      if(!d.geography.hexes.some(h => h && h.id === hex.id)) d.geography.hexes.push(hex);
+    } else if(d.geography && Array.isArray(d.geography.hexes) && d.geography.hexes.some(h => h && h.id === hex.id)){
+      d.geography.hexes = d.geography.hexes.filter(h => h && h.id !== hex.id);
+    }
+  });
+  if(Array.isArray(campaign.hexes) && !campaign.hexes.some(h => h && h.id === hex.id)) campaign.hexes.push(hex);
+}
+
 function liftToTopLevelCollections(campaign){
   if(!campaign || typeof campaign !== 'object') return;
   // Initialize the collections if absent
@@ -4662,7 +4684,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   displayKind, lifecycleLabel,
   settlementForHex, settlementsForDomain, rumorsAtSettlement, rumorsInDomain, rumorReachAt,
   addRumorReach, removeRumorReach,
-  liftToTopLevelCollections,
+  liftToTopLevelCollections, reconcileHexDomainMembership,
   // Phase 2.5 Journeys (#475) — lookups + helpers (J1)
   findJourney, journeysInTransit, journeysWithParticipant, resolveHexAnywhere, hexAxialDistance, isJourney,
 
