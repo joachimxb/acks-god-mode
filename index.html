@@ -644,7 +644,16 @@ document.addEventListener('alpine:init', () => {
             <tbody>
               <template x-for="it in stashDetailStash().items" :key="it.id">
                 <tr>
-                  <td x-text="stashItemLabel(it)"></td>
+                  <td>
+                    <!-- A promoted line IS a Notable Item (a first-class entity) → click to open it in the Inspector.
+                         Plain/fungible lines are sub-records of the stash (no entity to open) — they stay plain text. -->
+                    <template x-if="it.notableItemId">
+                      <button @click="openNotableFromLine(it)" class="underline hover:opacity-80 text-left" title="Open this Notable Item in the Inspector" x-text="stashItemLabel(it)"></button>
+                    </template>
+                    <template x-if="!it.notableItemId">
+                      <span x-text="stashItemLabel(it)"></span>
+                    </template>
+                  </td>
                   <td class="opacity-70 text-xs" x-text="stashItemFacetsLabel(it)"></td>
                   <td class="text-right font-mono" x-text="window.ACKS.itemValueGp(it) ? (Math.round(window.ACKS.itemValueGp(it)).toLocaleString()+' gp') : '—'"></td>
                   <td class="text-right font-mono" x-text="(Math.round(window.ACKS.itemEncumbranceSt(it)*100)/100)+' st'"></td>
@@ -11451,6 +11460,14 @@ return {
   },
   stashItemFacetsLabel(it){ return (window.ACKS.itemFacets(it)||[]).join(' · '); },
   openStashDetail(id){ this.stashDetailId=id; this.stashDetailTab='items'; },
+  // A promoted stash line points at a campaign.notableItems[] entity — open it in the Inspector
+  // (the "click an entity's name → open it" convention; same deep-link the journey detail uses).
+  // Closes the stash modal first so we don't navigate away with an overlay still up.
+  openNotableFromLine(it){
+    if(!it || !it.notableItemId) return;
+    this.closeStashDetail();
+    this.inspectorOpen('notableItem', it.notableItemId);
+  },
   closeStashDetail(){ this.stashDetailId=null; },
   stashDetailStash(){ return this.stashDetailId ? window.ACKS.findStash(this.currentCampaign, this.stashDetailId) : null; },
   _afterStashMutation(){ this.markDirty(); this.schedulePersist(); },
