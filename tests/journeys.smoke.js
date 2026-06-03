@@ -427,6 +427,134 @@ ACKS.commitJourneyRecord(fmS.c, ACKS.proposeJourneyDay(fmS.c, { dayInMonth: 3, r
 check('simplified-fatigue: forced march never forces a rest (both days moved)', (fmS.c.journeys[0].days[0].hexesTraveled || 0) > 0 && (fmS.c.journeys[0].days[1].hexesTraveled || 0) > 0 && fmS.c.journeys[0].days[1].pace !== 'rest');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+section('§24 — hex geometry + route derivation');
+
+(function(){
+  const line = ACKS.hexLineDraw({ q: 0, r: 0 }, { q: 5, r: 0 });
+  check('hexLineDraw spans distance+1 hexes', line.length === 6, String(line.length));
+  check('hexLineDraw runs a→b inclusive', line[0].q === 0 && line[0].r === 0 && line[5].q === 5 && line[5].r === 0);
+  let adj = true; for(let i = 0; i < line.length - 1; i++){ if(ACKS.hexEdgeBetween(line[i], line[i+1]) < 0) adj = false; }
+  check('hexLineDraw: every consecutive pair is edge-adjacent (walkable)', adj);
+  const diag = ACKS.hexLineDraw({ q: 0, r: 0 }, { q: 3, r: -3 });
+  let adj2 = true; for(let i = 0; i < diag.length - 1; i++){ if(ACKS.hexEdgeBetween(diag[i], diag[i+1]) < 0) adj2 = false; }
+  check('hexLineDraw adjacency holds on a diagonal route', adj2 && diag.length === 4, String(diag.length));
+})();
+check('hexEdgeBetween: +q neighbour is edge 0', ACKS.hexEdgeBetween({q:0,r:0},{q:1,r:0}) === 0);
+check('hexEdgeBetween: non-adjacent → -1', ACKS.hexEdgeBetween({q:0,r:0},{q:2,r:0}) === -1);
+check('hexOppositeEdge: 0↔3, 1↔4, 2↔5', ACKS.hexOppositeEdge(0)===3 && ACKS.hexOppositeEdge(1)===4 && ACKS.hexOppositeEdge(2)===5 && ACKS.hexOppositeEdge(5)===2);
+(function(){
+  const c = ACKS.blankCampaign({ name: 'coord' });
+  c.hexes = [ ACKS.blankHex({ id:'h0', coord:{q:0,r:0} }), ACKS.blankHex({ id:'h1', coord:{q:1,r:0} }) ];
+  check('hexAtCoord finds an authored hex by (q,r)', !!ACKS.hexAtCoord(c, 1, 0) && ACKS.hexAtCoord(c, 1, 0).id === 'h1');
+  check('hexAtCoord accepts a {q,r} object', ACKS.hexAtCoord(c, {q:0,r:0}).id === 'h0');
+  check('hexAtCoord returns null for an unauthored coord', ACKS.hexAtCoord(c, 9, 9) === null);
+})();
+
+// Authored straight line of hexes (0,0)..(n,0): each step is exit-edge 0 / entry-edge 3.
+function lineCampaign(n, perHex){
+  const c = ACKS.blankCampaign({ name: 'route' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year:1, month:1, day:1 };
+  c.hexes = [];
+  for(let q = 0; q <= n; q++){
+    const o = (perHex && perHex(q)) || {};
+    c.hexes.push(ACKS.blankHex(Object.assign({ id: 'hx-' + q, coord: { q, r: 0 }, terrain: 'grassland', hasRoad: false }, o)));
+  }
+  c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout' }) ];
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Trek', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-'+n, mode:'foot', supplies:{ rations:100, waterRations:100, animalFeed:0, animalWater:0, shipStores:0 } });
+  c.journeys = [j]; c.houseRules = {};
+  return { c, j };
+}
+// A scripted rng: returns each value in turn (last repeats). nav rolls first, then a ford, then the encounter check.
+function seq(arr){ let i = 0; return () => arr[Math.min(i++, arr.length - 1)]; }
+
+(function(){
+  const { c, j } = lineCampaign(4);
+  const route = ACKS.journeyRoute(c, j);
+  check('journeyRoute length = distance + 1', route.length === 5, String(route.length));
+  check('journeyRoute resolves authored hexIds along the line', route.every(s => s.hexId && s.hex));
+  check('journeyRoute: start has no entrySide, end has no exitSide', route[0].entrySide === null && route[4].exitSide === null);
+  check('journeyRoute: interior step enters via 3, exits via 0 (a +q line)', route[2].entrySide === 3 && route[2].exitSide === 0);
+  const c2 = ACKS.blankCampaign({ name:'gap' });
+  c2.hexes = [ ACKS.blankHex({ id:'g0', coord:{q:0,r:0} }), ACKS.blankHex({ id:'g3', coord:{q:3,r:0} }) ];
+  c2.characters = [ ACKS.blankCharacter({ id:'chr-1' }) ];
+  const jg = ACKS.blankJourney({ id:'jrn-1', startHexId:'g0', destinationHexId:'g3', participantCharacterIds:['chr-1'] });
+  c2.journeys = [jg];
+  const rg = ACKS.journeyRoute(c2, jg);
+  check('journeyRoute spans UNauthored coords (hexId null mid-route, ends resolved)', rg.length === 4 && rg[0].hexId === 'g0' && rg[1].hexId === null && rg[3].hexId === 'g3');
+})();
+
+section('§24 — roadBonusForStep (the per-traversal rule)');
+check('through-hex: road on BOTH entry+exit → bonus', ACKS.roadBonusForStep({ roadSides:[0,3] }, 3, 0) === true);
+check('through-hex: road on only one side → no bonus', ACKS.roadBonusForStep({ roadSides:[0] }, 3, 0) === false);
+check('end-hex (no exit side): road on the entered side → bonus', ACKS.roadBonusForStep({ roadSides:[3] }, 3, null) === true);
+check('start-hex (no entry side): road on the exit side → bonus', ACKS.roadBonusForStep({ roadSides:[0] }, null, 0) === true);
+check('no roadSides + no flag → no bonus', ACKS.roadBonusForStep({ roadSides:[] }, 3, 0) === false);
+check('coarse hasRoad flag → bonus regardless of sides (back-compat)', ACKS.roadBonusForStep({ hasRoad:true, roadSides:[] }, 3, 0) === true);
+
+section('§24 — riverCrossingForStep (barrier / ford / implicit bridge / swim)');
+check('river edge → barrier + swim needed', (() => { const x = ACKS.riverCrossingForStep({ riverSides:[0] }, { riverSides:[3] }, 0); return x.barrier && x.crossingType === 'swim' && x.swimmingThrowNeeded; })());
+check('no river → no barrier', ACKS.riverCrossingForStep({}, {}, 0).barrier === false);
+check('river detected from EITHER hex (editor mirrors the edge)', ACKS.riverCrossingForStep({}, { riverSides:[3] }, 0).barrier === true);
+check('a ford/bridge mark negates the barrier (free, no swim)', (() => { const x = ACKS.riverCrossingForStep({ riverSides:[0], crossingSides:[0] }, { riverSides:[3] }, 0); return x.barrier && x.crossingType === 'ford' && !x.swimmingThrowNeeded; })());
+check('a road across the river edge is an implicit bridge (free)', (() => { const x = ACKS.riverCrossingForStep({ riverSides:[0], roadSides:[0] }, { riverSides:[3] }, 0); return x.crossingType === 'implicit-bridge' && !x.swimmingThrowNeeded; })());
+
+section('§24 — journeyFordingThrow (RR p.271 Swimming, simplified)');
+(function(){
+  const c = ACKS.blankCampaign({ name:'ford' }); c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout' }) ];
+  const j = ACKS.blankJourney({ id:'jrn-1', participantCharacterIds:['chr-1'] });
+  check('base Swimming target is 11+', ACKS.journeyFordingThrow(c, j, { rng:()=>0.5 }).target === 11);
+  check('cold water raises the target by 2 (→13)', ACKS.journeyFordingThrow(c, j, { rng:()=>0.5, coldWater:true }).target === 13);
+  check('rough/fast water raises the target by 4 (→15)', ACKS.journeyFordingThrow(c, j, { rng:()=>0.5, roughWater:true }).target === 15);
+  check('roll 1 fails the base throw', ACKS.journeyFordingThrow(c, j, { rng:()=>0 }).success === false);
+  check('roll 20 passes the base throw', ACKS.journeyFordingThrow(c, j, { rng:()=>0.999 }).success === true);
+  const c2 = ACKS.blankCampaign({ name:'ford2' }); c2.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Otter', proficiencies:['Swimming'] }) ];
+  const j2 = ACKS.blankJourney({ id:'jrn-1', participantCharacterIds:['chr-1'] });
+  check('a Swimming-proficient party gets +2 to the throw', ACKS.journeyFordingThrow(c2, j2, { rng:()=>0.5 }).bonus === 2);
+})();
+
+section('§24 — integration: per-hex terrain + per-side roads (deterministic tickJourneyDay)');
+(function(){
+  const PASS = () => 0.95; // roll 20 — clears even jungle nav (14+), and skips wandering encounters
+  const jg = lineCampaign(6, () => ({ terrain:'jungle' }));
+  ACKS.startJourney(jg.c, jg.j);
+  const dJ = ACKS.tickJourneyDay(jg.c, jg.c.journeys[0], { rng: PASS, weather:{ condition:'fair', temperature:'moderate' } });
+  check('authored jungle line: 2 hexes on day 1 (per-hex terrain ×½)', dJ.record.dayRecord.hexesTraveled === 2, String(dJ.record.dayRecord.hexesTraveled));
+  const rd = lineCampaign(6, q => ({ terrain:'jungle', roadSides: q === 0 ? [0] : (q === 6 ? [3] : [0,3]) }));
+  ACKS.startJourney(rd.c, rd.j);
+  const dR = ACKS.tickJourneyDay(rd.c, rd.c.journeys[0], { rng: PASS, weather:{ condition:'fair', temperature:'moderate' } });
+  check('a per-side road through jungle speeds the trek (×3/2 → 6 hexes, arrives)', dR.record.dayRecord.hexesTraveled === 6 && dR.record.newStatus === 'arrived', String(dR.record.dayRecord.hexesTraveled));
+  check('a fully-roaded day rolls no navigation throw', dR.record.dayRecord.navigationThrow === null);
+})();
+
+section('§24 — integration: fording an unbridged river (deterministic)');
+(function(){
+  const mkRiver = () => lineCampaign(2, q => (q === 0 ? { riverSides:[0] } : (q === 1 ? { riverSides:[3] } : {})));
+  // (a) guaranteed-fail ford: nav passes (0.95), the Swimming throw fails (0), encounter skipped (0.95)
+  const fb = mkRiver(); ACKS.startJourney(fb.c, fb.j);
+  const dF = ACKS.tickJourneyDay(fb.c, fb.c.journeys[0], { rng: seq([0.95, 0, 0.95]) });
+  check('an unfordable river blocks movement (0 hexes that day)', dF.record.dayRecord.hexesTraveled === 0, String(dF.record.dayRecord.hexesTraveled));
+  check('a failed ford surfaces a fording-fail with the fording pause trigger', !!dF.notableEvents.find(e => e.kind === 'journey-fording' && e.type === 'fording-fail' && e.pauseTrigger === 'fording'));
+  check('the day record carries the failed Swimming throw', !!(dF.record.dayRecord.fording && dF.record.dayRecord.fording.result === 'failed'));
+  // (b) guaranteed-success swim: crosses one hex, then the day ends (swim speed ¼)
+  const fs = mkRiver(); ACKS.startJourney(fs.c, fs.j);
+  const dS = ACKS.tickJourneyDay(fs.c, fs.c.journeys[0], { rng: seq([0.95, 0.999, 0.95]) });
+  check('a successful swim crosses exactly one hex then ends the day', dS.record.dayRecord.hexesTraveled === 1 && dS.record.dayRecord.fording.result === 'forded-swim', String(dS.record.dayRecord.hexesTraveled));
+  // (c) a ford/bridge mark negates the barrier — free crossing, no throw, normal progress
+  const fc = lineCampaign(2, q => (q === 0 ? { riverSides:[0], crossingSides:[0] } : (q === 1 ? { riverSides:[3], crossingSides:[3] } : {})));
+  ACKS.startJourney(fc.c, fc.j);
+  const dC = ACKS.tickJourneyDay(fc.c, fc.c.journeys[0], { rng: () => 0.5 }); // nav passes; the ford needs no Swimming throw
+  check('a ford/bridge lets the party cross freely (arrives, no fording record)', dC.record.newStatus === 'arrived' && !dC.record.dayRecord.fording, String(dC.record.dayRecord.hexesTraveled));
+})();
+
+// routeCoords snapshot stamped at startJourney (informational path cache)
+(function(){
+  const { c, j } = lineCampaign(4);
+  ACKS.startJourney(c, j);
+  check('startJourney stamps routeCoords (path snapshot for UI/integrators)', Array.isArray(c.journeys[0].routeCoords) && c.journeys[0].routeCoords.length === 5, String((c.journeys[0].routeCoords||[]).length));
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);
