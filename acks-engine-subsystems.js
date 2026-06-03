@@ -2063,6 +2063,42 @@ function hexName(hex){
   return coords ? (base + ' (' + coords + ')') : base;
 }
 
+// Lay out a rectangular block of blank, UNCLAIMED, UNEXPLORED hexes — the "Create Map" world starter.
+// The grid is defined in GM-facing COLUMN·ROW space (the published Auran/JG convention), but each hex
+// stores canonical axial {q,r} (converted via hexColRowToAxial). Existing hexes are INCORPORATED, never
+// overwritten: any cell whose axial coord is already occupied is skipped, so this is safe to run on a
+// populated campaign (fill the gaps around what you've built) and idempotent (a re-run creates nothing).
+// opts: { cols, rows, startCol=1, startRow=1 }. Returns { created, skipped }. Mutates campaign.hexes.
+// New hexes are domainless (domainId:null) with no terrain and explored:false — a clean canvas to paint.
+function generateBlankHexGrid(campaign, opts){
+  opts = opts || {};
+  const cols = Math.max(0, Math.floor(opts.cols || 0));
+  const rows = Math.max(0, Math.floor(opts.rows || 0));
+  const startCol = Number.isFinite(opts.startCol) ? Math.floor(opts.startCol) : 1;
+  const startRow = Number.isFinite(opts.startRow) ? Math.floor(opts.startRow) : 1;
+  const blankHex = global.ACKS && global.ACKS.blankHex;
+  if(!campaign || typeof campaign !== 'object' || typeof blankHex !== 'function') return { created: 0, skipped: 0 };
+  if(!Array.isArray(campaign.hexes)) campaign.hexes = [];
+  // Occupied axial coords. campaign.hexes is the canonical collection — claimed hexes are reference-
+  // unified into it on load (liftToTopLevelCollections), so this set covers every existing hex.
+  const used = new Set();
+  campaign.hexes.forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); });
+  let created = 0, skipped = 0;
+  for(let r = 0; r < rows; r++){
+    for(let c = 0; c < cols; c++){
+      const ax = hexColRowToAxial(startCol + c, startRow + r);
+      const key = ax.q + ',' + ax.r;
+      if(used.has(key)){ skipped++; continue; }
+      used.add(key);
+      const hex = blankHex({ coord: { q: ax.q, r: ax.r }, terrain: '', explored: false });
+      hex.domainId = null; // unclaimed wilderness — a blank canvas to paint a world onto
+      campaign.hexes.push(hex);
+      created++;
+    }
+  }
+  return { created, skipped };
+}
+
 // ── Fill-layer palettes (M2). Color a hex by one attribute at a time. ──
 const HEX_TERRAIN_COLORS = Object.freeze({
   barrens:'#cdbfa6', desert:'#e7d9a0', forest:'#3f7d4e', grassland:'#9cc46b',
@@ -2266,7 +2302,7 @@ Object.assign(ACKS, {
   findPersistentCandidates, computeEffectiveLoyalty,
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
-  MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName,
+  MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName, generateBlankHexGrid,
   hexNeighborDeltas, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });

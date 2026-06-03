@@ -362,6 +362,41 @@ check('legends present for all new layers', ['population','morale','secured','ec
 check('ctx is optional — hex-only layers ignore it', ACKS.hexFillColor({ terrain:'forest' }, 'terrain') === ACKS.hexFillColor({ terrain:'forest' }, 'terrain', undefined));
 
 // ─────────────────────────────────────────────────────────────────────────
+section('generateBlankHexGrid — Create Map world starter (#225)');
+(function(){
+  // Fresh 10x10 → 100 blank, unclaimed, unexplored hexes at the Auran 0101 origin.
+  const c = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  const r = ACKS.generateBlankHexGrid(c, { cols: 10, rows: 10 });
+  check('10x10 fresh creates 100', r.created === 100 && r.skipped === 0, JSON.stringify(r));
+  check('campaign.hexes populated', c.hexes.length === 100);
+  const tl = ACKS.hexColRowToAxial(1, 1);
+  const tlHex = c.hexes.find(h => h.coord.q === tl.q && h.coord.r === tl.r);
+  check('top-left at colrow(1,1) = label 0101', !!tlHex && ACKS.hexDisplayLabel(tl.q, tl.r) === '0101');
+  check('grid hexes are blank/unexplored/unclaimed', c.hexes.every(h => h.terrain === '' && h.explored === false && h.domainId === null));
+  check('all coords unique', new Set(c.hexes.map(h => h.coord.q + ',' + h.coord.r)).size === 100);
+  // Idempotent — re-run incorporates, never duplicates.
+  const r2 = ACKS.generateBlankHexGrid(c, { cols: 10, rows: 10 });
+  check('re-run is idempotent (0 created, 100 skipped)', r2.created === 0 && r2.skipped === 100 && c.hexes.length === 100);
+  // Incorporates existing hexes without overwriting them.
+  const c2 = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  const a22 = ACKS.hexColRowToAxial(2, 2);
+  const pre = ACKS.blankHex({ coord: { q: a22.q, r: a22.r }, terrain: 'forest', explored: true });
+  pre.domainId = 'dom-x'; c2.hexes.push(pre);
+  const r3 = ACKS.generateBlankHexGrid(c2, { cols: 3, rows: 3 });
+  check('3x3 over 1 existing → 8 created, 1 skipped', r3.created === 8 && r3.skipped === 1 && c2.hexes.length === 9);
+  const keptHex = c2.hexes.find(h => h.coord.q === a22.q && h.coord.r === a22.r);
+  check('existing hex kept intact (terrain/explored/domain)', keptHex.terrain === 'forest' && keptHex.explored === true && keptHex.domainId === 'dom-x');
+  // Custom origin shifts the block.
+  const c3 = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  ACKS.generateBlankHexGrid(c3, { cols: 2, rows: 2, startCol: 50, startRow: 50 });
+  const o = ACKS.hexColRowToAxial(50, 50);
+  check('custom origin honored', c3.hexes.some(h => h.coord.q === o.q && h.coord.r === o.r));
+  // Degenerate input is a safe no-op.
+  const c4 = { schemaVersion: 2, kind: 'campaign', hexes: [] };
+  check('0x0 is a no-op', ACKS.generateBlankHexGrid(c4, { cols: 0, rows: 0 }).created === 0 && c4.hexes.length === 0);
+})();
+
+// ─────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);
 console.log('  Failed: ' + failed);

@@ -581,8 +581,41 @@ document.addEventListener('alpine:init', () => {
     <button @click="mapEndSelect()" class="underline opacity-70 hover:opacity-100">cancel</button>
   </div>
 
+  <!-- Create Map modal — lay out a blank W×H grid of unclaimed/unexplored hexes (world starter, #225). -->
+  <div x-show="mapGridModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" x-cloak @click.self="mapGridModalOpen = false" @keydown.escape.window="mapGridModalOpen = false">
+    <div class="vellum border border-ink rounded-lg shadow-xl max-w-md w-full mx-4 p-5 space-y-4">
+      <div class="flex justify-between items-center">
+        <h2 class="font-bold text-lg">➕ Create Map</h2>
+        <button @click="mapGridModalOpen = false" class="text-xl px-2 leading-none">×</button>
+      </div>
+      <p class="text-sm opacity-70">Lay out a rectangular grid of blank hexes — no terrain, unexplored, unclaimed — a clean canvas to build a world on. Hexes you already have are kept (never overwritten); the grid fills in around them.</p>
+      <div>
+        <div class="text-sm font-semibold mb-1">Size</div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="n in [10, 25, 50, 100]" :key="n">
+            <button @click="mapGridCols = n; mapGridRows = n" class="text-sm px-2.5 py-1 border border-ink rounded hover:bg-yellow-100" :class="(mapGridCols === n && mapGridRows === n) ? 'bg-yellow-200 font-semibold' : ''" x-text="n + '×' + n"></button>
+          </template>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <label class="flex items-center justify-between gap-2">Columns <input type="number" min="1" max="200" x-model.number="mapGridCols" class="w-24 border border-ink rounded px-2 py-1"></label>
+        <label class="flex items-center justify-between gap-2">Rows <input type="number" min="1" max="200" x-model.number="mapGridRows" class="w-24 border border-ink rounded px-2 py-1"></label>
+        <label class="flex items-center justify-between gap-2" title="Top-left hex number (column·row). Defaults to 1,1 — the Auran/JG '0101' convention.">Start col <input type="number" x-model.number="mapGridStartCol" class="w-24 border border-ink rounded px-2 py-1"></label>
+        <label class="flex items-center justify-between gap-2" title="Top-left hex number (column·row). Defaults to 1,1 — the Auran/JG '0101' convention.">Start row <input type="number" x-model.number="mapGridStartRow" class="w-24 border border-ink rounded px-2 py-1"></label>
+      </div>
+      <div class="text-sm opacity-80 border-t border-ink/20 pt-2" x-text="(() => { const p = mapGridPreview(); if(!p.total) return 'Set a size to preview.'; return 'Will create ' + p.create.toLocaleString() + ' new hex' + (p.create === 1 ? '' : 'es') + (p.skip ? (' · ' + p.skip.toLocaleString() + ' already in range (kept)') : '') + '.'; })()"></div>
+      <div class="flex justify-end gap-2">
+        <button @click="mapGridModalOpen = false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+        <button @click="mapCreateGrid()" :disabled="mapGridPreview().create === 0" :class="mapGridPreview().create === 0 ? 'opacity-50 cursor-not-allowed' : ''" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">Create</button>
+      </div>
+    </div>
+  </div>
+
   <template x-if="mapHexEntries().length === 0">
-    <p class="text-sm italic opacity-60 py-10 text-center">No hexes to map yet. Add hexes to a domain via the World tab or Domains → Hexes, and they'll appear here.</p>
+    <div class="py-10 text-center space-y-3">
+      <p class="text-sm italic opacity-60">No hexes to map yet. Lay down a blank grid to start a world, or add hexes to a domain via the World tab or Domains → Hexes.</p>
+      <button @click="mapGridModalOpen = true" class="px-4 py-2 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">➕ Create Map</button>
+    </div>
   </template>
 
   <template x-if="mapHexEntries().length > 0">
@@ -597,6 +630,7 @@ document.addEventListener('alpine:init', () => {
           </label>
         </template>
         <span class="ml-auto flex items-center gap-2">
+          <button @click="mapGridModalOpen = true" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Lay down a blank grid of hexes — existing hexes are kept; the grid fills in around them">➕ Create Map</button>
           <button @click="mapStandardView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Reset to the standard composite — terrain + settlements + strongholds + roads/rivers + domain borders + journeys">⌂ Standard view</button>
           <button @click="mapResetView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Fit the whole map in view">⤢ Fit</button>
         </span>
@@ -11156,6 +11190,12 @@ return {
   mapCreateRiverSides: [],   // #225 — hex sides (0..5) carrying a river (drawn along those edges; a movement barrier)
   mapCreateRoadSides: [],    // #225 — hex sides (0..5) the road reaches from the centre (with circular bends)
   mapCreateCrossingSides: [], // #225 — river sides (0..5) carrying a ford/bridge (negates the barrier); road×river is an implicit bridge
+  // "Create Map" — lay out a blank W×H grid of unclaimed/unexplored hexes (world starter).
+  mapGridModalOpen: false,
+  mapGridCols: 10,
+  mapGridRows: 10,
+  mapGridStartCol: 1,
+  mapGridStartRow: 1,
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11666,6 +11706,40 @@ return {
   },
   // Back-compat delegate (the World > Hexes "+ add hex" control is the only caller).
   addHexToDomain(domainId){ this.addHex(domainId); },
+  // "Create Map" — count what a W×H grid at the current origin would add vs. keep. Mirrors the engine's
+  // collision rule (skip cells whose axial coord is already occupied) so the modal previews honestly.
+  mapGridPreview(){
+    const A = window.ACKS, camp = this.currentCampaign;
+    const cols = Math.max(0, Math.floor(this.mapGridCols || 0));
+    const rows = Math.max(0, Math.floor(this.mapGridRows || 0));
+    const sC = Math.floor(this.mapGridStartCol || 1), sR = Math.floor(this.mapGridStartRow || 1);
+    const total = cols * rows;
+    if(!camp || !total) return { total, create: 0, skip: 0, cols, rows };
+    const used = new Set();
+    (camp.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); });
+    let skip = 0;
+    for(let r = 0; r < rows; r++) for(let c = 0; c < cols; c++){
+      const ax = A.hexColRowToAxial(sC + c, sR + r);
+      if(used.has(ax.q + ',' + ax.r)) skip++;
+    }
+    return { total, create: total - skip, skip, cols, rows };
+  },
+  // Lay out the grid. Clamps each dimension to 1..200 (≤40k cells); confirms past 2,500 (draw cost).
+  // Existing hexes in range are kept, never overwritten (engine generateBlankHexGrid). Re-fits the map.
+  mapCreateGrid(){
+    const camp = this.currentCampaign; if(!camp) return;
+    const cols = Math.max(1, Math.min(200, Math.floor(this.mapGridCols || 0)));
+    const rows = Math.max(1, Math.min(200, Math.floor(this.mapGridRows || 0)));
+    const sC = Math.floor(this.mapGridStartCol || 1), sR = Math.floor(this.mapGridStartRow || 1);
+    const cells = cols * rows;
+    if(cells > 2500 && !window.confirm('Create a ' + cols + '×' + rows + ' map (' + cells.toLocaleString() + ' hexes)? Very large maps can make the map view slower to draw.')) return;
+    const res = window.ACKS.generateBlankHexGrid(camp, { cols, rows, startCol: sC, startRow: sR });
+    this.markDirty(); this.schedulePersist();
+    this.mapGridModalOpen = false;
+    this.mapViewBox = null; this.mapEnsureView(); // re-fit so the new grid is in view
+    const kept = res.skipped ? (' · kept ' + res.skipped.toLocaleString() + ' existing') : '';
+    this.showToast('Created ' + res.created.toLocaleString() + ' blank hex' + (res.created === 1 ? '' : 'es') + ' (' + cols + '×' + rows + ' grid)' + kept + '.');
+  },
   addHexLair(h){
     if(!h) return;
     if(!Array.isArray(h.lairs)) h.lairs = [];
