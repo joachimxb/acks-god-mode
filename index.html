@@ -5501,15 +5501,14 @@ document.addEventListener('alpine:init', () => {
            audit entries); × cancels. × remove deletes the row (logged). -->
       <div x-show="characterEditorTab==='inventory'" class="space-y-3" x-data="{
         showAdd: false,
-        addDraft: { name: '', stone: 0, gp: 0, notes: '' },
-        startAdd(){ this.addDraft = { name: '', stone: 0, gp: 0, notes: '' }; this.showAdd = true; },
+        addDraft: { name: '', stone: 0, notes: '' },
+        startAdd(){ this.addDraft = { name: '', stone: 0, notes: '' }; this.showAdd = true; },
         cancelAdd(){ this.showAdd = false; },
         saveAdd(){
           if(!this.addDraft.name || !this.addDraft.name.trim()){ window.acksApp?.showToast('Item name required.', 3000); return; }
           const item = {
             name: this.addDraft.name.trim(),
             stone: Number(this.addDraft.stone) || 0,
-            gp: Number(this.addDraft.gp) || 0,
             notes: this.addDraft.notes || ''
           };
           window.acksApp?.commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'inventory', label:'Inventory item', action:'add', value:item});
@@ -5549,7 +5548,6 @@ document.addEventListener('alpine:init', () => {
             <div class="flex flex-wrap gap-2 items-end">
               <label class="text-sm">Name<br><input type="text" x-model="addDraft.name" placeholder="e.g. Long sword" class="text-sm" style="width:14rem" x-init="$nextTick(() => $el.focus())" @keyup.enter="saveAdd()" @keyup.escape="cancelAdd()"></label>
               <label class="text-sm">Stone<br><input type="number" min="0" step="0.5" x-model.number="addDraft.stone" class="text-sm" style="width:5rem" @keyup.enter="saveAdd()"></label>
-              <label class="text-sm">gp<br><input type="number" min="0" x-model.number="addDraft.gp" class="text-sm" style="width:6rem" @keyup.enter="saveAdd()"></label>
               <label class="text-sm flex-1" style="min-width:10rem">Notes<br><input type="text" x-model="addDraft.notes" placeholder="" class="text-sm w-full" @keyup.enter="saveAdd()"></label>
               <button @click="saveAdd()" class="ed-btn" title="Save & log">✓ save</button>
               <button @click="cancelAdd()" class="ed-btn" title="Cancel">× cancel</button>
@@ -5558,16 +5556,16 @@ document.addEventListener('alpine:init', () => {
         </template>
 
         <table class="bookkeeping text-sm w-full">
-          <thead><tr><th>Item</th><th class="text-right">Stone</th><th class="text-right">Value (gp)</th><th>Notes</th><th></th></tr></thead>
+          <thead><tr><th>Item</th><th class="text-right">Stone</th><th>Notes</th><th></th></tr></thead>
           <tbody>
             <template x-for="(item,ii) in characterEditing.inventory" :key="ii">
               <tr x-data="{
                 editing: false,
-                draft: { name: '', stone: 0, gp: 0, notes: '' },
-                orig: { name: '', stone: 0, gp: 0, notes: '' },
+                draft: { name: '', stone: 0, notes: '' },
+                orig: { name: '', stone: 0, notes: '' },
                 start(){
-                  this.orig = { name: item.name||'', stone: item.stone||0, gp: item.gp||0, notes: item.notes||'' };
-                  this.draft = { name: item.name||'', stone: item.stone||0, gp: item.gp||0, notes: item.notes||'' };
+                  this.orig = { name: item.name||'', stone: item.stone||0, notes: item.notes||'' };
+                  this.draft = { name: item.name||'', stone: item.stone||0, notes: item.notes||'' };
                   this.editing = true;
                 },
                 save(){
@@ -5576,13 +5574,12 @@ document.addEventListener('alpine:init', () => {
                   const fields = [
                     {k:'name',  label:'Item #'+(ii+1)+' name'},
                     {k:'stone', label:'Item #'+(ii+1)+' stone'},
-                    {k:'gp',    label:'Item #'+(ii+1)+' gp'},
                     {k:'notes', label:'Item #'+(ii+1)+' notes'}
                   ];
                   fields.forEach(f => {
                     let oldV = this.orig[f.k];
                     let newV = this.draft[f.k];
-                    if(f.k === 'stone' || f.k === 'gp'){ newV = Number(newV) || 0; }
+                    if(f.k === 'stone'){ newV = Number(newV) || 0; }
                     if(oldV !== newV){
                       app?.commitStatEdit({entityType:'character', entityId:ch.id, entity:ch, fieldPath:'inventory.'+ii+'.'+f.k, label:f.label, oldValue:oldV, newValue:newV});
                     }
@@ -5602,12 +5599,6 @@ document.addEventListener('alpine:init', () => {
                 </template>
                 <template x-if="editing">
                   <td><input type="number" min="0" step="0.5" x-model.number="draft.stone" class="w-16 text-right" @keyup.enter="save()"></td>
-                </template>
-                <template x-if="!editing">
-                  <td class="text-right font-mono" x-text="(item.gp||0).toLocaleString()"></td>
-                </template>
-                <template x-if="editing">
-                  <td><input type="number" min="0" x-model.number="draft.gp" class="w-20 text-right" @keyup.enter="save()"></td>
                 </template>
                 <template x-if="!editing">
                   <td class="opacity-80" x-text="item.notes"></td>
@@ -5632,9 +5623,8 @@ document.addEventListener('alpine:init', () => {
               </tr>
             </template>
             <tr class="subtotal">
-              <td>Total stone / value (gp)</td>
+              <td>Total stone</td>
               <td class="text-right font-mono" x-text="(characterEditing.inventory||[]).reduce((s,i)=>s+(parseFloat(i.stone)||0),0)"></td>
-              <td class="text-right font-mono" x-text="(characterEditing.inventory||[]).reduce((s,i)=>s+(parseFloat(i.gp)||0),0).toLocaleString()"></td>
               <td colspan="2"></td>
             </tr>
           </tbody>
