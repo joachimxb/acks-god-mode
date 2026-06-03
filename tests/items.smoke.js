@@ -192,6 +192,67 @@ if (DEMO) {
   ok('demo template item-migrate idempotent', ACKS.migrateAllStashItemShapes(d2) === 0);
 }
 
+// =============================================================================
+section('Stash B engine — carry↔stash · controller · find-or-create · RAW bands');
+// =============================================================================
+// RAW carry-encumbrance bands (RR pp.83–84)
+const bandLevel = st => ACKS.carryEncumbranceLevel({ inventory: [ACKS.blankStashItem({ facets: ['gear'], encumbranceSt: st, qty: 1 })] });
+ok('band ≤5 st = unencumbered', bandLevel(5) === 'unencumbered');
+ok('band 6 st = light', bandLevel(6) === 'light');
+ok('band 9 st = heavy', bandLevel(9) === 'heavy');
+ok('band 15 st = severe', bandLevel(15) === 'severe');
+ok('band 25 st = overloaded', bandLevel(25) === 'overloaded');
+ok('empty inventory = unencumbered', ACKS.carryEncumbranceLevel({ inventory: [] }) === 'unencumbered');
+const unencBand = ACKS.carryEncumbranceBandFor(3);
+ok('unencumbered band = 24 mi/day, 40 ft combat', unencBand.milesPerDay === 24 && unencBand.combatFeet === 40);
+ok('overloaded band = 0 mi/day', ACKS.carryEncumbranceBandFor(99).milesPerDay === 0);
+const encInfo = ACKS.carryEncumbranceInfo({ inventory: [ACKS.blankStashItem({ facets: ['gear'], encumbranceSt: 8 })] });
+ok('carryEncumbranceInfo returns totalSt + band', encInfo.totalSt === 8 && encInfo.band.level === 'heavy');
+
+// find-or-create (one per owner per hex)
+const sb = ACKS.blankCampaign();
+sb.characters.push({ id: 'chr-h', name: 'Hilda', inventory: [] });
+const st1 = ACKS.findOrCreateStashAt(sb, { characterId: 'chr-h' }, 'hex-1', { kind: 'cache' });
+const st1b = ACKS.findOrCreateStashAt(sb, { characterId: 'chr-h' }, 'hex-1', { kind: 'cache' });
+ok('findOrCreateStashAt returns the same stash for same owner+hex+kind', st1 && st1b && st1.id === st1b.id && sb.stashes.length === 1);
+const st2 = ACKS.findOrCreateStashAt(sb, { characterId: 'chr-h' }, 'hex-2', { kind: 'cache' });
+ok('different hex → different stash', st2.id !== st1.id && sb.stashes.length === 2);
+
+// carry → stash (partial then full), totals conserved + coin merged
+const ch = sb.characters[0];
+ch.inventory = [ACKS.blankStashItem({ facets: ['coin'], denomination: 'gp', qty: 100, id: 'si-c1' }), ACKS.blankStashItem({ facets: ['gear'], name: 'sword', id: 'si-g1' })];
+ACKS.transferCarryToStash(sb, 'chr-h', st1.id, [{ itemId: 'si-c1', qty: 40 }]);
+ok('carry→stash partial: carry retains 60 gp', ch.inventory.find(i => i.id === 'si-c1').qty === 60);
+ok('carry→stash partial: stash holds 40 gp', ACKS.stashTotalGp(st1) === 40);
+ACKS.transferCarryToStash(sb, 'chr-h', st1.id, [{ itemId: 'si-c1' }]);
+ok('carry→stash full: stash now holds 100 gp (merged)', ACKS.stashTotalGp(st1) === 100);
+ok('carry→stash full: coin removed from carry', !ch.inventory.find(i => i.id === 'si-c1'));
+
+// stash → carry + over-encumbrance warning (never blocks)
+const heavyStash = ACKS.findOrCreateStashAt(sb, { characterId: 'chr-h' }, 'hex-3', { kind: 'cache' });
+ACKS.depositToStash(sb, heavyStash.id, [{ facets: ['coin'], denomination: 'gp', qty: 25000 }], { reason: 't' });
+const coinLineId = heavyStash.items.find(i => ACKS.itemHasFacet(i, 'coin')).id;
+const back = ACKS.transferStashToCarry(sb, heavyStash.id, 'chr-h', [{ itemId: coinLineId }]);
+ok('stash→carry moves the coin to inventory', !!ch.inventory.find(i => ACKS.itemHasFacet(i, 'coin') && i.qty === 25000));
+ok('stash→carry flags over-encumbrance (25 st), never blocks', back.overEncumbered === true && back.band.level === 'overloaded');
+
+// controller change — domain-treasury keeps ownerDomainId; personal swaps owner
+const treasury = ACKS.blankStash({ kind: 'domain-treasury', name: 'Realm Treasury', hexId: 'hex-1' });
+treasury.ownerDomainId = 'dom-1';
+sb.stashes.push(treasury);
+ACKS.changeStashController(sb, treasury.id, { characterId: 'chr-new-ruler' }, { reason: 'succession' });
+ok('domain-treasury controller change keeps ownerDomainId', treasury.ownerDomainId === 'dom-1');
+ok('controller change stamps a controllerChanged history entry', treasury.history.some(h => h.type === 'controllerChanged'));
+ACKS.changeStashController(sb, st1.id, { characterId: 'chr-new' });
+ok('personal stash controller change swaps ownerCharacterId', st1.ownerCharacterId === 'chr-new');
+
+// RAW-default polarity flip — enforce-carry-encumbrance → ignore-encumbrance
+const reg = ACKS.HOUSERULES_REGISTRY || [];
+if (reg.length) {
+  ok('ignore-encumbrance house rule exists (RAW-default opt-out)', reg.some(r => r.id === 'ignore-encumbrance'));
+  ok('enforce-carry-encumbrance retired', !reg.some(r => r.id === 'enforce-carry-encumbrance'));
+}
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — items.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - **Items in stashes and carry inventory now use one composable shape.** Instead of a fixed coin / bulk / item split, an item line carries a set of toggleable *facets* — coin, valuable, gear, bulk, magical, readable, container — so a single line can be several things at once (a jewelled, enchanted blade is gear + valuable + magical). Coins can be any denomination (copper, silver, electrum, gold, platinum) and a line's weight and gold-piece value are computed automatically — coins weigh 1 stone per 1,000 (RR p.83), and gems and jewelry carry a per-piece value. A mundane line can be **promoted** into a tracked, named item with its own history once it starts to matter (the same "the world remembers" pattern as recurring monsters becoming lairs). Existing campaign files upgrade automatically on load. (Groundwork for the Stashes view, the character Vault card, and treasure — landing next.)
+- **Encumbrance is now modelled by the book, by default.** The optional encumbrance house rule used to be a default-off *hard block*; it is now **Ignore carry encumbrance** (still default off). Left off — the default — a character's carry weight and load band are computed per ACKS (coins weigh 1 stone per 1,000; unencumbered through overloaded, RR pp.83–84) and you're never stopped from picking things up: being overloaded just means you can't move. Turn it on to tell the tool to ignore weight entirely. (The on-sheet readout arrives with the Stashes UI.)
 
 ## [0.15.0] - 2026-06-03
 

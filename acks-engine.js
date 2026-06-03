@@ -1652,6 +1652,146 @@ function transferBetweenStashes(campaign, fromStashId, toStashId, withdrawals, o
 }
 
 // =============================================================================
+// Phase 2.95 Stash B (engine foundation, 2026-06-03) — carry↔stash transfers,
+// controller change, find-or-create, and the RAW carry-encumbrance bands the
+// character-sheet surface reads. Per Phase_2.95_Stash_Plan.md §6.2–§6.4 + §12.
+// =============================================================================
+
+// --- One-per-owner-per-hex find-or-create ("the windfall lands here" helper) --
+// ownerSpec: {characterId} | {partyId} | {domainId}. opts.kind overrides the
+// default kind for a character owner (personal | cache). Returns an existing
+// match (same owner + hex + kind) or a freshly created + pushed stash.
+function findOrCreateStashAt(campaign, ownerSpec, hexId, opts){
+  if(!campaign || !ownerSpec) return null;
+  opts = opts || {};
+  if(!Array.isArray(campaign.stashes)) campaign.stashes = [];
+  let ownerField, ownerId, kind;
+  if(ownerSpec.characterId){ ownerField='ownerCharacterId'; ownerId=ownerSpec.characterId; kind=opts.kind || 'personal'; }
+  else if(ownerSpec.partyId){ ownerField='ownerPartyId'; ownerId=ownerSpec.partyId; kind='party'; }
+  else if(ownerSpec.domainId){ ownerField='ownerDomainId'; ownerId=ownerSpec.domainId; kind='domain-treasury'; }
+  else return null;
+  const existing = campaign.stashes.find(s => s && s.hexId === hexId && s[ownerField] === ownerId && s.kind === kind);
+  if(existing) return existing;
+  const blankStash = (global.ACKS && global.ACKS.blankStash) || null;
+  if(!blankStash) return null;
+  const s = blankStash({ kind, hexId });
+  s[ownerField] = ownerId;
+  s.name = opts.name || (kind === 'domain-treasury' ? 'Treasury' : (kind === 'party' ? 'Party loot' : 'Cache'));
+  s.createdAtTurn = campaign.currentTurn || 1;
+  campaign.stashes.push(s);
+  return s;
+}
+
+// --- Private: atomic withdraw from a bare item array (carry inventory) --------
+// Mirrors withdrawFromStash's validate-then-apply atomicity. withdrawals:
+// [{itemId, qty?}]. Returns {ok, removed} (removed = detached item lines).
+function _withdrawFromItemArray(items, withdrawals){
+  if(!Array.isArray(items) || !Array.isArray(withdrawals)) return { ok:false, removed:[] };
+  const blankStashItem = (global.ACKS && global.ACKS.blankStashItem) || null;
+  const plan = [];
+  for(const w of withdrawals){
+    if(!w || !w.itemId) return { ok:false, removed:[] };
+    const entry = items.find(it => it && it.id === w.itemId);
+    if(!entry) return { ok:false, removed:[] };
+    const have = (entry.qty != null) ? entry.qty : 1;
+    const req = (w.qty != null) ? w.qty : have;
+    if(typeof req !== 'number' || req <= 0 || req > have) return { ok:false, removed:[] };
+    plan.push({ entry, req, isFull: req === have });
+  }
+  const removed = [];
+  for(const step of plan){
+    if(step.isFull){
+      const idx = items.indexOf(step.entry);
+      if(idx >= 0) items.splice(idx, 1);
+      removed.push(step.entry);
+    } else {
+      step.entry.qty = (step.entry.qty || 0) - step.req;
+      const copySpec = Object.assign({}, step.entry, { id: undefined, qty: step.req });
+      removed.push(blankStashItem ? blankStashItem(copySpec) : copySpec);
+    }
+  }
+  return { ok:true, removed };
+}
+
+// --- Carry → stash ("bank your coin at home") --------------------------------
+function transferCarryToStash(campaign, characterId, stashId, withdrawals, opts){
+  if(!campaign) return null;
+  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
+  const stash = findStash(campaign, stashId);
+  if(!ch || !stash) return null;
+  if(!Array.isArray(ch.inventory)) ch.inventory = [];
+  const out = _withdrawFromItemArray(ch.inventory, withdrawals);
+  if(!out.ok) return null;
+  depositToStash(campaign, stashId, out.removed, {
+    reason: (opts && opts.reason) || 'bank-carry',
+    source: { kind:'character', id: characterId, label: ch.name || null }
+  });
+  return { character: ch, stash, moved: out.removed };
+}
+
+// --- Stash → carry (warns over encumbrance, never blocks — RAW) --------------
+function transferStashToCarry(campaign, stashId, characterId, withdrawals, opts){
+  if(!campaign) return null;
+  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
+  const stash = findStash(campaign, stashId);
+  if(!ch || !stash) return null;
+  const out = withdrawFromStash(campaign, stashId, withdrawals, {
+    reason: (opts && opts.reason) || 'draw-from-stash',
+    destination: { kind:'character', id: characterId, label: ch.name || null }
+  });
+  if(!out) return null;
+  if(!Array.isArray(ch.inventory)) ch.inventory = [];
+  for(const it of out.withdrawn) ch.inventory.push(it);
+  const band = carryEncumbranceBandFor(carryTotalEncumbrance(ch));
+  return { character: ch, stash, moved: out.withdrawn, overEncumbered: band.level === 'overloaded', band };
+}
+
+// --- Controller change (ruler succession on a domain-treasury; or owner swap) -
+// For domain-treasury: ownerDomainId is UNCHANGED (the domain still owns it) — the
+// controllerChanged history entry records who held office. For personal/cache:
+// sets the new owner. newOwner: {characterId} | {partyId} | {domainId}.
+function changeStashController(campaign, stashId, newOwner, opts){
+  if(!campaign || !newOwner) return null;
+  const stash = findStash(campaign, stashId);
+  if(!stash) return null;
+  const before = { ownerCharacterId: stash.ownerCharacterId, ownerPartyId: stash.ownerPartyId, ownerDomainId: stash.ownerDomainId };
+  if(stash.kind !== 'domain-treasury'){
+    if(newOwner.characterId !== undefined){ stash.ownerCharacterId = newOwner.characterId; stash.ownerPartyId = null; stash.ownerDomainId = null; }
+    else if(newOwner.partyId !== undefined){ stash.ownerPartyId = newOwner.partyId; stash.ownerCharacterId = null; stash.ownerDomainId = null; }
+  }
+  _stampStashHistory(stash, (opts && opts.atTurn) || campaign.currentTurn || 1, 'controllerChanged', {
+    reason: (opts && opts.reason) || 'controller-change',
+    from: before,
+    to: { ownerCharacterId: stash.ownerCharacterId, ownerPartyId: stash.ownerPartyId, ownerDomainId: stash.ownerDomainId },
+    officeHolderCharacterId: (newOwner.characterId !== undefined ? newOwner.characterId : null)
+  });
+  return stash;
+}
+
+// --- RAW carry-encumbrance bands (RR pp.83–84) -------------------------------
+// Carry weight is in stone (coins: 1,000 = 1 st). Movement by load band:
+// exploration ft/turn, combat ft/round (≈ 1/3 exploration), expedition miles/day.
+// v1 surfaces the band on the sheet; propagating the penalty into other
+// subsystems is Phase 3 travel (Journeys already uses the 24-mi unencumbered base).
+const CARRY_ENCUMBRANCE_BANDS = [
+  { level:'unencumbered', label:'Unencumbered',    maxSt: 5,       explorationFeet:120, combatFeet:40, milesPerDay:24 },
+  { level:'light',        label:'Lightly loaded',  maxSt: 7,       explorationFeet: 90, combatFeet:30, milesPerDay:18 },
+  { level:'heavy',        label:'Heavily loaded',  maxSt:10,       explorationFeet: 60, combatFeet:20, milesPerDay:12 },
+  { level:'severe',       label:'Severely loaded', maxSt:20,       explorationFeet: 30, combatFeet:10, milesPerDay: 6 },
+  { level:'overloaded',   label:'Overloaded',      maxSt:Infinity, explorationFeet:  0, combatFeet: 0, milesPerDay: 0 }
+];
+function carryEncumbranceBandFor(totalSt){
+  const t = totalSt || 0;
+  for(const b of CARRY_ENCUMBRANCE_BANDS){ if(t <= b.maxSt) return b; }
+  return CARRY_ENCUMBRANCE_BANDS[CARRY_ENCUMBRANCE_BANDS.length - 1];
+}
+function carryEncumbranceLevel(character){ return carryEncumbranceBandFor(carryTotalEncumbrance(character)).level; }
+function carryEncumbranceInfo(character){
+  const totalSt = carryTotalEncumbrance(character);
+  return { totalSt, band: carryEncumbranceBandFor(totalSt) };
+}
+
+// =============================================================================
 // Phase 2.95 Stash A.3 — domain.treasury → treasury-stash migration (#468 / 2026-05-29).
 // Per Phase_2.95_Stash_Plan.md §6.3 + §8.2. Idempotent. Gated on the
 // inventory-stash-system house rule per the gating doctrine.
@@ -4866,6 +5006,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findStash, stashesOwnedByCharacter, stashesAtHex, findDomainTreasury, stashesAccessibleToCharacter,
   // Phase 2.95 Stash A.2 — canonical setters (#467 / 2026-05-29)
   depositToStash, withdrawFromStash, transferBetweenStashes,
+  // Phase 2.95 Stash B engine foundation — carry↔stash + controller + bands (2026-06-03)
+  findOrCreateStashAt, transferCarryToStash, transferStashToCarry, changeStashController,
+  carryEncumbranceLevel, carryEncumbranceInfo, carryEncumbranceBandFor, CARRY_ENCUMBRANCE_BANDS,
   // Phase 2.95 Stash A.3 — treasury migration + canonical gp read (#468 / 2026-05-29)
   migrateDomainTreasuryToStash, migrateAllDomainTreasuries, domainTreasuryGp,
   // Phase 2.95 Stash A.4 — canonical-setter invariant + item-consolidation reconcile (#469 / 2026-05-29)
