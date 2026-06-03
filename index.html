@@ -8347,12 +8347,13 @@ return {
   // single source of membership truth.
   newPartyPickerOpen:false,
   newPartyFounderId:'',
-  // Activities top panel (Phase 2.5 prep, #477) — Ventures lifted + placeholders for Journeys / Hijinks / Spell Research
-  activitiesSubView: 'ventures',
+  // Activities top panel (Phase 2.5 prep, #477) — Journeys first (the active day-aware subsystem),
+  // then Ventures + placeholders for Hijinks / Spell Research. Landing sub-view matches the first tab.
+  activitiesSubView: 'journeys',
   get activitiesSubTabs(){
     return [
-      { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Journeys',      ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
+      { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];

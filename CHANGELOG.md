@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Where you haven't drawn a particular hex along the way, the journey falls back to the starting hex's terrain and road state — so **existing campaigns travel exactly as before**, and the new detail rewards filling in the map. (The per-side road/river/ford cartography shipped in 0.13.0–0.14.0; this wires it into travel.)
 - **Pick a journey's destination — and its waypoints — straight off the map.** The Start-a-Journey planner has **🗺 choose from map** links for both the Destination and the Waypoints: jump to the map, click the hex(es) you want, confirm, and land back in the planner with everything filled in (and everything else you'd entered left intact). The **destination** is a single click (re-click to change your mind). **Waypoints** are multi-click — click hexes in the order you want to visit them, click one again to drop it — and they show in the planner as ordered, removable chips instead of the old checkbox list. As you pick, the **map draws the route live**: start in green, destination in red, numbered waypoints in between, joined by a dashed line — so you watch the path take shape, and the preview shows whether or not the Journeys map layer is switched on. Handy when you know *where* places sit on the map but not their hex numbers.
 
+### Changed
+- **Activities now opens on Journeys.** The Activities tabs lead with **Journeys** (then Ventures, Hijinks, Spell Research) instead of Ventures, and opening Activities lands on the Journeys panel — the active day-aware subsystem — rather than the Ventures list.
+
 ## [0.14.0] - 2026-06-03
 
 ### Added
