@@ -133,6 +133,8 @@ document.addEventListener('alpine:init', () => {
      column headers line up over their right-aligned data cells. */
   table.bookkeeping th.text-right { text-align: right; }
   table.bookkeeping th.text-center { text-align: center; }
+  /* Extra column gutter (outranks the base `table.bookkeeping td` padding, like the text-right rule above). */
+  table.bookkeeping th.col-gap-left, table.bookkeeping td.col-gap-left { padding-left: 1.75rem; }
   table.bookkeeping tr.subtotal td { border-top: 1px solid #6b4f24; font-weight: 600; }
   table.bookkeeping tr.total td { border-top: 2px double #6b4f24; font-weight: 700; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 50;
@@ -5641,7 +5643,7 @@ document.addEventListener('alpine:init', () => {
              inputs make those columns greedy and the rows stop lining up). -->
         <table class="bookkeeping text-sm w-full table-fixed">
           <colgroup><col style="width:14rem"><col style="width:5rem"><col style="width:14rem"><col><col style="width:11rem"></colgroup>
-          <thead><tr><th>Item</th><th class="text-right">Stone</th><th>Notes</th><th></th><th class="text-right">Actions</th></tr></thead>
+          <thead><tr><th>Item</th><th class="text-right">Stone</th><th class="col-gap-left">Notes</th><th></th><th class="text-right">Actions</th></tr></thead>
           <tbody>
             <template x-for="(item,ii) in characterEditing.inventory" :key="ii">
               <tr x-data="{
@@ -5694,10 +5696,10 @@ document.addEventListener('alpine:init', () => {
                   <td><input type="number" min="0" step="0.5" x-model.number="draft.stone" class="w-full text-right" @keyup.enter="save()"></td>
                 </template>
                 <template x-if="!editing">
-                  <td class="opacity-80" x-text="item.notes"></td>
+                  <td class="opacity-80 col-gap-left" x-text="item.notes"></td>
                 </template>
                 <template x-if="editing">
-                  <td><input type="text" x-model="draft.notes" class="w-full" @keyup.enter="save()"></td>
+                  <td class="col-gap-left"><input type="text" x-model="draft.notes" class="w-full" @keyup.enter="save()"></td>
                 </template>
                 <td></td><!-- spacer column: absorbs the slack so Item/Stone/Notes stay tight on the left and Actions hugs the right -->
                 <td class="whitespace-nowrap text-right">
