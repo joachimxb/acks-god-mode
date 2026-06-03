@@ -1328,7 +1328,7 @@ document.addEventListener('alpine:init', () => {
             <h2 class="font-bold text-lg mb-2">Hexes <span class="text-sm font-normal opacity-70" x-show="selectedDomain.geography.hexes && selectedDomain.geography.hexes.length > 0" x-text="'· ' + selectedDomain.geography.hexes.length + ' total' + (isHouseRuleEnabled('families-per-hex-tracking') ? ', ' + selectedDomain.geography.hexes.reduce((s,h)=>s+(h.families||0),0).toLocaleString() + ' fam' : '')"></span></h2>
             <table class="bookkeeping text-sm">
               <thead><tr>
-                <th>Hex (q, r)</th>
+                <th>Hex</th>
                 <th>Class</th>
                 <th>Families</th>
                 <th>Land value</th>
