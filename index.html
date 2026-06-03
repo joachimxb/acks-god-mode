@@ -621,7 +621,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Stash detail modal (Stash B.4) -->
-<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style="background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="stashDetailStash()">
       <div>
@@ -708,9 +708,9 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Notable Item modal (Items I1 Step 3) — view/edit a promoted item in place, layered over the
-     stash modal (z-index 60) so closing returns to the stash. Edits log via gm-fiat on the notableItem.
+     stash modal (z-80, above the stash's z-60 and the character editor's z-50) so closing returns to the stash. Edits log via gm-fiat on the notableItem.
      Plain/fungible lines never reach here — only promoted lines (which point at a notableItems[] entity). -->
-<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:80; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-xl my-6">
     <template x-if="notableModalItem()">
       <div>
