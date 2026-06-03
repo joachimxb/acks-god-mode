@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-06-03
+
 ### Removed
 - **The "Located inventory (Stash subsystem)" house rule has been removed — the Stash subsystem is now always-on core.** Located inventory (the 🪙 Stashes view, character Vault cards, located hex stashes, party camps, carry-encumbrance, and the domain-treasury-as-stash model) previously sat behind an off-by-default `inventory-stash-system` toggle; that toggle is gone and the subsystem is always on, with no opt-out. Loading any existing campaign now materializes each domain's treasury as a stash automatically (unconditionally — as the rule used to do when switched on), so wealth always flows through the same audited stash model. The on-sheet carry-encumbrance readout likewise now shows by default (governed only by the **Ignore carry encumbrance** opt-out, still default off = full RAW). The six shipped templates and the demo were regenerated so they ship with their treasury stashes already materialized. Per Joachim — located inventory is a discipline real tables enforce anyway, and the engine's wealth flows depend on it.
 
