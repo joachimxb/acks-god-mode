@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-03
+
 ### Added
 - **Create Map — lay out a whole grid of blank hexes at once** (a ➕ Create Map button on the 🗺 Map tab, and the first thing you see on an empty map). Pick a size — 10×10, 25×25, 50×50, 100×100, or any custom width × height — and the tool fills in that many blank hexes (no terrain, unexplored, unclaimed), numbered in the published column·row convention from `0101`, ready to paint a world onto. Hexes you already have are **kept, never overwritten** — the grid fills in around them — so you can also use it to extend an existing map outward. An optional starting column/row places the block wherever you want, and a live preview shows how many hexes it will add (and how many already exist in range).
 - **Reassign a hex to a different domain from the hex detail panel.** The hex popup now has a **Domain** dropdown — every domain, plus *Unclaimed wilderness* — so you can move a hex between realms (or release it to the wild) without leaving the panel; it re-homes the hex, re-anchors the open panel to it, and is recorded in the event log like every other edit. Previously this was only possible from the map's Add/Edit-hexes mode.
