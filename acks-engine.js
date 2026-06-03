@@ -3518,6 +3518,11 @@ function liftToTopLevelCollections(campaign){
       }
       // Lift the settlement, if any
       const legacySettlement = h.settlement;
+      // Old-save backfill: settlements predate stable IDs (pre-#193). Without an id a settlement is
+      // never lifted to campaign.settlements[] (the checks below are id-gated) AND can't be edited —
+      // the editableStat save guard requires entity.id, so GM edits to Families / Investment silently
+      // revert ("no entity to save against"). Assign one before the lift so it round-trips + is editable.
+      if(legacySettlement && !legacySettlement.id) legacySettlement.id = newId(ID_PREFIXES.settlement);
       if(legacySettlement && legacySettlement.id){
         if(!legacySettlement.hexId) legacySettlement.hexId = h.id;
         if(!existingSettlementIds.has(legacySettlement.id)){

@@ -161,6 +161,28 @@ ok('kind:PC and five-axis opts agree', viaKindPC.controlledBy === ruler.controll
 ok('blankCharacter never emits c.kind regardless of input', !('kind' in viaKindPC));
 
 // =============================================================================
+section('Old-save settlement-id backfill — liftToTopLevelCollections (community bug 2026-06-03)');
+// =============================================================================
+// Pre-#193 saves nest an id-less settlement on a domain geography hex. Without an id it was
+// never lifted to campaign.settlements[], and the editableStat save guard (requires entity.id)
+// rejected Families/Investment edits ("no entity to save against" → silent revert). The lift now
+// backfills an id so the settlement round-trips, lifts to top-level, and is editable.
+const oldSave = ACKS.blankCampaign();
+const odom = ACKS.blankDomain({ name: 'Oldlands' }); odom.id = 'dom-old';
+odom.geography = { hexes: [{ id: 'hex-old', settlement: { name: 'Azhizarun', families: 249, totalInvestment: 10000 } }] };
+oldSave.domains = [odom];
+ACKS.liftToTopLevelCollections(oldSave);
+const liftedSet = (oldSave.settlements || []).find(s => s.name === 'Azhizarun');
+ok('id-less nested settlement gets a backfilled id', !!(odom.geography.hexes[0].settlement.id && /^set-/.test(odom.geography.hexes[0].settlement.id)));
+ok('the settlement is lifted to campaign.settlements[]', !!liftedSet && /^set-/.test(liftedSet.id));
+ok('lift re-unifies the nested ref with the top-level settlement (same object → edits propagate)', odom.geography.hexes[0].settlement === liftedSet);
+ok('findSettlement resolves the backfilled id (so gm-fiat can mutate it)', ACKS.findSettlement(oldSave, liftedSet.id) === liftedSet);
+ok('settlement data preserved through the lift', liftedSet.families === 249 && liftedSet.totalInvestment === 10000);
+const setIdAfter = liftedSet.id;
+ACKS.liftToTopLevelCollections(oldSave);
+ok('re-lift is idempotent (no duplicate, id stable)', (oldSave.settlements || []).filter(s => s.name === 'Azhizarun').length === 1 && oldSave.settlements.find(s => s.name === 'Azhizarun').id === setIdAfter);
+
+// =============================================================================
 section('P3.6 — every shipped template migrates clean, validates, and is a migrate-no-op (qa I2)');
 // =============================================================================
 // Five of six templates were previously validated only incidentally. Guard all of
