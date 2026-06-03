@@ -2,9 +2,9 @@
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces
 // (WIS->WIL, settlement entryways/regulatedAssets -> [], v1-scope reservations, typed
 // eventLog, Wave Construction-B agricultural Projects, Phase 2.5 Journeys hex/character
-// fields, Items I1 character.coins purse). Regenerated 2026-06-03 (Items I1 coins) -
-// migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes
-// window.ACKS_DEMO_TEMPLATE.
+// fields, Items I1 character.coins purse + treasury Stash). Regenerated 2026-06-03
+// (stash subsystem made always-on core, v0.17.0) - migrateCampaign is a no-op on this
+// file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
   global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
@@ -329,7 +329,8 @@
           "characterId": null,
           "administersThisMonth": false
         }
-      }
+      },
+      "treasuryStashId": "stash-zewxkre"
     },
     {
       "schemaVersion": 2,
@@ -516,7 +517,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Yorick's barony. Owes ~10% tribute to the March monthly."
+      "notes": "Yorick's barony. Owes ~10% tribute to the March monthly.",
+      "treasuryStashId": "stash-qqqpfcf"
     },
     {
       "schemaVersion": 2,
@@ -708,7 +710,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Mira's barony. Smallest of the three, but the pilgrim trade keeps it solvent."
+      "notes": "Mira's barony. Smallest of the three, but the pilgrim trade keeps it solvent.",
+      "treasuryStashId": "stash-9v9rbln"
     }
   ],
   "characters": [
@@ -2511,6 +2514,131 @@
       "notes": ""
     }
   ],
-  "constructibles": []
+  "constructibles": [],
+  "stashes": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-zewxkre",
+      "name": "March of Saltspur Treasury",
+      "hexId": "hex-saltspur-keep",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-march-of-saltspur",
+      "items": [
+        {
+          "id": "si-zb2zlha",
+          "facets": [
+            "coin"
+          ],
+          "qty": 18000,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 5,
+      "history": [
+        {
+          "turn": 5,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 18000
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-qqqpfcf",
+      "name": "Barony of Northwatch Treasury",
+      "hexId": "hex-northwatch-tower",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-barony-northwatch",
+      "items": [
+        {
+          "id": "si-k08rif3",
+          "facets": [
+            "coin"
+          ],
+          "qty": 1200,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 5,
+      "history": [
+        {
+          "turn": 5,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 1200
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-9v9rbln",
+      "name": "Barony of Saltcombe Treasury",
+      "hexId": "hex-saltcombe-shrine",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-barony-saltcombe",
+      "items": [
+        {
+          "id": "si-yv4vf81",
+          "facets": [
+            "coin"
+          ],
+          "qty": 1800,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 5,
+      "history": [
+        {
+          "turn": 5,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 1800
+        }
+      ]
+    }
+  ]
 };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

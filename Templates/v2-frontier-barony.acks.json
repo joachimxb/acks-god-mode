@@ -258,7 +258,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Small frontier holding. Sir Halvard secured it from goblin and bandit pressure two years ago and is still consolidating his hold."
+      "notes": "Small frontier holding. Sir Halvard secured it from goblin and bandit pressure two years ago and is still consolidating his hold.",
+      "treasuryStashId": "stash-6vl2quo"
     }
   ],
   "characters": [
@@ -481,5 +482,48 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": []
+  "constructibles": [],
+  "stashes": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-6vl2quo",
+      "name": "Barony of Thornreach Treasury",
+      "hexId": "hex-tower-of-thornreach",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-barony-of-thornreach",
+      "items": [
+        {
+          "id": "si-9wfelgd",
+          "facets": [
+            "coin"
+          ],
+          "qty": 2400,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 2400
+        }
+      ]
+    }
+  ]
 }

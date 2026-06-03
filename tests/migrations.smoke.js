@@ -67,7 +67,6 @@ ok('migrateCharacterClassification is idempotent', (ACKS.migrateCharacterClassif
 section('P1.1 — migrateDomainTreasuryToStash: scalar treasury → materialized treasury-stash');
 // =============================================================================
 const tc = ACKS.blankCampaign();
-tc.houseRules['inventory-stash-system'] = { enabled: true };
 const tdom = ACKS.blankDomain({ name: 'Vaultmark' });
 tdom.id = 'dom-treas';
 tdom.treasury = { gp: 250 };
@@ -116,10 +115,11 @@ ok('clean campaign → empty warning array', ACKS.reconcileWaveARelations({ char
 section('P1.1 — wiring guard: migrateCampaign invokes the wrappers');
 // =============================================================================
 // A legacy-shaped campaign that triggers the classification branch (a raw char with
-// c.kind, no five-axis) AND the treasury branch (rule on + domain w/ scalar treasury).
-// After migrateCampaign, both post-conditions must hold — proving the wrappers ran.
+// c.kind, no five-axis) AND the treasury branch (a domain w/ scalar treasury). After
+// migrateCampaign, both post-conditions must hold — proving the wrappers ran. The Stash
+// subsystem is always-on core (the inventory-stash-system toggle was removed v0.17.0),
+// so the treasury materializes with no house rule set.
 const legacy = ACKS.blankCampaign();
-legacy.houseRules['inventory-stash-system'] = { enabled: true };
 legacy.characters = [{ schemaVersion: 2, id: 'chr-legacy', name: 'Greybeard', kind: 'NPC', alive: true }];
 const ldom = ACKS.blankDomain({ name: 'Oldmark' });
 ldom.id = 'dom-legacy';

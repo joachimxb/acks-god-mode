@@ -263,23 +263,23 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'detailed-hijink-tracking', category:'hijinks', name:'Detailed hijink tracking',
     source:'ACKS II RR pp.360-370 (Phase 2.7 — not yet implemented)',
     description:"When off (default), syndicates abstract to the designer's-note shorthand. When on, every hijink is resolved per-attempt with proficiency bonuses, planning/laying-low timers, individual perpetrator state, and the full Crime and Punishment table." },
-  // ----- Located inventory (Phase 2.95 Stash A — 2026-05-29) -----
-  // Master toggle for the Stash subsystem. When ON, all wealth flows through
-  // typed stash entities (Phase_2.95_Stash_Plan.md §7). When OFF, the engine
-  // treats stash data on disk as non-existent and stripped on save per the
-  // house-rule-gating memory. Sub-toggles below.
-  { id:'inventory-stash-system', category:'characters', name:'Located inventory (Stash subsystem)',
-    source:'Phase 2.95 Stash plan (Domain Treasury becomes Stash subtype; carry-inventory encumbrance lives)',
-    description:"Master switch for the Stash subsystem. When ON, all wealth (treasury, personal inventory, party loot, mining revenue, venture payouts, adventure rewards) flows through typed stash entities with location, owner, and audit history. The Domain Treasury becomes a stash subtype (kind='domain-treasury') and transfers with the office on ruler succession. Encumbrance becomes meaningful. XP threshold (RR p.423) credits on deposit-to-personal-stash, not on bare receipt. When OFF, legacy bare-number domain.treasury + free-text character.inventory remains; stash data is hidden AND non-functional per the house-rule-gating memory. Sub-toggles: ignore-encumbrance, hidden-stashes, party-loot-split." },
+  // ----- Located inventory (Phase 2.95 Stash subsystem — 2026-05-29) -----
+  // The Stash subsystem is always-on CORE as of v0.17.0 (2026-06-03): the master
+  // `inventory-stash-system` toggle was removed (per Joachim — a located-inventory
+  // discipline every table enforces anyway, and the engine depends on it). All wealth
+  // (treasury, personal inventory, party loot, venture/adventure payouts) flows through
+  // typed stash entities unconditionally; the Domain Treasury IS a stash subtype
+  // (kind='domain-treasury') that transfers with the office on ruler succession.
+  // The sub-toggles below only refine behavior — none gates the subsystem's existence.
   { id:'ignore-encumbrance', category:'characters', name:'Stash — Ignore carry encumbrance (GM simplification)',
     source:'ACKS II RR pp.83-84 (encumbrance is RAW; this opt-out is a deliberate GM simplification — §6 polarity)',
-    description:"OFF by default = full RAW: each character's carry weight is computed and its load band shown — unencumbered ≤5 st (120'/turn, 24 mi/day) · lightly loaded ≤7 (90'/18) · heavily loaded ≤10 (60'/12) · severely loaded ≤20 (30'/6) · overloaded >20 (cannot move); coins weigh 1 stone per 1,000 (RR pp.83-84). Adds are never blocked — RAW lets you be overloaded, you just can't move. When ON, the GM opts to ignore encumbrance entirely (a table simplification): weight is not surfaced or tracked. Requires inventory-stash-system.", requires:["inventory-stash-system"] },
+    description:"OFF by default = full RAW: each character's carry weight is computed and its load band shown — unencumbered ≤5 st (120'/turn, 24 mi/day) · lightly loaded ≤7 (90'/18) · heavily loaded ≤10 (60'/12) · severely loaded ≤20 (30'/6) · overloaded >20 (cannot move); coins weigh 1 stone per 1,000 (RR pp.83-84). Adds are never blocked — RAW lets you be overloaded, you just can't move. When ON, the GM opts to ignore encumbrance entirely (a table simplification): weight is not surfaced or tracked." },
   { id:'hidden-stashes', category:'characters', name:'Stash — Hidden caches + smuggling vaults',
     source:'ACKS II + Phase 2.7 Hijinks scope',
-    description:"Allows stashes to be flagged isHidden=true (caches in the wilderness, smugglers' vaults, hidden temple coffers). Hidden stashes don't surface on hex detail by default; Phase 2.7 Spy hijinks can locate them via proficiency throw. Requires inventory-stash-system.", requires:["inventory-stash-system"] },
+    description:"Allows stashes to be flagged isHidden=true (caches in the wilderness, smugglers' vaults, hidden temple coffers). Hidden stashes don't surface on hex detail by default; Phase 2.7 Spy hijinks can locate them via proficiency throw." },
   { id:'party-loot-split', category:'characters', name:'Stash — Party loot splits on withdraw',
     source:'ACKS II RR p.423 (XP threshold for divided treasure)',
-    description:"When ON (RAW default), GP-threshold XP credit fires for a character when they withdraw their share from a party stash — the 'treasure is divided' moment. When OFF, party-stash deposits proportionally credit all members' GP threshold immediately on deposit (faster but more abstract). Requires inventory-stash-system.", requires:["inventory-stash-system"] },
+    description:"When ON (RAW default), GP-threshold XP credit fires for a character when they withdraw their share from a party stash — the 'treasure is divided' moment. When OFF, party-stash deposits proportionally credit all members' GP threshold immediately on deposit (faster but more abstract)." },
   // ----- Notable items + custody (Wave B.5 — Architecture.md §3.7 — 2026-05-29) -----
   // Master toggle for the Notable Items subsystem. When ON, magic items, AXIOMS books,
   // regalia, masterworks are tracked as first-class entities (campaign.notableItems[])
