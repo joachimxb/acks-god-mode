@@ -582,12 +582,6 @@ document.addEventListener('alpine:init', () => {
     <button @click="mapEndSelect()" class="underline opacity-70 hover:opacity-100">cancel</button>
   </div>
 
-  <!-- Add-hex-via-map banner — shown during the per-domain "+ add hex" flow (addHexViaMap). -->
-  <div x-show="_hexAddReturn" class="mb-3 px-3 py-2 border border-emerald-500 bg-emerald-50 rounded flex items-center gap-3 text-sm" x-cloak>
-    <span>Adding a hex to <strong x-text="(domains.find(d => d.id === (_hexAddReturn && _hexAddReturn.domainId)) || {}).name || 'the domain'"></strong> — click a faint empty cell to place it; it'll be claimed for this domain.</span>
-    <button @click="_returnFromHexAdd()" class="underline opacity-70 hover:opacity-100">cancel · back to domain</button>
-  </div>
-
   <!-- Create Map modal — lay out a blank W×H grid of unclaimed/unexplored hexes (world starter, #225). -->
   <div x-show="mapGridModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" x-cloak @click.self="mapGridModalOpen = false" @keydown.escape.window="mapGridModalOpen = false">
     <div class="vellum border border-ink rounded-lg shadow-xl max-w-md w-full mx-4 p-5 space-y-4">
