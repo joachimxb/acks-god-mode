@@ -5670,7 +5670,15 @@ document.addEventListener('alpine:init', () => {
                 cancel(){ this.editing = false; }
               }">
                 <template x-if="!editing">
-                  <td x-text="item.name || '(unnamed)'"></td>
+                  <td>
+                    <!-- A promoted carry item IS a Notable Item → click to open its modal (parity with stash items). -->
+                    <template x-if="item.notableItemId">
+                      <button @click="openNotableModal(item.notableItemId)" class="underline hover:opacity-80 text-left" title="Open this Notable Item" x-text="(item.name || '(unnamed)') + ' ★'"></button>
+                    </template>
+                    <template x-if="!item.notableItemId">
+                      <span x-text="item.name || '(unnamed)'"></span>
+                    </template>
+                  </td>
                 </template>
                 <template x-if="editing">
                   <td><input type="text" x-model="draft.name" class="w-full" x-init="$nextTick(() => $el.focus())" @keyup.enter="save()" @keyup.escape="cancel()"></td>
@@ -5691,6 +5699,7 @@ document.addEventListener('alpine:init', () => {
                   <template x-if="!editing">
                     <span>
                       <button @click="start()" class="ed-edit" title="Edit row (logged)">✏</button>
+                      <button x-show="!item.notableItemId" @click="promoteCarryItem(ii)" class="underline text-xs ml-1" title="Promote to a tracked Notable Item">★ promote</button>
                       <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'inventory', label:'Inventory item', action:'remove', index:ii})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
                     </span>
                   </template>
@@ -11544,6 +11553,15 @@ return {
   notableModalItem(){ return this.notableModalId ? window.ACKS.findNotableItem(this.currentCampaign, this.notableModalId) : null; },
   notableKindLabel(k){ return ({'magic-weapon':'Magic weapon','magic-armor':'Magic armor','potion':'Potion','scroll':'Scroll','wand':'Wand','rod':'Rod','staff':'Staff','misc-magic':'Misc. magic','book':'Book','relic':'Relic','regalia':'Regalia','masterwork':'Masterwork'})[k] || k || '—'; },
   notableMakerName(it){ if(!it||!it.provenance||!it.provenance.makerCharacterId) return null; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===it.provenance.makerCharacterId); return c ? c.name : it.provenance.makerCharacterId; },
+  // Promote a carry-inventory line into a tracked Notable Item — parity with the stash's ★ promote.
+  // promoteLineToNotableItem tolerates the Phase 2.6 {name,stone,notes} shape (it only tags facets when a
+  // facets[] already exists), so here it just creates the NotableItem + sets the line's notableItemId.
+  promoteCarryItem(ii){
+    const ch = this.characterEditing; if(!ch || !Array.isArray(ch.inventory)) return;
+    const it = ch.inventory[ii]; if(!it || it.notableItemId) return;
+    window.ACKS.promoteLineToNotableItem(this.currentCampaign, it, { name: it.name||'' });
+    this.markDirty(); this.schedulePersist();
+  },
   closeStashDetail(){ this.stashDetailId=null; },
   stashDetailStash(){ return this.stashDetailId ? window.ACKS.findStash(this.currentCampaign, this.stashDetailId) : null; },
   _afterStashMutation(){ this.markDirty(); this.schedulePersist(); },
