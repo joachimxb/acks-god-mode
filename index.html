@@ -665,6 +665,20 @@ document.addEventListener('alpine:init', () => {
         </label>
       </div>
 
+      <!-- Journey destination picker bar — shown when the Start-a-Journey wizard's "🗺 choose from map"
+           jumped here (map select mode). Click a hex to set the pending destination, then confirm/cancel. -->
+      <div x-show="_journeyDestPick" class="vellum border border-amber-500 bg-amber-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <span class="font-semibold">🧭 Journey destination —</span>
+        <template x-if="_journeyDestPick && _journeyDestPick.pendingHexId">
+          <span>chosen: <strong x-text="journeyHexLabel(_journeyDestPick.pendingHexId)"></strong></span>
+        </template>
+        <template x-if="!(_journeyDestPick && _journeyDestPick.pendingHexId)">
+          <span class="opacity-70">click a hex on the map…</span>
+        </template>
+        <button @click="journeyDestPickConfirm()" :disabled="!(_journeyDestPick && _journeyDestPick.pendingHexId)" :class="(_journeyDestPick && _journeyDestPick.pendingHexId) ? 'bg-emerald-200 hover:bg-emerald-300' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded">Use this hex</button>
+        <button @click="journeyDestPickCancel()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Cancel · back to journey</button>
+      </div>
+
       <!-- Add/Edit hex panel (M5) — PERSISTENT while Add/Edit mode is on (shown the moment the toggle
            flips, before any cell is clicked). With no cell selected it's the "new-hex defaults" brush:
            set domain/terrain, then click a faint empty cell to place a hex with those values (kept, not
@@ -3265,6 +3279,9 @@ document.addEventListener('alpine:init', () => {
                 <option value="" :selected="!journeyWizard.destinationHexId">— pick —</option>
                 <template x-for="h in journeyHexOptions()" :key="'d-'+h.id"><option :value="h.id" :selected="journeyWizard.destinationHexId === h.id" x-text="h.label"></option></template>
               </select>
+              <div class="mt-1">
+                <button type="button" @click="journeyPickDestinationOnMap()" class="text-xs underline opacity-80 hover:opacity-100" title="Pick the destination by clicking a hex on the map, then confirm and come back here">🗺 choose from map</button>
+              </div>
             </div>
             <div>
               <label class="opacity-70 block text-xs">Name (optional)</label>
@@ -7283,8 +7300,8 @@ return {
     this.$watch('mapFillLayer',()=>this.schedulePersist());
     // #225 Map is now a World sub-view: fit the viewport when World opens on Map, or when the
     // sub-view switches to Map; persist the active sub-view so a reload restores it.
-    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); if(v!=='world') this._hexAddReturn = null; }); // left World entirely → abandon the add-hex flow
-    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); else this._hexAddReturn = null; }); // left Map for another World sub-view → abandon the add-hex flow
+    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); if(v!=='world'){ this._hexAddReturn = null; this._journeyDestPickAbandon(); } }); // left World entirely → abandon the add-hex / destination-pick flows
+    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); else { this._hexAddReturn = null; this._journeyDestPickAbandon(); } }); // left Map for another World sub-view → abandon the add-hex / destination-pick flows
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -11237,6 +11254,10 @@ return {
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,
+  // Set while the Start-a-Journey wizard's "🗺 choose from map" flow is sending the GM to the Map to
+  // pick a destination: holds { pendingHexId } (the hex clicked but not yet confirmed). Built on the
+  // map's select seam; confirm/cancel via the on-map bar return to Activities ▸ Journeys.
+  _journeyDestPick: null,
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11718,6 +11739,35 @@ return {
   // select mode; clicking a hex hands its id to `cb`. Call mapEndSelect() to restore inspect.
   mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'world'; this.worldSubView = 'map'; this.mapEnsureView(); },
   mapEndSelect(){ this._mapSelectCb = null; this._mapSelectHint = ''; this.mapMode = 'inspect'; },
+  // "🗺 choose from map" for the Start-a-Journey destination (the wizard button). Jumps to the Map in
+  // the existing select mode; each hex click sets a PENDING pick (re-clickable to change), which the GM
+  // then confirms or cancels on the on-map bar — returning to the still-open wizard either way. The
+  // wizard's state (participants, start, supplies) persists across the trip to the map and back.
+  journeyPickDestinationOnMap(){
+    if(!this.currentCampaign) return;
+    if(!(this.currentCampaign.hexes || []).length){ this.showToast('No hexes on the map yet to pick from — add some, or use the dropdown.', 4000); return; }
+    this.mapEditAddMode = false; // keep Add/Edit affordances out of the pick
+    this._journeyDestPick = { pendingHexId: this.journeyWizard.destinationHexId || null };
+    this.mapBeginSelect(hexId => { this._journeyDestPick = { pendingHexId: hexId }; }, 'Click a hex to choose the journey destination, then confirm.');
+    this.showToast('Click a destination hex on the map, then "Use this hex" (or Cancel).', 5000);
+  },
+  journeyDestPickConfirm(){
+    const pick = this._journeyDestPick;
+    if(!pick || !pick.pendingHexId) return;
+    this.journeyWizard.destinationHexId = pick.pendingHexId;
+    this._journeyDestPickReturn();
+  },
+  journeyDestPickCancel(){ this._journeyDestPickReturn(); },
+  // Leave select mode + go back to the (still-open) Start-a-Journey wizard under Activities ▸ Journeys.
+  _journeyDestPickReturn(){
+    this._journeyDestPick = null;
+    this.mapEndSelect();
+    this.currentView = 'activities'; this.activitiesSubView = 'journeys';
+    this.schedulePersist();
+  },
+  // Abandon an in-flight destination pick when the GM navigates away from the Map mid-pick (wired into
+  // the currentView / worldSubView watches) — no commit, just drop the pending pick + leave select mode.
+  _journeyDestPickAbandon(){ if(this._journeyDestPick){ this._journeyDestPick = null; this.mapEndSelect(); } },
   // First unused {q,r} scanning q=0,1,2,… along row 0 — so "+ add hex" doesn't pile every new hex on
   // (0,0) (which collides on the campaign-global coord-uniqueness rule). The GM sets the real
   // column·row afterward in the hex panel.

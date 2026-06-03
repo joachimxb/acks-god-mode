@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **Terrain now varies along the route.** Each hex's own terrain (and any mud or snow underfoot) sets the pace for that leg, so a trek that starts in grassland and crosses a belt of forest or jungle slows down exactly where the hard ground is, instead of treating the whole trip as the starting hex's terrain.
 
   Where you haven't drawn a particular hex along the way, the journey falls back to the starting hex's terrain and road state — so **existing campaigns travel exactly as before**, and the new detail rewards filling in the map. (The per-side road/river/ford cartography shipped in 0.13.0–0.14.0; this wires it into travel.)
+- **Pick a journey's destination straight off the map.** The Start-a-Journey planner now has a **🗺 choose from map** link under the Destination dropdown: click it to jump to the map, click the hex you want (re-click to change your mind), then **Use this hex** to confirm — or Cancel — and you land back in the planner with the destination filled in, everything else you'd entered intact. Handy when you know *where* a place sits on the map but not its hex number.
 
 ## [0.14.0] - 2026-06-03
 
