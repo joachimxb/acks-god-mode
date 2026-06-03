@@ -3464,9 +3464,9 @@ document.addEventListener('alpine:init', () => {
                 <!-- GM reroll — only the latest day (downstream days depend on it). -->
                 <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
                 <!-- §24 — the hexes entered this day; the latest day's last hex is the party's current position. -->
-                <div x-show="(d.hexPath||[]).length" class="w-full pl-3 text-[11px] opacity-80">
+                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="w-full pl-3 text-[11px] opacity-80">
                   <span class="opacity-50">via </span>
-                  <template x-for="(st,si) in (d.hexPath||[])" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===((d.hexPath||[]).length-1)) ? 'font-semibold text-emerald-800' : ''" x-text="journeyStepLabel(st)"></span></span></template>
+                  <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold text-emerald-800' : ''" x-text="journeyStepLabel(st)"></span></span></template>
                   <span x-show="di===(journeyDetail().days.length-1)" class="text-emerald-800" title="The party is here now"> 📍 here now</span>
                 </div>
             </template>
@@ -8652,6 +8652,22 @@ return {
     if(!step) return '?';
     if(step.hexId){ const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===step.hexId); if(h) return window.ACKS.hexName(h) || window.ACKS.hexDisplayLabel(step.q||0, step.r||0); }
     return window.ACKS.hexDisplayLabel(step.q||0, step.r||0);
+  },
+  // The hexes entered on a given day, for the day-log "via …" line. New day records store `hexPath`
+  // directly; OLDER ones (ticked before hexPath shipped, or already-saved journeys) are reconstructed
+  // from the live route + the hexes covered on prior days — so every journey shows its path.
+  journeyDayPath(j, d, di){
+    if(d && Array.isArray(d.hexPath) && d.hexPath.length) return d.hexPath;
+    if(!j || !d || !((d.hexesTraveled||0) > 0)) return [];
+    let route = []; try { route = window.ACKS.journeyRoute(this.currentCampaign, j) || []; } catch(e){ return []; }
+    if(route.length < 2) return [];
+    const days = j.days || [];
+    let before = 0; for(let k = 0; k < di; k++) before += (days[k] && days[k].hexesTraveled) || 0;
+    const out = [];
+    for(let i = before + 1; i <= before + (d.hexesTraveled||0) && i < route.length; i++){
+      const s = route[i]; if(s && s.coord) out.push({ hexId: s.hexId || null, q: s.coord.q, r: s.coord.r });
+    }
+    return out;
   },
   journeyParticipantNames(j){
     if(!j) return '';
