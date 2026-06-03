@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-03
+
 ### Added
 - **Journeys now travel hex by hex, following the roads and rivers you've drawn on the map.** Until now a journey moved by straight-line distance and read only a single coarse "this hex has a road" flag on its *starting* hex. It now walks the actual line of hexes between start and destination and resolves each one against the per-side **roads**, **rivers**, and **ford/bridge** marks from the map's Add/Edit-hexes editor:
   - **Roads speed you up and keep you from getting lost** (RR p.272 / p.275). A hex you pass *through* earns the road bonus (×3/2 speed, no getting-lost throw, the safe wilderness-encounter column) when a road connects the side you enter by to the side you leave by; a hex you *end* in counts when a road touches the side you entered. A day spent entirely on roads rolls no navigation throw and draws no wandering encounter.
