@@ -145,6 +145,14 @@ ok('migrated stashTotalGp = 1000 + 50', approx(ACKS.stashTotalGp(s), 1050));
 const changed2 = ACKS.migrateAllStashItemShapes(lc);
 ok('migration idempotent (0 changes on second pass)', changed2 === 0);
 
+// Phase 2.6 carry-inventory shape ({name,qty,stone,gp}) is left untouched, weighed by `stone`
+const p26 = ACKS.blankCampaign();
+p26.characters.push({ id: 'chr-2', name: 'Porter', inventory: [{ name: 'rope', qty: 1, stone: 3, gp: 5 }] });
+const ch26 = ACKS.migrateCampaign(JSON.parse(JSON.stringify(p26))).characters[0];
+ok('Phase 2.6 inventory item NOT facet-migrated (left as-is)', !('facets' in ch26.inventory[0]));
+ok('itemEncumbranceSt reads the legacy `stone` field', ACKS.itemEncumbranceSt(ch26.inventory[0]) === 3);
+ok('carryTotalEncumbrance over Phase 2.6 inventory uses stone', ACKS.carryTotalEncumbrance(ch26) === 3);
+
 // =============================================================================
 section('Stash A.5 — idempotency round-trip (migrate → JSON → re-migrate)');
 // =============================================================================

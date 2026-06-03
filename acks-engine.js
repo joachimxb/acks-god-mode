@@ -2108,6 +2108,7 @@ function itemEncumbranceSt(item){
   if(!item) return 0;
   if(itemHasFacet(item, 'coin')) return (item.qty || 0) / 1000;
   if(item.encumbranceSt != null) return item.encumbranceSt;
+  if(item.stone != null) return parseFloat(item.stone) || 0;   // legacy Phase 2.6 carry-inventory weight
   if(itemHasFacet(item, 'bulk')) return (item.unit === 'stones') ? (item.qty || 0) : 0;
   if(itemHasFacet(item, 'gear')) return 1;
   return 0;
@@ -2190,7 +2191,12 @@ function migrateStashItemShape(item){
   if(!item || typeof item !== 'object') return false;
   const hasFacets = Array.isArray(item.facets) && item.facets.length;
   const hasLegacy = ('kind' in item) || ('magicItemId' in item) || ('label' in item);
-  if(hasFacets && !hasLegacy) return false;  // already migrated
+  // Only migrate genuine stash-item lines (a legacy kind/magicItemId/label present).
+  // Already-facet lines AND the Phase 2.6 carry-inventory {name,qty,stone,gp} shape
+  // (neither facets nor a legacy stash discriminator) are left untouched — the full
+  // carry-inventory→facet unification is Stash plan §8.3, deferred. itemEncumbranceSt
+  // reads the legacy `stone` field so encumbrance is correct over both shapes.
+  if(!hasLegacy) return false;
   if(!hasFacets){
     const k = item.kind;
     if(k === 'coin') item.facets = ['coin'];
