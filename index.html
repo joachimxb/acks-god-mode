@@ -565,6 +565,132 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- ───── World sub-tab: STASHES (Items I1 / Phase 2.95 Stash B) — located wealth ───── -->
+<div x-show="currentView === 'world' && worldSubView === 'stashes'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🪙 Stashes <span class="text-sm opacity-70 font-normal" x-text="'· ' + allStashes().length + ' located'"></span></h3>
+      <div class="flex gap-2 items-center text-sm">
+        <input type="text" x-model="stashSearch" placeholder="Search name, owner, hex…" class="w-64">
+        <select x-model="stashOwnerFilter" class="text-sm">
+          <option value="all">All kinds</option>
+          <option value="treasury">Domain treasuries</option>
+          <option value="personal">Personal</option>
+          <option value="party">Party loot</option>
+          <option value="cache">Caches</option>
+          <option value="hidden">Hidden only</option>
+        </select>
+        <span class="text-sm opacity-70" x-text="filteredStashes().length + ' shown'"></span>
+      </div>
+    </div>
+    <template x-if="allStashes().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No stashes yet. A domain treasury materializes when the Stash system is on; caches and personal vaults appear as wealth is stored — create one from a character's Vault card or a hex's Located-Stashes card.</p>
+    </template>
+    <template x-if="allStashes().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Kind</th><th>Owner</th><th>Hex</th>
+          <th class="text-right">Total</th><th class="text-right">Items</th><th class="text-right">Weight</th><th>Hidden</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="row in filteredStashes()" :key="row.stash.id">
+            <tr>
+              <td><button @click="openStashDetail(row.stash.id)" class="underline font-semibold" x-text="row.stash.name || '(unnamed)'"></button></td>
+              <td x-text="stashKindLabel(row.stash)"></td>
+              <td x-text="row.ownerLabel"></td>
+              <td x-text="row.hexLabel"></td>
+              <td class="text-right font-mono" x-text="Math.round(row.totalGp).toLocaleString()+' gp'"></td>
+              <td class="text-right" x-text="row.itemCount"></td>
+              <td class="text-right font-mono" x-text="(Math.round(row.totalSt*10)/10)+' st'"></td>
+              <td x-text="row.stash.isHidden ? '🔒' : '—'"></td>
+              <td class="text-right"><button @click="openStashDetail(row.stash.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">Located, owned inventories in <code>campaign.stashes[]</code>. A domain's treasury is a stash that transfers with the office, not the ruler. Total sums all coin (gp-equivalent across cp/sp/ep/gp/pp) + valuables; weight derives per RR p.83 (1,000 coins = 1 stone).</p>
+  </div>
+</div>
+
+<!-- Stash detail modal (Stash B.4) -->
+<div x-show="stashDetailId" @keydown.escape.window="closeStashDetail()" class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4" style="background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
+    <template x-if="stashDetailStash()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg" x-text="stashDetailStash().name || '(unnamed stash)'"></h3>
+            <p class="text-sm opacity-70" x-text="stashKindLabel(stashDetailStash()) + ' · ' + stashOwnerLabel(stashDetailStash()) + ' · ' + stashHexLabel(stashDetailStash())"></p>
+            <p class="text-sm font-mono mt-1" x-text="Math.round(window.ACKS.stashTotalGp(stashDetailStash())).toLocaleString() + ' gp · ' + (Math.round(window.ACKS.stashTotalEncumbrance(stashDetailStash())*10)/10) + ' st'"></p>
+          </div>
+          <button @click="closeStashDetail()" class="text-2xl leading-none px-2" title="Close">×</button>
+        </div>
+        <div class="flex gap-1 px-4 pt-2 border-b border-ink/20 text-sm">
+          <template x-for="t in [{id:'items',label:'Items'},{id:'activity',label:'Activity'},{id:'settings',label:'Settings'}]" :key="t.id">
+            <button @click="stashDetailTab=t.id" :class="stashDetailTab===t.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border-b-2" :style="stashDetailTab===t.id?'border-color:#2a1f12':'border-color:transparent'" x-text="t.label"></button>
+          </template>
+        </div>
+        <!-- ITEMS -->
+        <div x-show="stashDetailTab==='items'" class="p-4 space-y-3">
+          <template x-if="(stashDetailStash().items||[]).length===0"><p class="text-sm italic opacity-60">Empty.</p></template>
+          <table x-show="(stashDetailStash().items||[]).length>0" class="bookkeeping text-sm w-full">
+            <thead><tr><th>Item</th><th>Facets</th><th class="text-right">Value</th><th class="text-right">Weight</th><th class="text-right">Actions</th></tr></thead>
+            <tbody>
+              <template x-for="it in stashDetailStash().items" :key="it.id">
+                <tr>
+                  <td x-text="stashItemLabel(it)"></td>
+                  <td class="opacity-70 text-xs" x-text="stashItemFacetsLabel(it)"></td>
+                  <td class="text-right font-mono" x-text="window.ACKS.itemValueGp(it) ? (Math.round(window.ACKS.itemValueGp(it)).toLocaleString()+' gp') : '—'"></td>
+                  <td class="text-right font-mono" x-text="(Math.round(window.ACKS.itemEncumbranceSt(it)*100)/100)+' st'"></td>
+                  <td class="text-right whitespace-nowrap">
+                    <button x-show="!window.ACKS.itemHasFacet(it,'coin') && !it.notableItemId" @click="stashPromoteItem(it.id)" class="underline text-xs" title="Promote to a tracked Notable Item">★ promote</button>
+                    <button @click="stashRemoveItem(it.id)" class="underline accent-red text-xs ml-2">remove</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="flex flex-wrap gap-4 pt-2 border-t border-ink/20 text-sm items-end">
+            <div class="flex items-end gap-1">
+              <label class="text-xs opacity-70">Deposit coins<br><input type="number" min="0" x-model.number="_stashDepositDraft.qty" class="w-24"></label>
+              <select x-model="_stashDepositDraft.denomination" class="text-sm"><option>cp</option><option>sp</option><option>ep</option><option>gp</option><option>pp</option></select>
+              <button @click="stashDepositCoins()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ coins</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="text-xs opacity-70">Add item<br><input type="text" x-model="_stashItemDraft.name" placeholder="name" class="w-32"></label>
+              <label class="text-xs opacity-70">qty<br><input type="number" min="1" x-model.number="_stashItemDraft.qty" class="w-14"></label>
+              <label class="text-xs opacity-70">st<br><input type="number" min="0" step="0.1" x-model.number="_stashItemDraft.encumbranceSt" class="w-16"></label>
+              <button @click="stashAddItem()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ item</button>
+            </div>
+          </div>
+        </div>
+        <!-- ACTIVITY -->
+        <div x-show="stashDetailTab==='activity'" class="p-4">
+          <template x-if="(stashDetailStash().history||[]).length===0"><p class="text-sm italic opacity-60">No activity recorded.</p></template>
+          <ul class="text-sm space-y-1">
+            <template x-for="(h,hi) in [...(stashDetailStash().history||[])].reverse()" :key="hi">
+              <li class="border-b border-ink/10 pb-1">
+                <span class="opacity-60" x-text="'T'+(h.turn!=null?h.turn:'?')+' · '+(h.type||'?')"></span>
+                <span x-text="h.reason ? (' — '+h.reason) : ''"></span>
+                <template x-if="h.items && h.items.length"><span class="opacity-70 text-xs" x-text="' ['+h.items.map(x=>x.qty+' '+(x.label||x.kind)).join(', ')+']'"></span></template>
+              </li>
+            </template>
+          </ul>
+        </div>
+        <!-- SETTINGS -->
+        <div x-show="stashDetailTab==='settings'" class="p-4 space-y-3 text-sm">
+          <label class="block">Name<br><input type="text" x-model="stashDetailStash().name" @change="stashSettingsChanged()" class="w-full"></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="stashDetailStash().isHidden" @change="stashSettingsChanged()" :disabled="!isHouseRuleEnabled('hidden-stashes')"> Hidden (cache / smuggling vault)</label>
+          <p x-show="!isHouseRuleEnabled('hidden-stashes')" class="text-xs opacity-60 -mt-2">Enable the “Hidden caches” house rule to use this.</p>
+          <label class="block">Notes<br><textarea x-model="stashDetailStash().notes" @change="stashSettingsChanged()" class="w-full" rows="2"></textarea></label>
+          <p class="text-xs opacity-60" x-show="stashDetailStash().kind==='domain-treasury'">This is a domain treasury — it transfers with the office on ruler succession, not with the ruling character.</p>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- ═══════════ VIEW: MAP (Phase 2.5 Map Mode #225 — M0–M2) ═══════════ -->
 <!-- A first-class SVG hex map: a PURE VIEW over the campaign's hexes (Architecture §11). Geometry
      + fill-layer math live in the engine (acks-engine-subsystems.js §9.7); this is the render +
@@ -5492,7 +5618,39 @@ document.addEventListener('alpine:init', () => {
             </tr>
           </tbody>
         </table>
-        <p class="text-sm opacity-70 italic">Encumbrance: tracked here in raw stone. Per-class load limits and movement penalties land with the Phase 2.5+ travel mechanics.</p>
+        <p class="text-sm opacity-70 italic">The list above is the carry inventory (raw stone per item). The RAW load band below reads it.</p>
+
+        <!-- Carry encumbrance readout (Stash B.5) — RAW by default (RR pp.83–84); the ignore-encumbrance opt-out hides it -->
+        <div x-show="encumbranceShown()" class="mt-3 border border-ink/30 rounded p-3" x-data="{ get info(){ return carryInfo(characterEditing); } }">
+          <div class="flex justify-between items-baseline mb-1">
+            <h4 class="font-semibold text-sm">Carry encumbrance <span class="opacity-60 font-normal text-xs">· RR pp.83–84</span></h4>
+            <span class="text-sm font-mono" :style="'color:'+carryBandColor(info.band.level)" x-text="(Math.round(info.totalSt*10)/10)+' st · '+info.band.label"></span>
+          </div>
+          <div class="w-full h-2 rounded bg-ink/10 overflow-hidden">
+            <div class="h-2" :style="'width:'+Math.min(100, info.totalSt/20*100)+'%; background:'+carryBandColor(info.band.level)"></div>
+          </div>
+          <p class="text-xs opacity-70 mt-1" x-text="info.band.level==='overloaded' ? 'Overloaded (>20 st) — cannot move.' : ('Movement: '+info.band.explorationFeet+' ft/turn · '+info.band.combatFeet+' ft/round · '+info.band.milesPerDay+' mi/day.  Bands: ≤5 unenc · ≤7 light · ≤10 heavy · ≤20 severe · >20 overloaded.')"></p>
+        </div>
+
+        <!-- Vault card (Stash B.2) — stashes this character owns/shares + treasuries held by office (derived; never copied onto the character) -->
+        <div x-show="stashSystemOn()" class="mt-3 border border-ink/30 rounded p-3" x-data="{ get vault(){ return characterStashes(characterEditing); } }">
+          <h4 class="font-semibold text-sm mb-1">🪙 Vault <span class="opacity-60 font-normal text-xs">· located stashes</span></h4>
+          <template x-if="vault.personal.length + vault.party.length + vault.treasuries.length === 0">
+            <p class="text-xs italic opacity-60">No stashes. Bank coin or cache items at a hex to create one (from a hex's Located-Stashes card).</p>
+          </template>
+          <template x-for="s in vault.treasuries" :key="s.id">
+            <div class="flex justify-between items-center text-sm border border-yellow-700/40 bg-yellow-50/40 rounded px-2 py-1 mb-1">
+              <span><span class="opacity-70">Treasury of</span> <span x-text="stashOwnerLabel(s).replace(' (domain)','')"></span> <span class="opacity-60 text-xs">· held by office</span></span>
+              <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></span><button @click="openStashDetail(s.id)" class="underline text-xs">open</button></span>
+            </div>
+          </template>
+          <template x-for="s in [...vault.personal, ...vault.party]" :key="s.id">
+            <div class="flex justify-between items-center text-sm border-b border-ink/10 px-1 py-0.5">
+              <span x-text="(s.name||'(unnamed)') + ' · ' + stashKindLabel(s) + ' · ' + stashHexLabel(s)"></span>
+              <span class="flex items-center gap-2"><span class="font-mono" x-text="Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></span><button @click="openStashDetail(s.id)" class="underline text-xs">open</button></span>
+            </div>
+          </template>
+        </div>
       </div>
 
       <!-- BACKGROUND tab — free-text fields under the same lock-edit-save standard.
@@ -6063,6 +6221,27 @@ document.addEventListener('alpine:init', () => {
               <span x-text="journeyModeIcon(j)"></span>
               <span class="flex-grow truncate" x-text="j.name || (journeyHexLabel(j.startHexId) + ' → ' + journeyHexLabel(j.destinationHexId))"></span>
               <span class="text-xs opacity-60 shrink-0" x-text="journeyStatusLabel(j) + ' · ' + journeyDayLabel(j)"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+
+      <!-- Located stashes (Stash B.3) — wealth sitting in this hex -->
+      <div x-show="stashSystemOn()" class="vellum border border-ink/40 rounded p-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h4 class="font-semibold text-sm">🪙 Located stashes</h4>
+          <button @click="createCacheAtHex(worldHexEditingHex().id)" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Create a cache stash at this hex">+ cache here</button>
+        </div>
+        <template x-if="stashesAtHexId(worldHexEditingHex().id).length === 0">
+          <p class="text-xs italic opacity-60 mt-1">No stashes located here.</p>
+        </template>
+        <ul class="text-sm mt-1 space-y-0.5">
+          <template x-for="s in stashesAtHexId(worldHexEditingHex().id)" :key="'hxs-'+s.id">
+            <li class="flex items-center gap-2">
+              <span x-show="s.isHidden" title="Hidden">🔒</span>
+              <button class="underline flex-grow truncate text-left" @click="openStashDetail(s.id)" x-text="(s.name||'(unnamed)') + ' · ' + stashKindLabel(s)"></button>
+              <span class="text-xs opacity-70 shrink-0" x-text="stashOwnerLabel(s)"></span>
+              <span class="font-mono text-xs shrink-0" x-text="Math.round(window.ACKS.stashTotalGp(s)).toLocaleString()+' gp'"></span>
             </li>
           </template>
         </ul>
@@ -8200,6 +8379,9 @@ return {
     ];
     if(this.isHouseRuleEnabled('rumors-manual')){
       tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
+    }
+    if(this.isHouseRuleEnabled('inventory-stash-system')){
+      tabs.push({ id:'stashes', label:'🪙 Stashes', count: (this.currentCampaign && this.currentCampaign.stashes ? this.currentCampaign.stashes.length : 0) || null });
     }
     return tabs;
   },
@@ -11200,6 +11382,108 @@ return {
       return true;
     });
   },
+
+  // ───── Stash B (Items I1 / Phase 2.95) — located-wealth UI helpers ─────
+  stashSearch:'', stashOwnerFilter:'all',
+  stashDetailId:null, stashDetailTab:'items',
+  _stashDepositDraft:{ denomination:'gp', qty:0 },
+  _stashItemDraft:{ name:'', qty:1, encumbranceSt:1 },
+  stashSystemOn(){ return this.isHouseRuleEnabled('inventory-stash-system'); },
+  allStashes(){
+    const camp = this.currentCampaign;
+    if(!camp || !Array.isArray(camp.stashes)) return [];
+    return camp.stashes.map(s => ({
+      stash: s,
+      totalGp: window.ACKS.stashTotalGp(s),
+      totalSt: window.ACKS.stashTotalEncumbrance(s),
+      itemCount: (s.items||[]).length,
+      ownerLabel: this.stashOwnerLabel(s),
+      hexLabel: this.stashHexLabel(s)
+    }));
+  },
+  filteredStashes(){
+    const q = (this.stashSearch||'').trim().toLowerCase();
+    const f = this.stashOwnerFilter || 'all';
+    return this.allStashes().filter(row => {
+      const s = row.stash;
+      if(f === 'treasury' && s.kind !== 'domain-treasury') return false;
+      if(f === 'personal' && s.kind !== 'personal') return false;
+      if(f === 'party' && s.kind !== 'party') return false;
+      if(f === 'cache' && s.kind !== 'cache') return false;
+      if(f === 'hidden' && !s.isHidden) return false;
+      if(q){
+        const hay = [s.name||'', s.kind||'', row.ownerLabel, row.hexLabel].join(' ').toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  },
+  stashOwnerLabel(s){
+    if(!s) return '—';
+    if(s.ownerCharacterId){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===s.ownerCharacterId); return c ? (c.name||'(unnamed)') : '(missing character)'; }
+    if(s.ownerDomainId){ const d=(this.domains||[]).find(x=>x.id===s.ownerDomainId); return d ? (d.name||'(unnamed)')+' (domain)' : '(missing domain)'; }
+    if(s.ownerPartyId){ const p=(this.currentCampaign?.parties||[]).find(x=>x.id===s.ownerPartyId); return p ? (p.name||'(party)')+' (party)' : '(missing party)'; }
+    return 'unowned';
+  },
+  stashHexLabel(s){
+    if(!s || !s.hexId) return '—';
+    const h=(this.currentCampaign?.hexes||[]).find(x=>x.id===s.hexId);
+    return h ? window.ACKS.hexName(h) : s.hexId;
+  },
+  stashKindLabel(s){ return ({ 'domain-treasury':'Treasury','personal':'Personal','party':'Party loot','cache':'Cache' })[s&&s.kind] || (s&&s.kind) || '—'; },
+  stashItemLabel(it){
+    if(!it) return '—';
+    const pf = window.ACKS.primaryFacet(it);
+    if(pf==='coin') return (it.qty||0).toLocaleString()+' '+(it.denomination||'gp');
+    if(pf==='valuable') return (it.name || (it.valuableTier ? it.valuableTier+' '+(it.valuableType||'valuable') : 'valuable')) + (it.qty>1?(' ×'+it.qty):'');
+    return (it.name||'(unnamed)') + (it.qty>1?(' ×'+it.qty):'') + (it.notableItemId?' ★':'');
+  },
+  stashItemFacetsLabel(it){ return (window.ACKS.itemFacets(it)||[]).join(' · '); },
+  openStashDetail(id){ this.stashDetailId=id; this.stashDetailTab='items'; },
+  closeStashDetail(){ this.stashDetailId=null; },
+  stashDetailStash(){ return this.stashDetailId ? window.ACKS.findStash(this.currentCampaign, this.stashDetailId) : null; },
+  _afterStashMutation(){ this.markDirty(); this.schedulePersist(); },
+  stashDepositCoins(){
+    const s=this.stashDetailStash(); if(!s) return;
+    const qty=parseInt(this._stashDepositDraft.qty,10)||0; if(qty<=0) return;
+    window.ACKS.depositToStash(this.currentCampaign, s.id, [{ facets:['coin'], denomination:this._stashDepositDraft.denomination||'gp', qty }], { reason:'gm-deposit', atTurn:(this.currentCampaign.currentTurn||1) });
+    this._stashDepositDraft.qty=0; this._afterStashMutation();
+  },
+  stashAddItem(){
+    const s=this.stashDetailStash(); if(!s) return;
+    const d=this._stashItemDraft; if(!(d.name||'').trim()) return;
+    window.ACKS.depositToStash(this.currentCampaign, s.id, [{ facets:['gear'], name:d.name.trim(), qty:(parseInt(d.qty,10)||1), encumbranceSt:(parseFloat(d.encumbranceSt)||0) }], { reason:'gm-add-item', atTurn:(this.currentCampaign.currentTurn||1) });
+    this._stashItemDraft={ name:'', qty:1, encumbranceSt:1 }; this._afterStashMutation();
+  },
+  stashRemoveItem(itemId){ const s=this.stashDetailStash(); if(!s) return; window.ACKS.withdrawFromStash(this.currentCampaign, s.id, [{ itemId }], { reason:'gm-remove' }); this._afterStashMutation(); },
+  stashPromoteItem(itemId){ const s=this.stashDetailStash(); if(!s) return; const it=(s.items||[]).find(x=>x.id===itemId); if(!it) return; window.ACKS.promoteLineToNotableItem(this.currentCampaign, it, { name: it.name||'' }); this._afterStashMutation(); },
+  stashSettingsChanged(){ this._afterStashMutation(); },
+  // Vault card (B.2): the stashes a character owns/shares + the treasury of any realm they rule
+  characterStashes(ch){
+    const camp=this.currentCampaign;
+    if(!ch || !camp) return { personal:[], party:[], treasuries:[] };
+    const personal=(camp.stashes||[]).filter(s=>s.ownerCharacterId===ch.id);
+    const memberPartyIds=(camp.parties||[]).filter(p=>(p.memberCharacterIds||[]).includes(ch.id) || ch.partyId===p.id).map(p=>p.id);
+    const party=(camp.stashes||[]).filter(s=>s.ownerPartyId && memberPartyIds.includes(s.ownerPartyId));
+    const ruledDomainIds=(this.domains||[]).filter(d=>d.rulerCharacterId===ch.id).map(d=>d.id);
+    const treasuries=(camp.stashes||[]).filter(s=>s.kind==='domain-treasury' && ruledDomainIds.includes(s.ownerDomainId));
+    return { personal, party, treasuries };
+  },
+  stashesAtHexId(hexId){ if(!hexId || !this.currentCampaign) return []; return (this.currentCampaign.stashes||[]).filter(s=>s.hexId===hexId); },
+  createCacheAtHex(hexId){
+    if(!hexId || !this.currentCampaign) return;
+    if(!Array.isArray(this.currentCampaign.stashes)) this.currentCampaign.stashes=[];
+    const s = window.ACKS.blankStash({ kind:'cache', hexId, name:'Cache' });
+    s.createdAtTurn = this.currentCampaign.currentTurn || 1;
+    this.currentCampaign.stashes.push(s);
+    this._afterStashMutation();
+    this.openStashDetail(s.id);
+  },
+  // Encumbrance (B.5) — RAW by default; the ignore-encumbrance opt-out hides it
+  encumbranceShown(){ return this.stashSystemOn() && !this.isHouseRuleEnabled('ignore-encumbrance'); },
+  carryInfo(ch){ return window.ACKS.carryEncumbranceInfo(ch); },
+  carryBandColor(level){ return ({ unencumbered:'#2f6b2f', light:'#7a6a17', heavy:'#9a5a13', severe:'#7a3b13', overloaded:'#7a1313' })[level] || '#444'; },
+
   // Resolve the hex currently being edited in the World > Hexes detail modal
   worldHexEditingHex(){
     if(!this.worldHexEditing) return null;
