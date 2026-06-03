@@ -582,6 +582,12 @@ document.addEventListener('alpine:init', () => {
     <button @click="mapEndSelect()" class="underline opacity-70 hover:opacity-100">cancel</button>
   </div>
 
+  <!-- Add-hex-via-map banner — shown during the per-domain "+ add hex" flow (addHexViaMap). -->
+  <div x-show="_hexAddReturn" class="mb-3 px-3 py-2 border border-emerald-500 bg-emerald-50 rounded flex items-center gap-3 text-sm" x-cloak>
+    <span>Adding a hex to <strong x-text="(domains.find(d => d.id === (_hexAddReturn && _hexAddReturn.domainId)) || {}).name || 'the domain'"></strong> — click a faint empty cell to place it; it'll be claimed for this domain.</span>
+    <button @click="_returnFromHexAdd()" class="underline opacity-70 hover:opacity-100">cancel · back to domain</button>
+  </div>
+
   <!-- Create Map modal — lay out a blank W×H grid of unclaimed/unexplored hexes (world starter, #225). -->
   <div x-show="mapGridModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" x-cloak @click.self="mapGridModalOpen = false" @keydown.escape.window="mapGridModalOpen = false">
     <div class="vellum border border-ink rounded-lg shadow-xl max-w-md w-full mx-4 p-5 space-y-4">
@@ -1446,7 +1452,7 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </tbody>
             </table>
-            <button @click="addHex(selectedDomain.id)" class="mt-2 text-sm underline">+ add hex</button>
+            <button @click="addHexViaMap(selectedDomain.id)" class="mt-2 text-sm underline" title="Open the Map in Add/Edit mode to place a new hex for this domain, then return here">+ add hex</button>
           </div>
 
           <!-- Agricultural Improvement Tracker (baseline ACKS RR p.341).
@@ -7264,8 +7270,8 @@ return {
     this.$watch('mapFillLayer',()=>this.schedulePersist());
     // #225 Map is now a World sub-view: fit the viewport when World opens on Map, or when the
     // sub-view switches to Map; persist the active sub-view so a reload restores it.
-    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); });
-    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); });
+    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); if(v!=='world') this._hexAddReturn = null; }); // left World entirely → abandon the add-hex flow
+    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); else this._hexAddReturn = null; }); // left Map for another World sub-view → abandon the add-hex flow
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -11215,6 +11221,9 @@ return {
   mapGridRows: 10,
   mapGridStartCol: 1,
   mapGridStartRow: 1,
+  // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
+  // { domainId } to pre-select on the create picker and to return to when they create/cancel.
+  _hexAddReturn: null,
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11420,7 +11429,7 @@ return {
     return routes;
   },
   // M5 "Add/Edit hexes" flow — the picker opens on an empty cell (create) OR an existing hex (edit).
-  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateDomainId = (this._hexAddReturn && this._hexAddReturn.domainId) || ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
   // Open the picker on an existing hex, pre-filled with its current domain + terrain + rivers + roads + crossings.
   mapEditExistingHex(entry){
     const h = entry.hex;
@@ -11432,7 +11441,7 @@ return {
     this.mapCreateRoadSides     = Array.isArray(h.roadSides)     ? h.roadSides.slice()     : [];
     this.mapCreateCrossingSides = Array.isArray(h.crossingSides) ? h.crossingSides.slice() : [];
   },
-  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
+  mapCancelCreate(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; if(this._hexAddReturn) this._returnFromHexAdd(); },
   // Toggle hex side `i` (0..5) in the road picker. `which` is 'mapCreateRoadSides'. (Rivers use the
   // 3-state cycle in mapMiniSideClick — none → river → river+ford/bridge → none.)
   mapToggleSide(which, i){
@@ -11560,6 +11569,7 @@ return {
         this.showToast('Updated hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + (d ? ' (' + d.name + ')' : ' (unclaimed)') + '.');
       }
       this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+      if(this._hexAddReturn) this._returnFromHexAdd();
       return;
     }
     // CREATE branch — a new hex at the clicked empty cell.
@@ -11586,6 +11596,7 @@ return {
     this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides); // rivers + crossings (+ mirror to neighbours)
     this.markDirty(); this.schedulePersist();
     this.mapCreateAt = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
+    if(this._hexAddReturn) this._returnFromHexAdd(); // per-domain "+ add hex" flow → back to the domain view
   },
   // M5 "Standard view" composite — terrain fill + all symbols + borders/roads/rivers + journeys.
   mapStandardView(){
@@ -11725,6 +11736,33 @@ return {
   },
   // Back-compat delegate (the World > Hexes "+ add hex" control is the only caller).
   addHexToDomain(domainId){ this.addHex(domainId); },
+  // The per-domain "+ add hex" (Domain ▸ Demographics): instead of dropping a blank hex at a
+  // placeholder coord, jump to the Map in Add/Edit mode so the GM places it visually. mapClickEmpty
+  // pre-selects this domain on the create picker (it reads _hexAddReturn), and creating or cancelling
+  // returns to the domain view (mapCreateHex / mapCancelCreate call _returnFromHexAdd).
+  addHexViaMap(domainId){
+    if(!domainId || !this.currentCampaign) return;
+    this._hexAddReturn = { domainId };
+    this.mapEditAddMode = true;
+    this.mapCreateAt = null; this.mapEditHexId = null; // no stale picker
+    this.worldSubView = 'map'; this.currentView = 'world'; // subView first so the currentView watch sees map
+    this.mapEnsureView();
+    this.schedulePersist();
+    const d = this.domains.find(x => x.id === domainId);
+    this.showToast('Click an empty hex on the map to add it to ' + (d ? d.name : 'the domain') + ' (or cancel to go back).', 5000);
+  },
+  // Return to the domain view after the add-via-map flow finishes (create or cancel). Idempotent —
+  // gated on _hexAddReturn, which only addHexViaMap sets, so normal map create/cancel is unaffected.
+  _returnFromHexAdd(){
+    if(!this._hexAddReturn) return;
+    const domainId = this._hexAddReturn.domainId;
+    this._hexAddReturn = null;
+    this.mapEditAddMode = false;
+    this.mapCreateAt = null; this.mapEditHexId = null;
+    if(domainId) this.selectedDomainId = domainId;
+    this.worldSubView = 'domains'; this.currentView = 'world';
+    this.schedulePersist();
+  },
   // Delete a hex entirely — the destructive counterpart to "+ add hex" (World ▸ Hexes Actions column).
   // Removes it from campaign.hexes AND every domain's geography.hexes mirror, and drops its settlement
   // from campaign.settlements (the settlement lives on the hex). Confirms first, naming any content that
