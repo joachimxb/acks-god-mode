@@ -5637,7 +5637,7 @@ document.addEventListener('alpine:init', () => {
         </template>
 
         <table class="bookkeeping text-sm w-full">
-          <thead><tr><th>Item</th><th class="text-right">Stone</th><th>Notes</th><th></th></tr></thead>
+          <thead><tr><th>Item</th><th class="text-right">Stone</th><th>Notes</th><th class="text-right">Actions</th></tr></thead>
           <tbody>
             <template x-for="(item,ii) in characterEditing.inventory" :key="ii">
               <tr x-data="{
@@ -5695,7 +5695,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="editing">
                   <td><input type="text" x-model="draft.notes" class="w-full" @keyup.enter="save()"></td>
                 </template>
-                <td class="whitespace-nowrap">
+                <td class="whitespace-nowrap text-right">
                   <template x-if="!editing">
                     <span>
                       <button @click="start()" class="ed-edit" title="Edit row (logged)">✏</button>
