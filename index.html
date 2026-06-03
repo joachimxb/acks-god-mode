@@ -11488,9 +11488,10 @@ return {
     }
     // CREATE branch — a new hex at the clicked empty cell.
     const coord = { q: at.q, r: at.r };
-    const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
-      roadSides: (this.mapCreateRoadSides || []).slice() }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
     const domId = this.mapCreateDomainId || '';
+    // Unclaimed wilderness starts UNexplored (uncharted); a hex placed into a domain stays explored.
+    const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
+      roadSides: (this.mapCreateRoadSides || []).slice(), explored: !!domId }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
     if(domId){
       const d = this.domains.find(x => x.id === domId);
       if(!d){ this.mapCreateAt = null; return; }
