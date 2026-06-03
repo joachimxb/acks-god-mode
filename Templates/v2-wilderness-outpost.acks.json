@@ -171,7 +171,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "A solo knight, one hex, thirty-odd families. The simplest possible domain configuration. Good starter for new players."
+      "notes": "A solo knight, one hex, thirty-odd families. The simplest possible domain configuration. Good starter for new players.",
+      "treasuryStashId": "stash-zg8nedl"
     }
   ],
   "characters": [
@@ -286,5 +287,48 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": []
+  "constructibles": [],
+  "stashes": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-zg8nedl",
+      "name": "Hawk's Reach Outpost Treasury",
+      "hexId": "hex-hawks-reach-core",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-hawks-reach",
+      "items": [
+        {
+          "id": "si-2couovd",
+          "facets": [
+            "coin"
+          ],
+          "qty": 600,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 600
+        }
+      ]
+    }
+  ]
 }

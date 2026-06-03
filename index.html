@@ -4637,8 +4637,8 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </div>
               <!-- Party camp (Items I1 / Stash B) — the travelling stash that follows the party's hex.
-                   Gated on inventory-stash-system. Disbanding hands the camp to the leader. -->
-              <div x-show="stashSystemOn()" class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
+                   Always-on core. Disbanding hands the camp to the leader. -->
+              <div class="mt-3 border border-ink/30 rounded p-2" x-data="{ get camp(){ return window.ACKS.partyCampStash(currentCampaign, pt.id); } }">
                 <div class="flex justify-between items-center">
                   <span class="text-sm uppercase tracking-wide opacity-70">⛺ Camp <span class="normal-case opacity-60 text-xs">· travels with the party</span></span>
                   <button @click="disbandParty(pt)" class="text-xs underline accent-red opacity-80 hover:opacity-100" title="Dissolve the party — the leader takes the camp's equipment">disband party</button>
@@ -5843,7 +5843,7 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <!-- Vault card (Stash B.2) — stashes this character owns/shares + treasuries held by office (derived; never copied onto the character) -->
-        <div x-show="stashSystemOn()" class="mt-3 border border-ink/30 rounded p-3" x-data="{ get vault(){ return characterStashes(characterEditing); } }">
+        <div class="mt-3 border border-ink/30 rounded p-3" x-data="{ get vault(){ return characterStashes(characterEditing); } }">
           <div class="flex justify-between items-baseline mb-1">
             <h4 class="font-semibold text-sm">🪙 Vault <span class="opacity-60 font-normal text-xs">· located stashes</span></h4>
             <button @click="openStashTransfer()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Cache carry items/coins here, or draw from a stash at this hex">📦 Transfer items / coins…</button>
@@ -6440,7 +6440,7 @@ document.addEventListener('alpine:init', () => {
       </div>
 
       <!-- Located stashes (Stash B.3) — wealth sitting in this hex -->
-      <div x-show="stashSystemOn()" class="vellum border border-ink/40 rounded p-2">
+      <div class="vellum border border-ink/40 rounded p-2">
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <h4 class="font-semibold text-sm">🪙 Located stashes</h4>
           <button @click="createCacheAtHex(worldHexEditingHex().id)" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Create a cache stash at this hex">+ cache here</button>
@@ -8593,9 +8593,8 @@ return {
     if(this.isHouseRuleEnabled('rumors-manual')){
       tabs.push({ id:'rumors', label:'🗣 Rumors', count: this.allRumors.length || null });
     }
-    if(this.isHouseRuleEnabled('inventory-stash-system')){
-      tabs.push({ id:'stashes', label:'🪙 Stashes', count: (this.currentCampaign && this.currentCampaign.stashes ? this.currentCampaign.stashes.length : 0) || null });
-    }
+    // Stash subsystem is always-on core (inventory-stash-system rule removed v0.17.0).
+    tabs.push({ id:'stashes', label:'🪙 Stashes', count: (this.currentCampaign && this.currentCampaign.stashes ? this.currentCampaign.stashes.length : 0) || null });
     return tabs;
   },
 
@@ -10992,7 +10991,7 @@ return {
     if(!Array.isArray(this.currentCampaign.parties))this.currentCampaign.parties=[];
     const pt = window.ACKS.blankParty({ name: 'New Party' });
     this.currentCampaign.parties.push(pt);
-    if(this.stashSystemOn() && window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1)
+    if(window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1; stash subsystem is always-on core)
     return pt;
   },
   // Start a party with one founding character: named after them, placed at their hex,
@@ -11012,7 +11011,7 @@ return {
     });
     this.currentCampaign.parties.push(pt);
     this.addCharacterToParty(pt, ch.id);   // sets ch.partyId
-    if(this.stashSystemOn() && window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1)
+    if(window.ACKS.ensurePartyCampStash) window.ACKS.ensurePartyCampStash(this.currentCampaign, pt);   // every party gets a travelling camp (Items I1; stash subsystem is always-on core)
     this.newPartyPickerOpen = false;
     this.newPartyFounderId = '';
     this.markDirty(); this.schedulePersist();
@@ -11632,7 +11631,6 @@ return {
   stashTransferOpen:false, stashTransferStashId:null, stashTransferDir:'deposit',
   stashTransferCoins:{ pp:0, gp:0, ep:0, sp:0, cp:0 },
   stashTransferItemSel:{},   // deposit: inventory-index → bool · withdraw: stash-item-id → bool
-  stashSystemOn(){ return this.isHouseRuleEnabled('inventory-stash-system'); },
   allStashes(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.stashes)) return [];
@@ -11868,7 +11866,7 @@ return {
     })[code] || ('Transfer failed' + (code ? (' ('+code+')') : '') + '.');
   },
   // Encumbrance (B.5) — RAW by default; the ignore-encumbrance opt-out hides it
-  encumbranceShown(){ return this.stashSystemOn() && !this.isHouseRuleEnabled('ignore-encumbrance'); },
+  encumbranceShown(){ return !this.isHouseRuleEnabled('ignore-encumbrance'); },
   carryInfo(ch){ return window.ACKS.carryEncumbranceInfo(ch); },
   // Items I1 — coin purse readouts (derived; coins.gp canonical). Used by the Inventory-tab Coins section.
   characterCoinValueGp(ch){ return window.ACKS.characterCoinValueGp(ch); },
@@ -13879,21 +13877,7 @@ return {
     // rule would stick on (or off) forever.
     const enabling = !this.isHouseRuleEnabled(id);
     this.currentCampaign.houseRules[id]={enabled:enabling};
-    // Enabling the Stash master rule materializes the domain treasuries NOW, so the
-    // Stashes view isn't empty until the next reload (Stash plan §8.4 OFF→ON migration).
-    // The engine reads campaign.domains, but the UI keeps domains in this.domains, so
-    // attach them for the call + restore (same dance as _journeyWithDomains). Idempotent.
-    if(id==='inventory-stash-system' && enabling && window.ACKS && window.ACKS.migrateAllDomainTreasuries){
-      const _orig=this.currentCampaign.domains;
-      this.currentCampaign.domains=this.domains;
-      try {
-        window.ACKS.migrateAllDomainTreasuries(this.currentCampaign);
-        if(window.ACKS.reconcileTreasuryScalars) window.ACKS.reconcileTreasuryScalars(this.currentCampaign);
-        // Every party gets its travelling camp stash too (Items I1 / Stash B), materialized now.
-        if(window.ACKS.syncAllPartyCampStashes) window.ACKS.syncAllPartyCampStashes(this.currentCampaign);
-      } finally { this.currentCampaign.domains=_orig; }
-      this.markDirty(); this.schedulePersist();
-    }
+    this.markDirty(); this.schedulePersist();
   },
   incomeFactor(morale){return INCOME_FACTOR_BY_MORALE[String(clamp(morale||0,-4,4))]??1;},
   baseMorale(d){return baseMoraleFromClassification(this.effectiveClassification(d),this.effectiveRuler(d));},

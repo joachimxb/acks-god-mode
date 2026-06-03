@@ -734,8 +734,8 @@ function migrateCampaign(raw){
   // vassalages / tributaryAgreements records. Additive; legacy fields preserved.
   migrateLegacyToWaveARelations(current);
   // #468 — Stash A.3 — materialize domain.treasury scalar into treasury-stash
-  // entities for each domain. Gated on inventory-stash-system house rule.
-  // Idempotent. Per Phase_2.95_Stash_Plan.md §6.3.
+  // entities for each domain. Always-on core (the inventory-stash-system toggle
+  // was removed v0.17.0). Idempotent. Per Phase_2.95_Stash_Plan.md §6.3.
   migrateAllDomainTreasuries(current);
   // Items I1 (OQ9, 2026-06-03) — upgrade legacy coin|bulk|item stash/carry lines
   // to the facet shape (facets[] + notableItemId) BEFORE reconcile reads them.
@@ -758,8 +758,8 @@ function migrateCampaign(raw){
   // character.partyId truth (Architecture §3.3). Idempotent; no-op on party-less templates.
   reconcilePartyMembership(current);
   // Items I1 / Stash B — every party has a camp stash that travels with it. Runs after
-  // membership reconcile (needs leader/members) + treasury migration. Gated on
-  // inventory-stash-system (no-op when the Stash subsystem is off). Idempotent.
+  // membership reconcile (needs leader/members) + treasury migration. Always-on core;
+  // a no-op on party-less campaigns (e.g. the templates). Idempotent.
   syncAllPartyCampStashes(current);
   return current;
 }
@@ -1928,8 +1928,8 @@ function drawFromStash(campaign, stashId, characterId, spec, opts){
 // Party camp stash (Items I1 / Stash B — "every party has a camp"). A party-owned
 // stash named "<Party>'s Camp" that TRAVELS with the party: its hexId mirrors
 // party.currentHexId (the party is the source of truth; the camp hex is a reconciled
-// mirror — Architecture §3.3). Materialization is gated on inventory-stash-system at
-// the ensure/sync sites, so nothing lands when the Stash subsystem is off.
+// mirror — Architecture §3.3). The Stash subsystem is always-on core, so the camp is
+// materialized for every non-disbanded party (the inventory-stash-system toggle was removed v0.17.0).
 // =============================================================================
 function partyCampStash(campaign, partyId){
   if(!campaign || !partyId || !Array.isArray(campaign.stashes)) return null;
@@ -1953,11 +1953,11 @@ function ensurePartyCampStash(campaign, party){
   if(!camp.name || /'s Camp$/.test(camp.name)) camp.name = (party.name || 'Party') + "'s Camp";
   return camp;
 }
-// Reconcile pass — ensure a camp for every non-disbanded party. Gated on the stash rule.
-// Hooked into migrateCampaign (load) + the toggleHouseRule enable path.
+// Reconcile pass — ensure a camp for every non-disbanded party. Hooked into
+// migrateCampaign (load). The Stash subsystem is always-on core, so this runs
+// unconditionally; it is a no-op on party-less campaigns (e.g. the templates).
 function syncAllPartyCampStashes(campaign){
   if(!campaign || !Array.isArray(campaign.parties)) return 0;
-  if(!isHouseRuleEnabled(campaign, 'inventory-stash-system')) return 0;
   let n = 0;
   for(const p of campaign.parties){ if(p && p.status !== 'disbanded' && ensurePartyCampStash(campaign, p)) n++; }
   return n;
@@ -2014,8 +2014,8 @@ function carryEncumbranceInfo(character){
 
 // =============================================================================
 // Phase 2.95 Stash A.3 — domain.treasury → treasury-stash migration (#468 / 2026-05-29).
-// Per Phase_2.95_Stash_Plan.md §6.3 + §8.2. Idempotent. Gated on the
-// inventory-stash-system house rule per the gating doctrine.
+// Per Phase_2.95_Stash_Plan.md §6.3 + §8.2. Idempotent. Always-on core
+// (the inventory-stash-system toggle was removed v0.17.0).
 // =============================================================================
 
 // --- Capital-hex selection (pure) -------------------------------------------
@@ -2109,13 +2109,12 @@ function migrateDomainTreasuryToStash(campaign, domain){
 }
 
 // --- Orchestrator hook for migrateCampaign ----------------------------------
-// Gated on inventory-stash-system. Per gating doctrine: when OFF, stash data
-// is non-existent (we don't materialize anything). Returns the number of
+// Always-on core (the inventory-stash-system toggle was removed v0.17.0): this
+// materializes a treasury stash for every domain on load. Returns the number of
 // domains that ended up with a treasuryStashId — useful diagnostic but not
 // strictly the number of newly-created stashes (orphan repair counts too).
 function migrateAllDomainTreasuries(campaign){
   if(!campaign) return 0;
-  if(!isHouseRuleEnabled(campaign, 'inventory-stash-system')) return 0;
   let linked = 0;
   for(const d of (campaign.domains || [])){
     const stash = migrateDomainTreasuryToStash(campaign, d);
@@ -2166,8 +2165,8 @@ function _syncTreasuryScalarFor(campaign, stash){
 }
 
 // --- Apply a signed gp delta to a domain treasury (engine-internal callers) --
-// Routes through depositToStash when inventory-stash-system is on AND a
-// treasuryStashId is linked, otherwise mutates the scalar directly. The C.1
+// Routes through depositToStash whenever a treasuryStashId is linked (the Stash
+// subsystem is always-on core), otherwise mutates the scalar directly. The C.1
 // event-handler analog (_applyTreasuryDelta in acks-engine-events.js) does
 // the same thing but takes a domainId — this version takes the domain object
 // because commitTurn already has it in scope. Both routes preserve the A.4
@@ -2177,8 +2176,9 @@ function _syncTreasuryScalarFor(campaign, stash){
 function _applyDomainTreasuryDelta(campaign, domain, amount, opts){
   if(!campaign || !domain || !amount) return;
   opts = opts || {};
-  const stashSystemOn = isHouseRuleEnabled(campaign, 'inventory-stash-system');
-  if(stashSystemOn && domain.treasuryStashId){
+  // Stash subsystem is always-on core — route through the treasury stash whenever
+  // one is linked; the scalar fallback below covers the pre-migration window.
+  if(domain.treasuryStashId){
     const stash = findStash(campaign, domain.treasuryStashId);
     if(stash){
       depositToStash(campaign, stash.id, [{ kind:'coin', denomination:'gp', qty: amount }], {
