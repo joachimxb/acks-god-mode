@@ -628,7 +628,9 @@ document.addEventListener('alpine:init', () => {
         <div class="flex justify-between items-start p-4 border-b border-ink/30">
           <div>
             <h3 class="font-bold text-lg" x-text="stashDetailStash().name || '(unnamed stash)'"></h3>
-            <p class="text-sm opacity-70" x-text="stashKindLabel(stashDetailStash()) + ' · ' + stashOwnerLabel(stashDetailStash()) + ' · ' + stashHexLabel(stashDetailStash())"></p>
+            <p class="text-sm opacity-70">
+              <span x-text="stashKindLabel(stashDetailStash())"></span><span> · </span><template x-if="stashOwnerLinkable(stashDetailStash())"><button @click="openStashOwner(stashDetailStash())" class="underline hover:opacity-80" :title="'Open ' + stashOwnerLabel(stashDetailStash())" x-text="stashOwnerLabel(stashDetailStash())"></button></template><template x-if="!stashOwnerLinkable(stashDetailStash())"><span x-text="stashOwnerLabel(stashDetailStash())"></span></template><span> · </span><span x-text="stashHexLabel(stashDetailStash())"></span>
+            </p>
             <p class="text-sm font-mono mt-1" x-text="Math.round(window.ACKS.stashTotalGp(stashDetailStash())).toLocaleString() + ' gp · ' + (Math.round(window.ACKS.stashTotalEncumbrance(stashDetailStash())*10)/10) + ' st'"></p>
           </div>
           <button @click="closeStashDetail()" class="text-2xl leading-none px-2" title="Close">×</button>
@@ -11673,6 +11675,22 @@ return {
     return h ? window.ACKS.hexName(h) : s.hexId;
   },
   stashKindLabel(s){ return ({ 'domain-treasury':'Treasury','personal':'Personal','party':'Party loot','cache':'Cache' })[s&&s.kind] || (s&&s.kind) || '—'; },
+  // The stash owner label is a clickable link to its entity's view, when there's a clean opener
+  // (character sheet / party view). Domain-treasury owners stay text (no per-domain opener yet).
+  stashOwnerLinkable(s){ return !!(s && (s.ownerCharacterId || s.ownerPartyId)); },
+  openStashOwner(s){
+    if(!s) return;
+    if(s.ownerCharacterId){
+      const c=(this.currentCampaign?.characters||[]).find(x=>x.id===s.ownerCharacterId);
+      if(c){ this.closeStashDetail(); this.openCharacterEditor(c); }
+      return;
+    }
+    if(s.ownerPartyId){
+      this.closeStashDetail();
+      if(this.showCharacterEditorModal) this.closeCharacterEditor();
+      this.openPartyView(s.ownerPartyId);
+    }
+  },
   stashItemLabel(it){
     if(!it) return '—';
     const pf = window.ACKS.primaryFacet(it);
