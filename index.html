@@ -13486,7 +13486,21 @@ return {
     // {enabled:bool} before flipping. Without this, a bare-boolean rule from a template
     // can't be toggled — `(true).enabled = …` is a silent no-op on a primitive, so the
     // rule would stick on (or off) forever.
-    this.currentCampaign.houseRules[id]={enabled:!this.isHouseRuleEnabled(id)};
+    const enabling = !this.isHouseRuleEnabled(id);
+    this.currentCampaign.houseRules[id]={enabled:enabling};
+    // Enabling the Stash master rule materializes the domain treasuries NOW, so the
+    // Stashes view isn't empty until the next reload (Stash plan §8.4 OFF→ON migration).
+    // The engine reads campaign.domains, but the UI keeps domains in this.domains, so
+    // attach them for the call + restore (same dance as _journeyWithDomains). Idempotent.
+    if(id==='inventory-stash-system' && enabling && window.ACKS && window.ACKS.migrateAllDomainTreasuries){
+      const _orig=this.currentCampaign.domains;
+      this.currentCampaign.domains=this.domains;
+      try {
+        window.ACKS.migrateAllDomainTreasuries(this.currentCampaign);
+        if(window.ACKS.reconcileTreasuryScalars) window.ACKS.reconcileTreasuryScalars(this.currentCampaign);
+      } finally { this.currentCampaign.domains=_orig; }
+      this.markDirty(); this.schedulePersist();
+    }
   },
   incomeFactor(morale){return INCOME_FACTOR_BY_MORALE[String(clamp(morale||0,-4,4))]??1;},
   baseMorale(d){return baseMoraleFromClassification(this.effectiveClassification(d),this.effectiveRuler(d));},
