@@ -5640,8 +5640,8 @@ document.addEventListener('alpine:init', () => {
              and the header all share the same column widths (otherwise an editing row's w-full
              inputs make those columns greedy and the rows stop lining up). -->
         <table class="bookkeeping text-sm w-full table-fixed">
-          <colgroup><col style="width:40%"><col style="width:12%"><col style="width:33%"><col style="width:15%"></colgroup>
-          <thead><tr><th>Item</th><th class="text-right">Stone</th><th>Notes</th><th class="text-right">Actions</th></tr></thead>
+          <colgroup><col style="width:14rem"><col style="width:5rem"><col style="width:14rem"><col><col style="width:11rem"></colgroup>
+          <thead><tr><th>Item</th><th class="text-right">Stone</th><th>Notes</th><th></th><th class="text-right">Actions</th></tr></thead>
           <tbody>
             <template x-for="(item,ii) in characterEditing.inventory" :key="ii">
               <tr x-data="{
@@ -5699,6 +5699,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="editing">
                   <td><input type="text" x-model="draft.notes" class="w-full" @keyup.enter="save()"></td>
                 </template>
+                <td></td><!-- spacer column: absorbs the slack so Item/Stone/Notes stay tight on the left and Actions hugs the right -->
                 <td class="whitespace-nowrap text-right">
                   <template x-if="!editing">
                     <span>
@@ -5719,7 +5720,7 @@ document.addEventListener('alpine:init', () => {
             <tr class="subtotal">
               <td>Total stone</td>
               <td class="text-right font-mono" x-text="(characterEditing.inventory||[]).reduce((s,i)=>s+(parseFloat(i.stone)||0),0)"></td>
-              <td colspan="2"></td>
+              <td colspan="3"></td>
             </tr>
           </tbody>
         </table>
