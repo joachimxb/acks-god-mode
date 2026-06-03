@@ -123,8 +123,22 @@ check('axial→colrow: odd-q row shear (+75 for q=151)', ACKS.hexAxialToColRow(1
 check('the reported case: axial(151,99) labels "151174"', ACKS.hexDisplayLabel(151, 99) === '151174');
 check('colrow→axial inverts the shear: (151,99)→axial(151,24)',
   (() => { const a = ACKS.hexColRowToAxial(151, 99); return a.q === 151 && a.r === 24; })());
-check('GM entering column·row 151,099 round-trips to label "15199"',
-  (() => { const a = ACKS.hexColRowToAxial(151, 99); return ACKS.hexDisplayLabel(a.q, a.r) === '15199'; })());
+check('GM entering column·row 151,099 round-trips to label "151099" (row padded to the column width)',
+  (() => { const a = ACKS.hexColRowToAxial(151, 99); return ACKS.hexDisplayLabel(a.q, a.r) === '151099'; })());
+// uniform-width padding (2026-06-03): col & row share a width = max(col-digits, row-digits, 2), so the
+// label splits unambiguously in half. A 3-digit column pads the row to 3; small maps stay 2-wide.
+check('uniform width: a 3-digit column pads the row → "151009" (col 151, row 9)',
+  (() => { const a = ACKS.hexColRowToAxial(151, 9); return ACKS.hexDisplayLabel(a.q, a.r) === '151009'; })());
+check('uniform width: small coords stay 2-wide ("0509")',
+  (() => { const a = ACKS.hexColRowToAxial(5, 9); return ACKS.hexDisplayLabel(a.q, a.r) === '0509'; })());
+check('label length is even (col & row equal width) → splits in half', (() => {
+  for(const [col, row] of [[151,9],[151,99],[5,9],[0,0],[12,340]]){
+    const a = ACKS.hexColRowToAxial(col, row);
+    const s = ACKS.hexDisplayLabel(a.q, a.r).replace(/^-/, '').replace(/(?<=.)-/, ''); // drop sign(s) for length
+    if(s.length % 2 !== 0) return false;
+  }
+  return true;
+})());
 check('col === q both directions', ACKS.hexAxialToColRow(7, 3).col === 7 && ACKS.hexColRowToAxial(7, 3).q === 7);
 check('round-trip axial→colrow→axial (spread incl. negatives, even/odd cols)', (() => {
   for(const [q, r] of [[0,0],[1,0],[0,1],[-1,1],[8,1],[151,99],[151,173],[-7,-3],[150,100],[2,2]]){

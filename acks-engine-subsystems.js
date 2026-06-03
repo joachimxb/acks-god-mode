@@ -2029,11 +2029,16 @@ function hexAxialToColRow(q, r){
 function hexColRowToAxial(col, row){
   return { q: col, r: row - ((col - (col & 1)) >> 1) };
 }
-// RAW-style column-row display label — the GM-facing hex number, e.g. "151099". Pads each part to
-// ≥2 digits; negatives carry a leading '-'. This is what hexName() embeds and what the map draws.
+// RAW-style column·row display label — the GM-facing hex number, e.g. "151099" (column 151, row 099).
+// Column and row run together, each zero-padded to the SAME width = max(digits in col, digits in row, 2),
+// so the number reads like a published Auran/JG map and always **splits unambiguously in half** (a column
+// past 99 pads the row to match — "151"+"099"; small maps stay "0000"). Negatives carry a leading '-'.
+// This is what hexName() embeds and what the map draws. (Uniform-width per Joachim, 2026-06-03 — min-2-each
+// gave the ambiguous "15199".)
 function hexDisplayLabel(q, r){
   const { col, row } = hexAxialToColRow(q, r);
-  const pad = n => (n < 0 ? '-' : '') + String(Math.abs(n)).padStart(2, '0');
+  const w = Math.max(2, String(Math.abs(col)).length, String(Math.abs(row)).length);
+  const pad = n => (n < 0 ? '-' : '') + String(Math.abs(n)).padStart(w, '0');
   return pad(col) + pad(row);
 }
 
