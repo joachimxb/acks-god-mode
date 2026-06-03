@@ -42,6 +42,7 @@ const SQRT3 = Math.sqrt(3);
 // ─── exports present ───
 section('Exports on global.ACKS');
 ['hexAxialToPixel','hexCornerPoints','hexPolygonPoints','hexMapBounds','hexDisplayLabel',
+ 'hexAxialToColRow','hexColRowToAxial',
  'hexFillColor','hexFillLayers','hexFillLegend','MAP_DEFAULT_HEX_SIZE']
   .forEach(name => check('ACKS.' + name + ' exported', typeof ACKS[name] !== 'undefined'));
 
@@ -112,6 +113,40 @@ check('(0,1) → "0001"', ACKS.hexDisplayLabel(0, 1) === '0001');
 check('negative column carries "-"', ACKS.hexDisplayLabel(-1, 1) === '-0100');
 check('two-digit zero pad (even-q: col 8, row 1+4=5)', ACKS.hexDisplayLabel(8, 1) === '0805');
 check('determinism', ACKS.hexDisplayLabel(4, -2) === ACKS.hexDisplayLabel(4, -2));
+
+// ─── hexAxialToColRow / hexColRowToAxial — the axial↔column·row boundary (tester bug 2026-06-03) ───
+// The store is axial {q,r}; the GM-facing coordinate is column·row. These convert at the UI edge.
+// The reported quirk was the editor field showing raw axial while the label showed the sheared row.
+section('hexAxialToColRow / hexColRowToAxial (the GM-facing boundary)');
+check('axial→colrow: column = q', ACKS.hexAxialToColRow(151, 99).col === 151);
+check('axial→colrow: odd-q row shear (+75 for q=151)', ACKS.hexAxialToColRow(151, 99).row === 174);
+check('the reported case: axial(151,99) labels "151174"', ACKS.hexDisplayLabel(151, 99) === '151174');
+check('colrow→axial inverts the shear: (151,99)→axial(151,24)',
+  (() => { const a = ACKS.hexColRowToAxial(151, 99); return a.q === 151 && a.r === 24; })());
+check('GM entering column·row 151,099 round-trips to label "15199"',
+  (() => { const a = ACKS.hexColRowToAxial(151, 99); return ACKS.hexDisplayLabel(a.q, a.r) === '15199'; })());
+check('col === q both directions', ACKS.hexAxialToColRow(7, 3).col === 7 && ACKS.hexColRowToAxial(7, 3).q === 7);
+check('round-trip axial→colrow→axial (spread incl. negatives, even/odd cols)', (() => {
+  for(const [q, r] of [[0,0],[1,0],[0,1],[-1,1],[8,1],[151,99],[151,173],[-7,-3],[150,100],[2,2]]){
+    const cr = ACKS.hexAxialToColRow(q, r);
+    const back = ACKS.hexColRowToAxial(cr.col, cr.row);
+    if(back.q !== q || back.r !== r) return false;
+  }
+  return true;
+})());
+check('round-trip colrow→axial→colrow (spread)', (() => {
+  for(const [col, row] of [[0,0],[151,99],[151,248],[150,175],[-3,4],[12,0],[7,7]]){
+    const ax = ACKS.hexColRowToAxial(col, row);
+    const cr = ACKS.hexAxialToColRow(ax.q, ax.r);
+    if(cr.col !== col || cr.row !== row) return false;
+  }
+  return true;
+})());
+check('hexDisplayLabel is built from the converter (parity)', (() => {
+  const cr = ACKS.hexAxialToColRow(151, 173);
+  const pad = n => (n < 0 ? '-' : '') + String(Math.abs(n)).padStart(2, '0');
+  return ACKS.hexDisplayLabel(151, 173) === (pad(cr.col) + pad(cr.row)) && ACKS.hexDisplayLabel(151, 173) === '151248';
+})());
 
 // ─── hexName — the canonical display name (Settlement|Terrain + coords) ───
 section('hexName (display naming standard)');

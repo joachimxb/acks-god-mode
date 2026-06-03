@@ -1088,7 +1088,7 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="entry in hexSettlements(selectedDomain)" :key="entry.hexIndex">
                     <tr>
                       <td class="font-semibold" x-text="entry.settlement.name || '(unnamed)'"></td>
-                      <td class="font-mono text-sm" x-text="'('+entry.hex.coord.q+','+entry.hex.coord.r+')'"></td>
+                      <td class="font-mono text-sm" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r)"></td>
                       <td x-text="settlementType(entry.settlement)"></td>
                       <td>
                         <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:entry.settlement, fieldPath:'families', label:'Settlement families', kind:'number', min:0})">
@@ -1360,13 +1360,13 @@ document.addEventListener('alpine:init', () => {
                       </template>
                     </td>
                     <td>
-                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
+                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
                         <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
                         <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                       </span>
                     </td>
                     <td class="text-sm">
-                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
+                      <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
                         <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-semibold" x-text="'+' + (currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — GM shortcut, max +3. Proper flow is the Queue improvements panel below.">✏</button></span></template>
                         <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                       </span>
@@ -1443,7 +1443,7 @@ document.addEventListener('alpine:init', () => {
                   <tbody>
                     <template x-for="h in (selectedDomain.geography.hexes||[]).filter(x => (x.landImprovementInvested||0) > 0)" :key="h.id">
                       <tr>
-                        <td><span class="font-mono">(<span x-text="h.coord?.q||0"></span>,<span x-text="h.coord?.r||0"></span>)</span></td>
+                        <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
                         <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + 'gp'"></td>
                         <td x-text="'+' + (h.landImprovementBonus||0)"></td>
                         <td class="font-mono" x-text="(h.landImprovementInvested||0).toLocaleString() + ' / 25,000gp'"></td>
@@ -1476,7 +1476,7 @@ document.addEventListener('alpine:init', () => {
                   <tbody>
                     <template x-for="(h, hi) in selectedDomain.geography.hexes" :key="h.id || hi">
                       <tr>
-                        <td><span class="font-mono">(<span x-text="h.coord?.q||0"></span>,<span x-text="h.coord?.r||0"></span>)</span></td>
+                        <td><span class="font-mono" x-text="window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0)"></span></td>
                         <td class="font-mono" x-text="Math.round(h.valuePerFamily||0) + ' / ' + Math.round(effectiveHexValue(h)) + 'gp'"></td>
                         <td class="text-sm">
                           <span x-text="'+' + (h.landImprovementBonus||0)"></span>
@@ -1508,12 +1508,12 @@ document.addEventListener('alpine:init', () => {
                                   <span class="text-[10px] opacity-70" x-text="(() => { const sup = (currentCampaign?.characters||[]).find(c=>c.id===sid); if(!sup) return ''; const onSite = !sup.currentHexId || sup.currentHexId === h.id; return onSite ? '' : '⚠ off-site'; })()"></span>
                                   <button class="text-sm accent-red"
                                           title="Remove (logged)"
-                                          @click="(() => { const list = (h.constructionSupervisorCharacterIds||[]).slice(); list.splice(sIdx, 1); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + h.coord?.q + ',' + h.coord?.r + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); })()">×</button>
+                                          @click="(() => { const list = (h.constructionSupervisorCharacterIds||[]).slice(); list.splice(sIdx, 1); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); })()">×</button>
                                 </span>
                               </template>
                               <!-- + Add supervisor dropdown — filters out characters already assigned. -->
                               <select class="text-sm mt-1" style="max-width:11rem"
-                                      @change="(() => { const newId = $event.target.value; if(!newId) return; const list = (h.constructionSupervisorCharacterIds||[]).slice(); if(!list.includes(newId)) list.push(newId); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + h.coord?.q + ',' + h.coord?.r + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); $event.target.value = ''; })()">
+                                      @change="(() => { const newId = $event.target.value; if(!newId) return; const list = (h.constructionSupervisorCharacterIds||[]).slice(); if(!list.includes(newId)) list.push(newId); commitStatEdit({entityType:'hex', entityId:h.id, entity:h, fieldPath:'constructionSupervisorCharacterIds', label:'Supervisors (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', oldValue:(h.constructionSupervisorCharacterIds||[]).slice(), newValue:list}); $event.target.value = ''; })()">
                                 <option value="">＋ Add supervisor…</option>
                                 <template x-for="c in (currentCampaign?.characters||[]).filter(c=>c.alive!==false && (c.constructionSupervisorCap||0) > 0 && !(h.constructionSupervisorCharacterIds||[]).includes(c.id))" :key="c.id">
                                   <option :value="c.id" x-text="c.name + ' (' + (c.constructionSupervisorCap||0).toLocaleString() + 'gp' + (c.currentHexId && c.currentHexId !== h.id ? ', off-site' : '') + ')'"></option>
@@ -1533,7 +1533,7 @@ document.addEventListener('alpine:init', () => {
                         </td>
                         <td>
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
-                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + h.coord?.q + ',' + h.coord?.r + ')', kind:'number', min:0})">
+                            <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0})">
                               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
                               <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                             </span>
@@ -2241,7 +2241,7 @@ document.addEventListener('alpine:init', () => {
       <div class="border border-ink/40 rounded p-3 space-y-2" x-show="emitWizardKind">
         <div class="wizard-step-header"><span class="wizard-step-n">Step 3</span>Context envelope</div>
         <div class="grid grid-cols-2 gap-2">
-          <label class="text-sm">Primary hex<select x-model="emitWizardCtxHexId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="h in (currentCampaign?.hexes || [])" :key="h.id"><option :value="h.id" x-text="(h.coord ? '('+h.coord.q+','+h.coord.r+')' : h.id) + (h.name ? ' · '+h.name : '')"></option></template></select></label>
+          <label class="text-sm">Primary hex<select x-model="emitWizardCtxHexId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="h in (currentCampaign?.hexes || [])" :key="h.id"><option :value="h.id" x-text="(h.coord ? window.ACKS.hexDisplayLabel(h.coord.q, h.coord.r) : h.id) + (h.name ? ' · '+h.name : '')"></option></template></select></label>
           <label class="text-sm">Settlement<select x-model="emitWizardCtxSettlementId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="st in (currentCampaign?.settlements || [])" :key="st.id"><option :value="st.id" x-text="st.name"></option></template></select></label>
           <label class="text-sm">Domain<select x-model="emitWizardCtxDomainId" class="w-full border border-ink rounded px-2 py-1 text-sm"><option value="">(none)</option><template x-for="d in (currentCampaign?.domains || [])" :key="d.id"><option :value="d.id" x-text="d.name"></option></template></select></label>
           <label class="text-sm">Related entities <span class="opacity-50">JSON [{kind,id,role}]</span><input x-model="emitWizardCtxRelatedJson" placeholder="[]" class="w-full border border-ink rounded px-2 py-1 text-sm font-mono" /></label>
@@ -3695,14 +3695,16 @@ document.addEventListener('alpine:init', () => {
                                 </select>
                               </div>
                             </template>
-                            <!-- coord (Wave B.6) — {q, r}; two small number inputs, each committed by axis path. -->
+                            <!-- coord (Wave B.6) — GM-facing COLUMN·ROW (the map-label convention); stored
+                                 axial {q,r} (shown in the tooltip). Whole-coord commit via inspectorSetCoordColRow
+                                 (a column edit recomputes axial r, so it can't be a per-axis path). -->
                             <template x-if="field.type === 'coord'">
-                              <div class="flex items-center gap-2 text-sm">
-                                <label class="flex items-baseline gap-1">q
-                                  <input type="number" :value="(inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}).q ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.q', $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                              <div class="flex items-center gap-2 text-sm" :title="(() => { const v = inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}; return 'Internal axial q,r: ' + (v.q||0) + ', ' + (v.r||0); })()">
+                                <label class="flex items-baseline gap-1">col
+                                  <input type="number" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).col" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, $event.target.value === '' ? 0 : Number($event.target.value), null)" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
                                 </label>
-                                <label class="flex items-baseline gap-1">r
-                                  <input type="number" :value="(inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}).r ?? ''" @change="inspectorSetField(inspectorCurrentEntity(), field.name + '.r', $event.target.value === '' ? null : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                                <label class="flex items-baseline gap-1">row
+                                  <input type="number" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).row" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, null, $event.target.value === '' ? 0 : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
                                 </label>
                               </div>
                             </template>
@@ -5499,7 +5501,7 @@ document.addEventListener('alpine:init', () => {
                 <span class="ed-val">
                   <template x-for="entry in allHexes()" :key="entry.hex.id">
                     <template x-if="entry.hex.id === characterEditing.currentHexId">
-                      <span x-text="'(' + entry.hex.coord.q + ',' + entry.hex.coord.r + ')  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></span>
+                      <span x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></span>
                     </template>
                   </template>
                 </span>
@@ -5515,7 +5517,7 @@ document.addEventListener('alpine:init', () => {
               <select x-model="hexDraft" class="ed-input" style="width:24rem" x-init="$nextTick(() => $el.focus())">
                 <option :value="null">— no specific hex —</option>
                 <template x-for="entry in allHexes()" :key="entry.hex.id">
-                  <option :value="entry.hex.id" x-text="'(' + entry.hex.coord.q + ',' + entry.hex.coord.r + ')  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></option>
+                  <option :value="entry.hex.id" x-text="window.ACKS.hexDisplayLabel(entry.hex.coord.q, entry.hex.coord.r) + '  ·  ' + entry.domainName + (entry.hex.settlement ? ' · ' + entry.hex.settlement.name : '')"></option>
                 </template>
               </select>
               <button @click="saveHexEdit()" class="ed-btn" title="Save & log">✓</button>
@@ -5862,14 +5864,15 @@ document.addEventListener('alpine:init', () => {
     </div>
     <div class="p-4 space-y-3 max-h-[80vh] overflow-y-auto" x-show="worldHexEditingHex()">
       <!-- Identity — all GM edits routed through gm-fiat events (logged).
-           Coord (q,r) is foundational identity and rarely changes; staying as plain inputs.
-           valuePerFamily is RAW (3d3 rolled at hex secure) but GM-settable here (logged via gm-fiat). -->
+           Coord is the GM-facing COLUMN·ROW hex number (the JG/Auran convention the map labels use);
+           axial {q,r} stays the internal store (shown in the tooltip). worldHexSetColRow converts.
+           Foundational identity, rarely changes. valuePerFamily is RAW (3d3 at hex secure) but GM-settable. -->
       <div class="grid grid-cols-2 gap-3">
-        <label class="block text-sm">Coord (q, r) <span class="opacity-60 text-sm">— hex identifier (foundational, edit cautiously)</span>
-          <span class="flex items-center gap-1">
-            <input type="number" :value="worldHexEditingHex().coord?.q" @input="worldHexEditingHex().coord={q:parseInt($event.target.value)||0, r:worldHexEditingHex().coord?.r||0}" class="w-20">
+        <label class="block text-sm">Coord (column, row) <span class="opacity-60 text-sm">— hex number (foundational, edit cautiously)</span>
+          <span class="flex items-center gap-1" :title="'Internal axial q,r: ' + (worldHexEditingHex().coord?.q||0) + ', ' + (worldHexEditingHex().coord?.r||0)">
+            <input type="number" title="Column" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).col" @input="worldHexSetColRow(parseInt($event.target.value)||0, null)" class="w-20">
             <span>,</span>
-            <input type="number" :value="worldHexEditingHex().coord?.r" @input="worldHexEditingHex().coord={q:worldHexEditingHex().coord?.q||0, r:parseInt($event.target.value)||0}" class="w-20">
+            <input type="number" title="Row" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).row" @input="worldHexSetColRow(null, parseInt($event.target.value)||0)" class="w-20">
           </span>
         </label>
         <div class="block text-sm flex items-center gap-2">
@@ -7455,6 +7458,19 @@ return {
     });
   },
 
+  // Inspector coord edits are GM-facing COLUMN·ROW (the map-label convention), committed as a whole
+  // axial {q,r} via gm-fiat. A column·row edit isn't a single-axis change — moving the column while
+  // holding the displayed row recomputes axial r — so it can't use the per-axis dotted path; it
+  // commits the whole coord object. Pass null for the axis you're NOT changing (read back from current).
+  inspectorSetCoordColRow(entity, fieldName, col, row){
+    if(!entity || !fieldName || !window.ACKS) return;
+    const v = this.inspectorFieldValue(entity, fieldName) || {};
+    const cur = window.ACKS.hexAxialToColRow(v.q || 0, v.r || 0);
+    const c  = (col == null) ? cur.col : col;
+    const rw = (row == null) ? cur.row : row;
+    this.inspectorSetField(entity, fieldName, window.ACKS.hexColRowToAxial(c, rw));
+  },
+
   // ─── Composite-field edit helpers (Wave B.6 — 2026-05-31) ───
   // Array-length-changing edits commit the WHOLE array as newValue. CRITICAL: clone
   // the array first, mutate the clone, never the live array — inspectorSetField early-
@@ -7556,7 +7572,7 @@ return {
     if(field.type === 'enumMulti' && Array.isArray(value)) return value.length ? value.join(', ') : '—';
     if(field.type === 'idArray' && Array.isArray(value)) return '[' + value.length + ' refs]';
     if(field.type === 'gp' && typeof value === 'number') return value.toLocaleString() + ' gp';
-    if(field.type === 'coord' && value && value.q != null) return '(' + value.q + ',' + value.r + ')';
+    if(field.type === 'coord' && value && value.q != null) return window.ACKS.hexDisplayLabel(value.q, value.r); // GM-facing column·row
     if(field.type === 'computed') return '(computed — render in later wave)';
     return String(value);
   },
@@ -8433,7 +8449,7 @@ return {
             const h = destHexes.find(hex => hex.id === ruler.currentHexId);
             if(h){
               const setName = h.settlement && h.settlement.name;
-              destCoord = '(' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')' + (setName ? ' · ' + setName : '');
+              destCoord = window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + (setName ? ' · ' + setName : '');
             }
           }
         }
@@ -8441,12 +8457,12 @@ return {
           const settled = destHexes.find(h => h.settlement);
           if(settled){
             const setName = settled.settlement && settled.settlement.name;
-            destCoord = '(' + (settled.coord?.q||0) + ',' + (settled.coord?.r||0) + ')' + (setName ? ' · ' + setName : '');
+            destCoord = window.ACKS.hexDisplayLabel(settled.coord?.q||0, settled.coord?.r||0) + (setName ? ' · ' + setName : '');
           }
         }
         if(!destCoord && destHexes.length > 0){
           const h = destHexes[0];
-          destCoord = '(' + (h.coord?.q||0) + ',' + (h.coord?.r||0) + ')';
+          destCoord = window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0);
         }
       }
       const dest = destCoord ? destCoord + ' · ' + destName : destName;
@@ -11002,7 +11018,7 @@ return {
         const haystack = [
           h.terrain||'', h.primaryStructure||'', h.notes||'', h.monsterNotes||'',
           entry.domainName||'',
-          '('+(h.coord?.q||0)+','+(h.coord?.r||0)+')',
+          window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0),
           ...(h.lairs||[]).map(l=>(l.name||'')+' '+(l.description||'')),
           ...(h.dungeons||[]).map(l=>(l.name||'')+' '+(l.description||'')),
           ...(h.pointsOfInterest||[]).map(l=>(l.name||'')+' '+(l.description||'')),
@@ -11023,6 +11039,19 @@ return {
     // from the top-level collection so the full hex card works for it too.
     const id = this.worldHexEditing.hexId;
     return id ? ((this.currentCampaign?.hexes || []).find(h => h.id === id) || null) : null;
+  },
+  // Set the editing hex's coord from a GM-facing COLUMN·ROW pair (the map-label convention), storing
+  // canonical axial {q,r}. Pass null for the axis you're NOT changing — it's read back from the current
+  // coord so editing one field holds the other's *displayed* value (which, for column edits, recomputes
+  // axial r). Direct mutation + persist (coord is foundational identity, not routed through gm-fiat — by
+  // the same "edit cautiously" choice the plain inputs always had).
+  worldHexSetColRow(col, row){
+    const hex = this.worldHexEditingHex(); if(!hex) return;
+    const cur = window.ACKS.hexAxialToColRow(hex.coord?.q || 0, hex.coord?.r || 0);
+    const c  = (col == null) ? cur.col : col;
+    const rw = (row == null) ? cur.row : row;
+    hex.coord = window.ACKS.hexColRowToAxial(c, rw);
+    if(this.schedulePersist) this.schedulePersist();
   },
   worldHexEditingDomain(){
     if(!this.worldHexEditing) return null;
@@ -12127,7 +12156,7 @@ return {
             if(existingHexIds.has(h.id)){ skipped.push('hex '+h.id+' (duplicate id)'); continue; }
             const ckey = h.coord ? (h.coord.q + ',' + h.coord.r) : null;
             if(ckey && existingHexCoords.has(ckey)){
-              skipped.push('hex '+h.id+' (coordinate ('+h.coord.q+','+h.coord.r+') already taken)');
+              skipped.push('hex '+h.id+' (coordinate '+window.ACKS.hexDisplayLabel(h.coord.q, h.coord.r)+' already taken)');
               continue;
             }
             camp.hexes.push(h); existingHexIds.add(h.id);
@@ -12414,9 +12443,9 @@ return {
     if(n<75||n>249){alert('Initial founding requires 75-249 peasant families.');return;}
     if((d.demographics.peasantFamilies||0)<n){alert('Not enough peasant families ('+d.demographics.peasantFamilies+' available, '+n+' needed).');return;}
     if((d.treasury.gp||0)<cost){alert('Not enough treasury ('+(d.treasury.gp||0).toLocaleString()+'gp available, '+cost.toLocaleString()+'gp needed).');return;}
-    if(!confirm('Found settlement "'+trimmedName+'" on hex ('+hex.coord.q+','+hex.coord.r+')?\n\nCost: 10,000gp from treasury\nTransfer '+n+' peasant families to the settlement\n\nThis sets the settlement\'s initial investment tier (max 249 families).'))return;
+    if(!confirm('Found settlement "'+trimmedName+'" on hex '+window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r)+'?\n\nCost: 10,000gp from treasury\nTransfer '+n+' peasant families to the settlement\n\nThis sets the settlement\'s initial investment tier (max 249 families).'))return;
     // Apply
-    this.adjustTreasury(d, -cost, 'Founded "'+trimmedName+'" on hex ('+hex.coord.q+','+hex.coord.r+'), '+n+' families');
+    this.adjustTreasury(d, -cost, 'Founded "'+trimmedName+'" on hex '+window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r)+', '+n+' families');
     // Foundation #241 — go through the canonical setter so rural hex.families gets the matching haircut.
     window.ACKS.setPeasantPopulation(d, (d.demographics.peasantFamilies||0) - n);
     hex.settlement={name:trimmedName, families:n, totalInvestment:cost, foundedTurn:this.currentCampaign?.currentTurn||1, demandModifiers:{}};

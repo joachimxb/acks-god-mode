@@ -2015,14 +2015,24 @@ function hexCrossingSegment(q, r, size, i, len){
   return { x1: m.x - dx * h, y1: m.y - dy * h, x2: m.x + dx * h, y2: m.y + dy * h };
 }
 
-// RAW-style column-row display label (RR p.273 "hex 401" convention; published Auran maps use
-// 4-digit COLROW). Axial {q,r} stays the canonical truth (shown in the tooltip); this is the
-// GM-familiar secondary. Flat-top: column = q; the row undoes the half-column vertical shear
-// (odd-q axial→offset, redblobgames) so hexes at the same visual height share a row number.
-// Coords can be negative (the store is relative to no fixed origin), so negatives carry a '-'.
+// Axial {q,r} ↔ GM-facing column·row (offset). The column·row pair is THE coordinate GMs read
+// off published Auran/JG maps (RR p.273 "hex 401"); axial {q,r} stays the internal canonical store
+// (positioning, neighbours, distance — HEX_EDGE_DELTAS, hexAxialToPixel, hexAxialDistance — all axial).
+// Flat-top, odd-q: column = q; the row undoes the half-column vertical shear so hexes at the same
+// visual height share a row number (redblobgames). EXACT + INVERTIBLE for integer q (q-(q&1) is always
+// even, so the >>1 never loses a bit) — round-trips both ways. These are the one boundary where the two
+// systems meet: convert at the UI edge, never store column·row. Coords can be negative (the store has no
+// fixed origin).
+function hexAxialToColRow(q, r){
+  return { col: q, row: r + ((q - (q & 1)) >> 1) };
+}
+function hexColRowToAxial(col, row){
+  return { q: col, r: row - ((col - (col & 1)) >> 1) };
+}
+// RAW-style column-row display label — the GM-facing hex number, e.g. "151099". Pads each part to
+// ≥2 digits; negatives carry a leading '-'. This is what hexName() embeds and what the map draws.
 function hexDisplayLabel(q, r){
-  const col = q;
-  const row = r + ((q - (q & 1)) >> 1); // odd-q axial→offset row (exact: numerator is always even)
+  const { col, row } = hexAxialToColRow(q, r);
   const pad = n => (n < 0 ? '-' : '') + String(Math.abs(n)).padStart(2, '0');
   return pad(col) + pad(row);
 }
@@ -2251,7 +2261,7 @@ Object.assign(ACKS, {
   findPersistentCandidates, computeEffectiveLoyalty,
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
-  MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexDisplayLabel, hexName,
+  MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName,
   hexNeighborDeltas, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
