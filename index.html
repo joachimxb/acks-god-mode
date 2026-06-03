@@ -3701,10 +3701,10 @@ document.addEventListener('alpine:init', () => {
                             <template x-if="field.type === 'coord'">
                               <div class="flex items-center gap-2 text-sm" :title="(() => { const v = inspectorFieldValue(inspectorCurrentEntity(), field.name) || {}; return 'Internal axial q,r: ' + (v.q||0) + ', ' + (v.r||0); })()">
                                 <label class="flex items-baseline gap-1">col
-                                  <input type="number" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).col" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, $event.target.value === '' ? 0 : Number($event.target.value), null)" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                                  <input type="text" inputmode="numeric" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).col" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, $event.target.value.trim() === '' ? 0 : parseInt($event.target.value)||0, null)" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
                                 </label>
                                 <label class="flex items-baseline gap-1">row
-                                  <input type="number" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).row" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, null, $event.target.value === '' ? 0 : Number($event.target.value))" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
+                                  <input type="text" inputmode="numeric" :value="window.ACKS.hexAxialToColRow((inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).q||0, (inspectorFieldValue(inspectorCurrentEntity(), field.name)||{}).r||0).row" @change="inspectorSetCoordColRow(inspectorCurrentEntity(), field.name, null, $event.target.value.trim() === '' ? 0 : parseInt($event.target.value)||0)" class="text-sm border border-ink rounded px-2 py-1" style="width:5rem">
                                 </label>
                               </div>
                             </template>
@@ -5870,9 +5870,9 @@ document.addEventListener('alpine:init', () => {
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-sm">Coord (column, row) <span class="opacity-60 text-sm">— hex number (foundational, edit cautiously)</span>
           <span class="flex items-center gap-1" :title="'Internal axial q,r: ' + (worldHexEditingHex().coord?.q||0) + ', ' + (worldHexEditingHex().coord?.r||0)">
-            <input type="number" title="Column" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).col" @input="worldHexSetColRow(parseInt($event.target.value)||0, null)" class="w-20">
+            <input type="text" inputmode="numeric" title="Column" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).col" @change="worldHexSetColRow(parseInt($event.target.value)||0, null)" class="w-20">
             <span>,</span>
-            <input type="number" title="Row" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).row" @input="worldHexSetColRow(null, parseInt($event.target.value)||0)" class="w-20">
+            <input type="text" inputmode="numeric" title="Row" :value="window.ACKS.hexAxialToColRow(worldHexEditingHex().coord?.q||0, worldHexEditingHex().coord?.r||0).row" @change="worldHexSetColRow(null, parseInt($event.target.value)||0)" class="w-20">
           </span>
         </label>
         <div class="block text-sm flex items-center gap-2">
