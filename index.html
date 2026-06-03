@@ -1335,7 +1335,6 @@ document.addEventListener('alpine:init', () => {
                 <th title="Agricultural improvement bonus per RR p.341">Improvements</th>
                 <th x-show="isHouseRuleEnabled('families-per-hex-tracking')">Land income</th>
                 <th>Settlement</th>
-                <th class="text-sm">World</th>
               </tr></thead>
               <tbody>
                 <template x-for="(h, i) in selectedDomain.geography.hexes" :key="h.id || i">
@@ -1405,13 +1404,10 @@ document.addEventListener('alpine:init', () => {
                         </div>
                       </template>
                     </td>
-                    <td class="text-sm">
-                      <button @click="openHexDetail({domainId:selectedDomain.id, hexIndex:i, hex:h, domainName:selectedDomain.name})" class="underline" title="Open in World > Hexes detail (terrain, lairs, dungeons, POIs, notes, etc.)">edit ↗</button>
-                    </td>
                   </tr>
                 </template>
                 <template x-if="!selectedDomain.geography.hexes || selectedDomain.geography.hexes.length === 0">
-                  <tr><td :colspan="7 + (isHouseRuleEnabled('families-per-hex-tracking') ? 1 : 0)" class="italic opacity-60">No hexes added yet. Use the button below to start.</td></tr>
+                  <tr><td :colspan="6 + (isHouseRuleEnabled('families-per-hex-tracking') ? 1 : 0)" class="italic opacity-60">No hexes added yet. Use the button below to start.</td></tr>
                 </template>
               </tbody>
             </table>
