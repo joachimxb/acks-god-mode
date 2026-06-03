@@ -11069,9 +11069,27 @@ return {
     hex.coord = window.ACKS.hexColRowToAxial(c, rw);
     if(this.schedulePersist) this.schedulePersist();
   },
+  // The hex panel header's "· <domain>" suffix. Reads the hex's OWN domainId (the single source of
+  // truth, CLAUDE #10) — same field the Domain dropdown binds to — so the two can never disagree.
+  // (It used to read worldHexEditing.domainId, the navigation breadcrumb of which list you opened
+  // from, which stayed set even when the hex's scalar said otherwise — that was the "header says
+  // March of Saltspur, dropdown says Unclaimed" bug.) openHexDetail heals an empty scalar first.
   worldHexEditingDomain(){
-    if(!this.worldHexEditing) return null;
-    return this.domains.find(x => x.id === this.worldHexEditing.domainId) || null;
+    const hex = this.worldHexEditingHex();
+    const id = hex && hex.domainId;
+    return id ? (this.domains.find(x => x.id === id) || null) : null;
+  },
+  // A hex's domain claim lives canonically on hex.domainId, with each domain's geography.hexes[] as
+  // the reconciled mirror (CLAUDE #10). Legacy/template data, a save round-trip, or a pre-backfill
+  // session cache can leave a hex sitting in a domain's geography with an EMPTY scalar; adopt that
+  // membership onto the scalar so the panel reflects the truth the GM already sees in the per-domain
+  // Hexes table. Mirrors the engine's lift backfill (liftToTopLevelCollections) for the in-session
+  // case where reload hasn't re-run lift. Returns the resolved domain id (null = genuine wilderness).
+  _healHexDomainId(hex){
+    if(!hex || hex.domainId) return hex ? hex.domainId : null;
+    const owner = (this.domains||[]).find(d => d.geography && Array.isArray(d.geography.hexes) && d.geography.hexes.some(h => h && h.id === hex.id));
+    if(owner){ hex.domainId = owner.id; return owner.id; }
+    return null;
   },
   // Reassign the editing hex to another domain (or unclaimed wilderness) from the hex-detail modal.
   // Reuses mapRehomeHex (the canonical move: drop from old geography, set hex.domainId, add to new +
@@ -11099,6 +11117,7 @@ return {
   },
   openHexDetail(entry){
     this.worldHexEditing = {domainId:entry.domainId, hexIndex:entry.hexIndex, hexId:(entry.hex && entry.hex.id) || null};
+    this._healHexDomainId(this.worldHexEditingHex()); // self-heal an empty domainId from geography membership
     this.showHexDetailModal = true;
   },
   closeHexDetail(){

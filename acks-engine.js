@@ -2944,6 +2944,13 @@ function liftToTopLevelCollections(campaign){
       d.geography.hexes = d.geography.hexes.map(h => {
         const topRef = campaign.hexes.find(x => x.id === h.id);
         if(!topRef) return h;
+        // Backfill domainId on the SURVIVING (canonical, top-level) copy. The per-hex backfill
+        // above runs on the geography copy `h`, but when campaign.hexes already held this hex
+        // (a save round-trip, a pre-backfill session cache, or a shared .acks.json whose
+        // top-level hexes lack domainId), that geography copy is discarded here in favour of
+        // topRef — so the backfill would be lost unless we also apply it to topRef. Membership
+        // in d.geography.hexes[] IS the domain claim (CLAUDE #10): adopt it onto the scalar.
+        if(!topRef.domainId) topRef.domainId = d.id;
         // Also re-unify h.settlement against campaign.settlements
         if(topRef.settlement && topRef.settlement.id){
           const topSet = campaign.settlements.find(s => s.id === topRef.settlement.id);
