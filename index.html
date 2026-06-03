@@ -339,9 +339,10 @@ document.addEventListener('alpine:init', () => {
       <div x-data="{addDomain:''}" class="flex items-center gap-1 text-sm">
         <select x-model="addDomain" class="text-sm">
           <option value="">— add hex to —</option>
+          <option value="__wild__">Unclaimed wilderness</option>
           <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
         </select>
-        <button @click="if(addDomain){ addHexToDomain(addDomain); addDomain=''; }" :disabled="!addDomain" :class="addDomain ? '' : 'opacity-50 cursor-not-allowed'" class="text-sm px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ add hex</button>
+        <button @click="if(addDomain){ addHex(addDomain); addDomain=''; }" :disabled="!addDomain" :class="addDomain ? '' : 'opacity-50 cursor-not-allowed'" class="text-sm px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ add hex</button>
       </div>
     </div>
 
@@ -363,7 +364,7 @@ document.addEventListener('alpine:init', () => {
           <th class="text-right">Actions</th>
         </tr></thead>
         <tbody>
-          <template x-for="entry in filteredHexes()" :key="entry.domainId + ':' + entry.hexIndex">
+          <template x-for="entry in filteredHexes()" :key="entry.hex.id">
             <tr>
               <td>
                 <button @click="openHexDetail(entry)" class="underline font-semibold" x-text="window.ACKS.hexName(entry.hex)"></button>
@@ -408,7 +409,7 @@ document.addEventListener('alpine:init', () => {
         </tbody>
       </table>
     </template>
-    <p class="text-sm opacity-60 mt-3 italic">Hex schema is currently stored per-domain (under <code>domain.geography.hexes[]</code>). The World view aggregates and edits across all domains — settlement/economy fields stay synced with the Domain &gt; Hexes tab. A future refactor will lift hexes into a top-level campaign collection so wilderness (unowned) hexes can live here too.</p>
+    <p class="text-sm opacity-60 mt-3 italic">Hexes live in the top-level <code>campaign.hexes[]</code> collection (mirrored per-domain under <code>domain.geography.hexes[]</code> for owned hexes). This view aggregates across all domains <em>and</em> unclaimed wilderness — use “+ add hex → Unclaimed wilderness” to create a domainless hex, or a hex's <strong>Domain</strong> field to claim/release it. Settlement/economy fields stay synced with the Domain &gt; Hexes tab.</p>
   </div>
 
   <!-- ───── Sub-tab: RUMORS (Phase 2.8) — cross-settlement view, gated by rumors-manual ───── -->
@@ -1416,7 +1417,7 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </tbody>
             </table>
-            <button @click="selectedDomain.geography.hexes.push({id:'hex-0_0-'+Math.random().toString(36).slice(2,5), coord:{q:0,r:0}, families:0, valuePerFamily:6, terrain:'', primaryStructure:'', notes:'', settlement:null, landImprovementBonus:0, landImprovementProjects:[], lairs:[], dungeons:[], pointsOfInterest:[], monsterNotes:'', explored:true, classification:'Borderlands'})" class="mt-2 text-sm underline">+ add hex</button>
+            <button @click="addHex(selectedDomain.id)" class="mt-2 text-sm underline">+ add hex</button>
           </div>
 
           <!-- Agricultural Improvement Tracker (baseline ACKS RR p.341).
@@ -11001,10 +11002,22 @@ return {
   // Returns array of {domainId, domainName, hexIndex, hex}. Used by the World > Hexes view.
   allHexes(){
     const out = [];
+    const seen = new Set();
     (this.domains||[]).forEach(d => {
       (d.geography?.hexes||[]).forEach((h, hi) => {
         out.push({domainId:d.id, domainName:d.name, hexIndex:hi, hex:h});
+        if(h && h.id) seen.add(h.id);
       });
+    });
+    // Domainless wilderness hexes live only in campaign.hexes (no domain geography). Include them so the
+    // Hexes tab + hex pickers show them (and "+ add hex → Unclaimed wilderness" lands somewhere visible).
+    // campaign.hexes is reference-unified with the domain mirrors, so dedupe by id to avoid doubles.
+    (this.currentCampaign?.hexes||[]).forEach(h => {
+      if(h && h.id && !seen.has(h.id)){
+        const d = h.domainId ? (this.domains||[]).find(x => x.id === h.domainId) : null;
+        out.push({domainId: d ? d.id : null, domainName: d ? d.name : 'Unclaimed', domainless: !d, hexIndex:-1, hex:h});
+        seen.add(h.id);
+      }
     });
     return out;
   },
@@ -11599,23 +11612,40 @@ return {
   // select mode; clicking a hex hands its id to `cb`. Call mapEndSelect() to restore inspect.
   mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'world'; this.worldSubView = 'map'; this.mapEnsureView(); },
   mapEndSelect(){ this._mapSelectCb = null; this._mapSelectHint = ''; this.mapMode = 'inspect'; },
-  // Create a new blank hex on the picked domain. Same shape as Domain > Hexes "+ add hex"
-  // so a hex created from either view is structurally identical.
-  addHexToDomain(domainId){
-    const d = this.domains.find(x => x.id === domainId);
-    if(!d) return;
-    if(!d.geography) d.geography = {};
-    if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
-    d.geography.hexes.push({
-      id: 'hex-0_0-' + Math.random().toString(36).slice(2,5),
-      coord: {q:0, r:0}, families: 0, valuePerFamily: 6, terrain: '',
-      primaryStructure: '', notes: '', settlement: null,
-      landImprovementBonus: 0, landImprovementProjects: [],
-      lairs: [], dungeons: [], pointsOfInterest: [], monsterNotes: '',
-      explored: true, classification: 'Borderlands'
-    });
-    this.showToast('Added a new hex to ' + d.name + '. Set its coord/families in Domains → Hexes.');
+  // First unused {q,r} scanning q=0,1,2,… along row 0 — so "+ add hex" doesn't pile every new hex on
+  // (0,0) (which collides on the campaign-global coord-uniqueness rule). The GM sets the real
+  // column·row afterward in the hex panel.
+  _firstFreeHexCoord(){
+    const used = new Set();
+    (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); });
+    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.coord) used.add(h.coord.q + ',' + h.coord.r); }));
+    let q = 0;
+    while(used.has(q + ',0')) q++;
+    return { q, r: 0 };
   },
+  // "+ add hex" on World > Hexes. `target` is a domain id, or '__wild__' for an UNCLAIMED wilderness
+  // hex (domainId null — supported at the data layer; the GM-facing way to grow the map outward).
+  // Uses blankHex (the canonical shape incl. roadSides/etc.) + a free coord, sets domainId, and lands
+  // the hex in the top-level campaign.hexes (+ the domain's geography mirror when claimed).
+  addHex(target){
+    if(!this.currentCampaign) return;
+    const wild = (target === '__wild__' || !target);
+    const d = wild ? null : this.domains.find(x => x.id === target);
+    if(!wild && !d) return;
+    const hex = window.ACKS.blankHex({ coord: this._firstFreeHexCoord() });
+    hex.domainId = d ? d.id : null;
+    if(!Array.isArray(this.currentCampaign.hexes)) this.currentCampaign.hexes = [];
+    this.currentCampaign.hexes.push(hex);
+    if(d){
+      if(!d.geography) d.geography = {};
+      if(!Array.isArray(d.geography.hexes)) d.geography.hexes = [];
+      d.geography.hexes.push(hex);
+    }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Added hex ' + window.ACKS.hexDisplayLabel(hex.coord.q, hex.coord.r) + ' to ' + (d ? d.name : 'unclaimed wilderness') + ' — set its coord in the hex panel.');
+  },
+  // Back-compat delegate (the World > Hexes "+ add hex" control is the only caller).
+  addHexToDomain(domainId){ this.addHex(domainId); },
   addHexLair(h){
     if(!h) return;
     if(!Array.isArray(h.lairs)) h.lairs = [];
