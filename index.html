@@ -401,8 +401,9 @@ document.addEventListener('alpine:init', () => {
                 <span x-show="entry.hex.explored === false" class="opacity-70 italic">unexplored</span>
                 <span x-show="entry.hex.explored !== false" class="accent-green">✓ explored</span>
               </td>
-              <td class="text-right text-base">
+              <td class="text-right text-base whitespace-nowrap">
                 <button @click="openHexDetail(entry)" class="underline">edit</button>
+                <button @click="deleteHex(entry)" class="underline accent-red ml-2" title="Delete this hex entirely (and its settlement, if any) — cannot be undone">delete</button>
               </td>
             </tr>
           </template>
@@ -11706,6 +11707,29 @@ return {
   },
   // Back-compat delegate (the World > Hexes "+ add hex" control is the only caller).
   addHexToDomain(domainId){ this.addHex(domainId); },
+  // Delete a hex entirely — the destructive counterpart to "+ add hex" (World ▸ Hexes Actions column).
+  // Removes it from campaign.hexes AND every domain's geography.hexes mirror, and drops its settlement
+  // from campaign.settlements (the settlement lives on the hex). Confirms first, naming any content that
+  // would be lost. Unlogged splice — matches the other collection deletes (deleteParty/deleteRumor) and
+  // sidesteps the gm-fiat path (no hex-deleted event kind; gm-fiat is for field edits, not removals).
+  deleteHex(entry){
+    const hex = entry && entry.hex; if(!hex || !this.currentCampaign) return;
+    const A = window.ACKS, label = A.hexName(hex);
+    const lost = [];
+    const set = hex.settlement || (this.currentCampaign.settlements || []).find(s => s && s.hexId === hex.id);
+    if(set) lost.push('the settlement "' + (set.name || 'unnamed') + '"');
+    if((hex.lairs || []).length)            lost.push(hex.lairs.length + ' lair' + (hex.lairs.length === 1 ? '' : 's'));
+    if((hex.dungeons || []).length)         lost.push(hex.dungeons.length + ' dungeon' + (hex.dungeons.length === 1 ? '' : 's'));
+    if((hex.pointsOfInterest || []).length) lost.push(hex.pointsOfInterest.length + ' point' + (hex.pointsOfInterest.length === 1 ? '' : 's') + ' of interest');
+    const warn = lost.length ? ('\n\nThis hex contains ' + lost.join(', ') + ' — they will be deleted too.') : '';
+    if(!confirm('Delete hex ' + label + '?' + warn + '\n\nThis removes it from the map and its domain, and cannot be undone.')) return;
+    this.currentCampaign.hexes = (this.currentCampaign.hexes || []).filter(h => h.id !== hex.id);
+    (this.domains || []).forEach(d => { if(d.geography && Array.isArray(d.geography.hexes)) d.geography.hexes = d.geography.hexes.filter(h => h.id !== hex.id); });
+    if(Array.isArray(this.currentCampaign.settlements)) this.currentCampaign.settlements = this.currentCampaign.settlements.filter(s => !(s && s.hexId === hex.id));
+    if(this.worldHexEditing && this.worldHexEditing.hexId === hex.id) this.closeHexDetail(); // close the panel if it was open on this hex
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Deleted hex ' + label + '.');
+  },
   // "Create Map" — count what a W×H grid at the current origin would add vs. keep. Mirrors the engine's
   // collision rule (skip cells whose axial coord is already occupied) so the modal previews honestly.
   mapGridPreview(){
