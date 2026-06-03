@@ -5521,7 +5521,7 @@ document.addEventListener('alpine:init', () => {
         <div class="border border-ink/30 rounded p-3" x-data="{ coinDenoms:[{k:'pp'},{k:'gp'},{k:'ep'},{k:'sp'},{k:'cp'}] }">
           <div class="flex justify-between items-baseline mb-2">
             <h4 class="font-semibold text-sm">🪙 Coins <span class="opacity-60 font-normal text-xs">· purse</span></h4>
-            <span class="text-sm font-mono" x-text="characterCoinValueGp(characterEditing).toLocaleString()+' gp'+(encumbranceShown() ? ' · '+(Math.round(characterCoinWeightSt(characterEditing)*10)/10)+' st' : '')"></span>
+            <span class="text-sm font-mono" x-text="characterCoinValueGp(characterEditing).toLocaleString()+' gp value'+(encumbranceShown() ? ' · '+(Math.round(characterCoinWeightSt(characterEditing)*10)/10)+' st' : '')"></span>
           </div>
           <div class="flex flex-wrap gap-x-5 gap-y-1">
             <template x-for="d in coinDenoms" :key="d.k">
