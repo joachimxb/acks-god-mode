@@ -631,23 +631,22 @@ function applyEvent(campaign, event){
 
 // Helper used by handlers to apply a treasury delta and return change metadata.
 //
-// Stash C.1 (2026-05-29): When inventory-stash-system is on AND the domain has
-// a treasuryStashId linked, route the mutation through depositToStash with a
-// signed amount. Positive = grant, negative = debit. The A.4 canonical-setter
-// invariant (_syncTreasuryScalarFor inside depositToStash) keeps domain.treasury.gp
-// in sync with the stash sum. Without this routing, treasury-grant events would
-// drift from the stash and reconcileTreasuryScalars would CLOBBER them on load.
+// Stash C.1 (2026-05-29): the Domain Treasury IS a stash. When the domain has a
+// treasuryStashId linked, route the mutation through depositToStash with a signed
+// amount. Positive = grant, negative = debit. The A.4 canonical-setter invariant
+// (_syncTreasuryScalarFor inside depositToStash) keeps domain.treasury.gp in sync
+// with the stash sum. Without this routing, treasury-grant events would drift from
+// the stash and reconcileTreasuryScalars would CLOBBER them on load.
 //
-// When the rule is off (or migration hasn't run yet so no treasuryStashId), fall
-// through to the legacy direct-scalar mutation. This is the gating-doctrine path:
-// stash data is non-existent when the rule is off.
+// The Stash subsystem is always-on core (the inventory-stash-system toggle was removed
+// v0.17.0). The legacy direct-scalar mutation below is now only the pre-migration
+// fallback — a domain with no treasuryStashId yet (created before migrateAllDomainTreasuries ran).
 function _applyTreasuryDelta(campaign, domainId, amount, label){
   const d = (campaign.domains||[]).find(x => x.id === domainId);
   if(!d) throw new Error('Event references unknown domainId: '+domainId);
 
   const A = (typeof global !== 'undefined' ? global.ACKS : (typeof window !== 'undefined' ? window.ACKS : null)) || {};
-  const stashSystemOn = A.isHouseRuleEnabled && A.isHouseRuleEnabled(campaign, 'inventory-stash-system');
-  if(stashSystemOn && d.treasuryStashId && A.findStash && A.depositToStash){
+  if(d.treasuryStashId && A.findStash && A.depositToStash){
     const stash = A.findStash(campaign, d.treasuryStashId);
     if(stash){
       // Compute 'before' from canonical stash sum (pre-mutation).

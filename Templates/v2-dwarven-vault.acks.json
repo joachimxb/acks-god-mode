@@ -275,7 +275,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "The great vault. Dwarven domain template — note the high revenue per family, the urban-classified mountain hexes, the racial unit types in the garrison."
+      "notes": "The great vault. Dwarven domain template — note the high revenue per family, the urban-classified mountain hexes, the racial unit types in the garrison.",
+      "treasuryStashId": "stash-3dbpf4d"
     },
     {
       "schemaVersion": 2,
@@ -450,7 +451,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Vassal of Kazad-Doln. Brokk pays tribute up to the Vaultlord."
+      "notes": "Vassal of Kazad-Doln. Brokk pays tribute up to the Vaultlord.",
+      "treasuryStashId": "stash-enbwj5r"
     }
   ],
   "characters": [
@@ -801,5 +803,89 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": []
+  "constructibles": [],
+  "stashes": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-3dbpf4d",
+      "name": "Vault of Kazad-Doln Treasury",
+      "hexId": "hex-kazad-doln-gates",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-vault-of-kazad-doln",
+      "items": [
+        {
+          "id": "si-tkuekjc",
+          "facets": [
+            "coin"
+          ],
+          "qty": 65000,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 65000
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-enbwj5r",
+      "name": "Thane-Hold of Brokk Treasury",
+      "hexId": "hex-brokk-hold",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-thane-hold-of-brokk",
+      "items": [
+        {
+          "id": "si-wqh18r6",
+          "facets": [
+            "coin"
+          ],
+          "qty": 8000,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 8000
+        }
+      ]
+    }
+  ]
 }

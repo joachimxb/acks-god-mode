@@ -74,8 +74,8 @@ function blankCampaign(opts={}){
     settlements: opts.settlements || [],
     rumors: opts.rumors || [],
     // Phase 2.95 Stash A (2026-05-29) — Stash subsystem top-level collection.
-    // Gated by inventory-stash-system house rule (default ON). When OFF, this
-    // array is stripped at save time per the house-rule-gating memory.
+    // Always-on core (the inventory-stash-system toggle was removed v0.17.0); the
+    // Domain Treasury and every party camp materialize into this array on load.
     stashes: opts.stashes || [],
     // Wave A relation collections (Architecture.md §3.5 — landed alongside Stash A).
     // These are empty containers in commit 2; setters / accessors / migrations

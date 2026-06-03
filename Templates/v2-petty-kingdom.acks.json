@@ -268,7 +268,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Kingdom's crownlands. Top of the vassal pyramid."
+      "notes": "Kingdom's crownlands. Top of the vassal pyramid.",
+      "treasuryStashId": "stash-oq7oike"
     },
     {
       "schemaVersion": 2,
@@ -471,7 +472,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Duke Calder's duchy. Middle tier of the kingdom — vassal to the King, liege to two barons. Demonstrates vassal-of-vassal tribute chain."
+      "notes": "Duke Calder's duchy. Middle tier of the kingdom — vassal to the King, liege to two barons. Demonstrates vassal-of-vassal tribute chain.",
+      "treasuryStashId": "stash-aukk51c"
     },
     {
       "schemaVersion": 2,
@@ -674,7 +676,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Duchess Sigrid's duchy. Vassal to the King, no further vassals — the priestly counterweight to Brennstone."
+      "notes": "Duchess Sigrid's duchy. Vassal to the King, no further vassals — the priestly counterweight to Brennstone.",
+      "treasuryStashId": "stash-mbc3dhn"
     },
     {
       "schemaVersion": 2,
@@ -851,7 +854,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Vassal of Duke Calder. Vassal-of-vassal to the King. Bottom rung — tribute flows up through Brennstone to Vellengard."
+      "notes": "Vassal of Duke Calder. Vassal-of-vassal to the King. Bottom rung — tribute flows up through Brennstone to Vellengard.",
+      "treasuryStashId": "stash-wx2iqyu"
     },
     {
       "schemaVersion": 2,
@@ -1043,7 +1047,8 @@
       },
       "council": null,
       "history": [],
-      "notes": "Vassal of Duke Calder. Sister-barony to Highmark. Two of these under one Duke, two Dukes under the King — full vassal pyramid."
+      "notes": "Vassal of Duke Calder. Sister-barony to Highmark. Two of these under one Duke, two Dukes under the King — full vassal pyramid.",
+      "treasuryStashId": "stash-iqqfs1v"
     }
   ],
   "characters": [
@@ -1960,5 +1965,212 @@
   "oaths": [],
   "vagaryOfIncursionEvents": [],
   "projects": [],
-  "constructibles": []
+  "constructibles": [],
+  "stashes": [
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-oq7oike",
+      "name": "Kingdom of Vellengard (Crownlands) Treasury",
+      "hexId": "hex-vellengard-capital",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-kingdom-of-vellengard",
+      "items": [
+        {
+          "id": "si-jus6n78",
+          "facets": [
+            "coin"
+          ],
+          "qty": 95000,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 95000
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-aukk51c",
+      "name": "Duchy of Brennstone Treasury",
+      "hexId": "hex-brennstone-seat",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-duchy-brennstone",
+      "items": [
+        {
+          "id": "si-rqi1bgn",
+          "facets": [
+            "coin"
+          ],
+          "qty": 22000,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 22000
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-mbc3dhn",
+      "name": "Duchy of Westfen Treasury",
+      "hexId": "hex-westfen-cathedral",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-duchy-westfen",
+      "items": [
+        {
+          "id": "si-a36ofvb",
+          "facets": [
+            "coin"
+          ],
+          "qty": 14000,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 14000
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-wx2iqyu",
+      "name": "Barony of Highmark Treasury",
+      "hexId": "hex-highmark-keep",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-barony-highmark",
+      "items": [
+        {
+          "id": "si-1h7n5as",
+          "facets": [
+            "coin"
+          ],
+          "qty": 1400,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 1400
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-iqqfs1v",
+      "name": "Barony of Stoneford Treasury",
+      "hexId": "hex-stoneford-bridge",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-barony-stoneford",
+      "items": [
+        {
+          "id": "si-ximxzjy",
+          "facets": [
+            "coin"
+          ],
+          "qty": 2200,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 1,
+      "history": [
+        {
+          "turn": 1,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 2200
+        }
+      ]
+    }
+  ]
 }
