@@ -577,8 +577,9 @@ document.addEventListener('alpine:init', () => {
     <span class="text-sm opacity-60 italic">Scroll to zoom · drag to pan · click a hex to open its card</span>
   </div>
 
-  <!-- Select-mode banner — the picker seam (plan §9.1); shown only when a caller put the map into select mode. -->
-  <div x-show="mapMode === 'select'" class="mb-3 px-3 py-2 border border-sky-400 bg-sky-50 rounded flex items-center gap-3 text-sm" x-cloak>
+  <!-- Select-mode banner — the picker seam (plan §9.1); shown only when a caller put the map into select
+       mode. Suppressed while a journey pick is active (those show their own confirm/cancel bar below). -->
+  <div x-show="mapMode === 'select' && !_journeyDestPick && !_journeyWaypointPick" class="mb-3 px-3 py-2 border border-sky-400 bg-sky-50 rounded flex items-center gap-3 text-sm" x-cloak>
     <span x-text="_mapSelectHint || 'Click a hex to select it.'"></span>
     <button @click="mapEndSelect()" class="underline opacity-70 hover:opacity-100">cancel</button>
   </div>
@@ -663,6 +664,54 @@ document.addEventListener('alpine:init', () => {
           <input type="checkbox" x-model="mapEditAddMode" @change="mapEditAddMode ? mapEnterAddMode() : mapCancelCreate()">
           <span>✎ Add/Edit hexes</span>
         </label>
+      </div>
+
+      <!-- Journey destination picker bar — shown when the Start-a-Journey wizard's "🗺 choose from map"
+           jumped here (map select mode). Click a hex to set the pending destination, then confirm/cancel. -->
+      <div x-show="_journeyDestPick" class="vellum border border-amber-500 bg-amber-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <span class="font-semibold">🧭 Journey destination —</span>
+        <template x-if="_journeyDestPick && _journeyDestPick.pendingHexId">
+          <span>chosen: <strong x-text="journeyHexLabel(_journeyDestPick.pendingHexId)"></strong></span>
+        </template>
+        <template x-if="!(_journeyDestPick && _journeyDestPick.pendingHexId)">
+          <span class="opacity-70">click a hex on the map…</span>
+        </template>
+        <button @click="journeyDestPickConfirm()" :disabled="!(_journeyDestPick && _journeyDestPick.pendingHexId)" :class="(_journeyDestPick && _journeyDestPick.pendingHexId) ? 'bg-emerald-200 hover:bg-emerald-300' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded">Use this hex</button>
+        <button @click="journeyDestPickCancel()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" x-text="(_journeyDestPick && _journeyDestPick.journeyId) ? 'Cancel' : 'Cancel · back to journey'"></button>
+      </div>
+
+      <!-- Journey waypoints picker bar — multi-select: click hexes to add/remove (in order); the route
+           preview redraws live on the map as you go. Confirm applies the whole ordered set to the wizard. -->
+      <div x-show="_journeyWaypointPick" class="vellum border border-sky-500 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <span class="font-semibold">🧭 Journey waypoints —</span>
+        <template x-if="_journeyWaypointPick && _journeyWaypointPick.ids.length">
+          <span>in order:
+            <template x-for="(wid, wi) in _journeyWaypointPick.ids" :key="'wpb-'+wi+'-'+wid"><span><span x-show="wi>0" class="opacity-40"> → </span><strong x-text="(wi+1)+'. '+journeyHexLabel(wid)"></strong></span></template>
+          </span>
+        </template>
+        <template x-if="!(_journeyWaypointPick && _journeyWaypointPick.ids.length)">
+          <span class="opacity-70">click hexes on the map, in order (click one again to remove)…</span>
+        </template>
+        <button @click="journeyWaypointPickConfirm()" class="px-2 py-0.5 border border-ink rounded bg-emerald-200 hover:bg-emerald-300">Use these waypoints</button>
+        <button @click="journeyWaypointPickClear()" x-show="_journeyWaypointPick && _journeyWaypointPick.ids.length" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Clear</button>
+        <button @click="journeyWaypointPickCancel()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" x-text="(_journeyWaypointPick && _journeyWaypointPick.journeyId) ? 'Cancel' : 'Cancel · back to journey'"></button>
+      </div>
+
+      <!-- Journey view/edit toolbar — shown when the Journey Detail "🗺 View on map" jumped here. The
+           journey's route + current position are drawn by the Journeys layer; these actions re-route the
+           LIVE journey via the same pickers (writing back through reRouteJourney — a mid-journey re-anchor). -->
+      <div x-show="_journeyMapView && !_journeyDestPick && !_journeyWaypointPick" class="vellum border border-sky-500 bg-sky-50 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-2 text-sm" x-cloak>
+        <span class="font-semibold">🧭 Viewing journey:</span>
+        <strong x-text="journeyMapViewName()"></strong>
+        <template x-if="journeyMapViewEditable()">
+          <span class="flex flex-wrap items-center gap-2">
+            <span class="opacity-50">·</span>
+            <button @click="journeyEditDestOnMap()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Click a new destination hex on the map; the journey continues from where it is">✎ Change destination</button>
+            <button @click="journeyEditWaypointsOnMap()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-pick the remaining waypoints by clicking hexes in order">✎ Change waypoints</button>
+          </span>
+        </template>
+        <span class="text-xs opacity-60" x-show="!journeyMapViewEditable()">(aborted — view only)</span>
+        <button @click="journeyMapViewDone()" class="px-2 py-0.5 border border-ink rounded hover:bg-gray-100 ml-auto">Done · back to journey</button>
       </div>
 
       <!-- Add/Edit hex panel (M5) — PERSISTENT while Add/Edit mode is on (shown the moment the toggle
@@ -3251,7 +3300,7 @@ document.addEventListener('alpine:init', () => {
         <!-- Route -->
         <div>
           <div class="wizard-step-header"><span class="font-semibold">Route</span></div>
-          <div class="flex flex-wrap gap-3 items-end text-sm">
+          <div class="flex flex-wrap gap-3 items-start text-sm">
             <div>
               <label class="opacity-70 block text-xs">Start hex</label>
               <select @change="journeyWizard.startHexId = ($event.target.value || '')" class="border border-ink rounded px-2 py-0.5">
@@ -3265,23 +3314,32 @@ document.addEventListener('alpine:init', () => {
                 <option value="" :selected="!journeyWizard.destinationHexId">— pick —</option>
                 <template x-for="h in journeyHexOptions()" :key="'d-'+h.id"><option :value="h.id" :selected="journeyWizard.destinationHexId === h.id" x-text="h.label"></option></template>
               </select>
+              <div class="mt-1">
+                <button type="button" @click="journeyPickDestinationOnMap()" class="text-xs underline opacity-80 hover:opacity-100" title="Pick the destination by clicking a hex on the map, then confirm and come back here">🗺 choose from map</button>
+              </div>
             </div>
             <div>
               <label class="opacity-70 block text-xs">Name (optional)</label>
               <input x-model="journeyWizard.name" placeholder="auto from route" class="border border-ink rounded px-2 py-0.5">
             </div>
           </div>
-          <details class="mt-2">
-            <summary class="text-xs opacity-70 cursor-pointer">Waypoints (optional)</summary>
-            <div class="max-h-32 overflow-auto border border-ink rounded p-2 mt-1">
-              <template x-for="h in journeyHexOptions()" :key="'w-'+h.id">
-                <label class="flex items-center gap-2 text-xs cursor-pointer">
-                  <input type="checkbox" :checked="journeyWizard.waypointIds.includes(h.id)" @change="journeyToggleWaypoint(h.id)">
-                  <span x-text="h.label"></span>
-                </label>
+          <div class="mt-2">
+            <div class="text-xs opacity-70 mb-1">Waypoints (optional) — ordered stops between start and destination</div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <template x-for="(wid, wi) in journeyWizard.waypointIds" :key="'wp-'+wi+'-'+wid">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 border border-ink rounded bg-sky-50 text-xs">
+                  <span class="opacity-50" x-text="(wi+1)+'.'"></span>
+                  <span x-text="journeyHexLabel(wid)"></span>
+                  <button @click="journeyToggleWaypoint(wid)" class="opacity-60 hover:opacity-100 font-bold" title="Remove this waypoint">×</button>
+                </span>
               </template>
+              <span x-show="!journeyWizard.waypointIds.length" class="text-xs italic opacity-50">none — direct from start to destination</span>
             </div>
-          </details>
+            <div class="mt-1 flex items-center gap-3">
+              <button type="button" @click="journeyPickWaypointsOnMap()" class="text-xs underline opacity-80 hover:opacity-100" title="Pick waypoints by clicking hexes on the map in order — the route draws live as you go">🗺 choose waypoints from map</button>
+              <button type="button" x-show="journeyWizard.waypointIds.length" @click="journeyWizard.waypointIds = []" class="text-xs underline opacity-60 hover:opacity-100">clear</button>
+            </div>
+          </div>
         </div>
 
         <!-- Pace + mode now live on the journey itself (set in the Journey Detail panel after
@@ -3327,7 +3385,10 @@ document.addEventListener('alpine:init', () => {
             </p>
             <p class="text-sm mt-1" x-show="journeyDetail().participantCharacterIds.length"><span class="opacity-60">Travellers:</span> <span x-text="journeyHeadcountLabel(journeyDetail())"></span></p>
           </div>
-          <button @click="journeyCloseDetail()" class="text-xs px-2 py-1 border border-ink rounded hover:bg-gray-100">← all journeys</button>
+          <div class="flex items-center gap-2">
+            <button @click="journeyViewOnMap(journeyDetail().id)" class="text-xs px-2 py-1 border border-ink rounded hover:bg-sky-100" title="See this journey on the map — and change its destination or waypoints there">🗺 View on map</button>
+            <button @click="journeyCloseDetail()" class="text-xs px-2 py-1 border border-ink rounded hover:bg-gray-100">← all journeys</button>
+          </div>
         </div>
 
         <!-- text route (map mode #225 will render this graphically) -->
@@ -3336,7 +3397,7 @@ document.addEventListener('alpine:init', () => {
           <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span>
           <template x-for="(wp,wi) in (journeyDetail().waypoints||[])" :key="'rt-'+wi"><span> → <span x-text="journeyHexLabel(wp.hexId)"></span></span></template>
           <span> → </span><span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
-          <span class="opacity-50 text-xs ml-1">(text route — map mode #225 will draw it)</span>
+          <span class="opacity-50 text-xs ml-1">(🗺 View on map to see it drawn — and change the destination or waypoints there)</span>
         </div>
 
         <!-- distance: total + remaining miles (6-mile hexes) -->
@@ -3446,7 +3507,12 @@ document.addEventListener('alpine:init', () => {
                 <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
                 <!-- GM reroll — only the latest day (downstream days depend on it). -->
                 <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
-              </div>
+                <!-- §24 — the hexes entered this day; the latest day's last hex is the party's current position. -->
+                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="w-full pl-3 text-[11px] opacity-80">
+                  <span class="opacity-50">via </span>
+                  <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold text-emerald-800' : ''" x-text="journeyStepLabel(st)"></span></span></template>
+                  <span x-show="di===(journeyDetail().days.length-1)" class="text-emerald-800" title="The party is here now"> 📍 here now</span>
+                </div>
             </template>
           </div>
           <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
@@ -7283,8 +7349,8 @@ return {
     this.$watch('mapFillLayer',()=>this.schedulePersist());
     // #225 Map is now a World sub-view: fit the viewport when World opens on Map, or when the
     // sub-view switches to Map; persist the active sub-view so a reload restores it.
-    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); if(v!=='world') this._hexAddReturn = null; }); // left World entirely → abandon the add-hex flow
-    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); else this._hexAddReturn = null; }); // left Map for another World sub-view → abandon the add-hex flow
+    this.$watch('currentView',v=>{ if(v==='world' && this.worldSubView==='map') this.mapEnsureView(); if(v!=='world'){ this._hexAddReturn = null; this._journeyDestPickAbandon(); this._journeyWaypointPickAbandon(); this._journeyMapView = null; } }); // left World entirely → abandon the add-hex / destination / waypoints / journey-view flows
+    this.$watch('worldSubView',v=>{ this.schedulePersist(); if(v==='map') this.mapEnsureView(); else { this._hexAddReturn = null; this._journeyDestPickAbandon(); this._journeyWaypointPickAbandon(); this._journeyMapView = null; } }); // left Map for another World sub-view → abandon the add-hex / destination / waypoints / journey-view flows
     // Data-durability guard (ux audit Critical): warn before unload when there are
     // content changes not yet written to the .acks.json file, and flush the debounced
     // session cache so a tab-reopen recovers the latest state.
@@ -8301,12 +8367,13 @@ return {
   // single source of membership truth.
   newPartyPickerOpen:false,
   newPartyFounderId:'',
-  // Activities top panel (Phase 2.5 prep, #477) — Ventures lifted + placeholders for Journeys / Hijinks / Spell Research
-  activitiesSubView: 'ventures',
+  // Activities top panel (Phase 2.5 prep, #477) — Journeys first (the active day-aware subsystem),
+  // then Ventures + placeholders for Hijinks / Spell Research. Landing sub-view matches the first tab.
+  activitiesSubView: 'journeys',
   get activitiesSubTabs(){
     return [
-      { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Journeys',      ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
+      { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
@@ -8624,6 +8691,29 @@ return {
   journeyById(id){ return (this.currentCampaign?.journeys||[]).find(j => j && j.id === id) || null; },
   journeyDetail(){ return this.journeyById(this.journeyDetailId); },
   journeyHexLabel(id){ return this._journeyHexLabel(id); },
+  // Label one §24 day-log path step: an authored hex shows its canonical name; an UNauthored coord
+  // (hexId null — a grid hex the GM hasn't placed) shows its column·row reference.
+  journeyStepLabel(step){
+    if(!step) return '?';
+    if(step.hexId){ const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===step.hexId); if(h) return window.ACKS.hexName(h) || window.ACKS.hexDisplayLabel(step.q||0, step.r||0); }
+    return window.ACKS.hexDisplayLabel(step.q||0, step.r||0);
+  },
+  // The hexes entered on a given day, for the day-log "via …" line. New day records store `hexPath`
+  // directly; OLDER ones (ticked before hexPath shipped, or already-saved journeys) are reconstructed
+  // from the live route + the hexes covered on prior days — so every journey shows its path.
+  journeyDayPath(j, d, di){
+    if(d && Array.isArray(d.hexPath) && d.hexPath.length) return d.hexPath;
+    if(!j || !d || !((d.hexesTraveled||0) > 0)) return [];
+    let route = []; try { route = window.ACKS.journeyRoute(this.currentCampaign, j) || []; } catch(e){ return []; }
+    if(route.length < 2) return [];
+    const days = j.days || [];
+    let before = 0; for(let k = 0; k < di; k++) before += (days[k] && days[k].hexesTraveled) || 0;
+    const out = [];
+    for(let i = before + 1; i <= before + (d.hexesTraveled||0) && i < route.length; i++){
+      const s = route[i]; if(s && s.coord) out.push({ hexId: s.hexId || null, q: s.coord.q, r: s.coord.r });
+    }
+    return out;
+  },
   journeyParticipantNames(j){
     if(!j) return '';
     const names = (j.participantCharacterIds||[]).map(id => { const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); return c ? (c.name||'(unnamed)') : id; });
@@ -11237,6 +11327,18 @@ return {
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,
+  // Set while the Start-a-Journey wizard's "🗺 choose from map" flow is sending the GM to the Map to
+  // pick a destination: holds { pendingHexId } (the hex clicked but not yet confirmed). Built on the
+  // map's select seam; confirm/cancel via the on-map bar return to Activities ▸ Journeys.
+  _journeyDestPick: null,
+  // Set while the wizard's "🗺 choose waypoints from map" flow is active: holds { ids:[...] } — the
+  // ORDERED list of waypoint hexes picked so far (click a hex to append, click it again to remove).
+  // The map draws a live route preview from this; confirm applies the whole set to journeyWizard.
+  _journeyWaypointPick: null,
+  // Set while VIEWING/editing a live journey on the map (the "view on map" flow from the Journey Detail):
+  // holds the journeyId. An on-map toolbar then offers change-destination / change-waypoints, which re-use
+  // the dest/waypoint pickers tagged with this journeyId and write back via reRouteJourney. Transient UI.
+  _journeyMapView: null,
 
   // The render set: one entry per hex with its polygon + center + the (domainId, hexIndex)
   // openHexDetail wants. Domain-nested hexes (allHexes()) carry those keys directly; domainless
@@ -11366,9 +11468,13 @@ return {
       }
     });
 
-    // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring.
-    if(this.mapShowJourneys){
-      this.mapJourneyRoutes().forEach(rt => {
+    // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring. The Journeys layer
+    // toggle gates the WHOLE set, EXCEPT a journey the GM is actively viewing (_journeyMapView, set by
+    // "View on map") is ALWAYS drawn — so jumping to a journey shows it even with the layer switched off.
+    {
+      const allRoutes = this.mapJourneyRoutes();
+      const routes = this.mapShowJourneys ? allRoutes : allRoutes.filter(rt => rt.id === this._journeyMapView);
+      routes.forEach(rt => {
         if(rt.pts.length >= 2){
           const dd = rt.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
           parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
@@ -11404,6 +11510,24 @@ return {
       parts.push('<text x="'+e.cx.toFixed(1)+'" y="'+(e.cy - size*0.58).toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+labelFs+'" fill="#2b2b2b" fill-opacity="0.75" style="pointer-events:none;user-select:none;font-family:monospace;">'+esc(e.label)+'</text>');
     });
 
+    // 7) JOURNEY-PLANNING PREVIEW (top, on demand) — the route being composed in a map pick
+    // (waypoints/destination), drawn ON TOP and regardless of the Journeys layer toggle so the GM
+    // watches the route form as they click (§24 picker). Start = green, destination = red, waypoints
+    // = numbered sky-blue, connected by a sky dashed line.
+    const plan = this.mapPlanningRoute();
+    if(plan){
+      if(plan.pts.length >= 2){
+        const dd = plan.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+        parts.push('<path d="'+dd+'" fill="none" stroke="#0284c7" stroke-width="'+(size*0.09).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.16).toFixed(1)+','+(size*0.12).toFixed(1)+'" stroke-opacity="0.9" style="pointer-events:none;"/>');
+      }
+      if(plan.start){ parts.push('<circle cx="'+plan.start.x.toFixed(1)+'" cy="'+plan.start.y.toFixed(1)+'" r="'+(size*0.16).toFixed(1)+'" fill="#16a34a" stroke="#fff" stroke-width="'+(size*0.03).toFixed(2)+'" style="pointer-events:none;"><title>Start</title></circle>'); }
+      if(plan.dest){ parts.push('<circle cx="'+plan.dest.x.toFixed(1)+'" cy="'+plan.dest.y.toFixed(1)+'" r="'+(size*0.16).toFixed(1)+'" fill="#dc2626" stroke="#fff" stroke-width="'+(size*0.03).toFixed(2)+'" style="pointer-events:none;"><title>Destination</title></circle>'); }
+      plan.waypoints.forEach(wp => {
+        parts.push('<circle cx="'+wp.x.toFixed(1)+'" cy="'+wp.y.toFixed(1)+'" r="'+(size*0.18).toFixed(1)+'" fill="#0284c7" stroke="#fff" stroke-width="'+(size*0.03).toFixed(2)+'" style="pointer-events:none;"><title>Waypoint '+wp.n+'</title></circle>');
+        parts.push('<text x="'+wp.x.toFixed(1)+'" y="'+wp.y.toFixed(1)+'" text-anchor="middle" dominant-baseline="central" font-size="'+(size*0.22).toFixed(1)+'" fill="#fff" style="pointer-events:none;user-select:none;font-weight:bold;">'+wp.n+'</text>');
+      });
+    }
+
     return parts.join('');
   },
   // The faint "addable" empty cells (M5): every axial neighbour of an existing hex that isn't itself
@@ -11434,10 +11558,10 @@ return {
     const routes = [];
     (this.currentCampaign?.journeys || []).forEach(j => {
       if(!j || j.status === 'aborted') return;
-      const ids = [j.startHexId].concat((j.waypoints || []).map(w => w.hexId), [j.destinationHexId]).filter(Boolean);
+      const ids = [j.routeAnchorHexId || j.startHexId].concat((j.waypoints || []).map(w => w.hexId), [j.destinationHexId]).filter(Boolean);
       const pts = ids.map(centre).filter(Boolean);
       if(!pts.length) return;
-      routes.push({ id:j.id, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.startHexId) });
+      routes.push({ id:j.id, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.routeAnchorHexId || j.startHexId) });
     });
     return routes;
   },
@@ -11718,6 +11842,166 @@ return {
   // select mode; clicking a hex hands its id to `cb`. Call mapEndSelect() to restore inspect.
   mapBeginSelect(cb, hint){ this._mapSelectCb = cb; this._mapSelectHint = hint || 'Click a hex to select it.'; this.mapMode = 'select'; this.currentView = 'world'; this.worldSubView = 'map'; this.mapEnsureView(); },
   mapEndSelect(){ this._mapSelectCb = null; this._mapSelectHint = ''; this.mapMode = 'inspect'; },
+  // "🗺 choose from map" for the Start-a-Journey destination (the wizard button). Jumps to the Map in
+  // the existing select mode; each hex click sets a PENDING pick (re-clickable to change), which the GM
+  // then confirms or cancels on the on-map bar — returning to the still-open wizard either way. The
+  // wizard's state (participants, start, supplies) persists across the trip to the map and back.
+  journeyPickDestinationOnMap(){
+    if(!this.currentCampaign) return;
+    if(!(this.currentCampaign.hexes || []).length){ this.showToast('No hexes on the map yet to pick from — add some, or use the dropdown.', 4000); return; }
+    this.mapEditAddMode = false; // keep Add/Edit affordances out of the pick
+    this._journeyDestPick = { pendingHexId: this.journeyWizard.destinationHexId || null };
+    this.mapBeginSelect(hexId => { this._journeyDestPick = { pendingHexId: hexId }; }, 'Click a hex to choose the journey destination, then confirm.');
+    this.showToast('Click a destination hex on the map, then "Use this hex" (or Cancel).', 5000);
+  },
+  journeyDestPickConfirm(){
+    const pick = this._journeyDestPick;
+    if(!pick || !pick.pendingHexId) return;
+    if(pick.journeyId){
+      // Editing a LIVE journey — re-route it (mid-journey re-anchor lives in the engine).
+      window.ACKS.reRouteJourney(this.currentCampaign, pick.journeyId, { destinationHexId: pick.pendingHexId });
+      if(this.markDirty) this.markDirty();
+      this.showToast('Destination changed — the journey continues from where it is.', 4000);
+    } else {
+      this.journeyWizard.destinationHexId = pick.pendingHexId;
+    }
+    this._journeyDestPickEnd(pick.journeyId);
+  },
+  journeyDestPickCancel(){ this._journeyDestPickEnd(this._journeyDestPick && this._journeyDestPick.journeyId); },
+  // Leave dest select mode. Editing a live journey (journeyId) → stay on the map viewing it; otherwise
+  // go back to the still-open Start-a-Journey wizard under Activities ▸ Journeys.
+  _journeyDestPickEnd(journeyId){
+    this._journeyDestPick = null;
+    this.mapEndSelect();
+    if(journeyId){ this._journeyMapView = journeyId; this.currentView = 'world'; this.worldSubView = 'map'; }
+    else { this.currentView = 'activities'; this.activitiesSubView = 'journeys'; }
+    this.schedulePersist();
+  },
+  _journeyDestPickReturn(){ this._journeyDestPickEnd(this._journeyDestPick && this._journeyDestPick.journeyId); },
+  // Abandon an in-flight destination pick when the GM navigates away from the Map mid-pick (wired into
+  // the currentView / worldSubView watches) — no commit, just drop the pending pick + leave select mode.
+  _journeyDestPickAbandon(){ if(this._journeyDestPick){ this._journeyDestPick = null; this.mapEndSelect(); } },
+  // "🗺 choose waypoints from map" — like the destination picker but MULTI-select: each hex click toggles
+  // the hex in an ordered pending list (append, or remove if already chosen), and the map redraws the
+  // forming route live (mapPlanningRoute). Confirm applies the whole ordered set to journeyWizard.waypointIds.
+  journeyPickWaypointsOnMap(){
+    if(!this.currentCampaign) return;
+    if(!(this.currentCampaign.hexes || []).length){ this.showToast('No hexes on the map yet to pick from — add some, or use the dropdown.', 4000); return; }
+    this.mapEditAddMode = false; // keep Add/Edit affordances out of the pick
+    this._journeyWaypointPick = { ids: (this.journeyWizard.waypointIds || []).slice() };
+    this.mapBeginSelect(hexId => {
+      const cur = (this._journeyWaypointPick && this._journeyWaypointPick.ids) || [];
+      const next = cur.includes(hexId) ? cur.filter(x => x !== hexId) : cur.concat(hexId);
+      this._journeyWaypointPick = Object.assign({}, this._journeyWaypointPick, { ids: next }); // reassign so the SVG preview re-renders (keep journeyId if editing a live journey)
+    }, 'Click hexes to add waypoints in order (click one again to remove), then "Use these waypoints".');
+    this.showToast('Click waypoint hexes on the map in order (click again to remove), then "Use these waypoints".', 5000);
+  },
+  journeyWaypointPickConfirm(){
+    const pick = this._journeyWaypointPick; if(!pick) return;
+    if(pick.journeyId){
+      window.ACKS.reRouteJourney(this.currentCampaign, pick.journeyId, { waypointIds: (pick.ids || []).slice() });
+      if(this.markDirty) this.markDirty();
+      this.showToast('Waypoints updated — the journey continues from where it is.', 4000);
+    } else {
+      this.journeyWizard.waypointIds = (pick.ids || []).slice();
+    }
+    this._journeyWaypointPickEnd(pick.journeyId);
+  },
+  journeyWaypointPickCancel(){ this._journeyWaypointPickEnd(this._journeyWaypointPick && this._journeyWaypointPick.journeyId); },
+  journeyWaypointPickClear(){ if(this._journeyWaypointPick) this._journeyWaypointPick = Object.assign({}, this._journeyWaypointPick, { ids: [] }); },
+  _journeyWaypointPickEnd(journeyId){
+    this._journeyWaypointPick = null;
+    this.mapEndSelect();
+    if(journeyId){ this._journeyMapView = journeyId; this.currentView = 'world'; this.worldSubView = 'map'; }
+    else { this.currentView = 'activities'; this.activitiesSubView = 'journeys'; }
+    this.schedulePersist();
+  },
+  _journeyWaypointPickReturn(){ this._journeyWaypointPickEnd(this._journeyWaypointPick && this._journeyWaypointPick.journeyId); },
+  _journeyWaypointPickAbandon(){ if(this._journeyWaypointPick){ this._journeyWaypointPick = null; this.mapEndSelect(); } },
+  // ── View / edit a LIVE journey on the map (#225 ↔ §24). "View on map" from the Journey Detail jumps
+  // here, draws the journey (the M6 layer) + focuses it; an on-map toolbar then offers change-destination
+  // / change-waypoints, each re-using the picker (targeting THIS journey) and writing back through
+  // reRouteJourney (the engine mid-journey re-anchor). ──
+  journeyViewOnMap(journeyId){
+    const j = (this.currentCampaign?.journeys || []).find(x => x && x.id === journeyId);
+    if(!j) return;
+    this._journeyMapView = journeyId;   // the viewed journey is always drawn (see mapSvgMarkup §4),
+    this.mapEditAddMode = false;        // so we DON'T force the Journeys layer on — the GM's toggle stands.
+    this.currentView = 'world'; this.worldSubView = 'map';
+    this.mapEnsureView();
+    this.mapFocusJourney(j);
+    this.schedulePersist();
+  },
+  journeyMapViewDone(){
+    const id = this._journeyMapView;
+    this._journeyMapView = null;
+    this.currentView = 'activities'; this.activitiesSubView = 'journeys';
+    if(id) this.journeyDetailId = id; // reopen the detail for the journey we were viewing
+    this.schedulePersist();
+  },
+  journeyEditDestOnMap(){
+    const id = this._journeyMapView; if(!id) return;
+    const j = (this.currentCampaign?.journeys || []).find(x => x && x.id === id); if(!j) return;
+    this.mapEditAddMode = false;
+    this._journeyDestPick = { pendingHexId: j.destinationHexId || null, journeyId: id };
+    this.mapBeginSelect(hexId => { this._journeyDestPick = { pendingHexId: hexId, journeyId: id }; }, 'Click the NEW destination for ' + (j.name || 'this journey') + ', then confirm.');
+    this.showToast('Click the new destination hex, then "Use this hex".', 5000);
+  },
+  journeyEditWaypointsOnMap(){
+    const id = this._journeyMapView; if(!id) return;
+    const j = (this.currentCampaign?.journeys || []).find(x => x && x.id === id); if(!j) return;
+    this.mapEditAddMode = false;
+    this._journeyWaypointPick = { ids: (j.waypoints || []).map(w => w.hexId).filter(Boolean), journeyId: id };
+    this.mapBeginSelect(hexId => {
+      const cur = (this._journeyWaypointPick && this._journeyWaypointPick.ids) || [];
+      const next = cur.includes(hexId) ? cur.filter(x => x !== hexId) : cur.concat(hexId);
+      this._journeyWaypointPick = Object.assign({}, this._journeyWaypointPick, { ids: next });
+    }, 'Click the remaining waypoints in order (click one again to remove), then "Use these waypoints".');
+    this.showToast('Click the journey\'s remaining waypoints in order, then "Use these waypoints".', 5000);
+  },
+  journeyMapViewName(){ const j = (this.currentCampaign?.journeys || []).find(x => x && x.id === this._journeyMapView); return j ? (j.name || (this.journeyHexLabel(j.startHexId) + ' → ' + this.journeyHexLabel(j.destinationHexId))) : ''; },
+  journeyMapViewEditable(){ const j = (this.currentCampaign?.journeys || []).find(x => x && x.id === this._journeyMapView); return !!j && j.status !== 'aborted'; },
+  // Fit the viewport to a journey's route (anchor→waypoints→dest) + its true origin, with a generous margin.
+  mapFocusJourney(j){
+    const A = window.ACKS;
+    let coords = [];
+    try { coords = (A.journeyRoute(this.currentCampaign, j) || []).map(s => s.coord).filter(Boolean); } catch(e){}
+    const startHex = A.resolveHexAnywhere ? A.resolveHexAnywhere(this.currentCampaign, j.startHexId) : null;
+    if(startHex && startHex.coord) coords.push(startHex.coord);
+    if(!coords.length){ this.mapEnsureView(); return; }
+    const b = A.hexMapBounds(coords.map(c => ({ coord: c })), this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 3);
+    if(b) this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height };
+    else this.mapEnsureView();
+  },
+  // The in-progress journey route while a map pick (waypoint OR destination) is active: ordered hex
+  // centres start → waypoints → destination, read from the PENDING pick so it redraws as hexes are
+  // clicked. Independent of the mapShowJourneys layer — this is a live planning overlay, not a saved route.
+  mapPlanningRoute(){
+    const wp = this._journeyWaypointPick, dp = this._journeyDestPick;
+    if(!wp && !dp) return null;
+    const size = this.MAP_HEX_SIZE, A = window.ACKS;
+    const hexById = {};
+    (this.currentCampaign?.hexes || []).forEach(h => { if(h && h.id) hexById[h.id] = h; });
+    (this.domains || []).forEach(d => (d.geography?.hexes || []).forEach(h => { if(h && h.id && !hexById[h.id]) hexById[h.id] = h; }));
+    const centre = id => { const h = hexById[id]; if(!h || !h.coord) return null; const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size); return { x:c.x, y:c.y }; };
+    const jid = (wp && wp.journeyId) || (dp && dp.journeyId) || null;
+    let startId, wpIds, destId;
+    if(jid){
+      // Editing a live journey: the route begins where the party IS (the re-route anchor / current hex).
+      const jr = (this.currentCampaign?.journeys || []).find(x => x && x.id === jid);
+      startId = jr ? (jr.routeAnchorHexId || jr.currentHexId || jr.startHexId) : null;
+      wpIds = wp ? wp.ids : ((jr && jr.waypoints) || []).map(x => x.hexId).filter(Boolean);
+      destId = dp ? (dp.pendingHexId || (jr && jr.destinationHexId)) : ((jr && jr.destinationHexId) || null);
+    } else {
+      const w = this.journeyWizard;
+      startId = w.startHexId || null;
+      wpIds = wp ? wp.ids : (w.waypointIds || []);
+      destId = dp ? (dp.pendingHexId || w.destinationHexId) : (w.destinationHexId || null);
+    }
+    const pts = [startId].concat(wpIds || [], [destId]).filter(Boolean).map(centre).filter(Boolean);
+    const waypoints = (wpIds || []).map((id, i) => { const c = centre(id); return c ? { x:c.x, y:c.y, n:i+1 } : null; }).filter(Boolean);
+    return { pts, start:centre(startId), dest:centre(destId), waypoints };
+  },
   // First unused {q,r} scanning q=0,1,2,… along row 0 — so "+ add hex" doesn't pile every new hex on
   // (0,0) (which collides on the campaign-global coord-uniqueness rule). The GM sets the real
   // column·row afterward in the hex panel.
