@@ -342,7 +342,7 @@ document.addEventListener('alpine:init', () => {
           <option value="__wild__">Unclaimed wilderness</option>
           <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
         </select>
-        <button @click="if(addDomain){ addHex(addDomain); addDomain=''; }" :disabled="!addDomain" :class="addDomain ? '' : 'opacity-50 cursor-not-allowed'" class="text-sm px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ add hex</button>
+        <button @click="if(addDomain){ addHex(addDomain); }" :disabled="!addDomain" :class="addDomain ? '' : 'opacity-50 cursor-not-allowed'" class="text-sm px-2 py-1 border border-ink rounded hover:bg-yellow-100">+ add hex</button>
       </div>
     </div>
 
