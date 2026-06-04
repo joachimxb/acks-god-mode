@@ -12393,10 +12393,15 @@ return {
       const routes = this.mapShowJourneys
         ? allRoutes.filter(rt => ACTIVE_J.includes(rt.status) || rt.id === this._journeyMapView)
         : allRoutes.filter(rt => rt.id === this._journeyMapView);
+      // Arrowhead at the destination end of each route line. One shared <marker> (strokeWidth units so it
+      // scales with the line + zoom; orient=auto points it along the final segment toward the destination).
+      if(routes.length){
+        parts.push('<defs><marker id="jrnArrowDest" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#d9762b" fill-opacity="0.9"/></marker></defs>');
+      }
       routes.forEach(rt => {
         if(rt.pts.length >= 2){
           const dd = rt.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
-          parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
+          parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" marker-end="url(#jrnArrowDest)" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
         }
         if(rt.current){
           parts.push('<circle cx="'+rt.current.x.toFixed(1)+'" cy="'+rt.current.y.toFixed(1)+'" r="'+(size*0.15).toFixed(1)+'" fill="#d9762b" stroke="#fff" stroke-width="'+(size*0.03).toFixed(2)+'" style="pointer-events:none;"><title>'+esc(rt.name)+' (current position)</title></circle>');
