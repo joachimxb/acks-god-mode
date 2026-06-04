@@ -4701,7 +4701,10 @@ function commitDayTick(campaign, proposal, helpers){
 }
 
 function emitDayTickEvents(campaign, proposal){
-  const evs = (proposal.notableEvents || []).filter(e => e && !e.rejected);
+  // Skip TRANSIENT notable events (Travel pivot 2026-06-04): the per-thing journey signals
+  // (lost/hunger/fording/…) drive the pause check + day-log digest but are folded into one
+  // comprehensive journey-day-tick event, so they don't each become their own eventLog entry.
+  const evs = (proposal.notableEvents || []).filter(e => e && !e.rejected && !e.transient);
   if(!evs.length) return 0;
   campaign.eventLog = campaign.eventLog || [];
   const cal = campaign.calendar || {};
@@ -4731,7 +4734,10 @@ function emitDayTickEvents(campaign, proposal){
         event: ev,
         result: { narrativeSummary: e.label || e.summary || ((e.consumer || 'day-tick') + ' event') },
         appliedAtTurn: campaign.currentTurn || 1,
-        appliedAt: new Date().toISOString()
+        appliedAt: new Date().toISOString(),
+        // Routine days (no notable happening) stay out of the narrative Campaign Log but remain in the
+        // Event Log + every entity history (Travel pivot 2026-06-04, reusing the §26 campaignLogHidden flag).
+        ...(e.campaignLogHidden ? { campaignLogHidden: true } : {})
       });
       n++;
     } catch(err){ /* swallow — never let event emission fail the tick */ }
@@ -5108,10 +5114,16 @@ function constructiblesForDomain(campaign, domainId){
 // No stored history fields on those entities — derived from event records. Character
 // histories remain stored on character.history[] for the transition window.
 
+// eventLog entries are WRAPPED — { event:{…,context}, result, appliedAtTurn, appliedAt } — so the
+// context envelope lives at entry.event.context. (Fixed 2026-06-04: these accessors previously read
+// entry.context, which is never present on a wrapped entry, so EVERY derived history silently returned
+// []. The `(e.event)||e` unwrap also tolerates a bare event object, should one ever be stored flat.)
+function _eventContextOf(e){ const ev = (e && e.event) || e; return (ev && ev.context) || null; }
+
 function hexHistory(campaign, hexId){
   if(!campaign || !hexId || !Array.isArray(campaign.eventLog)) return [];
   return campaign.eventLog.filter(e => {
-    const c = e && e.context;
+    const c = _eventContextOf(e);
     if(!c) return false;
     if(c.primaryHexId === hexId) return true;
     if(Array.isArray(c.involvedHexIds) && c.involvedHexIds.indexOf(hexId) >= 0) return true;
@@ -5121,13 +5133,14 @@ function hexHistory(campaign, hexId){
 
 function settlementHistory(campaign, settlementId){
   if(!campaign || !settlementId || !Array.isArray(campaign.eventLog)) return [];
-  return campaign.eventLog.filter(e => e && e.context && e.context.settlementId === settlementId);
+  return campaign.eventLog.filter(e => { const c = _eventContextOf(e); return c && c.settlementId === settlementId; });
 }
 
 function _filterByRelatedEntity(campaign, kind, id){
   if(!campaign || !id || !Array.isArray(campaign.eventLog)) return [];
   return campaign.eventLog.filter(e => {
-    const rels = e && e.context && e.context.relatedEntities;
+    const c = _eventContextOf(e);
+    const rels = c && c.relatedEntities;
     if(!Array.isArray(rels)) return false;
     return rels.some(r => r && r.kind === kind && r.id === id);
   });
@@ -5139,6 +5152,13 @@ function notableItemHistory(campaign, id){    return _filterByRelatedEntity(camp
 function domainHistory(campaign, id){         return _filterByRelatedEntity(campaign, 'domain',         id); }
 function partyHistory(campaign, id){          return _filterByRelatedEntity(campaign, 'party',          id); }
 function journeyHistory(campaign, id){        return _filterByRelatedEntity(campaign, 'journey',        id); }
+// Derived per-character event history (Travel pivot 2026-06-04). Returns every eventLog entry that
+// names this character in its context envelope's relatedEntities — travel days (role 'traveller'),
+// journey stops/re-routes, and any future character-tagged event. Complements the STORED
+// character.history[] (recruitment / calamity / loyalty drift / level-up); a "what happened to this
+// person" view merges the two. The travel days are now captured here because every committed travel
+// day emits one comprehensive journey-day-tick event tagging all its travellers.
+function characterHistory(campaign, id){      return _filterByRelatedEntity(campaign, 'character',      id); }
 function outpostHistory(campaign, id){        return _filterByRelatedEntity(campaign, 'outpost',        id); }
 function congregationHistory(campaign, id){   return _filterByRelatedEntity(campaign, 'congregation',   id); }
 
@@ -5212,7 +5232,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findParty, partiesAtHex, partiesAtSettlement, partiesInDomain, activeParties, reconcilePartyMembership,
   // #528 Event Context Envelope (Architecture.md §3.5 Wave Hex-history — 2026-05-30)
   hexHistory, settlementHistory, constructibleHistory, groupHistory, notableItemHistory,
-  domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory,
+  domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory, characterHistory,
   setEventContext,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)

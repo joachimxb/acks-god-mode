@@ -1908,6 +1908,66 @@ function tickJourneyDay(campaign, journey, ctx){
     status: 'pending'
   };
 
+  // ── Travel pivot (2026-06-04): ONE comprehensive travel event per committed day ──
+  // The per-thing notable events built above (lost / hunger / dehydration / fording / forced-rest /
+  // encounter / arrival) become TRANSIENT signals: they still drive the GM pause check
+  // (dayTickPauseReasons reads pauseTrigger BEFORE emission) and the day-log digest
+  // (dayRecord.notableEvents), but they are NOT each emitted as their own eventLog entry. Instead the
+  // single journey-day-tick (or journey-arrived) event below carries the WHOLE day — every hex entered
+  // (context.involvedHexIds), where the party actually ended (primaryHexId — NOT the origin, the bug
+  // this fixes), the travellers (relatedEntities, role 'traveller'), and the full day record in the
+  // payload — so a traveller's history (ACKS.characterHistory) and any hex's history are each complete
+  // from one event. A routine day (nothing notable) is flagged campaignLogHidden: it stays out of the
+  // narrative Campaign Log while remaining in the Event Log + both histories, so every hex travelled is
+  // still recorded. Hour-readiness (cadence survey §6-7 / RR p.272): the DAY is the RAW travel unit;
+  // within-day hour stamps land later as child encounter events via Event.subdayContext (Monster
+  // Persistence #476) — the hexPath order already encodes within-day sequence, so no fake hours here.
+  const _dayWasNotable = notableEvents.length > 0;
+  notableEvents.forEach(e => { e.transient = true; });
+  const _travellerIds = (journey.participantCharacterIds || []).filter(Boolean);
+  const _related = _travellerIds.map(id => ({ kind: 'character', id, role: 'traveller' }));
+  _related.push({ kind: 'journey', id: journey.id, role: 'subject' });
+  const _dayStartHexId = (curStep && curStep.hexId) || journey.currentHexId || journey.startHexId || null;
+  const _involvedHexIds = [];
+  if(_dayStartHexId) _involvedHexIds.push(_dayStartHexId);
+  hexPath.forEach(h => { if(h && h.hexId && _involvedHexIds.indexOf(h.hexId) < 0) _involvedHexIds.push(h.hexId); });
+  notableEvents.push({
+    kind: willArrive ? 'journey-arrived' : 'journey-day-tick',
+    type: 'travel-day',
+    primaryHexId: newCurrentHexId || _dayStartHexId || null,
+    involvedHexIds: _involvedHexIds,
+    relatedEntities: _related,
+    campaignLogHidden: !_dayWasNotable,
+    label: summaryLabel,
+    payload: {
+      journeyId: journey.id,
+      dayIndex: newDayIndex,
+      narrative: summaryLabel,
+      day: {
+        hexPath: hexPath,
+        fromHexId: _dayStartHexId,
+        arrivedAt: newCurrentHexId,
+        milesTraveled: milesToday,
+        hexesTraveled: hexesToday,
+        pace: restDay ? 'rest' : pace,
+        speedOverrideMilesPerDay: (overrideMiles != null && !restDay) ? overrideMiles : null,
+        weather: { condition: weather.condition, temperature: weather.temperature || 'moderate' },
+        navigation: navRecord,
+        lost: isLost,
+        strayHeading: isLost ? strayHeading : null,
+        fording: fordingRecord,
+        rationsConsumed: { food: rationsConsumed, water: waterConsumed },
+        hungerDays: hungerDays,
+        dehydrationDays: dehydrationDays,
+        fatigueDays: fatigueDays,
+        fatigueAccumulated: fatigueAccumulated,
+        encounters: dayRecord.encounters,
+        happenings: dayRecord.notableEvents,
+        arrived: willArrive
+      }
+    }
+  });
+
   const record = {
     kind: 'journey-day', journeyId: journey.id, name: journey.name || 'Journey', label: summaryLabel,
     dayRecord,
@@ -2188,7 +2248,7 @@ function abortJourney(campaign, journey, reason){
     const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
     if(pt && pt.activeJourneyId === j.id) pt.activeJourneyId = null;
   }
-  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'aborted', narrative: 'Journey aborted' + (reason ? (': ' + reason) : '') + '.' });
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'aborted', narrative: 'Stopped moving' + (reason ? (': ' + reason) : '') + '.' });
   try {
     campaign.eventLog = campaign.eventLog || [];
     const cal = campaign.calendar || {};
@@ -2197,10 +2257,10 @@ function abortJourney(campaign, journey, reason){
       targetTurn: campaign.currentTurn || 1,
       gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
       context: { primaryHexId: atHex, involvedHexIds: [atHex].filter(Boolean), settlementId: null, domainId: null, relatedEntities: ids.map(id => ({ kind: 'character', id, role: 'subject' })) },
-      payload: { journeyId: j.id, reason: reason || null, narrative: (j.name || 'Journey') + ' was aborted' + (reason ? (' (' + reason + ')') : '') + '.' }
+      payload: { journeyId: j.id, reason: reason || null, narrative: (j.name || 'Journey') + ' — travellers stopped moving' + (reason ? (' (' + reason + ')') : '') + '.' }
     });
     ev.appliedAtTurn = campaign.currentTurn || 1;
-    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' aborted.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' — stopped moving.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
   } catch(e){ /* never let event emission block an abort */ }
   return j;
 }

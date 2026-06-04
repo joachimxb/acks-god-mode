@@ -154,6 +154,51 @@ check('on arrival the participant is moved to the destination + unlinked', ar.c.
 check('a journey-arrived event was emitted', ar.c.eventLog.some(e => e.event.kind === 'journey-arrived'));
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Travel pivot — comprehensive per-day event + characterHistory (2026-06-04)');
+
+// Every committed travel day now emits ONE comprehensive journey-day-tick (or journey-arrived) event
+// carrying the whole day — every hex crossed (involvedHexIds), where the party ENDED (primaryHexId, not
+// the origin), the travellers (relatedEntities role 'traveller') + the journey, and the full day record
+// in the payload. The per-thing signals (lost/hunger/fording/…) become transient (pause + day-log only),
+// folded into the one event. Routine days are campaignLogHidden. ACKS.characterHistory derives per-person.
+const tp = build(); // road ⇒ deterministic routine day (nav skipped on road; encounter chance 0 on road)
+ACKS.startJourney(tp.c, tp.j);
+const tpEvLen = tp.c.eventLog.length;
+ACKS.commitDayTick(tp.c, ACKS.proposeDayTick(tp.c, 1, {}), null);
+const tpDayEvs = tp.c.eventLog.slice(tpEvLen).filter(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived'));
+check('exactly ONE comprehensive journey day event emitted per committed day', tpDayEvs.length === 1, 'got ' + tpDayEvs.length);
+const tpEv = tpDayEvs[0].event;
+check('day event involvedHexIds lists the hexes crossed', Array.isArray(tpEv.context.involvedHexIds) && tpEv.context.involvedHexIds.length >= 1);
+check('day event primaryHexId = the party\'s current position (held at last authored hex on a sparse route)', tpEv.context.primaryHexId === tp.c.journeys[0].currentHexId);
+check('on arrival the comprehensive event primaryHexId = destination (ended), NOT a hardcoded origin', (function(){ const e = ar.c.eventLog.filter(x => x.event.kind === 'journey-arrived').pop(); return !!(e && e.event.context && e.event.context.primaryHexId === 'hex-b'); })());
+check('day event tags every traveller (role traveller) + the journey', tpEv.context.relatedEntities.some(r => r.kind === 'character' && r.id === 'chr-1' && r.role === 'traveller') && tpEv.context.relatedEntities.some(r => r.kind === 'journey' && r.id === 'jrn-1'));
+check('day event payload carries the full day record (hexPath + miles)', tpEv.payload && tpEv.payload.day && Array.isArray(tpEv.payload.day.hexPath) && tpEv.payload.day.milesTraveled > 0);
+check('a routine travel day is campaignLogHidden (in Event Log + history, out of Campaign Log)', tpDayEvs[0].campaignLogHidden === true);
+check('characterHistory(traveller) surfaces the travel day', ACKS.characterHistory(tp.c, 'chr-1').some(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived')));
+check('characterHistory(non-traveller) is empty', ACKS.characterHistory(tp.c, 'chr-nobody').length === 0);
+
+// A NOTABLE day folds its per-thing signals into the single umbrella event (transient → not emitted
+// separately). Proposal-level: confirm the per-thing notables are transient + exactly one umbrella.
+const np = build({ hasRoad: false, terrain: 'grassland', supplies: { rations: 0, waterRations: 0 } });
+ACKS.startJourney(np.c, np.j);
+const npProp = ACKS.proposeJourneyDay(np.c, { dayInMonth: 2, rng: () => 0.99 }); // d20=20 (nav ok), no encounter; supplies 0 ⇒ hunger+thirst
+const npPerThing = npProp.notableEvents.filter(e => e.type !== 'travel-day');
+const npUmbrella = npProp.notableEvents.filter(e => e.type === 'travel-day');
+check('a notable day still yields exactly ONE umbrella event', npUmbrella.length === 1);
+check('per-thing notables (hunger/dehydration) are flagged transient (folded, not separately emitted)', npPerThing.length >= 1 && npPerThing.every(e => e.transient === true));
+check('the umbrella event is the ONLY non-transient notable', npProp.notableEvents.filter(e => !e.transient).length === 1);
+check('a NOTABLE day umbrella is NOT campaignLogHidden', npUmbrella[0].campaignLogHidden === false);
+check('the umbrella payload digest records the hunger happening', Array.isArray(npUmbrella[0].payload.day.happenings) && npUmbrella[0].payload.day.happenings.some(h => /hungr|food/i.test(h.text || '')));
+// End-to-end emission on a NON-road day: still exactly one journey event (everything folds), not hidden.
+const ne = build({ hasRoad: false, terrain: 'grassland', supplies: { rations: 0, waterRations: 0 } });
+ACKS.startJourney(ne.c, ne.j);
+const neEvLen = ne.c.eventLog.length;
+ACKS.commitDayTick(ne.c, ACKS.proposeDayTick(ne.c, 1, {}), null);
+const neDayEvs = ne.c.eventLog.slice(neEvLen).filter(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived'));
+check('a notable day emits exactly ONE journey event (fragmented signals folded in)', neDayEvs.length === 1, 'got ' + neDayEvs.length);
+check('the notable day event is NOT campaignLogHidden', !neDayEvs[0].campaignLogHidden);
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('Lost cascade (nav-fail → unknowing-lost, strays — RR p.275)');
 
 // RAW (RR p.275): a failed Navigation throw means the party gets lost AND DOESN'T KNOW IT — it strays

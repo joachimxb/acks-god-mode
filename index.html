@@ -3679,7 +3679,9 @@ document.addEventListener('alpine:init', () => {
           <div>
             <h2 class="font-bold text-xl"><span x-text="journeyModeIcon(journeyDetail())"></span> <span x-text="journeyDetail().name || 'Journey'"></span></h2>
             <p class="text-sm opacity-70">
-              <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span> →
+              <!-- Travel pivot (2026-06-04): the live summary reads CURRENT location → destination
+                   (not the origin the trip began at — that's the journey's fixed name + the Route line). -->
+              <span x-text="journeyHexLabel(journeyDetail().currentHexId || journeyDetail().startHexId)"></span> →
               <span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
               · <span x-text="journeyDayLabel(journeyDetail())"></span>
               · <span class="capitalize" x-text="journeyDetail().pace"></span>
@@ -3819,8 +3821,8 @@ document.addEventListener('alpine:init', () => {
         <div class="flex flex-wrap items-center gap-2">
           <button @click="journeyTickDay()" class="px-4 py-1.5 border-2 border-ink rounded bg-sky-300 hover:bg-sky-400 font-bold text-base" title="Advance one day through the shared day-tick pipeline (review + commit in the Day-tick panel, top-right)" x-show="journeyDetail().status==='in-transit'">🕑 Tick day</button>
           <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base bg-green-200 text-green-900 border-2 border-green-700">✓ Arrived</span>
-          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base bg-red-100 text-red-800 border-2 border-red-500">✖ Aborted</span>
-          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)">✖ Abort</button>
+          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base bg-red-100 text-red-800 border-2 border-red-500">🛑 Stopped</span>
+          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop moving and stay where they are (the trip doesn't resume on its own)">🛑 Stop Moving</button>
           <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Tick routes through the Day Clock's propose → review → commit (top-right) — the same pipeline construction and every day consumer share.</span>
           <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins advancing once in-transit (start it via the day-tick once linked), or abort to discard.</span>
         </div>
@@ -3859,8 +3861,8 @@ document.addEventListener('alpine:init', () => {
       <div class="space-y-4">
         <div class="flex items-baseline justify-between flex-wrap gap-2">
           <div>
-            <h2 class="font-bold text-xl">⛺ Journeys</h2>
-            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. Drive them with the Day Clock (top-right).</p>
+            <h2 class="font-bold text-xl">⛺ Travel</h2>
+            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. An in-transit trip is a <em>journey</em>; drive them with the Day Clock (top-right).</p>
           </div>
           <button @click="startJourneyDeepLink({})" class="px-3 py-1 border border-ink rounded bg-yellow-300 hover:bg-yellow-400 font-semibold text-sm">🧭 Start a journey</button>
         </div>
@@ -3886,10 +3888,10 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
 
-        <!-- Completed / aborted (collapsed) -->
+        <!-- Completed / stopped (collapsed) -->
         <div class="vellum border border-ink rounded">
           <button @click="journeyShowCompleted = !journeyShowCompleted" class="w-full text-left px-3 py-2 border-b border-ink font-semibold text-sm flex items-center justify-between">
-            <span>Completed &amp; aborted <span class="opacity-60" x-text="'· ' + completedJourneys().length"></span></span>
+            <span>Arrived &amp; stopped <span class="opacity-60" x-text="'· ' + completedJourneys().length"></span></span>
             <span x-text="journeyShowCompleted ? '▾' : '▸'"></span>
           </button>
           <template x-if="journeyShowCompleted">
@@ -8800,7 +8802,7 @@ return {
   activitiesSubView: 'journeys',
   get activitiesSubTabs(){
     return [
-      { id:'journeys',       label:'⛺ Journeys',      ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
+      { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
@@ -9416,11 +9418,11 @@ return {
   },
   abortJourneyUI(j){
     if(!j) return;
-    const reason = window.prompt('Abort "' + (j.name||'journey') + '"? Optional reason (Cancel keeps it going):', '');
+    const reason = window.prompt('Stop moving on "' + (j.name||'journey') + '"? The travellers halt where they are (the trip won\'t resume on its own). Optional reason (Cancel keeps them traveling):', '');
     if(reason === null) return;
     window.ACKS.abortJourney(this.currentCampaign, j, (reason||'').trim() || null);
     this.markDirty(); this.schedulePersist();
-    this.showToast('Journey aborted.');
+    this.showToast('Travellers stopped moving.');
   },
   // ── Hex card ──
   journeysThroughHex(hexId){
@@ -14696,6 +14698,9 @@ return {
     if(!p || !record) return [];
     return (p.notableEvents || []).filter(e => {
       if(!e || e.consumer !== record.consumer) return false;
+      // The comprehensive per-day umbrella (Travel pivot) is conveyed by the record summary line itself;
+      // the per-thing notables (lost/hunger/fording/…) are what the GM reviews under it.
+      if(e.type === 'travel-day') return false;
       if(record.journeyId) return !!(e.payload && e.payload.journeyId === record.journeyId);
       return true;
     });
