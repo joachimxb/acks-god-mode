@@ -3724,6 +3724,7 @@ document.addEventListener('alpine:init', () => {
               <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                 <th class="font-normal py-0.5 pr-4">Traveller</th>
                 <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                 <th class="font-normal py-0.5">Conditions</th>
               </tr>
             </thead>
@@ -3741,6 +3742,9 @@ document.addEventListener('alpine:init', () => {
                       </span>
                     </template>
                     <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                  </td>
+                  <td class="py-1 pr-4" x-show="encumbranceShown()">
+                    <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="(Math.round(carryInfo(ch).totalSt*10)/10)+' st · '+carryInfo(ch).band.label"></span>
                   </td>
                   <td class="py-1">
                     <template x-if="characterJourneyConditions(ch).length">
