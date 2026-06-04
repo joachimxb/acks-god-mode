@@ -651,6 +651,56 @@ section('§24 — mid-journey re-route (reRouteJourney)');
   check('planning-status edit sets waypoints without re-anchoring', j.waypoints.length === 1 && j.waypoints[0].hexId === 'w' && j.routeAnchorHexId === null && j.coveredBaseline === 0);
 })();
 
+section('§26 — GM speed override (speedOverrideMilesPerDay)');
+(function(){
+  const PASS = () => 0.95; // roll ~19: clears nav, skips wandering encounters
+  check('blankJourney: speedOverrideMilesPerDay defaults to null', ACKS.blankJourney({}).speedOverrideMilesPerDay === null);
+
+  // baseline (no override): grassland + normal pace = 4 hexes/day (24-mi budget ÷ 6-mi hexes)
+  const base = lineCampaign(10); ACKS.startJourney(base.c, base.j);
+  const dBase = ACKS.tickJourneyDay(base.c, base.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('baseline grassland/normal = 4 hexes (24 mi/day)', dBase.record.dayRecord.hexesTraveled === 4, String(dBase.record.dayRecord.hexesTraveled));
+  check('baseline day record carries no override (null)', dBase.record.dayRecord.speedOverrideMilesPerDay === null);
+
+  // override BYPASSES pace: half-speed alone = 2 hexes; override 36 → 6 hexes
+  const ovp = lineCampaign(10); ACKS.startJourney(ovp.c, ovp.j);
+  ovp.c.journeys[0].pace = 'half-speed'; ovp.c.journeys[0].speedOverrideMilesPerDay = 36;
+  const dOvp = ACKS.tickJourneyDay(ovp.c, ovp.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 36 beats half-speed pace → 6 hexes (pace ignored for distance)', dOvp.record.dayRecord.hexesTraveled === 6, String(dOvp.record.dayRecord.hexesTraveled));
+  check('day record stamps the override value (36)', dOvp.record.dayRecord.speedOverrideMilesPerDay === 36);
+
+  // override BYPASSES weather: foggy ×½ = 2 hexes at normal; override 24 → 4 hexes
+  const ovw = lineCampaign(10); ACKS.startJourney(ovw.c, ovw.j);
+  ovw.c.journeys[0].speedOverrideMilesPerDay = 24;
+  const dOvw = ACKS.tickJourneyDay(ovw.c, ovw.c.journeys[0], { rng:PASS, weather:{condition:'foggy',temperature:'moderate'} });
+  check('override 24 ignores foggy ×½ → 4 hexes', dOvw.record.dayRecord.hexesTraveled === 4, String(dOvw.record.dayRecord.hexesTraveled));
+
+  // terrain STILL applies per hex: jungle ×½, override 48 → 4 hexes (grassland 48 would be 8)
+  const ovt = lineCampaign(10, () => ({ terrain:'jungle' })); ACKS.startJourney(ovt.c, ovt.j);
+  ovt.c.journeys[0].speedOverrideMilesPerDay = 48;
+  const dOvt = ACKS.tickJourneyDay(ovt.c, ovt.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 48 through jungle ×½ → 4 hexes (per-hex terrain still applies, §24)', dOvt.record.dayRecord.hexesTraveled === 4, String(dOvt.record.dayRecord.hexesTraveled));
+
+  // pace STILL drives fatigue: forced-march + override → fatigue jumps to the cycle cap (RR p.279)
+  const ovf = lineCampaign(10); ACKS.startJourney(ovf.c, ovf.j);
+  ovf.c.journeys[0].pace = 'forced-march'; ovf.c.journeys[0].speedOverrideMilesPerDay = 18;
+  const dOvf = ACKS.tickJourneyDay(ovf.c, ovf.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('forced-march pace + override still fatigues at once (newFatigueDays = 6)', dOvf.record.newFatigueDays === 6, String(dOvf.record.newFatigueDays));
+
+  // a zero / non-positive override is ignored — pace governs
+  const ovz = lineCampaign(10); ACKS.startJourney(ovz.c, ovz.j);
+  ovz.c.journeys[0].speedOverrideMilesPerDay = 0;
+  const dOvz = ACKS.tickJourneyDay(ovz.c, ovz.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 0 ignored → normal 4 hexes, day record override null', dOvz.record.dayRecord.hexesTraveled === 4 && dOvz.record.dayRecord.speedOverrideMilesPerDay === null);
+
+  // lazy migration backfills the field on a legacy journey
+  const cm = ACKS.blankCampaign({ name:'legacy' });
+  const legacy = ACKS.blankJourney({ id:'jrn-x', participantCharacterIds:[] }); delete legacy.speedOverrideMilesPerDay;
+  cm.journeys = [legacy];
+  ACKS.migrateCampaign(cm);
+  check('migrateCampaign backfills speedOverrideMilesPerDay = null on legacy journeys', cm.journeys[0].speedOverrideMilesPerDay === null);
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);

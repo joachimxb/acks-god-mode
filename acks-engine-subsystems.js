@@ -1626,7 +1626,15 @@ function tickJourneyDay(campaign, journey, ctx){
   const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
   const tempMult = (A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1;
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
-  let milesBudget = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * weatherMult * tempMult * paceMult;
+  // §26 — GM speed override: a positive journey.speedOverrideMilesPerDay sets the day's mile budget
+  // DIRECTLY, bypassing base × weather × temperature × pace. Per-hex terrain/ground/road (§24) still
+  // apply during the walk below, so the override acts like a GM-chosen base rate slotted into the same
+  // machinery (open ground → exactly the override miles; a drawn road still boosts; rough terrain still
+  // costs more). The pace value is preserved (grayed in the UI) and still governs fatigue (RR p.279) —
+  // speed and exertion are separable, so a GM can dial distance without disturbing the rest cycle.
+  const ovRaw = journey.speedOverrideMilesPerDay;
+  const overrideMiles = (typeof ovRaw === 'number' && isFinite(ovRaw) && ovRaw > 0) ? ovRaw : null;
+  let milesBudget = (overrideMiles != null) ? overrideMiles : A.JOURNEY_BASE_SPEED_MILES_PER_DAY * weatherMult * tempMult * paceMult;
   const coldWater = (weather.temperature === 'frigid' || weather.temperature === 'cold'); // −2 to a ford (§24)
 
   // ── fatigue (§10 / JJ p.84): a 6-day strenuous streak forces a rest day ──
@@ -1797,6 +1805,7 @@ function tickJourneyDay(campaign, journey, ctx){
     hexId: (curStep && curStep.hexId) || journey.currentHexId || journey.startHexId || null,  // the hex the party was in at day start
     weather: { condition: weather.condition, temperature: weather.temperature || 'moderate', rolledOrSet: weather.rolledOrSet || 'gm-fiat' },
     pace: restDay ? 'rest' : pace,
+    speedOverrideMilesPerDay: (overrideMiles != null && !restDay) ? overrideMiles : null,  // §26 — GM speed override in effect this day (null ⇒ pace governed)
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,
     hexPath,                                                 // §24 — [{hexId, q, r}] hexes entered this day (in order); last = current position

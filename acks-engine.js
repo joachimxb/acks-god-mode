@@ -877,6 +877,7 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(!Array.isArray(j.routeCoords)) j.routeCoords = [];  // §24 — informational route cache; [] = computed on demand
       if(j.routeAnchorHexId === undefined) j.routeAnchorHexId = null;   // §24 mid-journey re-route anchor (null ⇒ route runs from startHexId)
       if(typeof j.coveredBaseline !== 'number') j.coveredBaseline = 0;  // §24 — hexes walked under prior route epochs
+      if(typeof j.speedOverrideMilesPerDay === 'undefined') j.speedOverrideMilesPerDay = null;  // §26 GM speed override (null ⇒ pace governs)
     }
   }
   // Per-settlement new fields

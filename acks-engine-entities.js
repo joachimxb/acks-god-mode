@@ -1199,6 +1199,10 @@ function blankJourney(opts={}){
     // Mode + pace
     mode: opts.mode || 'foot',                          // J1: land modes only; enum reserves sea/air (§13)
     pace: opts.pace || 'normal',                        // forced-march | normal | cautious | half-ancillary
+    // GM speed override (§26) — a positive number sets the day's mile BUDGET directly, bypassing
+    // base × weather × temperature × pace (per-hex terrain/ground/road still apply, §24). null = pace
+    // governs (the default). The grayed-in-UI pace value is preserved and still drives fatigue.
+    speedOverrideMilesPerDay: (typeof opts.speedOverrideMilesPerDay === 'number') ? opts.speedOverrideMilesPerDay : null,
     // Purpose (folds the old venture/journey split — §17.1)
     purpose: opts.purpose || 'expedition',
     ventureAnnotation: opts.ventureAnnotation || null,  // commercial-venture payload (cargo/investment/vagaries)
