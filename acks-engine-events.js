@@ -102,7 +102,14 @@ const EVENT_KINDS = Object.freeze([
   'journey-aborted',
   'journey-rerouted',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
-  'gm-narrative'
+  'gm-narrative',
+  // GP Wave B (2026-06-04, Architecture.md §4.3) — the wealth/item movement grammar.
+  // wealth-transfer = the canonical coin/gp PRIMITIVE; item-transfer = the symmetric
+  // item-line PRIMITIVE; market-transaction = the semantic COMPOUND that composes both
+  // (a priced buy/sell at a market). The primitives carry typed source/destination handles.
+  'wealth-transfer',
+  'item-transfer',
+  'market-transaction'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -374,6 +381,24 @@ const EVENT_SCHEMAS = Object.freeze({
   'gm-narrative': {
     R: { title: 'string', body: 'string' },
     O: { notes: 'string' }
+  },
+  // GP Wave B (2026-06-04, Architecture.md §4.3). source/destination are typed handles:
+  //   { kind:'treasury'|'character-gp'|'character-stash'|'hex-stash'|'stash'|'party-stash'|'external', id?, label? }
+  'wealth-transfer': {
+    R: { amount: 'number', source: 'object', destination: 'object' },
+    O: { currency: 'string', reason: 'string', bucket: 'string' }
+  },
+  // lines = item-line refs; their shape depends on the source/destination kind
+  // (external→ : full item specs to materialise; →external / internal: held-line refs).
+  'item-transfer': {
+    R: { source: 'object', destination: 'object', lines: 'array' },
+    O: { reason: 'string', bucket: 'string' }
+  },
+  // The compound. direction = 'buy'|'sell'. Composes a wealth-transfer + an item-transfer.
+  'market-transaction': {
+    R: { direction: 'string', actorCharacterId: 'string', lines: 'array' },
+    O: { settlementId: 'string', marketClass: 'string', totalGp: 'number', currency: 'string',
+         notable: 'boolean', activityCost: 'object', payFrom: 'string', itemTo: 'string', itemFrom: 'string' }
   }
 });
 
@@ -1737,6 +1762,486 @@ registerEventHandler('journey-encounter', applyEvent_journeyAudit);
 registerEventHandler('journey-aborted', applyEvent_journeyAudit);
 registerEventHandler('journey-rerouted', applyEvent_journeyAudit);
 
+// =============================================================================
+// GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
+// =============================================================================
+// Three event kinds form a layered model (§4.3.6):
+//   • wealth-transfer    — the canonical coin/gp PRIMITIVE ("amount gp moved from
+//     {source} to {destination} for {bucket}"). Typed source/destination handles.
+//   • item-transfer      — the symmetric item-line PRIMITIVE (non-coin lines move
+//     between inventories/stashes, or in/out of the world via an 'external' handle).
+//   • market-transaction — a semantic COMPOUND (a priced buy/sell at a market) that
+//     COMPOSES a wealth-transfer (coin leg) + an item-transfer (goods leg) and adds the
+//     market context (price/availability/notability/the #346 activity cost). It is the
+//     unit the Campaign Log narrates; the two legs ride beneath it as child records.
+//
+// Two contracts, kept distinct to avoid double-application:
+//   • _doWealthTransfer / _doItemTransfer MOVE state (validate-then-apply, atomic) and
+//     return a change record. The standalone handlers + the market compound call these.
+//   • recordWealthTransfer / recordItemTransfer LOG an applied event WITHOUT moving — for
+//     flows that already moved through their own setters (commitTurn, treasury-grant,
+//     adventure-result, cache/draw) and want to emit the audit decomposition. A child of
+//     a parent (parentEvent given) is flagged campaignLogHidden — the parent narrates.
+//
+// gp only in v1; `currency` is carried on the payload but only 'gp' actually moves.
+
+const _WEALTH_HANDLE_KINDS = Object.freeze(['treasury','character-gp','character','character-stash','hex-stash','stash','party-stash','external']);
+function _gpwACKS(){ return (typeof global !== 'undefined' && global.ACKS) || (typeof window !== 'undefined' && window.ACKS) || {}; }
+
+// How much gp a handle can currently provide. { available, gated } — gated:true means a
+// debit beyond `available` is a real overdraft and should fail; gated:false (treasury)
+// preserves today's behaviour (a domain treasury can run negative across a lean month).
+// null for 'external' (an off-campaign counterparty — unbounded).
+function _wealthLegAvailable(campaign, handle){
+  if(!handle || handle.kind === 'external') return null;
+  const A = _gpwACKS();
+  switch(handle.kind){
+    case 'treasury':
+      return { available: (A.domainTreasuryGp ? A.domainTreasuryGp(campaign, handle.id) : 0), gated:false };
+    case 'character-gp':
+    case 'character': {
+      const ch = (campaign.characters||[]).find(c => c && c.id === handle.id);
+      return { available: ch ? (Number(ch.coins && ch.coins.gp) || 0) : 0, gated:true };
+    }
+    case 'character-stash': case 'hex-stash': case 'party-stash': case 'stash': {
+      const st = A.findStash ? A.findStash(campaign, handle.id) : null;
+      let gp = 0;
+      if(st && Array.isArray(st.items)) for(const it of st.items){
+        if(it && (it.facets||[]).indexOf('coin') >= 0 && (it.denomination||'gp') === 'gp') gp += (Number(it.qty)||0);
+      }
+      return { available: gp, gated:true };
+    }
+    default: return { available: 0, gated:true };
+  }
+}
+
+// Move signedAmount gp into (+) or out of (−) one handle. Mutates; returns a change record.
+// Reuses the shipped movers so the canonical invariants hold (treasury↔stash sync, purse
+// mirror). 'external' is a no-op (the gp left/entered the campaign).
+function _applyWealthLeg(campaign, handle, signedAmount, ctx){
+  if(!handle || handle.kind === 'external' || !signedAmount) return null;
+  const A = _gpwACKS();
+  const label = (ctx && (ctx.reason || ctx.bucket)) || 'wealth-transfer';
+  switch(handle.kind){
+    case 'treasury':
+      return A._applyTreasuryDelta ? A._applyTreasuryDelta(campaign, handle.id, signedAmount, label)
+                                   : _applyTreasuryDelta(campaign, handle.id, signedAmount, label);
+    case 'character-gp': case 'character': {
+      const ch = (campaign.characters||[]).find(c => c && c.id === handle.id);
+      if(!ch) throw new Error('wealth-transfer: unknown character '+handle.id);
+      if(!ch.coins || typeof ch.coins !== 'object') ch.coins = { pp:0, gp:0, ep:0, sp:0, cp:0 };
+      const before = Number(ch.coins.gp) || 0;
+      ch.coins.gp = before + signedAmount;
+      if(A.reconcileCharacterCoins) A.reconcileCharacterCoins(ch);
+      return { kind:'character', id: handle.id, before, after: ch.coins.gp, delta: signedAmount };
+    }
+    case 'character-stash': case 'hex-stash': case 'party-stash': case 'stash': {
+      const st = A.findStash ? A.findStash(campaign, handle.id) : null;
+      if(!st) throw new Error('wealth-transfer: unknown stash '+handle.id);
+      if(signedAmount >= 0){
+        if(A.depositToStash) A.depositToStash(campaign, st.id, [{ kind:'coin', denomination:'gp', qty: signedAmount }], { reason: label });
+      } else {
+        const coinLine = (st.items||[]).find(it => it && (it.facets||[]).indexOf('coin') >= 0 && (it.denomination||'gp') === 'gp');
+        if(!coinLine || (Number(coinLine.qty)||0) < -signedAmount) throw new Error('wealth-transfer: stash '+st.id+' has insufficient gp');
+        if(A.withdrawFromStash) A.withdrawFromStash(campaign, st.id, [{ itemId: coinLine.id, qty: -signedAmount }], { reason: label });
+      }
+      return { kind:'stash', id: handle.id, delta: signedAmount };
+    }
+    default: return null;
+  }
+}
+
+// Move `amount` gp from source → destination. Validate-then-apply: the debit side is
+// checked before any mutation (atomic). amount is non-negative; direction is carried by
+// the handles. Returns a change record.
+function _doWealthTransfer(campaign, spec){
+  spec = spec || {};
+  const amount = Number(spec.amount) || 0;
+  const src = spec.source || { kind:'external' };
+  const dst = spec.destination || { kind:'external' };
+  if(amount < 0) throw new Error('wealth-transfer: amount must be ≥ 0 (direction is carried by source/destination)');
+  if(src.kind && _WEALTH_HANDLE_KINDS.indexOf(src.kind) < 0) throw new Error('wealth-transfer: bad source kind '+src.kind);
+  if(dst.kind && _WEALTH_HANDLE_KINDS.indexOf(dst.kind) < 0) throw new Error('wealth-transfer: bad destination kind '+dst.kind);
+  if(!spec.allowOverdraft && amount > 0){
+    const avail = _wealthLegAvailable(campaign, src);
+    if(avail && avail.gated && amount > avail.available)
+      throw new Error('wealth-transfer: insufficient funds in '+src.kind+(src.id?(' '+src.id):'')+' ('+avail.available+'gp < '+amount+'gp)');
+  }
+  const sourceChange = _applyWealthLeg(campaign, src, -amount, spec);
+  const destChange   = _applyWealthLeg(campaign, dst, +amount, spec);
+  return { amount, currency: spec.currency || 'gp', source: src, destination: dst, sourceChange, destChange,
+           bucket: spec.bucket || 'other', reason: spec.reason || '' };
+}
+
+// A buy line → a Phase-2.6 carry inventory entry ({name, qty, stone, notes}). The line's
+// `stone`/`encumbranceSt` is the PER-UNIT weight; a carry line's `stone` is the TOTAL for
+// the line (itemEncumbranceSt reads it directly, no qty multiply — RR p.83), so multiply.
+function _marketLineToCarry(line){
+  const qty = (line.qty != null) ? line.qty : 1;
+  const unitSt = (line.stone != null) ? line.stone : (line.encumbranceSt != null ? line.encumbranceSt : 0);
+  const out = {
+    name: line.name || line.label || 'item',
+    qty,
+    stone: (unitSt != null ? unitSt : 0) * qty,   // TOTAL weight of the line
+    notes: line.notes || ''
+  };
+  if(line.notableItemId) out.notableItemId = line.notableItemId;   // magic routing is IT-5
+  return out;
+}
+// A buy line → a stash item spec (facet line). encumbranceSt is the TOTAL line weight too.
+function _marketLineToStashItem(line){
+  if(Array.isArray(line.facets) && line.facets.length) return Object.assign({}, line, { id: undefined });
+  const qty = (line.qty != null) ? line.qty : 1;
+  const unitSt = (line.stone != null) ? line.stone : (line.encumbranceSt != null ? line.encumbranceSt : null);
+  return {
+    facets: ['gear'], name: line.name || line.label || 'item', qty,
+    encumbranceSt: (unitSt != null) ? unitSt * qty : null,
+    notes: line.notes || ''
+  };
+}
+
+// Move item lines source → destination. Dispatches on the (source.kind, destination.kind)
+// pair: external→ materialises new lines (buy); →external removes held lines (sell); the
+// internal routes wrap the shipped setters (cache/draw/transfer). Returns { moved, count }.
+function _doItemTransfer(campaign, spec){
+  spec = spec || {};
+  const A = _gpwACKS();
+  const src = spec.source || { kind:'external' };
+  const dst = spec.destination || { kind:'external' };
+  const lines = Array.isArray(spec.lines) ? spec.lines : [];
+  const reason = spec.reason || spec.bucket || 'item-transfer';
+  const srcK = src.kind, dstK = dst.kind;
+  const isCh = k => (k === 'character' || k === 'character-gp');
+  const isStash = k => (k === 'stash' || k === 'character-stash' || k === 'hex-stash' || k === 'party-stash');
+
+  // external → inventory (BUY into carry)
+  if(srcK === 'external' && isCh(dstK)){
+    const ch = (campaign.characters||[]).find(c => c && c.id === dst.id);
+    if(!ch) throw new Error('item-transfer: unknown character '+dst.id);
+    if(!Array.isArray(ch.inventory)) ch.inventory = [];
+    const moved = [];
+    for(const ln of lines){ const carry = _marketLineToCarry(ln); ch.inventory.push(carry); moved.push(carry); }
+    return { moved, count: moved.length };
+  }
+  // external → stash (BUY into a stash)
+  if(srcK === 'external' && isStash(dstK)){
+    const items = lines.map(_marketLineToStashItem);
+    if(A.depositToStash) A.depositToStash(campaign, dst.id, items, { reason });
+    return { moved: items, count: items.length };
+  }
+  // inventory → external (SELL from carry) — lines ref carry indices
+  if(isCh(srcK) && dstK === 'external'){
+    const ch = (campaign.characters||[]).find(c => c && c.id === src.id);
+    if(!ch) throw new Error('item-transfer: unknown character '+src.id);
+    if(!Array.isArray(ch.inventory)) ch.inventory = [];
+    const idxs = lines.map(l => l.inventoryIndex).filter(i => Number.isInteger(i));
+    for(const i of idxs){ if(i < 0 || i >= ch.inventory.length) throw new Error('item-transfer: bad inventory index '+i); }
+    const moved = [];
+    for(const i of idxs.slice().sort((a,b) => b - a)){ moved.push(ch.inventory[i]); ch.inventory.splice(i, 1); }
+    return { moved, count: moved.length };
+  }
+  // stash → external (SELL from a stash) — lines ref itemIds
+  if(isStash(srcK) && dstK === 'external'){
+    const withdrawals = lines.map(l => ({ itemId: l.itemId, qty: l.qty }));
+    const out = A.withdrawFromStash ? A.withdrawFromStash(campaign, src.id, withdrawals, { reason }) : null;
+    if(!out) throw new Error('item-transfer: stash withdrawal failed');
+    return { moved: out.withdrawn, count: out.withdrawn.length };
+  }
+  // internal moves wrap the shipped setters (the cache/draw retrofit + integrators).
+  if(isCh(srcK) && isStash(dstK)){
+    const itemIndices = lines.map(l => l.inventoryIndex).filter(Number.isInteger);
+    const res = A.cacheToStash ? A.cacheToStash(campaign, src.id, dst.id, { itemIndices }, { reason }) : null;
+    if(!res || !res.ok) throw new Error('item-transfer: cacheToStash failed'+(res ? (' '+res.error) : ''));
+    return { moved: lines, count: itemIndices.length };
+  }
+  if(isStash(srcK) && isCh(dstK)){
+    const itemIds = lines.map(l => l.itemId).filter(Boolean);
+    const res = A.drawFromStash ? A.drawFromStash(campaign, src.id, dst.id, { itemIds }, { reason }) : null;
+    if(!res || !res.ok) throw new Error('item-transfer: drawFromStash failed'+(res ? (' '+res.error) : ''));
+    return { moved: lines, count: itemIds.length };
+  }
+  if(isStash(srcK) && isStash(dstK)){
+    const withdrawals = lines.map(l => ({ itemId: l.itemId, qty: l.qty }));
+    const res = A.transferBetweenStashes ? A.transferBetweenStashes(campaign, src.id, dst.id, withdrawals, { reason }) : null;
+    if(!res) throw new Error('item-transfer: stash→stash transfer failed');
+    return { moved: withdrawals, count: withdrawals.length };
+  }
+  throw new Error('item-transfer: unsupported route '+srcK+' → '+dstK);
+}
+
+// ── Applied-event logging (record-only; the mover already moved) ──────────────
+// Push an APPLIED event wrapper onto campaign.eventLog (the {event,result,…} shape used
+// throughout — see startJourney / commitTurn).
+function _logAppliedEvent(campaign, ev, result){
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  ev.status = EVENT_STATUS.APPLIED;
+  ev.appliedAtTurn = campaign.currentTurn || 1;
+  campaign.eventLog.push({ event: ev, result: result || {}, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+  return ev;
+}
+function _wealthHandleLabel(h){ if(!h) return '?'; return h.label || (h.kind + (h.id ? (' ' + h.id) : '')); }
+function _wealthTransferNarrative(spec){
+  return (Number(spec.amount)||0) + 'gp · ' + _wealthHandleLabel(spec.source) + ' → ' + _wealthHandleLabel(spec.destination) +
+         (spec.bucket ? (' (' + spec.bucket + ')') : '');
+}
+// Log a wealth-transfer WITHOUT moving (the caller already moved). A child of a parent is
+// hidden from the narrative Campaign Log; standalone records (no parent) are visible.
+function recordWealthTransfer(campaign, spec, opts){
+  opts = opts || {};
+  const parent = opts.parentEvent || null;
+  const ev = newEvent('wealth-transfer', {
+    submittedBy: opts.submittedBy || 'engine', status: EVENT_STATUS.APPLIED,
+    cadence: opts.cadence || (parent ? parent.cadence : 'monthly-turn'),
+    targetTurn: campaign.currentTurn || 1,
+    gameTimeAt: opts.gameTimeAt || (parent ? parent.gameTimeAt : null),
+    parentEventId: parent ? parent.id : (opts.parentEventId || null),
+    context: opts.context || (parent ? parent.context : null) || null,
+    payload: {
+      source: spec.source || { kind:'external' }, destination: spec.destination || { kind:'external' },
+      amount: Number(spec.amount) || 0, currency: spec.currency || 'gp',
+      bucket: spec.bucket || 'other', reason: spec.reason || ''
+    }
+  });
+  if(parent || opts.campaignLogHidden) ev.campaignLogHidden = true;
+  return _logAppliedEvent(campaign, ev, { narrativeSummary: opts.narrativeSummary || _wealthTransferNarrative(spec) });
+}
+// Log an item-transfer WITHOUT moving (the caller already moved).
+function recordItemTransfer(campaign, spec, opts){
+  opts = opts || {};
+  const parent = opts.parentEvent || null;
+  const lines = Array.isArray(spec.lines) ? spec.lines : [];
+  const ev = newEvent('item-transfer', {
+    submittedBy: opts.submittedBy || 'engine', status: EVENT_STATUS.APPLIED,
+    cadence: opts.cadence || (parent ? parent.cadence : 'monthly-turn'),
+    targetTurn: campaign.currentTurn || 1,
+    gameTimeAt: opts.gameTimeAt || (parent ? parent.gameTimeAt : null),
+    parentEventId: parent ? parent.id : (opts.parentEventId || null),
+    context: opts.context || (parent ? parent.context : null) || null,
+    payload: {
+      source: spec.source || { kind:'external' }, destination: spec.destination || { kind:'external' },
+      lines: lines.map(l => ({ name: l.name || l.label || null, qty: (l.qty != null ? l.qty : 1) })),
+      bucket: spec.bucket || 'other', reason: spec.reason || ''
+    }
+  });
+  if(parent || opts.campaignLogHidden) ev.campaignLogHidden = true;
+  const summary = (opts.narrativeSummary) || (lines.length + ' item line(s) · ' + _wealthHandleLabel(spec.source) + ' → ' + _wealthHandleLabel(spec.destination));
+  return _logAppliedEvent(campaign, ev, { narrativeSummary: summary });
+}
+
+// ── Standalone primitive handlers (dispatched via applyEvent — these MOVE) ─────
+function applyEvent_wealthTransfer(campaign, event){
+  const p = event.payload || {};
+  const change = _doWealthTransfer(campaign, p);
+  return { result: {
+    domainsChanged: [p.source, p.destination].filter(h => h && h.kind === 'treasury').map(h => h.id),
+    charactersChanged: [p.source, p.destination].filter(h => h && (h.kind === 'character' || h.kind === 'character-gp')).map(h => h.id),
+    hexesChanged: [], treasuryDelta: 0,
+    narrativeSummary: _wealthTransferNarrative(p), wealthTransfer: change
+  } };
+}
+registerEventHandler('wealth-transfer', applyEvent_wealthTransfer);
+
+function applyEvent_itemTransfer(campaign, event){
+  const p = event.payload || {};
+  const moved = _doItemTransfer(campaign, p);
+  return { result: {
+    domainsChanged: [], hexesChanged: [],
+    charactersChanged: [p.source, p.destination].filter(h => h && (h.kind === 'character' || h.kind === 'character-gp')).map(h => h.id),
+    treasuryDelta: 0,
+    narrativeSummary: (moved.count + ' item line(s) · ' + _wealthHandleLabel(p.source) + ' → ' + _wealthHandleLabel(p.destination)),
+    itemTransfer: { count: moved.count }
+  } };
+}
+registerEventHandler('item-transfer', applyEvent_itemTransfer);
+
+// ── market-transaction: the semantic compound (composes the two primitives) ────
+function _settlementName(campaign, settlementId){
+  const s = (campaign.settlements||[]).find(x => x && x.id === settlementId);
+  return s ? (s.name || settlementId) : settlementId;
+}
+function _marketLinesSummary(lines){
+  if(!Array.isArray(lines) || !lines.length) return 'goods';
+  const parts = lines.slice(0, 3).map(l => ((l.qty && l.qty !== 1) ? (l.qty + '× ') : '') + (l.name || 'item'));
+  return parts.join(', ') + (lines.length > 3 ? (' +' + (lines.length - 3) + ' more') : '');
+}
+// pay-from / deposit-to → a wealth handle. Default the actor's purse.
+function _marketCoinHandle(campaign, p, ch){
+  const v = p.payFrom || 'purse';
+  if(typeof v === 'string' && v.indexOf('stash:') === 0)    return { kind:'stash', id: v.slice(6) };
+  if(typeof v === 'string' && v.indexOf('treasury:') === 0) return { kind:'treasury', id: v.slice(9) };
+  return { kind:'character-gp', id: ch ? ch.id : p.actorCharacterId, label: ch ? (ch.name + "'s purse") : null };
+}
+// where items land (buy: itemTo) / come from (sell: itemFrom). Default the actor's carry.
+function _marketItemHandle(campaign, p, ch){
+  const v = (p.direction === 'sell') ? (p.itemFrom || 'carry') : (p.itemTo || 'carry');
+  if(typeof v === 'string' && v.indexOf('stash:') === 0) return { kind:'stash', id: v.slice(6) };
+  return { kind:'character', id: ch ? ch.id : p.actorCharacterId, label: ch ? (ch.name + "'s pack") : null };
+}
+// Notability hook (M&M) — mirrors the treasury-grant notable-transaction rumor.
+function _marketNotabilityCheck(campaign, event, p, totalGp){
+  const A = _gpwACKS();
+  if(!A.isHouseRuleEnabled || !A.isHouseRuleEnabled(campaign, 'markets-transaction-threshold')) return false;
+  const sId = p.settlementId; if(!sId || !(totalGp > 0)) return false;
+  const set = (campaign.settlements||[]).find(s => s && s.id === sId); if(!set) return false;
+  const threshold = A.computeTransactionThreshold ? A.computeTransactionThreshold(set) : 0;
+  if(!(threshold > 0 && totalGp >= threshold)) return false;
+  _autoEmitRumor(campaign, {
+    settlementId: sId,
+    rumorText: 'A notable transaction stirred ' + (set.name || sId) + ': ' + totalGp.toLocaleString() + 'gp '
+             + (p.direction === 'sell' ? 'of goods sold' : 'spent on goods') + '.',
+    apparentLevel: 'common', truthLevel: 'true', topic: 'wealth', sourceEventId: event.id,
+    sourceCharacterId: p.actorCharacterId || null
+  });
+  return true;
+}
+function applyEvent_marketTransaction(campaign, event){
+  const p = event.payload || {};
+  const dir = (p.direction === 'sell') ? 'sell' : 'buy';
+  const lines = Array.isArray(p.lines) ? p.lines : [];
+  const totalGp = (p.totalGp != null) ? Number(p.totalGp)
+                : lines.reduce((s,l) => s + (Number(l.totalGp) || (Number(l.unitPriceGp)||0) * (Number(l.qty)||1)), 0);
+  const actorId = p.actorCharacterId;
+  const ch = (campaign.characters||[]).find(c => c && c.id === actorId) || null;
+  const coinHandle = _marketCoinHandle(campaign, p, ch);
+  const itemHandle = _marketItemHandle(campaign, p, ch);
+  const ext = { kind:'external', label: p.settlementId ? ('market · ' + _settlementName(campaign, p.settlementId)) : 'market' };
+
+  if(dir === 'buy'){
+    _doWealthTransfer(campaign, { source: coinHandle, destination: ext, amount: totalGp, bucket:'purchase', reason:'market purchase' });
+    _doItemTransfer(campaign,  { source: ext, destination: itemHandle, lines, bucket:'purchase', reason:'market purchase' });
+    recordWealthTransfer(campaign, { source: coinHandle, destination: ext, amount: totalGp, bucket:'purchase', reason:'market purchase' }, { parentEvent: event });
+    recordItemTransfer(campaign,  { source: ext, destination: itemHandle, lines, bucket:'purchase', reason:'market purchase' }, { parentEvent: event });
+  } else {
+    _doItemTransfer(campaign,  { source: itemHandle, destination: ext, lines, bucket:'sale', reason:'market sale' });
+    _doWealthTransfer(campaign, { source: ext, destination: coinHandle, amount: totalGp, bucket:'sale', reason:'market sale' });
+    recordItemTransfer(campaign,  { source: itemHandle, destination: ext, lines, bucket:'sale', reason:'market sale' }, { parentEvent: event });
+    recordWealthTransfer(campaign, { source: ext, destination: coinHandle, amount: totalGp, bucket:'sale', reason:'market sale' }, { parentEvent: event });
+  }
+  const notable = _marketNotabilityCheck(campaign, event, p, totalGp);
+  const summary = (dir === 'buy' ? 'Bought ' : 'Sold ') + _marketLinesSummary(lines)
+                + (p.settlementId ? (' at ' + _settlementName(campaign, p.settlementId)) : '') + ' for ' + totalGp + 'gp'
+                + (ch ? (' — ' + (ch.name || actorId)) : '');
+  return { result: {
+    domainsChanged: [], hexesChanged: [], charactersChanged: actorId ? [actorId] : [],
+    treasuryDelta: 0, narrativeSummary: summary,
+    marketTransaction: { direction: dir, totalGp, lineCount: lines.length, notable }
+  } };
+}
+registerEventHandler('market-transaction', applyEvent_marketTransaction);
+
+// ── marketBuy / marketSell — the ergonomic builders (validate → dispatch → log) ─
+// IT-2 (Phase_2.9_Item_Trade_Plan.md). Validate availability (RR p.124 matrix) + funds,
+// build the market-transaction event, apply it (legs move + children record), log the
+// parent. Returns { ok, event, totalGp, lines } | { ok:false, error, detail? }.
+// A settlement's market class (Roman). It is DERIVED from family count via
+// lookupSettlementBenchmark (RR p.351) — NOT a stored field (Item Trade plan §2.1 / OQ6).
+// An explicit settlement.marketClass (a GM override) wins if present.
+function _marketClassRoman(settlement){
+  if(!settlement) return null;
+  if(settlement.marketClass) return settlement.marketClass;
+  const A = _gpwACKS();
+  if(A.lookupSettlementBenchmark){ const b = A.lookupSettlementBenchmark(settlement.families || 0); return b ? b.marketClass : null; }
+  return null;
+}
+function _marketClassIdx(settlement){
+  const map = { 'I':0, 'II':1, 'III':2, 'IV':3, 'V':4, 'VI':5 };
+  const roman = _marketClassRoman(settlement);
+  if(typeof roman === 'string'){ const key = roman.replace('*',''); if(map[key] != null) return map[key]; }
+  return 5;   // default to the smallest market
+}
+function _resolveEquipmentLine(line){
+  const A = _gpwACKS();
+  let cat = null;
+  if(line.catalogId && Array.isArray(A.EQUIPMENT_CATALOG)) cat = A.EQUIPMENT_CATALOG.find(e => e.id === line.catalogId);
+  const listPriceGp = (line.priceGp != null) ? Number(line.priceGp) : (cat ? cat.listPriceGp : null);
+  const name  = line.name || (cat ? cat.name : null) || 'item';
+  const stone = (line.stone != null) ? line.stone : (cat ? cat.stone : 0);
+  return { name, listPriceGp, stone, source: cat ? 'catalog' : 'generic' };
+}
+function marketBuy(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters||[]).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok:false, error:'unknown-actor' };
+  const set = opts.settlementId ? (campaign.settlements||[]).find(s => s && s.id === opts.settlementId) : null;
+  const mcIdx = set ? _marketClassIdx(set) : (opts.marketClassIdx != null ? opts.marketClassIdx : 5);
+  const inLines = Array.isArray(opts.lines) ? opts.lines : [];
+  if(!inLines.length) return { ok:false, error:'no-lines' };
+  const availOpts = { partyOf12Dedicated: !!opts.partyOf12Dedicated, visitedBefore: !!opts.visitedBefore };
+  const lines = []; let totalGp = 0;
+  for(const raw of inLines){
+    const r = _resolveEquipmentLine(raw);
+    if(r.listPriceGp == null || !(r.listPriceGp >= 0)) return { ok:false, error:'no-price', detail:{ name: r.name } };
+    const qty = (raw.qty != null) ? raw.qty : 1;
+    if(!(qty > 0)) return { ok:false, error:'bad-qty', detail:{ name: r.name } };
+    // Availability gate (RR p.124). Deterministic for count cells; chance cells need an
+    // explicit availableUnits (rolled by the wizard) else they gate to 0.
+    const a = A.equipmentAvailability ? A.equipmentAvailability(r.listPriceGp, mcIdx, availOpts) : { kind:'count', count: Infinity };
+    const availableUnits = (raw.availableUnits != null) ? raw.availableUnits : (a.kind === 'count' ? a.count : 0);
+    if(qty > availableUnits) return { ok:false, error:'unavailable', detail:{ name: r.name, availableUnits, requested: qty, band: a.band } };
+    const lineTotal = r.listPriceGp * qty;
+    totalGp += lineTotal;
+    lines.push({ name: r.name, qty, unitPriceGp: r.listPriceGp, totalGp: lineTotal, stone: r.stone, source: r.source });
+  }
+  // Funds gate (the wealth leg re-checks, but return a clean error here).
+  const coinHandle = _marketCoinHandle(campaign, { payFrom: opts.payFrom, actorCharacterId: ch.id }, ch);
+  const avail = _wealthLegAvailable(campaign, coinHandle);
+  if(avail && avail.gated && totalGp > avail.available) return { ok:false, error:'insufficient-funds', detail:{ have: avail.available, need: totalGp } };
+
+  const ev = newEvent('market-transaction', {
+    submittedBy: opts.submittedBy || 'gm', status: EVENT_STATUS.PENDING,
+    targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
+    payload: { direction:'buy', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
+               marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               payFrom: opts.payFrom || 'purse', itemTo: opts.itemTo || 'carry' }
+  });
+  let out;
+  try { out = applyEvent(campaign, ev); } catch(e){ return { ok:false, error: 'apply-failed', detail: String(e && e.message || e) }; }
+  _logAppliedEvent(campaign, ev, out.result);
+  return { ok:true, event: ev, totalGp, lines, result: out.result };
+}
+function marketSell(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters||[]).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok:false, error:'unknown-actor' };
+  if(!Array.isArray(ch.inventory)) ch.inventory = [];
+  const set = opts.settlementId ? (campaign.settlements||[]).find(s => s && s.id === opts.settlementId) : null;
+  const mcIdx = set ? _marketClassIdx(set) : (opts.marketClassIdx != null ? opts.marketClassIdx : 5);
+  const inLines = Array.isArray(opts.lines) ? opts.lines : [];
+  if(!inLines.length) return { ok:false, error:'no-lines' };
+  const availOpts = { partyOf12Dedicated: !!opts.partyOf12Dedicated, visitedBefore: !!opts.visitedBefore };
+  const lines = []; let totalGp = 0;
+  for(const raw of inLines){
+    const ix = raw.inventoryIndex;
+    if(!Number.isInteger(ix) || ix < 0 || ix >= ch.inventory.length) return { ok:false, error:'bad-index', detail:{ inventoryIndex: ix } };
+    const held = ch.inventory[ix];
+    const qty = (raw.qty != null) ? raw.qty : (held.qty != null ? held.qty : 1);
+    const r = _resolveEquipmentLine({ catalogId: raw.catalogId, name: raw.name || held.name, priceGp: raw.priceGp, stone: held.stone });
+    if(r.listPriceGp == null || !(r.listPriceGp >= 0)) return { ok:false, error:'no-price', detail:{ name: r.name } };
+    // Selling is the mirror of buying — same availability gate (RR p.124).
+    const a = A.equipmentAvailability ? A.equipmentAvailability(r.listPriceGp, mcIdx, availOpts) : { kind:'count', count: Infinity };
+    const availableUnits = (raw.availableUnits != null) ? raw.availableUnits : (a.kind === 'count' ? a.count : 0);
+    if(qty > availableUnits) return { ok:false, error:'unavailable', detail:{ name: r.name, availableUnits, requested: qty, band: a.band } };
+    const lineTotal = r.listPriceGp * qty;
+    totalGp += lineTotal;
+    lines.push({ name: r.name, qty, unitPriceGp: r.listPriceGp, totalGp: lineTotal, inventoryIndex: ix });
+  }
+  const ev = newEvent('market-transaction', {
+    submittedBy: opts.submittedBy || 'gm', status: EVENT_STATUS.PENDING,
+    targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
+    payload: { direction:'sell', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
+               marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               payFrom: opts.payFrom || 'purse', itemFrom: opts.itemFrom || 'carry' }
+  });
+  let out;
+  try { out = applyEvent(campaign, ev); } catch(e){ return { ok:false, error:'apply-failed', detail: String(e && e.message || e) }; }
+  _logAppliedEvent(campaign, ev, out.result);
+  return { ok:true, event: ev, totalGp, lines, result: out.result };
+}
+
 
 
 // ─── #541 Event Wizard support (Architecture.md §10.12 — 2026-05-30) ───
@@ -1752,7 +2257,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'gm-narrative',          // owned by Chronicle Entry sub-tab — has its own rich UI
   // Phase 2.5 Journeys (#475 — J1) — emitted by the day-tick consumer + startJourney,
   // not authored raw (raw emit would skip the journey state transitions).
-  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter', 'journey-aborted', 'journey-rerouted'
+  'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter', 'journey-aborted', 'journey-rerouted',
+  // GP Wave B — owned by marketBuy/marketSell (raw emit would skip the availability + funds
+  // gate). The wealth-transfer + item-transfer primitives stay emittable (legit GM move verbs).
+  'market-transaction'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
@@ -1789,7 +2297,16 @@ Object.assign(ACKS, {
   _setByPath, assertSafeFieldPath, SAFE_FIELDPATH_RE, DANGEROUS_PATH_SEGMENTS,
   // Exposed so handlers in other modules (acks-engine-subsystems.js) can
   // auto-emit rumors. Gated internally on the 'rumors-auto-emit' house rule.
-  _autoEmitRumor
+  _autoEmitRumor,
+  // GP Wave B (2026-06-04, Architecture.md §4.3) — the wealth/item movement grammar.
+  // Movers (apply state): _doWealthTransfer / _doItemTransfer (aliased applyWealthTransfer /
+  // applyItemTransfer). Record-only loggers (the caller already moved): recordWealthTransfer /
+  // recordItemTransfer — used by commitTurn / treasury-grant / adventure-result / cache-draw to
+  // emit the audit decomposition. The retail verbs: marketBuy / marketSell.
+  _doWealthTransfer, _doItemTransfer,
+  applyWealthTransfer: _doWealthTransfer, applyItemTransfer: _doItemTransfer,
+  recordWealthTransfer, recordItemTransfer, _wealthLegAvailable,
+  marketBuy, marketSell
 });
 
 if(typeof module !== 'undefined' && module.exports){
