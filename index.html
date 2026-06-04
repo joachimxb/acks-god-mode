@@ -12346,11 +12346,16 @@ return {
     });
 
     // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring. The Journeys layer
-    // toggle gates the WHOLE set, EXCEPT a journey the GM is actively viewing (_journeyMapView, set by
-    // "View on map") is ALWAYS drawn — so jumping to a journey shows it even with the layer switched off.
+    // shows only CURRENTLY ACTIVE journeys (planning / in-transit / resting / lost — the activeJourneys()
+    // set); a completed (arrived) or stopped (aborted) journey drops off the map. EXCEPT a journey the GM
+    // is actively viewing (_journeyMapView, set by "View on map") is ALWAYS drawn regardless of status —
+    // so jumping to any journey, even a finished one, shows it, even with the layer switched off.
     {
+      const ACTIVE_J = ['planning','in-transit','resting','lost'];
       const allRoutes = this.mapJourneyRoutes();
-      const routes = this.mapShowJourneys ? allRoutes : allRoutes.filter(rt => rt.id === this._journeyMapView);
+      const routes = this.mapShowJourneys
+        ? allRoutes.filter(rt => ACTIVE_J.includes(rt.status) || rt.id === this._journeyMapView)
+        : allRoutes.filter(rt => rt.id === this._journeyMapView);
       routes.forEach(rt => {
         if(rt.pts.length >= 2){
           const dd = rt.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
@@ -12438,7 +12443,7 @@ return {
       const ids = [j.routeAnchorHexId || j.startHexId].concat((j.waypoints || []).map(w => w.hexId), [j.destinationHexId]).filter(Boolean);
       const pts = ids.map(centre).filter(Boolean);
       if(!pts.length) return;
-      routes.push({ id:j.id, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.routeAnchorHexId || j.startHexId) });
+      routes.push({ id:j.id, status:j.status, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.routeAnchorHexId || j.startHexId) });
     });
     return routes;
   },
