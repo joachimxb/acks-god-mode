@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Journey pace, mode, and speed-override changes no longer clutter the Campaign Log.** Tweaking a journey's marching pace, travel mode, or speed override is an operational knob-turn, not a campaign event — those changes now stay in the **Event Log** (the full audit) and no longer post a line to the narrative **Campaign Log**. (Other GM edits still appear in both, as before.)
+
 ### Added
 - **Set a journey's speed by hand.** The Journey Detail panel's Pace row gains an **Override** tick and, just after Mode, a **miles per day** field that's grayed out until you tick it (it previews the current pace's nominal speed meanwhile). Tick Override — Pace grays out, the field un-grays — and type the exact distance the party covers each day, instead of the computed pace × weather × temperature; handy for a custom mount, a favouring wind, or just "they make 30 a day, don't argue." The route's per-hex terrain, roads, and rivers still apply as the party walks (a road still speeds the leg, a forest still slows it — the override is the open-ground rate, not a teleport), and the Pace setting still drives fatigue. The day log marks each overridden day (⚡ N mi/day), and unticking hands speed back to Pace.
 

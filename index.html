@@ -9357,12 +9357,13 @@ return {
   // fresh on each day-tick, so the next day ticked uses the new pace (per-day pace stays in the log).
   setJourneyPace(j, pace){
     if(!j || !pace || j.pace === pace) return;
-    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace });
+    // suppressFromCampaignLog: an operational knob-turn, not a campaign moment — audited in the Event Log only.
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
   },
   setJourneyMode(j, mode){
     if(!j || !mode || j.mode === mode) return;
-    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode, newValue:mode });
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode, newValue:mode, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
   },
   // §26 — GM speed override. A positive speedOverrideMilesPerDay sets the day's mile budget directly,
@@ -9377,7 +9378,7 @@ return {
     const v = (typeof miles === 'number' && isFinite(miles) && miles > 0) ? Math.round(miles) : null;
     const cur = this.journeyHasSpeedOverride(j) ? j.speedOverrideMilesPerDay : null;
     if(cur === v) return;
-    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', oldValue:cur, newValue:v });
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', oldValue:cur, newValue:v, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
   },
   // The "Override" tick: checking it enables the inline mi/day field by committing the nominal pace
@@ -9737,7 +9738,11 @@ return {
         event: ev,
         result: applyResult?.result || { narrativeSummary: label + ': ' + oldV + ' → ' + newV },
         appliedAtTurn: ev.appliedAtTurn,
-        appliedAt: new Date().toISOString()
+        appliedAt: new Date().toISOString(),
+        // Operational edits (e.g. journey pace/mode/speed-override) stay in the Event Log audit
+        // but are filtered OUT of the narrative Campaign Log via this flag — they're knob-turns,
+        // not campaign moments. campaignLogEntries() skips entries carrying it.
+        ...(opts.suppressFromCampaignLog ? { campaignLogHidden: true } : {})
       });
       // Push to entity-specific history for at-a-glance browsing.
       if(opts.entityType === 'character' && opts.entity){
@@ -13561,7 +13566,9 @@ return {
   campaignLogEntries(){
     if(!this.currentCampaign) return [];
     const eventLog = this.currentCampaign.eventLog || [];
-    return eventLog.slice().reverse().map(entry => {
+    // Operational knob-turns (journey pace/mode/speed-override) are flagged campaignLogHidden when
+    // committed — they belong in the Event Log audit, not the narrative Campaign Log. Filter them here.
+    return eventLog.slice().reverse().filter(entry => !entry.campaignLogHidden).map(entry => {
       const ev = entry.event || {};
       const narrative = entry.result?.narrativeSummary
         || ev.payload?.narrativeSummary
