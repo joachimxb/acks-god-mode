@@ -909,7 +909,7 @@ document.addEventListener('alpine:init', () => {
         <span>🪙 Purse: <span class="font-mono" x-text="tradePurseGp().toLocaleString()+' gp'"></span></span>
         <span x-show="tradeSettlement()">🏛 Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
         <label class="flex items-center gap-1" title="Mercantile Networks (RR p.413): a market traded in before counts as one class higher"><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (+1 class)</label>
-        <label class="flex items-center gap-1" title="A party of 12+ spending a dedicated activity gets double availability (RR p.124)"><input type="checkbox" :checked="trade.partyOf12Dedicated" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2)</label>
+        <label class="flex items-center gap-1" :class="tradePartySize() < 12 ? 'opacity-40' : ''" :title="tradePartySize() < 12 ? ('Needs a party of 12+ adventurers — this character\'s party has '+tradePartySize()+' (RR p.124)') : 'A 12+ party devoting a DEDICATED activity to shopping gets double availability (RR p.124); the trip costs one dedicated activity'"><input type="checkbox" :disabled="tradePartySize() < 12" :checked="trade.partyOf12Dedicated && tradePartySize() >= 12" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2, dedicated)</label>
       </div>
 
       <!-- Step 2 (BUY) — catalogue + generic-by-price + cart -->
@@ -952,7 +952,7 @@ document.addEventListener('alpine:init', () => {
               <template x-for="l in trade.buyCart" :key="l.key">
                 <tr class="border-b border-ink/10" :class="Number(l.qty) > Number(l.availableUnits) ? 'wizard-no-chance' : ''">
                   <td x-text="l.name"></td>
-                  <td class="text-right"><input type="number" min="1" :max="l.availableUnits" x-model.number="l.qty" class="text-sm text-right" style="width:4rem"></td>
+                  <td class="text-right"><input type="number" min="1" :max="tradeCartEffectiveAvail(l)" x-model.number="l.qty" class="text-sm text-right" style="width:4rem"></td>
                   <td class="text-right text-xs" x-text="tradeCartAvailLabel(l)"></td>
                   <td class="text-right font-mono" x-text="l.unitPriceGp+' gp'"></td>
                   <td class="text-right font-mono" x-text="(l.unitPriceGp*(Number(l.qty)||0)).toLocaleString()+' gp'"></td>
@@ -990,7 +990,7 @@ document.addEventListener('alpine:init', () => {
         <div class="flex flex-wrap gap-x-5 gap-y-1">
           <span><span class="opacity-60">Total:</span> <span class="font-mono font-semibold" x-text="(trade.dir==='buy'?tradeBuyTotalGp():tradeSellTotalGp()).toLocaleString()+' gp'"></span></span>
           <span><span class="opacity-60">Load:</span> <span class="font-mono" x-text="(Math.round((trade.dir==='buy'?tradeBuyTotalStone():tradeSellTotalStone())*100)/100)+' st'"></span></span>
-          <span title="M&M p.15: buy/sell up to a normal load (≈5 st) = one ancillary errand; each further load = another. The #346 tie."><span class="opacity-60">Activity:</span> <span class="font-semibold" x-text="tradeActivityUnits()+' ancillary errand'+(tradeActivityUnits()===1?'':'s')"></span></span>
+          <span :title="tradeActivityTitle()"><span class="opacity-60">Activity:</span> <span class="font-semibold" x-text="tradeActivityLabel()"></span></span>
         </div>
       </div>
 
@@ -12321,7 +12321,11 @@ return {
   },
   characterAtSettlement(ch){ if(!ch || !ch.currentHexId) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === ch.currentHexId) || null; },
   hexSettlementFor(hex){ if(!hex) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === hex.id) || null; },
-  tradeSetActor(id){ this.trade.actorId = id || null; this.trade.buyCart = []; this.tradeInitSellRows(); },
+  tradeSetActor(id){ this.trade.actorId = id || null; this.trade.partyOf12Dedicated = false; this.trade.buyCart = []; this.tradeInitSellRows(); },
+  tradePartySize(){
+    const ch = this.tradeActor(); if(!ch) return 0; if(!ch.partyId) return 1;
+    return (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === ch.partyId).length;
+  },
   tradeSetSettlement(id){ this.trade.settlementId = id || null; this.tradeRecomputeCart(); },
   tradeSetDir(dir){ this.trade.dir = dir; if(dir === 'sell') this.tradeInitSellRows(); },
   tradeMarketClassRoman(){ const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null; },
@@ -12348,7 +12352,7 @@ return {
   tradeCartAvailLabel(l){
     if(l.availKind === 'chance') return l.availableUnits > 0 ? ('1 · rolled ' + l.availPercent + '%') : ('0 · not stocked (' + l.availPercent + '%)');
     if(l.availKind === 'none') return 'not stocked';
-    return Number(l.availableUnits).toLocaleString() + ' avail';
+    return Number(this.tradeCartEffectiveAvail(l)).toLocaleString() + ' avail';
   },
   tradeCategories(){ return ['all','weapon','ammunition','armor','gear','mount']; },
   tradeCatalog(){
@@ -12397,7 +12401,9 @@ return {
   tradeSellSelectedRows(){
     return this.tradeSellRowsList().filter(r => r.sel).map(r => {
       const a = this.tradeAvailFor(r.priceGp);
-      const availableUnits = (a.kind === 'none') ? 0 : (a.kind === 'count' ? a.count : 1);   // sell cap (chance → the market absorbs 1)
+      let availableUnits = (a.kind === 'none') ? 0 : (a.kind === 'count' ? a.count : 1);   // sell cap (chance → the market absorbs 1)
+      const rem = this.tradeMonthlyRemaining(r.name, r.priceGp);                            // RR p.124 — 10× monthly ceiling
+      if(Number.isFinite(rem)) availableUnits = Math.min(availableUnits, rem);
       return { ...r, availKind:a.kind, availPercent:a.percent, availableUnits };
     });
   },
@@ -12411,9 +12417,31 @@ return {
       return s + heldStone*(qty/heldQty);
     }, 0);
   },
-  tradeActivityUnits(){
+  // Mirrors the engine _marketActivityCost: core RAW = 1 ancillary; a real 12+ party = 1 dedicated
+  // (RR p.124); the M&M load-metering (⌈stone÷normal-load⌉) only when the house rule is on.
+  tradeActivityCost(){
     const stone = (this.trade.dir === 'buy') ? this.tradeBuyTotalStone() : this.tradeSellTotalStone();
-    return Math.max(1, Math.ceil((Number(stone)||0) / this.tradeNormalLoadSt()));
+    const dedicated = !!this.trade.partyOf12Dedicated && this.tradePartySize() >= 12;
+    return window.ACKS._marketActivityCost(this.currentCampaign, stone, { partyOf12Dedicated: dedicated });
+  },
+  tradeActivityLabel(){
+    const ac = this.tradeActivityCost();
+    if(ac.slot === 'dedicated') return '1 dedicated activity';
+    return ac.units + ' ancillary errand' + (ac.units === 1 ? '' : 's');
+  },
+  tradeActivityTitle(){
+    if(!!this.trade.partyOf12Dedicated && this.tradePartySize() >= 12) return 'A 12+ party devoting a dedicated activity to shopping (RR p.124).';
+    if(this.isHouseRuleEnabled('markets-load-metered-activity')) return 'M&M p.15 (house rule on): one ancillary covers up to a normal load (~5 st); a bigger haul costs ⌈stone ÷ normal-load⌉ ancillary errands.';
+    return 'Core RAW: a market transaction is one ancillary activity (JJ Campaign-Activities list, RR p.123). The M&M load-metering is behind the markets-load-metered-activity house rule (default off).';
+  },
+  // RR p.124 — the 10× campaign-wide monthly ceiling for this item at this market (count cells only).
+  tradeMonthlyRemaining(name, priceGp){
+    const s = this.tradeSettlement(); if(!s) return Infinity;
+    return window.ACKS.marketMonthlyRemaining(this.currentCampaign, s, { name, listPriceGp: priceGp }, this.trade.dir);
+  },
+  tradeCartEffectiveAvail(l){
+    const rem = this.tradeMonthlyRemaining(l.name, l.unitPriceGp);
+    return Math.min(Number(l.availableUnits), Number.isFinite(rem) ? rem : Number(l.availableUnits));
   },
   tradeSubmitDisabledReason(){
     const ch = this.tradeActor(); if(!ch) return 'Pick a character.';
@@ -12422,7 +12450,8 @@ return {
       if(!this.trade.buyCart.length) return 'Add an item to buy.';
       for(const l of this.trade.buyCart){
         if(!(Number(l.qty) > 0)) return l.name + ': set a quantity.';
-        if(Number(l.qty) > Number(l.availableUnits)) return l.name + ': only ' + Number(l.availableUnits).toLocaleString() + ' available this month at Class ' + this.tradeMarketClassRoman() + '.';
+        const eff = this.tradeCartEffectiveAvail(l);
+        if(Number(l.qty) > eff) return l.name + ': only ' + Number(eff).toLocaleString() + ' available this month at Class ' + this.tradeMarketClassRoman() + '.';
       }
       const total = this.tradeBuyTotalGp();
       if(total > this.tradePurseGp()) return 'Not enough coin in the purse (have ' + this.tradePurseGp().toLocaleString() + ', need ' + total.toLocaleString() + ' gp).';
@@ -12470,6 +12499,7 @@ return {
       'no-price':'That item has no price — enter one.',
       'bad-qty':'Bad quantity.',
       'unavailable':'The market doesn’t stock that many' + (detail && detail.name ? (' ' + detail.name) : '') + ' this month' + (detail && detail.availableUnits != null ? (' (only ' + detail.availableUnits + ').') : '.'),
+      'monthly-ceiling':'The market is tapped out of' + (detail && detail.name ? (' ' + detail.name) : ' that item') + ' for the month' + (detail && detail.remaining != null ? (' (' + detail.remaining + ' left — RR p.124 10× ceiling).') : '.'),
       'insufficient-funds':'Not enough coin' + (detail ? (' (have ' + Number(detail.have).toLocaleString() + ', need ' + Number(detail.need).toLocaleString() + ').') : '.'),
       'bad-index':'That inventory line is gone — reopen the wizard.',
       'apply-failed':'Transaction failed' + (detail ? (' (' + detail + ')') : '.')

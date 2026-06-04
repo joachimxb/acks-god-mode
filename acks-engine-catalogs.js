@@ -240,6 +240,9 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'markets-magic-wizard', category:'mercantile', name:'M&M — Magic item sale wizard',
     source:'Markets & Merchandise supplement (Phase 2.9)',
     description:"Enables a guided modal for selling magic items: notability check → transaction-threshold check → possible black-magic interdiction." },
+  { id:'markets-load-metered-activity', category:'mercantile', name:'M&M — Load-metered market activity cost',
+    source:'Of Markets & Merchandise p.15 (supplement)',
+    description:"Refines the RAW market-transaction time cost. Core RR/JJ: buying/selling at a market is ONE ancillary activity (JJ Campaign-Activities list 'Buy equipment in the market', RR p.123; a 12+ party may instead devote a dedicated activity for double availability, RR p.124). With this rule ON, M&M p.15's load-metering applies — one ancillary covers up to a normal load (~5 st), and a bigger haul costs ⌈stone ÷ normal-load⌉ ancillary activities. Default OFF (supplement content, CLAUDE §6)." },
   // ----- Rumors (Phase 2.8) -----
   { id:'rumors-manual', category:'rumors', name:'Rumors — manual panel',
     source:"ACKS II + What's the Word (Phase 2.8)",
@@ -645,9 +648,12 @@ const ACTIVITY_BUDGET = Object.freeze({
 // The activity-cost catalog: activity-kind → its budget cost. `cost` is the slot it
 // consumes (dedicated / ancillary / incidental); `strenuous` feeds the RR p.279 six-day
 // fatigue cycle; `lifecycle` notes whether it spans days (ongoing) or is a one-day act
-// (singular). `loadMetered` flags an ancillary whose *count* scales with the stone hauled
-// (the M&M p.15 market rule — ⌈stone ÷ normal-load⌉ ancillary activities — the IT item-trade
-// tie). The mapping is reference data transcribed from the surveys (the canonical homes:
+// (singular). `loadMetered` flags an ancillary whose *count* CAN scale with the stone hauled
+// — but only when the `markets-load-metered-activity` house rule is ON (M&M p.15, a supplement
+// refinement, default OFF per CLAUDE §6). The RAW DEFAULT is a flat ONE ancillary per market
+// transaction (JJ Campaign-Activities list "Buy equipment in the market", RR p.123); the actual
+// per-transaction cost is computed dynamically in `_marketActivityCost` (acks-engine-events.js),
+// not read off this flag. The mapping is reference data transcribed from the surveys (the canonical homes:
 // Adventuring_Cadence_RAW_Survey.md §4 + Settlement_Activities_RAW_Survey.md §4); each
 // character-engaging subsystem declares its kind here as part of its delivery
 // (Architecture.md §3.11 contributor mandate, extended by the budget plan §8). Entries

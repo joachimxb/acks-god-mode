@@ -2200,10 +2200,62 @@ function _marketNormalLoadSt(){
   if(A.carryEncumbranceBandFor){ const b = A.carryEncumbranceBandFor(0); if(b && b.maxSt) return b.maxSt; }
   return 5;
 }
-function _marketActivityCost(totalStone){
-  const normalLoadSt = _marketNormalLoadSt();
+// The activity-budget cost of a market transaction. RAW DEFAULT (core): ONE ancillary activity
+// (JJ Campaign-Activities list "Buy equipment in the market", RR p.123). A 12+ party may instead
+// devote a DEDICATED activity (RR p.124 — for double availability), so the whole trip is one
+// dedicated activity. The M&M p.15 LOAD-METERING (⌈stone ÷ normal-load⌉ ancillary activities) is a
+// SUPPLEMENT refinement behind the `markets-load-metered-activity` house rule (default OFF, CLAUDE §6).
+function _marketActivityCost(campaign, totalStone, opts){
+  opts = opts || {};
   const st = Number(totalStone) || 0;
-  return { kind:'market-transaction', slot:'ancillary', units: Math.max(1, Math.ceil(st / normalLoadSt)), totalStone: st, normalLoadSt };
+  const A = _gpwACKS();
+  if(opts.partyOf12Dedicated){
+    return { kind:'market-transaction', slot:'dedicated', units:1, totalStone: st };
+  }
+  if(campaign && A.isHouseRuleEnabled && A.isHouseRuleEnabled(campaign, 'markets-load-metered-activity')){
+    const normalLoadSt = _marketNormalLoadSt();
+    return { kind:'market-transaction', slot:'ancillary', units: Math.max(1, Math.ceil(st / normalLoadSt)), totalStone: st, normalLoadSt, loadMetered:true };
+  }
+  return { kind:'market-transaction', slot:'ancillary', units:1, totalStone: st };
+}
+// The acting character's party size (member characters by the partyId truth — Architecture §3.3).
+// Gates the RR p.124 "12 or more adventurers" dedicated-shop benefit so a lone character can't
+// claim it (the UI also disables the tick; this is the engine-side guard).
+function _actorPartySize(campaign, charId){
+  const ch = (campaign && Array.isArray(campaign.characters)) ? campaign.characters.find(c => c && c.id === charId) : null;
+  if(!ch || !ch.partyId) return 1;
+  return campaign.characters.filter(c => c && c.partyId === ch.partyId).length;
+}
+// RR p.124 — the campaign-wide monthly maximum for any one item at a single market is 10× the
+// per-party "value shown". DERIVED (not stored, Architecture §3.13): sum the units of this item
+// moved THIS accounting month (turn) in this direction at this settlement, from the eventLog.
+function marketUnitsTransactedThisMonth(campaign, settlementId, nameKey, direction){
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
+  const key = String(nameKey || '').toLowerCase();
+  let units = 0;
+  for(const entry of log){
+    const ev = entry && entry.event; if(!ev || ev.kind !== 'market-transaction') continue;
+    const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+    if(at != null && at !== turn) continue;
+    const p = ev.payload || {};
+    if(p.settlementId !== settlementId) continue;
+    if(direction && p.direction !== direction) continue;
+    for(const ln of (p.lines || [])){ if(String(ln.name || '').toLowerCase() === key) units += (Number(ln.qty) || 0); }
+  }
+  return units;
+}
+// Units of `item` ({name, listPriceGp}) still transactable this month at `settlement` in `direction`
+// under the 10× ceiling (RR p.124). Count cells only — for a chance cell the per-roll gate governs,
+// so there is no separate monthly count ceiling (returns Infinity).
+function marketMonthlyRemaining(campaign, settlement, item, direction){
+  if(!settlement) return Infinity;
+  const A = _gpwACKS();
+  const mcIdx = _marketClassIdx(settlement);
+  const base = A.equipmentAvailability ? A.equipmentAvailability(item.listPriceGp, mcIdx, {}) : { kind:'count', count: Infinity };
+  if(base.kind !== 'count' || !Number.isFinite(base.count)) return Infinity;
+  const ceiling = 10 * base.count;
+  return Math.max(0, ceiling - marketUnitsTransactedThisMonth(campaign, settlement.id, item.name, direction));
 }
 function marketBuy(campaign, opts){
   opts = opts || {};
@@ -2214,7 +2266,8 @@ function marketBuy(campaign, opts){
   const mcIdx = set ? _marketClassIdx(set) : (opts.marketClassIdx != null ? opts.marketClassIdx : 5);
   const inLines = Array.isArray(opts.lines) ? opts.lines : [];
   if(!inLines.length) return { ok:false, error:'no-lines' };
-  const availOpts = { partyOf12Dedicated: !!opts.partyOf12Dedicated, visitedBefore: !!opts.visitedBefore };
+  const effectiveDedicated = !!opts.partyOf12Dedicated && _actorPartySize(campaign, ch.id) >= 12;   // RR p.124 — a REAL 12+ party only
+  const availOpts = { partyOf12Dedicated: effectiveDedicated, visitedBefore: !!opts.visitedBefore };
   const lines = []; let totalGp = 0, totalStone = 0;
   for(const raw of inLines){
     const r = _resolveEquipmentLine(raw);
@@ -2226,6 +2279,13 @@ function marketBuy(campaign, opts){
     const a = A.equipmentAvailability ? A.equipmentAvailability(r.listPriceGp, mcIdx, availOpts) : { kind:'count', count: Infinity };
     const availableUnits = (raw.availableUnits != null) ? raw.availableUnits : (a.kind === 'count' ? a.count : 0);
     if(qty > availableUnits) return { ok:false, error:'unavailable', detail:{ name: r.name, availableUnits, requested: qty, band: a.band } };
+    // Campaign-wide monthly ceiling (RR p.124 — 10× the value shown; count cells only). Account for
+    // same-item lines earlier in THIS order (the ledger only sees committed events).
+    const remaining = marketMonthlyRemaining(campaign, set, { name: r.name, listPriceGp: r.listPriceGp }, 'buy');
+    if(Number.isFinite(remaining)){
+      const priorThisOrder = lines.reduce((s,l)=> s + (String(l.name||'').toLowerCase() === String(r.name||'').toLowerCase() ? (l.qty||0) : 0), 0);
+      if(qty + priorThisOrder > remaining) return { ok:false, error:'monthly-ceiling', detail:{ name: r.name, remaining, requested: qty } };
+    }
     const lineTotal = r.listPriceGp * qty;
     totalGp += lineTotal;
     totalStone += (r.stone || 0) * qty;   // per-unit catalogue weight × qty (the #346 load meter)
@@ -2242,7 +2302,8 @@ function marketBuy(campaign, opts){
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'buy', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
                marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
-               activityCost: _marketActivityCost(totalStone),
+               activityCost: _marketActivityCost(campaign, totalStone, { partyOf12Dedicated: effectiveDedicated }),
+               partyOf12Dedicated: effectiveDedicated,
                payFrom: opts.payFrom || 'purse', itemTo: opts.itemTo || 'carry' }
   });
   let out;
@@ -2260,7 +2321,8 @@ function marketSell(campaign, opts){
   const mcIdx = set ? _marketClassIdx(set) : (opts.marketClassIdx != null ? opts.marketClassIdx : 5);
   const inLines = Array.isArray(opts.lines) ? opts.lines : [];
   if(!inLines.length) return { ok:false, error:'no-lines' };
-  const availOpts = { partyOf12Dedicated: !!opts.partyOf12Dedicated, visitedBefore: !!opts.visitedBefore };
+  const effectiveDedicated = !!opts.partyOf12Dedicated && _actorPartySize(campaign, ch.id) >= 12;   // RR p.124 — a REAL 12+ party only
+  const availOpts = { partyOf12Dedicated: effectiveDedicated, visitedBefore: !!opts.visitedBefore };
   const lines = []; let totalGp = 0, totalStone = 0;
   for(const raw of inLines){
     const ix = raw.inventoryIndex;
@@ -2273,6 +2335,12 @@ function marketSell(campaign, opts){
     const a = A.equipmentAvailability ? A.equipmentAvailability(r.listPriceGp, mcIdx, availOpts) : { kind:'count', count: Infinity };
     const availableUnits = (raw.availableUnits != null) ? raw.availableUnits : (a.kind === 'count' ? a.count : 0);
     if(qty > availableUnits) return { ok:false, error:'unavailable', detail:{ name: r.name, availableUnits, requested: qty, band: a.band } };
+    // Campaign-wide monthly ceiling (RR p.124 — 10× the value shown; count cells only).
+    const remaining = marketMonthlyRemaining(campaign, set, { name: r.name, listPriceGp: r.listPriceGp }, 'sell');
+    if(Number.isFinite(remaining)){
+      const priorThisOrder = lines.reduce((s,l)=> s + (String(l.name||'').toLowerCase() === String(r.name||'').toLowerCase() ? (l.qty||0) : 0), 0);
+      if(qty + priorThisOrder > remaining) return { ok:false, error:'monthly-ceiling', detail:{ name: r.name, remaining, requested: qty } };
+    }
     const lineTotal = r.listPriceGp * qty;
     totalGp += lineTotal;
     totalStone += (Number(held.stone) || 0) * (qty / (held.qty || 1));   // proportional held-line weight (#346 load meter)
@@ -2284,7 +2352,8 @@ function marketSell(campaign, opts){
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'sell', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
                marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
-               activityCost: _marketActivityCost(totalStone),
+               activityCost: _marketActivityCost(campaign, totalStone, { partyOf12Dedicated: effectiveDedicated }),
+               partyOf12Dedicated: effectiveDedicated,
                payFrom: opts.payFrom || 'purse', itemFrom: opts.itemFrom || 'carry' }
   });
   let out;
@@ -2357,7 +2426,7 @@ Object.assign(ACKS, {
   _doWealthTransfer, _doItemTransfer,
   applyWealthTransfer: _doWealthTransfer, applyItemTransfer: _doItemTransfer,
   recordWealthTransfer, recordItemTransfer, _wealthLegAvailable,
-  marketBuy, marketSell
+  marketBuy, marketSell, _marketActivityCost, marketUnitsTransactedThisMonth, marketMonthlyRemaining
 });
 
 if(typeof module !== 'undefined' && module.exports){

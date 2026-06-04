@@ -244,27 +244,67 @@ section('IT-2 — marketSell: remove a held line, credit the purse (mirror gate)
 }
 
 // =============================================================================
-section('IT-3 — load-metered activity cost stamped on the transaction (M&M p.15 / #346)');
+section('IT-3 — activity cost: RAW default = 1 ancillary; M&M load-metering is a house rule');
 // =============================================================================
 {
-  // M&M p.15 worked example: normal load 5 st, a sword is 1/6 st → 30 swords = 5 st = ONE ancillary
-  const { c } = fixture();
-  const r30 = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 30 }] });
-  ok('30 swords (5 st) → 1 ancillary', r30.ok && r30.event.payload.activityCost.units === 1 && r30.event.payload.activityCost.slot === 'ancillary', JSON.stringify(r30.ok && r30.event.payload.activityCost));
-}
-{
-  // 35 swords = 5.83 st > one normal load → a SECOND ancillary ("the time packing and lugging")
+  // CORE RAW (no house rule): a market transaction is ONE ancillary activity, regardless of load
+  // (JJ Campaign-Activities list "Buy equipment in the market", RR p.123).
   const { c } = fixture();
   const r35 = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 35 }] });
-  ok('35 swords (5.83 st) → 2 ancillaries (M&M p.15)', r35.ok && r35.event.payload.activityCost.units === 2, JSON.stringify(r35.ok && r35.event.payload.activityCost));
-  ok('the cost is surfaced in the result', r35.result.marketTransaction.activityCost.units === 2);
+  ok('35 swords (5.83 st) → 1 ancillary by default (core RAW, flat)', r35.ok && r35.event.payload.activityCost.units === 1 && r35.event.payload.activityCost.slot === 'ancillary', JSON.stringify(r35.ok && r35.event.payload.activityCost));
+  const { c: c2 } = fixture();
+  const rBig = ACKS.marketBuy(c2, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ name: 'Crates', priceGp: 1, stone: 100, qty: 1 }] });
+  ok('a 100-st haul is still 1 ancillary by default (no load-metering)', rBig.ok && rBig.event.payload.activityCost.units === 1, JSON.stringify(rBig.ok && rBig.event.payload.activityCost));
 }
 {
-  // a led warhorse carries 0 st — still ONE ancillary (you spend the day at the market)
+  // M&M p.15 (house rule ON): the load-metering kicks in — ⌈stone ÷ 5-st normal load⌉ ancillary
+  const { c } = fixture(); c.houseRules['markets-load-metered-activity'] = { enabled: true };
+  const r30 = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 30 }] });
+  ok('rule on: 30 swords (5 st) → 1 ancillary', r30.ok && r30.event.payload.activityCost.units === 1, JSON.stringify(r30.ok && r30.event.payload.activityCost));
+  const { c: c2 } = fixture(); c2.houseRules['markets-load-metered-activity'] = { enabled: true };
+  const r35 = ACKS.marketBuy(c2, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 35 }] });
+  ok('rule on: 35 swords (5.83 st) → 2 ancillaries (M&M p.15)', r35.ok && r35.event.payload.activityCost.units === 2 && r35.result.marketTransaction.activityCost.units === 2, JSON.stringify(r35.ok && r35.event.payload.activityCost));
+}
+{
+  // a led warhorse carries 0 st — ONE ancillary either way (you spend time at the market)
   const { c } = fixture();
   const rh = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'horse-heavy-war', qty: 1 }] });
-  ok('a 0-stone led mount is still 1 ancillary', rh.ok && rh.event.payload.activityCost.units === 1 && rh.event.payload.activityCost.totalStone === 0, JSON.stringify(rh.ok && rh.event.payload.activityCost));
-  ok('market-transaction is the load-metered cost-tag ACTIVITY_COSTS knows (IT-1)', ACKS.activityCostFor('market-transaction').loadMetered === true);
+  ok('a 0-stone led mount is 1 ancillary', rh.ok && rh.event.payload.activityCost.units === 1 && rh.event.payload.activityCost.totalStone === 0, JSON.stringify(rh.ok && rh.event.payload.activityCost));
+}
+{
+  // a 12+ party may devote a DEDICATED activity to shopping (RR p.124) — and only a REAL 12+ party.
+  const { c } = fixture();
+  const rLone = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 2 }], partyOf12Dedicated: true });
+  ok('the 12+ flag is ignored for a lone character (RR p.124 guard)', rLone.ok && rLone.event.payload.activityCost.slot === 'ancillary' && rLone.event.payload.partyOf12Dedicated === false, JSON.stringify(rLone.event.payload.activityCost));
+  const { c: c2 } = fixture();
+  c2.characters.find(x => x.id === 'chr-buyer').partyId = 'party-1';
+  for (let i = 0; i < 11; i++) c2.characters.push(ACKS.blankCharacter({ id: 'm' + i, name: 'Member ' + i, partyId: 'party-1' }));
+  const r12 = ACKS.marketBuy(c2, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 2 }], partyOf12Dedicated: true });
+  ok('a real 12+ party (dedicated shop) → 1 dedicated activity', r12.ok && r12.event.payload.activityCost.slot === 'dedicated' && r12.event.payload.activityCost.units === 1, JSON.stringify(r12.event.payload.activityCost));
+}
+{
+  ok('market-transaction is the load-meterable cost-tag ACTIVITY_COSTS knows (IT-1)', ACKS.activityCostFor('market-transaction').loadMetered === true);
+}
+
+// =============================================================================
+section('RR p.124 — the 10× campaign-wide monthly availability ceiling (per settlement, per item)');
+// =============================================================================
+{
+  const { c, set } = fixture();
+  set.families = 100;   // → Class VI: a sword (10gp, band 2–10) has per-party availability 1, so the campaign ceiling is 10
+  ok('nothing sold this month', ACKS.marketUnitsTransactedThisMonth(c, 'set-1', 'sword', 'buy') === 0);
+  ok('monthly remaining starts at 10× the per-party 1', ACKS.marketMonthlyRemaining(c, set, { name: 'Sword', listPriceGp: 10 }, 'buy') === 10);
+  let allOk = true;
+  for (let i = 0; i < 10; i++) { const r = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] }); allOk = allOk && r.ok; }
+  ok('ten single-sword buys succeed up to the ceiling', allOk);
+  ok('the month is now depleted (10 sold)', ACKS.marketUnitsTransactedThisMonth(c, 'set-1', 'sword', 'buy') === 10);
+  ok('monthly remaining is 0', ACKS.marketMonthlyRemaining(c, set, { name: 'Sword', listPriceGp: 10 }, 'buy') === 0);
+  const r11 = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('the 11th sword is blocked by the monthly ceiling', !r11.ok && r11.error === 'monthly-ceiling', JSON.stringify(r11));
+  const rAxe = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'battle-axe', qty: 1 }] });
+  ok('a different item is independent (per-item ceiling)', rAxe.ok, JSON.stringify(rAxe));
+  c.currentTurn = 4;
+  ok('the ceiling resets next month', ACKS.marketMonthlyRemaining(c, set, { name: 'Sword', listPriceGp: 10 }, 'buy') === 10);
 }
 
 // =============================================================================
@@ -274,12 +314,12 @@ section('IT-3 reader — the budget COUNTS the shopping trip (OQ1: cost-tagged e
   const { c } = fixture();   // currentTurn 3; buyer has no journeys/magistracies
   const b0 = ACKS.characterActivityBudget(c, 'chr-buyer');
   ok('empty budget before any activity', b0.ancillary.length === 0 && b0.dedicated.length === 0);
-  // buy 35 swords = 2 ancillaries (M&M p.15)
+  // buy 35 swords = 1 ancillary by default (core RAW)
   ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 35 }] });
   const b1 = ACKS.characterActivityBudget(c, 'chr-buyer');
-  ok('the budget now counts 2 ancillary shopping errands', b1.ancillary.filter(a => a.kind === 'market-transaction').length === 2, JSON.stringify(b1.ancillary.map(a => a.kind)));
+  ok('the budget counts the shopping trip (1 ancillary by default)', b1.ancillary.filter(a => a.kind === 'market-transaction').length === 1, JSON.stringify(b1.ancillary.map(a => a.kind)));
   ok('sourced from the cost-tagged event, not a parallel ledger', b1.ancillary.filter(a => a.kind === 'market-transaction').every(a => a.sourceKind === 'errand-event'));
-  ok('within budget (2 ≤ 4 ancillary, no dedicated)', !b1.overBudget);
+  ok('within budget (1 ≤ 4 ancillary, no dedicated)', !b1.overBudget);
 }
 {
   // attribution: a co-located character who didn't shop sees nothing
@@ -288,11 +328,12 @@ section('IT-3 reader — the budget COUNTS the shopping trip (OQ1: cost-tagged e
   ok('the errand attributes only to the acting character', ACKS.characterActivityBudget(c, 'chr-payee').ancillary.length === 0);
 }
 {
-  // over-budget: a 100-stone haul = 20 ancillaries > the 12/day cap
+  // over-budget needs the M&M load-metering ON: a 100-stone haul = 20 ancillaries > the 12/day cap
   const { c } = fixture();
+  c.houseRules['markets-load-metered-activity'] = { enabled: true };
   ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ name: 'Crates', priceGp: 1, stone: 100, qty: 1 }] });
   const b = ACKS.characterActivityBudget(c, 'chr-buyer');
-  ok('a 100-st haul = 20 ancillaries → over the 12/day cap', b.overBudget && b.ancillary.length === 20, JSON.stringify({ over: b.overBudget, n: b.ancillary.length }));
+  ok('rule on: a 100-st haul = 20 ancillaries → over the 12/day cap', b.overBudget && b.ancillary.length === 20, JSON.stringify({ over: b.overBudget, n: b.ancillary.length }));
 }
 {
   // window: an errand from a PRIOR turn is not in this month's budget
