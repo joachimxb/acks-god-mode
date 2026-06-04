@@ -1626,6 +1626,25 @@ function rollEncounter(campaign, journey, opts){
 // §5.1 — resolve ONE day for ONE in-transit journey. PURE: returns the pending record
 // (carrying the §4.2 Day record + the post-state absolutes commit replays) plus any
 // notable events + encounters. Does not mutate the campaign.
+// Party overland base speed (RR pp.83-84 + p.272): a party travels at its SLOWEST member's encumbrance
+// rate — 24/18/12/6 mi/day for unencumbered/lightly/heavily/severely loaded; an overloaded member → 0 =
+// the party can't move. Mercenaries + pack animals aren't tracked as individual carriers, so "members" =
+// the participant characters; no participant characters → the flat base (JOURNEY_BASE_SPEED_MILES_PER_DAY,
+// 24). This is the "current speed" the Journey panel shows above Pace/Mode, and the value the GM speed
+// override (§26) replaces. Exposed so the UI mirrors exactly what tickJourneyDay uses for the base.
+function journeyBaseSpeedMilesPerDay(campaign, journey){
+  const A = _jACKS();
+  const ids = (journey && journey.participantCharacterIds) || [];
+  if(!ids.length || !campaign || !Array.isArray(campaign.characters)) return A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
+  let slowest = Infinity;
+  for(const c of campaign.characters){
+    if(!c || ids.indexOf(c.id) === -1) continue;
+    const mpd = (typeof A.carryEncumbranceInfo === 'function') ? A.carryEncumbranceInfo(c).band.milesPerDay : A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
+    if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
+  }
+  return (slowest === Infinity) ? A.JOURNEY_BASE_SPEED_MILES_PER_DAY : slowest;
+}
+
 function tickJourneyDay(campaign, journey, ctx){
   const A = _jACKS();
   ctx = ctx || {};
@@ -1671,15 +1690,17 @@ function tickJourneyDay(campaign, journey, ctx){
   const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
   const tempMult = (A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1;
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
-  // §26 — GM speed override: a positive journey.speedOverrideMilesPerDay sets the day's mile budget
-  // DIRECTLY, bypassing base × weather × temperature × pace. Per-hex terrain/ground/road (§24) still
-  // apply during the walk below, so the override acts like a GM-chosen base rate slotted into the same
-  // machinery (open ground → exactly the override miles; a drawn road still boosts; rough terrain still
-  // costs more). The pace value is preserved (grayed in the UI) and still governs fatigue (RR p.279) —
-  // speed and exertion are separable, so a GM can dial distance without disturbing the rest cycle.
+  // §26 — GM speed override: a positive journey.speedOverrideMilesPerDay REPLACES the party's base
+  // "current speed" (the slowest-member rate) for this leg — it is a GM-chosen BASE RATE, not a fixed
+  // final distance. The SAME day modifiers then apply on top: × weather × temperature × pace here, plus
+  // per-hex terrain/ground/road during the walk below. So pace still multiplies it (forced march ×1.5),
+  // weather/terrain still bite, and pace still governs fatigue (RR p.279). null/0 ⇒ the slowest-member
+  // rate governs. (Speed and exertion stay separable — pace is set independently of the override.)
   const ovRaw = journey.speedOverrideMilesPerDay;
   const overrideMiles = (typeof ovRaw === 'number' && isFinite(ovRaw) && ovRaw > 0) ? ovRaw : null;
-  let milesBudget = (overrideMiles != null) ? overrideMiles : A.JOURNEY_BASE_SPEED_MILES_PER_DAY * weatherMult * tempMult * paceMult;
+  // base = the party's current speed (slowest member, RR pp.83-84) OR the GM override (§26) when set.
+  const baseMilesPerDay = (overrideMiles != null) ? overrideMiles : journeyBaseSpeedMilesPerDay(campaign, journey);
+  let milesBudget = baseMilesPerDay * weatherMult * tempMult * paceMult;
   const coldWater = (weather.temperature === 'frigid' || weather.temperature === 'cold'); // −2 to a ford (§24)
 
   // ── fatigue (§10 / JJ p.84): a 6-day strenuous streak forces a rest day ──
@@ -2795,7 +2816,7 @@ const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName,
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName, journeyBaseSpeedMilesPerDay,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.

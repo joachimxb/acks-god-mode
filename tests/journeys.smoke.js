@@ -802,18 +802,18 @@ section('§26 — GM speed override (speedOverrideMilesPerDay)');
   check('baseline grassland/normal = 4 hexes (24 mi/day)', dBase.record.dayRecord.hexesTraveled === 4, String(dBase.record.dayRecord.hexesTraveled));
   check('baseline day record carries no override (null)', dBase.record.dayRecord.speedOverrideMilesPerDay === null);
 
-  // override BYPASSES pace: half-speed alone = 2 hexes; override 36 → 6 hexes
+  // override is a base RATE — PACE STILL MULTIPLIES it (§26 revised): override 36 × half-speed ×0.5 = 18 mi → 3 hexes
   const ovp = lineCampaign(10); ACKS.startJourney(ovp.c, ovp.j);
   ovp.c.journeys[0].pace = 'half-speed'; ovp.c.journeys[0].speedOverrideMilesPerDay = 36;
   const dOvp = ACKS.tickJourneyDay(ovp.c, ovp.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
-  check('override 36 beats half-speed pace → 6 hexes (pace ignored for distance)', dOvp.record.dayRecord.hexesTraveled === 6, String(dOvp.record.dayRecord.hexesTraveled));
+  check('override 36 × half-speed pace = 18 mi → 3 hexes (pace multiplies the override)', dOvp.record.dayRecord.hexesTraveled === 3, String(dOvp.record.dayRecord.hexesTraveled));
   check('day record stamps the override value (36)', dOvp.record.dayRecord.speedOverrideMilesPerDay === 36);
 
-  // override BYPASSES weather: foggy ×½ = 2 hexes at normal; override 24 → 4 hexes
+  // override is a base RATE — WEATHER STILL MULTIPLIES it: override 24 × foggy ×½ = 12 mi → 2 hexes
   const ovw = lineCampaign(10); ACKS.startJourney(ovw.c, ovw.j);
   ovw.c.journeys[0].speedOverrideMilesPerDay = 24;
   const dOvw = ACKS.tickJourneyDay(ovw.c, ovw.c.journeys[0], { rng:PASS, weather:{condition:'foggy',temperature:'moderate'} });
-  check('override 24 ignores foggy ×½ → 4 hexes', dOvw.record.dayRecord.hexesTraveled === 4, String(dOvw.record.dayRecord.hexesTraveled));
+  check('override 24 × foggy ×½ = 12 mi → 2 hexes (weather multiplies the override)', dOvw.record.dayRecord.hexesTraveled === 2, String(dOvw.record.dayRecord.hexesTraveled));
 
   // terrain STILL applies per hex: jungle ×½, override 48 → 4 hexes (grassland 48 would be 8)
   const ovt = lineCampaign(10, () => ({ terrain:'jungle' })); ACKS.startJourney(ovt.c, ovt.j);
@@ -839,6 +839,42 @@ section('§26 — GM speed override (speedOverrideMilesPerDay)');
   cm.journeys = [legacy];
   ACKS.migrateCampaign(cm);
   check('migrateCampaign backfills speedOverrideMilesPerDay = null on legacy journeys', cm.journeys[0].speedOverrideMilesPerDay === null);
+})();
+
+section('Current speed = slowest member (RR pp.83-84)');
+(function(){
+  const PASS = () => 0.95;
+  // unencumbered party → 24 mi/day (= the flat base)
+  const u = lineCampaign(10); ACKS.startJourney(u.c, u.j);
+  check('journeyBaseSpeedMilesPerDay: unencumbered party = 24', ACKS.journeyBaseSpeedMilesPerDay(u.c, u.c.journeys[0]) === 24);
+
+  // one heavily-loaded member (9 st → heavy band → 12 mi/day) slows the whole party
+  const h = lineCampaign(10);
+  h.c.characters[0].inventory = [{ name:'lead bars', encumbranceSt: 9 }];
+  ACKS.startJourney(h.c, h.j);
+  check('heavily-loaded member → base 12 mi/day', ACKS.journeyBaseSpeedMilesPerDay(h.c, h.c.journeys[0]) === 12);
+  const dh = ACKS.tickJourneyDay(h.c, h.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('heavily-loaded party travels 2 hexes/day (12 mi ÷ 6)', dh.record.dayRecord.hexesTraveled === 2, String(dh.record.dayRecord.hexesTraveled));
+
+  // slowest-of-two: a heavy member + an unencumbered one → the party is bounded by the heavy one (12)
+  const s = lineCampaign(10);
+  s.c.characters[0].inventory = [{ name:'lead', encumbranceSt: 9 }];
+  s.c.characters.push(ACKS.blankCharacter({ id:'chr-2', name:'Light' }));
+  s.c.journeys[0].participantCharacterIds = ['chr-1','chr-2'];
+  ACKS.startJourney(s.c, s.j);
+  check('slowest member governs (heavy 12 vs light 24 → 12)', ACKS.journeyBaseSpeedMilesPerDay(s.c, s.c.journeys[0]) === 12);
+
+  // no participant characters → the flat base (24)
+  const n0 = lineCampaign(10); n0.c.journeys[0].participantCharacterIds = [];
+  check('no participants → flat base 24', ACKS.journeyBaseSpeedMilesPerDay(n0.c, n0.c.journeys[0]) === 24);
+
+  // override REPLACES the base but PACE STILL MULTIPLIES: heavy party + override 24 + forced-march ×1.5 = 36 mi → 6 hexes
+  const o = lineCampaign(10);
+  o.c.characters[0].inventory = [{ name:'lead', encumbranceSt: 9 }];
+  ACKS.startJourney(o.c, o.j);
+  o.c.journeys[0].pace = 'forced-march'; o.c.journeys[0].speedOverrideMilesPerDay = 24;
+  const dO = ACKS.tickJourneyDay(o.c, o.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 24 × forced-march ×1.5 = 36 mi → 6 hexes (override is the base; pace multiplies)', dO.record.dayRecord.hexesTraveled === 6, String(dO.record.dayRecord.hexesTraveled));
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

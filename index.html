@@ -3779,14 +3779,39 @@ document.addEventListener('alpine:init', () => {
              override (no value/event); off shows nothing beside the tick. The value is set/edited via the
              standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); committing a value grays Pace. -->
         <div x-show="journeyDetail().status==='in-transit'">
+          <!-- Current speed (RR pp.83–84): the party's base overland rate = its SLOWEST member's encumbrance
+               rate, shown ABOVE Pace/Mode. The §26 GM "Override" sits on this row and REPLACES this base rate
+               (greys it); pace/weather/per-hex terrain still multiply it downstream, so Pace is an independent
+               control below. The tick only ARMS the override (no value/event); the value is set with the
+               standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); unticking disarms AND
+               clears any value. -->
+          <div class="flex flex-wrap gap-x-4 gap-y-1 items-center text-sm mb-2">
+            <span class="opacity-70 text-xs">Current speed</span>
+            <span class="font-mono" :class="journeyHasSpeedOverride(journeyDetail()) ? 'opacity-40' : ''"
+                  title="The party travels at its slowest member's encumbrance rate (RR pp.83–84): 24 / 18 / 12 / 6 mi/day for unencumbered / lightly / heavily / severely loaded. Pace, weather and terrain then modify it."
+                  x-text="journeyCurrentSpeed(journeyDetail()) + ' mi/day' + (journeyCurrentSpeed(journeyDetail())===0 ? ' — a member is overloaded' : '')"></span>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none ml-1" title="Override the party's current speed — set an exact base miles/day for this leg (pace, weather & per-hex terrain still apply on top)">
+              <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
+              <span class="text-xs">Override</span>
+            </label>
+            <!-- ARMED or SET: set/edit the value (✏ to open, ✓/× to commit). Until a value is committed it
+                 reads "— set a value" and nothing is written (the slowest-member rate governs). -->
+            <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
+              <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
+                <template x-if="!editing"><span class="ed-stat"><span class="opacity-40">→</span> <span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : 'font-mono font-semibold text-amber-800'" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              </span>
+            </template>
+            <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
+          </div>
+          <!-- pace + mode — pace is now ALWAYS settable (the override no longer disables it); it multiplies the
+               current speed for the next day ticked and governs fatigue (RR p.279). -->
           <div class="flex flex-wrap gap-4 items-end text-sm">
             <div>
               <label class="opacity-70 block text-xs">Pace</label>
               <select class="text-sm border border-ink rounded px-2 py-0.5"
-                      :disabled="journeyHasSpeedOverride(journeyDetail())"
-                      :class="journeyHasSpeedOverride(journeyDetail()) ? 'opacity-40 cursor-not-allowed bg-gray-100' : ''"
                       @change="setJourneyPace(journeyDetail(), $event.target.value)"
-                      :title="journeyHasSpeedOverride(journeyDetail()) ? 'Speed is overridden — untick Override to use pace again' : 'Change the marching pace — applies to the next day ticked (logged)'">
+                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged)">
                 <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
                 <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
                 <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
@@ -3800,32 +3825,10 @@ document.addEventListener('alpine:init', () => {
                 <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
               </select>
             </div>
-            <!-- §26 GM speed override. The tick only ARMS the override — it commits NO value and emits NO
-                 event; pace still governs until the GM sets a number via the editor (the "null state"). The
-                 value is then set/edited with the standard lock-open-pick-close editor (editableStat) — one
-                 committed edit = one event. Unticking disarms AND clears any value (back to the null state). -->
-            <div>
-              <label class="opacity-70 block text-xs">Speed override</label>
-              <div class="flex items-center gap-2">
-                <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Override the computed speed — set an exact miles/day for this leg (per-hex terrain still applies; pace still drives fatigue)">
-                  <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
-                  <span>Override</span>
-                </label>
-                <!-- ARMED or SET: set/edit the value (✏ to open, ✓/× to commit). Until a value is committed it
-                     reads "— set a value" and nothing is written (pace governs). -->
-                <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
-                  <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
-                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : ''" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
-                    <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
-                  </span>
-                </template>
-                <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
-              </div>
-            </div>
           </div>
-          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">Pace applies to the next day ticked.</span>
-          <span class="text-xs text-amber-800" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, pace still applies.</span>
-          <span class="text-xs text-amber-800" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace is ignored for distance (but still sets fatigue). Terrain still applies per hex.'"></span>
+          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">Current speed = the slowest member's encumbrance rate; pace multiplies it for the next day ticked.</span>
+          <span class="text-xs text-amber-800" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
+          <span class="text-xs text-amber-800" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
         </div>
 
         <!-- actions -->
@@ -9492,6 +9495,13 @@ return {
   // §26 — GM speed override. A positive speedOverrideMilesPerDay sets the day's mile budget directly,
   // bypassing pace/weather/temperature (per-hex terrain still applies, §24); the pace value is kept
   // (grayed in the UI) and still drives fatigue. null/absent ⇒ pace governs.
+  // The party's current overland speed = its slowest member's encumbrance rate (RR pp.83-84), in mi/day —
+  // the base the day-tick multiplies by pace/weather/terrain, and the value the GM override (§26) replaces.
+  // Mirrors the engine's journeyBaseSpeedMilesPerDay so the panel shows exactly what a tick will use.
+  journeyCurrentSpeed(j){
+    if(!j || !window.ACKS || typeof window.ACKS.journeyBaseSpeedMilesPerDay !== 'function') return 0;
+    return window.ACKS.journeyBaseSpeedMilesPerDay(this.currentCampaign, j);
+  },
   journeyHasSpeedOverride(j){
     return !!j && typeof j.speedOverrideMilesPerDay === 'number' && isFinite(j.speedOverrideMilesPerDay) && j.speedOverrideMilesPerDay > 0;
   },
