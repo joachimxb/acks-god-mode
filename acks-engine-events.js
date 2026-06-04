@@ -2155,7 +2155,7 @@ function applyEvent_marketTransaction(campaign, event){
   return { result: {
     domainsChanged: [], hexesChanged: [], charactersChanged: actorId ? [actorId] : [],
     treasuryDelta: 0, narrativeSummary: summary,
-    marketTransaction: { direction: dir, totalGp, lineCount: lines.length, notable }
+    marketTransaction: { direction: dir, totalGp, lineCount: lines.length, notable, activityCost: p.activityCost || null }
   } };
 }
 registerEventHandler('market-transaction', applyEvent_marketTransaction);
@@ -2189,6 +2189,22 @@ function _resolveEquipmentLine(line){
   const stone = (line.stone != null) ? line.stone : (cat ? cat.stone : 0);
   return { name, listPriceGp, stone, source: cat ? 'catalog' : 'generic' };
 }
+// The M&M p.15 load-metered activity cost (the #346 tie — Item Trade plan §2.5, IT-3):
+// buying/selling up to a normal load (the unencumbered ceiling, RR pp.83–84 — 5 st) is ONE
+// ancillary; each further normal-load is another ("the time packing and lugging"). A goods-
+// less deal (a led warhorse, 0 st) is still one ancillary. Stamped on the payload now; the
+// budget READER (characterActivityBudget) unions it in at AB-4, once the entity-less errand
+// store fork is decided (budget plan §14 / OQ1) — until then the cost-tag rides on the event.
+function _marketNormalLoadSt(){
+  const A = _gpwACKS();
+  if(A.carryEncumbranceBandFor){ const b = A.carryEncumbranceBandFor(0); if(b && b.maxSt) return b.maxSt; }
+  return 5;
+}
+function _marketActivityCost(totalStone){
+  const normalLoadSt = _marketNormalLoadSt();
+  const st = Number(totalStone) || 0;
+  return { kind:'market-transaction', slot:'ancillary', units: Math.max(1, Math.ceil(st / normalLoadSt)), totalStone: st, normalLoadSt };
+}
 function marketBuy(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
@@ -2199,7 +2215,7 @@ function marketBuy(campaign, opts){
   const inLines = Array.isArray(opts.lines) ? opts.lines : [];
   if(!inLines.length) return { ok:false, error:'no-lines' };
   const availOpts = { partyOf12Dedicated: !!opts.partyOf12Dedicated, visitedBefore: !!opts.visitedBefore };
-  const lines = []; let totalGp = 0;
+  const lines = []; let totalGp = 0, totalStone = 0;
   for(const raw of inLines){
     const r = _resolveEquipmentLine(raw);
     if(r.listPriceGp == null || !(r.listPriceGp >= 0)) return { ok:false, error:'no-price', detail:{ name: r.name } };
@@ -2212,6 +2228,7 @@ function marketBuy(campaign, opts){
     if(qty > availableUnits) return { ok:false, error:'unavailable', detail:{ name: r.name, availableUnits, requested: qty, band: a.band } };
     const lineTotal = r.listPriceGp * qty;
     totalGp += lineTotal;
+    totalStone += (r.stone || 0) * qty;   // per-unit catalogue weight × qty (the #346 load meter)
     lines.push({ name: r.name, qty, unitPriceGp: r.listPriceGp, totalGp: lineTotal, stone: r.stone, source: r.source });
   }
   // Funds gate (the wealth leg re-checks, but return a clean error here).
@@ -2225,6 +2242,7 @@ function marketBuy(campaign, opts){
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'buy', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
                marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               activityCost: _marketActivityCost(totalStone),
                payFrom: opts.payFrom || 'purse', itemTo: opts.itemTo || 'carry' }
   });
   let out;
@@ -2243,7 +2261,7 @@ function marketSell(campaign, opts){
   const inLines = Array.isArray(opts.lines) ? opts.lines : [];
   if(!inLines.length) return { ok:false, error:'no-lines' };
   const availOpts = { partyOf12Dedicated: !!opts.partyOf12Dedicated, visitedBefore: !!opts.visitedBefore };
-  const lines = []; let totalGp = 0;
+  const lines = []; let totalGp = 0, totalStone = 0;
   for(const raw of inLines){
     const ix = raw.inventoryIndex;
     if(!Number.isInteger(ix) || ix < 0 || ix >= ch.inventory.length) return { ok:false, error:'bad-index', detail:{ inventoryIndex: ix } };
@@ -2257,6 +2275,7 @@ function marketSell(campaign, opts){
     if(qty > availableUnits) return { ok:false, error:'unavailable', detail:{ name: r.name, availableUnits, requested: qty, band: a.band } };
     const lineTotal = r.listPriceGp * qty;
     totalGp += lineTotal;
+    totalStone += (Number(held.stone) || 0) * (qty / (held.qty || 1));   // proportional held-line weight (#346 load meter)
     lines.push({ name: r.name, qty, unitPriceGp: r.listPriceGp, totalGp: lineTotal, inventoryIndex: ix });
   }
   const ev = newEvent('market-transaction', {
@@ -2265,6 +2284,7 @@ function marketSell(campaign, opts){
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'sell', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
                marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               activityCost: _marketActivityCost(totalStone),
                payFrom: opts.payFrom || 'purse', itemFrom: opts.itemFrom || 'carry' }
   });
   let out;

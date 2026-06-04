@@ -244,6 +244,30 @@ section('IT-2 — marketSell: remove a held line, credit the purse (mirror gate)
 }
 
 // =============================================================================
+section('IT-3 — load-metered activity cost stamped on the transaction (M&M p.15 / #346)');
+// =============================================================================
+{
+  // M&M p.15 worked example: normal load 5 st, a sword is 1/6 st → 30 swords = 5 st = ONE ancillary
+  const { c } = fixture();
+  const r30 = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 30 }] });
+  ok('30 swords (5 st) → 1 ancillary', r30.ok && r30.event.payload.activityCost.units === 1 && r30.event.payload.activityCost.slot === 'ancillary', JSON.stringify(r30.ok && r30.event.payload.activityCost));
+}
+{
+  // 35 swords = 5.83 st > one normal load → a SECOND ancillary ("the time packing and lugging")
+  const { c } = fixture();
+  const r35 = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 35 }] });
+  ok('35 swords (5.83 st) → 2 ancillaries (M&M p.15)', r35.ok && r35.event.payload.activityCost.units === 2, JSON.stringify(r35.ok && r35.event.payload.activityCost));
+  ok('the cost is surfaced in the result', r35.result.marketTransaction.activityCost.units === 2);
+}
+{
+  // a led warhorse carries 0 st — still ONE ancillary (you spend the day at the market)
+  const { c } = fixture();
+  const rh = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'horse-heavy-war', qty: 1 }] });
+  ok('a 0-stone led mount is still 1 ancillary', rh.ok && rh.event.payload.activityCost.units === 1 && rh.event.payload.activityCost.totalStone === 0, JSON.stringify(rh.ok && rh.event.payload.activityCost));
+  ok('market-transaction is the load-metered cost-tag ACTIVITY_COSTS knows (IT-1)', ACKS.activityCostFor('market-transaction').loadMetered === true);
+}
+
+// =============================================================================
 section('Notability — off by default (deterministic); no rumor without the rule');
 // =============================================================================
 {
