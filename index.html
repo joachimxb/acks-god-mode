@@ -3027,6 +3027,100 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 
+<!-- Sub-panel: Activities dashboard (#346 AB-3). The day-budget read surface + per-character quick actions. -->
+<div x-show="currentView === 'activities' && activitiesSubView === 'activities'" class="p-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+
+    <!-- Header + legend -->
+    <div class="vellum border border-ink rounded p-3">
+      <div class="flex justify-between items-baseline flex-wrap gap-3 mb-2">
+        <h2 class="font-bold text-xl">📋 Activities</h2>
+        <span class="text-sm opacity-70" x-show="currentCampaign"
+              x-text="dayClockLabel() + ' · ' + activityDashboardBusyCount() + ' of ' + activityDashboardRows().length + ' acting today'"></span>
+      </div>
+      <p class="text-sm opacity-80">
+        Each character gets <strong>1 dedicated</strong> (8-hour) task + <strong>4 ancillary</strong> (~1-hour) errands per day —
+        or up to <strong>12 ancillary</strong> with no dedicated task (JJ pp.99–100, RR p.272). The budget refreshes when you
+        advance the <strong>Day Clock</strong>. Ventures are launched from the Ventures sub-tab (their setup is multi-step).
+      </p>
+    </div>
+
+    <!-- No campaign -->
+    <template x-if="!currentCampaign">
+      <div class="vellum border border-ink rounded p-6 text-center opacity-70">Load or create a campaign to see its characters' day activities.</div>
+    </template>
+
+    <!-- No active characters -->
+    <template x-if="currentCampaign && activityDashboardRows().length === 0">
+      <div class="vellum border border-ink rounded p-6 text-center opacity-70">No active characters yet. Add characters from the <button @click="currentView='characters'; charactersSubView='roster'" class="underline">Roster</button>.</div>
+    </template>
+
+    <!-- Dashboard table -->
+    <template x-if="currentCampaign && activityDashboardRows().length > 0">
+      <div class="vellum border border-ink rounded p-3 overflow-x-auto">
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr>
+            <th style="text-align:left">Character</th>
+            <th style="text-align:left">Location</th>
+            <th style="text-align:left" title="This game day's budget: 1 dedicated + 4 ancillary, or up to 12 ancillary with no dedicated task.">Available today</th>
+            <th style="text-align:left">Done today</th>
+            <th style="text-align:right">Actions</th>
+          </tr></thead>
+          <tbody>
+            <template x-for="r in activityDashboardRows()" :key="r.c.id">
+              <tr>
+                <!-- Character -->
+                <td style="text-align:left">
+                  <button @click="openCharacterEditor(r.c)" class="font-semibold underline" x-text="r.c.name || '(unnamed)'"></button>
+                  <div class="text-xs opacity-70" x-text="(ACKS.isPlayerControlled(r.c) ? 'PC' : 'NPC') + ' · ' + (r.c.class || '—') + ' L' + (r.c.level || 1) + ' · ' + ACKS.displayKind(r.c)"></div>
+                </td>
+                <!-- Location -->
+                <td class="text-sm" style="text-align:left" :class="r.c.currentHexId ? '' : 'opacity-50 italic'" x-text="characterLocationLabel(r.c)"></td>
+                <!-- Available today: dedicated pip + ancillary count, free/over/fatigue flags -->
+                <td class="text-sm" style="text-align:left">
+                  <div class="flex items-center gap-2 whitespace-nowrap">
+                    <span :title="'Dedicated (8-hour) task — ' + r.budget.dedicatedUsed + ' of 1 used'"><span x-text="r.budget.dedicatedUsed >= 1 ? '●' : '○'"></span> ded</span>
+                    <span class="opacity-40">·</span>
+                    <span title="Ancillary (~1-hour) errands"><span class="font-mono" x-text="r.budget.ancillaryUsed + '/' + r.ancCap"></span> anc</span>
+                  </div>
+                  <div class="text-xs mt-0.5">
+                    <span x-show="!r.budget.overBudget && (r.dedLeft + r.ancLeft) > 0" class="accent-green" x-text="r.dedLeft + ' ded + ' + r.ancLeft + ' anc free'"></span>
+                    <span x-show="!r.budget.overBudget && (r.dedLeft + r.ancLeft) === 0" class="opacity-60">day full</span>
+                    <span x-show="r.budget.overBudget" class="accent-red font-semibold" :title="r.budget.overReason || ''">⚠ over budget</span>
+                  </div>
+                  <div x-show="r.budget.fatigued" class="text-xs accent-red" :title="r.budget.strenuousDays + ' strenuous days — RR p.279 six-day cycle'">😴 needs rest</div>
+                </td>
+                <!-- Done today: budget-consuming activities as chips -->
+                <td class="text-sm" style="text-align:left">
+                  <template x-for="(a, i) in r.done" :key="(a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs mr-1 mb-1"
+                          :class="a.cost === 'ancillary' ? 'border border-ink' : (a.cost === 'incidental' ? 'opacity-60 border border-ink/40' : '')"
+                          :style="a.cost === 'dedicated' ? 'background:#2a1f12;color:#f4ecd8' : ''"
+                          :title="a.cost + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                  <span x-show="r.done.length === 0" class="opacity-40 italic">nothing yet today</span>
+                </td>
+                <!-- Actions: the typical campaign activities (Ventures excluded — its own sub-tab) -->
+                <td class="text-right whitespace-nowrap">
+                  <button @click="openTrade({ actorCharacterId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
+                          :title="characterAtSettlement(r.c) ? ('Buy or sell at ' + (characterAtSettlement(r.c).name || 'the local market')) : 'Buy or sell at a market (pick the settlement in the wizard)'">🛒 Market</button>
+                  <button @click="recruitDeepLink({ patronId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
+                          title="Recruit hirelings, henchmen or specialists with this character as patron">⚔ Recruit</button>
+                  <button @click="startJourneyForCharacter(r.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100"
+                          :title="characterPartyOf(r.c) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 Travel</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+  </div>
+</div>
+
 <!-- Sub-panel: Ventures (existing content). Renders when Activities is the current view AND ventures sub-tab is selected. -->
 <div x-show="currentView === 'activities' && activitiesSubView === 'ventures'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
@@ -9015,11 +9109,13 @@ return {
   // single source of membership truth.
   newPartyPickerOpen:false,
   newPartyFounderId:'',
-  // Activities top panel (Phase 2.5 prep, #477) — Journeys first (the active day-aware subsystem),
-  // then Ventures + placeholders for Hijinks / Spell Research. Landing sub-view matches the first tab.
-  activitiesSubView: 'journeys',
+  // Activities top panel (Phase 2.5 prep, #477) — the Activities dashboard (#346 AB-3) leads,
+  // then Travel (Journeys) + Ventures + placeholders for Hijinks / Spell Research. Landing
+  // sub-view matches the first tab.
+  activitiesSubView: 'activities',
   get activitiesSubTabs(){
     return [
+      { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
@@ -9361,6 +9457,36 @@ return {
     if(!h) return hexId;
     return window.ACKS.hexName(h) || hexId;   // canonical hex name (Architecture §11.3)
   },
+
+  // ─── Activities dashboard (#346 AB-3) — the visible read surface for the day budget ─────
+  // The first Activities sub-tab: one row per active character with this game DAY's activity
+  // budget (RAW 1 dedicated + 4 ancillary, OR up to 12 ancillary — JJ pp.99–100 / RR p.272)
+  // and the typical campaign-activity actions (Market / Recruit / Travel) per character.
+  // Reads characterActivityBudget (the derived middle layer of the actor-time stack,
+  // Architecture §7 / §3.13 — derive-don't-store). Reactive on currentDayInMonth/currentTurn/
+  // eventLog/journeys/magistracies, so it refreshes when the Day Clock advances. Ventures are
+  // intentionally NOT a quick-action here (complex multi-step understructure — its own sub-tab).
+  activityDashboardRows(){
+    const camp = this.currentCampaign;
+    if(!camp || !Array.isArray(camp.characters)) return [];
+    const A = window.ACKS || {};
+    const isActive = A.isActive || (c => (c && (c.lifecycleState || 'active') === 'active' && c.alive !== false));
+    const rows = camp.characters.filter(c => c && isActive(c)).map(c => {
+      const budget = A.characterActivityBudget ? A.characterActivityBudget(camp, c.id) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
+      const dedCap = 1;
+      const ancCap = budget.dedicatedUsed >= 1 ? 4 : 12;   // RAW: a dedicated task caps ancillary at 4; an all-errand day allows 12
+      const dedLeft = Math.max(0, dedCap - budget.dedicatedUsed);
+      const ancLeft = Math.max(0, ancCap - budget.ancillaryUsed);
+      const done = [].concat(budget.dedicated || [], budget.ancillary || [], budget.incidental || []);
+      return { c, budget, dedCap, ancCap, dedLeft, ancLeft, done };
+    });
+    // Players first, then alphabetical — the GM's own actors lead the list.
+    const isPC = A.isPlayerControlled || (c => c && c.controlledBy === 'player');
+    rows.sort((a, b) => (isPC(a.c) ? 0 : 1) - (isPC(b.c) ? 0 : 1) || (a.c.name || '').localeCompare(b.c.name || ''));
+    return rows;
+  },
+  // Count of active characters who have consumed any budget this game day (the tab badge).
+  activityDashboardBusyCount(){ return this.activityDashboardRows().filter(r => r.done.length > 0).length; },
 
   // ─── Phase 2.5 Journeys (#475 — J2) UI methods ─────────────────────────────
   // Lists. 'planning' journeys (Inspector Admin-verb create) show in Active with a
