@@ -88,7 +88,9 @@ document.addEventListener('alpine:init', () => {
         label: this.cfg.label,
         oldValue: this.orig,
         newValue: val,
-        reason: this.cfg.reason
+        reason: this.cfg.reason,
+        // operational edits (e.g. journey speed override) audit to the Event Log but skip the Campaign Log
+        suppressFromCampaignLog: this.cfg.suppressFromCampaignLog
       });
       this.editing = false;
     },
@@ -3621,7 +3623,7 @@ document.addEventListener('alpine:init', () => {
             </div>
             <div>
               <label class="opacity-70 block text-xs">Name (optional)</label>
-              <input x-model="journeyWizard.name" placeholder="auto from route" class="border border-ink rounded px-2 py-0.5">
+              <input x-model="journeyWizard.name" placeholder="auto from travellers" class="border border-ink rounded px-2 py-0.5">
             </div>
           </div>
           <div class="mt-2">
@@ -3640,6 +3642,11 @@ document.addEventListener('alpine:init', () => {
               <button type="button" @click="journeyPickWaypointsOnMap()" class="text-xs underline opacity-80 hover:opacity-100" title="Pick waypoints by clicking hexes on the map in order — the route draws live as you go">🗺 choose waypoints from map</button>
               <button type="button" x-show="journeyWizard.waypointIds.length" @click="journeyWizard.waypointIds = []" class="text-xs underline opacity-60 hover:opacity-100">clear</button>
             </div>
+          </div>
+          <!-- Travel pivot (2026-06-04): distance preview while planning (runs the real route engine). -->
+          <div class="mt-2 text-sm" x-show="journeyWizard.startHexId && journeyWizard.destinationHexId">
+            <span class="opacity-60">Distance:</span>
+            <span x-text="(() => { const m = journeyWizardMiles(); return m ? (m.totalMiles.toLocaleString() + ' mi · ' + m.totalHexes + ' hex' + (m.totalHexes===1?'':'es') + ' · ≈ ' + Math.max(1, Math.ceil(m.totalHexes/4)) + ' day' + (Math.ceil(m.totalHexes/4)===1?'':'s') + ' at Normal pace') : '—'; })()"></span>
           </div>
         </div>
 
@@ -3677,7 +3684,11 @@ document.addEventListener('alpine:init', () => {
           <div>
             <h2 class="font-bold text-xl"><span x-text="journeyModeIcon(journeyDetail())"></span> <span x-text="journeyDetail().name || 'Journey'"></span></h2>
             <p class="text-sm opacity-70">
-              <span x-text="journeyHexLabel(journeyDetail().startHexId)"></span> →
+              <!-- Travel pivot (2026-06-04): the live summary reads CURRENT location → destination
+                   (not the origin the trip began at — that's the journey's fixed name + the Route line).
+                   journeyCurrentLabel reads the party's TRUE position (incl. an unauthored strayed/mid-leg
+                   hex), which currentHexId can't hold — so a lost or sparse-route party reads correctly. -->
+              <span x-text="journeyCurrentLabel(journeyDetail())"></span> →
               <span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
               · <span x-text="journeyDayLabel(journeyDetail())"></span>
               · <span class="capitalize" x-text="journeyDetail().pace"></span>
@@ -3713,6 +3724,7 @@ document.addEventListener('alpine:init', () => {
               <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                 <th class="font-normal py-0.5 pr-4">Traveller</th>
                 <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                 <th class="font-normal py-0.5">Conditions</th>
               </tr>
             </thead>
@@ -3720,21 +3732,24 @@ document.addEventListener('alpine:init', () => {
               <template x-for="ch in journeyParticipants(journeyDetail())" :key="'jm-'+ch.id">
                 <tr class="border-b border-dashed border-gray-200 align-top">
                   <td class="py-1 pr-4">
-                    <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                    <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80 whitespace-nowrap" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
                     <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1)"></span>
                   </td>
                   <td class="py-1 pr-4">
                     <template x-if="partyMemberMercSummary(ch).length">
                       <span class="text-xs">
-                        <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
+                        <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3 whitespace-nowrap">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
                       </span>
                     </template>
                     <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
                   </td>
+                  <td class="py-1 pr-4" x-show="encumbranceShown()">
+                    <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="(Math.round(carryInfo(ch).totalSt*10)/10)+' st · '+carryInfo(ch).band.label"></span>
+                  </td>
                   <td class="py-1">
                     <template x-if="characterJourneyConditions(ch).length">
-                      <span class="flex flex-wrap gap-1">
-                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                      <span class="flex flex-nowrap gap-1">
+                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
                       </span>
                     </template>
                     <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
@@ -3760,12 +3775,43 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
-             side by side (the old Start-wizard "Pace & mode" layout). -->
+             side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
+             override (no value/event); off shows nothing beside the tick. The value is set/edited via the
+             standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); committing a value grays Pace. -->
         <div x-show="journeyDetail().status==='in-transit'">
+          <!-- Current speed (RR pp.83–84): the party's base overland rate = its SLOWEST member's encumbrance
+               rate, shown ABOVE Pace/Mode. The §26 GM "Override" sits on this row and REPLACES this base rate
+               (greys it); pace/weather/per-hex terrain still multiply it downstream, so Pace is an independent
+               control below. The tick only ARMS the override (no value/event); the value is set with the
+               standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); unticking disarms AND
+               clears any value. -->
+          <div class="flex flex-wrap gap-x-4 gap-y-1 items-center text-sm mb-2">
+            <span class="opacity-70 text-xs">Current speed</span>
+            <span class="font-mono" :class="journeyHasSpeedOverride(journeyDetail()) ? 'opacity-40' : ''"
+                  title="The party travels at its slowest member's encumbrance rate (RR pp.83–84): 24 / 18 / 12 / 6 mi/day for unencumbered / lightly / heavily / severely loaded. Pace, weather and terrain then modify it."
+                  x-text="journeyCurrentSpeed(journeyDetail()) + ' mi/day' + (journeyCurrentSpeed(journeyDetail())===0 ? ' — a member is overloaded' : '')"></span>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none ml-1" title="Override the party's current speed — set an exact base miles/day for this leg (pace, weather & per-hex terrain still apply on top)">
+              <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
+              <span class="text-xs">Override</span>
+            </label>
+            <!-- ARMED or SET: set/edit the value (✏ to open, ✓/× to commit). Until a value is committed it
+                 reads "— set a value" and nothing is written (the slowest-member rate governs). -->
+            <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
+              <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
+                <template x-if="!editing"><span class="ed-stat"><span class="opacity-40">→</span> <span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : 'font-mono font-semibold text-amber-800'" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              </span>
+            </template>
+            <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
+          </div>
+          <!-- pace + mode — pace is now ALWAYS settable (the override no longer disables it); it multiplies the
+               current speed for the next day ticked and governs fatigue (RR p.279). -->
           <div class="flex flex-wrap gap-4 items-end text-sm">
             <div>
               <label class="opacity-70 block text-xs">Pace</label>
-              <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyPace(journeyDetail(), $event.target.value)" title="Change the marching pace — applies to the next day ticked (logged)">
+              <select class="text-sm border border-ink rounded px-2 py-0.5"
+                      @change="setJourneyPace(journeyDetail(), $event.target.value)"
+                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged)">
                 <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
                 <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
                 <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
@@ -3780,15 +3826,17 @@ document.addEventListener('alpine:init', () => {
               </select>
             </div>
           </div>
-          <span class="text-xs opacity-50">Pace applies to the next day ticked.</span>
+          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">Current speed = the slowest member's encumbrance rate; pace multiplies it for the next day ticked.</span>
+          <span class="text-xs text-amber-800" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
+          <span class="text-xs text-amber-800" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
         </div>
 
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
           <button @click="journeyTickDay()" class="px-4 py-1.5 border-2 border-ink rounded bg-sky-300 hover:bg-sky-400 font-bold text-base" title="Advance one day through the shared day-tick pipeline (review + commit in the Day-tick panel, top-right)" x-show="journeyDetail().status==='in-transit'">🕑 Tick day</button>
           <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base bg-green-200 text-green-900 border-2 border-green-700">✓ Arrived</span>
-          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base bg-red-100 text-red-800 border-2 border-red-500">✖ Aborted</span>
-          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)">✖ Abort</button>
+          <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base bg-red-100 text-red-800 border-2 border-red-500">🛑 Stopped</span>
+          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop moving and stay where they are (the trip doesn't resume on its own)">🛑 Stop Moving</button>
           <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Tick routes through the Day Clock's propose → review → commit (top-right) — the same pipeline construction and every day consumer share.</span>
           <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins advancing once in-transit (start it via the day-tick once linked), or abort to discard.</span>
         </div>
@@ -3804,6 +3852,7 @@ document.addEventListener('alpine:init', () => {
                 <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
                 <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
                 <span class="capitalize" x-text="d.pace"></span>
+                <span x-show="d.speedOverrideMilesPerDay > 0" class="text-amber-800 font-mono" x-text="'⚡' + d.speedOverrideMilesPerDay + ' mi/day'" title="GM speed override was in effect this day"></span>
                 <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
                 <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
                 <!-- GM reroll — only the latest day (downstream days depend on it). -->
@@ -3827,7 +3876,7 @@ document.addEventListener('alpine:init', () => {
         <div class="flex items-baseline justify-between flex-wrap gap-2">
           <div>
             <h2 class="font-bold text-xl">⛺ Journeys</h2>
-            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. Drive them with the Day Clock (top-right).</p>
+            <p class="text-sm opacity-70">Per-day overland travel — movement, navigation, supplies, fatigue (RR p.279 / JJ p.99), encounters. An in-transit trip is a <em>journey</em>; drive them with the Day Clock (top-right).</p>
           </div>
           <button @click="startJourneyDeepLink({})" class="px-3 py-1 border border-ink rounded bg-yellow-300 hover:bg-yellow-400 font-semibold text-sm">🧭 Start a journey</button>
         </div>
@@ -3853,10 +3902,10 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
 
-        <!-- Completed / aborted (collapsed) -->
+        <!-- Completed / stopped (collapsed) -->
         <div class="vellum border border-ink rounded">
           <button @click="journeyShowCompleted = !journeyShowCompleted" class="w-full text-left px-3 py-2 border-b border-ink font-semibold text-sm flex items-center justify-between">
-            <span>Completed &amp; aborted <span class="opacity-60" x-text="'· ' + completedJourneys().length"></span></span>
+            <span>Arrived &amp; stopped <span class="opacity-60" x-text="'· ' + completedJourneys().length"></span></span>
             <span x-text="journeyShowCompleted ? '▾' : '▸'"></span>
           </button>
           <template x-if="journeyShowCompleted">
@@ -4582,37 +4631,60 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="partyMembers(pt).length === 0">
                   <p class="text-sm italic opacity-60">No members. Add characters below.</p>
                 </template>
-                <ul class="text-sm space-y-1" x-show="partyMembers(pt).length > 0">
-                  <template x-for="ch in partyMembers(pt)" :key="ch.id">
-                    <li class="py-1 border-b border-dashed border-gray-200 last:border-0">
-                      <div class="flex justify-between items-center">
-                        <span>
-                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★ </span>
-                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name"></button>
-                          <span class="text-sm opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
-                        </span>
-                        <span class="flex items-center gap-3 shrink-0">
-                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-sm underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
-                          <button @click="removeCharacterFromParty(ch)" class="text-sm underline opacity-70 hover:opacity-100">remove</button>
-                        </span>
-                      </div>
-                      <!-- Mercenaries (character.mercenaryCompany.units, RR p.166) travel with this
-                           character into the party — listed as numbers per type. -->
-                      <template x-if="partyMemberMercSummary(ch).length">
-                        <table class="text-xs ml-5 mt-0.5 opacity-80">
-                          <tbody>
-                            <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id + '-' + m.label">
-                              <tr>
-                                <td class="pr-4 py-0">⚔ <span x-text="m.label"></span></td>
-                                <td class="font-mono py-0" x-text="'× ' + m.count.toLocaleString()"></td>
-                              </tr>
-                            </template>
-                          </tbody>
-                        </table>
-                      </template>
-                    </li>
-                  </template>
-                </ul>
+                <!-- Members table — same shape + contents as the Journey Detail members table
+                     (Member · Mercenaries · Encumbrance · Conditions); the leader ★ + role sit in the
+                     Member cell, and a trailing actions cell carries the party-management buttons
+                     (make-leader / remove). Mercenaries inline, encumbrance gated on encumbranceShown(). -->
+                <table class="text-sm w-full max-w-3xl" x-show="partyMembers(pt).length > 0">
+                  <thead>
+                    <tr class="text-left text-xs opacity-60 border-b border-ink/30">
+                      <th class="font-normal py-0.5 pr-4">Member</th>
+                      <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
+                      <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
+                      <th class="font-normal py-0.5 pr-4">Conditions</th>
+                      <th class="font-normal py-0.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="ch in partyMembers(pt)" :key="ch.id">
+                      <tr class="border-b border-dashed border-gray-200 align-top">
+                        <td class="py-1 pr-4">
+                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80 whitespace-nowrap" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                          <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
+                        </td>
+                        <td class="py-1 pr-4 text-center">
+                          <!-- Leader column: ★ marks the party founder/leader; em-dash otherwise -->
+                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★</span>
+                          <span class="text-xs opacity-40" x-show="pt.leaderCharacterId !== ch.id">—</span>
+                        </td>
+                        <td class="py-1 pr-4">
+                          <template x-if="partyMemberMercSummary(ch).length">
+                            <span class="text-xs">
+                              <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3 whitespace-nowrap">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
+                            </span>
+                          </template>
+                          <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="encumbranceShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="(Math.round(carryInfo(ch).totalSt*10)/10)+' st · '+carryInfo(ch).band.label"></span>
+                        </td>
+                        <td class="py-1 pr-4">
+                          <template x-if="characterJourneyConditions(ch).length">
+                            <span class="flex flex-nowrap gap-1">
+                              <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                            </span>
+                          </template>
+                          <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
+                        </td>
+                        <td class="py-1 whitespace-nowrap text-right">
+                          <button x-show="pt.leaderCharacterId !== ch.id" @click="makePartyLeader(pt, ch)" class="text-xs underline opacity-70 hover:opacity-100" title="Hand party leadership to this member (logged)">make leader</button>
+                          <button @click="removeCharacterFromParty(ch)" class="text-xs underline opacity-70 hover:opacity-100 ml-2">remove</button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
                 <!-- Total party headcount = characters + the mercenaries that travel with them. -->
                 <div class="text-sm mt-1 pt-1 border-t border-ink/30" x-show="partyMembers(pt).length > 0">
                   <span class="font-semibold">Total party: <span x-text="partyTotalHeadcount(pt).toLocaleString()"></span></span>
@@ -6130,6 +6202,38 @@ document.addEventListener('alpine:init', () => {
               </div>
             </label>
           </div>
+        </div>
+
+        <!-- TRAVEL — derived per-person travel log (ACKS.characterHistory): every journey-* event that
+             tags this character (set out / each travel day / arrived / stopped / re-routed). Routine days
+             that stay out of the narrative Campaign Log still appear here — this is where the GM reviews
+             where someone has been. The trip itself lives under Activities → Travel. -->
+        <div class="vellum border border-ink p-3 rounded">
+          <div class="flex justify-between items-baseline mb-2">
+            <h4 class="font-semibold">⛺ Travel</h4>
+            <span class="text-sm opacity-70" x-text="characterTravelHistory(characterEditing).length + ' ' + (characterTravelHistory(characterEditing).length === 1 ? 'day/event' : 'days/events')"></span>
+          </div>
+          <template x-if="characterTravelHistory(characterEditing).length === 0">
+            <p class="text-sm italic opacity-60">No travel yet. When this character sets out on a journey (Activities → Travel) and you advance the Day Clock, every travel day — where they went, getting lost, fording rivers, running low on supplies, and arriving — is recorded here.</p>
+          </template>
+          <template x-if="characterTravelHistory(characterEditing).length > 0">
+            <div class="text-sm max-h-96 overflow-y-auto pr-1">
+              <template x-for="(t,ti) in characterTravelHistory(characterEditing)" :key="ti">
+                <div class="border-l-2 pl-2 py-1 mb-1" :style="
+                  t.arrived                   ? 'border-color:#2f5a2f; background:#e8f3df' :
+                  t.lost                      ? 'border-color:#7a5a1f; background:#f3ecd9' :
+                  t.kind==='journey-aborted'  ? 'border-color:#7a1f1f' :
+                  t.kind==='journey-start'    ? 'border-color:#4a5a8a' :
+                  t.kind==='journey-rerouted' ? 'border-color:#4a5a8a' :
+                  'border-color:#888'">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="t.icon"></span> <span x-text="t.summary"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="t.date"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -7736,6 +7840,7 @@ return {
       if(this.activeTab && !this.tabs.includes(this.activeTab))this.activeTab='overview';
     },{deep:true});
     this.$watch('domains',()=>{ this.markDirty(); this.schedulePersist(); },{deep:true});
+    this.$watch('journeyDetailId',()=>{ this.journeyOverrideArmed = false; }); // §26 — armed state is per-open-journey; clear on any switch
     this.$watch('selectedDomainId',()=>this.schedulePersist()); // selecting a domain isn't a content change
     // #225 Map Mode — persist the active fill layer; lazily fit the viewport when the Map sub-view opens.
     this.$watch('mapFillLayer',()=>this.schedulePersist());
@@ -8766,7 +8871,7 @@ return {
   activitiesSubView: 'journeys',
   get activitiesSubTabs(){
     return [
-      { id:'journeys',       label:'⛺ Journeys',      ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
+      { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
@@ -8785,6 +8890,9 @@ return {
   // opens the Detail panel; journeyWizard.open shows the wizard; neither ⇒ the lists.
   journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null },
   journeyDetailId: null,
+  // §26 — transient: the GM ticked "Override" but hasn't set a value yet (armed, null state — no event).
+  // Reset whenever the open journey changes; a journey with a committed value reads as overridden on its own.
+  journeyOverrideArmed: false,
   journeyShowCompleted: false,
   // #447 — Faceted Roster filter. Four parallel axes intersect with AND.
   // Default lifecycleState:'active' hides deceased/retired by default
@@ -9092,6 +9200,25 @@ return {
     if(step.hexId){ const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===step.hexId); if(h) return window.ACKS.hexName(h) || window.ACKS.hexDisplayLabel(step.q||0, step.r||0); }
     return window.ACKS.hexDisplayLabel(step.q||0, step.r||0);
   },
+  // The party's TRUE current position step (Travel pivot) — the last hex actually entered, including an
+  // UNAUTHORED coord (a strayed-while-lost hex, or a mid-leg hex on a sparse route) that `currentHexId`
+  // can't hold (it can only point at a real authored hex, so it holds at the last authored one — often
+  // the origin). Reads the most recent day's last hexPath entry (what the day log marks "📍 here now");
+  // null before any day is ticked. The detail header + planning preview show this as "you are here".
+  journeyCurrentStep(j){
+    const days = (j && j.days) || [];
+    for(let i = days.length - 1; i >= 0; i--){
+      const p = days[i] && days[i].hexPath;
+      if(Array.isArray(p) && p.length) return p[p.length - 1];
+    }
+    return null;
+  },
+  journeyCurrentLabel(j){
+    if(!j) return '';
+    const step = this.journeyCurrentStep(j);
+    if(step) return this.journeyStepLabel(step);
+    return this.journeyHexLabel(j.currentHexId || j.startHexId);
+  },
   // The hexes entered on a given day, for the day-log "via …" line. New day records store `hexPath`
   // directly; OLDER ones (ticked before hexPath shipped, or already-saved journeys) are reconstructed
   // from the live route + the hexes covered on prior days — so every journey shows its path.
@@ -9173,7 +9300,17 @@ return {
     const total=nav.rolled+bonuses.reduce((s,b)=>s+(b.value||0),0);
     const recovered=nav.result==='success-recovered';
     const ok=nav.result==='success'||recovered||nav.result==='auto-pass-magical';
-    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+(recovered?'recovered ✓':(ok?'success ✓':'lost ✗'));
+    let outcome;
+    if(recovered) outcome='recovered ✓';
+    else if(ok) outcome='success ✓';
+    else {
+      // §27 (RR p.275): a lost party strays toward a random hex face and doesn't realize it. Surface the
+      // stray direction for the GM (the players' characters stay unaware in the fiction).
+      const labels = window.ACKS && window.ACKS.HEX_FACE_LABELS;
+      const face = (typeof nav.strayHeading==='number' && labels) ? labels[nav.strayHeading] : null;
+      outcome='lost ✗'+(face?(' — strays '+face+', unaware'):'')+(nav.naturalOne?' (natural 1)':'');
+    }
+    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+outcome;
   },
   journeyNavOk(nav){ return !!(nav && (nav.result==='success'||nav.result==='success-recovered'||nav.result==='auto-pass-magical')); },
   // Total + remaining distance in miles (computeJourneyDistance returns 6-mile hexes).
@@ -9184,6 +9321,22 @@ return {
       const mph = window.ACKS.JOURNEY_MILES_PER_HEX || 6;
       return { totalHexes: dist.total||0, coveredHexes: dist.covered||0, remainingHexes: dist.remaining||0,
                totalMiles: (dist.total||0)*mph, coveredMiles: (dist.covered||0)*mph, remainingMiles: (dist.remaining||0)*mph };
+    } catch(e){ return null; }
+  },
+  // Distance preview for the Start-a-Journey planner (Travel pivot) — builds a transient journey from the
+  // wizard's start/destination/waypoints and runs the real route+distance engine, so the GM sees the trip
+  // length (and a rough day estimate) WHILE planning, before the journey is started. Null until both ends set.
+  journeyWizardMiles(){
+    const w = this.journeyWizard;
+    if(!w || !w.startHexId || !w.destinationHexId) return null;
+    const tj = { startHexId: w.startHexId, destinationHexId: w.destinationHexId,
+      waypoints: (w.waypointIds||[]).map(id => ({ hexId: id })),
+      currentDayIndex: 0, days: [], routeAnchorHexId: null, routeAnchorCoord: null, coveredBaseline: 0 };
+    try {
+      const dist = this._journeyWithDomains(() => window.ACKS.computeJourneyDistance(this.currentCampaign, tj));
+      const mph = window.ACKS.JOURNEY_MILES_PER_HEX || 6;
+      const hexes = dist.total || 0;
+      return { totalHexes: hexes, totalMiles: hexes * mph };
     } catch(e){ return null; }
   },
   // GM reroll of the latest day — only available when the day carries a pre-state snapshot AND
@@ -9301,7 +9454,7 @@ return {
     const w = this.journeyWizard;
     if(!Array.isArray(this.currentCampaign.journeys)) this.currentCampaign.journeys = [];
     const j = window.ACKS.blankJourney({
-      name: (w.name||'').trim() || (this._journeyHexLabel(w.startHexId) + ' → ' + this._journeyHexLabel(w.destinationHexId)),
+      name: (w.name||'').trim() || window.ACKS.journeyDefaultName(this.currentCampaign, { partyId: w.partyId || null, participantCharacterIds: w.participantIds }) || (this._journeyHexLabel(w.startHexId) + ' → ' + this._journeyHexLabel(w.destinationHexId)),
       participantCharacterIds: w.participantIds.slice(),
       partyId: w.partyId || null,
       startHexId: w.startHexId,
@@ -9320,8 +9473,8 @@ return {
     this.showToast('Journey started: ' + (j.name||'(unnamed)'));
   },
   // ── Detail ──
-  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
-  journeyCloseDetail(){ this.journeyDetailId = null; },
+  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
+  journeyCloseDetail(){ this.journeyDetailId = null; this.journeyOverrideArmed = false; },
   // Tick Day MUST route through the GLOBAL day-tick pipeline (shared with construction +
   // every future day consumer) — NOT a journey-private tick; forking would desync them.
   // This is just a convenience entry to the same propose → review → commit the Day Clock drives.
@@ -9330,21 +9483,57 @@ return {
   // fresh on each day-tick, so the next day ticked uses the new pace (per-day pace stays in the log).
   setJourneyPace(j, pace){
     if(!j || !pace || j.pace === pace) return;
-    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace });
+    // suppressFromCampaignLog: an operational knob-turn, not a campaign moment — audited in the Event Log only.
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
   },
   setJourneyMode(j, mode){
     if(!j || !mode || j.mode === mode) return;
-    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode, newValue:mode });
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode, newValue:mode, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
+  },
+  // §26 — GM speed override. A positive speedOverrideMilesPerDay sets the day's mile budget directly,
+  // bypassing pace/weather/temperature (per-hex terrain still applies, §24); the pace value is kept
+  // (grayed in the UI) and still drives fatigue. null/absent ⇒ pace governs.
+  // The party's current overland speed = its slowest member's encumbrance rate (RR pp.83-84), in mi/day —
+  // the base the day-tick multiplies by pace/weather/terrain, and the value the GM override (§26) replaces.
+  // Mirrors the engine's journeyBaseSpeedMilesPerDay so the panel shows exactly what a tick will use.
+  journeyCurrentSpeed(j){
+    if(!j || !window.ACKS || typeof window.ACKS.journeyBaseSpeedMilesPerDay !== 'function') return 0;
+    return window.ACKS.journeyBaseSpeedMilesPerDay(this.currentCampaign, j);
+  },
+  journeyHasSpeedOverride(j){
+    return !!j && typeof j.speedOverrideMilesPerDay === 'number' && isFinite(j.speedOverrideMilesPerDay) && j.speedOverrideMilesPerDay > 0;
+  },
+  // Set (miles>0) or clear (null/0) the override — logged via gm-fiat, like setJourneyPace.
+  setJourneySpeedOverride(j, miles){
+    if(!j) return;
+    const v = (typeof miles === 'number' && isFinite(miles) && miles > 0) ? Math.round(miles) : null;
+    const cur = this.journeyHasSpeedOverride(j) ? j.speedOverrideMilesPerDay : null;
+    if(cur === v) return;
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', oldValue:cur, newValue:v, suppressFromCampaignLog:true });
+    this.markDirty(); this.schedulePersist();
+  },
+  // The "Override" tick only ARMS the override (the transient journeyOverrideArmed flag) — it commits
+  // NO value and emits NO event, so ticking leaves the journey in the null/pace state until the GM
+  // actually picks a number via the editor. Unticking disarms AND clears any committed value (one event
+  // iff a value was set), returning to the null state.
+  toggleJourneySpeedOverride(j, checked){
+    if(!j) return;
+    if(checked){
+      this.journeyOverrideArmed = true;
+    } else {
+      this.journeyOverrideArmed = false;
+      if(this.journeyHasSpeedOverride(j)) this.setJourneySpeedOverride(j, null);
+    }
   },
   abortJourneyUI(j){
     if(!j) return;
-    const reason = window.prompt('Abort "' + (j.name||'journey') + '"? Optional reason (Cancel keeps it going):', '');
+    const reason = window.prompt('Stop moving on "' + (j.name||'journey') + '"? The travellers halt where they are (the trip won\'t resume on its own). Optional reason (Cancel keeps them traveling):', '');
     if(reason === null) return;
     window.ACKS.abortJourney(this.currentCampaign, j, (reason||'').trim() || null);
     this.markDirty(); this.schedulePersist();
-    this.showToast('Journey aborted.');
+    this.showToast('Travellers stopped moving.');
   },
   // ── Hex card ──
   journeysThroughHex(hexId){
@@ -9513,6 +9702,54 @@ return {
     return 'Year ' + year + ', ' + monthName;
   },
 
+  // ── Per-person Travel log (2026-06-04) ───────────────────────────────────────────────
+  // Derived view over the eventLog via ACKS.characterHistory: every journey-* event that names
+  // THIS character in its context envelope — set out, each travel day (where they went, lost /
+  // forded / low on supplies), arrival, stopping, re-routing. Newest-first, mirroring the
+  // Personal-history box. Routine days (campaignLogHidden — kept out of the narrative Campaign
+  // Log) still surface here; this is the GM's "where has this person been" view. The accessor
+  // ONLY returns character-tagged events, but we still filter to journey-* so the box stays
+  // travel-only as future subsystems begin tagging characters in their own events.
+  characterTravelHistory(c){
+    if(!c || !c.id || !this.currentCampaign) return [];
+    const TRAVEL = { 'journey-start':1, 'journey-day-tick':1, 'journey-arrived':1, 'journey-aborted':1, 'journey-rerouted':1 };
+    let evs;
+    try { evs = window.ACKS.characterHistory(this.currentCampaign, c.id) || []; }
+    catch(e){ return []; }
+    const out = [];
+    for(const e of evs){
+      if(!e || !e.event || !TRAVEL[e.event.kind]) continue;
+      const ev = e.event, p = ev.payload || {}, day = p.day || null;
+      out.push({
+        kind:    ev.kind,
+        icon:    this._travelEventIcon(ev, day),
+        summary: (e.result && e.result.narrativeSummary) || p.narrative || ev.kind,
+        date:    this._travelEventDate(ev),
+        lost:    !!(day && day.lost),
+        arrived: ev.kind === 'journey-arrived'
+      });
+    }
+    return out.reverse();   // newest first, like the Personal-history box
+  },
+  _travelEventDate(ev){
+    const t = ev && ev.gameTimeAt;
+    if(!t) return '(date unknown)';
+    let s = 'Year ' + (t.year || 1);
+    try { s += ', ' + window.ACKS.monthName(this.currentCampaign, t.month || 1); }
+    catch(e){ s += ', Month ' + (t.month || 1); }
+    if(t.day && t.day > 1) s += ', Day ' + t.day;
+    return s;
+  },
+  _travelEventIcon(ev, day){
+    switch(ev.kind){
+      case 'journey-start':    return '🧭';
+      case 'journey-arrived':  return '🏁';
+      case 'journey-aborted':  return '🛑';
+      case 'journey-rerouted': return '↪';
+      default:                 return (day && day.lost) ? '❓' : '⛺';
+    }
+  },
+
   // List mutation helper — add/remove an item from an array-valued field on an entity.
   // Uses gm-fiat under the hood (same audit trail as commitStatEdit) but writes the whole
   // new array as newValue and includes a clearer narrative in the campaign log.
@@ -9675,7 +9912,11 @@ return {
         event: ev,
         result: applyResult?.result || { narrativeSummary: label + ': ' + oldV + ' → ' + newV },
         appliedAtTurn: ev.appliedAtTurn,
-        appliedAt: new Date().toISOString()
+        appliedAt: new Date().toISOString(),
+        // Operational edits (e.g. journey pace/mode/speed-override) stay in the Event Log audit
+        // but are filtered OUT of the narrative Campaign Log via this flag — they're knob-turns,
+        // not campaign moments. campaignLogEntries() skips entries carrying it.
+        ...(opts.suppressFromCampaignLog ? { campaignLogHidden: true } : {})
       });
       // Push to entity-specific history for at-a-glance browsing.
       if(opts.entityType === 'character' && opts.entity){
@@ -12142,15 +12383,25 @@ return {
     });
 
     // 4) JOURNEY ROUTES (M6) — highlighted dashed polyline + a current-position ring. The Journeys layer
-    // toggle gates the WHOLE set, EXCEPT a journey the GM is actively viewing (_journeyMapView, set by
-    // "View on map") is ALWAYS drawn — so jumping to a journey shows it even with the layer switched off.
+    // shows only CURRENTLY ACTIVE journeys (planning / in-transit / resting / lost — the activeJourneys()
+    // set); a completed (arrived) or stopped (aborted) journey drops off the map. EXCEPT a journey the GM
+    // is actively viewing (_journeyMapView, set by "View on map") is ALWAYS drawn regardless of status —
+    // so jumping to any journey, even a finished one, shows it, even with the layer switched off.
     {
+      const ACTIVE_J = ['planning','in-transit','resting','lost'];
       const allRoutes = this.mapJourneyRoutes();
-      const routes = this.mapShowJourneys ? allRoutes : allRoutes.filter(rt => rt.id === this._journeyMapView);
+      const routes = this.mapShowJourneys
+        ? allRoutes.filter(rt => ACTIVE_J.includes(rt.status) || rt.id === this._journeyMapView)
+        : allRoutes.filter(rt => rt.id === this._journeyMapView);
+      // Arrowhead at the destination end of each route line. One shared <marker> (strokeWidth units so it
+      // scales with the line + zoom; orient=auto points it along the final segment toward the destination).
+      if(routes.length){
+        parts.push('<defs><marker id="jrnArrowDest" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 z" fill="#d9762b" fill-opacity="0.9"/></marker></defs>');
+      }
       routes.forEach(rt => {
         if(rt.pts.length >= 2){
           const dd = rt.pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
-          parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
+          parts.push('<path d="'+dd+'" fill="none" stroke="#d9762b" stroke-width="'+(size*0.10).toFixed(2)+'" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="'+(size*0.18).toFixed(1)+','+(size*0.14).toFixed(1)+'" stroke-opacity="0.85" marker-end="url(#jrnArrowDest)" style="pointer-events:none;"><title>'+esc(rt.name)+'</title></path>');
         }
         if(rt.current){
           parts.push('<circle cx="'+rt.current.x.toFixed(1)+'" cy="'+rt.current.y.toFixed(1)+'" r="'+(size*0.15).toFixed(1)+'" fill="#d9762b" stroke="#fff" stroke-width="'+(size*0.03).toFixed(2)+'" style="pointer-events:none;"><title>'+esc(rt.name)+' (current position)</title></circle>');
@@ -12231,10 +12482,18 @@ return {
     const routes = [];
     (this.currentCampaign?.journeys || []).forEach(j => {
       if(!j || j.status === 'aborted') return;
-      const ids = [j.routeAnchorHexId || j.startHexId].concat((j.waypoints || []).map(w => w.hexId), [j.destinationHexId]).filter(Boolean);
+      // Draw the REMAINING leg: from where the party actually IS now (currentHexId) to the destination,
+      // through the waypoints still AHEAD — not from the starting hex. The current-position ring sits at
+      // the same origin, so the line emanates from it. Waypoints the party has already walked through (any
+      // committed day's hexPath) are dropped so the line doesn't dogleg back to a hex they've left behind.
+      const originId = j.currentHexId || j.routeAnchorHexId || j.startHexId;
+      const visited = new Set();
+      (j.days || []).forEach(d => (((d && d.hexPath) || []).forEach(p => { if(p && p.hexId) visited.add(p.hexId); })));
+      const waypointIds = (j.waypoints || []).map(w => w.hexId).filter(id => id && !visited.has(id));
+      const ids = [originId].concat(waypointIds, [j.destinationHexId]).filter(Boolean);
       const pts = ids.map(centre).filter(Boolean);
       if(!pts.length) return;
-      routes.push({ id:j.id, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.routeAnchorHexId || j.startHexId) });
+      routes.push({ id:j.id, status:j.status, name:j.name || 'Journey', pts, current:centre(originId) });
     });
     return routes;
   },
@@ -13499,7 +13758,9 @@ return {
   campaignLogEntries(){
     if(!this.currentCampaign) return [];
     const eventLog = this.currentCampaign.eventLog || [];
-    return eventLog.slice().reverse().map(entry => {
+    // Operational knob-turns (journey pace/mode/speed-override) are flagged campaignLogHidden when
+    // committed — they belong in the Event Log audit, not the narrative Campaign Log. Filter them here.
+    return eventLog.slice().reverse().filter(entry => !entry.campaignLogHidden).map(entry => {
       const ev = entry.event || {};
       const narrative = entry.result?.narrativeSummary
         || ev.payload?.narrativeSummary
@@ -14614,6 +14875,9 @@ return {
     if(!p || !record) return [];
     return (p.notableEvents || []).filter(e => {
       if(!e || e.consumer !== record.consumer) return false;
+      // The comprehensive per-day umbrella (Travel pivot) is conveyed by the record summary line itself;
+      // the per-thing notables (lost/hunger/fording/…) are what the GM reviews under it.
+      if(e.type === 'travel-day') return false;
       if(record.journeyId) return !!(e.payload && e.payload.journeyId === record.journeyId);
       return true;
     });

@@ -21,6 +21,7 @@ desktop.ini
 # Editor / IDE
 .vscode/
 .idea/
+.claude/
 *.sublime-workspace
 *.sublime-project
 nppBackup/

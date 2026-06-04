@@ -154,20 +154,110 @@ check('on arrival the participant is moved to the destination + unlinked', ar.c.
 check('a journey-arrived event was emitted', ar.c.eventLog.some(e => e.event.kind === 'journey-arrived'));
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('Lost cascade (nav-fail → isLost)');
+section('Travel pivot — comprehensive per-day event + characterHistory (2026-06-04)');
 
+// Every committed travel day now emits ONE comprehensive journey-day-tick (or journey-arrived) event
+// carrying the whole day — every hex crossed (involvedHexIds), where the party ENDED (primaryHexId, not
+// the origin), the travellers (relatedEntities role 'traveller') + the journey, and the full day record
+// in the payload. The per-thing signals (lost/hunger/fording/…) become transient (pause + day-log only),
+// folded into the one event. Routine days are campaignLogHidden. ACKS.characterHistory derives per-person.
+const tp = build(); // road ⇒ deterministic routine day (nav skipped on road; encounter chance 0 on road)
+ACKS.startJourney(tp.c, tp.j);
+const tpEvLen = tp.c.eventLog.length;
+ACKS.commitDayTick(tp.c, ACKS.proposeDayTick(tp.c, 1, {}), null);
+const tpDayEvs = tp.c.eventLog.slice(tpEvLen).filter(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived'));
+check('exactly ONE comprehensive journey day event emitted per committed day', tpDayEvs.length === 1, 'got ' + tpDayEvs.length);
+const tpEv = tpDayEvs[0].event;
+check('day event involvedHexIds lists the hexes crossed', Array.isArray(tpEv.context.involvedHexIds) && tpEv.context.involvedHexIds.length >= 1);
+check('day event primaryHexId = the party\'s current position (held at last authored hex on a sparse route)', tpEv.context.primaryHexId === tp.c.journeys[0].currentHexId);
+check('on arrival the comprehensive event primaryHexId = destination (ended), NOT a hardcoded origin', (function(){ const e = ar.c.eventLog.filter(x => x.event.kind === 'journey-arrived').pop(); return !!(e && e.event.context && e.event.context.primaryHexId === 'hex-b'); })());
+check('day event tags every traveller (role traveller) + the journey', tpEv.context.relatedEntities.some(r => r.kind === 'character' && r.id === 'chr-1' && r.role === 'traveller') && tpEv.context.relatedEntities.some(r => r.kind === 'journey' && r.id === 'jrn-1'));
+check('day event payload carries the full day record (hexPath + miles)', tpEv.payload && tpEv.payload.day && Array.isArray(tpEv.payload.day.hexPath) && tpEv.payload.day.milesTraveled > 0);
+check('a routine travel day is campaignLogHidden (in Event Log + history, out of Campaign Log)', tpDayEvs[0].campaignLogHidden === true);
+check('characterHistory(traveller) surfaces the travel day', ACKS.characterHistory(tp.c, 'chr-1').some(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived')));
+check('characterHistory(non-traveller) is empty', ACKS.characterHistory(tp.c, 'chr-nobody').length === 0);
+
+// The character-sheet Travel box (2026-06-04) renders characterHistory filtered to journey-* kinds — the
+// WHOLE per-person trip (set out → each day → arrived / stopped / re-routed), not just the per-day ticks.
+// Confirm the lifecycle events tag the traveller too, so the box shows the full timeline.
+const tl = build();
+ACKS.startJourney(tl.c, tl.j);
+check('characterHistory surfaces journey-start (the "set out" row)', ACKS.characterHistory(tl.c, 'chr-1').some(e => e.event && e.event.kind === 'journey-start'));
+ACKS.commitDayTick(tl.c, ACKS.proposeDayTick(tl.c, 1, {}), null);
+ACKS.abortJourney(tl.c, tl.j, 'recalled');
+check('characterHistory surfaces journey-aborted after Stop Moving', ACKS.characterHistory(tl.c, 'chr-1').some(e => e.event && e.event.kind === 'journey-aborted'));
+check('every characterHistory entry is a journey-* travel event (the Travel box filter holds)', ACKS.characterHistory(tl.c, 'chr-1').length > 0 && ACKS.characterHistory(tl.c, 'chr-1').every(e => e.event && /^journey-/.test(e.event.kind)));
+const rr2 = build();
+ACKS.startJourney(rr2.c, rr2.j);
+ACKS.commitDayTick(rr2.c, ACKS.proposeDayTick(rr2.c, 1, {}), null);
+ACKS.reRouteJourney(rr2.c, rr2.j, { destinationHexId: 'hex-a' });
+check('characterHistory surfaces journey-rerouted after a re-route', ACKS.characterHistory(rr2.c, 'chr-1').some(e => e.event && e.event.kind === 'journey-rerouted'));
+
+// A NOTABLE day folds its per-thing signals into the single umbrella event (transient → not emitted
+// separately). Proposal-level: confirm the per-thing notables are transient + exactly one umbrella.
+const np = build({ hasRoad: false, terrain: 'grassland', supplies: { rations: 0, waterRations: 0 } });
+ACKS.startJourney(np.c, np.j);
+const npProp = ACKS.proposeJourneyDay(np.c, { dayInMonth: 2, rng: () => 0.99 }); // d20=20 (nav ok), no encounter; supplies 0 ⇒ hunger+thirst
+const npPerThing = npProp.notableEvents.filter(e => e.type !== 'travel-day');
+const npUmbrella = npProp.notableEvents.filter(e => e.type === 'travel-day');
+check('a notable day still yields exactly ONE umbrella event', npUmbrella.length === 1);
+check('per-thing notables (hunger/dehydration) are flagged transient (folded, not separately emitted)', npPerThing.length >= 1 && npPerThing.every(e => e.transient === true));
+check('the umbrella event is the ONLY non-transient notable', npProp.notableEvents.filter(e => !e.transient).length === 1);
+check('a NOTABLE day umbrella is NOT campaignLogHidden', npUmbrella[0].campaignLogHidden === false);
+check('the umbrella payload digest records the hunger happening', Array.isArray(npUmbrella[0].payload.day.happenings) && npUmbrella[0].payload.day.happenings.some(h => /hungr|food/i.test(h.text || '')));
+// End-to-end emission on a NON-road day: still exactly one journey event (everything folds), not hidden.
+const ne = build({ hasRoad: false, terrain: 'grassland', supplies: { rations: 0, waterRations: 0 } });
+ACKS.startJourney(ne.c, ne.j);
+const neEvLen = ne.c.eventLog.length;
+ACKS.commitDayTick(ne.c, ACKS.proposeDayTick(ne.c, 1, {}), null);
+const neDayEvs = ne.c.eventLog.slice(neEvLen).filter(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived'));
+check('a notable day emits exactly ONE journey event (fragmented signals folded in)', neDayEvs.length === 1, 'got ' + neDayEvs.length);
+check('the notable day event is NOT campaignLogHidden', !neDayEvs[0].campaignLogHidden);
+
+// ── journey naming: WHO travels, not the route (Travel pivot) ──
+section('Travel pivot — journey naming (who, not route)');
+const nm = build(); // chr-1 'Scout', no party
+check('single traveller → the character name', ACKS.journeyDefaultName(nm.c, nm.c.journeys[0]) === 'Scout');
+nm.c.characters.push(ACKS.blankCharacter({ id:'chr-2', name:'Brand' }));
+nm.c.journeys[0].participantCharacterIds = ['chr-1','chr-2'];
+check('≥2 travellers (no party) → "<first to join>\'s travelling group"', ACKS.journeyDefaultName(nm.c, nm.c.journeys[0]) === "Scout's travelling group");
+nm.c.parties = [{ id:'pty-1', name:'The Iron Hand', currentHexId:'hex-a' }];
+nm.c.journeys[0].partyId = 'pty-1';
+check('a party journey → the party name (wins over the character set)', ACKS.journeyDefaultName(nm.c, nm.c.journeys[0]) === 'The Iron Hand');
+check('no named traveller → null (caller falls back to route)', ACKS.journeyDefaultName(nm.c, { participantCharacterIds: [] }) === null);
+// migration re-derives an auto-route name, preserves a GM-set one
+const nmig = build(); nmig.c.journeys[0].name = 'hex-a → hex-b';   // looks auto-route (contains ' → ')
+ACKS.migrateCampaign(nmig.c);
+check('migration re-derives an auto-route journey name to the who-name', nmig.c.journeys[0].name === 'Scout');
+const nmig2 = build(); nmig2.c.journeys[0].name = 'The Long March'; // GM-set, no arrow
+ACKS.migrateCampaign(nmig2.c);
+check('migration PRESERVES a GM-set journey name (no route arrow)', nmig2.c.journeys[0].name === 'The Long March');
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Lost cascade (nav-fail → unknowing-lost, strays — RR p.275)');
+
+// RAW (RR p.275): a failed Navigation throw means the party gets lost AND DOESN'T KNOW IT — it strays
+// toward a random hex face and keeps moving (its full distance, the WRONG way), unaware, until a later
+// successful throw. Scripted rng: nav d20 (0 ⇒ rolled 1, auto-fail) · stray face (0.5 ⇒ floor(3) = face 3
+// = −q, AWAY from the +q destination at (12,0)) · then 0.99 (no wandering encounter).
+const seqRng = (vals) => { let i = 0; return () => (i < vals.length ? vals[i++] : 0.99); };
 const lo = build({ hasRoad: false, terrain: 'jungle' }); // jungle 14+, no proficiency
 lo.j.status = 'in-transit'; lo.j.currentHexId = 'hex-a';
-const lp = ACKS.proposeJourneyDay(lo.c, { dayInMonth: 2, rng: () => 0 }); // rng 0 ⇒ d20 = 1 ⇒ nav fail
+const remBefore = ACKS.computeJourneyDistance(lo.c, lo.c.journeys[0]).remaining;
+const lp = ACKS.proposeJourneyDay(lo.c, { dayInMonth: 2, rng: seqRng([0, 0.5]) });
 ACKS.commitJourneyRecord(lo.c, lp.pendingRecords[0]);
-check('nav failure sets isLost', lo.c.journeys[0].isLost === true);
-check('a lost day makes no progress', lo.c.journeys[0].days[0].hexesTraveled === 0);
+const lj = lo.c.journeys[0];
+check('nav failure sets isLost', lj.isLost === true);
+check('a lost party STILL MOVES (strays) — not the old halt (RR p.275)', lj.days[0].hexesTraveled > 0, 'hexes ' + lj.days[0].hexesTraveled);
+check('lost is UNKNOWING (fail-unknown-lost), not the old fail-known-lost', lj.days[0].navigationThrow.result === 'fail-unknown-lost');
+check('a stray heading (0..5) is recorded + persisted on the journey', typeof lj.strayHeading === 'number' && lj.strayHeading >= 0 && lj.strayHeading <= 5);
+check('no progress toward the goal — route epoch re-anchored (covered = 0)', ACKS.computeJourneyDistance(lo.c, lj).covered === 0);
+check('straying the wrong way pushes the destination FURTHER away', ACKS.computeJourneyDistance(lo.c, lj).remaining > remBefore, 'rem ' + remBefore + '→' + ACKS.computeJourneyDistance(lo.c, lj).remaining);
 check('lost surfaces a navigation-fail pauseTrigger', lp.notableEvents.some(e => e.pauseTrigger === 'navigation-fail'));
-// auto-pause-on-navigation-fail ON ⇒ the pipeline pauses on the lost day
-const lo2 = build({ hasRoad: false, terrain: 'jungle', houseRules: { 'auto-pause-on-navigation-fail': true } });
-lo2.j.status = 'in-transit'; lo2.j.currentHexId = 'hex-a';
-// (proposeDayTick uses Math.random; jungle 14+ with no bonus fails ~65% — assert the seam exists, not the roll)
 check('auto-pause-on-navigation-fail rule is wired to the journeys consumer', ACKS.dayConsumersInOrder().find(c => c.name === 'journeys').pauseTriggers.indexOf('navigation-fail') >= 0);
+// RR p.275: an unmodified natural 1 ALWAYS fails — even with the +8 both-proficiencies bonus.
+check('rollNavigation: natural 1 auto-fails even at +8 vs 6+', ACKS.rollNavigation(6, 8, () => 0).success === false && ACKS.rollNavigation(6, 8, () => 0).naturalOne === true);
+check('rollNavigation: a 20 clears a hard target (jungle 14+)', ACKS.rollNavigation(14, 0, () => 0.99).success === true);
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('Navigation recovery (bugfix) — a success clears lost + resumes movement');
@@ -188,6 +278,56 @@ const frs = build({ hasRoad: false, terrain: 'forest' });
 ACKS.startJourney(frs.c, frs.j);
 const frR = ACKS.proposeJourneyDay(frs.c, { dayInMonth: 2, rng: () => 0.99 }).pendingRecords[0];
 check('a normal nav success moves (not lost, plain success)', frR.newIsLost === false && frR.dayRecord.hexesTraveled > 0 && frR.dayRecord.navigationThrow.result === 'success');
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('§27 getting-lost — RAW nav bonus (RR p.275) + stray persistence + recovery re-route');
+
+// +4 for the Navigation proficiency OR the Pathfinding class power; +8 for BOTH; nothing else helps a
+// land getting-lost throw (Adventuring / Survival / Land Surveying / Seafaring do NOT). Read the bonus
+// the integrated tick recorded on the day's navigationThrow.
+function navBonusOf(setup){
+  const t = build({ hasRoad: false, terrain: 'forest' });
+  Object.assign(t.c.characters[0], setup);
+  t.j.status = 'in-transit'; t.j.currentHexId = 'hex-a';
+  const r = ACKS.proposeJourneyDay(t.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0];
+  const b = r.dayRecord.navigationThrow && r.dayRecord.navigationThrow.bonuses[0];
+  return b ? b.value : 0;
+}
+check('nav bonus +4 for the Navigation proficiency', navBonusOf({ proficiencies: ['Navigation'] }) === 4);
+check('nav bonus +4 for the Pathfinding class power', navBonusOf({ classPowers: ['Pathfinding'] }) === 4);
+check('nav bonus +8 for BOTH Navigation + Pathfinding', navBonusOf({ proficiencies: ['Navigation'], classPowers: ['Pathfinding'] }) === 8);
+check('nav bonus 0 — Adventuring/Survival/Land Surveying do NOT help (RR p.275)', navBonusOf({ proficiencies: ['Adventuring', 'Survival', 'Land Surveying'] }) === 0);
+
+// strayHeading persists while lost ("blithely continues on") — a second failed day keeps the heading.
+const per = build({ hasRoad: false, terrain: 'jungle' });
+per.j.status = 'in-transit'; per.j.currentHexId = 'hex-a';
+ACKS.commitJourneyRecord(per.c, ACKS.proposeJourneyDay(per.c, { dayInMonth: 2, rng: seqRng([0, 0.5]) }).pendingRecords[0]);
+const h1 = per.c.journeys[0].strayHeading;
+ACKS.commitJourneyRecord(per.c, ACKS.proposeJourneyDay(per.c, { dayInMonth: 3, rng: seqRng([0]) }).pendingRecords[0]); // fails again — no re-roll
+check('a still-lost party keeps the same stray heading (RR p.275)', typeof h1 === 'number' && per.c.journeys[0].strayHeading === h1);
+check('each lost day re-anchors — covered stays 0 while lost', ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).covered === 0);
+
+// Recovery (RR p.275): a later success re-orients the party — it resumes toward the destination from
+// wherever it strayed to (the route is already anchored there).
+const remLost = ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).remaining;
+const recDay = ACKS.proposeJourneyDay(per.c, { dayInMonth: 4, rng: () => 0.99 }).pendingRecords[0]; // d20 = 20 ⇒ recover
+ACKS.commitJourneyRecord(per.c, recDay);
+check('recovery clears lost + the stray heading', per.c.journeys[0].isLost === false && per.c.journeys[0].strayHeading === null);
+check('recovery day is marked success-recovered', recDay.dayRecord.navigationThrow.result === 'success-recovered');
+check('after recovery the party heads to the destination again (remaining shrinks)', ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).remaining < remLost, 'rem ' + remLost + '→' + ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).remaining);
+
+// Migration backfills the §27 fields on legacy-shaped journeys.
+const lj2 = ACKS.migrateCampaign({ schemaVersion: 2, kind: 'campaign', id: 'cmp-lj', name: 'LJ',
+  domains: [], characters: [], hexes: [], settlements: [], parties: [], eventLog: [],
+  journeys: [{ schemaVersion: 2, id: 'jrn-old', startHexId: 'hex-a', destinationHexId: 'hex-b', pace: 'normal', days: [] }] });
+check('migration backfills strayHeading=null + routeAnchorCoord=null on legacy journeys', lj2.journeys[0].strayHeading === null && lj2.journeys[0].routeAnchorCoord === null);
+
+// The route + distance resolve from routeAnchorCoord (a strayed, possibly-UNauthored position) when set.
+const ac = build({ hasRoad: false, terrain: 'grassland' });
+ac.c.journeys[0].routeAnchorCoord = { q: 3, r: 0 }; ac.c.journeys[0].coveredBaseline = 0;
+const acRoute = ACKS.journeyRoute(ac.c, ac.c.journeys[0]);
+check('journeyRoute anchors at routeAnchorCoord when set', acRoute.length > 0 && acRoute[0].coord.q === 3 && acRoute[0].coord.r === 0);
+check('computeJourneyDistance measures from the coord anchor ((3,0)→(12,0) = 9)', ACKS.computeJourneyDistance(ac.c, ac.c.journeys[0]).total === 9);
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('Supply depletion → hunger + dehydration (RAW default)');
@@ -649,6 +789,92 @@ section('§24 — mid-journey re-route (reRouteJourney)');
   c.journeys = [j];
   ACKS.reRouteJourney(c, j.id, { waypointIds:['w'], destinationHexId:'b' });
   check('planning-status edit sets waypoints without re-anchoring', j.waypoints.length === 1 && j.waypoints[0].hexId === 'w' && j.routeAnchorHexId === null && j.coveredBaseline === 0);
+})();
+
+section('§26 — GM speed override (speedOverrideMilesPerDay)');
+(function(){
+  const PASS = () => 0.95; // roll ~19: clears nav, skips wandering encounters
+  check('blankJourney: speedOverrideMilesPerDay defaults to null', ACKS.blankJourney({}).speedOverrideMilesPerDay === null);
+
+  // baseline (no override): grassland + normal pace = 4 hexes/day (24-mi budget ÷ 6-mi hexes)
+  const base = lineCampaign(10); ACKS.startJourney(base.c, base.j);
+  const dBase = ACKS.tickJourneyDay(base.c, base.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('baseline grassland/normal = 4 hexes (24 mi/day)', dBase.record.dayRecord.hexesTraveled === 4, String(dBase.record.dayRecord.hexesTraveled));
+  check('baseline day record carries no override (null)', dBase.record.dayRecord.speedOverrideMilesPerDay === null);
+
+  // override is a base RATE — PACE STILL MULTIPLIES it (§26 revised): override 36 × half-speed ×0.5 = 18 mi → 3 hexes
+  const ovp = lineCampaign(10); ACKS.startJourney(ovp.c, ovp.j);
+  ovp.c.journeys[0].pace = 'half-speed'; ovp.c.journeys[0].speedOverrideMilesPerDay = 36;
+  const dOvp = ACKS.tickJourneyDay(ovp.c, ovp.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 36 × half-speed pace = 18 mi → 3 hexes (pace multiplies the override)', dOvp.record.dayRecord.hexesTraveled === 3, String(dOvp.record.dayRecord.hexesTraveled));
+  check('day record stamps the override value (36)', dOvp.record.dayRecord.speedOverrideMilesPerDay === 36);
+
+  // override is a base RATE — WEATHER STILL MULTIPLIES it: override 24 × foggy ×½ = 12 mi → 2 hexes
+  const ovw = lineCampaign(10); ACKS.startJourney(ovw.c, ovw.j);
+  ovw.c.journeys[0].speedOverrideMilesPerDay = 24;
+  const dOvw = ACKS.tickJourneyDay(ovw.c, ovw.c.journeys[0], { rng:PASS, weather:{condition:'foggy',temperature:'moderate'} });
+  check('override 24 × foggy ×½ = 12 mi → 2 hexes (weather multiplies the override)', dOvw.record.dayRecord.hexesTraveled === 2, String(dOvw.record.dayRecord.hexesTraveled));
+
+  // terrain STILL applies per hex: jungle ×½, override 48 → 4 hexes (grassland 48 would be 8)
+  const ovt = lineCampaign(10, () => ({ terrain:'jungle' })); ACKS.startJourney(ovt.c, ovt.j);
+  ovt.c.journeys[0].speedOverrideMilesPerDay = 48;
+  const dOvt = ACKS.tickJourneyDay(ovt.c, ovt.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 48 through jungle ×½ → 4 hexes (per-hex terrain still applies, §24)', dOvt.record.dayRecord.hexesTraveled === 4, String(dOvt.record.dayRecord.hexesTraveled));
+
+  // pace STILL drives fatigue: forced-march + override → fatigue jumps to the cycle cap (RR p.279)
+  const ovf = lineCampaign(10); ACKS.startJourney(ovf.c, ovf.j);
+  ovf.c.journeys[0].pace = 'forced-march'; ovf.c.journeys[0].speedOverrideMilesPerDay = 18;
+  const dOvf = ACKS.tickJourneyDay(ovf.c, ovf.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('forced-march pace + override still fatigues at once (newFatigueDays = 6)', dOvf.record.newFatigueDays === 6, String(dOvf.record.newFatigueDays));
+
+  // a zero / non-positive override is ignored — pace governs
+  const ovz = lineCampaign(10); ACKS.startJourney(ovz.c, ovz.j);
+  ovz.c.journeys[0].speedOverrideMilesPerDay = 0;
+  const dOvz = ACKS.tickJourneyDay(ovz.c, ovz.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 0 ignored → normal 4 hexes, day record override null', dOvz.record.dayRecord.hexesTraveled === 4 && dOvz.record.dayRecord.speedOverrideMilesPerDay === null);
+
+  // lazy migration backfills the field on a legacy journey
+  const cm = ACKS.blankCampaign({ name:'legacy' });
+  const legacy = ACKS.blankJourney({ id:'jrn-x', participantCharacterIds:[] }); delete legacy.speedOverrideMilesPerDay;
+  cm.journeys = [legacy];
+  ACKS.migrateCampaign(cm);
+  check('migrateCampaign backfills speedOverrideMilesPerDay = null on legacy journeys', cm.journeys[0].speedOverrideMilesPerDay === null);
+})();
+
+section('Current speed = slowest member (RR pp.83-84)');
+(function(){
+  const PASS = () => 0.95;
+  // unencumbered party → 24 mi/day (= the flat base)
+  const u = lineCampaign(10); ACKS.startJourney(u.c, u.j);
+  check('journeyBaseSpeedMilesPerDay: unencumbered party = 24', ACKS.journeyBaseSpeedMilesPerDay(u.c, u.c.journeys[0]) === 24);
+
+  // one heavily-loaded member (9 st → heavy band → 12 mi/day) slows the whole party
+  const h = lineCampaign(10);
+  h.c.characters[0].inventory = [{ name:'lead bars', encumbranceSt: 9 }];
+  ACKS.startJourney(h.c, h.j);
+  check('heavily-loaded member → base 12 mi/day', ACKS.journeyBaseSpeedMilesPerDay(h.c, h.c.journeys[0]) === 12);
+  const dh = ACKS.tickJourneyDay(h.c, h.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('heavily-loaded party travels 2 hexes/day (12 mi ÷ 6)', dh.record.dayRecord.hexesTraveled === 2, String(dh.record.dayRecord.hexesTraveled));
+
+  // slowest-of-two: a heavy member + an unencumbered one → the party is bounded by the heavy one (12)
+  const s = lineCampaign(10);
+  s.c.characters[0].inventory = [{ name:'lead', encumbranceSt: 9 }];
+  s.c.characters.push(ACKS.blankCharacter({ id:'chr-2', name:'Light' }));
+  s.c.journeys[0].participantCharacterIds = ['chr-1','chr-2'];
+  ACKS.startJourney(s.c, s.j);
+  check('slowest member governs (heavy 12 vs light 24 → 12)', ACKS.journeyBaseSpeedMilesPerDay(s.c, s.c.journeys[0]) === 12);
+
+  // no participant characters → the flat base (24)
+  const n0 = lineCampaign(10); n0.c.journeys[0].participantCharacterIds = [];
+  check('no participants → flat base 24', ACKS.journeyBaseSpeedMilesPerDay(n0.c, n0.c.journeys[0]) === 24);
+
+  // override REPLACES the base but PACE STILL MULTIPLIES: heavy party + override 24 + forced-march ×1.5 = 36 mi → 6 hexes
+  const o = lineCampaign(10);
+  o.c.characters[0].inventory = [{ name:'lead', encumbranceSt: 9 }];
+  ACKS.startJourney(o.c, o.j);
+  o.c.journeys[0].pace = 'forced-march'; o.c.journeys[0].speedOverrideMilesPerDay = 24;
+  const dO = ACKS.tickJourneyDay(o.c, o.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
+  check('override 24 × forced-march ×1.5 = 36 mi → 6 hexes (override is the base; pace multiplies)', dO.record.dayRecord.hexesTraveled === 6, String(dO.record.dayRecord.hexesTraveled));
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

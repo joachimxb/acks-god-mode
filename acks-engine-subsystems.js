@@ -1405,10 +1405,27 @@ function blankRegulatedAsset(opts){
 function _jACKS(){ return global.ACKS; }
 
 // §6 — distance covered/remaining, in 6-mile hexes (axial). Pure.
+// §27 — the coord the route is anchored at: routeAnchorCoord (set while straying off authored hexes)
+// takes precedence, else the coord of routeAnchorHexId (mid-journey re-route) or startHexId (true
+// origin). Returns {q,r} or null. This lets a lost party's route resolve from a trackless-wilderness
+// coord that has no hex id. Pure read.
+function _journeyStartCoord(campaign, journey){
+  const A = _jACKS();
+  if(journey && journey.routeAnchorCoord && typeof journey.routeAnchorCoord.q === 'number'){
+    return { q: journey.routeAnchorCoord.q, r: journey.routeAnchorCoord.r };
+  }
+  const h = A.resolveHexAnywhere(campaign, (journey && (journey.routeAnchorHexId || journey.startHexId)) || null);
+  return (h && h.coord) ? { q: h.coord.q, r: h.coord.r } : null;
+}
+
 function computeJourneyDistance(campaign, journey){
   const A = _jACKS();
-  // startHex = the route anchor (current position after a mid-journey re-route, else the true origin).
-  const startHex = A.resolveHexAnywhere(campaign, journey.routeAnchorHexId || journey.startHexId);
+  // startHex = the route anchor (current position after a re-route / while straying, else the true
+  // origin). Resolve by coord first (a strayed anchor may sit on an UNauthored hex), then by id.
+  const startCoord = _journeyStartCoord(campaign, journey);
+  let startHex = startCoord ? A.hexAtCoord(campaign, startCoord.q, startCoord.r) : null;
+  if(!startHex) startHex = A.resolveHexAnywhere(campaign, journey.routeAnchorHexId || journey.startHexId);
+  if(!startHex && startCoord) startHex = { coord: startCoord, terrain: null };  // synthetic anchor for trackless wilderness (§27)
   const destHex  = A.resolveHexAnywhere(campaign, journey.destinationHexId);
   // total = the actual VIA-WAYPOINT hex distance (route.length-1), not the direct start→dest distance —
   // so a waypointed (or re-routed) journey travels its whole route instead of arriving early at the
@@ -1434,12 +1451,12 @@ function computeJourneyDistance(campaign, journey){
 function journeyRoute(campaign, journey){
   const A = _jACKS();
   if(!campaign || !journey) return [];
-  // §24 — the route runs from the re-route anchor when set (the party's position at the last mid-journey
-  // re-route), else from the true origin. So the live/remaining route reflects where they actually are.
-  const start = A.resolveHexAnywhere(campaign, journey.routeAnchorHexId || journey.startHexId);
-  if(!start || !start.coord) return [];
+  // §24/§27 — the route runs from the anchor coord (a strayed/re-routed position, else the true origin),
+  // so the live/remaining route reflects where the party actually is — even on an UNauthored hex.
+  const startCoord = _journeyStartCoord(campaign, journey);
+  if(!startCoord) return [];
   const dest = A.resolveHexAnywhere(campaign, journey.destinationHexId);
-  const legs = [start.coord];
+  const legs = [startCoord];
   for(const wp of (journey.waypoints || [])){
     const wh = A.resolveHexAnywhere(campaign, wp && wp.hexId);
     if(wh && wh.coord) legs.push(wh.coord);
@@ -1529,34 +1546,62 @@ function journeyFordingThrow(campaign, journey, opts){
   return { rolled, bonus, target, total, success: total >= target, coldWater: !!opts.coldWater, roughWater: !!opts.roughWater };
 }
 
-// §7 — navigation throw (1d20 + party proficiency bonus ≥ terrain target). Pure given rng.
+// §7 — navigation throw (1d20 + party proficiency bonus ≥ terrain target). RR p.275: an unmodified
+// natural 1 ALWAYS fails, regardless of bonus. Pure given rng.
 function rollNavigation(navTarget, bonus, rng){
   rng = rng || Math.random;
   const rolled = 1 + Math.floor(rng() * 20);
   const total = rolled + (bonus || 0);
-  return { rolled, target: navTarget, bonus: bonus || 0, total, success: total >= navTarget };
+  const naturalOne = (rolled === 1);
+  return { rolled, target: navTarget, bonus: bonus || 0, total, naturalOne, success: !naturalOne && total >= navTarget };
 }
 
-// Best of the party's travel proficiencies → a simplified +2 for J1 (full throw math is
-// Phase 3.6 Proficiency Throws). Pure read.
+// §7 navigation-throw bonus (RR p.275): +4 if any traveller has the Navigation proficiency OR the
+// Pathfinding class power, +8 if the party collectively has BOTH. Nothing else modifies this throw —
+// Land Surveying (points-of-interest assessment), Adventuring (camp/first-aid/etc.), Survival, and
+// Seafaring (sea navigation, a different throw) do NOT help a land getting-lost check. Pathfinding is a
+// class power; Navigation is a proficiency — scan both lists (some saves list either in either). Pure.
 function _journeyNavBonus(campaign, journey){
   const ids = journey.participantCharacterIds || [];
-  const RE = /(navigation|pathfinding|land surveying|adventuring|survival|seafaring)/i;
-  let bonus = 0;
+  let hasNav = false, hasPath = false;
+  const scan = (entry) => {
+    const name = (typeof entry === 'string') ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || '');
+    if(/\bnavigation\b/i.test(name)) hasNav = true;
+    if(/\bpathfinding\b/i.test(name)) hasPath = true;
+  };
   for(const c of (campaign.characters || [])){
     if(!c || ids.indexOf(c.id) < 0) continue;
-    for(const p of (c.proficiencies || [])){
-      const name = (typeof p === 'string') ? p : ((p && (p.name || p.id || p.proficiency)) || '');
-      if(RE.test(name)) bonus = Math.max(bonus, 2);
-    }
+    for(const p of (c.proficiencies || [])) scan(p);
+    for(const cp of (c.classPowers || [])) scan(cp);
   }
-  return bonus;
+  return (hasNav && hasPath) ? 8 : (hasNav || hasPath) ? 4 : 0;
 }
 
 // §12 (J1 STUB) — per-day wilderness encounter check. On a hit, returns a placeholder
 // "GM, resolve this" encounter + notable event (pauseTrigger 'encounter'); the real
 // pool-first draw (lairs / persistent wanderers / rival journeys) lands with #476, and
 // Phase 3 #141 owns the actual tables. Roads are safe in J1. Pure given rng.
+// Travel pivot (2026-06-04): a journey's auto-name describes WHO is travelling, not the route.
+//   - a PARTY moving → the party's name;
+//   - a single character (no party) → that character's name;
+//   - a group of ≥2 characters (no party) → "<first character to join>'s travelling group"
+//     (participantCharacterIds[0] = the first traveller added).
+// Returns null when there's no named traveller yet (caller falls back to a route label / "Journey").
+// `journey` may be a real journey or a {partyId, participantCharacterIds} shape (the planner uses the latter).
+function journeyDefaultName(campaign, journey){
+  if(!journey) return null;
+  if(journey.partyId && campaign && Array.isArray(campaign.parties)){
+    const p = campaign.parties.find(x => x && x.id === journey.partyId);
+    if(p && (p.name || '').trim()) return p.name.trim();
+  }
+  const ids = (journey.participantCharacterIds || []).filter(Boolean);
+  const chars = (campaign && campaign.characters) || [];
+  const nameOf = id => { const c = chars.find(x => x && x.id === id); return (c && (c.name || '').trim()) ? c.name.trim() : null; };
+  if(ids.length === 1) return nameOf(ids[0]);
+  if(ids.length >= 2){ const n = nameOf(ids[0]); return n ? (n + "'s travelling group") : null; }
+  return null;
+}
+
 function rollEncounter(campaign, journey, opts){
   opts = opts || {};
   const rng = opts.rng || Math.random;
@@ -1581,6 +1626,25 @@ function rollEncounter(campaign, journey, opts){
 // §5.1 — resolve ONE day for ONE in-transit journey. PURE: returns the pending record
 // (carrying the §4.2 Day record + the post-state absolutes commit replays) plus any
 // notable events + encounters. Does not mutate the campaign.
+// Party overland base speed (RR pp.83-84 + p.272): a party travels at its SLOWEST member's encumbrance
+// rate — 24/18/12/6 mi/day for unencumbered/lightly/heavily/severely loaded; an overloaded member → 0 =
+// the party can't move. Mercenaries + pack animals aren't tracked as individual carriers, so "members" =
+// the participant characters; no participant characters → the flat base (JOURNEY_BASE_SPEED_MILES_PER_DAY,
+// 24). This is the "current speed" the Journey panel shows above Pace/Mode, and the value the GM speed
+// override (§26) replaces. Exposed so the UI mirrors exactly what tickJourneyDay uses for the base.
+function journeyBaseSpeedMilesPerDay(campaign, journey){
+  const A = _jACKS();
+  const ids = (journey && journey.participantCharacterIds) || [];
+  if(!ids.length || !campaign || !Array.isArray(campaign.characters)) return A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
+  let slowest = Infinity;
+  for(const c of campaign.characters){
+    if(!c || ids.indexOf(c.id) === -1) continue;
+    const mpd = (typeof A.carryEncumbranceInfo === 'function') ? A.carryEncumbranceInfo(c).band.milesPerDay : A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
+    if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
+  }
+  return (slowest === Infinity) ? A.JOURNEY_BASE_SPEED_MILES_PER_DAY : slowest;
+}
+
 function tickJourneyDay(campaign, journey, ctx){
   const A = _jACKS();
   ctx = ctx || {};
@@ -1626,7 +1690,17 @@ function tickJourneyDay(campaign, journey, ctx){
   const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
   const tempMult = (A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1;
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
-  let milesBudget = A.JOURNEY_BASE_SPEED_MILES_PER_DAY * weatherMult * tempMult * paceMult;
+  // §26 — GM speed override: a positive journey.speedOverrideMilesPerDay REPLACES the party's base
+  // "current speed" (the slowest-member rate) for this leg — it is a GM-chosen BASE RATE, not a fixed
+  // final distance. The SAME day modifiers then apply on top: × weather × temperature × pace here, plus
+  // per-hex terrain/ground/road during the walk below. So pace still multiplies it (forced march ×1.5),
+  // weather/terrain still bite, and pace still governs fatigue (RR p.279). null/0 ⇒ the slowest-member
+  // rate governs. (Speed and exertion stay separable — pace is set independently of the override.)
+  const ovRaw = journey.speedOverrideMilesPerDay;
+  const overrideMiles = (typeof ovRaw === 'number' && isFinite(ovRaw) && ovRaw > 0) ? ovRaw : null;
+  // base = the party's current speed (slowest member, RR pp.83-84) OR the GM override (§26) when set.
+  const baseMilesPerDay = (overrideMiles != null) ? overrideMiles : journeyBaseSpeedMilesPerDay(campaign, journey);
+  let milesBudget = baseMilesPerDay * weatherMult * tempMult * paceMult;
   const coldWater = (weather.temperature === 'frigid' || weather.temperature === 'cold'); // −2 to a ford (§24)
 
   // ── fatigue (§10 / JJ p.84): a 6-day strenuous streak forces a rest day ──
@@ -1644,32 +1718,51 @@ function tickJourneyDay(campaign, journey, ctx){
     roadBonusForStep(nextHex, nextStep ? nextStep.entrySide : null, nextStep ? nextStep.exitSide : null) || !!nextHex.hasTrail ||
     roadBonusForStep(curHex, null, curStep ? curStep.exitSide : null) || !!curHex.hasTrail;
 
-  // ── navigation (§7): skip when heading onto a road/trail; roll against the terrain being entered ──
+  // §27 — the party's physical coord at day start (= route[covered]); the stray walk + re-anchor use it.
+  const curCoord = (curStep && curStep.coord) ? { q: curStep.coord.q, r: curStep.coord.r }
+                 : (startHex && startHex.coord) ? { q: startHex.coord.q, r: startHex.coord.r } : { q: 0, r: 0 };
+
+  // ── navigation (§7 / RR p.275): one Navigation throw per travel day. Skipped only when NOT lost and
+  // following a road/trail (those routes are safe); a LOST party always throws — that's its chance to
+  // re-orient. +4 for the Navigation proficiency OR the Pathfinding class power, +8 for both; an
+  // unmodified natural 1 always fails. The Judge throws secretly on the party's behalf. ──
   let navRecord = null;
-  if(!restDay && !onRoadOrTrail && dist.remaining > 0){
-    const navTerrain = nextHex.terrain || baseTerrain;
+  let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
+  const wasLost = isLost;
+  if(!restDay && dist.remaining > 0 && (isLost || !onRoadOrTrail)){
+    // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
+    const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
     const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
     const bonus = _journeyNavBonus(campaign, journey);
     const nav = rollNavigation(navTarget, bonus, rng);
-    navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonus ? [{ source: 'party-proficiency', value: bonus }] : [], result: nav.success ? 'success' : 'fail-known-lost' };
-    if(!nav.success){
-      isLost = true;
-      notableEvents.push({
-        kind: 'journey-lost', type: 'navigation-fail', pauseTrigger: 'navigation-fail', primaryHexId: journey.currentHexId || journey.startHexId || null,
-        label: (journey.name || 'Journey') + ': lost in ' + navTerrain + ' (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
-        payload: { journeyId: journey.id, dayIndex: newDayIndex }
-      });
-    } else if(isLost){
-      // A successful throw re-orients a previously-lost party (RR p.275 recovery). Without this,
-      // isLost carried forward forever and the party made 0 progress despite succeeding — the
-      // "journey never arrives" bug. Recovering clears lost so movement resumes this day.
-      isLost = false;
-      navRecord.result = 'success-recovered';
+    const bonusRec = bonus ? [{ source: 'party-proficiency', value: bonus }] : [];
+    if(nav.success && wasLost){
+      // Recovered (RR p.275): the party realizes it was lost and resumes toward its destination. The
+      // route is already anchored at its strayed position (re-anchored each lost day), so clearing
+      // isLost lets the normal route walk below resume dest-ward from here.
+      isLost = false; strayHeading = null;
+      navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonusRec, result: 'success-recovered', naturalOne: nav.naturalOne };
       notableEvents.push({
         kind: 'journey-day-tick', type: 'navigation-recovered', primaryHexId: journey.currentHexId || journey.startHexId || null,
         label: (journey.name || 'Journey') + ': found the way again (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex }
       });
+    } else if(!nav.success){
+      // Lost (RR p.275). Crucially the party does NOT realize it — it strays toward a random hex face
+      // (1d6) and keeps moving, unaware, until a later successful throw. A heading already set persists
+      // ("blithely continues on"); a freshly-lost party rolls one. The pause is GM-facing — the Judge
+      // made the secret throw, so the fiction stays "the party doesn't know."
+      isLost = true;
+      if(strayHeading == null) strayHeading = Math.floor(rng() * 6);
+      navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonusRec, result: 'fail-unknown-lost', naturalOne: nav.naturalOne, strayHeading: strayHeading };
+      notableEvents.push({
+        kind: 'journey-lost', type: 'navigation-fail', pauseTrigger: 'navigation-fail', primaryHexId: journey.currentHexId || journey.startHexId || null,
+        label: (journey.name || 'Journey') + ': lost in ' + navTerrain + ' — strays ' + (HEX_FACE_LABELS[strayHeading] || ('face ' + strayHeading)) + ', unaware (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+' + (nav.naturalOne ? ', natural 1' : '') + ')',
+        payload: { journeyId: journey.id, dayIndex: newDayIndex, strayHeading: strayHeading }
+      });
+    } else {
+      // Success, not lost — routine travel; emit no event.
+      navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonusRec, result: 'success', naturalOne: nav.naturalOne };
     }
   }
 
@@ -1680,7 +1773,32 @@ function tickJourneyDay(campaign, journey, ctx){
   // holds the party at the near bank with a 'fording' pause for the GM. No movement on a rest/lost day;
   // a travel day always advances at least one hex (RAW floors progress ≥1). ──
   let hexesToday = 0, dayAllRoaded = true, hardestNav = -1, representativeTerrain = baseTerrain, fordingRecord = null;
-  if(!restDay && !isLost && dist.remaining > 0 && route.length > 1){
+  let strayPath = null, strayLandingCoord = null;
+  if(!restDay && isLost && dist.remaining > 0){
+    // ── LOST (RR p.275): the party covers a full day's distance toward its random stray heading, OFF
+    // the planned route and unaware. Terrain + ground pace each hex (looked up by coord, falling back to
+    // the base environment where unauthored); NO road bonus (it isn't following one) and NO river fording
+    // (wandering blind) — v1 simplifications. The landing coord re-anchors the route below, so the day
+    // progresses AWAY from the goal, not toward it. ──
+    const d = HEX_EDGE_DELTAS[((strayHeading % 6) + 6) % 6] || [0, 0];
+    let cur = { q: curCoord.q, r: curCoord.r };
+    strayPath = [];
+    while(true){
+      const toQ = cur.q + d[0], toR = cur.r + d[1];
+      const toHex = A.hexAtCoord(campaign, toQ, toR);
+      const terr = (toHex && toHex.terrain) || baseTerrain;
+      const tMult = (A.JOURNEY_TERRAIN_SPEED[terr] != null) ? A.JOURNEY_TERRAIN_SPEED[terr] : 1;
+      const gKey = (toHex && toHex.groundCondition) || 'clear';
+      const gMult = (A.JOURNEY_GROUND_SPEED[gKey] != null) ? A.JOURNEY_GROUND_SPEED[gKey] : 1;
+      const costMiles = A.JOURNEY_MILES_PER_HEX / Math.max(0.01, tMult * gMult);
+      if(hexesToday > 0 && milesBudget < costMiles) break;   // always take the first hex (RAW floors progress ≥1)
+      milesBudget -= costMiles; hexesToday += 1; cur = { q: toQ, r: toR };
+      dayAllRoaded = false;
+      strayPath.push({ hexId: toHex ? toHex.id : null, q: toQ, r: toR });
+      { const nt = (A.JOURNEY_NAV_THROWS[terr] != null) ? A.JOURNEY_NAV_THROWS[terr] : 0; if(nt > hardestNav){ hardestNav = nt; representativeTerrain = terr; } }
+    }
+    strayLandingCoord = cur;
+  } else if(!restDay && !isLost && dist.remaining > 0 && route.length > 1){
     let pos = startPos;
     while(pos < route.length - 1 && (pos - startPos) < dist.remaining){
       const fromStep = route[pos], toStep = route[pos + 1];
@@ -1721,13 +1839,18 @@ function tickJourneyDay(campaign, journey, ctx){
   const dayRoaded = (hexesToday > 0) ? dayAllRoaded : roadBonusForStep(curHex, null, curStep ? curStep.exitSide : null);
   // §24 — the hexes ENTERED this day, in order, for the day log. The party's current physical position
   // is the last entry; unauthored coords carry hexId:null but still list (as a column·row step).
-  const hexPath = [];
-  for(let i = startPos + 1; i <= startPos + hexesToday && i < route.length; i++){
-    const s = route[i]; if(s && s.coord) hexPath.push({ hexId: s.hexId || null, q: s.coord.q, r: s.coord.r });
-  }
+  // A lost day's path is the strayed walk (off-route); a normal day reads the planned route.
+  const hexPath = (isLost && strayPath) ? strayPath.slice() : (function(){
+    const out = [];
+    for(let i = startPos + 1; i <= startPos + hexesToday && i < route.length; i++){
+      const s = route[i]; if(s && s.coord) out.push({ hexId: s.hexId || null, q: s.coord.q, r: s.coord.r });
+    }
+    return out;
+  })();
   const milesToday = hexesToday * A.JOURNEY_MILES_PER_HEX;
   const newCovered = dist.covered + hexesToday;
-  const willArrive = (dist.total > 0) ? (newCovered >= dist.total) : true; // 0-distance arrives at once
+  // A LOST party can never "arrive" — it's moving the wrong way (and the re-anchor below nets covered to 0).
+  const willArrive = !isLost && ((dist.total > 0) ? (newCovered >= dist.total) : true); // 0-distance arrives at once
 
   // ── survival (§8): RAW default; ignore-rations opts out ──
   const ignoreRations = A.isHouseRuleEnabled(campaign, 'ignore-rations');
@@ -1773,10 +1896,25 @@ function tickJourneyDay(campaign, journey, ctx){
   // authored hex the party is in (it stays put across UNauthored stretches — no hex id to move to). ──
   let newStatus = 'in-transit';
   let newCurrentHexId = journey.currentHexId || journey.startHexId || null;
+  // §27 re-anchor post-state: carried forward unchanged on a normal day; on a LOST day the route is
+  // re-anchored at the strayed landing coord and the day's hexes are banked, so progress (covered) nets
+  // to 0 — the route then runs from where the party physically is, unused until a recovery throw.
+  let newStrayHeading = isLost ? strayHeading : null;
+  let newRouteAnchorCoord = journey.routeAnchorCoord || null;
+  let newRouteAnchorHexId = journey.routeAnchorHexId || null;
+  let newCoveredBaseline = journey.coveredBaseline || 0;
+  let reanchored = false;
   if(willArrive){
     newStatus = 'arrived';
     newCurrentHexId = journey.destinationHexId || newCurrentHexId;
     notableEvents.push({ kind: 'journey-arrived', type: 'arrived', primaryHexId: journey.destinationHexId || null, involvedHexIds: [journey.startHexId, journey.destinationHexId].filter(Boolean), label: (journey.name || 'Journey') + ': arrived at destination (day ' + newDayIndex + ')', payload: { journeyId: journey.id, destinationHexId: journey.destinationHexId } });
+  } else if(isLost && strayLandingCoord){
+    const lh = A.hexAtCoord(campaign, strayLandingCoord.q, strayLandingCoord.r);
+    if(lh) newCurrentHexId = lh.id;   // else hold at the last authored hex — the party is in trackless wilderness (§24)
+    newRouteAnchorCoord = { q: strayLandingCoord.q, r: strayLandingCoord.r };
+    newRouteAnchorHexId = lh ? lh.id : null;
+    newCoveredBaseline = (dist.covered || 0) + (journey.coveredBaseline || 0) + hexesToday; // bank today's hexes ⇒ next-day covered = 0
+    reanchored = true;
   } else if(hexesToday > 0){
     const here = route[startPos + hexesToday];
     if(here && here.hexId) newCurrentHexId = here.hexId;
@@ -1788,7 +1926,7 @@ function tickJourneyDay(campaign, journey, ctx){
   else if(restDay)          summaryLabel = (journey.name || 'Journey') + ': forced rest (day ' + newDayIndex + ')';
   else if(fordingRecord && fordingRecord.result === 'failed')
                             summaryLabel = (journey.name || 'Journey') + ': ' + (hexesToday > 0 ? ('+' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then ') : '') + 'blocked at a river (day ' + newDayIndex + ')';
-  else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — no progress (day ' + newDayIndex + ')';
+  else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — strayed ' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' ' + (HEX_FACE_LABELS[strayHeading] || '') + ', unaware (day ' + newDayIndex + ')';
   else                      summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi)' + (fordingRecord && fordingRecord.result === 'forded-swim' ? ', forded a river' : '') + ', day ' + newDayIndex;
 
   // ── §4.2 Day record ──
@@ -1797,11 +1935,13 @@ function tickJourneyDay(campaign, journey, ctx){
     hexId: (curStep && curStep.hexId) || journey.currentHexId || journey.startHexId || null,  // the hex the party was in at day start
     weather: { condition: weather.condition, temperature: weather.temperature || 'moderate', rolledOrSet: weather.rolledOrSet || 'gm-fiat' },
     pace: restDay ? 'rest' : pace,
+    speedOverrideMilesPerDay: (overrideMiles != null && !restDay) ? overrideMiles : null,  // §26 — GM speed override in effect this day (null ⇒ pace governed)
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,
     hexPath,                                                 // §24 — [{hexId, q, r}] hexes entered this day (in order); last = current position
     arrivedAt: newCurrentHexId,
     navigationThrow: navRecord,
+    strayHeading: isLost ? strayHeading : null,              // §27 — hex face strayed toward this day (null ⇒ not lost)
     fording: fordingRecord,                                  // §24 river-crossing record (null on a dry day)
     rationsConsumed: { food: rationsConsumed, water: waterConsumed, animalFeed: 0, animalWater: 0, shipStores: 0 },
     fatigueAccumulated,
@@ -1810,13 +1950,75 @@ function tickJourneyDay(campaign, journey, ctx){
     status: 'pending'
   };
 
+  // ── Travel pivot (2026-06-04): ONE comprehensive travel event per committed day ──
+  // The per-thing notable events built above (lost / hunger / dehydration / fording / forced-rest /
+  // encounter / arrival) become TRANSIENT signals: they still drive the GM pause check
+  // (dayTickPauseReasons reads pauseTrigger BEFORE emission) and the day-log digest
+  // (dayRecord.notableEvents), but they are NOT each emitted as their own eventLog entry. Instead the
+  // single journey-day-tick (or journey-arrived) event below carries the WHOLE day — every hex entered
+  // (context.involvedHexIds), where the party actually ended (primaryHexId — NOT the origin, the bug
+  // this fixes), the travellers (relatedEntities, role 'traveller'), and the full day record in the
+  // payload — so a traveller's history (ACKS.characterHistory) and any hex's history are each complete
+  // from one event. A routine day (nothing notable) is flagged campaignLogHidden: it stays out of the
+  // narrative Campaign Log while remaining in the Event Log + both histories, so every hex travelled is
+  // still recorded. Hour-readiness (cadence survey §6-7 / RR p.272): the DAY is the RAW travel unit;
+  // within-day hour stamps land later as child encounter events via Event.subdayContext (Monster
+  // Persistence #476) — the hexPath order already encodes within-day sequence, so no fake hours here.
+  const _dayWasNotable = notableEvents.length > 0;
+  notableEvents.forEach(e => { e.transient = true; });
+  const _travellerIds = (journey.participantCharacterIds || []).filter(Boolean);
+  const _related = _travellerIds.map(id => ({ kind: 'character', id, role: 'traveller' }));
+  _related.push({ kind: 'journey', id: journey.id, role: 'subject' });
+  const _dayStartHexId = (curStep && curStep.hexId) || journey.currentHexId || journey.startHexId || null;
+  const _involvedHexIds = [];
+  if(_dayStartHexId) _involvedHexIds.push(_dayStartHexId);
+  hexPath.forEach(h => { if(h && h.hexId && _involvedHexIds.indexOf(h.hexId) < 0) _involvedHexIds.push(h.hexId); });
+  notableEvents.push({
+    kind: willArrive ? 'journey-arrived' : 'journey-day-tick',
+    type: 'travel-day',
+    primaryHexId: newCurrentHexId || _dayStartHexId || null,
+    involvedHexIds: _involvedHexIds,
+    relatedEntities: _related,
+    campaignLogHidden: !_dayWasNotable,
+    label: summaryLabel,
+    payload: {
+      journeyId: journey.id,
+      dayIndex: newDayIndex,
+      narrative: summaryLabel,
+      day: {
+        hexPath: hexPath,
+        fromHexId: _dayStartHexId,
+        arrivedAt: newCurrentHexId,
+        milesTraveled: milesToday,
+        hexesTraveled: hexesToday,
+        pace: restDay ? 'rest' : pace,
+        speedOverrideMilesPerDay: (overrideMiles != null && !restDay) ? overrideMiles : null,
+        weather: { condition: weather.condition, temperature: weather.temperature || 'moderate' },
+        navigation: navRecord,
+        lost: isLost,
+        strayHeading: isLost ? strayHeading : null,
+        fording: fordingRecord,
+        rationsConsumed: { food: rationsConsumed, water: waterConsumed },
+        hungerDays: hungerDays,
+        dehydrationDays: dehydrationDays,
+        fatigueDays: fatigueDays,
+        fatigueAccumulated: fatigueAccumulated,
+        encounters: dayRecord.encounters,
+        happenings: dayRecord.notableEvents,
+        arrived: willArrive
+      }
+    }
+  });
+
   const record = {
     kind: 'journey-day', journeyId: journey.id, name: journey.name || 'Journey', label: summaryLabel,
     dayRecord,
     newDayIndex, newFatigueDays: fatigueDays, newIsLost: isLost,
     newRations: rations, newWaterRations: waterRations,
     newHungerDays: hungerDays, newDehydrationDays: dehydrationDays,
-    newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null
+    newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null,
+    // §27 getting-lost post-state (commitJourneyRecord applies these; reroll-revert restores the pre-state)
+    newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored
   };
   return { record, notableEvents, encounters };
 }
@@ -1859,7 +2061,12 @@ function commitJourneyRecord(campaign, record){
     currentHexId: j.currentHexId || j.startHexId || null,
     status: j.status || 'in-transit',
     hungerDays: (_firstC && _firstC.hungerDays) || 0,
-    dehydrationDays: (_firstC && _firstC.dehydrationDays) || 0
+    dehydrationDays: (_firstC && _firstC.dehydrationDays) || 0,
+    // §27 getting-lost — the lost flow re-anchors per day, so a reroll must restore these too.
+    strayHeading: (typeof j.strayHeading === 'number') ? j.strayHeading : null,
+    coveredBaseline: j.coveredBaseline || 0,
+    routeAnchorCoord: j.routeAnchorCoord || null,
+    routeAnchorHexId: j.routeAnchorHexId || null
   };
   // World-date stamp: which world day this leg happened on, so the GM can reroll the LATEST
   // day only while the clock still stands on it (Journeys J2 feedback — once +1 day / Advance
@@ -1880,6 +2087,14 @@ function commitJourneyRecord(campaign, record){
   j.supplies.waterRations = record.newWaterRations;
   j.currentHexId = record.newCurrentHexId;
   j.status = record.newStatus;
+  // §27 getting-lost post-state: the stray heading + (when a lost day re-anchored) the coord anchor and
+  // banked baseline. Recompute the route snapshot when re-anchored so the UI/integrators see the live
+  // route from the party's strayed position.
+  if('newStrayHeading' in record) j.strayHeading = (typeof record.newStrayHeading === 'number') ? record.newStrayHeading : null;
+  if('newCoveredBaseline' in record) j.coveredBaseline = record.newCoveredBaseline;
+  if('newRouteAnchorCoord' in record) j.routeAnchorCoord = record.newRouteAnchorCoord || null;
+  if('newRouteAnchorHexId' in record) j.routeAnchorHexId = record.newRouteAnchorHexId || null;
+  if(record.reanchored){ try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ } }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: record.newDayIndex, type: (record.newStatus === 'arrived' ? 'arrived' : 'day-tick'), narrative: record.label || ('day ' + record.newDayIndex) });
   // mirror survival state onto participants (persists across journeys — §10.4)
   const ids = j.participantCharacterIds || [];
@@ -1960,6 +2175,13 @@ function rerollJourneyDay(campaign, journey){
   j.supplies.waterRations = pre.waterRations;
   j.currentHexId = pre.currentHexId;
   j.status = pre.status;
+  // §27 getting-lost — restore the per-day-mutated lost state (snapshot may predate the field on old
+  // saves; default sensibly), then refresh the route snapshot from the reverted anchor.
+  j.strayHeading = (typeof pre.strayHeading === 'number') ? pre.strayHeading : null;
+  if(typeof pre.coveredBaseline === 'number') j.coveredBaseline = pre.coveredBaseline;
+  if('routeAnchorCoord' in pre) j.routeAnchorCoord = pre.routeAnchorCoord || null;
+  if('routeAnchorHexId' in pre) j.routeAnchorHexId = pre.routeAnchorHexId || null;
+  try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
   const ids = j.participantCharacterIds || [];
   for(const c of (campaign.characters || [])){
     if(c && ids.indexOf(c.id) >= 0){
@@ -2017,6 +2239,8 @@ function startJourney(campaign, journey){
   j.currentHexId = j.startHexId || j.currentHexId || null;
   j.currentDayIndex = 0;
   j.isLost = false;
+  j.strayHeading = null;          // §27 getting-lost — fresh journey, not straying
+  j.routeAnchorCoord = null;      // §27 — anchor by startHexId until a stray/re-route moves it
   j.fatigueDays = j.fatigueDays || 0;
   j.startedAtTurn = (campaign.currentTurn != null) ? campaign.currentTurn : (j.startedAtTurn || null);
   j.startedAtDayInMonth = campaign.currentDayInMonth || j.startedAtDayInMonth || 1;
@@ -2066,7 +2290,7 @@ function abortJourney(campaign, journey, reason){
     const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
     if(pt && pt.activeJourneyId === j.id) pt.activeJourneyId = null;
   }
-  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'aborted', narrative: 'Journey aborted' + (reason ? (': ' + reason) : '') + '.' });
+  (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'aborted', narrative: 'Stopped moving' + (reason ? (': ' + reason) : '') + '.' });
   try {
     campaign.eventLog = campaign.eventLog || [];
     const cal = campaign.calendar || {};
@@ -2075,10 +2299,10 @@ function abortJourney(campaign, journey, reason){
       targetTurn: campaign.currentTurn || 1,
       gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
       context: { primaryHexId: atHex, involvedHexIds: [atHex].filter(Boolean), settlementId: null, domainId: null, relatedEntities: ids.map(id => ({ kind: 'character', id, role: 'subject' })) },
-      payload: { journeyId: j.id, reason: reason || null, narrative: (j.name || 'Journey') + ' was aborted' + (reason ? (' (' + reason + ')') : '') + '.' }
+      payload: { journeyId: j.id, reason: reason || null, narrative: (j.name || 'Journey') + ' — travellers stopped moving' + (reason ? (' (' + reason + ')') : '') + '.' }
     });
     ev.appliedAtTurn = campaign.currentTurn || 1;
-    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' aborted.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: (j.name || 'Journey') + ' — stopped moving.' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
   } catch(e){ /* never let event emission block an abort */ }
   return j;
 }
@@ -2110,6 +2334,8 @@ function reRouteJourney(campaign, journey, opts){
     j.coveredBaseline = totalCovered;      // …and its progress (epoch covered) restarts at 0
   }
   j.isLost = false;                        // a fresh heading re-orients a lost party
+  j.strayHeading = null;                   // §27 — drop the stray heading; the GM has re-oriented them
+  j.routeAnchorCoord = null;               // §27 — re-anchor by the (authored) current hex, not a strayed coord
   try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
   const dist = computeJourneyDistance(campaign, j);
   j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.remaining / 4)) : 0;
@@ -2209,6 +2435,9 @@ function hexMapBounds(hexes, size, margin){
 // road/river networks (segments toward like-featured neighbours) — Architecture §11.4.
 const HEX_EDGE_DELTAS = Object.freeze([ [1,0], [0,1], [-1,1], [-1,0], [0,-1], [1,-1] ]);
 function hexNeighborDeltas(){ return HEX_EDGE_DELTAS.map(d => d.slice()); }
+// §27 getting-lost — human labels for the 6 hex faces in HEX_EDGE_DELTAS order, for the flat-top render
+// convention (face 0 = SE, 1 = S, 2 = SW, 3 = NW, 4 = N, 5 = NE). Used to narrate a lost party's stray.
+const HEX_FACE_LABELS = Object.freeze(['southeast', 'south', 'southwest', 'northwest', 'north', 'northeast']);
 // The edge index (0..5) you EXIT a hex through to reach an adjacent neighbour, or -1 if the two
 // coords aren't adjacent. The neighbour's matching ENTRY edge is the opposite, (i+3)%6 — the deltas
 // are arranged so HEX_EDGE_DELTAS[(i+3)%6] === −HEX_EDGE_DELTAS[i].
@@ -2587,7 +2816,7 @@ const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName, journeyBaseSpeedMilesPerDay,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
@@ -2597,6 +2826,7 @@ Object.assign(ACKS, {
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName, generateBlankHexGrid,
   hexNeighborDeltas, hexEdgeBetween, hexOppositeEdge, hexLineDraw, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
+  HEX_FACE_LABELS,
   HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 
