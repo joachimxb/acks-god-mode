@@ -3643,6 +3643,11 @@ document.addEventListener('alpine:init', () => {
               <button type="button" x-show="journeyWizard.waypointIds.length" @click="journeyWizard.waypointIds = []" class="text-xs underline opacity-60 hover:opacity-100">clear</button>
             </div>
           </div>
+          <!-- Travel pivot (2026-06-04): distance preview while planning (runs the real route engine). -->
+          <div class="mt-2 text-sm" x-show="journeyWizard.startHexId && journeyWizard.destinationHexId">
+            <span class="opacity-60">Distance:</span>
+            <span x-text="(() => { const m = journeyWizardMiles(); return m ? (m.totalMiles.toLocaleString() + ' mi · ' + m.totalHexes + ' hex' + (m.totalHexes===1?'':'es') + ' · ≈ ' + Math.max(1, Math.ceil(m.totalHexes/4)) + ' day' + (Math.ceil(m.totalHexes/4)===1?'':'s') + ' at Normal pace') : '—'; })()"></span>
+          </div>
         </div>
 
         <!-- Pace + mode now live on the journey itself (set in the Journey Detail panel after
@@ -3680,8 +3685,10 @@ document.addEventListener('alpine:init', () => {
             <h2 class="font-bold text-xl"><span x-text="journeyModeIcon(journeyDetail())"></span> <span x-text="journeyDetail().name || 'Journey'"></span></h2>
             <p class="text-sm opacity-70">
               <!-- Travel pivot (2026-06-04): the live summary reads CURRENT location → destination
-                   (not the origin the trip began at — that's the journey's fixed name + the Route line). -->
-              <span x-text="journeyHexLabel(journeyDetail().currentHexId || journeyDetail().startHexId)"></span> →
+                   (not the origin the trip began at — that's the journey's fixed name + the Route line).
+                   journeyCurrentLabel reads the party's TRUE position (incl. an unauthored strayed/mid-leg
+                   hex), which currentHexId can't hold — so a lost or sparse-route party reads correctly. -->
+              <span x-text="journeyCurrentLabel(journeyDetail())"></span> →
               <span x-text="journeyHexLabel(journeyDetail().destinationHexId)"></span>
               · <span x-text="journeyDayLabel(journeyDetail())"></span>
               · <span class="capitalize" x-text="journeyDetail().pace"></span>
@@ -9131,6 +9138,25 @@ return {
     if(step.hexId){ const h=(this.currentCampaign?.hexes||[]).find(x=>x&&x.id===step.hexId); if(h) return window.ACKS.hexName(h) || window.ACKS.hexDisplayLabel(step.q||0, step.r||0); }
     return window.ACKS.hexDisplayLabel(step.q||0, step.r||0);
   },
+  // The party's TRUE current position step (Travel pivot) — the last hex actually entered, including an
+  // UNAUTHORED coord (a strayed-while-lost hex, or a mid-leg hex on a sparse route) that `currentHexId`
+  // can't hold (it can only point at a real authored hex, so it holds at the last authored one — often
+  // the origin). Reads the most recent day's last hexPath entry (what the day log marks "📍 here now");
+  // null before any day is ticked. The detail header + planning preview show this as "you are here".
+  journeyCurrentStep(j){
+    const days = (j && j.days) || [];
+    for(let i = days.length - 1; i >= 0; i--){
+      const p = days[i] && days[i].hexPath;
+      if(Array.isArray(p) && p.length) return p[p.length - 1];
+    }
+    return null;
+  },
+  journeyCurrentLabel(j){
+    if(!j) return '';
+    const step = this.journeyCurrentStep(j);
+    if(step) return this.journeyStepLabel(step);
+    return this.journeyHexLabel(j.currentHexId || j.startHexId);
+  },
   // The hexes entered on a given day, for the day-log "via …" line. New day records store `hexPath`
   // directly; OLDER ones (ticked before hexPath shipped, or already-saved journeys) are reconstructed
   // from the live route + the hexes covered on prior days — so every journey shows its path.
@@ -9233,6 +9259,22 @@ return {
       const mph = window.ACKS.JOURNEY_MILES_PER_HEX || 6;
       return { totalHexes: dist.total||0, coveredHexes: dist.covered||0, remainingHexes: dist.remaining||0,
                totalMiles: (dist.total||0)*mph, coveredMiles: (dist.covered||0)*mph, remainingMiles: (dist.remaining||0)*mph };
+    } catch(e){ return null; }
+  },
+  // Distance preview for the Start-a-Journey planner (Travel pivot) — builds a transient journey from the
+  // wizard's start/destination/waypoints and runs the real route+distance engine, so the GM sees the trip
+  // length (and a rough day estimate) WHILE planning, before the journey is started. Null until both ends set.
+  journeyWizardMiles(){
+    const w = this.journeyWizard;
+    if(!w || !w.startHexId || !w.destinationHexId) return null;
+    const tj = { startHexId: w.startHexId, destinationHexId: w.destinationHexId,
+      waypoints: (w.waypointIds||[]).map(id => ({ hexId: id })),
+      currentDayIndex: 0, days: [], routeAnchorHexId: null, routeAnchorCoord: null, coveredBaseline: 0 };
+    try {
+      const dist = this._journeyWithDomains(() => window.ACKS.computeJourneyDistance(this.currentCampaign, tj));
+      const mph = window.ACKS.JOURNEY_MILES_PER_HEX || 6;
+      const hexes = dist.total || 0;
+      return { totalHexes: hexes, totalMiles: hexes * mph };
     } catch(e){ return null; }
   },
   // GM reroll of the latest day — only available when the day carries a pre-state snapshot AND
