@@ -417,6 +417,16 @@ section('Calendar day-tick pipeline (Phase 2.95)');
   ca.currentDayInMonth = 30; ACKS.advanceCalendarOneDay(ca);
   ok('advanceCalendarOneDay: clamps at 30 (no rollover)', ca.currentDayInMonth === 30);
 
+  // Month rollover (the calendar half commitTurn runs at month end): advanceCalendarOneMonth bumps
+  // the month and RESETS calendar.day to 1 — so after a rollover calendar.day matches the day clock
+  // (which commitTurn sets to 1). This guards the desync where calendar.day would lag at 30 while the
+  // day clock read 1 (the month-end day-tick now routes through this — Joachim 2026-06-05).
+  const cmo = mkCamp(); cmo.calendar.month = 1; cmo.calendar.day = 30; cmo.currentDayInMonth = 30;
+  ACKS.advanceCalendarOneMonth(cmo);
+  ok('advanceCalendarOneMonth: month 1 -> 2', cmo.calendar.month === 2);
+  ok('advanceCalendarOneMonth: calendar.day resets to 1', cmo.calendar.day === 1);
+  ok('advanceCalendarOneMonth: year rolls after month 12', (() => { const c2 = mkCamp(); c2.calendar.month = 12; c2.calendar.year = 1; ACKS.advanceCalendarOneMonth(c2); return c2.calendar.month === 1 && c2.calendar.year === 2; })());
+
   // Construction advances via the day-tick: propose is non-mutating, commit applies
   const cc = mkCamp();
   cc.projects.push(mkProject({ id:'prj-c1', laborRequired:1000 }));

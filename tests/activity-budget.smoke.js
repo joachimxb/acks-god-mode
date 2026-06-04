@@ -6,8 +6,9 @@
  * Architecture.md §3.13 derive-don't-store + §7 the actor-time stack):
  *   - the ACTIVITY_BUDGET constants + the ACTIVITY_COSTS taxonomy + activityCostFor()
  *   - the characterActivityBudget() derived accessor: undertaking-derived buckets
- *     (active journeys → travel/rest; magistracies → domain-admin), the RAW
- *     1-dedicated-+-4-ancillary over-budget check, and the RR p.279 strenuous→rest read.
+ *     (active journeys → travel/rest; domains administered THIS month → domain-admin —
+ *     gated on the administers-this-month lever, RR p.344/349, not mere office-holding),
+ *     the RAW 1-dedicated-+-4-ancillary over-budget check, and the RR p.279 strenuous→rest read.
  */
 'use strict';
 const path = require('path');
@@ -33,15 +34,18 @@ function ok(label, cond, detail) {
 }
 function section(t) { console.log('\n— ' + t); }
 
-// minimal hand-built fixture — the accessor reads only campaign.characters / .journeys /
-// .magistracies / .houseRules, so we build exactly those (faithful to the real shapes
-// journeysWithParticipant + magistraciesByCharacter read).
+// minimal hand-built fixture — the accessor reads campaign.characters / .journeys / .domains /
+// .houseRules, so we build exactly those (faithful to the real shapes journeysWithParticipant
+// reads + the domain.magistrates[role] map the domain-admin gate reads).
 function mkCampaign(over) {
-  return Object.assign({ characters: [], journeys: [], magistracies: [], houseRules: {} }, over || {});
+  return Object.assign({ characters: [], journeys: [], domains: [], houseRules: {} }, over || {});
 }
 const mkChar = (id, over) => Object.assign({ id, personalFatigue: 0 }, over || {});
 const mkJourney = (id, chars, status) => ({ id, participantCharacterIds: chars, status });
-const mkMag = (id, chr, dom, role) => ({ id, magistrateCharacterId: chr, domainId: dom, role, status: 'active' });
+// A domain carrying the administers-this-month lever the budget gates domain-admin on (RR p.344/349):
+// domain.administersThisMonth (ruler) + domain.magistrates[role].administersThisMonth (officer).
+const mkDomain = (id, over) => Object.assign({ id, rulerCharacterId: null, administersThisMonth: false, magistrates: {} }, over || {});
+const mkMagSlot = (chr, administering) => ({ characterId: chr, administersThisMonth: !!administering });
 
 // =============================================================================
 section('ACTIVITY_BUDGET constants (RR p.272 / JJ pp.99–100)');
@@ -87,10 +91,25 @@ const bRest = ACKS.characterActivityBudget(cRest, 'chr-a');
 ok('resting: 1 dedicated = rest', bRest.dedicatedUsed === 1 && bRest.dedicated[0].kind === 'rest');
 ok('resting: not strenuous', bRest.dedicated[0].strenuous === false);
 
-const cMag = mkCampaign({ characters: [mkChar('chr-a')], magistracies: [mkMag('mag-1', 'chr-a', 'dom-1', 'steward')] });
+// Holding a magistracy but NOT administering this month → no dedicated day (RAW: the activity is
+// administering — the +1-morale lever — not holding the office).
+const cHold = mkCampaign({ characters: [mkChar('chr-a')], domains: [mkDomain('dom-1', { magistrates: { steward: mkMagSlot('chr-a', false) } })] });
+ok('magistrate holding, NOT administering: no domain-admin', ACKS.characterActivityBudget(cHold, 'chr-a').dedicatedUsed === 0);
+
+// An administering magistrate → 1 dedicated domain-admin.
+const cMag = mkCampaign({ characters: [mkChar('chr-a')], domains: [mkDomain('dom-1', { magistrates: { steward: mkMagSlot('chr-a', true) } })] });
 const bMag = ACKS.characterActivityBudget(cMag, 'chr-a');
-ok('magistrate: 1 dedicated = domain-admin', bMag.dedicatedUsed === 1 && bMag.dedicated[0].kind === 'domain-admin');
-ok('magistrate: source is the domain', bMag.dedicated[0].sourceKind === 'domain' && bMag.dedicated[0].sourceId === 'dom-1');
+ok('magistrate administering: 1 dedicated = domain-admin', bMag.dedicatedUsed === 1 && bMag.dedicated[0].kind === 'domain-admin');
+ok('magistrate administering: source is the domain', bMag.dedicated[0].sourceKind === 'domain' && bMag.dedicated[0].sourceId === 'dom-1');
+
+// An administering RULER also spends the dedicated day (the old version missed rulers entirely).
+const cRuler = mkCampaign({ characters: [mkChar('chr-a')], domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true })] });
+ok('ruler administering: 1 dedicated = domain-admin', ACKS.characterActivityBudget(cRuler, 'chr-a').dedicatedUsed === 1);
+// A ruler who hasn't ticked the lever spends nothing.
+const cRulerOff = mkCampaign({ characters: [mkChar('chr-a')], domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: false })] });
+ok('ruler NOT administering: no domain-admin', ACKS.characterActivityBudget(cRulerOff, 'chr-a').dedicatedUsed === 0);
+// opts.domains overrides campaign.domains (the live-app domains-split): same gate, passed via opts.
+ok('opts.domains honored', ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')] }), 'chr-a', { domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true })] }).dedicatedUsed === 1);
 
 // =============================================================================
 section('characterActivityBudget() — inactive undertakings are not counted');
@@ -109,23 +128,23 @@ section('characterActivityBudget() — over-budget detection');
 const cTwo = mkCampaign({
   characters: [mkChar('chr-a')],
   journeys: [mkJourney('jrn-1', ['chr-a'], 'in-transit')],
-  magistracies: [mkMag('mag-1', 'chr-a', 'dom-1', 'steward')],
+  domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true })],
 });
 const bTwo = ACKS.characterActivityBudget(cTwo, 'chr-a');
 ok('two dedicated: counted', bTwo.dedicatedUsed === 2);
 ok('two dedicated: over budget', bTwo.overBudget === true);
 ok('two dedicated: reason names dedicated cap', /dedicated/.test(bTwo.overReason || ''));
 
-// two magistracies in the SAME domain dedupe to one administration.
+// Ruler AND an administering officer in the SAME domain dedupe to one administration.
 const cDup = mkCampaign({
   characters: [mkChar('chr-a')],
-  magistracies: [mkMag('mag-1', 'chr-a', 'dom-1', 'steward'), mkMag('mag-2', 'chr-a', 'dom-1', 'captain')],
+  domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true, magistrates: { steward: mkMagSlot('chr-a', true) } })],
 });
-ok('same-domain roles dedupe to one admin', ACKS.characterActivityBudget(cDup, 'chr-a').dedicatedUsed === 1);
-// two magistracies in DIFFERENT domains = two administrations → over budget.
+ok('same-domain ruler+officer dedupe to one admin', ACKS.characterActivityBudget(cDup, 'chr-a').dedicatedUsed === 1);
+// administering two DIFFERENT domains = two administrations → over budget.
 const cTwoDom = mkCampaign({
   characters: [mkChar('chr-a')],
-  magistracies: [mkMag('mag-1', 'chr-a', 'dom-1', 'steward'), mkMag('mag-2', 'chr-a', 'dom-2', 'steward')],
+  domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true }), mkDomain('dom-2', { magistrates: { steward: mkMagSlot('chr-a', true) } })],
 });
 ok('two-domain admin = over budget', ACKS.characterActivityBudget(cTwoDom, 'chr-a').overBudget === true);
 

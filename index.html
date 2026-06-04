@@ -9471,8 +9471,11 @@ return {
     if(!camp || !Array.isArray(camp.characters)) return [];
     const A = window.ACKS || {};
     const isActive = A.isActive || (c => (c && (c.lifecycleState || 'active') === 'active' && c.alive !== false));
+    // Pass the UI's domains (kept separate from currentCampaign.domains) so the budget can gate
+    // domain-admin on the administers-this-month lever (it reads domain.magistrates[*].administersThisMonth).
+    const _budgetOpts = { domains: this.domains };
     const rows = camp.characters.filter(c => c && isActive(c)).map(c => {
-      const budget = A.characterActivityBudget ? A.characterActivityBudget(camp, c.id) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
+      const budget = A.characterActivityBudget ? A.characterActivityBudget(camp, c.id, _budgetOpts) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
       const dedCap = 1;
       const ancCap = budget.dedicatedUsed >= 1 ? 4 : 12;   // RAW: a dedicated task caps ancillary at 4; an all-errand day allows 12
       const dedLeft = Math.max(0, dedCap - budget.dedicatedUsed);
@@ -15391,11 +15394,23 @@ return {
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
     finally { this.currentCampaign.domains = _origDomains; }
   },
-  tickDay(){ this._proposeDayTick(1); },
-  tickWeek(){ this._proposeDayTick(7); },
+  tickDay(){ if(this._dayTickAtMonthEnd()) return; this._proposeDayTick(1); },
+  tickWeek(){ if(this._dayTickAtMonthEnd()) return; this._proposeDayTick(7); },
   tickToMonthEnd(){
+    if(this._dayTickAtMonthEnd()) return;
     const dim = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || 1;
     this._proposeDayTick(Math.max(1, 30 - dim));
+  },
+  // Day 30 is the last day of the month — advancing a day rolls into the NEXT month, which is the
+  // monthly turn. So at month end a forward day-tick triggers Advance Month (proposeMonthlyTurn — a
+  // propose-review-commit the GM still confirms; commitTurn resets the day clock to 1 + advances the
+  // calendar, so day/calendar stay synced) instead of clamping at 30 as a silent no-op. Returns true
+  // if it handled the click. (Joachim 2026-06-05: "the +1 day committed at month should trigger the
+  // advance month mechanic.")
+  _dayTickAtMonthEnd(){
+    const dim = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || 1;
+    if(dim >= 30){ this.proposeMonthlyTurn(); return true; }   // 30 = MONTH_LEN (proposeDayTick)
+    return false;
   },
   dayTickRecordGroups(){
     const p = this.dayTickProposal; const map = {};

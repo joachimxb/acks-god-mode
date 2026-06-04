@@ -5245,8 +5245,10 @@ function congregationHistory(campaign, id){   return _filterByRelatedEntity(camp
 // RAW 1-dedicated-+-4-ancillary day budget (ACTIVITY_BUDGET / ACTIVITY_COSTS, RR p.272 / JJ pp.99–100).
 //
 // Derive-don't-store (Architecture.md §3.13): the budget reads the committed undertakings that
-// are ALREADY entities (the character's active Journeys + Magistracies — ventures, construction
-// supervision and the rest wire in at AB-4) and maps each through its activity-cost. The
+// are ALREADY entities (the character's active Journeys + the domains they administer THIS month —
+// ventures, construction supervision and the rest wire in at AB-4) and maps each through its
+// activity-cost. (Domain admin is gated on the administers-this-month lever, not mere office-holding
+// — see the domain loop below.) The
 // entity-less errands (carouse / study / buy) union in via a seam (cost-tagged daily events or a
 // thin buffer — built at AB-4, plan §9 / OQ1; empty for now). No parallel activityRecords[]
 // ledger to shadow the undertakings and drift (the party.memberCharacterIds-mirror hazard, §3.3).
@@ -5286,14 +5288,32 @@ function characterActivityBudget(campaign, charId, opts){
       activities.push({ kind, label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id });
     }
   }
-  // Magistracies: administering a domain is a dedicated commitment. Dedupe by domain (several
-  // roles in one domain = one administration).
+  // Domain administration — RAW: "Administer a domain" IS a dedicated activity (RR p.352, "hold
+  // court"), but only for whoever is ACTUALLY administering THIS month — the +1-domain-morale lever
+  // (RR p.344/349; domain.administersThisMonth for the ruler, magistrates[role].administersThisMonth
+  // for an officer), NOT merely holding the office. So a magistrate who hasn't ticked "administers
+  // this month" spends no dedicated day; an administering ruler does (the old version counted any
+  // magistracy-holder and missed administering rulers entirely). Counts an administering ruler + any
+  // administering magistrate; dedupes per domain (ruler + an officer both administering one domain =
+  // one administration). Mirrors the Activity projection's gate (index.html characterActivities
+  // Contributor 2). Domains come from opts.domains when given — the live app keeps domains in
+  // this.domains separate from (often-empty) campaign.domains, the domains-split UI quirk — else
+  // campaign.domains (tests + integrators that keep domains on the campaign).
+  const _domains = (opts.domains && opts.domains.length) ? opts.domains : ((campaign && campaign.domains) || []);
   const seenDomains = {};
-  for(const role of derivedMagistrateRolesFor(campaign, charId)){
-    if(role && role.domainId && !seenDomains[role.domainId]){
-      seenDomains[role.domainId] = 1;
+  for(const d of _domains){
+    if(!d || !d.id || seenDomains[d.id]) continue;
+    let administering = !!(d.administersThisMonth && d.rulerCharacterId === charId);
+    if(!administering && d.magistrates){
+      for(const rk of Object.keys(d.magistrates)){
+        const slot = d.magistrates[rk];
+        if(slot && slot.administersThisMonth && slot.characterId === charId){ administering = true; break; }
+      }
+    }
+    if(administering){
+      seenDomains[d.id] = 1;
       const cc = costFor('domain-admin');
-      activities.push({ kind:'domain-admin', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'domain', sourceId: role.domainId });
+      activities.push({ kind:'domain-admin', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'domain', sourceId: d.id });
     }
   }
 
