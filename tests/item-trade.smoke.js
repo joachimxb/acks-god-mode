@@ -106,16 +106,33 @@ ok('chance cell: boundary roll (r=25) → 1 unit', roll(700, 3, {}, () => 0.24) 
 ok('chance cell: high roll → 0 units', roll(700, 3, {}, () => 0.50) === 0);   // r = 51 > 25
 
 // =============================================================================
-section('EQUIPMENT_CATALOG seed (RR p.128 armor — cost + stone verified) + generic-by-price');
+section('EQUIPMENT_CATALOG — comprehensive, RAW-verified (RR pp.126–130) + generic-by-price');
 // =============================================================================
-ok('catalog exported', Array.isArray(ACKS.EQUIPMENT_CATALOG) && ACKS.EQUIPMENT_CATALOG.length >= 10);
-ok('every seed row is verified armor', ACKS.EQUIPMENT_CATALOG.every(e => e.category === 'armor' && typeof e.listPriceGp === 'number' && typeof e.stone === 'number'));
-ok('lookupEquipment(plate-armor) = 60 gp / 6 st', (() => { const e = ACKS.lookupEquipment('plate-armor'); return e && e.listPriceGp === 60 && e.stone === 6; })());
-ok('lookupEquipment(leather-armor) = 20 gp / 2 st', (() => { const e = ACKS.lookupEquipment('leather-armor'); return e && e.listPriceGp === 20 && e.stone === 2; })());
-ok('lookupEquipment(shield) = 10 gp / 1 st', (() => { const e = ACKS.lookupEquipment('shield'); return e && e.listPriceGp === 10 && e.stone === 1; })());
+ok('catalog exported, comprehensive', Array.isArray(ACKS.EQUIPMENT_CATALOG) && ACKS.EQUIPMENT_CATALOG.length >= 90);
+ok('no duplicate ids', new Set(ACKS.EQUIPMENT_CATALOG.map(e => e.id)).size === ACKS.EQUIPMENT_CATALOG.length);
+ok('every row well-formed (stone num or null for mounts)', ACKS.EQUIPMENT_CATALOG.every(e => e.id && e.name && e.category && typeof e.listPriceGp === 'number' && (typeof e.stone === 'number' || e.stone === null)));
+ok('all five categories present', ['weapon', 'ammunition', 'armor', 'gear', 'mount'].every(c => ACKS.equipmentByCategory(c).length > 0));
+// spot-check verified prices (markdown read, cross-checked vs the PDF raw extract + rulebook prose)
+ok('sword = 10 gp / 1/6 st', (() => { const e = ACKS.lookupEquipment('sword'); return e.listPriceGp === 10 && Math.abs(e.stone - 1 / 6) < 1e-9; })());
+ok('dagger = 3 gp', ACKS.lookupEquipment('dagger').listPriceGp === 3);
+ok('two-handed sword = 15 gp / 1 st', (() => { const e = ACKS.lookupEquipment('two-handed-sword'); return e.listPriceGp === 15 && e.stone === 1; })());
+ok('long bow = 7 gp', ACKS.lookupEquipment('long-bow').listPriceGp === 7);
+ok('composite bow = 40 gp', ACKS.lookupEquipment('composite-bow').listPriceGp === 40);
+ok('plate armor = 60 gp / 6 st', (() => { const e = ACKS.lookupEquipment('plate-armor'); return e.listPriceGp === 60 && e.stone === 6; })());
+ok('leather armor = 20 gp / 2 st', (() => { const e = ACKS.lookupEquipment('leather-armor'); return e.listPriceGp === 20 && e.stone === 2; })());
+ok('lantern = 10 gp', ACKS.lookupEquipment('lantern').listPriceGp === 10);
+ok("thieves' tools = 25 gp", ACKS.lookupEquipment('thieves-tools').listPriceGp === 25);
+// the PDF -layout column-drift cases, now correct from the markdown (cross-checked vs PDF prose):
+ok('heavy warhorse = 315 gp (list price; the availability example uses 700)', ACKS.lookupEquipment('horse-heavy-war').listPriceGp === 315);
+ok('goat = 3 gp (the -layout drift had read 2,000)', ACKS.lookupEquipment('goat').listPriceGp === 3);
+ok('heavy draft horse = 40 gp (the -layout drift had read 3)', ACKS.lookupEquipment('horse-heavy-draft').listPriceGp === 40);
+ok('mounts are led, not carried (stone = null)', ACKS.lookupEquipment('horse-heavy-war').stone === null);
 ok('lookupEquipment(unknown) = null', ACKS.lookupEquipment('no-such-item') === null);
-// catalogue → availability: plate armor (60 gp, the 11–100 band) is freely stocked (count 1) at Class IV.
+// catalogue → availability: plate armor (60 gp, 11–100 band) is freely stocked (count 1) at Class IV.
 ok('catalogued plate armor resolves availability', (() => { const e = ACKS.lookupEquipment('plate-armor'); const a = avail(e.listPriceGp, 3); return a.kind === 'count' && a.count === 1; })());
+// reproduce the RR p.124 "Cain" example end-to-end: heavy warhorse (the example's 700 gp), Class IV,
+// visited-before → treat as Class III → a flat 1 available, so Cain can buy it.
+ok('RR p.124 Cain example reproduces (700 gp, Class IV + visited → 1)', (() => { const a = avail(700, 3, { visitedBefore: true }); return a.kind === 'count' && a.count === 1; })());
 // generic-by-price: an off-catalogue item transacts purely off its entered price.
 ok('generic-by-price: off-catalogue item availability', avail(250, 2).kind === 'count' && avail(250, 2).count === 1);
 

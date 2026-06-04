@@ -763,30 +763,133 @@ function rollEquipmentUnitsAvailable(listPriceGp, marketClassIdx, opts, rng){
   return (r <= a.percent) ? 1 : 0;
 }
 
-// Equipment price catalog (RR pp.126–137) — a curated, price-verified CORE seed, NOT the full
-// chapter (CLAUDE §13.6). The transaction verb (IT-2) also takes a generic-by-price line
-// ({ name, listPriceGp, stone }), so ANY item — off-catalogue, GM-named, or not-yet-seeded —
-// transacts off its list price; the catalogue is a convenience lookup, never a gate.
-// v1 seeds the Armor & Barding table (RR p.128 — clean single-row values, cost + stone both
-// verified against RAW). Weapons, general adventuring gear, mounts and vehicles are a follow-up
-// transcription: their RR multi-column tables interleave under a bulk text extract (a goat
-// reads as 2,000 gp, a crowbar as 15 stone — column drift), so rather than risk a wrong price
-// they are left to generic-by-price until each is verified from a clean pass.
-//   { id, name, category, listPriceGp, stone, raw } — `raw` is the RAW page cite.
+// Equipment price catalog (RR pp.126–130) — transcribed from the clean markdown rulebook
+// (`ACKS Sources/ACKS_Revised_Rulebook.md`, whose linear per-item structure reads reliably) and
+// **cross-checked against the PDF**: the raw reading-order `pdftotext` extract reproduces the same
+// item→cost order, and the rulebook's own prose (RR p.124) confirms a heavy warhorse is 315 gp.
+// (An earlier bulk `-layout` PDF extract column-drifted — it mis-read a goat as 2,000 gp and a
+// crowbar as 15 stone; that artifact is gone here.) Comprehensive across the adventuring categories
+// (weapon · ammunition · armor · gear · mount/livestock); pure-flavor rows (the 14 herbs, foodstuffs,
+// most clothing, prosthetics, treatises, barding — "Varies") are intentionally omitted, since the
+// transaction verb also takes a generic-by-price line ({ name, listPriceGp, stone }) so ANY item
+// transacts off its list price — the catalogue is a convenience lookup, never a gate (CLAUDE §13.6).
+// Encumbrance per RR p.127: most small/medium weapons = 1/6 st, large = 1 st; mounts/livestock are
+// led, not carried (stone:null). Sub-gp prices stored as gp decimals (1 sp = 0.1 gp, 1 cp = 0.01 gp).
+//   { id, name, category, listPriceGp, stone, raw }.
+// NB the RR p.124 *availability* worked example prices the heavy warhorse at 700 gp (a rulebook
+// internal inconsistency vs the 315 gp equipment-list price); both land in the 101–1,000 gp band,
+// so equipmentAvailability() is identical either way — the catalog uses the list price (315).
 const EQUIPMENT_CATALOG = Object.freeze([
-  { id:'hide-fur-armor',  name:'Hide & Fur Armor',     category:'armor', listPriceGp:10, stone:1, raw:'RR p.128' },
-  { id:'padded-armor',    name:'Padded Armor',         category:'armor', listPriceGp:10, stone:1, raw:'RR p.128' },
-  { id:'leather-armor',   name:'Leather Armor',        category:'armor', listPriceGp:20, stone:2, raw:'RR p.128' },
-  { id:'ring-mail',       name:'Ring Mail',            category:'armor', listPriceGp:30, stone:3, raw:'RR p.128' },
-  { id:'scale-armor',     name:'Scale Armor',          category:'armor', listPriceGp:30, stone:3, raw:'RR p.128' },
-  { id:'chain-mail',      name:'Chain Mail Armor',     category:'armor', listPriceGp:40, stone:4, raw:'RR p.128' },
-  { id:'laminated-linen', name:'Laminated Linen Armor',category:'armor', listPriceGp:40, stone:4, raw:'RR p.128' },
-  { id:'banded-plate',    name:'Banded Plate Armor',   category:'armor', listPriceGp:50, stone:5, raw:'RR p.128' },
-  { id:'lamellar-armor',  name:'Lamellar Armor',       category:'armor', listPriceGp:50, stone:5, raw:'RR p.128' },
-  { id:'plate-armor',     name:'Plate Armor',          category:'armor', listPriceGp:60, stone:6, raw:'RR p.128' },
-  { id:'shield',          name:'Shield',               category:'armor', listPriceGp:10, stone:1, raw:'RR p.128' }
+  // ── Weapons (RR pp.126–127) ──
+  { id:'dagger',           name:'Dagger',              category:'weapon', listPriceGp:3,   stone:1/6, raw:'RR p.126' },
+  { id:'silver-dagger',    name:'Silver Dagger',       category:'weapon', listPriceGp:30,  stone:1/6, raw:'RR p.126' },
+  { id:'knife',            name:'Knife',               category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'short-sword',      name:'Short Sword',         category:'weapon', listPriceGp:7,   stone:1/6, raw:'RR p.126' },
+  { id:'sword',            name:'Sword',               category:'weapon', listPriceGp:10,  stone:1/6, raw:'RR p.126' },
+  { id:'two-handed-sword', name:'Two-Handed Sword',    category:'weapon', listPriceGp:15,  stone:1,   raw:'RR p.126' },
+  { id:'battle-axe',       name:'Battle Axe',          category:'weapon', listPriceGp:7,   stone:1/6, raw:'RR p.126' },
+  { id:'great-axe',        name:'Great Axe',           category:'weapon', listPriceGp:10,  stone:1,   raw:'RR p.126' },
+  { id:'hand-axe',         name:'Hand Axe',            category:'weapon', listPriceGp:4,   stone:1/6, raw:'RR p.126' },
+  { id:'mace',             name:'Mace',                category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'morning-star',     name:'Morning Star',        category:'weapon', listPriceGp:10,  stone:1,   raw:'RR p.126' },
+  { id:'warhammer',        name:'Warhammer',           category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'flail',            name:'Flail',               category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'club',             name:'Club',                category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'staff',            name:'Staff',               category:'weapon', listPriceGp:1,   stone:1,   raw:'RR p.126' },
+  { id:'spear',            name:'Spear',               category:'weapon', listPriceGp:3,   stone:1,   raw:'RR p.126' },
+  { id:'polearm',          name:'Polearm',             category:'weapon', listPriceGp:7,   stone:1,   raw:'RR p.126' },
+  { id:'lance',            name:'Lance',               category:'weapon', listPriceGp:5,   stone:1,   raw:'RR p.126' },
+  { id:'javelin',          name:'Javelin',             category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'dart-5',           name:'Dart (5)',            category:'weapon', listPriceGp:2,   stone:1/6, raw:'RR p.126' },
+  { id:'bola',             name:'Bola',                category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'sling',            name:'Sling',               category:'weapon', listPriceGp:2,   stone:1/6, raw:'RR p.126' },
+  { id:'staff-sling',      name:'Staff Sling',         category:'weapon', listPriceGp:3,   stone:1,   raw:'RR p.126' },
+  { id:'short-bow',        name:'Short Bow',           category:'weapon', listPriceGp:3,   stone:1/6, raw:'RR p.126' },
+  { id:'long-bow',         name:'Long Bow',            category:'weapon', listPriceGp:7,   stone:1,   raw:'RR p.126' },
+  { id:'composite-bow',    name:'Composite Bow',       category:'weapon', listPriceGp:40,  stone:1,   raw:'RR p.126' },
+  { id:'crossbow',         name:'Crossbow',            category:'weapon', listPriceGp:30,  stone:1/6, raw:'RR p.126' },
+  { id:'arbalest',         name:'Arbalest',            category:'weapon', listPriceGp:50,  stone:1,   raw:'RR p.126' },
+  { id:'whip',             name:'Whip',                category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'net',              name:'Net',                 category:'weapon', listPriceGp:1,   stone:1,   raw:'RR p.126' },
+  { id:'sap',              name:'Sap',                 category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'cestus',           name:'Cestus',              category:'weapon', listPriceGp:3,   stone:1/6, raw:'RR p.126' },
+  // ── Ammunition (RR p.126) ──
+  { id:'quiver-20-arrows', name:'Quiver, 20 Arrows',   category:'ammunition', listPriceGp:1, stone:1/6, raw:'RR p.126' },
+  { id:'case-20-bolts',    name:'Case, 20 Bolts',      category:'ammunition', listPriceGp:2, stone:1/6, raw:'RR p.126' },
+  { id:'silver-arrow',     name:'Silver Arrow',        category:'ammunition', listPriceGp:5, stone:1/6, raw:'RR p.126' },
+  // ── Armor (RR p.128 — AC value equals encumbrance in stone) ──
+  { id:'hide-fur-armor',   name:'Hide & Fur Armor',    category:'armor', listPriceGp:10,  stone:1,   raw:'RR p.128' },
+  { id:'padded-armor',     name:'Padded Armor',        category:'armor', listPriceGp:10,  stone:1,   raw:'RR p.128' },
+  { id:'leather-armor',    name:'Leather Armor',       category:'armor', listPriceGp:20,  stone:2,   raw:'RR p.128' },
+  { id:'ring-mail',        name:'Ring Mail',           category:'armor', listPriceGp:30,  stone:3,   raw:'RR p.128' },
+  { id:'scale-armor',      name:'Scale Armor',         category:'armor', listPriceGp:30,  stone:3,   raw:'RR p.128' },
+  { id:'chain-mail',       name:'Chain Mail Armor',    category:'armor', listPriceGp:40,  stone:4,   raw:'RR p.128' },
+  { id:'laminated-linen',  name:'Laminated Linen Armor',category:'armor', listPriceGp:40, stone:4,   raw:'RR p.128' },
+  { id:'banded-plate',     name:'Banded Plate Armor',  category:'armor', listPriceGp:50,  stone:5,   raw:'RR p.128' },
+  { id:'lamellar-armor',   name:'Lamellar Armor',      category:'armor', listPriceGp:50,  stone:5,   raw:'RR p.128' },
+  { id:'plate-armor',      name:'Plate Armor',         category:'armor', listPriceGp:60,  stone:6,   raw:'RR p.128' },
+  { id:'shield',           name:'Shield',              category:'armor', listPriceGp:10,  stone:1,   raw:'RR p.128' },
+  { id:'shield-mirror',    name:'Shield, Mirror',      category:'armor', listPriceGp:250, stone:1,   raw:'RR p.128' },
+  { id:'helmet-heavy',     name:'Helmet, Heavy',       category:'armor', listPriceGp:20,  stone:1/6, raw:'RR p.128' },
+  // ── Adventuring gear (RR p.129) ──
+  { id:'backpack',         name:'Backpack',            category:'gear', listPriceGp:2,    stone:1/6, raw:'RR p.129' },
+  { id:'rope-50',          name:"Rope, 50'",           category:'gear', listPriceGp:1,    stone:1,   raw:'RR p.129' },
+  { id:'torches-6',        name:'Torches (6)',         category:'gear', listPriceGp:0.1,  stone:1,   raw:'RR p.129' },
+  { id:'lantern',          name:'Lantern',             category:'gear', listPriceGp:10,   stone:1,   raw:'RR p.129' },
+  { id:'oil-common',       name:'Oil, Common (1 pint)',category:'gear', listPriceGp:0.3,  stone:1/6, raw:'RR p.129' },
+  { id:'oil-military',     name:'Oil, Military (1 pint)',category:'gear', listPriceGp:2,  stone:1/6, raw:'RR p.129' },
+  { id:'waterskin',        name:'Waterskin',           category:'gear', listPriceGp:0.6,  stone:1/6, raw:'RR p.129' },
+  { id:'iron-spikes-6',    name:'Iron Spikes (6)',     category:'gear', listPriceGp:1,    stone:1/6, raw:'RR p.129' },
+  { id:'grappling-hook',   name:'Grappling Hook',      category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'crowbar',          name:'Crowbar',             category:'gear', listPriceGp:1,    stone:1/6, raw:'RR p.129' },
+  { id:'thieves-tools',    name:"Thieves' Tools",      category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'thieves-tools-expanded', name:"Thieves' Tools, Expanded", category:'gear', listPriceGp:200,  stone:1/6, raw:'RR p.129' },
+  { id:'thieves-tools-superior', name:"Thieves' Tools, Superior", category:'gear', listPriceGp:1600, stone:1/6, raw:'RR p.129' },
+  { id:'holy-water',       name:'Holy Water (1 pint)', category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'holy-symbol',      name:'Holy Symbol',         category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'holy-book',        name:'Holy Book',           category:'gear', listPriceGp:20,   stone:1/2, raw:'RR p.129' },
+  { id:'spell-book-blank', name:'Spell Book (blank)',  category:'gear', listPriceGp:20,   stone:1/2, raw:'RR p.129' },
+  { id:'tent-small',       name:'Tent, Small',         category:'gear', listPriceGp:3,    stone:1,   raw:'RR p.129' },
+  { id:'tent-large',       name:'Tent, Large',         category:'gear', listPriceGp:20,   stone:4,   raw:'RR p.129' },
+  { id:'tinderbox',        name:'Tinderbox (flint & steel)', category:'gear', listPriceGp:0.8, stone:1/6, raw:'RR p.129' },
+  { id:'mirror-steel',     name:'Mirror (hand-sized, steel)', category:'gear', listPriceGp:5, stone:1/6, raw:'RR p.129' },
+  { id:'lock',             name:'Lock',                category:'gear', listPriceGp:20,   stone:1/6, raw:'RR p.129' },
+  { id:'manacles',         name:'Manacles',            category:'gear', listPriceGp:2,    stone:1/6, raw:'RR p.129' },
+  { id:'craftsmans-tools', name:"Craftsman's Tools",   category:'gear', listPriceGp:25,   stone:1,   raw:'RR p.129' },
+  { id:'saddle-riding',    name:'Saddle and Tack, Riding',   category:'gear', listPriceGp:10, stone:1,   raw:'RR p.129' },
+  { id:'saddle-military',  name:'Saddle and Tack, Military', category:'gear', listPriceGp:25, stone:1,   raw:'RR p.129' },
+  { id:'saddle-draft',     name:'Saddle and Tack, Draft',    category:'gear', listPriceGp:5,  stone:1,   raw:'RR p.129' },
+  { id:'saddlebag',        name:'Saddlebag',           category:'gear', listPriceGp:5,    stone:1/6, raw:'RR p.129' },
+  // ── Mounts & livestock (RR p.130 — led, not carried; stone:null) ──
+  { id:'horse-light-war',    name:'Horse, Light War',    category:'mount', listPriceGp:150,  stone:null, raw:'RR p.130' },
+  { id:'horse-medium-war',   name:'Horse, Medium War',   category:'mount', listPriceGp:250,  stone:null, raw:'RR p.130' },
+  { id:'horse-heavy-war',    name:'Horse, Heavy War',    category:'mount', listPriceGp:315,  stone:null, raw:'RR p.130' },
+  { id:'horse-light-riding', name:'Horse, Light Riding', category:'mount', listPriceGp:75,   stone:null, raw:'RR p.130' },
+  { id:'horse-medium-riding',name:'Horse, Medium Riding',category:'mount', listPriceGp:40,   stone:null, raw:'RR p.130' },
+  { id:'horse-steppe-riding',name:'Horse, Steppe Riding',category:'mount', listPriceGp:60,   stone:null, raw:'RR p.130' },
+  { id:'horse-steppe-war',   name:'Horse, Steppe War',   category:'mount', listPriceGp:120,  stone:null, raw:'RR p.130' },
+  { id:'horse-medium-draft', name:'Horse, Medium Draft', category:'mount', listPriceGp:30,   stone:null, raw:'RR p.130' },
+  { id:'horse-heavy-draft',  name:'Horse, Heavy Draft',  category:'mount', listPriceGp:40,   stone:null, raw:'RR p.130' },
+  { id:'horse-steppe-draft', name:'Horse, Steppe Draft', category:'mount', listPriceGp:30,   stone:null, raw:'RR p.130' },
+  { id:'mule-draft',         name:'Mule, Draft',         category:'mount', listPriceGp:20,   stone:null, raw:'RR p.130' },
+  { id:'mule-riding',        name:'Mule, Riding',        category:'mount', listPriceGp:30,   stone:null, raw:'RR p.130' },
+  { id:'mule-war',           name:'Mule, War',           category:'mount', listPriceGp:50,   stone:null, raw:'RR p.130' },
+  { id:'donkey-draft',       name:'Donkey, Draft',       category:'mount', listPriceGp:10,   stone:null, raw:'RR p.130' },
+  { id:'camel-riding',       name:'Camel, Riding',       category:'mount', listPriceGp:100,  stone:null, raw:'RR p.130' },
+  { id:'ox-draft',           name:'Ox, Draft',           category:'mount', listPriceGp:40,   stone:null, raw:'RR p.130' },
+  { id:'dog-war',            name:'Dog, War',            category:'mount', listPriceGp:75,   stone:null, raw:'RR p.130' },
+  { id:'dog-hunting',        name:'Dog, Hunting',        category:'mount', listPriceGp:10,   stone:null, raw:'RR p.130' },
+  { id:'hawk-hunting',       name:'Hawk, Hunting',       category:'mount', listPriceGp:20,   stone:null, raw:'RR p.130' },
+  { id:'elephant-riding',    name:'Elephant, Riding',    category:'mount', listPriceGp:1500, stone:null, raw:'RR p.130' },
+  { id:'elephant-war',       name:'Elephant, War',       category:'mount', listPriceGp:2000, stone:null, raw:'RR p.130' },
+  { id:'cow',                name:'Cow',                 category:'mount', listPriceGp:10,   stone:null, raw:'RR p.130' },
+  { id:'pig',                name:'Pig',                 category:'mount', listPriceGp:3,    stone:null, raw:'RR p.130' },
+  { id:'sheep',              name:'Sheep',               category:'mount', listPriceGp:2,    stone:null, raw:'RR p.130' },
+  { id:'goat',               name:'Goat',                category:'mount', listPriceGp:3,    stone:null, raw:'RR p.130' },
+  { id:'chicken',            name:'Chicken',             category:'mount', listPriceGp:0.1,  stone:null, raw:'RR p.130' }
 ]);
 function lookupEquipment(id){ return EQUIPMENT_CATALOG.find(e => e.id === id) || null; }
+function equipmentByCategory(cat){ return EQUIPMENT_CATALOG.filter(e => e.category === cat); }
 
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
@@ -807,7 +910,7 @@ Object.assign(ACKS, {
   // Phase 2.9 Retail Item Trade (#346 flagship / IT-1) — Equipment Availability by Market Class
   // + the price catalog seed (generic-by-price covers the rest until transcribed).
   EQUIPMENT_AVAILABILITY, equipmentPriceBand, equipmentAvailability, rollEquipmentUnitsAvailable,
-  EQUIPMENT_CATALOG, lookupEquipment
+  EQUIPMENT_CATALOG, lookupEquipment, equipmentByCategory
 });
 
 if(typeof module !== 'undefined' && module.exports){
