@@ -365,6 +365,7 @@
         { name: 'purpose', type: 'enum', enumValues: ['expedition','commercial-venture','pilgrimage','embassy','patrol','rescue','courier','hijink-travel','other'], group: 'Identity' },
         { name: 'mode',   type: 'enum', enumValues: ['foot','mounted-light','mounted-medium','mounted-heavy','wagon','voyage-row','voyage-sail','voyage-galley','voyage-longship','aerial-mount','aerial-spell','mixed'], group: 'Identity', description: 'J1 acts on land modes only; sea/air reserved' },
         { name: 'pace',   type: 'enum', enumValues: ['forced-march','normal','half-speed'], group: 'Identity' },
+        { name: 'speedOverrideMilesPerDay', type: 'number', min: 0, group: 'Identity', description: '§26 GM speed override — miles/day for the leg, bypassing pace/weather/temperature (per-hex terrain still applies). 0 or blank ⇒ pace governs' },
         { name: 'partyId', type: 'id', idKind: 'party', group: 'Participants', description: 'Optional convenience pointer — participantCharacterIds is the source of truth' },
         { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
         { name: 'startHexId',       type: 'id', idKind: 'hex', group: 'Route' },
