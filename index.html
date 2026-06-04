@@ -3762,9 +3762,9 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
-             side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick grays Pace
-             and reveals the miles/day value after Mode (grayed nominal preview until ticked); the value is
-             edited via the standard lock-open-pick-close editor (✏ → ✓/×), so one edit = one event. -->
+             side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
+             override (no value/event); off shows nothing beside the tick. The value is set/edited via the
+             standard lock-open-pick-close editor (✏ → ✓/×, one edit = one event); committing a value grays Pace. -->
         <div x-show="journeyDetail().status==='in-transit'">
           <div class="flex flex-wrap gap-4 items-end text-sm">
             <div>
@@ -3806,10 +3806,7 @@ document.addEventListener('alpine:init', () => {
                     <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                   </span>
                 </template>
-                <!-- OFF (not armed, no value): grayed nominal-pace preview — tick Override to set an exact value. -->
-                <template x-if="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">
-                  <span class="text-sm opacity-40 font-mono" x-text="_journeyNominalSpeed(journeyDetail()) + ' mi/day'" title="Tick Override to set an exact miles/day (this is the current pace's nominal speed)"></span>
-                </template>
+                <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
               </div>
             </div>
           </div>
@@ -9406,13 +9403,6 @@ return {
       this.journeyOverrideArmed = false;
       if(this.journeyHasSpeedOverride(j)) this.setJourneySpeedOverride(j, null);
     }
-  },
-  // The nominal open-ground speed for the journey's current pace (base × pace mult) — the value the
-  // grayed field previews when override is off, and the default the override starts at when first ticked.
-  _journeyNominalSpeed(j){
-    const base = (window.ACKS.JOURNEY_BASE_SPEED_MILES_PER_DAY) || 24;
-    const pm = (window.ACKS.JOURNEY_PACE_SPEED && window.ACKS.JOURNEY_PACE_SPEED[j.pace] != null) ? window.ACKS.JOURNEY_PACE_SPEED[j.pace] : 1;
-    return Math.round(base * pm);
   },
   abortJourneyUI(j){
     if(!j) return;
