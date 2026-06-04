@@ -1881,6 +1881,26 @@ function cacheToStash(campaign, characterId, stashId, spec, opts){
     source: { kind:'character', id: characterId, label: ch.name || null },
     atTurn: (opts && opts.atTurn) || campaign.currentTurn || 1
   });
+  // GP Wave B (Architecture.md §4.3.6) — the cache/draw modal moved items but emitted no
+  // eventLog event; emit the item-transfer (+ a wealth-transfer for the coin leg) so the
+  // action surfaces in entity history. Suppressed when invoked as an item-transfer leg.
+  if(!(opts && opts.suppressEvent) && global.ACKS){
+    if(movedItems > 0 && global.ACKS.recordItemTransfer){
+      global.ACKS.recordItemTransfer(campaign, {
+        source: { kind:'character', id: characterId, label: ch.name || null },
+        destination: { kind:'stash', id: stashId, label: stash.name || null },
+        lines: depositItems.filter(d => (d.facets||[]).indexOf('coin') < 0).map(d => ({ name: d.name, qty: d.qty })),
+        bucket: 'cache', reason: (opts && opts.reason) || 'cache'
+      });
+    }
+    if(movedCoinGp > 0 && global.ACKS.recordWealthTransfer){
+      global.ACKS.recordWealthTransfer(campaign, {
+        source: { kind:'character-gp', id: characterId, label: ch.name || null },
+        destination: { kind:'stash', id: stashId, label: stash.name || null },
+        amount: movedCoinGp, bucket: 'cache', reason: (opts && opts.reason) || 'cache'
+      });
+    }
+  }
   return { ok:true, stash, movedItems, movedCoinGp };
 }
 
@@ -1922,15 +1942,35 @@ function drawFromStash(campaign, stashId, characterId, spec, opts){
   });
   if(!out) return { ok:false, error:'withdraw-failed' };
 
+  let movedCoinGp = 0; const movedItemLines = [];
   for(const line of out.withdrawn){
     if(itemHasFacet(line, 'coin')){
       const d = line.denomination || 'gp';
       ch.coins[d] = (Number(ch.coins[d]) || 0) + (line.qty || 0);
+      movedCoinGp += itemValueGp(line);
     } else {
       ch.inventory.push(_stashItemToCarryLine(line));
+      movedItemLines.push({ name: line.name || null, qty: (line.qty != null) ? line.qty : 1 });
     }
   }
   reconcileCharacterCoins(ch);
+  // GP Wave B (Architecture.md §4.3.6) — emit the item-transfer (+ wealth-transfer coin leg).
+  if(!(opts && opts.suppressEvent) && global.ACKS){
+    if(movedItemLines.length && global.ACKS.recordItemTransfer){
+      global.ACKS.recordItemTransfer(campaign, {
+        source: { kind:'stash', id: stashId, label: stash.name || null },
+        destination: { kind:'character', id: characterId, label: ch.name || null },
+        lines: movedItemLines, bucket: 'draw', reason: (opts && opts.reason) || 'draw'
+      });
+    }
+    if(movedCoinGp > 0 && global.ACKS.recordWealthTransfer){
+      global.ACKS.recordWealthTransfer(campaign, {
+        source: { kind:'stash', id: stashId, label: stash.name || null },
+        destination: { kind:'character-gp', id: characterId, label: ch.name || null },
+        amount: movedCoinGp, bucket: 'draw', reason: (opts && opts.reason) || 'draw'
+      });
+    }
+  }
   const band = carryEncumbranceBandFor(carryTotalEncumbrance(ch));
   return { ok:true, stash, band, overEncumbered: band.level === 'overloaded' };
 }
@@ -3857,6 +3897,9 @@ function commitTurn(campaign, domains, proposal, helpers){
     if(p.skip) return;
     const d = domains.find(x => x.id === p.domainId);
     if(!d) return;
+    // GP Wave B (Architecture.md §4.3.2) — collect the month's treasury line items; emitted as
+    // wealth-transfer children under this domain's engine-standard-turn event below.
+    const _turnWealthChildren = [];
 
     d.expenses.tithePaid = p.tithePaid;
     if(p.hasLiege) d.expenses.tributePaid = p.tributePaid;
@@ -3886,6 +3929,7 @@ function commitTurn(campaign, domains, proposal, helpers){
       treasuryGp: d.treasury.gp
     };
     _applyDomainTreasuryDelta(campaign, d, net, { reason:'monthly-net-income', label:'monthly net income' });
+    if(net) _turnWealthChildren.push({ amount: net, bucket:'monthly-net-income', reason:'monthly net income' });
     d.demographics.morale = moraleAfter;
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
     setPeasantPopulation(d, (d.demographics.peasantFamilies || 0) + popDelta);
@@ -3932,6 +3976,7 @@ function commitTurn(campaign, domains, proposal, helpers){
       }
     });
     _applyDomainTreasuryDelta(campaign, d, -totalInvestmentSpent, { reason:'urban-investment', label:'urban settlement investment' });
+    if(totalInvestmentSpent) _turnWealthChildren.push({ amount: -totalInvestmentSpent, bucket:'urban-investment', reason:'urban settlement investment' });
 
     // Agricultural investments (RR p.341, p.174) — Foundation #17 incremental model + Foundation #18
     // realistic-construction house rule. Each hex's order is a gpAmount (any value the GM allocated).
@@ -4068,6 +4113,7 @@ function commitTurn(campaign, domains, proposal, helpers){
         return;
       }
       _applyDomainTreasuryDelta(campaign, d, -affordable, { reason:'agricultural-improvement', label:'agricultural land improvement' });
+      if(affordable) _turnWealthChildren.push({ amount: -affordable, bucket:'agricultural-improvement', reason:'agricultural land improvement' });
       totalAgriculturalSpent += affordable;
       laborConsumed += affordable;
       hex.landImprovementInvested = (hex.landImprovementInvested || 0) + affordable;
@@ -4246,6 +4292,17 @@ function commitTurn(campaign, domains, proposal, helpers){
         appliedAtTurn: stEvent.appliedAtTurn,
         appliedAt: new Date().toISOString()
       });
+      // GP Wave B (§4.3.2) — the per-line-item wealth-transfer decomposition under the turn
+      // event. The treasury mutation already happened once above; these carry the grammar.
+      for(const w of _turnWealthChildren){
+        if(!w.amount || !global.ACKS.recordWealthTransfer) continue;
+        const into = w.amount >= 0;
+        global.ACKS.recordWealthTransfer(campaign, {
+          source:      into ? { kind:'external', label: w.reason } : { kind:'treasury', id: d.id },
+          destination: into ? { kind:'treasury', id: d.id } : { kind:'external', label: w.reason },
+          amount: Math.abs(w.amount), bucket: w.bucket, reason: w.reason
+        }, { parentEvent: stEvent });
+      }
     } catch(e){ /* swallow per original */ }
 
     // Award XP to ruler (RR p.423; henchman rulers get half).

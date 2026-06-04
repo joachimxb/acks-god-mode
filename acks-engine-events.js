@@ -1025,6 +1025,17 @@ function applyEvent_treasuryGrant(campaign, event){
   if(typeof p.amount !== 'number') throw new Error('treasury-grant: amount must be a number');
   const change = _applyTreasuryDelta(campaign, p.domainId, p.amount, p.label);
   const source = p.sourceCharacterId ? ' (from character '+p.sourceCharacterId+')' : '';
+  // GP Wave B (Architecture.md §4.3.2/§4.3.3) — the mutation happened once above; emit the
+  // wealth-transfer decomposition child so the event log carries the grammar. A negative
+  // grant is a debit (treasury → external); a positive one credits the treasury.
+  if(Math.abs(p.amount) > 0){
+    const into = p.amount >= 0;
+    recordWealthTransfer(campaign, {
+      source:      into ? { kind:'external', label: p.sourceCharacterId ? ('character ' + p.sourceCharacterId) : (p.label || 'grant') } : { kind:'treasury', id: p.domainId },
+      destination: into ? { kind:'treasury', id: p.domainId } : { kind:'external', label: p.label || 'debit' },
+      amount: Math.abs(p.amount), bucket: into ? 'grant' : 'debit', reason: p.label || ''
+    }, { parentEvent: event });
+  }
   // Foundation #14 auto-emit hook: when a grant exceeds a settlement's transaction threshold,
   // notable-transaction rumors emit. Gated by both markets-transaction-threshold (so the
   // threshold mechanic is on) and rumors-auto-emit (so the engine is allowed to push events).
@@ -1070,6 +1081,14 @@ function applyEvent_treasuryDebit(campaign, event){
   if(typeof p.amount !== 'number') throw new Error('treasury-debit: amount must be a number');
   const absDelta = -Math.abs(p.amount);
   const change = _applyTreasuryDelta(campaign, p.domainId, absDelta, p.label);
+  // GP Wave B — decomposition child: treasury → external (a debit always leaves the coffers).
+  if(Math.abs(p.amount) > 0){
+    recordWealthTransfer(campaign, {
+      source: { kind:'treasury', id: p.domainId },
+      destination: { kind:'external', label: p.destinationCharacterId ? ('character ' + p.destinationCharacterId) : (p.reason || p.label || 'debit') },
+      amount: Math.abs(p.amount), bucket: 'debit', reason: p.reason || p.label || ''
+    }, { parentEvent: event });
+  }
   return {
     result: {
       domainsChanged: [p.domainId], charactersChanged: [], hexesChanged: [],
@@ -1161,6 +1180,12 @@ function applyEvent_adventureResult(campaign, event){
           ch.personalGp = ch.coins.gp;
           changed.charactersChanged.push(ch.id);
           summaryParts.push('+'+t.amount+'gp to '+ch.name);
+          // GP Wave B — decomposition child: loot recovered (external) → the character's purse.
+          if(t.amount) recordWealthTransfer(campaign, {
+            source: { kind:'external', label: t.label || 'adventure loot' },
+            destination: { kind:'character-gp', id: ch.id, label: ch.name + "'s purse" },
+            amount: t.amount, bucket: 'adventure-loot', reason: t.label || ''
+          }, { parentEvent: event });
         }
       } else {
         const destDom = t.destinationDomainId || targetDomainId;
@@ -1169,6 +1194,12 @@ function applyEvent_adventureResult(campaign, event){
           changed.domainsChanged.push(destDom);
           treasuryDelta += t.amount;
           summaryParts.push('+'+t.amount+'gp to '+destDom);
+          // GP Wave B — decomposition child: loot recovered (external) → the domain treasury.
+          if(t.amount) recordWealthTransfer(campaign, {
+            source: { kind:'external', label: t.label || 'adventure loot' },
+            destination: { kind:'treasury', id: destDom },
+            amount: t.amount, bucket: 'adventure-loot', reason: t.label || ''
+          }, { parentEvent: event });
         }
       }
     }
@@ -1950,13 +1981,13 @@ function _doItemTransfer(campaign, spec){
   // internal moves wrap the shipped setters (the cache/draw retrofit + integrators).
   if(isCh(srcK) && isStash(dstK)){
     const itemIndices = lines.map(l => l.inventoryIndex).filter(Number.isInteger);
-    const res = A.cacheToStash ? A.cacheToStash(campaign, src.id, dst.id, { itemIndices }, { reason }) : null;
+    const res = A.cacheToStash ? A.cacheToStash(campaign, src.id, dst.id, { itemIndices }, { reason, suppressEvent: true }) : null;
     if(!res || !res.ok) throw new Error('item-transfer: cacheToStash failed'+(res ? (' '+res.error) : ''));
     return { moved: lines, count: itemIndices.length };
   }
   if(isStash(srcK) && isCh(dstK)){
     const itemIds = lines.map(l => l.itemId).filter(Boolean);
-    const res = A.drawFromStash ? A.drawFromStash(campaign, src.id, dst.id, { itemIds }, { reason }) : null;
+    const res = A.drawFromStash ? A.drawFromStash(campaign, src.id, dst.id, { itemIds }, { reason, suppressEvent: true }) : null;
     if(!res || !res.ok) throw new Error('item-transfer: drawFromStash failed'+(res ? (' '+res.error) : ''));
     return { moved: lines, count: itemIds.length };
   }

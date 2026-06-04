@@ -254,6 +254,57 @@ section('Notability — off by default (deterministic); no rumor without the rul
 }
 
 // =============================================================================
+section('Phase 2 — migration sweep: shipped GP flows emit the grammar as children');
+// =============================================================================
+{
+  // treasury-grant → a wealth-transfer child (external → treasury), hidden from the Campaign Log
+  const { c } = fixture();
+  const ev = ACKS.newEvent('treasury-grant', { payload: { domainId: 'dom-1', amount: 400, label: 'royal gift' } });
+  ACKS.applyEvent(c, ev);
+  const child = c.eventLog.find(e => e.event.kind === 'wealth-transfer' && e.event.parentEventId === ev.id);
+  ok('treasury-grant emitted a wealth-transfer child', !!child);
+  ok('child: external → treasury, 400gp', child && child.event.payload.destination.kind === 'treasury' && child.event.payload.amount === 400);
+  ok('child is campaignLogHidden (the grant narrates)', child && child.event.campaignLogHidden === true);
+  ok('treasury moved exactly once (5000→5400, not doubled by the record)', ACKS.domainTreasuryGp(c, 'dom-1') === 5400);
+}
+{
+  const { c } = fixture();
+  const ev = ACKS.newEvent('treasury-debit', { payload: { domainId: 'dom-1', amount: 250, label: 'repairs', reason: 'wall repairs' } });
+  ACKS.applyEvent(c, ev);
+  const child = c.eventLog.find(e => e.event.kind === 'wealth-transfer' && e.event.parentEventId === ev.id);
+  ok('treasury-debit emitted a treasury → external child', !!child && child.event.payload.source.kind === 'treasury' && child.event.payload.amount === 250);
+  ok('treasury debited once (5000→4750)', ACKS.domainTreasuryGp(c, 'dom-1') === 4750);
+}
+{
+  // adventure-result → a wealth-transfer per gp award (a character purse + a domain treasury)
+  const { c } = fixture();
+  const ev = ACKS.newEvent('adventure-result', { payload: { outcome: 'cleared', treasureAwarded: [
+    { kind: 'gp', amount: 300, destinationCharacterId: 'chr-buyer', label: 'loot' },
+    { kind: 'gp', amount: 700, destinationDomainId: 'dom-1', label: 'coffer share' },
+  ] } });
+  ACKS.applyEvent(c, ev);
+  const kids = c.eventLog.filter(e => e.event.kind === 'wealth-transfer' && e.event.parentEventId === ev.id);
+  ok('adventure-result emitted a wealth-transfer per gp award', kids.length === 2);
+  ok('loot reached the buyer purse + a character-gp child', c.characters.find(x => x.id === 'chr-buyer').coins.gp === 1300 && kids.some(k => k.event.payload.destination.kind === 'character-gp'));
+  ok('coffer share reached the treasury + a treasury child', ACKS.domainTreasuryGp(c, 'dom-1') === 5700 && kids.some(k => k.event.payload.destination.kind === 'treasury'));
+}
+{
+  // cacheToStash / drawFromStash now emit standalone item-transfer (+ a wealth-transfer coin leg)
+  const { c } = fixture();
+  const buyer = c.characters.find(x => x.id === 'chr-buyer');
+  buyer.inventory = [{ name: 'Lantern', stone: 1, notes: '' }];
+  ACKS.cacheToStash(c, 'chr-buyer', 'stash-cache', { itemIndices: [0], coins: { gp: 100 } });
+  ok('cache emits an item-transfer (character → stash, item line only)', c.eventLog.some(e => e.event.kind === 'item-transfer' && e.event.payload.source.kind === 'character' && e.event.payload.destination.kind === 'stash' && e.event.payload.lines.some(l => l.name === 'Lantern')));
+  ok('cache emits a wealth-transfer for the coin leg', c.eventLog.some(e => e.event.kind === 'wealth-transfer' && e.event.payload.amount === 100 && e.event.payload.bucket === 'cache'));
+  ok('cache moved coins once (purse 1000→900)', buyer.coins.gp === 900);
+  ok('cache/draw events are visible in the Campaign Log (a narratable action, no parent)', c.eventLog.filter(e => e.event.kind === 'item-transfer').every(e => !e.event.campaignLogHidden));
+  const cache = c.stashes.find(s => s.id === 'stash-cache');
+  const lantern = cache.items.find(it => it.name === 'Lantern');
+  ACKS.drawFromStash(c, 'stash-cache', 'chr-buyer', { itemIds: [lantern.id], coins: { gp: 50 } });
+  ok('draw emits an item-transfer (stash → character)', c.eventLog.some(e => e.event.kind === 'item-transfer' && e.event.payload.source.kind === 'stash' && e.event.payload.destination.kind === 'character'));
+}
+
+// =============================================================================
 // Summary
 // =============================================================================
 console.log('\n=============================================');
