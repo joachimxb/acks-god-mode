@@ -12440,10 +12440,18 @@ return {
     const routes = [];
     (this.currentCampaign?.journeys || []).forEach(j => {
       if(!j || j.status === 'aborted') return;
-      const ids = [j.routeAnchorHexId || j.startHexId].concat((j.waypoints || []).map(w => w.hexId), [j.destinationHexId]).filter(Boolean);
+      // Draw the REMAINING leg: from where the party actually IS now (currentHexId) to the destination,
+      // through the waypoints still AHEAD — not from the starting hex. The current-position ring sits at
+      // the same origin, so the line emanates from it. Waypoints the party has already walked through (any
+      // committed day's hexPath) are dropped so the line doesn't dogleg back to a hex they've left behind.
+      const originId = j.currentHexId || j.routeAnchorHexId || j.startHexId;
+      const visited = new Set();
+      (j.days || []).forEach(d => (((d && d.hexPath) || []).forEach(p => { if(p && p.hexId) visited.add(p.hexId); })));
+      const waypointIds = (j.waypoints || []).map(w => w.hexId).filter(id => id && !visited.has(id));
+      const ids = [originId].concat(waypointIds, [j.destinationHexId]).filter(Boolean);
       const pts = ids.map(centre).filter(Boolean);
       if(!pts.length) return;
-      routes.push({ id:j.id, status:j.status, name:j.name || 'Journey', pts, current:centre(j.currentHexId || j.routeAnchorHexId || j.startHexId) });
+      routes.push({ id:j.id, status:j.status, name:j.name || 'Journey', pts, current:centre(originId) });
     });
     return routes;
   },
