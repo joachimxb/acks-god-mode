@@ -154,20 +154,30 @@ check('on arrival the participant is moved to the destination + unlinked', ar.c.
 check('a journey-arrived event was emitted', ar.c.eventLog.some(e => e.event.kind === 'journey-arrived'));
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('Lost cascade (nav-fail → isLost)');
+section('Lost cascade (nav-fail → unknowing-lost, strays — RR p.275)');
 
+// RAW (RR p.275): a failed Navigation throw means the party gets lost AND DOESN'T KNOW IT — it strays
+// toward a random hex face and keeps moving (its full distance, the WRONG way), unaware, until a later
+// successful throw. Scripted rng: nav d20 (0 ⇒ rolled 1, auto-fail) · stray face (0.5 ⇒ floor(3) = face 3
+// = −q, AWAY from the +q destination at (12,0)) · then 0.99 (no wandering encounter).
+const seqRng = (vals) => { let i = 0; return () => (i < vals.length ? vals[i++] : 0.99); };
 const lo = build({ hasRoad: false, terrain: 'jungle' }); // jungle 14+, no proficiency
 lo.j.status = 'in-transit'; lo.j.currentHexId = 'hex-a';
-const lp = ACKS.proposeJourneyDay(lo.c, { dayInMonth: 2, rng: () => 0 }); // rng 0 ⇒ d20 = 1 ⇒ nav fail
+const remBefore = ACKS.computeJourneyDistance(lo.c, lo.c.journeys[0]).remaining;
+const lp = ACKS.proposeJourneyDay(lo.c, { dayInMonth: 2, rng: seqRng([0, 0.5]) });
 ACKS.commitJourneyRecord(lo.c, lp.pendingRecords[0]);
-check('nav failure sets isLost', lo.c.journeys[0].isLost === true);
-check('a lost day makes no progress', lo.c.journeys[0].days[0].hexesTraveled === 0);
+const lj = lo.c.journeys[0];
+check('nav failure sets isLost', lj.isLost === true);
+check('a lost party STILL MOVES (strays) — not the old halt (RR p.275)', lj.days[0].hexesTraveled > 0, 'hexes ' + lj.days[0].hexesTraveled);
+check('lost is UNKNOWING (fail-unknown-lost), not the old fail-known-lost', lj.days[0].navigationThrow.result === 'fail-unknown-lost');
+check('a stray heading (0..5) is recorded + persisted on the journey', typeof lj.strayHeading === 'number' && lj.strayHeading >= 0 && lj.strayHeading <= 5);
+check('no progress toward the goal — route epoch re-anchored (covered = 0)', ACKS.computeJourneyDistance(lo.c, lj).covered === 0);
+check('straying the wrong way pushes the destination FURTHER away', ACKS.computeJourneyDistance(lo.c, lj).remaining > remBefore, 'rem ' + remBefore + '→' + ACKS.computeJourneyDistance(lo.c, lj).remaining);
 check('lost surfaces a navigation-fail pauseTrigger', lp.notableEvents.some(e => e.pauseTrigger === 'navigation-fail'));
-// auto-pause-on-navigation-fail ON ⇒ the pipeline pauses on the lost day
-const lo2 = build({ hasRoad: false, terrain: 'jungle', houseRules: { 'auto-pause-on-navigation-fail': true } });
-lo2.j.status = 'in-transit'; lo2.j.currentHexId = 'hex-a';
-// (proposeDayTick uses Math.random; jungle 14+ with no bonus fails ~65% — assert the seam exists, not the roll)
 check('auto-pause-on-navigation-fail rule is wired to the journeys consumer', ACKS.dayConsumersInOrder().find(c => c.name === 'journeys').pauseTriggers.indexOf('navigation-fail') >= 0);
+// RR p.275: an unmodified natural 1 ALWAYS fails — even with the +8 both-proficiencies bonus.
+check('rollNavigation: natural 1 auto-fails even at +8 vs 6+', ACKS.rollNavigation(6, 8, () => 0).success === false && ACKS.rollNavigation(6, 8, () => 0).naturalOne === true);
+check('rollNavigation: a 20 clears a hard target (jungle 14+)', ACKS.rollNavigation(14, 0, () => 0.99).success === true);
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('Navigation recovery (bugfix) — a success clears lost + resumes movement');
@@ -188,6 +198,56 @@ const frs = build({ hasRoad: false, terrain: 'forest' });
 ACKS.startJourney(frs.c, frs.j);
 const frR = ACKS.proposeJourneyDay(frs.c, { dayInMonth: 2, rng: () => 0.99 }).pendingRecords[0];
 check('a normal nav success moves (not lost, plain success)', frR.newIsLost === false && frR.dayRecord.hexesTraveled > 0 && frR.dayRecord.navigationThrow.result === 'success');
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('§27 getting-lost — RAW nav bonus (RR p.275) + stray persistence + recovery re-route');
+
+// +4 for the Navigation proficiency OR the Pathfinding class power; +8 for BOTH; nothing else helps a
+// land getting-lost throw (Adventuring / Survival / Land Surveying / Seafaring do NOT). Read the bonus
+// the integrated tick recorded on the day's navigationThrow.
+function navBonusOf(setup){
+  const t = build({ hasRoad: false, terrain: 'forest' });
+  Object.assign(t.c.characters[0], setup);
+  t.j.status = 'in-transit'; t.j.currentHexId = 'hex-a';
+  const r = ACKS.proposeJourneyDay(t.c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0];
+  const b = r.dayRecord.navigationThrow && r.dayRecord.navigationThrow.bonuses[0];
+  return b ? b.value : 0;
+}
+check('nav bonus +4 for the Navigation proficiency', navBonusOf({ proficiencies: ['Navigation'] }) === 4);
+check('nav bonus +4 for the Pathfinding class power', navBonusOf({ classPowers: ['Pathfinding'] }) === 4);
+check('nav bonus +8 for BOTH Navigation + Pathfinding', navBonusOf({ proficiencies: ['Navigation'], classPowers: ['Pathfinding'] }) === 8);
+check('nav bonus 0 — Adventuring/Survival/Land Surveying do NOT help (RR p.275)', navBonusOf({ proficiencies: ['Adventuring', 'Survival', 'Land Surveying'] }) === 0);
+
+// strayHeading persists while lost ("blithely continues on") — a second failed day keeps the heading.
+const per = build({ hasRoad: false, terrain: 'jungle' });
+per.j.status = 'in-transit'; per.j.currentHexId = 'hex-a';
+ACKS.commitJourneyRecord(per.c, ACKS.proposeJourneyDay(per.c, { dayInMonth: 2, rng: seqRng([0, 0.5]) }).pendingRecords[0]);
+const h1 = per.c.journeys[0].strayHeading;
+ACKS.commitJourneyRecord(per.c, ACKS.proposeJourneyDay(per.c, { dayInMonth: 3, rng: seqRng([0]) }).pendingRecords[0]); // fails again — no re-roll
+check('a still-lost party keeps the same stray heading (RR p.275)', typeof h1 === 'number' && per.c.journeys[0].strayHeading === h1);
+check('each lost day re-anchors — covered stays 0 while lost', ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).covered === 0);
+
+// Recovery (RR p.275): a later success re-orients the party — it resumes toward the destination from
+// wherever it strayed to (the route is already anchored there).
+const remLost = ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).remaining;
+const recDay = ACKS.proposeJourneyDay(per.c, { dayInMonth: 4, rng: () => 0.99 }).pendingRecords[0]; // d20 = 20 ⇒ recover
+ACKS.commitJourneyRecord(per.c, recDay);
+check('recovery clears lost + the stray heading', per.c.journeys[0].isLost === false && per.c.journeys[0].strayHeading === null);
+check('recovery day is marked success-recovered', recDay.dayRecord.navigationThrow.result === 'success-recovered');
+check('after recovery the party heads to the destination again (remaining shrinks)', ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).remaining < remLost, 'rem ' + remLost + '→' + ACKS.computeJourneyDistance(per.c, per.c.journeys[0]).remaining);
+
+// Migration backfills the §27 fields on legacy-shaped journeys.
+const lj2 = ACKS.migrateCampaign({ schemaVersion: 2, kind: 'campaign', id: 'cmp-lj', name: 'LJ',
+  domains: [], characters: [], hexes: [], settlements: [], parties: [], eventLog: [],
+  journeys: [{ schemaVersion: 2, id: 'jrn-old', startHexId: 'hex-a', destinationHexId: 'hex-b', pace: 'normal', days: [] }] });
+check('migration backfills strayHeading=null + routeAnchorCoord=null on legacy journeys', lj2.journeys[0].strayHeading === null && lj2.journeys[0].routeAnchorCoord === null);
+
+// The route + distance resolve from routeAnchorCoord (a strayed, possibly-UNauthored position) when set.
+const ac = build({ hasRoad: false, terrain: 'grassland' });
+ac.c.journeys[0].routeAnchorCoord = { q: 3, r: 0 }; ac.c.journeys[0].coveredBaseline = 0;
+const acRoute = ACKS.journeyRoute(ac.c, ac.c.journeys[0]);
+check('journeyRoute anchors at routeAnchorCoord when set', acRoute.length > 0 && acRoute[0].coord.q === 3 && acRoute[0].coord.r === 0);
+check('computeJourneyDistance measures from the coord anchor ((3,0)→(12,0) = 9)', ACKS.computeJourneyDistance(ac.c, ac.c.journeys[0]).total === 9);
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('Supply depletion → hunger + dehydration (RAW default)');

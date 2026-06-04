@@ -1192,6 +1192,11 @@ function blankJourney(opts={}){
     // set to the hexes already walked, so the new route's progress counts from here. startHexId is kept
     // as the TRUE origin (name + history). null/0 = never re-routed (route runs from startHexId).
     routeAnchorHexId: opts.routeAnchorHexId || null,
+    // §27 getting-lost (RR p.275): a lost party strays toward a random hex face, off the planned route,
+    // possibly onto UNauthored coords (no hex id). routeAnchorCoord is the coord-capable anchor used while
+    // straying — it takes precedence over routeAnchorHexId so the route resolves from where the party
+    // physically is, even in trackless wilderness. null = anchor by hex id (the normal case).
+    routeAnchorCoord: opts.routeAnchorCoord || null,
     coveredBaseline: opts.coveredBaseline || 0,
     currentHexId: opts.currentHexId || null,            // the hex the party is in now (advances hex-by-hex along the route — §24)
     currentDayIndex: opts.currentDayIndex || 0,         // 0..N days into the journey
@@ -1213,6 +1218,10 @@ function blankJourney(opts={}){
     mergedAtDayIndex: opts.mergedAtDayIndex != null ? opts.mergedAtDayIndex : null,
     // Per-day navigation state
     isLost: opts.isLost === true,
+    // §27 getting-lost (RR p.275): the hex face (0..5, HEX_EDGE_DELTAS order) a lost party is straying
+    // toward, set on the failed Navigation throw and persisted ("blithely continues on") until a later
+    // successful throw re-orients them. null = not lost / not straying.
+    strayHeading: (typeof opts.strayHeading === 'number') ? opts.strayHeading : null,
     lastKnownHexId: opts.lastKnownHexId || null,
     fatigueDays: opts.fatigueDays || 0,                 // strenuous-day streak (JJ p.84)
     // Engine-managed logs (each day-tick appends one Day record; encounters tie to #141/#476)

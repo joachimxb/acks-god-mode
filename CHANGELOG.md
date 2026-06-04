@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Getting lost now follows the book (RR p.275).** A party that fails its daily Navigation throw in trackless wilderness gets lost *and doesn't realize it* — instead of halting, it strays off toward a random hex face and keeps marching the wrong way, day after day, until a later successful throw re-orients it (then it resumes toward its destination from wherever it wandered to, which may be further away than it started). The Navigation bonus is now **+4** for a traveller with the Navigation proficiency or the Pathfinding class power (**+8** for having both) — replacing the old flat +2 for any travel-ish proficiency — and an unmodified **natural 1 always fails**. The day log shows which way a lost party strayed and that they're unaware (that's for you, the GM — their characters stay none the wiser). Following a road or river still keeps a party from getting lost, as before.
 - **Journey pace, mode, and speed-override changes no longer clutter the Campaign Log.** Tweaking a journey's marching pace, travel mode, or speed override is an operational knob-turn, not a campaign event — those changes now stay in the **Event Log** (the full audit) and no longer post a line to the narrative **Campaign Log**. (Other GM edits still appear in both, as before.)
 
 ### Added

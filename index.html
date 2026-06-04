@@ -9210,7 +9210,17 @@ return {
     const total=nav.rolled+bonuses.reduce((s,b)=>s+(b.value||0),0);
     const recovered=nav.result==='success-recovered';
     const ok=nav.result==='success'||recovered||nav.result==='auto-pass-magical';
-    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+(recovered?'recovered ✓':(ok?'success ✓':'lost ✗'));
+    let outcome;
+    if(recovered) outcome='recovered ✓';
+    else if(ok) outcome='success ✓';
+    else {
+      // §27 (RR p.275): a lost party strays toward a random hex face and doesn't realize it. Surface the
+      // stray direction for the GM (the players' characters stay unaware in the fiction).
+      const labels = window.ACKS && window.ACKS.HEX_FACE_LABELS;
+      const face = (typeof nav.strayHeading==='number' && labels) ? labels[nav.strayHeading] : null;
+      outcome='lost ✗'+(face?(' — strays '+face+', unaware'):'')+(nav.naturalOne?' (natural 1)':'');
+    }
+    return 'nav '+parts.join(' ')+(bonuses.length?(' = '+total):'')+' vs '+nav.target+'+ → '+outcome;
   },
   journeyNavOk(nav){ return !!(nav && (nav.result==='success'||nav.result==='success-recovered'||nav.result==='auto-pass-magical')); },
   // Total + remaining distance in miles (computeJourneyDistance returns 6-mile hexes).

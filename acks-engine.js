@@ -878,6 +878,8 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(j.routeAnchorHexId === undefined) j.routeAnchorHexId = null;   // §24 mid-journey re-route anchor (null ⇒ route runs from startHexId)
       if(typeof j.coveredBaseline !== 'number') j.coveredBaseline = 0;  // §24 — hexes walked under prior route epochs
       if(typeof j.speedOverrideMilesPerDay === 'undefined') j.speedOverrideMilesPerDay = null;  // §26 GM speed override (null ⇒ pace governs)
+      if(typeof j.strayHeading === 'undefined') j.strayHeading = null;                          // §27 getting-lost — stray hex face (null ⇒ not lost)
+      if(typeof j.routeAnchorCoord === 'undefined') j.routeAnchorCoord = null;                  // §27 — coord anchor while straying off authored hexes
     }
   }
   // Per-settlement new fields
