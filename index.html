@@ -908,7 +908,7 @@ document.addEventListener('alpine:init', () => {
       <div class="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1 items-center" x-show="tradeActor()">
         <span>🪙 Purse: <span class="font-mono" x-text="tradePurseGp().toLocaleString()+' gp'"></span></span>
         <span x-show="tradeSettlement()">🏛 Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
-        <label class="flex items-center gap-1" title="Mercantile Networks (RR p.413): a market traded in before counts as one class higher"><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (+1 class)</label>
+        <label x-show="tradeActorIsVenturer()" class="flex items-center gap-1" title="Mercantile Network (RR p.43 — the Venturer class power): a venturer treats a market they've previously entered, by retail trade OR a mercantile venture, as one class larger. Auto-set from this character's history; toggle to override."><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (Mercantile Network, +1 class)</label>
         <label class="flex items-center gap-1" :class="tradePartySize() < 12 ? 'opacity-40' : ''" :title="tradePartySize() < 12 ? ('Needs a party of 12+ adventurers — this character\'s party has '+tradePartySize()+' (RR p.124)') : 'A 12+ party devoting a DEDICATED activity to shopping gets double availability (RR p.124); the trip costs one dedicated activity'"><input type="checkbox" :disabled="tradePartySize() < 12" :checked="trade.partyOf12Dedicated && tradePartySize() >= 12" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2, dedicated)</label>
       </div>
 
@@ -12314,9 +12314,19 @@ return {
     // Derive an actor from the settlement's hex when not supplied (the "Trade here" case).
     if(!actorId && settlementId){ const at = this.tradeCharactersAtSettlement(settlementId); if(at[0]) actorId = at[0].id; }
     t.settlementId = settlementId; t.actorId = actorId;
+    t.visitedBefore = this._tradeDeriveVisited(actorId, settlementId);   // RAW (RR p.43): venturer + previously-entered → auto-tick; GM can override
     if(actorId) this.tradeInitSellRows();
   },
   closeTrade(){ this.trade.open = false; },
+  // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
+  // shown ONLY to venturers, and auto-set when this venturer has previously entered this market.
+  tradeActorIsVenturer(){ return window.ACKS.hasMercantileNetwork(this.tradeActor()); },
+  _tradeDeriveVisited(actorId, settlementId){
+    const ch = actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === actorId) : null;
+    if(!window.ACKS.hasMercantileNetwork(ch)) return false;             // non-venturers never get it (engine enforces this too)
+    if(!settlementId) return false;
+    return window.ACKS.previouslyEnteredMarket(this.currentCampaign, actorId, settlementId);
+  },
   tradeActor(){ return this.trade.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.trade.actorId) : null; },
   tradeSettlement(){ return this.trade.settlementId ? (this.currentCampaign?.settlements||[]).find(s => s && s.id === this.trade.settlementId) : null; },
   tradeCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
@@ -12327,12 +12337,12 @@ return {
   },
   characterAtSettlement(ch){ if(!ch || !ch.currentHexId) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === ch.currentHexId) || null; },
   hexSettlementFor(hex){ if(!hex) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === hex.id) || null; },
-  tradeSetActor(id){ this.trade.actorId = id || null; this.trade.partyOf12Dedicated = false; this.trade.buyCart = []; this.tradeInitSellRows(); },
+  tradeSetActor(id){ this.trade.actorId = id || null; this.trade.partyOf12Dedicated = false; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.trade.buyCart = []; this.tradeInitSellRows(); },
   tradePartySize(){
     const ch = this.tradeActor(); if(!ch) return 0; if(!ch.partyId) return 1;
     return (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === ch.partyId).length;
   },
-  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.tradeRecomputeCart(); },
+  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.tradeRecomputeCart(); },
   tradeSetDir(dir){ this.trade.dir = dir; if(dir === 'sell') this.tradeInitSellRows(); },
   tradeMarketClassRoman(){ const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null; },
   tradeMarketClassIdx(){

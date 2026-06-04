@@ -3444,6 +3444,18 @@ function isMercenaryOfficer(c){
   return c.socialTier === 'mercenary';
 }
 
+// --- Class-power predicate ---
+// Mercantile Network (RR p.43) — the Venturer class power. Innate to the Venturer class (it is NOT
+// listed in classPowers — the demo venturer has class:'Venturer' with classPowers:[]), so detect by
+// class; also honor an explicit grant in classPowers (rare — a template or Judge award). Gates the
+// equipment "visited before" bonus: only a venturer treats a market they've previously entered as
+// one market class larger (for buying/selling equipment, hiring retainers, and ventures).
+function hasMercantileNetwork(c){
+  if(!c) return false;
+  if(/venturer/i.test(c.class || '')) return true;
+  return Array.isArray(c.classPowers) && c.classPowers.some(cp => /mercantile network/i.test(String(cp)));
+}
+
 // --- Derived role-class predicates ---
 function isRetainer(c){
   if(!c) return false;
@@ -5548,6 +5560,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   isDestroyedAtZeroHP,
   isHenchman, isSpecialist, isFollower, isHireling, isMercenaryOfficer,
   isRetainer, isLoyaltyTracked, isCommanderEligible,
+  hasMercantileNetwork,
   isVassalRuler,
   displayKind, lifecycleLabel,
   settlementForHex, settlementsForDomain, rumorsAtSettlement, rumorsInDomain, rumorReachAt,

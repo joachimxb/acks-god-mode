@@ -695,8 +695,9 @@ function activityCostFor(kind){
 // =============================================================================
 // Retail Item Trade (#346 flagship / Phase_2.9_Item_Trade_Plan.md IT-1) — the
 // Equipment Availability by Market Class matrix + the availability helpers.
-// Source: RR pp.123–124 (Equipment Availability + Purchasing) + RR p.413 (Mercantile
-// Networks visited-market benefit). The equipment price *catalog* (RR pp.126–137) is a
+// Source: RR pp.123–124 (Equipment Availability + Purchasing) + RR p.43 (Mercantile
+// Network, the Venturer class power: a venturer treats a market they've previously entered as
+// one class larger). The equipment price *catalog* (RR pp.126–137) is a
 // separate, larger table; v1 leans on a generic-by-price path so any item transacts off
 // its list price without the full chapter (CLAUDE §13.6). The transaction verb
 // (marketBuy / marketSell) lands at IT-2.
@@ -730,7 +731,8 @@ function equipmentPriceBand(listPriceGp){
 
 // Equipment availability for (list price gp, market-class index 0–5), with the RAW modifiers.
 // Returns { kind:'count'|'chance'|'none', count, percent, band, marketClassIdx }.
-//   opts.visitedBefore      → treat the market as one class higher (RR p.413 Mercantile Networks).
+//   opts.visitedBefore      → treat the market as one class higher (RR p.43 Mercantile Network — the
+//                             Venturer class power; the wizard gates this to venturers, hasMercantileNetwork).
 //   opts.partyOf12Dedicated → ×2 availability for a 12+ party spending the dedicated activity (RR p.124).
 //   opts.multiParty         → the campaign-wide monthly ceiling is 10× the listed value (RR p.124).
 // A 'count' cell is the deterministic number stocked; a 'chance' cell is a per-unit % chance of a

@@ -404,6 +404,53 @@ section('IT-3 reader — the budget REFRESHES each game DAY (RR: the 1+4 / 12 al
 }
 
 // =============================================================================
+section('Mercantile Network (RR p.43) — the venturer-gated "visited before" +1 class');
+// =============================================================================
+{
+  ok('a Venturer has Mercantile Network', ACKS.hasMercantileNetwork({ class: 'Venturer' }) === true);
+  ok('a Fighter does not', ACKS.hasMercantileNetwork({ class: 'Fighter' }) === false);
+  ok('an explicit classPowers grant counts (rare)', ACKS.hasMercantileNetwork({ class: 'Bard', classPowers: ['Mercantile Network'] }) === true);
+  ok('null is false', ACKS.hasMercantileNetwork(null) === false);
+}
+{
+  // previouslyEnteredMarket — retail history
+  const { c } = fixture();
+  c.settlements.find(s => s.id === 'set-1').domainId = 'dom-1';
+  ok('no history → not previously entered', ACKS.previouslyEnteredMarket(c, 'chr-buyer', 'set-1') === false);
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('a prior retail trade here → previously entered', ACKS.previouslyEnteredMarket(c, 'chr-buyer', 'set-1') === true);
+  ok('a different character is unaffected', ACKS.previouslyEnteredMarket(c, 'chr-payee', 'set-1') === false);
+}
+{
+  // previouslyEnteredMarket — venture history (per Joachim: buying through ventures counts)
+  const { c } = fixture();
+  c.settlements.find(s => s.id === 'set-1').domainId = 'dom-1';
+  c.ventures = [ ACKS.blankVenture({ id: 'vnt-buy', venturerCharacterId: 'chr-buyer', originDomainId: 'dom-1', destinationDomainId: 'dom-far', status: 'in-transit' }) ];
+  ok('a venture that BOUGHT here (origin domain) → previously entered', ACKS.previouslyEnteredMarket(c, 'chr-buyer', 'set-1') === true);
+}
+{
+  const { c } = fixture();
+  c.settlements.find(s => s.id === 'set-1').domainId = 'dom-1';
+  c.ventures = [ ACKS.blankVenture({ id: 'vnt-tr', venturerCharacterId: 'chr-buyer', originDomainId: 'dom-far', destinationDomainId: 'dom-1', status: 'in-transit' }) ];
+  ok('an in-transit venture TO here (not yet arrived) → NOT entered', ACKS.previouslyEnteredMarket(c, 'chr-buyer', 'set-1') === false);
+  c.ventures[0].status = 'selling';
+  ok('once ARRIVED (sold at this destination market) → previously entered', ACKS.previouslyEnteredMarket(c, 'chr-buyer', 'set-1') === true);
+}
+{
+  // engine RAW-gate: visitedBefore is DROPPED for a non-venturer even if passed (RR p.43 is venturer-only).
+  // The Cain example: a 700gp heavy warhorse is a 25% chance cell at Class IV, a count of 1 one class up (III).
+  const { c } = fixture();
+  const set = c.settlements.find(s => s.id === 'set-1'); set.families = 1000;   // → Class IV
+  const buyer = c.characters.find(x => x.id === 'chr-buyer'); buyer.coins = { gp: 5000 };
+  ok('precondition: the buyer is not a venturer', ACKS.hasMercantileNetwork(buyer) === false);
+  const nv = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', visitedBefore: true, lines: [{ name: 'Heavy warhorse', priceGp: 700, stone: 0, qty: 1 }] });
+  ok('non-venturer: visitedBefore dropped → 700gp stays a Class IV chance cell → unavailable', !nv.ok && nv.error === 'unavailable', JSON.stringify(nv));
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-vent', name: 'Cain', class: 'Venturer', coins: { gp: 5000 }, currentHexId: 'hex-1' }));
+  const v = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-vent', visitedBefore: true, lines: [{ name: 'Heavy warhorse', priceGp: 700, stone: 0, qty: 1 }] });
+  ok('venturer: visitedBefore honored → Class III count cell → buys the warhorse', v.ok, JSON.stringify(v));
+}
+
+// =============================================================================
 section('Notability — off by default (deterministic); no rumor without the rule');
 // =============================================================================
 {

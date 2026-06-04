@@ -2263,6 +2263,35 @@ function marketMonthlyRemaining(campaign, settlement, item, direction){
   const ceiling = 10 * base.count;
   return Math.max(0, ceiling - marketUnitsTransactedThisMonth(campaign, settlement.id, item.name, direction));
 }
+// Has this character "previously entered" this market (settlement) — the RAW condition for a
+// venturer's Mercantile Network bonus (RR p.43)? Derived (the canonical settlementVisits tracker,
+// Wave F, isn't built yet): true if the character has a prior RETAIL market-transaction at this
+// settlement, OR a mercantile VENTURE that bought at it (its origin domain) or sold at it (an
+// arrived destination domain). Per Joachim 2026-06-04 venture buying counts as entering. Domain-level
+// match (a venture targets a domain's market). This only answers "entered before?" — the wizard
+// pairs it with hasMercantileNetwork() to decide the auto-tick, and the GM can override.
+function previouslyEnteredMarket(campaign, charId, settlementId){
+  if(!campaign || !charId || !settlementId) return false;
+  // 1) a prior retail trade at this settlement by this character
+  for(const entry of (campaign.eventLog || [])){
+    const ev = entry && entry.event;
+    if(!ev || ev.kind !== 'market-transaction') continue;
+    const p = ev.payload || {};
+    if(p.settlementId === settlementId && p.actorCharacterId === charId) return true;
+  }
+  // 2) a prior venture by this character touching this market's domain
+  const set = (campaign.settlements || []).find(s => s && s.id === settlementId);
+  const domId = set && set.domainId;
+  if(domId){
+    for(const v of (campaign.ventures || [])){
+      if(!v || v.venturerCharacterId !== charId) continue;
+      if(v.originDomainId === domId) return true;                                  // bought here (the venture departed this market)
+      if(v.destinationDomainId === domId &&
+         (v.status === 'selling' || v.status === 'complete' || v.arrivalTurn != null)) return true;  // sold here (arrived)
+    }
+  }
+  return false;
+}
 function marketBuy(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
@@ -2273,7 +2302,8 @@ function marketBuy(campaign, opts){
   const inLines = Array.isArray(opts.lines) ? opts.lines : [];
   if(!inLines.length) return { ok:false, error:'no-lines' };
   const effectiveDedicated = !!opts.partyOf12Dedicated && _actorPartySize(campaign, ch.id) >= 12;   // RR p.124 — a REAL 12+ party only
-  const availOpts = { partyOf12Dedicated: effectiveDedicated, visitedBefore: !!opts.visitedBefore };
+  const visitedBefore = !!opts.visitedBefore && A.hasMercantileNetwork(ch);   // RAW: only a venturer's Mercantile Network grants the +1 market class (RR p.43); dropped for everyone else
+  const availOpts = { partyOf12Dedicated: effectiveDedicated, visitedBefore };
   const lines = []; let totalGp = 0, totalStone = 0;
   for(const raw of inLines){
     const r = _resolveEquipmentLine(raw);
@@ -2328,7 +2358,8 @@ function marketSell(campaign, opts){
   const inLines = Array.isArray(opts.lines) ? opts.lines : [];
   if(!inLines.length) return { ok:false, error:'no-lines' };
   const effectiveDedicated = !!opts.partyOf12Dedicated && _actorPartySize(campaign, ch.id) >= 12;   // RR p.124 — a REAL 12+ party only
-  const availOpts = { partyOf12Dedicated: effectiveDedicated, visitedBefore: !!opts.visitedBefore };
+  const visitedBefore = !!opts.visitedBefore && A.hasMercantileNetwork(ch);   // RAW: only a venturer's Mercantile Network grants the +1 market class (RR p.43); dropped for everyone else
+  const availOpts = { partyOf12Dedicated: effectiveDedicated, visitedBefore };
   const lines = []; let totalGp = 0, totalStone = 0;
   for(const raw of inLines){
     const ix = raw.inventoryIndex;
@@ -2432,7 +2463,8 @@ Object.assign(ACKS, {
   _doWealthTransfer, _doItemTransfer,
   applyWealthTransfer: _doWealthTransfer, applyItemTransfer: _doItemTransfer,
   recordWealthTransfer, recordItemTransfer, _wealthLegAvailable,
-  marketBuy, marketSell, _marketActivityCost, marketUnitsTransactedThisMonth, marketMonthlyRemaining
+  marketBuy, marketSell, _marketActivityCost, marketUnitsTransactedThisMonth, marketMonthlyRemaining,
+  previouslyEnteredMarket
 });
 
 if(typeof module !== 'undefined' && module.exports){
