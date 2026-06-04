@@ -177,6 +177,22 @@ check('a routine travel day is campaignLogHidden (in Event Log + history, out of
 check('characterHistory(traveller) surfaces the travel day', ACKS.characterHistory(tp.c, 'chr-1').some(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived')));
 check('characterHistory(non-traveller) is empty', ACKS.characterHistory(tp.c, 'chr-nobody').length === 0);
 
+// The character-sheet Travel box (2026-06-04) renders characterHistory filtered to journey-* kinds — the
+// WHOLE per-person trip (set out → each day → arrived / stopped / re-routed), not just the per-day ticks.
+// Confirm the lifecycle events tag the traveller too, so the box shows the full timeline.
+const tl = build();
+ACKS.startJourney(tl.c, tl.j);
+check('characterHistory surfaces journey-start (the "set out" row)', ACKS.characterHistory(tl.c, 'chr-1').some(e => e.event && e.event.kind === 'journey-start'));
+ACKS.commitDayTick(tl.c, ACKS.proposeDayTick(tl.c, 1, {}), null);
+ACKS.abortJourney(tl.c, tl.j, 'recalled');
+check('characterHistory surfaces journey-aborted after Stop Moving', ACKS.characterHistory(tl.c, 'chr-1').some(e => e.event && e.event.kind === 'journey-aborted'));
+check('every characterHistory entry is a journey-* travel event (the Travel box filter holds)', ACKS.characterHistory(tl.c, 'chr-1').length > 0 && ACKS.characterHistory(tl.c, 'chr-1').every(e => e.event && /^journey-/.test(e.event.kind)));
+const rr2 = build();
+ACKS.startJourney(rr2.c, rr2.j);
+ACKS.commitDayTick(rr2.c, ACKS.proposeDayTick(rr2.c, 1, {}), null);
+ACKS.reRouteJourney(rr2.c, rr2.j, { destinationHexId: 'hex-a' });
+check('characterHistory surfaces journey-rerouted after a re-route', ACKS.characterHistory(rr2.c, 'chr-1').some(e => e.event && e.event.kind === 'journey-rerouted'));
+
 // A NOTABLE day folds its per-thing signals into the single umbrella event (transient → not emitted
 // separately). Proposal-level: confirm the per-thing notables are transient + exactly one umbrella.
 const np = build({ hasRoad: false, terrain: 'grassland', supplies: { rations: 0, waterRations: 0 } });

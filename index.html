@@ -6173,6 +6173,38 @@ document.addEventListener('alpine:init', () => {
             </label>
           </div>
         </div>
+
+        <!-- TRAVEL — derived per-person travel log (ACKS.characterHistory): every journey-* event that
+             tags this character (set out / each travel day / arrived / stopped / re-routed). Routine days
+             that stay out of the narrative Campaign Log still appear here — this is where the GM reviews
+             where someone has been. The trip itself lives under Activities → Travel. -->
+        <div class="vellum border border-ink p-3 rounded">
+          <div class="flex justify-between items-baseline mb-2">
+            <h4 class="font-semibold">⛺ Travel</h4>
+            <span class="text-sm opacity-70" x-text="characterTravelHistory(characterEditing).length + ' ' + (characterTravelHistory(characterEditing).length === 1 ? 'day/event' : 'days/events')"></span>
+          </div>
+          <template x-if="characterTravelHistory(characterEditing).length === 0">
+            <p class="text-sm italic opacity-60">No travel yet. When this character sets out on a journey (Activities → Travel) and you advance the Day Clock, every travel day — where they went, getting lost, fording rivers, running low on supplies, and arriving — is recorded here.</p>
+          </template>
+          <template x-if="characterTravelHistory(characterEditing).length > 0">
+            <div class="text-sm max-h-96 overflow-y-auto pr-1">
+              <template x-for="(t,ti) in characterTravelHistory(characterEditing)" :key="ti">
+                <div class="border-l-2 pl-2 py-1 mb-1" :style="
+                  t.arrived                   ? 'border-color:#2f5a2f; background:#e8f3df' :
+                  t.lost                      ? 'border-color:#7a5a1f; background:#f3ecd9' :
+                  t.kind==='journey-aborted'  ? 'border-color:#7a1f1f' :
+                  t.kind==='journey-start'    ? 'border-color:#4a5a8a' :
+                  t.kind==='journey-rerouted' ? 'border-color:#4a5a8a' :
+                  'border-color:#888'">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="t.icon"></span> <span x-text="t.summary"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="t.date"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
       </div>
 
       <div class="flex justify-between gap-2 pt-2 border-t border-ink/20">
@@ -9631,6 +9663,54 @@ return {
     // Month-granularity in the GM view; day omitted since monthly advance always lands on day 1.
     // Specific events that explicitly track day-level detail will include it in their own summary.
     return 'Year ' + year + ', ' + monthName;
+  },
+
+  // ── Per-person Travel log (2026-06-04) ───────────────────────────────────────────────
+  // Derived view over the eventLog via ACKS.characterHistory: every journey-* event that names
+  // THIS character in its context envelope — set out, each travel day (where they went, lost /
+  // forded / low on supplies), arrival, stopping, re-routing. Newest-first, mirroring the
+  // Personal-history box. Routine days (campaignLogHidden — kept out of the narrative Campaign
+  // Log) still surface here; this is the GM's "where has this person been" view. The accessor
+  // ONLY returns character-tagged events, but we still filter to journey-* so the box stays
+  // travel-only as future subsystems begin tagging characters in their own events.
+  characterTravelHistory(c){
+    if(!c || !c.id || !this.currentCampaign) return [];
+    const TRAVEL = { 'journey-start':1, 'journey-day-tick':1, 'journey-arrived':1, 'journey-aborted':1, 'journey-rerouted':1 };
+    let evs;
+    try { evs = window.ACKS.characterHistory(this.currentCampaign, c.id) || []; }
+    catch(e){ return []; }
+    const out = [];
+    for(const e of evs){
+      if(!e || !e.event || !TRAVEL[e.event.kind]) continue;
+      const ev = e.event, p = ev.payload || {}, day = p.day || null;
+      out.push({
+        kind:    ev.kind,
+        icon:    this._travelEventIcon(ev, day),
+        summary: (e.result && e.result.narrativeSummary) || p.narrative || ev.kind,
+        date:    this._travelEventDate(ev),
+        lost:    !!(day && day.lost),
+        arrived: ev.kind === 'journey-arrived'
+      });
+    }
+    return out.reverse();   // newest first, like the Personal-history box
+  },
+  _travelEventDate(ev){
+    const t = ev && ev.gameTimeAt;
+    if(!t) return '(date unknown)';
+    let s = 'Year ' + (t.year || 1);
+    try { s += ', ' + window.ACKS.monthName(this.currentCampaign, t.month || 1); }
+    catch(e){ s += ', Month ' + (t.month || 1); }
+    if(t.day && t.day > 1) s += ', Day ' + t.day;
+    return s;
+  },
+  _travelEventIcon(ev, day){
+    switch(ev.kind){
+      case 'journey-start':    return '🧭';
+      case 'journey-arrived':  return '🏁';
+      case 'journey-aborted':  return '🛑';
+      case 'journey-rerouted': return '↪';
+      default:                 return (day && day.lost) ? '❓' : '⛺';
+    }
   },
 
   // List mutation helper — add/remove an item from an array-valued field on an entity.
