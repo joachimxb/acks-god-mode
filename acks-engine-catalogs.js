@@ -624,6 +624,170 @@ const JOURNEY_SUPPLY_LOW_DAYS = 3;
 // party fatigued. A seventh strenuous day forces a rest (which resets the counter).
 const JOURNEY_FATIGUE_CYCLE_DAYS = 6;
 
+// =============================================================================
+// Activity Budget (#346) — the per-character daily activity allocation.
+// Source: JJ pp.99–100 + RR p.272 (the activity budget: dedicated / ancillary /
+// incidental — 1 dedicated + 4 ancillary, OR up to 12 ancillary) + RR p.279 (the
+// strenuous-day → rest fatigue cycle). Canonical RAW home: Adventuring_Cadence_RAW_Survey.md §4.
+// Plan: Phase_2.95_Activity_Budget_Plan.md (AB-1). Doctrine: Architecture.md §3.13
+// (derive-don't-store) + §7 (the actor-time stack).
+// =============================================================================
+
+// The daily budget. A character's day holds ONE dedicated (8-hour) task, and alongside
+// it up to 4 ancillary (~1-hour) errands — OR, with no dedicated task at all, up to 12
+// ancillary errands. Incidental acts cost ~no time and are uncounted.
+const ACTIVITY_BUDGET = Object.freeze({
+  dedicatedPerDay: 1,
+  ancillaryPerDedicatedDay: 4,   // ancillary errands alongside a dedicated task
+  ancillaryMaxPerDay: 12         // ancillary errands on a day with no dedicated task
+});
+
+// The activity-cost catalog: activity-kind → its budget cost. `cost` is the slot it
+// consumes (dedicated / ancillary / incidental); `strenuous` feeds the RR p.279 six-day
+// fatigue cycle; `lifecycle` notes whether it spans days (ongoing) or is a one-day act
+// (singular). `loadMetered` flags an ancillary whose *count* scales with the stone hauled
+// (the M&M p.15 market rule — ⌈stone ÷ normal-load⌉ ancillary activities — the IT item-trade
+// tie). The mapping is reference data transcribed from the surveys (the canonical homes:
+// Adventuring_Cadence_RAW_Survey.md §4 + Settlement_Activities_RAW_Survey.md §4); each
+// character-engaging subsystem declares its kind here as part of its delivery
+// (Architecture.md §3.11 contributor mandate, extended by the budget plan §8). Entries
+// past the shipped readers (journeys, magistracies) are reserved homes for AB-4 contributors.
+const ACTIVITY_COSTS = Object.freeze({
+  // Travel + rest — shipped (Journeys). Travel dedicates the 8-hour block and is strenuous.
+  'travel':                   { cost:'dedicated',  strenuous:true,  lifecycle:'ongoing',  label:'Travel' },
+  'rest':                     { cost:'dedicated',  strenuous:false, lifecycle:'singular', label:'Rest (clears fatigue)' },
+  // Domain rule.
+  'domain-admin':             { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Administer domain' },
+  'decree':                   { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Issue a decree' },
+  // Mercantile.
+  'venture':                  { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Mercantile venture' },
+  'market-transaction':       { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Buy / sell at market', loadMetered:true },
+  // Construction supervision (Plan §13 — dedicated-ongoing; reader wires at AB-4).
+  'construction-supervision': { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Supervise construction' },
+  // Wilderness errands (RR p.272).
+  'forage':                   { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Forage' },
+  'hunt':                     { cost:'dedicated',  strenuous:true,  lifecycle:'singular', label:'Hunt' },
+  'search-hex':               { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Search a hex' },
+  // Reserved homes for their subsystems (so contributors have a place; readers wire in at AB-4).
+  'hijink-plan':              { cost:'ancillary',  strenuous:false, lifecycle:'ongoing',  label:'Plan a hijink' },
+  'hijink-perpetrate':        { cost:'dedicated',  strenuous:true,  lifecycle:'ongoing',  label:'Perpetrate a hijink' },
+  'delve':                    { cost:'ancillary',  strenuous:true,  lifecycle:'singular', label:'Delve (per six turns)' },
+  'research':                 { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Magic research' },
+  'pray':                     { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Pray' },
+  'sacrifice':                { cost:'dedicated',  strenuous:false, lifecycle:'singular', label:'Sacrifice' }
+});
+
+// Look up an activity's budget cost. Unknown kinds default to a single ancillary errand
+// (the safe "an errand of unknown size" assumption) flagged `defaulted` so callers / tests
+// can see it wasn't a catalogued kind.
+function activityCostFor(kind){
+  const e = ACTIVITY_COSTS[kind];
+  if(e) return e;
+  return { cost:'ancillary', strenuous:false, lifecycle:'singular', label: String(kind || 'activity'), defaulted:true };
+}
+
+// =============================================================================
+// Retail Item Trade (#346 flagship / Phase_2.9_Item_Trade_Plan.md IT-1) — the
+// Equipment Availability by Market Class matrix + the availability helpers.
+// Source: RR pp.123–124 (Equipment Availability + Purchasing) + RR p.413 (Mercantile
+// Networks visited-market benefit). The equipment price *catalog* (RR pp.126–137) is a
+// separate, larger table; v1 leans on a generic-by-price path so any item transacts off
+// its list price without the full chapter (CLAUDE §13.6). The transaction verb
+// (marketBuy / marketSell) lands at IT-2.
+// =============================================================================
+
+// Equipment Availability by Market Class (RR p.124). Keyed to the item's list-price band;
+// a cell is the number of units of THAT specific item available per party, per market, per
+// month. A cell given as a percent string ('25%') is the chance of ONE unit being present
+// that month; null = none ('—' in RAW). Verified against both RR p.124 worked examples
+// (a 700 gp heavy warhorse = 1 in Class III, 25% in Class IV; a Class III market stocks
+// 425 / 35 / 2 / 1 / — / 3% down the six bands). 36 mechanical values — a code table, not a
+// reproduced chapter. Market-class index: 0 = Class I … 5 = Class VI.
+const EQUIPMENT_AVAILABILITY = Object.freeze({
+  // Bands ordered ascending by upper bound (gp); a price falls in the first band whose maxGp ≥ it.
+  bands: Object.freeze([
+    Object.freeze({ maxGp: 1,        label:'≤ 1 gp',           cells: Object.freeze([2750, 700, 425, 100, 35, 15]) }),
+    Object.freeze({ maxGp: 10,       label:'2–10 gp',          cells: Object.freeze([300, 70, 35, 10, 3, 1]) }),
+    Object.freeze({ maxGp: 100,      label:'11–100 gp',        cells: Object.freeze([20, 5, 2, 1, '25%', '10%']) }),
+    Object.freeze({ maxGp: 1000,     label:'101–1,000 gp',     cells: Object.freeze([7, 2, 1, '25%', '10%', '5%']) }),
+    Object.freeze({ maxGp: 10000,    label:'1,001–10,000 gp',  cells: Object.freeze([2, 1, '25%', '10%', '5%', '1%']) }),
+    Object.freeze({ maxGp: Infinity, label:'≥ 10,001 gp',      cells: Object.freeze(['25%', '10%', '3%', '1%', null, null]) })
+  ])
+});
+
+// Pick the price band for a list price (gp).
+function equipmentPriceBand(listPriceGp){
+  const p = Number(listPriceGp) || 0;
+  const bands = EQUIPMENT_AVAILABILITY.bands;
+  return bands.find(b => p <= b.maxGp) || bands[bands.length - 1];
+}
+
+// Equipment availability for (list price gp, market-class index 0–5), with the RAW modifiers.
+// Returns { kind:'count'|'chance'|'none', count, percent, band, marketClassIdx }.
+//   opts.visitedBefore      → treat the market as one class higher (RR p.413 Mercantile Networks).
+//   opts.partyOf12Dedicated → ×2 availability for a 12+ party spending the dedicated activity (RR p.124).
+//   opts.multiParty         → the campaign-wide monthly ceiling is 10× the listed value (RR p.124).
+// A 'count' cell is the deterministic number stocked; a 'chance' cell is a per-unit % chance of a
+// single unit (roll it with rollEquipmentUnitsAvailable). Modifiers compose; for a chance cell only
+// partyOf12Dedicated applies (doubles the percent, capped at 100) — the 10× ceiling is a count notion.
+function equipmentAvailability(listPriceGp, marketClassIdx, opts){
+  opts = opts || {};
+  let idx = Number(marketClassIdx) || 0;
+  if(opts.visitedBefore) idx = Math.max(0, idx - 1);      // one class higher = lower index
+  if(idx < 0) idx = 0;
+  if(idx > 5) idx = 5;
+  const band = equipmentPriceBand(listPriceGp);
+  const cell = band.cells[idx];
+  if(cell == null) return { kind:'none', count:0, percent:0, band: band.label, marketClassIdx: idx };
+  if(typeof cell === 'number'){
+    let count = cell;
+    if(opts.partyOf12Dedicated) count *= 2;
+    if(opts.multiParty) count *= 10;
+    return { kind:'count', count, percent:100, band: band.label, marketClassIdx: idx };
+  }
+  // chance string, e.g. '25%'
+  let percent = parseInt(String(cell), 10) || 0;
+  if(opts.partyOf12Dedicated) percent = Math.min(100, percent * 2);
+  return { kind:'chance', count:1, percent, band: band.label, marketClassIdx: idx };
+}
+
+// Roll the units actually present this month for (list price, market class). A 'count' cell is
+// deterministic; a 'chance' cell rolls per-unit (a single d% for its one unit). Mirrors the
+// percent-single path in rollAvailabilitySpecDetailed.
+function rollEquipmentUnitsAvailable(listPriceGp, marketClassIdx, opts, rng){
+  rng = rng || Math.random;
+  const a = equipmentAvailability(listPriceGp, marketClassIdx, opts);
+  if(a.kind === 'none') return 0;
+  if(a.kind === 'count') return a.count;
+  const r = Math.floor(rng() * 100) + 1;      // chance: one unit gated by a d% roll
+  return (r <= a.percent) ? 1 : 0;
+}
+
+// Equipment price catalog (RR pp.126–137) — a curated, price-verified CORE seed, NOT the full
+// chapter (CLAUDE §13.6). The transaction verb (IT-2) also takes a generic-by-price line
+// ({ name, listPriceGp, stone }), so ANY item — off-catalogue, GM-named, or not-yet-seeded —
+// transacts off its list price; the catalogue is a convenience lookup, never a gate.
+// v1 seeds the Armor & Barding table (RR p.128 — clean single-row values, cost + stone both
+// verified against RAW). Weapons, general adventuring gear, mounts and vehicles are a follow-up
+// transcription: their RR multi-column tables interleave under a bulk text extract (a goat
+// reads as 2,000 gp, a crowbar as 15 stone — column drift), so rather than risk a wrong price
+// they are left to generic-by-price until each is verified from a clean pass.
+//   { id, name, category, listPriceGp, stone, raw } — `raw` is the RAW page cite.
+const EQUIPMENT_CATALOG = Object.freeze([
+  { id:'hide-fur-armor',  name:'Hide & Fur Armor',     category:'armor', listPriceGp:10, stone:1, raw:'RR p.128' },
+  { id:'padded-armor',    name:'Padded Armor',         category:'armor', listPriceGp:10, stone:1, raw:'RR p.128' },
+  { id:'leather-armor',   name:'Leather Armor',        category:'armor', listPriceGp:20, stone:2, raw:'RR p.128' },
+  { id:'ring-mail',       name:'Ring Mail',            category:'armor', listPriceGp:30, stone:3, raw:'RR p.128' },
+  { id:'scale-armor',     name:'Scale Armor',          category:'armor', listPriceGp:30, stone:3, raw:'RR p.128' },
+  { id:'chain-mail',      name:'Chain Mail Armor',     category:'armor', listPriceGp:40, stone:4, raw:'RR p.128' },
+  { id:'laminated-linen', name:'Laminated Linen Armor',category:'armor', listPriceGp:40, stone:4, raw:'RR p.128' },
+  { id:'banded-plate',    name:'Banded Plate Armor',   category:'armor', listPriceGp:50, stone:5, raw:'RR p.128' },
+  { id:'lamellar-armor',  name:'Lamellar Armor',       category:'armor', listPriceGp:50, stone:5, raw:'RR p.128' },
+  { id:'plate-armor',     name:'Plate Armor',          category:'armor', listPriceGp:60, stone:6, raw:'RR p.128' },
+  { id:'shield',          name:'Shield',               category:'armor', listPriceGp:10, stone:1, raw:'RR p.128' }
+]);
+function lookupEquipment(id){ return EQUIPMENT_CATALOG.find(e => e.id === id) || null; }
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -637,7 +801,13 @@ Object.assign(ACKS, {
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.
   HIRELING_MARKET_CLASSES, HIRELING_MERCENARIES, HIRELING_HENCHMEN, HIRELING_SPECIALISTS,
-  REACTION_TO_HIRING, HIRELING_SOLICIT_FEE_PER_WEEK, RECRUITMENT_MODIFIERS
+  REACTION_TO_HIRING, HIRELING_SOLICIT_FEE_PER_WEEK, RECRUITMENT_MODIFIERS,
+  // Phase 2.95 Activity Budget (#346 / AB-1) — the per-character daily activity allocation.
+  ACTIVITY_BUDGET, ACTIVITY_COSTS, activityCostFor,
+  // Phase 2.9 Retail Item Trade (#346 flagship / IT-1) — Equipment Availability by Market Class
+  // + the price catalog seed (generic-by-price covers the rest until transcribed).
+  EQUIPMENT_AVAILABILITY, equipmentPriceBand, equipmentAvailability, rollEquipmentUnitsAvailable,
+  EQUIPMENT_CATALOG, lookupEquipment
 });
 
 if(typeof module !== 'undefined' && module.exports){

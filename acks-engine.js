@@ -5170,6 +5170,88 @@ function characterHistory(campaign, id){      return _filterByRelatedEntity(camp
 function outpostHistory(campaign, id){        return _filterByRelatedEntity(campaign, 'outpost',        id); }
 function congregationHistory(campaign, id){   return _filterByRelatedEntity(campaign, 'congregation',   id); }
 
+// Derived per-character activity budget (#346 / Phase_2.95_Activity_Budget_Plan.md AB-1).
+// The middle layer of the actor-time stack (Architecture.md §7): a pure derivation — like
+// characterHistory — of what this character is currently committed to, bucketed against the
+// RAW 1-dedicated-+-4-ancillary day budget (ACTIVITY_BUDGET / ACTIVITY_COSTS, RR p.272 / JJ pp.99–100).
+//
+// Derive-don't-store (Architecture.md §3.13): the budget reads the committed undertakings that
+// are ALREADY entities (the character's active Journeys + Magistracies — ventures, construction
+// supervision and the rest wire in at AB-4) and maps each through its activity-cost. The
+// entity-less errands (carouse / study / buy) union in via a seam (cost-tagged daily events or a
+// thin buffer — built at AB-4, plan §9 / OQ1; empty for now). No parallel activityRecords[]
+// ledger to shadow the undertakings and drift (the party.memberCharacterIds-mirror hazard, §3.3).
+//
+// Returns { charId, grain, dedicated:[…], ancillary:[…], incidental:[…], dedicatedUsed,
+//   ancillaryUsed, overBudget, overReason, strenuousDays, fatigued }, each activity being
+//   { kind, label, cost, strenuous, sourceKind, sourceId }. This is the current-commitment
+//   snapshot (the per-day load); day/month aggregation + the visible read surface land in AB-3.
+function characterActivityBudget(campaign, charId, opts){
+  opts = opts || {};
+  const A = global.ACKS || {};
+  const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+  const costFor = A.activityCostFor || (k => ({ cost:'ancillary', strenuous:false, label:String(k) }));
+  const char = (campaign && Array.isArray(campaign.characters)) ? campaign.characters.find(c => c && c.id === charId) : null;
+  const activities = [];
+
+  // ── Undertaking-derived contributions ──
+  // Active journeys: travelling dedicates the day (and is strenuous); 'resting' is the
+  // fatigue-clearing dedicated rest. 'planning' hasn't set out; 'arrived'/'aborted' are done.
+  const JOURNEY_ACTIVE = { 'in-transit':1, 'resting':1, 'lost':1 };
+  for(const j of journeysWithParticipant(campaign, charId)){
+    if(j && JOURNEY_ACTIVE[j.status]){
+      const kind = (j.status === 'resting') ? 'rest' : 'travel';
+      const cc = costFor(kind);
+      activities.push({ kind, label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id });
+    }
+  }
+  // Magistracies: administering a domain is a dedicated commitment. Dedupe by domain (several
+  // roles in one domain = one administration).
+  const seenDomains = {};
+  for(const role of derivedMagistrateRolesFor(campaign, charId)){
+    if(role && role.domainId && !seenDomains[role.domainId]){
+      seenDomains[role.domainId] = 1;
+      const cc = costFor('domain-admin');
+      activities.push({ kind:'domain-admin', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'domain', sourceId: role.domainId });
+    }
+  }
+
+  // ── Entity-less errand store (seam — built at AB-4; plan §9 / OQ1) ──
+  // Resolved errands (carouse / study / buy-equipment) will union here as cost-tagged daily
+  // events or a thin buffer once that fork is decided. Empty until then.
+
+  // ── Bucket by cost ──
+  const dedicated = activities.filter(a => a.cost === 'dedicated');
+  const ancillary = activities.filter(a => a.cost === 'ancillary');
+  const incidental = activities.filter(a => a.cost === 'incidental');
+
+  // ── Over-budget (RAW: 1 dedicated + up to 4 ancillary, OR up to 12 ancillary with no dedicated) ──
+  let overBudget = false, overReason = null;
+  if(dedicated.length > BUDGET.dedicatedPerDay){
+    overBudget = true; overReason = dedicated.length + ' dedicated tasks (max ' + BUDGET.dedicatedPerDay + ')';
+  } else if(dedicated.length >= 1 && ancillary.length > BUDGET.ancillaryPerDedicatedDay){
+    overBudget = true; overReason = ancillary.length + ' ancillary alongside a dedicated task (max ' + BUDGET.ancillaryPerDedicatedDay + ')';
+  } else if(dedicated.length === 0 && ancillary.length > BUDGET.ancillaryMaxPerDay){
+    overBudget = true; overReason = ancillary.length + ' ancillary errands (max ' + BUDGET.ancillaryMaxPerDay + ')';
+  }
+
+  // ── Strenuous → rest fatigue (RR p.279) — read the shipped per-character counter ──
+  const strenuousDays = (char && typeof char.personalFatigue === 'number') ? char.personalFatigue : 0;
+  const simplifiedFatigue = isHouseRuleEnabled(campaign, 'simplified-fatigue');
+  const cycle = A.JOURNEY_FATIGUE_CYCLE_DAYS || 6;
+  const fatigued = !simplifiedFatigue && strenuousDays >= cycle;
+
+  return {
+    charId,
+    grain: opts.grain || 'current',
+    dedicated, ancillary, incidental,
+    dedicatedUsed: dedicated.length,
+    ancillaryUsed: ancillary.length,
+    overBudget, overReason,
+    strenuousDays, fatigued
+  };
+}
+
 // Helper for event handlers: populate context on an event. Pass relatedEntities
 // as an array of {kind,id,role} objects. Mutates event in place. Idempotent — safe
 // to call multiple times.
@@ -5242,6 +5324,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   hexHistory, settlementHistory, constructibleHistory, groupHistory, notableItemHistory,
   domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory, characterHistory,
   setEventContext,
+  // Phase 2.95 Activity Budget (#346 / AB-1) — derived per-character daily activity budget.
+  characterActivityBudget,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
