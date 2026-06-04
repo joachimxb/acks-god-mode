@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-06-04
+
 ### Changed
 - **The Journeys tab is now Travel.** The Activities tab that was labelled *Journeys* is now **Travel** — an individual in-transit trip is still called a *journey*. The Journey Detail header now reads from the party's **current location** to the destination (it used to show where the trip first set out) — including when they've wandered off-route while lost, or are partway across un-mapped country, where it shows their actual position rather than snapping back to the last named hex; the full planned route, origin included, still shows on the Route line just below. And the **Start-a-Journey planner now previews the distance** (miles, hexes, and a rough day estimate at Normal pace) as you pick the start, destination, and waypoints.
 - **Journeys are named after who's travelling, not the route.** A new journey's name is the **party** that's moving — or, with no party, the lone traveller's name, or for a group, "*‹first traveller›*'s travelling group" — instead of the old start→destination label. Existing journeys still carrying an auto-generated route name are renamed to match on next load; a name you typed yourself is kept.
