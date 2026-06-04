@@ -4636,6 +4636,7 @@ document.addEventListener('alpine:init', () => {
                   <thead>
                     <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                       <th class="font-normal py-0.5 pr-4">Member</th>
+                      <th class="font-normal py-0.5 pr-4">Leader</th>
                       <th class="font-normal py-0.5 pr-4">Mercenaries</th>
                       <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                       <th class="font-normal py-0.5 pr-4">Conditions</th>
@@ -4646,15 +4647,13 @@ document.addEventListener('alpine:init', () => {
                     <template x-for="ch in partyMembers(pt)" :key="ch.id">
                       <tr class="border-b border-dashed border-gray-200 align-top">
                         <td class="py-1 pr-4">
-                          <!-- fixed-width ★ gutter so every member name left-aligns whether or not it's the
-                               leader, and the star can't push a long name link onto its own line -->
-                          <div class="flex items-start gap-1">
-                            <span class="shrink-0 w-4 text-center" :title="pt.leaderCharacterId === ch.id ? 'Founder / leader' : ''" x-text="pt.leaderCharacterId === ch.id ? '★' : ''"></span>
-                            <span class="min-w-0">
-                              <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
-                              <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
-                            </span>
-                          </div>
+                          <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                          <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
+                        </td>
+                        <td class="py-1 pr-4">
+                          <!-- Leader column: ★ marks the party founder/leader; em-dash otherwise -->
+                          <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★</span>
+                          <span class="text-xs opacity-40" x-show="pt.leaderCharacterId !== ch.id">—</span>
                         </td>
                         <td class="py-1 pr-4">
                           <template x-if="partyMemberMercSummary(ch).length">
