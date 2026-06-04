@@ -778,7 +778,9 @@ function rollEquipmentUnitsAvailable(listPriceGp, marketClassIdx, opts, rng){
 //   { id, name, category, listPriceGp, stone, raw }.
 // NB the RR p.124 *availability* worked example prices the heavy warhorse at 700 gp (a rulebook
 // internal inconsistency vs the 315 gp equipment-list price); both land in the 101–1,000 gp band,
-// so equipmentAvailability() is identical either way — the catalog uses the list price (315).
+// so equipmentAvailability() is identical either way — the catalog uses the list price (315). The
+// r4 RR major errata does NOT address this (checked 2026-06-04 — it fixes an adjacent p.130 price,
+// olive oil, but leaves the warhorse discrepancy), so 315 stands as the canonical list price.
 const EQUIPMENT_CATALOG = Object.freeze([
   // ── Weapons (RR pp.126–127) ──
   { id:'dagger',           name:'Dagger',              category:'weapon', listPriceGp:3,   stone:1/6, raw:'RR p.126' },
