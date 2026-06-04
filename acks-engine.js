@@ -5243,6 +5243,17 @@ function congregationHistory(campaign, id){   return _filterByRelatedEntity(camp
 //   ancillaryUsed, overBudget, overReason, strenuousDays, fatigued }, each activity being
 //   { kind, label, cost, strenuous, sourceKind, sourceId }. This is the current-commitment
 //   snapshot (the per-day load); day/month aggregation + the visible read surface land in AB-3.
+// Does an event engage this character as its acting subject? Used by the activity budget to
+// attribute cost-tagged errand events (the market-transaction is the first). Reads the actor id
+// off the payload, then the Event.context relatedEntities (role 'subject').
+function _eventEngagesCharacter(ev, charId){
+  if(!ev || !charId) return false;
+  const p = ev.payload || {};
+  if(p.actorCharacterId === charId || p.characterId === charId) return true;
+  const re = (ev.context && ev.context.relatedEntities) || [];
+  return re.some(r => r && r.kind === 'character' && r.id === charId);
+}
+
 function characterActivityBudget(campaign, charId, opts){
   opts = opts || {};
   const A = global.ACKS || {};
@@ -5273,9 +5284,28 @@ function characterActivityBudget(campaign, charId, opts){
     }
   }
 
-  // ── Entity-less errand store (seam — built at AB-4; plan §9 / OQ1) ──
-  // Resolved errands (carouse / study / buy-equipment) will union here as cost-tagged daily
-  // events or a thin buffer once that fork is decided. Empty until then.
+  // ── Entity-less errand store — cost-tagged daily events (OQ1 RESOLVED 2026-06-04, plan §9/§14) ──
+  // The errand half of the hybrid: union the actor's cost-tagged events in the accounting window
+  // (the month — §5; commitTurn is the frame) into the budget. A cost-tagged event carries
+  // payload.activityCost = { slot, units, kind, strenuous? } — the market-transaction is the first
+  // (future carouse / rest / study / buy join the same way). Derived from the eventLog like
+  // characterHistory; NO activityRecords[]/activityLog[] buffer (the rejected option (b)).
+  const _turnWindow = (campaign && campaign.currentTurn) || 1;
+  const _log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
+  for(const entry of _log){
+    const ev = entry && entry.event; if(!ev) continue;
+    const ac = ev.payload && ev.payload.activityCost; if(!ac || !ac.slot) continue;
+    const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+    if(at != null && at !== _turnWindow) continue;                   // window: this accounting month
+    if(!_eventEngagesCharacter(ev, charId)) continue;                // the acting character
+    const cc = costFor(ac.kind || '');
+    const units = Math.max(1, Number(ac.units) || 1);
+    const label = ac.label || cc.label;
+    const strenuous = (ac.strenuous != null) ? !!ac.strenuous : !!cc.strenuous;
+    for(let i = 0; i < units; i++){
+      activities.push({ kind: ac.kind || 'errand', label, cost: ac.slot, strenuous, sourceKind:'errand-event', sourceId: ev.id });
+    }
+  }
 
   // ── Bucket by cost ──
   const dedicated = activities.filter(a => a.cost === 'dedicated');

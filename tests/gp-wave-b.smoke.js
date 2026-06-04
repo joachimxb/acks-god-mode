@@ -268,6 +268,41 @@ section('IT-3 — load-metered activity cost stamped on the transaction (M&M p.1
 }
 
 // =============================================================================
+section('IT-3 reader — the budget COUNTS the shopping trip (OQ1: cost-tagged events + undertakings)');
+// =============================================================================
+{
+  const { c } = fixture();   // currentTurn 3; buyer has no journeys/magistracies
+  const b0 = ACKS.characterActivityBudget(c, 'chr-buyer');
+  ok('empty budget before any activity', b0.ancillary.length === 0 && b0.dedicated.length === 0);
+  // buy 35 swords = 2 ancillaries (M&M p.15)
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 35 }] });
+  const b1 = ACKS.characterActivityBudget(c, 'chr-buyer');
+  ok('the budget now counts 2 ancillary shopping errands', b1.ancillary.filter(a => a.kind === 'market-transaction').length === 2, JSON.stringify(b1.ancillary.map(a => a.kind)));
+  ok('sourced from the cost-tagged event, not a parallel ledger', b1.ancillary.filter(a => a.kind === 'market-transaction').every(a => a.sourceKind === 'errand-event'));
+  ok('within budget (2 ≤ 4 ancillary, no dedicated)', !b1.overBudget);
+}
+{
+  // attribution: a co-located character who didn't shop sees nothing
+  const { c } = fixture();
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('the errand attributes only to the acting character', ACKS.characterActivityBudget(c, 'chr-payee').ancillary.length === 0);
+}
+{
+  // over-budget: a 100-stone haul = 20 ancillaries > the 12/day cap
+  const { c } = fixture();
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ name: 'Crates', priceGp: 1, stone: 100, qty: 1 }] });
+  const b = ACKS.characterActivityBudget(c, 'chr-buyer');
+  ok('a 100-st haul = 20 ancillaries → over the 12/day cap', b.overBudget && b.ancillary.length === 20, JSON.stringify({ over: b.overBudget, n: b.ancillary.length }));
+}
+{
+  // window: an errand from a PRIOR turn is not in this month's budget
+  const { c } = fixture();
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 30 }] });
+  c.currentTurn = 4;   // advance the accounting month
+  ok("last month's shopping isn't in this month's budget", ACKS.characterActivityBudget(c, 'chr-buyer').ancillary.filter(a => a.kind === 'market-transaction').length === 0);
+}
+
+// =============================================================================
 section('Notability — off by default (deterministic); no rumor without the rule');
 // =============================================================================
 {
