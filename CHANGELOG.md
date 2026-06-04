@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **Set a journey's speed by hand.** The Journey Detail panel's Pace row gains an **Override** tick: check it and Pace grays out while a small dialog asks for an exact **miles per day** for this leg. The party then covers that distance each day instead of the computed pace × weather × temperature — handy for a custom mount, a favouring wind, or just "they make 30 a day, don't argue." The route's per-hex terrain, roads, and rivers still apply as the party walks (a road still speeds the leg, a forest still slows it — the override is the open-ground rate, not a teleport), and the Pace setting still drives fatigue. The day log marks each overridden day (⚡ N mi/day), the value is editable any time, and unticking hands speed back to Pace.
+- **Set a journey's speed by hand.** The Journey Detail panel's Pace row gains an **Override** tick and, just after Mode, a **miles per day** field that's grayed out until you tick it (it previews the current pace's nominal speed meanwhile). Tick Override — Pace grays out, the field un-grays — and type the exact distance the party covers each day, instead of the computed pace × weather × temperature; handy for a custom mount, a favouring wind, or just "they make 30 a day, don't argue." The route's per-hex terrain, roads, and rivers still apply as the party walks (a road still speeds the leg, a forest still slows it — the override is the open-ground rate, not a teleport), and the Pace setting still drives fatigue. The day log marks each overridden day (⚡ N mi/day), and unticking hands speed back to Pace.
 
 ## [0.17.0] - 2026-06-03
 

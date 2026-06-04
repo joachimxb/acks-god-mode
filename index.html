@@ -3761,7 +3761,7 @@ document.addEventListener('alpine:init', () => {
 
         <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
              side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick grays
-             Pace and opens a dialog to set an exact miles/day for the leg. -->
+             Pace and enables the inline miles/day field after Mode (grayed until ticked). -->
         <div x-show="journeyDetail().status==='in-transit'">
           <div class="flex flex-wrap gap-4 items-end text-sm">
             <div>
@@ -3784,14 +3784,25 @@ document.addEventListener('alpine:init', () => {
                 <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
               </select>
             </div>
-            <!-- §26 GM speed override tick + value-edit opener -->
+            <!-- §26 GM speed override: the tick enables the inline mi/day field (after Mode), grayed until ticked -->
             <div>
-              <label class="opacity-70 block text-xs">Speed</label>
-              <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Override the computed speed — set an exact miles/day for this leg (per-hex terrain still applies)">
-                <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail())" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
-                <span>Override</span>
-              </label>
-              <button x-show="journeyHasSpeedOverride(journeyDetail())" @click="openJourneySpeedDialog(journeyDetail())" class="mt-0.5 px-1.5 py-0.5 border border-ink rounded bg-amber-100 hover:bg-amber-200 font-mono text-xs" x-text="(journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day ✎'" title="Edit the override value"></button>
+              <label class="opacity-70 block text-xs">Speed override</label>
+              <div class="flex items-center gap-2">
+                <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Override the computed speed — set an exact miles/day for this leg (per-hex terrain still applies; pace still drives fatigue)">
+                  <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail())" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
+                  <span>Override</span>
+                </label>
+                <div class="flex items-center gap-1">
+                  <input type="number" min="1" step="1" inputmode="numeric"
+                         class="w-16 text-sm border border-ink rounded px-2 py-0.5 text-right"
+                         :class="journeyHasSpeedOverride(journeyDetail()) ? '' : 'opacity-40 bg-gray-100 cursor-not-allowed'"
+                         :disabled="!journeyHasSpeedOverride(journeyDetail())"
+                         :value="journeyOverrideFieldValue(journeyDetail())"
+                         @change="setJourneySpeedOverride(journeyDetail(), Number($event.target.value))"
+                         :title="journeyHasSpeedOverride(journeyDetail()) ? 'Miles per day for this leg' : 'Tick Override to edit — shows the nominal pace speed until then'">
+                  <span class="text-xs opacity-60">mi/day</span>
+                </div>
+              </div>
             </div>
           </div>
           <span class="text-xs opacity-50" x-show="!journeyHasSpeedOverride(journeyDetail())">Pace applies to the next day ticked.</span>
@@ -3836,28 +3847,6 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
     </template>
-
-    <!-- §26 — Journey speed-override dialog: set an exact miles/day for the leg (opened by the Pace-row "Override" tick). -->
-    <div x-show="journeySpeedDialog.open" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" x-cloak
-         @click.self="closeJourneySpeedDialog()" @keydown.escape.window="closeJourneySpeedDialog()">
-      <div class="vellum border border-ink rounded-lg shadow-xl max-w-sm w-full mx-4 p-5 space-y-4">
-        <div class="flex justify-between items-center">
-          <h2 class="font-bold text-lg">⚡ Override speed</h2>
-          <button @click="closeJourneySpeedDialog()" class="text-xl px-2 leading-none">×</button>
-        </div>
-        <p class="text-sm opacity-70">Set the exact distance the party covers per day on this leg. This replaces the pace / weather / temperature calculation — but per-hex terrain, roads, and rivers (§24) still apply as the party walks the route, and the pace setting still drives fatigue.</p>
-        <div>
-          <label class="flex items-center justify-between gap-2 text-sm font-semibold">Miles per day
-            <input type="number" min="1" step="1" x-model.number="journeySpeedDialog.miles" class="w-28 border border-ink rounded px-2 py-1 text-right" @keydown.enter="confirmJourneySpeedDialog()">
-          </label>
-          <p class="text-xs opacity-60 mt-1">For reference, on open ground: normal pace = 24 mi/day, half speed = 12, forced march = 36.</p>
-        </div>
-        <div class="flex justify-end gap-2">
-          <button @click="closeJourneySpeedDialog()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
-          <button @click="confirmJourneySpeedDialog()" :disabled="!(journeySpeedDialog.miles > 0)" :class="!(journeySpeedDialog.miles > 0) ? 'opacity-50 cursor-not-allowed' : ''" class="px-3 py-1 border border-ink rounded bg-amber-100 hover:bg-amber-200 font-semibold">Set speed</button>
-        </div>
-      </div>
-    </div>
 
     <!-- ───── (C) LISTS (default) ───── -->
     <template x-if="!journeyWizard.open && !journeyDetailId">
@@ -8823,8 +8812,6 @@ return {
   // opens the Detail panel; journeyWizard.open shows the wizard; neither ⇒ the lists.
   journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null },
   journeyDetailId: null,
-  // §26 — GM speed-override dialog state (set an exact miles/day for a leg).
-  journeySpeedDialog: { open:false, journeyId:null, miles:24 },
   journeyShowCompleted: false,
   // #447 — Faceted Roster filter. Four parallel axes intersect with AND.
   // Default lifecycleState:'active' hides deceased/retired by default
@@ -9393,30 +9380,25 @@ return {
     this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', oldValue:cur, newValue:v });
     this.markDirty(); this.schedulePersist();
   },
-  // The "Override" tick: checking opens the dialog (prefilled from the current pace); unchecking clears.
+  // The "Override" tick: checking it enables the inline mi/day field by committing the nominal pace
+  // speed as the starting value (so journeyHasSpeedOverride → true and the field un-grays); unchecking
+  // clears the override (pace resumes). The field edits the value from there via setJourneySpeedOverride.
   toggleJourneySpeedOverride(j, checked){
     if(!j) return;
-    if(checked) this.openJourneySpeedDialog(j);
+    if(checked){ if(!this.journeyHasSpeedOverride(j)) this.setJourneySpeedOverride(j, this._journeyNominalSpeed(j)); }
     else this.setJourneySpeedOverride(j, null);
   },
-  openJourneySpeedDialog(j){
-    if(!j) return;
-    const base = window.ACKS.JOURNEY_BASE_SPEED_MILES_PER_DAY || 24;
+  // The nominal open-ground speed for the journey's current pace (base × pace mult) — the value the
+  // grayed field previews when override is off, and the default the override starts at when first ticked.
+  _journeyNominalSpeed(j){
+    const base = (window.ACKS.JOURNEY_BASE_SPEED_MILES_PER_DAY) || 24;
     const pm = (window.ACKS.JOURNEY_PACE_SPEED && window.ACKS.JOURNEY_PACE_SPEED[j.pace] != null) ? window.ACKS.JOURNEY_PACE_SPEED[j.pace] : 1;
-    const prefill = this.journeyHasSpeedOverride(j) ? j.speedOverrideMilesPerDay : Math.round(base * pm);
-    this.journeySpeedDialog = { open:true, journeyId:j.id, miles: prefill };
+    return Math.round(base * pm);
   },
-  // Closing without confirming leaves the override untouched — the checkbox reflects
-  // journeyHasSpeedOverride(), so a tick that never committed a value simply reverts.
-  closeJourneySpeedDialog(){ this.journeySpeedDialog = { open:false, journeyId:null, miles:(this.journeySpeedDialog?.miles||24) }; },
-  confirmJourneySpeedDialog(){
-    const d = this.journeySpeedDialog || {};
-    const j = (this.currentCampaign?.journeys||[]).find(x => x && x.id === d.journeyId);
-    const miles = Number(d.miles);
-    if(!j || !(miles > 0)){ this.showToast('Enter a miles/day value above 0.', 3000); return; }
-    this.setJourneySpeedOverride(j, miles);
-    this.journeySpeedDialog = { open:false, journeyId:null, miles: Math.round(miles) };
-    this.showToast('Speed set to ' + Math.round(miles) + ' mi/day for this leg.');
+  // What the inline field shows: the override value when active, else the (grayed) nominal pace speed.
+  journeyOverrideFieldValue(j){
+    if(!j) return '';
+    return this.journeyHasSpeedOverride(j) ? j.speedOverrideMilesPerDay : this._journeyNominalSpeed(j);
   },
   abortJourneyUI(j){
     if(!j) return;
