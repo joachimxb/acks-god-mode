@@ -4636,7 +4636,7 @@ document.addEventListener('alpine:init', () => {
                   <thead>
                     <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                       <th class="font-normal py-0.5 pr-4">Member</th>
-                      <th class="font-normal py-0.5 pr-4">Leader</th>
+                      <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
                       <th class="font-normal py-0.5 pr-4">Mercenaries</th>
                       <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                       <th class="font-normal py-0.5 pr-4">Conditions</th>
@@ -4650,7 +4650,7 @@ document.addEventListener('alpine:init', () => {
                           <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
                           <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1) + ' · ' + ACKS.displayKind(ch)"></span>
                         </td>
-                        <td class="py-1 pr-4">
+                        <td class="py-1 pr-4 text-center">
                           <!-- Leader column: ★ marks the party founder/leader; em-dash otherwise -->
                           <span x-show="pt.leaderCharacterId === ch.id" title="Founder / leader">★</span>
                           <span class="text-xs opacity-40" x-show="pt.leaderCharacterId !== ch.id">—</span>
