@@ -344,6 +344,55 @@ section('IT-3 reader — the budget COUNTS the shopping trip (OQ1: cost-tagged e
 }
 
 // =============================================================================
+section('IT-3 reader — the budget REFRESHES each game DAY (RR: the 1+4 / 12 allowance is per-day)');
+// =============================================================================
+{
+  // the day-stamp lands on the applied event + its eventLog wrapper
+  const { c } = fixture();   // currentTurn 3, currentDayInMonth 1
+  const r = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('the applied market-transaction is day-stamped (appliedAtDay = currentDayInMonth)', r.ok && r.event.appliedAtDay === 1, JSON.stringify({ day: r.event && r.event.appliedAtDay }));
+  ok('the eventLog wrapper carries appliedAtDay too', c.eventLog[c.eventLog.length - 1].appliedAtDay === 1);
+}
+{
+  // two trips on the SAME game day accumulate (each market visit is its own errand)
+  const { c } = fixture();
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('two trips on the same game day = 2 ancillary errands', ACKS.characterActivityBudget(c, 'chr-buyer').ancillary.filter(a => a.kind === 'market-transaction').length === 2);
+}
+{
+  // advancing the Day Clock clears yesterday's errands — the core fix
+  const { c } = fixture();
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('day 1: the shopping shows', ACKS.characterActivityBudget(c, 'chr-buyer').ancillary.filter(a => a.kind === 'market-transaction').length === 1);
+  c.currentDayInMonth = 2;   // a day ticks
+  ok("day 2: yesterday's shopping is gone — the budget refreshed", ACKS.characterActivityBudget(c, 'chr-buyer').ancillary.filter(a => a.kind === 'market-transaction').length === 0);
+}
+{
+  // per-DAY window, not a per-month tally: shopping on 13 different days never stacks past the day's cap
+  const { c } = fixture();
+  for (let day = 1; day <= 13; day++) {
+    c.currentDayInMonth = day;
+    ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  }
+  const b = ACKS.characterActivityBudget(c, 'chr-buyer');   // still day 13
+  ok("on day 13 only day 13's errand counts (not 13 — which would falsely blow the 12/day cap)", b.ancillary.filter(a => a.kind === 'market-transaction').length === 1, JSON.stringify({ n: b.ancillary.length }));
+  ok('…so the day stays within budget', !b.overBudget);
+}
+{
+  // the monthly 10× availability ceiling is INDEPENDENT of the daily budget — it stays MONTH-windowed
+  const { c, set } = fixture();
+  set.families = 100;   // Class VI: sword ceiling = 10 for the month
+  for (let i = 0; i < 6; i++) ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  c.currentDayInMonth = 2;   // a new DAY (not a new month) — refreshes the activity budget, NOT availability
+  let allOk = true;
+  for (let i = 0; i < 4; i++) { const r = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] }); allOk = allOk && r.ok; }
+  ok('the ceiling spans days within the month (6 on day 1 + 4 on day 2 = 10 ok)', allOk);
+  const r11 = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('the 11th is still blocked though a day ticked (availability is monthly, the budget is daily)', !r11.ok && r11.error === 'monthly-ceiling', JSON.stringify(r11));
+}
+
+// =============================================================================
 section('Notability — off by default (deterministic); no rumor without the rule');
 // =============================================================================
 {

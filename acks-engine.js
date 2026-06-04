@@ -5241,8 +5241,9 @@ function congregationHistory(campaign, id){   return _filterByRelatedEntity(camp
 //
 // Returns { charId, grain, dedicated:[…], ancillary:[…], incidental:[…], dedicatedUsed,
 //   ancillaryUsed, overBudget, overReason, strenuousDays, fatigued }, each activity being
-//   { kind, label, cost, strenuous, sourceKind, sourceId }. This is the current-commitment
-//   snapshot (the per-day load); day/month aggregation + the visible read surface land in AB-3.
+//   { kind, label, cost, strenuous, sourceKind, sourceId }. This is THIS GAME DAY's load — the
+//   standing undertakings plus the day's cost-tagged errands (windowed to campaign.currentDayInMonth
+//   within campaign.currentTurn); it refreshes each day-tick. The visible read surface lands in AB-3.
 // Does an event engage this character as its acting subject? Used by the activity budget to
 // attribute cost-tagged errand events (the market-transaction is the first). Reads the actor id
 // off the payload, then the Event.context relatedEntities (role 'subject').
@@ -5285,18 +5286,26 @@ function characterActivityBudget(campaign, charId, opts){
   }
 
   // ── Entity-less errand store — cost-tagged daily events (OQ1 RESOLVED 2026-06-04, plan §9/§14) ──
-  // The errand half of the hybrid: union the actor's cost-tagged events in the accounting window
-  // (the month — §5; commitTurn is the frame) into the budget. A cost-tagged event carries
+  // The errand half of the hybrid: union the actor's cost-tagged events for THIS GAME DAY into the
+  // budget. RAW refreshes the 1-dedicated-+-4-ancillary / 12-ancillary allowance each game DAY (not
+  // each monthly turn), so the window is (appliedAtTurn, appliedAtDay) = (campaign.currentTurn,
+  // campaign.currentDayInMonth) — both stamped by _logAppliedEvent at apply time. Advance the Day
+  // Clock and the errands clear; commitTurn rolls the day back to 1. A cost-tagged event carries
   // payload.activityCost = { slot, units, kind, strenuous? } — the market-transaction is the first
-  // (future carouse / rest / study / buy join the same way). Derived from the eventLog like
-  // characterHistory; NO activityRecords[]/activityLog[] buffer (the rejected option (b)).
+  // (future carouse / rest / study / buy join the same way; each MUST be day-stamped). Derived from
+  // the eventLog like characterHistory; NO activityRecords[]/activityLog[] buffer (rejected option
+  // (b)). NB the monthly 10× availability ceiling is a SEPARATE, month-windowed concern
+  // (marketUnitsTransactedThisMonth, RR p.124) — don't conflate the two windows.
   const _turnWindow = (campaign && campaign.currentTurn) || 1;
+  const _dayWindow  = (campaign && campaign.currentDayInMonth) || 1;
   const _log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
   for(const entry of _log){
     const ev = entry && entry.event; if(!ev) continue;
     const ac = ev.payload && ev.payload.activityCost; if(!ac || !ac.slot) continue;
     const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
-    if(at != null && at !== _turnWindow) continue;                   // window: this accounting month
+    if(at != null && at !== _turnWindow) continue;                   // window: this turn (month)…
+    const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
+    if(atDay != null && atDay !== _dayWindow) continue;              // …and this game day (RAW: the budget is per-day)
     if(!_eventEngagesCharacter(ev, charId)) continue;                // the acting character
     const cc = costFor(ac.kind || '');
     const units = Math.max(1, Number(ac.units) || 1);

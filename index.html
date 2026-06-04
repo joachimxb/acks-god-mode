@@ -9314,20 +9314,25 @@ return {
       }
     }
 
-    // ── Contributor 5: Shopping this turn (Item Trade IT-4) — the §8.9 mandate ──
+    // ── Contributor 5: Shopping TODAY (Item Trade IT-4) — the §8.9 mandate ──
     // A market-transaction is a singular act, not an ongoing state, so it surfaces as
-    // "shopped" for the current accounting month (the budget counts it the same way —
-    // characterActivityBudget unions cost-tagged market-transaction events). One bounded
-    // pass over eventLog, windowed + attributed exactly like the IT-3 budget reader.
+    // "shopped" for the current game DAY (the budget counts it the same way — RAW refreshes
+    // the activity allowance each day, so characterActivityBudget windows cost-tagged
+    // market-transaction events by (appliedAtTurn, appliedAtDay)). One bounded pass over
+    // eventLog, windowed + attributed exactly like the IT-3 budget reader (it refreshes on
+    // the Day Clock). NB this is NOT the monthly 10× availability ceiling — that stays monthly.
     const _log = this.currentCampaign?.eventLog;
     if(Array.isArray(_log) && _log.length){
       const turn = this.currentCampaign.currentTurn || 1;
+      const day  = this.currentCampaign.currentDayInMonth || 1;
       let units = 0;
       for(const entry of _log){
         const ev = entry && entry.event;
         if(!ev || ev.kind !== 'market-transaction') continue;
         const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
-        if(at != null && at !== turn) continue;
+        if(at != null && at !== turn) continue;                          // this turn…
+        const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
+        if(atDay != null && atDay !== day) continue;                     // …and this game day (per-day refresh)
         const p = ev.payload || {};
         const mine = p.actorCharacterId === c.id || ((ev.context?.relatedEntities)||[]).some(r => r && r.kind === 'character' && r.id === c.id);
         if(!mine) continue;

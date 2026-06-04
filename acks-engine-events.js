@@ -435,6 +435,11 @@ function newEvent(kind, opts){
     payload: opts.payload || {},
     gmNotes: opts.gmNotes || '',
     appliedAtTurn: null,
+    // The game day (1..30 within the turn) the event was applied on — set at apply time,
+    // mirrors appliedAtTurn. The per-character activity budget (#346) windows cost-tagged
+    // errands by (appliedAtTurn, appliedAtDay) so the RAW 1+4 / 12 day-budget refreshes each
+    // game day, not each monthly turn (RR Activities; the budget is per-day). Null until applied.
+    appliedAtDay: null,
     parentEventId: opts.parentEventId || null,
     supersededBy: null,
     // 2026-05-30 post-survey reservations — Architecture.md §7 cadence-typed dispatch.
@@ -2007,7 +2012,8 @@ function _logAppliedEvent(campaign, ev, result){
   if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
   ev.status = EVENT_STATUS.APPLIED;
   ev.appliedAtTurn = campaign.currentTurn || 1;
-  campaign.eventLog.push({ event: ev, result: result || {}, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+  ev.appliedAtDay = campaign.currentDayInMonth || 1;   // the game day — the activity budget (#346) windows errands by this so it refreshes daily
+  campaign.eventLog.push({ event: ev, result: result || {}, appliedAtTurn: campaign.currentTurn || 1, appliedAtDay: campaign.currentDayInMonth || 1, appliedAt: new Date().toISOString() });
   return ev;
 }
 function _wealthHandleLabel(h){ if(!h) return '?'; return h.label || (h.kind + (h.id ? (' ' + h.id) : '')); }
