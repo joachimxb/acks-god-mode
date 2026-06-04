@@ -3732,13 +3732,13 @@ document.addEventListener('alpine:init', () => {
               <template x-for="ch in journeyParticipants(journeyDetail())" :key="'jm-'+ch.id">
                 <tr class="border-b border-dashed border-gray-200 align-top">
                   <td class="py-1 pr-4">
-                    <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
+                    <button @click="openCharacterEditor(ch)" class="underline hover:opacity-80 whitespace-nowrap" title="Open character sheet" x-text="ch.name || '(unnamed)'"></button>
                     <span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1)"></span>
                   </td>
                   <td class="py-1 pr-4">
                     <template x-if="partyMemberMercSummary(ch).length">
                       <span class="text-xs">
-                        <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
+                        <template x-for="m in partyMemberMercSummary(ch)" :key="ch.id+'-'+m.label"><span class="inline-block mr-3 whitespace-nowrap">⚔ <span x-text="m.label"></span> <span class="font-mono" x-text="'×'+m.count.toLocaleString()"></span></span></template>
                       </span>
                     </template>
                     <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
@@ -3748,8 +3748,8 @@ document.addEventListener('alpine:init', () => {
                   </td>
                   <td class="py-1">
                     <template x-if="characterJourneyConditions(ch).length">
-                      <span class="flex flex-wrap gap-1">
-                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                      <span class="flex flex-nowrap gap-1">
+                        <template x-for="cond in characterJourneyConditions(ch)" :key="ch.id+'-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
                       </span>
                     </template>
                     <span class="text-xs opacity-40" x-show="!characterJourneyConditions(ch).length">—</span>
