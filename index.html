@@ -868,6 +868,141 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Trade Wizard (Item Trade IT-4 — Phase_2.9_Item_Trade_Plan.md §4.4) — the fourth Action Wizard,
+     settlement-seated retail buy/sell. Opens from the character sheet (🛒 Shop), the hex card
+     (🛒 Market), or standalone. Engine: ACKS.marketBuy / marketSell — gated by RR p.124 Equipment
+     Availability + funds; runs THROUGH the real coin purse + carry inventory (no phantom state). The
+     #346 proof is the forecast's Activity line: a purchase = ⌈stone ÷ normal-load⌉ ancillary errands
+     (M&M p.15). Layered at z-75 (above the character sheet z-50 + the hex card). -->
+<div x-show="trade.open" @keydown.escape.window="closeTrade()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-3xl my-6">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <div>
+        <h3 class="font-bold text-lg">🛒 Trade<span x-show="tradeActor()" class="font-normal opacity-80"> — <span x-text="tradeActor()?.name||'(unnamed)'"></span></span></h3>
+        <p class="text-sm opacity-70">Buy or sell at a market — gated by what it stocks (RR p.124); paid through the purse.</p>
+      </div>
+      <button @click="closeTrade()" class="text-2xl leading-none px-2" title="Close">×</button>
+    </div>
+
+    <div class="p-4 space-y-3">
+      <!-- Step 1 — who / where / which way -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 1</span>Who, where, which way</div>
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="text-sm">Character<br>
+          <select @change="tradeSetActor($event.target.value)" class="text-sm" style="min-width:13rem">
+            <option value="" :selected="!trade.actorId">— pick a character —</option>
+            <template x-for="c in tradeCharacters()" :key="c.id"><option :value="c.id" :selected="trade.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
+          </select>
+        </label>
+        <label class="text-sm">Market (settlement)<br>
+          <select @change="tradeSetSettlement($event.target.value)" class="text-sm" style="min-width:15rem">
+            <option value="" :selected="!trade.settlementId">— pick a settlement —</option>
+            <template x-for="s in tradeSettlements()" :key="s.id"><option :value="s.id" :selected="trade.settlementId===s.id" x-text="(s.name||'(unnamed)') + ' · Class ' + settlementMarketClass(s)"></option></template>
+          </select>
+        </label>
+        <div class="flex gap-1 text-sm">
+          <button @click="tradeSetDir('buy')" :class="trade.dir==='buy' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Buy</button>
+          <button @click="tradeSetDir('sell')" :class="trade.dir==='sell' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Sell</button>
+        </div>
+      </div>
+      <div class="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1 items-center" x-show="tradeActor()">
+        <span>🪙 Purse: <span class="font-mono" x-text="tradePurseGp().toLocaleString()+' gp'"></span></span>
+        <span x-show="tradeSettlement()">🏛 Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
+        <label class="flex items-center gap-1" title="Mercantile Networks (RR p.413): a market traded in before counts as one class higher"><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (+1 class)</label>
+        <label class="flex items-center gap-1" title="A party of 12+ spending a dedicated activity gets double availability (RR p.124)"><input type="checkbox" :checked="trade.partyOf12Dedicated" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2)</label>
+      </div>
+
+      <!-- Step 2 (BUY) — catalogue + generic-by-price + cart -->
+      <template x-if="trade.dir==='buy'">
+        <div class="space-y-2">
+          <div class="wizard-step-header"><span class="wizard-step-n">Step 2</span>What to buy</div>
+          <div class="flex flex-wrap items-end gap-2">
+            <label class="text-sm">Search<br><input type="text" x-model="trade.search" placeholder="sword, plate, horse…" class="text-sm" style="width:12rem"></label>
+            <label class="text-sm">Category<br>
+              <select x-model="trade.category" class="text-sm">
+                <template x-for="cat in tradeCategories()" :key="cat"><option :value="cat" x-text="cat"></option></template>
+              </select>
+            </label>
+          </div>
+          <div class="border border-ink/20 rounded max-h-48 overflow-y-auto">
+            <template x-if="tradeCatalog().length===0"><p class="text-xs italic opacity-60 p-2">No catalogue items match — use the Generic item row below to buy anything by price.</p></template>
+            <table class="w-full text-sm" x-show="tradeCatalog().length">
+              <template x-for="item in tradeCatalog()" :key="item.id">
+                <tr class="border-b border-ink/10 hover:bg-yellow-50">
+                  <td class="px-2 py-0.5" x-text="item.name"></td>
+                  <td class="px-2 py-0.5 text-right font-mono" x-text="item.listPriceGp+' gp'"></td>
+                  <td class="px-2 py-0.5 text-right opacity-60 text-xs" x-text="item.stone!=null ? (Math.round(item.stone*100)/100+' st') : 'led'"></td>
+                  <td class="px-2 py-0.5 text-right text-xs" :class="tradeAvailFor(item.listPriceGp).kind==='none' ? 'accent-red' : 'opacity-70'" x-text="tradeAvailLabel(tradeAvailFor(item.listPriceGp))"></td>
+                  <td class="px-2 py-0.5 text-right"><button @click="tradeAddCatalog(item)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-200">+ add</button></td>
+                </tr>
+              </template>
+            </table>
+          </div>
+          <div class="flex flex-wrap items-end gap-2 text-sm border border-ink/20 rounded p-2">
+            <span class="font-semibold">Generic item</span>
+            <label>Name<br><input type="text" x-model="trade.gName" placeholder="anything" class="text-sm" style="width:10rem"></label>
+            <label>Price (gp)<br><input type="number" min="0" x-model.number="trade.gPrice" class="text-sm" style="width:6rem"></label>
+            <label>Stone<br><input type="number" min="0" step="0.01" x-model.number="trade.gStone" class="text-sm" style="width:5rem"></label>
+            <button @click="tradeAddGeneric()" class="text-xs px-2 py-1 border border-ink rounded hover:bg-yellow-200">+ add</button>
+          </div>
+          <div class="border border-ink/20 rounded p-2" x-show="trade.buyCart.length">
+            <div class="flex items-center justify-between mb-1"><span class="text-sm font-semibold">Cart</span><button @click="tradeRecomputeCart()" class="text-xs underline opacity-70" title="Re-roll this month's availability for chance-cell items">🎲 re-roll availability</button></div>
+            <table class="w-full text-sm">
+              <thead><tr class="opacity-60 text-xs"><th class="text-left">Item</th><th class="text-right">Qty</th><th class="text-right">Avail</th><th class="text-right">Unit</th><th class="text-right">Total</th><th></th></tr></thead>
+              <template x-for="l in trade.buyCart" :key="l.key">
+                <tr class="border-b border-ink/10" :class="Number(l.qty) > Number(l.availableUnits) ? 'wizard-no-chance' : ''">
+                  <td x-text="l.name"></td>
+                  <td class="text-right"><input type="number" min="1" :max="l.availableUnits" x-model.number="l.qty" class="text-sm text-right" style="width:4rem"></td>
+                  <td class="text-right text-xs" x-text="tradeCartAvailLabel(l)"></td>
+                  <td class="text-right font-mono" x-text="l.unitPriceGp+' gp'"></td>
+                  <td class="text-right font-mono" x-text="(l.unitPriceGp*(Number(l.qty)||0)).toLocaleString()+' gp'"></td>
+                  <td class="text-right"><button @click="tradeRemoveCart(l.key)" class="text-xs accent-red px-1" title="Remove">×</button></td>
+                </tr>
+              </template>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Step 2 (SELL) — from the character's carry inventory -->
+      <template x-if="trade.dir==='sell'">
+        <div class="space-y-2">
+          <div class="wizard-step-header"><span class="wizard-step-n">Step 2</span>What to sell <span class="wizard-step-hint">(from the character's carry inventory)</span></div>
+          <template x-if="tradeSellRowsList().length===0"><p class="text-xs italic opacity-60">Nothing in this character's carry inventory to sell. (Coins, mounts led elsewhere, and stash items aren't sold here.)</p></template>
+          <table class="w-full text-sm" x-show="tradeSellRowsList().length">
+            <thead><tr class="opacity-60 text-xs"><th></th><th class="text-left">Item</th><th class="text-right">Held</th><th class="text-right">Sell qty</th><th class="text-right">Price (gp)</th><th class="text-right">Market takes</th></tr></thead>
+            <template x-for="r in tradeSellRowsList()" :key="'sr-'+r.ix">
+              <tr class="border-b border-ink/10">
+                <td><input type="checkbox" :checked="trade.sellRows[r.ix].sel" @change="trade.sellRows[r.ix].sel=$event.target.checked"></td>
+                <td x-text="r.name"></td>
+                <td class="text-right opacity-70" x-text="r.heldQty"></td>
+                <td class="text-right"><input type="number" min="1" :max="r.heldQty" x-model.number="trade.sellRows[r.ix].qty" class="text-sm text-right" style="width:4rem"></td>
+                <td class="text-right"><input type="number" min="0" x-model.number="trade.sellRows[r.ix].priceGp" class="text-sm text-right" style="width:5rem"></td>
+                <td class="text-right text-xs" :class="tradeAvailFor(trade.sellRows[r.ix].priceGp).kind==='none' ? 'accent-red' : 'opacity-70'" x-text="tradeAvailLabel(tradeAvailFor(trade.sellRows[r.ix].priceGp))"></td>
+              </tr>
+            </template>
+          </table>
+        </div>
+      </template>
+
+      <!-- Step 3 — forecast (total / load / the #346 activity cost) -->
+      <div class="wizard-forecast-row" x-show="(trade.dir==='buy' ? trade.buyCart.length : tradeSellSelectedRows().length)">
+        <div class="flex flex-wrap gap-x-5 gap-y-1">
+          <span><span class="opacity-60">Total:</span> <span class="font-mono font-semibold" x-text="(trade.dir==='buy'?tradeBuyTotalGp():tradeSellTotalGp()).toLocaleString()+' gp'"></span></span>
+          <span><span class="opacity-60">Load:</span> <span class="font-mono" x-text="(Math.round((trade.dir==='buy'?tradeBuyTotalStone():tradeSellTotalStone())*100)/100)+' st'"></span></span>
+          <span title="M&M p.15: buy/sell up to a normal load (≈5 st) = one ancillary errand; each further load = another. The #346 tie."><span class="opacity-60">Activity:</span> <span class="font-semibold" x-text="tradeActivityUnits()+' ancillary errand'+(tradeActivityUnits()===1?'':'s')"></span></span>
+        </div>
+      </div>
+
+      <!-- Step 4 — submit gate -->
+      <div class="wizard-submit-gate">
+        <span class="wizard-submit-disabled-reason" x-text="tradeSubmitDisabledReason()"></span>
+        <button @click="tradeSubmit()" :disabled="!tradeCanSubmit()" :class="tradeCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold" x-text="trade.dir==='buy' ? '🛒 Buy' : '💰 Sell'"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════ VIEW: MAP (Phase 2.5 Map Mode #225 — M0–M2) ═══════════ -->
 <!-- A first-class SVG hex map: a PURE VIEW over the campaign's hexes (Architecture §11). Geometry
      + fill-layer math live in the engine (acks-engine-subsystems.js §9.7); this is the render +
@@ -5918,7 +6053,10 @@ document.addEventListener('alpine:init', () => {
         <div class="mt-3 border border-ink/30 rounded p-3" x-data="{ get vault(){ return characterStashes(characterEditing); } }">
           <div class="flex justify-between items-baseline mb-1">
             <h4 class="font-semibold text-sm">🪙 Vault <span class="opacity-60 font-normal text-xs">· located stashes</span></h4>
-            <button @click="openStashTransfer()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Cache carry items/coins here, or draw from a stash at this hex">📦 Transfer items / coins…</button>
+            <div class="flex items-center gap-1">
+              <button @click="openTrade({ actorCharacterId: characterEditing.id })" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :title="characterAtSettlement(characterEditing) ? ('Buy or sell at '+(characterAtSettlement(characterEditing).name||'the local market')) : 'Buy or sell at a market (pick the settlement in the wizard)'">🛒 Shop</button>
+              <button @click="openStashTransfer()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Cache carry items/coins here, or draw from a stash at this hex">📦 Transfer items / coins…</button>
+            </div>
           </div>
           <template x-if="vault.personal.length + vault.party.length + vault.treasuries.length === 0">
             <p class="text-xs italic opacity-60">No stashes yet. Use <span class="font-semibold">📦 Transfer</span> above to cache items or coin at this character’s hex (creates a cache there).</p>
@@ -6563,6 +6701,17 @@ document.addEventListener('alpine:init', () => {
           </template>
         </ul>
       </div>
+
+      <!-- Market (Item Trade IT-4) — retail buy/sell at this hex's settlement, when there is one. -->
+      <template x-if="hexSettlementFor(worldHexEditingHex())">
+        <div class="vellum border border-ink/40 rounded p-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <h4 class="font-semibold text-sm">🛒 Market <span class="opacity-60 font-normal text-xs" x-text="'· '+(hexSettlementFor(worldHexEditingHex()).name||'settlement')+' · Class '+settlementMarketClass(hexSettlementFor(worldHexEditingHex()))"></span></h4>
+            <button @click="openTrade({ settlementId: hexSettlementFor(worldHexEditingHex()).id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Buy or sell at this settlement's market">🛒 Trade here</button>
+          </div>
+          <p class="text-xs italic opacity-60 mt-1">Retail buy/sell of equipment + mounts (RR p.124 availability), paid through the character's purse.</p>
+        </div>
+      </template>
 
       <!-- Domain-relevant slim view -->
       <div class="vellum border border-ink/40 rounded p-2">
@@ -9163,6 +9312,28 @@ return {
       } else {
         acts.push({kind:'journey-overland:' + j.id, icon:'🥾', label:'on journey to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
       }
+    }
+
+    // ── Contributor 5: Shopping this turn (Item Trade IT-4) — the §8.9 mandate ──
+    // A market-transaction is a singular act, not an ongoing state, so it surfaces as
+    // "shopped" for the current accounting month (the budget counts it the same way —
+    // characterActivityBudget unions cost-tagged market-transaction events). One bounded
+    // pass over eventLog, windowed + attributed exactly like the IT-3 budget reader.
+    const _log = this.currentCampaign?.eventLog;
+    if(Array.isArray(_log) && _log.length){
+      const turn = this.currentCampaign.currentTurn || 1;
+      let units = 0;
+      for(const entry of _log){
+        const ev = entry && entry.event;
+        if(!ev || ev.kind !== 'market-transaction') continue;
+        const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+        if(at != null && at !== turn) continue;
+        const p = ev.payload || {};
+        const mine = p.actorCharacterId === c.id || ((ev.context?.relatedEntities)||[]).some(r => r && r.kind === 'character' && r.id === c.id);
+        if(!mine) continue;
+        units += (p.activityCost && p.activityCost.units) || 1;
+      }
+      if(units > 0) acts.push({kind:'shopping', icon:'🛒', label:'shopped (' + units + ' ancillary errand' + (units === 1 ? '' : 's') + ')', priority:3});
     }
 
     // ── Future contributors land here. Each adds zero or more descriptors. ──
@@ -11872,6 +12043,15 @@ return {
   stashTransferOpen:false, stashTransferStashId:null, stashTransferDir:'deposit',
   stashTransferCoins:{ pp:0, gp:0, ep:0, sp:0, cp:0 },
   stashTransferItemSel:{},   // deposit: inventory-index → bool · withdraw: stash-item-id → bool
+  // Trade Wizard (Item Trade IT-4) — the retail buy/sell Action Wizard over ACKS.marketBuy/marketSell.
+  trade:{
+    open:false, actorId:null, settlementId:null, dir:'buy',
+    search:'', category:'all',
+    buyCart:[],                              // [{key, catalogId|null, name, unitPriceGp, stone, qty, availKind, availPercent, availableUnits, band}]
+    sellRows:{},                             // inventoryIndex → { sel, qty, priceGp, name, heldQty, stone }
+    gName:'', gPrice:null, gStone:null,      // generic-by-price entry
+    visitedBefore:false, partyOf12Dedicated:false
+  },
   allStashes(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.stashes)) return [];
@@ -12105,6 +12285,196 @@ return {
       'bad-index':'That item is no longer in the inventory.',
       'not-found':'Character or stash not found.'
     })[code] || ('Transfer failed' + (code ? (' ('+code+')') : '') + '.');
+  },
+
+  // ─── Trade Wizard (Item Trade IT-4 — Phase_2.9_Item_Trade_Plan.md §4.4) ───────────────────
+  // The fourth Action Wizard. A thin UI over the shipped engine verbs ACKS.marketBuy / marketSell
+  // (which already gate on RR p.124 availability + funds, move real inventory + the coin purse, and
+  // stamp the M&M p.15 load-metered activity cost). This layer only forecasts + collects the order.
+  openTrade(opts){
+    opts = opts || {};
+    const t = this.trade;
+    t.open = true; t.dir = 'buy'; t.search = ''; t.category = 'all';
+    t.buyCart = []; t.sellRows = {};
+    t.gName = ''; t.gPrice = null; t.gStone = null;
+    t.visitedBefore = false; t.partyOf12Dedicated = false;
+    let settlementId = opts.settlementId || null;
+    let actorId = opts.actorCharacterId || null;
+    // Derive the local settlement from the actor's hex when not supplied (the "Shop here" case).
+    if(!settlementId && actorId){
+      const ch = (this.currentCampaign?.characters||[]).find(c => c && c.id === actorId);
+      if(ch && ch.currentHexId){ const s = (this.currentCampaign?.settlements||[]).find(x => x && x.hexId === ch.currentHexId); if(s) settlementId = s.id; }
+    }
+    // Derive an actor from the settlement's hex when not supplied (the "Trade here" case).
+    if(!actorId && settlementId){ const at = this.tradeCharactersAtSettlement(settlementId); if(at[0]) actorId = at[0].id; }
+    t.settlementId = settlementId; t.actorId = actorId;
+    if(actorId) this.tradeInitSellRows();
+  },
+  closeTrade(){ this.trade.open = false; },
+  tradeActor(){ return this.trade.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.trade.actorId) : null; },
+  tradeSettlement(){ return this.trade.settlementId ? (this.currentCampaign?.settlements||[]).find(s => s && s.id === this.trade.settlementId) : null; },
+  tradeCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
+  tradeSettlements(){ return (this.currentCampaign?.settlements||[]).filter(s => s && s.id); },
+  tradeCharactersAtSettlement(sid){
+    const s = (this.currentCampaign?.settlements||[]).find(x => x && x.id === sid); if(!s) return [];
+    return (this.currentCampaign?.characters||[]).filter(c => c && c.currentHexId && c.currentHexId === s.hexId);
+  },
+  characterAtSettlement(ch){ if(!ch || !ch.currentHexId) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === ch.currentHexId) || null; },
+  hexSettlementFor(hex){ if(!hex) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === hex.id) || null; },
+  tradeSetActor(id){ this.trade.actorId = id || null; this.trade.buyCart = []; this.tradeInitSellRows(); },
+  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.tradeRecomputeCart(); },
+  tradeSetDir(dir){ this.trade.dir = dir; if(dir === 'sell') this.tradeInitSellRows(); },
+  tradeMarketClassRoman(){ const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null; },
+  tradeMarketClassIdx(){
+    const r = this.tradeMarketClassRoman(); const m = { 'I':0, 'II':1, 'III':2, 'IV':3, 'V':4, 'VI':5 };
+    if(typeof r === 'string'){ const k = r.replace('*',''); if(m[k] != null) return m[k]; }
+    return 5;                                               // default to the smallest market
+  },
+  tradeNormalLoadSt(){ const b = window.ACKS.carryEncumbranceBandFor(0); return (b && b.maxSt) || 5; },
+  tradeAvailOpts(){ return { visitedBefore: !!this.trade.visitedBefore, partyOf12Dedicated: !!this.trade.partyOf12Dedicated }; },
+  tradeAvailFor(priceGp){ return window.ACKS.equipmentAvailability(priceGp, this.tradeMarketClassIdx(), this.tradeAvailOpts()); },
+  _tradeRollUnits(priceGp){
+    const a = this.tradeAvailFor(priceGp);
+    if(a.kind === 'none') return 0;
+    if(a.kind === 'count') return a.count;
+    return window.ACKS.rollEquipmentUnitsAvailable(priceGp, this.tradeMarketClassIdx(), this.tradeAvailOpts());
+  },
+  tradeAvailLabel(a){
+    if(!a) return '';
+    if(a.kind === 'none') return 'not stocked';
+    if(a.kind === 'count') return a.count.toLocaleString() + ' avail';
+    return a.percent + '% · 1 unit';
+  },
+  tradeCartAvailLabel(l){
+    if(l.availKind === 'chance') return l.availableUnits > 0 ? ('1 · rolled ' + l.availPercent + '%') : ('0 · not stocked (' + l.availPercent + '%)');
+    if(l.availKind === 'none') return 'not stocked';
+    return Number(l.availableUnits).toLocaleString() + ' avail';
+  },
+  tradeCategories(){ return ['all','weapon','ammunition','armor','gear','mount']; },
+  tradeCatalog(){
+    let list = window.ACKS.EQUIPMENT_CATALOG || [];
+    if(this.trade.category !== 'all') list = list.filter(e => e.category === this.trade.category);
+    const q = (this.trade.search||'').trim().toLowerCase();
+    if(q) list = list.filter(e => e.name.toLowerCase().includes(q));
+    return list;
+  },
+  tradeAddCatalog(item){
+    const a = this.tradeAvailFor(item.listPriceGp);
+    this.trade.buyCart.push({ key:'c-'+item.id+'-'+this.trade.buyCart.length, catalogId:item.id, name:item.name,
+      unitPriceGp:item.listPriceGp, stone:item.stone, qty:1,
+      availKind:a.kind, availPercent:a.percent, availableUnits:this._tradeRollUnits(item.listPriceGp), band:a.band });
+  },
+  tradeAddGeneric(){
+    const price = Number(this.trade.gPrice); const name = (this.trade.gName||'').trim();
+    if(!name || !(price >= 0)){ this.showToast('Enter a name and a price for the generic item.', 3500); return; }
+    const stone = (this.trade.gStone === '' || this.trade.gStone == null) ? 0 : Number(this.trade.gStone);
+    const a = this.tradeAvailFor(price);
+    this.trade.buyCart.push({ key:'g-'+this.trade.buyCart.length+'-'+Math.random().toString(36).slice(2,6), catalogId:null, name,
+      unitPriceGp:price, stone, qty:1, availKind:a.kind, availPercent:a.percent, availableUnits:this._tradeRollUnits(price), band:a.band });
+    this.trade.gName = ''; this.trade.gPrice = null; this.trade.gStone = null;
+  },
+  tradeRemoveCart(key){ this.trade.buyCart = this.trade.buyCart.filter(l => l.key !== key); },
+  tradeRecomputeCart(){
+    this.trade.buyCart = this.trade.buyCart.map(l => {
+      const a = this.tradeAvailFor(l.unitPriceGp);
+      return { ...l, availKind:a.kind, availPercent:a.percent, availableUnits:this._tradeRollUnits(l.unitPriceGp), band:a.band };
+    });
+  },
+  tradeInitSellRows(){
+    const ch = this.tradeActor(); const rows = {};
+    if(ch && Array.isArray(ch.inventory)){
+      ch.inventory.forEach((it, ix) => {
+        let defPrice = 0;
+        const m = (window.ACKS.EQUIPMENT_CATALOG||[]).find(e => e.name.toLowerCase() === (it.name||'').toLowerCase());
+        if(m) defPrice = m.listPriceGp;
+        const heldQty = (it.qty != null) ? it.qty : 1;
+        rows[ix] = { sel:false, qty:heldQty, priceGp:defPrice, name:(it.name||'(unnamed)'), heldQty, stone:it.stone };
+      });
+    }
+    this.trade.sellRows = rows;
+  },
+  tradeSellRowsList(){ return Object.keys(this.trade.sellRows).map(k => ({ ix:Number(k), ...this.trade.sellRows[k] })); },
+  tradeSellSelectedRows(){
+    return this.tradeSellRowsList().filter(r => r.sel).map(r => {
+      const a = this.tradeAvailFor(r.priceGp);
+      const availableUnits = (a.kind === 'none') ? 0 : (a.kind === 'count' ? a.count : 1);   // sell cap (chance → the market absorbs 1)
+      return { ...r, availKind:a.kind, availPercent:a.percent, availableUnits };
+    });
+  },
+  tradePurseGp(){ const ch = this.tradeActor(); return (ch && ch.coins && Number(ch.coins.gp)) || 0; },
+  tradeBuyTotalGp(){ return this.trade.buyCart.reduce((s,l) => s + (Number(l.unitPriceGp)||0)*(Number(l.qty)||0), 0); },
+  tradeBuyTotalStone(){ return this.trade.buyCart.reduce((s,l) => s + (Number(l.stone)||0)*(Number(l.qty)||0), 0); },
+  tradeSellTotalGp(){ return this.tradeSellSelectedRows().reduce((s,r) => s + (Number(r.priceGp)||0)*(Number(r.qty)||0), 0); },
+  tradeSellTotalStone(){
+    return this.tradeSellSelectedRows().reduce((s,r) => {
+      const heldStone = Number(r.stone)||0; const heldQty = Number(r.heldQty)||1; const qty = Number(r.qty)||0;
+      return s + heldStone*(qty/heldQty);
+    }, 0);
+  },
+  tradeActivityUnits(){
+    const stone = (this.trade.dir === 'buy') ? this.tradeBuyTotalStone() : this.tradeSellTotalStone();
+    return Math.max(1, Math.ceil((Number(stone)||0) / this.tradeNormalLoadSt()));
+  },
+  tradeSubmitDisabledReason(){
+    const ch = this.tradeActor(); if(!ch) return 'Pick a character.';
+    const s = this.tradeSettlement(); if(!s) return 'Pick a settlement (the market).';
+    if(this.trade.dir === 'buy'){
+      if(!this.trade.buyCart.length) return 'Add an item to buy.';
+      for(const l of this.trade.buyCart){
+        if(!(Number(l.qty) > 0)) return l.name + ': set a quantity.';
+        if(Number(l.qty) > Number(l.availableUnits)) return l.name + ': only ' + Number(l.availableUnits).toLocaleString() + ' available this month at Class ' + this.tradeMarketClassRoman() + '.';
+      }
+      const total = this.tradeBuyTotalGp();
+      if(total > this.tradePurseGp()) return 'Not enough coin in the purse (have ' + this.tradePurseGp().toLocaleString() + ', need ' + total.toLocaleString() + ' gp).';
+      return '';
+    }
+    const rows = this.tradeSellSelectedRows();
+    if(!rows.length) return 'Select an item to sell.';
+    for(const r of rows){
+      if(!(Number(r.priceGp) >= 0)) return r.name + ': set a market price.';
+      if(!(Number(r.qty) > 0)) return r.name + ': set a quantity.';
+      if(Number(r.qty) > Number(r.heldQty)) return r.name + ': only ' + r.heldQty + ' held.';
+      if(Number(r.qty) > Number(r.availableUnits)) return r.name + ': the market will take only ' + Number(r.availableUnits).toLocaleString() + ' this month.';
+    }
+    return '';
+  },
+  tradeCanSubmit(){ return this.tradeSubmitDisabledReason() === ''; },
+  tradeSubmit(){
+    if(!this.tradeCanSubmit()){ this.showToast(this.tradeSubmitDisabledReason(), 4000); return; }
+    const ch = this.tradeActor(); const s = this.tradeSettlement();
+    const common = { actorCharacterId:ch.id, settlementId:s.id, visitedBefore:!!this.trade.visitedBefore, partyOf12Dedicated:!!this.trade.partyOf12Dedicated, submittedBy:'gm' };
+    let res;
+    if(this.trade.dir === 'buy'){
+      const lines = this.trade.buyCart.map(l => l.catalogId
+        ? ({ catalogId:l.catalogId, qty:Number(l.qty), availableUnits:Number(l.availableUnits) })
+        : ({ name:l.name, priceGp:Number(l.unitPriceGp), stone:Number(l.stone)||0, qty:Number(l.qty), availableUnits:Number(l.availableUnits) }));
+      res = window.ACKS.marketBuy(this.currentCampaign, { ...common, lines, payFrom:'purse', itemTo:'carry' });
+    } else {
+      const lines = this.tradeSellSelectedRows().map(r => ({ inventoryIndex:r.ix, name:r.name, priceGp:Number(r.priceGp), qty:Number(r.qty), availableUnits:Number(r.availableUnits) }));
+      res = window.ACKS.marketSell(this.currentCampaign, { ...common, lines, payFrom:'purse', itemFrom:'carry' });
+    }
+    if(!res || !res.ok){ this.showToast(this._tradeErr(res && res.error, res && res.detail), 4800); return; }
+    this.markDirty(); this.schedulePersist();
+    const mt = res.result && res.result.marketTransaction;
+    let msg = (this.trade.dir === 'buy' ? 'Bought ' : 'Sold ') + res.lines.length + ' line' + (res.lines.length === 1 ? '' : 's') + ' for ' + Number(res.totalGp).toLocaleString() + ' gp.';
+    if(mt && mt.activityCost) msg += ' · ' + mt.activityCost.units + ' ancillary errand' + (mt.activityCost.units === 1 ? '' : 's') + ' (#346).';
+    if(mt && mt.notable) msg += ' ★ Notable transaction.';
+    this.showToast(msg, 5500);
+    this.trade.buyCart = [];                                // reset the order; keep the modal open for more
+    this.tradeInitSellRows();
+  },
+  _tradeErr(code, detail){
+    const m = {
+      'unknown-actor':'Character not found.',
+      'no-lines':'Nothing selected.',
+      'no-price':'That item has no price — enter one.',
+      'bad-qty':'Bad quantity.',
+      'unavailable':'The market doesn’t stock that many' + (detail && detail.name ? (' ' + detail.name) : '') + ' this month' + (detail && detail.availableUnits != null ? (' (only ' + detail.availableUnits + ').') : '.'),
+      'insufficient-funds':'Not enough coin' + (detail ? (' (have ' + Number(detail.have).toLocaleString() + ', need ' + Number(detail.need).toLocaleString() + ').') : '.'),
+      'bad-index':'That inventory line is gone — reopen the wizard.',
+      'apply-failed':'Transaction failed' + (detail ? (' (' + detail + ')') : '.')
+    };
+    return m[code] || ('Trade failed' + (code ? (' (' + code + ')') : '') + '.');
   },
   // Encumbrance (B.5) — RAW by default; the ignore-encumbrance opt-out hides it
   encumbranceShown(){ return !this.isHouseRuleEnabled('ignore-encumbrance'); },

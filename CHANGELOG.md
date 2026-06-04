@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **You can now buy and sell equipment at a market.** A new **🛒 Trade** wizard lets a character shop a settlement's market — open it from a character's Inventory tab (**🛒 Shop**, with the local market pre-filled when they're standing at one) or from a hex's card (**🛒 Market → Trade here**). Pick what to buy from the equipment catalogue (weapons, armour, gear, mounts) or enter any item by price, and the wizard shows what the market actually stocks this month: a small village carries far less than a great city (Equipment Availability by Market Class, RR p.124), with scarce or costly goods shown as a monthly chance you can re-roll. Buying pays from the character's **coin purse** and drops the goods — at their real weight — straight into the **pack**; selling draws from what the character is **actually carrying** and credits the purse (the market only takes as much as it would stock, at market price). The forecast shows the total price, the load you'd haul, and **how much of the character's day the trip costs** — buying or selling up to a normal load is one errand, each further load another (M&M p.15), so a big shopping run eats into the day's other activities and shows on the character as the day's shopping. A character who has traded in a market before, or a party of twelve-plus spending the day at it, can be marked for the better availability the book grants them. (Mercenary hiring and bulk trade ventures are separate systems, as before — this is everyday retail buy/sell.)
+
 ## [0.18.0] - 2026-06-04
 
 ### Changed
