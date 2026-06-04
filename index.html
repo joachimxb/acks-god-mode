@@ -3787,31 +3787,34 @@ document.addEventListener('alpine:init', () => {
                 <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
               </select>
             </div>
-            <!-- §26 GM speed override: the tick enables the value (after Mode); the value uses the standard
-                 lock-open-pick-close editor (editableStat) so ONE committed edit = one event, not one per
-                 spinner increment. The tick commits/clears the value (one event each). -->
+            <!-- §26 GM speed override. The tick only ARMS the override — it commits NO value and emits NO
+                 event; pace still governs until the GM sets a number via the editor (the "null state"). The
+                 value is then set/edited with the standard lock-open-pick-close editor (editableStat) — one
+                 committed edit = one event. Unticking disarms AND clears any value (back to the null state). -->
             <div>
               <label class="opacity-70 block text-xs">Speed override</label>
               <div class="flex items-center gap-2">
                 <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Override the computed speed — set an exact miles/day for this leg (per-hex terrain still applies; pace still drives fatigue)">
-                  <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail())" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
+                  <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
                   <span>Override</span>
                 </label>
-                <!-- ON: edit the value via the standard ✏-to-open, ✓/× to commit (one gm-fiat event). -->
-                <template x-if="journeyHasSpeedOverride(journeyDetail())">
-                  <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v||0) + ' mi/day'; }})">
-                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+                <!-- ARMED or SET: set/edit the value (✏ to open, ✓/× to commit). Until a value is committed it
+                     reads "— set a value" and nothing is written (pace governs). -->
+                <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
+                  <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
+                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : ''" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
                     <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                   </span>
                 </template>
-                <!-- OFF: grayed nominal-pace preview — tick Override to set an exact value. -->
-                <template x-if="!journeyHasSpeedOverride(journeyDetail())">
+                <!-- OFF (not armed, no value): grayed nominal-pace preview — tick Override to set an exact value. -->
+                <template x-if="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">
                   <span class="text-sm opacity-40 font-mono" x-text="_journeyNominalSpeed(journeyDetail()) + ' mi/day'" title="Tick Override to set an exact miles/day (this is the current pace's nominal speed)"></span>
                 </template>
               </div>
             </div>
           </div>
-          <span class="text-xs opacity-50" x-show="!journeyHasSpeedOverride(journeyDetail())">Pace applies to the next day ticked.</span>
+          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">Pace applies to the next day ticked.</span>
+          <span class="text-xs text-amber-800" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, pace still applies.</span>
           <span class="text-xs text-amber-800" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace is ignored for distance (but still sets fatigue). Terrain still applies per hex.'"></span>
         </div>
 
@@ -7769,6 +7772,7 @@ return {
       if(this.activeTab && !this.tabs.includes(this.activeTab))this.activeTab='overview';
     },{deep:true});
     this.$watch('domains',()=>{ this.markDirty(); this.schedulePersist(); },{deep:true});
+    this.$watch('journeyDetailId',()=>{ this.journeyOverrideArmed = false; }); // §26 — armed state is per-open-journey; clear on any switch
     this.$watch('selectedDomainId',()=>this.schedulePersist()); // selecting a domain isn't a content change
     // #225 Map Mode — persist the active fill layer; lazily fit the viewport when the Map sub-view opens.
     this.$watch('mapFillLayer',()=>this.schedulePersist());
@@ -8818,6 +8822,9 @@ return {
   // opens the Detail panel; journeyWizard.open shows the wizard; neither ⇒ the lists.
   journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null },
   journeyDetailId: null,
+  // §26 — transient: the GM ticked "Override" but hasn't set a value yet (armed, null state — no event).
+  // Reset whenever the open journey changes; a journey with a committed value reads as overridden on its own.
+  journeyOverrideArmed: false,
   journeyShowCompleted: false,
   // #447 — Faceted Roster filter. Four parallel axes intersect with AND.
   // Default lifecycleState:'active' hides deceased/retired by default
@@ -9353,8 +9360,8 @@ return {
     this.showToast('Journey started: ' + (j.name||'(unnamed)'));
   },
   // ── Detail ──
-  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
-  journeyCloseDetail(){ this.journeyDetailId = null; },
+  journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
+  journeyCloseDetail(){ this.journeyDetailId = null; this.journeyOverrideArmed = false; },
   // Tick Day MUST route through the GLOBAL day-tick pipeline (shared with construction +
   // every future day consumer) — NOT a journey-private tick; forking would desync them.
   // This is just a convenience entry to the same propose → review → commit the Day Clock drives.
@@ -9387,13 +9394,18 @@ return {
     this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', oldValue:cur, newValue:v, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
   },
-  // The "Override" tick: checking it enables the inline mi/day field by committing the nominal pace
-  // speed as the starting value (so journeyHasSpeedOverride → true and the field un-grays); unchecking
-  // clears the override (pace resumes). The field edits the value from there via setJourneySpeedOverride.
+  // The "Override" tick only ARMS the override (the transient journeyOverrideArmed flag) — it commits
+  // NO value and emits NO event, so ticking leaves the journey in the null/pace state until the GM
+  // actually picks a number via the editor. Unticking disarms AND clears any committed value (one event
+  // iff a value was set), returning to the null state.
   toggleJourneySpeedOverride(j, checked){
     if(!j) return;
-    if(checked){ if(!this.journeyHasSpeedOverride(j)) this.setJourneySpeedOverride(j, this._journeyNominalSpeed(j)); }
-    else this.setJourneySpeedOverride(j, null);
+    if(checked){
+      this.journeyOverrideArmed = true;
+    } else {
+      this.journeyOverrideArmed = false;
+      if(this.journeyHasSpeedOverride(j)) this.setJourneySpeedOverride(j, null);
+    }
   },
   // The nominal open-ground speed for the journey's current pace (base × pace mult) — the value the
   // grayed field previews when override is off, and the default the override starts at when first ticked.
