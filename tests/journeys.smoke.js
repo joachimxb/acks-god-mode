@@ -198,6 +198,25 @@ const neDayEvs = ne.c.eventLog.slice(neEvLen).filter(e => e.event && (e.event.ki
 check('a notable day emits exactly ONE journey event (fragmented signals folded in)', neDayEvs.length === 1, 'got ' + neDayEvs.length);
 check('the notable day event is NOT campaignLogHidden', !neDayEvs[0].campaignLogHidden);
 
+// ── journey naming: WHO travels, not the route (Travel pivot) ──
+section('Travel pivot — journey naming (who, not route)');
+const nm = build(); // chr-1 'Scout', no party
+check('single traveller → the character name', ACKS.journeyDefaultName(nm.c, nm.c.journeys[0]) === 'Scout');
+nm.c.characters.push(ACKS.blankCharacter({ id:'chr-2', name:'Brand' }));
+nm.c.journeys[0].participantCharacterIds = ['chr-1','chr-2'];
+check('≥2 travellers (no party) → "<first to join>\'s travelling group"', ACKS.journeyDefaultName(nm.c, nm.c.journeys[0]) === "Scout's travelling group");
+nm.c.parties = [{ id:'pty-1', name:'The Iron Hand', currentHexId:'hex-a' }];
+nm.c.journeys[0].partyId = 'pty-1';
+check('a party journey → the party name (wins over the character set)', ACKS.journeyDefaultName(nm.c, nm.c.journeys[0]) === 'The Iron Hand');
+check('no named traveller → null (caller falls back to route)', ACKS.journeyDefaultName(nm.c, { participantCharacterIds: [] }) === null);
+// migration re-derives an auto-route name, preserves a GM-set one
+const nmig = build(); nmig.c.journeys[0].name = 'hex-a → hex-b';   // looks auto-route (contains ' → ')
+ACKS.migrateCampaign(nmig.c);
+check('migration re-derives an auto-route journey name to the who-name', nmig.c.journeys[0].name === 'Scout');
+const nmig2 = build(); nmig2.c.journeys[0].name = 'The Long March'; // GM-set, no arrow
+ACKS.migrateCampaign(nmig2.c);
+check('migration PRESERVES a GM-set journey name (no route arrow)', nmig2.c.journeys[0].name === 'The Long March');
+
 // ─────────────────────────────────────────────────────────────────────────────
 section('Lost cascade (nav-fail → unknowing-lost, strays — RR p.275)');
 

@@ -1581,6 +1581,27 @@ function _journeyNavBonus(campaign, journey){
 // "GM, resolve this" encounter + notable event (pauseTrigger 'encounter'); the real
 // pool-first draw (lairs / persistent wanderers / rival journeys) lands with #476, and
 // Phase 3 #141 owns the actual tables. Roads are safe in J1. Pure given rng.
+// Travel pivot (2026-06-04): a journey's auto-name describes WHO is travelling, not the route.
+//   - a PARTY moving → the party's name;
+//   - a single character (no party) → that character's name;
+//   - a group of ≥2 characters (no party) → "<first character to join>'s travelling group"
+//     (participantCharacterIds[0] = the first traveller added).
+// Returns null when there's no named traveller yet (caller falls back to a route label / "Journey").
+// `journey` may be a real journey or a {partyId, participantCharacterIds} shape (the planner uses the latter).
+function journeyDefaultName(campaign, journey){
+  if(!journey) return null;
+  if(journey.partyId && campaign && Array.isArray(campaign.parties)){
+    const p = campaign.parties.find(x => x && x.id === journey.partyId);
+    if(p && (p.name || '').trim()) return p.name.trim();
+  }
+  const ids = (journey.participantCharacterIds || []).filter(Boolean);
+  const chars = (campaign && campaign.characters) || [];
+  const nameOf = id => { const c = chars.find(x => x && x.id === id); return (c && (c.name || '').trim()) ? c.name.trim() : null; };
+  if(ids.length === 1) return nameOf(ids[0]);
+  if(ids.length >= 2){ const n = nameOf(ids[0]); return n ? (n + "'s travelling group") : null; }
+  return null;
+}
+
 function rollEncounter(campaign, journey, opts){
   opts = opts || {};
   const rng = opts.rng || Math.random;
@@ -2774,7 +2795,7 @@ const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation,
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.

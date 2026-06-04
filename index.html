@@ -3623,7 +3623,7 @@ document.addEventListener('alpine:init', () => {
             </div>
             <div>
               <label class="opacity-70 block text-xs">Name (optional)</label>
-              <input x-model="journeyWizard.name" placeholder="auto from route" class="border border-ink rounded px-2 py-0.5">
+              <input x-model="journeyWizard.name" placeholder="auto from travellers" class="border border-ink rounded px-2 py-0.5">
             </div>
           </div>
           <div class="mt-2">
@@ -9392,7 +9392,7 @@ return {
     const w = this.journeyWizard;
     if(!Array.isArray(this.currentCampaign.journeys)) this.currentCampaign.journeys = [];
     const j = window.ACKS.blankJourney({
-      name: (w.name||'').trim() || (this._journeyHexLabel(w.startHexId) + ' → ' + this._journeyHexLabel(w.destinationHexId)),
+      name: (w.name||'').trim() || window.ACKS.journeyDefaultName(this.currentCampaign, { partyId: w.partyId || null, participantCharacterIds: w.participantIds }) || (this._journeyHexLabel(w.startHexId) + ' → ' + this._journeyHexLabel(w.destinationHexId)),
       participantCharacterIds: w.participantIds.slice(),
       partyId: w.partyId || null,
       startHexId: w.startHexId,

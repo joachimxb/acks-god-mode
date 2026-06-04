@@ -880,6 +880,14 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof j.speedOverrideMilesPerDay === 'undefined') j.speedOverrideMilesPerDay = null;  // §26 GM speed override (null ⇒ pace governs)
       if(typeof j.strayHeading === 'undefined') j.strayHeading = null;                          // §27 getting-lost — stray hex face (null ⇒ not lost)
       if(typeof j.routeAnchorCoord === 'undefined') j.routeAnchorCoord = null;                  // §27 — coord anchor while straying off authored hexes
+      // Travel pivot — a journey's name describes WHO travels, not the route. Re-derive an auto-route
+      // name (contains ' → ') or an empty name from the party/character set; a GM-set name (no arrow)
+      // is preserved. Only applies when a named traveller exists (else the route name is kept).
+      const _jname = (j.name || '').trim();
+      if((!_jname || _jname.indexOf(' → ') >= 0) && global.ACKS && global.ACKS.journeyDefaultName){
+        const _who = global.ACKS.journeyDefaultName(campaign, j);
+        if(_who) j.name = _who;
+      }
     }
   }
   // Per-settlement new fields
