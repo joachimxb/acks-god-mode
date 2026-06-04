@@ -5305,7 +5305,7 @@ function characterActivityBudget(campaign, charId, opts){
     const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
     if(at != null && at !== _turnWindow) continue;                   // window: this turn (month)…
     const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
-    if(atDay != null && atDay !== _dayWindow) continue;              // …and this game day (RAW: the budget is per-day)
+    if(atDay !== _dayWindow) continue;                               // …and THIS game day (strict): an un-day-stamped (pre-update / legacy) errand isn't attributable to *today*, so it's excluded from the daily budget. It still appears in turn-windowed history + counts toward the monthly availability ceiling. Every new cost-tagged event IS stamped (in _logAppliedEvent), so a current errand never falls through here.
     if(!_eventEngagesCharacter(ev, charId)) continue;                // the acting character
     const cc = costFor(ac.kind || '');
     const units = Math.max(1, Number(ac.units) || 1);

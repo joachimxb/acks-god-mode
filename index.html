@@ -9332,7 +9332,8 @@ return {
         const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
         if(at != null && at !== turn) continue;                          // this turn…
         const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
-        if(atDay != null && atDay !== day) continue;                     // …and this game day (per-day refresh)
+        if(atDay !== day) continue;                                      // …and THIS game day (strict): a pre-update (un-day-stamped) errand isn't today's, so it's excluded — every new market-transaction is stamped in _logAppliedEvent
+
         const p = ev.payload || {};
         const mine = p.actorCharacterId === c.id || ((ev.context?.relatedEntities)||[]).some(r => r && r.kind === 'character' && r.id === c.id);
         if(!mine) continue;

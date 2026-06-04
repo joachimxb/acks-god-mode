@@ -354,6 +354,17 @@ section('IT-3 reader — the budget REFRESHES each game DAY (RR: the 1+4 / 12 al
   ok('the eventLog wrapper carries appliedAtDay too', c.eventLog[c.eventLog.length - 1].appliedAtDay === 1);
 }
 {
+  // a pre-update / legacy errand with NO day stamp is excluded from the daily budget (strict match) —
+  // it isn't attributable to "today", so it must not show on every day (the bug Joachim caught)
+  const { c } = fixture();   // currentDayInMonth 1
+  ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  const wrap = c.eventLog[c.eventLog.length - 1];
+  delete wrap.appliedAtDay; delete wrap.event.appliedAtDay;   // simulate an event created before the per-day fix
+  ok('an un-day-stamped (pre-update) errand is excluded from the daily budget', ACKS.characterActivityBudget(c, 'chr-buyer').ancillary.filter(a => a.kind === 'market-transaction').length === 0);
+  c.currentDayInMonth = 2;
+  ok('…and it does not resurface on any other day either', ACKS.characterActivityBudget(c, 'chr-buyer').ancillary.filter(a => a.kind === 'market-transaction').length === 0);
+}
+{
   // two trips on the SAME game day accumulate (each market visit is its own errand)
   const { c } = fixture();
   ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
