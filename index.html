@@ -9865,8 +9865,12 @@ return {
   characterWaterCap(ch){ return ch ? (Math.round((window.ACKS.waterCapacityDays(ch)||0)*10)/10) : 0; },
   // The hex a journey is currently in supplies free water? (greys the forage-water tick — §8.)
   journeyHexSourcesWater(j){
-    if(!j) return false;
-    const hx=this.allHexes().find(h=>h&&h.id===(j.currentHexId||j.startHexId));
+    if(!j || !this.currentCampaign) return false;
+    // Resolve from campaign.hexes (the canonical top-level store, which carries the nested .settlement /
+    // .riverSides / .hasLake the source test reads) — NOT allHexes(), whose entries are {domainId, hex}
+    // WRAPPERS with no top-level .id, so the lookup never matched and every hex read as "no water".
+    const id=j.currentHexId||j.startHexId;
+    const hx=(this.currentCampaign.hexes||[]).find(h=>h&&h.id===id);
     return hx ? !!window.ACKS.hasFreshSource(this.currentCampaign, hx) : false;
   },
   // Render a navigation throw with its die roll + modifiers + target + result (RR p.275).
