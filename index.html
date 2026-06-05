@@ -192,7 +192,7 @@ document.addEventListener('alpine:init', () => {
   <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid #2a1f12;">
     <h1 class="text-4xl font-black mr-2">ACKS God Mode</h1>
     <span class="flex-grow"></span>
-    <button @click="loadDemoTemplate()" class="px-3 py-1 border border-ink rounded bg-emerald-200 hover:bg-emerald-300 font-semibold" title="Reset the current state to the bundled demo campaign (March of Saltspur). Won't overwrite any file — Save will prompt for a new location.">🎲 Demo</button>
+    <button @click="showWelcomeScreen()" class="px-3 py-1 border border-ink rounded bg-emerald-200 hover:bg-emerald-300 font-semibold" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
     <button @click="newCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">＋ New campaign</button>
     <button @click="openCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
     <button @click="saveCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
@@ -14294,6 +14294,29 @@ return {
     this.fileHandle=null;this.fileName='';
     this.mapViewBox=null; // #225 re-fit the map to the new campaign on next open
     this.showToast('Campaign "'+name+'" created (unsaved).');
+  },
+
+  // Header "🏠 Welcome" button — return to the first-run welcome / launcher screen
+  // (the no-campaign state on World ▸ Domains). The welcome banner still offers the demo,
+  // the template picker, Open, and Start blank, so the demo stays one click away. Confirms
+  // first only if there are unsaved changes; clearing the campaign is otherwise reversible
+  // (reopen from the welcome screen). Mirrors loadCampaignFromObject's mutation-guard tail
+  // so clearing currentCampaign doesn't trip the dirty flag / beforeunload guard.
+  showWelcomeScreen(){
+    if(this.dirty && this.currentCampaign && !confirm('Return to the welcome screen? Your unsaved changes will be lost.')) return;
+    this._ignoreMutations = true;
+    this.currentCampaign = null;
+    this.domains = [];
+    this.selectedDomainId = null;
+    this.fileHandle = null;
+    this.fileName = '';
+    this.mapViewBox = null;
+    this.currentView = 'world';      // the welcome banner lives on World ▸ Domains
+    this.worldSubView = 'domains';
+    this.dirty = false;
+    const release = () => { this._ignoreMutations = false; this.dirty = false; };
+    if(typeof this.$nextTick === 'function') this.$nextTick(release); else setTimeout(release, 0);
+    setTimeout(release, 0);
   },
 
   loadCampaignFromObject(obj,sourceName){
