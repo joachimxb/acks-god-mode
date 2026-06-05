@@ -160,5 +160,31 @@ const cSimpl = mkCampaign({ characters: [mkChar('chr-a', { personalFatigue: 6 })
 ok('simplified-fatigue ON → never forced-fatigued', ACKS.characterActivityBudget(cSimpl, 'chr-a').fatigued === false);
 
 // =============================================================================
+section('activityRejectAffordance() — the Current Activities reject contract (Joachim 2026-06-05)');
+// =============================================================================
+// Reject reaches back to the source; the undo differs by the source's temporal nature.
+ok('domain admin → reverse (untick the standing commitment)', ACKS.activityRejectAffordance({ sourceKind: 'domain' }).mode === 'reverse');
+const affMkt = ACKS.activityRejectAffordance({ sourceKind: 'errand-event', kind: 'market-transaction' });
+ok('market errand → reverse, labelled "Refund"', affMkt.mode === 'reverse' && affMkt.label === 'Refund');
+ok("journey → navigate (a travelled day can't be rewound)", ACKS.activityRejectAffordance({ sourceKind: 'journey' }).mode === 'navigate');
+ok('a non-market errand → none (not reversible yet)', ACKS.activityRejectAffordance({ sourceKind: 'errand-event', kind: 'carouse' }).mode === 'none');
+ok('null activity → none', ACKS.activityRejectAffordance(null).mode === 'none');
+
+// =============================================================================
+section('characterActivityBudget() — a reversed errand drops out of the day (reverseMarketTransaction)');
+// =============================================================================
+{
+  const entry = (rev) => ({
+    appliedAtTurn: 1, appliedAtDay: 1,
+    event: { id: 'ev-' + (rev ? 'r' : 'n'), kind: 'market-transaction', appliedAtTurn: 1, appliedAtDay: 1,
+      payload: { actorCharacterId: 'chr-a', activityCost: { slot: 'ancillary', units: 1, kind: 'market-transaction' }, reversed: !!rev } }
+  });
+  const cLive = mkCampaign({ currentTurn: 1, currentDayInMonth: 1, characters: [mkChar('chr-a')], eventLog: [entry(false)] });
+  ok('a live errand counts toward the day', ACKS.characterActivityBudget(cLive, 'chr-a').ancillaryUsed === 1);
+  const cRev = mkCampaign({ currentTurn: 1, currentDayInMonth: 1, characters: [mkChar('chr-a')], eventLog: [entry(true)] });
+  ok('a reversed errand is skipped', ACKS.characterActivityBudget(cRev, 'chr-a').ancillaryUsed === 0);
+}
+
+// =============================================================================
 console.log('\n' + (fail ? 'FAIL' : 'PASS') + ' — activity-budget.smoke: ' + pass + ' passed, ' + fail + ' failed');
 if (fail) { console.log('Failures:\n  ' + failures.join('\n  ')); process.exit(1); }

@@ -2245,6 +2245,7 @@ function marketUnitsTransactedThisMonth(campaign, settlementId, nameKey, directi
     const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
     if(at != null && at !== turn) continue;
     const p = ev.payload || {};
+    if(p.reversed || p.isReversal) continue;   // a reversed buy + its compensating reversal net to zero — the RR p.124 ceiling frees up
     if(p.settlementId !== settlementId) continue;
     if(direction && p.direction !== direction) continue;
     for(const ln of (p.lines || [])){ if(String(ln.name || '').toLowerCase() === key) units += (Number(ln.qty) || 0); }
@@ -2399,6 +2400,108 @@ function marketSell(campaign, opts){
   return { ok:true, event: ev, totalGp, lines, result: out.result };
 }
 
+// ── reverseMarketTransaction — the rollback verb behind the Current Activities "Refund" reject ─
+// (Joachim 2026-06-05). A market-transaction is a completed atomic act; "rejecting" it from the
+// Activities view REVERSES it (the opposite of the day-tick "reject", which merely skips a
+// not-yet-applied record). The reversal is a compensating counter-trade on the GP Wave B grammar:
+// a refunded BUY returns the goods to the market + the coins to the purse; an unwound SELL takes
+// the proceeds back + returns the goods. We mark the original payload.reversed (so it drops from
+// today's activity budget AND frees the RR p.124 monthly ceiling — both readers skip reversed/
+// reversal events) and log a flipped-direction market-transaction with NO activityCost (a reversal
+// isn't itself a new activity). Refuse-with-reason (Joachim's call) rather than a partial unwind:
+// a buy needs its goods still in the pack, a sell needs the proceeds still in the purse.
+//
+// v1 scope: the purse↔carry route only — the single route the Trade Wizard (IT-4) produces. A
+// stash/treasury-routed trade refuses with a reason (reverse those from the stash view). Returns
+// { ok:true, reversalEvent, narrativeSummary } | { ok:false, reason }.
+function _reverseBuyFromCarry(ch, lines, opts){
+  opts = opts || {};
+  const inv = Array.isArray(ch.inventory) ? ch.inventory : (ch.inventory = []);
+  // Atomic check first: every bought line must still be in the pack (aggregate qty by name).
+  for(const ln of lines){
+    const nm = ln.name || ln.label || 'item';
+    const need = (ln.qty != null) ? ln.qty : 1;
+    let have = 0;
+    for(const it of inv){ if(it && it.name === nm) have += (it.qty != null ? it.qty : 1); }
+    if(have < need) return { ok:false, reason:'the ' + nm + (have > 0 ? (' (only ' + have + ' of ' + need + ' left)') : '') + ' is no longer in ' + (ch.name || 'the pack') };
+  }
+  if(opts.dryRun) return { ok:true };
+  for(const ln of lines){
+    const nm = ln.name || ln.label || 'item';
+    let need = (ln.qty != null) ? ln.qty : 1;
+    for(let i = inv.length - 1; i >= 0 && need > 0; i--){
+      const it = inv[i]; if(!it || it.name !== nm) continue;
+      const q = (it.qty != null) ? it.qty : 1;
+      const unitSt = q ? ((Number(it.stone) || 0) / q) : 0;
+      const take = Math.min(q, need);
+      if(take >= q){ inv.splice(i, 1); } else { it.qty = q - take; it.stone = unitSt * it.qty; }
+      need -= take;
+    }
+  }
+  return { ok:true };
+}
+function reverseMarketTransaction(campaign, eventId, opts){
+  opts = opts || {};
+  const entries = Array.isArray(campaign.eventLog) ? campaign.eventLog : [];
+  const entry = entries.find(e => e && e.event && e.event.id === eventId);
+  if(!entry) return { ok:false, reason:'That transaction is no longer in the event log.' };
+  const ev = entry.event;
+  if(ev.kind !== 'market-transaction') return { ok:false, reason:'That event is not a market transaction.' };
+  const p = ev.payload || {};
+  if(p.isReversal) return { ok:false, reason:'That entry is itself a reversal.' };
+  if(p.reversed)   return { ok:false, reason:'This transaction was already reversed.' };
+  const dir = (p.direction === 'sell') ? 'sell' : 'buy';
+  const lines = Array.isArray(p.lines) ? p.lines : [];
+  const totalGp = Number(p.totalGp) || 0;
+  const actorId = p.actorCharacterId;
+  const ch = (campaign.characters || []).find(c => c && c.id === actorId);
+  if(!ch) return { ok:false, reason:'The acting character is no longer in the campaign.' };
+
+  // v1 route guard: only the default purse↔carry route is auto-reversible.
+  const coinV = p.payFrom || 'purse';
+  const itemV = (dir === 'buy') ? (p.itemTo || 'carry') : (p.itemFrom || 'carry');
+  if(coinV !== 'purse') return { ok:false, reason:'Paid from a stash/treasury — reverse it from that stash instead.' };
+  if(itemV !== 'carry') return { ok:false, reason:'Goods routed through a stash — reverse it from that stash instead.' };
+
+  const coinHandle = { kind:'character', id: ch.id, label: (ch.name || actorId) + "'s purse" };
+  const name = ch.name || actorId;
+
+  if(dir === 'buy'){
+    // Refund a purchase: goods leave the pack (must still be there), coins return.
+    const plan = _reverseBuyFromCarry(ch, lines, { dryRun:true });
+    if(!plan.ok) return { ok:false, reason: 'Can’t refund — ' + plan.reason + '.' };
+    _reverseBuyFromCarry(ch, lines, {});
+    _applyWealthLeg(campaign, coinHandle, +totalGp, { reason:'market refund' });
+  } else {
+    // Unwind a sale: proceeds leave the purse (must still be there), goods return.
+    const purseGp = Number(ch.coins && ch.coins.gp) || 0;
+    if(purseGp < totalGp) return { ok:false, reason: 'Can’t unwind — ' + name + ' no longer holds the ' + totalGp.toLocaleString() + 'gp from that sale.' };
+    _applyWealthLeg(campaign, coinHandle, -totalGp, { reason:'market unwind' });
+    if(!Array.isArray(ch.inventory)) ch.inventory = [];
+    for(const ln of lines){ ch.inventory.push(_marketLineToCarry(ln)); }
+  }
+
+  // Void the original (drops it from today's budget + frees the monthly ceiling) and log the
+  // compensating market-transaction — flipped direction, same lines/value, NO activityCost.
+  p.reversed = true;
+  const rev = newEvent('market-transaction', {
+    submittedBy:'gm', status: EVENT_STATUS.APPLIED, targetTurn: campaign.currentTurn || 1,
+    context: ev.context || null,
+    payload: {
+      direction: (dir === 'buy' ? 'sell' : 'buy'), isReversal:true, reverses: ev.id,
+      actorCharacterId: actorId, settlementId: p.settlementId || null,
+      totalGp, currency:'gp', lines,
+      payFrom: p.payFrom || 'purse', itemTo: p.itemTo, itemFrom: p.itemFrom
+    }
+  });
+  const summary = (dir === 'buy' ? 'Refunded the purchase of ' : 'Unwound the sale of ') + _marketLinesSummary(lines)
+                + (p.settlementId ? (' at ' + _settlementName(campaign, p.settlementId)) : '')
+                + ' — ' + totalGp.toLocaleString() + 'gp ' + (dir === 'buy' ? 'returned to ' : 'taken back from ') + name;
+  _logAppliedEvent(campaign, rev, { narrativeSummary: summary, marketReversal: { reverses: ev.id, direction: dir, totalGp } });
+  p.reversedByEventId = rev.id;
+  return { ok:true, reversalEvent: rev, narrativeSummary: summary };
+}
+
 
 
 // ─── #541 Event Wizard support (Architecture.md §10.12 — 2026-05-30) ───
@@ -2464,7 +2567,10 @@ Object.assign(ACKS, {
   applyWealthTransfer: _doWealthTransfer, applyItemTransfer: _doItemTransfer,
   recordWealthTransfer, recordItemTransfer, _wealthLegAvailable,
   marketBuy, marketSell, _marketActivityCost, marketUnitsTransactedThisMonth, marketMonthlyRemaining,
-  previouslyEnteredMarket
+  previouslyEnteredMarket,
+  // Rollback verb behind the Current Activities "Refund" reject (Joachim 2026-06-05) — a
+  // compensating counter-trade that voids the original (dropping it from the budget + ceiling).
+  reverseMarketTransaction
 });
 
 if(typeof module !== 'undefined' && module.exports){

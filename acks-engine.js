@@ -5376,6 +5376,7 @@ function characterActivityBudget(campaign, charId, opts){
   const _log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
   for(const entry of _log){
     const ev = entry && entry.event; if(!ev) continue;
+    if(ev.payload && ev.payload.reversed) continue;   // a refunded/unwound transaction is no longer today's activity (reverseMarketTransaction)
     const ac = ev.payload && ev.payload.activityCost; if(!ac || !ac.slot) continue;
     const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
     if(at != null && at !== _turnWindow) continue;                   // window: this turn (month)…
@@ -5421,6 +5422,27 @@ function characterActivityBudget(campaign, charId, opts){
     overBudget, overReason,
     strenuousDays, fatigued
   };
+}
+
+// What kind of "reject" does an activity support, and what's the button label? (Joachim 2026-06-05,
+// the Current Activities table.) Rejecting a derived activity reaches back to its SOURCE — and the
+// undo differs because the sources have three temporal natures: a standing monthly commitment
+// (domain admin → WITHDRAW it: untick administersThisMonth), a completed atomic act (a market trade
+// → REVERSE it: reverseMarketTransaction), an ongoing process (a journey → can't rewind a travelled
+// day; NAVIGATE to it and Stop Moving). Other errand kinds (future carouse/study/rest) aren't
+// reversible yet → 'none'. Pure (the UI dispatches on .mode); keeps button labels consistent.
+// Returns { mode:'reverse'|'navigate'|'none', label, verb }.
+function activityRejectAffordance(activity){
+  if(!activity) return { mode:'none', label:'', verb:'' };
+  switch(activity.sourceKind){
+    case 'domain':  return { mode:'reverse',  label:'Untick admin', verb:'untick' };
+    case 'journey': return { mode:'navigate', label:'Go to journey', verb:'navigate' };
+    case 'errand-event':
+      return (activity.kind === 'market-transaction')
+        ? { mode:'reverse', label:'Refund', verb:'refund' }
+        : { mode:'none', label:'', verb:'' };
+    default: return { mode:'none', label:'', verb:'' };
+  }
 }
 
 // Helper for event handlers: populate context on an event. Pass relatedEntities
@@ -5496,7 +5518,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory, characterHistory,
   setEventContext,
   // Phase 2.95 Activity Budget (#346 / AB-1) — derived per-character daily activity budget.
-  characterActivityBudget,
+  characterActivityBudget, activityRejectAffordance,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,

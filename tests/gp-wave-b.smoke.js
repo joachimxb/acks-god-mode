@@ -308,6 +308,80 @@ section('RR p.124 — the 10× campaign-wide monthly availability ceiling (per s
 }
 
 // =============================================================================
+section('Reject = rollback — reverseMarketTransaction (Joachim 2026-06-05, Current Activities)');
+// =============================================================================
+{
+  // refund a BUY: goods leave the pack, coins return; the original is voided + a flipped reversal logged
+  const { c } = fixture();
+  const buyer = c.characters.find(x => x.id === 'chr-buyer');
+  const buy = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 2 }] });
+  ok('setup buy ok (980gp, one line)', buy.ok && buyer.coins.gp === 980 && buyer.inventory.length === 1);
+  const rev = ACKS.reverseMarketTransaction(c, buy.event.id);
+  ok('refund ok', rev.ok, JSON.stringify(rev));
+  ok('coins returned to the purse (980→1000)', buyer.coins.gp === 1000);
+  ok('the bought line is gone from the pack', buyer.inventory.length === 0);
+  ok('a flipped-direction reversal is logged (sell · isReversal · reverses=orig)', c.eventLog.some(e => e.event.kind === 'market-transaction' && e.event.payload.isReversal && e.event.payload.reverses === buy.event.id && e.event.payload.direction === 'sell'));
+  ok('the reversal carries NO activityCost (not itself an activity)', !c.eventLog.find(e => e.event.payload && e.event.payload.isReversal).event.payload.activityCost);
+  ok('the original is marked reversed + points at its reversal', buy.event.payload.reversed === true && buy.event.payload.reversedByEventId === rev.reversalEvent.id);
+  ok('double-reverse is refused', !ACKS.reverseMarketTransaction(c, buy.event.id).ok);
+}
+{
+  // a reversed buy drops from TODAY's budget AND frees the RR p.124 monthly ceiling
+  const { c, set } = fixture();
+  set.families = 100;             // Class VI → sword ceiling 10
+  c.currentDayInMonth = 1;
+  const buy = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  ok('the budget counts the shopping trip', ACKS.characterActivityBudget(c, 'chr-buyer').ancillaryUsed === 1);
+  ok('one sword counts against the ceiling', ACKS.marketUnitsTransactedThisMonth(c, 'set-1', 'sword', 'buy') === 1);
+  ACKS.reverseMarketTransaction(c, buy.event.id);
+  ok('after refund the budget drops the trip', ACKS.characterActivityBudget(c, 'chr-buyer').ancillaryUsed === 0);
+  ok('after refund the ceiling frees up (net 0)', ACKS.marketUnitsTransactedThisMonth(c, 'set-1', 'sword', 'buy') === 0);
+}
+{
+  // refuse-with-reason (Joachim's call) — the bought item is no longer in the pack; no partial unwind
+  const { c } = fixture();
+  const buyer = c.characters.find(x => x.id === 'chr-buyer');
+  const buy = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }] });
+  buyer.inventory = [];           // moved / sold-on / consumed
+  const rev = ACKS.reverseMarketTransaction(c, buy.event.id);
+  ok('refund refused when the item is gone', !rev.ok && /no longer in/.test(rev.reason), JSON.stringify(rev));
+  ok('refused refund left the purse unchanged (no partial)', buyer.coins.gp === 990);
+  ok('refused refund did NOT void the original', buy.event.payload.reversed !== true);
+}
+{
+  // unwind a SELL: proceeds leave the purse, goods return to the pack
+  const { c } = fixture();
+  const buyer = c.characters.find(x => x.id === 'chr-buyer');
+  buyer.inventory = [{ name: 'Plate Armor', stone: 6, notes: '' }];
+  const sell = ACKS.marketSell(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ inventoryIndex: 0, priceGp: 60 }] });
+  ok('setup sell ok (1060gp, pack emptied)', sell.ok && buyer.coins.gp === 1060 && buyer.inventory.length === 0);
+  const rev = ACKS.reverseMarketTransaction(c, sell.event.id);
+  ok('unwind ok', rev.ok, JSON.stringify(rev));
+  ok('proceeds taken back (1060→1000)', buyer.coins.gp === 1000);
+  ok('the goods returned to the pack', buyer.inventory.length === 1 && buyer.inventory[0].name === 'Plate Armor');
+}
+{
+  // refuse — the sale proceeds were spent
+  const { c } = fixture();
+  const buyer = c.characters.find(x => x.id === 'chr-buyer');
+  buyer.inventory = [{ name: 'Plate Armor', stone: 6, notes: '' }];
+  const sell = ACKS.marketSell(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ inventoryIndex: 0, priceGp: 60 }] });
+  buyer.coins.gp = 30;            // spent the proceeds
+  const rev = ACKS.reverseMarketTransaction(c, sell.event.id);
+  ok('unwind refused when the proceeds are spent', !rev.ok && /no longer holds/.test(rev.reason), JSON.stringify(rev));
+  ok('refused unwind left the purse unchanged', buyer.coins.gp === 30);
+}
+{
+  // guards — unknown id, and the v1 route boundary (stash-routed trades refuse with a reason)
+  const { c } = fixture();
+  ok('unknown event id is refused', !ACKS.reverseMarketTransaction(c, 'no-such-id').ok);
+  const buy = ACKS.marketBuy(c, { settlementId: 'set-1', actorCharacterId: 'chr-buyer', lines: [{ catalogId: 'sword', qty: 1 }], itemTo: 'stash:stash-cache' });
+  ok('setup stash-routed buy ok', buy.ok);
+  const rev = ACKS.reverseMarketTransaction(c, buy.event.id);
+  ok('a stash-routed buy refuses with a reason (v1 scope = purse↔carry)', !rev.ok && /stash/.test(rev.reason), JSON.stringify(rev));
+}
+
+// =============================================================================
 section('IT-3 reader — the budget COUNTS the shopping trip (OQ1: cost-tagged events + undertakings)');
 // =============================================================================
 {

@@ -252,6 +252,7 @@ document.addEventListener('alpine:init', () => {
                 <div class="border-b border-dashed border-gray-300">
                   <div class="flex items-center justify-between gap-2 py-0.5">
                     <span class="text-xs"><span class="font-semibold" x-text="ob.characterName"></span><span x-text="' — ' + ob.reason"></span></span>
+                    <button @click="goToCurrentActivities()" class="text-xs px-1 border border-ink rounded hover:bg-yellow-100 shrink-0" title="Open Current Activities to reject one of these activities and clear the conflict">Resolve &rarr;</button>
                   </div>
                   <div x-show="ob.activityLabels && ob.activityLabels.length" class="ml-3 pb-0.5">
                     <div class="text-xs text-red-700 leading-snug" x-text="'• over budget: ' + ob.activityLabels.join(' + ')"></div>
@@ -3130,6 +3131,59 @@ document.addEventListener('alpine:init', () => {
                           title="Recruit hirelings, henchmen or specialists with this character as patron">⚔ Recruit</button>
                   <button @click="startJourneyForCharacter(r.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100"
                           :title="characterPartyOf(r.c) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 Travel</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- Current Activities — the activity-centric companion table (Joachim 2026-06-05). One row per
+         (character × activity) for TODAY, with a context-labelled reject that ROLLS BACK the activity:
+         untick a domain administration, refund a market trade, or jump to a journey to Stop it. -->
+    <template x-if="currentCampaign && currentActivityRows().length > 0">
+      <div class="vellum border border-ink rounded p-3 overflow-x-auto">
+        <div class="flex justify-between items-baseline flex-wrap gap-2 mb-2">
+          <h3 class="font-bold text-lg">Current Activities</h3>
+          <span class="text-xs opacity-60" x-text="pluralize(currentActivityRows().length, 'activity', 'activities') + ' under way today'"></span>
+        </div>
+        <p class="text-xs opacity-70 mb-2">Reject rolls the activity back: <strong>untick</strong> a domain administration, <strong>refund</strong> a market trade (coins + goods returned exactly), or open a journey to <strong>Stop Moving</strong> (a travelled day can't be rewound).</p>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr>
+            <th style="text-align:left">Character</th>
+            <th style="text-align:left">Doing</th>
+            <th style="text-align:left">Cost</th>
+            <th style="text-align:right">Reject</th>
+          </tr></thead>
+          <tbody>
+            <template x-for="(row, ri) in currentActivityRows()" :key="(row.c.id) + ':' + (row.activity.sourceKind||'') + ':' + (row.activity.sourceId||'') + ':' + ri">
+              <tr :class="row.overBudget ? 'bg-red-50' : ''">
+                <td style="text-align:left">
+                  <button @click="openCharacterEditor(row.c)" class="font-semibold underline" x-text="row.c.name || '(unnamed)'"></button>
+                  <span x-show="row.overBudget" class="ml-1 text-xs accent-red font-semibold" title="Over their RAW day budget">⚠</span>
+                </td>
+                <td style="text-align:left">
+                  <span x-show="row.activity.strenuous" title="Strenuous (RR p.279)">⚡ </span><span x-text="row.activity.label"></span>
+                </td>
+                <td style="text-align:left">
+                  <span class="inline-block px-1.5 py-0.5 rounded text-xs"
+                        :class="row.activity.cost === 'ancillary' ? 'border border-ink' : (row.activity.cost === 'incidental' ? 'opacity-60 border border-ink/40' : '')"
+                        :style="row.activity.cost === 'dedicated' ? 'background:#2a1f12;color:#f4ecd8' : ''"
+                        x-text="row.activity.cost"></span>
+                </td>
+                <td class="text-right whitespace-nowrap">
+                  <button x-show="row.affordance.mode === 'reverse'" @click="rejectActivity(row)"
+                          class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100"
+                          :title="row.activity.sourceKind === 'domain' ? 'Untick this month\'s administration (withdraws the +1-morale lever)' : 'Refund this transaction — coins and goods returned exactly as traded'">
+                    ✖ <span x-text="row.affordance.label"></span>
+                  </button>
+                  <button x-show="row.affordance.mode === 'navigate'" @click="rejectActivity(row)"
+                          class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-100"
+                          title="A travelled day can't be rewound — open the journey and Stop Moving there">
+                    <span x-text="row.affordance.label"></span> →
+                  </button>
+                  <span x-show="row.affordance.mode === 'none'" class="text-xs opacity-40">—</span>
                 </td>
               </tr>
             </template>
@@ -9510,6 +9564,89 @@ return {
   },
   // Count of active characters who have consumed any budget this game day (the tab badge).
   activityDashboardBusyCount(){ return this.activityDashboardRows().filter(r => r.done.length > 0).length; },
+
+  // ─── Current Activities (Joachim 2026-06-05) — the activity-centric companion to the dashboard ─
+  // One row per (character × activity) for TODAY, with a context-labelled reject that ROLLS BACK
+  // the activity. A re-projection of the same derived budget (activityDashboardRows → done[]); no
+  // new data. The reject is polymorphic-by-source (engine activityRejectAffordance): a domain-admin
+  // is UNTICKED, a market trade is REFUNDED (reverseMarketTransaction), a journey can't be rewound
+  // so it NAVIGATES to the journey detail (Stop Moving lives there). NB this "reject" rolls back an
+  // already-applied act — distinct from the day-tick review's "reject", which skips a not-yet-applied
+  // record. Activities with no reject path render no button (mode 'none').
+  currentActivityRows(){
+    const A = window.ACKS || {};
+    const aff = A.activityRejectAffordance || (() => ({ mode:'none', label:'', verb:'' }));
+    const out = [];
+    for(const r of this.activityDashboardRows()){
+      for(const a of r.done){
+        out.push({ c: r.c, activity: a, affordance: aff(a), overBudget: !!(r.budget && r.budget.overBudget) });
+      }
+    }
+    return out;
+  },
+  // Dispatch a reject on its source (the affordance.mode decides). Returns nothing; surfaces the
+  // outcome via toast (refuse-with-reason) or navigation. Confirms before any irreversible-feeling act.
+  rejectActivity(row){
+    if(!row || !row.activity) return;
+    const a = row.activity, c = row.c;
+    const mode = row.affordance ? row.affordance.mode : 'none';
+    if(mode === 'navigate'){                                   // a journey — can't rewind a travelled day; open it (Stop Moving lives there)
+      this.journeyOpenDetail(a.sourceId);
+      return;
+    }
+    if(mode !== 'reverse'){ this.showToast('That activity can’t be rejected.'); return; }
+    if(a.sourceKind === 'domain'){
+      const d = (this.domains || []).find(x => x && x.id === a.sourceId);
+      if(!d){ this.showToast('That domain is no longer here.'); return; }
+      if(!confirm('Untick administration of ' + (d.name || 'this domain') + ' by ' + (c.name || 'this character') + ' for this month?\n\nThis withdraws the +1-morale lever — nothing else is undone.')) return;
+      if(this._untickDomainAdmin(d, c)){
+        this.markDirty(); this.schedulePersist();
+        this.showToast('Administration of ' + (d.name || 'the domain') + ' withdrawn for this month.');
+      } else { this.showToast('Couldn’t find that administration to untick.', 5000); }
+      return;
+    }
+    if(a.sourceKind === 'errand-event' && a.kind === 'market-transaction'){
+      if(!confirm('Refund this market transaction?\n\nCoins and goods are returned exactly as traded — the purchase is fully rolled back.')) return;
+      const res = window.ACKS.reverseMarketTransaction(this.currentCampaign, a.sourceId);
+      if(res && res.ok){
+        this.markDirty(); this.schedulePersist();
+        this.showToast(res.narrativeSummary || 'Transaction reversed.', 5000);
+      } else {
+        this.showToast((res && res.reason) || 'That transaction couldn’t be reversed.', 6000);
+      }
+      return;
+    }
+    this.showToast('That activity can’t be rejected.');
+  },
+  // Untick the administers-this-month lever for `c` on domain `d` (ruler OR a magistrate slot they
+  // hold). Audited via commitStatEdit (gm-fiat) like the +1-morale tick itself. Returns true if it
+  // found + cleared one. The morale recompute is automatic (moraleModifiersFor reads the flag live).
+  _untickDomainAdmin(d, c){
+    if(d.administersThisMonth && d.rulerCharacterId === c.id){
+      return this.commitStatEdit({ entityType:'domain', entityId:d.id, entity:d, fieldPath:'administersThisMonth',
+        label:'Ruler administers', oldValue:true, newValue:false,
+        toastMessage:'Administration of ' + (d.name || 'the domain') + ' withdrawn.' });
+    }
+    const mg = d.magistrates || {};
+    const roleLabels = (window.ACKS && window.ACKS.MAGISTRATE_ROLES) || {};
+    for(const rk of Object.keys(mg)){
+      const slot = mg[rk];
+      if(slot && slot.administersThisMonth && slot.characterId === c.id){
+        return this.commitStatEdit({ entityType:'domain', entityId:d.id, entity:d, fieldPath:'magistrates.' + rk + '.administersThisMonth',
+          label:(roleLabels[rk]?.label || rk) + ' administers', oldValue:true, newValue:false,
+          toastMessage:'Administration withdrawn.' });
+      }
+    }
+    return false;
+  },
+  // The day-tick over-budget heads-up links here (Joachim 2026-06-05) — jump to where the GM can
+  // actually reject an activity. The pending proposal is about to go stale (they're changing state),
+  // so cancel it; the GM re-ticks the Day Clock fresh after resolving.
+  goToCurrentActivities(){
+    this.cancelDayTick();
+    this.currentView = 'activities';
+    this.activitiesSubView = 'activities';
+  },
 
   // ─── Phase 2.5 Journeys (#475 — J2) UI methods ─────────────────────────────
   // Lists. 'planning' journeys (Inspector Admin-verb create) show in Active with a
