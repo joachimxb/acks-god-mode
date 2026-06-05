@@ -5118,6 +5118,49 @@ registerDayConsumer('construction', {
   commit: commitConstructionRecord
 });
 
+// Activity-budget heads-up (#346 AB-3 / Joachim 2026-06-05): a READ-ONLY day consumer that flags
+// any active character whose committed undertakings push them OVER their RAW day budget (e.g.
+// travelling while administering a domain = two dedicated tasks; RR p.272 / JJ pp.99–100). Emits a
+// TRANSIENT notable per over-budget character — transient so it drives the pause + the review-surface
+// Activities list but never becomes an eventLog entry (it's advisory, not an occurrence). The
+// pauseTrigger 'overbudget' + the default-ON `auto-pause-on-overbudget` rule stop a multi-day advance
+// for GM review (Calendar §10.3/§13). No pendingRecords / no commit — it mutates nothing. Reads the
+// budget off the working campaign (the UI attaches `domains` before proposeDayTick clones, so
+// domain-admin gating resolves). Runs late (order 85, read-only) after the state-changing consumers.
+registerDayConsumer('activity-budget', {
+  order: 85,
+  pauseTriggers: ['overbudget'],
+  handler: function(campaign, ctx){
+    const A = global.ACKS || {};
+    const budget = A.characterActivityBudget;
+    if(typeof budget !== 'function') return { pendingRecords: [], notableEvents: [], encounters: [] };
+    const active = A.isActive;
+    const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+    const notableEvents = [];
+    for(const ch of chars){
+      if(!ch || !ch.id) continue;
+      if(typeof active === 'function' && !active(ch)) continue;
+      const b = budget(campaign, ch.id);
+      if(!b || !b.overBudget) continue;
+      const activityLabels = [].concat(b.dedicated || [], b.ancillary || []).map(a => a && a.label).filter(Boolean);
+      notableEvents.push({
+        kind: 'activity-overbudget',
+        type: 'overbudget',
+        pauseTrigger: 'overbudget',
+        transient: true,                                  // advisory — never an eventLog entry
+        characterId: ch.id,
+        characterName: ch.name || '(unnamed)',
+        reason: b.overReason || 'over the day budget',
+        activityLabels: activityLabels,
+        dedicatedUsed: b.dedicatedUsed,
+        ancillaryUsed: b.ancillaryUsed,
+        label: (ch.name || 'A character') + ' is over their activity budget — ' + (b.overReason || '')
+      });
+    }
+    return { pendingRecords: [], notableEvents: notableEvents, encounters: [] };
+  }
+});
+
 // ── A.8 — Construction predicates (Architecture.md §10) ──
 
 function isProject(o){ return !!(o && o.id && typeof o.id === 'string' && o.id.startsWith('prj-') && typeof o.constructibleKind === 'string'); }

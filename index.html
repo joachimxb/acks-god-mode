@@ -237,10 +237,24 @@ document.addEventListener('alpine:init', () => {
           </p>
           <template x-if="dayTickPausedEarly()">
             <div class="mb-2 p-2 border border-red-400 bg-red-50 rounded text-xs">
-              <strong>&#9208; Paused for review.</strong> <span class="opacity-70" x-text="'Stopped early at day ' + dayTickProposal.toDay + ' of a ' + dayTickProposal.daysRequested + '-day advance — a consumer flagged the items in red below. Review, then commit or cancel.'"></span>
+              <strong>&#9208; Paused for review.</strong> <span class="opacity-70" x-text="'Stopped early at day ' + dayTickProposal.toDay + ' of a ' + dayTickProposal.daysRequested + '-day advance — a consumer flagged the items below. Review, then commit or cancel.'"></span>
             </div>
           </template>
-          <template x-if="(dayTickProposal.pendingRecords||[]).length === 0">
+          <!-- Activities heads-up (#346): active characters over their RAW day budget (e.g. travelling
+               while administering a domain). A pure advisory — no records to ratify — but it also pauses
+               a multi-day advance when auto-pause-on-overbudget is on (default). -->
+          <template x-if="dayTickOverBudget().length">
+            <div class="mb-2 p-2 border border-amber-500 bg-amber-50 rounded text-xs">
+              <div class="font-semibold mb-1">&#9888; Activities &mdash; over budget</div>
+              <template x-for="ob in dayTickOverBudget()" :key="ob.characterId">
+                <div class="leading-snug">
+                  <span class="font-semibold" x-text="ob.characterName"></span><span x-text="' — ' + ob.reason"></span>
+                  <span x-show="ob.activityLabels && ob.activityLabels.length" class="opacity-70" x-text="' (' + ob.activityLabels.join(' + ') + ')'"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="(dayTickProposal.pendingRecords||[]).length === 0 && !dayTickOverBudget().length">
             <p class="text-xs italic opacity-60">No pending records this tick.</p>
           </template>
           <template x-for="grp in dayTickRecordGroups()" :key="grp.consumer">
@@ -15427,6 +15441,22 @@ return {
   // record, so they render UNDER their own record instead of in one shared top banner. Journey
   // records match by journeyId (correct with multiple journeys); other consumers fall back to
   // same-consumer attribution. tickDayOnce tags every notable with {consumer, payload.journeyId}.
+  // The day-tick proposal's over-budget heads-up list (#346 / Joachim 2026-06-05): active characters
+  // whose committed undertakings exceed their RAW day budget, deduped by character (a multi-day advance
+  // with the pause rule off emits one notable per day). Read-only — feeds the Activities section in the
+  // review surface; the engine's activity-budget consumer raises these + pauses on them when the rule is on.
+  dayTickOverBudget(){
+    const p = this.dayTickProposal;
+    if(!p || !Array.isArray(p.notableEvents)) return [];
+    const seen = {}, out = [];
+    for(const e of p.notableEvents){
+      if(!e || e.kind !== 'activity-overbudget' || !e.characterId) continue;
+      if(seen[e.characterId]) continue;
+      seen[e.characterId] = 1;
+      out.push(e);
+    }
+    return out;
+  },
   dayTickRecordNotables(record){
     const p = this.dayTickProposal;
     if(!p || !record) return [];
