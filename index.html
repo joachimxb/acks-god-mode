@@ -4229,7 +4229,7 @@ document.addEventListener('alpine:init', () => {
               <div class="text-xs border border-dashed border-sky-400 rounded py-0.5 px-1" style="background:rgba(186,230,253,0.22)">
                 <div class="flex flex-wrap gap-x-3 items-baseline">
                   <span class="font-semibold">Day <span x-text="journeyPendingDay().dayIndex"></span></span>
-                  <span class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" x-text="dayTickProposal ? 'pending · review & commit ↗' : 'next day · preview'" :title="dayTickProposal ? 'Proposed — confirm it in the Day-tick panel (top-right) to keep it' : 'A preview of the next day — press Tick day to resolve and commit it'"></span>
+                  <span class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" x-text="dayTickProposal ? 'pending · review & commit ↗' : 'preview'" :title="dayTickProposal ? 'Proposed — confirm it in the Day-tick panel (top-right) to keep it' : 'A preview of the next day — press Tick day to resolve and commit it'"></span>
                   <span x-text="'☀ ' + (journeyPendingDay().weather?.condition||'fair')"></span>
                   <span x-text="(journeyPendingDay().hexesTraveled||0) + ' hex (' + (journeyPendingDay().milesTraveled||0) + ' mi)'"></span>
                   <span class="capitalize" x-text="journeyPendingDay().pace"></span>
