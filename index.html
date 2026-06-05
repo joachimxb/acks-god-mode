@@ -3065,9 +3065,9 @@ document.addEventListener('alpine:init', () => {
               x-text="dayClockLabel() + ' · ' + activityDashboardBusyCount() + ' of ' + activityDashboardRows().length + ' acting today'"></span>
       </div>
       <p class="text-sm opacity-80">
-        Each character gets <strong>1 dedicated</strong> (8-hour) task + <strong>4 ancillary</strong> (~1-hour) errands per day —
-        or up to <strong>12 ancillary</strong> with no dedicated task (JJ pp.99–100, RR p.272). The budget refreshes when you
-        advance the <strong>Day Clock</strong>. Ventures are launched from the Ventures sub-tab (their setup is multi-step).
+        Each character's day-activity budget — what's already spoken for and what's still free — following the
+        campaign-activity rules (JJ pp.99–100, RR p.272). The budget refreshes when you advance the
+        <strong>Day Clock</strong>. Ventures are launched from the Ventures sub-tab (their setup is multi-step).
       </p>
     </div>
 
@@ -3088,7 +3088,7 @@ document.addEventListener('alpine:init', () => {
           <thead><tr>
             <th style="text-align:left">Character</th>
             <th style="text-align:left">Location</th>
-            <th style="text-align:left" title="This game day's budget: 1 dedicated + 4 ancillary, or up to 12 ancillary with no dedicated task.">Available today</th>
+            <th style="text-align:left" title="What's still free in this character's day-activity budget (JJ pp.99–100, RR p.272).">Available today</th>
             <th style="text-align:left">Done today</th>
             <th style="text-align:right">Actions</th>
           </tr></thead>
@@ -3105,7 +3105,7 @@ document.addEventListener('alpine:init', () => {
                 <!-- Available today: dedicated pip + ancillary count, free/over/fatigue flags -->
                 <td class="text-sm" style="text-align:left">
                   <div class="flex items-center gap-2 whitespace-nowrap">
-                    <span :title="'Dedicated (8-hour) task — ' + r.budget.dedicatedUsed + ' of 1 used'"><span x-text="r.budget.dedicatedUsed >= 1 ? '●' : '○'"></span> ded</span>
+                    <span :title="'Dedicated task — ' + r.budget.dedicatedUsed + ' of 1 used'"><span x-text="r.budget.dedicatedUsed >= 1 ? '●' : '○'"></span> ded</span>
                     <span class="opacity-40">·</span>
                     <span title="Ancillary (~1-hour) errands"><span class="font-mono" x-text="r.budget.ancillaryUsed + '/' + r.ancCap"></span> anc</span>
                   </div>
