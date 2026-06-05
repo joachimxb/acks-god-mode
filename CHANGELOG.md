@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-06-05
+
 ### Added
 - **A new Activities tab shows every character's day at a glance.** The Activities view opens on an **📋 Activities** dashboard that lists every active character with their **activity budget for the day** by the campaign-activity rules (JJ pp.99–100, RR p.272). Each row shows what's already taken up — a character out travelling, or administering their domain this month, has their dedicated day spoken for; a shopping trip shows as that day's errand — and what's still free, and offers one-click **🛒 Market**, **⚔ Recruit**, and **🧭 Travel** actions so you can send anyone shopping, hiring, or on the road straight from the list. The budget refreshes when you advance the Day Clock. (Mercantile ventures aren't a quick-action here — they have their own multi-step setup on the Ventures sub-tab.)
 - **The Day Clock warns you when someone's overcommitted.** When you advance days, the day-tick review now lists any character who's **over their activity budget** for the day — for example administering two different domains at once, or piling on more errands than a day holds (each character gets one full-day task plus four short ones, JJ pp.99–100). (Travel-vs-other-tasks no longer trips this — a journey's pace is capped to fit the day instead; see below.) It's a heads-up, and it also **stops a multi-day advance** (+1 week / → month end) on the first day a conflict appears, so you can sort it out before rolling on — turn off the *Auto-pause on over-budget activity* house rule if you'd rather it only show the list and not stop. Each flagged character has a **Resolve →** link that jumps to the Current Activities list (below), where you can reject one of the conflicting activities to clear the conflict.
@@ -184,7 +186,13 @@ The Community Preview — first public release.
 ### Security
 - Prototype-pollution guards on the event field-path writer, campaign validation on load, and a frozen `Object.prototype` at startup.
 
-[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.19.0
+[0.18.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.18.0
+[0.17.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.17.0
+[0.16.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.16.0
+[0.15.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.15.0
+[0.14.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.14.0
 [0.13.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.13.0
 [0.12.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.12.0
 [0.11.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.11.0
