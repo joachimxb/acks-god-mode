@@ -271,6 +271,14 @@ function blankHex(opts={}){
     crossingSides: Array.isArray(opts.crossingSides) ? opts.crossingSides.slice() : [],
     elevationFt: opts.elevationFt || 0,    // feeds visibility/sighting (Journeys §11)
     groundCondition: opts.groundCondition || 'clear', // 'clear'|'mud'|'snow' — mud/snow ×1/2 speed (RR p.272)
+    // Phase 2.5 Provisioning — fresh-water hex features (RR p.278 "river or lake"). hasLake: a
+    // freshwater lake on this LAND hex (the common sub-hex case). freshWater: meaningful only when
+    // terrain==='water' — a genuine multi-hex freshwater body (great lake / inland freshwater sea);
+    // default false = salt sea (open 'water' shipped meaning RAW Ocean). "Hex contains fresh water"
+    // ⇔ riverSides.length>0 ‖ hasLake ‖ (terrain==='water' && freshWater). Bordering a SALT sea
+    // grants no drinking water. Additive optional flags — no coordinate migration (Provisioning §3.1).
+    hasLake:    opts.hasLake === true,
+    freshWater: opts.freshWater === true,
     primaryStructure: opts.primaryStructure || '',
     settlement: opts.settlement || null,
     lairs: opts.lairs || [],
@@ -757,6 +765,22 @@ function blankCharacter(opts={}){
     personalFatigue: opts.personalFatigue || 0,
     hungerDays: opts.hungerDays || 0,
     dehydrationDays: opts.dehydrationDays || 0,
+    // Phase 2.5 Provisioning — per-member survival state (RR p.278 "Surviving the Wild"). Replaces
+    // the old first-participant-only hunger/dehydration read in tickJourneyDay (V2/V3). waterDaysCarried:
+    // days of drinking water held in this character's containers (≤ waterCapacityDays). foodDeficitDays
+    // / waterDeficitDays: consecutive days WITHOUT a full ration (drive the hungry/underfed/starving +
+    // dehydrated ladders). underfed/starving/dehydrated: RAW condition flags, derived at tick time and
+    // stored for display ("hungry" stays derived = foodDeficitDays>=1). conLossHunger/conLossThirst:
+    // CON lost to Starving / Dehydration (recover 1/day food, 3/day water). Effective CON = base −
+    // conLossHunger − conLossThirst; death at 0. Additive — default-inert until the V2/V3 tick consumes.
+    waterDaysCarried: opts.waterDaysCarried || 0,
+    foodDeficitDays:  opts.foodDeficitDays  || 0,
+    waterDeficitDays: opts.waterDeficitDays || 0,
+    underfed:   opts.underfed   === true,
+    starving:   opts.starving   === true,
+    dehydrated: opts.dehydrated === true,
+    conLossHunger: opts.conLossHunger || 0,
+    conLossThirst: opts.conLossThirst || 0,
     // RP dossier
     background: opts.background || '',
     personality: opts.personality || '',
@@ -1227,7 +1251,9 @@ function blankJourney(opts={}){
     // Engine-managed logs (each day-tick appends one Day record; encounters tie to #141/#476)
     days: opts.days || [],                              // §4.2 Day records
     encounters: opts.encounters || [],                  // §4.3 encounter records
-    // Supplies — person-day quantities (J1 tracks food + water; animal/ship reserved)
+    // Supplies — LEGACY abstract person-day pool. Phase 2.5 Provisioning seeds these into tight
+    // inventory (camp ration items + per-member waterDaysCarried) at launch/load (seedJourneyProvisions,
+    // decision #1); the day-tick still honors a non-zero pool as a shared fallback for unseeded saves.
     supplies: opts.supplies || {
       rations: 0,
       waterRations: 0,
@@ -1235,6 +1261,11 @@ function blankJourney(opts={}){
       animalWater: 0,
       shipStores: 0
     },
+    // Phase 2.5 Provisioning — the two party-level day-tick toggles (Journey Detail). forageWaterEnabled:
+    // the party forages for water on no-source days (§4.1; greyed when the hex auto-supplies). shareRations:
+    // pool food AND water — camp-first, leader-priority (§6). Off = self-only.
+    forageWaterEnabled: opts.forageWaterEnabled === true,
+    shareRations: opts.shareRations === true,
     notes: opts.notes || '',
     history: opts.history || []                         // append-only audit (start, day-tick, arrival, …)
   };

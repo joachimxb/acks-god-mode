@@ -880,6 +880,11 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof j.speedOverrideMilesPerDay === 'undefined') j.speedOverrideMilesPerDay = null;  // §26 GM speed override (null ⇒ pace governs)
       if(typeof j.strayHeading === 'undefined') j.strayHeading = null;                          // §27 getting-lost — stray hex face (null ⇒ not lost)
       if(typeof j.routeAnchorCoord === 'undefined') j.routeAnchorCoord = null;                  // §27 — coord anchor while straying off authored hexes
+      if(typeof j.forageWaterEnabled !== 'boolean') j.forageWaterEnabled = false;               // Provisioning — party water-forage tick
+      if(typeof j.shareRations !== 'boolean') j.shareRations = false;                           // Provisioning — share food + water tick
+      // Provisioning — seed an in-flight journey's abstract supplies into tight inventory on load
+      // (decision #1). Idempotent; only touches in-transit journeys carrying a non-zero legacy pool.
+      if(j.status === 'in-transit' && global.ACKS && global.ACKS.seedJourneyProvisions) global.ACKS.seedJourneyProvisions(campaign, j);
       // Travel pivot — a journey's name describes WHO travels, not the route. Re-derive an auto-route
       // name (contains ' → ') or an empty name from the party/character set; a GM-set name (no arrow)
       // is preserved. Only applies when a named traveller exists (else the route name is kept).
@@ -1881,6 +1886,26 @@ function cacheToStash(campaign, characterId, stashId, spec, opts){
     source: { kind:'character', id: characterId, label: ch.name || null },
     atTurn: (opts && opts.atTurn) || campaign.currentTurn || 1
   });
+  // GP Wave B (Architecture.md §4.3.6) — the cache/draw modal moved items but emitted no
+  // eventLog event; emit the item-transfer (+ a wealth-transfer for the coin leg) so the
+  // action surfaces in entity history. Suppressed when invoked as an item-transfer leg.
+  if(!(opts && opts.suppressEvent) && global.ACKS){
+    if(movedItems > 0 && global.ACKS.recordItemTransfer){
+      global.ACKS.recordItemTransfer(campaign, {
+        source: { kind:'character', id: characterId, label: ch.name || null },
+        destination: { kind:'stash', id: stashId, label: stash.name || null },
+        lines: depositItems.filter(d => (d.facets||[]).indexOf('coin') < 0).map(d => ({ name: d.name, qty: d.qty })),
+        bucket: 'cache', reason: (opts && opts.reason) || 'cache'
+      });
+    }
+    if(movedCoinGp > 0 && global.ACKS.recordWealthTransfer){
+      global.ACKS.recordWealthTransfer(campaign, {
+        source: { kind:'character-gp', id: characterId, label: ch.name || null },
+        destination: { kind:'stash', id: stashId, label: stash.name || null },
+        amount: movedCoinGp, bucket: 'cache', reason: (opts && opts.reason) || 'cache'
+      });
+    }
+  }
   return { ok:true, stash, movedItems, movedCoinGp };
 }
 
@@ -1922,15 +1947,35 @@ function drawFromStash(campaign, stashId, characterId, spec, opts){
   });
   if(!out) return { ok:false, error:'withdraw-failed' };
 
+  let movedCoinGp = 0; const movedItemLines = [];
   for(const line of out.withdrawn){
     if(itemHasFacet(line, 'coin')){
       const d = line.denomination || 'gp';
       ch.coins[d] = (Number(ch.coins[d]) || 0) + (line.qty || 0);
+      movedCoinGp += itemValueGp(line);
     } else {
       ch.inventory.push(_stashItemToCarryLine(line));
+      movedItemLines.push({ name: line.name || null, qty: (line.qty != null) ? line.qty : 1 });
     }
   }
   reconcileCharacterCoins(ch);
+  // GP Wave B (Architecture.md §4.3.6) — emit the item-transfer (+ wealth-transfer coin leg).
+  if(!(opts && opts.suppressEvent) && global.ACKS){
+    if(movedItemLines.length && global.ACKS.recordItemTransfer){
+      global.ACKS.recordItemTransfer(campaign, {
+        source: { kind:'stash', id: stashId, label: stash.name || null },
+        destination: { kind:'character', id: characterId, label: ch.name || null },
+        lines: movedItemLines, bucket: 'draw', reason: (opts && opts.reason) || 'draw'
+      });
+    }
+    if(movedCoinGp > 0 && global.ACKS.recordWealthTransfer){
+      global.ACKS.recordWealthTransfer(campaign, {
+        source: { kind:'stash', id: stashId, label: stash.name || null },
+        destination: { kind:'character-gp', id: characterId, label: ch.name || null },
+        amount: movedCoinGp, bucket: 'draw', reason: (opts && opts.reason) || 'draw'
+      });
+    }
+  }
   const band = carryEncumbranceBandFor(carryTotalEncumbrance(ch));
   return { ok:true, stash, band, overEncumbered: band.level === 'overloaded' };
 }
@@ -2344,6 +2389,62 @@ function itemEncumbranceSt(item){
   if(itemHasFacet(item, 'bulk')) return (item.unit === 'stones') ? (item.qty || 0) : 0;
   if(itemHasFacet(item, 'gear')) return 1;
   return 0;
+}
+
+// ── Phase 2.5 Provisioning — food/water inventory accessors (RR p.278) ───────
+// One daily ration = 1 stone = 2 lb food (1/6 st) + 1 gallon water (5/6 st). Food rides as discrete
+// ration items in carry inventory / the camp stash (weight = 1/6 st × daysRemaining, so a half-eaten
+// pack weighs less). Water is a metered fluid: the WATER CONTAINER items (waterskin 1/5 day, barrel
+// 20 days) set the capacity; the single waterDaysCarried counter on the holder is the contents (no
+// per-skin fill state — RAW meters by the daily gallon). See Provisioning §3.3–§3.5 + §5.
+const RATION_FOOD_ST_PER_DAY  = 1/6;   // 2 lb food
+const RATION_WATER_ST_PER_DAY = 5/6;   // 1 gallon water (only carried when no source — §4.3)
+
+// Day-capacity of a water-container item: explicit field on the line, else the catalog entry's
+// waterCapacityDays (by catalogId or matching name). Non-containers → 0.
+function waterContainerDaysFor(item){
+  if(!item) return 0;
+  if(typeof item.waterCapacityDays === 'number') return item.waterCapacityDays;
+  const cat = (global.ACKS && global.ACKS.EQUIPMENT_CATALOG) || [];
+  const hit = (item.catalogId && cat.find(e => e.id === item.catalogId)) ||
+              (item.name && cat.find(e => String(e.name).toLowerCase() === String(item.name).toLowerCase())) || null;
+  return (hit && typeof hit.waterCapacityDays === 'number') ? hit.waterCapacityDays : 0;
+}
+// Total drinking-water capacity (days) of a holder = Σ its container items. Holder = a character
+// (.inventory[]) or a stash (.items[]) — e.g. barrels in the party camp stash.
+function waterCapacityDays(holder){
+  if(!holder) return 0;
+  const lines = Array.isArray(holder.inventory) ? holder.inventory
+              : Array.isArray(holder.items) ? holder.items : [];
+  return lines.reduce((s, it) => s + waterContainerDaysFor(it), 0);
+}
+
+// Ration-line helpers. A ration line: { name, catalogId, rationType:'iron'|'standard', daysRemaining,
+// stone }. daysRemaining = person-day rations left in the pack (a fresh week-pack = 7); weight derives.
+function isRationLine(item){
+  return !!(item && (item.rationType === 'iron' || item.rationType === 'standard' ||
+    (typeof item.daysRemaining === 'number' && /ration/i.test(item.name || ''))));
+}
+function rationLineDays(item){ return isRationLine(item) ? Math.max(0, Number(item.daysRemaining) || 0) : 0; }
+function makeRationLine(opts){
+  opts = opts || {};
+  const type = (opts.rationType === 'standard') ? 'standard' : 'iron';
+  const days = Math.max(0, Number(opts.daysRemaining != null ? opts.daysRemaining : 7) || 0);
+  return {
+    name: (type === 'iron') ? 'Rations, Iron (one week)' : 'Rations, Standard (one week)',
+    catalogId: (type === 'iron') ? 'rations-iron-week' : 'rations-standard-week',
+    rationType: type,
+    daysRemaining: days,
+    stone: days * RATION_FOOD_ST_PER_DAY,   // food weight only (1/6 st/day); water rides in containers
+    notes: opts.notes || ''
+  };
+}
+// Total person-day food rations a holder (character .inventory / stash .items) can draw on.
+function rationDaysAvailable(holder){
+  if(!holder) return 0;
+  const lines = Array.isArray(holder.inventory) ? holder.inventory
+              : Array.isArray(holder.items) ? holder.items : [];
+  return lines.reduce((s, it) => s + rationLineDays(it), 0);
 }
 
 // Per-line gp value (derived). Coin: qty × denomination multiplier. Valuable:
@@ -3404,6 +3505,18 @@ function isMercenaryOfficer(c){
   return c.socialTier === 'mercenary';
 }
 
+// --- Class-power predicate ---
+// Mercantile Network (RR p.43) — the Venturer class power. Innate to the Venturer class (it is NOT
+// listed in classPowers — the demo venturer has class:'Venturer' with classPowers:[]), so detect by
+// class; also honor an explicit grant in classPowers (rare — a template or Judge award). Gates the
+// equipment "visited before" bonus: only a venturer treats a market they've previously entered as
+// one market class larger (for buying/selling equipment, hiring retainers, and ventures).
+function hasMercantileNetwork(c){
+  if(!c) return false;
+  if(/venturer/i.test(c.class || '')) return true;
+  return Array.isArray(c.classPowers) && c.classPowers.some(cp => /mercantile network/i.test(String(cp)));
+}
+
 // --- Derived role-class predicates ---
 function isRetainer(c){
   if(!c) return false;
@@ -3857,6 +3970,9 @@ function commitTurn(campaign, domains, proposal, helpers){
     if(p.skip) return;
     const d = domains.find(x => x.id === p.domainId);
     if(!d) return;
+    // GP Wave B (Architecture.md §4.3.2) — collect the month's treasury line items; emitted as
+    // wealth-transfer children under this domain's engine-standard-turn event below.
+    const _turnWealthChildren = [];
 
     d.expenses.tithePaid = p.tithePaid;
     if(p.hasLiege) d.expenses.tributePaid = p.tributePaid;
@@ -3886,6 +4002,7 @@ function commitTurn(campaign, domains, proposal, helpers){
       treasuryGp: d.treasury.gp
     };
     _applyDomainTreasuryDelta(campaign, d, net, { reason:'monthly-net-income', label:'monthly net income' });
+    if(net) _turnWealthChildren.push({ amount: net, bucket:'monthly-net-income', reason:'monthly net income' });
     d.demographics.morale = moraleAfter;
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
     setPeasantPopulation(d, (d.demographics.peasantFamilies || 0) + popDelta);
@@ -3932,6 +4049,7 @@ function commitTurn(campaign, domains, proposal, helpers){
       }
     });
     _applyDomainTreasuryDelta(campaign, d, -totalInvestmentSpent, { reason:'urban-investment', label:'urban settlement investment' });
+    if(totalInvestmentSpent) _turnWealthChildren.push({ amount: -totalInvestmentSpent, bucket:'urban-investment', reason:'urban settlement investment' });
 
     // Agricultural investments (RR p.341, p.174) — Foundation #17 incremental model + Foundation #18
     // realistic-construction house rule. Each hex's order is a gpAmount (any value the GM allocated).
@@ -4068,6 +4186,7 @@ function commitTurn(campaign, domains, proposal, helpers){
         return;
       }
       _applyDomainTreasuryDelta(campaign, d, -affordable, { reason:'agricultural-improvement', label:'agricultural land improvement' });
+      if(affordable) _turnWealthChildren.push({ amount: -affordable, bucket:'agricultural-improvement', reason:'agricultural land improvement' });
       totalAgriculturalSpent += affordable;
       laborConsumed += affordable;
       hex.landImprovementInvested = (hex.landImprovementInvested || 0) + affordable;
@@ -4246,6 +4365,17 @@ function commitTurn(campaign, domains, proposal, helpers){
         appliedAtTurn: stEvent.appliedAtTurn,
         appliedAt: new Date().toISOString()
       });
+      // GP Wave B (§4.3.2) — the per-line-item wealth-transfer decomposition under the turn
+      // event. The treasury mutation already happened once above; these carry the grammar.
+      for(const w of _turnWealthChildren){
+        if(!w.amount || !global.ACKS.recordWealthTransfer) continue;
+        const into = w.amount >= 0;
+        global.ACKS.recordWealthTransfer(campaign, {
+          source:      into ? { kind:'external', label: w.reason } : { kind:'treasury', id: d.id },
+          destination: into ? { kind:'treasury', id: d.id } : { kind:'external', label: w.reason },
+          amount: Math.abs(w.amount), bucket: w.bucket, reason: w.reason
+        }, { parentEvent: stEvent });
+      }
     } catch(e){ /* swallow per original */ }
 
     // Award XP to ruler (RR p.423; henchman rulers get half).
@@ -5049,6 +5179,49 @@ registerDayConsumer('construction', {
   commit: commitConstructionRecord
 });
 
+// Activity-budget heads-up (#346 AB-3 / Joachim 2026-06-05): a READ-ONLY day consumer that flags
+// any active character whose committed undertakings push them OVER their RAW day budget (e.g.
+// travelling while administering a domain = two dedicated tasks; RR p.272 / JJ pp.99–100). Emits a
+// TRANSIENT notable per over-budget character — transient so it drives the pause + the review-surface
+// Activities list but never becomes an eventLog entry (it's advisory, not an occurrence). The
+// pauseTrigger 'overbudget' + the default-ON `auto-pause-on-overbudget` rule stop a multi-day advance
+// for GM review (Calendar §10.3/§13). No pendingRecords / no commit — it mutates nothing. Reads the
+// budget off the working campaign (the UI attaches `domains` before proposeDayTick clones, so
+// domain-admin gating resolves). Runs late (order 85, read-only) after the state-changing consumers.
+registerDayConsumer('activity-budget', {
+  order: 85,
+  pauseTriggers: ['overbudget'],
+  handler: function(campaign, ctx){
+    const A = global.ACKS || {};
+    const budget = A.characterActivityBudget;
+    if(typeof budget !== 'function') return { pendingRecords: [], notableEvents: [], encounters: [] };
+    const active = A.isActive;
+    const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+    const notableEvents = [];
+    for(const ch of chars){
+      if(!ch || !ch.id) continue;
+      if(typeof active === 'function' && !active(ch)) continue;
+      const b = budget(campaign, ch.id);
+      if(!b || !b.overBudget) continue;
+      const activityLabels = [].concat(b.dedicated || [], b.ancillary || []).map(a => a && a.label).filter(Boolean);
+      notableEvents.push({
+        kind: 'activity-overbudget',
+        type: 'overbudget',
+        pauseTrigger: 'overbudget',
+        transient: true,                                  // advisory — never an eventLog entry
+        characterId: ch.id,
+        characterName: ch.name || '(unnamed)',
+        reason: b.overReason || 'over the day budget',
+        activityLabels: activityLabels,
+        dedicatedUsed: b.dedicatedUsed,
+        ancillaryUsed: b.ancillaryUsed,
+        label: (ch.name || 'A character') + ' is over their activity budget — ' + (b.overReason || '')
+      });
+    }
+    return { pendingRecords: [], notableEvents: notableEvents, encounters: [] };
+  }
+});
+
 // ── A.8 — Construction predicates (Architecture.md §10) ──
 
 function isProject(o){ return !!(o && o.id && typeof o.id === 'string' && o.id.startsWith('prj-') && typeof o.constructibleKind === 'string'); }
@@ -5170,6 +5343,277 @@ function characterHistory(campaign, id){      return _filterByRelatedEntity(camp
 function outpostHistory(campaign, id){        return _filterByRelatedEntity(campaign, 'outpost',        id); }
 function congregationHistory(campaign, id){   return _filterByRelatedEntity(campaign, 'congregation',   id); }
 
+// Derived per-character activity budget (#346 / Phase_2.95_Activity_Budget_Plan.md AB-1).
+// The middle layer of the actor-time stack (Architecture.md §7): a pure derivation — like
+// characterHistory — of what this character is currently committed to, bucketed against the
+// RAW 1-dedicated-+-4-ancillary day budget (ACTIVITY_BUDGET / ACTIVITY_COSTS, RR p.272 / JJ pp.99–100).
+//
+// Derive-don't-store (Architecture.md §3.13): the budget reads the committed undertakings that
+// are ALREADY entities (the character's active Journeys + the domains they administer THIS month —
+// ventures, construction supervision and the rest wire in at AB-4) and maps each through its
+// activity-cost. (Domain admin is gated on the administers-this-month lever, not mere office-holding
+// — see the domain loop below.) The
+// entity-less errands (carouse / study / buy) union in via a seam (cost-tagged daily events or a
+// thin buffer — built at AB-4, plan §9 / OQ1; empty for now). No parallel activityRecords[]
+// ledger to shadow the undertakings and drift (the party.memberCharacterIds-mirror hazard, §3.3).
+//
+// Returns { charId, grain, dedicated:[…], ancillary:[…], incidental:[…], dedicatedUsed,
+//   ancillaryUsed, overBudget, overReason, strenuousDays, fatigued }, each activity being
+//   { kind, label, cost, strenuous, sourceKind, sourceId }. This is THIS GAME DAY's load — the
+//   standing undertakings plus the day's cost-tagged errands (windowed to campaign.currentDayInMonth
+//   within campaign.currentTurn); it refreshes each day-tick. The visible read surface lands in AB-3.
+// Does an event engage this character as its acting subject? Used by the activity budget to
+// attribute cost-tagged errand events (the market-transaction is the first). Reads the actor id
+// off the payload, then the Event.context relatedEntities (role 'subject').
+function _eventEngagesCharacter(ev, charId){
+  if(!ev || !charId) return false;
+  const p = ev.payload || {};
+  if(p.actorCharacterId === charId || p.characterId === charId) return true;
+  const re = (ev.context && ev.context.relatedEntities) || [];
+  return re.some(r => r && r.kind === 'character' && r.id === charId);
+}
+
+function characterActivityBudget(campaign, charId, opts){
+  opts = opts || {};
+  const A = global.ACKS || {};
+  const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+  const costFor = A.activityCostFor || (k => ({ cost:'ancillary', strenuous:false, label:String(k) }));
+  const char = (campaign && Array.isArray(campaign.characters)) ? campaign.characters.find(c => c && c.id === charId) : null;
+  const activities = [];
+
+  // ── Undertaking-derived contributions ──
+  // Active journeys. Travel cost is PACE-dependent — travel is an explicit line in the activity
+  // budget (JJ ancillary list: "Travel for 6 turns"; RR p.272), and the base rate is 3 mi/hour:
+  //   • normal pace = full expedition speed (24 mi unencumbered) = the DEDICATED activity (8h;
+  //     leaves 4 ancillary free to forage/shop on the same day — RR p.272).
+  //   • half speed = 4 ANCILLARY activities (4h × 3 mi = 12 mi = ½ of 24); frees the dedicated slot.
+  //   • forced march = the WHOLE day (1 dedicated + all 4 ancillary, +50%, strenuous — RR p.279).
+  // So the budget GATES travel speed (Joachim 2026-06-05, "like encumbrance"): you can't travel
+  // full-speed AND do another dedicated task (2 dedicated → over budget); to do both you drop to
+  // half speed (4 ancillary, dedicated free). The over-budget check (units-summed below) enforces
+  // it. 'resting' is the fatigue-clearing dedicated rest. 'planning'/'arrived'/'aborted' are out.
+  // The half-day is 4 ancillary hours (½ of the 8-hour dedicated block), which equals the per-day
+  // ancillary allowance — both 4. tickJourneyDay applies the pace ×-multiplier to distance; this is
+  // the budget (cost) side. The pace charged is the EFFECTIVE pace — the GM's desired j.pace CAPPED
+  // by what the traveller's other commitments leave room for (journeyEffectivePace; Joachim
+  // 2026-06-05). So an administering ruler whose journey is set to 'normal' is charged at the capped
+  // 'half-speed' (4 ancillary), and a fully-booked traveller at 'halted' (no travel cost) — the GM
+  // never sees a phantom over-budget from a pace the day can't sustain. opts.excludeJourneyId omits
+  // one journey entirely AND switches to STORED-pace (no cap) for any others — journeyMaxPace uses
+  // that to read a traveller's "other load" without recursing back into the cap.
+  const HALF_DAY_ANCILLARY = 4;   // 4 hours = half the 8-hour dedicated travel day
+  const JOURNEY_ACTIVE = { 'in-transit':1, 'resting':1, 'lost':1 };
+  for(const j of journeysWithParticipant(campaign, charId)){
+    if(!j || !JOURNEY_ACTIVE[j.status]) continue;
+    if(opts.excludeJourneyId && j.id === opts.excludeJourneyId) continue;   // omit this journey (journeyMaxPace's "other load")
+    if(j.status === 'resting'){
+      const cc = costFor('rest');
+      activities.push({ kind:'rest', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
+      continue;
+    }
+    // Effective pace = the GM's pace capped by the activity budget — but NOT when reading "other
+    // load" (excludeJourneyId set), where we charge the stored pace to avoid recursing into the cap.
+    let pace = j.pace || 'normal';
+    if(!opts.excludeJourneyId){
+      const eff = (typeof journeyEffectivePace === 'function') ? journeyEffectivePace(campaign, j, { domains: opts.domains }) : pace;
+      if(eff) pace = eff;
+    }
+    if(pace === 'halted'){
+      activities.push({ kind:'travel', label:'Travel · halted (day full)', cost:'incidental', strenuous:false, sourceKind:'journey', sourceId: j.id, dedicatedUnits:0, ancillaryUnits:0 });
+    } else if(pace === 'half-speed'){
+      activities.push({ kind:'travel', label:'Travel · half speed', cost:'ancillary', strenuous:false, sourceKind:'journey', sourceId: j.id, dedicatedUnits:0, ancillaryUnits: HALF_DAY_ANCILLARY });
+    } else if(pace === 'forced-march'){
+      activities.push({ kind:'travel', label:'Travel · forced march', cost:'dedicated', strenuous:true, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits: HALF_DAY_ANCILLARY });
+    } else {
+      const cc = costFor('travel');
+      activities.push({ kind:'travel', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
+    }
+  }
+  // Domain administration — RAW: "Administer a domain" IS a dedicated activity (RR p.352, "hold
+  // court"), but only for whoever is ACTUALLY administering THIS month — the +1-domain-morale lever
+  // (RR p.344/349; domain.administersThisMonth for the ruler, magistrates[role].administersThisMonth
+  // for an officer), NOT merely holding the office. So a magistrate who hasn't ticked "administers
+  // this month" spends no dedicated day; an administering ruler does (the old version counted any
+  // magistracy-holder and missed administering rulers entirely). Counts an administering ruler + any
+  // administering magistrate; dedupes per domain (ruler + an officer both administering one domain =
+  // one administration). Mirrors the Activity projection's gate (index.html characterActivities
+  // Contributor 2). Domains come from opts.domains when given — the live app keeps domains in
+  // this.domains separate from (often-empty) campaign.domains, the domains-split UI quirk — else
+  // campaign.domains (tests + integrators that keep domains on the campaign).
+  const _domains = (opts.domains && opts.domains.length) ? opts.domains : ((campaign && campaign.domains) || []);
+  const seenDomains = {};
+  for(const d of _domains){
+    if(!d || !d.id || seenDomains[d.id]) continue;
+    let administering = !!(d.administersThisMonth && d.rulerCharacterId === charId);
+    if(!administering && d.magistrates){
+      for(const rk of Object.keys(d.magistrates)){
+        const slot = d.magistrates[rk];
+        if(slot && slot.administersThisMonth && slot.characterId === charId){ administering = true; break; }
+      }
+    }
+    if(administering){
+      seenDomains[d.id] = 1;
+      const cc = costFor('domain-admin');
+      activities.push({ kind:'domain-admin', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'domain', sourceId: d.id });
+    }
+  }
+
+  // ── Entity-less errand store — cost-tagged daily events (OQ1 RESOLVED 2026-06-04, plan §9/§14) ──
+  // The errand half of the hybrid: union the actor's cost-tagged events for THIS GAME DAY into the
+  // budget. RAW refreshes the 1-dedicated-+-4-ancillary / 12-ancillary allowance each game DAY (not
+  // each monthly turn), so the window is (appliedAtTurn, appliedAtDay) = (campaign.currentTurn,
+  // campaign.currentDayInMonth) — both stamped by _logAppliedEvent at apply time. Advance the Day
+  // Clock and the errands clear; commitTurn rolls the day back to 1. A cost-tagged event carries
+  // payload.activityCost = { slot, units, kind, strenuous? } — the market-transaction is the first
+  // (future carouse / rest / study / buy join the same way; each MUST be day-stamped). Derived from
+  // the eventLog like characterHistory; NO activityRecords[]/activityLog[] buffer (rejected option
+  // (b)). NB the monthly 10× availability ceiling is a SEPARATE, month-windowed concern
+  // (marketUnitsTransactedThisMonth, RR p.124) — don't conflate the two windows.
+  const _turnWindow = (campaign && campaign.currentTurn) || 1;
+  const _dayWindow  = (campaign && campaign.currentDayInMonth) || 1;
+  const _log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
+  for(const entry of _log){
+    const ev = entry && entry.event; if(!ev) continue;
+    if(ev.payload && ev.payload.reversed) continue;   // a refunded/unwound transaction is no longer today's activity (reverseMarketTransaction)
+    const ac = ev.payload && ev.payload.activityCost; if(!ac || !ac.slot) continue;
+    const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+    if(at != null && at !== _turnWindow) continue;                   // window: this turn (month)…
+    const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
+    if(atDay !== _dayWindow) continue;                               // …and THIS game day (strict): an un-day-stamped (pre-update / legacy) errand isn't attributable to *today*, so it's excluded from the daily budget. It still appears in turn-windowed history + counts toward the monthly availability ceiling. Every new cost-tagged event IS stamped (in _logAppliedEvent), so a current errand never falls through here.
+    if(!_eventEngagesCharacter(ev, charId)) continue;                // the acting character
+    const cc = costFor(ac.kind || '');
+    const units = Math.max(1, Number(ac.units) || 1);
+    const label = ac.label || cc.label;
+    const strenuous = (ac.strenuous != null) ? !!ac.strenuous : !!cc.strenuous;
+    for(let i = 0; i < units; i++){
+      activities.push({ kind: ac.kind || 'errand', label, cost: ac.slot, strenuous, sourceKind:'errand-event', sourceId: ev.id });
+    }
+  }
+
+  // ── Bucket by cost (for display) ──
+  const dedicated = activities.filter(a => a.cost === 'dedicated');
+  const ancillary = activities.filter(a => a.cost === 'ancillary');
+  const incidental = activities.filter(a => a.cost === 'incidental');
+
+  // ── Unit-summed usage ── An activity may weigh more than one slot: half-speed travel = 4 ancillary
+  // hours; forced march = 1 dedicated + 4 ancillary (the whole day). So count UNITS, not entries —
+  // dedicatedUnits / ancillaryUnits when set, else default from cost (a plain dedicated task = 1
+  // dedicated; a plain errand = 1 ancillary). Keeps the over-budget gate honest while each undertaking
+  // stays a single row (a half-speed journey is one "Travel · half speed · 4h" line, not four).
+  const _ded = a => (a.dedicatedUnits != null) ? a.dedicatedUnits : (a.cost === 'dedicated' ? 1 : 0);
+  const _anc = a => (a.ancillaryUnits != null) ? a.ancillaryUnits : (a.cost === 'ancillary' ? 1 : 0);
+  const dedUsed = activities.reduce((s, a) => s + _ded(a), 0);
+  const ancUsed = activities.reduce((s, a) => s + _anc(a), 0);
+
+  // ── Over-budget (RAW: 1 dedicated + up to 4 ancillary, OR up to 12 ancillary with no dedicated) ──
+  let overBudget = false, overReason = null;
+  if(dedUsed > BUDGET.dedicatedPerDay){
+    overBudget = true; overReason = dedUsed + ' dedicated tasks (max ' + BUDGET.dedicatedPerDay + ')';
+  } else if(dedUsed >= 1 && ancUsed > BUDGET.ancillaryPerDedicatedDay){
+    overBudget = true; overReason = ancUsed + ' ancillary alongside a dedicated task (max ' + BUDGET.ancillaryPerDedicatedDay + ')';
+  } else if(dedUsed === 0 && ancUsed > BUDGET.ancillaryMaxPerDay){
+    overBudget = true; overReason = ancUsed + ' ancillary errands (max ' + BUDGET.ancillaryMaxPerDay + ')';
+  }
+
+  // ── Strenuous → rest fatigue (RR p.279) — read the shipped per-character counter ──
+  const strenuousDays = (char && typeof char.personalFatigue === 'number') ? char.personalFatigue : 0;
+  const simplifiedFatigue = isHouseRuleEnabled(campaign, 'simplified-fatigue');
+  const cycle = A.JOURNEY_FATIGUE_CYCLE_DAYS || 6;
+  const fatigued = !simplifiedFatigue && strenuousDays >= cycle;
+
+  return {
+    charId,
+    grain: opts.grain || 'current',
+    dedicated, ancillary, incidental,
+    dedicatedUsed: dedUsed,
+    ancillaryUsed: ancUsed,
+    overBudget, overReason,
+    strenuousDays, fatigued
+  };
+}
+
+// ── Travel pace ↔ activity budget: the day's activities CAP the achievable pace (Joachim 2026-06-05,
+// "the daily pace choice should be restricted by the activity budget … a Halted (×0) pace"). The four
+// paces ranked by speed; each costs a known slice of the day (per the pace-aware travel charge above):
+//   forced-march = 1 dedicated + 4 ancillary (the whole day) · normal = 1 dedicated · half-speed = 4
+//   ancillary · halted = nothing. A pace FITS a traveller iff, ADDED to their OTHER commitments, the
+// day still satisfies RAW (≤1 dedicated; ≤4 ancillary with a dedicated, else ≤12). The fastest pace
+// that fits is that traveller's cap; the party's cap is the SLOWEST traveller's (everyone must sustain
+// the chosen pace). So an administering ruler caps the party at half speed, and a fully-booked one at
+// halted. RAW-grounded in the travel-as-an-activity model; the cap itself is project doctrine.
+const PACE_RANK = Object.freeze({ 'halted':0, 'half-speed':1, 'normal':2, 'forced-march':3 });
+const RANK_PACE = Object.freeze(['halted', 'half-speed', 'normal', 'forced-march']);
+const PACE_COST = Object.freeze({
+  'forced-march': { d:1, a:4 }, 'normal': { d:1, a:0 }, 'half-speed': { d:0, a:4 }, 'halted': { d:0, a:0 }
+});
+// Does `pace` fit a traveller who already spends otherDed dedicated + otherAnc ancillary units?
+function _travelPaceFits(otherDed, otherAnc, pace, BUDGET){
+  const c = PACE_COST[pace] || PACE_COST.halted;
+  const totalDed = otherDed + c.d;
+  if(totalDed > BUDGET.dedicatedPerDay) return false;
+  const ancCap = (totalDed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+  return (otherAnc + c.a) <= ancCap;
+}
+// Fastest pace a traveller with (otherDed, otherAnc) of OTHER load can sustain.
+function _maxPaceForLoad(otherDed, otherAnc, BUDGET){
+  for(const p of ['forced-march', 'normal', 'half-speed', 'halted']){
+    if(_travelPaceFits(otherDed, otherAnc, p, BUDGET)) return p;
+  }
+  return 'halted';
+}
+// The fastest pace the WHOLE party can sustain = the slowest individual cap across its character
+// travellers (mercenaries have no budget). Returns { maxPace, binding } where binding names the
+// constraining traveller + why (for the UI's "pace restricted because…" text). Reads each traveller's
+// OTHER load via characterActivityBudget(excludeJourneyId) (stored-pace, no recursion — see above).
+function journeyMaxPace(campaign, journey, opts){
+  opts = opts || {};
+  const A = global.ACKS || {};
+  const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+  const ids = (journey && Array.isArray(journey.participantCharacterIds)) ? journey.participantCharacterIds : [];
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  let maxRank = PACE_RANK['forced-march'];   // unconstrained ceiling
+  let binding = null;
+  for(const cid of ids){
+    const ch = chars.find(c => c && c.id === cid);
+    if(!ch) continue;
+    const b = characterActivityBudget(campaign, cid, { domains: opts.domains, excludeJourneyId: journey.id });
+    const cap = _maxPaceForLoad(b.dedicatedUsed, b.ancillaryUsed, BUDGET);
+    if(PACE_RANK[cap] < maxRank){
+      maxRank = PACE_RANK[cap];
+      binding = { characterId: cid, name: ch.name || cid, maxPace: cap, otherDedicated: b.dedicatedUsed, otherAncillary: b.ancillaryUsed };
+    }
+  }
+  return { maxPace: RANK_PACE[maxRank], binding };
+}
+// The GM's desired journey.pace, capped by journeyMaxPace. The value tickJourneyDay + the budget use.
+function journeyEffectivePace(campaign, journey, opts){
+  const desired = (journey && journey.pace) || 'normal';
+  const cap = journeyMaxPace(campaign, journey, opts).maxPace;
+  const dr = (PACE_RANK[desired] != null) ? PACE_RANK[desired] : PACE_RANK['normal'];
+  return (dr <= PACE_RANK[cap]) ? desired : cap;
+}
+
+// What kind of "reject" does an activity support, and what's the button label? (Joachim 2026-06-05,
+// the Current Activities table.) Rejecting a derived activity reaches back to its SOURCE — and the
+// undo differs because the sources have three temporal natures: a standing monthly commitment
+// (domain admin → WITHDRAW it: untick administersThisMonth), a completed atomic act (a market trade
+// → REVERSE it: reverseMarketTransaction), an ongoing process (a journey → can't rewind a travelled
+// day; NAVIGATE to it and Stop Moving). Other errand kinds (future carouse/study/rest) aren't
+// reversible yet → 'none'. Pure (the UI dispatches on .mode); keeps button labels consistent.
+// Returns { mode:'reverse'|'navigate'|'none', label, verb }.
+function activityRejectAffordance(activity){
+  if(!activity) return { mode:'none', label:'', verb:'' };
+  switch(activity.sourceKind){
+    case 'domain':  return { mode:'reverse',  label:'Untick admin', verb:'untick' };
+    case 'journey': return { mode:'navigate', label:'Go to journey', verb:'navigate' };
+    case 'errand-event':
+      return (activity.kind === 'market-transaction')
+        ? { mode:'reverse', label:'Refund', verb:'refund' }
+        : { mode:'none', label:'', verb:'' };
+    default: return { mode:'none', label:'', verb:'' };
+  }
+}
+
 // Helper for event handlers: populate context on an event. Pass relatedEntities
 // as an array of {kind,id,role} objects. Mutates event in place. Idempotent — safe
 // to call multiple times.
@@ -5242,6 +5686,10 @@ const ACKS = Object.assign(global.ACKS || {}, {
   hexHistory, settlementHistory, constructibleHistory, groupHistory, notableItemHistory,
   domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory, characterHistory,
   setEventContext,
+  // Phase 2.95 Activity Budget (#346 / AB-1) — derived per-character daily activity budget.
+  characterActivityBudget, activityRejectAffordance,
+  // Travel pace ↔ budget: the day's activities cap the achievable pace (Joachim 2026-06-05).
+  journeyMaxPace, journeyEffectivePace,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
@@ -5336,6 +5784,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Items I1 — facet item model + valuation + promotion + migration (OQ9, 2026-06-03)
   itemFacets, itemHasFacet, primaryFacet, itemEncumbranceSt, itemValueGp, COIN_GP_VALUE,
   stashTotalGp, stashTotalEncumbrance, carryTotalEncumbrance,
+  // Phase 2.5 Provisioning — food/water inventory accessors (RR p.278)
+  RATION_FOOD_ST_PER_DAY, RATION_WATER_ST_PER_DAY, waterContainerDaysFor, waterCapacityDays,
+  isRationLine, rationLineDays, makeRationLine, rationDaysAvailable,
   promoteLineToNotableItem, notableItemFacets,
   migrateStashItemShape, migrateAllStashItemShapes,
   // Items I1 — character coin purse (multi-denomination; coins.gp canonical, personalGp mirror)
@@ -5368,6 +5819,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   isDestroyedAtZeroHP,
   isHenchman, isSpecialist, isFollower, isHireling, isMercenaryOfficer,
   isRetainer, isLoyaltyTracked, isCommanderEligible,
+  hasMercantileNetwork,
   isVassalRuler,
   displayKind, lifecycleLabel,
   settlementForHex, settlementsForDomain, rumorsAtSettlement, rumorsInDomain, rumorReachAt,

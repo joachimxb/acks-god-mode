@@ -189,7 +189,10 @@ check('all 10 base terrains map to distinct colors (9 land + water)', (() => {
 // synonym aliasing — common GM/author terms (incl. the demo's "plains"/"coast") resolve to the bases
 check('alias "plains" → grassland', ACKS.hexFillColor({ terrain: 'plains' }, 'terrain') === ACKS.hexFillColor({ terrain: 'grassland' }, 'terrain'));
 check('alias "coast" → grassland (land hex, not open water)', ACKS.hexFillColor({ terrain: 'coast' }, 'terrain') === ACKS.hexFillColor({ terrain: 'grassland' }, 'terrain'));
-check('alias "sea"/"ocean"/"lake" → water', ACKS.hexFillColor({ terrain: 'sea' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain') && ACKS.hexFillColor({ terrain: 'Ocean' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain') && ACKS.hexFillColor({ terrain: 'lake' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain'));
+check('alias "sea"/"ocean" → water (salt)', ACKS.hexFillColor({ terrain: 'sea' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain') && ACKS.hexFillColor({ terrain: 'Ocean' }, 'terrain') === ACKS.hexFillColor({ terrain: 'water' }, 'terrain'));
+// Provisioning §3.1 — "lake" is NO LONGER aliased to salt water: a fresh lake is a LAND hex with
+// hasLake=true, not a salt sea. So the literal terrain "lake" must NOT resolve to the salt-water fill.
+check('"lake" terrain ≠ salt water fill (now a hasLake land feature, Provisioning §3.1)', ACKS.hexFillColor({ terrain: 'lake' }, 'terrain') !== ACKS.hexFillColor({ terrain: 'water' }, 'terrain'));
 check('water is distinct from grassland (open water ≠ coastal land)', ACKS.hexFillColor({ terrain: 'water' }, 'terrain') !== ACKS.hexFillColor({ terrain: 'grassland' }, 'terrain'));
 check('alias "woods" → forest', ACKS.hexFillColor({ terrain: 'Woods' }, 'terrain') === ACKS.hexFillColor({ terrain: 'forest' }, 'terrain'));
 check('alias "mountain" → mountains', ACKS.hexFillColor({ terrain: 'mountain' }, 'terrain') === ACKS.hexFillColor({ terrain: 'mountains' }, 'terrain'));

@@ -23,7 +23,7 @@
 <!-- Inlined Established March template for the welcome banner's "Try the demo" CTA.
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
-<script src="acks-demo-template.js?v=2026-05-28-g"></script>
+<script src="acks-demo-template.js?v=2026-06-05-saltspur-rev2"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
 <!-- Reusable editable-stat component (new GM stat-editing standard).
@@ -192,6 +192,7 @@ document.addEventListener('alpine:init', () => {
   <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid #2a1f12;">
     <h1 class="text-4xl font-black mr-2">ACKS God Mode</h1>
     <span class="flex-grow"></span>
+    <button @click="loadDemoTemplate()" class="px-3 py-1 border border-ink rounded bg-emerald-200 hover:bg-emerald-300 font-semibold" title="Reset the current state to the bundled demo campaign (March of Saltspur). Won't overwrite any file — Save will prompt for a new location.">🎲 Demo</button>
     <button @click="newCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">＋ New campaign</button>
     <button @click="openCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
     <button @click="saveCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
@@ -232,15 +233,39 @@ document.addEventListener('alpine:init', () => {
             <h3 class="font-black">Day-tick review</h3>
           </div>
           <p class="text-xs opacity-70 mb-2">
-            <span x-text="'Advancing ' + (dayTickProposal.daysAdvanced||0) + ' day(s): day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay"></span>
+            <!-- Frame a single-day tick as the day being resolved (present tense), NOT "advancing to a
+                 future date" — Joachim 2026-06-05: the review should read as the current day's events,
+                 stable on re-open (the preview no longer re-rolls). A multi-day advance keeps the range. -->
+            <span x-text="(dayTickProposal.daysAdvanced||0) <= 1 ? ('Resolving day ' + dayTickProposal.toDay + ' — confirm the day’s events below, then commit') : ('Advancing ' + dayTickProposal.daysAdvanced + ' days: day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay)"></span>
             <span x-show="dayTickProposal.monthEndReached" class="font-semibold"> &middot; month end reached</span>
           </p>
           <template x-if="dayTickPausedEarly()">
             <div class="mb-2 p-2 border border-red-400 bg-red-50 rounded text-xs">
-              <strong>&#9208; Paused for review.</strong> <span class="opacity-70" x-text="'Stopped early at day ' + dayTickProposal.toDay + ' of a ' + dayTickProposal.daysRequested + '-day advance — a consumer flagged the items in red below. Review, then commit or cancel.'"></span>
+              <strong>&#9208; Paused for review.</strong> <span class="opacity-70" x-text="'Stopped early at day ' + dayTickProposal.toDay + ' of a ' + dayTickProposal.daysRequested + '-day advance — a consumer flagged the items below. Review, then commit or cancel.'"></span>
             </div>
           </template>
-          <template x-if="(dayTickProposal.pendingRecords||[]).length === 0">
+          <!-- Activities heads-up (#346): active characters over their RAW day budget (e.g. travelling
+               while administering a domain). Styled to match the consumer groups below (uppercase header
+               + dashed rows + a red detail line, like the journeys notables) — but it's a pure advisory,
+               so there's no record to ratify (no reject button). It also pauses a multi-day advance when
+               auto-pause-on-overbudget is on (default). -->
+          <template x-if="dayTickOverBudget().length">
+            <div class="mb-2">
+              <div class="font-semibold text-xs uppercase tracking-wide opacity-70">Activities</div>
+              <template x-for="ob in dayTickOverBudget()" :key="ob.characterId">
+                <div class="border-b border-dashed border-gray-300">
+                  <div class="flex items-center justify-between gap-2 py-0.5">
+                    <span class="text-xs"><span class="font-semibold" x-text="ob.characterName"></span><span x-text="' — ' + ob.reason"></span></span>
+                    <button @click="goToCurrentActivities()" class="text-xs px-1 border border-ink rounded hover:bg-yellow-100 shrink-0" title="Open Current Activities to reject one of these activities and clear the conflict">Resolve &rarr;</button>
+                  </div>
+                  <div x-show="ob.activityLabels && ob.activityLabels.length" class="ml-3 pb-0.5">
+                    <div class="text-xs text-red-700 leading-snug" x-text="'• over budget: ' + ob.activityLabels.join(' + ')"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="(dayTickProposal.pendingRecords||[]).length === 0 && !dayTickOverBudget().length">
             <p class="text-xs italic opacity-60">No pending records this tick.</p>
           </template>
           <template x-for="grp in dayTickRecordGroups()" :key="grp.consumer">
@@ -264,7 +289,9 @@ document.addEventListener('alpine:init', () => {
                     </span>
                   </div>
                   <!-- This record's notable events (lost / hungry / dehydrated / encounter …), in red,
-                       under their own record — the journey label above isn't repeated. -->
+                       under their own record — the journey label above isn't repeated. The day's ROLLS
+                       (nav / forage) are NOT shown here — they live in the Journey view's day log (the
+                       pending "Day N" row), so the review stays a results summary (Joachim 2026-06-05). -->
                   <div x-show="!r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
                     <template x-for="(ne, nei) in (r._notables||[])" :key="grp.consumer + '-' + ri + '-ntl-' + nei">
                       <div class="text-xs text-red-700 leading-snug" x-text="'• ' + dayTickNotableText(ne)"></div>
@@ -865,6 +892,141 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
     </template>
+  </div>
+</div>
+
+<!-- Trade Wizard (Item Trade IT-4 — Phase_2.9_Item_Trade_Plan.md §4.4) — the fourth Action Wizard,
+     settlement-seated retail buy/sell. Opens from the character sheet (🛒 Shop), the hex card
+     (🛒 Market), or standalone. Engine: ACKS.marketBuy / marketSell — gated by RR p.124 Equipment
+     Availability + funds; runs THROUGH the real coin purse + carry inventory (no phantom state). The
+     #346 proof is the forecast's Activity line: a purchase = ⌈stone ÷ normal-load⌉ ancillary errands
+     (M&M p.15). Layered at z-75 (above the character sheet z-50 + the hex card). -->
+<div x-show="trade.open" @keydown.escape.window="closeTrade()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-3xl my-6">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <div>
+        <h3 class="font-bold text-lg">🛒 Trade<span x-show="tradeActor()" class="font-normal opacity-80"> — <span x-text="tradeActor()?.name||'(unnamed)'"></span></span></h3>
+        <p class="text-sm opacity-70">Buy or sell at a market — gated by what it stocks (RR p.124); paid through the purse.</p>
+      </div>
+      <button @click="closeTrade()" class="text-2xl leading-none px-2" title="Close">×</button>
+    </div>
+
+    <div class="p-4 space-y-3">
+      <!-- Step 1 — who / where / which way -->
+      <div class="wizard-step-header"><span class="wizard-step-n">Step 1</span>Who, where, which way</div>
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="text-sm">Character<br>
+          <select @change="tradeSetActor($event.target.value)" class="text-sm" style="min-width:13rem">
+            <option value="" :selected="!trade.actorId">— pick a character —</option>
+            <template x-for="c in tradeCharacters()" :key="c.id"><option :value="c.id" :selected="trade.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
+          </select>
+        </label>
+        <label class="text-sm">Market (settlement)<br>
+          <select @change="tradeSetSettlement($event.target.value)" class="text-sm" style="min-width:15rem">
+            <option value="" :selected="!trade.settlementId">— pick a settlement —</option>
+            <template x-for="s in tradeSettlements()" :key="s.id"><option :value="s.id" :selected="trade.settlementId===s.id" x-text="(s.name||'(unnamed)') + ' · Class ' + settlementMarketClass(s)"></option></template>
+          </select>
+        </label>
+        <div class="flex gap-1 text-sm">
+          <button @click="tradeSetDir('buy')" :class="trade.dir==='buy' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Buy</button>
+          <button @click="tradeSetDir('sell')" :class="trade.dir==='sell' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Sell</button>
+        </div>
+      </div>
+      <div class="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1 items-center" x-show="tradeActor()">
+        <span>🪙 Purse: <span class="font-mono" x-text="tradePurseGp().toLocaleString()+' gp'"></span></span>
+        <span x-show="tradeSettlement()">🏛 Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
+        <label x-show="tradeActorIsVenturer()" class="flex items-center gap-1" title="Mercantile Network (RR p.43 — the Venturer class power): a venturer treats a market they've previously entered, by retail trade OR a mercantile venture, as one class larger. Auto-set from this character's history; toggle to override."><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (Mercantile Network, +1 class)</label>
+        <label class="flex items-center gap-1" :class="tradePartySize() < 12 ? 'opacity-40' : ''" :title="tradePartySize() < 12 ? ('Needs a party of 12+ adventurers — this character\'s party has '+tradePartySize()+' (RR p.124)') : 'A 12+ party devoting a DEDICATED activity to shopping gets double availability (RR p.124); the trip costs one dedicated activity'"><input type="checkbox" :disabled="tradePartySize() < 12" :checked="trade.partyOf12Dedicated && tradePartySize() >= 12" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2, dedicated)</label>
+      </div>
+
+      <!-- Step 2 (BUY) — catalogue + generic-by-price + cart -->
+      <template x-if="trade.dir==='buy'">
+        <div class="space-y-2">
+          <div class="wizard-step-header"><span class="wizard-step-n">Step 2</span>What to buy</div>
+          <div class="flex flex-wrap items-end gap-2">
+            <label class="text-sm">Search<br><input type="text" x-model="trade.search" placeholder="sword, plate, horse…" class="text-sm" style="width:12rem"></label>
+            <label class="text-sm">Category<br>
+              <select x-model="trade.category" class="text-sm">
+                <template x-for="cat in tradeCategories()" :key="cat"><option :value="cat" x-text="cat"></option></template>
+              </select>
+            </label>
+          </div>
+          <div class="border border-ink/20 rounded max-h-48 overflow-y-auto">
+            <template x-if="tradeCatalog().length===0"><p class="text-xs italic opacity-60 p-2">No catalogue items match — use the Generic item row below to buy anything by price.</p></template>
+            <table class="w-full text-sm" x-show="tradeCatalog().length">
+              <template x-for="item in tradeCatalog()" :key="item.id">
+                <tr class="border-b border-ink/10 hover:bg-yellow-50">
+                  <td class="px-2 py-0.5" x-text="item.name"></td>
+                  <td class="px-2 py-0.5 text-right font-mono" x-text="item.listPriceGp+' gp'"></td>
+                  <td class="px-2 py-0.5 text-right opacity-60 text-xs" x-text="item.stone!=null ? (Math.round(item.stone*100)/100+' st') : 'led'"></td>
+                  <td class="px-2 py-0.5 text-right text-xs" :class="tradeAvailFor(item.listPriceGp).kind==='none' ? 'accent-red' : 'opacity-70'" x-text="tradeAvailLabel(tradeAvailFor(item.listPriceGp))"></td>
+                  <td class="px-2 py-0.5 text-right"><button @click="tradeAddCatalog(item)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-200">+ add</button></td>
+                </tr>
+              </template>
+            </table>
+          </div>
+          <div class="flex flex-wrap items-end gap-2 text-sm border border-ink/20 rounded p-2">
+            <span class="font-semibold">Generic item</span>
+            <label>Name<br><input type="text" x-model="trade.gName" placeholder="anything" class="text-sm" style="width:10rem"></label>
+            <label>Price (gp)<br><input type="number" min="0" x-model.number="trade.gPrice" class="text-sm" style="width:6rem"></label>
+            <label>Stone<br><input type="number" min="0" step="0.01" x-model.number="trade.gStone" class="text-sm" style="width:5rem"></label>
+            <button @click="tradeAddGeneric()" class="text-xs px-2 py-1 border border-ink rounded hover:bg-yellow-200">+ add</button>
+          </div>
+          <div class="border border-ink/20 rounded p-2" x-show="trade.buyCart.length">
+            <div class="flex items-center justify-between mb-1"><span class="text-sm font-semibold">Cart</span><button @click="tradeRecomputeCart()" class="text-xs underline opacity-70" title="Re-roll this month's availability for chance-cell items">🎲 re-roll availability</button></div>
+            <table class="w-full text-sm">
+              <thead><tr class="opacity-60 text-xs"><th class="text-left">Item</th><th class="text-right">Qty</th><th class="text-right">Avail</th><th class="text-right">Unit</th><th class="text-right">Total</th><th></th></tr></thead>
+              <template x-for="l in trade.buyCart" :key="l.key">
+                <tr class="border-b border-ink/10" :class="Number(l.qty) > Number(l.availableUnits) ? 'wizard-no-chance' : ''">
+                  <td x-text="l.name"></td>
+                  <td class="text-right"><input type="number" min="1" :max="tradeCartEffectiveAvail(l)" x-model.number="l.qty" class="text-sm text-right" style="width:4rem"></td>
+                  <td class="text-right text-xs" x-text="tradeCartAvailLabel(l)"></td>
+                  <td class="text-right font-mono" x-text="l.unitPriceGp+' gp'"></td>
+                  <td class="text-right font-mono" x-text="(l.unitPriceGp*(Number(l.qty)||0)).toLocaleString()+' gp'"></td>
+                  <td class="text-right"><button @click="tradeRemoveCart(l.key)" class="text-xs accent-red px-1" title="Remove">×</button></td>
+                </tr>
+              </template>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Step 2 (SELL) — from the character's carry inventory -->
+      <template x-if="trade.dir==='sell'">
+        <div class="space-y-2">
+          <div class="wizard-step-header"><span class="wizard-step-n">Step 2</span>What to sell <span class="wizard-step-hint">(from the character's carry inventory)</span></div>
+          <template x-if="tradeSellRowsList().length===0"><p class="text-xs italic opacity-60">Nothing in this character's carry inventory to sell. (Coins, mounts led elsewhere, and stash items aren't sold here.)</p></template>
+          <table class="w-full text-sm" x-show="tradeSellRowsList().length">
+            <thead><tr class="opacity-60 text-xs"><th></th><th class="text-left">Item</th><th class="text-right">Held</th><th class="text-right">Sell qty</th><th class="text-right">Price (gp)</th><th class="text-right">Market takes</th></tr></thead>
+            <template x-for="r in tradeSellRowsList()" :key="'sr-'+r.ix">
+              <tr class="border-b border-ink/10">
+                <td><input type="checkbox" :checked="trade.sellRows[r.ix].sel" @change="trade.sellRows[r.ix].sel=$event.target.checked"></td>
+                <td x-text="r.name"></td>
+                <td class="text-right opacity-70" x-text="r.heldQty"></td>
+                <td class="text-right"><input type="number" min="1" :max="r.heldQty" x-model.number="trade.sellRows[r.ix].qty" class="text-sm text-right" style="width:4rem"></td>
+                <td class="text-right"><input type="number" min="0" x-model.number="trade.sellRows[r.ix].priceGp" class="text-sm text-right" style="width:5rem"></td>
+                <td class="text-right text-xs" :class="tradeAvailFor(trade.sellRows[r.ix].priceGp).kind==='none' ? 'accent-red' : 'opacity-70'" x-text="tradeAvailLabel(tradeAvailFor(trade.sellRows[r.ix].priceGp))"></td>
+              </tr>
+            </template>
+          </table>
+        </div>
+      </template>
+
+      <!-- Step 3 — forecast (total / load / the #346 activity cost) -->
+      <div class="wizard-forecast-row" x-show="(trade.dir==='buy' ? trade.buyCart.length : tradeSellSelectedRows().length)">
+        <div class="flex flex-wrap gap-x-5 gap-y-1">
+          <span><span class="opacity-60">Total:</span> <span class="font-mono font-semibold" x-text="(trade.dir==='buy'?tradeBuyTotalGp():tradeSellTotalGp()).toLocaleString()+' gp'"></span></span>
+          <span><span class="opacity-60">Load:</span> <span class="font-mono" x-text="(Math.round((trade.dir==='buy'?tradeBuyTotalStone():tradeSellTotalStone())*100)/100)+' st'"></span></span>
+          <span :title="tradeActivityTitle()"><span class="opacity-60">Activity:</span> <span class="font-semibold" x-text="tradeActivityLabel()"></span></span>
+        </div>
+      </div>
+
+      <!-- Step 4 — submit gate -->
+      <div class="wizard-submit-gate">
+        <span class="wizard-submit-disabled-reason" x-text="tradeSubmitDisabledReason()"></span>
+        <button @click="tradeSubmit()" :disabled="!tradeCanSubmit()" :class="tradeCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold" x-text="trade.dir==='buy' ? '🛒 Buy' : '💰 Sell'"></button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1485,8 +1647,8 @@ document.addEventListener('alpine:init', () => {
 
           <div class="vellum border border-ink p-3 rounded">
             <h2 class="font-bold text-lg mb-2">Settlements (<span x-text="hexSettlements(selectedDomain).length"></span>)</h2>
-            <template x-if="hexSettlements(selectedDomain).length === 0 && (selectedDomain.demographics.urbanFamilies||0) === 0">
-              <p class="text-sm italic opacity-70">No settlements yet. Use the <strong>Hexes</strong> section below — click <em>+ found settlement</em> on the hex where you want it.</p>
+            <template x-if="hexSettlements(selectedDomain).length === 0">
+              <p class="text-sm italic opacity-70">No settlements in this domain. Use the <strong>Hexes</strong> section below — click <em>+ found settlement</em> on the hex where you want one.</p>
             </template>
             <template x-if="hexSettlements(selectedDomain).length > 0">
               <table class="bookkeeping text-sm">
@@ -1530,17 +1692,6 @@ document.addEventListener('alpine:init', () => {
                   </tr>
                 </tbody>
               </table>
-            </template>
-            <template x-if="hexSettlements(selectedDomain).length === 0 && (selectedDomain.demographics.urbanFamilies||0) > 0">
-              <div>
-                <p class="text-sm italic opacity-70 mb-2">Legacy aggregate urban data (no per-hex settlement defined):</p>
-                <table class="bookkeeping text-sm">
-                  <tr><td>Population</td><td class="text-right font-semibold" x-text="selectedDomain.demographics.urbanFamilies.toLocaleString() + ' families'"></td></tr>
-                  <tr><td>Market class</td><td class="text-right font-semibold" x-text="'Class ' + marketClass(selectedDomain)"></td></tr>
-                  <tr><td>Trade revenue</td><td class="text-right" x-text="tradeRevenuePerFamily(selectedDomain) + 'gp / family / month'"></td></tr>
-                </table>
-                <p class="text-sm opacity-70 mt-2">To migrate: zero out the aggregate <code>demographics.urbanFamilies</code> and found a named settlement on a hex via the Hexes tab.</p>
-              </div>
             </template>
           </div>
           </div>
@@ -2892,6 +3043,153 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 
+<!-- Sub-panel: Activities dashboard (#346 AB-3). The day-budget read surface + per-character quick actions. -->
+<div x-show="currentView === 'activities' && activitiesSubView === 'activities'" class="p-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+
+    <!-- Header + legend -->
+    <div class="vellum border border-ink rounded p-3">
+      <div class="flex justify-between items-baseline flex-wrap gap-3 mb-2">
+        <h2 class="font-bold text-xl">📋 Activities</h2>
+        <span class="text-sm opacity-70" x-show="currentCampaign"
+              x-text="dayClockLabel() + ' · ' + activityDashboardBusyCount() + ' of ' + activityDashboardRows().length + ' acting today'"></span>
+      </div>
+      <p class="text-sm opacity-80">
+        Each character's day-activity budget — what's already spoken for and what's still free — following the
+        campaign-activity rules (JJ pp.99–100, RR p.272). The budget refreshes when you advance the
+        <strong>Day Clock</strong>. Ventures are launched from the Ventures sub-tab (their setup is multi-step).
+      </p>
+    </div>
+
+    <!-- No campaign -->
+    <template x-if="!currentCampaign">
+      <div class="vellum border border-ink rounded p-6 text-center opacity-70">Load or create a campaign to see its characters' day activities.</div>
+    </template>
+
+    <!-- No active characters -->
+    <template x-if="currentCampaign && activityDashboardRows().length === 0">
+      <div class="vellum border border-ink rounded p-6 text-center opacity-70">No active characters yet. Add characters from the <button @click="currentView='characters'; charactersSubView='roster'" class="underline">Roster</button>.</div>
+    </template>
+
+    <!-- Dashboard table -->
+    <template x-if="currentCampaign && activityDashboardRows().length > 0">
+      <div class="vellum border border-ink rounded p-3 overflow-x-auto">
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr>
+            <th style="text-align:left">Character</th>
+            <th style="text-align:left">Location</th>
+            <th style="text-align:left" title="What's still free in this character's day-activity budget (JJ pp.99–100, RR p.272).">Available today</th>
+            <th style="text-align:left">Done today</th>
+            <th style="text-align:right">Actions</th>
+          </tr></thead>
+          <tbody>
+            <template x-for="r in activityDashboardRows()" :key="r.c.id">
+              <tr>
+                <!-- Character -->
+                <td style="text-align:left">
+                  <button @click="openCharacterEditor(r.c)" class="font-semibold underline" x-text="r.c.name || '(unnamed)'"></button>
+                  <div class="text-xs opacity-70" x-text="(ACKS.isPlayerControlled(r.c) ? 'PC' : 'NPC') + ' · ' + (r.c.class || '—') + ' L' + (r.c.level || 1) + ' · ' + ACKS.displayKind(r.c)"></div>
+                </td>
+                <!-- Location -->
+                <td class="text-sm" style="text-align:left" :class="r.c.currentHexId ? '' : 'opacity-50 italic'" x-text="characterLocationLabel(r.c)"></td>
+                <!-- Available today: dedicated pip + ancillary count, free/over/fatigue flags -->
+                <td class="text-sm" style="text-align:left">
+                  <div class="flex items-center gap-2 whitespace-nowrap">
+                    <span :title="'Dedicated task — ' + r.budget.dedicatedUsed + ' of 1 used'"><span x-text="r.budget.dedicatedUsed >= 1 ? '●' : '○'"></span> ded</span>
+                    <span class="opacity-40">·</span>
+                    <span title="Ancillary (~1-hour) errands"><span class="font-mono" x-text="r.budget.ancillaryUsed + '/' + r.ancCap"></span> anc</span>
+                  </div>
+                  <div class="text-xs mt-0.5">
+                    <span x-show="!r.budget.overBudget && (r.dedLeft + r.ancLeft) > 0" class="accent-green" x-text="r.dedLeft + ' ded + ' + r.ancLeft + ' anc free'"></span>
+                    <span x-show="!r.budget.overBudget && (r.dedLeft + r.ancLeft) === 0" class="opacity-60">day full</span>
+                    <span x-show="r.budget.overBudget" class="accent-red font-semibold" :title="r.budget.overReason || ''">⚠ over budget</span>
+                  </div>
+                  <div x-show="r.budget.fatigued" class="text-xs accent-red" :title="r.budget.strenuousDays + ' strenuous days — RR p.279 six-day cycle'">😴 needs rest</div>
+                </td>
+                <!-- Done today: budget-consuming activities as chips -->
+                <td class="text-sm" style="text-align:left">
+                  <template x-for="(a, i) in r.done" :key="(a.sourceKind||'') + ':' + (a.sourceId||'') + ':' + i">
+                    <span class="inline-block px-1.5 py-0.5 rounded text-xs mr-1 mb-1"
+                          :class="a.cost === 'ancillary' ? 'border border-ink' : (a.cost === 'incidental' ? 'opacity-60 border border-ink/40' : '')"
+                          :style="a.cost === 'dedicated' ? 'background:#2a1f12;color:#f4ecd8' : ''"
+                          :title="a.cost + (a.strenuous ? ' · strenuous' : '')">
+                      <span x-show="a.strenuous">⚡ </span><span x-text="a.label"></span>
+                    </span>
+                  </template>
+                  <span x-show="r.done.length === 0" class="opacity-40 italic">nothing yet today</span>
+                </td>
+                <!-- Actions: the typical campaign activities (Ventures excluded — its own sub-tab) -->
+                <td class="text-right whitespace-nowrap">
+                  <button @click="openTrade({ actorCharacterId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
+                          :title="characterAtSettlement(r.c) ? ('Buy or sell at ' + (characterAtSettlement(r.c).name || 'the local market')) : 'Buy or sell at a market (pick the settlement in the wizard)'">🛒 Market</button>
+                  <button @click="recruitDeepLink({ patronId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
+                          title="Recruit hirelings, henchmen or specialists with this character as patron">⚔ Recruit</button>
+                  <button @click="startJourneyForCharacter(r.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100"
+                          :title="characterPartyOf(r.c) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 Travel</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- Current Activities — the activity-centric companion table (Joachim 2026-06-05). One row per
+         (character × activity) for TODAY, with a context-labelled reject that ROLLS BACK the activity:
+         untick a domain administration, refund a market trade, or jump to a journey to Stop it. -->
+    <template x-if="currentCampaign && currentActivityRows().length > 0">
+      <div class="vellum border border-ink rounded p-3 overflow-x-auto">
+        <div class="flex justify-between items-baseline flex-wrap gap-2 mb-2">
+          <h3 class="font-bold text-lg">Current Activities</h3>
+          <span class="text-xs opacity-60" x-text="pluralize(currentActivityRows().length, 'activity', 'activities') + ' under way today'"></span>
+        </div>
+        <p class="text-xs opacity-70 mb-2">Reject rolls the activity back: <strong>untick</strong> a domain administration, <strong>refund</strong> a market trade (coins + goods returned exactly), or open a journey to <strong>Stop Moving</strong> (a travelled day can't be rewound).</p>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr>
+            <th style="text-align:left">Character</th>
+            <th style="text-align:left">Doing</th>
+            <th style="text-align:left">Cost</th>
+            <th style="text-align:right">Reject</th>
+          </tr></thead>
+          <tbody>
+            <template x-for="(row, ri) in currentActivityRows()" :key="(row.c.id) + ':' + (row.activity.sourceKind||'') + ':' + (row.activity.sourceId||'') + ':' + ri">
+              <tr :class="row.overBudget ? 'bg-red-50' : ''">
+                <td style="text-align:left">
+                  <button @click="openCharacterEditor(row.c)" class="font-semibold underline" x-text="row.c.name || '(unnamed)'"></button>
+                  <span x-show="row.overBudget" class="ml-1 text-xs accent-red font-semibold" title="Over their RAW day budget">⚠</span>
+                </td>
+                <td style="text-align:left">
+                  <span x-show="row.activity.strenuous" title="Strenuous (RR p.279)">⚡ </span><span x-text="row.activity.label"></span><template x-if="row.detail"><span class="opacity-70" x-text="' (' + row.detail + ')'"></span></template>
+                </td>
+                <td style="text-align:left">
+                  <span class="inline-block px-1.5 py-0.5 rounded text-xs"
+                        :class="row.activity.cost === 'ancillary' ? 'border border-ink' : (row.activity.cost === 'incidental' ? 'opacity-60 border border-ink/40' : '')"
+                        :style="row.activity.cost === 'dedicated' ? 'background:#2a1f12;color:#f4ecd8' : ''"
+                        x-text="row.activity.cost"></span>
+                </td>
+                <td class="text-right whitespace-nowrap">
+                  <button x-show="row.affordance.mode === 'reverse'" @click="rejectActivity(row)"
+                          class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100"
+                          :title="row.activity.sourceKind === 'domain' ? 'Untick this month\'s administration (withdraws the +1-morale lever)' : 'Refund this transaction — coins and goods returned exactly as traded'">
+                    ✖ <span x-text="row.affordance.label"></span>
+                  </button>
+                  <button x-show="row.affordance.mode === 'navigate'" @click="rejectActivity(row)"
+                          class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-100"
+                          title="A travelled day can't be rewound — open the journey and Stop Moving there">
+                    <span x-text="row.affordance.label"></span> →
+                  </button>
+                  <span x-show="row.affordance.mode === 'none'" class="text-xs opacity-40">—</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+  </div>
+</div>
+
 <!-- Sub-panel: Ventures (existing content). Renders when Activities is the current view AND ventures sub-tab is selected. -->
 <div x-show="currentView === 'activities' && activitiesSubView === 'ventures'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
@@ -3724,6 +4022,8 @@ document.addEventListener('alpine:init', () => {
               <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                 <th class="font-normal py-0.5 pr-4">Traveller</th>
                 <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
+                <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
                 <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                 <th class="font-normal py-0.5">Conditions</th>
               </tr>
@@ -3743,8 +4043,14 @@ document.addEventListener('alpine:init', () => {
                     </template>
                     <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
                   </td>
+                  <td class="py-1 pr-4" x-show="rationsShown()">
+                    <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'text-orange-700 font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
+                  </td>
+                  <td class="py-1 pr-4" x-show="rationsShown()">
+                    <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
+                  </td>
                   <td class="py-1 pr-4" x-show="encumbranceShown()">
-                    <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="(Math.round(carryInfo(ch).totalSt*10)/10)+' st · '+carryInfo(ch).band.label"></span>
+                    <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
                   </td>
                   <td class="py-1">
                     <template x-if="characterJourneyConditions(ch).length">
@@ -3764,13 +4070,33 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
-        <!-- supplies tracker + status conditions -->
-        <div class="border border-dashed border-ink rounded p-2 text-sm">
+        <!-- supplies tracker + status conditions — Provisioning V5: totals are now TIGHT inventory
+             (members' carried rations + water + the party camp), not the retired abstract counter. -->
+        <div class="border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown()">
           <div class="flex flex-wrap gap-4">
-            <span>🍖 Food: <span class="font-semibold" x-text="(journeyDetail().supplies?.rations)||0"></span></span>
-            <span>💧 Water: <span class="font-semibold" x-text="(journeyDetail().supplies?.waterRations)||0"></span></span>
+            <span title="Total ration days across all travellers + the party camp">🍖 Food: <span class="font-semibold" x-text="journeyTotalFoodDays(journeyDetail())"></span> day(s)</span>
+            <span title="Total drinking-water days carried by the party">💧 Water: <span class="font-semibold" x-text="journeyTotalWaterDays(journeyDetail())"></span> day(s)</span>
             <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
-            <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) of supplies left'"></span>
+            <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) for the party'"></span>
+          </div>
+          <!-- §8 party day-tick toggles: forage for water (greyed when the hex auto-supplies), share rations -->
+          <div class="flex flex-wrap gap-4 mt-2 pt-2 border-t border-dashed border-ink/30" x-show="journeyDetail().status==='in-transit'">
+            <!-- Water status: when the current hex auto-supplies water, an indicator REPLACES the forage
+                 tick; when it doesn't, the "no water here" text is followed by the forage tick box. -->
+            <template x-if="journeyHexSourcesWater(journeyDetail())">
+              <span class="flex items-center gap-1.5 text-xs text-sky-700" title="This hex has a river / lake / settlement — water is free here, no foraging needed">💧 Water available at this hex</span>
+            </template>
+            <template x-if="!journeyHexSourcesWater(journeyDetail())">
+              <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="No water source at this hex — tick to make one Foraging throw for water on a no-source day (each forager spends an ancillary slot)">
+                <span>🚱 No water here —</span>
+                <input type="checkbox" :checked="!!journeyDetail().forageWaterEnabled" @change="toggleJourneyForageWater(journeyDetail())">
+                <span>🥤 forage for water</span>
+              </label>
+            </template>
+            <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Pool food + water — everyone eats from the party camp first, then their own shares; on a shortfall the leader is fed first">
+              <input type="checkbox" :checked="!!journeyDetail().shareRations" @change="toggleJourneyShareRations(journeyDetail())">
+              🤝 Share rations
+            </label>
           </div>
         </div>
 
@@ -3811,10 +4137,11 @@ document.addEventListener('alpine:init', () => {
               <label class="opacity-70 block text-xs">Pace</label>
               <select class="text-sm border border-ink rounded px-2 py-0.5"
                       @change="setJourneyPace(journeyDetail(), $event.target.value)"
-                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged)">
-                <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
-                <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
-                <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
+                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged). A pace the travellers' other activities can't sustain is disabled (the activity budget caps it).">
+                <option value="normal" :selected="journeyEffectivePaceUI(journeyDetail())==='normal'" :disabled="!journeyPaceAllowed(journeyDetail(),'normal')">Normal (×1 — dedicates the day to travel)</option>
+                <option value="half-speed" :selected="journeyEffectivePaceUI(journeyDetail())==='half-speed'" :disabled="!journeyPaceAllowed(journeyDetail(),'half-speed')">Half speed (×½ — 4 ancillary hours; frees the dedicated activity)</option>
+                <option value="forced-march" :selected="journeyEffectivePaceUI(journeyDetail())==='forced-march'" :disabled="!journeyPaceAllowed(journeyDetail(),'forced-march')">Forced march (×1½ — the whole day; fatigued at once, RR p.279)</option>
+                <option value="halted" :selected="journeyEffectivePaceUI(journeyDetail())==='halted'">Halted (×0 — the day's activities leave no time to travel)</option>
               </select>
             </div>
             <div>
@@ -3827,6 +4154,9 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
           <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">Current speed = the slowest member's encumbrance rate; pace multiplies it for the next day ticked.</span>
+          <!-- Pace cap (Joachim 2026-06-05): when a traveller's other activities (e.g. administering a domain)
+               leave no room for full-speed travel, the faster paces are disabled + this names why. -->
+          <span class="text-xs text-amber-800 font-semibold block" x-show="journeyPaceCapText(journeyDetail())" x-text="journeyPaceCapText(journeyDetail())"></span>
           <span class="text-xs text-amber-800" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
           <span class="text-xs text-amber-800" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
         </div>
@@ -3844,26 +4174,50 @@ document.addEventListener('alpine:init', () => {
         <!-- day log -->
         <div>
           <h3 class="font-semibold text-sm mb-1">Day log</h3>
-          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — Tick day to advance.</p></template>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — Tick day (top-right) to advance.</p></template>
           <div class="space-y-1">
             <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
-              <div class="text-xs border-b border-dashed border-gray-300 py-0.5 flex flex-wrap gap-x-3 items-baseline">
-                <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
-                <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
-                <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
-                <span class="capitalize" x-text="d.pace"></span>
-                <span x-show="d.speedOverrideMilesPerDay > 0" class="text-amber-800 font-mono" x-text="'⚡' + d.speedOverrideMilesPerDay + ' mi/day'" title="GM speed override was in effect this day"></span>
-                <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
-                <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
-                <!-- GM reroll — only the latest day (downstream days depend on it). -->
-                <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
-                <!-- §24 — the hexes entered this day; the latest day's last hex is the party's current position. -->
-                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="w-full pl-3 text-[11px] opacity-80">
+              <div class="text-xs py-0.5" :class="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'border border-dashed border-sky-400 rounded px-1' : 'border-b border-dashed border-gray-300'" :style="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'background:rgba(186,230,253,0.22)' : ''">
+                <!-- Row 1 — day header: weather · distance · pace · speed override. The LATEST day, while
+                     still rerollable (the world clock stands on it), is the party's CURRENT STATE —
+                     highlighted + rerolled in place (Joachim 2026-06-05: "it is the current state… the
+                     Journey updates location and conditions"). Once the clock advances past it (or an
+                     earlier day) it locks into history. Same gate as the reroll buttons below. -->
+                <div class="flex flex-wrap gap-x-3 items-baseline">
+                  <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
+                  <span x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" title="The journey's current state — where the party is now and the conditions they're in. Reroll it below to re-resolve the day in place; it locks once you advance the clock past it.">current</span>
+                  <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
+                  <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
+                  <span class="capitalize" x-text="d.pace"></span>
+                  <span x-show="d.speedOverrideMilesPerDay > 0" class="text-amber-800 font-mono" x-text="'⚡' + d.speedOverrideMilesPerDay + ' mi/day'" title="GM speed override was in effect this day"></span>
+                </div>
+                <!-- Row 2 — navigation: the nav throw + this day's movement / fording / encounter / arrival
+                     notes, with its OWN reroll. 🎲 reroll nav re-rolls navigation & movement and HOLDS the
+                     day's water/food outcome fixed (the forage row owns that). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.navigationThrow || journeyDayNotables(d,'nav').length || (di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail()))">
+                  <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
+                  <span x-show="!d.navigationThrow" class="font-mono opacity-40">nav — no throw (on road / at rest)</span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'nav')" :key="'dln-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollNav(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll the current day's navigation & movement (GM) — the party's location updates to match; the water-foraging outcome is held (its own reroll is on the row below)">🎲 reroll nav</button>
+                </div>
+                <!-- Row 3 — provisioning: the day's water-Foraging throw (with modifiers) + hunger/thirst notes,
+                     with its OWN reroll (leaves movement + navigation untouched). Only when something happened. -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.waterForage || journeyDayNotables(d,'survival').length">
+                  <span x-show="d.waterForage" class="font-mono" :class="(d.waterForage && d.waterForage.success) ? 'text-sky-800' : 'text-orange-700'" x-text="journeyForageDetail(d.waterForage)"></span>
+                  <template x-for="(ne,nei) in journeyDayNotables(d,'survival')" :key="'dls-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
+                  <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="text-xs px-1.5 border border-sky-700 text-sky-800 rounded hover:bg-sky-50 ml-auto" title="Re-roll JUST the current day's water-foraging throw (GM) — the party's conditions update; movement & navigation are held">🎲 reroll forage</button>
+                </div>
+                <!-- Row 4 — §24 the hexes entered this day; the latest day's last hex is the party's current position. -->
+                <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="pl-3 text-[11px] opacity-80">
                   <span class="opacity-50">via </span>
                   <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold text-emerald-800' : ''" x-text="journeyStepLabel(st)"></span></span></template>
                   <span x-show="di===(journeyDetail().days.length-1)" class="text-emerald-800" title="The party is here now"> 📍 here now</span>
                 </div>
+              </div>
             </template>
+            <!-- (No separate "next day" preview row — the journey's current state IS its latest committed
+                 day above, highlighted + rerollable in place. Joachim 2026-06-05: "remove the Preview
+                 name… it is the current state. The Journey updates location and current conditions.") -->
           </div>
           <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
         </div>
@@ -4641,6 +4995,8 @@ document.addEventListener('alpine:init', () => {
                       <th class="font-normal py-0.5 pr-4">Member</th>
                       <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
                       <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
                       <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                       <th class="font-normal py-0.5 pr-4">Conditions</th>
                       <th class="font-normal py-0.5"></th>
@@ -4666,8 +5022,14 @@ document.addEventListener('alpine:init', () => {
                           </template>
                           <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
                         </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'text-orange-700 font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
+                        </td>
                         <td class="py-1 pr-4" x-show="encumbranceShown()">
-                          <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="(Math.round(carryInfo(ch).totalSt*10)/10)+' st · '+carryInfo(ch).band.label"></span>
+                          <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="carryInfo(ch).band.label+' · '+(Math.round(carryInfo(ch).totalSt*10)/10)+' st'"></span>
                         </td>
                         <td class="py-1 pr-4">
                           <template x-if="characterJourneyConditions(ch).length">
@@ -5906,7 +6268,7 @@ document.addEventListener('alpine:init', () => {
         <div x-show="encumbranceShown()" class="mt-3 border border-ink/30 rounded p-3" x-data="{ get info(){ return carryInfo(characterEditing); } }">
           <div class="flex justify-between items-baseline mb-1">
             <h4 class="font-semibold text-sm">Carry encumbrance <span class="opacity-60 font-normal text-xs">· RR pp.83–84</span></h4>
-            <span class="text-sm font-mono" :style="'color:'+carryBandColor(info.band.level)" x-text="(Math.round(info.totalSt*10)/10)+' st · '+info.band.label"></span>
+            <span class="text-sm font-mono" :style="'color:'+carryBandColor(info.band.level)" x-text="info.band.label+' · '+(Math.round(info.totalSt*10)/10)+' st'"></span>
           </div>
           <div class="w-full h-2 rounded bg-ink/10 overflow-hidden">
             <div class="h-2" :style="'width:'+Math.min(100, info.totalSt/20*100)+'%; background:'+carryBandColor(info.band.level)"></div>
@@ -5918,7 +6280,10 @@ document.addEventListener('alpine:init', () => {
         <div class="mt-3 border border-ink/30 rounded p-3" x-data="{ get vault(){ return characterStashes(characterEditing); } }">
           <div class="flex justify-between items-baseline mb-1">
             <h4 class="font-semibold text-sm">🪙 Vault <span class="opacity-60 font-normal text-xs">· located stashes</span></h4>
-            <button @click="openStashTransfer()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Cache carry items/coins here, or draw from a stash at this hex">📦 Transfer items / coins…</button>
+            <div class="flex items-center gap-1">
+              <button @click="openTrade({ actorCharacterId: characterEditing.id })" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :title="characterAtSettlement(characterEditing) ? ('Buy or sell at '+(characterAtSettlement(characterEditing).name||'the local market')) : 'Buy or sell at a market (pick the settlement in the wizard)'">🛒 Shop</button>
+              <button @click="openStashTransfer()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Cache carry items/coins here, or draw from a stash at this hex">📦 Transfer items / coins…</button>
+            </div>
           </div>
           <template x-if="vault.personal.length + vault.party.length + vault.treasuries.length === 0">
             <p class="text-xs italic opacity-60">No stashes yet. Use <span class="font-semibold">📦 Transfer</span> above to cache items or coin at this character’s hex (creates a cache there).</p>
@@ -6563,6 +6928,17 @@ document.addEventListener('alpine:init', () => {
           </template>
         </ul>
       </div>
+
+      <!-- Market (Item Trade IT-4) — retail buy/sell at this hex's settlement, when there is one. -->
+      <template x-if="hexSettlementFor(worldHexEditingHex())">
+        <div class="vellum border border-ink/40 rounded p-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <h4 class="font-semibold text-sm">🛒 Market <span class="opacity-60 font-normal text-xs" x-text="'· '+(hexSettlementFor(worldHexEditingHex()).name||'settlement')+' · Class '+settlementMarketClass(hexSettlementFor(worldHexEditingHex()))"></span></h4>
+            <button @click="openTrade({ settlementId: hexSettlementFor(worldHexEditingHex()).id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Buy or sell at this settlement's market">🛒 Trade here</button>
+          </div>
+          <p class="text-xs italic opacity-60 mt-1">Retail buy/sell of equipment + mounts (RR p.124 availability), paid through the character's purse.</p>
+        </div>
+      </template>
 
       <!-- Domain-relevant slim view -->
       <div class="vellum border border-ink/40 rounded p-2">
@@ -8866,11 +9242,13 @@ return {
   // single source of membership truth.
   newPartyPickerOpen:false,
   newPartyFounderId:'',
-  // Activities top panel (Phase 2.5 prep, #477) — Journeys first (the active day-aware subsystem),
-  // then Ventures + placeholders for Hijinks / Spell Research. Landing sub-view matches the first tab.
-  activitiesSubView: 'journeys',
+  // Activities top panel (Phase 2.5 prep, #477) — the Activities dashboard (#346 AB-3) leads,
+  // then Travel (Journeys) + Ventures + placeholders for Hijinks / Spell Research. Landing
+  // sub-view matches the first tab.
+  activitiesSubView: 'activities',
   get activitiesSubTabs(){
     return [
+      { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
@@ -9165,6 +9543,34 @@ return {
       }
     }
 
+    // ── Contributor 5: Shopping TODAY (Item Trade IT-4) — the §8.9 mandate ──
+    // A market-transaction is a singular act, not an ongoing state, so it surfaces as
+    // "shopped" for the current game DAY (the budget counts it the same way — RAW refreshes
+    // the activity allowance each day, so characterActivityBudget windows cost-tagged
+    // market-transaction events by (appliedAtTurn, appliedAtDay)). One bounded pass over
+    // eventLog, windowed + attributed exactly like the IT-3 budget reader (it refreshes on
+    // the Day Clock). NB this is NOT the monthly 10× availability ceiling — that stays monthly.
+    const _log = this.currentCampaign?.eventLog;
+    if(Array.isArray(_log) && _log.length){
+      const turn = this.currentCampaign.currentTurn || 1;
+      const day  = this.currentCampaign.currentDayInMonth || 1;
+      let units = 0;
+      for(const entry of _log){
+        const ev = entry && entry.event;
+        if(!ev || ev.kind !== 'market-transaction') continue;
+        const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+        if(at != null && at !== turn) continue;                          // this turn…
+        const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
+        if(atDay !== day) continue;                                      // …and THIS game day (strict): a pre-update (un-day-stamped) errand isn't today's, so it's excluded — every new market-transaction is stamped in _logAppliedEvent
+
+        const p = ev.payload || {};
+        const mine = p.actorCharacterId === c.id || ((ev.context?.relatedEntities)||[]).some(r => r && r.kind === 'character' && r.id === c.id);
+        if(!mine) continue;
+        units += (p.activityCost && p.activityCost.units) || 1;
+      }
+      if(units > 0) acts.push({kind:'shopping', icon:'🛒', label:'shopped (' + units + ' ancillary errand' + (units === 1 ? '' : 's') + ')', priority:3});
+    }
+
     // ── Future contributors land here. Each adds zero or more descriptors. ──
 
     return acts.sort((a,b) => a.priority - b.priority || a.kind.localeCompare(b.kind));
@@ -9183,6 +9589,140 @@ return {
     }
     if(!h) return hexId;
     return window.ACKS.hexName(h) || hexId;   // canonical hex name (Architecture §11.3)
+  },
+
+  // ─── Activities dashboard (#346 AB-3) — the visible read surface for the day budget ─────
+  // The first Activities sub-tab: one row per active character with this game DAY's activity
+  // budget (RAW 1 dedicated + 4 ancillary, OR up to 12 ancillary — JJ pp.99–100 / RR p.272)
+  // and the typical campaign-activity actions (Market / Recruit / Travel) per character.
+  // Reads characterActivityBudget (the derived middle layer of the actor-time stack,
+  // Architecture §7 / §3.13 — derive-don't-store). Reactive on currentDayInMonth/currentTurn/
+  // eventLog/journeys/magistracies, so it refreshes when the Day Clock advances. Ventures are
+  // intentionally NOT a quick-action here (complex multi-step understructure — its own sub-tab).
+  activityDashboardRows(){
+    const camp = this.currentCampaign;
+    if(!camp || !Array.isArray(camp.characters)) return [];
+    const A = window.ACKS || {};
+    const isActive = A.isActive || (c => (c && (c.lifecycleState || 'active') === 'active' && c.alive !== false));
+    // Pass the UI's domains (kept separate from currentCampaign.domains) so the budget can gate
+    // domain-admin on the administers-this-month lever (it reads domain.magistrates[*].administersThisMonth).
+    const _budgetOpts = { domains: this.domains };
+    const rows = camp.characters.filter(c => c && isActive(c)).map(c => {
+      const budget = A.characterActivityBudget ? A.characterActivityBudget(camp, c.id, _budgetOpts) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
+      const dedCap = 1;
+      const ancCap = budget.dedicatedUsed >= 1 ? 4 : 12;   // RAW: a dedicated task caps ancillary at 4; an all-errand day allows 12
+      const dedLeft = Math.max(0, dedCap - budget.dedicatedUsed);
+      const ancLeft = Math.max(0, ancCap - budget.ancillaryUsed);
+      const done = [].concat(budget.dedicated || [], budget.ancillary || [], budget.incidental || []);
+      return { c, budget, dedCap, ancCap, dedLeft, ancLeft, done };
+    });
+    // Players first, then alphabetical — the GM's own actors lead the list.
+    const isPC = A.isPlayerControlled || (c => c && c.controlledBy === 'player');
+    rows.sort((a, b) => (isPC(a.c) ? 0 : 1) - (isPC(b.c) ? 0 : 1) || (a.c.name || '').localeCompare(b.c.name || ''));
+    return rows;
+  },
+  // Count of active characters who have consumed any budget this game day (the tab badge).
+  activityDashboardBusyCount(){ return this.activityDashboardRows().filter(r => r.done.length > 0).length; },
+
+  // ─── Current Activities (Joachim 2026-06-05) — the activity-centric companion to the dashboard ─
+  // One row per (character × activity) for TODAY, with a context-labelled reject that ROLLS BACK
+  // the activity. A re-projection of the same derived budget (activityDashboardRows → done[]); no
+  // new data. The reject is polymorphic-by-source (engine activityRejectAffordance): a domain-admin
+  // is UNTICKED, a market trade is REFUNDED (reverseMarketTransaction), a journey can't be rewound
+  // so it NAVIGATES to the journey detail (Stop Moving lives there). NB this "reject" rolls back an
+  // already-applied act — distinct from the day-tick review's "reject", which skips a not-yet-applied
+  // record. Activities with no reject path render no button (mode 'none').
+  currentActivityRows(){
+    const A = window.ACKS || {};
+    const aff = A.activityRejectAffordance || (() => ({ mode:'none', label:'', verb:'' }));
+    const out = [];
+    for(const r of this.activityDashboardRows()){
+      for(const a of r.done){
+        out.push({ c: r.c, activity: a, affordance: aff(a), overBudget: !!(r.budget && r.budget.overBudget), detail: this._activityRowDetail(a) });
+      }
+    }
+    return out;
+  },
+  // A short parenthetical disambiguator for an activity row's "Doing" cell — so two shopping rows
+  // are tellable apart. Currently only market trades carry one: a representative slice of the goods.
+  // One line → that line ("Longsword", "Longsword ×3"); several → the most valuable set + ", etc."
+  // ("Plate Armor ×2, etc."). Resolves the event by the activity's sourceId (payload.lines carries
+  // {name, qty, totalGp}); '' for any activity with no goods detail. Display only — the engine
+  // budget's label stays the generic cost label.
+  _activityRowDetail(a){
+    if(!a || a.kind !== 'market-transaction' || a.sourceKind !== 'errand-event') return '';
+    const log = this.currentCampaign?.eventLog;
+    if(!Array.isArray(log)) return '';
+    const entry = log.find(e => e && e.event && e.event.id === a.sourceId);
+    const lines = (entry && entry.event && entry.event.payload && Array.isArray(entry.event.payload.lines)) ? entry.event.payload.lines : [];
+    if(!lines.length) return '';
+    const fmt = l => (l.name || 'item') + ((Number(l.qty) > 1) ? (' ×' + l.qty) : '');
+    if(lines.length === 1) return fmt(lines[0]);                                  // one set → name it
+    const top = lines.reduce((best, l) => ((Number(l.totalGp) || 0) > (Number(best.totalGp) || 0) ? l : best), lines[0]);
+    return fmt(top) + ', etc.';                                                   // several → the priciest set, then "etc."
+  },
+  // Dispatch a reject on its source (the affordance.mode decides). Returns nothing; surfaces the
+  // outcome via toast (refuse-with-reason) or navigation. Confirms before any irreversible-feeling act.
+  rejectActivity(row){
+    if(!row || !row.activity) return;
+    const a = row.activity, c = row.c;
+    const mode = row.affordance ? row.affordance.mode : 'none';
+    if(mode === 'navigate'){                                   // a journey — can't rewind a travelled day; open it (Stop Moving lives there)
+      this.journeyOpenDetail(a.sourceId);
+      return;
+    }
+    if(mode !== 'reverse'){ this.showToast('That activity can’t be rejected.'); return; }
+    if(a.sourceKind === 'domain'){
+      const d = (this.domains || []).find(x => x && x.id === a.sourceId);
+      if(!d){ this.showToast('That domain is no longer here.'); return; }
+      if(!confirm('Untick administration of ' + (d.name || 'this domain') + ' by ' + (c.name || 'this character') + ' for this month?\n\nThis withdraws the +1-morale lever — nothing else is undone.')) return;
+      if(this._untickDomainAdmin(d, c)){
+        this.markDirty(); this.schedulePersist();
+        this.showToast('Administration of ' + (d.name || 'the domain') + ' withdrawn for this month.');
+      } else { this.showToast('Couldn’t find that administration to untick.', 5000); }
+      return;
+    }
+    if(a.sourceKind === 'errand-event' && a.kind === 'market-transaction'){
+      if(!confirm('Refund this market transaction?\n\nCoins and goods are returned exactly as traded — the purchase is fully rolled back.')) return;
+      const res = window.ACKS.reverseMarketTransaction(this.currentCampaign, a.sourceId);
+      if(res && res.ok){
+        this.markDirty(); this.schedulePersist();
+        this.showToast(res.narrativeSummary || 'Transaction reversed.', 5000);
+      } else {
+        this.showToast((res && res.reason) || 'That transaction couldn’t be reversed.', 6000);
+      }
+      return;
+    }
+    this.showToast('That activity can’t be rejected.');
+  },
+  // Untick the administers-this-month lever for `c` on domain `d` (ruler OR a magistrate slot they
+  // hold). Audited via commitStatEdit (gm-fiat) like the +1-morale tick itself. Returns true if it
+  // found + cleared one. The morale recompute is automatic (moraleModifiersFor reads the flag live).
+  _untickDomainAdmin(d, c){
+    if(d.administersThisMonth && d.rulerCharacterId === c.id){
+      return this.commitStatEdit({ entityType:'domain', entityId:d.id, entity:d, fieldPath:'administersThisMonth',
+        label:'Ruler administers', oldValue:true, newValue:false,
+        toastMessage:'Administration of ' + (d.name || 'the domain') + ' withdrawn.' });
+    }
+    const mg = d.magistrates || {};
+    const roleLabels = (window.ACKS && window.ACKS.MAGISTRATE_ROLES) || {};
+    for(const rk of Object.keys(mg)){
+      const slot = mg[rk];
+      if(slot && slot.administersThisMonth && slot.characterId === c.id){
+        return this.commitStatEdit({ entityType:'domain', entityId:d.id, entity:d, fieldPath:'magistrates.' + rk + '.administersThisMonth',
+          label:(roleLabels[rk]?.label || rk) + ' administers', oldValue:true, newValue:false,
+          toastMessage:'Administration withdrawn.' });
+      }
+    }
+    return false;
+  },
+  // The day-tick over-budget heads-up links here (Joachim 2026-06-05) — jump to where the GM can
+  // actually reject an activity. The pending proposal is about to go stale (they're changing state),
+  // so cancel it; the GM re-ticks the Day Clock fresh after resolving.
+  goToCurrentActivities(){
+    this.cancelDayTick();
+    this.currentView = 'activities';
+    this.activitiesSubView = 'activities';
   },
 
   // ─── Phase 2.5 Journeys (#475 — J2) UI methods ─────────────────────────────
@@ -9267,29 +9807,96 @@ return {
     const n = (j.currentDayIndex||0); const est = j.daysRemainingEstimate;
     return est ? ('day ' + n + ' of ~' + (n + est)) : ('day ' + n);
   },
+  // Provisioning V5 — total tight food/water days a journey can draw on: members' carried rations +
+  // water + the party camp stash + (fallback) any legacy abstract pool. The day-tick consumes these.
+  journeyTotalFoodDays(j){
+    if(!j) return 0;
+    let days = 0;
+    const chars = (this.currentCampaign && this.currentCampaign.characters) || [];
+    (j.participantCharacterIds||[]).forEach(id=>{ const c=chars.find(x=>x&&x.id===id); if(c) days += window.ACKS.rationDaysAvailable(c)||0; });
+    const camp = (j.partyId && window.ACKS.partyCampStash) ? window.ACKS.partyCampStash(this.currentCampaign, j.partyId) : null;
+    if(camp) days += window.ACKS.rationDaysAvailable(camp)||0;
+    days += (j.supplies&&Number(j.supplies.rations))||0;
+    return Math.round(days*10)/10;
+  },
+  journeyTotalWaterDays(j){
+    if(!j) return 0;
+    let days = 0;
+    const chars = (this.currentCampaign && this.currentCampaign.characters) || [];
+    (j.participantCharacterIds||[]).forEach(id=>{ const c=chars.find(x=>x&&x.id===id); if(c) days += Number(c.waterDaysCarried)||0; });
+    const camp = (j.partyId && window.ACKS.partyCampStash) ? window.ACKS.partyCampStash(this.currentCampaign, j.partyId) : null;
+    if(camp) days += Number(camp.waterDaysCarried)||0;
+    days += (j.supplies&&Number(j.supplies.waterRations))||0;
+    return Math.round(days*10)/10;
+  },
   journeySupplyDaysLeft(j){
     const n = Math.max(1, (j?.participantCharacterIds||[]).length);
-    return Math.floor(Math.min((j?.supplies?.rations)||0, (j?.supplies?.waterRations)||0) / n);
+    return Math.floor(Math.min(this.journeyTotalFoodDays(j), this.journeyTotalWaterDays(j)) / n);
   },
+  // §8 party day-tick toggles — transient party-intent flags (no event; just persist).
+  // Flipping a supply toggle re-resolves the latest committed day immediately (Joachim 2026-06-05), so the
+  // day log + Food/Water columns update on the spot ("they forage today") rather than only from the next
+  // tick. On day 0 (nothing committed) reapply is a no-op — the toggle just sets the order for the first tick.
+  toggleJourneyForageWater(j){ if(!j) return; j.forageWaterEnabled = !j.forageWaterEnabled; this._journeyWithDomains(() => window.ACKS.reapplyLatestDaySurvival(this.currentCampaign, j)); this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick(); },
+  toggleJourneyShareRations(j){ if(!j) return; j.shareRations = !j.shareRations; this._journeyWithDomains(() => window.ACKS.reapplyLatestDaySurvival(this.currentCampaign, j)); this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick(); },
   // Per-traveller survival status for the Members table (RR p.275 cascade). The day-tick mirrors
   // the party's hunger / dehydration / fatigue onto each participant, so these read off the
   // character. A GM-facing tracker — no auto-penalty wired yet (escalating effects are a follow-up).
+  // While a day-tick proposal is OPEN, preview the proposed day's survival on a traveller's
+  // conditions — so the members table agrees with the day review + the day-log PENDING row (Joachim
+  // 2026-06-05: "they should be Dehydrated here, as they actually are on the day review"). The day
+  // record carries a compact per-member post-day snapshot (memberSurvival); overlay it on the
+  // committed character so the food/water deficit days + CON loss read the PROPOSED values. The real
+  // character fields are unchanged until commit, so cancelling the proposal reverts the preview.
+  _characterConditionSource(ch){
+    if(!ch) return ch;
+    const p = this.dayTickProposal;
+    if(p){
+      for(const r of (p.pendingRecords||[])){
+        if(r && r.kind === 'journey-day' && r.dayRecord && r.dayRecord.memberSurvival && r.dayRecord.memberSurvival[ch.id]){
+          return Object.assign({}, ch, r.dayRecord.memberSurvival[ch.id]);
+        }
+      }
+    }
+    return ch;
+  },
   characterJourneyConditions(ch){
     const out=[];
-    // RAW hunger cascade (RR p.276): hungry after 1 day < full rations; underfed after 2 days
-    // with no food; starving after ~5 further underfed days (≈ day 7 of no food). The penalty
-    // wiring (−1 throws / CON loss) is deferred — this is the GM-facing stage label only.
-    const h=(ch&&ch.hungerDays)||0;
+    const src=this._characterConditionSource(ch);   // committed char, or the proposed day's survival while a proposal is open
+    // RAW hunger cascade (RR p.278): hungry after 1 day < full rations; underfed after 2 days with no
+    // food; starving after ~5 further underfed days (≈ day 7). Provisioning V3 applies the CON loss
+    // (1/day while starving); surface it in the badge detail when present.
+    const h=(src&&(src.foodDeficitDays!=null?src.foodDeficitDays:src.hungerDays))||0;
     if(h>0){
       const stage = (h>=7) ? 'Starving' : (h>=2 ? 'Underfed' : 'Hungry');
-      out.push({ key:'hunger', label:stage, detail:'day '+h, cls:'bg-orange-200 text-orange-900' });
+      const cl=(src&&src.conLossHunger)||0;
+      out.push({ key:'hunger', label:stage, detail:'day '+h+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-orange-200 text-orange-900' });
     }
-    // RAW dehydration (RR p.276): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor.
-    const d=(ch&&ch.dehydrationDays)||0;
-    if(d>0) out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d, cls:'bg-sky-200 text-sky-900' });
+    // RAW dehydration (RR p.278): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor; loses
+    // 1d6 CON/day (Provisioning V2).
+    const d=(src&&(src.waterDeficitDays!=null?src.waterDeficitDays:src.dehydrationDays))||0;
+    if(d>0){
+      const cl=(src&&src.conLossThirst)||0;
+      out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-sky-200 text-sky-900' });
+    }
     const f=(ch&&ch.personalFatigue)||0;
     if(f>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
     return out;
+  },
+  // Provisioning V5 — Food/Water column data + the ignore-rations gate (mirrors encumbranceShown).
+  rationsShown(){ return !this.isHouseRuleEnabled('ignore-rations'); },
+  characterFoodDays(ch){ return ch ? (window.ACKS.rationDaysAvailable(ch)||0) : 0; },          // personal ration days
+  characterWaterDays(ch){ return ch ? (Math.round((Number(ch.waterDaysCarried)||0)*10)/10) : 0; },
+  characterWaterCap(ch){ return ch ? (Math.round((window.ACKS.waterCapacityDays(ch)||0)*10)/10) : 0; },
+  // The hex a journey is currently in supplies free water? (greys the forage-water tick — §8.)
+  journeyHexSourcesWater(j){
+    if(!j || !this.currentCampaign) return false;
+    // Resolve from campaign.hexes (the canonical top-level store, which carries the nested .settlement /
+    // .riverSides / .hasLake the source test reads) — NOT allHexes(), whose entries are {domainId, hex}
+    // WRAPPERS with no top-level .id, so the lookup never matched and every hex read as "no water".
+    const id=j.currentHexId||j.startHexId;
+    const hx=(this.currentCampaign.hexes||[]).find(h=>h&&h.id===id);
+    return hx ? !!window.ACKS.hasFreshSource(this.currentCampaign, hx) : false;
   },
   // Render a navigation throw with its die roll + modifiers + target + result (RR p.275).
   journeyNavDetail(nav){
@@ -9346,8 +9953,49 @@ return {
     if(!j) return;
     const rec = this._journeyWithDomains(() => window.ACKS.rerollJourneyDay(this.currentCampaign, j));
     if(!rec){ this.showToast('Reroll unavailable for this day (it was ticked before this update).', 4000); return; }
-    this.markDirty(); this.schedulePersist();
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
     this.showToast('Day ' + (rec.newDayIndex||'') + ' rerolled.');
+  },
+  // Provisioning — render a day's water-Foraging throw (die + modifiers + target + outcome), like the nav line.
+  journeyForageDetail(wf){
+    if(!wf || !wf.attempted) return '';
+    const parts = ['🥤 forage 🎲 ' + wf.rolled];
+    if(wf.bonus) parts.push('+' + wf.bonus + ' (Survival)');
+    const total = wf.rolled + (wf.bonus || 0);
+    return parts.join(' ') + (wf.bonus ? (' = ' + total) : '') + ' vs ' + wf.target + '+ → ' + (wf.success ? 'water found ✓' : 'no water ✗');
+  },
+  // GM reroll of JUST the current day's water-foraging throw (leaves movement + navigation untouched).
+  // The current day = the journey's latest committed day; the reroll re-resolves it IN PLACE, so the
+  // party's conditions update + persist (Joachim 2026-06-05: "it is the current state… the Journey
+  // updates location and current conditions"). Locks once the world clock advances past the day.
+  journeyRerollForage(j){
+    if(!j) return;
+    const wf = this._journeyWithDomains(() => window.ACKS.rerollJourneyForage(this.currentCampaign, j));
+    if(!wf){ this.showToast('Forage reroll unavailable for this day.', 4000); return; }
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
+    this.showToast('Water-foraging rerolled: ' + (wf.success ? 'water found' : 'no water') + ' (🎲 ' + wf.rolled + (wf.bonus ? ('+' + wf.bonus) : '') + ' vs ' + wf.target + '+).');
+  },
+  // GM reroll of the latest day's NAVIGATION + movement (fording / encounter / arrival), holding the
+  // day's water + food outcome fixed — the mirror of journeyRerollForage. Splits the old whole-day reroll
+  // into the two per-row rerolls (Joachim 2026-06-05).
+  journeyRerollNav(j){
+    if(!j) return;
+    const rec = this._journeyWithDomains(() => window.ACKS.rerollJourneyNav(this.currentCampaign, j));
+    if(!rec){ this.showToast('Reroll unavailable for this day (it was ticked before this update).', 4000); return; }
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
+    this.showToast('Day ' + (rec.newDayIndex||'') + ' navigation rerolled (water/food held).');
+  },
+  // Split a committed day's notables (kind/type/text blobs on the day record) between the day log's two
+  // rows: 'survival' → the forage row (hunger / dehydration / stores-low / death's-door), everything else
+  // ('nav') → the navigation row (lost / fording / encounter / arrival / forced-rest). Old day records
+  // (pre-2026-06-05, no .type) fall back to a text test so the routing still works on existing saves.
+  journeyDayNotables(d, which){
+    const SURV = ['hunger','dehydration','survival-critical','supplies-low'];
+    return ((d && d.notableEvents) || []).filter(ne => {
+      const isSurv = (ne && ne.type) ? (SURV.indexOf(ne.type) >= 0)
+        : /hungr|dehydrat|stores low|death.s door|starv|thirst/i.test((ne && ne.text) || '');
+      return which === 'survival' ? isSurv : !isSurv;
+    });
   },
   // Attach this.domains so the engine's resolveHexAnywhere sees per-domain hexes (the UI
   // keeps domains in this.domains; currentCampaign.domains stays empty) — same dance as
@@ -9465,12 +10113,17 @@ return {
       supplies: { rations:Number(w.rations)||0, waterRations:Number(w.waterRations)||0, animalFeed:0, animalWater:0, shipStores:0 }
     });
     this.currentCampaign.journeys.push(j);
-    this._journeyWithDomains(() => window.ACKS.startJourney(this.currentCampaign, j));
+    // Set out NOW — resolve the first travel day at once (Joachim 2026-06-05: "it should start it now"),
+    // so the journey opens on Day 1 as its current state instead of an empty day 0. This journey only —
+    // the global Day Clock is NOT advanced (the campaign date doesn't jump; the Day Clock walks the rest).
+    this._journeyWithDomains(() => { window.ACKS.startJourney(this.currentCampaign, j); window.ACKS.advanceJourneyOneDay(this.currentCampaign, j); });
     this.markDirty(); this.schedulePersist();
     const id = j.id;
     this._journeyResetWizard();
     this.journeyDetailId = id;
-    this.showToast('Journey started: ' + (j.name||'(unnamed)'));
+    this.showToast(j.status === 'arrived'
+      ? ('Journey complete — arrived: ' + (j.name||'(unnamed)'))
+      : ('Set out (day 1 travelled): ' + (j.name||'(unnamed)')));
   },
   // ── Detail ──
   journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
@@ -9486,6 +10139,38 @@ return {
     // suppressFromCampaignLog: an operational knob-turn, not a campaign moment — audited in the Event Log only.
     this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
+  },
+  // ── Pace cap (Joachim 2026-06-05): the travellers' OTHER activities cap the achievable pace. ──
+  // journeyPaceAllowed → can the party sustain this pace? journeyEffectivePaceUI → the GM's pace,
+  // capped (what the dropdown shows selected + what a tick uses). journeyPaceCapText → why it's
+  // restricted (names the constraining traveller), '' when uncapped. All read the live this.domains.
+  _PACE_RANK_UI: { 'halted':0, 'half-speed':1, 'normal':2, 'forced-march':3 },
+  journeyPaceAllowed(j, pace){
+    if(!j || pace === 'halted') return true;                         // halting is always possible
+    const A = window.ACKS; if(!A || !A.journeyMaxPace) return true;
+    const r = this._PACE_RANK_UI;
+    const max = A.journeyMaxPace(this.currentCampaign, j, { domains: this.domains }).maxPace;
+    return (r[pace] != null) && r[pace] <= r[max];
+  },
+  journeyEffectivePaceUI(j){
+    const A = window.ACKS; if(!j) return 'normal';
+    return (A && A.journeyEffectivePace) ? A.journeyEffectivePace(this.currentCampaign, j, { domains: this.domains }) : (j.pace || 'normal');
+  },
+  journeyPaceCapText(j){
+    const A = window.ACKS; if(!j || !A || !A.journeyMaxPace) return '';
+    const info = A.journeyMaxPace(this.currentCampaign, j, { domains: this.domains });
+    if(!info || info.maxPace === 'forced-march' || !info.binding) return '';   // uncapped → no text
+    const b = info.binding, name = b.name || 'A traveller';
+    const label = { 'halted':'Halted', 'half-speed':'Half speed', 'normal':'Normal' }[info.maxPace] || info.maxPace;
+    if(info.maxPace === 'halted'){
+      return '⚠ ' + name + '’s day is already full — the party can’t travel today (0 mi). Free some of their activities (e.g. in Current Activities) to move.';
+    }
+    // A dedicated task (administering, research…) caps the party to half speed; ancillary errands only
+    // cost the forced-march option (they leave the dedicated day for normal-pace travel).
+    if(b.otherDedicated >= 1){
+      return '⚠ Pace limited to ' + label + ' — ' + name + ' is committed to a dedicated task this day (e.g. administering a domain), so the party can’t march at full speed. Untick that activity (in Current Activities) to march faster.';
+    }
+    return 'ℹ Forced march unavailable — ' + name + ' has errands occupying part of the day (a forced march needs the whole day). Normal pace and below are fine.';
   },
   setJourneyMode(j, mode){
     if(!j || !mode || j.mode === mode) return;
@@ -11872,6 +12557,15 @@ return {
   stashTransferOpen:false, stashTransferStashId:null, stashTransferDir:'deposit',
   stashTransferCoins:{ pp:0, gp:0, ep:0, sp:0, cp:0 },
   stashTransferItemSel:{},   // deposit: inventory-index → bool · withdraw: stash-item-id → bool
+  // Trade Wizard (Item Trade IT-4) — the retail buy/sell Action Wizard over ACKS.marketBuy/marketSell.
+  trade:{
+    open:false, actorId:null, settlementId:null, dir:'buy',
+    search:'', category:'all',
+    buyCart:[],                              // [{key, catalogId|null, name, unitPriceGp, stone, qty, availKind, availPercent, availableUnits, band}]
+    sellRows:{},                             // inventoryIndex → { sel, qty, priceGp, name, heldQty, stone }
+    gName:'', gPrice:null, gStone:null,      // generic-by-price entry
+    visitedBefore:false, partyOf12Dedicated:false
+  },
   allStashes(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.stashes)) return [];
@@ -12105,6 +12799,236 @@ return {
       'bad-index':'That item is no longer in the inventory.',
       'not-found':'Character or stash not found.'
     })[code] || ('Transfer failed' + (code ? (' ('+code+')') : '') + '.');
+  },
+
+  // ─── Trade Wizard (Item Trade IT-4 — Phase_2.9_Item_Trade_Plan.md §4.4) ───────────────────
+  // The fourth Action Wizard. A thin UI over the shipped engine verbs ACKS.marketBuy / marketSell
+  // (which already gate on RR p.124 availability + funds, move real inventory + the coin purse, and
+  // stamp the M&M p.15 load-metered activity cost). This layer only forecasts + collects the order.
+  openTrade(opts){
+    opts = opts || {};
+    const t = this.trade;
+    t.open = true; t.dir = 'buy'; t.search = ''; t.category = 'all';
+    t.buyCart = []; t.sellRows = {};
+    t.gName = ''; t.gPrice = null; t.gStone = null;
+    t.visitedBefore = false; t.partyOf12Dedicated = false;
+    let settlementId = opts.settlementId || null;
+    let actorId = opts.actorCharacterId || null;
+    // Derive the local settlement from the actor's hex when not supplied (the "Shop here" case).
+    if(!settlementId && actorId){
+      const ch = (this.currentCampaign?.characters||[]).find(c => c && c.id === actorId);
+      if(ch && ch.currentHexId){ const s = (this.currentCampaign?.settlements||[]).find(x => x && x.hexId === ch.currentHexId); if(s) settlementId = s.id; }
+    }
+    // Derive an actor from the settlement's hex when not supplied (the "Trade here" case).
+    if(!actorId && settlementId){ const at = this.tradeCharactersAtSettlement(settlementId); if(at[0]) actorId = at[0].id; }
+    t.settlementId = settlementId; t.actorId = actorId;
+    t.visitedBefore = this._tradeDeriveVisited(actorId, settlementId);   // RAW (RR p.43): venturer + previously-entered → auto-tick; GM can override
+    if(actorId) this.tradeInitSellRows();
+  },
+  closeTrade(){ this.trade.open = false; },
+  // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
+  // shown ONLY to venturers, and auto-set when this venturer has previously entered this market.
+  tradeActorIsVenturer(){ return window.ACKS.hasMercantileNetwork(this.tradeActor()); },
+  _tradeDeriveVisited(actorId, settlementId){
+    const ch = actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === actorId) : null;
+    if(!window.ACKS.hasMercantileNetwork(ch)) return false;             // non-venturers never get it (engine enforces this too)
+    if(!settlementId) return false;
+    return window.ACKS.previouslyEnteredMarket(this.currentCampaign, actorId, settlementId);
+  },
+  tradeActor(){ return this.trade.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.trade.actorId) : null; },
+  tradeSettlement(){ return this.trade.settlementId ? (this.currentCampaign?.settlements||[]).find(s => s && s.id === this.trade.settlementId) : null; },
+  tradeCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
+  tradeSettlements(){ return (this.currentCampaign?.settlements||[]).filter(s => s && s.id); },
+  tradeCharactersAtSettlement(sid){
+    const s = (this.currentCampaign?.settlements||[]).find(x => x && x.id === sid); if(!s) return [];
+    return (this.currentCampaign?.characters||[]).filter(c => c && c.currentHexId && c.currentHexId === s.hexId);
+  },
+  characterAtSettlement(ch){ if(!ch || !ch.currentHexId) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === ch.currentHexId) || null; },
+  hexSettlementFor(hex){ if(!hex) return null; return (this.currentCampaign?.settlements||[]).find(s => s && s.hexId === hex.id) || null; },
+  tradeSetActor(id){ this.trade.actorId = id || null; this.trade.partyOf12Dedicated = false; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.trade.buyCart = []; this.tradeInitSellRows(); },
+  tradePartySize(){
+    const ch = this.tradeActor(); if(!ch) return 0; if(!ch.partyId) return 1;
+    return (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === ch.partyId).length;
+  },
+  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.tradeRecomputeCart(); },
+  tradeSetDir(dir){ this.trade.dir = dir; if(dir === 'sell') this.tradeInitSellRows(); },
+  tradeMarketClassRoman(){ const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null; },
+  tradeMarketClassIdx(){
+    const r = this.tradeMarketClassRoman(); const m = { 'I':0, 'II':1, 'III':2, 'IV':3, 'V':4, 'VI':5 };
+    if(typeof r === 'string'){ const k = r.replace('*',''); if(m[k] != null) return m[k]; }
+    return 5;                                               // default to the smallest market
+  },
+  tradeNormalLoadSt(){ const b = window.ACKS.carryEncumbranceBandFor(0); return (b && b.maxSt) || 5; },
+  tradeAvailOpts(){ return { visitedBefore: !!this.trade.visitedBefore, partyOf12Dedicated: !!this.trade.partyOf12Dedicated }; },
+  tradeAvailFor(priceGp){ return window.ACKS.equipmentAvailability(priceGp, this.tradeMarketClassIdx(), this.tradeAvailOpts()); },
+  _tradeRollUnits(priceGp){
+    const a = this.tradeAvailFor(priceGp);
+    if(a.kind === 'none') return 0;
+    if(a.kind === 'count') return a.count;
+    return window.ACKS.rollEquipmentUnitsAvailable(priceGp, this.tradeMarketClassIdx(), this.tradeAvailOpts());
+  },
+  tradeAvailLabel(a){
+    if(!a) return '';
+    if(a.kind === 'none') return 'not stocked';
+    if(a.kind === 'count') return a.count.toLocaleString() + ' avail';
+    return a.percent + '% · 1 unit';
+  },
+  tradeCartAvailLabel(l){
+    if(l.availKind === 'chance') return l.availableUnits > 0 ? ('1 · rolled ' + l.availPercent + '%') : ('0 · not stocked (' + l.availPercent + '%)');
+    if(l.availKind === 'none') return 'not stocked';
+    return Number(this.tradeCartEffectiveAvail(l)).toLocaleString() + ' avail';
+  },
+  tradeCategories(){ return ['all','weapon','ammunition','armor','gear','mount']; },
+  tradeCatalog(){
+    let list = window.ACKS.EQUIPMENT_CATALOG || [];
+    if(this.trade.category !== 'all') list = list.filter(e => e.category === this.trade.category);
+    const q = (this.trade.search||'').trim().toLowerCase();
+    if(q) list = list.filter(e => e.name.toLowerCase().includes(q));
+    return list;
+  },
+  tradeAddCatalog(item){
+    const a = this.tradeAvailFor(item.listPriceGp);
+    this.trade.buyCart.push({ key:'c-'+item.id+'-'+this.trade.buyCart.length, catalogId:item.id, name:item.name,
+      unitPriceGp:item.listPriceGp, stone:item.stone, qty:1,
+      availKind:a.kind, availPercent:a.percent, availableUnits:this._tradeRollUnits(item.listPriceGp), band:a.band });
+  },
+  tradeAddGeneric(){
+    const price = Number(this.trade.gPrice); const name = (this.trade.gName||'').trim();
+    if(!name || !(price >= 0)){ this.showToast('Enter a name and a price for the generic item.', 3500); return; }
+    const stone = (this.trade.gStone === '' || this.trade.gStone == null) ? 0 : Number(this.trade.gStone);
+    const a = this.tradeAvailFor(price);
+    this.trade.buyCart.push({ key:'g-'+this.trade.buyCart.length+'-'+Math.random().toString(36).slice(2,6), catalogId:null, name,
+      unitPriceGp:price, stone, qty:1, availKind:a.kind, availPercent:a.percent, availableUnits:this._tradeRollUnits(price), band:a.band });
+    this.trade.gName = ''; this.trade.gPrice = null; this.trade.gStone = null;
+  },
+  tradeRemoveCart(key){ this.trade.buyCart = this.trade.buyCart.filter(l => l.key !== key); },
+  tradeRecomputeCart(){
+    this.trade.buyCart = this.trade.buyCart.map(l => {
+      const a = this.tradeAvailFor(l.unitPriceGp);
+      return { ...l, availKind:a.kind, availPercent:a.percent, availableUnits:this._tradeRollUnits(l.unitPriceGp), band:a.band };
+    });
+  },
+  tradeInitSellRows(){
+    const ch = this.tradeActor(); const rows = {};
+    if(ch && Array.isArray(ch.inventory)){
+      ch.inventory.forEach((it, ix) => {
+        let defPrice = 0;
+        const m = (window.ACKS.EQUIPMENT_CATALOG||[]).find(e => e.name.toLowerCase() === (it.name||'').toLowerCase());
+        if(m) defPrice = m.listPriceGp;
+        const heldQty = (it.qty != null) ? it.qty : 1;
+        rows[ix] = { sel:false, qty:heldQty, priceGp:defPrice, name:(it.name||'(unnamed)'), heldQty, stone:it.stone };
+      });
+    }
+    this.trade.sellRows = rows;
+  },
+  tradeSellRowsList(){ return Object.keys(this.trade.sellRows).map(k => ({ ix:Number(k), ...this.trade.sellRows[k] })); },
+  tradeSellSelectedRows(){
+    return this.tradeSellRowsList().filter(r => r.sel).map(r => {
+      const a = this.tradeAvailFor(r.priceGp);
+      let availableUnits = (a.kind === 'none') ? 0 : (a.kind === 'count' ? a.count : 1);   // sell cap (chance → the market absorbs 1)
+      const rem = this.tradeMonthlyRemaining(r.name, r.priceGp);                            // RR p.124 — 10× monthly ceiling
+      if(Number.isFinite(rem)) availableUnits = Math.min(availableUnits, rem);
+      return { ...r, availKind:a.kind, availPercent:a.percent, availableUnits };
+    });
+  },
+  tradePurseGp(){ const ch = this.tradeActor(); return (ch && ch.coins && Number(ch.coins.gp)) || 0; },
+  tradeBuyTotalGp(){ return this.trade.buyCart.reduce((s,l) => s + (Number(l.unitPriceGp)||0)*(Number(l.qty)||0), 0); },
+  tradeBuyTotalStone(){ return this.trade.buyCart.reduce((s,l) => s + (Number(l.stone)||0)*(Number(l.qty)||0), 0); },
+  tradeSellTotalGp(){ return this.tradeSellSelectedRows().reduce((s,r) => s + (Number(r.priceGp)||0)*(Number(r.qty)||0), 0); },
+  tradeSellTotalStone(){
+    return this.tradeSellSelectedRows().reduce((s,r) => {
+      const heldStone = Number(r.stone)||0; const heldQty = Number(r.heldQty)||1; const qty = Number(r.qty)||0;
+      return s + heldStone*(qty/heldQty);
+    }, 0);
+  },
+  // Mirrors the engine _marketActivityCost: core RAW = 1 ancillary; a real 12+ party = 1 dedicated
+  // (RR p.124); the M&M load-metering (⌈stone÷normal-load⌉) only when the house rule is on.
+  tradeActivityCost(){
+    const stone = (this.trade.dir === 'buy') ? this.tradeBuyTotalStone() : this.tradeSellTotalStone();
+    const dedicated = !!this.trade.partyOf12Dedicated && this.tradePartySize() >= 12;
+    return window.ACKS._marketActivityCost(this.currentCampaign, stone, { partyOf12Dedicated: dedicated });
+  },
+  tradeActivityLabel(){
+    const ac = this.tradeActivityCost();
+    if(ac.slot === 'dedicated') return '1 dedicated activity';
+    return ac.units + ' ancillary errand' + (ac.units === 1 ? '' : 's');
+  },
+  tradeActivityTitle(){
+    if(!!this.trade.partyOf12Dedicated && this.tradePartySize() >= 12) return 'A 12+ party devoting a dedicated activity to shopping (RR p.124).';
+    if(this.isHouseRuleEnabled('markets-load-metered-activity')) return 'M&M p.15 (house rule on): one ancillary covers up to a normal load (~5 st); a bigger haul costs ⌈stone ÷ normal-load⌉ ancillary errands.';
+    return 'Core RAW: a market transaction is one ancillary activity (JJ Campaign-Activities list, RR p.123). The M&M load-metering is behind the markets-load-metered-activity house rule (default off).';
+  },
+  // RR p.124 — the 10× campaign-wide monthly ceiling for this item at this market (count cells only).
+  tradeMonthlyRemaining(name, priceGp){
+    const s = this.tradeSettlement(); if(!s) return Infinity;
+    return window.ACKS.marketMonthlyRemaining(this.currentCampaign, s, { name, listPriceGp: priceGp }, this.trade.dir);
+  },
+  tradeCartEffectiveAvail(l){
+    const rem = this.tradeMonthlyRemaining(l.name, l.unitPriceGp);
+    return Math.min(Number(l.availableUnits), Number.isFinite(rem) ? rem : Number(l.availableUnits));
+  },
+  tradeSubmitDisabledReason(){
+    const ch = this.tradeActor(); if(!ch) return 'Pick a character.';
+    const s = this.tradeSettlement(); if(!s) return 'Pick a settlement (the market).';
+    if(this.trade.dir === 'buy'){
+      if(!this.trade.buyCart.length) return 'Add an item to buy.';
+      for(const l of this.trade.buyCart){
+        if(!(Number(l.qty) > 0)) return l.name + ': set a quantity.';
+        const eff = this.tradeCartEffectiveAvail(l);
+        if(Number(l.qty) > eff) return l.name + ': only ' + Number(eff).toLocaleString() + ' available this month at Class ' + this.tradeMarketClassRoman() + '.';
+      }
+      const total = this.tradeBuyTotalGp();
+      if(total > this.tradePurseGp()) return 'Not enough coin in the purse (have ' + this.tradePurseGp().toLocaleString() + ', need ' + total.toLocaleString() + ' gp).';
+      return '';
+    }
+    const rows = this.tradeSellSelectedRows();
+    if(!rows.length) return 'Select an item to sell.';
+    for(const r of rows){
+      if(!(Number(r.priceGp) >= 0)) return r.name + ': set a market price.';
+      if(!(Number(r.qty) > 0)) return r.name + ': set a quantity.';
+      if(Number(r.qty) > Number(r.heldQty)) return r.name + ': only ' + r.heldQty + ' held.';
+      if(Number(r.qty) > Number(r.availableUnits)) return r.name + ': the market will take only ' + Number(r.availableUnits).toLocaleString() + ' this month.';
+    }
+    return '';
+  },
+  tradeCanSubmit(){ return this.tradeSubmitDisabledReason() === ''; },
+  tradeSubmit(){
+    if(!this.tradeCanSubmit()){ this.showToast(this.tradeSubmitDisabledReason(), 4000); return; }
+    const ch = this.tradeActor(); const s = this.tradeSettlement();
+    const common = { actorCharacterId:ch.id, settlementId:s.id, visitedBefore:!!this.trade.visitedBefore, partyOf12Dedicated:!!this.trade.partyOf12Dedicated, submittedBy:'gm' };
+    let res;
+    if(this.trade.dir === 'buy'){
+      const lines = this.trade.buyCart.map(l => l.catalogId
+        ? ({ catalogId:l.catalogId, qty:Number(l.qty), availableUnits:Number(l.availableUnits) })
+        : ({ name:l.name, priceGp:Number(l.unitPriceGp), stone:Number(l.stone)||0, qty:Number(l.qty), availableUnits:Number(l.availableUnits) }));
+      res = window.ACKS.marketBuy(this.currentCampaign, { ...common, lines, payFrom:'purse', itemTo:'carry' });
+    } else {
+      const lines = this.tradeSellSelectedRows().map(r => ({ inventoryIndex:r.ix, name:r.name, priceGp:Number(r.priceGp), qty:Number(r.qty), availableUnits:Number(r.availableUnits) }));
+      res = window.ACKS.marketSell(this.currentCampaign, { ...common, lines, payFrom:'purse', itemFrom:'carry' });
+    }
+    if(!res || !res.ok){ this.showToast(this._tradeErr(res && res.error, res && res.detail), 4800); return; }
+    this.markDirty(); this.schedulePersist();
+    const mt = res.result && res.result.marketTransaction;
+    let msg = (this.trade.dir === 'buy' ? 'Bought ' : 'Sold ') + res.lines.length + ' line' + (res.lines.length === 1 ? '' : 's') + ' for ' + Number(res.totalGp).toLocaleString() + ' gp.';
+    if(mt && mt.activityCost) msg += ' · ' + mt.activityCost.units + ' ancillary errand' + (mt.activityCost.units === 1 ? '' : 's') + ' (#346).';
+    if(mt && mt.notable) msg += ' ★ Notable transaction.';
+    this.showToast(msg, 5500);
+    this.trade.buyCart = [];                                // reset the order; keep the modal open for more
+    this.tradeInitSellRows();
+  },
+  _tradeErr(code, detail){
+    const m = {
+      'unknown-actor':'Character not found.',
+      'no-lines':'Nothing selected.',
+      'no-price':'That item has no price — enter one.',
+      'bad-qty':'Bad quantity.',
+      'unavailable':'The market doesn’t stock that many' + (detail && detail.name ? (' ' + detail.name) : '') + ' this month' + (detail && detail.availableUnits != null ? (' (only ' + detail.availableUnits + ').') : '.'),
+      'monthly-ceiling':'The market is tapped out of' + (detail && detail.name ? (' ' + detail.name) : ' that item') + ' for the month' + (detail && detail.remaining != null ? (' (' + detail.remaining + ' left — RR p.124 10× ceiling).') : '.'),
+      'insufficient-funds':'Not enough coin' + (detail ? (' (have ' + Number(detail.have).toLocaleString() + ', need ' + Number(detail.need).toLocaleString() + ').') : '.'),
+      'bad-index':'That inventory line is gone — reopen the wizard.',
+      'apply-failed':'Transaction failed' + (detail ? (' (' + detail + ')') : '.')
+    };
+    return m[code] || ('Trade failed' + (code ? (' (' + code + ')') : '') + '.');
   },
   // Encumbrance (B.5) — RAW by default; the ignore-encumbrance opt-out hides it
   encumbranceShown(){ return !this.isHouseRuleEnabled('ignore-encumbrance'); },
@@ -14849,11 +15773,28 @@ return {
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
     finally { this.currentCampaign.domains = _origDomains; }
   },
-  tickDay(){ this._proposeDayTick(1); },
-  tickWeek(){ this._proposeDayTick(7); },
+  // Re-run a PENDING day-tick proposal after the latest committed day changed under it (a forage / nav
+  // reroll, or a supply-toggle re-resolve). The proposal is a snapshot taken from the prior state, so
+  // without this it goes stale — the review wouldn't reflect a just-rerolled dehydration (Joachim
+  // 2026-06-05: "not sure the day review is refreshing"). No-op when no proposal is open.
+  _refreshPendingDayTick(){ if(this.dayTickProposal) this._proposeDayTick(this.dayTickProposal.daysRequested || 1); },
+  tickDay(){ if(this._dayTickAtMonthEnd()) return; this._proposeDayTick(1); },
+  tickWeek(){ if(this._dayTickAtMonthEnd()) return; this._proposeDayTick(7); },
   tickToMonthEnd(){
+    if(this._dayTickAtMonthEnd()) return;
     const dim = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || 1;
     this._proposeDayTick(Math.max(1, 30 - dim));
+  },
+  // Day 30 is the last day of the month — advancing a day rolls into the NEXT month, which is the
+  // monthly turn. So at month end a forward day-tick triggers Advance Month (proposeMonthlyTurn — a
+  // propose-review-commit the GM still confirms; commitTurn resets the day clock to 1 + advances the
+  // calendar, so day/calendar stay synced) instead of clamping at 30 as a silent no-op. Returns true
+  // if it handled the click. (Joachim 2026-06-05: "the +1 day committed at month should trigger the
+  // advance month mechanic.")
+  _dayTickAtMonthEnd(){
+    const dim = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || 1;
+    if(dim >= 30){ this.proposeMonthlyTurn(); return true; }   // 30 = MONTH_LEN (proposeDayTick)
+    return false;
   },
   dayTickRecordGroups(){
     const p = this.dayTickProposal; const map = {};
@@ -14870,6 +15811,22 @@ return {
   // record, so they render UNDER their own record instead of in one shared top banner. Journey
   // records match by journeyId (correct with multiple journeys); other consumers fall back to
   // same-consumer attribution. tickDayOnce tags every notable with {consumer, payload.journeyId}.
+  // The day-tick proposal's over-budget heads-up list (#346 / Joachim 2026-06-05): active characters
+  // whose committed undertakings exceed their RAW day budget, deduped by character (a multi-day advance
+  // with the pause rule off emits one notable per day). Read-only — feeds the Activities section in the
+  // review surface; the engine's activity-budget consumer raises these + pauses on them when the rule is on.
+  dayTickOverBudget(){
+    const p = this.dayTickProposal;
+    if(!p || !Array.isArray(p.notableEvents)) return [];
+    const seen = {}, out = [];
+    for(const e of p.notableEvents){
+      if(!e || e.kind !== 'activity-overbudget' || !e.characterId) continue;
+      if(seen[e.characterId]) continue;
+      seen[e.characterId] = 1;
+      out.push(e);
+    }
+    return out;
+  },
   dayTickRecordNotables(record){
     const p = this.dayTickProposal;
     if(!p || !record) return [];
@@ -14878,7 +15835,10 @@ return {
       // The comprehensive per-day umbrella (Travel pivot) is conveyed by the record summary line itself;
       // the per-thing notables (lost/hunger/fording/…) are what the GM reviews under it.
       if(e.type === 'travel-day') return false;
-      if(record.journeyId) return !!(e.payload && e.payload.journeyId === record.journeyId);
+      // Match by journeyId AND dayIndex — a multi-day advance has one record per day for the same journey,
+      // so journeyId alone showed every day's notables under each day's record (an earlier day surfaced a
+      // later day's dehydration — the review must not look into the future). tickJourneyDay stamps dayIndex.
+      if(record.journeyId) return !!(e.payload && e.payload.journeyId === record.journeyId && (e.payload.dayIndex == null || e.payload.dayIndex === record.newDayIndex));
       return true;
     });
   },
