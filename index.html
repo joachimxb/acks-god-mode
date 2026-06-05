@@ -241,15 +241,21 @@ document.addEventListener('alpine:init', () => {
             </div>
           </template>
           <!-- Activities heads-up (#346): active characters over their RAW day budget (e.g. travelling
-               while administering a domain). A pure advisory — no records to ratify — but it also pauses
-               a multi-day advance when auto-pause-on-overbudget is on (default). -->
+               while administering a domain). Styled to match the consumer groups below (uppercase header
+               + dashed rows + a red detail line, like the journeys notables) — but it's a pure advisory,
+               so there's no record to ratify (no reject button). It also pauses a multi-day advance when
+               auto-pause-on-overbudget is on (default). -->
           <template x-if="dayTickOverBudget().length">
-            <div class="mb-2 p-2 border border-amber-500 bg-amber-50 rounded text-xs">
-              <div class="font-semibold mb-1">&#9888; Activities &mdash; over budget</div>
+            <div class="mb-2">
+              <div class="font-semibold text-xs uppercase tracking-wide opacity-70">Activities</div>
               <template x-for="ob in dayTickOverBudget()" :key="ob.characterId">
-                <div class="leading-snug">
-                  <span class="font-semibold" x-text="ob.characterName"></span><span x-text="' — ' + ob.reason"></span>
-                  <span x-show="ob.activityLabels && ob.activityLabels.length" class="opacity-70" x-text="' (' + ob.activityLabels.join(' + ') + ')'"></span>
+                <div class="border-b border-dashed border-gray-300">
+                  <div class="flex items-center justify-between gap-2 py-0.5">
+                    <span class="text-xs"><span class="font-semibold" x-text="ob.characterName"></span><span x-text="' — ' + ob.reason"></span></span>
+                  </div>
+                  <div x-show="ob.activityLabels && ob.activityLabels.length" class="ml-3 pb-0.5">
+                    <div class="text-xs text-red-700 leading-snug" x-text="'• over budget: ' + ob.activityLabels.join(' + ')"></div>
+                  </div>
                 </div>
               </template>
             </div>
