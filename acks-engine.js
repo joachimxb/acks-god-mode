@@ -3753,57 +3753,351 @@ function liftToTopLevelCollections(campaign){
 }
 
 // =============================================================================
-// 9.8 TURN ORCHESTRATION (Foundation #15 — partial lift, helpers-callback pattern)
+// 9.8 TURN ORCHESTRATION (Foundation #15 — fully engine-owned, audit batch 3)
 // =============================================================================
 // proposeMonthlyTurn() and commitTurn() are the two consequential operations
 // in the system. They orchestrate per-domain math, event application, vagary
 // resolution, passive investment payouts, level-up sweeps, henchman loyalty
-// drift, rumor auto-emit, and calendar advance. Originally these lived in the
-// Alpine UI as instance methods; lifting the orchestration into the engine
-// completes the data-layer-as-platform goal documented in Data_Layer_Audit.md.
+// drift, rumor auto-emit, and calendar advance.
 //
-// HELPERS CONTRACT — the caller must provide a `helpers` object with these
-// methods. Most are pure computations over (campaign, domain) and could be
-// lifted into the engine as well (tracked as a follow-up). For now they live
-// in the caller so we can ship the orchestration lift without porting every
-// helper at once. A third-party tool that wants to run a turn must implement
-// or stub these helpers — the orchestration shape itself is fully in the engine.
+// They compute everything internally — NO `helpers` callback bag. The ACKS
+// economic ruleset lives in acks-engine-economy.js (incomeBreakdown /
+// expenseBreakdown / moraleModifiersFor / sums / monthlyNet / tributeOwed /
+// domainXpFromNet / families / garrison / settlement helpers, reached via
+// global.ACKS at call time); the orchestration-tail helpers below (event
+// summaries, character history, venture vagary, passive investments, the
+// level-up sweep) were lifted out of the Alpine UI in the same batch. A
+// third-party tool, a bot, or a headless test can now run a full monthly turn
+// with just `ACKS.proposeMonthlyTurn(campaign)` + `ACKS.commitTurn(campaign,
+// proposal)` — no DOM, no Alpine. (thermonuclear.md C1 / Restructuring R1.)
 //
-// For proposeMonthlyTurn:
-//   summarizeEventTarget(event) -> string
-//   summarizeEventPayload(event) -> string
-//   effectiveClassification(domain) -> string
-//   effectiveRuler(domain) -> ruler-shape ({name, class, level, ...})
-//   totalFamilies(domain) -> number
-//   incomeBreakdown(domain) -> [{label, gp}]
-//   expenseBreakdown(domain) -> [{label, gp}]
-//   incomeFactor(morale) -> number
-//   moraleModifiersFor(domain) -> [{label, mod}]
-//   hexSettlements(domain) -> [{hexIndex, settlement}]
-//   settlementMarketClass(settlement) -> string
-//   settlementCapacity(settlement) -> number
+// Both are pure-data: no DOM, no console. Side effects happen via campaign
+// mutation (state changes) + the returned result object (logEntries, levelUps,
+// passiveResult, … the caller renders). RNG is injectable via options.rng so a
+// turn's morale / population / vagary outcomes are scriptable in tests
+// (qa-strategy I2); default Math.random — identical to the previous behavior.
 //
-// For commitTurn:
-//   incomeSum(proposalRow) -> number
-//   expenseSum(proposalRow) -> number
-//   moraleModSum(proposalRow) -> number
-//   totalFamilies(domain) -> number
-//   effectiveUrbanFamilies(domain) -> number
-//   domainXpFromNet(domain, net) -> number
-//   rulerCharacter(domain) -> character or null
-//   addCharacterHistory(character, type, summary, extra) -> void (mutates character)
-//   applyVagaryToVenture(venture, vagaryProposal) -> string (summary) or null
-//   processPassiveInvestmentsForTurn() -> {totalGp, payouts}
-//   checkAllCharacterLevelUps() -> [{character, levelUps}]
-//   isHouseRuleEnabled(id) -> boolean (will be replaced by ACKS.isHouseRuleEnabled in #196)
-//
-// Both functions are pure-data: no DOM, no console, no Alpine. Side effects
-// happen via campaign mutation (for state changes) and the returned logEntries
-// array (for log messages the caller can render or persist however it wants).
+// =============================================================================
+// 9.8a TURN-ORCHESTRATION TAIL HELPERS (lifted from the Alpine UI, audit batch 3)
+// -----------------------------------------------------------------------------
+// These were the non-economy `helpers` the UI used to pass in. They're pure
+// data over the campaign, so they live here next to the orchestration that
+// calls them. The UI keeps the same method NAMES as one-line delegations.
 
-function proposeMonthlyTurn(campaign, domains, helpers, options){
+// Append a chronological entry to a character's personal history. type: 'xp' |
+// 'level-up' | 'venture' | 'domain' | 'note' | 'death' | 'restore' | 'other'.
+function addCharacterHistory(campaign, c, type, summary, extra){
+  if(!c) return;
+  if(!Array.isArray(c.history)) c.history = [];
+  // Capture the in-game date at write time so entries are stable across calendar changes.
+  let gameDate = null;
+  try { gameDate = global.ACKS.currentDateString ? global.ACKS.currentDateString(campaign) : null; } catch(_) {}
+  c.history.push({
+    turn: campaign?.currentTurn || 1,
+    gameDate,
+    type: type || 'note',
+    summary: summary || '',
+    ...(extra || {})
+  });
+}
+
+// Build + push an already-applied event onto campaign.eventLog (no propose step). The engine
+// equivalent of the UI's recordAppliedEvent — used by the level-up sweep below; the UI method
+// delegates here so there's a single implementation.
+function recordAppliedEvent(campaign, kind, payload, opts){
+  if(!campaign) return null;
+  opts = opts || {};
+  const ev = global.ACKS.newEvent(kind, {
+    submittedBy: opts.submittedBy || 'engine',
+    submittedAt: new Date().toISOString(),
+    targetTurn: campaign.currentTurn || 1,
+    payload: payload || {}
+  });
+  ev.status = global.ACKS.EVENT_STATUS.APPLIED;
+  ev.appliedAtTurn = campaign.currentTurn || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({
+    event: ev,
+    result: opts.result || { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: opts.narrativeSummary || payload?.narrativeSummary || (kind + ' applied') },
+    appliedAtTurn: ev.appliedAtTurn,
+    appliedAt: new Date().toISOString()
+  });
+  return ev;
+}
+
+// Human-readable target of an event (for the Advance-Month proposal display).
+function summarizeEventTarget(campaign, ev){
+  const p = ev.payload || {};
+  if(p.domainId){
+    const d = (campaign.domains||[]).find(x => x.id === p.domainId);
+    return d ? ('Domain · '+d.name) : ('Domain · '+p.domainId+' (unresolved)');
+  }
+  if(p.characterId){
+    const c = (campaign.characters||[]).find(x => x.id === p.characterId);
+    return c ? ('Character · '+c.name) : ('Character · '+p.characterId+' (unresolved)');
+  }
+  if(p.target && p.target.kind && p.target.id){
+    return p.target.kind.charAt(0).toUpperCase()+p.target.kind.slice(1)+' · '+p.target.id;
+  }
+  if(p.hexId) return 'Hex · '+p.hexId;
+  if(p.settlementId) return 'Settlement · '+p.settlementId;
+  if(p.attackerDomainId || p.defenderDomainId) return 'War · '+(p.attackerDomainId||'?')+' vs '+(p.defenderDomainId||'?');
+  if(p.scope === 'campaign' || ev.kind === 'engine-standard-turn') return 'Campaign-scoped';
+  return '(no target)';
+}
+
+// Humanize the event payload for at-a-glance display. Each kind picks its most salient fields.
+function summarizeEventPayload(campaign, ev){
+  const p = ev.payload || {};
+  switch(ev.kind){
+    case 'player-plan': {
+      const parts = [];
+      if(p.freeformNotes) parts.push('"'+p.freeformNotes.substring(0,80)+(p.freeformNotes.length>80?'...':'')+'"');
+      const actions = Array.isArray(p.intendedActions) ? p.intendedActions.length : 0;
+      if(actions) parts.push(actions+' action'+(actions===1?'':'s'));
+      return parts.join(' · ') || '(no details)';
+    }
+    case 'gm-fiat':
+      return (p.mutation?.fieldPath || '?')+' = '+JSON.stringify(p.mutation?.newValue);
+    case 'treasury-grant':
+    case 'treasury-debit':
+      return (p.amount>=0?'+':'')+p.amount+'gp · '+(p.label||'no label');
+    case 'character-update':
+      return Object.keys(p.fieldUpdates||{}).join(', ') || '(no fields)';
+    case 'adventure-result':
+      return p.outcome+(p.lairId?' · cleared '+p.lairId:'')+(p.narrativeSummary?' · "'+p.narrativeSummary.substring(0,60)+'..."':'');
+    case 'daw-result':
+      return p.outcome+(p.attackerDomainId?' · '+p.attackerDomainId+' vs '+(p.defenderDomainId||'?'):'');
+    case 'claude-event':
+      return p.title || p.scope+' event';
+    case 'rumor-emit':
+      return '"'+(p.rumorText||'').substring(0,80)+'..."';
+    case 'venture-result':
+      return p.outcome+' · venture '+p.ventureId;
+    case 'population-shock':
+      return p.kind+': '+(p.deltaFamilies>0?'+':'')+p.deltaFamilies+' families';
+    case 'domain-transfer':
+      return (p.newRulerCharacterId?'new ruler '+p.newRulerCharacterId:'')+(p.newLiegeId?' new liege '+p.newLiegeId:'');
+    case 'hireling-calamity': {
+      const ch = (campaign.characters||[]).find(c => c.id === p.characterId);
+      const who = ch ? ch.name : (p.characterId || '(unknown character)');
+      const kindLabels = {
+        'rations':                'went without rations',
+        'wages':                  'went without wages',
+        'enervation':             'suffered an enervation',
+        'curse':                  'suffered a curse',
+        'magical-disease':        'suffered a magical disease',
+        'hp-zero':                'was reduced to 0 hp',
+        'transfer-of-employment': 'was transferred to a new employer',
+        'hidden-comrades':        'discovered a previously-rejected comrade in the party',
+        'other':                  'suffered a calamity'
+      };
+      const kindStr = kindLabels[p.kind] || ('calamity (' + (p.kind||'?') + ')');
+      let extra = '';
+      if(p.kind === 'transfer-of-employment' && p.newEmployerCharacterId){
+        const ne = (campaign.characters||[]).find(c => c.id === p.newEmployerCharacterId);
+        extra = ne ? ' → ' + ne.name : '';
+      }
+      const noteSuffix = p.reasonNote ? ' · ' + p.reasonNote : '';
+      return who + ' ' + kindStr + extra + ' (loyalty roll pending)' + noteSuffix;
+    }
+    case 'loyalty-check': {
+      const ch = (campaign.characters||[]).find(c => c.id === p.characterId);
+      const who = ch ? ch.name : (p.characterId || '(unknown character)');
+      const reasonLabel = ({
+        'level-up':  'after level-up',
+        'calamity':  'after calamity',
+        'other':     'at GM discretion',
+      })[p.reason] || ('after ' + (p.reason || 'event'));
+      if(p.rollResult){
+        const rr = p.rollResult;
+        const breakdown = 'nat ' + (rr.natRoll||'?') + ' + loy ' + ((rr.loyaltyScore||0) >= 0 ? '+' : '') + (rr.loyaltyScore||0)
+                        + ' + mod ' + ((rr.situationalModifier||0) >= 0 ? '+' : '') + (rr.situationalModifier||0)
+                        + ' = ' + (rr.adjusted||'?');
+        return who + ' rolled ' + (rr.bandLabel||rr.bandKey||'(?)') + ' ' + reasonLabel + ' · ' + breakdown;
+      }
+      const noteSuffix = p.reasonNote ? ' — ' + p.reasonNote : '';
+      return 'Loyalty roll for ' + who + ' ' + reasonLabel + ' (awaiting roll)' + noteSuffix;
+    }
+    default:
+      return JSON.stringify(p).substring(0,80);
+  }
+}
+
+// Passive investments (RR p.383). Monthly return = capital × the risk-tier rate.
+function passiveInvestmentRate(tier){
+  return ({safe:0.0025, cautious:0.005, balanced:0.01, risky:0.03, perilous:0.09})[tier] || 0.01;
+}
+function passiveInvestmentMonthlyGp(inv){
+  if(!inv) return 0;
+  const capital = parseInt(inv.capital)||0;
+  const rate = passiveInvestmentRate(inv.riskTier);
+  return Math.round(capital * rate);
+}
+// Pay out every enabled passive investment for the turn. Credits destination domain treasuries +
+// the owner's earnings ledger. Returns { totalGp, payouts: [{name, type, gp, destination}] }.
+function processPassiveInvestmentsForTurn(campaign){
+  const payouts = [];
+  let totalGp = 0;
+  (campaign?.passiveInvestments||[]).forEach(inv => {
+    if(!inv.enabled) return;
+    const gp = passiveInvestmentMonthlyGp(inv);
+    if(!gp || gp <= 0) return;
+    const destDomainId = inv.destinationDomainId || null;
+    let destLabel = 'ledger-only';
+    if(destDomainId){
+      const destDomain = (campaign.domains||[]).find(d => d.id === destDomainId);
+      if(destDomain){
+        destDomain.treasury.gp = (destDomain.treasury.gp||0) + gp;
+        destLabel = destDomain.name + ' treasury';
+      }
+    }
+    if(inv.ownerCharacterId){
+      const ch = (campaign.characters||[]).find(c => c.id === inv.ownerCharacterId);
+      if(ch){
+        if(!Array.isArray(ch.earningsLedger)) ch.earningsLedger = [];
+        ch.earningsLedger.push({
+          turn: campaign.currentTurn || 1, gp: gp, kind: 'passive-investment',
+          investmentId: inv.id, investmentType: inv.type, riskTier: inv.riskTier,
+          capital: parseInt(inv.capital)||0, destination: destDomainId || 'ledger-only'
+        });
+      }
+    }
+    payouts.push({ name: inv.name || inv.ownerName, type: inv.type, gp, destination: destLabel });
+    totalGp += gp;
+  });
+  return { totalGp, payouts };
+}
+
+// Apply a venture vagary's effect to a venture record (Phase 2b.5). Mutates the venture; returns a
+// human-readable summary string (or null when there's nothing to apply).
+function applyVagaryToVenture(campaign, venture, vp){
+  if(!venture || !vp || !vp.applyEffect || vp.vagaryEffect === 'none') return null;
+  const v = global.ACKS.lookupVagary(vp.vagaryId);
+  if(!v) return null;
+  if(!Array.isArray(venture.vagaries)) venture.vagaries = [];
+  const curTurn = campaign?.currentTurn || 1;
+  let summary = '';
+  switch(vp.vagaryEffect){
+    case 'speed-up-1':
+      venture.expectedArrivalTurn = Math.max(curTurn+1, (venture.expectedArrivalTurn||0)-1);
+      summary = 'Arrival accelerated to Turn '+venture.expectedArrivalTurn+'.';
+      break;
+    case 'delay-turns':
+      venture.expectedArrivalTurn = (venture.expectedArrivalTurn||0) + (vp.vagaryEffectValue||1);
+      summary = 'Arrival delayed to Turn '+venture.expectedArrivalTurn+'.';
+      break;
+    case 'value-bonus-pct':
+      venture.totalInvestment = Math.round((venture.totalInvestment||0) * (1 + (vp.vagaryEffectValue||0)/100));
+      summary = 'Cargo value boosted by '+vp.vagaryEffectValue+'% to '+venture.totalInvestment.toLocaleString()+'gp.';
+      break;
+    case 'value-loss-pct':
+      venture.totalInvestment = Math.round((venture.totalInvestment||0) * (1 - (vp.vagaryEffectValue||0)/100));
+      summary = 'Cargo value reduced by '+vp.vagaryEffectValue+'% to '+venture.totalInvestment.toLocaleString()+'gp.';
+      break;
+    case 'total-loss':
+      venture.status = 'failed';
+      venture.completedTurn = curTurn;
+      venture.totalInvestment = 0;
+      summary = 'Venture annihilated — total loss booked.';
+      const character = (campaign?.characters||[]).find(c => c.id === venture.venturerCharacterId);
+      if(character){
+        if(!Array.isArray(character.earningsLedger)) character.earningsLedger = [];
+        character.earningsLedger.push({ ventureId:venture.id, turn:venture.completedTurn, gp:-(venture.totalInvestment||0), kind:'venture-annihilated', fromDomainId:venture.originDomainId, toDomainId:venture.destinationDomainId, aborted:true, vagary:vp.vagaryId });
+      }
+      break;
+  }
+  venture.vagaries.push({ turn:curTurn, vagaryId:vp.vagaryId, name:vp.vagaryName, effect:vp.vagaryEffect, effectValue:vp.vagaryEffectValue||0, summary });
+  return summary;
+}
+
+// Level a character up one step (XP-driven sweep or GM-forced). Mutates hp / level / hd / saves /
+// henchmanCap, stamps history + a character-level-up event, and (for henchmen) auto-emits a pending
+// loyalty-check (RR p.168). Returns the level-up entry, or null at the L14 cap / for an unknown class.
+function levelUpCharacter(campaign, c){
+  if(!c) return null;
+  const oldLevel = c.level || 1;
+  if(oldLevel >= 14) return null;
+  const newLevel = oldLevel + 1;
+  const conMod = abilityMod(c.abilities?.CON || 10);
+  const hpGain = rollHpForLevel(c.class, newLevel, conMod);
+  if(!c.hp) c.hp = { current:0, max:0, hitDice:'' };
+  c.hp.max = (c.hp.max || 0) + hpGain;
+  c.hp.current = (c.hp.current || 0) + hpGain;
+  c.level = newLevel;
+  const hd = CLASS_HD[classKey(c.class)];
+  if(hd){
+    if(newLevel <= 9){
+      c.hp.hitDice = newLevel + 'd' + hd.sides;
+    } else {
+      const bonus = (newLevel - 9) * hd.flatBonusAfter9;
+      c.hp.hitDice = '9d' + hd.sides + ' + ' + bonus + '*';
+    }
+  }
+  const saves = computeSavingThrows(c);
+  if(saves){
+    if(!c.savingThrows) c.savingThrows = {};
+    c.savingThrows.paralysis = saves.paralysis;
+    c.savingThrows.death = saves.death;
+    c.savingThrows.blast = saves.blast;
+    c.savingThrows.implements = saves.implements;
+    c.savingThrows.spells = saves.spells;
+  }
+  c.henchmanCap = computeHenchmanCap(c);
+  const entry = {
+    oldLevel, newLevel, hpGain, hd: c.hp.hitDice,
+    saves: saves ? {paralysis:saves.paralysis,death:saves.death,blast:saves.blast,implements:saves.implements,spells:saves.spells} : null
+  };
+  addCharacterHistory(campaign, c, 'level-up', (c.class||'?')+' L'+oldLevel+' → L'+newLevel+' (+'+hpGain+' HP)', entry);
+  recordAppliedEvent(campaign, 'character-level-up', {
+    characterId: c.id, oldLevel, newLevel, hpGained: hpGain, source: 'auto',
+    narrativeSummary: 'Level up: '+c.name+' — '+(c.class||'?')+' L'+oldLevel+' → L'+newLevel+' (+'+hpGain+' HP).'
+  }, { result: { domainsChanged: [], hexesChanged: [], charactersChanged: [c.id], treasuryDelta: 0, narrativeSummary: 'Level up: '+c.name+' — '+(c.class||'?')+' L'+oldLevel+' → L'+newLevel+' (+'+hpGain+' HP).' } });
+  // RAW (RR p.168): henchmen roll loyalty each time they advance a level. Auto-emit a pending
+  // loyalty-check event for the GM to resolve via the Roll Loyalty modal.
+  if(isHenchman(c)){
+    if(campaign){
+      if(!Array.isArray(campaign.pendingEvents)) campaign.pendingEvents = [];
+      const pending = global.ACKS.newEvent('loyalty-check', {
+        submittedBy: 'engine',
+        submittedAt: new Date().toISOString(),
+        targetTurn: (campaign.currentTurn || 1) + 1,
+        payload: { characterId: c.id, reason: 'level-up', reasonNote: 'Level-up to L'+newLevel+' (RR p.168 requires loyalty roll).' }
+      });
+      pending.status = global.ACKS.EVENT_STATUS.PENDING;
+      campaign.pendingEvents.push(pending);
+    }
+  }
+  return entry;
+}
+// Walk all alive characters; level-up anyone whose XP meets/exceeds their next threshold (loops for
+// multi-level catch-up). Returns [{character, levelUps:[entry,...]}].
+function checkAllCharacterLevelUps(campaign){
+  const results = [];
+  (campaign?.characters || []).forEach(c => {
+    if(c.alive === false) return;
+    if(c.autoAdvance === false) return;
+    if(!XP_PROGRESSION[classKey(c.class)]) return;
+    const levelUps = [];
+    let guard = 20;
+    while(guard-- > 0){
+      const next = xpToNextLevel(c);
+      if(next === null || next === Infinity) break;
+      if((c.xp || 0) < next) break;
+      const entry = levelUpCharacter(campaign, c);
+      if(!entry) break;
+      levelUps.push(entry);
+    }
+    if(levelUps.length > 0) results.push({ character:c, levelUps });
+  });
+  return results;
+}
+
+function proposeMonthlyTurn(campaign, options){
   options = options || {};
+  const rng = options.rng || Math.random;
   if(!campaign) return { error: 'No campaign loaded', turnEventProposals: [], turnVentureProposals: [], turnProposal: [] };
+  const domains = campaign.domains || [];
   if(!Array.isArray(domains) || domains.length === 0){
     return { error: 'No domains to advance.', turnEventProposals: [], turnVentureProposals: [], turnProposal: [] };
   }
@@ -3822,15 +4116,15 @@ function proposeMonthlyTurn(campaign, domains, helpers, options){
     gmNotes: ev.gmNotes || '',
     kindLabel: ev.kind,
     submitterLabel: ev.submittedBy,
-    targetSummary: helpers.summarizeEventTarget(ev),
-    payloadSummary: helpers.summarizeEventPayload(ev)
+    targetSummary: summarizeEventTarget(campaign, ev),
+    payloadSummary: summarizeEventPayload(campaign, ev)
   }));
 
   // Phase 2b.5 — roll one vagary per in-transit venture.
   const turnVentureProposals = (campaign.ventures || [])
     .filter(v => v.status === 'in-transit')
     .map(v => {
-      const vagary = global.ACKS.rollVagary();
+      const vagary = global.ACKS.rollVagary(rng);
       return {
         ventureId: v.id,
         venturerName: v.venturerName,
@@ -3854,28 +4148,28 @@ function proposeMonthlyTurn(campaign, domains, helpers, options){
       return {
         domainId: d.id,
         domainName: d.name,
-        classification: helpers.effectiveClassification(d),
-        ruler: helpers.effectiveRuler(d),
+        classification: effectiveDomainClassification(d),
+        ruler: global.ACKS.effectiveRuler(campaign, d),
         tithePaid: d.expenses.tithePaid !== false,
         tributePaid: d.expenses.tributePaid !== false,
         administersThisMonth: !!d.administersThisMonth,
         hasLiege: !!d.liegeId,
         moraleBefore: d.demographics.morale,
-        populationBefore: helpers.totalFamilies(d),
+        populationBefore: global.ACKS.totalFamilies(d),
         treasuryBefore: d.treasury.gp || 0,
-        income: helpers.incomeBreakdown(d).map(r => ({...r})),
-        expenses: helpers.expenseBreakdown(d).map(r => ({...r})),
-        incomeFactor: helpers.incomeFactor(d.demographics.morale),
-        moraleMods: helpers.moraleModifiersFor(d).map(m => ({...m})),
-        moraleRoll: rollD6() + rollD6(),
+        income: global.ACKS.incomeBreakdown(campaign, d).map(r => ({...r})),
+        expenses: global.ACKS.expenseBreakdown(campaign, d).map(r => ({...r})),
+        incomeFactor: global.ACKS.incomeFactor(d.demographics.morale),
+        moraleMods: global.ACKS.moraleModifiersFor(campaign, d).map(m => ({...m})),
+        moraleRoll: rollD6(rng) + rollD6(rng),
         event: global.ACKS.sampleEvent(d.demographics.morale),
         hasPlayerInput: !!d.pendingPlayerInput,
-        urbanInvestments: helpers.hexSettlements(d).map(({hexIndex, settlement}) => ({
+        urbanInvestments: global.ACKS.hexSettlements(d).map(({hexIndex, settlement}) => ({
           hexIndex,
           settlementName: settlement.name || '(unnamed)',
-          marketClass: helpers.settlementMarketClass(settlement),
+          marketClass: global.ACKS.settlementMarketClass(settlement),
           currentFamilies: settlement.families || 0,
-          capacity: helpers.settlementCapacity(settlement),
+          capacity: global.ACKS.settlementCapacity(settlement),
           amount: 0
         })),
         // Foundation #17 — incremental accumulation. Each hex's agricultural order is a gp amount
@@ -3926,8 +4220,11 @@ function proposeMonthlyTurn(campaign, domains, helpers, options){
   };
 }
 
-function commitTurn(campaign, domains, proposal, helpers){
+function commitTurn(campaign, proposal, options){
   if(!campaign || !proposal) return { committed: 0, logEntries: [], error: 'No campaign or proposal' };
+  options = options || {};
+  const rng = options.rng || Math.random;
+  const domains = campaign.domains || [];
 
   const logEntries = [];
   const turnEventProposals = proposal.turnEventProposals || [];
@@ -4006,22 +4303,22 @@ function commitTurn(campaign, domains, proposal, helpers){
     if(p.hasLiege) d.expenses.tributePaid = p.tributePaid;
     d.administersThisMonth = p.administersThisMonth;
 
-    const gross = helpers.incomeSum(p);
+    const gross = global.ACKS.incomeSum(p);
     const grossAdj = Math.round(gross * p.incomeFactor);
-    const expenses = helpers.expenseSum(p);
+    const expenses = global.ACKS.expenseSum(p);
     const net = grossAdj - expenses;
-    const modSum = helpers.moraleModSum(p);
+    const modSum = global.ACKS.moraleModSum(p);
     const adjusted = (p.moraleRoll || 0) + modSum;
     const base = baseMoraleFromClassification(p.classification, p.ruler);
     const moraleChange = moraleChangeFromRoll(adjusted, p.moraleBefore, base);
     const moraleAfter = clamp(p.moraleBefore + moraleChange, -4, 4);
 
     const familiesK = Math.max(1, Math.ceil(d.demographics.peasantFamilies / 1000));
-    const naturalIncrease = rollNaturalIncrease(familiesK, moraleAfter);
-    const naturalDecrease = rollNaturalDecrease(familiesK);
-    const moraleExtra = rollMoraleExtra(moraleAfter, familiesK);
+    const naturalIncrease = rollNaturalIncrease(familiesK, moraleAfter, rng);
+    const naturalDecrease = rollNaturalDecrease(familiesK, rng);
+    const moraleExtra = rollMoraleExtra(moraleAfter, familiesK, rng);
     const popDelta = naturalIncrease - naturalDecrease + moraleExtra;
-    const populationAfter = Math.max(0, helpers.totalFamilies(d) + popDelta);
+    const populationAfter = Math.max(0, global.ACKS.totalFamilies(d) + popDelta);
 
     const snapshotBefore = {
       peasantFamilies: d.demographics.peasantFamilies,
@@ -4052,7 +4349,7 @@ function commitTurn(campaign, domains, proposal, helpers){
       const investAmount = Math.floor(invLine?.amount || 0);
       const thousands = Math.floor(investAmount / 1000);
       let investImmigrants = 0;
-      for(let k = 0; k < thousands; k++) investImmigrants += 1 + Math.floor(Math.random() * 10);
+      for(let k = 0; k < thousands; k++) investImmigrants += 1 + Math.floor(rng() * 10);
       let target = before + natInc - natDec + moraleExtraUrban + investImmigrants;
       target = Math.max(0, target);
       const newInvestment = (s.totalInvestment || 0) + investAmount;
@@ -4096,7 +4393,7 @@ function commitTurn(campaign, domains, proposal, helpers){
     // RAW DEFAULT (RR p.174): construction is labor-paid, supervised, and takes time. The internal
     // `abstract-construction` flag opts into the old instant/gp-only path (fast play; the oracle).
     // Instant completion for GMs is via the admin tools (Inspector force-complete), not a house rule.
-    const realisticOn = !helpers.isHouseRuleEnabled('abstract-construction');
+    const realisticOn = !isHouseRuleEnabled(campaign, 'abstract-construction');
     const laborCap = (realisticOn && (d.monthlyLaborCapGp || 0) > 0) ? d.monthlyLaborCapGp : Infinity;
     let laborConsumed = 0;
     // Look up a character on the campaign roster by id (legacy-safe).
@@ -4359,7 +4656,7 @@ function commitTurn(campaign, domains, proposal, helpers){
 
     const snapshotAfter = {
       peasantFamilies: d.demographics.peasantFamilies,
-      urbanFamilies: helpers.effectiveUrbanFamilies(d),
+      urbanFamilies: global.ACKS.effectiveUrbanFamilies(d),
       morale: d.demographics.morale,
       treasuryGp: d.treasury.gp
     };
@@ -4407,15 +4704,15 @@ function commitTurn(campaign, domains, proposal, helpers){
     } catch(e){ /* swallow per original */ }
 
     // Award XP to ruler (RR p.423; henchman rulers get half).
-    const xpEarned = helpers.domainXpFromNet(d, net - totalInvestmentSpent - totalAgriculturalSpent);
+    const xpEarned = global.ACKS.domainXpFromNet(campaign, d, net - totalInvestmentSpent - totalAgriculturalSpent);
     let rulerXpAwarded = 0;
     if(xpEarned && xpEarned > 0){
-      const rulerCh = helpers.rulerCharacter(d);
+      const rulerCh = global.ACKS.rulerCharacter(campaign, d);
       if(rulerCh){
         const henchPenalty = rulerCh.liegeCharacterId ? 0.5 : 1.0;
         rulerXpAwarded = Math.round(xpEarned * henchPenalty);
         rulerCh.xp = (rulerCh.xp || 0) + rulerXpAwarded;
-        helpers.addCharacterHistory(rulerCh, 'xp',
+        addCharacterHistory(campaign, rulerCh, 'xp',
           '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + (net - totalInvestmentSpent - totalAgriculturalSpent).toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp' + (henchPenalty < 1 ? ', henchman ½' : '') + ')',
           { xp: rulerXpAwarded, source: 'domain', domainId: d.id }
         );
@@ -4430,7 +4727,7 @@ function commitTurn(campaign, domains, proposal, helpers){
     const agAppliedCount = agOrdersResults.filter(r => !r.blocked && (r.gpSpent || 0) > 0).length;
     const agBlurb = totalAgriculturalSpent > 0 ? ', ag inv −' + totalAgriculturalSpent.toLocaleString() + 'gp (' + agAppliedCount + ' applied)' : '';
     const projDoneBlurb = projectsCompleted.length > 0 ? ', ' + projectsCompleted.length + ' improvement(s) completed' : '';
-    const rulerForBlurb = helpers.rulerCharacter(d);
+    const rulerForBlurb = global.ACKS.rulerCharacter(campaign, d);
     const xpBlurb = rulerXpAwarded > 0 ? ', +' + rulerXpAwarded.toLocaleString() + 'XP to ' + (rulerForBlurb?.name || 'ruler') : '';
     logEntries.push(d.name + ': morale ' + p.moraleBefore + '→' + moraleAfter + ', Δtreasury ' + (net >= 0 ? '+' : '') + net + 'gp' + investBlurb + agBlurb + projDoneBlurb + ', Δpop ' + (popDelta >= 0 ? '+' : '') + popDelta + xpBlurb + (p.event ? ' — event: ' + p.event : ''));
     committed++;
@@ -4442,7 +4739,7 @@ function commitTurn(campaign, domains, proposal, helpers){
     const venture = (campaign.ventures || []).find(v => v.id === vp.ventureId);
     if(!venture || venture.status !== 'in-transit') return;
     if(vp.applyEffect && vp.vagaryEffect !== 'none'){
-      const summary = helpers.applyVagaryToVenture(venture, vp);
+      const summary = applyVagaryToVenture(campaign, venture, vp);
       if(summary){
         logEntries.push('Venture vagary — ' + venture.venturerName + ': ' + vp.vagaryName + '. ' + summary);
         vagariesApplied++;
@@ -4452,7 +4749,7 @@ function commitTurn(campaign, domains, proposal, helpers){
   });
 
   // === PASSIVE INVESTMENTS (RR p.383) ===
-  const passiveResult = helpers.processPassiveInvestmentsForTurn() || { totalGp: 0, payouts: [] };
+  const passiveResult = processPassiveInvestmentsForTurn(campaign) || { totalGp: 0, payouts: [] };
   (passiveResult.payouts || []).forEach(pa => {
     logEntries.push('Passive investment payout — ' + pa.name + ' (' + pa.type + '): +' + pa.gp.toLocaleString() + 'gp → ' + pa.destination + '.');
   });
@@ -4461,7 +4758,7 @@ function commitTurn(campaign, domains, proposal, helpers){
   // Runs BEFORE incrementing the turn counter so level-up history is stamped with the current turn.
   // levelUpCharacter (called inside checkAllCharacterLevelUps) emits its own log lines via the
   // caller's logEvent, so we don't push anything here.
-  const levelUpResults = helpers.checkAllCharacterLevelUps() || [];
+  const levelUpResults = checkAllCharacterLevelUps(campaign) || [];
 
   // === HENCHMAN LOYALTY DRIFT === (RAW baseline — always runs)
   // Domains live on the campaign (single home) — tickHenchmanLoyalty traverses them directly.
@@ -4473,7 +4770,7 @@ function commitTurn(campaign, domains, proposal, helpers){
   }
 
   // === RUMOR AUTO-EMIT ===
-  if(helpers.isHouseRuleEnabled('rumors-auto-emit')){
+  if(isHouseRuleEnabled(campaign, 'rumors-auto-emit')){
     const upcomingTurn = (campaign.currentTurn || 1) + 1;
     domains.forEach(d => {
       const lastHistory = d.history[d.history.length - 1];
@@ -4515,7 +4812,7 @@ function commitTurn(campaign, domains, proposal, helpers){
 
   // === RUMOR APPARENT-LEVEL DRIFT ===
   let rumorDrifts = 0;
-  if(helpers.isHouseRuleEnabled('rumors-proliferation')){
+  if(isHouseRuleEnabled(campaign, 'rumors-proliferation')){
     const driftLog = global.ACKS.tickRumorApparentLevels(campaign, campaign.currentTurn || 1);
     rumorDrifts = driftLog.length;
     if(rumorDrifts) logEntries.push('Rumor drift: ' + rumorDrifts + ' rumor(s) shifted apparent level this turn');
@@ -4528,7 +4825,7 @@ function commitTurn(campaign, domains, proposal, helpers){
       if(!campaign.calendar.year) campaign.calendar.year = 1;
       if(!campaign.calendar.month) campaign.calendar.month = 1;
       if(!campaign.calendar.day) campaign.calendar.day = 1;
-      if(helpers.isHouseRuleEnabled('auran-calendar')){
+      if(isHouseRuleEnabled(campaign, 'auran-calendar')){
         campaign.calendar.kind = 'auran';
       } else if(!campaign.calendar.kind){
         campaign.calendar.kind = 'default';
@@ -5846,8 +6143,14 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Phase 2.5 Journeys (#475) — lookups + helpers (J1)
   findJourney, journeysInTransit, journeysWithParticipant, resolveHexAnywhere, hexAtCoord, hexAxialDistance, isJourney,
 
-  // Turn orchestration (Foundation #15 — partial lift, helpers-callback pattern)
-  proposeMonthlyTurn, commitTurn
+  // Turn orchestration (Foundation #15 → fully engine-owned, audit batch 3 — no helpers bag).
+  // proposeMonthlyTurn(campaign, options?) / commitTurn(campaign, proposal, options?); options.rng injectable.
+  // The ACKS economy ruleset lives in acks-engine-economy.js (incomeBreakdown / expenseBreakdown / …).
+  proposeMonthlyTurn, commitTurn,
+  // §9.8a orchestration-tail helpers lifted from the Alpine UI (audit batch 3). UI delegates to these.
+  addCharacterHistory, recordAppliedEvent, summarizeEventTarget, summarizeEventPayload,
+  passiveInvestmentRate, passiveInvestmentMonthlyGp, processPassiveInvestmentsForTurn,
+  applyVagaryToVenture, levelUpCharacter, checkAllCharacterLevelUps
 });
 // Object.freeze omitted: later modules (subsystems, future splits) extend the namespace.
 

@@ -10,6 +10,7 @@
 <script src="acks-engine-catalogs.js?v=2026-05-28-g"></script>
 <script src="acks-engine.js?v=2026-05-28-g"></script>
 <script src="acks-engine-entities.js?v=2026-05-28-g"></script>
+<script src="acks-engine-economy.js?v=2026-06-06-a"></script>
 <script src="acks-engine-entity-registry.js?v=2026-05-31-a"></script>
 <script src="acks-engine-field-schemas.js?v=2026-05-31-a"></script>
 <script src="acks-engine-events.js?v=2026-05-28-g"></script>
@@ -10300,46 +10301,13 @@ return {
     return xp;
   },
   // Resolve a domain's ruler back to a Character entity. Falls back to null if no link.
-  rulerCharacter(d){
-    if(!d)return null;
-    if(d.rulerCharacterId){
-      const ch = (this.currentCampaign?.characters||[]).find(c => c.id === d.rulerCharacterId);
-      if(ch) return ch;
-    }
-    return null;
-  },
+  rulerCharacter(d){return window.ACKS.rulerCharacter(this.currentCampaign, d);},
   // Resolve the canonical ruler stats for game mechanics. Pulls from the linked character when
   // available; falls back to the legacy d.ruler struct for pre-2.6 data. The `administersThisMonth`
   // flag is per-turn state and stays on the domain regardless. Personal Authority is COMPUTED
   // automatically from the character's level cross-referenced with the domain's gross monthly
   // income (RR p.350 Personal Authority Table).
-  effectiveRuler(d){
-    if(!d) return {name:'', class:'', level:1, personalAuthority:0, gpThreshold:0, administersThisMonth:false, isPC:false};
-    const ch = this.rulerCharacter(d);
-    if(ch){
-      const domainIncomeVal = this.domainIncome ? this.domainIncome(d) : 0;
-      return {
-        name: ch.name,
-        class: ch.class || '',
-        level: ch.level || 1,
-        personalAuthority: computePersonalAuthority(ch.level||1, domainIncomeVal),
-        gpThreshold: computeGpThreshold(ch.level||1),
-        administersThisMonth: !!d.administersThisMonth,
-        isPC: ACKS.isPlayerControlled(ch)
-      };
-    }
-    // Legacy fallback — kept for safety; v2 always has rulerCharacterId set in valid saves
-    const r = d.ruler || {};
-    return {
-      name: r.name || '',
-      class: r.class || '',
-      level: r.level || 1,
-      personalAuthority: r.personalAuthority || 0,
-      gpThreshold: r.gpThreshold || 0,
-      administersThisMonth: !!r.administersThisMonth,
-      isPC: !!r.isPC
-    };
-  },
+  effectiveRuler(d){return window.ACKS.effectiveRuler(this.currentCampaign, d);},
   // Phase 2.6 — Personal Authority is computed per RR p.350. Exposed for UI calls.
   computePersonalAuthority,
   personalAuthorityBracketForIncome,
@@ -10350,21 +10318,7 @@ return {
   // Append a chronological entry to a character's personal history.
   // type: 'xp'|'level-up'|'venture'|'domain'|'note'|'death'|'restore'|'other'.
   // turn defaults to currentTurn; summary is a short string.
-  addCharacterHistory(c, type, summary, extra){
-    if(!c) return;
-    if(!Array.isArray(c.history)) c.history = [];
-    // Capture the in-game date string at write time so historical entries are stable across
-    // calendar changes. Older entries without gameDate fall back to gameDateFromTurn() at display.
-    let gameDate = null;
-    try { gameDate = window.ACKS?.currentDateString?.(this.currentCampaign) || null; } catch(_) {}
-    c.history.push({
-      turn: this.currentCampaign?.currentTurn || 1,
-      gameDate,
-      type: type || 'note',
-      summary: summary || '',
-      ...(extra || {})
-    });
-  },
+  addCharacterHistory(c, type, summary, extra){return window.ACKS.addCharacterHistory(this.currentCampaign, c, type, summary, extra);},
 
   // Synthesize an in-game date string for an historical turn by walking the calendar backward
   // from the current state. Calendar advances exactly one month per turn (1 turn = 1 month),
@@ -10640,74 +10594,7 @@ return {
   },
   // Apply a single level-up to a character. Rolls HP, updates title, recomputes saves (already auto), logs history.
   // Returns the level-up record (or null if cap reached / no class table).
-  levelUpCharacter(c){
-    if(!c) return null;
-    const oldLevel = c.level || 1;
-    if(oldLevel >= 14) return null;
-    const newLevel = oldLevel + 1;
-    const conMod = this.abilityMod(c.abilities?.CON || 10);
-    const hpGain = rollHpForLevel(c.class, newLevel, conMod);
-    // HP — increase both current and max so the character isn't penalized for level-up at the table
-    if(!c.hp) c.hp = {current:0, max:0, hitDice:''};
-    c.hp.max = (c.hp.max || 0) + hpGain;
-    c.hp.current = (c.hp.current || 0) + hpGain;
-    // Update level
-    c.level = newLevel;
-    // Update HD notation if we can
-    const hd = CLASS_HD[classKey(c.class)];
-    if(hd){
-      if(newLevel <= 9){
-        c.hp.hitDice = newLevel + 'd' + hd.sides;
-      } else {
-        const bonus = (newLevel - 9) * hd.flatBonusAfter9;
-        c.hp.hitDice = '9d' + hd.sides + ' + ' + bonus + '*';
-      }
-    }
-    // Recompute and store saves if class has an archetype
-    const saves = computeSavingThrows(c);
-    if(saves){
-      if(!c.savingThrows) c.savingThrows = {};
-      c.savingThrows.paralysis = saves.paralysis;
-      c.savingThrows.death = saves.death;
-      c.savingThrows.blast = saves.blast;
-      c.savingThrows.implements = saves.implements;
-      c.savingThrows.spells = saves.spells;
-    }
-    // Recompute henchman cap from CHA
-    c.henchmanCap = this.computeHenchmanCap(c);
-    const entry = {
-      oldLevel, newLevel, hpGain, hd: c.hp.hitDice,
-      saves: saves ? {paralysis:saves.paralysis,death:saves.death,blast:saves.blast,implements:saves.implements,spells:saves.spells} : null
-    };
-    this.addCharacterHistory(c, 'level-up', (c.class||'?')+' L'+oldLevel+' → L'+newLevel+' (+'+hpGain+' HP)', entry);
-    this.recordAppliedEvent('character-level-up', {
-      characterId: c.id, oldLevel, newLevel, hpGained: hpGain, source: 'auto',
-      narrativeSummary: 'Level up: '+c.name+' — '+(c.class||'?')+' L'+oldLevel+' → L'+newLevel+' (+'+hpGain+' HP).'
-    }, { result: { domainsChanged: [], hexesChanged: [], charactersChanged: [c.id], treasuryDelta: 0, narrativeSummary: 'Level up: '+c.name+' — '+(c.class||'?')+' L'+oldLevel+' → L'+newLevel+' (+'+hpGain+' HP).' } });
-    // RAW (RR p.168): henchmen roll loyalty each time they advance a level.
-    // Auto-emit a pending loyalty-check event for the GM to resolve via the
-    // Roll Loyalty modal (manual or via Event Log). The modal will populate
-    // the roll details on Apply.
-    if(ACKS.isHenchman(c)){
-      const camp = this.currentCampaign;
-      if(camp){
-        if(!Array.isArray(camp.pendingEvents)) camp.pendingEvents = [];
-        const pending = window.ACKS.newEvent('loyalty-check', {
-          submittedBy: 'engine',
-          submittedAt: new Date().toISOString(),
-          targetTurn: (camp.currentTurn || 1) + 1,
-          payload: {
-            characterId: c.id,
-            reason: 'level-up',
-            reasonNote: 'Level-up to L'+newLevel+' (RR p.168 requires loyalty roll).'
-          }
-        });
-        pending.status = window.ACKS.EVENT_STATUS.PENDING;
-        camp.pendingEvents.push(pending);
-      }
-    }
-    return entry;
-  },
+  levelUpCharacter(c){return window.ACKS.levelUpCharacter(this.currentCampaign, c);},
   // GM-forced level-up: same as levelUpCharacter but adds an explicit "forced" annotation to the
   // history + log, distinguishing it from XP-driven level-ups during commitTurn.
   forceLevelUp(c){
@@ -10731,26 +10618,7 @@ return {
   // Walk all alive characters; level-up anyone whose XP meets/exceeds their next threshold.
   // Loops in case a character has banked enough XP to gain multiple levels at once.
   // Returns array of {character, levelUps:[entry,...]} for callers that want a summary.
-  checkAllCharacterLevelUps(){
-    const results = [];
-    (this.currentCampaign?.characters || []).forEach(c => {
-      if(c.alive === false) return;
-      if(c.autoAdvance === false) return; // Phase 2.6 followup 8 — GM has opted out of auto-leveling
-      if(!XP_PROGRESSION[classKey(c.class)]) return; // no class table — can't auto-level
-      const levelUps = [];
-      let guard = 20; // hard cap to prevent runaway loops from data error
-      while(guard-- > 0){
-        const next = xpToNextLevel(c);
-        if(next === null || next === Infinity) break;
-        if((c.xp || 0) < next) break;
-        const entry = this.levelUpCharacter(c);
-        if(!entry) break;
-        levelUps.push(entry);
-      }
-      if(levelUps.length > 0) results.push({character:c, levelUps});
-    });
-    return results;
-  },
+  checkAllCharacterLevelUps(){return window.ACKS.checkAllCharacterLevelUps(this.currentCampaign);},
   // Phase 2.6 followup — saving throws auto-computed from class + level (RR ch.1 per-class tables)
   classSaveArchetype, computeSavingThrows,
   // Phase 2.6 followup 2 — Titles of Nobility per RR p.345
@@ -12170,9 +12038,7 @@ return {
   // ========== Phase 2b.6: Passive Investments (RR p.383) ==========
   // RAW risk-tier monthly return rates from RR p.383. All five tiers present even though commercial
   // expeditions only use balanced/risky — business establishments and money lending use all tiers.
-  passiveInvestmentRate(tier){
-    return ({safe:0.0025, cautious:0.005, balanced:0.01, risky:0.03, perilous:0.09})[tier] || 0.01;
-  },
+  passiveInvestmentRate(tier){return window.ACKS.passiveInvestmentRate(tier);},
   passiveInvestmentRateLabel(tier){
     return ({
       safe:     'Safe (0.25%/mo)',
@@ -12196,12 +12062,7 @@ return {
   lookupPassiveInvestmentType(id){return this.passiveInvestmentTypes().find(t=>t.id===id);},
   allowedTiersForType(typeId){return this.lookupPassiveInvestmentType(typeId)?.allowedTiers || ['balanced','risky'];},
   // Computed monthly gp for an investment (RAW: capital × rate, RR p.383).
-  passiveInvestmentMonthlyGp(inv){
-    if(!inv)return 0;
-    const capital = parseInt(inv.capital)||0;
-    const rate = this.passiveInvestmentRate(inv.riskTier);
-    return Math.round(capital * rate);
-  },
+  passiveInvestmentMonthlyGp(inv){return window.ACKS.passiveInvestmentMonthlyGp(inv);},
   // Heuristic capital suggestion for a character-owned commercial expedition.
   // Tool convenience: level × 10K + markets × 5K. Other owner types start at 0.
   suggestInvestmentCapital(inv){
@@ -12244,44 +12105,7 @@ return {
   },
   // Process all passive investments for the current turn (commitTurn caller).
   // Returns { totalGp, payouts: [{name, gp, destination}] }.
-  processPassiveInvestmentsForTurn(){
-    const payouts=[];
-    let totalGp=0;
-    (this.currentCampaign?.passiveInvestments||[]).forEach(inv => {
-      if(!inv.enabled) return;
-      const gp = this.passiveInvestmentMonthlyGp(inv);
-      if(!gp || gp <= 0) return;
-      const destDomainId = inv.destinationDomainId || null;
-      let destLabel = 'ledger-only';
-      if(destDomainId){
-        const destDomain = this.domains.find(d => d.id === destDomainId);
-        if(destDomain){
-          destDomain.treasury.gp = (destDomain.treasury.gp||0) + gp;
-          destLabel = destDomain.name + ' treasury';
-        }
-      }
-      // Write to the owner character's earningsLedger (Phase 2.6 fold-in)
-      if(inv.ownerCharacterId){
-        const ch = (this.currentCampaign?.characters||[]).find(c => c.id === inv.ownerCharacterId);
-        if(ch){
-          if(!Array.isArray(ch.earningsLedger)) ch.earningsLedger = [];
-          ch.earningsLedger.push({
-            turn: this.currentCampaign?.currentTurn || 1,
-            gp: gp,
-            kind: 'passive-investment',
-            investmentId: inv.id,
-            investmentType: inv.type,
-            riskTier: inv.riskTier,
-            capital: parseInt(inv.capital)||0,
-            destination: destDomainId || 'ledger-only'
-          });
-        }
-      }
-      payouts.push({name: inv.name || inv.ownerName, type: inv.type, gp, destination: destLabel});
-      totalGp += gp;
-    });
-    return { totalGp, payouts };
-  },
+  processPassiveInvestmentsForTurn(){return window.ACKS.processPassiveInvestmentsForTurn(this.currentCampaign);},
 
   // Creation modal state (Phase 2.6 fold-in — picks from characters[] instead of venturers[])
   showPassiveInvestmentCreateModal: false,
@@ -14846,26 +14670,7 @@ return {
   //
   // External tools should NOT use this — they should push to pendingEvents and let the
   // GM resolve via the Event Log view. This helper is for internal "already-done" emits.
-  recordAppliedEvent(kind, payload, opts){
-    if(!this.currentCampaign) return null;
-    opts = opts || {};
-    const ev = window.ACKS.newEvent(kind, {
-      submittedBy: opts.submittedBy || 'engine',
-      submittedAt: new Date().toISOString(),
-      targetTurn: this.currentCampaign.currentTurn || 1,
-      payload: payload || {}
-    });
-    ev.status = window.ACKS.EVENT_STATUS.APPLIED;
-    ev.appliedAtTurn = this.currentCampaign.currentTurn || 1;
-    if(!Array.isArray(this.currentCampaign.eventLog)) this.currentCampaign.eventLog = [];
-    this.currentCampaign.eventLog.push({
-      event: ev,
-      result: opts.result || { domainsChanged: [], charactersChanged: [], hexesChanged: [], treasuryDelta: 0, narrativeSummary: opts.narrativeSummary || payload?.narrativeSummary || (kind + ' applied') },
-      appliedAtTurn: ev.appliedAtTurn,
-      appliedAt: new Date().toISOString()
-    });
-    return ev;
-  },
+  recordAppliedEvent(kind, payload, opts){return window.ACKS.recordAppliedEvent(this.currentCampaign, kind, payload, opts);},
 
   // Apply an ad-hoc treasury change (adventurer windfall, capital expenditure, GM correction…)
   // Logs to both the campaign log and the domain's per-domain history (as a transaction entry).
@@ -14921,7 +14726,7 @@ return {
 
   get selectedDomain(){return this.domains.find(d=>d.id===this.selectedDomainId)||null;},
   get rootDomains(){return this.domains.filter(d=>!d.liegeId||!this.domains.find(x=>x.id===d.liegeId));},
-  vassalsOf(id){return this.domains.filter(d=>d.liegeId===id);},
+  vassalsOf(id){return window.ACKS.vassalsOf(this.currentCampaign, id);},
   otherDomains(id){return this.domains.filter(d=>d.id!==id);},
   liegeOf(d){return d&&d.liegeId?this.domains.find(x=>x.id===d.liegeId)||null:null;},
   // A domain is the apex of its realm iff it has no liege (or its liege isn't loaded). Walks the chain to find it.
@@ -14938,20 +14743,7 @@ return {
   },
   isRealmApex(d){return !d.liegeId;},
   // Flat list of {domain, depth} containing only domains BELOW the given id (vassals, sub-vassals, ...)
-  vassalChainUnder(rootId){
-    const out=[];
-    const visited=new Set([rootId]);
-    const visit=(parentId,depth)=>{
-      this.vassalsOf(parentId).forEach(v=>{
-        if(visited.has(v.id))return;
-        visited.add(v.id);
-        out.push({domain:v,depth});
-        visit(v.id,depth+1);
-      });
-    };
-    visit(rootId,0);
-    return out;
-  },
+  vassalChainUnder(rootId){return window.ACKS.vassalChainUnder(this.currentCampaign, rootId);},
   // Flat list of {domain, depth} for arbitrary-depth tree rendering. Roots first, then DFS.
   get domainTree(){
     const out=[];
@@ -14968,7 +14760,7 @@ return {
     return out;
   },
 
-  totalFamilies(d){return (d.demographics.peasantFamilies||0) + this.effectiveUrbanFamilies(d);},
+  totalFamilies(d){return window.ACKS.totalFamilies(d);},
   moraleLevel(score){return MORALE_LEVEL_NAMES[String(clamp(score||0,-4,4))]||'—';},
   moraleEmoji(score){return MORALE_EMOJI[String(clamp(score||0,-4,4))]||'';},
   moraleEffectSummary(score){
@@ -14978,35 +14770,12 @@ return {
   // Morale-effect summary (original paraphrase, mechanical facts preserved; RR pp.349-351) for the "State of Your Domain" panel
   moraleStateText(score){return MORALE_STATE_TEXT[String(clamp(score||0,-4,4))]||'';},
   // Stronghold value required for current hex count (ACKS RAW: 15000gp per controlled 6-mile hex)
-  strongholdRequired(d){return (d.geography?.controlledHexes||0)*STRONGHOLD_VALUE_PER_HEX;},
+  strongholdRequired(d){return window.ACKS.strongholdRequired(d);},
   // Effective stronghold value across all components (Foundation #16). When
   // stronghold-by-buildings is on AND a component has structures, that component's value is
   // computed from its structures; else its manual buildValue is used. Total = sum across components.
   // Falls back to the legacy single-stronghold shape if components hasn't been migrated yet.
-  strongholdValue(d){
-    if(!d || !d.stronghold) return 0;
-    const buildingsOn = this.isHouseRuleEnabled('stronghold-by-buildings');
-    const comps = Array.isArray(d.stronghold.components) ? d.stronghold.components : null;
-    if(comps){
-      return comps.reduce((sum, c) => {
-        if(buildingsOn && Array.isArray(c.structures) && c.structures.length > 0){
-          return sum + c.structures.reduce((s, row) => {
-            const cat = STRONGHOLD_CATALOG.find(x => x.key === row.structureKey);
-            return s + (cat ? cat.cost * (row.quantity||0) : 0);
-          }, 0);
-        }
-        return sum + (c.buildValue || 0);
-      }, 0);
-    }
-    // Legacy shape (pre-Foundation #16).
-    if(buildingsOn && (d.stronghold.structures||[]).length > 0){
-      return d.stronghold.structures.reduce((s, row) => {
-        const cat = STRONGHOLD_CATALOG.find(c => c.key === row.structureKey);
-        return s + (cat ? cat.cost * (row.quantity||0) : 0);
-      }, 0);
-    }
-    return d.stronghold.buildValue || 0;
-  },
+  strongholdValue(d){return window.ACKS.strongholdValue(this.currentCampaign, d);},
   // Returns one of: 'adequate', 'half', 'quarter', 'critical', 'none'
   strongholdState(d){
     const req=this.strongholdRequired(d);
@@ -15112,14 +14881,10 @@ return {
     this.currentCampaign.houseRules[id]={enabled:enabling};
     this.markDirty(); this.schedulePersist();
   },
-  incomeFactor(morale){return INCOME_FACTOR_BY_MORALE[String(clamp(morale||0,-4,4))]??1;},
+  incomeFactor(morale){return window.ACKS.incomeFactor(morale);},
   baseMorale(d){return baseMoraleFromClassification(this.effectiveClassification(d),this.effectiveRuler(d));},
   // Required garrison cost = peasant rate × peasant families + 2gp × urban families (urban is flat per RR p.351)
-  requiredGarrison(d){
-    const peasantReq = (REQUIRED_GARRISON_PER_FAMILY[this.effectiveClassification(d)]||2) * (d.demographics.peasantFamilies||0);
-    const urbanReq = 2 * this.effectiveUrbanFamilies(d);
-    return peasantReq + urbanReq;
-  },
+  requiredGarrison(d){return window.ACKS.requiredGarrison(this.currentCampaign, d);},
   // Suggest classification from ACKS RR p.340 criteria. GM can still override (RR allows it; cataclysms etc. justify regression).
   // We don't know proximity to other settlements without map data, so we approximate from family count + morale + hexes.
   // Domain XP earned by the ruler this month: net income above GP threshold (ACKS RR p.423).
@@ -15133,13 +14898,7 @@ return {
   // because the wage doesn't change the domain's structural scale.
   //
   // Per Joachim 2026-05-28: this is RAW, not house-ruled — applies to all henchman rulers.
-  domainXpFromNet(d, net){
-    const thr = this.effectiveRuler(d).gpThreshold || 0;
-    if (thr <= 0) return null; // not configured
-    const ch = this.rulerCharacter(d);
-    const henchmanWage = (ACKS.isHenchman(ch)) ? (ch.monthlyWage || 0) : 0;
-    return Math.max(0, (net||0) - henchmanWage - thr);
-  },
+  domainXpFromNet(d, net){return window.ACKS.domainXpFromNet(this.currentCampaign, d, net);},
   // Effective classification per ACKS RR p.340 — auto-derived, no manual override.
   // Change indirectly by changing families, morale, or hex count.
   // Bandits per ACKS RR p.350 — emerge from disgruntled domains at low morale.
@@ -15150,27 +14909,15 @@ return {
   // Urban / market class helpers (ACKS RR p.350-351)
   // Settlements live per-hex (hex.settlement) as named entities. Legacy aggregate at demographics.urbanFamilies
   // is only used when no hex has a settlement yet.
-  hexSettlements(d){
-    return (d.geography?.hexes||[])
-      .map((h,i)=>({hex:h,hexIndex:i,settlement:h.settlement}))
-      .filter(x=>x.settlement);
-  },
-  totalUrbanFamiliesFromHexes(d){
-    return this.hexSettlements(d).reduce((s,x)=>s+(x.settlement.families||0),0);
-  },
-  totalUrbanInvestmentFromHexes(d){
-    return this.hexSettlements(d).reduce((s,x)=>s+(x.settlement.totalInvestment||0),0);
-  },
+  hexSettlements(d){return window.ACKS.hexSettlements(d);},
+  totalUrbanFamiliesFromHexes(d){return window.ACKS.totalUrbanFamiliesFromHexes(d);},
+  totalUrbanInvestmentFromHexes(d){return window.ACKS.totalUrbanInvestmentFromHexes(d);},
   // Effective urban family count for calculations. Per-hex settlements take precedence; falls back to legacy aggregate.
-  effectiveUrbanFamilies(d){
-    const fromHexes=this.totalUrbanFamiliesFromHexes(d);
-    if(fromHexes>0||this.hexSettlements(d).length>0)return fromHexes;
-    return d.demographics?.urbanFamilies||0;
-  },
+  effectiveUrbanFamilies(d){return window.ACKS.effectiveUrbanFamilies(d);},
   // Per-settlement market class
-  settlementMarketClass(s){return lookupMarketClass(s.families||0).class;},
-  settlementTradeRate(s){return lookupMarketClass(s.families||0).tradePerFamily;},
-  settlementCapacity(s){return urbanMaxFamilies(s.totalInvestment||0);},
+  settlementMarketClass(s){return window.ACKS.settlementMarketClass(s);},
+  settlementTradeRate(s){return window.ACKS.settlementTradeRate(s);},
+  settlementCapacity(s){return window.ACKS.settlementCapacity(s);},
   // Villages/Towns/Cities benchmarks (RR p.351)
   settlementType(s){return lookupSettlementBenchmark(s.families||0).type;},
   settlementIncomeBenchmark(s){
@@ -15190,23 +14937,12 @@ return {
     return revenue-expenses;
   },
   // Domain-level market class summary (largest settlement's class, or legacy aggregate)
-  marketClassRow(d){return lookupMarketClass(this.effectiveUrbanFamilies(d));},
-  marketClass(d){return this.marketClassRow(d).class;},
-  tradeRevenuePerFamily(d){return this.marketClassRow(d).tradePerFamily;},
-  urbanCapacity(d){
-    const hexInv=this.totalUrbanInvestmentFromHexes(d);
-    if(hexInv>0)return urbanMaxFamilies(hexInv);
-    return urbanMaxFamilies(d.urban?.totalInvestment||0);
-  },
+  marketClassRow(d){return window.ACKS.marketClassRow(d);},
+  marketClass(d){return window.ACKS.marketClass(d);},
+  tradeRevenuePerFamily(d){return window.ACKS.tradeRevenuePerFamily(d);},
+  urbanCapacity(d){return window.ACKS.urbanCapacity(d);},
 
-  banditCount(d){
-    const fam = d.demographics?.peasantFamilies || 0;
-    const m = d.demographics?.morale ?? 0;
-    if (m <= -4) return fam;
-    if (m === -3) return Math.floor(fam / 2);
-    if (m === -2) return Math.floor(fam / 5);
-    return 0;
-  },
+  banditCount(d){return window.ACKS.banditCount(d);},
 
   // RR p.340 — classification is a GM judgment. Stored domain.classification wins; the
   // families/morale/hexes heuristic is only a suggestion. Both lifted to the engine
@@ -15229,9 +14965,9 @@ return {
     if(fam >= 20) return 'Borderlands';
     return 'Outlands';
   },
-  garrisonHeadcount(d){return (d.garrison?.units||[]).reduce((s,u)=>s+(u.count||0),0);},
-  garrisonCost(d){return (d.garrison?.units||[]).reduce((s,u)=>s+(u.count||0)*(u.monthlyWage||0),0);},
-  garrisonBR(d){return (d.garrison?.units||[]).reduce((s,u)=>s+(u.count||0)*(u.brPerSoldier||0),0);},
+  garrisonHeadcount(d){return window.ACKS.garrisonHeadcount(d);},
+  garrisonCost(d){return window.ACKS.garrisonCost(d);},
+  garrisonBR(d){return window.ACKS.garrisonBR(d);},
 
   // Effective tribute owed by a vassal to its liege, this month. Returns 0 if no liege OR
   // tributePaid is false. When tributeAuto is on (the default), it's the RAW precise tribute by the
@@ -15239,26 +14975,11 @@ return {
   // 18gp × realm-families^0.6, rounded to 5gp). RAW tribute is a fixed obligation by realm size, NOT
   // a percentage of income. Otherwise (auto off), the GM's manual tributeToLiege ("set as desired"
   // is itself RAW). The %-of-gross-income auto mode + tributePct field were removed 2026-06-05.
-  tributeOwed(d){
-    if(!d.liegeId)return 0;
-    if(d.expenses?.tributePaid===false)return 0;
-    if(d.expenses?.tributeAuto!==false){
-      // Realm families = this domain's families + every sub-vassal realm's families (recursive chain).
-      let realmFamilies=this.totalFamilies(d);
-      for(const {domain:v} of this.vassalChainUnder(d.id)) realmFamilies+=this.totalFamilies(v);
-      return window.ACKS.rawTributeForRealmFamilies(realmFamilies);
-    }
-    // Manual path — round to 5gp too for consistency.
-    return window.ACKS.roundToNearest5(d.expenses?.tributeToLiege||0);
-  },
+  tributeOwed(d){return window.ACKS.tributeOwed(this.currentCampaign, d);},
 
   // Effective per-hex land value INCLUDING agricultural improvements (Phase 2a.5).
   // Hard cap at 9gp/family per RR p.341.
-  effectiveHexValue(h){
-    const base=h?.valuePerFamily||0;
-    const bonus=h?.landImprovementBonus||0;
-    return Math.min(9, base+bonus);
-  },
+  effectiveHexValue(h){return window.ACKS.effectiveHexValue(h);},
   // Phase 3 hook (RR p.341): "During a siege, land improvements can be destroyed by bombardment as
   // wooden structures — multiply shp dealt by 8 to calculate loss of gp value."
   // Reserved no-op. Phase 3 (Domains at War) will call this from siege/bombardment resolution.
@@ -15290,90 +15011,10 @@ return {
     return hexes.reduce((s,h)=>s+(Array.isArray(h.landImprovementProjects)?h.landImprovementProjects.length:0),0);
   },
   // Total completed +bonus across all hexes (for UI display).
-  domainTotalLandImprovementBonus(d){
-    const hexes=d.geography?.hexes||[];
-    return hexes.reduce((s,h)=>s+(h.landImprovementBonus||0),0);
-  },
+  domainTotalLandImprovementBonus(d){return window.ACKS.domainTotalLandImprovementBonus(d);},
 
-  incomeBreakdown(d){
-    const fam=d.demographics.peasantFamilies||0;
-    const urb=this.effectiveUrbanFamilies(d);
-    const taxRate=DEFAULT_TAX_RATES[d.taxPolicy?.rate]??(d.income.taxPerFamily||2);
-    // Land revenue (RR p.339–340). RAW counts peasant families at the DOMAIN level (population total +
-    // the monthly growth roll are "per 1,000 families in the domain", RR p.340); the hex carries the
-    // land value (3d3, RR p.339) and a population ceiling by classification, but NOT a stored family
-    // count. So the RAW model is: domain family total × land value. The revenue rule is phrased per-hex
-    // ("the monthly land revenue per peasant family in that hex"), yet every domain RAW presents is
-    // single-hex or uniform-value ("treat all land values as 6"), where AVERAGE hex value × domain
-    // families equals the per-hex sum exactly — so the DEFAULT below (average effective value ×
-    // peasantFamilies) IS the RAW model, not an approximation of it. families-per-hex-tracking is a
-    // BEYOND-RAW high-fidelity overlay: it stores a per-hex family count RAW doesn't track, to compute
-    // the literal per-hex sum for a mixed-value domain. "effective value" = base valuePerFamily +
-    // landImprovementBonus, capped at 9 (RR p.341).
-    let landRow;
-    const hexes = d.geography?.hexes || [];
-    const totalImprovementBonus = this.domainTotalLandImprovementBonus(d);
-    const improvedTag = totalImprovementBonus > 0 ? ' [improved +' + totalImprovementBonus + ' total]' : '';
-    if (this.isHouseRuleEnabled('families-per-hex-tracking') && hexes.length > 0) {
-      const hexTotal = hexes.reduce((s, h) => s + (h.families||0)*this.effectiveHexValue(h), 0);
-      const hexFam = hexes.reduce((s, h) => s + (h.families||0), 0);
-      landRow = { label: 'Land revenue (hex-by-hex, ' + hexes.length + ' hexes, ' + hexFam + ' families)' + improvedTag, gp: window.ACKS.bankersRound(hexTotal) };
-    } else if (hexes.length > 0) {
-      const avgValue = hexes.reduce((s, h) => s + this.effectiveHexValue(h), 0) / hexes.length;
-      landRow = { label: 'Land revenue (' + avgValue.toFixed(2) + ' avg × ' + fam + ' families across ' + hexes.length + ' hexes)' + improvedTag, gp: window.ACKS.bankersRound(avgValue * fam) };
-    } else {
-      landRow = { label: 'Land revenue (' + (d.income.landRevenuePerFamily||6) + ' × ' + fam + ')', gp: (d.income.landRevenuePerFamily||0) * fam };
-    }
-    const rows=[
-      landRow,
-      {label:'Service revenue ('+(d.income.serviceRevenuePerFamily||4)+' × '+(fam+urb)+')',gp:(d.income.serviceRevenuePerFamily||0)*(fam+urb)},
-      {label:'Tax ('+taxRate+' × '+(fam+urb)+')',gp:taxRate*(fam+urb)}
-    ];
-    // Trade revenue (ACKS RR p.351). Per-settlement when hex settlements exist; per-domain aggregate otherwise.
-    const settlements = this.hexSettlements(d);
-    if (settlements.length > 0) {
-      // One line per settlement, each at its own market class
-      settlements.forEach(({settlement}) => {
-        const rate = this.settlementTradeRate(settlement);
-        if (rate > 0 && (settlement.families||0) > 0) {
-          rows.push({ label: 'Trade revenue (' + settlement.name + ' Class ' + this.settlementMarketClass(settlement) + ': ' + rate + ' × ' + settlement.families + ')', gp: window.ACKS.bankersRound(rate * settlement.families) });
-        }
-      });
-    } else if (urb > 0) {
-      // Legacy aggregate path
-      const tradeRate = this.tradeRevenuePerFamily(d);
-      if (tradeRate > 0) {
-        rows.push({ label: 'Trade revenue (Class ' + this.marketClass(d) + ': ' + tradeRate + ' × ' + urb + ' urban)', gp: window.ACKS.bankersRound(tradeRate * urb) });
-      }
-    }
-    if(d.income.tariffs)rows.push({label:'Tariffs',gp:d.income.tariffs});
-    // Misc income — per-family + flat. GM lever for anything outside RAW categories.
-    const miscIncPerFam=d.income.miscPerFamily||0;
-    if(miscIncPerFam>0)rows.push({label:'Misc/family ('+miscIncPerFam+' × '+(fam+urb)+')',gp:miscIncPerFam*(fam+urb)});
-    const miscIncFlat=d.income.miscFlat||0;
-    if(miscIncFlat>0)rows.push({label:'Misc (flat)',gp:miscIncFlat});
-    // Auto-flow: tribute from each vassal (read effective tribute, which respects tributePaid)
-    const vassals=this.domains.filter(x=>x.liegeId===d.id);
-    const vassalIds = new Set(vassals.map(v => v.id));
-    vassals.forEach(v=>{
-      const t=this.tributeOwed(v);
-      if(t>0)rows.push({label:'Tribute from '+v.name+' (vassal)',gp:t});
-      else if(v.liegeId===d.id&&v.expenses?.tributePaid===false)rows.push({label:'Tribute from '+v.name+' (NOT PAID)',gp:0});
-    });
-    // Non-vassal tributes in. Skip entries whose source is now a vassal (covered above).
-    // Read both `gpPerMonth` (engine canonical) and legacy `amount` field — older campaigns
-    // saved `amount`; new campaigns save `gpPerMonth`. Resolve fromDomainId to name when possible.
-    (d.income.tributesIn||[]).forEach(t=>{
-      if(t.fromDomainId && vassalIds.has(t.fromDomainId)) return;  // dedupe — vassal path already counted it
-      const gp = t.gpPerMonth ?? t.amount ?? 0;
-      const src = t.fromDomainId ? (this.domains.find(x=>x.id===t.fromDomainId)?.name || t.fromDomainId) : '?';
-      rows.push({label:'Tribute from '+src,gp});
-    });
-    // Misc "other" income lines (e.g., mine royalties). Same dual-field-name tolerance.
-    (d.income.other||[]).forEach(o=>rows.push({label:o.label||'Other',gp:o.gpPerMonth ?? o.amount ?? 0}));
-    return rows;
-  },
-  monthlyGrossIncome(d){return this.incomeBreakdown(d).reduce((s,r)=>s+(r.gp||0),0);},
+  incomeBreakdown(d){return window.ACKS.incomeBreakdown(this.currentCampaign, d);},
+  monthlyGrossIncome(d){return window.ACKS.monthlyGrossIncome(this.currentCampaign, d);},
   // RAW canonical "Domain Income" per RR (p.423 "Experience from Domains" definition,
   // confirmed 2026-05-28 by Joachim against latest RR text): "Domain income is the difference
   // between domain revenue and domain expenses." That is — revenue (land + service + tax +
@@ -15384,9 +15025,7 @@ return {
   // The Marcus p.350 example understates by ignoring expenses; the p.423 definition is the
   // authoritative one. Earlier interpretation of this method returned gross revenue;
   // that was overturned 2026-05-28.
-  domainIncome(d){
-    return this.monthlyNet(d);
-  },
+  domainIncome(d){return window.ACKS.domainIncome(this.currentCampaign, d);},
 
   // ─── Magistrate helpers (Officers tab) ──────────────────────────────────
   // RAW: each magistrate keeps 12.5% of the expense they oversee as monthly
@@ -15398,22 +15037,8 @@ return {
   //   chaplain       → tithe (1gp × (peasant+urban) if paid, else 0)
   //   munerator      → liturgy (liturgyPerFamily × (peasant+urban))
   //   steward        → maintenance (stronghold 1gp/peasant + urban 1gp/urban)
-  magistrateBaseExpenseForRole(d, roleKey){
-    if(!d) return 0;
-    const fam=d.demographics?.peasantFamilies||0;
-    const urb=this.effectiveUrbanFamilies(d);
-    switch(roleKey){
-      case 'captainOfGuard': return this.garrisonCost(d);
-      case 'chaplain':       return d.expenses?.tithePaid ? (fam+urb) : 0;
-      case 'munerator':      return (d.expenses?.liturgyPerFamily??1)*(fam+urb);
-      case 'steward':        return fam + urb;  // stronghold maintenance + urban upkeep
-      default: return 0;
-    }
-  },
-  magistrateSalaryForRole(d, roleKey){
-    const base = this.magistrateBaseExpenseForRole(d, roleKey);
-    return window.ACKS.bankersRound(base * (window.ACKS.MAGISTRATE_SALARY_FRACTION || 0.125));
-  },
+  magistrateBaseExpenseForRole(d, roleKey){return window.ACKS.magistrateBaseExpenseForRole(this.currentCampaign, d, roleKey);},
+  magistrateSalaryForRole(d, roleKey){return window.ACKS.magistrateSalaryForRole(this.currentCampaign, d, roleKey);},
   // Sum every magistrate salary this character earns across all domains in the
   // campaign. Used by character XP threshold logic (RR p.425: magistrate
   // salary counts as domain income for the magistrate).
@@ -15539,126 +15164,17 @@ return {
   // administersThisMonth, plus any magistrate slot whose administersThisMonth
   // is true and has a real characterId. Used by morale-mod calc and the UI.
   // Returns array of { who: 'Aelric Bran', via: 'ruler' | 'captainOfGuard' | ... }.
-  magistrateAdminCandidates(d){
-    if(!d) return [];
-    const out = [];
-    if(d.administersThisMonth){
-      const r = this.rulerCharacter(d);
-      out.push({ who: r ? r.name : 'Ruler', via: 'ruler' });
-    }
-    const mg = d.magistrates || {};
-    const labelByRole = (window.ACKS && window.ACKS.MAGISTRATE_ROLES) || {};
-    ['captainOfGuard','chaplain','munerator','steward'].forEach(roleKey => {
-      const slot = mg[roleKey];
-      if(slot && slot.administersThisMonth && slot.characterId){
-        const ch = (this.currentCampaign?.characters||[]).find(c => c.id === slot.characterId);
-        out.push({ who: (ch ? ch.name : '(unassigned)') + ' (' + (labelByRole[roleKey]?.label||roleKey) + ')', via: roleKey });
-      }
-    });
-    return out;
-  },
+  magistrateAdminCandidates(d){return window.ACKS.magistrateAdminCandidates(this.currentCampaign, d);},
 
-  expenseBreakdown(d){
-    const fam=d.demographics.peasantFamilies||0;
-    const urb=this.effectiveUrbanFamilies(d);
-    const liturgy=(d.expenses.liturgyPerFamily??1)*(fam+urb);
-    const tithe=d.expenses.tithePaid?(fam+urb):0;
-    const strongholdMaint=fam;  // 1gp per peasant family (rural infrastructure)
-    const urbanUpkeep=urb;      // 1gp per urban family (urban infrastructure — RR p.351)
-    const garrison=this.garrisonCost(d);
-    // Magistrate salary annotation helper. For each expense row, look up the
-    // assigned magistrate (if any) and produce a bracketed suffix like
-    // " · Captain Sir Edrin: 187gp salary". Salary is paid out of the existing
-    // expense pool — total unchanged.
-    const charById = (id) => (this.currentCampaign?.characters||[]).find(c => c.id === id);
-    const magistrateNoteFor = (roleKey) => {
-      const slot = d.magistrates?.[roleKey];
-      if(!slot || !slot.characterId) return '';
-      const ch = charById(slot.characterId);
-      if(!ch) return '';
-      const salary = this.magistrateSalaryForRole(d, roleKey);
-      if(salary <= 0) return '';
-      const roleLabel = (window.ACKS?.MAGISTRATE_ROLES||{})[roleKey]?.label || roleKey;
-      return ' · ' + roleLabel + ' ' + ch.name + ': ' + salary.toLocaleString() + 'gp salary';
-    };
-    const rows=[
-      {label:'Garrison [req '+this.requiredGarrison(d).toLocaleString()+']' + magistrateNoteFor('captainOfGuard'),gp:garrison},
-      {label:'Liturgies' + magistrateNoteFor('munerator'),gp:liturgy},
-      {label:'Tithes'+(d.expenses.tithePaid?'':' (NOT PAID)') + magistrateNoteFor('chaplain'),gp:tithe},
-      {label:'Stronghold maintenance' + magistrateNoteFor('steward'),gp:strongholdMaint}
-    ];
-    if (urbanUpkeep > 0) rows.push({ label: 'Urban upkeep (1gp × ' + urb + ' urban)', gp: urbanUpkeep });
-    // Misc expenses — per-family + flat. miscFlat falls back to legacy personalExpenses
-    // for back-compat with older saves.
-    const miscExpPerFam=d.expenses.miscPerFamily||0;
-    if(miscExpPerFam>0)rows.push({label:'Misc/family ('+miscExpPerFam+' × '+(fam+urb)+')',gp:miscExpPerFam*(fam+urb)});
-    const miscExpFlat=d.expenses.miscFlat ?? d.expenses.personalExpenses ?? 0;
-    if(miscExpFlat>0)rows.push({label:'Misc (flat)',gp:miscExpFlat});
-    // Auto-flow: tribute to liege
-    if(d.liegeId){
-      const owed=this.tributeOwed(d);
-      const liege=this.domains.find(x=>x.id===d.liegeId);
-      const liegeName=liege?liege.name:'(missing liege)';
-      if(owed>0){
-        const note=d.expenses?.tributeAuto!==false?' (auto · RAW)':' (manual)';
-        rows.push({label:'Tribute to '+liegeName+' (liege)'+note,gp:owed});
-      }else if(d.expenses?.tributePaid===false){
-        rows.push({label:'Tribute to '+liegeName+' (NOT PAID — defiance, will hit morale)',gp:0});
-      }
-    }
-    // Manual tributes out (non-vassalage, e.g. paying off a foreign threat). Skip entries
-    // pointing to this domain's liege (covered by the auto-flow above). Tolerant of the legacy
-    // `amount` field name; resolves toDomainId to the target domain's name when possible.
-    (d.expenses.tithesOut||[]).forEach(t=>{
-      if(t.toDomainId && t.toDomainId === d.liegeId) return;  // dedupe — auto-tribute path already counted
-      const gp = t.gpPerMonth ?? t.amount ?? 0;
-      const tgt = t.toDomainId ? (this.domains.find(x=>x.id===t.toDomainId)?.name || t.toDomainId) : '?';
-      rows.push({label:'Tribute to '+tgt,gp});
-    });
-    return rows;
-  },
-  monthlyExpenses(d){return this.expenseBreakdown(d).reduce((s,r)=>s+(r.gp||0),0);},
-  monthlyNet(d){
-    const gross=this.monthlyGrossIncome(d);
-    const adj=window.ACKS.bankersRound(gross*this.incomeFactor(d.demographics.morale));
-    return adj-this.monthlyExpenses(d);
-  },
+  expenseBreakdown(d){return window.ACKS.expenseBreakdown(this.currentCampaign, d);},
+  monthlyExpenses(d){return window.ACKS.monthlyExpenses(this.currentCampaign, d);},
+  monthlyNet(d){return window.ACKS.monthlyNet(this.currentCampaign, d);},
 
-  moraleModifiersFor(d){
-    const mods=[];
-    const fam=d.demographics.peasantFamilies||0;
-    const taxRate=DEFAULT_TAX_RATES[d.taxPolicy?.rate]??2;
-    const liturgy=d.expenses.liturgyPerFamily??1;
-    const reqRate=REQUIRED_GARRISON_PER_FAMILY[this.effectiveClassification(d)]||2;
-    const gpf=fam>0?this.garrisonCost(d)/fam:reqRate;
-    if(gpf<reqRate&&fam>0)mods.push({label:'Garrison below required ('+reqRate+'gp/family)',value:-Math.max(1,Math.ceil(reqRate-gpf))});
-    // RR p.349 — stronghold-adequacy penalty. Previously displayed (strongholdState) but
-    // never applied to the roll; now emitted as a row so it flows through moraleModSum like
-    // the garrison/tax/tithe modifiers. Engine owns the band math (ACKS.strongholdMoralePenalty).
-    const strongholdReq=this.strongholdRequired(d), strongholdVal=this.strongholdValue(d);
-    const strongholdPen=window.ACKS.strongholdMoralePenalty(strongholdVal, strongholdReq);
-    if(strongholdPen<0)mods.push({label:'Stronghold below minimum ('+strongholdVal.toLocaleString()+'/'+strongholdReq.toLocaleString()+'gp, RR p.349)',value:strongholdPen});
-    if(taxRate>2)mods.push({label:'Taxes high ('+taxRate+'gp)',value:-(taxRate-2)});
-    else if(taxRate<2)mods.push({label:'Taxes low ('+taxRate+'gp)',value:(2-taxRate)});
-    if(liturgy>1)mods.push({label:'Liturgy above baseline',value:Math.floor(liturgy-1)});
-    else if(liturgy<1)mods.push({label:'Liturgy below baseline',value:-Math.ceil(1-liturgy)});
-    if(!d.expenses.tithePaid)mods.push({label:'Tithe not paid',value:-1});
-    // RAW (RR p.351): "If the ruler or his magistrate administered the domain
-    // that month, he gains a +1 bonus." Per Joachim: multiple can be ticked for
-    // narrative reasons, but only one +1 applies. Label lists everyone admining.
-    const adminList = this.magistrateAdminCandidates(d);
-    if(adminList.length > 0){
-      const label = adminList.length === 1
-        ? 'Administered by ' + adminList[0].who
-        : 'Administered by ' + adminList.map(a => a.who).join('; ');
-      mods.push({label, value: 1});
-    }
-    return mods;
-  },
+  moraleModifiersFor(d){return window.ACKS.moraleModifiersFor(this.currentCampaign, d);},
 
-  incomeSum(p){return (p.income||[]).reduce((s,r)=>s+(r.gp||0),0);},
-  expenseSum(p){return (p.expenses||[]).reduce((s,r)=>s+(r.gp||0),0);},
-  moraleModSum(p){return (p.moraleMods||[]).reduce((s,r)=>s+(r.value||0),0);},
+  incomeSum(p){return window.ACKS.incomeSum(p);},
+  expenseSum(p){return window.ACKS.expenseSum(p);},
+  moraleModSum(p){return window.ACKS.moraleModSum(p);},
   urbanInvestmentTotal(p){return (p.urbanInvestments||[]).reduce((s,inv)=>s+(inv.amount||0),0);},
   // Cap urban investment to the proposed gross-adjusted income for the month (ACKS RR p.351 — "cannot spend more than domain revenue")
   urbanInvestmentCap(p){return Math.round(this.incomeSum(p)*p.incomeFactor);},
@@ -15674,111 +15190,10 @@ return {
   proposedNewMorale(p){return clamp(p.moraleBefore+this.proposedMoraleChange(p),-4,4);},
 
   // Turn Cycle v2 — humanize an event's target (which entity it affects) for the modal.
-  summarizeEventTarget(ev){
-    const p = ev.payload || {};
-    if(p.domainId){
-      const d = this.domains.find(x => x.id === p.domainId);
-      return d ? ('Domain · '+d.name) : ('Domain · '+p.domainId+' (unresolved)');
-    }
-    if(p.characterId){
-      const c = (this.currentCampaign?.characters||[]).find(x => x.id === p.characterId);
-      return c ? ('Character · '+c.name) : ('Character · '+p.characterId+' (unresolved)');
-    }
-    if(p.target && p.target.kind && p.target.id){
-      return p.target.kind.charAt(0).toUpperCase()+p.target.kind.slice(1)+' · '+p.target.id;
-    }
-    if(p.hexId) return 'Hex · '+p.hexId;
-    if(p.settlementId) return 'Settlement · '+p.settlementId;
-    if(p.attackerDomainId || p.defenderDomainId) return 'War · '+(p.attackerDomainId||'?')+' vs '+(p.defenderDomainId||'?');
-    if(p.scope === 'campaign' || ev.kind === 'engine-standard-turn') return 'Campaign-scoped';
-    return '(no target)';
-  },
+  summarizeEventTarget(ev){return window.ACKS.summarizeEventTarget(this.currentCampaign, ev);},
 
   // Humanize the event payload for at-a-glance display. Each kind picks its most salient fields.
-  summarizeEventPayload(ev){
-    const p = ev.payload || {};
-    switch(ev.kind){
-      case 'player-plan': {
-        const parts = [];
-        if(p.freeformNotes) parts.push('"'+p.freeformNotes.substring(0,80)+(p.freeformNotes.length>80?'...':'')+'"');
-        const actions = Array.isArray(p.intendedActions) ? p.intendedActions.length : 0;
-        if(actions) parts.push(actions+' action'+(actions===1?'':'s'));
-        return parts.join(' · ') || '(no details)';
-      }
-      case 'gm-fiat':
-        return (p.mutation?.fieldPath || '?')+' = '+JSON.stringify(p.mutation?.newValue);
-      case 'treasury-grant':
-      case 'treasury-debit':
-        return (p.amount>=0?'+':'')+p.amount+'gp · '+(p.label||'no label');
-      case 'character-update':
-        return Object.keys(p.fieldUpdates||{}).join(', ') || '(no fields)';
-      case 'adventure-result':
-        return p.outcome+(p.lairId?' · cleared '+p.lairId:'')+(p.narrativeSummary?' · "'+p.narrativeSummary.substring(0,60)+'..."':'');
-      case 'daw-result':
-        return p.outcome+(p.attackerDomainId?' · '+p.attackerDomainId+' vs '+(p.defenderDomainId||'?'):'');
-      case 'claude-event':
-        return p.title || p.scope+' event';
-      case 'rumor-emit':
-        return '"'+(p.rumorText||'').substring(0,80)+'..."';
-      case 'venture-result':
-        return p.outcome+' · venture '+p.ventureId;
-      case 'population-shock':
-        return p.kind+': '+(p.deltaFamilies>0?'+':'')+p.deltaFamilies+' families';
-      case 'domain-transfer':
-        return (p.newRulerCharacterId?'new ruler '+p.newRulerCharacterId:'')+(p.newLiegeId?' new liege '+p.newLiegeId:'');
-      case 'hireling-calamity': {
-        // Calamity per RR p.166 (rations / wages / enervation / curse /
-        // magical-disease / hp-zero / other) and RR p.165 (transfer-of-
-        // employment / hidden-comrades). Pending or applied — both useful
-        // narrations. Auto-emits a follow-on loyalty-check, so the summary
-        // here is purely about WHAT happened to the hireling.
-        const ch = (this.currentCampaign?.characters||[]).find(c => c.id === p.characterId);
-        const who = ch ? ch.name : (p.characterId || '(unknown character)');
-        const kindLabels = {
-          'rations':                'went without rations',
-          'wages':                  'went without wages',
-          'enervation':             'suffered an enervation',
-          'curse':                  'suffered a curse',
-          'magical-disease':        'suffered a magical disease',
-          'hp-zero':                'was reduced to 0 hp',
-          'transfer-of-employment': 'was transferred to a new employer',
-          'hidden-comrades':        'discovered a previously-rejected comrade in the party',
-          'other':                  'suffered a calamity'
-        };
-        const kindStr = kindLabels[p.kind] || ('calamity (' + (p.kind||'?') + ')');
-        // Transfer case: show new employer name when we can resolve it.
-        let extra = '';
-        if(p.kind === 'transfer-of-employment' && p.newEmployerCharacterId){
-          const ne = (this.currentCampaign?.characters||[]).find(c => c.id === p.newEmployerCharacterId);
-          extra = ne ? ' → ' + ne.name : '';
-        }
-        const noteSuffix = p.reasonNote ? ' · ' + p.reasonNote : '';
-        return who + ' ' + kindStr + extra + ' (loyalty roll pending)' + noteSuffix;
-      }
-      case 'loyalty-check': {
-        // Resolve character name from the campaign for readability.
-        const ch = (this.currentCampaign?.characters||[]).find(c => c.id === p.characterId);
-        const who = ch ? ch.name : (p.characterId || '(unknown character)');
-        const reasonLabel = ({
-          'level-up':  'after level-up',
-          'calamity':  'after calamity',
-          'other':     'at GM discretion',
-        })[p.reason] || ('after ' + (p.reason || 'event'));
-        // If already rolled (applied flow), show the band + math; else "awaiting roll".
-        if(p.rollResult){
-          const rr = p.rollResult;
-          const breakdown = 'nat ' + (rr.natRoll||'?') + ' + loy ' + ((rr.loyaltyScore||0) >= 0 ? '+' : '') + (rr.loyaltyScore||0)
-                          + ' + mod ' + ((rr.situationalModifier||0) >= 0 ? '+' : '') + (rr.situationalModifier||0)
-                          + ' = ' + (rr.adjusted||'?');
-          return who + ' rolled ' + (rr.bandLabel||rr.bandKey||'(?)') + ' ' + reasonLabel + ' · ' + breakdown;
-        }
-        const noteSuffix = p.reasonNote ? ' — ' + p.reasonNote : '';
-        return 'Loyalty roll for ' + who + ' ' + reasonLabel + ' (awaiting roll)' + noteSuffix;
-      }
-      default:
-        return JSON.stringify(p).substring(0,80);
-    }
-  },
+  summarizeEventPayload(ev){return window.ACKS.summarizeEventPayload(this.currentCampaign, ev);},
 
   // Foundation #15 — orchestration lifted into ACKS.proposeMonthlyTurn.
   // This Alpine method is now a thin shell that supplies UI-bound helpers and surfaces UI state.
@@ -15916,8 +15331,7 @@ return {
   proposeMonthlyTurn(){
     this.turnProposalError = '';
     try {
-      const helpers = this._buildTurnHelpers();
-      const result = window.ACKS.proposeMonthlyTurn(this.currentCampaign, this.domains, helpers);
+      const result = window.ACKS.proposeMonthlyTurn(this.currentCampaign);
       if(result.error){
         this.turnProposalError = result.error;
         this.showTurnModal = true;
@@ -15934,39 +15348,9 @@ return {
     }
   },
 
-  // Helpers contract for ACKS.proposeMonthlyTurn / ACKS.commitTurn. See acks-engine.js §9.8.
-  // Bound to `this` so engine callbacks can use Alpine state when needed (e.g. logEvent inside
-  // applyVagaryToVenture and levelUpCharacter call back into Alpine for log-line side effects).
-  _buildTurnHelpers(){
-    const self = this;
-    return {
-      // proposeMonthlyTurn helpers
-      summarizeEventTarget:    (ev) => self.summarizeEventTarget(ev),
-      summarizeEventPayload:   (ev) => self.summarizeEventPayload(ev),
-      effectiveClassification: (d)  => self.effectiveClassification(d),
-      effectiveRuler:          (d)  => self.effectiveRuler(d),
-      totalFamilies:           (d)  => self.totalFamilies(d),
-      incomeBreakdown:         (d)  => self.incomeBreakdown(d),
-      expenseBreakdown:        (d)  => self.expenseBreakdown(d),
-      incomeFactor:            (m)  => self.incomeFactor(m),
-      moraleModifiersFor:      (d)  => self.moraleModifiersFor(d),
-      hexSettlements:          (d)  => self.hexSettlements(d),
-      settlementMarketClass:   (s)  => self.settlementMarketClass(s),
-      settlementCapacity:      (s)  => self.settlementCapacity(s),
-      // commitTurn helpers
-      incomeSum:               (p)  => self.incomeSum(p),
-      expenseSum:              (p)  => self.expenseSum(p),
-      moraleModSum:            (p)  => self.moraleModSum(p),
-      effectiveUrbanFamilies:  (d)  => self.effectiveUrbanFamilies(d),
-      domainXpFromNet:         (d, n) => self.domainXpFromNet(d, n),
-      rulerCharacter:          (d)  => self.rulerCharacter(d),
-      addCharacterHistory:     (c, t, s, x) => self.addCharacterHistory(c, t, s, x),
-      applyVagaryToVenture:    (v, vp) => self.applyVagaryToVenture(v, vp),
-      processPassiveInvestmentsForTurn: () => self.processPassiveInvestmentsForTurn(),
-      checkAllCharacterLevelUps:        () => self.checkAllCharacterLevelUps(),
-      isHouseRuleEnabled:      (id) => self.isHouseRuleEnabled(id)
-    };
-  },
+  // (The _buildTurnHelpers callback bag was removed 2026-06-06 — audit batch 3. The engine now owns
+  // the whole turn: ACKS.proposeMonthlyTurn(campaign) / ACKS.commitTurn(campaign, proposal). The
+  // economy lives in acks-engine-economy.js; this object's economy methods delegate to it.)
 
   // Regenerate income/expense/moraleMods when the user toggles tithePaid / tributePaid / administersThisMonth in the modal
   recomputeProposal(p){
@@ -16055,52 +15439,13 @@ return {
     vp.applyEffect=v.effect!=='none';
   },
   // Apply a vagary effect to a venture record. Returns a human-readable summary string.
-  applyVagaryToVenture(venture, vp){
-    if(!venture||!vp||!vp.applyEffect||vp.vagaryEffect==='none')return null;
-    const v=lookupVagary(vp.vagaryId);
-    if(!v)return null;
-    if(!Array.isArray(venture.vagaries))venture.vagaries=[];
-    let summary='';
-    switch(vp.vagaryEffect){
-      case 'speed-up-1':
-        venture.expectedArrivalTurn = Math.max((this.currentCampaign?.currentTurn||1)+1, (venture.expectedArrivalTurn||0)-1);
-        summary='Arrival accelerated to Turn '+venture.expectedArrivalTurn+'.';
-        break;
-      case 'delay-turns':
-        venture.expectedArrivalTurn = (venture.expectedArrivalTurn||0) + (vp.vagaryEffectValue||1);
-        summary='Arrival delayed to Turn '+venture.expectedArrivalTurn+'.';
-        break;
-      case 'value-bonus-pct':
-        venture.totalInvestment = Math.round((venture.totalInvestment||0) * (1 + (vp.vagaryEffectValue||0)/100));
-        summary='Cargo value boosted by '+vp.vagaryEffectValue+'% to '+venture.totalInvestment.toLocaleString()+'gp.';
-        break;
-      case 'value-loss-pct':
-        venture.totalInvestment = Math.round((venture.totalInvestment||0) * (1 - (vp.vagaryEffectValue||0)/100));
-        summary='Cargo value reduced by '+vp.vagaryEffectValue+'% to '+venture.totalInvestment.toLocaleString()+'gp.';
-        break;
-      case 'total-loss':
-        venture.status = 'failed';
-        venture.completedTurn = this.currentCampaign?.currentTurn || 1;
-        venture.totalInvestment = 0;
-        summary='Venture annihilated — total loss booked.';
-        // Add to venturer ledger
-        const character=(this.currentCampaign?.characters||[]).find(c=>c.id===venture.venturerCharacterId);
-        if(character){
-          if(!Array.isArray(character.earningsLedger))character.earningsLedger=[];
-          character.earningsLedger.push({ventureId:venture.id, turn:venture.completedTurn, gp:-(venture.totalInvestment||0), kind:'venture-annihilated', fromDomainId:venture.originDomainId, toDomainId:venture.destinationDomainId, aborted:true, vagary:vp.vagaryId});
-        }
-        break;
-    }
-    venture.vagaries.push({turn:this.currentCampaign?.currentTurn||1, vagaryId:vp.vagaryId, name:vp.vagaryName, effect:vp.vagaryEffect, effectValue:vp.vagaryEffectValue||0, summary});
-    return summary;
-  },
+  applyVagaryToVenture(venture, vp){return window.ACKS.applyVagaryToVenture(this.currentCampaign, venture, vp);},
 
   // Foundation #15 — orchestration lifted into ACKS.commitTurn.
   // Alpine wrapper: assembles a proposal payload from the modal state, delegates to the engine,
   // then surfaces UI side effects (log entries → campaign log; result blurbs → toast).
   commitTurn(){
     if(!this.turnProposal) return;
-    const helpers = this._buildTurnHelpers();
     const proposal = {
       turnEventProposals: this.turnEventProposals || [],
       turnVentureProposals: this.turnVentureProposals || [],
@@ -16111,7 +15456,7 @@ return {
     // (rather than leaving the user staring at an unresponsive dialog).
     let result;
     try {
-      result = window.ACKS.commitTurn(this.currentCampaign, this.domains, proposal, helpers);
+      result = window.ACKS.commitTurn(this.currentCampaign, proposal);
     } catch(e){
       console.error('commitTurn threw:', e);
       this.showTurnModal = false;
