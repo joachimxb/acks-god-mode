@@ -2300,6 +2300,12 @@ function tickJourneyDay(campaign, journey, ctx){
     // §27 getting-lost post-state (commitJourneyRecord applies these; reroll-revert restores the pre-state)
     newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored
   };
+  // Attribute every notable to THIS day. A multi-day advance produces one journey record per day, and the
+  // day-tick review surface matches a record's notables by (journeyId, dayIndex) — without a dayIndex on
+  // each (the survival signals from journeyDaySurvival carried only journeyId) the matcher fell back to
+  // journeyId alone, so every day's record showed every day's notables (a later day's dehydration surfaced
+  // under an earlier day — the "review looks into the future" bug). Stamp it where missing.
+  notableEvents.forEach(e => { if(e){ e.payload = e.payload || {}; if(e.payload.dayIndex == null) e.payload.dayIndex = newDayIndex; } });
   return { record, notableEvents, encounters };
 }
 

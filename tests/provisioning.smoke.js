@@ -351,6 +351,31 @@ section('Supply toggle re-resolves the latest day (reapplyLatestDaySurvival)');
   ok('a share-rations flip preserves the forage die (no re-roll)', c3.journeys[0].days[c3.journeys[0].days.length - 1].waterForage.rolled === rolledBefore);
 })();
 
+section('Day-tick review attribution — every journey notable carries its own dayIndex');
+(function () {
+  // The day-tick review matches a record's notables by (journeyId, dayIndex). The survival signals from
+  // journeyDaySurvival formerly carried only journeyId, so a multi-day advance showed every day's notables
+  // (incl. a LATER day's dehydration) under each day's record. tickJourneyDay now stamps the day index.
+  const c = ACKS.blankCampaign({ name: 'attrib' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 };
+  c.hexes = [ACKS.blankHex({ id: 'a0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'a9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'ac', name: 'A', waterDaysCarried: 0, foodDeficitDays: 6 })];  // will go hungry + thirsty
+  const j = ACKS.blankJourney({ id: 'aj', participantCharacterIds: ['ac'], startHexId: 'a0', currentHexId: 'a0', destinationHexId: 'a9', forageWaterEnabled: false, supplies: { rations: 0, waterRations: 0 } });
+  c.journeys = [j]; c.houseRules = {};
+  ACKS.startJourney(c, j);
+  const out = ACKS.tickJourneyDay(c, j, {});
+  ok('tickJourneyDay returns notables', (out.notableEvents || []).length > 0);
+  ok('every journey notable carries this day’s dayIndex (incl. survival signals)', (out.notableEvents || []).every(e => e && e.payload && e.payload.dayIndex === out.record.newDayIndex));
+  const surv = (out.notableEvents || []).filter(e => e.type === 'hunger' || e.type === 'dehydration');
+  ok('the survival notables (formerly un-stamped) are present + stamped', surv.length > 0 && surv.every(e => e.payload.dayIndex === out.record.newDayIndex));
+  // a second day stamps a DIFFERENT index — so a per-(journeyId,dayIndex) filter separates the two days
+  ACKS.commitJourneyRecord(c, out.record);
+  const out2 = ACKS.tickJourneyDay(c, j, {});
+  ok('day 2 notables stamp a distinct dayIndex', (out2.notableEvents || []).every(e => e && e.payload && e.payload.dayIndex === out2.record.newDayIndex) && out2.record.newDayIndex !== out.record.newDayIndex);
+  const day1Only = [...out.notableEvents, ...out2.notableEvents].filter(e => e.payload.journeyId === j.id && e.payload.dayIndex === out.record.newDayIndex);
+  ok('filtering the combined notables by day 1 excludes day 2', day1Only.length === out.notableEvents.length && day1Only.every(e => e.payload.dayIndex === out.record.newDayIndex));
+})();
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — provisioning.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }
