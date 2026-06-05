@@ -23,7 +23,7 @@
 <!-- Inlined Established March template for the welcome banner's "Try the demo" CTA.
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
-<script src="acks-demo-template.js?v=2026-06-05-saltspur-expansion"></script>
+<script src="acks-demo-template.js?v=2026-06-05-saltspur-rev2"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
 <!-- Reusable editable-stat component (new GM stat-editing standard).
@@ -1647,8 +1647,8 @@ document.addEventListener('alpine:init', () => {
 
           <div class="vellum border border-ink p-3 rounded">
             <h2 class="font-bold text-lg mb-2">Settlements (<span x-text="hexSettlements(selectedDomain).length"></span>)</h2>
-            <template x-if="hexSettlements(selectedDomain).length === 0 && (selectedDomain.demographics.urbanFamilies||0) === 0">
-              <p class="text-sm italic opacity-70">No settlements yet. Use the <strong>Hexes</strong> section below — click <em>+ found settlement</em> on the hex where you want it.</p>
+            <template x-if="hexSettlements(selectedDomain).length === 0">
+              <p class="text-sm italic opacity-70">No settlements in this domain. Use the <strong>Hexes</strong> section below — click <em>+ found settlement</em> on the hex where you want one.</p>
             </template>
             <template x-if="hexSettlements(selectedDomain).length > 0">
               <table class="bookkeeping text-sm">
@@ -1692,17 +1692,6 @@ document.addEventListener('alpine:init', () => {
                   </tr>
                 </tbody>
               </table>
-            </template>
-            <template x-if="hexSettlements(selectedDomain).length === 0 && (selectedDomain.demographics.urbanFamilies||0) > 0">
-              <div>
-                <p class="text-sm italic opacity-70 mb-2">Legacy aggregate urban data (no per-hex settlement defined):</p>
-                <table class="bookkeeping text-sm">
-                  <tr><td>Population</td><td class="text-right font-semibold" x-text="selectedDomain.demographics.urbanFamilies.toLocaleString() + ' families'"></td></tr>
-                  <tr><td>Market class</td><td class="text-right font-semibold" x-text="'Class ' + marketClass(selectedDomain)"></td></tr>
-                  <tr><td>Trade revenue</td><td class="text-right" x-text="tradeRevenuePerFamily(selectedDomain) + 'gp / family / month'"></td></tr>
-                </table>
-                <p class="text-sm opacity-70 mt-2">To migrate: zero out the aggregate <code>demographics.urbanFamilies</code> and found a named settlement on a hex via the Hexes tab.</p>
-              </div>
             </template>
           </div>
           </div>
