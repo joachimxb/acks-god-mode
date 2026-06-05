@@ -376,6 +376,60 @@ section('Day-tick review attribution — every journey notable carries its own d
   ok('filtering the combined notables by day 1 excludes day 2', day1Only.length === out.notableEvents.length && day1Only.every(e => e.payload.dayIndex === out.record.newDayIndex));
 })();
 
+section('Day-tick PREVIEW determinism — re-proposing the same state is identical (Joachim 2026-06-05)');
+(function () {
+  // The floating Day-tick review previews the upcoming journey day. It must NOT re-roll on
+  // re-open: proposeJourneyDay (the preview path, no injected rng) seeds the day's dice from the
+  // journey's committed-state fingerprint, so the same state always previews the same day. It
+  // re-previews only when something real changes (a supply toggle), and an explicit ctx.rng still
+  // forces genuine randomness (the reroll path).
+  function freshC() {
+    const c = ACKS.blankCampaign({ name: 'det' });
+    c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 }; c.houseRules = {};
+    // no water source (plain grassland), no supplies → the day rolls nav + forage + survival.
+    c.hexes = [ACKS.blankHex({ id: 'd0', coord: { q: 0, r: 0 }, terrain: 'grassland' }),
+               ACKS.blankHex({ id: 'd9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+    c.characters = [ACKS.blankCharacter({ id: 'dc', name: 'D', waterDaysCarried: 0, foodDeficitDays: 0 })];
+    const j = ACKS.blankJourney({ id: 'dj', participantCharacterIds: ['dc'], startHexId: 'd0', currentHexId: 'd0', destinationHexId: 'd9', forageWaterEnabled: false, supplies: { rations: 0, waterRations: 0 } });
+    c.journeys = [j]; ACKS.startJourney(c, j);
+    return c;
+  }
+  const jRec = (prop) => JSON.stringify((prop.pendingRecords || []).filter(r => r && (r.kind === 'journey-day' || r.consumer === 'journeys'))[0] || null);
+
+  // 1) proposeJourneyDay (the preview handler) — no rng → seeded → stable across re-proposes.
+  const cA = freshC();
+  const p1 = ACKS.proposeJourneyDay(cA, { dayInMonth: 2 });
+  const p2 = ACKS.proposeJourneyDay(cA, { dayInMonth: 2 });
+  ok('proposeJourneyDay (no rng) is identical on re-propose', jRec(p1) === jRec(p2) && jRec(p1) !== 'null');
+
+  // 2) proposeDayTick (the UI's actual path, via _proposeDayTick) — same stability end-to-end.
+  const cB = freshC();
+  const d1 = ACKS.proposeDayTick(cB, 1, {});
+  const d2 = ACKS.proposeDayTick(cB, 1, {});
+  ok('proposeDayTick is identical on re-propose (UI path)', jRec(d1) === jRec(d2) && jRec(d1) !== 'null');
+  ok('proposeDayTick did NOT mutate the real campaign (still day 1, journey un-advanced)',
+     cB.currentDayInMonth === 1 && (cB.journeys[0].currentDayIndex || 0) === 0);
+
+  // 3) a REAL change (toggle forage-for-water) re-previews to a different upcoming day.
+  const cC = freshC();
+  const before = jRec(ACKS.proposeJourneyDay(cC, { dayInMonth: 2 }));
+  cC.journeys[0].forageWaterEnabled = true;                       // the GM flips a supply lever
+  const after = jRec(ACKS.proposeJourneyDay(cC, { dayInMonth: 2 }));
+  ok('toggling forage-for-water re-previews (fingerprint changed)', before !== after);
+
+  // 4) an explicit ctx.rng still overrides the seed (genuine-randomness path preserved).
+  const cD = freshC();
+  const lo = jRec(ACKS.proposeJourneyDay(cD, { dayInMonth: 2, rng: () => 0.01 }));
+  const hi = jRec(ACKS.proposeJourneyDay(cD, { dayInMonth: 2, rng: () => 0.99 }));
+  ok('an injected ctx.rng still drives the roll (overrides the seed)', lo !== hi);
+
+  // 5) advancing the world day re-seeds (day 5 ≠ day 6 even from an identical journey shape).
+  const cE = freshC();
+  const dayX = jRec(ACKS.proposeJourneyDay(cE, { dayInMonth: 2 }));
+  const dayY = jRec(ACKS.proposeJourneyDay(cE, { dayInMonth: 3 }));
+  ok('a different world day re-seeds the preview', dayX !== dayY);
+})();
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — provisioning.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }

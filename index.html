@@ -232,7 +232,10 @@ document.addEventListener('alpine:init', () => {
             <h3 class="font-black">Day-tick review</h3>
           </div>
           <p class="text-xs opacity-70 mb-2">
-            <span x-text="'Advancing ' + (dayTickProposal.daysAdvanced||0) + ' day(s): day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay"></span>
+            <!-- Frame a single-day tick as the day being resolved (present tense), NOT "advancing to a
+                 future date" — Joachim 2026-06-05: the review should read as the current day's events,
+                 stable on re-open (the preview no longer re-rolls). A multi-day advance keeps the range. -->
+            <span x-text="(dayTickProposal.daysAdvanced||0) <= 1 ? ('Resolving day ' + dayTickProposal.toDay + ' — confirm the day’s events below, then commit') : ('Advancing ' + dayTickProposal.daysAdvanced + ' days: day ' + dayTickProposal.fromDay + ' to ' + dayTickProposal.toDay)"></span>
             <span x-show="dayTickProposal.monthEndReached" class="font-semibold"> &middot; month end reached</span>
           </p>
           <template x-if="dayTickPausedEarly()">

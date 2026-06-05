@@ -2309,14 +2309,71 @@ function tickJourneyDay(campaign, journey, ctx){
   return { record, notableEvents, encounters };
 }
 
+// ── Deterministic day-tick PREVIEW (Joachim 2026-06-05) ───────────────────────────────────
+// proposeJourneyDay is the PURE preview path the floating Day-tick review reads (the reroll path
+// calls tickJourneyDay directly, with Math.random). If the preview rolled with Math.random it
+// would re-throw nav/forage/survival every time the review opened — so the same committed state
+// showed a DIFFERENT upcoming day on each open ("always different / pulling from the future").
+// Instead we seed the preview's dice from a fingerprint of the journey's CURRENT committed state
+// + the world day: re-opening / refreshing the review previews the IDENTICAL upcoming day, and it
+// changes ONLY when the GM changes something real (reroll a prior day, toggle forage/rations → a
+// new fingerprint → a new, still-stable preview). commitJourneyRecord replays the recorded
+// absolutes, so what the GM ratifies is exactly what lands. A caller may still inject ctx.rng to
+// force genuine randomness (the reroll path does, via tickJourneyDay directly).
+function _jHash32(str){
+  let h = 2166136261 >>> 0;                                  // FNV-1a
+  for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function _jMulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Everything that determines the upcoming day's outcome: the world day (so consecutive days in a
+// multi-day advance differ), the journey's position + lost-state + pace/override + supply toggles
+// + supplies, and each traveller's survival state (so a forage/ration change re-previews).
+function _journeyPreviewFingerprint(campaign, j, ctx){
+  ctx = ctx || {};
+  const cal = (campaign && campaign.calendar) || {};
+  const sids = j.participantCharacterIds || [];
+  const surv = [];
+  for(const id of sids){
+    const c = (campaign.characters || []).find(x => x && x.id === id);
+    if(!c){ surv.push(id + ':?'); continue; }
+    surv.push([id, c.hungerDays||0, c.dehydrationDays||0, c.waterDaysCarried||0,
+               c.foodDeficitDays||0, c.waterDeficitDays||0,
+               c.underfed?1:0, c.starving?1:0, c.dehydrated?1:0].join('|'));
+  }
+  return JSON.stringify({
+    d: ctx.dayInMonth || (campaign && campaign.currentDayInMonth) || 1, y: cal.year||1, m: cal.month||1,
+    id: j.id, di: j.currentDayIndex||0, hex: j.currentHexId||j.startHexId||null,
+    cov: j.covered||0, base: j.coveredBaseline||0, anc: j.routeAnchorCoord||j.routeAnchorHexId||null,
+    lost: j.isLost?1:0, stray: (typeof j.strayHeading==='number')?j.strayHeading:null,
+    pace: j.pace||'normal', ov: j.speedOverrideMilesPerDay||0, mode: j.mode||'overland',
+    fw: j.forageWaterEnabled?1:0, sr: j.shareRations?1:0, sup: j.supplies||null, surv: surv
+  });
+}
+function _seededJourneyRng(campaign, j, ctx){
+  return _jMulberry32(_jHash32(_journeyPreviewFingerprint(campaign, j, ctx)));
+}
+
 // §14 day-handler for journeys (Calendar §10.2 slot 30). PURE: proposes one day per
 // in-transit journey without mutating. commitJourneyRecord applies a ratified record.
 function proposeJourneyDay(campaign, ctx){
   const pendingRecords = [], notableEvents = [], encounters = [];
   if(!campaign || !Array.isArray(campaign.journeys)) return { pendingRecords, notableEvents, encounters };
+  ctx = ctx || {};
   for(const j of campaign.journeys){
     if(!j || j.status !== 'in-transit') continue;
-    const out = tickJourneyDay(campaign, j, ctx);
+    // Stable preview: seed each journey's day from its committed-state fingerprint unless the
+    // caller forced an rng. Re-opening / refreshing the review reproduces the same upcoming day.
+    const rng = ctx.rng || _seededJourneyRng(campaign, j, ctx);
+    const out = tickJourneyDay(campaign, j, Object.assign({}, ctx, { rng: rng }));
     if(out && out.record){
       pendingRecords.push(out.record);
       (out.notableEvents || []).forEach(e => notableEvents.push(e));
