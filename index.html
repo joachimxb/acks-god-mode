@@ -23,7 +23,7 @@
 <!-- Inlined Established March template for the welcome banner's "Try the demo" CTA.
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
-<script src="acks-demo-template.js?v=2026-05-28-g"></script>
+<script src="acks-demo-template.js?v=2026-06-05-saltspur-expansion"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
 <!-- Reusable editable-stat component (new GM stat-editing standard).
@@ -192,6 +192,7 @@ document.addEventListener('alpine:init', () => {
   <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid #2a1f12;">
     <h1 class="text-4xl font-black mr-2">ACKS God Mode</h1>
     <span class="flex-grow"></span>
+    <button @click="loadDemoTemplate()" class="px-3 py-1 border border-ink rounded bg-emerald-200 hover:bg-emerald-300 font-semibold" title="Reset the current state to the bundled demo campaign (March of Saltspur). Won't overwrite any file — Save will prompt for a new location.">🎲 Demo</button>
     <button @click="newCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">＋ New campaign</button>
     <button @click="openCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
     <button @click="saveCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>

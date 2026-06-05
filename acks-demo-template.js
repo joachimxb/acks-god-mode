@@ -1,10 +1,10 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
-// ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces
-// (WIS->WIL, settlement entryways/regulatedAssets -> [], v1-scope reservations, typed
-// eventLog, Wave Construction-B agricultural Projects, Phase 2.5 Journeys hex/character
-// fields, Items I1 character.coins purse + treasury Stash). Regenerated 2026-06-03
-// (stash subsystem made always-on core, v0.17.0) - migrateCampaign is a no-op on this
-// file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
+// ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces.
+// Regenerated 2026-06-05 — Saltspur expansion: Free Holding of Tidewrack (a far
+// Outlands coastal domain reached by the Saltspur Pass), 3 characters, 10 hexes
+// (pass-road spine + off-road wilderness), 3 lair Groups (Monster Persistence #476),
+// 4 new rumors, and a non-negative hex-coordinate set. migrateCampaign is a no-op on
+// this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
   global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
@@ -55,8 +55,8 @@
       "geography": {
         "hexMapId": null,
         "primaryHex": {
-          "q": 0,
-          "r": 0
+          "q": 7,
+          "r": 2
         },
         "hexScale": "6-mile",
         "controlledHexes": 8,
@@ -67,8 +67,8 @@
             "schemaVersion": 2,
             "id": "hex-saltspur-keep",
             "coord": {
-              "q": 0,
-              "r": 0
+              "q": 7,
+              "r": 2
             },
             "classification": "Borderlands",
             "explored": true,
@@ -106,8 +106,8 @@
             "schemaVersion": 2,
             "id": "hex-saltspur-fields",
             "coord": {
-              "q": 1,
-              "r": 0
+              "q": 8,
+              "r": 2
             },
             "classification": "Borderlands",
             "explored": true,
@@ -144,8 +144,8 @@
             "schemaVersion": 2,
             "id": "hex-saltpans",
             "coord": {
-              "q": 0,
-              "r": 1
+              "q": 7,
+              "r": 3
             },
             "classification": "Borderlands",
             "explored": true,
@@ -174,8 +174,8 @@
             "schemaVersion": 2,
             "id": "hex-coastal-march",
             "coord": {
-              "q": -1,
-              "r": 1
+              "q": 6,
+              "r": 3
             },
             "classification": "Borderlands",
             "explored": true,
@@ -311,7 +311,7 @@
       },
       "council": null,
       "history": [],
-      "notes": "The march itself. Aelric directly administers the central hexes; his two vassal barons hold the rest.",
+      "notes": "The march itself. Aelric directly administers the central hexes; his two vassal barons hold the rest. West of Saltcombe the coast turns wild and rises into the Saltspur range; the old Auran pass-road climbs over it to the free port of Tidewrack, the March’s one thread to the western sea. Aelric keeps no garrison past the pass-stone — the king’s wars have taken too many sons — so the wild stretch, and its lairs, are no one’s to hold.",
       "magistrates": {
         "captainOfGuard": {
           "characterId": "chr-sir-tomas-castellan",
@@ -330,7 +330,7 @@
           "administersThisMonth": false
         }
       },
-      "treasuryStashId": "stash-zewxkre"
+      "treasuryStashId": "stash-zb8omrq"
     },
     {
       "schemaVersion": 2,
@@ -354,8 +354,8 @@
       "geography": {
         "hexMapId": null,
         "primaryHex": {
-          "q": 0,
-          "r": -2
+          "q": 7,
+          "r": 0
         },
         "hexScale": "6-mile",
         "controlledHexes": 4,
@@ -366,8 +366,8 @@
             "schemaVersion": 2,
             "id": "hex-northwatch-tower",
             "coord": {
-              "q": 0,
-              "r": -2
+              "q": 7,
+              "r": 0
             },
             "classification": "Borderlands",
             "explored": true,
@@ -401,8 +401,8 @@
             "schemaVersion": 2,
             "id": "hex-northwatch-farms",
             "coord": {
-              "q": 1,
-              "r": -2
+              "q": 8,
+              "r": 0
             },
             "classification": "Borderlands",
             "explored": true,
@@ -518,7 +518,7 @@
       "council": null,
       "history": [],
       "notes": "Yorick's barony. Owes ~10% tribute to the March monthly.",
-      "treasuryStashId": "stash-qqqpfcf"
+      "treasuryStashId": "stash-4g63vys"
     },
     {
       "schemaVersion": 2,
@@ -542,8 +542,8 @@
       "geography": {
         "hexMapId": null,
         "primaryHex": {
-          "q": -2,
-          "r": 1
+          "q": 5,
+          "r": 3
         },
         "hexScale": "6-mile",
         "controlledHexes": 3,
@@ -554,8 +554,8 @@
             "schemaVersion": 2,
             "id": "hex-saltcombe-shrine",
             "coord": {
-              "q": -2,
-              "r": 1
+              "q": 5,
+              "r": 3
             },
             "classification": "Civilized",
             "explored": true,
@@ -599,8 +599,8 @@
             "schemaVersion": 2,
             "id": "hex-saltcombe-fields",
             "coord": {
-              "q": 0,
-              "r": 2
+              "q": 7,
+              "r": 4
             },
             "classification": "Civilized",
             "explored": true,
@@ -711,7 +711,209 @@
       "council": null,
       "history": [],
       "notes": "Mira's barony. Smallest of the three, but the pilgrim trade keeps it solvent.",
-      "treasuryStashId": "stash-9v9rbln"
+      "treasuryStashId": "stash-995bwaj"
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain",
+      "id": "dom-tidewrack",
+      "name": "Free Holding of Tidewrack",
+      "createdAt": "2026-06-05",
+      "lastModifiedAt": "2026-06-05",
+      "type": "rural",
+      "classification": "Outlands",
+      "tags": [],
+      "rulerCharacterId": "chr-tidewrack-warden",
+      "administersThisMonth": false,
+      "liegeId": null,
+      "vassalIds": [],
+      "isRealm": false,
+      "geography": {
+        "hexMapId": null,
+        "primaryHex": {
+          "q": 1,
+          "r": 5
+        },
+        "hexScale": "6-mile",
+        "controlledHexes": 2,
+        "claimedHexes": 2,
+        "controlledHexList": [
+          "hex-tidewrack-cove",
+          "hex-tidewrack-strand"
+        ],
+        "hexes": [
+          {
+            "schemaVersion": 2,
+            "id": "hex-tidewrack-cove",
+            "coord": {
+              "q": 1,
+              "r": 5
+            },
+            "classification": "Borderlands",
+            "explored": true,
+            "families": 0,
+            "valuePerFamily": 6,
+            "landImprovementBonus": 0,
+            "landImprovementInvested": 0,
+            "landImprovementProjects": [],
+            "queuedImprovementGp": 0,
+            "improvementBudgetGp": 0,
+            "constructionSupervisorCharacterIds": [],
+            "terrain": "coast",
+            "hasRoad": true,
+            "hasTrail": false,
+            "roadSides": [
+              4
+            ],
+            "riverSides": [],
+            "crossingSides": [],
+            "elevationFt": 0,
+            "groundCondition": "clear",
+            "hasLake": false,
+            "freshWater": false,
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "A deep, sheltered cove built over an Auran naval station now half-drowned. At low water the masts of an old Auran warship break the surface of the inner harbour. The free town of Tidewrack clings to the salvage-quays.",
+            "economyType": "agricultural",
+            "terrainTransformationState": null,
+            "domainId": "dom-tidewrack",
+            "name": "Tidewrack Cove"
+          },
+          {
+            "schemaVersion": 2,
+            "id": "hex-tidewrack-strand",
+            "coord": {
+              "q": 0,
+              "r": 5
+            },
+            "classification": "Borderlands",
+            "explored": true,
+            "families": 120,
+            "valuePerFamily": 6,
+            "landImprovementBonus": 0,
+            "landImprovementInvested": 0,
+            "landImprovementProjects": [],
+            "queuedImprovementGp": 0,
+            "improvementBudgetGp": 0,
+            "constructionSupervisorCharacterIds": [],
+            "terrain": "coast",
+            "hasRoad": false,
+            "hasTrail": false,
+            "roadSides": [],
+            "riverSides": [],
+            "crossingSides": [],
+            "elevationFt": 0,
+            "groundCondition": "clear",
+            "hasLake": false,
+            "freshWater": false,
+            "primaryStructure": "",
+            "settlement": null,
+            "lairs": [],
+            "dungeons": [],
+            "pointsOfInterest": [],
+            "monsterNotes": "",
+            "notes": "The amber-strand and salt-fish flats that feed Tidewrack — grey amber comes up here after westerly storms, the town’s one export worth the long haul over the pass.",
+            "economyType": "agricultural",
+            "terrainTransformationState": null,
+            "domainId": "dom-tidewrack",
+            "name": "Tidewrack Strand"
+          }
+        ],
+        "terrain": "",
+        "features": []
+      },
+      "demographics": {
+        "peasantFamilies": 120,
+        "urbanFamilies": 85,
+        "morale": -1,
+        "moraleNotes": "Proud and fiercely independent, but pressed: the pass-caravans come back short, the Deepwood and Saltmarsh things grow bold, and no help comes over the range."
+      },
+      "treasury": {
+        "gp": 2400
+      },
+      "income": {
+        "landRevenuePerFamily": 6,
+        "serviceRevenuePerFamily": 4,
+        "miscPerFamily": 0,
+        "miscFlat": 0,
+        "taxPerFamily": 2,
+        "tributesIn": [],
+        "tariffs": 0,
+        "urbanRevenue": 0,
+        "other": []
+      },
+      "expenses": {
+        "garrisonMonthly": 0,
+        "liturgyPerFamily": 1,
+        "miscPerFamily": 0,
+        "miscFlat": 0,
+        "tithesOut": [],
+        "titheMonthly": 0,
+        "tithePaid": true,
+        "strongholdMaintenance": 0,
+        "personalExpenses": 0,
+        "tributeToLiege": 0,
+        "tributeAuto": false,
+        "tributePct": 0,
+        "tributePaid": true,
+        "other": []
+      },
+      "taxPolicy": {
+        "rate": "standard",
+        "moraleImpact": 0
+      },
+      "garrison": {
+        "units": [],
+        "totalMonthlyCost": 0,
+        "totalBR": 0
+      },
+      "stronghold": {
+        "components": [],
+        "maintenancePerMonth": 0,
+        "garrisonCapacity": 0
+      },
+      "monthlyLaborCapGp": 0,
+      "specialists": [],
+      "henchmenCharacterIds": [],
+      "magistrates": {
+        "captainOfGuard": {
+          "characterId": null,
+          "administersThisMonth": false
+        },
+        "chaplain": {
+          "characterId": null,
+          "administersThisMonth": false
+        },
+        "munerator": {
+          "characterId": null,
+          "administersThisMonth": false
+        },
+        "steward": {
+          "characterId": null,
+          "administersThisMonth": false
+        }
+      },
+      "urban": {
+        "marketClass": "VI",
+        "totalInvestment": 12000,
+        "investments": [],
+        "demandModifiers": {}
+      },
+      "pendingPlayerInput": null,
+      "warfare": {
+        "stationedArmyIds": [],
+        "supplyDepots": [],
+        "fortifications": [],
+        "siegeStatus": null
+      },
+      "council": null,
+      "history": [],
+      "notes": "An ancient, half-drowned Auran naval port at the far end of the salt coast, reached overland only by the Saltspur Pass — or by sea. Tidewrack never swore to the March; it kept its own customs after the Auran collapse and lives now on salt-fish, grey amber, and salvage from the Wrack. Ruled by the Tide-Warden, Sevrina Vael, who burns the Marquis’s letters unread.",
+      "treasuryStashId": "stash-xpztfb2"
     }
   ],
   "characters": [
@@ -1246,6 +1448,266 @@
         "cp": 0
       },
       "personalGp": 0
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-tidewrack-warden",
+      "name": "Sevrina Vael, Tide-Warden of Tidewrack",
+      "alignment": "N",
+      "race": "human",
+      "class": "Explorer",
+      "level": 7,
+      "xp": 100000,
+      "hp": {
+        "current": 31,
+        "max": 31,
+        "hitDice": "7d6"
+      },
+      "ac": 5,
+      "attackThrow": 6,
+      "abilities": {
+        "STR": 13,
+        "INT": 12,
+        "DEX": 16,
+        "CON": 14,
+        "CHA": 13,
+        "WIL": 11
+      },
+      "savingThrows": {
+        "paralysis": 8,
+        "death": 9,
+        "blast": 10,
+        "implements": 11,
+        "spells": 12
+      },
+      "proficiencies": [
+        "Navigation",
+        "Survival",
+        "Seafaring",
+        "Alertness",
+        "Tracking"
+      ],
+      "classPowers": [
+        "Animal Reflexes"
+      ],
+      "henchmanCap": 4,
+      "inventory": [],
+      "personalGp": 1200,
+      "currentHexId": "hex-tidewrack-cove",
+      "currentDomainId": "dom-tidewrack",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Born to the salvage-quays of Tidewrack; took the Tide-Warden’s chair when her mother drowned diving the old warship. Knows every reef, tide, and pass-stone between the cove and the March.",
+      "personality": "Salt-dry, unbending, slow to trust a lander.",
+      "goals": "Keep Tidewrack free and fed — and the pass open — without ever bending knee to Saltspur.",
+      "relationships": [],
+      "secrets": "",
+      "voice": "Measured, courtly, sparing with humor.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 400,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Realm-holder.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 1200,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-pass-warden",
+      "name": "Pellam Stoneknee, Warden of the Pass",
+      "liegeCharacterId": null,
+      "class": "Explorer",
+      "level": 4,
+      "xp": 18000,
+      "alignment": "N",
+      "abilities": {
+        "STR": 12,
+        "INT": 11,
+        "DEX": 15,
+        "CON": 13,
+        "CHA": 9,
+        "WIL": 12
+      },
+      "hp": {
+        "current": 17,
+        "max": 17,
+        "hitDice": "4d6"
+      },
+      "monthlyWage": 0,
+      "loyalty": 2,
+      "morale": 0,
+      "henchmanCap": 4,
+      "proficiencies": [
+        "Navigation",
+        "Survival",
+        "Mountaineering",
+        "Tracking"
+      ],
+      "classPowers": [
+        "Pathfinding",
+        "Animal Reflexes"
+      ],
+      "inventory": [],
+      "background": "A pass-village man, bow-legged from a lifetime on the switchbacks. Guides caravans over the Saltspur Pass for a fee and patches the Auran road each spring. Will not set foot in the Deepwood for any price.",
+      "currentHexId": "hex-the-pass",
+      "history": [],
+      "loyaltyHistory": [],
+      "alive": true,
+      "autoAdvance": true,
+      "constructionSupervisorCap": 0,
+      "mercantileNetwork": [],
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 140,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      },
+      "personalGp": 140,
+      "race": "human",
+      "ac": 4,
+      "currentDomainId": null,
+      "personality": "Taciturn, dependable, superstitious about the high trees.",
+      "goals": "Keep the pass-road sound and walk every caravan across alive.",
+      "relationships": [],
+      "secrets": "",
+      "earningsLedger": [],
+      "partyId": null,
+      "travelDestination": null,
+      "deceasedTurn": null
+    },
+    {
+      "schemaVersion": 2,
+      "id": "chr-saltwidow",
+      "name": "Mother Oye, the Saltwidow",
+      "alignment": "N",
+      "race": "human",
+      "class": "Cleric",
+      "level": 5,
+      "xp": 25000,
+      "hp": {
+        "current": 19,
+        "max": 19,
+        "hitDice": "5d6"
+      },
+      "ac": 2,
+      "attackThrow": 9,
+      "abilities": {
+        "STR": 9,
+        "INT": 13,
+        "DEX": 10,
+        "CON": 12,
+        "CHA": 15,
+        "WIL": 16
+      },
+      "savingThrows": {
+        "paralysis": 9,
+        "death": 8,
+        "blast": 11,
+        "implements": 7,
+        "spells": 9
+      },
+      "proficiencies": [
+        "Healing",
+        "Prophecy",
+        "Theology",
+        "Diplomacy",
+        "Knowledge (History)"
+      ],
+      "classPowers": [],
+      "henchmanCap": 3,
+      "inventory": [],
+      "personalGp": 200,
+      "currentHexId": "hex-tidewrack-cove",
+      "currentDomainId": "dom-tidewrack",
+      "partyId": null,
+      "travelDestination": null,
+      "travelPace": "walking",
+      "background": "Keeper of the drowned Auran shrine on Tidewrack’s last standing mole. Widowed thrice by the sea, she reads the tides and the amber, and the town brings her every rumor that comes up the pass.",
+      "personality": "Gentle, sea-grey, and unsettlingly certain.",
+      "goals": "Tend the drowned shrine and ferry Tidewrack’s dead to a dry grave before the water claims the rest of the town.",
+      "relationships": [],
+      "secrets": "",
+      "voice": "Soft, deliberate.",
+      "liegeCharacterId": null,
+      "loyalty": 0,
+      "monthlyWage": 0,
+      "upkeepMonthly": 180,
+      "honor": [],
+      "shame": [],
+      "mercantileNetwork": [],
+      "earningsLedger": [],
+      "history": [],
+      "autoAdvance": true,
+      "alive": true,
+      "deceasedTurn": null,
+      "notes": "Vassal of the Marquis. Cleric-baron, the only spellcasting ruler in the demo.",
+      "controlledBy": "gm",
+      "socialTier": "independent",
+      "lifecycleState": "active",
+      "creatureTypes": [
+        "humanoid"
+      ],
+      "isEnchantedCreature": false,
+      "hitDice": null,
+      "heroicCode": null,
+      "fatePoints": null,
+      "transformationState": null,
+      "currentJourneyId": null,
+      "personalFatigue": 0,
+      "hungerDays": 0,
+      "dehydrationDays": 0,
+      "coins": {
+        "pp": 0,
+        "gp": 200,
+        "ep": 0,
+        "sp": 0,
+        "cp": 0
+      }
     }
   ],
   "parties": [],
@@ -1757,8 +2219,8 @@
       "schemaVersion": 2,
       "id": "hex-saltspur-keep",
       "coord": {
-        "q": 0,
-        "r": 0
+        "q": 7,
+        "r": 2
       },
       "classification": "Borderlands",
       "explored": true,
@@ -1794,16 +2256,20 @@
       "domainId": "dom-march-of-saltspur",
       "economyType": "agricultural",
       "terrainTransformationState": null,
-      "hasRoad": false,
+      "hasRoad": true,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "Saltspur Keep",
+      "roadSides": [
+        1
+      ]
     },
     {
       "schemaVersion": 2,
       "id": "hex-saltspur-fields",
       "coord": {
-        "q": 1,
-        "r": 0
+        "q": 8,
+        "r": 2
       },
       "classification": "Borderlands",
       "explored": true,
@@ -1841,14 +2307,15 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "Saltspur Fields"
     },
     {
       "schemaVersion": 2,
       "id": "hex-saltpans",
       "coord": {
-        "q": 0,
-        "r": 1
+        "q": 7,
+        "r": 3
       },
       "classification": "Borderlands",
       "explored": true,
@@ -1875,16 +2342,21 @@
       "domainId": "dom-march-of-saltspur",
       "economyType": "agricultural",
       "terrainTransformationState": null,
-      "hasRoad": false,
+      "hasRoad": true,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "The Saltpans",
+      "roadSides": [
+        3,
+        4
+      ]
     },
     {
       "schemaVersion": 2,
       "id": "hex-coastal-march",
       "coord": {
-        "q": -1,
-        "r": 1
+        "q": 6,
+        "r": 3
       },
       "classification": "Borderlands",
       "explored": true,
@@ -1903,16 +2375,21 @@
       "domainId": "dom-march-of-saltspur",
       "economyType": "agricultural",
       "terrainTransformationState": null,
-      "hasRoad": false,
+      "hasRoad": true,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "The Coast Road",
+      "roadSides": [
+        0,
+        3
+      ]
     },
     {
       "schemaVersion": 2,
       "id": "hex-northwatch-tower",
       "coord": {
-        "q": 0,
-        "r": -2
+        "q": 7,
+        "r": 0
       },
       "classification": "Borderlands",
       "explored": true,
@@ -1946,14 +2423,15 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "Northwatch Tower"
     },
     {
       "schemaVersion": 2,
       "id": "hex-northwatch-farms",
       "coord": {
-        "q": 1,
-        "r": -2
+        "q": 8,
+        "r": 0
       },
       "classification": "Borderlands",
       "explored": true,
@@ -1974,14 +2452,15 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "Northwatch Farms"
     },
     {
       "schemaVersion": 2,
       "id": "hex-saltcombe-shrine",
       "coord": {
-        "q": -2,
-        "r": 1
+        "q": 5,
+        "r": 3
       },
       "classification": "Civilized",
       "explored": true,
@@ -2023,16 +2502,21 @@
       "domainId": "dom-barony-saltcombe",
       "economyType": "agricultural",
       "terrainTransformationState": null,
-      "hasRoad": false,
+      "hasRoad": true,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "Saltcombe",
+      "roadSides": [
+        0,
+        3
+      ]
     },
     {
       "schemaVersion": 2,
       "id": "hex-saltcombe-fields",
       "coord": {
-        "q": 0,
-        "r": 2
+        "q": 7,
+        "r": 4
       },
       "classification": "Civilized",
       "explored": true,
@@ -2053,7 +2537,415 @@
       "terrainTransformationState": null,
       "hasRoad": false,
       "hasTrail": false,
-      "elevationFt": 0
+      "elevationFt": 0,
+      "name": "Saltcombe Fields"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-wolfden-hills",
+      "coord": {
+        "q": 6,
+        "r": 0
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "hills",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "Lair of the Grey Pack — dire wolves that take calves, and in hard winters herders, from the Northwatch drives.",
+      "notes": "Old cairn-hills north of the March, above the Northwatch pastures. Shepherds drive their flocks home before dusk and leave a culled ewe on the boundary-stone — a tithe to whatever keeps the high cairns.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "Wolfden Hills"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-saltmarsh",
+      "coord": {
+        "q": 4,
+        "r": 4
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "swamp",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "Lair of the Mere-Folk — marsh-lizardfolk who hold the old causeway and suffer no one to dig the road.",
+      "notes": "A drowned reach of salt-fen where an Auran causeway sinks rib by rib into the mud. The water is brackish — no drink for traveller or beast. Bronze fittings still glint under the reeds at low tide.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "The Saltmarsh"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-deepwood",
+      "coord": {
+        "q": 2,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "forest",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": true,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "Lair of the Deepwood Weavers — giant spiders that web the dark trees and take the stragglers.",
+      "notes": "Dark coastal pine crowding the south flank of the pass. A black tarn at its heart never freezes. Caravan-folk hang cold iron at the treeline and cross the pass only at noon.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "The Deepwood"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-wild-coast",
+      "coord": {
+        "q": 4,
+        "r": 3
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "coast",
+      "hasRoad": true,
+      "hasTrail": false,
+      "roadSides": [
+        0,
+        3
+      ],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "A wild, wreck-strewn shore of salt-scoured scrub west of Saltcombe — named for the wrack of timber and rigging the tides pile here. The pass-road runs the strand; there is no fresh water until the high streams.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "The Wrack"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-wild-scrub",
+      "coord": {
+        "q": 3,
+        "r": 3
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "scrubland",
+      "hasRoad": true,
+      "hasTrail": false,
+      "roadSides": [
+        0,
+        1
+      ],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "Where the coast gives way to the climbing scrub at the foot of the Saltspur range. Thorn and gorse, broken by old Auran mile-stones the road still follows.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "Thornreach"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-pass-approach",
+      "coord": {
+        "q": 3,
+        "r": 4
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "mountains",
+      "hasRoad": true,
+      "hasTrail": false,
+      "roadSides": [
+        3,
+        4
+      ],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "The lower switchbacks of the Saltspur Pass. The road is Auran-cut and still sound, though the wardens patch it each spring. The Deepwood broods to the south.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "The Pass-Foot"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-the-pass",
+      "coord": {
+        "q": 2,
+        "r": 4
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "mountains",
+      "hasRoad": true,
+      "hasTrail": true,
+      "roadSides": [
+        0,
+        3
+      ],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "The high pass over the Saltspur range — the only land road west to Tidewrack. A pass-stone at the summit marks the old bound of the March; Tidewrack-folk say Saltspur’s writ ends here. Cold, hard going; the wardens keep a waystone shelter.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "The Saltspur Pass"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-pass-descent",
+      "coord": {
+        "q": 1,
+        "r": 4
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "hills",
+      "hasRoad": true,
+      "hasTrail": false,
+      "roadSides": [
+        0,
+        1
+      ],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": true,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "The western descent of the pass into broken hill-country, watered by snowmelt tarns. The first sight of the far sea — and of Tidewrack’s smoke — opens here.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": null,
+      "name": "The Westfall"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-tidewrack-cove",
+      "coord": {
+        "q": 1,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 0,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "coast",
+      "hasRoad": true,
+      "hasTrail": false,
+      "roadSides": [
+        4
+      ],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "A deep, sheltered cove built over an Auran naval station now half-drowned. At low water the masts of an old Auran warship break the surface of the inner harbour. The free town of Tidewrack clings to the salvage-quays.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": "dom-tidewrack",
+      "name": "Tidewrack Cove"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "hex-tidewrack-strand",
+      "coord": {
+        "q": 0,
+        "r": 5
+      },
+      "classification": "Borderlands",
+      "explored": true,
+      "families": 120,
+      "valuePerFamily": 6,
+      "landImprovementBonus": 0,
+      "landImprovementInvested": 0,
+      "landImprovementProjects": [],
+      "queuedImprovementGp": 0,
+      "improvementBudgetGp": 0,
+      "constructionSupervisorCharacterIds": [],
+      "terrain": "coast",
+      "hasRoad": false,
+      "hasTrail": false,
+      "roadSides": [],
+      "riverSides": [],
+      "crossingSides": [],
+      "elevationFt": 0,
+      "groundCondition": "clear",
+      "hasLake": false,
+      "freshWater": false,
+      "primaryStructure": "",
+      "settlement": null,
+      "lairs": [],
+      "dungeons": [],
+      "pointsOfInterest": [],
+      "monsterNotes": "",
+      "notes": "The amber-strand and salt-fish flats that feed Tidewrack — grey amber comes up here after westerly storms, the town’s one export worth the long haul over the pass.",
+      "economyType": "agricultural",
+      "terrainTransformationState": null,
+      "domainId": "dom-tidewrack",
+      "name": "Tidewrack Strand"
     }
   ],
   "settlements": [
@@ -2143,6 +3035,23 @@
       "notes": "A small priestly town built around the shrine.",
       "hexId": "hex-saltcombe-shrine",
       "placesOfPower": []
+    },
+    {
+      "schemaVersion": 2,
+      "id": "set-tidewrack",
+      "name": "Tidewrack",
+      "families": 85,
+      "totalInvestment": 10000,
+      "foundedTurn": 1,
+      "foundedByCharacterId": null,
+      "demandModifiers": {},
+      "placesOfPower": [],
+      "rumors": [],
+      "entryways": [],
+      "regulatedAssets": [],
+      "notes": "A salvage-port of salt-fishers, amber-gatherers, and wreck-divers on the bones of an Auran naval station. The inner harbour drowns an old warship; the Saltwidow’s shrine stands on the one Auran mole still above the tide.",
+      "hexId": "hex-tidewrack-cove",
+      "marketClass": "VI"
     }
   ],
   "rumors": [
@@ -2302,13 +3211,141 @@
           "source": "manual"
         }
       ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "rum-tidewrack-1",
+      "text": "The pass-road carries salt-fish and grey amber up from Tidewrack, but three of the last five caravans came back a driver short — and the Tide-Warden sends no guard past the Westfall.",
+      "truthLevel": "partial",
+      "apparentLevel": "uncommon",
+      "topic": "trade",
+      "origin": {
+        "submittedAt": "2026-06-05T00:00:00.000Z",
+        "submittedBy": "gm",
+        "sourceEventId": null,
+        "sourceCharacterId": null
+      },
+      "proliferation": {
+        "enabled": false,
+        "chancePerMonth": 10,
+        "settlementsReached": []
+      },
+      "history": [],
+      "notes": "",
+      "reach": [
+        {
+          "settlementId": "set-saltspur-town",
+          "apparentLevel": "uncommon",
+          "firstHeardTurn": 4,
+          "source": "manual"
+        },
+        {
+          "settlementId": "set-saltcombe-town",
+          "apparentLevel": "uncommon",
+          "firstHeardTurn": 4,
+          "source": "manual"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "rum-tidewrack-2",
+      "text": "They say the Tide-Warden of Tidewrack burns the Marquis’s letters unread; her line held the cove when Saltspur was still a fishing camp, and she means to keep it free.",
+      "truthLevel": "true",
+      "apparentLevel": "uncommon",
+      "topic": "politics",
+      "origin": {
+        "submittedAt": "2026-06-05T00:00:00.000Z",
+        "submittedBy": "gm",
+        "sourceEventId": null,
+        "sourceCharacterId": null
+      },
+      "proliferation": {
+        "enabled": false,
+        "chancePerMonth": 10,
+        "settlementsReached": []
+      },
+      "history": [],
+      "notes": "",
+      "reach": [
+        {
+          "settlementId": "set-saltspur-town",
+          "apparentLevel": "uncommon",
+          "firstHeardTurn": 4,
+          "source": "manual"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "rum-tidewrack-3",
+      "text": "Caravan-folk hang iron at the Deepwood’s edge and cross the Saltspur Pass at noon only — the weavers in the dark trees take the stragglers, and they are patient.",
+      "truthLevel": "true",
+      "apparentLevel": "uncommon",
+      "topic": "monster",
+      "origin": {
+        "submittedAt": "2026-06-05T00:00:00.000Z",
+        "submittedBy": "gm",
+        "sourceEventId": null,
+        "sourceCharacterId": null
+      },
+      "proliferation": {
+        "enabled": false,
+        "chancePerMonth": 10,
+        "settlementsReached": []
+      },
+      "history": [],
+      "notes": "",
+      "reach": [
+        {
+          "settlementId": "set-saltcombe-town",
+          "apparentLevel": "uncommon",
+          "firstHeardTurn": 4,
+          "source": "manual"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "rum-tidewrack-4",
+      "text": "That Auran warship-hull the trader spoke of? It lies in Tidewrack’s own harbour, masts under the tide — and the Saltwidow says it still keeps its cargo.",
+      "truthLevel": "partial",
+      "apparentLevel": "uncommon",
+      "topic": "treasure",
+      "origin": {
+        "submittedAt": "2026-06-05T00:00:00.000Z",
+        "submittedBy": "gm",
+        "sourceEventId": null,
+        "sourceCharacterId": null
+      },
+      "proliferation": {
+        "enabled": false,
+        "chancePerMonth": 10,
+        "settlementsReached": []
+      },
+      "history": [],
+      "notes": "",
+      "reach": [
+        {
+          "settlementId": "set-saltspur-town",
+          "apparentLevel": "uncommon",
+          "firstHeardTurn": 4,
+          "source": "manual"
+        },
+        {
+          "settlementId": "set-saltcombe-town",
+          "apparentLevel": "uncommon",
+          "firstHeardTurn": 4,
+          "source": "manual"
+        }
+      ]
     }
   ],
-  "description": "\n\nDemo campaign for ACKS God Mode — a 5-month-old March of Saltspur with two vassal baronies, a registered venturer mid-caravan, brewing rumors, and one agricultural project in progress. Fork via Save As to make it your own.",
+  "description": "\n\nDemo campaign for ACKS GOD MODE — a 5-month-old March of Saltspur with two vassal baronies, a registered venturer mid-caravan, brewing rumors, and one agricultural project in progress. Fork via Save As to make it your own.",
   "henchmanships": [
     {
       "schemaVersion": 2,
-      "id": "hen-e4hhmly",
+      "id": "hen-4mua7mp",
       "subjectCharacterId": "chr-sir-tomas-castellan",
       "patronCharacterId": "chr-marquis-aelric",
       "hiredAtTurn": 5,
@@ -2327,7 +3364,7 @@
     },
     {
       "schemaVersion": 2,
-      "id": "hen-1jzm814",
+      "id": "hen-a9am71n",
       "subjectCharacterId": "chr-baron-yorick",
       "patronCharacterId": "chr-marquis-aelric",
       "hiredAtTurn": 5,
@@ -2346,7 +3383,7 @@
     },
     {
       "schemaVersion": 2,
-      "id": "hen-miwc2p2",
+      "id": "hen-hsz8jyr",
       "subjectCharacterId": "chr-baroness-mira",
       "patronCharacterId": "chr-marquis-aelric",
       "hiredAtTurn": 5,
@@ -2365,7 +3402,7 @@
     },
     {
       "schemaVersion": 2,
-      "id": "hen-m7w5v9h",
+      "id": "hen-0f2t2wz",
       "subjectCharacterId": "chr-brother-cassian",
       "patronCharacterId": "chr-marquis-aelric",
       "hiredAtTurn": 5,
@@ -2386,7 +3423,7 @@
   "magistracies": [
     {
       "schemaVersion": 2,
-      "id": "mag-ydkz61i",
+      "id": "mag-uwf3sb7",
       "magistrateCharacterId": "chr-sir-tomas-castellan",
       "domainId": "dom-march-of-saltspur",
       "role": "captain-of-the-guard",
@@ -2404,7 +3441,7 @@
     },
     {
       "schemaVersion": 2,
-      "id": "mag-0yo1cy5",
+      "id": "mag-7h2g37a",
       "magistrateCharacterId": "chr-brother-cassian",
       "domainId": "dom-march-of-saltspur",
       "role": "chaplain",
@@ -2424,7 +3461,7 @@
   "vassalages": [
     {
       "schemaVersion": 2,
-      "id": "vas-5pczjvl",
+      "id": "vas-h1fakud",
       "vassalRulerCharacterId": "chr-baron-yorick",
       "suzerainCharacterId": "chr-marquis-aelric",
       "vassalDomainId": "dom-barony-northwatch",
@@ -2443,7 +3480,7 @@
     },
     {
       "schemaVersion": 2,
-      "id": "vas-5u5ylzz",
+      "id": "vas-58mjswg",
       "vassalRulerCharacterId": "chr-baroness-mira",
       "suzerainCharacterId": "chr-marquis-aelric",
       "vassalDomainId": "dom-barony-saltcombe",
@@ -2474,7 +3511,7 @@
   "projects": [
     {
       "schemaVersion": 2,
-      "id": "prj-azzevak",
+      "id": "prj-pg0abm0",
       "constructibleKind": "agricultural-improvement",
       "constructibleSubtype": null,
       "name": "Agricultural improvement — (1,0)",
@@ -2519,7 +3556,7 @@
     {
       "schemaVersion": 2,
       "kind": "domain-treasury",
-      "id": "stash-zewxkre",
+      "id": "stash-zb8omrq",
       "name": "March of Saltspur Treasury",
       "hexId": "hex-saltspur-keep",
       "strongholdComponentId": null,
@@ -2528,7 +3565,7 @@
       "ownerDomainId": "dom-march-of-saltspur",
       "items": [
         {
-          "id": "si-zb2zlha",
+          "id": "si-k26r94f",
           "facets": [
             "coin"
           ],
@@ -2560,7 +3597,7 @@
     {
       "schemaVersion": 2,
       "kind": "domain-treasury",
-      "id": "stash-qqqpfcf",
+      "id": "stash-4g63vys",
       "name": "Barony of Northwatch Treasury",
       "hexId": "hex-northwatch-tower",
       "strongholdComponentId": null,
@@ -2569,7 +3606,7 @@
       "ownerDomainId": "dom-barony-northwatch",
       "items": [
         {
-          "id": "si-k08rif3",
+          "id": "si-7j9dyjs",
           "facets": [
             "coin"
           ],
@@ -2601,7 +3638,7 @@
     {
       "schemaVersion": 2,
       "kind": "domain-treasury",
-      "id": "stash-9v9rbln",
+      "id": "stash-995bwaj",
       "name": "Barony of Saltcombe Treasury",
       "hexId": "hex-saltcombe-shrine",
       "strongholdComponentId": null,
@@ -2610,7 +3647,7 @@
       "ownerDomainId": "dom-barony-saltcombe",
       "items": [
         {
-          "id": "si-yv4vf81",
+          "id": "si-zrsjkht",
           "facets": [
             "coin"
           ],
@@ -2638,6 +3675,112 @@
           "seededFromScalarGp": 1800
         }
       ]
+    },
+    {
+      "schemaVersion": 2,
+      "kind": "domain-treasury",
+      "id": "stash-xpztfb2",
+      "name": "Free Holding of Tidewrack Treasury",
+      "hexId": "hex-tidewrack-cove",
+      "strongholdComponentId": null,
+      "ownerCharacterId": null,
+      "ownerPartyId": null,
+      "ownerDomainId": "dom-tidewrack",
+      "items": [
+        {
+          "id": "si-bjbbggb",
+          "facets": [
+            "coin"
+          ],
+          "qty": 2400,
+          "name": "",
+          "denomination": "gp",
+          "valuableType": null,
+          "valuableTier": null,
+          "unitValueGp": null,
+          "encumbranceSt": null,
+          "unit": null,
+          "notableItemId": null,
+          "containerStashId": null,
+          "notes": ""
+        }
+      ],
+      "isHidden": false,
+      "notes": "",
+      "createdAtTurn": 5,
+      "history": [
+        {
+          "turn": 5,
+          "type": "created",
+          "reason": "treasury-migration",
+          "seededFromScalarGp": 2400
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "schemaVersion": 2,
+      "id": "grp-greypack",
+      "name": "The Grey Pack",
+      "groupTemplate": {
+        "monsterCatalogKey": "dire-wolf",
+        "creatureTypes": [
+          "animal"
+        ],
+        "hitDice": "4"
+      },
+      "count": 8,
+      "casualties": 0,
+      "socialTier": "independent",
+      "lifecycleState": "wild",
+      "currentHexId": "hex-wolfden-hills",
+      "currentDomainId": null,
+      "commanderCharacterId": null,
+      "history": [],
+      "notes": "Dire wolves the size of ponies, denned in the old cairn-hills. They take calves — and in hard winters herders — from the Northwatch pastures; Baron Yorick has lost three drives to them."
+    },
+    {
+      "schemaVersion": 2,
+      "id": "grp-merefolk",
+      "name": "The Mere-Folk",
+      "groupTemplate": {
+        "monsterCatalogKey": "lizardman",
+        "creatureTypes": [
+          "humanoid"
+        ],
+        "hitDice": "2+1"
+      },
+      "count": 12,
+      "casualties": 0,
+      "socialTier": "independent",
+      "lifecycleState": "wild",
+      "currentHexId": "hex-saltmarsh",
+      "currentDomainId": null,
+      "commanderCharacterId": null,
+      "history": [],
+      "notes": "Marsh-lizardfolk who hold the drowned Auran causeway and trade only in salvaged bronze. Tidewrack leaves them a tribute of iron to keep the marsh-path open."
+    },
+    {
+      "schemaVersion": 2,
+      "id": "grp-deepweavers",
+      "name": "The Deepwood Weavers",
+      "groupTemplate": {
+        "monsterCatalogKey": "giant-spider",
+        "creatureTypes": [
+          "animal"
+        ],
+        "hitDice": "3"
+      },
+      "count": 6,
+      "casualties": 0,
+      "socialTier": "independent",
+      "lifecycleState": "wild",
+      "currentHexId": "hex-deepwood",
+      "currentDomainId": null,
+      "commanderCharacterId": null,
+      "history": [],
+      "notes": "Giant spiders that web the south flank of the pass. Caravans walk the Saltspur Pass at noon and hang cold iron; the weavers take the stragglers."
     }
   ]
 };

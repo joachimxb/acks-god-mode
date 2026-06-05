@@ -118,7 +118,12 @@ section('Migrate-no-op — V1 adds no fields to existing/template entities');
 const demo1 = ACKS.migrateCampaign(JSON.parse(JSON.stringify(DEMO)));
 const demo2 = ACKS.migrateCampaign(JSON.parse(JSON.stringify(demo1)));
 ok('demo migrate is idempotent (no-op on 2nd pass)', JSON.stringify(demo1) === JSON.stringify(demo2));
-ok('migrate does NOT stamp hasLake onto legacy hexes (defensive reads)', (demo1.hexes || []).every(h => !('hasLake' in h)));
+// The demo now AUTHORS a couple of water-source hexes (a forest tarn, a snowmelt hill on the
+// pass-road), so "every demo hex lacks hasLake" no longer holds. Assert the real invariant the
+// section documents: migrate must not BACKFILL the key onto a hex that didn't already carry it.
+const legacyNoLakeIds = (DEMO.hexes || []).filter(h => !('hasLake' in h)).map(h => h.id);
+ok('migrate does NOT stamp hasLake onto legacy hexes (defensive reads)',
+  legacyNoLakeIds.length > 0 && legacyNoLakeIds.every(id => !('hasLake' in (demo1.hexes.find(h => h.id === id) || {}))));
 ok('migrate does NOT stamp waterDaysCarried onto legacy chars (defensive reads)', (demo1.characters || []).every(c => !('waterDaysCarried' in c)));
 
 // =============================================================================
