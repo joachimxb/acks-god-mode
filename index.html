@@ -4027,6 +4027,8 @@ document.addEventListener('alpine:init', () => {
               <tr class="text-left text-xs opacity-60 border-b border-ink/30">
                 <th class="font-normal py-0.5 pr-4">Traveller</th>
                 <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
+                <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
                 <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                 <th class="font-normal py-0.5">Conditions</th>
               </tr>
@@ -4045,6 +4047,12 @@ document.addEventListener('alpine:init', () => {
                       </span>
                     </template>
                     <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                  </td>
+                  <td class="py-1 pr-4" x-show="rationsShown()">
+                    <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'text-orange-700 font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
+                  </td>
+                  <td class="py-1 pr-4" x-show="rationsShown()">
+                    <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
                   </td>
                   <td class="py-1 pr-4" x-show="encumbranceShown()">
                     <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="(Math.round(carryInfo(ch).totalSt*10)/10)+' st · '+carryInfo(ch).band.label"></span>
@@ -4067,13 +4075,26 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
-        <!-- supplies tracker + status conditions -->
-        <div class="border border-dashed border-ink rounded p-2 text-sm">
+        <!-- supplies tracker + status conditions — Provisioning V5: totals are now TIGHT inventory
+             (members' carried rations + water + the party camp), not the retired abstract counter. -->
+        <div class="border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown()">
           <div class="flex flex-wrap gap-4">
-            <span>🍖 Food: <span class="font-semibold" x-text="(journeyDetail().supplies?.rations)||0"></span></span>
-            <span>💧 Water: <span class="font-semibold" x-text="(journeyDetail().supplies?.waterRations)||0"></span></span>
+            <span title="Total ration days across all travellers + the party camp">🍖 Food: <span class="font-semibold" x-text="journeyTotalFoodDays(journeyDetail())"></span> day(s)</span>
+            <span title="Total drinking-water days carried by the party">💧 Water: <span class="font-semibold" x-text="journeyTotalWaterDays(journeyDetail())"></span> day(s)</span>
             <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
-            <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) of supplies left'"></span>
+            <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) for the party'"></span>
+          </div>
+          <!-- §8 party day-tick toggles: forage for water (greyed when the hex auto-supplies), share rations -->
+          <div class="flex flex-wrap gap-4 mt-2 pt-2 border-t border-dashed border-ink/30" x-show="journeyDetail().status==='in-transit'">
+            <label class="flex items-center gap-1.5 text-xs" :class="journeyHexSourcesWater(journeyDetail()) ? 'opacity-40' : 'cursor-pointer'"
+                   :title="journeyHexSourcesWater(journeyDetail()) ? 'This hex has a river / lake / settlement — water is free here' : 'On a no-source day the party makes one Foraging throw for water (each forager spends an ancillary slot)'">
+              <input type="checkbox" :disabled="journeyHexSourcesWater(journeyDetail())" :checked="!!journeyDetail().forageWaterEnabled" @change="toggleJourneyForageWater(journeyDetail())">
+              🥤 Forage for water
+            </label>
+            <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Pool food + water — everyone eats from the party camp first, then their own shares; on a shortfall the leader is fed first">
+              <input type="checkbox" :checked="!!journeyDetail().shareRations" @change="toggleJourneyShareRations(journeyDetail())">
+              🤝 Share rations
+            </label>
           </div>
         </div>
 
@@ -4948,6 +4969,8 @@ document.addEventListener('alpine:init', () => {
                       <th class="font-normal py-0.5 pr-4">Member</th>
                       <th class="font-normal py-0.5 pr-4 text-center">Leader</th>
                       <th class="font-normal py-0.5 pr-4">Mercenaries</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Personal ration days carried">Food</th>
+                      <th class="font-normal py-0.5 pr-4" x-show="rationsShown()" title="Drinking water carried / container capacity (days)">Water</th>
                       <th class="font-normal py-0.5 pr-4" x-show="encumbranceShown()">Encumbrance</th>
                       <th class="font-normal py-0.5 pr-4">Conditions</th>
                       <th class="font-normal py-0.5"></th>
@@ -4972,6 +4995,12 @@ document.addEventListener('alpine:init', () => {
                             </span>
                           </template>
                           <span class="text-xs opacity-40" x-show="!partyMemberMercSummary(ch).length">—</span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays)||0)>0 ? 'text-orange-700 font-semibold' : 'opacity-70'" x-text="characterFoodDays(ch)+' d'"></span>
+                        </td>
+                        <td class="py-1 pr-4" x-show="rationsShown()">
+                          <span class="text-xs font-mono whitespace-nowrap" :class="((ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays)||0)>0 ? 'text-sky-700 font-semibold' : 'opacity-70'" x-text="characterWaterDays(ch)+'/'+characterWaterCap(ch)+' d'"></span>
                         </td>
                         <td class="py-1 pr-4" x-show="encumbranceShown()">
                           <span class="text-xs font-mono whitespace-nowrap" :style="'color:'+carryBandColor(carryInfo(ch).band.level)" :title="'Carried load ' + (Math.round(carryInfo(ch).totalSt*10)/10) + ' st — ' + (carryInfo(ch).band.level==='overloaded' ? 'cannot move' : (carryInfo(ch).band.milesPerDay + ' mi/day'))" x-text="(Math.round(carryInfo(ch).totalSt*10)/10)+' st · '+carryInfo(ch).band.label"></span>
@@ -9752,29 +9781,70 @@ return {
     const n = (j.currentDayIndex||0); const est = j.daysRemainingEstimate;
     return est ? ('day ' + n + ' of ~' + (n + est)) : ('day ' + n);
   },
+  // Provisioning V5 — total tight food/water days a journey can draw on: members' carried rations +
+  // water + the party camp stash + (fallback) any legacy abstract pool. The day-tick consumes these.
+  journeyTotalFoodDays(j){
+    if(!j) return 0;
+    let days = 0;
+    const chars = (this.currentCampaign && this.currentCampaign.characters) || [];
+    (j.participantCharacterIds||[]).forEach(id=>{ const c=chars.find(x=>x&&x.id===id); if(c) days += window.ACKS.rationDaysAvailable(c)||0; });
+    const camp = (j.partyId && window.ACKS.partyCampStash) ? window.ACKS.partyCampStash(this.currentCampaign, j.partyId) : null;
+    if(camp) days += window.ACKS.rationDaysAvailable(camp)||0;
+    days += (j.supplies&&Number(j.supplies.rations))||0;
+    return Math.round(days*10)/10;
+  },
+  journeyTotalWaterDays(j){
+    if(!j) return 0;
+    let days = 0;
+    const chars = (this.currentCampaign && this.currentCampaign.characters) || [];
+    (j.participantCharacterIds||[]).forEach(id=>{ const c=chars.find(x=>x&&x.id===id); if(c) days += Number(c.waterDaysCarried)||0; });
+    const camp = (j.partyId && window.ACKS.partyCampStash) ? window.ACKS.partyCampStash(this.currentCampaign, j.partyId) : null;
+    if(camp) days += Number(camp.waterDaysCarried)||0;
+    days += (j.supplies&&Number(j.supplies.waterRations))||0;
+    return Math.round(days*10)/10;
+  },
   journeySupplyDaysLeft(j){
     const n = Math.max(1, (j?.participantCharacterIds||[]).length);
-    return Math.floor(Math.min((j?.supplies?.rations)||0, (j?.supplies?.waterRations)||0) / n);
+    return Math.floor(Math.min(this.journeyTotalFoodDays(j), this.journeyTotalWaterDays(j)) / n);
   },
+  // §8 party day-tick toggles — transient party-intent flags (no event; just persist).
+  toggleJourneyForageWater(j){ if(!j) return; j.forageWaterEnabled = !j.forageWaterEnabled; this.markDirty(); this.schedulePersist(); },
+  toggleJourneyShareRations(j){ if(!j) return; j.shareRations = !j.shareRations; this.markDirty(); this.schedulePersist(); },
   // Per-traveller survival status for the Members table (RR p.275 cascade). The day-tick mirrors
   // the party's hunger / dehydration / fatigue onto each participant, so these read off the
   // character. A GM-facing tracker — no auto-penalty wired yet (escalating effects are a follow-up).
   characterJourneyConditions(ch){
     const out=[];
-    // RAW hunger cascade (RR p.276): hungry after 1 day < full rations; underfed after 2 days
-    // with no food; starving after ~5 further underfed days (≈ day 7 of no food). The penalty
-    // wiring (−1 throws / CON loss) is deferred — this is the GM-facing stage label only.
-    const h=(ch&&ch.hungerDays)||0;
+    // RAW hunger cascade (RR p.278): hungry after 1 day < full rations; underfed after 2 days with no
+    // food; starving after ~5 further underfed days (≈ day 7). Provisioning V3 applies the CON loss
+    // (1/day while starving); surface it in the badge detail when present.
+    const h=(ch&&(ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays))||0;
     if(h>0){
       const stage = (h>=7) ? 'Starving' : (h>=2 ? 'Underfed' : 'Hungry');
-      out.push({ key:'hunger', label:stage, detail:'day '+h, cls:'bg-orange-200 text-orange-900' });
+      const cl=(ch&&ch.conLossHunger)||0;
+      out.push({ key:'hunger', label:stage, detail:'day '+h+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-orange-200 text-orange-900' });
     }
-    // RAW dehydration (RR p.276): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor.
-    const d=(ch&&ch.dehydrationDays)||0;
-    if(d>0) out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d, cls:'bg-sky-200 text-sky-900' });
+    // RAW dehydration (RR p.278): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor; loses
+    // 1d6 CON/day (Provisioning V2).
+    const d=(ch&&(ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays))||0;
+    if(d>0){
+      const cl=(ch&&ch.conLossThirst)||0;
+      out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-sky-200 text-sky-900' });
+    }
     const f=(ch&&ch.personalFatigue)||0;
     if(f>=6) out.push({ key:'fatigue', label:'Fatigued', detail:'', cls:'bg-amber-200 text-amber-900' });
     return out;
+  },
+  // Provisioning V5 — Food/Water column data + the ignore-rations gate (mirrors encumbranceShown).
+  rationsShown(){ return !this.isHouseRuleEnabled('ignore-rations'); },
+  characterFoodDays(ch){ return ch ? (window.ACKS.rationDaysAvailable(ch)||0) : 0; },          // personal ration days
+  characterWaterDays(ch){ return ch ? (Math.round((Number(ch.waterDaysCarried)||0)*10)/10) : 0; },
+  characterWaterCap(ch){ return ch ? (Math.round((window.ACKS.waterCapacityDays(ch)||0)*10)/10) : 0; },
+  // The hex a journey is currently in supplies free water? (greys the forage-water tick — §8.)
+  journeyHexSourcesWater(j){
+    if(!j) return false;
+    const hx=this.allHexes().find(h=>h&&h.id===(j.currentHexId||j.startHexId));
+    return hx ? !!window.ACKS.hasFreshSource(this.currentCampaign, hx) : false;
   },
   // Render a navigation throw with its die roll + modifiers + target + result (RR p.275).
   journeyNavDetail(nav){
