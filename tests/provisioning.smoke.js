@@ -281,6 +281,32 @@ section('Day-log rows — nav reroll holds provisioning + notable type routing')
   ok('rerollJourneyNav null when there is no committed day', ACKS.rerollJourneyNav(cE, jE) === null);
 })();
 
+section('Forage reroll survives a hex that re-resolves to water (arrival / unauthored-day-start)');
+(function () {
+  const c = ACKS.blankCampaign({ name: 'forageDiverge' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 };
+  c.hexes = [
+    ACKS.blankHex({ id: 'dry0', coord: { q: 0, r: 0 }, terrain: 'grassland' }),
+    ACKS.blankHex({ id: 'wet0', coord: { q: 1, r: 0 }, terrain: 'grassland', settlement: { id: 'town' } }),  // a fresh source
+    ACKS.blankHex({ id: 'dry9', coord: { q: 9, r: 0 }, terrain: 'grassland' })
+  ];
+  c.characters = [ACKS.blankCharacter({ id: 'dc', name: 'Drifter', inventory: [{ catalogId: 'waterskin' }], waterDaysCarried: 0 })];
+  const j = ACKS.blankJourney({ id: 'dj', participantCharacterIds: ['dc'], startHexId: 'dry0', destinationHexId: 'dry9', forageWaterEnabled: true, supplies: { rations: 0, waterRations: 0 } });
+  c.journeys = [j]; c.houseRules = {};
+  ACKS.startJourney(c, j);
+  ACKS.commitJourneyRecord(c, ACKS.proposeJourneyDay(c, { dayInMonth: 2, rng: () => 0 }).pendingRecords[0]);
+  const day = j.days[j.days.length - 1];
+  ok('day foraged on the sourceless hex (target 14)', !!(day.waterForage && day.waterForage.attempted && day.waterForage.target === 14));
+  // the bug: a reroll re-resolves day.hexId; on an arrival / unauthored-day-start it can land on a watered
+  // hex (a settlement / the last authored hex), where the source branch would silently NULL the throw.
+  day.hexId = 'wet0';
+  ok('hasFreshSource true for the re-resolved hex', ACKS.hasFreshSource(c, c.hexes.find(h => h.id === 'wet0')) === true);
+  const wf = ACKS.rerollJourneyForage(c, j);
+  ok('forage reroll still returns a throw despite the watered hex', !!(wf && wf.attempted === true));
+  ok('the reroll keeps the original throw target (14, not a source-skip)', wf.target === 14);
+  ok('the day still carries waterForage after the reroll (line + button persist)', !!j.days[j.days.length - 1].waterForage);
+})();
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — provisioning.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }

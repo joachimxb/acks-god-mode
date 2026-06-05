@@ -1749,15 +1749,21 @@ function journeyDaySurvival(campaign, journey, hex, opts){
   const hasOwnRation = inv => (inv || []).some(x => A.isRationLine(x) && (Number(x.daysRemaining) || 0) >= 1);
 
   // ── §4.1 WATER — free source → forage → drink (own → shared camp/others → shared pool), leader-first ──
-  if(hasFreshSource(campaign, hex)){
+  // forageNoSource (rerollJourneyForage): the day being re-rolled DID forage, so force the no-source forage
+  // path regardless of how this hex resolves now. A reroll re-resolves day.hexId, which on an arrival day or
+  // an unauthored day-start can land on a watered hex (the arrival hex / the last authored hex) where the
+  // original tick had foraged on a sourceless environment — without this the throw would silently vanish.
+  const forceForage = !!opts.forageNoSource;
+  if(!forceForage && hasFreshSource(campaign, hex)){
     out.waterSourced = true;
     for(const c of members){ const m = M[c.id]; m.water = m.waterCap; m.fedWater = true; }   // free top-up to capacity
   } else {
     let foraged = false;
     if(journey.forageWaterEnabled){
-      // one party Foraging throw (14+, 18+ barrens/desert; +4 if any member has Survival proficiency)
+      // one party Foraging throw (14+, 18+ barrens/desert; +4 if any member has Survival proficiency).
+      // forageTarget pins the original throw's target so a reroll re-rolls the same throw, only the die.
       const dry = (hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
-      const target = dry ? 18 : 14;
+      const target = (typeof opts.forageTarget === 'number') ? opts.forageTarget : (dry ? 18 : 14);
       const hasSurvival = members.some(c => (c.proficiencies || []).some(p => /survival/i.test(typeof p === 'string' ? p : (p && p.name) || '')));
       const bonus = hasSurvival ? 4 : 0;
       const rolled = 1 + Math.floor(rng() * 20);
@@ -2578,7 +2584,10 @@ function rerollJourneyForage(campaign, journey){
   const hex = (campaign.hexes || []).find(h => h && h.id === day.hexId) || null;
   const savedForage = j.forageWaterEnabled;
   j.forageWaterEnabled = true;
-  const surv = journeyDaySurvival(campaign, j, hex, { rng: Math.random });
+  // The day foraged (guarded above), so force the no-source forage path + reuse the original throw's target
+  // — re-roll the same throw even if day.hexId now resolves to a watered hex (arrival / unauthored-day-start).
+  const origTarget = (day.waterForage && typeof day.waterForage.target === 'number') ? day.waterForage.target : undefined;
+  const surv = journeyDaySurvival(campaign, j, hex, { rng: Math.random, forageNoSource: true, forageTarget: origTarget });
   j.forageWaterEnabled = savedForage;
   applyJourneyDaySurvival(campaign, j, surv);
   j.supplies.rations = (typeof surv.newRations === 'number') ? surv.newRations : j.supplies.rations;
