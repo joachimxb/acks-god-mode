@@ -433,29 +433,33 @@ function computeHenchmanCap(character){
 // 6. DICE / RANDOMNESS HELPERS
 // =============================================================================
 
-function rollD6(){return 1+Math.floor(Math.random()*6);}
-function rollD20(){return 1+Math.floor(Math.random()*20);}
-function rollD10x(n){
+// Each dice helper accepts an OPTIONAL trailing `rng` (a () => [0,1) function). Default Math.random,
+// so every existing caller is unchanged. proposeMonthlyTurn / commitTurn thread an injected rng so a
+// turn's outcome is scriptable in tests (qa-strategy I2); see options.rng on those two functions.
+function rollD6(rng){return 1+Math.floor((rng||Math.random)()*6);}
+function rollD20(rng){return 1+Math.floor((rng||Math.random)()*20);}
+function rollD10x(n,rng){
+  rng = rng || Math.random;
   let total=0;
   for(let i=0;i<n;i++){
-    let r=1+Math.floor(Math.random()*10);
+    let r=1+Math.floor(rng()*10);
     let sum=r;
-    while(r===10){r=1+Math.floor(Math.random()*10);sum+=r;}
+    while(r===10){r=1+Math.floor(rng()*10);sum+=r;}
     total+=sum;
   }
   return total;
 }
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 
-function rollNaturalIncrease(familiesK,moraleAfter){
+function rollNaturalIncrease(familiesK,moraleAfter,rng){
   if(moraleAfter<=-4)return 0;
-  return rollD10x(familiesK);
+  return rollD10x(familiesK,rng);
 }
-function rollNaturalDecrease(familiesK){return rollD10x(familiesK);}
-function rollMoraleExtra(moraleAfter,familiesK){
+function rollNaturalDecrease(familiesK,rng){return rollD10x(familiesK,rng);}
+function rollMoraleExtra(moraleAfter,familiesK,rng){
   const absMor=Math.abs(moraleAfter);
   if(absMor===0)return 0;
-  const sum=rollD10x(absMor*familiesK);
+  const sum=rollD10x(absMor*familiesK,rng);
   return moraleAfter>0?sum:-sum;
 }
 

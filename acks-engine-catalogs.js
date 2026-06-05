@@ -105,9 +105,10 @@ const VAGARIES_TABLE = Object.freeze([
   { id:'mutiny',         name:'Mutiny / desertion',   weight:2,  severity:'bad',          effect:'value-loss-pct',  effectValue:20, text:'The crew mutinies or deserts; some cargo is stolen or abandoned. 20% loss.' },
   { id:'annihilation',   name:'Annihilation',         weight:1,  severity:'catastrophic', effect:'total-loss',                       text:'The expedition has been utterly destroyed. Total loss — investment cannot be recovered. RR p.383.' }
 ]);
-function rollVagary(){
+function rollVagary(rng){
+  rng = rng || Math.random;
   const total = VAGARIES_TABLE.reduce((s,v)=>s+(v.weight||0),0) + 10;
-  let r = Math.floor(Math.random()*total);
+  let r = Math.floor(rng()*total);
   for(const v of VAGARIES_TABLE){
     if(r < v.weight) return v;
     r -= v.weight;
