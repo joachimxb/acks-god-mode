@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Carry encumbrance now reads load-band first.** The carry-weight readout — on character sheets and on the Journey and Parties members tables — now shows the **band before the weight** (e.g. *Severely loaded · 10.5 st* instead of *10.5 st · Severely loaded*), so the at-a-glance state leads.
 
 ### Fixed
+- **The day-tick review no longer warns about a future day's troubles under an earlier day.** When you advance several days at once (a week, or to month-end), the review used to show *every* day's notes — getting lost, going hungry, dehydration — under *each* day's line for a journey, so a day that found water could appear to "warn" about a dehydration that doesn't happen until two days later. Each day now lists only what actually happens on that day.
 - **At the end of a month, "+1 day" on the Day Clock now advances the month.** On the last day of the month (day 30), clicking **+1 day** (or +1 week / → month end) used to do nothing. It now opens the **Advance Month** review — because advancing a day past month end *is* the next month — which rolls the day clock back to day 1 and moves the calendar forward, so the date display stays in step. Advancing days mid-month is unchanged.
 
 ## [0.18.0] - 2026-06-04
