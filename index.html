@@ -4115,9 +4115,9 @@ document.addEventListener('alpine:init', () => {
               <select class="text-sm border border-ink rounded px-2 py-0.5"
                       @change="setJourneyPace(journeyDetail(), $event.target.value)"
                       title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged)">
-                <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1)</option>
-                <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — travel as an ancillary activity)</option>
-                <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — fatigued at once, RR p.279)</option>
+                <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1 — dedicates the day to travel)</option>
+                <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — 4 ancillary hours; frees the dedicated activity)</option>
+                <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — the whole day; fatigued at once, RR p.279)</option>
               </select>
             </div>
             <div>

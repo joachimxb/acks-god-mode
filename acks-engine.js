@@ -5321,14 +5321,36 @@ function characterActivityBudget(campaign, charId, opts){
   const activities = [];
 
   // ── Undertaking-derived contributions ──
-  // Active journeys: travelling dedicates the day (and is strenuous); 'resting' is the
-  // fatigue-clearing dedicated rest. 'planning' hasn't set out; 'arrived'/'aborted' are done.
+  // Active journeys. Travel cost is PACE-dependent — travel is an explicit line in the activity
+  // budget (JJ ancillary list: "Travel for 6 turns"; RR p.272), and the base rate is 3 mi/hour:
+  //   • normal pace = full expedition speed (24 mi unencumbered) = the DEDICATED activity (8h;
+  //     leaves 4 ancillary free to forage/shop on the same day — RR p.272).
+  //   • half speed = 4 ANCILLARY activities (4h × 3 mi = 12 mi = ½ of 24); frees the dedicated slot.
+  //   • forced march = the WHOLE day (1 dedicated + all 4 ancillary, +50%, strenuous — RR p.279).
+  // So the budget GATES travel speed (Joachim 2026-06-05, "like encumbrance"): you can't travel
+  // full-speed AND do another dedicated task (2 dedicated → over budget); to do both you drop to
+  // half speed (4 ancillary, dedicated free). The over-budget check (units-summed below) enforces
+  // it. 'resting' is the fatigue-clearing dedicated rest. 'planning'/'arrived'/'aborted' are out.
+  // The half-day is 4 ancillary hours (½ of the 8-hour dedicated block), which equals the per-day
+  // ancillary allowance — both 4. tickJourneyDay already applies the pace ×-multiplier to distance;
+  // this is the budget (cost) side only.
+  const HALF_DAY_ANCILLARY = 4;   // 4 hours = half the 8-hour dedicated travel day
   const JOURNEY_ACTIVE = { 'in-transit':1, 'resting':1, 'lost':1 };
   for(const j of journeysWithParticipant(campaign, charId)){
-    if(j && JOURNEY_ACTIVE[j.status]){
-      const kind = (j.status === 'resting') ? 'rest' : 'travel';
-      const cc = costFor(kind);
-      activities.push({ kind, label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id });
+    if(!j || !JOURNEY_ACTIVE[j.status]) continue;
+    if(j.status === 'resting'){
+      const cc = costFor('rest');
+      activities.push({ kind:'rest', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
+      continue;
+    }
+    const pace = j.pace || 'normal';
+    if(pace === 'half-speed'){
+      activities.push({ kind:'travel', label:'Travel · half speed', cost:'ancillary', strenuous:false, sourceKind:'journey', sourceId: j.id, dedicatedUnits:0, ancillaryUnits: HALF_DAY_ANCILLARY });
+    } else if(pace === 'forced-march'){
+      activities.push({ kind:'travel', label:'Travel · forced march', cost:'dedicated', strenuous:true, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits: HALF_DAY_ANCILLARY });
+    } else {
+      const cc = costFor('travel');
+      activities.push({ kind:'travel', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
     }
   }
   // Domain administration — RAW: "Administer a domain" IS a dedicated activity (RR p.352, "hold
@@ -5392,19 +5414,29 @@ function characterActivityBudget(campaign, charId, opts){
     }
   }
 
-  // ── Bucket by cost ──
+  // ── Bucket by cost (for display) ──
   const dedicated = activities.filter(a => a.cost === 'dedicated');
   const ancillary = activities.filter(a => a.cost === 'ancillary');
   const incidental = activities.filter(a => a.cost === 'incidental');
 
+  // ── Unit-summed usage ── An activity may weigh more than one slot: half-speed travel = 4 ancillary
+  // hours; forced march = 1 dedicated + 4 ancillary (the whole day). So count UNITS, not entries —
+  // dedicatedUnits / ancillaryUnits when set, else default from cost (a plain dedicated task = 1
+  // dedicated; a plain errand = 1 ancillary). Keeps the over-budget gate honest while each undertaking
+  // stays a single row (a half-speed journey is one "Travel · half speed · 4h" line, not four).
+  const _ded = a => (a.dedicatedUnits != null) ? a.dedicatedUnits : (a.cost === 'dedicated' ? 1 : 0);
+  const _anc = a => (a.ancillaryUnits != null) ? a.ancillaryUnits : (a.cost === 'ancillary' ? 1 : 0);
+  const dedUsed = activities.reduce((s, a) => s + _ded(a), 0);
+  const ancUsed = activities.reduce((s, a) => s + _anc(a), 0);
+
   // ── Over-budget (RAW: 1 dedicated + up to 4 ancillary, OR up to 12 ancillary with no dedicated) ──
   let overBudget = false, overReason = null;
-  if(dedicated.length > BUDGET.dedicatedPerDay){
-    overBudget = true; overReason = dedicated.length + ' dedicated tasks (max ' + BUDGET.dedicatedPerDay + ')';
-  } else if(dedicated.length >= 1 && ancillary.length > BUDGET.ancillaryPerDedicatedDay){
-    overBudget = true; overReason = ancillary.length + ' ancillary alongside a dedicated task (max ' + BUDGET.ancillaryPerDedicatedDay + ')';
-  } else if(dedicated.length === 0 && ancillary.length > BUDGET.ancillaryMaxPerDay){
-    overBudget = true; overReason = ancillary.length + ' ancillary errands (max ' + BUDGET.ancillaryMaxPerDay + ')';
+  if(dedUsed > BUDGET.dedicatedPerDay){
+    overBudget = true; overReason = dedUsed + ' dedicated tasks (max ' + BUDGET.dedicatedPerDay + ')';
+  } else if(dedUsed >= 1 && ancUsed > BUDGET.ancillaryPerDedicatedDay){
+    overBudget = true; overReason = ancUsed + ' ancillary alongside a dedicated task (max ' + BUDGET.ancillaryPerDedicatedDay + ')';
+  } else if(dedUsed === 0 && ancUsed > BUDGET.ancillaryMaxPerDay){
+    overBudget = true; overReason = ancUsed + ' ancillary errands (max ' + BUDGET.ancillaryMaxPerDay + ')';
   }
 
   // ── Strenuous → rest fatigue (RR p.279) — read the shipped per-character counter ──
@@ -5417,8 +5449,8 @@ function characterActivityBudget(campaign, charId, opts){
     charId,
     grain: opts.grain || 'current',
     dedicated, ancillary, incidental,
-    dedicatedUsed: dedicated.length,
-    ancillaryUsed: ancillary.length,
+    dedicatedUsed: dedUsed,
+    ancillaryUsed: ancUsed,
     overBudget, overReason,
     strenuousDays, fatigued
   };

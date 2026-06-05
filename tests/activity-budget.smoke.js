@@ -149,6 +149,38 @@ const cTwoDom = mkCampaign({
 ok('two-domain admin = over budget', ACKS.characterActivityBudget(cTwoDom, 'chr-a').overBudget === true);
 
 // =============================================================================
+section('characterActivityBudget() — travel cost is pace-dependent; the budget gates speed (Joachim 2026-06-05)');
+// =============================================================================
+// RR p.272 / JJ: full expedition speed = the DEDICATED activity; half speed = 4 ANCILLARY hours
+// (4h × 3 mi = 12 mi = ½ of 24); forced march = the WHOLE day (1 dedicated + 4 ancillary, +50%).
+const jrnPace = (pace, status) => ({ id: 'jrn-1', participantCharacterIds: ['chr-a'], status: status || 'in-transit', pace });
+const adminD = () => mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true });
+const bNormal = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('normal')] }), 'chr-a');
+ok('normal travel = 1 dedicated, 0 ancillary', bNormal.dedicatedUsed === 1 && bNormal.ancillaryUsed === 0);
+ok('normal travel shows in the dedicated bucket', (bNormal.dedicated[0] || {}).cost === 'dedicated');
+const bHalf = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('half-speed')] }), 'chr-a');
+ok('half speed = 0 dedicated, 4 ancillary', bHalf.dedicatedUsed === 0 && bHalf.ancillaryUsed === 4);
+ok('half speed is ONE entry (not four)', bHalf.ancillary.length === 1 && bHalf.ancillary[0].ancillaryUnits === 4);
+ok('half speed alone is within budget', bHalf.overBudget === false);
+const bForced = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('forced-march')] }), 'chr-a');
+ok('forced march = 1 dedicated + 4 ancillary (the whole day)', bForced.dedicatedUsed === 1 && bForced.ancillaryUsed === 4);
+ok('forced march alone fills the day but is not over', bForced.overBudget === false);
+ok('forced march is strenuous', bForced.dedicated[0].strenuous === true);
+// THE GATE: full-speed travel claims the dedicated slot, so it can't co-exist with administering;
+// dropping to half speed frees the dedicated slot so both fit.
+const bNormalAdmin = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('normal')], domains: [adminD()] }), 'chr-a');
+ok('normal travel + administer = over budget (2 dedicated)', bNormalAdmin.overBudget === true && bNormalAdmin.dedicatedUsed === 2);
+const bHalfAdmin = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('half-speed')], domains: [adminD()] }), 'chr-a');
+ok('half speed + administer = within budget (1 ded + 4 anc) — the fix', bHalfAdmin.overBudget === false && bHalfAdmin.dedicatedUsed === 1 && bHalfAdmin.ancillaryUsed === 4);
+const bForcedAdmin = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('forced-march')], domains: [adminD()] }), 'chr-a');
+ok('forced march + administer = over budget (2 dedicated)', bForcedAdmin.overBudget === true);
+// half-speed travel (4 anc) + administer (1 ded) + one more errand (1 anc) = 5 ancillary → over.
+const errandEntry = { appliedAtTurn: 1, appliedAtDay: 1, event: { id: 'ev-x', kind: 'market-transaction', appliedAtTurn: 1, appliedAtDay: 1, payload: { actorCharacterId: 'chr-a', activityCost: { slot: 'ancillary', units: 1, kind: 'market-transaction' } } } };
+const bHalfAdminErrand = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('half-speed')], domains: [adminD()], currentTurn: 1, currentDayInMonth: 1, eventLog: [errandEntry] }), 'chr-a');
+ok('half speed + administer + 1 errand = over (5 ancillary alongside a dedicated)', bHalfAdminErrand.overBudget === true && bHalfAdminErrand.ancillaryUsed === 5);
+ok('the over-budget reason counts units, not entries', /5 ancillary/.test(bHalfAdminErrand.overReason || ''));
+
+// =============================================================================
 section('characterActivityBudget() — strenuous → rest fatigue (RR p.279)');
 // =============================================================================
 const cTired = mkCampaign({ characters: [mkChar('chr-a', { personalFatigue: 6 })] });
