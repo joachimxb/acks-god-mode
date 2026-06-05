@@ -2384,8 +2384,20 @@ function proposeJourneyDay(campaign, ctx){
   const pendingRecords = [], notableEvents = [], encounters = [];
   if(!campaign || !Array.isArray(campaign.journeys)) return { pendingRecords, notableEvents, encounters };
   ctx = ctx || {};
+  // The day being LEFT, as an absolute world ordinal turn*30 + day. In the pipeline ctx.dayInMonth is the
+  // day being ENTERED (tickDayOnce's nextDay), so the day left is dayInMonth-1 — which also equals
+  // work.currentDayInMonth (incremented AFTER this runs). Prefer ctx.dayInMonth so a direct call that
+  // sequences days via ctx (without moving the campaign clock) is handled too. The lockstep skip-guard
+  // compares each in-transit journey's travel marker against it.
+  const _leftDayInMonth = (typeof ctx.dayInMonth === 'number') ? (ctx.dayInMonth - 1) : ((campaign.currentDayInMonth) || 1);
+  const leftOrd = ((campaign.currentTurn || 1) * 30) + _leftDayInMonth;
   for(const j of campaign.journeys){
     if(!j || j.status !== 'in-transit') continue;
+    // Lockstep skip-guard (Complete Movement, 2026-06-05): one leg per world day. If this journey's
+    // travel for the day being left has already been resolved — by a manual "Complete Movement" or an
+    // earlier pass — don't resolve it again (that would march the party twice in one day). A journey
+    // the GM did NOT move falls through and is auto-resolved here at the commit tick.
+    if(j.lastTravelWorldOrd != null && j.lastTravelWorldOrd >= leftOrd) continue;
     // Stable preview: seed each journey's day from its committed-state fingerprint unless the
     // caller forced an rng. Re-opening / refreshing the review reproduces the same upcoming day.
     const rng = ctx.rng || _seededJourneyRng(campaign, j, ctx);
@@ -2469,6 +2481,16 @@ function commitJourneyRecord(campaign, record){
   j.supplies.waterRations = record.newWaterRations;
   j.currentHexId = record.newCurrentHexId;
   j.status = record.newStatus;
+  // Lockstep marker (Complete Movement, 2026-06-05): the absolute world ordinal of the day this leg
+  // TRAVELLED ON (the day being left). The consumer path tags the record with the day being ENTERED
+  // (tickDayOnce's nextDay), so the travel day is dayInMonth-1; the Complete-Movement / start path carries
+  // no tag, so the travel day is the current clock day. proposeJourneyDay's skip-guard + the UI's
+  // "already moved today" check read this to enforce one leg per world day. (rerollJourneyDay re-runs a
+  // PAST leg under a later clock, so it restores the original marker after the re-commit.)
+  {
+    const _travelDayInMonth = (typeof record.dayInMonth === 'number') ? (record.dayInMonth - 1) : ((campaign.currentDayInMonth) || 1);
+    j.lastTravelWorldOrd = ((campaign.currentTurn || 1) * 30) + _travelDayInMonth;
+  }
   // §27 getting-lost post-state: the stray heading + (when a lost day re-anchored) the coord anchor and
   // banked baseline. Recompute the route snapshot when re-anchored so the UI/integrators see the live
   // route from the party's strayed position.
@@ -2521,11 +2543,12 @@ function journeyLastDayRerollable(campaign, journey){
   if(!j || j.status === 'aborted' || !Array.isArray(j.days) || !j.days.length) return false;
   const last = j.days[j.days.length - 1];
   if(!last || !last._preDay) return false;
-  const wd = last.worldDay;
-  if(!wd) return true; // pre-stamp record — preserve the old snapshot-only behavior
-  const nowOrd = (((campaign && campaign.currentTurn) || 1) * 30) + (((campaign && campaign.currentDayInMonth) || 1));
-  const legOrd = ((wd.turn || 1) * 30) + (wd.dayInMonth || 1);
-  return nowOrd <= legOrd; // world hasn't advanced past the leg's day
+  // The LATEST leg is ALWAYS rerollable — it IS the journey's current state (Joachim 2026-06-05: "you
+  // should always be able to reroll the last leg"). A NEWER leg supersedes it (Complete Movement or the
+  // next day-tick creates one); the world clock no longer locks it on its own. The old nowOrd<=legOrd
+  // clock-lock is dropped now that one leg = one world day. Still gated on a _preDay snapshot (legacy
+  // legs without one stay non-rerollable) + not aborted (a deliberate GM decision, not a die roll).
+  return true;
 }
 
 // GM reroll of the LATEST committed day: revert the journey + participants to the day's pre-state
@@ -2536,7 +2559,8 @@ function journeyLastDayRerollable(campaign, journey){
 function rerollJourneyDay(campaign, journey, ctx){
   const A = _jACKS();
   const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
-  if(!journeyLastDayRerollable(campaign, j)) return null; // no snapshot, aborted, or the world has moved past this day
+  if(!journeyLastDayRerollable(campaign, j)) return null; // no snapshot or aborted
+  const _origTravelOrd = j.lastTravelWorldOrd; // this leg's travel marker — restored after the re-commit (below)
   const lastDay = j.days[j.days.length - 1];
   const pre = lastDay._preDay;
   const wasArrival = (j.status === 'arrived'); // reverting an arrival must also un-do the move-to-destination
@@ -2603,7 +2627,12 @@ function rerollJourneyDay(campaign, journey, ctx){
   // 3. re-run the day with fresh randomness + commit + re-emit its events (the shared tick→commit→emit
   //    core, also used by the start-flow's first-day travel). ctx passes through — rerollJourneyNav uses
   //    { skipSurvival:true } to re-roll movement only and hold provisioning fixed.
-  return _commitJourneyDayAndEmit(campaign, j, ctx);
+  const _rerolledRec = _commitJourneyDayAndEmit(campaign, j, ctx);
+  // The re-commit stamped lastTravelWorldOrd with the CURRENT clock, but a reroll re-does the SAME past
+  // leg — restore its original travel ordinal so the lockstep skip-guard still lands on the right day
+  // (otherwise the next +1 day would wrongly skip, or double-count, a travel day).
+  if(_rerolledRec && _origTravelOrd != null) j.lastTravelWorldOrd = _origTravelOrd;
+  return _rerolledRec;
 }
 
 // Resolve ONE journey day with fresh randomness: tick → commit → emit the day's notable events to the
