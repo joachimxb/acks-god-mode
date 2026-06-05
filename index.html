@@ -1275,24 +1275,24 @@ document.addEventListener('alpine:init', () => {
 
   <main class="p-4">
     <template x-if="!currentCampaign">
-      <!-- v0.9 task #217 — Welcome / first-run banner.
-           Three CTAs ranked by intended path: (1) instant demo (loads enriched
-           Established March template inlined as window.ACKS_DEMO_TEMPLATE),
-           (2) pick another shipped template via the file picker, (3) open an
-           existing campaign, (4) start blank. -->
+      <!-- Welcome / first-run banner (task #217). CTAs: (1) instant demo (loads the inlined
+           window.ACKS_DEMO_TEMPLATE), (2) "Start from a template" — reveals the six shipped
+           Templates/*.acks.json, loaded one-click via loadShippedTemplate() (same-origin fetch
+           on the hosted site, file-picker fallback under file://), (3) open an existing campaign,
+           (4) start blank. Scope copy is version-agnostic; the demo's counts derive from demoStats(). -->
       <div class="vellum border-2 border-ink rounded-lg mt-6 mb-4 mx-auto max-w-3xl shadow-lg">
         <div class="p-6 border-b-2 border-ink">
           <h2 class="text-2xl font-black mb-2">Welcome to ACKS God Mode</h2>
-          <p class="text-base opacity-80">An ACKS II world state engine for GMs. v0.9 covers the domain layer — domain bookkeeping, characters and retainers, world hexes, urban settlements, mercantile ventures, rumors, and the hireling recruitment loop. Pick a starting point below.</p>
+          <p class="text-base opacity-80">An ACKS II world-state engine for GMs — run a campaign's domains, characters and retainers, a hex map of the world and travel across it, the economy and trade, rumors, and more, all from one HTML file. Pick a starting point below.</p>
         </div>
 
         <!-- Primary CTA: instant demo -->
         <div class="p-6 border-b border-ink/40" style="background:#f4ecd2;">
           <div class="flex items-start justify-between gap-4 flex-wrap">
-            <div class="flex-grow" style="min-width:18rem">
+            <div class="flex-grow" style="min-width:18rem" x-data="{ ds: demoStats() }">
               <div class="text-sm opacity-60 uppercase tracking-wide mb-1">Try the demo</div>
               <h3 class="text-xl font-bold mb-2">March of Saltspur — a sea-coast frontier</h3>
-              <p class="text-base mb-1">A 3-domain campaign already at <strong>Turn 5</strong>: a March, a vassal Barony, and a vassal village. Includes 6 characters, 8 mapped hexes, 3 settlements with full market data, 5 rumors in circulation, a venture in flight, a brewery investment, and two pending events ready to resolve.</p>
+              <p class="text-base mb-1">A multi-domain sea-coast campaign already at <strong x-text="'Turn ' + ds.turn"></strong> — <span x-text="ds.domains"></span> domains on a mapped coastline, <span x-text="ds.characters"></span> characters, settlements with full market data, <span x-text="ds.rumors"></span> rumors in circulation, a venture in flight, and <span x-text="ds.pendingDue + (ds.pendingDue === 1 ? ' pending event' : ' pending events')"></span> ready to resolve.</p>
               <p class="text-sm opacity-70">The best way to feel the whole tool. Loading the demo won't overwrite the template file — Save will prompt for a new location.</p>
             </div>
             <button @click="loadDemoTemplate()"
@@ -1302,12 +1302,20 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
-        <!-- Secondary actions -->
-        <div class="p-6">
+        <!-- Secondary actions. Nested x-data holds the template-picker toggle + the six shipped
+             templates; loadShippedTemplate() (a parent/domainApp method) loads one in a click. -->
+        <div class="p-6" x-data="{ templatePickerOpen: false, shippedTemplates: [
+              { file: 'v2-frontier-barony.acks.json',      label: 'Frontier Barony',      blurb: 'A small wilderness barony — Borderlands, built from scratch' },
+              { file: 'v2-established-march.acks.json',     label: 'Established March',     blurb: 'A larger march — has vassals and a working economy' },
+              { file: 'v2-petty-kingdom.acks.json',        label: 'Petty Kingdom',        blurb: 'A small Realm — multiple vassals and a council' },
+              { file: 'v2-wilderness-outpost.acks.json',   label: 'Wilderness Outpost',   blurb: 'A frontier outpost — Outlands, very early stage' },
+              { file: 'v2-mercantile-city-state.acks.json',label: 'Mercantile City-State',blurb: 'Urban-focused — a high market class with active ventures' },
+              { file: 'v2-dwarven-vault.acks.json',        label: 'Dwarven Vault',        blurb: 'A dwarven variant (By This Axe, house-rule-gated)' }
+            ] }">
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <button @click="$refs.campaignFileInput.click()" class="text-left p-3 border border-ink rounded hover:bg-yellow-100">
-              <div class="font-semibold mb-1">📚 Pick a template</div>
-              <div class="text-sm opacity-70">Frontier Barony · Petty Kingdom · Wilderness Outpost · Mercantile City · Dwarven Vault. Choose a file from the <code>Templates/</code> folder bundled with the tool.</div>
+            <button @click="templatePickerOpen = !templatePickerOpen" :class="templatePickerOpen ? 'bg-yellow-100' : ''" class="text-left p-3 border border-ink rounded hover:bg-yellow-100">
+              <div class="font-semibold mb-1">📚 Start from a template</div>
+              <div class="text-sm opacity-70">Six ready-made starting points — pick one and it loads in a click. <span x-text="templatePickerOpen ? '▴' : '▾'"></span></div>
             </button>
             <button @click="openCampaign()" class="text-left p-3 border border-ink rounded hover:bg-yellow-100">
               <div class="font-semibold mb-1">📂 Open a campaign</div>
@@ -1318,7 +1326,16 @@ document.addEventListener('alpine:init', () => {
               <div class="text-sm opacity-70">Build a campaign from scratch. Add domains, characters, and settlements as you go.</div>
             </button>
           </div>
-          <div class="mt-4 pt-3 border-t border-ink/30 text-sm opacity-70">Once you've loaded a campaign, open <span class="font-semibold">⚙ House Rules</span> from the top tabs to see optional rules — Realistic Construction, Dwarven Mining, Persistent Hireling Candidates, Auran Calendar, and more.</div>
+          <!-- Template list — revealed by "Start from a template". -->
+          <div x-show="templatePickerOpen" x-cloak class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <template x-for="t in shippedTemplates" :key="t.file">
+              <button @click="loadShippedTemplate(t.file)" class="text-left p-2 border border-ink/60 rounded hover:bg-yellow-100">
+                <div class="font-semibold text-sm" x-text="t.label"></div>
+                <div class="text-xs opacity-70" x-text="t.blurb"></div>
+              </button>
+            </template>
+          </div>
+          <div class="mt-4 pt-3 border-t border-ink/30 text-sm opacity-70">Once you've loaded a campaign, open <span class="font-semibold">⚙ House Rules</span> from the top tabs to toggle optional and variant rules — Dwarven Mining, Persistent Hireling Candidates, the Auran Calendar, Ignore carry encumbrance, and more. With nothing toggled, the tool runs RAW as written.</div>
         </div>
       </div>
     </template>
@@ -1444,7 +1461,7 @@ document.addEventListener('alpine:init', () => {
                 <span class="text-sm font-normal opacity-80 ml-1" x-text="'· ' + moraleLevel(selectedDomain.demographics.morale) + ' ' + moraleEmoji(selectedDomain.demographics.morale)"></span>
               </h2>
               <p class="text-sm leading-relaxed" x-text="moraleStateText(selectedDomain.demographics.morale)"></p>
-              <p class="text-sm opacity-70 italic mt-2">— ACKS II Revised Rulebook, Effects of Morale (pp. 350-351)</p>
+              <p class="text-sm opacity-70 italic mt-2">Effects of domain morale — see ACKS II Revised Rulebook, pp. 349-351</p>
             </div>
             <!-- Overview + Ruler grid (50/50 on md+, stacks below md). -->
             <div class="grid md:grid-cols-2 gap-4">
@@ -8207,7 +8224,7 @@ return {
       try{ localStorage.removeItem('acks-domain-session-v3'); }catch(_){}
       this.currentCampaign=null; this.domains=[]; this.selectedDomainId=null; this.fileName='';
       // Defer toast until Alpine watchers are wired so the message is visible.
-      setTimeout(()=>{ try{ this.showToast('Previous session was on an older schema and could not be restored. Open a fresh campaign from Templates/ to continue.', 7000); }catch(_){} }, 200);
+      setTimeout(()=>{ try{ this.showToast('Previous session was on an older schema and could not be restored. Pick the demo or a starter template from the welcome screen to continue.', 7000); }catch(_){} }, 200);
     }
     this.$watch('currentCampaign',()=>{
       this.markDirty();
@@ -14408,6 +14425,51 @@ return {
     }
   },
 
+  // Welcome-banner template picker — load one of the six shipped Templates/*.acks.json.
+  // On the hosted site (http/https) the folder is same-origin, so fetch + load in one click,
+  // exactly like the demo. Under file:// relative fetch is blocked by the browser, so fall back
+  // to the manual file picker. Loaded unbound (sourceName '') so Save can't overwrite the
+  // shipped template — same posture as the demo and the Open-of-a-template paths.
+  async loadShippedTemplate(filename){
+    if(this.currentCampaign && !confirm('Replace the current campaign with this template? Unsaved changes will be lost.'))return;
+    const httpish = location.protocol === 'http:' || location.protocol === 'https:';
+    if(httpish){
+      try{
+        const resp = await fetch('Templates/'+filename, {cache:'no-cache'});
+        if(!resp.ok) throw new Error('HTTP '+resp.status);
+        const obj = await resp.json();
+        this.fileHandle = null; // template → unbound, Save prompts for a new file
+        this.loadCampaignFromObject(obj, '');
+        this.showToast('Template loaded — Save will prompt for a new file so the template stays intact.', 6000);
+        return;
+      }catch(e){
+        console.warn('Template fetch failed; falling back to the file picker:', e);
+        this.showToast('Couldn’t auto-load the template — pick '+filename+' from the Templates/ folder.', 7000);
+      }
+    } else {
+      this.showToast('Running from a local file — pick '+filename+' from the Templates/ folder.', 7000);
+    }
+    // Fallback (file:// or a fetch error): the manual file input → importCampaignFile().
+    this.$refs.campaignFileInput.click();
+  },
+
+  // Welcome banner — derive the demo's headline counts from the inlined demo template so the
+  // copy can't go stale when the demo is regenerated (ux-product audit O3). Defensive defaults
+  // if the template script somehow didn't load.
+  demoStats(){
+    const t = window.ACKS_DEMO_TEMPLATE || {};
+    const arr = (x) => Array.isArray(x) ? x : [];
+    const due = arr(t.pendingEvents).filter(e => e && e.status === 'pending' && (e.targetTurn || 0) <= (t.currentTurn || 1)).length;
+    return {
+      turn: t.currentTurn || 1,
+      domains: arr(t.domains).length,
+      characters: arr(t.characters).length,
+      settlements: arr(t.settlements).length,
+      rumors: arr(t.rumors).length,
+      pendingDue: due
+    };
+  },
+
   async ensureWritePermission(handle){
     const opts={mode:'readwrite'};
     try{
@@ -14943,7 +15005,7 @@ return {
     const s=String(clamp(score||0,-4,4));
     return ({'-4':'Rebellion: bandits 1/family, no growth, income to 0.','-3':'Defiance: bandits 1/2, lose 3d10/1000, income -50%.','-2':'Turbulence: bandits 1/5, lose 2d10/1000, income -20%.','-1':'Demoralized: lose 1d10/1000 families/month.','0':'Apathetic.','1':'Loyal: +1d10/1000 families.','2':'Dedicated: +2d10/1000.','3':'Steadfast: +3d10/1000, +1 vassal loyalty.','4':'Stalwart: +4d10/1000, +2 vassal loyalty.'})[s]||'';
   },
-  // Full ACKS RAW description text for the "State of Your Domain" panel
+  // Morale-effect summary (original paraphrase, mechanical facts preserved; RR pp.349-351) for the "State of Your Domain" panel
   moraleStateText(score){return MORALE_STATE_TEXT[String(clamp(score||0,-4,4))]||'';},
   // Stronghold value required for current hex count (ACKS RAW: 15000gp per controlled 6-mile hex)
   strongholdRequired(d){return (d.geography?.controlledHexes||0)*STRONGHOLD_VALUE_PER_HEX;},
@@ -16141,6 +16203,14 @@ return {
 <style>
   /* Tail style block intentionally minimal — main styles live in <head>. */
 </style>
+
+<!-- About / source notice. Static, shown on every page state. The "Source on GitHub" link is
+     the AGPL §13 offer-of-source for the network-served app (oss-community audit C3). -->
+<footer class="no-print text-center text-xs opacity-60 py-4 px-4 border-t border-ink/20 mt-8">
+  ACKS God Mode — an independent community tool for ACKS II ·
+  <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" class="underline hover:opacity-90">AGPL-3.0</a> ·
+  <a href="https://github.com/joachimxb/acks-god-mode" target="_blank" rel="noopener" class="underline hover:opacity-90">Source on GitHub</a>
+</footer>
 
 </body>
 </html>
