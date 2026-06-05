@@ -613,9 +613,11 @@ const JOURNEY_GROUND_SPEED = Object.freeze({
 
 // Pace multipliers - RAW's three overland paces (RR p.272). normal = expedition speed as the
 // dedicated activity (4 ancillaries free); forced-march = +50% but fatigued at once (RR p.279)
-// and no ancillaries; half-speed = travel as an ancillary activity (RAW gives it no name).
+// and no ancillaries; half-speed = travel as four ancillary activities (RAW gives it no name).
+// 'halted' (×0) is not a RAW pace — it is the engine's "the day's activities leave no room to
+// travel" state (the activity budget caps the party at it; Joachim 2026-06-05). 0 miles that day.
 const JOURNEY_PACE_SPEED = Object.freeze({
-  'forced-march': 3/2, 'normal': 1, 'half-speed': 1/2
+  'forced-march': 3/2, 'normal': 1, 'half-speed': 1/2, 'halted': 0
 });
 
 // Survival (RR p.275): one ration = 1 stone = 2 lb food + 1 gallon water per person per day.

@@ -667,6 +667,18 @@ section('§24 — integration: per-hex terrain + per-side roads (deterministic t
   check('a fully-roaded day rolls no navigation throw', dR.record.dayRecord.navigationThrow === null);
 })();
 
+section('Halted pace (×0) — the activity budget can cap a journey to no travel (Joachim 2026-06-05)');
+(function(){
+  const { c, j } = lineCampaign(6);
+  ACKS.startJourney(c, j);
+  c.journeys[0].pace = 'halted';   // effective pace also 'halted' (no other activities cap it lower)
+  const d = ACKS.tickJourneyDay(c, c.journeys[0], { rng: () => 0.5 });
+  check('a halted day travels 0 hexes', d.record.dayRecord.hexesTraveled === 0, String(d.record.dayRecord.hexesTraveled));
+  check('a halted day surfaces a non-pausing "halted" notable', !!d.notableEvents.find(e => e.type === 'halted' && !e.pauseTrigger));
+  check('a halted day does not arrive (no progress)', d.record.newStatus !== 'arrived');
+  check('a halted day rolls no navigation throw', d.record.dayRecord.navigationThrow === null);
+})();
+
 section('§24 — integration: fording an unbridged river (deterministic)');
 (function(){
   const mkRiver = () => lineCampaign(2, q => (q === 0 ? { riverSides:[0] } : (q === 1 ? { riverSides:[3] } : {})));

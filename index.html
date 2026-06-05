@@ -4114,10 +4114,11 @@ document.addEventListener('alpine:init', () => {
               <label class="opacity-70 block text-xs">Pace</label>
               <select class="text-sm border border-ink rounded px-2 py-0.5"
                       @change="setJourneyPace(journeyDetail(), $event.target.value)"
-                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged)">
-                <option value="normal" :selected="journeyDetail().pace==='normal'">Normal (×1 — dedicates the day to travel)</option>
-                <option value="half-speed" :selected="journeyDetail().pace==='half-speed'">Half speed (×½ — 4 ancillary hours; frees the dedicated activity)</option>
-                <option value="forced-march" :selected="journeyDetail().pace==='forced-march'">Forced march (×1½ — the whole day; fatigued at once, RR p.279)</option>
+                      title="Change the marching pace — multiplies the current speed, applies to the next day ticked, and sets fatigue (logged). A pace the travellers' other activities can't sustain is disabled (the activity budget caps it).">
+                <option value="normal" :selected="journeyEffectivePaceUI(journeyDetail())==='normal'" :disabled="!journeyPaceAllowed(journeyDetail(),'normal')">Normal (×1 — dedicates the day to travel)</option>
+                <option value="half-speed" :selected="journeyEffectivePaceUI(journeyDetail())==='half-speed'" :disabled="!journeyPaceAllowed(journeyDetail(),'half-speed')">Half speed (×½ — 4 ancillary hours; frees the dedicated activity)</option>
+                <option value="forced-march" :selected="journeyEffectivePaceUI(journeyDetail())==='forced-march'" :disabled="!journeyPaceAllowed(journeyDetail(),'forced-march')">Forced march (×1½ — the whole day; fatigued at once, RR p.279)</option>
+                <option value="halted" :selected="journeyEffectivePaceUI(journeyDetail())==='halted'">Halted (×0 — the day's activities leave no time to travel)</option>
               </select>
             </div>
             <div>
@@ -4130,6 +4131,9 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
           <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">Current speed = the slowest member's encumbrance rate; pace multiplies it for the next day ticked.</span>
+          <!-- Pace cap (Joachim 2026-06-05): when a traveller's other activities (e.g. administering a domain)
+               leave no room for full-speed travel, the faster paces are disabled + this names why. -->
+          <span class="text-xs text-amber-800 font-semibold block" x-show="journeyPaceCapText(journeyDetail())" x-text="journeyPaceCapText(journeyDetail())"></span>
           <span class="text-xs text-amber-800" x-show="journeyOverrideArmed && !journeyHasSpeedOverride(journeyDetail())">Set a miles/day value (click ✏) — until you do, the slowest member's rate governs.</span>
           <span class="text-xs text-amber-800" x-show="journeyHasSpeedOverride(journeyDetail())" x-text="'⚡ Current speed overridden to ' + (journeyDetail().speedOverrideMilesPerDay||0) + ' mi/day for this leg — pace, weather & per-hex terrain still apply on top.'"></span>
         </div>
@@ -9949,6 +9953,38 @@ return {
     // suppressFromCampaignLog: an operational knob-turn, not a campaign moment — audited in the Event Log only.
     this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'pace', label:'Pace', oldValue:j.pace, newValue:pace, suppressFromCampaignLog:true });
     this.markDirty(); this.schedulePersist();
+  },
+  // ── Pace cap (Joachim 2026-06-05): the travellers' OTHER activities cap the achievable pace. ──
+  // journeyPaceAllowed → can the party sustain this pace? journeyEffectivePaceUI → the GM's pace,
+  // capped (what the dropdown shows selected + what a tick uses). journeyPaceCapText → why it's
+  // restricted (names the constraining traveller), '' when uncapped. All read the live this.domains.
+  _PACE_RANK_UI: { 'halted':0, 'half-speed':1, 'normal':2, 'forced-march':3 },
+  journeyPaceAllowed(j, pace){
+    if(!j || pace === 'halted') return true;                         // halting is always possible
+    const A = window.ACKS; if(!A || !A.journeyMaxPace) return true;
+    const r = this._PACE_RANK_UI;
+    const max = A.journeyMaxPace(this.currentCampaign, j, { domains: this.domains }).maxPace;
+    return (r[pace] != null) && r[pace] <= r[max];
+  },
+  journeyEffectivePaceUI(j){
+    const A = window.ACKS; if(!j) return 'normal';
+    return (A && A.journeyEffectivePace) ? A.journeyEffectivePace(this.currentCampaign, j, { domains: this.domains }) : (j.pace || 'normal');
+  },
+  journeyPaceCapText(j){
+    const A = window.ACKS; if(!j || !A || !A.journeyMaxPace) return '';
+    const info = A.journeyMaxPace(this.currentCampaign, j, { domains: this.domains });
+    if(!info || info.maxPace === 'forced-march' || !info.binding) return '';   // uncapped → no text
+    const b = info.binding, name = b.name || 'A traveller';
+    const label = { 'halted':'Halted', 'half-speed':'Half speed', 'normal':'Normal' }[info.maxPace] || info.maxPace;
+    if(info.maxPace === 'halted'){
+      return '⚠ ' + name + '’s day is already full — the party can’t travel today (0 mi). Free some of their activities (e.g. in Current Activities) to move.';
+    }
+    // A dedicated task (administering, research…) caps the party to half speed; ancillary errands only
+    // cost the forced-march option (they leave the dedicated day for normal-pace travel).
+    if(b.otherDedicated >= 1){
+      return '⚠ Pace limited to ' + label + ' — ' + name + ' is committed to a dedicated task this day (e.g. administering a domain), so the party can’t march at full speed. Untick that activity (in Current Activities) to march faster.';
+    }
+    return 'ℹ Forced march unavailable — ' + name + ' has errands occupying part of the day (a forced march needs the whole day). Normal pace and below are fine.';
   },
   setJourneyMode(j, mode){
     if(!j || !mode || j.mode === mode) return;

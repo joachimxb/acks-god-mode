@@ -122,38 +122,31 @@ const cOther = mkCampaign({ characters: [mkChar('chr-a'), mkChar('chr-b')], jour
 ok("another char's journey not mine", ACKS.characterActivityBudget(cOther, 'chr-a').dedicatedUsed === 0);
 
 // =============================================================================
-section('characterActivityBudget() — over-budget detection');
+section('characterActivityBudget() — over-budget detection (non-travel double-booking)');
 // =============================================================================
-// travelling AND administering = two dedicated tasks → over budget (RAW: max 1 dedicated/day).
-const cTwo = mkCampaign({
+// The cap (below) governs TRAVEL pace, so travel never pushes a character over budget. A genuine
+// non-travel double-dedicated (administering two domains) still trips the over-budget check.
+const cTwoDom = mkCampaign({
   characters: [mkChar('chr-a')],
-  journeys: [mkJourney('jrn-1', ['chr-a'], 'in-transit')],
-  domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true })],
+  domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true }), mkDomain('dom-2', { magistrates: { steward: mkMagSlot('chr-a', true) } })],
 });
-const bTwo = ACKS.characterActivityBudget(cTwo, 'chr-a');
-ok('two dedicated: counted', bTwo.dedicatedUsed === 2);
-ok('two dedicated: over budget', bTwo.overBudget === true);
-ok('two dedicated: reason names dedicated cap', /dedicated/.test(bTwo.overReason || ''));
-
+const bTwoDom = ACKS.characterActivityBudget(cTwoDom, 'chr-a');
+ok('two-domain admin: 2 dedicated counted', bTwoDom.dedicatedUsed === 2);
+ok('two-domain admin: over budget', bTwoDom.overBudget === true);
+ok('two-domain admin: reason names the dedicated cap', /dedicated/.test(bTwoDom.overReason || ''));
 // Ruler AND an administering officer in the SAME domain dedupe to one administration.
 const cDup = mkCampaign({
   characters: [mkChar('chr-a')],
   domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true, magistrates: { steward: mkMagSlot('chr-a', true) } })],
 });
 ok('same-domain ruler+officer dedupe to one admin', ACKS.characterActivityBudget(cDup, 'chr-a').dedicatedUsed === 1);
-// administering two DIFFERENT domains = two administrations → over budget.
-const cTwoDom = mkCampaign({
-  characters: [mkChar('chr-a')],
-  domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true }), mkDomain('dom-2', { magistrates: { steward: mkMagSlot('chr-a', true) } })],
-});
-ok('two-domain admin = over budget', ACKS.characterActivityBudget(cTwoDom, 'chr-a').overBudget === true);
 
 // =============================================================================
-section('characterActivityBudget() — travel cost is pace-dependent; the budget gates speed (Joachim 2026-06-05)');
+section('characterActivityBudget() — travel cost by pace (uncapped, solo journey, RR p.272 / JJ)');
 // =============================================================================
-// RR p.272 / JJ: full expedition speed = the DEDICATED activity; half speed = 4 ANCILLARY hours
-// (4h × 3 mi = 12 mi = ½ of 24); forced march = the WHOLE day (1 dedicated + 4 ancillary, +50%).
-const jrnPace = (pace, status) => ({ id: 'jrn-1', participantCharacterIds: ['chr-a'], status: status || 'in-transit', pace });
+// full expedition speed = the DEDICATED activity; half speed = 4 ANCILLARY hours (½ of 24); forced
+// march = the WHOLE day (1 dedicated + 4 ancillary, +50%); halted = nothing.
+const jrnPace = (pace, status, members) => ({ id: 'jrn-1', participantCharacterIds: members || ['chr-a'], status: status || 'in-transit', pace });
 const adminD = () => mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true });
 const bNormal = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('normal')] }), 'chr-a');
 ok('normal travel = 1 dedicated, 0 ancillary', bNormal.dedicatedUsed === 1 && bNormal.ancillaryUsed === 0);
@@ -166,19 +159,32 @@ const bForced = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('c
 ok('forced march = 1 dedicated + 4 ancillary (the whole day)', bForced.dedicatedUsed === 1 && bForced.ancillaryUsed === 4);
 ok('forced march alone fills the day but is not over', bForced.overBudget === false);
 ok('forced march is strenuous', bForced.dedicated[0].strenuous === true);
-// THE GATE: full-speed travel claims the dedicated slot, so it can't co-exist with administering;
-// dropping to half speed frees the dedicated slot so both fit.
-const bNormalAdmin = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('normal')], domains: [adminD()] }), 'chr-a');
-ok('normal travel + administer = over budget (2 dedicated)', bNormalAdmin.overBudget === true && bNormalAdmin.dedicatedUsed === 2);
-const bHalfAdmin = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('half-speed')], domains: [adminD()] }), 'chr-a');
-ok('half speed + administer = within budget (1 ded + 4 anc) — the fix', bHalfAdmin.overBudget === false && bHalfAdmin.dedicatedUsed === 1 && bHalfAdmin.ancillaryUsed === 4);
-const bForcedAdmin = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('forced-march')], domains: [adminD()] }), 'chr-a');
-ok('forced march + administer = over budget (2 dedicated)', bForcedAdmin.overBudget === true);
-// half-speed travel (4 anc) + administer (1 ded) + one more errand (1 anc) = 5 ancillary → over.
-const errandEntry = { appliedAtTurn: 1, appliedAtDay: 1, event: { id: 'ev-x', kind: 'market-transaction', appliedAtTurn: 1, appliedAtDay: 1, payload: { actorCharacterId: 'chr-a', activityCost: { slot: 'ancillary', units: 1, kind: 'market-transaction' } } } };
-const bHalfAdminErrand = ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('half-speed')], domains: [adminD()], currentTurn: 1, currentDayInMonth: 1, eventLog: [errandEntry] }), 'chr-a');
-ok('half speed + administer + 1 errand = over (5 ancillary alongside a dedicated)', bHalfAdminErrand.overBudget === true && bHalfAdminErrand.ancillaryUsed === 5);
-ok('the over-budget reason counts units, not entries', /5 ancillary/.test(bHalfAdminErrand.overReason || ''));
+
+// =============================================================================
+section('travel pace is CAPPED by the day\'s other activities (Joachim 2026-06-05, "like encumbrance")');
+// =============================================================================
+// journeyMaxPace = fastest pace the PARTY can sustain (slowest traveller's cap); journeyEffectivePace
+// = the GM's desired pace, capped. The budget charges the EFFECTIVE pace, so travel never goes over.
+const mp = (camp, j) => ACKS.journeyMaxPace(camp, j, { domains: camp.domains }).maxPace;
+const eff = (camp, j) => ACKS.journeyEffectivePace(camp, j, { domains: camp.domains });
+const cFree = mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('forced-march')] });
+ok('nobody busy: maxPace = forced-march (no cap)', mp(cFree, cFree.journeys[0]) === 'forced-march');
+// administering → the dedicated slot is taken, so full/forced travel is unavailable → capped to half.
+const cAdmin = mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('normal')], domains: [adminD()] });
+ok('administering: maxPace = half-speed', mp(cAdmin, cAdmin.journeys[0]) === 'half-speed');
+ok('administering: a NORMAL journey is capped to half-speed', eff(cAdmin, cAdmin.journeys[0]) === 'half-speed');
+ok('administering + capped journey = within budget (1 ded + 4 anc, NOT over)', (() => { const b = ACKS.characterActivityBudget(cAdmin, 'chr-a', { domains: cAdmin.domains }); return b.overBudget === false && b.dedicatedUsed === 1 && b.ancillaryUsed === 4; })());
+const cAdminForced = mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('forced-march')], domains: [adminD()] });
+ok('administering: a FORCED march is capped to half-speed too', eff(cAdminForced, cAdminForced.journeys[0]) === 'half-speed');
+// administering + 4 ancillary errands → no room even for half speed's 4 ancillary → capped to HALTED.
+const errands = [1, 2, 3, 4].map(i => ({ appliedAtTurn: 1, appliedAtDay: 1, event: { id: 'ev-' + i, kind: 'market-transaction', appliedAtTurn: 1, appliedAtDay: 1, payload: { actorCharacterId: 'chr-a', activityCost: { slot: 'ancillary', units: 1, kind: 'market-transaction' } } } }));
+const cFull = mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('normal')], domains: [adminD()], currentTurn: 1, currentDayInMonth: 1, eventLog: errands });
+ok('administering + 4 errands: maxPace = halted', mp(cFull, cFull.journeys[0]) === 'halted');
+ok('a halted journey costs nothing (incidental) — admin + 4 errands stay within budget', (() => { const b = ACKS.characterActivityBudget(cFull, 'chr-a', { domains: cFull.domains }); return b.dedicatedUsed === 1 && b.ancillaryUsed === 4 && b.overBudget === false && b.incidental.some(a => a.kind === 'travel'); })());
+// the PARTY cap = the slowest traveller: an administering member caps a free companion too.
+const cParty = mkCampaign({ characters: [mkChar('chr-a'), mkChar('chr-b')], journeys: [jrnPace('forced-march', 'in-transit', ['chr-a', 'chr-b'])], domains: [adminD()] });
+ok('party cap = slowest traveller (an admin member caps the party to half speed)', mp(cParty, cParty.journeys[0]) === 'half-speed');
+ok('the free companion travels at the capped half speed too', (() => { const b = ACKS.characterActivityBudget(cParty, 'chr-b', { domains: cParty.domains }); return b.ancillaryUsed === 4 && b.dedicatedUsed === 0; })());
 
 // =============================================================================
 section('characterActivityBudget() — strenuous → rest fatigue (RR p.279)');

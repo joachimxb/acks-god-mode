@@ -1653,7 +1653,12 @@ function tickJourneyDay(campaign, journey, ctx){
   const dist = computeJourneyDistance(campaign, journey);
   const startHex = dist.startHex;
   const newDayIndex = (journey.currentDayIndex || 0) + 1;
-  const pace = journey.pace || 'normal';
+  // EFFECTIVE pace = the GM's pace capped by what the travellers' other activities leave room for
+  // (Joachim 2026-06-05). An administering ruler caps the party at half speed; a fully-booked one at
+  // 'halted' (×0 — no progress that day). campaign.domains is attached by the day-tick pipeline, so
+  // the domain-admin gate resolves. Falls back to the stored pace if the helper isn't present.
+  const pace = (typeof A.journeyEffectivePace === 'function') ? A.journeyEffectivePace(campaign, journey) : (journey.pace || 'normal');
+  const halted = (pace === 'halted');   // the day's activities (or the GM) leave no room to travel → 0 hexes, no nav/ford
   const weather = (ctx.weather && ctx.weather.condition) ? ctx.weather : { condition: 'fair', temperature: 'moderate', rolledOrSet: 'gm-fiat' };
 
   // carry-forward absolutes
@@ -1729,7 +1734,7 @@ function tickJourneyDay(campaign, journey, ctx){
   let navRecord = null;
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
-  if(!restDay && dist.remaining > 0 && (isLost || !onRoadOrTrail)){
+  if(!restDay && !halted && dist.remaining > 0 && (isLost || !onRoadOrTrail)){
     // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
     const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
     const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
@@ -1774,7 +1779,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // a travel day always advances at least one hex (RAW floors progress ≥1). ──
   let hexesToday = 0, dayAllRoaded = true, hardestNav = -1, representativeTerrain = baseTerrain, fordingRecord = null;
   let strayPath = null, strayLandingCoord = null;
-  if(!restDay && isLost && dist.remaining > 0){
+  if(!restDay && !halted && isLost && dist.remaining > 0){
     // ── LOST (RR p.275): the party covers a full day's distance toward its random stray heading, OFF
     // the planned route and unaware. Terrain + ground pace each hex (looked up by coord, falling back to
     // the base environment where unauthored); NO road bonus (it isn't following one) and NO river fording
@@ -1798,7 +1803,7 @@ function tickJourneyDay(campaign, journey, ctx){
       { const nt = (A.JOURNEY_NAV_THROWS[terr] != null) ? A.JOURNEY_NAV_THROWS[terr] : 0; if(nt > hardestNav){ hardestNav = nt; representativeTerrain = terr; } }
     }
     strayLandingCoord = cur;
-  } else if(!restDay && !isLost && dist.remaining > 0 && route.length > 1){
+  } else if(!restDay && !halted && !isLost && dist.remaining > 0 && route.length > 1){
     let pos = startPos;
     while(pos < route.length - 1 && (pos - startPos) < dist.remaining){
       const fromStep = route[pos], toStep = route[pos + 1];
@@ -1848,6 +1853,12 @@ function tickJourneyDay(campaign, journey, ctx){
     return out;
   })();
   const milesToday = hexesToday * A.JOURNEY_MILES_PER_HEX;
+  // Halted (×0): the day's activities (or the GM) left no room to travel — record why (non-pausing).
+  if(halted){
+    notableEvents.push({ kind: 'journey-day-tick', type: 'halted', primaryHexId: journey.startHexId || null,
+      label: (journey.name || 'Journey') + ': halted — the day’s activities left no time to travel (0 miles)',
+      payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+  }
   const newCovered = dist.covered + hexesToday;
   // A LOST party can never "arrive" — it's moving the wrong way (and the re-anchor below nets covered to 0).
   const willArrive = !isLost && ((dist.total > 0) ? (newCovered >= dist.total) : true); // 0-distance arrives at once

@@ -5332,19 +5332,34 @@ function characterActivityBudget(campaign, charId, opts){
   // half speed (4 ancillary, dedicated free). The over-budget check (units-summed below) enforces
   // it. 'resting' is the fatigue-clearing dedicated rest. 'planning'/'arrived'/'aborted' are out.
   // The half-day is 4 ancillary hours (½ of the 8-hour dedicated block), which equals the per-day
-  // ancillary allowance — both 4. tickJourneyDay already applies the pace ×-multiplier to distance;
-  // this is the budget (cost) side only.
+  // ancillary allowance — both 4. tickJourneyDay applies the pace ×-multiplier to distance; this is
+  // the budget (cost) side. The pace charged is the EFFECTIVE pace — the GM's desired j.pace CAPPED
+  // by what the traveller's other commitments leave room for (journeyEffectivePace; Joachim
+  // 2026-06-05). So an administering ruler whose journey is set to 'normal' is charged at the capped
+  // 'half-speed' (4 ancillary), and a fully-booked traveller at 'halted' (no travel cost) — the GM
+  // never sees a phantom over-budget from a pace the day can't sustain. opts.excludeJourneyId omits
+  // one journey entirely AND switches to STORED-pace (no cap) for any others — journeyMaxPace uses
+  // that to read a traveller's "other load" without recursing back into the cap.
   const HALF_DAY_ANCILLARY = 4;   // 4 hours = half the 8-hour dedicated travel day
   const JOURNEY_ACTIVE = { 'in-transit':1, 'resting':1, 'lost':1 };
   for(const j of journeysWithParticipant(campaign, charId)){
     if(!j || !JOURNEY_ACTIVE[j.status]) continue;
+    if(opts.excludeJourneyId && j.id === opts.excludeJourneyId) continue;   // omit this journey (journeyMaxPace's "other load")
     if(j.status === 'resting'){
       const cc = costFor('rest');
       activities.push({ kind:'rest', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
       continue;
     }
-    const pace = j.pace || 'normal';
-    if(pace === 'half-speed'){
+    // Effective pace = the GM's pace capped by the activity budget — but NOT when reading "other
+    // load" (excludeJourneyId set), where we charge the stored pace to avoid recursing into the cap.
+    let pace = j.pace || 'normal';
+    if(!opts.excludeJourneyId){
+      const eff = (typeof journeyEffectivePace === 'function') ? journeyEffectivePace(campaign, j, { domains: opts.domains }) : pace;
+      if(eff) pace = eff;
+    }
+    if(pace === 'halted'){
+      activities.push({ kind:'travel', label:'Travel · halted (day full)', cost:'incidental', strenuous:false, sourceKind:'journey', sourceId: j.id, dedicatedUnits:0, ancillaryUnits:0 });
+    } else if(pace === 'half-speed'){
       activities.push({ kind:'travel', label:'Travel · half speed', cost:'ancillary', strenuous:false, sourceKind:'journey', sourceId: j.id, dedicatedUnits:0, ancillaryUnits: HALF_DAY_ANCILLARY });
     } else if(pace === 'forced-march'){
       activities.push({ kind:'travel', label:'Travel · forced march', cost:'dedicated', strenuous:true, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits: HALF_DAY_ANCILLARY });
@@ -5456,6 +5471,67 @@ function characterActivityBudget(campaign, charId, opts){
   };
 }
 
+// ── Travel pace ↔ activity budget: the day's activities CAP the achievable pace (Joachim 2026-06-05,
+// "the daily pace choice should be restricted by the activity budget … a Halted (×0) pace"). The four
+// paces ranked by speed; each costs a known slice of the day (per the pace-aware travel charge above):
+//   forced-march = 1 dedicated + 4 ancillary (the whole day) · normal = 1 dedicated · half-speed = 4
+//   ancillary · halted = nothing. A pace FITS a traveller iff, ADDED to their OTHER commitments, the
+// day still satisfies RAW (≤1 dedicated; ≤4 ancillary with a dedicated, else ≤12). The fastest pace
+// that fits is that traveller's cap; the party's cap is the SLOWEST traveller's (everyone must sustain
+// the chosen pace). So an administering ruler caps the party at half speed, and a fully-booked one at
+// halted. RAW-grounded in the travel-as-an-activity model; the cap itself is project doctrine.
+const PACE_RANK = Object.freeze({ 'halted':0, 'half-speed':1, 'normal':2, 'forced-march':3 });
+const RANK_PACE = Object.freeze(['halted', 'half-speed', 'normal', 'forced-march']);
+const PACE_COST = Object.freeze({
+  'forced-march': { d:1, a:4 }, 'normal': { d:1, a:0 }, 'half-speed': { d:0, a:4 }, 'halted': { d:0, a:0 }
+});
+// Does `pace` fit a traveller who already spends otherDed dedicated + otherAnc ancillary units?
+function _travelPaceFits(otherDed, otherAnc, pace, BUDGET){
+  const c = PACE_COST[pace] || PACE_COST.halted;
+  const totalDed = otherDed + c.d;
+  if(totalDed > BUDGET.dedicatedPerDay) return false;
+  const ancCap = (totalDed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+  return (otherAnc + c.a) <= ancCap;
+}
+// Fastest pace a traveller with (otherDed, otherAnc) of OTHER load can sustain.
+function _maxPaceForLoad(otherDed, otherAnc, BUDGET){
+  for(const p of ['forced-march', 'normal', 'half-speed', 'halted']){
+    if(_travelPaceFits(otherDed, otherAnc, p, BUDGET)) return p;
+  }
+  return 'halted';
+}
+// The fastest pace the WHOLE party can sustain = the slowest individual cap across its character
+// travellers (mercenaries have no budget). Returns { maxPace, binding } where binding names the
+// constraining traveller + why (for the UI's "pace restricted because…" text). Reads each traveller's
+// OTHER load via characterActivityBudget(excludeJourneyId) (stored-pace, no recursion — see above).
+function journeyMaxPace(campaign, journey, opts){
+  opts = opts || {};
+  const A = global.ACKS || {};
+  const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+  const ids = (journey && Array.isArray(journey.participantCharacterIds)) ? journey.participantCharacterIds : [];
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  let maxRank = PACE_RANK['forced-march'];   // unconstrained ceiling
+  let binding = null;
+  for(const cid of ids){
+    const ch = chars.find(c => c && c.id === cid);
+    if(!ch) continue;
+    const b = characterActivityBudget(campaign, cid, { domains: opts.domains, excludeJourneyId: journey.id });
+    const cap = _maxPaceForLoad(b.dedicatedUsed, b.ancillaryUsed, BUDGET);
+    if(PACE_RANK[cap] < maxRank){
+      maxRank = PACE_RANK[cap];
+      binding = { characterId: cid, name: ch.name || cid, maxPace: cap, otherDedicated: b.dedicatedUsed, otherAncillary: b.ancillaryUsed };
+    }
+  }
+  return { maxPace: RANK_PACE[maxRank], binding };
+}
+// The GM's desired journey.pace, capped by journeyMaxPace. The value tickJourneyDay + the budget use.
+function journeyEffectivePace(campaign, journey, opts){
+  const desired = (journey && journey.pace) || 'normal';
+  const cap = journeyMaxPace(campaign, journey, opts).maxPace;
+  const dr = (PACE_RANK[desired] != null) ? PACE_RANK[desired] : PACE_RANK['normal'];
+  return (dr <= PACE_RANK[cap]) ? desired : cap;
+}
+
 // What kind of "reject" does an activity support, and what's the button label? (Joachim 2026-06-05,
 // the Current Activities table.) Rejecting a derived activity reaches back to its SOURCE — and the
 // undo differs because the sources have three temporal natures: a standing monthly commitment
@@ -5551,6 +5627,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   setEventContext,
   // Phase 2.95 Activity Budget (#346 / AB-1) — derived per-character daily activity budget.
   characterActivityBudget, activityRejectAffordance,
+  // Travel pace ↔ budget: the day's activities cap the achievable pace (Joachim 2026-06-05).
+  journeyMaxPace, journeyEffectivePace,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
