@@ -287,6 +287,18 @@ document.addEventListener('alpine:init', () => {
                       <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
                     </span>
                   </div>
+                  <!-- Journey records: show the day's actual rolls (navigation + water-foraging) the way
+                       the day log will. A SUCCESSFUL nav/forage otherwise surfaces nothing (only failures
+                       are notable), so a no-dehydration day looked like the water step was skipped
+                       (Joachim 2026-06-05: "there's no water at the hex, I'm foraging, the review shows no
+                       dehydration — I should see the foraging roll, even on day 0, when there's no source").
+                       The failure notables still render below. -->
+                  <template x-if="!r.rejected && r.kind === 'journey-day' && r.dayRecord">
+                    <div class="ml-3 pb-0.5 flex flex-col gap-0.5">
+                      <span x-show="r.dayRecord.navigationThrow" class="text-xs font-mono" :class="journeyNavOk(r.dayRecord.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(r.dayRecord.navigationThrow)"></span>
+                      <span x-show="r.dayRecord.waterForage && r.dayRecord.waterForage.attempted" class="text-xs font-mono" :class="(r.dayRecord.waterForage && r.dayRecord.waterForage.success) ? 'text-sky-800' : 'text-orange-700'" x-text="journeyForageDetail(r.dayRecord.waterForage)"></span>
+                    </div>
+                  </template>
                   <!-- This record's notable events (lost / hungry / dehydrated / encounter …), in red,
                        under their own record — the journey label above isn't repeated. -->
                   <div x-show="!r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
