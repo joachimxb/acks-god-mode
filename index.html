@@ -4184,13 +4184,18 @@ document.addEventListener('alpine:init', () => {
         <!-- day log -->
         <div>
           <h3 class="font-semibold text-sm mb-1">Day log</h3>
-          <template x-if="(journeyDetail().days||[]).length===0 && !journeyPendingDay()"><p class="text-xs italic opacity-60">No days recorded yet — Tick day to advance.</p></template>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — the party is at its start. Tick day (top-right) to resolve the first day.</p></template>
           <div class="space-y-1">
             <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
-              <div class="text-xs border-b border-dashed border-gray-300 py-0.5">
-                <!-- Row 1 — day header: weather · distance · pace · speed override -->
+              <div class="text-xs py-0.5" :class="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'border border-dashed border-sky-400 rounded px-1' : 'border-b border-dashed border-gray-300'" :style="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'background:rgba(186,230,253,0.22)' : ''">
+                <!-- Row 1 — day header: weather · distance · pace · speed override. The LATEST day, while
+                     still rerollable (the world clock stands on it), is the party's CURRENT STATE —
+                     highlighted + rerolled in place (Joachim 2026-06-05: "it is the current state… the
+                     Journey updates location and conditions"). Once the clock advances past it (or an
+                     earlier day) it locks into history. Same gate as the reroll buttons below. -->
                 <div class="flex flex-wrap gap-x-3 items-baseline">
                   <span class="font-semibold">Day <span x-text="d.dayIndex"></span></span>
+                  <span x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" title="The journey's current state — where the party is now and the conditions they're in. Reroll it below to re-resolve the day in place; it locks once you advance the clock past it.">current</span>
                   <span x-text="'☀ ' + (d.weather?.condition||'fair')"></span>
                   <span x-text="(d.hexesTraveled||0) + ' hex (' + (d.milesTraveled||0) + ' mi)'"></span>
                   <span class="capitalize" x-text="d.pace"></span>
@@ -4203,14 +4208,14 @@ document.addEventListener('alpine:init', () => {
                   <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
                   <span x-show="!d.navigationThrow" class="font-mono opacity-40">nav — no throw (on road / at rest)</span>
                   <template x-for="(ne,nei) in journeyDayNotables(d,'nav')" :key="'dln-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
-                  <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollNav(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's navigation & movement (GM) — the water-foraging outcome is held fixed (it has its own reroll on the row below)">🎲 reroll nav</button>
+                  <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollNav(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll the current day's navigation & movement (GM) — the party's location updates to match; the water-foraging outcome is held (its own reroll is on the row below)">🎲 reroll nav</button>
                 </div>
                 <!-- Row 3 — provisioning: the day's water-Foraging throw (with modifiers) + hunger/thirst notes,
                      with its OWN reroll (leaves movement + navigation untouched). Only when something happened. -->
                 <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.waterForage || journeyDayNotables(d,'survival').length">
                   <span x-show="d.waterForage" class="font-mono" :class="(d.waterForage && d.waterForage.success) ? 'text-sky-800' : 'text-orange-700'" x-text="journeyForageDetail(d.waterForage)"></span>
                   <template x-for="(ne,nei) in journeyDayNotables(d,'survival')" :key="'dls-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
-                  <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="text-xs px-1.5 border border-sky-700 text-sky-800 rounded hover:bg-sky-50 ml-auto" title="Re-roll JUST this day's water-foraging throw (GM) — leaves the day's movement + navigation as they are">🎲 reroll forage</button>
+                  <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="text-xs px-1.5 border border-sky-700 text-sky-800 rounded hover:bg-sky-50 ml-auto" title="Re-roll JUST the current day's water-foraging throw (GM) — the party's conditions update; movement & navigation are held">🎲 reroll forage</button>
                 </div>
                 <!-- Row 4 — §24 the hexes entered this day; the latest day's last hex is the party's current position. -->
                 <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="pl-3 text-[11px] opacity-80">
@@ -4220,29 +4225,9 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </div>
             </template>
-            <!-- The PROPOSED next day, shown while a day-tick proposal is open — so the GM previews the
-                 upcoming day's navigation + water-foraging rolls HERE in the day log (Joachim 2026-06-05:
-                 "see it in the Journey view… it is Day 1, just show it"). Read-only: confirm it in the
-                 Day-tick panel (top-right) to keep it, then the per-day rerolls apply. The day's RESULTS
-                 (dehydration / hunger) stay in the Day-tick review, not duplicated here. -->
-            <template x-if="journeyPendingDay()">
-              <div class="text-xs border border-dashed border-sky-400 rounded py-0.5 px-1" style="background:rgba(186,230,253,0.22)">
-                <div class="flex flex-wrap gap-x-3 items-baseline">
-                  <span class="font-semibold">Day <span x-text="journeyPendingDay().dayIndex"></span></span>
-                  <span class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" x-text="dayTickProposal ? 'pending · review & commit ↗' : 'preview'" :title="dayTickProposal ? 'Proposed — confirm it in the Day-tick panel (top-right) to keep it' : 'A preview of the next day — press Tick day to resolve and commit it'"></span>
-                  <span x-text="'☀ ' + (journeyPendingDay().weather?.condition||'fair')"></span>
-                  <span x-text="(journeyPendingDay().hexesTraveled||0) + ' hex (' + (journeyPendingDay().milesTraveled||0) + ' mi)'"></span>
-                  <span class="capitalize" x-text="journeyPendingDay().pace"></span>
-                  <span x-show="journeyPendingDay().speedOverrideMilesPerDay > 0" class="text-amber-800 font-mono" x-text="'⚡' + journeyPendingDay().speedOverrideMilesPerDay + ' mi/day'"></span>
-                </div>
-                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="journeyPendingDay().navigationThrow">
-                  <span class="font-mono" :class="journeyNavOk(journeyPendingDay().navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(journeyPendingDay().navigationThrow)"></span>
-                </div>
-                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="journeyPendingDay().waterForage && journeyPendingDay().waterForage.attempted">
-                  <span class="font-mono" :class="(journeyPendingDay().waterForage && journeyPendingDay().waterForage.success) ? 'text-sky-800' : 'text-orange-700'" x-text="journeyForageDetail(journeyPendingDay().waterForage)"></span>
-                </div>
-              </div>
-            </template>
+            <!-- (No separate "next day" preview row — the journey's current state IS its latest committed
+                 day above, highlighted + rerollable in place. Joachim 2026-06-05: "remove the Preview
+                 name… it is the current state. The Journey updates location and current conditions.") -->
           </div>
           <p class="text-xs opacity-50 mt-1">Per-day records are GM-editable via 🔍 Inspector › the journey entity (<code>days[]</code>).</p>
         </div>
@@ -8124,11 +8109,6 @@ function buildDomainFromTemplate(tpl){
 }
 
 function domainApp(){
-  // Non-reactive memo for the day-log "next day" preview (journeyPendingDay): keyed on a cheap
-  // journey-state string so the deterministic next-day tick runs once per state, not on every
-  // Alpine re-evaluation of the pending row. A closure var (not on `this`) — never reactive, so
-  // writing it can't trigger a render loop.
-  let _journeyPreviewMemo = null;
 return {
   SCHEMA_VERSION,REQUIRED_GARRISON_PER_FAMILY,TEMPLATES:EMBEDDED_TEMPLATES,HOUSERULES:HOUSERULES_REGISTRY,HOUSERULE_CATEGORIES,STRONGHOLD_CATALOG,
   MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE,
@@ -9994,43 +9974,10 @@ return {
     const total = wf.rolled + (wf.bonus || 0);
     return parts.join(' ') + (wf.bonus ? (' = ' + total) : '') + ' vs ' + wf.target + '+ → ' + (wf.success ? 'water found ✓' : 'no water ✗');
   },
-  // The PROPOSED next day for the journey shown in the detail panel, while a day-tick proposal is
-  // open — so the day log can preview it as a pending "Day N" row (with its nav + water-foraging
-  // rolls), and the GM sees the upcoming forage throw THERE, not in the day-tick review (Joachim
-  // 2026-06-05: "see it in the Journey view… it is Day 1, just show it"). Reads the open proposal's
-  // pending record (exactly what will commit; deterministic via the seeded preview). null when no
-  // proposal is open, or it carries no un-rejected day for this journey.
-  journeyPendingDay(){
-    const j = this.journeyDetail();
-    if(!j) return null;
-    // 1) If a day-tick proposal is open, use ITS record for this journey — exactly what will commit.
-    const p = this.dayTickProposal;
-    if(p){
-      const rec = (p.pendingRecords||[]).find(r => r && r.kind === 'journey-day' && r.journeyId === j.id && !r.rejected);
-      if(rec) return rec.dayRecord;
-    }
-    // 2) Otherwise show a DETERMINISTIC preview of the next day immediately (Joachim 2026-06-05:
-    //    "just show the day 1 immediately — you don't need to tick day"). Memoized on a cheap
-    //    state key so the tick runs once per state, not per re-eval; computed on a shallow campaign
-    //    copy (journeys → just this one, domains attached for the pace cap) so the real campaign is
-    //    never mutated during render. proposeJourneyDay seeds the day from journey state, so this
-    //    preview is identical to what a Tick day would propose + commit.
-    if(j.status !== 'in-transit') return null;
-    const c = this.currentCampaign; if(!c) return null;
-    const surv = (j.participantCharacterIds||[]).map(id => { const ch=(c.characters||[]).find(x=>x&&x.id===id); return ch ? [ch.waterDaysCarried||0,ch.foodDeficitDays||0,ch.underfed?1:0,ch.starving?1:0,ch.dehydrated?1:0].join(',') : '?'; }).join(';');
-    const key = [j.id, j.currentDayIndex||0, j.currentHexId||j.startHexId||'', j.covered||0, j.coveredBaseline||0, j.isLost?1:0, (typeof j.strayHeading==='number'?j.strayHeading:''), j.pace||'', j.speedOverrideMilesPerDay||0, j.forageWaterEnabled?1:0, j.shareRations?1:0, (c.currentDayInMonth||1), (j.participantCharacterIds||[]).join(','), surv, (j.supplies?((j.supplies.rations||0)+'/'+(j.supplies.waterRations||0)):'')].join('|');
-    if(_journeyPreviewMemo && _journeyPreviewMemo.key === key) return _journeyPreviewMemo.day;
-    let day = null;
-    try {
-      const previewCampaign = Object.assign({}, c, { journeys: [j], domains: this.domains });
-      const out = window.ACKS.proposeJourneyDay(previewCampaign, { dayInMonth: (c.currentDayInMonth||1)+1 });
-      const rec = (out.pendingRecords||[]).find(r => r && r.kind === 'journey-day' && r.journeyId === j.id);
-      day = rec ? rec.dayRecord : null;
-    } catch(e){ day = null; }
-    _journeyPreviewMemo = { key, day };
-    return day;
-  },
-  // GM reroll of JUST the latest day's water-foraging throw (leaves movement + navigation untouched).
+  // GM reroll of JUST the current day's water-foraging throw (leaves movement + navigation untouched).
+  // The current day = the journey's latest committed day; the reroll re-resolves it IN PLACE, so the
+  // party's conditions update + persist (Joachim 2026-06-05: "it is the current state… the Journey
+  // updates location and current conditions"). Locks once the world clock advances past the day.
   journeyRerollForage(j){
     if(!j) return;
     const wf = this._journeyWithDomains(() => window.ACKS.rerollJourneyForage(this.currentCampaign, j));

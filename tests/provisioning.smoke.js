@@ -245,6 +245,24 @@ section('Day-log forage roll + the forage reroll');
   ACKS.commitJourneyRecord(c2, ACKS.proposeJourneyDay(c2, { dayInMonth: 2, rng: () => 0.99 }).pendingRecords[0]);
   ok('a fresh-source day (lake hex) records no forage throw', !j2.days[j2.days.length - 1].waterForage);
   ok('rerollJourneyForage is null when no forage happened', ACKS.rerollJourneyForage(c2, j2) === null);
+  // the forage reroll must REFRESH the day's survival notables (not just waterForage) — else a re-rolled
+  // "water found" day keeps a stale "a traveller is dehydrated" bullet (Joachim 2026-06-05: the current-day
+  // reroll updates conditions in place). Set up a FAILED day, reroll until it finds water, assert it cleared.
+  const c3 = ACKS.blankCampaign({ name: 'foragenotable' });
+  c3.currentTurn = 1; c3.currentDayInMonth = 1; c3.calendar = { year: 1, month: 1, day: 1 };
+  c3.hexes = [ACKS.blankHex({ id: 'g0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'g9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c3.characters = [ACKS.blankCharacter({ id: 'gc', inventory: [{ catalogId: 'waterskin' }], waterDaysCarried: 0 })];
+  const j3 = ACKS.blankJourney({ id: 'gj', participantCharacterIds: ['gc'], startHexId: 'g0', destinationHexId: 'g9', forageWaterEnabled: true, supplies: { rations: 0, waterRations: 0 } });
+  c3.journeys = [j3]; c3.houseRules = {};
+  ACKS.startJourney(c3, j3);
+  ACKS.commitJourneyRecord(c3, ACKS.proposeJourneyDay(c3, { dayInMonth: 2, rng: () => 0 }).pendingRecords[0]);
+  const d3 = j3.days[j3.days.length - 1];
+  const hasDehydr = d => (d.notableEvents || []).some(ne => ne.type === 'dehydration');
+  ok('a failed-forage day starts with a dehydration notable', d3.waterForage.success === false && hasDehydr(d3));
+  let found = false;
+  for (let i = 0; i < 300 && !found; i++) { const w = ACKS.rerollJourneyForage(c3, j3); if (w && w.success) found = true; }
+  ok('forage reroll eventually finds water (sanity)', found);
+  ok('a re-rolled water-found day has NO stale dehydration notable', d3.waterForage.success === true && !hasDehydr(d3));
 })();
 
 section('Day-log rows — nav reroll holds provisioning + notable type routing');

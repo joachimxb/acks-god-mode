@@ -2678,11 +2678,22 @@ function rerollJourneyForage(campaign, journey){
   const fed = surv.members ? Object.keys(surv.members).map(k => surv.members[k]) : [];
   day.waterForage = surv.waterForage || null;
   day.rationsConsumed = { food: fed.filter(m => m.fedFood).length, water: fed.filter(m => m.fedWater).length, animalFeed: 0, animalWater: 0, shipStores: 0 };
+  // refresh the day's SURVIVAL notables (the forage-row bullets) to match the rerolled outcome, keeping the
+  // nav/movement ones — else a re-rolled "water found" day keeps a stale "a traveller is dehydrated" bullet
+  // (the same notable-refresh reapplyLatestDaySurvival does; the member Conditions cell already re-derives).
+  const _SURV_TYPES = ['hunger', 'dehydration', 'survival-critical', 'supplies-low'];
+  const newSurvNotables = (surv.notableEvents || []).map(e => ({ kind: e.kind, type: e.type || null, text: e.label }));
+  day.notableEvents = (day.notableEvents || []).filter(ne => _SURV_TYPES.indexOf(ne.type) < 0).concat(newSurvNotables);
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: day.dayIndex, type: 'forage-reroll', narrative: 'GM rerolled day ' + day.dayIndex + ' water-foraging.' });
   // patch the committed umbrella event's digest (best-effort — keep the audit consistent with the record)
   try {
     const entry = (campaign.eventLog || []).find(e => e && e.event && e.event.payload && e.event.payload.journeyId === j.id && e.event.payload.dayIndex === day.dayIndex && e.event.payload.day);
-    if(entry){ entry.event.payload.day.waterForage = day.waterForage; entry.event.payload.day.rationsConsumed = { food: day.rationsConsumed.food, water: day.rationsConsumed.water }; }
+    if(entry){
+      entry.event.payload.day.waterForage = day.waterForage;
+      entry.event.payload.day.rationsConsumed = { food: day.rationsConsumed.food, water: day.rationsConsumed.water };
+      const happ = entry.event.payload.day.happenings || [];
+      entry.event.payload.day.happenings = happ.filter(h => !h.type || _SURV_TYPES.indexOf(h.type) < 0).concat(newSurvNotables);
+    }
   } catch(e){ /* audit patch is best-effort */ }
   return day.waterForage;
 }
