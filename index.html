@@ -287,20 +287,10 @@ document.addEventListener('alpine:init', () => {
                       <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
                     </span>
                   </div>
-                  <!-- Journey records: show the day's actual rolls (navigation + water-foraging) the way
-                       the day log will. A SUCCESSFUL nav/forage otherwise surfaces nothing (only failures
-                       are notable), so a no-dehydration day looked like the water step was skipped
-                       (Joachim 2026-06-05: "there's no water at the hex, I'm foraging, the review shows no
-                       dehydration — I should see the foraging roll, even on day 0, when there's no source").
-                       The failure notables still render below. -->
-                  <template x-if="!r.rejected && r.kind === 'journey-day' && r.dayRecord">
-                    <div class="ml-3 pb-0.5 flex flex-col gap-0.5">
-                      <span x-show="r.dayRecord.navigationThrow" class="text-xs font-mono" :class="journeyNavOk(r.dayRecord.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(r.dayRecord.navigationThrow)"></span>
-                      <span x-show="r.dayRecord.waterForage && r.dayRecord.waterForage.attempted" class="text-xs font-mono" :class="(r.dayRecord.waterForage && r.dayRecord.waterForage.success) ? 'text-sky-800' : 'text-orange-700'" x-text="journeyForageDetail(r.dayRecord.waterForage)"></span>
-                    </div>
-                  </template>
                   <!-- This record's notable events (lost / hungry / dehydrated / encounter …), in red,
-                       under their own record — the journey label above isn't repeated. -->
+                       under their own record — the journey label above isn't repeated. The day's ROLLS
+                       (nav / forage) are NOT shown here — they live in the Journey view's day log (the
+                       pending "Day N" row), so the review stays a results summary (Joachim 2026-06-05). -->
                   <div x-show="!r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
                     <template x-for="(ne, nei) in (r._notables||[])" :key="grp.consumer + '-' + ri + '-ntl-' + nei">
                       <div class="text-xs text-red-700 leading-snug" x-text="'• ' + dayTickNotableText(ne)"></div>
@@ -4194,7 +4184,7 @@ document.addEventListener('alpine:init', () => {
         <!-- day log -->
         <div>
           <h3 class="font-semibold text-sm mb-1">Day log</h3>
-          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — Tick day to advance.</p></template>
+          <template x-if="(journeyDetail().days||[]).length===0 && !journeyPendingDay()"><p class="text-xs italic opacity-60">No days recorded yet — Tick day to advance.</p></template>
           <div class="space-y-1">
             <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
               <div class="text-xs border-b border-dashed border-gray-300 py-0.5">
@@ -4227,6 +4217,29 @@ document.addEventListener('alpine:init', () => {
                   <span class="opacity-50">via </span>
                   <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold text-emerald-800' : ''" x-text="journeyStepLabel(st)"></span></span></template>
                   <span x-show="di===(journeyDetail().days.length-1)" class="text-emerald-800" title="The party is here now"> 📍 here now</span>
+                </div>
+              </div>
+            </template>
+            <!-- The PROPOSED next day, shown while a day-tick proposal is open — so the GM previews the
+                 upcoming day's navigation + water-foraging rolls HERE in the day log (Joachim 2026-06-05:
+                 "see it in the Journey view… it is Day 1, just show it"). Read-only: confirm it in the
+                 Day-tick panel (top-right) to keep it, then the per-day rerolls apply. The day's RESULTS
+                 (dehydration / hunger) stay in the Day-tick review, not duplicated here. -->
+            <template x-if="journeyPendingDay()">
+              <div class="text-xs border border-dashed border-sky-400 rounded py-0.5 px-1" style="background:rgba(186,230,253,0.22)">
+                <div class="flex flex-wrap gap-x-3 items-baseline">
+                  <span class="font-semibold">Day <span x-text="journeyPendingDay().dayIndex"></span></span>
+                  <span class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" title="Proposed — confirm it in the Day-tick panel (top-right) to keep it">pending · review &amp; commit ↗</span>
+                  <span x-text="'☀ ' + (journeyPendingDay().weather?.condition||'fair')"></span>
+                  <span x-text="(journeyPendingDay().hexesTraveled||0) + ' hex (' + (journeyPendingDay().milesTraveled||0) + ' mi)'"></span>
+                  <span class="capitalize" x-text="journeyPendingDay().pace"></span>
+                  <span x-show="journeyPendingDay().speedOverrideMilesPerDay > 0" class="text-amber-800 font-mono" x-text="'⚡' + journeyPendingDay().speedOverrideMilesPerDay + ' mi/day'"></span>
+                </div>
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="journeyPendingDay().navigationThrow">
+                  <span class="font-mono" :class="journeyNavOk(journeyPendingDay().navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(journeyPendingDay().navigationThrow)"></span>
+                </div>
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="journeyPendingDay().waterForage && journeyPendingDay().waterForage.attempted">
+                  <span class="font-mono" :class="(journeyPendingDay().waterForage && journeyPendingDay().waterForage.success) ? 'text-sky-800' : 'text-orange-700'" x-text="journeyForageDetail(journeyPendingDay().waterForage)"></span>
                 </div>
               </div>
             </template>
@@ -9956,6 +9969,18 @@ return {
     if(wf.bonus) parts.push('+' + wf.bonus + ' (Survival)');
     const total = wf.rolled + (wf.bonus || 0);
     return parts.join(' ') + (wf.bonus ? (' = ' + total) : '') + ' vs ' + wf.target + '+ → ' + (wf.success ? 'water found ✓' : 'no water ✗');
+  },
+  // The PROPOSED next day for the journey shown in the detail panel, while a day-tick proposal is
+  // open — so the day log can preview it as a pending "Day N" row (with its nav + water-foraging
+  // rolls), and the GM sees the upcoming forage throw THERE, not in the day-tick review (Joachim
+  // 2026-06-05: "see it in the Journey view… it is Day 1, just show it"). Reads the open proposal's
+  // pending record (exactly what will commit; deterministic via the seeded preview). null when no
+  // proposal is open, or it carries no un-rejected day for this journey.
+  journeyPendingDay(){
+    const p = this.dayTickProposal, j = this.journeyDetail();
+    if(!p || !j) return null;
+    const rec = (p.pendingRecords||[]).find(r => r && r.kind === 'journey-day' && r.journeyId === j.id && !r.rejected);
+    return rec ? rec.dayRecord : null;
   },
   // GM reroll of JUST the latest day's water-foraging throw (leaves movement + navigation untouched).
   journeyRerollForage(j){
