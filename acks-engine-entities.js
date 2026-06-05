@@ -1224,6 +1224,10 @@ function blankJourney(opts={}){
     coveredBaseline: opts.coveredBaseline || 0,
     currentHexId: opts.currentHexId || null,            // the hex the party is in now (advances hex-by-hex along the route — §24)
     currentDayIndex: opts.currentDayIndex || 0,         // 0..N days into the journey
+    // Lockstep marker (Complete Movement, 2026-06-05): absolute world ordinal (turn*30 + dayInMonth) of
+    // the day the latest leg TRAVELLED ON. null ⇒ not yet travelled (party still at the origin). The
+    // day-tick skip-guard + the UI's "already moved today" check read it to keep one leg per world day.
+    lastTravelWorldOrd: opts.lastTravelWorldOrd != null ? opts.lastTravelWorldOrd : null,
     daysRemainingEstimate: opts.daysRemainingEstimate != null ? opts.daysRemainingEstimate : null,
     // Mode + pace
     mode: opts.mode || 'foot',                          // J1: land modes only; enum reserves sea/air (§13)

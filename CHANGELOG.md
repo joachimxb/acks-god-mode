@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **You now move each travelling party through its day yourself, with a "Complete Movement" button.** The Journey panel's old *Tick day* button is now **🚶 Complete Movement** — and it moves **just that party** through the current day (along its hexes, eating and drinking, foraging, getting lost) **without** advancing the campaign calendar. The calendar is the Day Clock's job (top-right): advancing a day there moves the whole world forward and **auto-resolves any travelling party you didn't move by hand** — so you can walk a party day-by-day yourself, or just let the Day Clock carry everyone. A party travels **at most once per day**; once you've moved it the button reads *Already moved today* until the day advances. This replaces the old setup where a journey's "tick" *was* the global day tick, so stepping one party forward dragged the entire world with it.
+- **A journey now waits at its start hex until you move it.** Starting a journey no longer travels the first day automatically — the party stands at the origin (which also sets their starting water), and the first day is travelled by the first **Complete Movement** (or the next Day Clock tick), exactly like every day after it. (This refines the very recent "sets out at once" behaviour now that moving is a deliberate per-party step.)
+- **You can always re-roll a journey's latest day.** A journey's most recent travel day is its **current state**, and it stays re-rollable even after the calendar moves on — until the party travels its next day, which becomes the new current state. (Previously the day locked the moment the Day Clock passed it.)
+- **"Stop Moving" is now "Stop Journey".** The button that halts a trip reads **🛑 Stop Journey** (it was *Stop Moving*). It still simply stops the party where they are.
+
 ## [0.19.0] - 2026-06-05
 
 ### Added
