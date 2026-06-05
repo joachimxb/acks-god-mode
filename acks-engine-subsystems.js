@@ -2600,13 +2600,22 @@ function rerollJourneyDay(campaign, journey, ctx){
     if(pt){ pt.currentHexId = pre.currentHexId || pt.currentHexId; if(wasArrival) pt.activeJourneyId = j.id; }
   }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: dayNum, type: 'reroll', narrative: 'GM rerolled day ' + dayNum + '.' });
-  // 3. re-run the day with fresh randomness (Math.random in the live app / tests). ctx passes through —
-  //    rerollJourneyNav uses { skipSurvival:true } to re-roll movement only and hold provisioning fixed.
+  // 3. re-run the day with fresh randomness + commit + re-emit its events (the shared tick→commit→emit
+  //    core, also used by the start-flow's first-day travel). ctx passes through — rerollJourneyNav uses
+  //    { skipSurvival:true } to re-roll movement only and hold provisioning fixed.
+  return _commitJourneyDayAndEmit(campaign, j, ctx);
+}
+
+// Resolve ONE journey day with fresh randomness: tick → commit → emit the day's notable events to the
+// eventLog (best-effort; mirrors emitDayTickEvents). The shared core of rerollJourneyDay (which reverts
+// the latest day first) and advanceJourneyOneDay (the start-flow's first-day travel). Mutates the
+// campaign (commits the day + emits events). Returns the committed record, or null.
+function _commitJourneyDayAndEmit(campaign, j, ctx){
+  const A = _jACKS();
   const out = tickJourneyDay(campaign, j, ctx || {});
   if(!out || !out.record) return null;
-  // 4. commit the new record (updates journey.days + participant survival state)
   commitJourneyRecord(campaign, out.record);
-  // 5. re-emit the new day's notable events to the eventLog (best-effort; mirrors emitDayTickEvents)
+  const ids = j.participantCharacterIds || [];
   try {
     campaign.eventLog = campaign.eventLog || [];
     const cal = campaign.calendar || {};
@@ -2625,8 +2634,21 @@ function rerollJourneyDay(campaign, journey, ctx){
       ev.appliedAtTurn = campaign.currentTurn || 1;
       campaign.eventLog.push({ event: ev, result: { narrativeSummary: e.label || 'journey event' }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
     });
-  } catch(e){ /* never let event emission block a reroll */ }
+  } catch(e){ /* never let event emission block the day */ }
   return out.record;
+}
+
+// Resolve + commit the journey's NEXT day with fresh randomness, emitting its events — WITHOUT the global
+// Day Clock (so starting / advancing one journey doesn't tick weather / construction / the date). The
+// start flow calls this so setting out resolves day 1 at once (Joachim 2026-06-05: "it should start it
+// now") — the day becomes the rerollable current state, and the Day Clock advances the rest. The day is
+// stamped on the journey's current world day (startedAtDayInMonth + dayIndex-1), so it's the rerollable
+// "current" leg until the clock moves past it. In-transit only; returns the committed record, or null.
+function advanceJourneyOneDay(campaign, journey, ctx){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!j || j.status !== 'in-transit') return null;
+  return _commitJourneyDayAndEmit(campaign, j, ctx);
 }
 
 // Provisioning — GM reroll of JUST the latest day's water-Foraging throw + the dependent survival
@@ -3434,7 +3456,7 @@ const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
-  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName, journeyBaseSpeedMilesPerDay,
+  tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, advanceJourneyOneDay, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName, journeyBaseSpeedMilesPerDay,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.5 Provisioning (RR p.278) — per-member food/water resolution (V2/V3) + the forage reroll.

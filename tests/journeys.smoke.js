@@ -894,6 +894,34 @@ section('Current speed = slowest member (RR pp.83-84)');
   check('override 24 × forced-march ×1.5 = 36 mi → 6 hexes (override is the base; pace multiplies)', dO.record.dayRecord.hexesTraveled === 6, String(dO.record.dayRecord.hexesTraveled));
 })();
 
+// advanceJourneyOneDay — "set out NOW" resolves the journey's first day at once, this journey only,
+// WITHOUT the global Day Clock (Joachim 2026-06-05: "it should start it now"). The start flow calls it.
+(function(){
+  section('advanceJourneyOneDay — start resolves the first day (this journey only)');
+  const PASS = () => 0.95;                                    // nav success, skip wandering encounters
+  const W = { condition: 'fair', temperature: 'moderate' };
+  // (a) a multi-hex journey: setting out travels day 1, stays in-transit, the global clock doesn't move
+  const a = lineCampaign(5);
+  ACKS.startJourney(a.c, a.j);
+  check('fresh start is in-transit at day 0', a.j.status === 'in-transit' && (a.j.currentDayIndex||0) === 0 && (a.j.days||[]).length === 0);
+  const recA = ACKS.advanceJourneyOneDay(a.c, a.j, { rng: PASS, weather: W });
+  check('advanceJourneyOneDay returns the committed day-1 record', !!(recA && recA.newDayIndex === 1));
+  check('the journey is now on day 1 with a day record', a.j.currentDayIndex === 1 && a.j.days.length === 1);
+  check('the party actually moved on its first day', (a.j.days[0].hexesTraveled||0) > 0 && a.j.currentHexId !== 'hx-0');
+  check('a 5-hex trip is still in-transit after day 1', a.j.status === 'in-transit');
+  check('the global Day Clock did NOT advance (campaign day unchanged)', a.c.currentDayInMonth === 1);
+  check('day 1 is stamped on the start world-day → rerollable current state', !!(a.j.days[0].worldDay && a.j.days[0].worldDay.dayInMonth === 1) && ACKS.journeyLastDayRerollable(a.c, a.j) === true);
+  // (b) a 1-hex journey ARRIVES on start (short trips complete at once)
+  const b = lineCampaign(1);
+  ACKS.startJourney(b.c, b.j);
+  ACKS.advanceJourneyOneDay(b.c, b.j, { rng: PASS, weather: W });
+  check('a 1-hex trip arrives on its first day', b.j.status === 'arrived' && b.j.currentHexId === 'hx-1');
+  // (c) null on a not-yet-started (planning) journey — it records no day
+  const d = lineCampaign(3);
+  check('advanceJourneyOneDay is null on a not-yet-started journey', ACKS.advanceJourneyOneDay(d.c, d.j, { rng: PASS, weather: W }) === null);
+  check('... and it recorded no day', (d.j.days||[]).length === 0);
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('--- Summary ---');
 console.log('  Passed: ' + passed);

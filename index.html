@@ -4184,7 +4184,7 @@ document.addEventListener('alpine:init', () => {
         <!-- day log -->
         <div>
           <h3 class="font-semibold text-sm mb-1">Day log</h3>
-          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — the party is at its start. Tick day (top-right) to resolve the first day.</p></template>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — Tick day (top-right) to advance.</p></template>
           <div class="space-y-1">
             <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
               <div class="text-xs py-0.5" :class="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'border border-dashed border-sky-400 rounded px-1' : 'border-b border-dashed border-gray-300'" :style="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'background:rgba(186,230,253,0.22)' : ''">
@@ -10123,12 +10123,17 @@ return {
       supplies: { rations:Number(w.rations)||0, waterRations:Number(w.waterRations)||0, animalFeed:0, animalWater:0, shipStores:0 }
     });
     this.currentCampaign.journeys.push(j);
-    this._journeyWithDomains(() => window.ACKS.startJourney(this.currentCampaign, j));
+    // Set out NOW — resolve the first travel day at once (Joachim 2026-06-05: "it should start it now"),
+    // so the journey opens on Day 1 as its current state instead of an empty day 0. This journey only —
+    // the global Day Clock is NOT advanced (the campaign date doesn't jump; the Day Clock walks the rest).
+    this._journeyWithDomains(() => { window.ACKS.startJourney(this.currentCampaign, j); window.ACKS.advanceJourneyOneDay(this.currentCampaign, j); });
     this.markDirty(); this.schedulePersist();
     const id = j.id;
     this._journeyResetWizard();
     this.journeyDetailId = id;
-    this.showToast('Journey started: ' + (j.name||'(unnamed)'));
+    this.showToast(j.status === 'arrived'
+      ? ('Journey complete — arrived: ' + (j.name||'(unnamed)'))
+      : ('Set out (day 1 travelled): ' + (j.name||'(unnamed)')));
   },
   // ── Detail ──
   journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
