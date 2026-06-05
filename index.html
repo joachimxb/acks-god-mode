@@ -3164,7 +3164,7 @@ document.addEventListener('alpine:init', () => {
                   <span x-show="row.overBudget" class="ml-1 text-xs accent-red font-semibold" title="Over their RAW day budget">⚠</span>
                 </td>
                 <td style="text-align:left">
-                  <span x-show="row.activity.strenuous" title="Strenuous (RR p.279)">⚡ </span><span x-text="row.activity.label"></span>
+                  <span x-show="row.activity.strenuous" title="Strenuous (RR p.279)">⚡ </span><span x-text="row.activity.label"></span><template x-if="row.detail"><span class="opacity-70" x-text="' (' + row.detail + ')'"></span></template>
                 </td>
                 <td style="text-align:left">
                   <span class="inline-block px-1.5 py-0.5 rounded text-xs"
@@ -9583,10 +9583,28 @@ return {
     const out = [];
     for(const r of this.activityDashboardRows()){
       for(const a of r.done){
-        out.push({ c: r.c, activity: a, affordance: aff(a), overBudget: !!(r.budget && r.budget.overBudget) });
+        out.push({ c: r.c, activity: a, affordance: aff(a), overBudget: !!(r.budget && r.budget.overBudget), detail: this._activityRowDetail(a) });
       }
     }
     return out;
+  },
+  // A short parenthetical disambiguator for an activity row's "Doing" cell — so two shopping rows
+  // are tellable apart. Currently only market trades carry one: a representative slice of the goods.
+  // One line → that line ("Longsword", "Longsword ×3"); several → the most valuable set + ", etc."
+  // ("Plate Armor ×2, etc."). Resolves the event by the activity's sourceId (payload.lines carries
+  // {name, qty, totalGp}); '' for any activity with no goods detail. Display only — the engine
+  // budget's label stays the generic cost label.
+  _activityRowDetail(a){
+    if(!a || a.kind !== 'market-transaction' || a.sourceKind !== 'errand-event') return '';
+    const log = this.currentCampaign?.eventLog;
+    if(!Array.isArray(log)) return '';
+    const entry = log.find(e => e && e.event && e.event.id === a.sourceId);
+    const lines = (entry && entry.event && entry.event.payload && Array.isArray(entry.event.payload.lines)) ? entry.event.payload.lines : [];
+    if(!lines.length) return '';
+    const fmt = l => (l.name || 'item') + ((Number(l.qty) > 1) ? (' ×' + l.qty) : '');
+    if(lines.length === 1) return fmt(lines[0]);                                  // one set → name it
+    const top = lines.reduce((best, l) => ((Number(l.totalGp) || 0) > (Number(best.totalGp) || 0) ? l : best), lines[0]);
+    return fmt(top) + ', etc.';                                                   // several → the priciest set, then "etc."
   },
   // Dispatch a reject on its source (the affordance.mode decides). Returns nothing; surfaces the
   // outcome via toast (refuse-with-reason) or navigation. Confirms before any irreversible-feeling act.
