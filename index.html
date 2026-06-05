@@ -9834,8 +9834,8 @@ return {
   // Flipping a supply toggle re-resolves the latest committed day immediately (Joachim 2026-06-05), so the
   // day log + Food/Water columns update on the spot ("they forage today") rather than only from the next
   // tick. On day 0 (nothing committed) reapply is a no-op — the toggle just sets the order for the first tick.
-  toggleJourneyForageWater(j){ if(!j) return; j.forageWaterEnabled = !j.forageWaterEnabled; this._journeyWithDomains(() => window.ACKS.reapplyLatestDaySurvival(this.currentCampaign, j)); this.markDirty(); this.schedulePersist(); },
-  toggleJourneyShareRations(j){ if(!j) return; j.shareRations = !j.shareRations; this._journeyWithDomains(() => window.ACKS.reapplyLatestDaySurvival(this.currentCampaign, j)); this.markDirty(); this.schedulePersist(); },
+  toggleJourneyForageWater(j){ if(!j) return; j.forageWaterEnabled = !j.forageWaterEnabled; this._journeyWithDomains(() => window.ACKS.reapplyLatestDaySurvival(this.currentCampaign, j)); this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick(); },
+  toggleJourneyShareRations(j){ if(!j) return; j.shareRations = !j.shareRations; this._journeyWithDomains(() => window.ACKS.reapplyLatestDaySurvival(this.currentCampaign, j)); this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick(); },
   // Per-traveller survival status for the Members table (RR p.275 cascade). The day-tick mirrors
   // the party's hunger / dehydration / fatigue onto each participant, so these read off the
   // character. A GM-facing tracker — no auto-penalty wired yet (escalating effects are a follow-up).
@@ -9931,7 +9931,7 @@ return {
     if(!j) return;
     const rec = this._journeyWithDomains(() => window.ACKS.rerollJourneyDay(this.currentCampaign, j));
     if(!rec){ this.showToast('Reroll unavailable for this day (it was ticked before this update).', 4000); return; }
-    this.markDirty(); this.schedulePersist();
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
     this.showToast('Day ' + (rec.newDayIndex||'') + ' rerolled.');
   },
   // Provisioning — render a day's water-Foraging throw (die + modifiers + target + outcome), like the nav line.
@@ -9947,7 +9947,7 @@ return {
     if(!j) return;
     const wf = this._journeyWithDomains(() => window.ACKS.rerollJourneyForage(this.currentCampaign, j));
     if(!wf){ this.showToast('Forage reroll unavailable for this day.', 4000); return; }
-    this.markDirty(); this.schedulePersist();
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
     this.showToast('Water-foraging rerolled: ' + (wf.success ? 'water found' : 'no water') + ' (🎲 ' + wf.rolled + (wf.bonus ? ('+' + wf.bonus) : '') + ' vs ' + wf.target + '+).');
   },
   // GM reroll of the latest day's NAVIGATION + movement (fording / encounter / arrival), holding the
@@ -9957,7 +9957,7 @@ return {
     if(!j) return;
     const rec = this._journeyWithDomains(() => window.ACKS.rerollJourneyNav(this.currentCampaign, j));
     if(!rec){ this.showToast('Reroll unavailable for this day (it was ticked before this update).', 4000); return; }
-    this.markDirty(); this.schedulePersist();
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
     this.showToast('Day ' + (rec.newDayIndex||'') + ' navigation rerolled (water/food held).');
   },
   // Split a committed day's notables (kind/type/text blobs on the day record) between the day log's two
@@ -15743,6 +15743,11 @@ return {
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
     finally { this.currentCampaign.domains = _origDomains; }
   },
+  // Re-run a PENDING day-tick proposal after the latest committed day changed under it (a forage / nav
+  // reroll, or a supply-toggle re-resolve). The proposal is a snapshot taken from the prior state, so
+  // without this it goes stale — the review wouldn't reflect a just-rerolled dehydration (Joachim
+  // 2026-06-05: "not sure the day review is refreshing"). No-op when no proposal is open.
+  _refreshPendingDayTick(){ if(this.dayTickProposal) this._proposeDayTick(this.dayTickProposal.daysRequested || 1); },
   tickDay(){ if(this._dayTickAtMonthEnd()) return; this._proposeDayTick(1); },
   tickWeek(){ if(this._dayTickAtMonthEnd()) return; this._proposeDayTick(7); },
   tickToMonthEnd(){
