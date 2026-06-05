@@ -237,7 +237,6 @@
         "personalExpenses": 0,
         "tributeToLiege": 0,
         "tributeAuto": false,
-        "tributePct": 0,
         "tributePaid": true,
         "other": []
       },
@@ -457,7 +456,6 @@
         "personalExpenses": 0,
         "tributeToLiege": 0,
         "tributeAuto": true,
-        "tributePct": 10,
         "tributePaid": true,
         "other": []
       },
@@ -662,7 +660,6 @@
         "personalExpenses": 0,
         "tributeToLiege": 0,
         "tributeAuto": true,
-        "tributePct": 10,
         "tributePaid": true,
         "other": []
       },
@@ -882,7 +879,6 @@
         "personalExpenses": 0,
         "tributeToLiege": 0,
         "tributeAuto": false,
-        "tributePct": 0,
         "tributePaid": true,
         "other": []
       },

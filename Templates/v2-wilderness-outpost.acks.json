@@ -115,7 +115,6 @@
         "personalExpenses": 0,
         "tributeToLiege": 0,
         "tributeAuto": true,
-        "tributePct": 0,
         "tributePaid": true,
         "other": []
       },

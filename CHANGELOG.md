@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **The header "🎲 Demo" button is now "🏠 Welcome" and returns to the welcome screen.** Instead of reloading the demo campaign, it takes you back to the first-run welcome screen — where the demo, the starter templates, Open a campaign, and Start blank all live — so it's a one-click way back to the launcher (the demo is one more click from there). It asks first if you have unsaved changes.
 - **The welcome screen now describes the whole tool, not just its first release.** The intro and the demo blurb were refreshed to the current scope (the map, travel, trade, stashes, and the rest), and the demo's headline numbers are read from the demo itself now, so they can't drift out of date.
 - **The "State of Your Domain" morale text is reworded in the tool's own words.** Every mechanical effect is unchanged — income change, the growth/loss dice, the vassal-loyalty and conscript/militia modifiers, banditry, and the monthly challenger chance — and it still cites the rulebook (RR pp.349–351); only the wording is now original.
+- **Auto-calculated tribute now uses the rulebook's realm-families amount, not a percentage of income.** When a vassal's tribute is set to auto-calculate, the tool charges the RAW precise tribute by the families in the vassal's whole realm — its own domain plus any sub-vassal realms (18gp × realm-families^0.6, rounded to 5gp; RR p.346) — instead of the old "10% of gross revenue". RAW tribute is a fixed obligation by realm size, not a cut of income. A vassal that had a custom percentage now shows the RAW amount; if you want a specific number, turn auto-calculate off and set the tribute by hand ("set as desired" is itself RAW).
+
+### Removed
+- **The tribute "auto %" field (`tributePct`).** Auto-tribute is the RAW realm-families amount now (see above), so the percentage knob is gone. Existing saves drop the field automatically on load — a domain that used a custom percentage falls to the RAW amount; set its tribute manually if you want a specific number.
 
 ## [0.20.0] - 2026-06-05
 

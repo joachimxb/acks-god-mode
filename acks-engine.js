@@ -48,6 +48,28 @@ function roundToNearest5(gp){
   return Math.round((Number(gp) || 0) / 5) * 5;
 }
 
+// RAW precise tribute (RR p.346, "Calculating Precise Tribute (Optional)"): 18gp × realm-families^0.6,
+// rounded to the nearest 5gp — the Tribute by Realm Families table (RR p.346) is this formula. Pure.
+// `families` is the number of families in the WHOLE realm being assessed: a vassal's own domain plus
+// all of its sub-vassal realms. Validated against the RR table anchors: 100→285, 1,000→1,135,
+// 10,000→4,520, 100,000→18,000. (RAW tribute is a fixed obligation by realm size, NOT a % of income.)
+function rawTributeForRealmFamilies(families){
+  const f = Math.max(0, Number(families) || 0);
+  return roundToNearest5(18 * Math.pow(f, 0.6));
+}
+
+// 2026-06-05 — `tributePct` removed. Auto-tribute now computes the RAW realm-families amount
+// (rawTributeForRealmFamilies); the old "% of gross income" proxy field is deleted from every
+// domain's expenses on load. A domain that had a custom pct falls to the RAW amount (set tribute
+// manually via tributeToLiege for a bespoke figure). Idempotent.
+function migrateRemoveTributePct(campaign){
+  if(!campaign || !Array.isArray(campaign.domains)) return campaign;
+  for(const d of campaign.domains){
+    if(d && d.expenses && Object.prototype.hasOwnProperty.call(d.expenses, 'tributePct')) delete d.expenses.tributePct;
+  }
+  return campaign;
+}
+
 const SCHEMA_VERSION = 2;
 
 // ID prefix scheme — three-letter where possible, lowercased, dash-separated.
@@ -721,6 +743,8 @@ function migrateCampaign(raw){
   // Alpine UI splits `this.currentCampaign.domains` and `this.domains` apart) must also call
   // `stripUnusedMiningEntries(separateDomainsArray, current.houseRules)` after migration.
   stripUnusedMiningEntries(current.domains || [], current.houseRules || {});
+  // 2026-06-05 — remove the retired `tributePct` field (auto-tribute is RAW realm-families now). Idempotent.
+  migrateRemoveTributePct(current);
   // Phase #440 stage 1 — additive five-axis classification migration. Idempotent.
   // Walks campaign.characters[] and ensures every character has the canonical
   // controlledBy / socialTier / lifecycleState / creatureTypes / isEnchantedCreature
@@ -3914,10 +3938,9 @@ function commitTurn(campaign, domains, proposal, helpers){
 
   // === EVENT APPLY PASS ===
   // Per Decision 2 (locked): timed events sort by gameTimeAt; untimed by submittedAt.
-  // Attach domains to campaign so applyEvent handlers traverse them.
-  const _origCampaignDomains = campaign.domains;
-  campaign.domains = domains;
-  try {
+  // Domains live on the campaign (single home; the caller passes an attached campaign), so
+  // applyEvent handlers traverse campaign.domains directly — no swap/restore needed.
+  {
     const accepted = turnEventProposals.filter(ep => ep.decision === 'accept').map(ep => ep.event);
     const rejected = turnEventProposals.filter(ep => ep.decision === 'reject');
     const sortedAccepted = global.ACKS.sortEventsForApply(accepted);
@@ -3964,8 +3987,6 @@ function commitTurn(campaign, domains, proposal, helpers){
 
     // Remove applied + rejected from pendingEvents; skip-this-turn stays.
     campaign.pendingEvents = campaign.pendingEvents.filter(e => e.status === global.ACKS.EVENT_STATUS.PENDING);
-  } finally {
-    campaign.domains = _origCampaignDomains;
   }
 
   // === PER-DOMAIN STANDARD TURN MATH ===
@@ -4439,17 +4460,12 @@ function commitTurn(campaign, domains, proposal, helpers){
   const levelUpResults = helpers.checkAllCharacterLevelUps() || [];
 
   // === HENCHMAN LOYALTY DRIFT === (RAW baseline — always runs)
+  // Domains live on the campaign (single home) — tickHenchmanLoyalty traverses them directly.
   let loyaltyDrifts = 0;
   {
-    const _origCampaignDomains2 = campaign.domains;
-    campaign.domains = domains;
-    try {
-      const drifts = global.ACKS.tickHenchmanLoyalty(campaign, campaign.currentTurn || 1);
-      loyaltyDrifts = drifts.length;
-      if(loyaltyDrifts) logEntries.push('Henchman loyalty drift: ' + loyaltyDrifts + ' character(s) shifted this turn');
-    } finally {
-      campaign.domains = _origCampaignDomains2;
-    }
+    const drifts = global.ACKS.tickHenchmanLoyalty(campaign, campaign.currentTurn || 1);
+    loyaltyDrifts = drifts.length;
+    if(loyaltyDrifts) logEntries.push('Henchman loyalty drift: ' + loyaltyDrifts + ' character(s) shifted this turn');
   }
 
   // === RUMOR AUTO-EMIT ===
@@ -4519,17 +4535,12 @@ function commitTurn(campaign, domains, proposal, helpers){
       // off and activity is mid-flight, the GM resolves day-by-day in the UI before commit.
       try {
         if(isDayTickRuleOn(campaign, 'monthly-commit-subsumes-in-flight') || (campaign.currentDayInMonth || 1) <= 1){
-          // Day-tick consumers (construction) read the domain treasury via campaign.domains; the
-          // event-apply pass earlier restored it to the caller's original (empty in the split-domains
-          // UI shape). Re-attach `domains` so the month-end drip can find treasuries — otherwise
-          // Advance Month silently fails to progress in-flight improvements.
-          const _odm = campaign.domains;
-          campaign.domains = domains;
-          // Materialize Projects for any funded-but-not-yet-projected hex (the panel writes the
-          // budget field directly) so the month-end drip finds + advances them; also clears capped
-          // budgets. Idempotent.
-          try { migrateAgriculturalToProjects(campaign); global.ACKS.runDayTickToMonthEnd(campaign); }
-          finally { campaign.domains = _odm; }
+          // Domains live on the campaign (single home), so the day-tick consumers (construction)
+          // find the domain treasuries directly. Materialize Projects for any funded-but-not-yet-
+          // projected hex (the panel writes the budget field directly) so the month-end drip finds +
+          // advances them; also clears capped budgets. Idempotent.
+          migrateAgriculturalToProjects(campaign);
+          global.ACKS.runDayTickToMonthEnd(campaign);
         }
       } catch(e){ /* never let day-tick subsumption fail the monthly commit */ }
       campaign.currentDayInMonth = 1;
@@ -5418,7 +5429,7 @@ function characterActivityBudget(campaign, charId, opts){
     // load" (excludeJourneyId set), where we charge the stored pace to avoid recursing into the cap.
     let pace = j.pace || 'normal';
     if(!opts.excludeJourneyId){
-      const eff = (typeof journeyEffectivePace === 'function') ? journeyEffectivePace(campaign, j, { domains: opts.domains }) : pace;
+      const eff = (typeof journeyEffectivePace === 'function') ? journeyEffectivePace(campaign, j) : pace;
       if(eff) pace = eff;
     }
     if(pace === 'halted'){
@@ -5440,10 +5451,8 @@ function characterActivityBudget(campaign, charId, opts){
   // magistracy-holder and missed administering rulers entirely). Counts an administering ruler + any
   // administering magistrate; dedupes per domain (ruler + an officer both administering one domain =
   // one administration). Mirrors the Activity projection's gate (index.html characterActivities
-  // Contributor 2). Domains come from opts.domains when given — the live app keeps domains in
-  // this.domains separate from (often-empty) campaign.domains, the domains-split UI quirk — else
-  // campaign.domains (tests + integrators that keep domains on the campaign).
-  const _domains = (opts.domains && opts.domains.length) ? opts.domains : ((campaign && campaign.domains) || []);
+  // Contributor 2). Domains live on the campaign (single home) — read them directly.
+  const _domains = (campaign && campaign.domains) || [];
   const seenDomains = {};
   for(const d of _domains){
     if(!d || !d.id || seenDomains[d.id]) continue;
@@ -5579,7 +5588,7 @@ function journeyMaxPace(campaign, journey, opts){
   for(const cid of ids){
     const ch = chars.find(c => c && c.id === cid);
     if(!ch) continue;
-    const b = characterActivityBudget(campaign, cid, { domains: opts.domains, excludeJourneyId: journey.id });
+    const b = characterActivityBudget(campaign, cid, { excludeJourneyId: journey.id });
     const cap = _maxPaceForLoad(b.dedicatedUsed, b.ancillaryUsed, BUDGET);
     if(PACE_RANK[cap] < maxRank){
       maxRank = PACE_RANK[cap];
@@ -5741,6 +5750,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   bankersRound,
   // Errata §1.2 — tribute rounds to nearest 5gp (canonical home; UI delegates here)
   roundToNearest5,
+  // RAW precise tribute formula (RR p.346): 18gp × realm-families^0.6, rounded to 5gp
+  rawTributeForRealmFamilies,
 
   // Dice + rolls
   rollD6, rollD20, rollD10x, clamp,

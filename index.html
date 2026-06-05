@@ -1845,15 +1845,12 @@ document.addEventListener('alpine:init', () => {
                   <label class="block text-sm mt-2">
                     <input type="checkbox" :checked="!!selectedDomain.expenses.tributeAuto"
                            @change="commitStatEdit({entityType:'domain', entityId:selectedDomain.id, entity:selectedDomain, fieldPath:'expenses.tributeAuto', label:'Tribute auto-calc', oldValue:!!selectedDomain.expenses.tributeAuto, newValue:$event.target.checked})">
-                    Auto-calculate as % of gross income
+                    Auto-calculate (RAW tribute by realm families)
                   </label>
                   <div class="grid grid-cols-2 gap-2 mt-1">
                     <div class="text-sm flex items-center gap-1">
-                      <span>Auto %</span>
-                      <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'expenses.tributePct', label:'Tribute auto %', kind:'number', min:0, max:100})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :disabled="!selectedDomain.expenses.tributeAuto" :class="!selectedDomain.expenses.tributeAuto ? 'opacity-30 cursor-not-allowed' : ''">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" step="1" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
-                      </span>
+                      <span title="RAW (RR p.346): 18gp × realm-families^0.6, rounded to 5gp. Realm families = this domain plus all its sub-vassal realms.">Auto (RAW)</span>
+                      <span class="font-semibold" x-text="(selectedDomain.expenses.tributeAuto!==false ? tributeOwed(selectedDomain).toLocaleString()+' gp' : '—')"></span>
                     </div>
                     <div class="text-sm flex items-center gap-1">
                       <span>Manual gp/mo</span>
@@ -8129,7 +8126,13 @@ return {
   // changes not yet written to the bound .acks.json file. Drives the header indicator +
   // the beforeunload guard. _persistTimer backs the debounced localStorage session cache.
   dirty:false, _persistTimer:null, _ignoreMutations:false,
-  currentCampaign:null,domains:[],selectedDomainId:null,
+  currentCampaign:null,selectedDomainId:null,
+  // Single home for domains (refactor 2026-06-05, audit T3): domains live on
+  // currentCampaign.domains — there is no separate copy. `domains` is a getter/setter view over
+  // it, so the ~130 template reads AND the few `this.domains = …` assign sites keep working while
+  // there is exactly one source of truth (no split / empty-on-load / re-stitch-on-save dance).
+  get domains(){ return (this.currentCampaign && this.currentCampaign.domains) || []; },
+  set domains(v){ if(this.currentCampaign) this.currentCampaign.domains = v; },
   // Top-level view tabs. Extensible — add Phase 2.7 syndicates, Phase 4 senates, etc. by adding entries here.
   // #225 (2026-06-02): default is now World; the Domains manager (which hosts the first-run welcome
   // banner) is the default World sub-view, so the landing experience is unchanged.
@@ -8157,10 +8160,17 @@ return {
       const raw=localStorage.getItem('acks-domain-session-v3');
       if(raw){
         const sess=JSON.parse(raw);
-        if(sess.currentCampaign)this.currentCampaign=migrateCampaign(sess.currentCampaign);
-        // v2: domains are stored already in v2 shape (migrateCampaign validates them above).
-        // No per-domain migration step — keep them as-is. Guard with Array.isArray.
-        if(Array.isArray(sess.domains))this.domains=sess.domains;
+        if(sess.currentCampaign){
+          const rawCamp = sess.currentCampaign;
+          // Backward-compat: pre-refactor session caches stored domains in a separate sess.domains
+          // (the old split shape). Re-stitch them onto the campaign BEFORE migrate so the pipeline
+          // runs once with domains present, exactly like a file load.
+          if((!Array.isArray(rawCamp.domains) || !rawCamp.domains.length) && Array.isArray(sess.domains) && sess.domains.length){
+            rawCamp.domains = sess.domains;
+          }
+          this.currentCampaign = migrateCampaign(rawCamp);
+          this._finishLoad(this.currentCampaign);   // same UI-only post-migrate steps as a file load
+        }
         this.selectedDomainId=sess.selectedDomainId||(this.domains[0]?this.domains[0].id:null);
         this.fileName=sess.fileName||'';
         if(sess.currentView)this.currentView=sess.currentView;
@@ -8180,49 +8190,16 @@ return {
           if(typeof sess.mapPrefs.showJourneys === 'boolean')   this.mapShowJourneys   = sess.mapPrefs.showJourneys;
           if(typeof sess.mapPrefs.editAddMode === 'boolean') this.mapEditAddMode = sess.mapPrefs.editAddMode;
         }
-        // Foundation #193 — ensure top-level collections exist + migrate from any legacy nested
-        // storage in the restored session. Idempotent.
-        if(this.currentCampaign){
-          if(!Array.isArray(this.currentCampaign.pendingEvents)) this.currentCampaign.pendingEvents = [];
-          if(!Array.isArray(this.currentCampaign.eventLog))      this.currentCampaign.eventLog = [];
-          if(!Array.isArray(this.currentCampaign.hexes))         this.currentCampaign.hexes = [];
-          if(!Array.isArray(this.currentCampaign.settlements))   this.currentCampaign.settlements = [];
-          if(!Array.isArray(this.currentCampaign.rumors))        this.currentCampaign.rumors = [];
-          const liftSynth = {
-            domains: this.domains,
-            hexes: this.currentCampaign.hexes,
-            settlements: this.currentCampaign.settlements,
-            rumors: this.currentCampaign.rumors
-          };
-          window.ACKS.liftToTopLevelCollections(liftSynth);
-          this.currentCampaign.hexes       = liftSynth.hexes;
-          this.currentCampaign.settlements = liftSynth.settlements;
-          this.currentCampaign.rumors      = liftSynth.rumors;
-          // Foundation #16 — migrate strongholds to components[] shape.
-          this.domains.forEach(d => window.ACKS.migrateStrongholdToComponents(d));
-          // Foundation #17 — migrate hex agricultural-improvement projects to accumulated invested.
-          this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToAccumulatedImprovement(h)));
-          // Foundation #18 followup — migrate single supervisor field to multi-supervisor array.
-          this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToMultiSupervisor(h)));
-          // Wave Construction-B — reconcile/create agricultural Projects now that hexes are lifted
-          // into currentCampaign.hexes. migrateCampaign() ran earlier with an EMPTY
-          // currentCampaign.domains (this session-restore shape keeps domains in this.domains), so
-          // its agricultural reconcile pass saw no hexes; re-run it against the hydrated hexes here.
-          window.ACKS.migrateAgriculturalToProjects(this.currentCampaign);
-          // Officers — idempotent shape-ensure for domain.magistrates (RR p.344).
-          this.domains.forEach(d => window.ACKS.ensureMagistratesShape(d));
-          // Foundation #244 — strip mining-tagged income.other entries when dwarven-mining is off.
-          // migrateCampaign already ran but its strip walked an empty `currentCampaign.domains`
-          // (domains live in `this.domains` separately in the session-restore shape). Re-run against
-          // the hydrated domains here. Idempotent on already-clean data.
-          window.ACKS.stripUnusedMiningEntries(this.domains, this.currentCampaign.houseRules || {});
-        }
+        // (Post-migrate load steps — lift, per-entity shapes, agricultural projects — ran via
+        // this._finishLoad(currentCampaign) above, the same path a file load uses. Domains now live
+        // on the campaign, so migrateCampaign already did the domain-reading migrations (mining
+        // strip, treasuries, classification, parties) — no session-restore re-runs needed.)
       }
     }catch(e){
       // v2 is a clean break — any pre-v2 session save is unmigratable. Clear it so reload doesn't re-trigger.
       console.warn('Session restore failed; clearing stale session.',e);
       try{ localStorage.removeItem('acks-domain-session-v3'); }catch(_){}
-      this.currentCampaign=null; this.domains=[]; this.selectedDomainId=null; this.fileName='';
+      this.currentCampaign=null; this.selectedDomainId=null; this.fileName='';  // domains getter returns [] when no campaign
       // Defer toast until Alpine watchers are wired so the message is visible.
       setTimeout(()=>{ try{ this.showToast('Previous session was on an older schema and could not be restored. Pick the demo or a starter template from the welcome screen to continue.', 7000); }catch(_){} }, 200);
     }
@@ -8232,7 +8209,8 @@ return {
       // If a house rule toggle removed the currently-active tab, snap back to Overview
       if(this.activeTab && !this.tabs.includes(this.activeTab))this.activeTab='overview';
     },{deep:true});
-    this.$watch('domains',()=>{ this.markDirty(); this.schedulePersist(); },{deep:true});
+    // (No separate $watch('domains') — domains live inside currentCampaign now, so the deep
+    // currentCampaign watch above already catches domain edits for the dirty flag + persist.)
     this.$watch('journeyDetailId',()=>{ this.journeyOverrideArmed = false; }); // §26 — armed state is per-open-journey; clear on any switch
     this.$watch('selectedDomainId',()=>this.schedulePersist()); // selecting a domain isn't a content change
     // #225 Map Mode — persist the active fill layer; lazily fit the viewport when the Map sub-view opens.
@@ -8270,7 +8248,7 @@ return {
     let json;
     try{
       json = JSON.stringify({
-        currentCampaign:this.currentCampaign,domains:this.domains,
+        currentCampaign:this.currentCampaign,   // domains live inside it now (single home)
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
         currentView:this.currentView, worldSubView:this.worldSubView,
         // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
@@ -8558,10 +8536,10 @@ return {
   },
 
   // ─── Campaign-merging helpers (#563 — 2026-05-31) ───
-  // Domains live on Alpine top-level this.domains, NOT this.currentCampaign.domains
-  // (historical split — commitTurn + commitStatEdit handle this by stitching domains
-  // in before calling engine helpers). Inspector wraps Registry lookups so domain-kind
-  // reads succeed without mutating currentCampaign.
+  // Domains now live on currentCampaign.domains (single home, 2026-06-05); the this.domains getter
+  // returns that array, so these `kind === 'domain'` shortcuts are equivalent to the generic engine
+  // registry path (ACKS.listEntities/findEntity, which read campaign.domains) and are kept only as a
+  // thin convenience. Folding them into the generic path is a harmless follow-up cleanup.
   inspectorListEntities(kind){
     if(!kind || !window.ACKS || !window.ACKS.listEntities) return [];
     if(kind === 'domain') return this.domains || [];
@@ -9621,11 +9599,10 @@ return {
     if(!camp || !Array.isArray(camp.characters)) return [];
     const A = window.ACKS || {};
     const isActive = A.isActive || (c => (c && (c.lifecycleState || 'active') === 'active' && c.alive !== false));
-    // Pass the UI's domains (kept separate from currentCampaign.domains) so the budget can gate
-    // domain-admin on the administers-this-month lever (it reads domain.magistrates[*].administersThisMonth).
-    const _budgetOpts = { domains: this.domains };
+    // The budget reads campaign.domains directly (single home) to gate domain-admin on the
+    // administers-this-month lever (domain.magistrates[*].administersThisMonth).
     const rows = camp.characters.filter(c => c && isActive(c)).map(c => {
-      const budget = A.characterActivityBudget ? A.characterActivityBudget(camp, c.id, _budgetOpts) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
+      const budget = A.characterActivityBudget ? A.characterActivityBudget(camp, c.id) : { dedicated:[], ancillary:[], incidental:[], dedicatedUsed:0, ancillaryUsed:0, overBudget:false, overReason:null, strenuousDays:0, fatigued:false };
       const dedCap = 1;
       const ancCap = budget.dedicatedUsed >= 1 ? 4 : 12;   // RAW: a dedicated task caps ancillary at 4; an all-errand day allows 12
       const dedLeft = Math.max(0, dedCap - budget.dedicatedUsed);
@@ -10014,14 +9991,9 @@ return {
       return which === 'survival' ? isSurv : !isSurv;
     });
   },
-  // Attach this.domains so the engine's resolveHexAnywhere sees per-domain hexes (the UI
-  // keeps domains in this.domains; currentCampaign.domains stays empty) — same dance as
-  // _proposeDayTick. Restores after.
-  _journeyWithDomains(fn){
-    const _orig = this.currentCampaign.domains;
-    this.currentCampaign.domains = this.domains;
-    try { return fn(); } finally { this.currentCampaign.domains = _orig; }
-  },
+  // Domains live on the campaign (single home), so no attach/restore is needed — kept as a thin
+  // passthrough so the existing call sites stay unchanged.
+  _journeyWithDomains(fn){ return fn(); },
   // ── Pickers ──
   // Individual travellers pickable from the "Add traveller" dropdown: alive, NOT already in a
   // party (party members travel via the Party dropdown above), and not already added. Once a
@@ -10182,16 +10154,16 @@ return {
     if(!j || pace === 'halted') return true;                         // halting is always possible
     const A = window.ACKS; if(!A || !A.journeyMaxPace) return true;
     const r = this._PACE_RANK_UI;
-    const max = A.journeyMaxPace(this.currentCampaign, j, { domains: this.domains }).maxPace;
+    const max = A.journeyMaxPace(this.currentCampaign, j).maxPace;
     return (r[pace] != null) && r[pace] <= r[max];
   },
   journeyEffectivePaceUI(j){
     const A = window.ACKS; if(!j) return 'normal';
-    return (A && A.journeyEffectivePace) ? A.journeyEffectivePace(this.currentCampaign, j, { domains: this.domains }) : (j.pace || 'normal');
+    return (A && A.journeyEffectivePace) ? A.journeyEffectivePace(this.currentCampaign, j) : (j.pace || 'normal');
   },
   journeyPaceCapText(j){
     const A = window.ACKS; if(!j || !A || !A.journeyMaxPace) return '';
-    const info = A.journeyMaxPace(this.currentCampaign, j, { domains: this.domains });
+    const info = A.journeyMaxPace(this.currentCampaign, j);
     if(!info || info.maxPace === 'forced-march' || !info.binding) return '';   // uncapped → no text
     const b = info.binding, name = b.name || 'A traveller';
     const label = { 'halted':'Halted', 'half-speed':'Half speed', 'normal':'Normal' }[info.maxPace] || info.maxPace;
@@ -10521,20 +10493,15 @@ return {
           reason: (opts.action === 'add' ? 'GM added' : 'GM removed') + ' ' + label + ': ' + valueDisplay
         }
       });
-      const _origDomains = this.currentCampaign.domains;
-      this.currentCampaign.domains = this.domains;
       let applyResult;
       try {
         applyResult = window.ACKS.applyEvent(this.currentCampaign, ev);
       } catch(applyErr) {
         // §310.3f-fix7 — surface failed edits via toast instead of swallowing.
         // The garrison-unit-without-handler bug was undetectable because of this.
-        this.currentCampaign.domains = _origDomains;
         console.error('commitStatEdit applyEvent failed:', applyErr);
         if(typeof this.showToast === 'function') this.showToast('Edit failed: ' + (applyErr.message || applyErr));
         return false;
-      } finally {
-        this.currentCampaign.domains = _origDomains;
       }
       if(!Array.isArray(this.currentCampaign.eventLog)) this.currentCampaign.eventLog = [];
       ev.status = window.ACKS.EVENT_STATUS.APPLIED;
@@ -10605,15 +10572,8 @@ return {
         }
       });
       // Apply immediately (the gm-fiat handler writes the value and captures previousValue).
-      // We need domains attached for handlers that traverse campaign.domains.
-      const _origDomains = this.currentCampaign.domains;
-      this.currentCampaign.domains = this.domains;
-      let applyResult;
-      try {
-        applyResult = window.ACKS.applyEvent(this.currentCampaign, ev);
-      } finally {
-        this.currentCampaign.domains = _origDomains;
-      }
+      // Domains live on the campaign (single home), so handlers traverse campaign.domains directly.
+      const applyResult = window.ACKS.applyEvent(this.currentCampaign, ev);
       // #453 — c.kind retired; the editor surface no longer exists and the engine
       // doesn't expose reDeriveClassificationFromKind anymore. Future kind-coupled
       // sync hooks (if needed) belong here in this slot.
@@ -10989,14 +10949,7 @@ return {
       });
       // §310.3f-fix29 — full campaign + canonical entry shape (same fix
       // pattern as recruit-hireling).
-      const _origDomains = camp.domains;
-      camp.domains = this.domains;
-      let out;
-      try {
-        out = window.ACKS.applyEvent(camp, ev);
-      } finally {
-        camp.domains = _origDomains;
-      }
+      const out = window.ACKS.applyEvent(camp, ev);
       ev.appliedAtTurn = camp.currentTurn || 1;
       ev.result = out.result;
       camp.eventLog.push({
@@ -11040,10 +10993,7 @@ return {
         ev.payload = Object.assign({}, ev.payload || {}, payload);
         // Apply via engine
         // §310.3f-fix29b — full campaign + canonical event-log entry shape.
-        const _odA = camp.domains; camp.domains = this.domains;
-        let out;
-        try { out = window.ACKS.applyEvent(camp, ev); }
-        finally { camp.domains = _odA; }
+        const out = window.ACKS.applyEvent(camp, ev);
         ev.status = 'applied';
         ev.appliedAtTurn = camp.currentTurn || 1;
         ev.result = out.result;
@@ -11063,10 +11013,7 @@ return {
       status: 'applied',
     });
     // §310.3f-fix29b — full campaign + canonical event-log entry shape.
-    const _odB = camp.domains; camp.domains = this.domains;
-    let out;
-    try { out = window.ACKS.applyEvent(camp, ev); }
-    finally { camp.domains = _odB; }
+    const out = window.ACKS.applyEvent(camp, ev);
     ev.appliedAtTurn = camp.currentTurn || 1;
     ev.result = out.result;
     camp.eventLog.push({ event: ev, result: out.result, appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
@@ -11133,15 +11080,13 @@ return {
     });
     // §310.3f-fix29b — full campaign + canonical event-log entry shape.
     let out;
-    const _odC = camp.domains; camp.domains = this.domains;
     try {
       out = window.ACKS.applyEvent(camp, ev);
     } catch(e){
       console.error('Calamity apply failed:', e);
       this.showToast('Calamity apply failed: ' + e.message);
-      camp.domains = _odC;
       return;
-    } finally { camp.domains = _odC; }
+    }
     ev.appliedAtTurn = camp.currentTurn || 1;
     ev.result = out.result;
     camp.eventLog.push({ event: ev, result: out.result, appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
@@ -11916,14 +11861,7 @@ return {
       // reach houseRules + settlements (notability gate + settlement
       // lookup). Previous partial campaign was silently failing the
       // recruitment-notability path.
-      const _origDomains = camp.domains;
-      camp.domains = this.domains;
-      let out;
-      try {
-        out = window.ACKS.applyEvent(camp, ev);
-      } finally {
-        camp.domains = _origDomains;
-      }
+      const out = window.ACKS.applyEvent(camp, ev);
       ev.appliedAtTurn = camp.currentTurn || 1;
       ev.result = out.result;
       // §310.3f-fix29 — push the canonical event-log entry shape so the
@@ -14343,40 +14281,11 @@ return {
       console.warn('validateCampaign check skipped (validator error):', verr); // never let a validator bug block a good file
     }
     // Turn Cycle v2: ensure the new event arrays exist (additive schema) for older v2 saves.
-    if(!Array.isArray(camp.pendingEvents))camp.pendingEvents=[];
-    if(!Array.isArray(camp.eventLog))camp.eventLog=[];
-    const inlineDomains=Array.isArray(camp.domains)?camp.domains:[];
-    this.currentCampaign=camp;
+    this.currentCampaign=camp;          // domains stay attached — single home (no empty / re-stitch)
     this.mapViewBox=null; // #225 re-fit the map to the loaded campaign on next open
-    // v2: campaign-level migrateCampaign already validated each domain; no per-domain migration.
-    this.domains=inlineDomains;
-    this.currentCampaign.domains=[]; // free duplicate reference; rebuilt at save time
-    // Turn Cycle v2: lazy-migrate any legacy pendingPlayerInput on domains into player-plan events.
-    // Operates on the domains array we just hydrated (campaign.domains is empty by now, so pass a synthetic shell).
-    const synth = { domains: this.domains, currentTurn: camp.currentTurn||1, pendingEvents: camp.pendingEvents };
-    window.ACKS.migratePendingPlayerInputToEvents(synth);
-    // Foundation #16 — migrate any legacy single-component strongholds to the new components[] shape.
-    this.domains.forEach(d => window.ACKS.migrateStrongholdToComponents(d));
-    // Foundation #17 — migrate hex.landImprovementProjects[] → hex.landImprovementInvested.
-    this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToAccumulatedImprovement(h)));
-    // Foundation #18 followup — migrate single supervisor field to multi-supervisor array.
-    this.domains.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToMultiSupervisor(h)));
-    // Officers — idempotent shape-ensure for domain.magistrates (RR p.344).
-    this.domains.forEach(d => window.ACKS.ensureMagistratesShape(d));
-    // Foundation #193 — lift hexes, settlements, rumors to top-level campaign collections.
-    // Idempotent: walks legacy nested storage and populates campaign.hexes/settlements/rumors,
-    // moving hex/settlement objects by reference. Legacy domain.geography.hexes[] arrays are
-    // emptied; the field stays. Rumors are reshaped from per-settlement arrays into top-level
-    // entities with a reach[] array pointing back at settlements.
-    const liftSynth = { domains: this.domains, hexes: camp.hexes, settlements: camp.settlements, rumors: camp.rumors };
-    window.ACKS.liftToTopLevelCollections(liftSynth);
-    camp.hexes = liftSynth.hexes;
-    camp.settlements = liftSynth.settlements;
-    camp.rumors = liftSynth.rumors;
-    // Wave Construction-B — reconcile/create agricultural Projects now that hexes are lifted into
-    // camp.hexes. migrateCampaign() ran earlier with an empty campaign.domains (split-domains shape),
-    // so its agricultural reconcile pass saw no hexes; re-run against the hydrated hexes here.
-    window.ACKS.migrateAgriculturalToProjects(camp);
+    // UI-only post-migrate load steps (lift + per-entity shapes + agricultural projects), shared
+    // with the session-restore path so they run once, consistently. Idempotent.
+    this._finishLoad(camp);
     this.selectedDomainId=this.domains[0]?this.domains[0].id:null;
     this.fileName=sourceName||'';
     // A freshly loaded campaign is the clean baseline. Clear dirty, then release the
@@ -14386,6 +14295,46 @@ return {
     if(typeof this.$nextTick === 'function') this.$nextTick(release); else setTimeout(release, 0);
     setTimeout(()=>{ this._ignoreMutations = false; this.dirty = false; }, 0); // belt-and-suspenders
     this.showToast('Loaded "'+this.currentCampaign.name+'" ('+this.pluralize(this.domains.length, 'domain')+').');
+  },
+
+  // UI-only post-migrate load steps (NOT in the engine's migrateCampaign): ensure the core
+  // top-level collections exist, run the lazy per-entity shape migrations, lift nested hexes/
+  // settlements/rumors to the top level, then materialize agricultural Projects (which needs the
+  // lifted hexes). Shared by loadCampaignFromObject + the session-restore path so it runs once per
+  // load instead of being duplicated. Idempotent — safe to re-run on already-processed (session-
+  // cache) data. migrateCampaign already ran with domains attached, so the engine's domain-reading
+  // migrations (mining strip, treasuries, classification, parties, …) are done; these are the steps
+  // that live in the UI layer.
+  _finishLoad(camp){
+    if(!camp) return;
+    if(!Array.isArray(camp.domains))      camp.domains = [];
+    if(!Array.isArray(camp.pendingEvents))camp.pendingEvents = [];
+    if(!Array.isArray(camp.eventLog))     camp.eventLog = [];
+    if(!Array.isArray(camp.hexes))        camp.hexes = [];
+    if(!Array.isArray(camp.settlements))  camp.settlements = [];
+    if(!Array.isArray(camp.rumors))       camp.rumors = [];
+    const ds = camp.domains;
+    // Turn Cycle v2 — lazy-migrate legacy domain.pendingPlayerInput into player-plan events.
+    window.ACKS.migratePendingPlayerInputToEvents(camp);
+    // Foundation #16 — strongholds → components[] shape.
+    ds.forEach(d => window.ACKS.migrateStrongholdToComponents(d));
+    // Foundation #17 — hex.landImprovementProjects[] → accumulated invested. Reads the NESTED hexes,
+    // so it must run BEFORE the lift empties domain.geography.hexes[].
+    ds.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToAccumulatedImprovement(h)));
+    // Foundation #18 — single supervisor → multi-supervisor array. Also pre-lift (nested hexes).
+    ds.forEach(d => (d.geography?.hexes||[]).forEach(h => window.ACKS.migrateHexToMultiSupervisor(h)));
+    // Officers — idempotent shape-ensure for domain.magistrates (RR p.344).
+    ds.forEach(d => window.ACKS.ensureMagistratesShape(d));
+    // Foundation #193 — lift hexes/settlements/rumors to the top-level collections (empties the
+    // nested domain.geography.hexes[]). Idempotent.
+    const liftSynth = { domains: ds, hexes: camp.hexes, settlements: camp.settlements, rumors: camp.rumors };
+    window.ACKS.liftToTopLevelCollections(liftSynth);
+    camp.hexes = liftSynth.hexes;
+    camp.settlements = liftSynth.settlements;
+    camp.rumors = liftSynth.rumors;
+    // Wave Construction-B — materialize agricultural Projects now that hexes are lifted into
+    // camp.hexes (templates ship hexes nested, so migrateCampaign's earlier pass saw none). Idempotent.
+    window.ACKS.migrateAgriculturalToProjects(camp);
   },
 
   // Templates ship with our app and must never be overwritten by Save.
@@ -14503,14 +14452,12 @@ return {
   },
 
   serializedCampaign(){
-    // Combine campaign metadata + inline domains into a single saveable object
+    // Domains live on currentCampaign (single home), so the deep clone already includes them — no
+    // re-stitch. Stamp lastModifiedAt on the campaign + each domain, drop the legacy field.
     const c=JSON.parse(JSON.stringify(this.currentCampaign));
-    c.lastModifiedAt=new Date().toISOString().slice(0,10);
-    c.domains=this.domains.map(d=>{
-      const dc=JSON.parse(JSON.stringify(d));
-      dc.lastModifiedAt=new Date().toISOString().slice(0,10);
-      return dc;
-    });
+    const today=new Date().toISOString().slice(0,10);
+    c.lastModifiedAt=today;
+    (c.domains||[]).forEach(dc=>{ dc.lastModifiedAt=today; });
     delete c.domainIds; // legacy field
     return c;
   },
@@ -15286,24 +15233,20 @@ return {
   garrisonCost(d){return (d.garrison?.units||[]).reduce((s,u)=>s+(u.count||0)*(u.monthlyWage||0),0);},
   garrisonBR(d){return (d.garrison?.units||[]).reduce((s,u)=>s+(u.count||0)*(u.brPerSoldier||0),0);},
 
-  // Effective tribute owed by a vassal to its liege, this month.
-  // Returns 0 if no liege OR tributePaid is false.
-  // If tributeAuto is true, computes (tributePct% of vassal's gross income); else uses manual tributeToLiege.
+  // Effective tribute owed by a vassal to its liege, this month. Returns 0 if no liege OR
+  // tributePaid is false. When tributeAuto is on (the default), it's the RAW precise tribute by the
+  // families in the vassal's WHOLE realm — its own domain plus every sub-vassal realm (RR p.346:
+  // 18gp × realm-families^0.6, rounded to 5gp). RAW tribute is a fixed obligation by realm size, NOT
+  // a percentage of income. Otherwise (auto off), the GM's manual tributeToLiege ("set as desired"
+  // is itself RAW). The %-of-gross-income auto mode + tributePct field were removed 2026-06-05.
   tributeOwed(d){
     if(!d.liegeId)return 0;
     if(d.expenses?.tributePaid===false)return 0;
     if(d.expenses?.tributeAuto!==false){
-      const pct=(d.expenses?.tributePct??10)/100;
-      // Compute gross excluding tribute flows to avoid recursion
-      const fam=d.demographics.peasantFamilies||0,urb=d.demographics.urbanFamilies||0;
-      const taxRate=DEFAULT_TAX_RATES[d.taxPolicy?.rate]??(d.income.taxPerFamily||2);
-      const grossExclTribute=(d.income.landRevenuePerFamily||0)*fam
-        +(d.income.serviceRevenuePerFamily||0)*(fam+urb)
-        +taxRate*(fam+urb)+(d.income.tariffs||0);
-      // Errata §1.2 (RR r4 Ch.8): tribute by realm families table rounds to nearest 5gp.
-      // Applies to both auto-percentage and manual tribute paths.
-      const raw=grossExclTribute*pct;
-      return window.ACKS.roundToNearest5(raw);
+      // Realm families = this domain's families + every sub-vassal realm's families (recursive chain).
+      let realmFamilies=this.totalFamilies(d);
+      for(const {domain:v} of this.vassalChainUnder(d.id)) realmFamilies+=this.totalFamilies(v);
+      return window.ACKS.rawTributeForRealmFamilies(realmFamilies);
     }
     // Manual path — round to 5gp too for consistency.
     return window.ACKS.roundToNearest5(d.expenses?.tributeToLiege||0);
@@ -15657,7 +15600,7 @@ return {
       const liege=this.domains.find(x=>x.id===d.liegeId);
       const liegeName=liege?liege.name:'(missing liege)';
       if(owed>0){
-        const note=d.expenses?.tributeAuto!==false?' (auto '+(d.expenses?.tributePct??10)+'%)':' (manual)';
+        const note=d.expenses?.tributeAuto!==false?' (auto · RAW)':' (manual)';
         rows.push({label:'Tribute to '+liegeName+' (liege)'+note,gp:owed});
       }else if(d.expenses?.tributePaid===false){
         rows.push({label:'Tribute to '+liegeName+' (NOT PAID — defiance, will hit morale)',gp:0});
@@ -15852,12 +15795,8 @@ return {
   },
   _proposeDayTick(days){
     this.dayTickError = null;
-    // Day-tick consumers (construction) read the domain treasury via campaign.domains, but the UI
-    // keeps domains in this.domains separate from currentCampaign.domains (empty). Attach them so the
-    // agricultural drip can find the domain + treasury; restore after (proposeDayTick clones, so the
-    // real campaign isn't mutated — the clone just needs to see the domains).
-    const _origDomains = this.currentCampaign.domains;
-    this.currentCampaign.domains = this.domains;
+    // proposeDayTick clones the campaign internally; domains live on it (single home), so the
+    // day-tick consumers (construction) find the domain treasuries directly — no attach needed.
     try {
       // Materialize Projects for any funded-but-not-yet-projected hex (the panel writes the budget
       // field directly) so the tick finds + advances them; also clears capped budgets. Idempotent.
@@ -15872,7 +15811,6 @@ return {
       }
     }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
-    finally { this.currentCampaign.domains = _origDomains; }
   },
   // Re-run a PENDING day-tick proposal after the latest committed day changed under it (a forage / nav
   // reroll, or a supply-toggle re-resolve). The proposal is a snapshot taken from the prior state, so
@@ -15967,15 +15905,13 @@ return {
   },
   commitDayTick(){
     if(!this.dayTickProposal) return;
-    // Attach domains so the construction commit can debit the real domain treasury (see _proposeDayTick).
-    const _origDomains = this.currentCampaign.domains;
-    this.currentCampaign.domains = this.domains;
+    // Domains live on the campaign (single home), so the construction commit debits the real
+    // domain treasury directly.
     try {
       window.ACKS.commitDayTick(this.currentCampaign, this.dayTickProposal, null);
       this.dayTickProposal = null;
     } catch(e){ console.error('commitDayTick error', e); this.dayTickError = String((e && e.message) || e); }
-    finally { this.currentCampaign.domains = _origDomains; }
-    this._persistDayTick();   // persist AFTER restoring domains so the saved currentCampaign.domains stays empty
+    this._persistDayTick();
   },
   proposeMonthlyTurn(){
     this.turnProposalError = '';
@@ -16062,10 +15998,8 @@ return {
       return false;
     }
     const currentTurnNum = this.currentCampaign.currentTurn || 1;
-    // Engine handlers traverse campaign.domains — attach this.domains briefly so they work.
-    const _origCampaignDomains = this.currentCampaign.domains;
-    this.currentCampaign.domains = this.domains;
-    try {
+    // Domains live on the campaign (single home), so engine handlers traverse campaign.domains directly.
+    {
       if(decision === 'accept'){
         try {
           const applyResult = window.ACKS.applyEvent(this.currentCampaign, ev);
@@ -16110,8 +16044,6 @@ return {
       }
       // Remove from pendingEvents (it's now in eventLog with applied/rejected status).
       this.currentCampaign.pendingEvents = (this.currentCampaign.pendingEvents || []).filter(e => e.id !== ev.id);
-    } finally {
-      this.currentCampaign.domains = _origCampaignDomains;
     }
     return true;
   },
