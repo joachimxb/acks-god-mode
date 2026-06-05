@@ -4163,18 +4163,18 @@ document.addEventListener('alpine:init', () => {
 
         <!-- actions -->
         <div class="flex flex-wrap items-center gap-2">
-          <button @click="journeyTickDay()" class="px-4 py-1.5 border-2 border-ink rounded bg-sky-300 hover:bg-sky-400 font-bold text-base" title="Advance one day through the shared day-tick pipeline (review + commit in the Day-tick panel, top-right)" x-show="journeyDetail().status==='in-transit'">🕑 Tick day</button>
+          <button @click="journeyCompleteMovement()" :disabled="!journeyCanCompleteMovement(journeyDetail())" :class="journeyCanCompleteMovement(journeyDetail()) ? 'bg-sky-300 hover:bg-sky-400' : 'opacity-50 cursor-not-allowed'" :title="journeyCanCompleteMovement(journeyDetail()) ? 'Move this party through the current day now — they travel their day\'s leg here. The calendar advances separately, via the Day Clock (top-right).' : 'Already moved today — advance the Day Clock (top-right) to continue.'" class="px-4 py-1.5 border-2 border-ink rounded font-bold text-base" x-show="journeyDetail().status==='in-transit'">🚶 Complete Movement</button>
           <span x-show="journeyDetail().status==='arrived'" class="px-3 py-1.5 rounded-md font-bold text-base bg-green-200 text-green-900 border-2 border-green-700">✓ Arrived</span>
           <span x-show="journeyDetail().status==='aborted'" class="px-3 py-1.5 rounded-md font-bold text-base bg-red-100 text-red-800 border-2 border-red-500">🛑 Stopped</span>
-          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop moving and stay where they are (the trip doesn't resume on its own)">🛑 Stop Moving</button>
-          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Tick routes through the Day Clock's propose → review → commit (top-right) — the same pipeline construction and every day consumer share.</span>
-          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins advancing once in-transit (start it via the day-tick once linked), or abort to discard.</span>
+          <button @click="abortJourneyUI(journeyDetail())" class="px-3 py-1 border border-ink rounded hover:bg-red-100 text-sm" x-show="['planning','in-transit','resting','lost'].includes(journeyDetail().status)" title="Halt the travellers here — they stop where they are and the trip does not resume on its own">🛑 Stop Journey</button>
+          <span class="text-xs opacity-60" x-show="journeyDetail().status==='in-transit'">Complete Movement resolves just this party's day. To advance the calendar — and auto-resolve any party you didn't move — use the Day Clock (top-right).</span>
+          <span class="text-xs italic opacity-60" x-show="journeyDetail().status==='planning'">Planning — not yet under way. It begins once in-transit; then Complete Movement (or the Day Clock) travels each day. Stop Journey to discard.</span>
         </div>
 
         <!-- day log -->
         <div>
           <h3 class="font-semibold text-sm mb-1">Day log</h3>
-          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days recorded yet — Tick day (top-right) to advance.</p></template>
+          <template x-if="(journeyDetail().days||[]).length===0"><p class="text-xs italic opacity-60">No days travelled yet — the party is at the start hex. Press Complete Movement to travel the first day (or advance the Day Clock).</p></template>
           <div class="space-y-1">
             <template x-for="(d,di) in (journeyDetail().days||[])" :key="'dl-'+di">
               <div class="text-xs py-0.5" :class="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'border border-dashed border-sky-400 rounded px-1' : 'border-b border-dashed border-gray-300'" :style="(di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())) ? 'background:rgba(186,230,253,0.22)' : ''">
@@ -10113,25 +10113,41 @@ return {
       supplies: { rations:Number(w.rations)||0, waterRations:Number(w.waterRations)||0, animalFeed:0, animalWater:0, shipStores:0 }
     });
     this.currentCampaign.journeys.push(j);
-    // Set out NOW — resolve the first travel day at once (Joachim 2026-06-05: "it should start it now"),
-    // so the journey opens on Day 1 as its current state instead of an empty day 0. This journey only —
-    // the global Day Clock is NOT advanced (the campaign date doesn't jump; the Day Clock walks the rest).
-    this._journeyWithDomains(() => { window.ACKS.startJourney(this.currentCampaign, j); window.ACKS.advanceJourneyOneDay(this.currentCampaign, j); });
+    // Set out — the party stands AT THE START HEX, day 0, nothing travelled yet (Joachim 2026-06-05:
+    // "before pressing the button the group is in the hex where they started — this determines initial
+    // water status"). The first day's leg is travelled by the first Complete Movement (or the Day Clock);
+    // no auto day-1, so every day is resolved the same way, by the same door.
+    this._journeyWithDomains(() => { window.ACKS.startJourney(this.currentCampaign, j); });
     this.markDirty(); this.schedulePersist();
     const id = j.id;
     this._journeyResetWizard();
     this.journeyDetailId = id;
-    this.showToast(j.status === 'arrived'
-      ? ('Journey complete — arrived: ' + (j.name||'(unnamed)'))
-      : ('Set out (day 1 travelled): ' + (j.name||'(unnamed)')));
+    this.showToast('Set out: ' + (j.name||'(unnamed)') + ' — press Complete Movement to travel the first day.');
   },
   // ── Detail ──
   journeyOpenDetail(id){ this.journeyDetailId = id; this.journeyOverrideArmed = false; this.journeyWizard.open = false; this.currentView='activities'; this.activitiesSubView='journeys'; },
   journeyCloseDetail(){ this.journeyDetailId = null; this.journeyOverrideArmed = false; },
-  // Tick Day MUST route through the GLOBAL day-tick pipeline (shared with construction +
-  // every future day consumer) — NOT a journey-private tick; forking would desync them.
-  // This is just a convenience entry to the same propose → review → commit the Day Clock drives.
-  journeyTickDay(){ this.tickDay(); },
+  // Complete Movement (Joachim 2026-06-05): resolve THIS journey's travel for the current world day,
+  // locally — the party marches its day's leg now, WITHOUT advancing the global clock. Lockstep: at
+  // most one leg per world day; the engine skip-guard then makes the next +1 day pass this journey by.
+  // (The global Day Clock, top-right, advances the calendar + auto-resolves any party not moved here.)
+  journeyCompleteMovement(){
+    const j = this.journeyDetail(); if(!j) return;
+    if(!this.journeyCanCompleteMovement(j)) return;
+    const rec = this._journeyWithDomains(() => window.ACKS.advanceJourneyOneDay(this.currentCampaign, j));
+    if(!rec){ this.showToast('Movement unavailable — the journey is not in transit.', 4000); return; }
+    this.markDirty(); this.schedulePersist(); this._refreshPendingDayTick();
+    this.showToast(j.status === 'arrived'
+      ? ('Arrived: ' + (j.name || '(unnamed)'))
+      : ('Day ' + (rec.newDayIndex || '') + ' travelled — advance the Day Clock to continue.'));
+  },
+  // Can this journey complete its movement now? Only when in-transit AND it has not already travelled the
+  // current world day (lockstep — one leg per day; a +1 day would resolve nothing more for it today).
+  journeyCanCompleteMovement(j){
+    if(!j || j.status !== 'in-transit') return false;
+    const ord = ((this.currentCampaign.currentTurn || 1) * 30) + ((this.currentCampaign.currentDayInMonth || 1));
+    return !(j.lastTravelWorldOrd != null && j.lastTravelWorldOrd >= ord);
+  },
   // Change a journey's marching pace mid-trip — logged via gm-fiat; the engine reads journey.pace
   // fresh on each day-tick, so the next day ticked uses the new pace (per-day pace stays in the log).
   setJourneyPace(j, pace){

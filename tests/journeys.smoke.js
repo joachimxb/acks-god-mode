@@ -68,6 +68,7 @@ const jb = ACKS.blankJourney({});
 check('blankJourney returns a jrn- id', typeof jb.id === 'string' && jb.id.startsWith('jrn-'), jb.id);
 check('blankJourney defaults: planning / foot / normal / expedition', jb.status === 'planning' && jb.mode === 'foot' && jb.pace === 'normal' && jb.purpose === 'expedition');
 check('blankJourney participantCharacterIds is the source of truth (array)', Array.isArray(jb.participantCharacterIds) && jb.partyId === null);
+check('blankJourney reserves lastTravelWorldOrd (lockstep marker) defaulting to null', jb.lastTravelWorldOrd === null);
 check('blankJourney supplies has the five person-day buckets', jb.supplies && ['rations','waterRations','animalFeed','animalWater','shipStores'].every(k => k in jb.supplies));
 check('blankJourney has days[]/encounters[]/history[] logs', Array.isArray(jb.days) && Array.isArray(jb.encounters) && Array.isArray(jb.history));
 check('isJourney predicate', ACKS.isJourney(jb) === true && ACKS.isJourney({ id: 'chr-x' }) === false);
@@ -443,9 +444,10 @@ rrng.c.journeys[0].days = [{ dayIndex: 1, navigationThrow: null }];
 rrng.c.journeys[0].currentDayIndex = 1;
 check('rerollJourneyDay returns null when the latest day lacks a _preDay snapshot', ACKS.rerollJourneyDay(rrng.c, rrng.j) === null);
 
-// guard (J2 feedback): the LATEST day is rerollable only while the WORLD CLOCK still stands on
-// the day the leg happened — a just-arrived leg stays rerollable, but +1 day / Advance month
-// rolls the world past it and locks it (compare absolute ordinal turn*30 + dayInMonth).
+// the LATEST leg is ALWAYS rerollable — it IS the journey's current state, even after the world clock
+// advances past it (Joachim 2026-06-05: "you should always be able to reroll the last leg"). The old
+// nowOrd<=legOrd clock-lock is dropped now that one leg = one world day (Complete Movement). A newer
+// leg supersedes it; an arrived journey keeps its final leg rerollable.
 const wc = build(); // road ⇒ arrives within a couple of days
 ACKS.startJourney(wc.c, wc.j);
 let wcGuard = 0;
@@ -456,14 +458,12 @@ check('setup: journey arrived via the day-tick pipeline', wcJ.status === 'arrive
 check('each committed day carries a worldDay {turn, dayInMonth} stamp', !!wcLast.worldDay && typeof wcLast.worldDay.turn === 'number' && typeof wcLast.worldDay.dayInMonth === 'number');
 check('worldDay.dayInMonth = the world day the leg landed on (clock is on it now)', wcLast.worldDay.dayInMonth === wc.c.currentDayInMonth);
 check('journeyLastDayRerollable TRUE while the world is still on the arrival day', ACKS.journeyLastDayRerollable(wc.c, wcJ) === true);
-// advance the world one more day past the arrival (journey is no longer in-transit, but the clock moves)
-const wcAfter = ACKS.proposeDayTick(wc.c, 1, {}); ACKS.commitDayTick(wc.c, wcAfter, null);
+// advance the world several days past the arrival — an arrived journey gets no new leg (it's skipped),
+// but the LATEST leg stays its current state and stays rerollable (the clock no longer locks it).
+const wcAfter = ACKS.proposeDayTick(wc.c, 3, { force: true }); ACKS.commitDayTick(wc.c, wcAfter, null);
 check('the world clock advanced past the arrival day', wc.c.currentDayInMonth > wcLast.worldDay.dayInMonth);
-check('journeyLastDayRerollable FALSE once the world rolled past the arrival day', ACKS.journeyLastDayRerollable(wc.c, wcJ) === false);
-check('rerollJourneyDay returns null once the world has moved past the last leg', ACKS.rerollJourneyDay(wc.c, wcJ) === null);
-const wcDaysBefore = wcJ.days.length;
-ACKS.rerollJourneyDay(wc.c, wcJ);
-check('a world-locked reroll leaves the journey untouched (no day popped)', wcJ.days.length === wcDaysBefore && wcJ.status === 'arrived');
+check('journeyLastDayRerollable STAYS true after the world rolled past (always the last leg)', ACKS.journeyLastDayRerollable(wc.c, wcJ) === true);
+check('rerollJourneyDay still re-runs the last leg after the clock moved (returns a record)', !!ACKS.rerollJourneyDay(wc.c, wcJ));
 
 // reroll a JUST-ARRIVED journey works while the world is still on its day, and round-trips the
 // party/participant arrival bookkeeping (no stranded pointers if the redo un-arrives).
@@ -488,6 +488,38 @@ ACKS.commitJourneyRecord(rrab.c, rrabp.pendingRecords[0]);
 ACKS.abortJourney(rrab.c, rrab.j, 'test abort');
 check('journeyLastDayRerollable FALSE for an aborted journey', ACKS.journeyLastDayRerollable(rrab.c, rrab.j) === false);
 check('rerollJourneyDay returns null once the journey has been ABORTED', ACKS.rerollJourneyDay(rrab.c, rrab.j) === null);
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Complete Movement — lockstep one-leg-per-day + skip-guard (2026-06-05)');
+
+// Start leaves the party AT THE ORIGIN (no auto day-1): day 0, no legs. Complete Movement
+// (advanceJourneyOneDay) then resolves the day locally; a following +1 day must SKIP the journey
+// (the engine skip-guard), not march the party a second time. Long road, stays in-transit for days.
+const lk = build({ destCoord: { q: 48, r: 0 } });
+ACKS.startJourney(lk.c, lk.j);
+check('start leaves the party at the origin: day 0, no legs', lk.j.currentDayIndex === 0 && (lk.j.days || []).length === 0);
+check('a fresh just-started journey has no travel marker yet', lk.j.lastTravelWorldOrd == null);
+// Complete Movement day 1 — the world clock does NOT move
+const lkRec = ACKS.advanceJourneyOneDay(lk.c, lk.j, { rng: () => 0.5 });
+check('Complete Movement resolves day 1 locally (one leg)', !!lkRec && lk.j.currentDayIndex === 1 && lk.j.days.length === 1);
+check('Complete Movement does NOT advance the world clock', lk.c.currentDayInMonth === 1);
+check('Complete Movement set the travel marker to the current world day (turn*30 + day)', lk.j.lastTravelWorldOrd === (1 * 30 + 1));
+// +1 day — the journey already moved today, so the consumer skips it (no second leg)
+const lkBefore = lk.j.days.length;
+const lkP = ACKS.proposeDayTick(lk.c, 1, {}); ACKS.commitDayTick(lk.c, lkP, null);
+check('+1 day advanced the world clock to day 2', lk.c.currentDayInMonth === 2);
+check('skip-guard: +1 day added NO second leg (already moved today)', lk.j.days.length === lkBefore);
+check('the latest leg stays rerollable after the clock advanced', ACKS.journeyLastDayRerollable(lk.c, lk.j) === true);
+// a +1 day with NO Complete Movement this time auto-resolves the leg at commit
+const lkP2 = ACKS.proposeDayTick(lk.c, 1, {}); ACKS.commitDayTick(lk.c, lkP2, null);
+check('a +1 day with no Complete Movement auto-resolves the day at commit tick', lk.j.days.length === lkBefore + 1 && lk.j.currentDayIndex === 2);
+check('the auto-resolved leg advanced the travel marker to day 2', lk.j.lastTravelWorldOrd === (1 * 30 + 2));
+// reroll preserves the leg's travel marker (so the next +1 day lands on the right day, not skipped)
+const lkMarker = lk.j.lastTravelWorldOrd;
+ACKS.rerollJourneyDay(lk.c, lk.j, { rng: () => 0.3 });
+check('rerollJourneyDay preserves the leg travel marker', lk.j.lastTravelWorldOrd === lkMarker);
+const lkP3 = ACKS.proposeDayTick(lk.c, 1, {}); ACKS.commitDayTick(lk.c, lkP3, null);
+check('the next +1 day after a reroll still advances the journey (marker was not corrupted)', lk.j.currentDayIndex === 3);
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('mid-journey pace change affects subsequent days (J2 feedback)');
