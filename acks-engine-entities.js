@@ -1251,7 +1251,9 @@ function blankJourney(opts={}){
     // Engine-managed logs (each day-tick appends one Day record; encounters tie to #141/#476)
     days: opts.days || [],                              // §4.2 Day records
     encounters: opts.encounters || [],                  // §4.3 encounter records
-    // Supplies — person-day quantities (J1 tracks food + water; animal/ship reserved)
+    // Supplies — LEGACY abstract person-day pool. Phase 2.5 Provisioning seeds these into tight
+    // inventory (camp ration items + per-member waterDaysCarried) at launch/load (seedJourneyProvisions,
+    // decision #1); the day-tick still honors a non-zero pool as a shared fallback for unseeded saves.
     supplies: opts.supplies || {
       rations: 0,
       waterRations: 0,
@@ -1259,6 +1261,11 @@ function blankJourney(opts={}){
       animalWater: 0,
       shipStores: 0
     },
+    // Phase 2.5 Provisioning — the two party-level day-tick toggles (Journey Detail). forageWaterEnabled:
+    // the party forages for water on no-source days (§4.1; greyed when the hex auto-supplies). shareRations:
+    // pool food AND water — camp-first, leader-priority (§6). Off = self-only.
+    forageWaterEnabled: opts.forageWaterEnabled === true,
+    shareRations: opts.shareRations === true,
     notes: opts.notes || '',
     history: opts.history || []                         // append-only audit (start, day-tick, arrival, …)
   };

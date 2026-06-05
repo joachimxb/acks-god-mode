@@ -50,7 +50,10 @@ function build(opts){
   const j = ACKS.blankJourney({
     id: 'jrn-1', name: 'Road Run', participantCharacterIds: ['chr-1'],
     startHexId: 'hex-a', destinationHexId: 'hex-b', mode: 'foot',
-    supplies: Object.assign({ rations: 100, waterRations: 100, animalFeed: 0, animalWater: 0, shipStores: 0 }, opts.supplies || {})
+    // Provisioning V2/V3: rations are now real (weighed) inventory — startJourney seeds the abstract
+    // pool into tight ration items. Keep the default LIGHT (12 days = 2 st food) so the test scout stays
+    // unencumbered (≤5 st) and the speed assertions hold; survival tests override with a small/zero pool.
+    supplies: Object.assign({ rations: 12, waterRations: 12, animalFeed: 0, animalWater: 0, shipStores: 0 }, opts.supplies || {})
   });
   c.journeys = [j];
   // default: all auto-pauses off so a multi-day tick runs clean unless a test turns them on
@@ -601,7 +604,7 @@ function lineCampaign(n, perHex){
     c.hexes.push(ACKS.blankHex(Object.assign({ id: 'hx-' + q, coord: { q, r: 0 }, terrain: 'grassland', hasRoad: false }, o)));
   }
   c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout' }) ];
-  const j = ACKS.blankJourney({ id:'jrn-1', name:'Trek', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-'+n, mode:'foot', supplies:{ rations:100, waterRations:100, animalFeed:0, animalWater:0, shipStores:0 } });
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Trek', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-'+n, mode:'foot', supplies:{ rations:12, waterRations:12, animalFeed:0, animalWater:0, shipStores:0 } });
   c.journeys = [j]; c.houseRules = {};
   return { c, j };
 }
@@ -746,7 +749,7 @@ section('§24 — waypoint distance is via-waypoint (not direct)');
               ACKS.blankHex({ id:'hx-w', coord:{q:2,r:-2}, terrain:'grassland' }),
               ACKS.blankHex({ id:'hx-d', coord:{q:4,r:0}, terrain:'grassland' }) ];
   c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout' }) ];
-  const j = ACKS.blankJourney({ id:'jrn-1', name:'Detour', participantCharacterIds:['chr-1'], startHexId:'hx-s', destinationHexId:'hx-d', waypoints:[{hexId:'hx-w'}], supplies:{ rations:100, waterRations:100 } });
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Detour', participantCharacterIds:['chr-1'], startHexId:'hx-s', destinationHexId:'hx-d', waypoints:[{hexId:'hx-w'}], supplies:{ rations:12, waterRations:12 } });
   c.journeys = [j];
   const directDist = ACKS.hexAxialDistance({q:0,r:0},{q:4,r:0});
   const route = ACKS.journeyRoute(c, j);
@@ -775,7 +778,7 @@ section('§24 — mid-journey re-route (reRouteJourney)');
   c.hexes.push(ACKS.blankHex({ id:'hx-u1', coord:{q:4,r:1}, terrain:'grassland' }));
   c.hexes.push(ACKS.blankHex({ id:'hx-u2', coord:{q:4,r:2}, terrain:'grassland' }));
   c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout', currentHexId:'hx-0' }) ];
-  const j = ACKS.blankJourney({ id:'jrn-1', name:'Saltspur run', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-6', supplies:{ rations:100, waterRations:100 } });
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Saltspur run', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-6', supplies:{ rations:12, waterRations:12 } });
   c.journeys = [j];
   ACKS.startJourney(c, j);
   ACKS.commitJourneyRecord(c, ACKS.tickJourneyDay(c, c.journeys[0], { rng:()=>0.5 }).record); // day 1: 4 grassland hexes → hx-4
@@ -862,6 +865,7 @@ section('Current speed = slowest member (RR pp.83-84)');
 
   // one heavily-loaded member (9 st → heavy band → 12 mi/day) slows the whole party
   const h = lineCampaign(10);
+  h.j.supplies = { rations:0, waterRations:0 };   // isolate the cargo weight (no seeded rations)
   h.c.characters[0].inventory = [{ name:'lead bars', encumbranceSt: 9 }];
   ACKS.startJourney(h.c, h.j);
   check('heavily-loaded member → base 12 mi/day', ACKS.journeyBaseSpeedMilesPerDay(h.c, h.c.journeys[0]) === 12);
@@ -870,6 +874,7 @@ section('Current speed = slowest member (RR pp.83-84)');
 
   // slowest-of-two: a heavy member + an unencumbered one → the party is bounded by the heavy one (12)
   const s = lineCampaign(10);
+  s.j.supplies = { rations:0, waterRations:0 };   // isolate the cargo weight (no seeded rations)
   s.c.characters[0].inventory = [{ name:'lead', encumbranceSt: 9 }];
   s.c.characters.push(ACKS.blankCharacter({ id:'chr-2', name:'Light' }));
   s.c.journeys[0].participantCharacterIds = ['chr-1','chr-2'];

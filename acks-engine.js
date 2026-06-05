@@ -880,6 +880,11 @@ function lazyDefaultV1ScopeReservations(campaign){
       if(typeof j.speedOverrideMilesPerDay === 'undefined') j.speedOverrideMilesPerDay = null;  // §26 GM speed override (null ⇒ pace governs)
       if(typeof j.strayHeading === 'undefined') j.strayHeading = null;                          // §27 getting-lost — stray hex face (null ⇒ not lost)
       if(typeof j.routeAnchorCoord === 'undefined') j.routeAnchorCoord = null;                  // §27 — coord anchor while straying off authored hexes
+      if(typeof j.forageWaterEnabled !== 'boolean') j.forageWaterEnabled = false;               // Provisioning — party water-forage tick
+      if(typeof j.shareRations !== 'boolean') j.shareRations = false;                           // Provisioning — share food + water tick
+      // Provisioning — seed an in-flight journey's abstract supplies into tight inventory on load
+      // (decision #1). Idempotent; only touches in-transit journeys carrying a non-zero legacy pool.
+      if(j.status === 'in-transit' && global.ACKS && global.ACKS.seedJourneyProvisions) global.ACKS.seedJourneyProvisions(campaign, j);
       // Travel pivot — a journey's name describes WHO travels, not the route. Re-derive an auto-route
       // name (contains ' → ') or an empty name from the party/character set; a GM-set name (no arrow)
       // is preserved. Only applies when a named traveller exists (else the route name is kept).

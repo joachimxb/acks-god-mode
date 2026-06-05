@@ -1623,6 +1623,257 @@ function rollEncounter(campaign, journey, opts){
   return { encounterRecord, notableEvent };
 }
 
+// ─── Phase 2.5 Provisioning (RR p.278 "Surviving the Wild") — per-member food/water ───────────────
+// V2/V3: the daily survival resolution. Replaces the old first-participant-only hunger/dehydration read.
+// Food is discrete ration items in a member's carry inventory and (when sharing) the party camp stash;
+// water is the metered waterDaysCarried counter on each member (+ the camp's barrels). The abstract
+// journey.supplies.{rations,waterRations} counters are SEEDED into tight inventory at launch/load
+// (seedJourneyProvisions) — decision #1 (real inventory, not an abstract counter).
+
+// "Hex contains fresh water" (§4.1 step 1): a river edge, a lake, a freshwater 'water' body, a
+// settlement (wells/markets — 🔧), or a neighbouring FRESH body. Bordering a SALT sea grants nothing.
+function _journeyBordersFreshWater(campaign, hex){
+  if(!campaign || !hex || !hex.coord || typeof _jACKS().hexAtCoord !== 'function') return false;
+  const A = _jACKS();
+  for(const d of HEX_EDGE_DELTAS){
+    const n = A.hexAtCoord(campaign, hex.coord.q + d[0], hex.coord.r + d[1]);
+    if(!n) continue;
+    if(n.hasLake === true) return true;
+    if(n.terrain === 'water' && n.freshWater === true) return true;
+  }
+  return false;
+}
+function hasFreshSource(campaign, hex){
+  if(!hex) return false;
+  if(Array.isArray(hex.riverSides) && hex.riverSides.length > 0) return true;
+  if(hex.hasLake === true) return true;
+  if(hex.terrain === 'water' && hex.freshWater === true) return true;
+  if(hex.settlement) return true;                                   // a settlement guarantees water (🔧)
+  if(_journeyBordersFreshWater(campaign, hex)) return true;
+  return false;
+}
+
+// Idempotent: convert a journey's legacy abstract supplies into tight inventory — ration days into a
+// camp ration line (or the first participant's pack when partyless) + waterRations spread across the
+// members' waterDaysCarried. Called from startJourney + migrateCampaign so every path lands tight.
+function seedJourneyProvisions(campaign, journey){
+  const A = _jACKS();
+  if(!campaign || !journey || journey._provisionsSeeded) return;
+  const sup = journey.supplies || {};
+  const rations = Number(sup.rations) || 0;
+  const water = Number(sup.waterRations) || 0;
+  const ids = (journey.participantCharacterIds || []).filter(Boolean);
+  if(rations > 0 && typeof A.makeRationLine === 'function'){
+    const line = A.makeRationLine({ rationType: 'iron', daysRemaining: rations });
+    const party = journey.partyId ? (campaign.parties || []).find(p => p && p.id === journey.partyId) : null;
+    const camp = (party && typeof A.ensurePartyCampStash === 'function') ? A.ensurePartyCampStash(campaign, party) : null;
+    if(camp){ camp.items = camp.items || []; camp.items.push(line); }
+    else { const c0 = (campaign.characters || []).find(c => c && c.id === ids[0]); if(c0){ c0.inventory = c0.inventory || []; c0.inventory.push(line); } }
+  }
+  if(water > 0 && ids.length){
+    const per = water / ids.length;
+    for(const id of ids){ const c = (campaign.characters || []).find(x => x && x.id === id); if(c) c.waterDaysCarried = (Number(c.waterDaysCarried) || 0) + per; }
+  }
+  journey.supplies = Object.assign({}, sup, { rations: 0, waterRations: 0 });
+  journey._provisionsSeeded = true;
+}
+
+// Drain up to nDays person-day rations from an inventory array's ration lines (peels daysRemaining,
+// keeps the line stone in sync, drops emptied lines). Mutates `inv`. Returns days actually drawn.
+function _drawRationDays(inv, nDays){
+  const A = _jACKS();
+  if(!Array.isArray(inv) || nDays <= 0) return 0;
+  let need = nDays, drawn = 0;
+  for(const it of inv){
+    if(need <= 0) break;
+    if(!A.isRationLine(it)) continue;
+    const have = Math.max(0, Number(it.daysRemaining) || 0);
+    if(have <= 0) continue;
+    const take = Math.min(have, need);
+    it.daysRemaining = have - take;
+    it.stone = it.daysRemaining * (A.RATION_FOOD_ST_PER_DAY || 1 / 6);
+    need -= take; drawn += take;
+  }
+  for(let i = inv.length - 1; i >= 0; i--){ const it = inv[i]; if(A.isRationLine(it) && (Number(it.daysRemaining) || 0) <= 0) inv.splice(i, 1); }
+  return drawn;
+}
+
+// The per-member daily survival resolution (§4.1 water, §4.2 food, §6 sharing). PURE — reads campaign
+// state, simulates on clones, returns the post-state absolutes commit replays. Food/water sources, the
+// forage-water throw, the share-rations pooling (camp-first, leader-priority), and the §1.2/§1.3
+// deficit ladders + CON loss all live here. The day-tick splices this in; commit applies it.
+function journeyDaySurvival(campaign, journey, hex, opts){
+  const A = _jACKS();
+  opts = opts || {};
+  const rng = opts.rng || Math.random;
+  const FOOD_ST = A.RATION_FOOD_ST_PER_DAY || 1 / 6;
+  const out = { ignored: false, waterSourced: false, waterForage: null, members: {}, inventoryUpdates: {}, campItems: null, campWater: null, notableEvents: [], anyHungry: false, anyThirsty: false, anyCritical: false };
+  if(A.isHouseRuleEnabled(campaign, 'ignore-rations')){ out.ignored = true; return out; }
+
+  const ids = (journey.participantCharacterIds || []).filter(Boolean);
+  const members = ids.map(id => (campaign.characters || []).find(c => c && c.id === id)).filter(Boolean);
+  if(!members.length) return out;
+
+  const share = !!journey.shareRations;
+  const party = journey.partyId ? (campaign.parties || []).find(p => p && p.id === journey.partyId) : null;
+  const camp = (party && typeof A.partyCampStash === 'function') ? A.partyCampStash(campaign, party.id) : null;
+  // Leader-first ordering (decision #8, 🔧): the party leader, then the others in a stable order.
+  const leaderId = party ? (party.leaderCharacterId || (Array.isArray(party.memberCharacterIds) && party.memberCharacterIds[0]) || null) : null;
+  const order = members.slice().sort((a, b) => (a.id === leaderId ? -1 : b.id === leaderId ? 1 : 0));
+
+  // working clones (tick is pure) — full inventories so non-ration items survive the record.
+  const M = {};
+  for(const c of members){
+    M[c.id] = {
+      id: c.id,
+      inv: JSON.parse(JSON.stringify(c.inventory || [])),
+      water: Number(c.waterDaysCarried) || 0,
+      waterCap: (typeof A.waterCapacityDays === 'function') ? A.waterCapacityDays(c) : 0,
+      foodDeficitDays: (typeof c.foodDeficitDays === 'number') ? c.foodDeficitDays : (Number(c.hungerDays) || 0),
+      waterDeficitDays: (typeof c.waterDeficitDays === 'number') ? c.waterDeficitDays : (Number(c.dehydrationDays) || 0),
+      conLossHunger: Number(c.conLossHunger) || 0,
+      conLossThirst: Number(c.conLossThirst) || 0,
+      conBase: (c.abilities && Number(c.abilities.CON)) || 0,
+      fedFood: false, fedWater: false
+    };
+  }
+  const campItems = camp ? JSON.parse(JSON.stringify(camp.items || [])) : null;
+  let campWater = camp ? (Number(camp.waterDaysCarried) || 0) : 0;
+  let campWaterTouched = false, campItemsTouched = false;
+  // Legacy abstract party stores (journey.supplies) as a SHARED fallback pool, drawn after personal +
+  // (when sharing) camp. seedJourneyProvisions zeroes these at launch/load (decision #1 — real
+  // inventory), so a provisioned journey is fully tight (pool 0); an unseeded/legacy one draws here and
+  // behaves exactly as before. Recorded post-draw as newRations / newWaterRations.
+  let poolRations = (journey.supplies && Number(journey.supplies.rations)) || 0;
+  let poolWater = (journey.supplies && Number(journey.supplies.waterRations)) || 0;
+  const hasOwnRation = inv => (inv || []).some(x => A.isRationLine(x) && (Number(x.daysRemaining) || 0) >= 1);
+
+  // ── §4.1 WATER — free source → forage → drink (own → shared camp/others → shared pool), leader-first ──
+  if(hasFreshSource(campaign, hex)){
+    out.waterSourced = true;
+    for(const c of members){ const m = M[c.id]; m.water = m.waterCap; m.fedWater = true; }   // free top-up to capacity
+  } else {
+    let foraged = false;
+    if(journey.forageWaterEnabled){
+      // one party Foraging throw (14+, 18+ barrens/desert; +4 if any member has Survival proficiency)
+      const dry = (hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
+      const target = dry ? 18 : 14;
+      const hasSurvival = members.some(c => (c.proficiencies || []).some(p => /survival/i.test(typeof p === 'string' ? p : (p && p.name) || '')));
+      const bonus = hasSurvival ? 4 : 0;
+      const rolled = 1 + Math.floor(rng() * 20);
+      const success = (rolled + bonus) >= target;
+      out.waterForage = { attempted: true, success, rolled, bonus, target, foragers: members.length };
+      if(success){
+        foraged = true;
+        const credit = 3; // 3 days/forager, capped at each forager's container capacity (decision #9 — surplus lost)
+        for(const c of members){ const m = M[c.id]; m.water = Math.min(m.waterCap || 0, Math.max(m.water, credit)); m.fedWater = true; }
+      }
+    }
+    if(!foraged){
+      for(const c of order){
+        const m = M[c.id];
+        if(m.water >= 1){ m.water -= 1; m.fedWater = true; continue; }                         // own reserve
+        if(share && campWater >= 1){ campWater -= 1; campWaterTouched = true; m.fedWater = true; continue; }  // camp barrels
+        if(share){ const d = order.find(o => M[o.id].water >= 1); if(d){ M[d.id].water -= 1; m.fedWater = true; continue; } }  // a comrade's reserve
+        if(poolWater >= 1){ poolWater -= 1; m.fedWater = true; continue; }                      // legacy party stores
+      }
+    }
+  }
+
+  // ── §4.2 FOOD — own rations → (shared) camp → (shared) a comrade's → shared pool, leader-first ──
+  for(const c of order){
+    const m = M[c.id];
+    if(_drawRationDays(m.inv, 1) > 0){ m.fedFood = true; continue; }                            // own pack
+    if(share && campItems && _drawRationDays(campItems, 1) > 0){ campItemsTouched = true; m.fedFood = true; continue; }  // camp stash
+    if(share){ const d = order.find(o => hasOwnRation(M[o.id].inv)); if(d && _drawRationDays(M[d.id].inv, 1) > 0){ m.fedFood = true; continue; } }  // a comrade's pack
+    if(poolRations >= 1){ poolRations -= 1; m.fedFood = true; continue; }                       // legacy party stores
+  }
+  out.newRations = poolRations; out.newWaterRations = poolWater;
+
+  // ── §1.2 / §1.3 ladders + CON loss (consecutive-deficit-day model — §12 simplification) ──
+  for(const c of members){
+    const m = M[c.id];
+    let conLostHunger = 0, conLostThirst = 0;
+    if(m.fedFood){
+      m.foodDeficitDays = 0;
+      if(m.conLossHunger > 0){ m.conLossHunger -= 1; conLostHunger = -1; }   // recover 1/day on a full ration
+    } else {
+      m.foodDeficitDays += 1;
+      if(m.foodDeficitDays >= 7){ m.conLossHunger += 1; conLostHunger = 1; } // Starving: lose 1 CON/day
+    }
+    if(m.fedWater){
+      m.waterDeficitDays = 0;
+      if(m.conLossThirst > 0){ const rec = Math.min(3, m.conLossThirst); m.conLossThirst -= rec; conLostThirst = -rec; } // recover 3/day
+    } else {
+      m.waterDeficitDays += 1;
+      const loss = 1 + Math.floor(rng() * 6); m.conLossThirst += loss; conLostThirst = loss;   // Dehydrated: 1d6 CON/day
+    }
+    const hungry = m.foodDeficitDays >= 1, underfed = m.foodDeficitDays >= 2, starving = m.foodDeficitDays >= 7;
+    const dehydrated = m.waterDeficitDays >= 1;
+    const effCon = m.conBase - m.conLossHunger - m.conLossThirst;
+    const critical = m.conBase > 0 && effCon <= 0;
+    if(hungry) out.anyHungry = true;
+    if(dehydrated) out.anyThirsty = true;
+    if(critical) out.anyCritical = true;
+    out.members[c.id] = {
+      fedFood: m.fedFood, fedWater: m.fedWater,
+      waterDaysCarried: m.water,
+      foodDeficitDays: m.foodDeficitDays, waterDeficitDays: m.waterDeficitDays,
+      underfed, starving, dehydrated, hungry,
+      conLossHunger: m.conLossHunger, conLossThirst: m.conLossThirst,
+      conLostHunger, conLostThirst, effectiveCon: effCon, critical
+    };
+  }
+  // record a member's new inventory only when its ration lines actually changed (others stay untouched)
+  for(const c of members){ if(_invRationsDiffer(c.inventory, M[c.id].inv)) out.inventoryUpdates[c.id] = M[c.id].inv; }
+  if(campItemsTouched) out.campItems = campItems;
+  if(campWaterTouched) out.campWater = campWater;
+
+  // ── transient notable signals (folded into the umbrella event; drive the pause check + day digest) ──
+  const nm = (journey.name || 'Journey');
+  if(out.anyHungry) out.notableEvents.push({ kind:'journey-day-tick', type:'hunger', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': a traveller is going hungry (no food)', payload:{ journeyId: journey.id } });
+  if(out.anyThirsty) out.notableEvents.push({ kind:'journey-day-tick', type:'dehydration', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': a traveller is dehydrated (no water)', payload:{ journeyId: journey.id } });
+  if(out.anyCritical) out.notableEvents.push({ kind:'journey-day-tick', type:'survival-critical', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': a traveller is at death’s door (CON 0) — GM, resolve', payload:{ journeyId: journey.id } });
+  // legacy party stores running low (only when nobody's actually going hungry yet)
+  const lowAt = members.length * (A.JOURNEY_SUPPLY_LOW_DAYS || 3);
+  if(!out.anyHungry && out.newRations > 0 && out.newRations < lowAt) out.notableEvents.push({ kind:'journey-day-tick', type:'supplies-low', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': party stores low (' + out.newRations + ' rations left)', payload:{ journeyId: journey.id } });
+  return out;
+}
+// True when two inventories' ration lines differ (count or remaining days) — so commit only rewrites
+// a member's inventory when its food actually changed.
+function _invRationsDiffer(a, b){
+  const A = _jACKS();
+  const ra = (a || []).filter(x => A.isRationLine(x)).map(x => (x.catalogId || x.name) + ':' + (Number(x.daysRemaining) || 0)).join('|');
+  const rb = (b || []).filter(x => A.isRationLine(x)).map(x => (x.catalogId || x.name) + ':' + (Number(x.daysRemaining) || 0)).join('|');
+  return ra !== rb;
+}
+// Apply the recorded survival absolutes to the campaign (called by commitJourneyRecord). Sets each
+// member's water + deficit counters + condition flags + CON loss, rewrites changed inventories, and
+// updates the camp stash's rations/water. Mirrors the legacy hungerDays/dehydrationDays for back-compat.
+function applyJourneyDaySurvival(campaign, journey, survival){
+  if(!campaign || !survival || survival.ignored || !survival.members) return;
+  for(const id of Object.keys(survival.members)){
+    const c = (campaign.characters || []).find(x => x && x.id === id);
+    if(!c) continue;
+    const m = survival.members[id];
+    c.waterDaysCarried = m.waterDaysCarried;
+    c.foodDeficitDays = m.foodDeficitDays;
+    c.waterDeficitDays = m.waterDeficitDays;
+    c.underfed = m.underfed; c.starving = m.starving; c.dehydrated = m.dehydrated;
+    c.conLossHunger = m.conLossHunger; c.conLossThirst = m.conLossThirst;
+    c.hungerDays = m.foodDeficitDays; c.dehydrationDays = m.waterDeficitDays;   // legacy mirror
+    if(survival.inventoryUpdates && survival.inventoryUpdates[id]) c.inventory = survival.inventoryUpdates[id];
+  }
+  if(survival.campItems != null || survival.campWater != null){
+    const party = journey.partyId ? (campaign.parties || []).find(p => p && p.id === journey.partyId) : null;
+    const camp = (party && global.ACKS && global.ACKS.partyCampStash) ? global.ACKS.partyCampStash(campaign, party.id) : null;
+    if(camp){
+      if(survival.campItems != null) camp.items = survival.campItems;
+      if(survival.campWater != null) camp.waterDaysCarried = survival.campWater;
+    }
+  }
+}
+
 // §5.1 — resolve ONE day for ONE in-transit journey. PURE: returns the pending record
 // (carrying the §4.2 Day record + the post-state absolutes commit replays) plus any
 // notable events + encounters. Does not mutate the campaign.
@@ -1863,23 +2114,24 @@ function tickJourneyDay(campaign, journey, ctx){
   // A LOST party can never "arrive" — it's moving the wrong way (and the re-anchor below nets covered to 0).
   const willArrive = !isLost && ((dist.total > 0) ? (newCovered >= dist.total) : true); // 0-distance arrives at once
 
-  // ── survival (§8): RAW default; ignore-rations opts out ──
-  const ignoreRations = A.isHouseRuleEnabled(campaign, 'ignore-rations');
-  let rationsConsumed = 0, waterConsumed = 0;
-  if(!ignoreRations){
-    rationsConsumed = Math.min(rations, participants);
-    waterConsumed = Math.min(waterRations, participants);
-    rations = Math.max(0, rations - participants);
-    waterRations = Math.max(0, waterRations - participants);
-    const hungry = rationsConsumed < participants;
-    const thirsty = waterConsumed < participants;
-    hungerDays = hungry ? (hungerDays + 1) : 0;
-    dehydrationDays = thirsty ? (dehydrationDays + 1) : 0;
-    if(hungry) notableEvents.push({ kind: 'journey-day-tick', type: 'hunger', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': out of food — party hungry (day ' + hungerDays + ')', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
-    if(thirsty) notableEvents.push({ kind: 'journey-day-tick', type: 'dehydration', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': out of water — party dehydrated (day ' + dehydrationDays + ')', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
-    const lowAt = participants * A.JOURNEY_SUPPLY_LOW_DAYS;
-    if(!hungry && rations > 0 && rations < lowAt) notableEvents.push({ kind: 'journey-day-tick', type: 'supplies-low', pauseTrigger: 'supplies-low', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': supplies low (' + rations + ' rations left)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+  // ── survival (§4 / RR p.278): PER-MEMBER food + water (Provisioning V2/V3). The abstract supplies
+  // counters were seeded into tight inventory at launch (seedJourneyProvisions); journeyDaySurvival
+  // draws food from ration items + water from waterDaysCarried / sources / forage, applies the §1.2/§1.3
+  // deficit ladders + CON loss per traveller, and folds its signals into the umbrella event below.
+  // ignore-rations opts out. The result's per-member absolutes ride on the record (commit replays them
+  // via applyJourneyDaySurvival). hungerDays/dehydrationDays/rationsConsumed are kept as first-member
+  // mirrors for the day-record display + back-compat. ──
+  const survival = journeyDaySurvival(campaign, journey, curHex, { rng });
+  if(!survival.ignored){
+    survival.notableEvents.forEach(e => notableEvents.push(e));
+    rations = (typeof survival.newRations === 'number') ? survival.newRations : rations;
+    waterRations = (typeof survival.newWaterRations === 'number') ? survival.newWaterRations : waterRations;
+    const _firstSurv = survival.members && survival.members[(journey.participantCharacterIds || [])[0]];
+    if(_firstSurv){ hungerDays = _firstSurv.foodDeficitDays; dehydrationDays = _firstSurv.waterDeficitDays; }
   }
+  const _survMembers = survival.members ? Object.keys(survival.members).map(k => survival.members[k]) : [];
+  const rationsConsumed = _survMembers.filter(m => m.fedFood).length;
+  const waterConsumed = _survMembers.filter(m => m.fedWater).length;
 
   // ── fatigue accrual / reset (RR p.279 "Rest and Recuperation") ──
   let fatigueAccumulated = 0;
@@ -2027,6 +2279,7 @@ function tickJourneyDay(campaign, journey, ctx){
     newDayIndex, newFatigueDays: fatigueDays, newIsLost: isLost,
     newRations: rations, newWaterRations: waterRations,
     newHungerDays: hungerDays, newDehydrationDays: dehydrationDays,
+    survival: survival.ignored ? null : survival,   // Provisioning V2/V3 — per-member absolutes (commit replays via applyJourneyDaySurvival)
     newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null,
     // §27 getting-lost post-state (commitJourneyRecord applies these; reroll-revert restores the pre-state)
     newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored
@@ -2079,6 +2332,29 @@ function commitJourneyRecord(campaign, record){
     routeAnchorCoord: j.routeAnchorCoord || null,
     routeAnchorHexId: j.routeAnchorHexId || null
   };
+  // Provisioning V2/V3 — per-member survival pre-snapshot (water/food/conditions/CON + inventory +
+  // camp), captured pre-apply so a reroll can revert every traveller and the camp, not just the first.
+  {
+    const _sids = j.participantCharacterIds || [];
+    const _pre = {};
+    for(const c of (campaign.characters || [])){
+      if(!c || _sids.indexOf(c.id) < 0) continue;
+      _pre[c.id] = {
+        waterDaysCarried: Number(c.waterDaysCarried) || 0,
+        foodDeficitDays: Number(c.foodDeficitDays) || 0, waterDeficitDays: Number(c.waterDeficitDays) || 0,
+        underfed: !!c.underfed, starving: !!c.starving, dehydrated: !!c.dehydrated,
+        conLossHunger: Number(c.conLossHunger) || 0, conLossThirst: Number(c.conLossThirst) || 0,
+        hungerDays: Number(c.hungerDays) || 0, dehydrationDays: Number(c.dehydrationDays) || 0,
+        inventory: JSON.parse(JSON.stringify(c.inventory || []))
+      };
+    }
+    let _camp = null;
+    if(j.partyId && global.ACKS && global.ACKS.partyCampStash){
+      const _cp = global.ACKS.partyCampStash(campaign, j.partyId);
+      if(_cp) _camp = { items: JSON.parse(JSON.stringify(_cp.items || [])), waterDaysCarried: Number(_cp.waterDaysCarried) || 0 };
+    }
+    dr._preDay.survival = { members: _pre, camp: _camp };
+  }
   // World-date stamp: which world day this leg happened on, so the GM can reroll the LATEST
   // day only while the clock still stands on it (Journeys J2 feedback — once +1 day / Advance
   // month moves the world past, the leg is history and locks). The day-tick tags the record
@@ -2107,13 +2383,15 @@ function commitJourneyRecord(campaign, record){
   if('newRouteAnchorHexId' in record) j.routeAnchorHexId = record.newRouteAnchorHexId || null;
   if(record.reanchored){ try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ } }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: record.newDayIndex, type: (record.newStatus === 'arrived' ? 'arrived' : 'day-tick'), narrative: record.label || ('day ' + record.newDayIndex) });
-  // mirror survival state onto participants (persists across journeys — §10.4)
+  // Provisioning V2/V3 — apply the per-member survival absolutes (water/food/conditions/CON loss +
+  // changed inventories + camp), replacing the old uniform first-member mirror. Sets hungerDays/
+  // dehydrationDays per traveller as a back-compat alias. No-op on a journey with ignore-rations.
+  applyJourneyDaySurvival(campaign, j, record.survival);
+  // mirror fatigue + advance positions (survival persists across journeys — §10.4)
   const ids = j.participantCharacterIds || [];
   for(const c of (campaign.characters || [])){
     if(!c || ids.indexOf(c.id) < 0) continue;
     c.personalFatigue = record.newFatigueDays;
-    c.hungerDays = record.newHungerDays;
-    c.dehydrationDays = record.newDehydrationDays;
     // Place each traveller at the journey's current hex EVERY day, not just on arrival — the party
     // physically moves along the route. newCurrentHexId advances only to AUTHORED hexes (it holds at
     // the last authored hex across unauthored stretches, since a character can only be located at a
@@ -2194,14 +2472,31 @@ function rerollJourneyDay(campaign, journey){
   if('routeAnchorHexId' in pre) j.routeAnchorHexId = pre.routeAnchorHexId || null;
   try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
   const ids = j.participantCharacterIds || [];
+  const _preMembers = pre.survival && pre.survival.members;
   for(const c of (campaign.characters || [])){
     if(c && ids.indexOf(c.id) >= 0){
-      c.hungerDays = pre.hungerDays || 0;
-      c.dehydrationDays = pre.dehydrationDays || 0;
+      // Provisioning V2/V3 — restore the full per-member survival snapshot (water/food/conditions/CON +
+      // inventory); old records (no .survival) fall back to the legacy first-member hunger/dehydration.
+      const ps = _preMembers && _preMembers[c.id];
+      if(ps){
+        c.waterDaysCarried = ps.waterDaysCarried; c.foodDeficitDays = ps.foodDeficitDays; c.waterDeficitDays = ps.waterDeficitDays;
+        c.underfed = ps.underfed; c.starving = ps.starving; c.dehydrated = ps.dehydrated;
+        c.conLossHunger = ps.conLossHunger; c.conLossThirst = ps.conLossThirst;
+        c.hungerDays = ps.hungerDays; c.dehydrationDays = ps.dehydrationDays;
+        if(Array.isArray(ps.inventory)) c.inventory = JSON.parse(JSON.stringify(ps.inventory));
+      } else {
+        c.hungerDays = pre.hungerDays || 0;
+        c.dehydrationDays = pre.dehydrationDays || 0;
+      }
       c.personalFatigue = pre.fatigueDays || 0;
       c.currentJourneyId = j.id; // re-link (a revert may have un-done an arrival)
       c.currentHexId = pre.currentHexId; // revert the day's per-day placement (and any arrival move-to-destination)
     }
+  }
+  // revert the camp stash to its pre-day food/water too
+  if(pre.survival && pre.survival.camp && j.partyId && typeof A.partyCampStash === 'function'){
+    const cp = A.partyCampStash(campaign, j.partyId);
+    if(cp){ cp.items = JSON.parse(JSON.stringify(pre.survival.camp.items || [])); cp.waterDaysCarried = pre.survival.camp.waterDaysCarried || 0; }
   }
   // revert the party to its pre-day hex too (commitJourneyRecord now moves it every day); an arrival
   // reroll additionally re-links the activeJourneyId it had cleared.
@@ -2265,6 +2560,9 @@ function startJourney(campaign, journey){
     const pt = (campaign.parties || []).find(p => p && p.id === j.partyId);
     if(pt) pt.activeJourneyId = j.id;
   }
+  // Phase 2.5 Provisioning — convert the wizard's abstract rations/water into tight inventory now
+  // (decision #1): camp ration items + per-member waterDaysCarried. Idempotent.
+  seedJourneyProvisions(campaign, j);
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, type: 'started', narrative: 'Journey began' + (j.destinationHexId ? (' toward ' + j.destinationHexId) : '') + '.' });
   try {
     campaign.eventLog = campaign.eventLog || [];
@@ -2833,6 +3131,8 @@ Object.assign(ACKS, {
   tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName, journeyBaseSpeedMilesPerDay,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
+  // Phase 2.5 Provisioning (RR p.278) — per-member food/water resolution (V2/V3).
+  hasFreshSource, seedJourneyProvisions, journeyDaySurvival, applyJourneyDaySurvival,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
