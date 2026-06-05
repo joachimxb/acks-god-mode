@@ -218,6 +218,35 @@ ign.c.houseRules = { 'ignore-rations': { enabled: true } };
 const sIgn = ACKS.journeyDaySurvival(ign.c, ign.j, ign.hex, { rng: () => 0 });
 ok('ignore-rations → resolution is a no-op', sIgn.ignored === true && Object.keys(sIgn.members).length === 0);
 
+section('Day-log forage roll + the forage reroll');
+(function () {
+  const c = ACKS.blankCampaign({ name: 'forage' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 };
+  c.hexes = [ACKS.blankHex({ id: 'f0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'f9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'fc', name: 'Forager', inventory: [{ catalogId: 'waterskin' }] })];
+  const j = ACKS.blankJourney({ id: 'fj', participantCharacterIds: ['fc'], startHexId: 'f0', destinationHexId: 'f9', forageWaterEnabled: true, supplies: { rations: 0, waterRations: 0 } });
+  c.journeys = [j]; c.houseRules = {};
+  ACKS.startJourney(c, j);
+  ACKS.commitJourneyRecord(c, ACKS.proposeJourneyDay(c, { dayInMonth: 2, rng: () => 0.99 }).pendingRecords[0]);
+  const day = j.days[j.days.length - 1];
+  ok('the committed day records the water-forage throw', !!(day.waterForage && day.waterForage.attempted === true));
+  ok('a sourceless grassland day → a 14+ forage throw', day.waterForage.target === 14);
+  const wf = ACKS.rerollJourneyForage(c, j);
+  ok('rerollJourneyForage returns a fresh forage record', !!(wf && typeof wf.rolled === 'number' && wf.rolled >= 1 && wf.rolled <= 20 && wf.attempted === true));
+  ok('the reroll updates the day record in place', j.days[j.days.length - 1].waterForage === wf);
+  // a water-source day records NO forage → the reroll is unavailable
+  const c2 = ACKS.blankCampaign({ name: 'nf' });
+  c2.currentTurn = 1; c2.currentDayInMonth = 1; c2.calendar = { year: 1, month: 1, day: 1 };
+  c2.hexes = [ACKS.blankHex({ id: 'r0', coord: { q: 0, r: 0 }, terrain: 'grassland', hasLake: true }), ACKS.blankHex({ id: 'r9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c2.characters = [ACKS.blankCharacter({ id: 'rc', inventory: [{ catalogId: 'waterskin' }] })];
+  const j2 = ACKS.blankJourney({ id: 'rj', participantCharacterIds: ['rc'], startHexId: 'r0', destinationHexId: 'r9', forageWaterEnabled: true, supplies: { rations: 0, waterRations: 0 } });
+  c2.journeys = [j2]; c2.houseRules = {};
+  ACKS.startJourney(c2, j2);
+  ACKS.commitJourneyRecord(c2, ACKS.proposeJourneyDay(c2, { dayInMonth: 2, rng: () => 0.99 }).pendingRecords[0]);
+  ok('a fresh-source day (lake hex) records no forage throw', !j2.days[j2.days.length - 1].waterForage);
+  ok('rerollJourneyForage is null when no forage happened', ACKS.rerollJourneyForage(c2, j2) === null);
+})();
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — provisioning.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }

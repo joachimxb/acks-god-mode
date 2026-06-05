@@ -4086,11 +4086,18 @@ document.addEventListener('alpine:init', () => {
           </div>
           <!-- §8 party day-tick toggles: forage for water (greyed when the hex auto-supplies), share rations -->
           <div class="flex flex-wrap gap-4 mt-2 pt-2 border-t border-dashed border-ink/30" x-show="journeyDetail().status==='in-transit'">
-            <label class="flex items-center gap-1.5 text-xs" :class="journeyHexSourcesWater(journeyDetail()) ? 'opacity-40' : 'cursor-pointer'"
-                   :title="journeyHexSourcesWater(journeyDetail()) ? 'This hex has a river / lake / settlement — water is free here' : 'On a no-source day the party makes one Foraging throw for water (each forager spends an ancillary slot)'">
-              <input type="checkbox" :disabled="journeyHexSourcesWater(journeyDetail())" :checked="!!journeyDetail().forageWaterEnabled" @change="toggleJourneyForageWater(journeyDetail())">
-              🥤 Forage for water
-            </label>
+            <!-- Water status: when the current hex auto-supplies water, an indicator REPLACES the forage
+                 tick; when it doesn't, the "no water here" text is followed by the forage tick box. -->
+            <template x-if="journeyHexSourcesWater(journeyDetail())">
+              <span class="flex items-center gap-1.5 text-xs text-sky-700" title="This hex has a river / lake / settlement — water is free here, no foraging needed">💧 Water available at this hex</span>
+            </template>
+            <template x-if="!journeyHexSourcesWater(journeyDetail())">
+              <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="No water source at this hex — tick to make one Foraging throw for water on a no-source day (each forager spends an ancillary slot)">
+                <span>🚱 No water here —</span>
+                <input type="checkbox" :checked="!!journeyDetail().forageWaterEnabled" @change="toggleJourneyForageWater(journeyDetail())">
+                <span>🥤 forage for water</span>
+              </label>
+            </template>
             <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Pool food + water — everyone eats from the party camp first, then their own shares; on a shortfall the leader is fed first">
               <input type="checkbox" :checked="!!journeyDetail().shareRations" @change="toggleJourneyShareRations(journeyDetail())">
               🤝 Share rations
@@ -4182,9 +4189,12 @@ document.addEventListener('alpine:init', () => {
                 <span class="capitalize" x-text="d.pace"></span>
                 <span x-show="d.speedOverrideMilesPerDay > 0" class="text-amber-800 font-mono" x-text="'⚡' + d.speedOverrideMilesPerDay + ' mi/day'" title="GM speed override was in effect this day"></span>
                 <span x-show="d.navigationThrow" class="font-mono" :class="journeyNavOk(d.navigationThrow) ? 'text-green-800' : 'text-red-700'" x-text="journeyNavDetail(d.navigationThrow)"></span>
+                <!-- Provisioning — the day's water-Foraging throw (with modifiers), and its OWN reroll (latest day). -->
+                <span x-show="d.waterForage" class="font-mono" :class="(d.waterForage && d.waterForage.success) ? 'text-sky-800' : 'text-orange-700'" x-text="journeyForageDetail(d.waterForage)"></span>
+                <button x-show="d.waterForage && di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollForage(journeyDetail())" class="text-xs px-1.5 border border-sky-700 text-sky-800 rounded hover:bg-sky-50" title="Re-roll JUST this day's water-foraging throw (GM) — leaves the day's movement + navigation as they are">🎲 reroll forage</button>
                 <template x-for="(ne,nei) in (d.notableEvents||[])" :key="'dle-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
-                <!-- GM reroll — only the latest day (downstream days depend on it). -->
-                <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's resolution (GM)">🎲 reroll</button>
+                <!-- GM reroll — the whole day's resolution; only the latest day (downstream days depend on it). -->
+                <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollDay(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this day's whole resolution (GM)">🎲 reroll day</button>
                 <!-- §24 — the hexes entered this day; the latest day's last hex is the party's current position. -->
                 <div x-show="journeyDayPath(journeyDetail(),d,di).length" class="w-full pl-3 text-[11px] opacity-80">
                   <span class="opacity-50">via </span>
@@ -9903,6 +9913,22 @@ return {
     if(!rec){ this.showToast('Reroll unavailable for this day (it was ticked before this update).', 4000); return; }
     this.markDirty(); this.schedulePersist();
     this.showToast('Day ' + (rec.newDayIndex||'') + ' rerolled.');
+  },
+  // Provisioning — render a day's water-Foraging throw (die + modifiers + target + outcome), like the nav line.
+  journeyForageDetail(wf){
+    if(!wf || !wf.attempted) return '';
+    const parts = ['🥤 forage 🎲 ' + wf.rolled];
+    if(wf.bonus) parts.push('+' + wf.bonus + ' (Survival)');
+    const total = wf.rolled + (wf.bonus || 0);
+    return parts.join(' ') + (wf.bonus ? (' = ' + total) : '') + ' vs ' + wf.target + '+ → ' + (wf.success ? 'water found ✓' : 'no water ✗');
+  },
+  // GM reroll of JUST the latest day's water-foraging throw (leaves movement + navigation untouched).
+  journeyRerollForage(j){
+    if(!j) return;
+    const wf = this._journeyWithDomains(() => window.ACKS.rerollJourneyForage(this.currentCampaign, j));
+    if(!wf){ this.showToast('Forage reroll unavailable for this day.', 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Water-foraging rerolled: ' + (wf.success ? 'water found' : 'no water') + ' (🎲 ' + wf.rolled + (wf.bonus ? ('+' + wf.bonus) : '') + ' vs ' + wf.target + '+).');
   },
   // Attach this.domains so the engine's resolveHexAnywhere sees per-domain hexes (the UI
   // keeps domains in this.domains; currentCampaign.domains stays empty) — same dance as
