@@ -247,6 +247,40 @@ section('Day-log forage roll + the forage reroll');
   ok('rerollJourneyForage is null when no forage happened', ACKS.rerollJourneyForage(c2, j2) === null);
 })();
 
+section('Day-log rows — nav reroll holds provisioning + notable type routing');
+(function () {
+  const c = ACKS.blankCampaign({ name: 'navreroll' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 };
+  c.hexes = [ACKS.blankHex({ id: 'n0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'n9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'nc', name: 'Walker', inventory: [{ catalogId: 'waterskin' }], waterDaysCarried: 0 })];
+  const j = ACKS.blankJourney({ id: 'nj', participantCharacterIds: ['nc'], startHexId: 'n0', destinationHexId: 'n9', forageWaterEnabled: true, supplies: { rations: 0, waterRations: 0 } });
+  c.journeys = [j]; c.houseRules = {};
+  ACKS.startJourney(c, j);
+  // rng 0 → forage d20 = 1 fails → no water → dehydrated; a sourceless off-road day also makes a nav throw.
+  ACKS.commitJourneyRecord(c, ACKS.proposeJourneyDay(c, { dayInMonth: 2, rng: () => 0 }).pendingRecords[0]);
+  const day0 = j.days[j.days.length - 1];
+  ok('committed day records a FAILED forage (dehydration scenario)', !!(day0.waterForage && day0.waterForage.success === false));
+  ok('day notables carry a type (for row routing)', (day0.notableEvents || []).some(ne => !!ne.type));
+  ok('a dehydration notable is present + typed', (day0.notableEvents || []).some(ne => ne.type === 'dehydration'));
+  // capture the held provisioning outcome
+  const heldForage = JSON.stringify(day0.waterForage);
+  const ch = c.characters[0];
+  const heldSurv = JSON.stringify({ d: ch.dehydrated, wd: ch.waterDeficitDays, ct: ch.conLossThirst, wc: ch.waterDaysCarried });
+  const beforeIdx = day0.dayIndex;
+  const rec = ACKS.rerollJourneyNav(c, j);
+  ok('rerollJourneyNav returns the re-rolled record', !!(rec && rec.newDayIndex === beforeIdx));
+  const day1 = j.days[j.days.length - 1];
+  ok('nav reroll HOLDS the forage throw (byte-equal)', JSON.stringify(day1.waterForage) === heldForage);
+  ok('nav reroll HOLDS the member survival (dehydration + CON + water)', JSON.stringify({ d: ch.dehydrated, wd: ch.waterDeficitDays, ct: ch.conLossThirst, wc: ch.waterDaysCarried }) === heldSurv);
+  ok('the held dehydration notable still rides the new day', (day1.notableEvents || []).some(ne => ne.type === 'dehydration'));
+  ok('nav reroll does not stamp a phantom survival field on the day', !('survival' in day1));
+  // gate: a journey with no committed day cannot nav-reroll
+  const cE = ACKS.blankCampaign({ name: 'empty' });
+  const jE = ACKS.blankJourney({ id: 'je', participantCharacterIds: [], startHexId: 'x', destinationHexId: 'y' });
+  cE.journeys = [jE];
+  ok('rerollJourneyNav null when there is no committed day', ACKS.rerollJourneyNav(cE, jE) === null);
+})();
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — provisioning.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }

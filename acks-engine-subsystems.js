@@ -2121,7 +2121,12 @@ function tickJourneyDay(campaign, journey, ctx){
   // ignore-rations opts out. The result's per-member absolutes ride on the record (commit replays them
   // via applyJourneyDaySurvival). hungerDays/dehydrationDays/rationsConsumed are kept as first-member
   // mirrors for the day-record display + back-compat. ──
-  const survival = journeyDaySurvival(campaign, journey, curHex, { rng });
+  // skipSurvival (rerollJourneyNav): re-roll navigation / movement only and leave provisioning entirely
+  // untouched — reuses the proven ignore-rations "ignored" shape, so the record carries no survival and
+  // no forage throw, and rerollJourneyNav restores the held water/food outcome afterward.
+  const survival = (ctx && ctx.skipSurvival)
+    ? { ignored: true, members: {}, notableEvents: [], waterForage: null }
+    : journeyDaySurvival(campaign, journey, curHex, { rng });
   if(!survival.ignored){
     survival.notableEvents.forEach(e => notableEvents.push(e));
     rations = (typeof survival.newRations === 'number') ? survival.newRations : rations;
@@ -2210,7 +2215,7 @@ function tickJourneyDay(campaign, journey, ctx){
     waterForage: (survival && survival.waterForage) || null, // Provisioning — the day's water-Foraging throw (null = none attempted), for the day log + its reroll
     fatigueAccumulated,
     encounters: encounters.map(e => ({ kind: e.triggeredBy || 'wandering-roll', encounterId: e.id })),
-    notableEvents: notableEvents.map(n => ({ kind: n.kind, text: n.label })),
+    notableEvents: notableEvents.map(n => ({ kind: n.kind, type: n.type || null, text: n.label })),  // type routes each to the nav vs forage row in the day log
     status: 'pending'
   };
 
@@ -2440,7 +2445,7 @@ function journeyLastDayRerollable(campaign, journey){
 // randomness, re-commit, and re-emit the new day's notable events. Only the latest day is
 // rerollable (downstream days depend on it) and only while the world clock still stands on it
 // (journeyLastDayRerollable). Returns the new record, or null if not possible.
-function rerollJourneyDay(campaign, journey){
+function rerollJourneyDay(campaign, journey, ctx){
   const A = _jACKS();
   const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
   if(!journeyLastDayRerollable(campaign, j)) return null; // no snapshot, aborted, or the world has moved past this day
@@ -2507,8 +2512,9 @@ function rerollJourneyDay(campaign, journey){
     if(pt){ pt.currentHexId = pre.currentHexId || pt.currentHexId; if(wasArrival) pt.activeJourneyId = j.id; }
   }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: dayNum, type: 'reroll', narrative: 'GM rerolled day ' + dayNum + '.' });
-  // 3. re-run the day with fresh randomness (Math.random in the live app / tests)
-  const out = tickJourneyDay(campaign, j, {});
+  // 3. re-run the day with fresh randomness (Math.random in the live app / tests). ctx passes through —
+  //    rerollJourneyNav uses { skipSurvival:true } to re-roll movement only and hold provisioning fixed.
+  const out = tickJourneyDay(campaign, j, ctx || {});
   if(!out || !out.record) return null;
   // 4. commit the new record (updates journey.days + participant survival state)
   commitJourneyRecord(campaign, out.record);
@@ -2588,6 +2594,83 @@ function rerollJourneyForage(campaign, journey){
     if(entry){ entry.event.payload.day.waterForage = day.waterForage; entry.event.payload.day.rationsConsumed = { food: day.rationsConsumed.food, water: day.rationsConsumed.water }; }
   } catch(e){ /* audit patch is best-effort */ }
   return day.waterForage;
+}
+
+// Provisioning rows (Joachim 2026-06-05) — the day log splits into a navigation row and a forage row,
+// each with its own GM reroll. rerollJourneyNav re-rolls the NAVIGATION row only: navigation / movement /
+// fording / encounter / arrival re-roll with fresh randomness, while the day's water + food + conditions
+// outcome is HELD exactly as committed (its mirror is rerollJourneyForage, which re-rolls water and holds
+// movement). It runs the full whole-day re-tick with survival skipped, then restores the captured
+// provisioning outcome onto the new day. If the new route strays somewhere drier the GM can follow with a
+// forage reroll. Latest-day-only + world-not-moved (same gate). Returns the new record, or null.
+function rerollJourneyNav(campaign, journey){
+  const A = _jACKS();
+  const j = (typeof journey === 'string') ? A.findJourney(campaign, journey) : journey;
+  if(!journeyLastDayRerollable(campaign, j)) return null;
+  const day = j.days[j.days.length - 1];
+  if(!day) return null;
+  const SURV_TYPES = ['hunger', 'dehydration', 'survival-critical', 'supplies-low'];
+  const ids = j.participantCharacterIds || [];
+  // 1. capture the committed (post-day) provisioning outcome so the nav reroll holds it fixed
+  const cap = {
+    waterForage: day.waterForage ? JSON.parse(JSON.stringify(day.waterForage)) : null,
+    rationsConsumed: day.rationsConsumed ? JSON.parse(JSON.stringify(day.rationsConsumed)) : null,
+    survNotables: (day.notableEvents || []).filter(ne => SURV_TYPES.indexOf(ne.type) >= 0).map(ne => JSON.parse(JSON.stringify(ne))),
+    rations: (j.supplies && j.supplies.rations), waterRations: (j.supplies && j.supplies.waterRations),
+    members: {}, camp: null
+  };
+  for(const c of (campaign.characters || [])){
+    if(c && ids.indexOf(c.id) >= 0){
+      cap.members[c.id] = {
+        waterDaysCarried: c.waterDaysCarried, foodDeficitDays: c.foodDeficitDays, waterDeficitDays: c.waterDeficitDays,
+        underfed: c.underfed, starving: c.starving, dehydrated: c.dehydrated,
+        conLossHunger: c.conLossHunger, conLossThirst: c.conLossThirst,
+        hungerDays: c.hungerDays, dehydrationDays: c.dehydrationDays,
+        inventory: Array.isArray(c.inventory) ? JSON.parse(JSON.stringify(c.inventory)) : null
+      };
+    }
+  }
+  if(j.partyId && typeof A.partyCampStash === 'function'){
+    const cp = A.partyCampStash(campaign, j.partyId);
+    if(cp) cap.camp = { items: JSON.parse(JSON.stringify(cp.items || [])), waterDaysCarried: cp.waterDaysCarried || 0 };
+  }
+  // 2. full whole-day re-roll with survival SKIPPED (no forage throw, no ration draw, no survival events)
+  const rec = rerollJourneyDay(campaign, j, { skipSurvival: true });
+  if(!rec) return null;
+  const newDay = j.days[j.days.length - 1];
+  // 3. restore the held provisioning outcome (members + camp + supplies + the day record)
+  for(const c of (campaign.characters || [])){
+    const m = c && cap.members[c.id];
+    if(c && ids.indexOf(c.id) >= 0 && m){
+      c.waterDaysCarried = m.waterDaysCarried; c.foodDeficitDays = m.foodDeficitDays; c.waterDeficitDays = m.waterDeficitDays;
+      c.underfed = m.underfed; c.starving = m.starving; c.dehydrated = m.dehydrated;
+      c.conLossHunger = m.conLossHunger; c.conLossThirst = m.conLossThirst;
+      c.hungerDays = m.hungerDays; c.dehydrationDays = m.dehydrationDays;
+      if(Array.isArray(m.inventory)) c.inventory = JSON.parse(JSON.stringify(m.inventory));
+    }
+  }
+  if(cap.camp && j.partyId && typeof A.partyCampStash === 'function'){
+    const cp = A.partyCampStash(campaign, j.partyId);
+    if(cp){ cp.items = JSON.parse(JSON.stringify(cap.camp.items)); cp.waterDaysCarried = cap.camp.waterDaysCarried; }
+  }
+  j.supplies = j.supplies || {};
+  if(typeof cap.rations === 'number') j.supplies.rations = cap.rations;
+  if(typeof cap.waterRations === 'number') j.supplies.waterRations = cap.waterRations;
+  newDay.waterForage = cap.waterForage;
+  if(cap.rationsConsumed) newDay.rationsConsumed = cap.rationsConsumed;
+  // keep the new day's nav/movement notables; restore the held survival ones (the forage row's content)
+  newDay.notableEvents = (newDay.notableEvents || []).filter(ne => SURV_TYPES.indexOf(ne.type) < 0).concat(cap.survNotables);
+  // 4. patch the committed umbrella event's day digest so the audit holds the restored provisioning
+  try {
+    const entry = (campaign.eventLog || []).find(e => e && e.event && e.event.payload && e.event.payload.journeyId === j.id && e.event.payload.dayIndex === newDay.dayIndex && e.event.payload.day);
+    if(entry){
+      entry.event.payload.day.waterForage = newDay.waterForage;
+      if(cap.rationsConsumed) entry.event.payload.day.rationsConsumed = { food: cap.rationsConsumed.food, water: cap.rationsConsumed.water };
+      const happ = entry.event.payload.day.happenings || [];
+      entry.event.payload.day.happenings = happ.filter(h => !h.type || SURV_TYPES.indexOf(h.type) < 0).concat(cap.survNotables);
+    }
+  } catch(e){ /* audit patch is best-effort */ }
+  return rec;
 }
 
 // Transition a planning journey to in-transit: set the clock + pointers, link the party
@@ -3189,7 +3272,7 @@ Object.assign(ACKS, {
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.5 Provisioning (RR p.278) — per-member food/water resolution (V2/V3) + the forage reroll.
-  hasFreshSource, seedJourneyProvisions, journeyDaySurvival, applyJourneyDaySurvival, rerollJourneyForage,
+  hasFreshSource, seedJourneyProvisions, journeyDaySurvival, applyJourneyDaySurvival, rerollJourneyForage, rerollJourneyNav,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
