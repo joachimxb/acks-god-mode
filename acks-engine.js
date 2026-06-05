@@ -2386,6 +2386,62 @@ function itemEncumbranceSt(item){
   return 0;
 }
 
+// ── Phase 2.5 Provisioning — food/water inventory accessors (RR p.278) ───────
+// One daily ration = 1 stone = 2 lb food (1/6 st) + 1 gallon water (5/6 st). Food rides as discrete
+// ration items in carry inventory / the camp stash (weight = 1/6 st × daysRemaining, so a half-eaten
+// pack weighs less). Water is a metered fluid: the WATER CONTAINER items (waterskin 1/5 day, barrel
+// 20 days) set the capacity; the single waterDaysCarried counter on the holder is the contents (no
+// per-skin fill state — RAW meters by the daily gallon). See Provisioning §3.3–§3.5 + §5.
+const RATION_FOOD_ST_PER_DAY  = 1/6;   // 2 lb food
+const RATION_WATER_ST_PER_DAY = 5/6;   // 1 gallon water (only carried when no source — §4.3)
+
+// Day-capacity of a water-container item: explicit field on the line, else the catalog entry's
+// waterCapacityDays (by catalogId or matching name). Non-containers → 0.
+function waterContainerDaysFor(item){
+  if(!item) return 0;
+  if(typeof item.waterCapacityDays === 'number') return item.waterCapacityDays;
+  const cat = (global.ACKS && global.ACKS.EQUIPMENT_CATALOG) || [];
+  const hit = (item.catalogId && cat.find(e => e.id === item.catalogId)) ||
+              (item.name && cat.find(e => String(e.name).toLowerCase() === String(item.name).toLowerCase())) || null;
+  return (hit && typeof hit.waterCapacityDays === 'number') ? hit.waterCapacityDays : 0;
+}
+// Total drinking-water capacity (days) of a holder = Σ its container items. Holder = a character
+// (.inventory[]) or a stash (.items[]) — e.g. barrels in the party camp stash.
+function waterCapacityDays(holder){
+  if(!holder) return 0;
+  const lines = Array.isArray(holder.inventory) ? holder.inventory
+              : Array.isArray(holder.items) ? holder.items : [];
+  return lines.reduce((s, it) => s + waterContainerDaysFor(it), 0);
+}
+
+// Ration-line helpers. A ration line: { name, catalogId, rationType:'iron'|'standard', daysRemaining,
+// stone }. daysRemaining = person-day rations left in the pack (a fresh week-pack = 7); weight derives.
+function isRationLine(item){
+  return !!(item && (item.rationType === 'iron' || item.rationType === 'standard' ||
+    (typeof item.daysRemaining === 'number' && /ration/i.test(item.name || ''))));
+}
+function rationLineDays(item){ return isRationLine(item) ? Math.max(0, Number(item.daysRemaining) || 0) : 0; }
+function makeRationLine(opts){
+  opts = opts || {};
+  const type = (opts.rationType === 'standard') ? 'standard' : 'iron';
+  const days = Math.max(0, Number(opts.daysRemaining != null ? opts.daysRemaining : 7) || 0);
+  return {
+    name: (type === 'iron') ? 'Rations, Iron (one week)' : 'Rations, Standard (one week)',
+    catalogId: (type === 'iron') ? 'rations-iron-week' : 'rations-standard-week',
+    rationType: type,
+    daysRemaining: days,
+    stone: days * RATION_FOOD_ST_PER_DAY,   // food weight only (1/6 st/day); water rides in containers
+    notes: opts.notes || ''
+  };
+}
+// Total person-day food rations a holder (character .inventory / stash .items) can draw on.
+function rationDaysAvailable(holder){
+  if(!holder) return 0;
+  const lines = Array.isArray(holder.inventory) ? holder.inventory
+              : Array.isArray(holder.items) ? holder.items : [];
+  return lines.reduce((s, it) => s + rationLineDays(it), 0);
+}
+
 // Per-line gp value (derived). Coin: qty × denomination multiplier. Valuable:
 // qty × unitValueGp. Gear/bulk carry no liquid gp value here (sale price is a
 // mercantile concern, not stash wealth).
@@ -5723,6 +5779,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Items I1 — facet item model + valuation + promotion + migration (OQ9, 2026-06-03)
   itemFacets, itemHasFacet, primaryFacet, itemEncumbranceSt, itemValueGp, COIN_GP_VALUE,
   stashTotalGp, stashTotalEncumbrance, carryTotalEncumbrance,
+  // Phase 2.5 Provisioning — food/water inventory accessors (RR p.278)
+  RATION_FOOD_ST_PER_DAY, RATION_WATER_ST_PER_DAY, waterContainerDaysFor, waterCapacityDays,
+  isRationLine, rationLineDays, makeRationLine, rationDaysAvailable,
   promoteLineToNotableItem, notableItemFacets,
   migrateStashItemShape, migrateAllStashItemShapes,
   // Items I1 — character coin purse (multi-denomination; coins.gp canonical, personalGp mirror)

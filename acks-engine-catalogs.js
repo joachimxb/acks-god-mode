@@ -851,7 +851,7 @@ const EQUIPMENT_CATALOG = Object.freeze([
   { id:'lantern',          name:'Lantern',             category:'gear', listPriceGp:10,   stone:1,   raw:'RR p.129' },
   { id:'oil-common',       name:'Oil, Common (1 pint)',category:'gear', listPriceGp:0.3,  stone:1/6, raw:'RR p.129' },
   { id:'oil-military',     name:'Oil, Military (1 pint)',category:'gear', listPriceGp:2,  stone:1/6, raw:'RR p.129' },
-  { id:'waterskin',        name:'Waterskin',           category:'gear', listPriceGp:0.6,  stone:1/6, raw:'RR p.129' },
+  { id:'waterskin',        name:'Waterskin',           category:'gear', listPriceGp:0.6,  stone:1/6, raw:'RR p.129', waterCapacityDays:1/5 },  // 25 oz = 1/5 gallon = 1/5 day (RR p.148)
   { id:'iron-spikes-6',    name:'Iron Spikes (6)',     category:'gear', listPriceGp:1,    stone:1/6, raw:'RR p.129' },
   { id:'grappling-hook',   name:'Grappling Hook',      category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
   { id:'crowbar',          name:'Crowbar',             category:'gear', listPriceGp:1,    stone:1/6, raw:'RR p.129' },
@@ -873,6 +873,20 @@ const EQUIPMENT_CATALOG = Object.freeze([
   { id:'saddle-military',  name:'Saddle and Tack, Military', category:'gear', listPriceGp:25, stone:1,   raw:'RR p.129' },
   { id:'saddle-draft',     name:'Saddle and Tack, Draft',    category:'gear', listPriceGp:5,  stone:1,   raw:'RR p.129' },
   { id:'saddlebag',        name:'Saddlebag',           category:'gear', listPriceGp:5,    stone:1/6, raw:'RR p.129' },
+  // ── Provisions (RR pp.131–133, p.278 — Phase 2.5 Provisioning) ──
+  // Range-priced (Provisioning §2.1 / decision §14.1): RAW gives ration prices as a BAND (grade/market
+  // variation) with no mechanic to collapse it, so the catalog carries priceMinGp/priceMaxGp; the
+  // buyer picks the grade (default the low/common end = listPriceGp), and the RR p.124 availability
+  // lookup runs off the chosen price. listPriceGp = the common-end default so existing price/availability
+  // code keeps working unchanged. The week-pack is the expedition staple (1 st ≈ 7 person-day rations =
+  // food 1/6 st/day + water carried separately). Iron keeps; Standard is perishable (spoilage deferred).
+  { id:'rations-iron-week',     name:'Rations, Iron (one week)',     category:'gear', listPriceGp:1,    priceMinGp:1,    priceMaxGp:6, stone:1,  raw:'RR p.131', rationType:'iron'     },
+  { id:'rations-standard-week', name:'Rations, Standard (one week)', category:'gear', listPriceGp:0.35, priceMinGp:0.35, priceMaxGp:3, stone:1,  raw:'RR p.131', rationType:'standard' },
+  { id:'barrel-20gal',          name:'Barrel (20 gallon)',           category:'gear', listPriceGp:0.3,  stone:15, raw:'RR p.133', waterCapacityDays:20 },  // bulk water container = 20 days
+  // Animal Feed (RR p.130) — mount fodder; per lb (1 st ≈ 10 lb from the 2 sp/st travel rate). Consumed
+  // only by the deferred Mounts wave (V6); listed now so the catalog is complete.
+  { id:'animal-feed-superior',  name:'Animal Feed, Superior (1 lb)', category:'gear', listPriceGp:0.02, stone:0.1, raw:'RR p.130' },
+  { id:'animal-feed-inferior',  name:'Animal Feed, Inferior (1 lb)', category:'gear', listPriceGp:0.01, stone:0.1, raw:'RR p.130' },
   // ── Mounts & livestock (RR p.130 — led, not carried; stone:null) ──
   { id:'horse-light-war',    name:'Horse, Light War',    category:'mount', listPriceGp:150,  stone:null, raw:'RR p.130' },
   { id:'horse-medium-war',   name:'Horse, Medium War',   category:'mount', listPriceGp:250,  stone:null, raw:'RR p.130' },

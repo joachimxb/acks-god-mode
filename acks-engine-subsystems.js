@@ -2648,7 +2648,10 @@ const HEX_TERRAIN_ALIASES = Object.freeze({
   plains:'grassland', plain:'grassland', steppe:'grassland', prairie:'grassland', meadow:'grassland',
   farmland:'grassland', fields:'grassland', pasture:'grassland', savanna:'grassland', savannah:'grassland',
   coast:'grassland', coastal:'grassland', shore:'grassland', shoreline:'grassland', seaside:'grassland', beach:'grassland',
-  sea:'water', seas:'water', ocean:'water', oceans:'water', lake:'water', lakes:'water', waters:'water',
+  // 'lake'/'lakes' deliberately NOT aliased to salt 'water' (Provisioning §3.1): a fresh lake is a
+  // LAND hex with hasLake=true, not a salt sea. Open 'water' = RAW Ocean (salt by default; a genuine
+  // freshwater body sets the freshWater flag). The literal terrain "lake" is superseded by hasLake.
+  sea:'water', seas:'water', ocean:'water', oceans:'water', waters:'water',
   woods:'forest', woodland:'forest', woodlands:'forest', taiga:'forest', boreal:'forest',
   mountain:'mountains', peaks:'mountains', alpine:'mountains',
   hill:'hills', highlands:'hills',
