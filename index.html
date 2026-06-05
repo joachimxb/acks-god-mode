@@ -4229,7 +4229,7 @@ document.addEventListener('alpine:init', () => {
               <div class="text-xs border border-dashed border-sky-400 rounded py-0.5 px-1" style="background:rgba(186,230,253,0.22)">
                 <div class="flex flex-wrap gap-x-3 items-baseline">
                   <span class="font-semibold">Day <span x-text="journeyPendingDay().dayIndex"></span></span>
-                  <span class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" title="Proposed — confirm it in the Day-tick panel (top-right) to keep it">pending · review &amp; commit ↗</span>
+                  <span class="text-[10px] uppercase tracking-wide text-sky-800 font-semibold" x-text="dayTickProposal ? 'pending · review & commit ↗' : 'next day · preview'" :title="dayTickProposal ? 'Proposed — confirm it in the Day-tick panel (top-right) to keep it' : 'A preview of the next day — press Tick day to resolve and commit it'"></span>
                   <span x-text="'☀ ' + (journeyPendingDay().weather?.condition||'fair')"></span>
                   <span x-text="(journeyPendingDay().hexesTraveled||0) + ' hex (' + (journeyPendingDay().milesTraveled||0) + ' mi)'"></span>
                   <span class="capitalize" x-text="journeyPendingDay().pace"></span>
@@ -8124,6 +8124,11 @@ function buildDomainFromTemplate(tpl){
 }
 
 function domainApp(){
+  // Non-reactive memo for the day-log "next day" preview (journeyPendingDay): keyed on a cheap
+  // journey-state string so the deterministic next-day tick runs once per state, not on every
+  // Alpine re-evaluation of the pending row. A closure var (not on `this`) — never reactive, so
+  // writing it can't trigger a render loop.
+  let _journeyPreviewMemo = null;
 return {
   SCHEMA_VERSION,REQUIRED_GARRISON_PER_FAMILY,TEMPLATES:EMBEDDED_TEMPLATES,HOUSERULES:HOUSERULES_REGISTRY,HOUSERULE_CATEGORIES,STRONGHOLD_CATALOG,
   MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE,
@@ -9977,10 +9982,34 @@ return {
   // pending record (exactly what will commit; deterministic via the seeded preview). null when no
   // proposal is open, or it carries no un-rejected day for this journey.
   journeyPendingDay(){
-    const p = this.dayTickProposal, j = this.journeyDetail();
-    if(!p || !j) return null;
-    const rec = (p.pendingRecords||[]).find(r => r && r.kind === 'journey-day' && r.journeyId === j.id && !r.rejected);
-    return rec ? rec.dayRecord : null;
+    const j = this.journeyDetail();
+    if(!j) return null;
+    // 1) If a day-tick proposal is open, use ITS record for this journey — exactly what will commit.
+    const p = this.dayTickProposal;
+    if(p){
+      const rec = (p.pendingRecords||[]).find(r => r && r.kind === 'journey-day' && r.journeyId === j.id && !r.rejected);
+      if(rec) return rec.dayRecord;
+    }
+    // 2) Otherwise show a DETERMINISTIC preview of the next day immediately (Joachim 2026-06-05:
+    //    "just show the day 1 immediately — you don't need to tick day"). Memoized on a cheap
+    //    state key so the tick runs once per state, not per re-eval; computed on a shallow campaign
+    //    copy (journeys → just this one, domains attached for the pace cap) so the real campaign is
+    //    never mutated during render. proposeJourneyDay seeds the day from journey state, so this
+    //    preview is identical to what a Tick day would propose + commit.
+    if(j.status !== 'in-transit') return null;
+    const c = this.currentCampaign; if(!c) return null;
+    const surv = (j.participantCharacterIds||[]).map(id => { const ch=(c.characters||[]).find(x=>x&&x.id===id); return ch ? [ch.waterDaysCarried||0,ch.foodDeficitDays||0,ch.underfed?1:0,ch.starving?1:0,ch.dehydrated?1:0].join(',') : '?'; }).join(';');
+    const key = [j.id, j.currentDayIndex||0, j.currentHexId||j.startHexId||'', j.covered||0, j.coveredBaseline||0, j.isLost?1:0, (typeof j.strayHeading==='number'?j.strayHeading:''), j.pace||'', j.speedOverrideMilesPerDay||0, j.forageWaterEnabled?1:0, j.shareRations?1:0, (c.currentDayInMonth||1), (j.participantCharacterIds||[]).join(','), surv, (j.supplies?((j.supplies.rations||0)+'/'+(j.supplies.waterRations||0)):'')].join('|');
+    if(_journeyPreviewMemo && _journeyPreviewMemo.key === key) return _journeyPreviewMemo.day;
+    let day = null;
+    try {
+      const previewCampaign = Object.assign({}, c, { journeys: [j], domains: this.domains });
+      const out = window.ACKS.proposeJourneyDay(previewCampaign, { dayInMonth: (c.currentDayInMonth||1)+1 });
+      const rec = (out.pendingRecords||[]).find(r => r && r.kind === 'journey-day' && r.journeyId === j.id);
+      day = rec ? rec.dayRecord : null;
+    } catch(e){ day = null; }
+    _journeyPreviewMemo = { key, day };
+    return day;
   },
   // GM reroll of JUST the latest day's water-foraging throw (leaves movement + navigation untouched).
   journeyRerollForage(j){
