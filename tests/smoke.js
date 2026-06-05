@@ -417,6 +417,16 @@ section('Calendar day-tick pipeline (Phase 2.95)');
   ca.currentDayInMonth = 30; ACKS.advanceCalendarOneDay(ca);
   ok('advanceCalendarOneDay: clamps at 30 (no rollover)', ca.currentDayInMonth === 30);
 
+  // Month rollover (the calendar half commitTurn runs at month end): advanceCalendarOneMonth bumps
+  // the month and RESETS calendar.day to 1 — so after a rollover calendar.day matches the day clock
+  // (which commitTurn sets to 1). This guards the desync where calendar.day would lag at 30 while the
+  // day clock read 1 (the month-end day-tick now routes through this — Joachim 2026-06-05).
+  const cmo = mkCamp(); cmo.calendar.month = 1; cmo.calendar.day = 30; cmo.currentDayInMonth = 30;
+  ACKS.advanceCalendarOneMonth(cmo);
+  ok('advanceCalendarOneMonth: month 1 -> 2', cmo.calendar.month === 2);
+  ok('advanceCalendarOneMonth: calendar.day resets to 1', cmo.calendar.day === 1);
+  ok('advanceCalendarOneMonth: year rolls after month 12', (() => { const c2 = mkCamp(); c2.calendar.month = 12; c2.calendar.year = 1; ACKS.advanceCalendarOneMonth(c2); return c2.calendar.month === 1 && c2.calendar.year === 2; })());
+
   // Construction advances via the day-tick: propose is non-mutating, commit applies
   const cc = mkCamp();
   cc.projects.push(mkProject({ id:'prj-c1', laborRequired:1000 }));
@@ -487,6 +497,42 @@ section('Calendar day-tick pipeline (Phase 2.95)');
   ok('day-tick: no pause when auto-pause-on-encounter is OFF', pn.paused === false);
   ok('day-tick: full 5 days advance when not paused', pn.daysAdvanced === 5);
   ACKS.unregisterDayConsumer('test-pauser2');
+
+  // Activity-budget heads-up consumer (#346 AB-3 / Joachim 2026-06-05): an active character over the
+  // RAW day budget surfaces a TRANSIENT 'activity-overbudget' notable + pauses a multi-day advance
+  // when the rule is on. Fixture: administering TWO domains = two dedicated tasks (over the 1/day
+  // cap) — no journey, so the journeys consumer can't interfere.
+  function mkOverbudgetCamp(){
+    const c = mkCamp();
+    c.characters = [{ id:'chr-ob', name:'Overworked', lifecycleState:'active', personalFatigue:0 }];
+    c.domains = [
+      { id:'dom-ob1', rulerCharacterId:'chr-ob', administersThisMonth:true, magistrates:{} },
+      { id:'dom-ob2', rulerCharacterId:'chr-ob', administersThisMonth:true, magistrates:{} }
+    ];
+    return c;
+  }
+  const cob = mkOverbudgetCamp();
+  const pob = ACKS.proposeDayTick(cob, 7, {});
+  const obN = (pob.notableEvents || []).find(e => e.kind === 'activity-overbudget' && e.characterId === 'chr-ob');
+  ok('overbudget: an activity-overbudget notable surfaced', !!obN);
+  ok('overbudget: notable is transient (stays out of the event log)', !!obN && obN.transient === true);
+  ok('overbudget: notable names the conflicting activities', !!obN && Array.isArray(obN.activityLabels) && obN.activityLabels.length >= 2);
+  ok('overbudget: pauses the +7 advance on day 1 (rule default-on)', pob.paused === true && pob.daysAdvanced === 1);
+  ok('overbudget: a pause reason names the overbudget trigger', (pob.pauseReasons || []).some(r => r.trigger === 'overbudget'));
+  const cobCommit = ACKS.commitDayTick(cob, pob, null);
+  ok('overbudget: the advisory notable is NOT emitted to the eventLog (transient)', cobCommit.eventsEmitted === 0 && (cob.eventLog || []).every(en => !(en.event && en.event.kind === 'activity-overbudget')));
+  // rule OFF -> no pause; the advance runs the full 7 days, but the heads-up notable still surfaces
+  const cob2 = mkOverbudgetCamp();
+  cob2.houseRules['auto-pause-on-overbudget'] = false;
+  const pob2 = ACKS.proposeDayTick(cob2, 7, {});
+  ok('overbudget: rule OFF -> no pause, full 7-day advance', pob2.paused === false && pob2.daysAdvanced === 7);
+  ok('overbudget: notable still surfaces with the rule off (heads-up only)', (pob2.notableEvents || []).some(e => e.kind === 'activity-overbudget'));
+  // a within-budget character (administering ONE domain = 1 dedicated) produces no notable
+  const cwb = mkCamp();
+  cwb.characters = [{ id:'chr-ok', name:'Fine', lifecycleState:'active', personalFatigue:0 }];
+  cwb.domains = [{ id:'dom-ok', rulerCharacterId:'chr-ok', administersThisMonth:true, magistrates:{} }];
+  const pwb = ACKS.proposeDayTick(cwb, 3, {});
+  ok('overbudget: a within-budget character produces no notable', !(pwb.notableEvents || []).some(e => e.kind === 'activity-overbudget'));
 
   // month-end subsume + currentDayInMonth lands on day 30
   const cm = mkCamp();

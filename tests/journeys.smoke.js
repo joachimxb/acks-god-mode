@@ -50,7 +50,10 @@ function build(opts){
   const j = ACKS.blankJourney({
     id: 'jrn-1', name: 'Road Run', participantCharacterIds: ['chr-1'],
     startHexId: 'hex-a', destinationHexId: 'hex-b', mode: 'foot',
-    supplies: Object.assign({ rations: 100, waterRations: 100, animalFeed: 0, animalWater: 0, shipStores: 0 }, opts.supplies || {})
+    // Provisioning V2/V3: rations are now real (weighed) inventory — startJourney seeds the abstract
+    // pool into tight ration items. Keep the default LIGHT (12 days = 2 st food) so the test scout stays
+    // unencumbered (≤5 st) and the speed assertions hold; survival tests override with a small/zero pool.
+    supplies: Object.assign({ rations: 12, waterRations: 12, animalFeed: 0, animalWater: 0, shipStores: 0 }, opts.supplies || {})
   });
   c.journeys = [j];
   // default: all auto-pauses off so a multi-day tick runs clean unless a test turns them on
@@ -601,7 +604,7 @@ function lineCampaign(n, perHex){
     c.hexes.push(ACKS.blankHex(Object.assign({ id: 'hx-' + q, coord: { q, r: 0 }, terrain: 'grassland', hasRoad: false }, o)));
   }
   c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout' }) ];
-  const j = ACKS.blankJourney({ id:'jrn-1', name:'Trek', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-'+n, mode:'foot', supplies:{ rations:100, waterRations:100, animalFeed:0, animalWater:0, shipStores:0 } });
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Trek', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-'+n, mode:'foot', supplies:{ rations:12, waterRations:12, animalFeed:0, animalWater:0, shipStores:0 } });
   c.journeys = [j]; c.houseRules = {};
   return { c, j };
 }
@@ -665,6 +668,18 @@ section('§24 — integration: per-hex terrain + per-side roads (deterministic t
   const dR = ACKS.tickJourneyDay(rd.c, rd.c.journeys[0], { rng: PASS, weather:{ condition:'fair', temperature:'moderate' } });
   check('a per-side road through jungle speeds the trek (×3/2 → 6 hexes, arrives)', dR.record.dayRecord.hexesTraveled === 6 && dR.record.newStatus === 'arrived', String(dR.record.dayRecord.hexesTraveled));
   check('a fully-roaded day rolls no navigation throw', dR.record.dayRecord.navigationThrow === null);
+})();
+
+section('Halted pace (×0) — the activity budget can cap a journey to no travel (Joachim 2026-06-05)');
+(function(){
+  const { c, j } = lineCampaign(6);
+  ACKS.startJourney(c, j);
+  c.journeys[0].pace = 'halted';   // effective pace also 'halted' (no other activities cap it lower)
+  const d = ACKS.tickJourneyDay(c, c.journeys[0], { rng: () => 0.5 });
+  check('a halted day travels 0 hexes', d.record.dayRecord.hexesTraveled === 0, String(d.record.dayRecord.hexesTraveled));
+  check('a halted day surfaces a non-pausing "halted" notable', !!d.notableEvents.find(e => e.type === 'halted' && !e.pauseTrigger));
+  check('a halted day does not arrive (no progress)', d.record.newStatus !== 'arrived');
+  check('a halted day rolls no navigation throw', d.record.dayRecord.navigationThrow === null);
 })();
 
 section('§24 — integration: fording an unbridged river (deterministic)');
@@ -734,7 +749,7 @@ section('§24 — waypoint distance is via-waypoint (not direct)');
               ACKS.blankHex({ id:'hx-w', coord:{q:2,r:-2}, terrain:'grassland' }),
               ACKS.blankHex({ id:'hx-d', coord:{q:4,r:0}, terrain:'grassland' }) ];
   c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout' }) ];
-  const j = ACKS.blankJourney({ id:'jrn-1', name:'Detour', participantCharacterIds:['chr-1'], startHexId:'hx-s', destinationHexId:'hx-d', waypoints:[{hexId:'hx-w'}], supplies:{ rations:100, waterRations:100 } });
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Detour', participantCharacterIds:['chr-1'], startHexId:'hx-s', destinationHexId:'hx-d', waypoints:[{hexId:'hx-w'}], supplies:{ rations:12, waterRations:12 } });
   c.journeys = [j];
   const directDist = ACKS.hexAxialDistance({q:0,r:0},{q:4,r:0});
   const route = ACKS.journeyRoute(c, j);
@@ -763,7 +778,7 @@ section('§24 — mid-journey re-route (reRouteJourney)');
   c.hexes.push(ACKS.blankHex({ id:'hx-u1', coord:{q:4,r:1}, terrain:'grassland' }));
   c.hexes.push(ACKS.blankHex({ id:'hx-u2', coord:{q:4,r:2}, terrain:'grassland' }));
   c.characters = [ ACKS.blankCharacter({ id:'chr-1', name:'Scout', currentHexId:'hx-0' }) ];
-  const j = ACKS.blankJourney({ id:'jrn-1', name:'Saltspur run', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-6', supplies:{ rations:100, waterRations:100 } });
+  const j = ACKS.blankJourney({ id:'jrn-1', name:'Saltspur run', participantCharacterIds:['chr-1'], startHexId:'hx-0', destinationHexId:'hx-6', supplies:{ rations:12, waterRations:12 } });
   c.journeys = [j];
   ACKS.startJourney(c, j);
   ACKS.commitJourneyRecord(c, ACKS.tickJourneyDay(c, c.journeys[0], { rng:()=>0.5 }).record); // day 1: 4 grassland hexes → hx-4
@@ -850,6 +865,7 @@ section('Current speed = slowest member (RR pp.83-84)');
 
   // one heavily-loaded member (9 st → heavy band → 12 mi/day) slows the whole party
   const h = lineCampaign(10);
+  h.j.supplies = { rations:0, waterRations:0 };   // isolate the cargo weight (no seeded rations)
   h.c.characters[0].inventory = [{ name:'lead bars', encumbranceSt: 9 }];
   ACKS.startJourney(h.c, h.j);
   check('heavily-loaded member → base 12 mi/day', ACKS.journeyBaseSpeedMilesPerDay(h.c, h.c.journeys[0]) === 12);
@@ -858,6 +874,7 @@ section('Current speed = slowest member (RR pp.83-84)');
 
   // slowest-of-two: a heavy member + an unencumbered one → the party is bounded by the heavy one (12)
   const s = lineCampaign(10);
+  s.j.supplies = { rations:0, waterRations:0 };   // isolate the cargo weight (no seeded rations)
   s.c.characters[0].inventory = [{ name:'lead', encumbranceSt: 9 }];
   s.c.characters.push(ACKS.blankCharacter({ id:'chr-2', name:'Light' }));
   s.c.journeys[0].participantCharacterIds = ['chr-1','chr-2'];
@@ -875,6 +892,34 @@ section('Current speed = slowest member (RR pp.83-84)');
   o.c.journeys[0].pace = 'forced-march'; o.c.journeys[0].speedOverrideMilesPerDay = 24;
   const dO = ACKS.tickJourneyDay(o.c, o.c.journeys[0], { rng:PASS, weather:{condition:'fair',temperature:'moderate'} });
   check('override 24 × forced-march ×1.5 = 36 mi → 6 hexes (override is the base; pace multiplies)', dO.record.dayRecord.hexesTraveled === 6, String(dO.record.dayRecord.hexesTraveled));
+})();
+
+// advanceJourneyOneDay — "set out NOW" resolves the journey's first day at once, this journey only,
+// WITHOUT the global Day Clock (Joachim 2026-06-05: "it should start it now"). The start flow calls it.
+(function(){
+  section('advanceJourneyOneDay — start resolves the first day (this journey only)');
+  const PASS = () => 0.95;                                    // nav success, skip wandering encounters
+  const W = { condition: 'fair', temperature: 'moderate' };
+  // (a) a multi-hex journey: setting out travels day 1, stays in-transit, the global clock doesn't move
+  const a = lineCampaign(5);
+  ACKS.startJourney(a.c, a.j);
+  check('fresh start is in-transit at day 0', a.j.status === 'in-transit' && (a.j.currentDayIndex||0) === 0 && (a.j.days||[]).length === 0);
+  const recA = ACKS.advanceJourneyOneDay(a.c, a.j, { rng: PASS, weather: W });
+  check('advanceJourneyOneDay returns the committed day-1 record', !!(recA && recA.newDayIndex === 1));
+  check('the journey is now on day 1 with a day record', a.j.currentDayIndex === 1 && a.j.days.length === 1);
+  check('the party actually moved on its first day', (a.j.days[0].hexesTraveled||0) > 0 && a.j.currentHexId !== 'hx-0');
+  check('a 5-hex trip is still in-transit after day 1', a.j.status === 'in-transit');
+  check('the global Day Clock did NOT advance (campaign day unchanged)', a.c.currentDayInMonth === 1);
+  check('day 1 is stamped on the start world-day → rerollable current state', !!(a.j.days[0].worldDay && a.j.days[0].worldDay.dayInMonth === 1) && ACKS.journeyLastDayRerollable(a.c, a.j) === true);
+  // (b) a 1-hex journey ARRIVES on start (short trips complete at once)
+  const b = lineCampaign(1);
+  ACKS.startJourney(b.c, b.j);
+  ACKS.advanceJourneyOneDay(b.c, b.j, { rng: PASS, weather: W });
+  check('a 1-hex trip arrives on its first day', b.j.status === 'arrived' && b.j.currentHexId === 'hx-1');
+  // (c) null on a not-yet-started (planning) journey — it records no day
+  const d = lineCampaign(3);
+  check('advanceJourneyOneDay is null on a not-yet-started journey', ACKS.advanceJourneyOneDay(d.c, d.j, { rng: PASS, weather: W }) === null);
+  check('... and it recorded no day', (d.j.days||[]).length === 0);
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

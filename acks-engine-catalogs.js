@@ -179,6 +179,7 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'auto-pause-on-encounter', category:'world', name:'Auto-pause on encounter', source:'Phase 2.95 Calendar §13', description:'The day-tick pipeline pauses for GM review when a consumer surfaces an encounter. Default on.' },
   { id:'auto-pause-on-navigation-fail', category:'world', name:'Auto-pause on navigation failure', source:'Phase 2.95 Calendar §13', description:'Pause the day-tick when a journey navigation throw fails. Default on.' },
   { id:'auto-pause-on-supplies-low', category:'world', name:'Auto-pause on low supplies', source:'Phase 2.95 Calendar §13', description:'Pause the day-tick when supplies drop below three days of stores. Default on.' },
+  { id:'auto-pause-on-overbudget', category:'world', name:'Auto-pause on over-budget activity', source:'#346 Activity Budget', description:'Pause a multi-day advance when a character is over their RAW activity budget for the day (e.g. travelling while administering a domain). The day-tick review lists who, as a heads-up. Default on.' },
   { id:'monthly-commit-subsumes-in-flight', category:'world', name:'Monthly commit subsumes in-flight activity', source:'Phase 2.95 Calendar §13', description:'At month end, unresolved day-aware activities auto-complete at their current state. When off, the GM must resolve them day-by-day before the monthly commit. Default on.' },
   { id:'journey-batching-routine', category:'world', name:'Journey batching (routine)', source:'Phase 2.95 Calendar §13', description:'Silent-advance routine travel until a consumer surfaces a notable event. Effect lands with Journeys. Default off.' },
   { id:'journey-fast-travel', category:'world', name:'Journey fast-travel', source:'Phase 2.95 Calendar §13', description:'Collapse known-safe travel stretches to single-roll summary outcomes. Effect lands with Journeys. Default off.' },
@@ -240,6 +241,9 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'markets-magic-wizard', category:'mercantile', name:'M&M — Magic item sale wizard',
     source:'Markets & Merchandise supplement (Phase 2.9)',
     description:"Enables a guided modal for selling magic items: notability check → transaction-threshold check → possible black-magic interdiction." },
+  { id:'markets-load-metered-activity', category:'mercantile', name:'M&M — Load-metered market activity cost',
+    source:'Of Markets & Merchandise p.15 (supplement)',
+    description:"Refines the RAW market-transaction time cost. Core RR/JJ: buying/selling at a market is ONE ancillary activity (JJ Campaign-Activities list 'Buy equipment in the market', RR p.123; a 12+ party may instead devote a dedicated activity for double availability, RR p.124). With this rule ON, M&M p.15's load-metering applies — one ancillary covers up to a normal load (~5 st), and a bigger haul costs ⌈stone ÷ normal-load⌉ ancillary activities. Default OFF (supplement content, CLAUDE §6)." },
   // ----- Rumors (Phase 2.8) -----
   { id:'rumors-manual', category:'rumors', name:'Rumors — manual panel',
     source:"ACKS II + What's the Word (Phase 2.8)",
@@ -609,9 +613,11 @@ const JOURNEY_GROUND_SPEED = Object.freeze({
 
 // Pace multipliers - RAW's three overland paces (RR p.272). normal = expedition speed as the
 // dedicated activity (4 ancillaries free); forced-march = +50% but fatigued at once (RR p.279)
-// and no ancillaries; half-speed = travel as an ancillary activity (RAW gives it no name).
+// and no ancillaries; half-speed = travel as four ancillary activities (RAW gives it no name).
+// 'halted' (×0) is not a RAW pace — it is the engine's "the day's activities leave no room to
+// travel" state (the activity budget caps the party at it; Joachim 2026-06-05). 0 miles that day.
 const JOURNEY_PACE_SPEED = Object.freeze({
-  'forced-march': 3/2, 'normal': 1, 'half-speed': 1/2
+  'forced-march': 3/2, 'normal': 1, 'half-speed': 1/2, 'halted': 0
 });
 
 // Survival (RR p.275): one ration = 1 stone = 2 lb food + 1 gallon water per person per day.
@@ -623,6 +629,294 @@ const JOURNEY_SUPPLY_LOW_DAYS = 3;
 // Fatigue (JJ p.84): six game days of strenuous activity without a rest day makes a
 // party fatigued. A seventh strenuous day forces a rest (which resets the counter).
 const JOURNEY_FATIGUE_CYCLE_DAYS = 6;
+
+// =============================================================================
+// Activity Budget (#346) — the per-character daily activity allocation.
+// Source: JJ pp.99–100 + RR p.272 (the activity budget: dedicated / ancillary /
+// incidental — 1 dedicated + 4 ancillary, OR up to 12 ancillary) + RR p.279 (the
+// strenuous-day → rest fatigue cycle). Canonical RAW home: Adventuring_Cadence_RAW_Survey.md §4.
+// Plan: Phase_2.95_Activity_Budget_Plan.md (AB-1). Doctrine: Architecture.md §3.13
+// (derive-don't-store) + §7 (the actor-time stack).
+// =============================================================================
+
+// The daily budget. A character's day holds ONE dedicated (8-hour) task, and alongside
+// it up to 4 ancillary (~1-hour) errands — OR, with no dedicated task at all, up to 12
+// ancillary errands. Incidental acts cost ~no time and are uncounted.
+const ACTIVITY_BUDGET = Object.freeze({
+  dedicatedPerDay: 1,
+  ancillaryPerDedicatedDay: 4,   // ancillary errands alongside a dedicated task
+  ancillaryMaxPerDay: 12         // ancillary errands on a day with no dedicated task
+});
+
+// The activity-cost catalog: activity-kind → its budget cost. `cost` is the slot it
+// consumes (dedicated / ancillary / incidental); `strenuous` feeds the RR p.279 six-day
+// fatigue cycle; `lifecycle` notes whether it spans days (ongoing) or is a one-day act
+// (singular). `loadMetered` flags an ancillary whose *count* CAN scale with the stone hauled
+// — but only when the `markets-load-metered-activity` house rule is ON (M&M p.15, a supplement
+// refinement, default OFF per CLAUDE §6). The RAW DEFAULT is a flat ONE ancillary per market
+// transaction (JJ Campaign-Activities list "Buy equipment in the market", RR p.123); the actual
+// per-transaction cost is computed dynamically in `_marketActivityCost` (acks-engine-events.js),
+// not read off this flag. The mapping is reference data transcribed from the surveys (the canonical homes:
+// Adventuring_Cadence_RAW_Survey.md §4 + Settlement_Activities_RAW_Survey.md §4); each
+// character-engaging subsystem declares its kind here as part of its delivery
+// (Architecture.md §3.11 contributor mandate, extended by the budget plan §8). Entries
+// past the shipped readers (journeys, magistracies) are reserved homes for AB-4 contributors.
+const ACTIVITY_COSTS = Object.freeze({
+  // Travel + rest — shipped (Journeys). Travel dedicates the 8-hour block and is strenuous.
+  'travel':                   { cost:'dedicated',  strenuous:true,  lifecycle:'ongoing',  label:'Travel' },
+  'rest':                     { cost:'dedicated',  strenuous:false, lifecycle:'singular', label:'Rest (clears fatigue)' },
+  // Domain rule.
+  'domain-admin':             { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Administer domain' },
+  'decree':                   { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Issue a decree' },
+  // Mercantile.
+  'venture':                  { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Mercantile venture' },
+  'market-transaction':       { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Buy / sell at market', loadMetered:true },
+  // Construction supervision (Plan §13 — dedicated-ongoing; reader wires at AB-4).
+  'construction-supervision': { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Supervise construction' },
+  // Wilderness errands (RR p.272).
+  'forage':                   { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Forage' },
+  'hunt':                     { cost:'dedicated',  strenuous:true,  lifecycle:'singular', label:'Hunt' },
+  'search-hex':               { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Search a hex' },
+  // Reserved homes for their subsystems (so contributors have a place; readers wire in at AB-4).
+  'hijink-plan':              { cost:'ancillary',  strenuous:false, lifecycle:'ongoing',  label:'Plan a hijink' },
+  'hijink-perpetrate':        { cost:'dedicated',  strenuous:true,  lifecycle:'ongoing',  label:'Perpetrate a hijink' },
+  'delve':                    { cost:'ancillary',  strenuous:true,  lifecycle:'singular', label:'Delve (per six turns)' },
+  'research':                 { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Magic research' },
+  'pray':                     { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Pray' },
+  'sacrifice':                { cost:'dedicated',  strenuous:false, lifecycle:'singular', label:'Sacrifice' }
+});
+
+// Look up an activity's budget cost. Unknown kinds default to a single ancillary errand
+// (the safe "an errand of unknown size" assumption) flagged `defaulted` so callers / tests
+// can see it wasn't a catalogued kind.
+function activityCostFor(kind){
+  const e = ACTIVITY_COSTS[kind];
+  if(e) return e;
+  return { cost:'ancillary', strenuous:false, lifecycle:'singular', label: String(kind || 'activity'), defaulted:true };
+}
+
+// =============================================================================
+// Retail Item Trade (#346 flagship / Phase_2.9_Item_Trade_Plan.md IT-1) — the
+// Equipment Availability by Market Class matrix + the availability helpers.
+// Source: RR pp.123–124 (Equipment Availability + Purchasing) + RR p.43 (Mercantile
+// Network, the Venturer class power: a venturer treats a market they've previously entered as
+// one class larger). The equipment price *catalog* (RR pp.126–137) is a
+// separate, larger table; v1 leans on a generic-by-price path so any item transacts off
+// its list price without the full chapter (CLAUDE §13.6). The transaction verb
+// (marketBuy / marketSell) lands at IT-2.
+// =============================================================================
+
+// Equipment Availability by Market Class (RR p.124). Keyed to the item's list-price band;
+// a cell is the number of units of THAT specific item available per party, per market, per
+// month. A cell given as a percent string ('25%') is the chance of ONE unit being present
+// that month; null = none ('—' in RAW). Verified against both RR p.124 worked examples
+// (a 700 gp heavy warhorse = 1 in Class III, 25% in Class IV; a Class III market stocks
+// 425 / 35 / 2 / 1 / — / 3% down the six bands). 36 mechanical values — a code table, not a
+// reproduced chapter. Market-class index: 0 = Class I … 5 = Class VI.
+const EQUIPMENT_AVAILABILITY = Object.freeze({
+  // Bands ordered ascending by upper bound (gp); a price falls in the first band whose maxGp ≥ it.
+  bands: Object.freeze([
+    Object.freeze({ maxGp: 1,        label:'≤ 1 gp',           cells: Object.freeze([2750, 700, 425, 100, 35, 15]) }),
+    Object.freeze({ maxGp: 10,       label:'2–10 gp',          cells: Object.freeze([300, 70, 35, 10, 3, 1]) }),
+    Object.freeze({ maxGp: 100,      label:'11–100 gp',        cells: Object.freeze([20, 5, 2, 1, '25%', '10%']) }),
+    Object.freeze({ maxGp: 1000,     label:'101–1,000 gp',     cells: Object.freeze([7, 2, 1, '25%', '10%', '5%']) }),
+    Object.freeze({ maxGp: 10000,    label:'1,001–10,000 gp',  cells: Object.freeze([2, 1, '25%', '10%', '5%', '1%']) }),
+    Object.freeze({ maxGp: Infinity, label:'≥ 10,001 gp',      cells: Object.freeze(['25%', '10%', '3%', '1%', null, null]) })
+  ])
+});
+
+// Pick the price band for a list price (gp).
+function equipmentPriceBand(listPriceGp){
+  const p = Number(listPriceGp) || 0;
+  const bands = EQUIPMENT_AVAILABILITY.bands;
+  return bands.find(b => p <= b.maxGp) || bands[bands.length - 1];
+}
+
+// Equipment availability for (list price gp, market-class index 0–5), with the RAW modifiers.
+// Returns { kind:'count'|'chance'|'none', count, percent, band, marketClassIdx }.
+//   opts.visitedBefore      → treat the market as one class higher (RR p.43 Mercantile Network — the
+//                             Venturer class power; the wizard gates this to venturers, hasMercantileNetwork).
+//   opts.partyOf12Dedicated → ×2 availability for a 12+ party spending the dedicated activity (RR p.124).
+//   opts.multiParty         → the campaign-wide monthly ceiling is 10× the listed value (RR p.124).
+// A 'count' cell is the deterministic number stocked; a 'chance' cell is a per-unit % chance of a
+// single unit (roll it with rollEquipmentUnitsAvailable). Modifiers compose; for a chance cell only
+// partyOf12Dedicated applies (doubles the percent, capped at 100) — the 10× ceiling is a count notion.
+function equipmentAvailability(listPriceGp, marketClassIdx, opts){
+  opts = opts || {};
+  let idx = Number(marketClassIdx) || 0;
+  if(opts.visitedBefore) idx = Math.max(0, idx - 1);      // one class higher = lower index
+  if(idx < 0) idx = 0;
+  if(idx > 5) idx = 5;
+  const band = equipmentPriceBand(listPriceGp);
+  const cell = band.cells[idx];
+  if(cell == null) return { kind:'none', count:0, percent:0, band: band.label, marketClassIdx: idx };
+  if(typeof cell === 'number'){
+    let count = cell;
+    if(opts.partyOf12Dedicated) count *= 2;
+    if(opts.multiParty) count *= 10;
+    return { kind:'count', count, percent:100, band: band.label, marketClassIdx: idx };
+  }
+  // chance string, e.g. '25%'
+  let percent = parseInt(String(cell), 10) || 0;
+  if(opts.partyOf12Dedicated) percent = Math.min(100, percent * 2);
+  return { kind:'chance', count:1, percent, band: band.label, marketClassIdx: idx };
+}
+
+// Roll the units actually present this month for (list price, market class). A 'count' cell is
+// deterministic; a 'chance' cell rolls per-unit (a single d% for its one unit). Mirrors the
+// percent-single path in rollAvailabilitySpecDetailed.
+function rollEquipmentUnitsAvailable(listPriceGp, marketClassIdx, opts, rng){
+  rng = rng || Math.random;
+  const a = equipmentAvailability(listPriceGp, marketClassIdx, opts);
+  if(a.kind === 'none') return 0;
+  if(a.kind === 'count') return a.count;
+  const r = Math.floor(rng() * 100) + 1;      // chance: one unit gated by a d% roll
+  return (r <= a.percent) ? 1 : 0;
+}
+
+// Equipment price catalog (RR pp.126–130) — transcribed from the clean markdown rulebook
+// (`ACKS Sources/ACKS_Revised_Rulebook.md`, whose linear per-item structure reads reliably) and
+// **cross-checked against the PDF**: the raw reading-order `pdftotext` extract reproduces the same
+// item→cost order, and the rulebook's own prose (RR p.124) confirms a heavy warhorse is 315 gp.
+// (An earlier bulk `-layout` PDF extract column-drifted — it mis-read a goat as 2,000 gp and a
+// crowbar as 15 stone; that artifact is gone here.) Comprehensive across the adventuring categories
+// (weapon · ammunition · armor · gear · mount/livestock); pure-flavor rows (the 14 herbs, foodstuffs,
+// most clothing, prosthetics, treatises, barding — "Varies") are intentionally omitted, since the
+// transaction verb also takes a generic-by-price line ({ name, listPriceGp, stone }) so ANY item
+// transacts off its list price — the catalogue is a convenience lookup, never a gate (CLAUDE §13.6).
+// Encumbrance per RR p.127: most small/medium weapons = 1/6 st, large = 1 st; mounts/livestock are
+// led, not carried (stone:null). Sub-gp prices stored as gp decimals (1 sp = 0.1 gp, 1 cp = 0.01 gp).
+//   { id, name, category, listPriceGp, stone, raw }.
+// NB the RR p.124 *availability* worked example prices the heavy warhorse at 700 gp (a rulebook
+// internal inconsistency vs the 315 gp equipment-list price); both land in the 101–1,000 gp band,
+// so equipmentAvailability() is identical either way — the catalog uses the list price (315). The
+// r4 RR major errata does NOT address this (checked 2026-06-04 — it fixes an adjacent p.130 price,
+// olive oil, but leaves the warhorse discrepancy), so 315 stands as the canonical list price.
+const EQUIPMENT_CATALOG = Object.freeze([
+  // ── Weapons (RR pp.126–127) ──
+  { id:'dagger',           name:'Dagger',              category:'weapon', listPriceGp:3,   stone:1/6, raw:'RR p.126' },
+  { id:'silver-dagger',    name:'Silver Dagger',       category:'weapon', listPriceGp:30,  stone:1/6, raw:'RR p.126' },
+  { id:'knife',            name:'Knife',               category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'short-sword',      name:'Short Sword',         category:'weapon', listPriceGp:7,   stone:1/6, raw:'RR p.126' },
+  { id:'sword',            name:'Sword',               category:'weapon', listPriceGp:10,  stone:1/6, raw:'RR p.126' },
+  { id:'two-handed-sword', name:'Two-Handed Sword',    category:'weapon', listPriceGp:15,  stone:1,   raw:'RR p.126' },
+  { id:'battle-axe',       name:'Battle Axe',          category:'weapon', listPriceGp:7,   stone:1/6, raw:'RR p.126' },
+  { id:'great-axe',        name:'Great Axe',           category:'weapon', listPriceGp:10,  stone:1,   raw:'RR p.126' },
+  { id:'hand-axe',         name:'Hand Axe',            category:'weapon', listPriceGp:4,   stone:1/6, raw:'RR p.126' },
+  { id:'mace',             name:'Mace',                category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'morning-star',     name:'Morning Star',        category:'weapon', listPriceGp:10,  stone:1,   raw:'RR p.126' },
+  { id:'warhammer',        name:'Warhammer',           category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'flail',            name:'Flail',               category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'club',             name:'Club',                category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'staff',            name:'Staff',               category:'weapon', listPriceGp:1,   stone:1,   raw:'RR p.126' },
+  { id:'spear',            name:'Spear',               category:'weapon', listPriceGp:3,   stone:1,   raw:'RR p.126' },
+  { id:'polearm',          name:'Polearm',             category:'weapon', listPriceGp:7,   stone:1,   raw:'RR p.126' },
+  { id:'lance',            name:'Lance',               category:'weapon', listPriceGp:5,   stone:1,   raw:'RR p.126' },
+  { id:'javelin',          name:'Javelin',             category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'dart-5',           name:'Dart (5)',            category:'weapon', listPriceGp:2,   stone:1/6, raw:'RR p.126' },
+  { id:'bola',             name:'Bola',                category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'sling',            name:'Sling',               category:'weapon', listPriceGp:2,   stone:1/6, raw:'RR p.126' },
+  { id:'staff-sling',      name:'Staff Sling',         category:'weapon', listPriceGp:3,   stone:1,   raw:'RR p.126' },
+  { id:'short-bow',        name:'Short Bow',           category:'weapon', listPriceGp:3,   stone:1/6, raw:'RR p.126' },
+  { id:'long-bow',         name:'Long Bow',            category:'weapon', listPriceGp:7,   stone:1,   raw:'RR p.126' },
+  { id:'composite-bow',    name:'Composite Bow',       category:'weapon', listPriceGp:40,  stone:1,   raw:'RR p.126' },
+  { id:'crossbow',         name:'Crossbow',            category:'weapon', listPriceGp:30,  stone:1/6, raw:'RR p.126' },
+  { id:'arbalest',         name:'Arbalest',            category:'weapon', listPriceGp:50,  stone:1,   raw:'RR p.126' },
+  { id:'whip',             name:'Whip',                category:'weapon', listPriceGp:5,   stone:1/6, raw:'RR p.126' },
+  { id:'net',              name:'Net',                 category:'weapon', listPriceGp:1,   stone:1,   raw:'RR p.126' },
+  { id:'sap',              name:'Sap',                 category:'weapon', listPriceGp:1,   stone:1/6, raw:'RR p.126' },
+  { id:'cestus',           name:'Cestus',              category:'weapon', listPriceGp:3,   stone:1/6, raw:'RR p.126' },
+  // ── Ammunition (RR p.126) ──
+  { id:'quiver-20-arrows', name:'Quiver, 20 Arrows',   category:'ammunition', listPriceGp:1, stone:1/6, raw:'RR p.126' },
+  { id:'case-20-bolts',    name:'Case, 20 Bolts',      category:'ammunition', listPriceGp:2, stone:1/6, raw:'RR p.126' },
+  { id:'silver-arrow',     name:'Silver Arrow',        category:'ammunition', listPriceGp:5, stone:1/6, raw:'RR p.126' },
+  // ── Armor (RR p.128 — AC value equals encumbrance in stone) ──
+  { id:'hide-fur-armor',   name:'Hide & Fur Armor',    category:'armor', listPriceGp:10,  stone:1,   raw:'RR p.128' },
+  { id:'padded-armor',     name:'Padded Armor',        category:'armor', listPriceGp:10,  stone:1,   raw:'RR p.128' },
+  { id:'leather-armor',    name:'Leather Armor',       category:'armor', listPriceGp:20,  stone:2,   raw:'RR p.128' },
+  { id:'ring-mail',        name:'Ring Mail',           category:'armor', listPriceGp:30,  stone:3,   raw:'RR p.128' },
+  { id:'scale-armor',      name:'Scale Armor',         category:'armor', listPriceGp:30,  stone:3,   raw:'RR p.128' },
+  { id:'chain-mail',       name:'Chain Mail Armor',    category:'armor', listPriceGp:40,  stone:4,   raw:'RR p.128' },
+  { id:'laminated-linen',  name:'Laminated Linen Armor',category:'armor', listPriceGp:40, stone:4,   raw:'RR p.128' },
+  { id:'banded-plate',     name:'Banded Plate Armor',  category:'armor', listPriceGp:50,  stone:5,   raw:'RR p.128' },
+  { id:'lamellar-armor',   name:'Lamellar Armor',      category:'armor', listPriceGp:50,  stone:5,   raw:'RR p.128' },
+  { id:'plate-armor',      name:'Plate Armor',         category:'armor', listPriceGp:60,  stone:6,   raw:'RR p.128' },
+  { id:'shield',           name:'Shield',              category:'armor', listPriceGp:10,  stone:1,   raw:'RR p.128' },
+  { id:'shield-mirror',    name:'Shield, Mirror',      category:'armor', listPriceGp:250, stone:1,   raw:'RR p.128' },
+  { id:'helmet-heavy',     name:'Helmet, Heavy',       category:'armor', listPriceGp:20,  stone:1/6, raw:'RR p.128' },
+  // ── Adventuring gear (RR p.129) ──
+  { id:'backpack',         name:'Backpack',            category:'gear', listPriceGp:2,    stone:1/6, raw:'RR p.129' },
+  { id:'rope-50',          name:"Rope, 50'",           category:'gear', listPriceGp:1,    stone:1,   raw:'RR p.129' },
+  { id:'torches-6',        name:'Torches (6)',         category:'gear', listPriceGp:0.1,  stone:1,   raw:'RR p.129' },
+  { id:'lantern',          name:'Lantern',             category:'gear', listPriceGp:10,   stone:1,   raw:'RR p.129' },
+  { id:'oil-common',       name:'Oil, Common (1 pint)',category:'gear', listPriceGp:0.3,  stone:1/6, raw:'RR p.129' },
+  { id:'oil-military',     name:'Oil, Military (1 pint)',category:'gear', listPriceGp:2,  stone:1/6, raw:'RR p.129' },
+  { id:'waterskin',        name:'Waterskin',           category:'gear', listPriceGp:0.6,  stone:1/6, raw:'RR p.129', waterCapacityDays:1/5 },  // 25 oz = 1/5 gallon = 1/5 day (RR p.148)
+  { id:'iron-spikes-6',    name:'Iron Spikes (6)',     category:'gear', listPriceGp:1,    stone:1/6, raw:'RR p.129' },
+  { id:'grappling-hook',   name:'Grappling Hook',      category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'crowbar',          name:'Crowbar',             category:'gear', listPriceGp:1,    stone:1/6, raw:'RR p.129' },
+  { id:'thieves-tools',    name:"Thieves' Tools",      category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'thieves-tools-expanded', name:"Thieves' Tools, Expanded", category:'gear', listPriceGp:200,  stone:1/6, raw:'RR p.129' },
+  { id:'thieves-tools-superior', name:"Thieves' Tools, Superior", category:'gear', listPriceGp:1600, stone:1/6, raw:'RR p.129' },
+  { id:'holy-water',       name:'Holy Water (1 pint)', category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'holy-symbol',      name:'Holy Symbol',         category:'gear', listPriceGp:25,   stone:1/6, raw:'RR p.129' },
+  { id:'holy-book',        name:'Holy Book',           category:'gear', listPriceGp:20,   stone:1/2, raw:'RR p.129' },
+  { id:'spell-book-blank', name:'Spell Book (blank)',  category:'gear', listPriceGp:20,   stone:1/2, raw:'RR p.129' },
+  { id:'tent-small',       name:'Tent, Small',         category:'gear', listPriceGp:3,    stone:1,   raw:'RR p.129' },
+  { id:'tent-large',       name:'Tent, Large',         category:'gear', listPriceGp:20,   stone:4,   raw:'RR p.129' },
+  { id:'tinderbox',        name:'Tinderbox (flint & steel)', category:'gear', listPriceGp:0.8, stone:1/6, raw:'RR p.129' },
+  { id:'mirror-steel',     name:'Mirror (hand-sized, steel)', category:'gear', listPriceGp:5, stone:1/6, raw:'RR p.129' },
+  { id:'lock',             name:'Lock',                category:'gear', listPriceGp:20,   stone:1/6, raw:'RR p.129' },
+  { id:'manacles',         name:'Manacles',            category:'gear', listPriceGp:2,    stone:1/6, raw:'RR p.129' },
+  { id:'craftsmans-tools', name:"Craftsman's Tools",   category:'gear', listPriceGp:25,   stone:1,   raw:'RR p.129' },
+  { id:'saddle-riding',    name:'Saddle and Tack, Riding',   category:'gear', listPriceGp:10, stone:1,   raw:'RR p.129' },
+  { id:'saddle-military',  name:'Saddle and Tack, Military', category:'gear', listPriceGp:25, stone:1,   raw:'RR p.129' },
+  { id:'saddle-draft',     name:'Saddle and Tack, Draft',    category:'gear', listPriceGp:5,  stone:1,   raw:'RR p.129' },
+  { id:'saddlebag',        name:'Saddlebag',           category:'gear', listPriceGp:5,    stone:1/6, raw:'RR p.129' },
+  // ── Provisions (RR pp.131–133, p.278 — Phase 2.5 Provisioning) ──
+  // Range-priced (Provisioning §2.1 / decision §14.1): RAW gives ration prices as a BAND (grade/market
+  // variation) with no mechanic to collapse it, so the catalog carries priceMinGp/priceMaxGp; the
+  // buyer picks the grade (default the low/common end = listPriceGp), and the RR p.124 availability
+  // lookup runs off the chosen price. listPriceGp = the common-end default so existing price/availability
+  // code keeps working unchanged. The week-pack is the expedition staple (1 st ≈ 7 person-day rations =
+  // food 1/6 st/day + water carried separately). Iron keeps; Standard is perishable (spoilage deferred).
+  { id:'rations-iron-week',     name:'Rations, Iron (one week)',     category:'gear', listPriceGp:1,    priceMinGp:1,    priceMaxGp:6, stone:1,  raw:'RR p.131', rationType:'iron'     },
+  { id:'rations-standard-week', name:'Rations, Standard (one week)', category:'gear', listPriceGp:0.35, priceMinGp:0.35, priceMaxGp:3, stone:1,  raw:'RR p.131', rationType:'standard' },
+  { id:'barrel-20gal',          name:'Barrel (20 gallon)',           category:'gear', listPriceGp:0.3,  stone:15, raw:'RR p.133', waterCapacityDays:20 },  // bulk water container = 20 days
+  // Animal Feed (RR p.130) — mount fodder; per lb (1 st ≈ 10 lb from the 2 sp/st travel rate). Consumed
+  // only by the deferred Mounts wave (V6); listed now so the catalog is complete.
+  { id:'animal-feed-superior',  name:'Animal Feed, Superior (1 lb)', category:'gear', listPriceGp:0.02, stone:0.1, raw:'RR p.130' },
+  { id:'animal-feed-inferior',  name:'Animal Feed, Inferior (1 lb)', category:'gear', listPriceGp:0.01, stone:0.1, raw:'RR p.130' },
+  // ── Mounts & livestock (RR p.130 — led, not carried; stone:null) ──
+  { id:'horse-light-war',    name:'Horse, Light War',    category:'mount', listPriceGp:150,  stone:null, raw:'RR p.130' },
+  { id:'horse-medium-war',   name:'Horse, Medium War',   category:'mount', listPriceGp:250,  stone:null, raw:'RR p.130' },
+  { id:'horse-heavy-war',    name:'Horse, Heavy War',    category:'mount', listPriceGp:315,  stone:null, raw:'RR p.130' },
+  { id:'horse-light-riding', name:'Horse, Light Riding', category:'mount', listPriceGp:75,   stone:null, raw:'RR p.130' },
+  { id:'horse-medium-riding',name:'Horse, Medium Riding',category:'mount', listPriceGp:40,   stone:null, raw:'RR p.130' },
+  { id:'horse-steppe-riding',name:'Horse, Steppe Riding',category:'mount', listPriceGp:60,   stone:null, raw:'RR p.130' },
+  { id:'horse-steppe-war',   name:'Horse, Steppe War',   category:'mount', listPriceGp:120,  stone:null, raw:'RR p.130' },
+  { id:'horse-medium-draft', name:'Horse, Medium Draft', category:'mount', listPriceGp:30,   stone:null, raw:'RR p.130' },
+  { id:'horse-heavy-draft',  name:'Horse, Heavy Draft',  category:'mount', listPriceGp:40,   stone:null, raw:'RR p.130' },
+  { id:'horse-steppe-draft', name:'Horse, Steppe Draft', category:'mount', listPriceGp:30,   stone:null, raw:'RR p.130' },
+  { id:'mule-draft',         name:'Mule, Draft',         category:'mount', listPriceGp:20,   stone:null, raw:'RR p.130' },
+  { id:'mule-riding',        name:'Mule, Riding',        category:'mount', listPriceGp:30,   stone:null, raw:'RR p.130' },
+  { id:'mule-war',           name:'Mule, War',           category:'mount', listPriceGp:50,   stone:null, raw:'RR p.130' },
+  { id:'donkey-draft',       name:'Donkey, Draft',       category:'mount', listPriceGp:10,   stone:null, raw:'RR p.130' },
+  { id:'camel-riding',       name:'Camel, Riding',       category:'mount', listPriceGp:100,  stone:null, raw:'RR p.130' },
+  { id:'ox-draft',           name:'Ox, Draft',           category:'mount', listPriceGp:40,   stone:null, raw:'RR p.130' },
+  { id:'dog-war',            name:'Dog, War',            category:'mount', listPriceGp:75,   stone:null, raw:'RR p.130' },
+  { id:'dog-hunting',        name:'Dog, Hunting',        category:'mount', listPriceGp:10,   stone:null, raw:'RR p.130' },
+  { id:'hawk-hunting',       name:'Hawk, Hunting',       category:'mount', listPriceGp:20,   stone:null, raw:'RR p.130' },
+  { id:'elephant-riding',    name:'Elephant, Riding',    category:'mount', listPriceGp:1500, stone:null, raw:'RR p.130' },
+  { id:'elephant-war',       name:'Elephant, War',       category:'mount', listPriceGp:2000, stone:null, raw:'RR p.130' },
+  { id:'cow',                name:'Cow',                 category:'mount', listPriceGp:10,   stone:null, raw:'RR p.130' },
+  { id:'pig',                name:'Pig',                 category:'mount', listPriceGp:3,    stone:null, raw:'RR p.130' },
+  { id:'sheep',              name:'Sheep',               category:'mount', listPriceGp:2,    stone:null, raw:'RR p.130' },
+  { id:'goat',               name:'Goat',                category:'mount', listPriceGp:3,    stone:null, raw:'RR p.130' },
+  { id:'chicken',            name:'Chicken',             category:'mount', listPriceGp:0.1,  stone:null, raw:'RR p.130' }
+]);
+function lookupEquipment(id){ return EQUIPMENT_CATALOG.find(e => e.id === id) || null; }
+function equipmentByCategory(cat){ return EQUIPMENT_CATALOG.filter(e => e.category === cat); }
 
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
@@ -637,7 +931,13 @@ Object.assign(ACKS, {
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.
   HIRELING_MARKET_CLASSES, HIRELING_MERCENARIES, HIRELING_HENCHMEN, HIRELING_SPECIALISTS,
-  REACTION_TO_HIRING, HIRELING_SOLICIT_FEE_PER_WEEK, RECRUITMENT_MODIFIERS
+  REACTION_TO_HIRING, HIRELING_SOLICIT_FEE_PER_WEEK, RECRUITMENT_MODIFIERS,
+  // Phase 2.95 Activity Budget (#346 / AB-1) — the per-character daily activity allocation.
+  ACTIVITY_BUDGET, ACTIVITY_COSTS, activityCostFor,
+  // Phase 2.9 Retail Item Trade (#346 flagship / IT-1) — Equipment Availability by Market Class
+  // + the price catalog seed (generic-by-price covers the rest until transcribed).
+  EQUIPMENT_AVAILABILITY, equipmentPriceBand, equipmentAvailability, rollEquipmentUnitsAvailable,
+  EQUIPMENT_CATALOG, lookupEquipment, equipmentByCategory
 });
 
 if(typeof module !== 'undefined' && module.exports){

@@ -217,6 +217,9 @@ const APPLY_DEFERRED = new Set([
   'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter',
   // Heavy individuation fixtures (candidate generation / employment transfer) — out of scope for a table smoke
   'recruit-hireling', 'hireling-calamity',
+  // GP Wave B grammar — typed source/destination handles + real inventory/coin movement;
+  // exercised through applyEvent + marketBuy/marketSell by tests/gp-wave-b.smoke.js.
+  'wealth-transfer', 'item-transfer', 'market-transaction',
 ]);
 
 let applyExercised = 0;
