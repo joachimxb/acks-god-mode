@@ -307,6 +307,50 @@ section('Forage reroll survives a hex that re-resolves to water (arrival / unaut
   ok('the day still carries waterForage after the reroll (line + button persist)', !!j.days[j.days.length - 1].waterForage);
 })();
 
+section('Supply toggle re-resolves the latest day (reapplyLatestDaySurvival)');
+(function () {
+  // flip forage ON after a thirsty day → today re-resolves with a forage throw
+  const c = ACKS.blankCampaign({ name: 'reapply' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 };
+  c.hexes = [ACKS.blankHex({ id: 'p0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'p9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'rc', name: 'Ranger', inventory: [{ catalogId: 'waterskin' }], waterDaysCarried: 0 })];
+  const j = ACKS.blankJourney({ id: 'rj', participantCharacterIds: ['rc'], startHexId: 'p0', currentHexId: 'p0', destinationHexId: 'p9', forageWaterEnabled: false, supplies: { rations: 0, waterRations: 0 } });
+  c.journeys = [j]; c.houseRules = {};
+  ACKS.startJourney(c, j);
+  ACKS.commitJourneyRecord(c, ACKS.proposeJourneyDay(c, { dayInMonth: 2, rng: () => 0.5 }).pendingRecords[0]);
+  const day = j.days[j.days.length - 1];
+  ok('forage-off day records no forage throw', !day.waterForage);
+  ok('forage-off + empty water → dehydrated', c.characters[0].dehydrated === true);
+  j.forageWaterEnabled = true;            // GM flips forage ON
+  const surv = ACKS.reapplyLatestDaySurvival(c, j);
+  ok('reapply returns the re-resolved survival', !!surv);
+  const d1 = j.days[j.days.length - 1];
+  ok('the latest day now records a forage throw', !!(d1.waterForage && d1.waterForage.attempted));
+  ok('dehydration now matches the forage outcome', c.characters[0].dehydrated === !d1.waterForage.success);
+  ok('the day notables carry the re-resolved survival (typed)', (d1.notableEvents || []).every(ne => !ne.type || ['hunger','dehydration','survival-critical','supplies-low','navigation-fail','navigation-recovered','arrived','fording-fail','fording-success','halted','forced-rest'].indexOf(ne.type) >= 0));
+
+  // day 0 / no committed day → reapply is a no-op (the toggle just sets the order)
+  const c2 = ACKS.blankCampaign({ name: 'reapply0' });
+  const j2 = ACKS.blankJourney({ id: 'rj2', participantCharacterIds: [], startHexId: 'x', destinationHexId: 'y' });
+  c2.journeys = [j2];
+  ok('reapply null when no day committed (day 0)', ACKS.reapplyLatestDaySurvival(c2, j2) === null);
+
+  // a share-rations flip preserves the forage die (forageReuse — the water is undisturbed)
+  const c3 = ACKS.blankCampaign({ name: 'reapply3' });
+  c3.currentTurn = 1; c3.currentDayInMonth = 1; c3.calendar = { year: 1, month: 1, day: 1 };
+  c3.hexes = [ACKS.blankHex({ id: 's0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 's9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c3.characters = [ACKS.blankCharacter({ id: 'sc', inventory: [{ catalogId: 'waterskin' }], waterDaysCarried: 0 })];
+  const j3 = ACKS.blankJourney({ id: 'rj3', participantCharacterIds: ['sc'], startHexId: 's0', currentHexId: 's0', destinationHexId: 's9', forageWaterEnabled: true, supplies: { rations: 0, waterRations: 0 } });
+  c3.journeys = [j3]; c3.houseRules = {};
+  ACKS.startJourney(c3, j3);
+  ACKS.commitJourneyRecord(c3, ACKS.proposeJourneyDay(c3, { dayInMonth: 2, rng: () => 0.7 }).pendingRecords[0]);
+  const rolledBefore = c3.journeys[0].days[c3.journeys[0].days.length - 1].waterForage.rolled;
+  ok('forage-on day has a throw', typeof rolledBefore === 'number');
+  j3.shareRations = !j3.shareRations;     // flip an UNRELATED toggle
+  ACKS.reapplyLatestDaySurvival(c3, j3);
+  ok('a share-rations flip preserves the forage die (no re-roll)', c3.journeys[0].days[c3.journeys[0].days.length - 1].waterForage.rolled === rolledBefore);
+})();
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — provisioning.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }
