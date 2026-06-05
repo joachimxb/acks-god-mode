@@ -430,6 +430,28 @@ section('Day-tick PREVIEW determinism — re-proposing the same state is identic
   ok('a different world day re-seeds the preview', dayX !== dayY);
 })();
 
+section('Members-table preview — dayRecord.memberSurvival carries the proposed per-member survival (Joachim 2026-06-05)');
+(function () {
+  // The members table previews the proposed day's conditions while a day-tick proposal is open, so it
+  // agrees with the day review. The day record carries a compact per-member post-day survival snapshot.
+  const c = ACKS.blankCampaign({ name: 'ms' });
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 }; c.houseRules = {};
+  c.hexes = [ACKS.blankHex({ id: 'm0', coord: { q: 0, r: 0 }, terrain: 'grassland' }), ACKS.blankHex({ id: 'm9', coord: { q: 9, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'mc', name: 'M', waterDaysCarried: 0, foodDeficitDays: 0 })];
+  const j = ACKS.blankJourney({ id: 'mj', participantCharacterIds: ['mc'], startHexId: 'm0', currentHexId: 'm0', destinationHexId: 'm9', forageWaterEnabled: true, supplies: { rations: 0, waterRations: 0 } });
+  c.journeys = [j]; ACKS.startJourney(c, j);
+  // no water source + forage FAILS (rng → low roll) + no rations → the proposed day dehydrates + starves
+  const out = ACKS.tickJourneyDay(c, j, { rng: () => 0 });
+  const ms = out.record.dayRecord.memberSurvival;
+  ok('dayRecord carries memberSurvival', !!ms && typeof ms === 'object');
+  ok('memberSurvival keyed by participant id', !!(ms && ms['mc']));
+  const m = (ms && ms['mc']) || {};
+  ok('memberSurvival has the 4 condition fields', ['foodDeficitDays', 'waterDeficitDays', 'conLossHunger', 'conLossThirst'].every(k => k in m));
+  ok('forage-fail day → waterDeficitDays > 0 (Dehydrated in the preview)', m.waterDeficitDays > 0);
+  ok('no-rations day → foodDeficitDays > 0 (Hungry/Underfed in the preview)', m.foodDeficitDays > 0);
+  ok('the pure tick does NOT mutate the real character (snapshot only — applies on commit)', (c.characters[0].waterDeficitDays || 0) === 0);
+})();
+
 // ─── summary ───
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — provisioning.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  - ' + failures.join('\n  - ')); process.exit(1); }

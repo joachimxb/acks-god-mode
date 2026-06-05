@@ -9872,22 +9872,41 @@ return {
   // Per-traveller survival status for the Members table (RR p.275 cascade). The day-tick mirrors
   // the party's hunger / dehydration / fatigue onto each participant, so these read off the
   // character. A GM-facing tracker — no auto-penalty wired yet (escalating effects are a follow-up).
+  // While a day-tick proposal is OPEN, preview the proposed day's survival on a traveller's
+  // conditions — so the members table agrees with the day review + the day-log PENDING row (Joachim
+  // 2026-06-05: "they should be Dehydrated here, as they actually are on the day review"). The day
+  // record carries a compact per-member post-day snapshot (memberSurvival); overlay it on the
+  // committed character so the food/water deficit days + CON loss read the PROPOSED values. The real
+  // character fields are unchanged until commit, so cancelling the proposal reverts the preview.
+  _characterConditionSource(ch){
+    if(!ch) return ch;
+    const p = this.dayTickProposal;
+    if(p){
+      for(const r of (p.pendingRecords||[])){
+        if(r && r.kind === 'journey-day' && r.dayRecord && r.dayRecord.memberSurvival && r.dayRecord.memberSurvival[ch.id]){
+          return Object.assign({}, ch, r.dayRecord.memberSurvival[ch.id]);
+        }
+      }
+    }
+    return ch;
+  },
   characterJourneyConditions(ch){
     const out=[];
+    const src=this._characterConditionSource(ch);   // committed char, or the proposed day's survival while a proposal is open
     // RAW hunger cascade (RR p.278): hungry after 1 day < full rations; underfed after 2 days with no
     // food; starving after ~5 further underfed days (≈ day 7). Provisioning V3 applies the CON loss
     // (1/day while starving); surface it in the badge detail when present.
-    const h=(ch&&(ch.foodDeficitDays!=null?ch.foodDeficitDays:ch.hungerDays))||0;
+    const h=(src&&(src.foodDeficitDays!=null?src.foodDeficitDays:src.hungerDays))||0;
     if(h>0){
       const stage = (h>=7) ? 'Starving' : (h>=2 ? 'Underfed' : 'Hungry');
-      const cl=(ch&&ch.conLossHunger)||0;
+      const cl=(src&&src.conLossHunger)||0;
       out.push({ key:'hunger', label:stage, detail:'day '+h+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-orange-200 text-orange-900' });
     }
     // RAW dehydration (RR p.278): a SINGLE 'dehydrated' stage — no benign "thirsty" precursor; loses
     // 1d6 CON/day (Provisioning V2).
-    const d=(ch&&(ch.waterDeficitDays!=null?ch.waterDeficitDays:ch.dehydrationDays))||0;
+    const d=(src&&(src.waterDeficitDays!=null?src.waterDeficitDays:src.dehydrationDays))||0;
     if(d>0){
-      const cl=(ch&&ch.conLossThirst)||0;
+      const cl=(src&&src.conLossThirst)||0;
       out.push({ key:'dehydration', label:'Dehydrated', detail:'day '+d+(cl>0?(' · −'+cl+' CON'):''), cls:'bg-sky-200 text-sky-900' });
     }
     const f=(ch&&ch.personalFatigue)||0;

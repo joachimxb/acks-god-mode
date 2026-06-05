@@ -2207,6 +2207,21 @@ function tickJourneyDay(campaign, journey, ctx){
   else                      summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi)' + (fordingRecord && fordingRecord.result === 'forded-swim' ? ', forded a river' : '') + ', day ' + newDayIndex;
 
   // ── §4.2 Day record ──
+  // Provisioning — a COMPACT per-member post-day survival snapshot (only the fields
+  // characterJourneyConditions reads), so the members table can PREVIEW the proposed day's
+  // conditions (Dehydrated / Underfed + CON loss) while a day-tick proposal is open, matching the
+  // day review (Joachim 2026-06-05: the members "should be Dehydrated here, as they are on the day
+  // review"). The real per-character fields are still applied only on commit (applyJourneyDaySurvival).
+  const memberSurvival = {};
+  if(survival && survival.members){
+    for(const _sid of Object.keys(survival.members)){
+      const _m = survival.members[_sid] || {};
+      memberSurvival[_sid] = {
+        foodDeficitDays: _m.foodDeficitDays || 0, waterDeficitDays: _m.waterDeficitDays || 0,
+        conLossHunger: _m.conLossHunger || 0, conLossThirst: _m.conLossThirst || 0
+      };
+    }
+  }
   const dayRecord = {
     dayIndex: newDayIndex,
     hexId: (curStep && curStep.hexId) || journey.currentHexId || journey.startHexId || null,  // the hex the party was in at day start
@@ -2222,6 +2237,7 @@ function tickJourneyDay(campaign, journey, ctx){
     fording: fordingRecord,                                  // §24 river-crossing record (null on a dry day)
     rationsConsumed: { food: rationsConsumed, water: waterConsumed, animalFeed: 0, animalWater: 0, shipStores: 0 },
     waterForage: (survival && survival.waterForage) || null, // Provisioning — the day's water-Foraging throw (null = none attempted), for the day log + its reroll
+    memberSurvival,                                          // Provisioning — compact per-member post-day survival (for the members-table proposed-day preview)
     fatigueAccumulated,
     encounters: encounters.map(e => ({ kind: e.triggeredBy || 'wandering-roll', encounterId: e.id })),
     notableEvents: notableEvents.map(n => ({ kind: n.kind, type: n.type || null, text: n.label })),  // type routes each to the nav vs forage row in the day log
