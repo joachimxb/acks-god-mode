@@ -5830,6 +5830,19 @@ function characterActivityBudget(campaign, charId, opts){
     } else {
       const cc = costFor('travel');
       activities.push({ kind:'travel', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
+      // Foraging for water on the march is an ANCILLARY activity that rides in the normal-pace day's free
+      // ancillary hours (RR p.272 — a full-speed day leaves 4 ancillary slots). Count it when the party is
+      // set to forage for water AND the current hex has no free source (a river/lake/settlement needs no
+      // foraging). Per traveller, derived from the journey — exactly like travel. (Half-speed/forced/halted
+      // days already spend the ancillary hours on travel, so foraging doesn't ride along there.)
+      if(j.forageWaterEnabled){
+        const fhex = (typeof findHex === 'function') ? findHex(campaign, j.currentHexId || j.startHexId) : null;
+        const sourced = (A.hasFreshSource && fhex) ? !!A.hasFreshSource(campaign, fhex) : false;
+        if(!sourced){
+          const fc = costFor('forage');
+          activities.push({ kind:'forage', label: (fc.label || 'Forage') + ' for water', cost: (fc.cost || 'ancillary'), strenuous: !!fc.strenuous, sourceKind:'journey', sourceId: j.id });
+        }
+      }
     }
   }
   // Domain administration — RAW: "Administer a domain" IS a dedicated activity (RR p.352, "hold

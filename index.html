@@ -9738,6 +9738,12 @@ return {
       } else {
         acts.push({kind:'journey-overland:' + j.id, icon:'🥾', label:'on journey to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
       }
+      // Foraging for water on the march — an ancillary activity riding in the travel day (RR p.272).
+      // Shown when the party forages AND the current hex has no free water source (matches the
+      // activity-budget contributor in characterActivityBudget).
+      if(j.status === 'in-transit' && j.forageWaterEnabled && !this.journeyHexSourcesWater(j)){
+        acts.push({kind:'journey-forage:' + j.id, icon:'🌿', label:'foraging for water', priority:3, deepLinkTo:link});
+      }
     }
 
     // ── Contributor 5: Shopping TODAY (Item Trade IT-4) — the §8.9 mandate ──
