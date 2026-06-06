@@ -6,6 +6,10 @@
  * primitive (resolveDaySurvival — settled freeFood/freeWater branch); the off-journey 'survival'
  * day-consumer (field dehydration, settled top-up, journey-participant dedup); and party.shareProvisions
  * pooling. The journey path itself is covered (unchanged) by journeys.smoke.js + provisioning.smoke.js.
+ *
+ * V4 (Provisioning §1.4/§9): the general forageActivity / huntActivity verbs — throws (+4 Survival,
+ * terrain/territory mods), yields, the cost-tagged day-stamped provisioning-activity event, and the
+ * activity-budget counting it.
  */
 'use strict';
 const path = require('path');
@@ -181,6 +185,90 @@ section('ignore-rations opt-out skips the survival consumer entirely');
   camp.characters = [mkChar('chr-wild', 'hex-wild', { waterDaysCarried: 0, inventory: [] })];
   const out = ACKS.proposeSurvivalDay(camp, {});
   ok('no survival records when ignore-rations is on', out.pendingRecords.length === 0);
+}
+
+// =============================================================================
+// V4 — the general Forage / Hunt activity (RR p.278 §1.4)
+const HI = () => 0.99;   // d20 = 20
+const LO = () => 0;      // d20 = 1
+const MID = () => 13 / 20;   // d20 = 14
+function provCampaign() {
+  const c = freshCampaign();
+  c.hexes = [
+    { id: 'hex-forest', terrain: 'forest' },
+    { id: 'hex-desert', terrain: 'desert' },
+    { id: 'hex-river', terrain: 'grassland', riverSides: [0] }
+  ];
+  return c;
+}
+const rationDays = ch => (ch.inventory || []).filter(x => ACKS.isRationLine(x)).reduce((s, x) => s + (x.daysRemaining || 0), 0);
+
+section('V4 — forage food (throw, yield, event)');
+{
+  const c = provCampaign();
+  c.characters = [mkChar('chr-f', 'hex-forest', { inventory: [] })];
+  const r = ACKS.forageActivity(c, { actorCharacterId: 'chr-f', forageKind: 'food', rng: HI });
+  ok('forage food: ok + success on a 20 vs 18+', r.ok && r.success === true);
+  ok('forage food success adds 3 day-rations (½ st feeds 3)', rationDays(c.characters[0]) === 3);
+  const e = c.eventLog[c.eventLog.length - 1].event;
+  ok('event kind = provisioning-activity', e.kind === 'provisioning-activity');
+  ok('event cost-tagged ancillary + kind forage', e.payload.activityCost && e.payload.activityCost.slot === 'ancillary' && e.payload.activityCost.kind === 'forage');
+  ok('event day-stamped (appliedAtDay)', e.appliedAtDay === 1);
+}
+section('V4 — forage food fail / +4 Survival / terrain mod');
+{
+  const c = provCampaign(); c.characters = [mkChar('chr-f', 'hex-forest', { inventory: [] })];
+  const r = ACKS.forageActivity(c, { actorCharacterId: 'chr-f', forageKind: 'food', rng: LO });
+  ok('forage food fail (1 vs 18): no rations', r.success === false && rationDays(c.characters[0]) === 0);
+  const c1 = provCampaign(); c1.characters = [mkChar('chr-n', 'hex-forest', { inventory: [] })];
+  ok('food 14 vs 18 without Survival fails', ACKS.forageActivity(c1, { actorCharacterId: 'chr-n', forageKind: 'food', rng: MID }).success === false);
+  const c2 = provCampaign(); c2.characters = [mkChar('chr-s', 'hex-forest', { inventory: [], proficiencies: ['Survival'] })];
+  const r2 = ACKS.forageActivity(c2, { actorCharacterId: 'chr-s', forageKind: 'food', rng: MID });
+  ok('food 14+4 vs 18 WITH Survival succeeds (+4 bonus)', r2.success === true && r2.bonus === 4);
+  const c3 = provCampaign(); c3.characters = [mkChar('chr-d', 'hex-desert', { inventory: [], proficiencies: ['Survival'] })];
+  ok('food in desert applies −4 terrain mod', ACKS.forageActivity(c3, { actorCharacterId: 'chr-d', forageKind: 'food', rng: HI }).terrMod === -4);
+}
+section('V4 — forage water (auto at source / no source / firewood)');
+{
+  const c = provCampaign();
+  const ch = mkChar('chr-w', 'hex-river', { waterDaysCarried: 0, inventory: [{ name: 'Waterskin', catalogId: 'waterskin', stone: 0.2 }] });
+  c.characters = [ch];
+  const r = ACKS.forageActivity(c, { actorCharacterId: 'chr-w', forageKind: 'water' });
+  ok('water at a fresh source auto-succeeds (no roll)', r.success === true && r.auto === true);
+  ok('water auto fills to capacity', Math.abs(ch.waterDaysCarried - ACKS.waterCapacityDays(ch)) < 1e-9);
+  ok('auto water event carries NO activityCost (free)', c.eventLog[c.eventLog.length - 1].event.payload.activityCost == null);
+  // no source: 15 waterskins = 3 days capacity
+  const c2 = provCampaign();
+  const skins = []; for (let i = 0; i < 15; i++) skins.push({ name: 'Waterskin', catalogId: 'waterskin', stone: 0.2 });
+  const ch2 = mkChar('chr-w2', 'hex-forest', { waterDaysCarried: 0, inventory: skins });
+  c2.characters = [ch2];
+  const cap = ACKS.waterCapacityDays(ch2);
+  const r2 = ACKS.forageActivity(c2, { actorCharacterId: 'chr-w2', forageKind: 'water', rng: HI });
+  ok('water forage (no source) success credits min(cap, 3)', r2.success === true && Math.abs(ch2.waterDaysCarried - Math.min(cap, 3)) < 1e-9, 'cap=' + cap + ' water=' + ch2.waterDaysCarried);
+  // firewood in a forest = 3+
+  const c3 = provCampaign(); c3.characters = [mkChar('chr-fw', 'hex-forest', { inventory: [] })];
+  const r3 = ACKS.forageActivity(c3, { actorCharacterId: 'chr-fw', forageKind: 'firewood', rng: HI });
+  ok('firewood success adds a Firewood item', r3.success === true && c3.characters[0].inventory.some(x => x.name === 'Firewood'));
+}
+section('V4 — hunt + budget counting + error paths');
+{
+  const c = provCampaign(); c.characters = [mkChar('chr-h', 'hex-forest', { inventory: [] })];
+  const r = ACKS.huntActivity(c, { actorCharacterId: 'chr-h', rng: HI });
+  ok('hunt success (20 + 4 unsettled vs 14+)', r.ok && r.success === true);
+  ok('hunt territory Unsettled = +4', r.terrMod === 4);
+  ok('hunt success adds 6 day-rations (1 st feeds 6)', rationDays(c.characters[0]) === 6);
+  ok('hunt flags wandering-monster risk', r.wanderingMonsterRisk === true);
+  ok('hunt event is dedicated', c.eventLog[c.eventLog.length - 1].event.payload.activityCost.slot === 'dedicated');
+  // budget counts a forage (ancillary) + a hunt (dedicated) on the same day
+  const c2 = provCampaign(); c2.characters = [mkChar('chr-b', 'hex-forest', { inventory: [] })];
+  ACKS.forageActivity(c2, { actorCharacterId: 'chr-b', forageKind: 'food', rng: HI });
+  ACKS.huntActivity(c2, { actorCharacterId: 'chr-b', rng: HI });
+  const b = ACKS.characterActivityBudget(c2, 'chr-b');
+  ok('budget counts forage=1 ancillary + hunt=1 dedicated', b.ancillaryUsed === 1 && b.dedicatedUsed === 1);
+  // errors
+  ok('unknown actor → error', ACKS.forageActivity(provCampaign(), { actorCharacterId: 'nope', forageKind: 'food' }).error === 'unknown-actor');
+  const c3 = provCampaign(); c3.characters = [mkChar('chr-x', 'hex-forest')];
+  ok('bad forage kind → error', ACKS.forageActivity(c3, { actorCharacterId: 'chr-x', forageKind: 'gold' }).error === 'bad-forage-kind');
 }
 
 // =============================================================================

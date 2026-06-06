@@ -1031,6 +1031,58 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Forage / Hunt action (Provisioning V4 — Phase_2.5_Provisioning_Plan.md §9). The camp/survival
+     counterpart to 🛒 Trade, over ACKS.forageActivity / huntActivity. Opens from the character sheet
+     (🌿 Forage / 🏹 Hunt) or a hex card. Forage = ancillary, Hunt = dedicated (#346); +4 with Survival;
+     terrain/territory modifiers on food + hunt (RR p.278). Layered at z-75 (above the character sheet). -->
+<div x-show="forage.open" @keydown.escape.window="closeForage()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <div>
+        <h3 class="font-bold text-lg">🌿 Forage / 🏹 Hunt<span x-show="forageActor()" class="font-normal opacity-80"> — <span x-text="forageActor()?.name||'(unnamed)'"></span></span></h3>
+        <p class="text-sm opacity-70">Live off the land (RR p.278). Forage = one ancillary task; hunting takes the day (dedicated).</p>
+      </div>
+      <button @click="closeForage()" class="text-2xl leading-none px-2" title="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <label class="text-sm">Character<br>
+        <select @change="forage.actorId=$event.target.value; forage.lastResult=null" class="text-sm" style="min-width:14rem">
+          <option value="" :selected="!forage.actorId">— pick a character —</option>
+          <template x-for="c in forageCharacters()" :key="c.id"><option :value="c.id" :selected="forage.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
+        </select>
+      </label>
+      <div class="flex gap-1 text-sm flex-wrap">
+        <template x-for="k in [['water','🥤 Water'],['food','🌿 Food'],['firewood','🪵 Firewood'],['hunt','🏹 Hunt']]" :key="k[0]">
+          <button @click="forage.kind=k[0]; forage.lastResult=null" :class="forage.kind===k[0] ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded" x-text="k[1]"></button>
+        </template>
+      </div>
+      <template x-if="forageActor() && forageForecast()">
+        <div class="text-sm border border-ink/20 rounded p-3 bg-black/5 space-y-1">
+          <template x-if="forageForecast().auto"><div>💧 <span x-text="forageForecast().note"></span></div></template>
+          <template x-if="!forageForecast().auto">
+            <div class="space-y-1">
+              <div>Throw: <span class="font-mono" x-text="'1d20' + (forageForecast().bonus?(' +'+forageForecast().bonus+' Survival'):'') + (forageForecast().terrMod?(forageForecast().terrMod>0?(' +'+forageForecast().terrMod):(' '+forageForecast().terrMod)):'') + ' vs ' + forageForecast().target + '+'"></span></div>
+              <div class="opacity-70" x-text="forageForecast().note"></div>
+              <div class="opacity-70">Cost: <span class="font-semibold" x-text="forageForecast().costLabel"></span> activity (#346)<span x-show="forageForecast().territory"> · territory <span x-text="forageForecast().territory"></span></span></div>
+            </div>
+          </template>
+        </div>
+      </template>
+      <template x-if="forage.lastResult">
+        <div class="text-sm rounded p-2" :class="(forage.lastResult.success||forage.lastResult.auto) ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
+          <span x-show="forage.lastResult.auto">💧 Filled up at a fresh-water source.</span>
+          <span x-show="!forage.lastResult.auto" x-text="(forage.lastResult.success?'✓ Success':'✗ Failed') + ' — 🎲 ' + forage.lastResult.rolled + ' vs ' + forage.lastResult.target + '+'"></span>
+          <span x-show="!forage.lastResult.auto && forage.lastResult.success && forage.kind==='hunt'"> · ⚠ wandering-monster risk</span>
+        </div>
+      </template>
+      <div class="flex justify-end gap-2 pt-1">
+        <button @click="closeForage()" class="px-3 py-1.5 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
+        <button @click="runForage()" :disabled="!forageActor()" :class="forageActor() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="forage.kind==='hunt' ? '🏹 Hunt' : '🌿 Forage'"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════ VIEW: MAP (Phase 2.5 Map Mode #225 — M0–M2) ═══════════ -->
 <!-- A first-class SVG hex map: a PURE VIEW over the campaign's hexes (Architecture §11). Geometry
      + fill-layer math live in the engine (acks-engine-subsystems.js §9.7); this is the render +
@@ -6302,6 +6354,7 @@ document.addEventListener('alpine:init', () => {
             <h4 class="font-semibold text-sm">🪙 Vault <span class="opacity-60 font-normal text-xs">· located stashes</span></h4>
             <div class="flex items-center gap-1">
               <button @click="openTrade({ actorCharacterId: characterEditing.id })" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :title="characterAtSettlement(characterEditing) ? ('Buy or sell at '+(characterAtSettlement(characterEditing).name||'the local market')) : 'Buy or sell at a market (pick the settlement in the wizard)'">🛒 Shop</button>
+              <button @click="openForage({ actorCharacterId: characterEditing.id })" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Forage (firewood / water / food) or hunt — live off the land (RR p.278)">🌿 Forage / 🏹 Hunt</button>
               <button @click="openStashTransfer()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Cache carry items/coins here, or draw from a stash at this hex">📦 Transfer items / coins…</button>
             </div>
           </div>
@@ -6959,6 +7012,15 @@ document.addEventListener('alpine:init', () => {
           <p class="text-xs italic opacity-60 mt-1">Retail buy/sell of equipment + mounts (RR p.124 availability), paid through the character's purse.</p>
         </div>
       </template>
+
+      <!-- Forage / Hunt (Provisioning V4) — live off the land here; available on any hex. -->
+      <div class="vellum border border-ink/40 rounded p-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h4 class="font-semibold text-sm">🌿 Forage / 🏹 Hunt</h4>
+          <button @click="openForage({ hexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Forage (firewood / water / food) or hunt at this hex (RR p.278)">🌿 Forage / 🏹 Hunt</button>
+        </div>
+        <p class="text-xs italic opacity-60 mt-1">Foraging is one ancillary task; hunting takes the day. +4 with Survival; terrain &amp; territory modify food &amp; hunting (RR p.278).</p>
+      </div>
 
       <!-- Domain-relevant slim view -->
       <div class="vellum border border-ink/40 rounded p-2">
@@ -9570,6 +9632,31 @@ return {
         units += (p.activityCost && p.activityCost.units) || 1;
       }
       if(units > 0) acts.push({kind:'shopping', icon:'🛒', label:'shopped (' + units + ' ancillary errand' + (units === 1 ? '' : 's') + ')', priority:3});
+    }
+
+    // ── Contributor 6: Foraging / Hunting TODAY (Provisioning V4) — the §8.9 mandate ──
+    // provisioning-activity events (forage = ancillary, hunt = dedicated), windowed to this game day
+    // exactly like shopping. 🌿 foraged / 🏹 hunted (🌿 distinct from the journey 🥾). Auto water-fills
+    // at a source carry no activityCost (free) → not counted.
+    if(Array.isArray(_log) && _log.length){
+      const turn = this.currentCampaign.currentTurn || 1;
+      const day  = this.currentCampaign.currentDayInMonth || 1;
+      let forageUnits = 0, hunted = false;
+      for(const entry of _log){
+        const ev = entry && entry.event;
+        if(!ev || ev.kind !== 'provisioning-activity') continue;
+        const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+        if(at != null && at !== turn) continue;
+        const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
+        if(atDay !== day) continue;
+        const p = ev.payload || {};
+        const mine = p.actorCharacterId === c.id || ((ev.context?.relatedEntities)||[]).some(r => r && r.kind === 'character' && r.id === c.id);
+        if(!mine || !p.activityCost) continue;                 // auto/free water has no cost → skip
+        if(p.activity === 'hunt') hunted = true;
+        else forageUnits += (p.activityCost.units || 1);
+      }
+      if(forageUnits > 0) acts.push({kind:'foraging', icon:'🌿', label:'foraged (' + forageUnits + ' ancillary errand' + (forageUnits === 1 ? '' : 's') + ')', priority:3});
+      if(hunted) acts.push({kind:'hunting', icon:'🏹', label:'hunted (dedicated)', priority:2});
     }
 
     // ── Future contributors land here. Each adds zero or more descriptors. ──
@@ -12366,6 +12453,8 @@ return {
     gName:'', gPrice:null, gStone:null,      // generic-by-price entry
     visitedBefore:false, partyOf12Dedicated:false
   },
+  // Forage / Hunt action (Provisioning V4) — a thin UI over ACKS.forageActivity / huntActivity.
+  forage:{ open:false, actorId:null, kind:'food', lastResult:null },   // kind: 'water'|'food'|'firewood'|'hunt'
   allStashes(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.stashes)) return [];
@@ -12626,6 +12715,65 @@ return {
     if(actorId) this.tradeInitSellRows();
   },
   closeTrade(){ this.trade.open = false; },
+
+  // ── Forage / Hunt action (Provisioning V4) — thin UI over ACKS.forageActivity / huntActivity ──
+  openForage(opts){
+    opts = opts || {};
+    const f = this.forage;
+    f.open = true; f.kind = opts.kind || 'food'; f.lastResult = null;
+    let actorId = opts.actorCharacterId || null;
+    // hex-card entry: pick a character standing on the hex if none supplied
+    if(!actorId && opts.hexId){ const at = (this.currentCampaign?.characters||[]).filter(c => c && c.currentHexId === opts.hexId); if(at[0]) actorId = at[0].id; }
+    f.actorId = actorId;
+  },
+  closeForage(){ this.forage.open = false; },
+  forageActor(){ return this.forage.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.forage.actorId) : null; },
+  forageCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
+  forageHex(){ const c = this.forageActor(); return (c && c.currentHexId) ? (this.currentCampaign?.hexes||[]).find(h => h && h.id === c.currentHexId) : null; },
+  _forageHasProf(re){ const c = this.forageActor(); return !!(c && (c.proficiencies||[]).some(p => re.test(typeof p === 'string' ? p : (p && p.name) || ''))); },
+  _forageTerritory(hex){
+    if(hex && hex.domainId){ const d = (this.currentCampaign?.domains||[]).find(x => x && x.id === hex.domainId);
+      if(d){ const cls = window.ACKS.effectiveDomainClassification ? window.ACKS.effectiveDomainClassification(d) : (d.classification||null); if(cls) return cls; } }
+    return 'Unsettled';
+  },
+  // Forecast for the selected kind: { target, bonus, terrMod, total, costLabel, note, auto?, territory? }.
+  forageForecast(){
+    const c = this.forageActor(); if(!c) return null;
+    const hex = this.forageHex(); const A = window.ACKS;
+    const dry = !!(hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
+    const forest = !!(hex && hex.terrain === 'forest');
+    const surv = this._forageHasProf(/survival/i);
+    const k = this.forage.kind;
+    const mk = (o) => Object.assign({ bonus:0, terrMod:0 }, o, { total: (o.target!=null ? (o.target) : null) });
+    if(k === 'water'){
+      if(A.hasFreshSource && A.hasFreshSource(this.currentCampaign, hex)) return { auto:true, costLabel:'free', note:'Fresh water here — fill up free (no roll, no activity).' };
+      return mk({ target: dry?18:14, bonus: surv?4:0, terrMod:0, costLabel:'ancillary', note:'Water for 3 days (capped at your containers).' });
+    }
+    if(k === 'firewood') return mk({ target: forest?3:14, bonus: surv?4:0, terrMod:0, costLabel:'ancillary', note:'8 st firewood (~4 hrs of fire).' });
+    if(k === 'hunt'){
+      const terr = this._forageTerritory(hex); let tm = 0; if(terr==='Civilized') tm-=4; else if(terr==='Outlands') tm+=2; else if(terr==='Unsettled') tm+=4;
+      return mk({ target:14, bonus: this._forageHasProf(/hunting|survival/i)?4:0, terrMod:tm, costLabel:'dedicated', territory:terr, note:'1 st game, feeds 6 (6 days’ food). Risks a wandering-monster roll.' });
+    }
+    // food
+    const terr = this._forageTerritory(hex); let tm = 0; if(dry) tm-=4; if(terr==='Civilized') tm-=4; else if(terr==='Borderlands') tm-=2;
+    return mk({ target:18, bonus: surv?4:0, terrMod:tm, costLabel:'ancillary', territory:terr, note:'½ st food, feeds 3 (3 days’ food).' });
+  },
+  runForage(){
+    const c = this.forageActor(); if(!c){ this.showToast('Pick a character first.', 3500); return; }
+    const A = window.ACKS; let r;
+    if(this.forage.kind === 'hunt') r = A.huntActivity(this.currentCampaign, { actorCharacterId:c.id });
+    else r = A.forageActivity(this.currentCampaign, { actorCharacterId:c.id, forageKind:this.forage.kind });
+    if(!r || !r.ok){ this.showToast('Could not ' + this.forage.kind + ': ' + ((r && r.error) || 'unknown error'), 4000); return; }
+    this.forage.lastResult = r;
+    this.markDirty(); this.schedulePersist();
+    let msg;
+    if(r.auto) msg = (c.name||'They') + ' filled up at a fresh-water source.';
+    else { const verb = this.forage.kind === 'hunt' ? 'Hunt' : ('Forage ' + this.forage.kind);
+      msg = verb + (r.success ? ' succeeded' : ' failed') + ' (🎲 ' + r.rolled + (r.bonus?('+'+r.bonus):'') + (r.terrMod?(r.terrMod>0?('+'+r.terrMod):(''+r.terrMod)):'') + ' vs ' + r.target + '+).';
+      if(r.success && this.forage.kind === 'hunt') msg += ' Brought down game — 6 days’ food. ⚠ wandering-monster risk.';
+    }
+    this.showToast(msg, 5500);
+  },
   // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
   // shown ONLY to venturers, and auto-set when this venturer has previously entered this market.
   tradeActorIsVenturer(){ return window.ACKS.hasMercantileNetwork(this.tradeActor()); },

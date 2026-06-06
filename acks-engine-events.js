@@ -101,6 +101,11 @@ const EVENT_KINDS = Object.freeze([
   'journey-encounter',
   'journey-aborted',
   'journey-rerouted',
+  // Phase 2.5 Provisioning V4 (2026-06-06) — the general Forage/Hunt activity record. Emitted by
+  // forageActivity/huntActivity (record-only; the verb already applied the yield) — opted out of the
+  // Event Wizard below. Carries payload.activityCost so the #346 day budget counts it (forage=ancillary,
+  // hunt=dedicated).
+  'provisioning-activity',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
   'gm-narrative',
   // GP Wave B (2026-06-04, Architecture.md §4.3) — the wealth/item movement grammar.
@@ -381,6 +386,14 @@ const EVENT_SCHEMAS = Object.freeze({
   'gm-narrative': {
     R: { title: 'string', body: 'string' },
     O: { notes: 'string' }
+  },
+  // Phase 2.5 Provisioning V4 — Forage/Hunt record. activity = 'forage'|'hunt'; forageKind =
+  // 'water'|'food'|'firewood' (forage only). Carries the resolved throw + yield + the activityCost tag.
+  'provisioning-activity': {
+    R: { actorCharacterId: 'string', activity: 'string' },
+    O: { forageKind: 'string', rolled: 'number', target: 'number', bonus: 'number', terrMod: 'number',
+         success: 'boolean', auto: 'boolean', yieldDays: 'number', yieldStone: 'number',
+         wanderingMonsterRisk: 'boolean', hexId: 'string', activityCost: 'object', narrative: 'string' }
   },
   // GP Wave B (2026-06-04, Architecture.md §4.3). source/destination are typed handles:
   //   { kind:'treasury'|'character-gp'|'character-stash'|'hex-stash'|'stash'|'party-stash'|'external', id?, label? }
@@ -2508,6 +2521,127 @@ function reverseMarketTransaction(campaign, eventId, opts){
 // Per feedback-event-wizard-as-gm-surface: every event kind is GM-emittable through
 // the Event Wizard by default. Subsystems opt OUT here when they own a dedicated flow
 // that would skip important logic if emitted raw.
+// ─── Phase 2.5 Provisioning V4 — the general Forage / Hunt activity (RR p.278 §1.4) ───────────────
+// Any character can forage (firewood / water / food — ancillary) or hunt (food — dedicated), on or off a
+// journey. The verb rolls the throw, applies the yield to the character's inventory/water IMMEDIATELY,
+// and logs a RECORD-only 'provisioning-activity' event carrying payload.activityCost so the #346 day
+// budget counts it (forage = ancillary, hunt = dedicated). +4 with the Survival proficiency (hunt also
+// honors a Hunting proficiency). Terrain/territory modifiers apply to FOOD + HUNT, not water (RR p.278);
+// foraged water is free + automatic at a fresh source. No replay handler — like marketBuy, the event is
+// the audit record of a move the verb already made.
+
+function _provHasProf(ch, re){
+  return !!(ch && Array.isArray(ch.proficiencies)) && ch.proficiencies.some(p => re.test(typeof p === 'string' ? p : (p && p.name) || ''));
+}
+// Territory class for forage/hunt modifiers: a hex's domain classification, else 'Unsettled' (wilderness).
+function _provTerritoryClass(campaign, hex){
+  const A = _gpwACKS();
+  if(hex && hex.domainId){
+    const d = (campaign.domains || []).find(x => x && x.id === hex.domainId);
+    if(d){ const cls = (typeof A.effectiveDomainClassification === 'function') ? A.effectiveDomainClassification(d) : (d.classification || null); if(cls) return cls; }
+  }
+  return 'Unsettled';
+}
+function _provD20(rng){ return 1 + Math.floor((rng || Math.random)() * 20); }
+// add N day-rations of food as an iron ration line to the character's carry inventory
+function _provAddFoodDays(ch, days){
+  const A = _gpwACKS();
+  ch.inventory = ch.inventory || [];
+  ch.inventory.push((typeof A.makeRationLine === 'function')
+    ? A.makeRationLine({ rationType: 'iron', daysRemaining: days })
+    : { name: 'Foraged food', rationType: 'iron', daysRemaining: days, stone: days * (1 / 6) });
+}
+function _provNarrative(ch, p){
+  const who = ch.name || 'A character';
+  if(p.activity === 'hunt') return who + (p.success ? ' hunts and brings down game (6 days’ food).' : ' hunts but finds no game.');
+  const k = p.forageKind || 'food';
+  if(p.auto) return who + ' tops up at a fresh-water source.';
+  if(!p.success) return who + ' forages for ' + k + ' but comes up empty.';
+  if(k === 'water') return who + ' forages and finds water (' + (p.yieldDays || 3) + ' days’ worth).';
+  if(k === 'firewood') return who + ' gathers firewood (8 st).';
+  return who + ' forages and gathers food (3 days’ worth).';
+}
+// Build + log the record-only provisioning-activity event (cost-tagged for #346 unless auto/free).
+function _provEvent(campaign, ch, hex, p){
+  const slot = (p.activity === 'hunt') ? 'dedicated' : 'ancillary';
+  const label = (p.activity === 'hunt') ? 'Hunt' : ('Forage ' + (p.forageKind || 'food'));
+  const payload = Object.assign({ actorCharacterId: ch.id, hexId: (hex && hex.id) || ch.currentHexId || null }, p);
+  if(!p.auto) payload.activityCost = { slot: slot, units: 1, kind: p.activity, strenuous: (p.activity === 'hunt'), label: label };
+  const ev = newEvent('provisioning-activity', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: (hex && hex.id) || ch.currentHexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null, relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
+    payload: payload
+  });
+  return _logAppliedEvent(campaign, ev, { narrativeSummary: p.narrative || _provNarrative(ch, p) });
+}
+
+function forageActivity(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const kind = opts.forageKind || 'food';
+  if(['water', 'food', 'firewood'].indexOf(kind) < 0) return { ok: false, error: 'bad-forage-kind' };
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, ch.currentHexId) : null;
+  const rng = opts.rng || Math.random;
+  const dry = !!(hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
+  const forest = !!(hex && hex.terrain === 'forest');
+  const hasSurvival = _provHasProf(ch, /survival/i);
+  const bonus = hasSurvival ? 4 : 0;
+
+  if(kind === 'water'){
+    const cap = (typeof A.waterCapacityDays === 'function') ? A.waterCapacityDays(ch) : 0;
+    if(typeof A.hasFreshSource === 'function' && A.hasFreshSource(campaign, hex)){
+      ch.waterDaysCarried = cap; ch.waterDeficitDays = 0; ch.dehydrated = false;
+      const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'water', success: true, auto: true, yieldDays: cap });
+      return { ok: true, success: true, auto: true, event: ev, newWaterDays: ch.waterDaysCarried };
+    }
+    const target = dry ? 18 : 14;
+    const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
+    if(success){ ch.waterDaysCarried = Math.min(cap, Math.max(Number(ch.waterDaysCarried) || 0, 3)); ch.waterDeficitDays = 0; ch.dehydrated = false; }
+    const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'water', rolled, target, bonus, success, yieldDays: success ? 3 : 0 });
+    return { ok: true, success, rolled, target, bonus, event: ev, newWaterDays: ch.waterDaysCarried };
+  }
+
+  if(kind === 'firewood'){
+    const target = forest ? 3 : 14;
+    const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
+    if(success){ ch.inventory = ch.inventory || []; ch.inventory.push({ name: 'Firewood', stone: 8, notes: 'foraged' }); }
+    const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'firewood', rolled, target, bonus, success, yieldStone: success ? 8 : 0 });
+    return { ok: true, success, rolled, target, bonus, event: ev };
+  }
+
+  // food (18+, +4 Survival, −4 barrens/desert, territory −4 Civilized / −2 Borderlands)
+  const territory = _provTerritoryClass(campaign, hex);
+  let terrMod = 0;
+  if(dry) terrMod -= 4;
+  if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Borderlands') terrMod -= 2;
+  const target = 18;
+  const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
+  if(success) _provAddFoodDays(ch, 3);   // ½ st food feeds 3 = 3 day-rations
+  const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'food', rolled, target, bonus, terrMod, success, yieldDays: success ? 3 : 0, yieldStone: success ? 0.5 : 0 });
+  return { ok: true, success, rolled, target, bonus, terrMod, event: ev };
+}
+
+function huntActivity(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, ch.currentHexId) : null;
+  const rng = opts.rng || Math.random;
+  const territory = _provTerritoryClass(campaign, hex);
+  const bonus = _provHasProf(ch, /hunting|survival/i) ? 4 : 0;
+  let terrMod = 0;
+  if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Outlands') terrMod += 2; else if(territory === 'Unsettled') terrMod += 4;
+  const target = 14;
+  const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
+  if(success) _provAddFoodDays(ch, 6);   // 1 st game feeds 6 = 6 day-rations
+  const ev = _provEvent(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, yieldDays: success ? 6 : 0, yieldStone: success ? 1 : 0, wanderingMonsterRisk: true });
+  return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, event: ev };
+}
+
 const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'engine-standard-turn',  // engine internal flow — emitting raw would create chaos
   'recruit-hireling',      // owned by Recruiting Wizard — skips candidate individuation
@@ -2520,7 +2654,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'journey-start', 'journey-day-tick', 'journey-arrived', 'journey-lost', 'journey-resupply', 'journey-encounter', 'journey-aborted', 'journey-rerouted',
   // GP Wave B — owned by marketBuy/marketSell (raw emit would skip the availability + funds
   // gate). The wealth-transfer + item-transfer primitives stay emittable (legit GM move verbs).
-  'market-transaction'
+  'market-transaction',
+  // Phase 2.5 Provisioning V4 — owned by forageActivity/huntActivity (raw emit would skip the
+  // throw + yield application; the event is a record of what the verb already did).
+  'provisioning-activity'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
@@ -2570,7 +2707,9 @@ Object.assign(ACKS, {
   previouslyEnteredMarket,
   // Rollback verb behind the Current Activities "Refund" reject (Joachim 2026-06-05) — a
   // compensating counter-trade that voids the original (dropping it from the budget + ceiling).
-  reverseMarketTransaction
+  reverseMarketTransaction,
+  // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4).
+  forageActivity, huntActivity
 });
 
 if(typeof module !== 'undefined' && module.exports){
