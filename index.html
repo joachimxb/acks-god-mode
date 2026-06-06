@@ -3151,14 +3151,16 @@ document.addEventListener('alpine:init', () => {
 
     <!-- Current Activities — the activity-centric companion table (Joachim 2026-06-05). One row per
          (character × activity) for TODAY, with a context-labelled reject that ROLLS BACK the activity:
-         untick a domain administration, refund a market trade, or jump to a journey to Stop it. -->
-    <template x-if="currentCampaign && currentActivityRows().length > 0">
+         untick a domain administration, refund a market trade, or jump to a journey to Stop it.
+         Rendered whenever the dashboard has rows (active characters present), with an empty-state
+         row so the section is visibly present even before anyone has acted today (Joachim 2026-06-06). -->
+    <template x-if="currentCampaign && activityDashboardRows().length > 0">
       <div class="vellum border border-ink rounded p-3 overflow-x-auto">
         <div class="flex justify-between items-baseline flex-wrap gap-2 mb-2">
           <h3 class="font-bold text-lg">Current Activities</h3>
           <span class="text-xs opacity-60" x-text="pluralize(currentActivityRows().length, 'activity', 'activities') + ' under way today'"></span>
         </div>
-        <p class="text-xs opacity-70 mb-2">Reject rolls the activity back: <strong>untick</strong> a domain administration, <strong>refund</strong> a market trade (coins + goods returned exactly), or open a journey to <strong>Stop Moving</strong> (a travelled day can't be rewound).</p>
+        <p x-show="currentActivityRows().length > 0" class="text-xs opacity-70 mb-2">Reject rolls the activity back: <strong>untick</strong> a domain administration, <strong>refund</strong> a market trade (coins + goods returned exactly), or open a journey to <strong>Stop Moving</strong> (a travelled day can't be rewound).</p>
         <table class="bookkeeping text-sm w-full">
           <thead><tr>
             <th style="text-align:left">Character</th>
@@ -3167,6 +3169,9 @@ document.addEventListener('alpine:init', () => {
             <th style="text-align:right">Reject</th>
           </tr></thead>
           <tbody>
+            <template x-if="currentActivityRows().length === 0">
+              <tr><td colspan="4" class="text-center opacity-60 italic py-3">Nothing under way today — activities appear here as characters administer domains, trade at markets, or set out to travel, each with a one-click Reject to roll it back.</td></tr>
+            </template>
             <template x-for="(row, ri) in currentActivityRows()" :key="(row.c.id) + ':' + (row.activity.sourceKind||'') + ':' + (row.activity.sourceId||'') + ':' + ri">
               <tr :class="row.overBudget ? 'bg-red-50' : ''">
                 <td style="text-align:left">
