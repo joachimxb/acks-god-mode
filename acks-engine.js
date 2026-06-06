@@ -123,7 +123,9 @@ const ID_PREFIXES = Object.freeze({
   oath:                 'oth',
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30) — Project + Constructible
   project:              'prj',
-  constructible:        'cst'
+  constructible:        'cst',
+  // Phase 2.95 Hirelings (#310) — day-aware recruitment drive (sub-object on the patron, 2026-06-06)
+  recruitmentDrive:     'rcd'
 });
 
 function newId(prefix){
@@ -5800,6 +5802,18 @@ function characterActivityBudget(campaign, charId, opts){
       seenDomains[d.id] = 1;
       const cc = costFor('domain-admin');
       activities.push({ kind:'domain-admin', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'domain', sourceId: d.id });
+    }
+  }
+
+  // Recruitment (Phase 2.95 #310) — soliciting hirelings is an ongoing ANCILLARY activity (RR p.164:
+  // "These count as ancillary activities"), one per ACTIVE drive (per hireling type) per day while the
+  // patron is in the market. Derived from the patron's active recruitmentDrives, exactly like travel
+  // from a journey; the 'recruitment' day-consumer advances them (½/¼/remainder over 3 weeks).
+  if(char && Array.isArray(char.recruitmentDrives)){
+    for(const d of char.recruitmentDrives){
+      if(!d || d.status !== 'active') continue;
+      const cc = costFor('recruit');
+      activities.push({ kind:'recruit', label: cc.label + (d.hireTypeLabel ? (' (' + d.hireTypeLabel + ')') : ''), cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'recruitment-drive', sourceId: d.id });
     }
   }
 

@@ -738,6 +738,11 @@ function blankCharacter(opts={}){
     inventory: opts.inventory || [],
     coins: _coins,                  // {pp,gp,ep,sp,cp} multi-denomination purse (RAW)
     personalGp: _coins.gp,          // synced mirror of coins.gp (canonical-setter rule #10)
+    // Phase 2.95 Hirelings (#310) — day-aware recruitment. A patron "in the market for hirelings"
+    // runs ongoing solicitation drives: each costs 1 ancillary/day/type (RR p.164) + a weekly fee,
+    // with availability trickling in 1/2, 1/4, remainder over 3 weeks. Advanced by the Day Clock
+    // (the 'recruitment' day-consumer). Empty = not soliciting. Lazy-defaulted on load.
+    recruitmentDrives: opts.recruitmentDrives || [],
     // 2026-05-30 post-survey reservations — additive optional fields.
     // Phase 6 Codes (gap I, JJ pp.394-398) — Heroic Codes + Heroic Fate. Research-first
     // per Joachim's response; reserved here so the schema is stable.

@@ -1120,6 +1120,138 @@ function solicitHirelings(opts){
   };
 }
 
+// ─── Day-aware recruitment drives (Phase 2.95 #310 — RR p.164) ─────────────────────────────────
+// Soliciting for hirelings is an ONGOING activity: the patron is "in the market" for up to 3 weeks,
+// candidates trickle in (½ week 1, ¼ week 2, remainder week 3), each week costs the solicit fee, and it
+// costs 1 ancillary/day (the activity budget reads the active drive). The global Day Clock advances it
+// (the 'recruitment' day-consumer). A drive lives on the patron (character.recruitmentDrives[]).
+
+// Game-day ordinal (months are 30 days) — a monotonic day count for measuring elapsed weeks.
+function _campaignDayOrd(campaign){
+  return (((campaign && campaign.currentTurn) || 1) - 1) * 30 + (((campaign && campaign.currentDayInMonth) || 1));
+}
+function recruitmentDrivesForPatron(campaign, patronId){
+  const c = ((campaign && campaign.characters) || []).find(x => x && x.id === patronId);
+  return (c && Array.isArray(c.recruitmentDrives)) ? c.recruitmentDrives : [];
+}
+function activeRecruitmentDrivesForPatron(campaign, patronId){
+  return recruitmentDrivesForPatron(campaign, patronId).filter(d => d && d.status === 'active');
+}
+
+// Start a solicitation drive: rolls the total availability + the RAW 3-week schedule once
+// (solicitHirelings), reveals week 1 immediately, accrues week 1's fee. PURE state (the caller debits
+// the returned feeOwedGp through the GP grammar). Returns { ok, drive, feeOwedGp } or { ok:false, error }.
+function startRecruitmentDrive(campaign, opts){
+  opts = opts || {};
+  const patron = ((campaign && campaign.characters) || []).find(c => c && c.id === opts.patronCharacterId);
+  if(!patron) return { ok:false, error:'unknown-patron' };
+  if(opts.marketClassIdx == null || opts.marketClassIdx < 0 || opts.marketClassIdx > 5) return { ok:false, error:'bad-market-class' };
+  let sol;
+  try { sol = solicitHirelings({ hireCategory: opts.hireCategory, hireTypeId: opts.hireTypeId, marketClassIdx: opts.marketClassIdx, rng: opts.rng }); }
+  catch(e){ return { ok:false, error:'solicit-failed', detail:String((e && e.message) || e) }; }
+  const ord = _campaignDayOrd(campaign);
+  const drive = {
+    id: newId(ID_PREFIXES.recruitmentDrive),
+    patronCharacterId: patron.id,
+    settlementId: opts.settlementId || null,
+    marketClassIdx: opts.marketClassIdx,
+    hireCategory: opts.hireCategory, hireTypeId: opts.hireTypeId,
+    hireTypeLabel: (sol.row && sol.row.label) || opts.hireTypeId,
+    startedTurn: (campaign && campaign.currentTurn) || 1, startedDayOrd: ord,
+    totalAvailable: sol.totalAvailable, weekly: (sol.weekly || []).slice(), feeWeekly: sol.feeWeekly,
+    weeksRevealed: 1,                                  // week 1 is available the first week (RR p.164)
+    revealedAvailable: (sol.weekly && sol.weekly[0]) || 0,
+    weeksCharged: 1, feesAccruedGp: sol.feeWeekly,     // week-1 fee due on entering the market
+    status: 'active'
+  };
+  patron.recruitmentDrives = patron.recruitmentDrives || [];
+  patron.recruitmentDrives.push(drive);
+  return { ok:true, drive: drive, feeOwedGp: sol.feeWeekly };
+}
+
+// PURE peek: what a drive would reveal at game-day `dayOrd` (no mutation). null = no new week yet.
+// Returns { weeksRevealed, revealedAvailable, weeksCharged, feeOwed, completed }.
+function _recruitmentDriveRevealAt(d, dayOrd){
+  const elapsedWeeks = Math.max(0, Math.floor((dayOrd - (d.startedDayOrd || dayOrd)) / 7));
+  const target = Math.min(3, 1 + elapsedWeeks);
+  if(target <= d.weeksRevealed) return null;           // no new week elapsed yet
+  const revealedAvailable = (d.weekly || []).slice(0, target).reduce((s, n) => s + (n || 0), 0);
+  const newWeeks = Math.max(0, target - d.weeksCharged);
+  return { weeksRevealed: target, revealedAvailable, weeksCharged: Math.max(d.weeksCharged, target), feeOwed: newWeeks * (d.feeWeekly || 0), completed: target >= 3 };
+}
+function _applyRecruitmentReveal(d, rev){
+  d.weeksRevealed = rev.weeksRevealed; d.revealedAvailable = rev.revealedAvailable;
+  d.weeksCharged = rev.weeksCharged; d.feesAccruedGp = (d.feesAccruedGp || 0) + (rev.feeOwed || 0);
+  if(rev.completed) d.status = 'complete';              // all candidates available — search done (RR p.164)
+}
+
+// Advance every active drive to the current game day: reveal newly-available weeks + accrue their fees
+// (no gp debit — the day-tick / caller debits the returned feeOwedGp). Returns the changed drives:
+// [{ patronId, drive, weeksNewlyRevealed, feeOwedGp, completed }].
+function advanceRecruitmentDrives(campaign, opts){
+  opts = opts || {};
+  const ord = (typeof opts.dayOrd === 'number') ? opts.dayOrd : _campaignDayOrd(campaign);
+  const out = [];
+  for(const c of ((campaign && campaign.characters) || [])){
+    if(!c || !Array.isArray(c.recruitmentDrives)) continue;
+    for(const d of c.recruitmentDrives){
+      if(!d || d.status !== 'active') continue;
+      const rev = _recruitmentDriveRevealAt(d, ord);
+      if(!rev) continue;
+      const before = d.weeksRevealed;
+      _applyRecruitmentReveal(d, rev);
+      out.push({ patronId: c.id, drive: d, weeksNewlyRevealed: rev.weeksRevealed - before, feeOwedGp: rev.feeOwed, completed: rev.completed });
+    }
+  }
+  return out;
+}
+
+// ─── 'recruitment' day-consumer (Calendar §14) — the global Day Clock advances active drives ──────
+// PURE propose: peeks each active drive at the target day and emits one record per drive that reveals a
+// new week (carrying the resolved post-state + the week's fee) + a transient "now available" notable.
+// Commit applies the reveal to the real drive and charges the week's solicit fee from the patron's purse
+// (GP Wave B; RR p.164 — per week, per hireling type). order 45 (after survival 35, before construction 50).
+function proposeRecruitmentDay(campaign, ctx){
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  const dayInMonth = (ctx && ctx.dayInMonth) || ((campaign && campaign.currentDayInMonth) || 1);
+  const dayOrd = (((campaign && campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
+  for(const c of ((campaign && campaign.characters) || [])){
+    if(!c || !Array.isArray(c.recruitmentDrives)) continue;
+    for(const d of c.recruitmentDrives){
+      if(!d || d.status !== 'active') continue;
+      const rev = _recruitmentDriveRevealAt(d, dayOrd);
+      if(!rev) continue;
+      out.pendingRecords.push({ kind: 'recruitment', patronId: c.id, driveId: d.id, reveal: rev });
+      out.notableEvents.push({ kind: 'gm-narrative', type: 'recruitment', transient: true, primaryHexId: null,
+        label: (c.name || 'A patron') + ': ' + rev.revealedAvailable + ' ' + (d.hireTypeLabel || d.hireTypeId) + (rev.completed ? ' available — search complete' : ' available so far'),
+        payload: { characterId: c.id, driveId: d.id } });
+    }
+  }
+  return out;
+}
+function commitRecruitmentRecord(campaign, record){
+  if(!record || record.kind !== 'recruitment' || !record.reveal) return;
+  const A = _jACKS();
+  const c = ((campaign && campaign.characters) || []).find(x => x && x.id === record.patronId);
+  const d = (c && Array.isArray(c.recruitmentDrives)) ? c.recruitmentDrives.find(x => x && x.id === record.driveId) : null;
+  if(!d) return;
+  _applyRecruitmentReveal(d, record.reveal);
+  // charge the week's solicit fee from the patron's purse (RR p.164 — per week, per type), GP Wave B.
+  const fee = record.reveal.feeOwed || 0;
+  if(fee > 0 && typeof A.applyWealthTransfer === 'function'){
+    const spec = { amount: fee, source: { kind: 'character-gp', id: c.id }, destination: { kind: 'external', label: 'Solicitation fee' }, allowOverdraft: true, reason: 'Hireling solicitation fee', bucket: 'recruitment' };
+    try { A.applyWealthTransfer(campaign, spec); if(typeof A.recordWealthTransfer === 'function') A.recordWealthTransfer(campaign, spec, { submittedBy: 'engine' }); } catch(e){}
+  }
+}
+
+// Stop a drive (the patron leaves the market / has hired enough) — marks it 'stopped' (kept for history).
+function stopRecruitmentDrive(campaign, patronId, driveId){
+  const d = recruitmentDrivesForPatron(campaign, patronId).find(x => x && x.id === driveId);
+  if(!d) return { ok:false, error:'drive-not-found' };
+  if(d.status === 'active') d.status = 'stopped';
+  return { ok:true, drive: d };
+}
+
 // individuateHirelingCandidate — materialise a single Character record for a
 // rolled candidate the patron wants to engage. Idempotent insofar as it
 // always produces a fresh Character with stable id; the caller is responsible
@@ -3635,6 +3767,9 @@ Object.assign(ACKS, {
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
+  // Phase 2.95 #310 — day-aware recruitment drives (RR p.164).
+  startRecruitmentDrive, advanceRecruitmentDrives, stopRecruitmentDrive, recruitmentDrivesForPatron, activeRecruitmentDrivesForPatron,
+  proposeRecruitmentDay, commitRecruitmentRecord,
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName, generateBlankHexGrid,
@@ -3659,6 +3794,13 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 35,
     pauseTriggers: ['supplies-low'],
     commit: commitSurvivalRecord
+  });
+  // Phase 2.95 #310 — day-aware recruitment, slot 45: advances active solicitation drives (RR p.164).
+  ACKS.registerDayConsumer('recruitment', {
+    handler: proposeRecruitmentDay,
+    order: 45,
+    pauseTriggers: [],
+    commit: commitRecruitmentRecord
   });
 }
 

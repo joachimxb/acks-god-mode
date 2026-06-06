@@ -674,6 +674,9 @@ const ACTIVITY_COSTS = Object.freeze({
   'market-transaction':       { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Buy / sell at market', loadMetered:true },
   // Construction supervision (Plan §13 — dedicated-ongoing; reader wires at AB-4).
   'construction-supervision': { cost:'dedicated',  strenuous:false, lifecycle:'ongoing',  label:'Supervise construction' },
+  // Hiring — soliciting for hirelings is an ANCILLARY, ONGOING activity (RR p.164: "These count as
+  // ancillary activities"), one per day per hireling type while the patron is in the market.
+  'recruit':                  { cost:'ancillary',  strenuous:false, lifecycle:'ongoing',  label:'Solicit hirelings' },
   // Wilderness errands (RR p.272).
   'forage':                   { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Forage' },
   'hunt':                     { cost:'dedicated',  strenuous:true,  lifecycle:'singular', label:'Hunt' },
