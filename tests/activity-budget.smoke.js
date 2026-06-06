@@ -18,6 +18,7 @@ const DIR = path.join(__dirname, '..');
   'acks-engine-catalogs.js',
   'acks-engine.js',
   'acks-engine-entities.js',
+  'acks-engine-economy.js',
   'acks-engine-entity-registry.js',
   'acks-engine-field-schemas.js',
   'acks-engine-events.js',
@@ -108,8 +109,9 @@ ok('ruler administering: 1 dedicated = domain-admin', ACKS.characterActivityBudg
 // A ruler who hasn't ticked the lever spends nothing.
 const cRulerOff = mkCampaign({ characters: [mkChar('chr-a')], domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: false })] });
 ok('ruler NOT administering: no domain-admin', ACKS.characterActivityBudget(cRulerOff, 'chr-a').dedicatedUsed === 0);
-// opts.domains overrides campaign.domains (the live-app domains-split): same gate, passed via opts.
-ok('opts.domains honored', ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')] }), 'chr-a', { domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true })] }).dedicatedUsed === 1);
+// Single home (refactor 2026-06-05): the budget reads campaign.domains directly; the legacy
+// opts.domains escape hatch is gone, so an opts.domains is IGNORED and campaign.domains wins.
+ok('campaign.domains gates domain-admin (opts.domains ignored)', ACKS.characterActivityBudget(mkCampaign({ characters: [mkChar('chr-a')], domains: [mkDomain('dom-1', { rulerCharacterId: 'chr-a', administersThisMonth: true })] }), 'chr-a', { domains: [] }).dedicatedUsed === 1);
 
 // =============================================================================
 section('characterActivityBudget() — inactive undertakings are not counted');
@@ -165,8 +167,8 @@ section('travel pace is CAPPED by the day\'s other activities (Joachim 2026-06-0
 // =============================================================================
 // journeyMaxPace = fastest pace the PARTY can sustain (slowest traveller's cap); journeyEffectivePace
 // = the GM's desired pace, capped. The budget charges the EFFECTIVE pace, so travel never goes over.
-const mp = (camp, j) => ACKS.journeyMaxPace(camp, j, { domains: camp.domains }).maxPace;
-const eff = (camp, j) => ACKS.journeyEffectivePace(camp, j, { domains: camp.domains });
+const mp = (camp, j) => ACKS.journeyMaxPace(camp, j).maxPace;          // reads campaign.domains (single home)
+const eff = (camp, j) => ACKS.journeyEffectivePace(camp, j);          // reads campaign.domains (single home)
 const cFree = mkCampaign({ characters: [mkChar('chr-a')], journeys: [jrnPace('forced-march')] });
 ok('nobody busy: maxPace = forced-march (no cap)', mp(cFree, cFree.journeys[0]) === 'forced-march');
 // administering → the dedicated slot is taken, so full/forced travel is unavailable → capped to half.

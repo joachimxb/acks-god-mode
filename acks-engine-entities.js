@@ -180,8 +180,7 @@ function blankDomain(opts={}){
       strongholdMaintenance: 0,
       personalExpenses: 0,
       tributeToLiege: 0,
-      tributeAuto: true,
-      tributePct: 10,
+      tributeAuto: true,          // true = RAW tribute by realm families (rawTributeForRealmFamilies); false = manual tributeToLiege
       tributePaid: true,
       other: []
     },

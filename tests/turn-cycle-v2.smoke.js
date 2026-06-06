@@ -26,6 +26,7 @@ const fs = require('fs');
   'acks-engine-catalogs.js',
   'acks-engine.js',
   'acks-engine-entities.js',
+  'acks-engine-economy.js',
   'acks-engine-entity-registry.js',
   'acks-engine-field-schemas.js',
   'acks-engine-events.js',
