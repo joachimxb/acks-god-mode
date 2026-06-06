@@ -4797,9 +4797,6 @@ document.addEventListener('alpine:init', () => {
         <button @click="charactersSubView='parties'" :class="charactersSubView==='parties' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="charactersSubView==='parties' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
           🧭 Parties <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.parties||[]).length + ')'"></span>
         </button>
-        <button @click="charactersSubView='recruit'" :class="charactersSubView==='recruit' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="charactersSubView==='recruit' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
-          🤝 Recruit
-        </button>
       </div>
     </div>
 
@@ -5219,7 +5216,13 @@ document.addEventListener('alpine:init', () => {
          Recruiting Wizard; this comment is the convention reference for everyone after it. -->
     
     <!-- ───── Sub-tab: RECRUIT (Phase 2.95 §4.2) ───── -->
-    <div x-show="charactersSubView==='recruit'" class="vellum border border-ink rounded p-4">
+  </div>
+</div>
+
+<!-- ───── Activities ▸ RECRUIT (moved here from the Characters tab, 2026-06-06) ───── -->
+<div x-show="currentView === 'activities' && activitiesSubView === 'recruit'" class="p-4" x-cloak>
+  <div class="space-y-4">
+    <div class="vellum border border-ink rounded p-4">
       <div class="flex justify-between items-baseline mb-3 flex-wrap gap-2">
         <h3 class="font-bold text-lg">🤝 Recruit Hirelings <span class="text-sm opacity-70 font-normal">· RR pp.164–167</span></h3>
         <div class="text-sm opacity-70">Solicit · Engage · Negotiate · Hire</div>
@@ -9424,6 +9427,7 @@ return {
       { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
+      { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
@@ -9879,7 +9883,7 @@ return {
     const mode = row.affordance ? row.affordance.mode : 'none';
     if(mode === 'navigate'){
       if(a.sourceKind === 'recruitment-drive'){                // a search — can't refund a week of soliciting; open the Recruit panel for this patron (Stop soliciting lives there)
-        this.currentView = 'characters'; this.charactersSubView = 'recruit';
+        this.currentView = 'activities'; this.activitiesSubView = 'recruit';
         this.recruitStart(c.id);                               // adopts the patron's in-flight drive
         return;
       }
@@ -11413,6 +11417,7 @@ return {
     const origin = {
       view: this.currentView,
       charactersSubView: this.charactersSubView,
+      activitiesSubView: this.activitiesSubView,
       selectedDomainId: this.selectedDomainId,
       activeTab: this.activeTab
     };
@@ -11442,8 +11447,8 @@ return {
     }
     if(opts.roleToFill)   this.recruitState.roleToFill   = opts.roleToFill;
     if(opts.roleDomainId) this.recruitState.roleDomainId = opts.roleDomainId;
-    this.currentView      = 'characters';
-    this.charactersSubView = 'recruit';
+    this.currentView      = 'activities';
+    this.activitiesSubView = 'recruit';
   },
   // §310.3f-fix4 — true when chosen settlement matches patron's current hex.
   recruitPatronAtSettlement(){
@@ -11584,6 +11589,7 @@ return {
     if(origin){
       if(origin.view) this.currentView = origin.view;
       if(origin.charactersSubView) this.charactersSubView = origin.charactersSubView;
+      if(origin.activitiesSubView) this.activitiesSubView = origin.activitiesSubView;
       if(origin.selectedDomainId) this.selectedDomainId = origin.selectedDomainId;
       if(origin.activeTab) this.activeTab = origin.activeTab;
     }
