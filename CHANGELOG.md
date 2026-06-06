@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-06-06
+
 ### Added
 - **The welcome screen can start you from a template in one click.** "Start from a template" now reveals the six bundled starting points (Frontier Barony, Established March, Petty Kingdom, Wilderness Outpost, Mercantile City-State, Dwarven Vault) and loads the one you pick straight away on the hosted site — no file picker, no hunting for a folder. (Running from a local copy of the file, it still asks you to pick the template file, since a browser can't fetch neighbouring files off your disk.) A loaded template stays intact — Save prompts for a new file.
 - **An About line at the foot of the page** — the licence (AGPL-3.0) and a link to the source on GitHub.
@@ -209,7 +211,8 @@ The Community Preview — first public release.
 ### Security
 - Prototype-pollution guards on the event field-path writer, campaign validation on load, and a frozen `Object.prototype` at startup.
 
-[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/joachimxb/acks-god-mode/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.21.0
 [0.20.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.20.0
 [0.19.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.19.0
 [0.18.0]: https://github.com/joachimxb/acks-god-mode/releases/tag/v0.18.0
