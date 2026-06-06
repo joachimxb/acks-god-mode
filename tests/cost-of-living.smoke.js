@@ -97,6 +97,91 @@ section('characterProvisioningRegime (§16.1)');
 }
 
 // =============================================================================
+// CoL-1 group/companion lifestyle (Joachim 2026-06-06): the own/vassal-domain exemption extends to a
+// ruler's party + journey companions; a hex shelters a whole GROUP. Field always consumes.
+section('group / companion lifestyle (CoL-1)');
+{
+  const camp = freshCampaign();
+  camp.hexes = [{ id: 'hex-realm', domainId: 'dom-march' }, { id: 'hex-wild', terrain: 'forest' }, { id: 'hex-town', settlement: { name: 'Burg' } }];
+  camp.domains = [{ id: 'dom-march', rulerCharacterId: 'chr-lord' }];
+  const lord = mkChar('chr-lord', 'hex-realm');
+  const hench = mkChar('chr-hench', 'hex-realm');   // rules nothing
+  camp.characters = [lord, hench];
+
+  ok('group: a member ruling the hex domain -> settled', ACKS.groupProvisioningRegime(camp, [lord, hench], camp.hexes[0]) === 'settled');
+  ok('group info: names the domain host', (() => { const i = ACKS.groupProvisioningInfo(camp, [lord, hench], camp.hexes[0]); return i.kind === 'domain' && i.hostCharacterId === 'chr-lord' && i.domainId === 'dom-march'; })());
+  ok('group: non-rulers in wilderness -> field', ACKS.groupProvisioningRegime(camp, [hench], camp.hexes[1]) === 'field');
+  ok('group: a settlement shelters anyone (no ruler needed)', ACKS.groupProvisioningRegime(camp, [hench], camp.hexes[2]) === 'settled');
+
+  // per-char primitive vs companion-aware effective regime
+  ok('per-char primitive: henchman rules nothing -> field', ACKS.characterProvisioningRegime(camp, 'chr-hench') === 'field');
+  ok('effective: henchman alone (no cohort) -> field', ACKS.characterEffectiveRegime(camp, 'chr-hench') === 'field');
+
+  // companion via PARTY at the lord's hex -> settled (party-sharing irrelevant)
+  camp.parties = [{ id: 'pty', memberCharacterIds: ['chr-lord', 'chr-hench'], leaderCharacterId: 'chr-lord', currentHexId: 'hex-realm', shareProvisions: false, status: 'active' }];
+  lord.partyId = 'pty'; hench.partyId = 'pty';
+  ok('companion (party) in lord\'s realm -> settled', ACKS.characterEffectiveRegime(camp, 'chr-hench') === 'settled');
+  ok('lord himself -> settled', ACKS.characterEffectiveRegime(camp, 'chr-lord') === 'settled');
+  hench.currentHexId = 'hex-wild';
+  ok('companion who wandered to another hex -> field', ACKS.characterEffectiveRegime(camp, 'chr-hench') === 'field');
+  hench.currentHexId = 'hex-realm';
+
+  // companion via JOURNEY (no party, even an arrived one) -> settled
+  camp.parties = []; lord.partyId = null; hench.partyId = null;
+  camp.journeys = [{ id: 'jrn', status: 'arrived', participantCharacterIds: ['chr-lord', 'chr-hench'], supplies: {} }];
+  ok('companion (journey) in lord\'s realm -> settled', ACKS.characterEffectiveRegime(camp, 'chr-hench') === 'settled');
+}
+// vassal-chain extends to companions too
+{
+  const camp = freshCampaign();
+  camp.hexes = [{ id: 'hex-v', domainId: 'dom-vassal' }];
+  camp.domains = [{ id: 'dom-suz', rulerCharacterId: 'chr-suz' }, { id: 'dom-vassal', rulerCharacterId: 'chr-vas' }];
+  const suz = mkChar('chr-suz', 'hex-v'), comp = mkChar('chr-comp', 'hex-v');
+  camp.characters = [suz, comp];
+  ACKS.createVassalage(camp, { suzerainCharacterId: 'chr-suz', vassalRulerCharacterId: 'chr-vas', vassalDomainId: 'dom-vassal', suzerainDomainId: 'dom-suz' });
+  camp.parties = [{ id: 'pty2', memberCharacterIds: ['chr-suz', 'chr-comp'], leaderCharacterId: 'chr-suz', currentHexId: 'hex-v', shareProvisions: false, status: 'active' }];
+  suz.partyId = 'pty2'; comp.partyId = 'pty2';
+  ok('companion of a suzerain in a vassal realm -> settled (chain)', ACKS.characterEffectiveRegime(camp, 'chr-comp') === 'settled');
+}
+
+// =============================================================================
+section('journeyDaySurvival — lifestyle exemption in own domain (CoL-1)');
+{
+  const camp = freshCampaign();
+  camp.hexes = [{ id: 'hex-realm', domainId: 'dom-m' }, { id: 'hex-wild', terrain: 'mountains' }];
+  camp.domains = [{ id: 'dom-m', rulerCharacterId: 'chr-lord' }];
+  const lord = mkChar('chr-lord', 'hex-realm', { waterDaysCarried: 0, inventory: [] });
+  const comp = mkChar('chr-comp', 'hex-realm', { waterDaysCarried: 0, inventory: [] });   // a non-ruler companion
+  camp.characters = [lord, comp];
+  const j = { participantCharacterIds: ['chr-lord', 'chr-comp'], partyId: null, name: 'Patrol', startHexId: 'hex-realm', shareRations: false, supplies: { rations: 0, waterRations: 0 } };
+  const inDomain = ACKS.journeyDaySurvival(camp, j, camp.hexes[0], { rng: () => 0.99 });
+  ok('travel through own domain: no hunger (food not spent)', inDomain.anyHungry === false);
+  ok('travel through own domain: no thirst (water not spent), even for the companion', inDomain.anyThirsty === false);
+  const inField = ACKS.journeyDaySurvival(camp, j, camp.hexes[1], { rng: () => 0.99 });
+  ok('travel in the field (no water): thirsty', inField.anyThirsty === true);
+}
+
+// =============================================================================
+section("'survival' day-consumer — arrived party: field consumes, own domain exempt (CoL-1)");
+{
+  function arrivedAt(hexSpec, domains) {
+    const camp = freshCampaign();
+    camp.hexes = [hexSpec];
+    if (domains) camp.domains = domains;
+    const a = mkChar('chr-a', hexSpec.id, { waterDaysCarried: 0, inventory: [] });
+    const b = mkChar('chr-b', hexSpec.id, { waterDaysCarried: 0, inventory: [] });
+    camp.characters = [a, b];
+    camp.parties = [{ id: 'pty', name: 'Band', memberCharacterIds: ['chr-a', 'chr-b'], leaderCharacterId: 'chr-a', currentHexId: hexSpec.id, shareProvisions: true, status: 'active' }];
+    a.partyId = 'pty'; b.partyId = 'pty';
+    camp.journeys = [{ id: 'jrn', status: 'arrived', participantCharacterIds: ['chr-a', 'chr-b'], partyId: 'pty', currentHexId: hexSpec.id, startHexId: hexSpec.id, supplies: {} }];
+    return camp;
+  }
+  const sv = (camp) => ACKS.proposeSurvivalDay(camp, {}).pendingRecords.filter(r => r.kind === 'survival');
+  ok('arrived party in the FIELD is resolved (field always consumes, incl. arrived)', sv(arrivedAt({ id: 'hex-wild', terrain: 'mountains' })).length === 1);
+  ok("arrived party in the leader's OWN domain -> no survival records (lifestyle, companions exempt)", sv(arrivedAt({ id: 'hex-home', domainId: 'dom-a' }, [{ id: 'dom-a', rulerCharacterId: 'chr-a' }])).length === 0);
+}
+
+// =============================================================================
 section('resolveDaySurvival — settled top-up branch (freeFood / freeWater)');
 {
   const camp = freshCampaign();

@@ -2007,8 +2007,15 @@ function journeyDaySurvival(campaign, journey, hex, opts){
   const party = journey.partyId ? (campaign.parties || []).find(p => p && p.id === journey.partyId) : null;
   const camp = (party && typeof A.partyCampStash === 'function') ? A.partyCampStash(campaign, party.id) : null;
   const leaderId = party ? (party.leaderCharacterId || (Array.isArray(party.memberCharacterIds) && party.memberCharacterIds[0]) || null) : null;
+  // CoL-1 lifestyle exemption (Joachim 2026-06-06): a day travelled through a hex that shelters the party
+  // — a settlement, a complete stronghold, or a domain ruled (own / vassal chain) by ANY traveller —
+  // consumes no rations or water (they live off the lifestyle). Out of such a hex, the field day resolves
+  // as normal. groupProvisioningRegime reads the whole member set, so a ruler carries his companions.
+  const onLifestyle = (typeof A.groupProvisioningRegime === 'function')
+    && A.groupProvisioningRegime(campaign, members, hex) === 'settled';
   return resolveDaySurvival(campaign, {
     members: members, hex: hex, share: !!journey.shareRations, camp: camp, leaderId: leaderId,
+    freeFood: onLifestyle, freeWater: onLifestyle,
     poolRations: (journey.supplies && Number(journey.supplies.rations)) || 0,
     poolWater: (journey.supplies && Number(journey.supplies.waterRations)) || 0,
     forageWater: !!journey.forageWaterEnabled,
@@ -3680,7 +3687,10 @@ function _survivalDayGroups(campaign){
   const A = _jACKS();
   const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
   const isActive = A.isActive;
-  const regimeOf = A.characterProvisioningRegime;
+  // Companion-aware (CoL-1, Joachim 2026-06-06): a character is on lifestyle if anyone in their cohort
+  // (party / journey co-members at the same hex) rules the hex's domain — so a ruler's companions standing
+  // in his realm are exempt, party-sharing or not. Field characters everywhere else always consume.
+  const regimeOf = A.characterEffectiveRegime || A.characterProvisioningRegime;
   const onJourney = {};
   (campaign.journeys || []).forEach(j => {
     if(j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost')){

@@ -3140,27 +3140,81 @@ function derivedTributeOutflowGpFor(campaign, payerDomainId){
 // ("can't starve in limbo"). RAW abstracts town food/lodging into the cost of living (RR p.173); treating
 // the wilderness chapter's ration rules (RR p.278) as the field-only regime is the structural reading (🔧).
 const _SETTLED_CONSTRUCTIBLE_KINDS = { 'stronghold-component':1, 'settlement-building':1, 'sanctum':1 };
-function characterProvisioningRegime(campaign, char){
-  const c = (typeof char === 'string')
-    ? (campaign && Array.isArray(campaign.characters) ? campaign.characters.find(x => x && x.id === char) : null)
-    : char;
-  if(!c || !c.currentHexId) return 'settled';
-  const hexId = c.currentHexId;
-  const hex = findHex(campaign, hexId);
-  // (a) a settlement in the hex (embedded mirror or top-level by hexId)
-  if(hex && hex.settlement) return 'settled';
-  if(settlementForHex(campaign, hexId)) return 'settled';
-  // (b) a complete habitable stronghold at the hex (keep / hall / sanctum — lodging, not a mill or dungeon)
-  const sheltered = constructiblesAtHex(campaign, hexId).some(k =>
+// ── Provisioning regime (CoL-1, Joachim 2026-06-06) ──────────────────────────────────────────────
+// A character/group is on LIFESTYLE ('settled' — no rations or water consumed, "as if relying on
+// living-expenses") when the hex shelters them; otherwise they're in the FIELD ('field' — daily food
+// + water, RR p.278). A hex shelters a group when:
+//   (a) a settlement is in the hex,
+//   (b) a complete habitable stronghold is at the hex (keep / hall / sanctum — not a mill or dungeon), or
+//   (c) the hex's domain is ruled (own OR up the vassalage chain) by SOMEONE IN THE GROUP — a ruler in
+//       his own / his vassals' realm, and his party + journey companions, all live off the lifestyle
+//       (Joachim's ruling: the own-domain exemption extends to companions; a vassal's realm counts as
+//       the ruler's own). groupProvisioningInfo returns the structured reason so the UI can say WHY no
+//       rations are spent; groupProvisioningRegime is the bare 'settled' | 'field'.
+function groupProvisioningInfo(campaign, members, hex){
+  if(!hex) return { regime: 'field', kind: null, domainId: null };
+  // (a) settlement at the hex (embedded mirror or top-level by hexId) — shelters everyone present.
+  const set = hex.settlement || settlementForHex(campaign, hex.id);
+  if(set) return { regime: 'settled', kind: 'settlement', settlementId: (set.id || null), domainId: (hex.domainId || null) };
+  // (b) a complete habitable stronghold at the hex.
+  const keep = constructiblesAtHex(campaign, hex.id).find(k =>
     k && _SETTLED_CONSTRUCTIBLE_KINDS[k.constructibleKind] &&
     (k.constructionState === 'complete' || k.lifecycleState === 'complete'));
-  if(sheltered) return 'settled';
-  // (c) a domain the character rules (own domain or a sub-vassal realm up the chain)
-  if(hex && hex.domainId){
-    if((campaign.domains || []).some(d => d && d.id === hex.domainId && d.rulerCharacterId === c.id)) return 'settled';
-    if((derivedVassalDomainsOf(campaign, c.id) || []).indexOf(hex.domainId) >= 0) return 'settled';
+  if(keep) return { regime: 'settled', kind: 'stronghold', constructibleId: (keep.id || null), domainId: (hex.domainId || null) };
+  // (c) a domain ruled (own / vassal chain) by any group member — the host carries his companions.
+  if(hex.domainId){
+    for(const c of (members || [])){
+      if(!c) continue;
+      const owns = (campaign.domains || []).some(d => d && d.id === hex.domainId && d.rulerCharacterId === c.id);
+      const viaVassal = !owns && (derivedVassalDomainsOf(campaign, c.id) || []).indexOf(hex.domainId) >= 0;
+      if(owns || viaVassal) return { regime: 'settled', kind: 'domain', domainId: hex.domainId, hostCharacterId: c.id, viaVassal: viaVassal };
+    }
   }
-  return 'field';
+  return { regime: 'field', kind: null, domainId: (hex.domainId || null) };
+}
+function groupProvisioningRegime(campaign, members, hex){
+  return groupProvisioningInfo(campaign, members, hex).regime;
+}
+function _resolveProvisioningChar(campaign, char){
+  return (typeof char === 'string')
+    ? (campaign && Array.isArray(campaign.characters) ? campaign.characters.find(x => x && x.id === char) : null)
+    : char;
+}
+// The cohort whose ruler-status counts toward a character's lifestyle: the character itself + every party
+// co-member + every journey co-participant standing at the SAME hex. (So a henchman travelling with his
+// lord through the lord's realm is on lifestyle whether or not the party shares rations; an arrived
+// journey still counts as companionship.)
+function characterCohort(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c) return [];
+  const hexId = c.currentHexId || null;
+  const seen = {}; seen[c.id] = 1; const out = [c];
+  const add = (id) => {
+    if(!id || seen[id]) return;
+    const m = (campaign.characters || []).find(x => x && x.id === id);
+    if(m && (m.currentHexId || null) === hexId){ seen[id] = 1; out.push(m); }
+  };
+  if(c.partyId) (campaign.characters || []).forEach(x => { if(x && x.partyId === c.partyId) add(x.id); });
+  (journeysWithParticipant(campaign, c.id) || []).forEach(j => (j.participantCharacterIds || []).forEach(add));
+  return out;
+}
+// Regime for a single character, COMPANION-AWARE (the cohort's rulers count). This is what the day-tick
+// survival consumer + the character-sheet Survival tab read. characterProvisioningRegime stays the pure
+// per-character primitive (own rule only) for callers wanting just this character's standing.
+function characterEffectiveRegime(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c || !c.currentHexId) return 'settled';
+  return groupProvisioningRegime(campaign, characterCohort(campaign, c), findHex(campaign, c.currentHexId));
+}
+function characterEffectiveProvisioningInfo(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c || !c.currentHexId) return { regime: 'settled', kind: 'unlocated' };
+  return groupProvisioningInfo(campaign, characterCohort(campaign, c), findHex(campaign, c.currentHexId));
+}
+function characterProvisioningRegime(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c || !c.currentHexId) return 'settled';
+  return groupProvisioningRegime(campaign, [c], findHex(campaign, c.currentHexId));
 }
 
 // =============================================================================
@@ -6170,8 +6224,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,
   reconcileWaveARelations,
-  // CoL-1 (Phase 2.5 Provisioning §16.1) — settled/field regime predicate
-  characterProvisioningRegime,
+  // CoL-1 (Phase 2.5 Provisioning §16.1) — settled/field regime predicate + group/companion lifestyle
+  characterProvisioningRegime, groupProvisioningRegime, groupProvisioningInfo,
+  characterCohort, characterEffectiveRegime, characterEffectiveProvisioningInfo,
   // #445 — Legacy backfill migration (Architecture.md §3.5, 2026-05-29)
   migrateLegacyHenchmanshipsToRelations, migrateLegacySpecialistContractsToRelations,
   migrateLegacyHirelingContractsToRelations, migrateLegacyMagistraciesToRelations,
