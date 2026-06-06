@@ -34,6 +34,7 @@ const path = require('path');
   'acks-engine-catalogs.js',
   'acks-engine.js',
   'acks-engine-entities.js',
+  'acks-engine-economy.js',
   'acks-engine-entity-registry.js',
   'acks-engine-field-schemas.js',
   'acks-engine-events.js',
@@ -84,25 +85,14 @@ function refApplyAgOrder(refHex, gpAmount, treasuryRef){
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixture builders
 // ─────────────────────────────────────────────────────────────────────────────
-function mockHelpers(){
-  return {
-    incomeSum: () => 0,
-    expenseSum: () => 0,
-    moraleModSum: () => 0,
-    totalFamilies: (d) => (d.demographics && d.demographics.peasantFamilies) || 0,
-    effectiveUrbanFamilies: (d) => (d.demographics && d.demographics.urbanFamilies) || 0,
-    domainXpFromNet: () => 0,
-    rulerCharacter: () => null,
-    addCharacterHistory: () => {},
-    applyVagaryToVenture: () => '',
-    processPassiveInvestmentsForTurn: () => ({ totalGp: 0, payouts: [] }),
-    checkAllCharacterLevelUps: () => [],
-    // Post-default-flip: construction is RAW (timed) by default. The oracle exercises the legacy
-    // INSTANT path via the internal `abstract-construction` flag (true here -> the ag block's
-    // !isHouseRuleEnabled('abstract-construction') is false -> instant). All other rules stay off.
-    isHouseRuleEnabled: (id) => id === 'abstract-construction',
-  };
-}
+// (The `mockHelpers` callback bag was removed 2026-06-06 — audit batch 3 lifted the economy into the
+// engine, so commitTurn(campaign, proposal) computes everything internally. This suite deliberately
+// ISOLATES the agricultural-construction block: every buildProposal row carries empty income / expenses
+// / moraleMods, so the monthly net is 0 and the only treasury movement is the ag spend — matching the
+// independent reference. The full income/expense/morale RAW math is covered by tests/economy.smoke.js.
+// Construction mode is now set per-campaign via houseRules: buildOracleCampaign turns 'abstract-
+// construction' ON for the instant oracle; the realistic/timed tests use blankCampaign's empty
+// houseRules (abstract off ⇒ realistic).)
 
 // Build a synthetic single-domain campaign with hand-placed hexes. No calendar (keeps
 // the economic oracle deterministic — calendar/day-tick is exercised separately below).
@@ -173,7 +163,6 @@ const TURN_SCRIPT = [
 ];
 
 const oracle = buildOracleCampaign(HEX_SPECS);
-const helpers = mockHelpers();
 // Reference state mirrors the engine domain.
 const refHexes = HEX_SPECS.map(s => ({ base: s.base, bonus: s.bonus || 0, invested: s.invested || 0 }));
 const refTreasury = { gp: 1000000 };
@@ -189,7 +178,7 @@ for(const gpByHex of TURN_SCRIPT){
   // advance engine (real commitTurn)
   const proposal = buildProposal(oracle.domain, gpByHex);
   let threw = null;
-  try { ACKS.commitTurn(oracle.campaign, oracle.campaign.domains, proposal, helpers); }
+  try { ACKS.commitTurn(oracle.campaign, proposal); }
   catch(e){ threw = e; }
   check('turn ' + turnNo + ': commitTurn did not throw', threw === null, threw && (threw.message + '\n' + (threw.stack||'').split('\n').slice(0,3).join('\n')));
   if(threw) break;
@@ -223,7 +212,7 @@ console.log('--- Zero-drift oracle: treasury clipping ---');
   const refT = { gp: 10000 };
   refApplyAgOrder(refH, 25000, refT);
   let threw = null;
-  try { ACKS.commitTurn(clip.campaign, clip.campaign.domains, buildProposal(clip.domain, { 0: 25000 }), mockHelpers()); }
+  try { ACKS.commitTurn(clip.campaign, buildProposal(clip.domain, { 0: 25000 })); }
   catch(e){ threw = e; }
   check('clip: commitTurn did not throw', threw === null, threw && threw.message);
   if(!threw){
@@ -470,7 +459,7 @@ console.log('--- Calendar integration (commitTurn drives runDayTickToMonthEnd) -
   c.campaign.calendar = { year: 1, month: 1, day: 1, kind: 'default' };
   c.campaign.currentDayInMonth = 1;
   let threw = null;
-  try { ACKS.commitTurn(c.campaign, c.campaign.domains, buildProposal(c.domain, { 0: 25000 }), mockHelpers()); }
+  try { ACKS.commitTurn(c.campaign, buildProposal(c.domain, { 0: 25000 })); }
   catch(e){ threw = e; }
   check('calendar: commitTurn-with-calendar did not throw', threw === null, threw && (threw.message + '\n' + (threw.stack||'').split('\n').slice(0,3).join('\n')));
   if(!threw){
@@ -641,23 +630,24 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
     const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 }; d.demographics = { peasantFamilies:1000, urbanFamilies:0, morale:0 };
     const hex = ACKS.blankHex({ id: 'hex-b', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.domainId = d.id;
     d.geography.hexes = [hex]; c.domains = [d];
-    const helpers = Object.assign({}, mockHelpers(), { isHouseRuleEnabled: (id) => id === 'realistic-construction' });
+    // realistic/timed path: blankCampaign's houseRules are empty ⇒ 'abstract-construction' off ⇒ realistic.
     const proposal = { turnEventProposals: [], turnVentureProposals: [], turnProposal: [{
       domainId: d.id, skip:false, tithePaid:true, tributePaid:true, hasLiege:false, administersThisMonth:false,
       incomeFactor:1, moraleRoll:0, moraleBefore:0, classification:'Borderlands', ruler:{ name:'R', level:1 },
       income:[], expenses:[], moraleMods:[], urbanInvestments:[],
       agriculturalOrders: [{ hexIndex:0, hexId:'hex-b', coordStr:'(0,0)', gpAmount:25000, supervisorCharacterIds:[] }]
     }]};
-    ACKS.commitTurn(c, c.domains, proposal, helpers);
+    ACKS.commitTurn(c, proposal);
     check('R3 monthly: realistic ON accumulates budget (25000)', hex.improvementBudgetGp === 25000, 'budget ' + hex.improvementBudgetGp);
     check('R3 monthly: realistic ON does NOT instant-spend (invested 0, bonus 0)', hex.landImprovementInvested === 0 && hex.landImprovementBonus === 0);
     check('R3 monthly: realistic ON did NOT debit treasury for ag', d.treasury.gp === 1000000);
     check('R3 monthly: an under-construction agricultural Project exists', (c.projects||[]).some(p => p.constructibleKind === 'agricultural-improvement' && p.lifecycleState === 'under-construction'));
   }
 
-  // Day-tick needs campaign.domains attached to find the treasury. The UI keeps domains in
-  // this.domains separate from currentCampaign.domains (empty), so the day-tick must attach them —
-  // without the attach, the drip can't find the treasury and reports 0 ("idle"), even with a budget.
+  // Day-tick reads campaign.domains to find the treasury. This unit-pins that contract: with no
+  // domains on the campaign the drip can't find the treasury and reports 0 ("idle"), even with a
+  // budget; with domains attached it drips. (Domains live on the campaign in the app now — single
+  // home — so the live drip always sees them; this just locks the dependency.)
   {
     const c = ACKS.blankCampaign({ name: 'split' }); c.projects = [];
     const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 };
@@ -670,25 +660,24 @@ console.log('--- Time-based construction R2/R3: budget + day-tick drip (realisti
     check('split-shape: domains attached -> drips 500 (the fix)', ACKS.computeAgriculturalDrip(c, proj, 1).drip === 500);
   }
 
-  // ADVANCE MONTH must drip in-flight improvements via runDayTickToMonthEnd, even in the UI's
-  // split-domains shape (campaign.domains EMPTY, domains passed as the commitTurn param). commitTurn's
-  // event-apply pass restores campaign.domains to the (empty) original, so the month-end drip must
-  // re-attach domains or it silently fails to progress — exactly the reported "advance month didn't
-  // progress it" bug.
+  // ADVANCE MONTH must drip in-flight improvements via runDayTickToMonthEnd. Domains live on the
+  // campaign now (single home), so the month-end block finds the treasuries directly — no re-attach.
+  // This guards that an Advance Month progresses an in-flight agricultural improvement (the reported
+  // "advance month didn't progress it" bug).
   {
     const c = ACKS.blankCampaign({ name: 'advance' }); c.projects = [];
     c.calendar = { year:1, month:1, day:1, kind:'default' }; c.currentDayInMonth = 1;
     const d = ACKS.blankDomain({ name: 'D' }); d.treasury = { gp: 1000000 }; d.demographics = { peasantFamilies:1000, urbanFamilies:0, morale:0 };
     const hex = ACKS.blankHex({ id: 'hex-adv', coord:{q:0,r:0} }); hex.valuePerFamily = 6; hex.improvementBudgetGp = 25000; hex.domainId = d.id;
-    d.geography.hexes = [hex]; c.hexes = [hex]; c.domains = []; // split shape: domains NOT on the campaign
+    d.geography.hexes = [hex]; c.hexes = [hex]; c.domains = [d]; // single home: domains live on the campaign
     ACKS.syncAgriculturalProject(c, hex, { domainId: d.id });
-    const helpers = Object.assign({}, mockHelpers(), { isHouseRuleEnabled: () => false }); // all off -> time-based
+    // all rules off (blankCampaign) ⇒ time-based / realistic construction.
     const proposal = { turnEventProposals: [], turnVentureProposals: [], turnProposal: [{
       domainId: d.id, skip:false, tithePaid:true, tributePaid:true, hasLiege:false, administersThisMonth:false,
       incomeFactor:1, moraleRoll:0, moraleBefore:0, classification:'Borderlands', ruler:{ name:'R', level:1 },
       income:[], expenses:[], moraleMods:[], urbanInvestments:[], agriculturalOrders: []
     }]};
-    ACKS.commitTurn(c, [d], proposal, helpers);
+    ACKS.commitTurn(c, proposal);
     // day 1 -> 30 = 29 ticks at 500/day = 14,500 dripped
     check('advance-month: month-end drip ran (invested 14,500)', hex.landImprovementInvested === 14500, 'invested ' + hex.landImprovementInvested);
     check('advance-month: budget reduced to 10,500', hex.improvementBudgetGp === 10500, 'budget ' + hex.improvementBudgetGp);
