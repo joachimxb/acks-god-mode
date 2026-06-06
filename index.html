@@ -1045,8 +1045,8 @@ document.addEventListener('alpine:init', () => {
       <button @click="closeForage()" class="text-2xl leading-none px-2" title="Close">×</button>
     </div>
     <div class="p-4 space-y-3">
-      <label class="text-sm">Character<br>
-        <select @change="forage.actorId=$event.target.value; forage.results=[]" class="text-sm" style="min-width:14rem">
+      <label class="text-sm block">Character<br>
+        <select @change="forage.actorId=$event.target.value; forage.results=[]" class="text-sm w-full" style="max-width:100%">
           <option value="" :selected="!forage.actorId">— pick a character —</option>
           <template x-for="c in forageCharacters()" :key="c.id"><option :value="c.id" :selected="forage.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
         </select>
@@ -12811,12 +12811,17 @@ return {
     const A = window.ACKS;
     const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
     const b = A.characterActivityBudget(this.currentCampaign, c.id);
-    const isHunt = kind === 'hunt';
-    const totalDed = (b.dedicatedUsed || 0) + (isHunt ? 1 : 0);
+    const dedUsed = b.dedicatedUsed || 0, ancUsed = b.ancillaryUsed || 0;
     const who = c.name || 'They';
-    if(totalDed > BUDGET.dedicatedPerDay) return { fits:false, reason: who + ' has no dedicated time left today — hunting takes the whole day, and ' + (b.dedicatedUsed || 0) + ' dedicated task' + ((b.dedicatedUsed || 0) === 1 ? ' is' : 's are') + ' already under way.' };
-    const ancCap = (totalDed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
-    if((b.ancillaryUsed || 0) + (isHunt ? 0 : 1) > ancCap) return { fits:false, reason: who + ' has no time left today — ' + (b.ancillaryUsed || 0) + ' of ' + ancCap + ' short tasks used' + (totalDed >= 1 ? ' alongside a full-day task' : '') + '.' };
+    if(kind === 'hunt'){
+      // Hunt is a DEDICATED, whole-day task.
+      if(dedUsed + 1 > BUDGET.dedicatedPerDay) return { fits:false, reason: who + ' has no dedicated time left today — hunting takes the whole day, and ' + dedUsed + ' dedicated task' + (dedUsed === 1 ? ' is' : 's are') + ' already under way.' };
+      if(ancUsed > BUDGET.ancillaryPerDedicatedDay) return { fits:false, reason: who + ' can’t hunt today — a full-day hunt leaves room for only ' + BUDGET.ancillaryPerDedicatedDay + ' short tasks, and ' + ancUsed + ' are already done.' };
+      return { fits:true, reason:'' };
+    }
+    // Forage is ONE ancillary (short) task — judged on ancillary room, not the dedicated overage.
+    const ancCap = (dedUsed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+    if(ancUsed + 1 > ancCap) return { fits:false, reason: who + ' has no time left today — ' + ancUsed + ' of ' + ancCap + ' short tasks used' + (dedUsed >= 1 ? ' alongside a full-day task' : '') + '.' };
     return { fits:true, reason:'' };
   },
   forageBudgetLine(){
