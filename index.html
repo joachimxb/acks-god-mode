@@ -286,16 +286,35 @@ document.addEventListener('alpine:init', () => {
                       <template x-if="r.cadence === 'monthly'">
                         <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
                       </template>
-                      <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
+                      <!-- survival isn't rejectable (field always consumes, RR p.278) — the GM acts via the per-member Survival → links below -->
+                      <template x-if="r.kind !== 'survival'">
+                        <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
+                      </template>
                     </span>
                   </div>
                   <!-- This record's notable events (lost / hungry / dehydrated / encounter …), in red,
                        under their own record — the journey label above isn't repeated. The day's ROLLS
                        (nav / forage) are NOT shown here — they live in the Journey view's day log (the
                        pending "Day N" row), so the review stays a results summary (Joachim 2026-06-05). -->
-                  <div x-show="!r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
+                  <div x-show="r.kind !== 'survival' && !r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
                     <template x-for="(ne, nei) in (r._notables||[])" :key="grp.consumer + '-' + ri + '-ntl-' + nei">
                       <div class="text-xs text-red-700 leading-snug" x-text="'• ' + dayTickNotableText(ne)"></div>
+                    </template>
+                  </div>
+                  <!-- SURVIVAL records (CoL-1): a per-member detail row — name + conditions (hunger/thirst
+                       + CON loss) + whether they ate/drank + food/water left — and a Survival → link to act
+                       on each one (replaces reject; survival always commits, the GM forages/moves instead). -->
+                  <div x-show="r.kind === 'survival'" class="ml-3 pb-1 space-y-0.5">
+                    <template x-for="(sr, sri) in (r._survivalRows||[])" :key="grp.consumer + '-' + ri + '-sv-' + sri">
+                      <div class="flex items-start justify-between gap-2">
+                        <div class="text-xs leading-snug">
+                          <span class="font-semibold" x-text="sr.name"></span>
+                          <template x-for="cond in sr.conditions" :key="sr.id + '-' + cond.label"><span class="ml-1 px-1 rounded font-semibold" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                          <span class="opacity-70" x-text="' · ' + (sr.fedFood ? 'ate' : 'no food') + ' · ' + (sr.fedWater ? 'drank' : 'no water') + ' · ' + sr.foodDays + ' food / ' + sr.waterDays + ' water left'"></span>
+                          <span x-show="sr.critical" class="ml-1 text-red-700 font-semibold">⚠ CON 0</span>
+                        </div>
+                        <button @click="dayTickGoToSurvival(sr.id)" class="text-xs px-1 border border-ink rounded hover:bg-yellow-100 shrink-0" title="Open this character's Survival tab to forage, move, or review">Survival &rarr;</button>
+                      </div>
                     </template>
                   </div>
                 </div>
@@ -15649,7 +15668,11 @@ return {
       // notables show); iterating r._notables is reliable.
       if(this.dayTickProposal){
         this.dayTickProposal.daysRequested = days;  // for the "paused early" check (see dayTickPausedEarly)
-        (this.dayTickProposal.pendingRecords||[]).forEach(r => { if(r) r._notables = this.dayTickRecordNotables(r); });
+        (this.dayTickProposal.pendingRecords||[]).forEach(r => {
+          if(!r) return;
+          r._notables = this.dayTickRecordNotables(r);
+          if(r.kind === 'survival'){ r.label = this._dayTickSurvivalLabel(r); r._survivalRows = this.dayTickSurvivalRows(r); }
+        });
       }
     }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
@@ -15735,6 +15758,52 @@ return {
     return (i > 0 && i < 80) ? t.slice(i + 2) : t;
   },
   toggleRejectDayTickRecord(r){ if(r) r.rejected = !r.rejected; },
+  // ── Survival record detail (CoL-1, Joachim 2026-06-06) ──────────────────────────────────────────
+  // A survival record's header label: who (party or lone character) + where. More legible than the bare
+  // "survival record". Set on the record in _proposeDayTick.
+  _dayTickSurvivalLabel(record){
+    const camp = this.currentCampaign || {}; const ids = record.memberIds || [];
+    const first = (camp.characters||[]).find(c => c && c.id === ids[0]);
+    let who;
+    if(record.partyId){ const p = (camp.parties||[]).find(x => x && x.id === record.partyId); who = (p && p.name) || 'Party'; }
+    else who = (first && first.name) || 'A character';
+    const hexId = first && first.currentHexId;
+    const hex = hexId ? (camp.hexes||[]).find(h => h && h.id === hexId) : null;
+    const where = hex ? (' · ' + (window.ACKS.hexName ? window.ACKS.hexName(hex) : hexId)) : '';
+    return '🍖 ' + who + where;
+  },
+  // Per-member rows for a survival record's detail: name + conditions (hunger/thirst ladders + CON loss)
+  // + whether they ate/drank today + food/water left + a critical (CON 0) flag. Reads the PROPOSED
+  // post-day member state (record.survival.members) so the review shows the day's actual outcome.
+  dayTickSurvivalRows(record){
+    if(!record || record.kind !== 'survival' || !record.survival || !record.survival.members) return [];
+    const camp = this.currentCampaign || {}; const A = window.ACKS;
+    const upd = record.survival.inventoryUpdates || {};
+    const out = [];
+    for(const id of (record.memberIds || Object.keys(record.survival.members))){
+      const m = record.survival.members[id]; if(!m) continue;
+      const ch = (camp.characters||[]).find(x => x && x.id === id);
+      const conds = [];
+      const h = m.foodDeficitDays || 0;
+      if(h > 0) conds.push({ label: (h>=7?'Starving':(h>=2?'Underfed':'Hungry')), detail: 'day '+h+((m.conLossHunger||0)>0?(' · −'+m.conLossHunger+' CON'):''), cls:'bg-orange-200 text-orange-900' });
+      const d = m.waterDeficitDays || 0;
+      if(d > 0) conds.push({ label:'Dehydrated', detail:'day '+d+((m.conLossThirst||0)>0?(' · −'+m.conLossThirst+' CON'):''), cls:'bg-sky-200 text-sky-900' });
+      const inv = upd[id] || (ch && ch.inventory) || [];
+      const foodDays = (A && A.rationDaysAvailable) ? (A.rationDaysAvailable({ inventory: inv }) || 0) : 0;
+      out.push({ id, name: (ch && ch.name) || id, conditions: conds, fedFood: !!m.fedFood, fedWater: !!m.fedWater,
+                 foodDays: Math.round(foodDays), waterDays: Math.round((m.waterDaysCarried||0)*10)/10, critical: !!m.critical });
+    }
+    return out;
+  },
+  // Step out of the review to a character's Survival tab to act (forage / move). Cancels the proposal
+  // first (it's a snapshot; acting would stale it) — mirrors the over-budget "Resolve →" pattern.
+  dayTickGoToSurvival(id){
+    const ch = (this.currentCampaign && this.currentCampaign.characters || []).find(c => c && c.id === id);
+    if(!ch) return;
+    this.cancelDayTick();
+    this.openCharacterEditor(ch);
+    this.characterEditorTab = 'survival';
+  },
   cancelDayTick(){ this.dayTickProposal = null; this.dayTickError = null; },
   _persistDayTick(){
     // A day-tick is a content mutation — mark dirty + persist to the SESSION cache (debounced),
