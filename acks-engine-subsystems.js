@@ -1139,8 +1139,9 @@ function activeRecruitmentDrivesForPatron(campaign, patronId){
 }
 
 // Start a solicitation drive: rolls the total availability + the RAW 3-week schedule once
-// (solicitHirelings), reveals week 1 immediately, accrues week 1's fee. PURE state (the caller debits
-// the returned feeOwedGp through the GP grammar). Returns { ok, drive, feeOwedGp } or { ok:false, error }.
+// (solicitHirelings). RAW p.164 — candidates arrive AFTER a week of soliciting, so a fresh drive reveals
+// NOTHING on day 0; the 'recruitment' day-consumer reveals ½/¼/remainder at +7/+14/+21 days and charges
+// each week's fee as that week completes. PURE state. Returns { ok, drive, feeOwedGp:0 } or { ok:false, error }.
 function startRecruitmentDrive(campaign, opts){
   opts = opts || {};
   const patron = ((campaign && campaign.characters) || []).find(c => c && c.id === opts.patronCharacterId);
@@ -1159,21 +1160,23 @@ function startRecruitmentDrive(campaign, opts){
     hireTypeLabel: (sol.row && sol.row.label) || opts.hireTypeId,
     startedTurn: (campaign && campaign.currentTurn) || 1, startedDayOrd: ord,
     totalAvailable: sol.totalAvailable, weekly: (sol.weekly || []).slice(), feeWeekly: sol.feeWeekly,
-    weeksRevealed: 1,                                  // week 1 is available the first week (RR p.164)
-    revealedAvailable: (sol.weekly && sol.weekly[0]) || 0,
-    weeksCharged: 1, feesAccruedGp: sol.feeWeekly,     // week-1 fee due on entering the market
+    weeksRevealed: 0,                                  // RAW p.164: candidates arrive after a week of soliciting, not on day 0
+    revealedAvailable: 0,
+    weeksCharged: 0, feesAccruedGp: 0,                 // each week's fee is charged by the day-consumer when that week completes
     status: 'active'
   };
   patron.recruitmentDrives = patron.recruitmentDrives || [];
   patron.recruitmentDrives.push(drive);
-  return { ok:true, drive: drive, feeOwedGp: sol.feeWeekly };
+  return { ok:true, drive: drive, feeOwedGp: 0 };       // no upfront fee — week 1's fee lands when week 1 completes (+7 days)
 }
 
 // PURE peek: what a drive would reveal at game-day `dayOrd` (no mutation). null = no new week yet.
+// RAW p.164: week N's candidates (+ its fee) land after N full weeks of soliciting have elapsed, so a
+// fresh drive (elapsedWeeks 0) reveals nothing; week 1 at +7, week 2 at +14, week 3 at +21 (complete).
 // Returns { weeksRevealed, revealedAvailable, weeksCharged, feeOwed, completed }.
 function _recruitmentDriveRevealAt(d, dayOrd){
   const elapsedWeeks = Math.max(0, Math.floor((dayOrd - (d.startedDayOrd || dayOrd)) / 7));
-  const target = Math.min(3, 1 + elapsedWeeks);
+  const target = Math.min(3, elapsedWeeks);            // week N arrives after N full weeks (was 1+elapsedWeeks — that revealed week 1 on day 0)
   if(target <= d.weeksRevealed) return null;           // no new week elapsed yet
   const revealedAvailable = (d.weekly || []).slice(0, target).reduce((s, n) => s + (n || 0), 0);
   const newWeeks = Math.max(0, target - d.weeksCharged);

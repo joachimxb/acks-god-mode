@@ -44,9 +44,9 @@ section('startRecruitmentDrive — RAW 3-week schedule (RR p.164)');
   const d = r.drive;
   ok('drive id has rcd- prefix', /^rcd-/.test(d.id));
   ok('weekly split = ½ ceil / ¼ floor(min1) / remainder', (() => { const t = d.totalAvailable; const w1 = Math.ceil(t / 2); return d.weekly[0] === w1 && d.weekly[0] + d.weekly[1] + d.weekly[2] === t; })(), JSON.stringify(d.weekly));
-  ok('week 1 revealed on start', d.weeksRevealed === 1 && d.revealedAvailable === d.weekly[0]);
+  ok('nothing revealed on start (RAW p.164 — candidates arrive after a week of soliciting)', d.weeksRevealed === 0 && d.revealedAvailable === 0);
   ok('status active', d.status === 'active');
-  ok('week-1 fee returned for the caller to debit (start does not debit)', r.feeOwedGp === d.feeWeekly && c.characters[0].coins.gp === 1000);
+  ok('no upfront fee — week 1 is charged when it completes (+7 days)', r.feeOwedGp === 0 && d.feesAccruedGp === 0 && c.characters[0].coins.gp === 1000);
   ok('drive pushed onto the patron', c.characters[0].recruitmentDrives.length === 1);
 }
 section('startRecruitmentDrive — errors');
@@ -58,16 +58,21 @@ section('advanceRecruitmentDrives — weekly trickle + completion');
 {
   const c = mkCampaign();
   const d = ACKS.startRecruitmentDrive(c, { patronCharacterId: 'pat', marketClassIdx: 2, hireCategory: 'mercenary', hireTypeId: MERC.id, rng: HALF }).drive;
-  c.currentDayInMonth = 8;     // +7 days = week 2
+  c.currentDayInMonth = 5;     // mid week 1 — nothing has had time to come in yet
+  ok('mid-week-1 is a no-op (candidates arrive only after a week elapses)', ACKS.advanceRecruitmentDrives(c).length === 0 && d.weeksRevealed === 0 && d.revealedAvailable === 0);
+  c.currentDayInMonth = 8;     // +7 days = week 1 complete
   let adv = ACKS.advanceRecruitmentDrives(c);
-  ok('day 8 reveals week 2', adv.length === 1 && d.weeksRevealed === 2 && d.revealedAvailable === d.weekly[0] + d.weekly[1]);
-  ok('day 8 accrues week-2 fee', adv[0].feeOwedGp === d.feeWeekly && !adv[0].completed);
-  c.currentDayInMonth = 15;    // +14 days = week 3
+  ok('day 8 reveals week 1 (½)', adv.length === 1 && d.weeksRevealed === 1 && d.revealedAvailable === d.weekly[0]);
+  ok('day 8 accrues the week-1 fee', adv[0].feeOwedGp === d.feeWeekly && !adv[0].completed);
+  c.currentDayInMonth = 15;    // +14 days = week 2 complete
   adv = ACKS.advanceRecruitmentDrives(c);
-  ok('day 15 reveals week 3 = all', d.weeksRevealed === 3 && d.revealedAvailable === d.totalAvailable);
+  ok('day 15 reveals week 2 (¼)', d.weeksRevealed === 2 && d.revealedAvailable === d.weekly[0] + d.weekly[1] && !adv[0].completed);
+  c.currentDayInMonth = 22;    // +21 days = week 3 complete
+  adv = ACKS.advanceRecruitmentDrives(c);
+  ok('day 22 reveals week 3 = all', d.weeksRevealed === 3 && d.revealedAvailable === d.totalAvailable);
   ok('week 3 completes the drive', d.status === 'complete' && adv[0].completed);
+  ok('three weekly fees accrued in total (one per solicited week)', d.feesAccruedGp === 3 * d.feeWeekly);
   ok('no further advance once complete', ACKS.advanceRecruitmentDrives(c).length === 0);
-  ok('mid-week is a no-op', (() => { const c2 = mkCampaign(); ACKS.startRecruitmentDrive(c2, { patronCharacterId: 'pat', marketClassIdx: 2, hireCategory: 'mercenary', hireTypeId: MERC.id, rng: HALF }); c2.currentDayInMonth = 5; return ACKS.advanceRecruitmentDrives(c2).length === 0; })());
 }
 
 // =============================================================================
@@ -93,8 +98,8 @@ section("'recruitment' day-consumer — reveal + fee debit from the purse (GP gr
   const fee = c.characters[0].recruitmentDrives[0].feeWeekly;
   const prop = ACKS.proposeDayTick(c, 7, { force: true }); ACKS.commitDayTick(c, prop, null);
   const d = c.characters[0].recruitmentDrives[0];
-  ok('day-tick revealed week 2', d.weeksRevealed === 2);
-  ok('week-2 fee debited from the purse', c.characters[0].coins.gp === 1000 - fee);
+  ok('day-tick (+7 days) reveals week 1', d.weeksRevealed === 1);
+  ok('week-1 fee debited from the purse', c.characters[0].coins.gp === 1000 - fee);
   ok('purse mirror (personalGp) synced', c.characters[0].personalGp === 1000 - fee);
   ok('fee logged as a wealth-transfer', c.eventLog.some(e => e.event && e.event.kind === 'wealth-transfer' && e.event.payload.amount === fee));
 }

@@ -5387,7 +5387,7 @@ document.addEventListener('alpine:init', () => {
               <div class="text-sm space-y-2">
                 <div class="flex justify-between items-baseline flex-wrap gap-2">
                   <div>
-                    <span class="font-semibold" x-text="recruitActiveDrive().status === 'complete' ? 'Search complete' : ('Soliciting · week ' + recruitActiveDrive().weeksRevealed + ' of 3')"></span>
+                    <span class="font-semibold" x-text="recruitActiveDrive().status === 'complete' ? 'Search complete' : ('Soliciting · week ' + Math.min(recruitActiveDrive().weeksRevealed + 1, 3) + ' of 3')"></span>
                     <span class="opacity-70" x-text="' · ' + recruitActiveDrive().revealedAvailable + ' available so far'"></span>
                   </div>
                   <button @click="recruitStopSoliciting()"
@@ -5408,13 +5408,13 @@ document.addEventListener('alpine:init', () => {
                       <tr class="border-b border-ink/10">
                         <td class="px-2 py-1 font-mono" x-text="'W' + (i+1)"></td>
                         <td class="px-2 py-1 text-right font-mono" x-text="n"></td>
-                        <td class="px-2 py-1" x-text="(i+1) <= recruitActiveDrive().weeksRevealed ? '✓ available' : '… advance the Day Clock'"></td>
+                        <td class="px-2 py-1" x-text="(i+1) <= recruitActiveDrive().weeksRevealed ? '✓ available' : ((i+1) === recruitActiveDrive().weeksRevealed + 1 && recruitActiveDrive().status === 'active' ? '⏳ soliciting this week' : '… advance the Day Clock')"></td>
                       </tr>
                     </template>
                   </tbody>
                 </table>
                 <div class="opacity-70" x-text="'Solicitation fees paid: ' + (recruitActiveDrive().feesAccruedGp || 0) + ' gp · ' + recruitBudgetLine()"></div>
-                <p class="text-sm italic opacity-70" x-show="recruitActiveDrive().status === 'active'">Advance the campaign <strong>Day Clock</strong> to reveal weeks 2–3. Engage the available candidates below; submitting concludes the search.</p>
+                <p class="text-sm italic opacity-70" x-show="recruitActiveDrive().status === 'active'">Advance the campaign <strong>Day Clock</strong> — each week of soliciting reveals its candidates (RR p.164). Engage the available candidates below; submitting concludes the search.</p>
                 <p class="text-sm italic opacity-70" x-show="recruitRevealedAvailable() === 0">No candidates yet. Advance the Day Clock, or stop and try a larger market.</p>
               </div>
             </template>
@@ -11567,7 +11567,7 @@ return {
         try { window.ACKS.applyWealthTransfer(camp, spec); if(window.ACKS.recordWealthTransfer) window.ACKS.recordWealthTransfer(camp, spec, { submittedBy:'gm' }); } catch(e){}
       }
       this.markDirty(); this.schedulePersist();
-      this.showToast('Soliciting started — ' + (res.drive.revealedAvailable || 0) + ' available this week. Advance the Day Clock for weeks 2–3.');
+      this.showToast('Soliciting started — candidates arrive after a week of soliciting (RR p.164). Advance the Day Clock.');
     } catch(e){ this.showToast('Start failed: ' + e.message); }
   },
   recruitStopSoliciting(){
