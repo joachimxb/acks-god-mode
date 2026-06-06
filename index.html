@@ -5271,6 +5271,10 @@ document.addEventListener('alpine:init', () => {
               <span x-text="recruitPatronPersuasionProfs().map(p => p.label).join(', ')"></span>
               <span class="opacity-70 italic" x-text="recruitPatronPersuasionProfs().length === 1 ? '(auto-applied — +1 to reaction rolls)' : '(GM picks one per attempt)'"></span>
             </div>
+            <!-- R3 — setup (category/type/settlement/offer/role) is editable only
+                 before a drive starts; once soliciting, the drive locks these. -->
+            <template x-if="!recruitActiveDrive()">
+            <div class="space-y-2">
             <div class="text-sm flex items-center gap-2">
               <span class="w-28">Category</span>
               <template x-for="cat in [{id:'henchman',label:'Henchman'},{id:'specialist',label:'Specialist'},{id:'mercenary',label:'Mercenary'}]" :key="cat.id">
@@ -5346,85 +5350,85 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </div>
             </template>
-          </div>
-
-          <!-- Solicit -->
-          <div class="border border-ink/40 rounded p-3 space-y-2">
-            <div class="flex justify-between items-baseline flex-wrap gap-2">
-              <div>
-                <span class="font-semibold">Solicit</span>
-                <span class="opacity-70 text-sm" x-text="' · Week ' + (recruitState.solicitWeeksUsed || 0) + ' of 4 spent this month (RR p.164)'"></span>
-              </div>
-              <button @click="recruitSolicit()"
-                      :disabled="!recruitState.hireTypeId || (recruitState.solicitWeeksUsed >= 4) || recruitBlockedByHenchmanCap() || recruitBlockedByLevelCap() || recruitNoChance()"
-                      :class="(!recruitState.hireTypeId || recruitState.solicitWeeksUsed >= 4 || recruitBlockedByHenchmanCap() || recruitBlockedByLevelCap() || recruitNoChance()) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
-                      :title="recruitNoChance() ? 'No chance of finding this hire type at this market — see Forecast' : 'Spend a week soliciting'"
-                      class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
-                      x-text="recruitNoChance() ? '✗ No chance' : (recruitBlockedByLevelCap() ? '✗ Over level cap' : (recruitBlockedByHenchmanCap() ? '✗ At henchman cap' : (recruitState.solicitWeeksUsed >= 4 ? '✗ Out of weeks' : (recruitState.solicitResult ? '🎲 Solicit another week' : '🎲 Solicit this week'))))"></button>
             </div>
-            <template x-if="recruitState.solicitResult">
-              <div class="text-sm space-y-2">
-                <div><strong x-text="recruitState.solicitResult.totalAvailable + ' available total'"></strong> <span class="opacity-70" x-text="'(this week: ' + (recruitState.solicitResult.weekDetails && recruitState.solicitResult.weekDetails.length > 0 ? recruitState.solicitResult.weekDetails[recruitState.solicitResult.weekDetails.length-1].rolledTotal : 0) + ')'"></span></div>
-                <!-- §310.3f-fix21 — per-week breakdown. One row per solicit click. -->
-                <template x-if="recruitState.solicitResult.weekDetails && recruitState.solicitResult.weekDetails.length > 0">
-                  <!-- §310.3f-fix28 — table ends at Fee gp; reroll column is a sibling outside the bordered box. -->
-                  <div class="flex items-start gap-3">
-                    <table class="text-sm border border-ink/20" style="border-collapse:collapse; min-width:42rem;">
-                      <thead>
-                        <tr style="background:#f6efdf">
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Week</th>
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Spec <span class="opacity-60 font-normal" x-text="'(' + (recruitMarketClasses()[recruitState.marketClassIdx]?.label || '?') + ')'"></span></th>
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Roll outcome</th>
-                          <th class="px-2 py-1 text-right border-b border-ink/20">Found</th>
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Fee roll</th>
-                          <th class="px-2 py-1 text-right border-b border-ink/20">Fee gp</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <template x-for="(wd, idx) in recruitState.solicitResult.weekDetails" :key="idx">
-                          <tr class="border-b border-ink/10">
-                            <td class="px-2 py-1 font-mono" x-text="'W' + wd.weekIndex"></td>
-                            <td class="px-2 py-1 font-mono" x-text="wd.availabilityDetail?.cellRaw || '—'"></td>
-                            <td class="px-2 py-1 font-mono text-sm" x-text="recruitFormatAvailability(wd.availabilityDetail)"></td>
-                            <td class="px-2 py-1 text-right font-mono" x-text="wd.rolledTotal"></td>
-                            <td class="px-2 py-1 font-mono text-sm opacity-80" x-text="recruitFormatFee(wd.feeDetail, wd.feeNotation, wd.fee)"></td>
-                            <td class="px-2 py-1 text-right font-mono" x-text="wd.fee + 'gp'"></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                    <!-- Reroll column: one button per row, vertically aligned by mirroring the table's
-                         px-2 py-1 cell padding so each button sits opposite its row. Header spacer at top
-                         matches the <thead> row height. -->
-                    <div class="flex flex-col">
-                      <div class="px-2 py-1 text-sm" style="visibility:hidden;">_</div>
-                      <template x-for="(wd, idx) in recruitState.solicitResult.weekDetails" :key="'rr-'+idx">
-                        <div class="px-2 py-1">
-                          <button @click="recruitRerollSolicitWeek(idx)"
-                                  title="Reroll this week's availability"
-                                  class="text-sm px-2 py-0.5 opacity-70 hover:opacity-100 hover:bg-yellow-100 rounded"
-                                  style="background:none; border:1px solid #c4b88f; cursor:pointer;">🎲 Reroll</button>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-                </template>
+            </template>
+            <!-- R3 — read-only setup summary while a drive is in flight. -->
+            <template x-if="recruitActiveDrive()">
+              <div class="text-sm flex items-start gap-2 flex-wrap">
+                <span class="w-28">Soliciting</span>
+                <span x-text="recruitDriveSummaryLine()"></span>
               </div>
             </template>
-            <template x-if="recruitState.solicitResult && recruitState.solicitResult.totalAvailable === 0">
-              <p class="text-sm italic opacity-70">None available this week. Consider a larger market, or re-solicit.</p>
+          </div>
+
+          <!-- Soliciting (R3 — persistent day-aware drive; the global Day Clock advances it, RR p.164) -->
+          <div class="border border-ink/40 rounded p-3 space-y-2">
+            <!-- No drive yet → Start soliciting (budget-gated, like Forage). -->
+            <template x-if="!recruitActiveDrive()">
+              <div class="space-y-2">
+                <div class="flex justify-between items-baseline flex-wrap gap-2">
+                  <div>
+                    <span class="font-semibold">Solicit hirelings</span>
+                    <span class="opacity-70 text-sm"> · an ongoing ancillary activity (RR p.164)</span>
+                  </div>
+                  <button @click="recruitStartSoliciting()"
+                          :disabled="!recruitStartFits().fits"
+                          :class="recruitStartFits().fits ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                          :title="recruitStartFits().reason || 'Begin soliciting — week-1 candidates appear at once; advance the Day Clock for weeks 2–3'"
+                          class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
+                          x-text="recruitStartFits().label"></button>
+                </div>
+                <div class="text-sm opacity-70" x-text="recruitBudgetLine()"></div>
+                <p class="text-sm accent-red" x-show="!recruitStartFits().fits && recruitStartFits().reason" x-text="recruitStartFits().reason"></p>
+              </div>
+            </template>
+            <!-- Active / complete drive → status + Stop. The global Day Clock reveals weeks 2–3. -->
+            <template x-if="recruitActiveDrive()">
+              <div class="text-sm space-y-2">
+                <div class="flex justify-between items-baseline flex-wrap gap-2">
+                  <div>
+                    <span class="font-semibold" x-text="recruitActiveDrive().status === 'complete' ? 'Search complete' : ('Soliciting · week ' + recruitActiveDrive().weeksRevealed + ' of 3')"></span>
+                    <span class="opacity-70" x-text="' · ' + recruitActiveDrive().revealedAvailable + ' available so far'"></span>
+                  </div>
+                  <button @click="recruitStopSoliciting()"
+                          x-show="recruitActiveDrive().status === 'active'"
+                          class="px-3 py-1 border border-ink rounded text-sm hover:bg-red-100">⏹ Stop soliciting</button>
+                </div>
+                <!-- Per-week schedule (½ week 1 / ¼ week 2 / remainder week 3, RR p.164). -->
+                <table class="text-sm border border-ink/20" style="border-collapse:collapse; min-width:24rem;">
+                  <thead>
+                    <tr style="background:#f6efdf">
+                      <th class="px-2 py-1 text-left border-b border-ink/20">Week</th>
+                      <th class="px-2 py-1 text-right border-b border-ink/20">Candidates</th>
+                      <th class="px-2 py-1 text-left border-b border-ink/20">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="(n, i) in (recruitActiveDrive().weekly || [])" :key="i">
+                      <tr class="border-b border-ink/10">
+                        <td class="px-2 py-1 font-mono" x-text="'W' + (i+1)"></td>
+                        <td class="px-2 py-1 text-right font-mono" x-text="n"></td>
+                        <td class="px-2 py-1" x-text="(i+1) <= recruitActiveDrive().weeksRevealed ? '✓ available' : '… advance the Day Clock'"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <div class="opacity-70" x-text="'Solicitation fees paid: ' + (recruitActiveDrive().feesAccruedGp || 0) + ' gp · ' + recruitBudgetLine()"></div>
+                <p class="text-sm italic opacity-70" x-show="recruitActiveDrive().status === 'active'">Advance the campaign <strong>Day Clock</strong> to reveal weeks 2–3. Engage the available candidates below; submitting concludes the search.</p>
+                <p class="text-sm italic opacity-70" x-show="recruitRevealedAvailable() === 0">No candidates yet. Advance the Day Clock, or stop and try a larger market.</p>
+              </div>
             </template>
           </div>
 
                     <!-- Mercenary count-level hire -->
-          <template x-if="recruitState.hireCategory === 'mercenary' && recruitState.solicitResult && recruitState.solicitResult.totalAvailable > 0">
+          <template x-if="recruitState.hireCategory === 'mercenary' && recruitRevealedAvailable() > 0">
             <div class="border border-ink/40 rounded p-3 space-y-2">
               <div class="font-semibold">Mercenary hire</div>
               <div class="text-sm flex items-center gap-2">
                 <span class="w-28">Hire count</span>
                 <input type="number" x-model.number="recruitState.mercenaryHireCount" min="0"
-                       :max="recruitState.solicitResult.totalAvailable" class="text-sm" style="width:6rem">
-                <span class="opacity-60" x-text="'/ ' + recruitState.solicitResult.totalAvailable + ' available'"></span>
+                       :max="recruitRevealedAvailable()" class="text-sm" style="width:6rem">
+                <span class="opacity-60" x-text="'/ ' + recruitRevealedAvailable() + ' available'"></span>
               </div>
               <!-- Destination picker — landed patrons get a choice;
                    landless patrons land in their personal company by necessity. -->
@@ -5464,15 +5468,15 @@ document.addEventListener('alpine:init', () => {
           </template>
 
           <!-- Individual hires: candidate engagement -->
-          <template x-if="(recruitState.hireCategory === 'henchman' || recruitState.hireCategory === 'specialist') && recruitState.solicitResult && recruitState.solicitResult.totalAvailable > 0">
+          <template x-if="(recruitState.hireCategory === 'henchman' || recruitState.hireCategory === 'specialist') && recruitRevealedAvailable() > 0">
             <div class="border border-ink/40 rounded p-3 space-y-3">
               <div class="flex justify-between items-baseline">
                 <div class="font-semibold">Candidates</div>
                 <button @click="recruitEngageOne()"
-                        :disabled="recruitState.engagedIds.length >= recruitState.solicitResult.totalAvailable"
-                        :class="recruitState.engagedIds.length >= recruitState.solicitResult.totalAvailable ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
+                        :disabled="recruitState.engagedIds.length >= recruitRevealedAvailable()"
+                        :class="recruitState.engagedIds.length >= recruitRevealedAvailable() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
                         class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
-                        x-text="'+ Engage candidate (' + recruitState.engagedIds.length + ' / ' + recruitState.solicitResult.totalAvailable + ' engaged)'"></button>
+                        x-text="'+ Engage candidate (' + recruitState.engagedIds.length + ' / ' + recruitRevealedAvailable() + ' engaged)'"></button>
               </div>
               <template x-if="recruitState.engagedIds.length === 0">
                 <p class="text-sm italic opacity-70">Engage a candidate to roll them up. By default, only hired candidates are kept on the roster; engaged-but-not-hired ones are discarded when this session ends (whether you Submit or Cancel). The persistent-hireling-candidates house rule keeps every engaged record, and persistent-hireling-resurfacing makes them re-appear in future solicits at this market.</p>
@@ -9673,6 +9677,19 @@ return {
       if(hunted) acts.push({kind:'hunting', icon:'🏹', label:'hunted (dedicated)', priority:2});
     }
 
+    // ── Contributor 7: Recruitment drives (Priority 3) — R3, the §8.9 mandate ──
+    // An active solicitation drive engages the patron for 1 ancillary/day per hireling type
+    // (the activity budget counts it). Ongoing state on the patron (character.recruitmentDrives[]),
+    // so it surfaces like a journey / role post — one chip per active drive. RR p.164.
+    if(Array.isArray(c.recruitmentDrives)){
+      for(const d of c.recruitmentDrives){
+        if(!d || d.status !== 'active') continue;
+        acts.push({kind:'recruiting:' + d.id, icon:'🤝',
+                   label:'soliciting ' + (d.hireTypeLabel || d.hireTypeId || 'hirelings') + ' (week ' + (d.weeksRevealed || 1) + ' of 3)',
+                   priority:3});
+      }
+    }
+
     // ── Future contributors land here. Each adds zero or more descriptors. ──
 
     return acts.sort((a,b) => a.priority - b.priority || a.kind.localeCompare(b.kind));
@@ -11140,8 +11157,10 @@ return {
       roleToFill: '',
       roleDomainId: autoRoleDomainId,
       commandUnitId: '',
-      solicitResult: null,
-      solicitWeeksUsed: 0,
+      // R3 — the persistent solicitation drive lives on the patron
+      // (character.recruitmentDrives[]); the wizard holds only its id. Null until
+      // "Start soliciting". Replaces the old instant solicitResult / solicitWeeksUsed.
+      driveId: null,
       engagedIds: [],
       // §310.3f-fix13 — id→candidate map for NEW individuations this session.
       // Resurfaced candidates (kind='candidate' already in camp.characters via
@@ -11153,6 +11172,22 @@ return {
       destinationKind: defaultDestKind,    // 'garrison' | 'company' — for mercenary hires
       targetGarrisonUnitId: '',            // #548 — '' = auto-merge to first same-type, '__new__' = force new, else unit id
     };
+    // R3 — resume an in-flight drive. A drive started earlier (and advanced across
+    // days by the global Day Clock) persists on the patron; adopt it so re-entering
+    // Recruit picks up where it left off, locking the setup to the drive's params.
+    if(patron && window.ACKS && window.ACKS.recruitmentDrivesForPatron){
+      const open = window.ACKS.recruitmentDrivesForPatron(this.currentCampaign, patron.id)
+        .find(d => d && (d.status === 'active' || d.status === 'complete'));
+      if(open){
+        this.recruitState.driveId = open.id;
+        this.recruitState.hireCategory = open.hireCategory;
+        this.recruitState.hireTypeId = open.hireTypeId;
+        this.recruitState.marketClassIdx = open.marketClassIdx;
+        if(open.settlementId) this.recruitState.settlementId = open.settlementId;
+        const row = this.recruitCurrentRow();
+        if(row && typeof row.wage === 'number') this.recruitState.monthlyOffer = row.wage;
+      }
+    }
   },
   recruitMarketClassStrToIdx(s){
     if(!s) return 2;
@@ -11239,14 +11274,15 @@ return {
       munerator:      { category:'specialist', typeId:'quartermaster' },
       steward:        { category:'specialist', typeId:'sage' }
     };
-    const def = opts.roleToFill ? roleDefaults[opts.roleToFill] : null;
+    // R3 — if recruitStart adopted an in-flight drive, its category/type are fixed; skip the deep-link override.
+    const def = (!this.recruitState.driveId && opts.roleToFill) ? roleDefaults[opts.roleToFill] : null;
     if(def){
       this.recruitState.hireCategory = def.category;
       this.recruitState.hireTypeId   = def.typeId;
       // Replicate recruitOnTypeChange's wage-fill so the offer auto-populates.
       const row = this.recruitCurrentRow();
       if(row && typeof row.wage === 'number') this.recruitState.monthlyOffer = row.wage;
-    } else if(opts.category){
+    } else if(!this.recruitState.driveId && opts.category){
       this.recruitState.hireCategory = opts.category;
       this.recruitOnCategoryChange();
     }
@@ -11421,7 +11457,7 @@ return {
   recruitMarketClasses(){ return (window.ACKS && window.ACKS.HIRELING_MARKET_CLASSES) || []; },
   recruitOnCategoryChange(){
     const s = this.recruitState; if(!s) return;
-    s.hireTypeId = ''; s.solicitResult = null; s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
+    s.hireTypeId = ''; s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
     s.roleToFill = '';
   },
   recruitOnTypeChange(){
@@ -11429,7 +11465,7 @@ return {
     const row = this.recruitCurrentRow();
     s.monthlyOffer = (row && typeof row.wage === 'number') ? row.wage : 0;
     // §310.3f-fix16 — also clear candidatePool so stale entries don't survive.
-    s.solicitResult = null; s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
+    s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
   },
   recruitPatronDomains(){
     const s = this.recruitState; if(!s || !s.patronCharacterId) return [];
@@ -11459,106 +11495,91 @@ return {
     if(s.roleToFill === 'chaplain') return 'Cleric';
     return '';
   },
-  recruitSolicit(){
-    const s = this.recruitState; if(!s) return;
-    if(!s.hireCategory || !s.hireTypeId){ this.showToast('Pick a category and a type first.'); return; }
-    if((s.solicitWeeksUsed||0) >= 4){
-      this.showToast('Already spent 4 weeks soliciting this month (RR p.164 cap).');
-      return;
-    }
-    try {
-      const newRoll = window.ACKS.solicitHirelings({
-        hireCategory: s.hireCategory, hireTypeId: s.hireTypeId, marketClassIdx: Number(s.marketClassIdx)
-      });
-      // §310.3f-fix20 — accumulate across solicit weeks. Each click adds the
-      // rolled total to the running budget, so prior engagements aren't
-      // stranded above a fresh smaller roll.
-      // §310.3f-fix21 — also push each call's detail into a weekDetails array
-      // for the transparency breakdown in the UI.
-      const weekDetailEntry = {
-        weekIndex: (s.solicitResult ? (s.solicitResult.weekDetails||[]).length : 0) + 1,
-        availabilityDetail: newRoll.availabilityDetail || null,
-        feeDetail: newRoll.feeDetail || null,
-        feeNotation: newRoll.feeNotation || '-',
-        rolledTotal: newRoll.totalAvailable || 0,
-        fee: newRoll.feeWeekly || 0
-      };
-      if(s.solicitResult){
-        s.solicitResult.totalAvailable = (s.solicitResult.totalAvailable || 0) + (newRoll.totalAvailable || 0);
-        s.solicitResult.weekly = (s.solicitResult.weekly || []).concat(newRoll.weekly || []);
-        s.solicitResult.feeWeekly = newRoll.feeWeekly;
-        s.solicitResult.weekDetails = (s.solicitResult.weekDetails || []).concat(weekDetailEntry);
-      } else {
-        s.solicitResult = newRoll;
-        s.solicitResult.weekDetails = [weekDetailEntry];
+  // ─── R3 — drive-based soliciting. The persistent drive lives on the patron
+  // (character.recruitmentDrives[]); the GLOBAL Day Clock advances it (Day-Clock-only,
+  // per Joachim) — no recruit-panel advance button. The wizard starts / shows / stops
+  // the drive and engages candidates against its revealed pool. RR p.164.
+  recruitActiveDrive(){
+    const s = this.recruitState; if(!s || !s.driveId) return null;
+    const list = (window.ACKS && window.ACKS.recruitmentDrivesForPatron)
+      ? window.ACKS.recruitmentDrivesForPatron(this.currentCampaign, s.patronCharacterId) : [];
+    return list.find(d => d && d.id === s.driveId) || null;
+  },
+  recruitRevealedAvailable(){
+    const d = this.recruitActiveDrive();
+    return d ? (d.revealedAvailable || 0) : 0;
+  },
+  recruitDriveSummaryLine(){
+    const d = this.recruitActiveDrive(); if(!d) return '';
+    const cat = d.hireCategory ? (d.hireCategory.charAt(0).toUpperCase() + d.hireCategory.slice(1)) : '';
+    const where = d.settlementId ? (' at ' + d.settlementId) : '';
+    return cat + ' · ' + (d.hireTypeLabel || d.hireTypeId) + where;
+  },
+  // Start gate — a drive costs 1 ancillary/day (ongoing). Mirror the Forage ancillary
+  // gate: block Start when the patron has no short-task room today. Also blocks the RAW
+  // level / henchman caps + a zero-chance market. Returns { fits, reason, label }.
+  recruitStartFits(){
+    const s = this.recruitState;
+    if(!s || !s.hireTypeId) return { fits:false, reason:'Pick a category and a type first.', label:'Start soliciting' };
+    if(this.recruitNoChance()) return { fits:false, reason:'No chance of finding this hire type at this market — see Forecast.', label:'✗ No chance' };
+    if(this.recruitBlockedByLevelCap()) return { fits:false, reason:'Over RAW level cap — pick a lower-level type or a higher-level patron.', label:'✗ Over level cap' };
+    if(this.recruitBlockedByHenchmanCap()) return { fits:false, reason:'Patron at henchman cap — release a current henchman first.', label:'✗ At henchman cap' };
+    const A = window.ACKS, c = s.patron;
+    if(A && A.characterActivityBudget && c){
+      const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+      const b = A.characterActivityBudget(this.currentCampaign, c.id);
+      const dedUsed = b.dedicatedUsed || 0, ancUsed = b.ancillaryUsed || 0;
+      const ancCap = (dedUsed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+      if(ancUsed + 1 > ancCap){
+        const who = c.name || 'They';
+        return { fits:false, label:'Start soliciting',
+          reason: who + ' has no time left today — ' + ancUsed + ' of ' + ancCap + ' short tasks used' + (dedUsed >= 1 ? ' alongside a full-day task' : '') + '. Soliciting is an ancillary activity (RR p.164).' };
       }
-      s.solicitWeeksUsed = (s.solicitWeeksUsed || 0) + 1;
-    } catch(e){ this.showToast('Solicit failed: '+e.message); }
+    }
+    return { fits:true, reason:'', label:'🎲 Start soliciting' };
   },
-  // §310.3f-fix25 — Reroll a specific solicit week. Replaces its weekDetails
-  // entry with a fresh roll using the same hire type + market class params.
-  // Recomputes the cumulative totalAvailable from the updated array so the
-  // engage budget tracks correctly.
-  recruitRerollSolicitWeek(idx){
-    const s = this.recruitState; if(!s || !s.solicitResult) return;
-    const wds = s.solicitResult.weekDetails || [];
-    if(idx < 0 || idx >= wds.length) return;
+  recruitBudgetLine(){
+    const s = this.recruitState; if(!s || !s.patron) return '';
+    const A = window.ACKS; if(!A || !A.characterActivityBudget) return '';
+    const b = A.characterActivityBudget(this.currentCampaign, s.patron.id);
+    return 'Today: ' + (b.dedicatedUsed || 0) + ' dedicated · ' + (b.ancillaryUsed || 0) + ' ancillary' + (b.overBudget ? ' (over budget)' : '');
+  },
+  recruitStartSoliciting(){
+    const s = this.recruitState; if(!s) return;
+    const camp = this.currentCampaign; if(!camp){ this.showToast('No campaign loaded.'); return; }
+    const fit = this.recruitStartFits();
+    if(!fit.fits){ this.showToast(fit.reason); return; }
+    if(!window.ACKS || !window.ACKS.startRecruitmentDrive){ this.showToast('Recruitment engine unavailable.'); return; }
     try {
-      const newRoll = window.ACKS.solicitHirelings({
-        hireCategory: s.hireCategory, hireTypeId: s.hireTypeId, marketClassIdx: Number(s.marketClassIdx)
+      const res = window.ACKS.startRecruitmentDrive(camp, {
+        patronCharacterId: s.patronCharacterId,
+        settlementId: s.settlementId || null,
+        marketClassIdx: Number(s.marketClassIdx),
+        hireCategory: s.hireCategory,
+        hireTypeId: s.hireTypeId
       });
-      const previousLabel = wds[idx].weekIndex; // preserve W{n} label
-      wds[idx] = {
-        weekIndex: previousLabel,
-        availabilityDetail: newRoll.availabilityDetail || null,
-        feeDetail: newRoll.feeDetail || null,
-        feeNotation: newRoll.feeNotation || '-',
-        rolledTotal: newRoll.totalAvailable || 0,
-        fee: newRoll.feeWeekly || 0
-      };
-      // Recompute cumulative totalAvailable from all weeks.
-      s.solicitResult.totalAvailable = wds.reduce((sum, w) => sum + (w.rolledTotal||0), 0);
-      // Rebuild weekly[] by concatenating the per-week distributions
-      // (best-effort — engine returns a 3-week split per call; for reroll we
-      // just use the rolledTotal as a single value in weekly[] terms).
-      s.solicitResult.weekDetails = wds;
-      this.showToast('Week ' + previousLabel + ' rerolled.');
-    } catch(e){ this.showToast('Reroll failed: '+e.message); }
+      if(!res || !res.ok){ this.showToast('Could not start soliciting: ' + ((res && res.error) || 'unknown')); return; }
+      s.driveId = res.drive.id;
+      // Debit week-1 solicit fee from the patron's purse (RR p.164 — per week, per type), GP Wave B.
+      const fee = res.feeOwedGp || 0;
+      if(fee > 0 && window.ACKS.applyWealthTransfer){
+        const spec = { amount: fee, source: { kind:'character-gp', id: s.patronCharacterId }, destination: { kind:'external', label:'Solicitation fee' }, allowOverdraft:true, reason:'Hireling solicitation fee', bucket:'recruitment' };
+        try { window.ACKS.applyWealthTransfer(camp, spec); if(window.ACKS.recordWealthTransfer) window.ACKS.recordWealthTransfer(camp, spec, { submittedBy:'gm' }); } catch(e){}
+      }
+      this.markDirty(); this.schedulePersist();
+      this.showToast('Soliciting started — ' + (res.drive.revealedAvailable || 0) + ' available this week. Advance the Day Clock for weeks 2–3.');
+    } catch(e){ this.showToast('Start failed: ' + e.message); }
   },
-  // §310.3f-fix21 — Render a single solicit week's availability detail as
-  // text. Examples:
-  //   "1d10 → [7] = 7"
-  //   "2d4 → [3,4] = 7 (subtotal × 50 = 350)"
-  //   "1 (85%) → d100=42 ≤ 85 — succeeded, count=1"
-  //   "1d3 (33%) → d100=88 > 33 — failed, count=0"
-  recruitFormatAvailability(d){
-    // §310.3f-fix22 — the raw cell value now lives in its own column. This
-    // helper formats the OUTCOME side only (rolls, percent gates, etc.).
-    if(!d) return '—';
-    if(d.kind === 'none')  return 'no candidates of this type available at this market class';
-    if(d.kind === 'count') return 'flat — no roll needed';
-    if(d.kind === 'dice'){
-      const dr = d.diceRoll || {};
-      return '[' + (dr.dice||[]).join(',') + ']' + (dr.modifier ? (dr.modifier > 0 ? ' + ' + dr.modifier : ' − ' + Math.abs(dr.modifier)) : '') + ' = ' + d.total;
+  recruitStopSoliciting(){
+    const s = this.recruitState; if(!s) return;
+    const camp = this.currentCampaign; const d = this.recruitActiveDrive();
+    if(camp && d && window.ACKS && window.ACKS.stopRecruitmentDrive){
+      try { window.ACKS.stopRecruitmentDrive(camp, s.patronCharacterId, d.id); } catch(e){}
     }
-    if(d.kind === 'dice-times'){
-      const dr = d.diceRoll || {};
-      return '[' + (dr.dice||[]).join(',') + '] = ' + dr.total + ' × ' + d.multiplier + ' = ' + d.total;
-    }
-    if(d.kind === 'percent-single'){
-      return 'd100=' + d.percentRoll + (d.succeeded ? (' ≤ ' + d.percentTarget + ' — succeeded, count=' + d.count) : (' > ' + d.percentTarget + ' — failed, count=0'));
-    }
-    if(d.kind === 'percent-dice'){
-      if(!d.succeeded) return 'd100=' + d.percentRoll + ' > ' + d.percentTarget + ' — failed, count=0';
-      const dr = d.diceRoll || {};
-      return 'd100=' + d.percentRoll + ' ≤ ' + d.percentTarget + ' — passed; ' + (dr.notation || '?') + ' → [' + (dr.dice||[]).join(',') + '] = ' + dr.total;
-    }
-    return '(?)';
-  },
-  recruitFormatFee(detail, notation, total){
-    if(!detail) return notation + ' = ' + (total || 0) + 'gp';
-    if(!detail.dice || detail.dice.length === 0) return notation + ' = ' + total + 'gp';
-    return notation + ' → [' + detail.dice.join(',') + ']' + (detail.modifier ? (detail.modifier > 0 ? ' + ' + detail.modifier : ' − ' + Math.abs(detail.modifier)) : '') + ' = ' + detail.total + 'gp';
+    s.driveId = null;
+    s.engagedIds = []; s.negotiations = {}; s.candidatePool = {}; s.mercenaryHireCount = 0;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Soliciting stopped.');
   },
   // §310.3f-fix23 — Pre-solicit forecast: read the RAW cell for the chosen
   // hire type × market class and translate it into plain English so the GM
@@ -11612,7 +11633,7 @@ return {
     return !!(f && f.noChance);
   },
   recruitEngageOne(){
-    const s = this.recruitState; if(!s || !s.solicitResult) return;
+    const s = this.recruitState; if(!s || !this.recruitActiveDrive()) return;
     const row = this.recruitCurrentRow(); if(!row) return;
     const camp = this.currentCampaign; if(!camp){ this.showToast('No campaign loaded.'); return; }
     // §310.3f-fix18 — resurfaced-first: if persistent-hireling-resurfacing is
@@ -11746,11 +11767,12 @@ return {
     }
     return Math.round(total);
   },
-  // Sum of all solicit-week fees rolled this session.
+  // R3 — total solicit fees charged on the active drive (live-debited at Start + by the
+  // day-tick consumer). Recorded on the recruit-hireling payload for audit — no money
+  // moves here (the handler sets treasuryDelta:0); the drive already paid the fees.
   recruitComputeSolicitFeesGp(){
-    const s = this.recruitState; if(!s || !s.solicitResult) return 0;
-    const wds = s.solicitResult.weekDetails || [];
-    return wds.reduce((sum, w) => sum + Number(w.fee || 0), 0);
+    const d = this.recruitActiveDrive();
+    return d ? (d.feesAccruedGp || 0) : 0;
   },
   recruitHiredCount(){
     const s = this.recruitState; if(!s) return 0;
@@ -11847,6 +11869,10 @@ return {
         appliedAt: new Date().toISOString()
       });
       this.showToast(out.result && out.result.narrativeSummary ? out.result.narrativeSummary : 'Recruitment recorded.');
+      // R3 — conclude the drive (the search ended in a hire). Fees were charged live
+      // (Start + day-tick); stopping just removes it from the active set + the budget.
+      const _drv = this.recruitActiveDrive();
+      if(_drv && window.ACKS.stopRecruitmentDrive){ try { window.ACKS.stopRecruitmentDrive(camp, s.patronCharacterId, _drv.id); } catch(e){} }
       this.recruitReset();
     } catch(e){
       console.error(e);
