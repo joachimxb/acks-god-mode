@@ -5431,6 +5431,7 @@ document.addEventListener('alpine:init', () => {
                 <div class="flex justify-between items-baseline flex-wrap gap-2">
                   <div>
                     <span class="font-semibold" x-text="recruitActiveDrive().status === 'complete' ? 'Search complete' : ('Soliciting · week ' + Math.min(recruitActiveDrive().weeksRevealed + 1, 3) + ' of 3')"></span>
+                    <span class="opacity-70" x-show="recruitActiveDrive().status === 'active'" x-text="' · day ' + recruitDriveWeekDays() + '/7 this week'"></span>
                     <span class="opacity-70" x-text="' · ' + recruitActiveDrive().revealedAvailable + ' available so far'"></span>
                   </div>
                   <button @click="recruitStopSoliciting()"
@@ -5451,7 +5452,7 @@ document.addEventListener('alpine:init', () => {
                       <tr class="border-b border-ink/10">
                         <td class="px-2 py-1 font-mono" x-text="'W' + (i+1)"></td>
                         <td class="px-2 py-1 text-right font-mono" x-text="n"></td>
-                        <td class="px-2 py-1" x-text="(i+1) <= recruitActiveDrive().weeksRevealed ? '✓ available' : ((i+1) === recruitActiveDrive().weeksRevealed + 1 && recruitActiveDrive().status === 'active' ? '⏳ soliciting this week' : '… advance the Day Clock')"></td>
+                        <td class="px-2 py-1" x-text="(i+1) <= recruitActiveDrive().weeksRevealed ? '✓ available' : ((i+1) === recruitActiveDrive().weeksRevealed + 1 && recruitActiveDrive().status === 'active' ? ('⏳ soliciting this week · day ' + recruitDriveWeekDays() + '/7') : '… advance the Day Clock')"></td>
                       </tr>
                     </template>
                   </tbody>
@@ -11661,6 +11662,15 @@ return {
   recruitRevealedAvailable(){
     const d = this.recruitActiveDrive();
     return d ? (d.revealedAvailable || 0) : 0;
+  },
+  // Days elapsed in the CURRENT soliciting week, 0..7 (RR p.164 — a week reveals at +7/+14/+21 days).
+  // Counts game days since the start of the in-progress week (start, or the last week revealed).
+  recruitDriveWeekDays(){
+    const d = this.recruitActiveDrive(); if(!d || !this.currentCampaign) return 0;
+    const c = this.currentCampaign;
+    const ord = (((c.currentTurn || 1) - 1) * 30) + (c.currentDayInMonth || 1);
+    const elapsed = Math.max(0, ord - (d.startedDayOrd || ord));
+    return Math.max(0, Math.min(7, elapsed - (d.weeksRevealed || 0) * 7));
   },
   recruitDriveSummaryLine(){
     const d = this.recruitActiveDrive(); if(!d) return '';
