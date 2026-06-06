@@ -272,5 +272,49 @@ section('V4 — hunt + budget counting + error paths');
 }
 
 // =============================================================================
+section('V4 — reroll (rerollProvisioningActivity: flips the yield on a success-state change)');
+{
+  // fail → reroll success: rations appear
+  const c = provCampaign(); c.characters = [mkChar('chr-f', 'hex-forest', { inventory: [] })];
+  const r = ACKS.forageActivity(c, { actorCharacterId: 'chr-f', forageKind: 'food', rng: LO });
+  ok('food forage fails on a 1', r.success === false && rationDays(c.characters[0]) === 0);
+  const rr = ACKS.rerollProvisioningActivity(c, r.event.id, { rng: HI });
+  ok('reroll fail→success adds the yield (+3)', rr.ok && rr.success === true && rationDays(c.characters[0]) === 3);
+  ok('reroll updates the SAME event in place (no new event)', c.eventLog.length === 1 && c.eventLog[0].event.payload.success === true);
+  // success → reroll fail: rations removed
+  const rr2 = ACKS.rerollProvisioningActivity(c, r.event.id, { rng: LO });
+  ok('reroll success→fail removes the yield (0)', rr2.success === false && rationDays(c.characters[0]) === 0);
+}
+{
+  // two stacked attempts reroll INDEPENDENTLY (surgical by event tag)
+  const c = provCampaign(); c.characters = [mkChar('chr-f', 'hex-forest', { inventory: [] })];
+  const a = ACKS.forageActivity(c, { actorCharacterId: 'chr-f', forageKind: 'food', rng: HI });
+  const b = ACKS.forageActivity(c, { actorCharacterId: 'chr-f', forageKind: 'food', rng: HI });
+  ok('two stacked successes = +6 day-rations across 2 events', rationDays(c.characters[0]) === 6 && c.eventLog.length === 2);
+  ACKS.rerollProvisioningActivity(c, a.event.id, { rng: LO });
+  ok('rerolling only the FIRST to fail leaves the second (3 remain)', rationDays(c.characters[0]) === 3);
+}
+{
+  // water success → reroll fail restores the pre-snapshot
+  const c = provCampaign(); const ch = mkChar('chr-w', 'hex-forest', { waterDaysCarried: 0, inventory: [] });
+  for (let i = 0; i < 15; i++) ch.inventory.push({ name: 'Waterskin', catalogId: 'waterskin', stone: 0.2 });
+  c.characters = [ch];
+  const r = ACKS.forageActivity(c, { actorCharacterId: 'chr-w', forageKind: 'water', rng: HI });
+  ok('water forage success raises water', r.success === true && ch.waterDaysCarried > 0);
+  ACKS.rerollProvisioningActivity(c, r.event.id, { rng: LO });
+  ok('reroll water success→fail restores water to 0 (pre)', ch.waterDaysCarried === 0);
+}
+{
+  // auto water (at a source) is not rerollable; unknown event errors
+  const c = provCampaign(); c.hexes = [{ id: 'hex-river', terrain: 'grassland', riverSides: [0] }];
+  const ch = mkChar('chr-a', 'hex-river', { waterDaysCarried: 0, inventory: [{ name: 'Waterskin', catalogId: 'waterskin', stone: 0.2 }] });
+  c.characters = [ch];
+  const r = ACKS.forageActivity(c, { actorCharacterId: 'chr-a', forageKind: 'water' });
+  ok('auto water = success + auto', r.auto === true);
+  ok('auto water is NOT rerollable', ACKS.rerollProvisioningActivity(c, r.event.id, { rng: HI }).error === 'auto-not-rerollable');
+  ok('reroll unknown event → error', ACKS.rerollProvisioningActivity(c, 'evt-nope', {}).error === 'event-not-found');
+}
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — cost-of-living.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  ' + failures.join('\n  ')); process.exit(1); }

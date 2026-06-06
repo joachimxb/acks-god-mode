@@ -1046,14 +1046,14 @@ document.addEventListener('alpine:init', () => {
     </div>
     <div class="p-4 space-y-3">
       <label class="text-sm">Character<br>
-        <select @change="forage.actorId=$event.target.value; forage.lastResult=null" class="text-sm" style="min-width:14rem">
+        <select @change="forage.actorId=$event.target.value; forage.results=[]" class="text-sm" style="min-width:14rem">
           <option value="" :selected="!forage.actorId">— pick a character —</option>
           <template x-for="c in forageCharacters()" :key="c.id"><option :value="c.id" :selected="forage.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
         </select>
       </label>
       <div class="flex gap-1 text-sm flex-wrap">
         <template x-for="k in [['water','🥤 Water'],['food','🌿 Food'],['firewood','🪵 Firewood'],['hunt','🏹 Hunt']]" :key="k[0]">
-          <button @click="forage.kind=k[0]; forage.lastResult=null" :class="forage.kind===k[0] ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded" x-text="k[1]"></button>
+          <button @click="forage.kind=k[0]" :class="forage.kind===k[0] ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded" x-text="k[1]"></button>
         </template>
       </div>
       <template x-if="forageActor() && forageForecast()">
@@ -1068,11 +1068,21 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
       </template>
-      <template x-if="forage.lastResult">
-        <div class="text-sm rounded p-2" :class="(forage.lastResult.success||forage.lastResult.auto) ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
-          <span x-show="forage.lastResult.auto">💧 Filled up at a fresh-water source.</span>
-          <span x-show="!forage.lastResult.auto" x-text="(forage.lastResult.success?'✓ Success':'✗ Failed') + ' — 🎲 ' + forage.lastResult.rolled + ' vs ' + forage.lastResult.target + '+'"></span>
-          <span x-show="!forage.lastResult.auto && forage.lastResult.success && forage.kind==='hunt'"> · ⚠ wandering-monster risk</span>
+      <!-- Results — each attempt STACKS (newest at the bottom) rather than replacing; each one is
+           rerollable (the GM's "that throw was unlucky" redo — re-rolls the die + swaps the yield). -->
+      <template x-if="forage.results.length">
+        <div class="space-y-1.5">
+          <template x-for="(res, ri) in forage.results" :key="res.id || ri">
+            <div class="text-sm rounded p-2 flex items-center justify-between gap-2" :class="(res.success || res.auto) ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
+              <span>
+                <span class="font-semibold" x-text="forageKindLabel(res.kind)"></span>
+                <template x-if="res.auto"><span> — 💧 filled up (free)</span></template>
+                <template x-if="!res.auto"><span x-text="' — ' + (res.success ? '✓' : '✗') + ' rolled ' + res.rolled + (res.bonus ? ('+' + res.bonus) : '') + (res.terrMod ? (res.terrMod > 0 ? ('+' + res.terrMod) : ('' + res.terrMod)) : '') + ' vs ' + res.target + '+ → ' + (res.success ? forageYieldText(res) : 'nothing')"></span></template>
+                <template x-if="!res.auto && res.success && res.kind === 'hunt'"><span class="opacity-80"> · ⚠ wandering-monster risk</span></template>
+              </span>
+              <button x-show="!res.auto" @click="rerollForageResult(ri)" class="shrink-0 text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-roll this throw">⟳ Reroll</button>
+            </div>
+          </template>
         </div>
       </template>
       <div class="flex justify-end gap-2 pt-1">
@@ -12456,7 +12466,7 @@ return {
     visitedBefore:false, partyOf12Dedicated:false
   },
   // Forage / Hunt action (Provisioning V4) — a thin UI over ACKS.forageActivity / huntActivity.
-  forage:{ open:false, actorId:null, kind:'food', lastResult:null },   // kind: 'water'|'food'|'firewood'|'hunt'
+  forage:{ open:false, actorId:null, kind:'food', results:[] },   // kind: 'water'|'food'|'firewood'|'hunt'; results = this session's stacked attempts (each rerollable)
   allStashes(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.stashes)) return [];
@@ -12722,7 +12732,7 @@ return {
   openForage(opts){
     opts = opts || {};
     const f = this.forage;
-    f.open = true; f.kind = opts.kind || 'food'; f.lastResult = null;
+    f.open = true; f.kind = opts.kind || 'food'; f.results = [];
     let actorId = opts.actorCharacterId || null;
     // hex-card entry: pick a character standing on the hex if none supplied
     if(!actorId && opts.hexId){ const at = (this.currentCampaign?.characters||[]).filter(c => c && c.currentHexId === opts.hexId); if(at[0]) actorId = at[0].id; }
@@ -12762,19 +12772,34 @@ return {
   },
   runForage(){
     const c = this.forageActor(); if(!c){ this.showToast('Pick a character first.', 3500); return; }
-    const A = window.ACKS; let r;
-    if(this.forage.kind === 'hunt') r = A.huntActivity(this.currentCampaign, { actorCharacterId:c.id });
-    else r = A.forageActivity(this.currentCampaign, { actorCharacterId:c.id, forageKind:this.forage.kind });
-    if(!r || !r.ok){ this.showToast('Could not ' + this.forage.kind + ': ' + ((r && r.error) || 'unknown error'), 4000); return; }
-    this.forage.lastResult = r;
+    const A = window.ACKS; const kind = this.forage.kind; let r;
+    if(kind === 'hunt') r = A.huntActivity(this.currentCampaign, { actorCharacterId:c.id });
+    else r = A.forageActivity(this.currentCampaign, { actorCharacterId:c.id, forageKind:kind });
+    if(!r || !r.ok){ this.showToast('Could not ' + kind + ': ' + ((r && r.error) || 'unknown error'), 4000); return; }
+    this.forage.results.push(this._forageResultRow(kind, r));   // STACK — newest at the bottom, not replacing
     this.markDirty(); this.schedulePersist();
-    let msg;
-    if(r.auto) msg = (c.name||'They') + ' filled up at a fresh-water source.';
-    else { const verb = this.forage.kind === 'hunt' ? 'Hunt' : ('Forage ' + this.forage.kind);
-      msg = verb + (r.success ? ' succeeded' : ' failed') + ' (🎲 ' + r.rolled + (r.bonus?('+'+r.bonus):'') + (r.terrMod?(r.terrMod>0?('+'+r.terrMod):(''+r.terrMod)):'') + ' vs ' + r.target + '+).';
-      if(r.success && this.forage.kind === 'hunt') msg += ' Brought down game — 6 days’ food. ⚠ wandering-monster risk.';
-    }
-    this.showToast(msg, 5500);
+  },
+  // Compact display row from a forage/hunt (or reroll) result.
+  _forageResultRow(kind, r){
+    return { id: (r.event && r.event.id) || null, kind: kind, auto: !!r.auto, success: !!r.success,
+             rolled: r.rolled, target: r.target, bonus: r.bonus || 0, terrMod: r.terrMod || 0,
+             wanderingMonsterRisk: !!r.wanderingMonsterRisk };
+  },
+  // Re-roll a specific stacked attempt (the GM's "unlucky throw" redo). The engine flips the yield if the
+  // success state changed (adds/removes the rations/firewood, or restores water); the row updates in place.
+  rerollForageResult(ri){
+    const row = this.forage.results[ri]; if(!row || !row.id || row.auto) return;
+    const r = window.ACKS.rerollProvisioningActivity(this.currentCampaign, row.id);
+    if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || 'unknown error'), 3500); return; }
+    this.forage.results.splice(ri, 1, this._forageResultRow(row.kind, r));
+    this.markDirty(); this.schedulePersist();
+  },
+  forageKindLabel(kind){ return ({ water:'🥤 Water', food:'🌿 Food', firewood:'🪵 Firewood', hunt:'🏹 Hunt' })[kind] || kind; },
+  forageYieldText(res){
+    if(res.kind === 'water') return 'water topped up';
+    if(res.kind === 'firewood') return '8 st firewood';
+    if(res.kind === 'hunt') return '+6 days food';
+    return '+3 days food';
   },
   // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
   // shown ONLY to venturers, and auto-set when this venturer has previously entered this market.

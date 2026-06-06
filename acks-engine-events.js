@@ -2543,13 +2543,44 @@ function _provTerritoryClass(campaign, hex){
   return 'Unsettled';
 }
 function _provD20(rng){ return 1 + Math.floor((rng || Math.random)() * 20); }
-// add N day-rations of food as an iron ration line to the character's carry inventory
-function _provAddFoodDays(ch, days){
+// Apply the SUCCESS yield for `kind`, tagging any added inventory line with `evId` so a reroll can
+// surgically reverse JUST this attempt (independent of other stacked forages). Returns
+// { yieldDays, yieldStone, pre } — `pre` (water only) is the snapshot a reverse restores.
+function _provApplyYield(campaign, ch, kind, evId){
   const A = _gpwACKS();
   ch.inventory = ch.inventory || [];
-  ch.inventory.push((typeof A.makeRationLine === 'function')
+  if(kind === 'water'){
+    const cap = (typeof A.waterCapacityDays === 'function') ? A.waterCapacityDays(ch) : 0;
+    const pre = { waterDaysCarried: Number(ch.waterDaysCarried) || 0, waterDeficitDays: ch.waterDeficitDays, dehydrated: ch.dehydrated };
+    ch.waterDaysCarried = Math.min(cap, Math.max(pre.waterDaysCarried, 3));   // 3 days/forager, capped at containers
+    ch.waterDeficitDays = 0; ch.dehydrated = false;
+    return { yieldDays: 3, yieldStone: 0, pre: pre };
+  }
+  if(kind === 'firewood'){
+    ch.inventory.push({ name: 'Firewood', stone: 8, notes: 'foraged', _provEventId: evId });
+    return { yieldDays: 0, yieldStone: 8 };
+  }
+  const days = (kind === 'hunt') ? 6 : 3;   // 1 st game feeds 6 / ½ st food feeds 3
+  const line = (typeof A.makeRationLine === 'function')
     ? A.makeRationLine({ rationType: 'iron', daysRemaining: days })
-    : { name: 'Foraged food', rationType: 'iron', daysRemaining: days, stone: days * (1 / 6) });
+    : { name: 'Foraged food', rationType: 'iron', daysRemaining: days, stone: days * (1 / 6) };
+  line._provEventId = evId;
+  ch.inventory.push(line);
+  return { yieldDays: days, yieldStone: (kind === 'hunt') ? 1 : 0.5 };
+}
+// Reverse a previously-applied success yield: drop the tagged line(s); restore water from payload._pre.
+function _provReverseYield(campaign, ch, ev){
+  const kind = (ev.payload.activity === 'hunt') ? 'hunt' : (ev.payload.forageKind || 'food');
+  if(kind === 'water'){
+    const pre = ev.payload._pre || {};
+    if(pre.waterDaysCarried != null) ch.waterDaysCarried = pre.waterDaysCarried;
+    if(pre.waterDeficitDays != null) ch.waterDeficitDays = pre.waterDeficitDays;
+    if(pre.dehydrated != null) ch.dehydrated = pre.dehydrated;
+    return;
+  }
+  if(Array.isArray(ch.inventory)){
+    for(let i = ch.inventory.length - 1; i >= 0; i--){ const it = ch.inventory[i]; if(it && it._provEventId === ev.id) ch.inventory.splice(i, 1); }
+  }
 }
 function _provNarrative(ch, p){
   const who = ch.name || 'A character';
@@ -2561,19 +2592,31 @@ function _provNarrative(ch, p){
   if(k === 'firewood') return who + ' gathers firewood (8 st).';
   return who + ' forages and gathers food (3 days’ worth).';
 }
-// Build + log the record-only provisioning-activity event (cost-tagged for #346 unless auto/free).
-function _provEvent(campaign, ch, hex, p){
+// Build (UNLOGGED) the provisioning-activity event with the throw payload + the #346 cost tag (unless
+// auto/free). The event is created BEFORE the yield is applied so the yield can be tagged with ev.id.
+function _provBuildEvent(campaign, ch, hex, p){
   const slot = (p.activity === 'hunt') ? 'dedicated' : 'ancillary';
   const label = (p.activity === 'hunt') ? 'Hunt' : ('Forage ' + (p.forageKind || 'food'));
   const payload = Object.assign({ actorCharacterId: ch.id, hexId: (hex && hex.id) || ch.currentHexId || null }, p);
   if(!p.auto) payload.activityCost = { slot: slot, units: 1, kind: p.activity, strenuous: (p.activity === 'hunt'), label: label };
-  const ev = newEvent('provisioning-activity', {
+  return newEvent('provisioning-activity', {
     submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
     context: { primaryHexId: (hex && hex.id) || ch.currentHexId || null, involvedHexIds: [], settlementId: null,
                domainId: (hex && hex.domainId) || null, relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
     payload: payload
   });
-  return _logAppliedEvent(campaign, ev, { narrativeSummary: p.narrative || _provNarrative(ch, p) });
+}
+// Create the event, apply the yield on success (tagged with ev.id so a reroll reverses just this one),
+// and log it (record-only — no replay handler, like marketBuy). Returns the logged event.
+function _provCommit(campaign, ch, hex, p){
+  const kind = (p.activity === 'hunt') ? 'hunt' : (p.forageKind || 'food');
+  const ev = _provBuildEvent(campaign, ch, hex, p);
+  if(p.success && !p.auto){
+    const y = _provApplyYield(campaign, ch, kind, ev.id);
+    ev.payload.yieldDays = y.yieldDays; ev.payload.yieldStone = y.yieldStone;
+    if(y.pre) ev.payload._pre = y.pre;
+  }
+  return _logAppliedEvent(campaign, ev, { narrativeSummary: _provNarrative(ch, ev.payload) });
 }
 
 function forageActivity(campaign, opts){
@@ -2587,28 +2630,25 @@ function forageActivity(campaign, opts){
   const rng = opts.rng || Math.random;
   const dry = !!(hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
   const forest = !!(hex && hex.terrain === 'forest');
-  const hasSurvival = _provHasProf(ch, /survival/i);
-  const bonus = hasSurvival ? 4 : 0;
+  const bonus = _provHasProf(ch, /survival/i) ? 4 : 0;
 
   if(kind === 'water'){
-    const cap = (typeof A.waterCapacityDays === 'function') ? A.waterCapacityDays(ch) : 0;
     if(typeof A.hasFreshSource === 'function' && A.hasFreshSource(campaign, hex)){
-      ch.waterDaysCarried = cap; ch.waterDeficitDays = 0; ch.dehydrated = false;
-      const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'water', success: true, auto: true, yieldDays: cap });
+      const cap = (typeof A.waterCapacityDays === 'function') ? A.waterCapacityDays(ch) : 0;
+      ch.waterDaysCarried = cap; ch.waterDeficitDays = 0; ch.dehydrated = false;   // auto/free — applied here, _provCommit skips the yield
+      const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'water', success: true, auto: true, yieldDays: cap });
       return { ok: true, success: true, auto: true, event: ev, newWaterDays: ch.waterDaysCarried };
     }
     const target = dry ? 18 : 14;
     const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
-    if(success){ ch.waterDaysCarried = Math.min(cap, Math.max(Number(ch.waterDaysCarried) || 0, 3)); ch.waterDeficitDays = 0; ch.dehydrated = false; }
-    const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'water', rolled, target, bonus, success, yieldDays: success ? 3 : 0 });
+    const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'water', rolled, target, bonus, terrMod: 0, success });
     return { ok: true, success, rolled, target, bonus, event: ev, newWaterDays: ch.waterDaysCarried };
   }
 
   if(kind === 'firewood'){
     const target = forest ? 3 : 14;
     const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
-    if(success){ ch.inventory = ch.inventory || []; ch.inventory.push({ name: 'Firewood', stone: 8, notes: 'foraged' }); }
-    const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'firewood', rolled, target, bonus, success, yieldStone: success ? 8 : 0 });
+    const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'firewood', rolled, target, bonus, terrMod: 0, success });
     return { ok: true, success, rolled, target, bonus, event: ev };
   }
 
@@ -2619,8 +2659,7 @@ function forageActivity(campaign, opts){
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Borderlands') terrMod -= 2;
   const target = 18;
   const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
-  if(success) _provAddFoodDays(ch, 3);   // ½ st food feeds 3 = 3 day-rations
-  const ev = _provEvent(campaign, ch, hex, { activity: 'forage', forageKind: 'food', rolled, target, bonus, terrMod, success, yieldDays: success ? 3 : 0, yieldStone: success ? 0.5 : 0 });
+  const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'food', rolled, target, bonus, terrMod, success });
   return { ok: true, success, rolled, target, bonus, terrMod, event: ev };
 }
 
@@ -2637,9 +2676,45 @@ function huntActivity(campaign, opts){
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Outlands') terrMod += 2; else if(territory === 'Unsettled') terrMod += 4;
   const target = 14;
   const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
-  if(success) _provAddFoodDays(ch, 6);   // 1 st game feeds 6 = 6 day-rations
-  const ev = _provEvent(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, yieldDays: success ? 6 : 0, yieldStone: success ? 1 : 0, wanderingMonsterRisk: true });
+  const ev = _provCommit(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, wanderingMonsterRisk: true });
   return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, event: ev };
+}
+
+// Re-roll a logged forage/hunt (the GM's "that throw was unlucky" affordance, per Joachim). Re-throws the
+// die against the SAME target/bonus/territory, then flips the yield only if the success state changed:
+// success→fail reverses the yield (drops the tagged ration/firewood line, or restores water from _pre);
+// fail→success applies a fresh yield. Updates the event record in place (no new event). Auto/free water
+// has no throw → not rerollable. NB tags are session-scoped — after a save/reload merges ration lines the
+// surgical reverse may no longer find the line, so reroll is a same-session affordance.
+function rerollProvisioningActivity(campaign, eventId, opts){
+  opts = opts || {};
+  const wrap = (campaign.eventLog || []).find(e => e && e.event && e.event.id === eventId);
+  if(!wrap) return { ok: false, error: 'event-not-found' };
+  const ev = wrap.event;
+  if(ev.kind !== 'provisioning-activity') return { ok: false, error: 'not-provisioning' };
+  if(ev.payload.auto) return { ok: false, error: 'auto-not-rerollable' };
+  const ch = (campaign.characters || []).find(c => c && c.id === ev.payload.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const kind = (ev.payload.activity === 'hunt') ? 'hunt' : (ev.payload.forageKind || 'food');
+  const oldSuccess = !!ev.payload.success;
+  const bonus = Number(ev.payload.bonus) || 0;
+  const terrMod = Number(ev.payload.terrMod) || 0;
+  const target = Number(ev.payload.target) || 14;
+  const rolled = _provD20(opts.rng || Math.random);
+  const success = (rolled + bonus + terrMod) >= target;
+  if(oldSuccess && !success){
+    _provReverseYield(campaign, ch, ev);
+  } else if(!oldSuccess && success){
+    const y = _provApplyYield(campaign, ch, kind, ev.id);
+    ev.payload.yieldDays = y.yieldDays; ev.payload.yieldStone = y.yieldStone;
+    if(y.pre) ev.payload._pre = y.pre;
+  }
+  ev.payload.rolled = rolled;
+  ev.payload.success = success;
+  if(!success){ ev.payload.yieldDays = 0; ev.payload.yieldStone = 0; }
+  wrap.result = wrap.result || {};
+  wrap.result.narrativeSummary = _provNarrative(ch, ev.payload);
+  return { ok: true, success, rolled, target, bonus, terrMod, event: ev, kind: kind, activity: ev.payload.activity, forageKind: ev.payload.forageKind, wanderingMonsterRisk: ev.payload.wanderingMonsterRisk };
 }
 
 const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
@@ -2708,8 +2783,8 @@ Object.assign(ACKS, {
   // Rollback verb behind the Current Activities "Refund" reject (Joachim 2026-06-05) — a
   // compensating counter-trade that voids the original (dropping it from the budget + ceiling).
   reverseMarketTransaction,
-  // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4).
-  forageActivity, huntActivity
+  // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4) + reroll.
+  forageActivity, huntActivity, rerollProvisioningActivity
 });
 
 if(typeof module !== 'undefined' && module.exports){
