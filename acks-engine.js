@@ -5806,8 +5806,18 @@ function characterActivityBudget(campaign, charId, opts){
   // that to read a traveller's "other load" without recursing back into the cap.
   const HALF_DAY_ANCILLARY = 4;   // 4 hours = half the 8-hour dedicated travel day
   const JOURNEY_ACTIVE = { 'in-transit':1, 'resting':1, 'lost':1 };
+  // "What happened today" vs "what's underway now" (Joachim 2026-06-06): a journey that TRAVELLED on the
+  // current world day still spent the party's day even if it has since ARRIVED (or been stopped) — so its
+  // travel + forage stay on the budget for that day and roll off the next. lastTravelWorldOrd (turn*30 +
+  // day, stamped by commitJourneyRecord on every committed leg) is the day it last travelled; when that
+  // equals today's ord the party travelled (and foraged) today. This is the Complete-Movement-to-arrival
+  // case the GM sees with the clock still on the arrival day; a Day-Clock advance moves the clock PAST the
+  // leg, so an arrived journey then reads as yesterday's travel (correctly dropped).
+  const _todayOrd = (((campaign && campaign.currentTurn) || 1) * 30) + (((campaign && campaign.currentDayInMonth) || 1));
   for(const j of journeysWithParticipant(campaign, charId)){
-    if(!j || !JOURNEY_ACTIVE[j.status]) continue;
+    if(!j) continue;
+    const actedTodayJ = (j.lastTravelWorldOrd != null && j.lastTravelWorldOrd === _todayOrd);
+    if(!JOURNEY_ACTIVE[j.status] && !actedTodayJ) continue;   // active now, OR it travelled today (now ended)
     if(opts.excludeJourneyId && j.id === opts.excludeJourneyId) continue;   // omit this journey (journeyMaxPace's "other load")
     if(j.status === 'resting'){
       const cc = costFor('rest');

@@ -101,6 +101,20 @@ const cNoForage = mkCampaign({ characters: [mkChar('chr-a')], hexes: [{ id: 'hex
   journeys: [{ id: 'jrn-1', participantCharacterIds: ['chr-a'], status: 'in-transit', pace: 'normal', currentHexId: 'hex-dry', forageWaterEnabled: false }] });
 ok('not foraging: no forage activity', !ACKS.characterActivityBudget(cNoForage, 'chr-a').ancillary.some(a => a.kind === 'forage'));
 
+// "What happened today": a journey that TRAVELLED today still counts its travel for today even after it
+// ARRIVES (Complete-Movement-to-arrival keeps the clock on the arrival day; lastTravelWorldOrd === today).
+const cArrivedToday = mkCampaign({ characters: [mkChar('chr-a')], currentTurn: 1, currentDayInMonth: 5,
+  journeys: [{ id: 'jrn-1', participantCharacterIds: ['chr-a'], status: 'arrived', pace: 'normal', lastTravelWorldOrd: 1 * 30 + 5 }] });
+ok('arrived-today journey still counts travel for today', ACKS.characterActivityBudget(cArrivedToday, 'chr-a').dedicated.some(a => a.kind === 'travel'));
+// …but a journey that travelled YESTERDAY (a Day-Clock advance moved the clock past the leg) does not.
+const cArrivedYesterday = mkCampaign({ characters: [mkChar('chr-a')], currentTurn: 1, currentDayInMonth: 6,
+  journeys: [{ id: 'jrn-1', participantCharacterIds: ['chr-a'], status: 'arrived', pace: 'normal', lastTravelWorldOrd: 1 * 30 + 5 }] });
+ok('arrived journey that travelled yesterday does NOT count today', !ACKS.characterActivityBudget(cArrivedYesterday, 'chr-a').dedicated.some(a => a.kind === 'travel'));
+// the arrived-today journey also carries its forage for that day (dry hex + forageWaterEnabled)
+const cArrivedForage = mkCampaign({ characters: [mkChar('chr-a')], currentTurn: 1, currentDayInMonth: 5, hexes: [{ id: 'hex-dry', terrain: 'mountains' }],
+  journeys: [{ id: 'jrn-1', participantCharacterIds: ['chr-a'], status: 'arrived', pace: 'normal', currentHexId: 'hex-dry', forageWaterEnabled: true, lastTravelWorldOrd: 1 * 30 + 5 }] });
+ok('arrived-today journey still counts its foraging for today', ACKS.characterActivityBudget(cArrivedForage, 'chr-a').ancillary.some(a => a.kind === 'forage'));
+
 const cRest = mkCampaign({ characters: [mkChar('chr-a')], journeys: [mkJourney('jrn-1', ['chr-a'], 'resting')] });
 const bRest = ACKS.characterActivityBudget(cRest, 'chr-a');
 ok('resting: 1 dedicated = rest', bRest.dedicatedUsed === 1 && bRest.dedicated[0].kind === 'rest');

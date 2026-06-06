@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - **Foraging for water on the march now shows as an activity.** A travelling party set to forage for water spends one of the day's free errand-hours doing so (RR p.272), but that wasn't reflected anywhere — only the travel itself was. Foraging now appears on the **Activities dashboard** and the character's sheet, and counts against the day's activity budget, alongside the travel (it's counted only on days the hex has no river, lake, or settlement to drink from — where water is free, no foraging is needed).
+- **The day a journey arrives still shows the travelling (and foraging) it did that day.** The Activities dashboard reads what each character has underway, so when a party reached its destination its travel and foraging used to vanish from that day at once — the arrival day looked empty even though they'd spent it on the road. Now a journey that travelled on the current day keeps its travel and foraging on the budget for that day and only rolls off the next, so the day's work is still visible after you arrive. (This applies when the clock is still on the arrival day — i.e. you walked the party in with *Complete Movement*; advancing the Day Clock past the arrival naturally moves on to the next day.)
 
 ## [0.21.0] - 2026-06-06
 
