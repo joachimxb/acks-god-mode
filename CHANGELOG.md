@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Characters can forage and hunt to live off the land.** A new **🌿 Forage / 🏹 Hunt** action on any character sheet (and on any hex card) lets a character gather firewood, water, or food, or hunt game — the camp-and-trail counterpart to shopping at a market. Foraging takes one short part of the day; hunting takes the whole day. The **Survival** proficiency adds +4, and terrain and territory shift the odds for food and hunting (game is scarce near towns, plentiful in the deep wild); water is free and automatic wherever there's a river, lake, or settlement. A success tops up your water, adds days of food to the pack, or yields firewood — and the effort shows on the Activities dashboard and counts against the character's activity budget (RR p.278).
+- **Food and water are now tracked for any character out in the wild — not only travelling parties.** When you advance the Day Clock, a character standing in the wilderness eats from their pack and drinks their water (and goes hungry or thirsty if they've run out), exactly as a journeying party does. A character who is in a settlement, in a domain they rule, or at their stronghold is fed and watered automatically — food and lodging there is part of their cost of living — and leaves town with full waterskins. A party can be set to **share provisions** so its members pool food and water from the camp whether they're travelling or not. (Groundwork for the monthly cost-of-living rule still to come.)
+
 ## [0.21.0] - 2026-06-06
 
 ### Added
