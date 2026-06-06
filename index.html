@@ -308,8 +308,9 @@ document.addEventListener('alpine:init', () => {
                     <template x-for="(sr, sri) in (r._survivalRows||[])" :key="grp.consumer + '-' + ri + '-sv-' + sri">
                       <div class="flex items-start justify-between gap-2">
                         <div class="text-xs leading-snug">
-                          <span class="font-semibold" x-text="sr.name"></span>
-                          <template x-for="cond in sr.conditions" :key="sr.id + '-' + cond.label"><span class="ml-1 px-1 rounded font-semibold" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                          <!-- name only when the record covers more than one traveller; a lone record's header already names them -->
+                          <span class="font-semibold" x-show="(r._survivalRows||[]).length > 1" x-text="sr.name"></span>
+                          <template x-for="cond in sr.conditions" :key="sr.id + '-' + cond.label"><span class="mr-1 px-1 rounded font-semibold" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
                           <span class="opacity-70" x-text="' · ' + (sr.fedFood ? 'ate' : 'no food') + ' · ' + (sr.fedWater ? 'drank' : 'no water') + ' · ' + sr.foodDays + ' food / ' + sr.waterDays + ' water left'"></span>
                           <span x-show="sr.critical" class="ml-1 text-red-700 font-semibold">⚠ CON 0</span>
                         </div>
