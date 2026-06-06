@@ -3261,7 +3261,7 @@ document.addEventListener('alpine:init', () => {
                   </button>
                   <button x-show="row.affordance.mode === 'navigate'" @click="rejectActivity(row)"
                           class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-100"
-                          title="A travelled day can't be rewound — open the journey and Stop Moving there">
+                          :title="row.activity.sourceKind === 'recruitment-drive' ? 'Open the search and Stop soliciting there' : 'A travelled day can\'t be rewound — open the journey and Stop Moving there'">
                     <span x-text="row.affordance.label"></span> →
                   </button>
                   <span x-show="row.affordance.mode === 'none'" class="text-xs opacity-40">—</span>
@@ -5218,6 +5218,39 @@ document.addEventListener('alpine:init', () => {
       <!-- Empty state -->
       <template x-if="!recruitState">
         <div class="space-y-3">
+          <!-- On-going recruiting efforts (R3 — the campaign roster, like the Journeys/Travel list) -->
+          <template x-if="recruitOngoingDrives().length > 0">
+            <div class="border border-ink/40 rounded p-3 space-y-2">
+              <div class="font-semibold">On-going recruiting <span class="text-sm opacity-60 font-normal" x-text="'· ' + pluralize(recruitOngoingDrives().length, 'search', 'searches')"></span></div>
+              <table class="text-sm w-full" style="border-collapse:collapse;">
+                <thead>
+                  <tr style="background:#f6efdf">
+                    <th class="px-2 py-1 text-left border-b border-ink/20">Patron</th>
+                    <th class="px-2 py-1 text-left border-b border-ink/20">Seeking</th>
+                    <th class="px-2 py-1 text-left border-b border-ink/20">Progress</th>
+                    <th class="px-2 py-1 text-right border-b border-ink/20">Available</th>
+                    <th class="px-2 py-1 text-right border-b border-ink/20">Fees</th>
+                    <th class="px-2 py-1 text-right border-b border-ink/20">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in recruitOngoingDrives()" :key="row.drive.id">
+                    <tr class="border-b border-ink/10">
+                      <td class="px-2 py-1"><button @click="recruitOpenDrive(row.patron.id)" class="underline font-semibold" x-text="row.patron.name || '(unnamed)'"></button></td>
+                      <td class="px-2 py-1" x-text="row.drive.hireTypeLabel || row.drive.hireTypeId"></td>
+                      <td class="px-2 py-1" x-text="row.drive.status === 'complete' ? 'search complete' : ('week ' + Math.min((row.drive.weeksRevealed||0) + 1, 3) + ' of 3')"></td>
+                      <td class="px-2 py-1 text-right font-mono" x-text="row.drive.revealedAvailable || 0"></td>
+                      <td class="px-2 py-1 text-right font-mono" x-text="(row.drive.feesAccruedGp || 0) + 'gp'"></td>
+                      <td class="px-2 py-1 text-right whitespace-nowrap">
+                        <button @click="recruitOpenDrive(row.patron.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Open</button>
+                        <button x-show="row.drive.status === 'active'" @click="recruitStopDrive(row.patron.id, row.drive.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100">⏹ Stop</button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </template>
           <p class="text-sm opacity-80">
             Recruitment runs on the patron-character model (RR p.164): the patron solicits in a market,
             individuates candidates, negotiates with them, and hires those who accept. Mercenary units
@@ -9785,8 +9818,13 @@ return {
     if(!row || !row.activity) return;
     const a = row.activity, c = row.c;
     const mode = row.affordance ? row.affordance.mode : 'none';
-    if(mode === 'navigate'){                                   // a journey — can't rewind a travelled day; open it (Stop Moving lives there)
-      this.journeyOpenDetail(a.sourceId);
+    if(mode === 'navigate'){
+      if(a.sourceKind === 'recruitment-drive'){                // a search — can't refund a week of soliciting; open the Recruit panel for this patron (Stop soliciting lives there)
+        this.currentView = 'characters'; this.charactersSubView = 'recruit';
+        this.recruitStart(c.id);                               // adopts the patron's in-flight drive
+        return;
+      }
+      this.journeyOpenDetail(a.sourceId);                      // a journey — can't rewind a travelled day; open it (Stop Moving lives there)
       return;
     }
     if(mode !== 'reverse'){ this.showToast('That activity can’t be rejected.'); return; }
@@ -11580,6 +11618,30 @@ return {
     s.engagedIds = []; s.negotiations = {}; s.candidatePool = {}; s.mercenaryHireCount = 0;
     this.markDirty(); this.schedulePersist();
     this.showToast('Soliciting stopped.');
+  },
+  // ─── R3 roster — every in-flight recruiting effort across the campaign (the Recruit landing,
+  // mirroring the Journeys/Travel list). status active OR complete (a complete search still has
+  // candidates left to hire). Players first, then by patron name. ───────────────────────────────
+  recruitOngoingDrives(){
+    const camp = this.currentCampaign; if(!camp || !Array.isArray(camp.characters)) return [];
+    const A = window.ACKS || {};
+    const out = [];
+    for(const c of camp.characters){
+      if(!c || !Array.isArray(c.recruitmentDrives)) continue;
+      for(const d of c.recruitmentDrives){
+        if(d && (d.status === 'active' || d.status === 'complete')) out.push({ patron: c, drive: d });
+      }
+    }
+    const isPC = A.isPlayerControlled || (c => c && c.controlledBy === 'player');
+    out.sort((a, b) => (isPC(a.patron) ? 0 : 1) - (isPC(b.patron) ? 0 : 1) || (a.patron.name || '').localeCompare(b.patron.name || ''));
+    return out;
+  },
+  // Open a roster drive's patron in the wizard (recruitStart adopts the in-flight drive).
+  recruitOpenDrive(patronId){ this.recruitStart(patronId); },
+  // Stop a drive straight from the roster (no need to open the wizard first).
+  recruitStopDrive(patronId, driveId){
+    const camp = this.currentCampaign; if(!camp || !window.ACKS || !window.ACKS.stopRecruitmentDrive) return;
+    try { window.ACKS.stopRecruitmentDrive(camp, patronId, driveId); this.markDirty(); this.schedulePersist(); this.showToast('Soliciting stopped.'); } catch(e){}
   },
   // §310.3f-fix23 — Pre-solicit forecast: read the RAW cell for the chosen
   // hire type × market class and translate it into plain English so the GM

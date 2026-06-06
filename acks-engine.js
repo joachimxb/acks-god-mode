@@ -5965,6 +5965,7 @@ function activityRejectAffordance(activity){
   switch(activity.sourceKind){
     case 'domain':  return { mode:'reverse',  label:'Untick admin', verb:'untick' };
     case 'journey': return { mode:'navigate', label:'Go to journey', verb:'navigate' };
+    case 'recruitment-drive': return { mode:'navigate', label:'Go to Recruit', verb:'navigate' };  // a search is an ongoing process — open it + Stop soliciting (like a journey)
     case 'errand-event':
       return (activity.kind === 'market-transaction')
         ? { mode:'reverse', label:'Refund', verb:'refund' }

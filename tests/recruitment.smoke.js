@@ -83,6 +83,7 @@ section('activity-budget contributor — active drive = 1 ancillary/day per type
   ACKS.startRecruitmentDrive(c, { patronCharacterId: 'pat', marketClassIdx: 2, hireCategory: 'mercenary', hireTypeId: MERC.id, rng: HALF });
   let b = ACKS.characterActivityBudget(c, 'pat');
   ok('active drive → 1 ancillary (recruit)', b.ancillaryUsed === 1 && b.ancillary.some(a => a.kind === 'recruit'));
+  ok('recruit activity → navigate-to-Recruit reject affordance', (() => { const act = b.ancillary.find(a => a.kind === 'recruit'); const aff = ACKS.activityRejectAffordance(act); return aff && aff.mode === 'navigate' && /recruit/i.test(aff.label); })());
   ACKS.startRecruitmentDrive(c, { patronCharacterId: 'pat', marketClassIdx: 2, hireCategory: 'mercenary', hireTypeId: ACKS.HIRELING_MERCENARIES[1].id, rng: HALF });
   ok('two drives (two types) → 2 ancillary', ACKS.characterActivityBudget(c, 'pat').ancillaryUsed === 2);
   ACKS.stopRecruitmentDrive(c, 'pat', c.characters[0].recruitmentDrives[0].id);
