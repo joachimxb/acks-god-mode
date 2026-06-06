@@ -3129,6 +3129,38 @@ function derivedTributeOutflowGpFor(campaign, payerDomainId){
     .reduce((sum, t) => sum + (t.amount || 0), 0);
 }
 
+// CoL-1 (Phase 2.5 Provisioning §16.1) — does the character live in the SETTLED regime (food + lodging
+// abstracted into a monthly cost of living, no ration tracking) or the FIELD regime (stone-tracked
+// rations + water, the §4 survival resolution)? Settled when the character's CURRENT hex (a) has a
+// settlement, (b) holds a complete habitable stronghold (a Constructible), or (c) sits in a domain the
+// character rules — directly (domain.rulerCharacterId) or up the vassalage chain (derivedVassalDomainsOf;
+// "a ruler anywhere in his domain lives off his lifestyle"). A character with no current hex is SETTLED
+// ("can't starve in limbo"). RAW abstracts town food/lodging into the cost of living (RR p.173); treating
+// the wilderness chapter's ration rules (RR p.278) as the field-only regime is the structural reading (🔧).
+const _SETTLED_CONSTRUCTIBLE_KINDS = { 'stronghold-component':1, 'settlement-building':1, 'sanctum':1 };
+function characterProvisioningRegime(campaign, char){
+  const c = (typeof char === 'string')
+    ? (campaign && Array.isArray(campaign.characters) ? campaign.characters.find(x => x && x.id === char) : null)
+    : char;
+  if(!c || !c.currentHexId) return 'settled';
+  const hexId = c.currentHexId;
+  const hex = findHex(campaign, hexId);
+  // (a) a settlement in the hex (embedded mirror or top-level by hexId)
+  if(hex && hex.settlement) return 'settled';
+  if(settlementForHex(campaign, hexId)) return 'settled';
+  // (b) a complete habitable stronghold at the hex (keep / hall / sanctum — lodging, not a mill or dungeon)
+  const sheltered = constructiblesAtHex(campaign, hexId).some(k =>
+    k && _SETTLED_CONSTRUCTIBLE_KINDS[k.constructibleKind] &&
+    (k.constructionState === 'complete' || k.lifecycleState === 'complete'));
+  if(sheltered) return 'settled';
+  // (c) a domain the character rules (own domain or a sub-vassal realm up the chain)
+  if(hex && hex.domainId){
+    if((campaign.domains || []).some(d => d && d.id === hex.domainId && d.rulerCharacterId === c.id)) return 'settled';
+    if((derivedVassalDomainsOf(campaign, c.id) || []).indexOf(hex.domainId) >= 0) return 'settled';
+  }
+  return 'field';
+}
+
 // =============================================================================
 // reconcileWaveARelations — load-time invariant check + relational integrity.
 // Returns array of warning strings. Empty array = clean. Does NOT mutate the
@@ -6123,6 +6155,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,
   reconcileWaveARelations,
+  // CoL-1 (Phase 2.5 Provisioning §16.1) — settled/field regime predicate
+  characterProvisioningRegime,
   // #445 — Legacy backfill migration (Architecture.md §3.5, 2026-05-29)
   migrateLegacyHenchmanshipsToRelations, migrateLegacySpecialistContractsToRelations,
   migrateLegacyHirelingContractsToRelations, migrateLegacyMagistraciesToRelations,

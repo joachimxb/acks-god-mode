@@ -831,6 +831,7 @@ function blankParty(opts={}){
     travelPace: opts.travelPace || 'walking',
     // #521 (2026-05-30) Party-as-actor fields:
     activeJourneyId: opts.activeJourneyId || null,        // pointer when journeying (Phase 2.5 #475)
+    shareProvisions: opts.shareProvisions || false,       // CoL-1 (Provisioning §16.3) — pool food+water (camp-first, leader-first) for the party whenever it shares, journey or not; journey.shareRations overrides
     status: opts.status || 'active',                       // 'active' | 'resting' | 'disbanded'
     formedAtTurn: opts.formedAtTurn || null,
     disbandedAtTurn: opts.disbandedAtTurn || null,
