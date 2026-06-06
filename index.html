@@ -1053,7 +1053,7 @@ document.addEventListener('alpine:init', () => {
       </label>
       <div class="flex gap-1 text-sm flex-wrap">
         <template x-for="k in [['water','🥤 Water'],['food','🌿 Food'],['firewood','🪵 Firewood'],['hunt','🏹 Hunt']]" :key="k[0]">
-          <button @click="forage.kind=k[0]" :class="forage.kind===k[0] ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded" x-text="k[1]"></button>
+          <button @click="forage.kind=k[0]" :class="(forage.kind===k[0] ? 'tab-active font-semibold' : 'hover:bg-yellow-100') + (forageKindFits(k[0]).fits ? '' : ' opacity-40')" :title="forageKindFits(k[0]).reason || k[1]" class="px-3 py-1 border border-ink/40 rounded" x-text="k[1]"></button>
         </template>
       </div>
       <template x-if="forageActor() && forageForecast()">
@@ -1064,6 +1064,7 @@ document.addEventListener('alpine:init', () => {
               <div>Throw: <span class="font-mono" x-text="'1d20' + (forageForecast().bonus?(' +'+forageForecast().bonus+' Survival'):'') + (forageForecast().terrMod?(forageForecast().terrMod>0?(' +'+forageForecast().terrMod):(' '+forageForecast().terrMod)):'') + ' vs ' + forageForecast().target + '+'"></span></div>
               <div class="opacity-70" x-text="forageForecast().note"></div>
               <div class="opacity-70">Cost: <span class="font-semibold" x-text="forageForecast().costLabel"></span> activity (#346)<span x-show="forageForecast().territory"> · territory <span x-text="forageForecast().territory"></span></span></div>
+              <div class="opacity-70" x-text="forageBudgetLine()"></div>
             </div>
           </template>
         </div>
@@ -1085,9 +1086,10 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
       </template>
-      <div class="flex justify-end gap-2 pt-1">
+      <div class="flex justify-end items-center gap-2 pt-1">
+        <span x-show="forageActor() && !forageKindFits(forage.kind).fits" class="text-xs accent-red mr-auto" x-text="forageKindFits(forage.kind).reason"></span>
         <button @click="closeForage()" class="px-3 py-1.5 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
-        <button @click="runForage()" :disabled="!forageActor()" :class="forageActor() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="forage.kind==='hunt' ? '🏹 Hunt' : '🌿 Forage'"></button>
+        <button @click="runForage()" :disabled="!forageActor() || !forageKindFits(forage.kind).fits" :class="(forageActor() && forageKindFits(forage.kind).fits) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="forage.kind==='hunt' ? '🏹 Hunt' : '🌿 Forage'"></button>
       </div>
     </div>
   </div>
@@ -12800,6 +12802,27 @@ return {
     if(res.kind === 'firewood') return '8 st firewood';
     if(res.kind === 'hunt') return '+6 days food';
     return '+3 days food';
+  },
+  // Does `kind` fit the actor's RAW day-activity budget (#346)? Forage = 1 ancillary, hunt = the whole
+  // dedicated day; water AT a fresh source is free (no throw, no slot) → always fits. Returns {fits, reason}.
+  forageKindFits(kind){
+    const c = this.forageActor(); if(!c) return { fits:false, reason:'Pick a character first.' };
+    if(kind === 'water' && window.ACKS.hasFreshSource && window.ACKS.hasFreshSource(this.currentCampaign, this.forageHex())) return { fits:true, reason:'' };
+    const A = window.ACKS;
+    const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+    const b = A.characterActivityBudget(this.currentCampaign, c.id);
+    const isHunt = kind === 'hunt';
+    const totalDed = (b.dedicatedUsed || 0) + (isHunt ? 1 : 0);
+    const who = c.name || 'They';
+    if(totalDed > BUDGET.dedicatedPerDay) return { fits:false, reason: who + ' has no dedicated time left today — hunting takes the whole day, and ' + (b.dedicatedUsed || 0) + ' dedicated task' + ((b.dedicatedUsed || 0) === 1 ? ' is' : 's are') + ' already under way.' };
+    const ancCap = (totalDed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+    if((b.ancillaryUsed || 0) + (isHunt ? 0 : 1) > ancCap) return { fits:false, reason: who + ' has no time left today — ' + (b.ancillaryUsed || 0) + ' of ' + ancCap + ' short tasks used' + (totalDed >= 1 ? ' alongside a full-day task' : '') + '.' };
+    return { fits:true, reason:'' };
+  },
+  forageBudgetLine(){
+    const c = this.forageActor(); if(!c) return '';
+    const b = window.ACKS.characterActivityBudget(this.currentCampaign, c.id);
+    return 'Today used: ' + (b.dedicatedUsed || 0) + ' dedicated · ' + (b.ancillaryUsed || 0) + ' ancillary' + (b.overBudget ? ' (over budget)' : '');
   },
   // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
   // shown ONLY to venturers, and auto-set when this venturer has previously entered this market.
