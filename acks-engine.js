@@ -4199,6 +4199,23 @@ function checkAllCharacterLevelUps(campaign){
 // Gated on `living-expenses` (default ON via the registry default); OFF ⇒ no debits + apparent = true level.
 //   opts.dryRun: compute the charges WITHOUT moving gp / setting fields (the proposeMonthlyTurn preview).
 // Returns { ruleOn, charges:[{charId,name,kind,trueLevel?,target?,wage?,paid,effectiveLevel?,liegeId?,waived?}], totalGp }.
+// Shared wage helpers (CoL-2, RR p.168) — used by both the monthly living-expenses pass and the
+// per-character Expenses breakdown so the two never drift. A henchman/specialist's monthly wage is
+// his explicit monthlyWage when set, else the wage of his level (RR p.168 table).
+function henchmanMonthlyWage(campaign, c){
+  const A = global.ACKS || {};
+  return (c && c.monthlyWage > 0) ? c.monthlyWage : (A.levelMonthlyWage ? A.levelMonthlyWage(c ? c.level : 0) : 0);
+}
+// RAW carve-out (RR p.168): a henchman given a domain to rule as a vassal owes no wage when that
+// domain's income ≥ his wage. Returns the waiver reason string, or null when the wage is owed.
+function henchmanWageWaiver(campaign, c){
+  const A = global.ACKS || {};
+  const ruled = ((campaign && campaign.domains) || []).find(d => d && d.rulerCharacterId === (c && c.id));
+  if(!ruled) return null;
+  let income = 0; try { income = A.monthlyNet ? A.monthlyNet(campaign, ruled) : 0; } catch(e){ income = 0; }
+  return (income >= henchmanMonthlyWage(campaign, c)) ? 'domain-income' : null;
+}
+
 function processLivingExpensesForTurn(campaign, opts){
   opts = opts || {};
   const A = global.ACKS || {};
@@ -4212,7 +4229,7 @@ function processLivingExpensesForTurn(campaign, opts){
     if(!dryRun) for(const c of chars){ if(c) c.effectiveSocialLevel = null; }   // OFF ⇒ apparent = true level
     return out;
   }
-  const wageFor = (c) => (c && c.monthlyWage > 0) ? c.monthlyWage : (A.levelMonthlyWage ? A.levelMonthlyWage(c ? c.level : 0) : 0);
+  const wageFor = (c) => henchmanMonthlyWage(campaign, c);
   // The pay handle (a ruler's domain treasury if he opted in, else his purse) + its available gp.
   const payHandle = (payer) => {
     if(payer && payer.payKeepFromTreasury){
@@ -4264,13 +4281,7 @@ function processLivingExpensesForTurn(campaign, opts){
     const liege = chars.find(x => x && x.id === c.liegeCharacterId);
     if(!liege) continue;
     const wage = wageFor(c);
-    // RAW carve-out (RR p.168): a vassal-ruling henchman whose domain income ≥ his wage owes no wage.
-    const ruled = (campaign.domains || []).find(d => d && d.rulerCharacterId === c.id);
-    let waived = null;
-    if(ruled){
-      let income = 0; try { income = A.monthlyNet ? A.monthlyNet(campaign, ruled) : 0; } catch(e){ income = 0; }
-      if(income >= wage) waived = 'domain-income';
-    }
+    const waived = henchmanWageWaiver(campaign, c);   // RR p.168 carve-out: vassal domain income ≥ wage
     if(waived){ out.charges.push({ charId: c.id, name: c.name, liegeId: liege.id, kind:'henchman-wage', wage, paid:0, waived }); continue; }
     const paid = pay(liege, wage, 'Wage: ' + (c.name || c.id), 'henchman-wage');
     out.charges.push({ charId: c.id, name: c.name, liegeId: liege.id, kind:'henchman-wage', wage, paid });
@@ -4298,6 +4309,40 @@ function apparentLevelLoyaltyPenalty(campaign, henchman, employer){
   const hl = henchman.level || 0;
   const al = apparentLevel(campaign, employer);
   return (hl > al) ? -(hl - al) : 0;
+}
+
+// Per-character monthly expense breakdown (CoL-2, RR p.173 + p.168) — a read-only view for the
+// character sheet's Expenses tab: the character's own lifestyle keep (counted toward the total only
+// when the rule is on AND the character is self-supporting) plus the wages it pays as a liege to its
+// bound henchmen/specialists, and the total. Mirrors processLivingExpensesForTurn without mutating.
+function characterExpenseBreakdown(campaign, char){
+  const A = global.ACKS || {};
+  const ch = (typeof char === 'string') ? ((campaign && campaign.characters) || []).find(c => c && c.id === char) : char;
+  const out = { ruleOn:false, selfSupporting:false, lifestyle:null, henchmen:[], henchmenTotal:0, lifestyleGp:0, total:0 };
+  if(!ch || !campaign) return out;
+  out.ruleOn = isHouseRuleEnabled(campaign, 'living-expenses');
+  const active = (c) => A.isActive ? A.isActive(c)
+    : (c && c.alive !== false && c.lifecycleState !== 'candidate' && c.lifecycleState !== 'deceased');
+  // (1) The character's own lifestyle keep. Only self-supporting characters pay it — a liege-paid
+  //     henchman/specialist, a follower, or a mercenary officer pays none (the liege covers them).
+  out.selfSupporting = !(isFollower(ch) || isMercenaryOfficer(ch) || ((isHenchman(ch) || isSpecialist(ch)) && ch.liegeCharacterId));
+  const trueLevel = ch.level || 0;
+  const targetLevel = (ch.lifestyleTargetLevel != null) ? ch.lifestyleTargetLevel : trueLevel;
+  const targetWage = A.levelMonthlyWage ? A.levelMonthlyWage(targetLevel) : 0;
+  out.lifestyle = { targetLevel, targetWage, lastPaid: ch.lastLivingExpensePaidGp || 0 };
+  out.lifestyleGp = (out.ruleOn && out.selfSupporting) ? targetWage : 0;
+  // (2) Wages this character pays as a liege to its bound henchmen + specialists (the RR p.168 bill).
+  for(const c of ((campaign.characters) || [])){
+    if(!c || !active(c)) continue;
+    if(!((isHenchman(c) || isSpecialist(c)) && c.liegeCharacterId === ch.id)) continue;
+    const wage = henchmanMonthlyWage(campaign, c);
+    const waived = henchmanWageWaiver(campaign, c);
+    const due = waived ? 0 : wage;
+    out.henchmen.push({ id:c.id, name:c.name, level:c.level || 0, role: isSpecialist(c) ? 'specialist' : 'henchman', wage, waived, due });
+    out.henchmenTotal += due;
+  }
+  out.total = out.lifestyleGp + out.henchmenTotal;
+  return out;
 }
 
 function proposeMonthlyTurn(campaign, options){
@@ -6433,7 +6478,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   passiveInvestmentRate, passiveInvestmentMonthlyGp, processPassiveInvestmentsForTurn,
   applyVagaryToVenture, levelUpCharacter, checkAllCharacterLevelUps,
   // Cost of Living (Phase 2.5 §16 CoL-2 — RR p.173 + p.168).
-  processLivingExpensesForTurn, apparentLevel, apparentLevelLoyaltyPenalty
+  processLivingExpensesForTurn, apparentLevel, apparentLevelLoyaltyPenalty,
+  characterExpenseBreakdown, henchmanMonthlyWage, henchmanWageWaiver
 });
 // Object.freeze omitted: later modules (subsystems, future splits) extend the namespace.
 

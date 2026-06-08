@@ -573,6 +573,73 @@ section('CoL-2 — headless commitTurn applies the keep + advances the month');
   }
 }
 
+section('CoL-2 — characterExpenseBreakdown (Expenses tab): lifestyle keep + henchman wages + total');
+{
+  const camp = freshCampaign();
+  const ruler = purse(mkChar('lord', null, { level: 6 }), 9000);                                   // self-supporting L6 → 800
+  const h1 = mkChar('h1', null, { level: 2, socialTier:'henchman', liegeCharacterId:'lord', monthlyWage: 50 });
+  const h2 = mkChar('h2', null, { level: 4, socialTier:'henchman', liegeCharacterId:'lord' });      // no monthlyWage → level wage 200
+  const sp = mkChar('sp', null, { level: 1, socialTier:'specialist', liegeCharacterId:'lord', monthlyWage: 25 });
+  const other = mkChar('x', null, { level: 1, socialTier:'henchman', liegeCharacterId:'someone' });  // not this liege's
+  camp.characters = [ruler, h1, h2, sp, other];
+  const ex = ACKS.characterExpenseBreakdown(camp, ruler);
+  ok('ruleOn true', ex.ruleOn === true);
+  ok('selfSupporting true (a domain-less PC pays his own keep)', ex.selfSupporting === true);
+  ok('lifestyleGp = 800 (L6 wage)', ex.lifestyleGp === 800);
+  ok('three henchmen/specialists on payroll (others excluded)', ex.henchmen.length === 3);
+  ok('henchmenTotal = 50 + 200 + 25 = 275', ex.henchmenTotal === 275);
+  ok('total = 800 + 275 = 1075', ex.total === 1075);
+  ok('h2 wage derives from level (200)', ex.henchmen.find(h => h.id === 'h2').wage === 200);
+  ok('specialist role labelled', ex.henchmen.find(h => h.id === 'sp').role === 'specialist');
+  ok('breakdown accepts a char id too', ACKS.characterExpenseBreakdown(camp, 'lord').total === 1075);
+  // consistency: the breakdown's wage bill matches the monthly pass's charges for this liege
+  const dry = ACKS.processLivingExpensesForTurn(camp, { dryRun: true });
+  const passWages = dry.charges.filter(c => c.kind === 'henchman-wage' && c.liegeId === 'lord').reduce((s,c) => s + (c.paid || 0), 0);
+  ok('breakdown wage bill == monthly pass wage charges', ex.henchmenTotal === passWages, 'ex=' + ex.henchmenTotal + ' pass=' + passWages);
+}
+
+section('CoL-2 — characterExpenseBreakdown: waiver, non-self-supporting, rule OFF, shared wage helpers');
+{
+  // waiver — a vassal-ruling henchman whose domain income ≥ wage shows due 0 (wage still displayed)
+  const camp = freshCampaign();
+  const lg = mkChar('lg', null, { level: 9 });
+  const vh = mkChar('vh', null, { level: 4, socialTier:'henchman', liegeCharacterId:'lg', monthlyWage: 200 });
+  camp.characters = [lg, vh];
+  camp.domains = [{ id:'dv', rulerCharacterId:'vh', treasury:{ gp:0 } }];
+  const origNet = ACKS.monthlyNet; ACKS.monthlyNet = (c, d) => d.id === 'dv' ? 500 : 0;
+  const ex = ACKS.characterExpenseBreakdown(camp, lg);
+  ACKS.monthlyNet = origNet;
+  ok('waived henchman: wage shown (200) but due 0', ex.henchmen[0].wage === 200 && ex.henchmen[0].waived === 'domain-income' && ex.henchmen[0].due === 0);
+  ok('henchmenTotal excludes the waived wage (0)', ex.henchmenTotal === 0);
+
+  // a liege-paid henchman is NOT self-supporting → lifestyleGp 0 (his liege covers his keep)
+  const camp2 = freshCampaign();
+  const boss = mkChar('boss', null, { level: 8 });
+  const mid = mkChar('mid', null, { level: 5, socialTier:'henchman', liegeCharacterId:'boss' });
+  const sub = mkChar('sub', null, { level: 2, socialTier:'henchman', liegeCharacterId:'mid', monthlyWage: 40 });
+  camp2.characters = [boss, mid, sub];
+  const exMid = ACKS.characterExpenseBreakdown(camp2, mid);
+  ok('liege-paid henchman: selfSupporting false', exMid.selfSupporting === false);
+  ok('liege-paid henchman: lifestyleGp 0 (keep covered by his liege)', exMid.lifestyleGp === 0);
+  ok('but he still pays his own sub-henchman (total = 40)', exMid.henchmenTotal === 40 && exMid.total === 40);
+
+  // rule OFF → lifestyleGp 0, henchmen still reported (informational), total = henchmenTotal
+  const camp3 = freshCampaign();
+  camp3.houseRules = { 'living-expenses': { enabled:false } };
+  const r3 = mkChar('r3', null, { level: 6 });
+  const h3 = mkChar('h3', null, { level: 3, socialTier:'henchman', liegeCharacterId:'r3', monthlyWage: 100 });
+  camp3.characters = [r3, h3];
+  const ex3 = ACKS.characterExpenseBreakdown(camp3, r3);
+  ok('rule OFF: ruleOn false', ex3.ruleOn === false);
+  ok('rule OFF: lifestyleGp 0 (no self-keep counted)', ex3.lifestyleGp === 0);
+  ok('rule OFF: wage bill still reported (100)', ex3.henchmenTotal === 100 && ex3.total === 100);
+
+  // shared wage helpers
+  ok('henchmanMonthlyWage: explicit monthlyWage wins', ACKS.henchmanMonthlyWage(camp3, { monthlyWage: 77, level: 6 }) === 77);
+  ok('henchmanMonthlyWage: falls back to level wage', ACKS.henchmanMonthlyWage(camp3, { level: 6 }) === 800);
+  ok('henchmanWageWaiver: null when no ruled domain', ACKS.henchmanWageWaiver(camp3, { id:'nobody', level:3 }) === null);
+}
+
 // =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — cost-of-living.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  ' + failures.join('\n  ')); process.exit(1); }
