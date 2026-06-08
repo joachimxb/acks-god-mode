@@ -209,18 +209,33 @@ section('gp flows — Loan principal / Gift / Scutage recurrence / Loan repaymen
   ok('gift moved lord → vassal (lord −X, vassal +X)', treasuryGp(c,'dom-lord') === lordBefore - gift.gpPerMonth && treasuryGp(c,'dom-vassal') === vassBefore + gift.gpPerMonth);
 }
 {
-  // Scutage (roll 2): recurs every month (vassal → lord), including the grant month.
-  const c = mkCampaign();
-  const vassStart = treasuryGp(c,'dom-vassal');
-  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(2) ]) });  // month 1: create scutage + 1st payment
-  const scutage = c.favorDutyObligations.find(o => o.kind==='scutage');
-  ok('scutage created (recurring duty)', !!scutage && scutage.isOngoing === true);
-  ok('scutage 1st installment paid in the grant month (vassal −X)', treasuryGp(c,'dom-vassal') === vassStart - scutage.gpPerMonth);
-  // month 2: roll a revocation-of-a-favor (none present) so no new duty is added; scutage recurs.
-  c.currentTurn = 2;
-  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(9), d6Val(1) ]) });
-  ok('scutage recurs in month 2 (vassal −2X total)', treasuryGp(c,'dom-vassal') === vassStart - 2 * scutage.gpPerMonth);
-  ok('scutage is still active (recurs until revoked)', c.favorDutyObligations.find(o => o.kind==='scutage').status === 'active');
+  // Scutage (roll 2) — F&D-6 model: a recurring duty the vassal PAYS each month (payScutageObligation,
+  // the Pay Scutage button). Demanding it moves NO gp; the lord is credited only when the vassal pays.
+  const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  ok('scutage created (recurring duty)', scu.kind==='scutage' && scu.isOngoing === true);
+  ok('scutage moves NO gp on demand', treasuryGp(c,'dom-vassal') === 50000 && treasuryGp(c,'dom-lord') === 100000);
+  ok('scutage starts unpaid (scutageLastPaidTurn null)', scu.scutageLastPaidTurn == null);
+  // An UNPAID month: Phase B settles nothing (the lord isn't credited).
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('unpaid scutage → lord NOT credited', treasuryGp(c,'dom-lord') === 100000);
+  // Pay it: stamps the current turn; no gp moves on the click (it settles at the monthly turn).
+  ACKS.payScutageObligation(c, scu.id, {});
+  ok('payScutageObligation stamps scutageLastPaidTurn = currentTurn', c.favorDutyObligations.find(o=>o.id===scu.id).scutageLastPaidTurn === c.currentTurn);
+  ok('paying scutage moves no gp itself', treasuryGp(c,'dom-vassal') === 50000 && treasuryGp(c,'dom-lord') === 100000);
+  // Phase B now CREDITS the lord (one-sided — the vassal debit is the monthly NET, tested in F&D-6 below).
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('paid scutage → lord credited the amount', treasuryGp(c,'dom-lord') === 100000 + scu.gpPerMonth);
+  ok('Phase B does NOT debit the vassal (that is the monthly net)', treasuryGp(c,'dom-vassal') === 50000);
+  ok('scutage is still active (recurs until revoked)', c.favorDutyObligations.find(o => o.id===scu.id).status === 'active');
+  // Idempotent within the month: a second pay does not re-pledge / spam history.
+  ACKS.payScutageObligation(c, scu.id, {});
+  ok('payScutageObligation idempotent within the month', c.favorDutyObligations.find(o=>o.id===scu.id).history.filter(h=>h.type==='scutage-paid').length === 1);
+  // Guarded on a non-scutage obligation.
+  const gift = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'gift' }, { rng: scriptedRng([]) }).obligation;
+  ACKS.payScutageObligation(c, gift.id, {});
+  ok('payScutageObligation on a non-scutage is a no-op (no scutageLastPaidTurn)', gift.scutageLastPaidTurn == null);
+  ok('payScutageObligation on an unknown id → null', ACKS.payScutageObligation(c, 'fdo-nope', {}) === null);
 }
 {
   // Loan repayment: a GIVEN loan (funded in a PRIOR month) gets a CHA% repayment check (CHA 100 → always repays).
@@ -660,6 +675,70 @@ function mkCouncil(opts){
   ok('blankFavorDutyObligation seeds councilHexId null', ACKS.blankFavorDutyObligation({}).councilHexId === null);
   const fdSchema = ACKS.fieldSchemaFor('favorDutyObligation');
   ok('schema has the councilHexId field', fdSchema.fields.some(f=>f.name==='councilHexId'));
+}
+
+// =============================================================================
+section('F&D-6 — scutage as garrison expense + collection + misappropriation (RR pp.347–348)');
+// =============================================================================
+// expenseBreakdown: scutage shows as the vassal's garrison expense when paid; withheld (gp 0) when not.
+{
+  const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  const vassalD = () => c.domains.find(d=>d.id==='dom-vassal');
+  const unpaidRows = ACKS.expenseBreakdown(c, vassalD());
+  ok('unpaid scutage → NOT PAID row (gp 0) in expenseBreakdown', unpaidRows.some(r => /Scutage/.test(r.label) && /NOT PAID/.test(r.label) && r.gp === 0));
+  ok('unpaid scutage → scutagePaidThisMonth is 0', ACKS.scutagePaidThisMonth(c, vassalD()) === 0);
+  ACKS.payScutageObligation(c, scu.id, {});
+  const paidRows = ACKS.expenseBreakdown(c, vassalD());
+  ok('paid scutage → garrison expense row (gp = amount)', paidRows.some(r => /Scutage/.test(r.label) && /counts as garrison/.test(r.label) && r.gp === scu.gpPerMonth));
+  ok('scutagePaidThisMonth sums paid scutage', ACKS.scutagePaidThisMonth(c, vassalD()) === scu.gpPerMonth);
+  // Garrison adequacy (RR p.347 — "counts as garrison expense for the vassal"): scutage lifts gpf.
+  const mods = ACKS.moraleModifiersFor(c, vassalD());
+  // With 500 families + 500gp scutage, gpf=1; reqRate=2 → still a (smaller) penalty, but scutage is counted:
+  // compare to a no-scutage twin where gpf=0.
+  const twin = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  const penaltyOf = camp => { const m = ACKS.moraleModifiersFor(camp, camp.domains.find(d=>d.id==='dom-vassal')).find(x=>/Garrison below required/.test(x.label)); return m ? m.value : 0; };
+  ok('scutage counts toward garrison adequacy (smaller penalty than the no-scutage twin)', penaltyOf(c) > penaltyOf(twin));
+}
+// The settlement is a single balanced move: paying scutage lowers the vassal's monthly NET by exactly
+// the scutage (it bills as a garrison expense — monthlyNet feeds the vassal debit at the monthly turn),
+// and Phase B credits the lord the same amount (no double-debit). (Full commitTurn is exercised by the
+// demo integration test above; the minimal campaign isn't commitTurn-complete by design.)
+{
+  const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  const vd = c.domains.find(d=>d.id==='dom-vassal');
+  const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  const netUnpaid = ACKS.monthlyNet(c, vd);
+  ACKS.payScutageObligation(c, scu.id, {});
+  const netPaid = ACKS.monthlyNet(c, vd);
+  ok('paying scutage lowers the vassal monthly net by exactly the scutage (garrison expense)', netPaid === netUnpaid - scu.gpPerMonth);
+  const lordBefore = treasuryGp(c,'dom-lord');
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('the lord is credited the same scutage amount (balanced move, no double-debit)', treasuryGp(c,'dom-lord') === lordBefore + scu.gpPerMonth);
+}
+// Misappropriation (RR p.348) — a lord who does not out-spend the scutage he collects on troops
+// provokes his scutage-paying vassals' Henchman Loyalty rolls at -4.
+{
+  const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });  // lord has no garrison → spends 0 on troops
+  const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  ACKS.payScutageObligation(c, scu.id, {});
+  const res = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('lord spends 0 on troops → scutage misappropriated (loyalty roll at -4 fired)', res.loyaltyRolls.some(r => r.reason==='scutage-misappropriated' && r.modifier===-4 && r.vassalDomainId==='dom-vassal'));
+  ok('the vassal ruler got a scutage-misappropriated loyaltyHistory entry', (c.characters.find(ch=>ch.id==='chr-vassal').loyaltyHistory||[]).some(h => h.reason==='scutage-misappropriated'));
+}
+{
+  const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  c.domains.find(d=>d.id==='dom-lord').garrison = { units:[{ id:'gu-l', count:10000, monthlyWage:1, brPerSoldier:0 }] }; // 10,000gp troops ≫ 500gp scutage
+  const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  ACKS.payScutageObligation(c, scu.id, {});
+  const res = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('lord out-spends scutage on troops → no misappropriation roll', !res.loyaltyRolls.some(r => r.reason==='scutage-misappropriated'));
+}
+// Schema + factory.
+{
+  ok('blankFavorDutyObligation seeds scutageLastPaidTurn null', ACKS.blankFavorDutyObligation({}).scutageLastPaidTurn === null);
+  const fdSchema = ACKS.fieldSchemaFor('favorDutyObligation');
+  ok('schema has the scutageLastPaidTurn field', fdSchema.fields.some(f=>f.name==='scutageLastPaidTurn'));
 }
 
 console.log('\n=============================================');
