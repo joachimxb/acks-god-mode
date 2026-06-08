@@ -558,6 +558,110 @@ section('F&D-4 — Loan give/repay lifecycle (RR p.348): demand → give → rep
   ok('table-revocation of a given loan repaid the principal (lord → vassal)', treasuryGp(c,'dom-lord') === lordBefore - loan.gpPerMonth && treasuryGp(c,'dom-vassal') === vassBefore + loan.gpPerMonth);
 }
 
+// =============================================================================
+section('F&D-5 — Call to Council: location + Go-to-Council journey + attendance (RR p.346)');
+// =============================================================================
+// A campaign with a council hex in the lord's domain + the vassal standing elsewhere.
+function mkCouncil(opts){
+  const c = mkCampaign(opts);
+  c.hexes.push({ id:'hex-court', domainId:'dom-lord',   coord:{ q:1, r:0 } });  // the lord's seat (council)
+  c.hexes.push({ id:'hex-far',   domainId:'dom-vassal', coord:{ q:4, r:0 } });  // where the vassal starts
+  c.characters.find(x=>x.id==='chr-lord').currentHexId   = 'hex-court';
+  c.characters.find(x=>x.id==='chr-vassal').currentHexId = 'hex-far';
+  return c;
+}
+// Default location = where the lord is now (the liege ruler's current hex).
+{
+  const c = mkCouncil();
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([]) });
+  ok('call-to-council default location = the liege ruler current hex', d.obligation.councilHexId === 'hex-court');
+}
+// Explicit location override.
+{
+  const c = mkCouncil();
+  c.hexes.push({ id:'hex-keep', domainId:'dom-lord', coord:{ q:2, r:0 } });
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council', councilHexId:'hex-keep' }, { rng: scriptedRng([]) });
+  ok('explicit councilHexId is stored', d.obligation.councilHexId === 'hex-keep');
+}
+// Auto-rolled call-to-council also gets the default location.
+{
+  const c = mkCouncil();
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(3) ]) });  // roll 3 = call-to-council
+  const o = c.favorDutyObligations.find(x=>x.kind==='call-to-council');
+  ok('auto-rolled call-to-council defaults the council location', !!o && o.councilHexId === 'hex-court');
+}
+// sendVassalToCouncil plots a new journey from the vassal's hex to the council hex.
+{
+  const c = mkCouncil();
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([]) }).obligation;
+  const r = ACKS.sendVassalToCouncil(c, o.id, {});
+  ok('sendVassalToCouncil started a new journey', r.action === 'started' && !!r.journey);
+  ok('the journey runs from the vassal hex to the council hex', r.journey.startHexId === 'hex-far' && r.journey.destinationHexId === 'hex-court');
+  ok('the vassal ruler is on the journey', c.characters.find(x=>x.id==='chr-vassal').currentJourneyId === r.journey.id);
+}
+// Attendance: away → en-route (after Go to Council) → at-council (on arrival at the hex).
+{
+  const c = mkCouncil();
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([]) }).obligation;
+  ok('before travel: status away', ACKS.councilAttendanceStatus(c, o).status === 'away');
+  ACKS.sendVassalToCouncil(c, o.id, {});
+  ok('after Go to Council: status en-route', ACKS.councilAttendanceStatus(c, o).status === 'en-route');
+  c.characters.find(x=>x.id==='chr-vassal').currentHexId = 'hex-court';   // simulate arrival
+  ok('at the council hex: status at-council', ACKS.councilAttendanceStatus(c, o).status === 'at-council');
+}
+// Already there → no journey is plotted.
+{
+  const c = mkCouncil();
+  c.characters.find(x=>x.id==='chr-vassal').currentHexId = 'hex-court';
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([]) }).obligation;
+  const r = ACKS.sendVassalToCouncil(c, o.id, {});
+  ok('already at the council hex → already-there, no journey', r.action === 'already-there' && (c.journeys||[]).length === 0);
+}
+// Party-aware: the whole party travels.
+{
+  const c = mkCouncil();
+  const mate = ACKS.blankCharacter({ id:'chr-mate', name:'Retainer' }); mate.currentHexId = 'hex-far'; mate.partyId = 'pty-1';
+  c.characters.push(mate);
+  c.characters.find(x=>x.id==='chr-vassal').partyId = 'pty-1';
+  c.parties = [{ id:'pty-1', name:'Vassal party', currentHexId:'hex-far', activeJourneyId:null }];
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([]) }).obligation;
+  const r = ACKS.sendVassalToCouncil(c, o.id, {});
+  ok('party council trip: journey carries the partyId', r.action === 'started' && r.journey.partyId === 'pty-1');
+  ok('party council trip: both members travel', r.journey.participantCharacterIds.includes('chr-vassal') && r.journey.participantCharacterIds.includes('chr-mate'));
+}
+// Re-route an existing journey instead of plotting a second one.
+{
+  const c = mkCouncil();
+  c.hexes.push({ id:'hex-elsewhere', domainId:'dom-vassal', coord:{ q:6, r:0 } });
+  const j = ACKS.blankJourney({ name:'Errand', participantCharacterIds:['chr-vassal'], startHexId:'hex-far', destinationHexId:'hex-elsewhere', mode:'foot', pace:'normal' });
+  c.journeys = [j]; ACKS.startJourney(c, j);
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([]) }).obligation;
+  const r = ACKS.sendVassalToCouncil(c, o.id, {});
+  ok('existing journey re-routed (no 2nd journey)', r.action === 'rerouted' && (c.journeys||[]).length === 1);
+  ok('the journey destination is now the council hex', c.journeys[0].destinationHexId === 'hex-court');
+}
+// No origin hex on the vassal → guarded.
+{
+  const c = mkCouncil();
+  c.characters.find(x=>x.id==='chr-vassal').currentHexId = null;
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([]) }).obligation;
+  const r = ACKS.sendVassalToCouncil(c, o.id, {});
+  ok('no vassal origin hex → no-origin (no journey)', r.action === 'no-origin' && (c.journeys||[]).length === 0);
+}
+// Non-council obligation → not-applicable; attendance kind 'other'.
+{
+  const c = mkCouncil();
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  ok('sendVassalToCouncil on a non-council → not-applicable', ACKS.sendVassalToCouncil(c, o.id, {}).action === 'not-applicable');
+  ok('councilAttendanceStatus on a non-council → kind other', ACKS.councilAttendanceStatus(c, o).kind === 'other');
+}
+// Schema + factory.
+{
+  ok('blankFavorDutyObligation seeds councilHexId null', ACKS.blankFavorDutyObligation({}).councilHexId === null);
+  const fdSchema = ACKS.fieldSchemaFor('favorDutyObligation');
+  ok('schema has the councilHexId field', fdSchema.fields.some(f=>f.name==='councilHexId'));
+}
+
 console.log('\n=============================================');
 console.log('favors-and-duties.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
