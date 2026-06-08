@@ -789,6 +789,73 @@ section('F&D-6 — scutage as garrison expense + collection + misappropriation (
   ok('converted rate tracks population (0.5 × 600 = 300)', ACKS.scutageMonthlyGp(c, legacy) === 300);
 }
 
+// =============================================================================
+section('F&D-7 — Construction duty: liege-side orders (hex + type) + target + progress (RR p.348)');
+// =============================================================================
+// A vassal realm with 3 hexes (hex-b borders a water hex → littoral) + a non-realm sea hex.
+function mkConstruction(){
+  const c = mkCampaign({ vassalFamilies: 300, houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  c.hexes = [
+    { id:'hex-a', domainId:'dom-vassal', coord:{ q:0, r:0 }, terrain:'grassland' },
+    { id:'hex-b', domainId:'dom-vassal', coord:{ q:1, r:0 }, terrain:'hills' },   // borders the sea
+    { id:'hex-c', domainId:'dom-vassal', coord:{ q:5, r:5 }, terrain:'forest' },  // inland
+    { id:'hex-sea', domainId:null, coord:{ q:2, r:0 }, terrain:'water' }          // not in the realm
+  ];
+  c.domains.find(d=>d.id==='dom-vassal').geography.hexes = c.hexes.filter(h=>h.domainId==='dom-vassal');
+  return c;
+}
+ok('CONSTRUCTION_DUTY_TYPES = 6 types, vessel is littoralOnly', ACKS.CONSTRUCTION_DUTY_TYPES.length===6 && ACKS.CONSTRUCTION_DUTY_TYPES.find(t=>t.value==='vessel').littoralOnly===true);
+{
+  const c = mkConstruction();
+  const vd = c.domains.find(d=>d.id==='dom-vassal');
+  ok('isLittoralDomain true (hex-b borders the sea)', ACKS.isLittoralDomain(c, vd) === true);
+  ok('vessel allowed on a littoral realm', ACKS.constructionDutyTypeAllowed(c, vd, 'vessel') === true);
+  ok('fort allowed (non-littoral type)', ACKS.constructionDutyTypeAllowed(c, vd, 'fort') === true);
+  const con = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'construction' }, { rng: scriptedRng([]) }).obligation;
+  ok('construction created with empty orders', con.kind==='construction' && Array.isArray(con.constructionOrders) && con.constructionOrders.length===0);
+  ok('no orders → target = realm-cap (3 hexes × 15,000 = 45,000)', ACKS.constructionDutyTargetGp(c, con) === 45000);
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-a', type:'fort' });
+  ok('1 order → target 15,000', ACKS.constructionDutyTargetGp(c, con) === 15000);
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-b', type:'tower' });
+  ok('2nd order in a new hex → target 30,000', ACKS.constructionDutyTargetGp(c, con) === 30000);
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-a', type:'road' });
+  ok('3rd order in the SAME hex → target unchanged 30,000, 3 orders', ACKS.constructionDutyTargetGp(c, con)===30000 && con.constructionOrders.length===3);
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-a', type:'fort' });
+  ok('duplicate (hex-a fort) skipped', con.constructionOrders.length===3);
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-sea', type:'fort' });
+  ok('order in a non-realm hex rejected', con.constructionOrders.length===3);
+  const p = ACKS.constructionDutyProgress(c, con);
+  ok('progress: spent 0 / target 30,000 / remaining 30,000', p.spent===0 && p.target===30000 && p.remaining===30000);
+  ok('progress: monthlyMinimum = tribute, minimum not met, target not reached', p.monthlyMinimum > 0 && p.minimumMet===false && p.targetReached===false);
+  ok('progress orders carry type labels (Fort)', p.orders.length===3 && p.orders[0].typeLabel==='Fort');
+  ACKS.removeConstructionOrder(c, con.id, 1);   // removes the hex-b tower
+  ok('remove order → target back to 15,000 (only hex-a remains)', ACKS.constructionDutyTargetGp(c, con)===15000 && con.constructionOrders.length===2);
+}
+{
+  // Landlocked realm → vessel not allowed.
+  const c = mkConstruction();
+  c.hexes = c.hexes.filter(h => h.id !== 'hex-sea');
+  const vd = c.domains.find(d=>d.id==='dom-vassal');
+  ok('isLittoralDomain false (no water)', ACKS.isLittoralDomain(c, vd) === false);
+  ok('vessel NOT allowed on a landlocked realm', ACKS.constructionDutyTypeAllowed(c, vd, 'vessel') === false);
+  const con = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'construction' }, { rng: scriptedRng([]) }).obligation;
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-a', type:'vessel' });
+  ok('a vessel order is rejected on a landlocked realm', con.constructionOrders.length===0);
+}
+{
+  // Phase B auto-revokes at the ORDERED target (1 order → 15,000), not the realm-wide cap.
+  const c = mkConstruction();
+  c.domains.find(d=>d.id==='dom-vassal').treasury = { gp: 1000000 };
+  const con = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'construction' }, { rng: scriptedRng([]) }).obligation;
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-a', type:'fort' });   // target 15,000
+  ok('the monthly self-spend (tribute) is positive', con.gpPerMonth > 0);
+  let months = 0;
+  while(c.favorDutyObligations.find(o=>o.id===con.id).status==='active' && months < 300){ c.currentTurn = months+1; ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) }); months++; }
+  const after = c.favorDutyObligations.find(o=>o.id===con.id);
+  ok('construction auto-revokes once the ordered 15,000 target is reached', after.status==='revoked');
+  ok('total spent ≥ the 15,000 ordered target', after.constructionSpentGp >= 15000);
+}
+
 // Schema + factory.
 {
   ok('blankFavorDutyObligation seeds scutageAutoPay false', ACKS.blankFavorDutyObligation({}).scutageAutoPay === false);
@@ -799,6 +866,8 @@ section('F&D-6 — scutage as garrison expense + collection + misappropriation (
   ok('schema has the scutageAutoPay field', fdSchema.fields.some(f=>f.name==='scutageAutoPay'));
   ok('schema has the scutageLastPaidTurn field', fdSchema.fields.some(f=>f.name==='scutageLastPaidTurn'));
   ok('schema has the scutageGpPerFamily field', fdSchema.fields.some(f=>f.name==='scutageGpPerFamily'));
+  ok('blankFavorDutyObligation seeds constructionOrders []', Array.isArray(ACKS.blankFavorDutyObligation({}).constructionOrders) && ACKS.blankFavorDutyObligation({}).constructionOrders.length===0);
+  ok('schema has the constructionOrders array field', fdSchema.fields.some(f=>f.name==='constructionOrders' && f.type==='array'));
 }
 
 console.log('\n=============================================');
