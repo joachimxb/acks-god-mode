@@ -4862,18 +4862,18 @@ function _realmHexCount(campaign, vassalDomain){
   const n = (campaign.hexes || []).filter(h => h && ids.has(h.domainId)).length;
   return Math.max(1, n || (vassalDomain.geography && Array.isArray(vassalDomain.geography.hexes) ? vassalDomain.geography.hexes.length : 1));
 }
-// The target gp for a construction duty (RR p.348 — 15,000gp / 6-mile hex). F&D-7: with orders placed,
-// the target = 15,000 × distinct ordered hexes (adding hexes raises it); with NO orders it falls back to
-// 15,000 × the realm's hex count (the RAW realm-wide cap; legacy / auto-rolled).
+// The target gp for a construction duty (RR p.348 — 15,000gp / 6-mile hex). F&D-7: with SPECIFIC orders
+// the target = 15,000 × distinct ordered hexes (adding a hex raises it). A GENERIC order (RR p.348 "or
+// other structures somewhere within his realm") — or no orders at all — falls back to 15,000 × the realm's
+// hex count (the RAW realm-wide cap), since generic construction may go anywhere in the realm.
 function constructionDutyTargetGp(campaign, o){
   if(!o || o.kind !== 'construction') return 0;
   const orders = Array.isArray(o.constructionOrders) ? o.constructionOrders : [];
-  if(orders.length > 0){
-    const hexes = new Set(orders.map(x => x && x.hexId).filter(Boolean));
-    return 15000 * Math.max(1, hexes.size);
-  }
+  const hasGeneric = orders.some(x => x && (x.type === 'generic' || !x.hexId));
+  const specificHexes = new Set(orders.filter(x => x && x.type !== 'generic' && x.hexId).map(x => x.hexId));
+  if(!hasGeneric && specificHexes.size > 0) return 15000 * specificHexes.size;   // specific only → ordered hexes
   const vd = (campaign.domains || []).find(d => d.id === o.vassalDomainId) || null;
-  return 15000 * _realmHexCount(campaign, vd);
+  return 15000 * _realmHexCount(campaign, vd);                                   // generic / none → realm cap
 }
 // Derived liege-side progress for a construction duty — the ordered work + the monthly minimum (= monthly
 // tribute) + progress toward the target (spent / target / remaining, the min-met flag, target-reached).
@@ -4882,39 +4882,55 @@ function constructionDutyProgress(campaign, o){
   const target = constructionDutyTargetGp(campaign, o);
   const monthlyMinimum = Math.round(Number(o && o.gpPerMonth) || 0);
   const orders = (Array.isArray(o && o.constructionOrders) ? o.constructionOrders : []).map(x => ({
-    hexId: (x && x.hexId) || null, type: (x && x.type) || '', typeLabel: global.ACKS.constructionDutyTypeLabel(x && x.type)
+    hexId: (x && x.hexId) || null, type: (x && x.type) || '', generic: !!(x && x.type === 'generic'),
+    typeLabel: global.ACKS.constructionDutyTypeLabel(x && x.type)
   }));
   return {
     orders,
-    orderedHexCount: new Set(orders.map(x => x.hexId).filter(Boolean)).size,
+    orderedHexCount: new Set(orders.filter(x => !x.generic && x.hexId).map(x => x.hexId)).size,
+    hasGeneric: orders.some(x => x.generic),
     spent, target, remaining: Math.max(0, target - spent), monthlyMinimum,
     minimumMet: monthlyMinimum > 0 && spent >= monthlyMinimum,   // at least one month's minimum built
     targetReached: target > 0 && spent >= target
   };
 }
-// Add a construction order (hex + type) to an active construction duty — the F&D-7 liege act. Validates:
-// construction kind + active; the hex is in the vassal's realm; the type is known + allowed (vessel →
-// littoral). Skips an exact (hexId, type) duplicate. Adding an order in a NEW hex raises the target by
-// 15,000gp. Records history + emits a favor-duty event. Returns the obligation, or null if not found.
+// Add a construction order to an active construction duty — the F&D-7 liege act. A SPECIFIC order needs a
+// {hexId, type}: validated (construction kind + active; the hex is in the vassal's realm; the type known +
+// allowed — vessel → littoral; no exact duplicate); adding one in a NEW hex raises the target by 15,000gp.
+// A GENERIC order ({type:'generic'}, RR p.348 "or other structures somewhere within his realm") needs no
+// hex — it's "build anything, anywhere in the realm" (target = the realm-wide cap); one generic per duty.
+// Records history + emits a favor-duty event. Returns the obligation, or null if not found.
 function addConstructionOrder(campaign, obligationId, options){
   options = options || {};
   const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
     ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
   if(!rec) return null;
   if(rec.status !== 'active' || rec.kind !== 'construction') return rec;
-  const hexId = options.hexId, type = options.type;
-  if(!hexId || !type) return rec;
+  const type = options.type;
+  if(!type) return rec;
+  if(!Array.isArray(rec.constructionOrders)) rec.constructionOrders = [];
+  const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  if(!Array.isArray(rec.history)) rec.history = [];
+  // Generic order — no hex; only one per duty.
+  if(type === 'generic'){
+    if(rec.constructionOrders.some(x => x && x.type === 'generic')) return rec;   // already generic
+    rec.constructionOrders.push({ hexId: null, type: 'generic' });
+    rec.history.push({ turn: atTurn, type:'construction-order-added', hexId: null, structureType: 'generic' });
+    _emitFavorDutyEvent(campaign, rec, { action:'construction-order-added', hexId: null, structureType: 'generic',
+      narrative: 'Ordered generic construction anywhere in the realm (target ' + constructionDutyTargetGp(campaign, rec).toLocaleString() + 'gp).' });
+    return rec;
+  }
+  // Specific order — needs a hex in the vassal's realm.
+  const hexId = options.hexId;
+  if(!hexId) return rec;
   const vd = (campaign.domains || []).find(d => d.id === rec.vassalDomainId) || null;
   const realmIds = new Set([rec.vassalDomainId]);
   for(const { domain:v } of (global.ACKS.vassalChainUnder(campaign, rec.vassalDomainId) || [])) realmIds.add(v.id);
   const hex = (campaign.hexes || []).find(h => h && h.id === hexId) || null;
   if(!hex || !realmIds.has(hex.domainId)) return rec;                 // hex not in the vassal's realm
   if(!constructionDutyTypeAllowed(campaign, vd, type)) return rec;    // unknown type / vessel on a landlocked realm
-  if(!Array.isArray(rec.constructionOrders)) rec.constructionOrders = [];
   if(rec.constructionOrders.some(x => x && x.hexId === hexId && x.type === type)) return rec;   // duplicate
   rec.constructionOrders.push({ hexId, type });
-  const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
-  if(!Array.isArray(rec.history)) rec.history = [];
   rec.history.push({ turn: atTurn, type:'construction-order-added', hexId, structureType: type });
   _emitFavorDutyEvent(campaign, rec, { action:'construction-order-added', hexId, structureType: type,
     narrative: 'Ordered a ' + global.ACKS.constructionDutyTypeLabel(type).toLowerCase() + ' built (construction target now ' + constructionDutyTargetGp(campaign, rec).toLocaleString() + 'gp).' });

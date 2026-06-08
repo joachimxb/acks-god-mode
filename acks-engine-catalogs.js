@@ -472,6 +472,9 @@ function realmTitleForDomain(domain){
 // future full Construction subsystem (Architecture §10); the F&D-7 liege side uses the RAW 15,000gp /
 // 6-mile hex target (constructionDutyTargetGp), so `type` here is the *kind* of work, not a price.
 const CONSTRUCTION_DUTY_TYPES = Object.freeze([
+  // 'generic' = RR p.348 "or other structures somewhere within his realm" — no specific hex/type; its
+  // target is the realm-wide cap (15,000gp × realm hexes). Handled specially (no hexId; one per duty).
+  Object.freeze({ value:'generic',   label:'Any construction (anywhere in the realm)', generic:true }),
   Object.freeze({ value:'bridge',    label:'Bridge' }),
   Object.freeze({ value:'road',      label:'Road' }),
   Object.freeze({ value:'fort',      label:'Fort' }),

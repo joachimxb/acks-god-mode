@@ -228,7 +228,7 @@
         { name: 'constructionSpentGp',    type: 'gp', group: 'Economics', description: 'Running gp expended on a Construction duty (auto-revokes at 15,000gp / 6-mile hex)' },
         { name: 'constructionOrders',     type: 'array', group: 'Edict', description: 'Construction-duty orders the liege set (RR p.348) — hex + structure type; target = 15,000gp × distinct ordered hexes', itemSchema: { fields: [
           { name: 'hexId', type: 'id', idKind: 'hex' },
-          { name: 'type',  type: 'enum', enumValues: ['bridge','road','fort','tower','structure','vessel'] }
+          { name: 'type',  type: 'enum', enumValues: ['generic','bridge','road','fort','tower','structure','vessel'] }
         ] } },
         { name: 'roll',                   type: 'number', group: 'Lifecycle', description: 'The 1d20 that produced this edict (null when GM-picked)' },
         { name: 'status',                 type: 'enum', enumValues: ['active','revoked','one-time-spent'], group: 'Lifecycle' },
