@@ -1167,6 +1167,11 @@ function blankFavorDutyObligation(opts={}){
     // Running total of gp the vassal has expended on a Construction duty (auto-revokes at
     // 15,000gp per 6-mile hex in the realm — RR p.348). 0 for every other kind.
     constructionSpentGp: opts.constructionSpentGp || 0,
+    // Construction-duty orders (RR p.348 — F&D-7 liege side): the hexes + structure types the lord
+    // ordered built, `[{hexId, type}]` (type ∈ CONSTRUCTION_DUTY_TYPES). The liege may add more while
+    // the duty is active; the target gp is derived = 15,000 × distinct ordered hexes (no orders → the
+    // realm-hex cap, legacy). [] for every non-construction kind. Read defensively → no migration.
+    constructionOrders: Array.isArray(opts.constructionOrders) ? opts.constructionOrders : [],
     notes: opts.notes || '',
     history: opts.history || []
   };

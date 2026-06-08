@@ -3107,6 +3107,7 @@ function createFavorDutyObligation(campaign, opts={}){
     scutageLastPaidTurn:    opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
     scutageGpPerFamily:     opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
     constructionSpentGp:    opts.constructionSpentGp     || 0,
+    constructionOrders:     Array.isArray(opts.constructionOrders) ? opts.constructionOrders : [],
     notes:                  opts.notes                   || ''
   });
   return _pushRelation(campaign, 'favorDutyObligations', record, opts.reason || (record.isFavor ? 'favor-granted' : 'duty-demanded'));
@@ -4828,6 +4829,113 @@ function setScutageAutoPay(campaign, obligationId, on, options){
 function payScutageObligation(campaign, obligationId, options){ return setScutageAutoPay(campaign, obligationId, true, options); }
 function stopScutagePayment(campaign, obligationId, options){ return setScutageAutoPay(campaign, obligationId, false, options); }
 
+// =============================================================================
+// Construction duty — LIEGE side (RR p.348, F&D-7). The lord orders structures built in specific hexes
+// of the vassal's realm (bridges / roads / forts / towers / other; vessels if littoral). The RAW target
+// is 15,000gp per 6-mile hex; F&D-7 ties it to the *ordered* hexes (15,000 × distinct ordered hexes), so
+// adding orders raises the target. The vassal-side actual-building detection + auto-revoke-on-completion
+// is the future full Construction subsystem (Architecture §10) — for now the monthly self-spend (Phase B)
+// is the progress placeholder, and the card reads the derived progress below.
+// =============================================================================
+
+// A domain is littoral (may be ordered to build vessels, RR p.348) if any of its hexes is water OR
+// borders a water hex (axial neighbour). Gates the 'vessel' construction-duty type.
+function isLittoralDomain(campaign, domain){
+  if(!campaign || !domain) return false;
+  const all = Array.isArray(campaign.hexes) ? campaign.hexes : [];
+  const realm = all.filter(h => h && h.domainId === domain.id);
+  if(realm.some(h => (h.terrain || '') === 'water')) return true;
+  const waters = all.filter(h => h && (h.terrain || '') === 'water' && h.coord);
+  return realm.some(h => h.coord && waters.some(w => hexAxialDistance(h.coord, w.coord) === 1));
+}
+// Whether a construction-duty type may be ordered on this vassal domain (vessel needs a littoral realm).
+function constructionDutyTypeAllowed(campaign, vassalDomain, type){
+  const e = (global.ACKS.CONSTRUCTION_DUTY_TYPES || []).find(t => t.value === type);
+  if(!e) return false;
+  return e.littoralOnly ? isLittoralDomain(campaign, vassalDomain) : true;
+}
+// Distinct 6-mile hexes in the vassal's realm (own domain + sub-vassal realms) — the realm-wide cap base.
+function _realmHexCount(campaign, vassalDomain){
+  if(!campaign || !vassalDomain) return 1;
+  const ids = new Set([vassalDomain.id]);
+  for(const { domain:v } of (global.ACKS.vassalChainUnder(campaign, vassalDomain.id) || [])) ids.add(v.id);
+  const n = (campaign.hexes || []).filter(h => h && ids.has(h.domainId)).length;
+  return Math.max(1, n || (vassalDomain.geography && Array.isArray(vassalDomain.geography.hexes) ? vassalDomain.geography.hexes.length : 1));
+}
+// The target gp for a construction duty (RR p.348 — 15,000gp / 6-mile hex). F&D-7: with orders placed,
+// the target = 15,000 × distinct ordered hexes (adding hexes raises it); with NO orders it falls back to
+// 15,000 × the realm's hex count (the RAW realm-wide cap; legacy / auto-rolled).
+function constructionDutyTargetGp(campaign, o){
+  if(!o || o.kind !== 'construction') return 0;
+  const orders = Array.isArray(o.constructionOrders) ? o.constructionOrders : [];
+  if(orders.length > 0){
+    const hexes = new Set(orders.map(x => x && x.hexId).filter(Boolean));
+    return 15000 * Math.max(1, hexes.size);
+  }
+  const vd = (campaign.domains || []).find(d => d.id === o.vassalDomainId) || null;
+  return 15000 * _realmHexCount(campaign, vd);
+}
+// Derived liege-side progress for a construction duty — the ordered work + the monthly minimum (= monthly
+// tribute) + progress toward the target (spent / target / remaining, the min-met flag, target-reached).
+function constructionDutyProgress(campaign, o){
+  const spent = Math.round(Number(o && o.constructionSpentGp) || 0);
+  const target = constructionDutyTargetGp(campaign, o);
+  const monthlyMinimum = Math.round(Number(o && o.gpPerMonth) || 0);
+  const orders = (Array.isArray(o && o.constructionOrders) ? o.constructionOrders : []).map(x => ({
+    hexId: (x && x.hexId) || null, type: (x && x.type) || '', typeLabel: global.ACKS.constructionDutyTypeLabel(x && x.type)
+  }));
+  return {
+    orders,
+    orderedHexCount: new Set(orders.map(x => x.hexId).filter(Boolean)).size,
+    spent, target, remaining: Math.max(0, target - spent), monthlyMinimum,
+    minimumMet: monthlyMinimum > 0 && spent >= monthlyMinimum,   // at least one month's minimum built
+    targetReached: target > 0 && spent >= target
+  };
+}
+// Add a construction order (hex + type) to an active construction duty — the F&D-7 liege act. Validates:
+// construction kind + active; the hex is in the vassal's realm; the type is known + allowed (vessel →
+// littoral). Skips an exact (hexId, type) duplicate. Adding an order in a NEW hex raises the target by
+// 15,000gp. Records history + emits a favor-duty event. Returns the obligation, or null if not found.
+function addConstructionOrder(campaign, obligationId, options){
+  options = options || {};
+  const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
+    ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
+  if(!rec) return null;
+  if(rec.status !== 'active' || rec.kind !== 'construction') return rec;
+  const hexId = options.hexId, type = options.type;
+  if(!hexId || !type) return rec;
+  const vd = (campaign.domains || []).find(d => d.id === rec.vassalDomainId) || null;
+  const realmIds = new Set([rec.vassalDomainId]);
+  for(const { domain:v } of (global.ACKS.vassalChainUnder(campaign, rec.vassalDomainId) || [])) realmIds.add(v.id);
+  const hex = (campaign.hexes || []).find(h => h && h.id === hexId) || null;
+  if(!hex || !realmIds.has(hex.domainId)) return rec;                 // hex not in the vassal's realm
+  if(!constructionDutyTypeAllowed(campaign, vd, type)) return rec;    // unknown type / vessel on a landlocked realm
+  if(!Array.isArray(rec.constructionOrders)) rec.constructionOrders = [];
+  if(rec.constructionOrders.some(x => x && x.hexId === hexId && x.type === type)) return rec;   // duplicate
+  rec.constructionOrders.push({ hexId, type });
+  const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  if(!Array.isArray(rec.history)) rec.history = [];
+  rec.history.push({ turn: atTurn, type:'construction-order-added', hexId, structureType: type });
+  _emitFavorDutyEvent(campaign, rec, { action:'construction-order-added', hexId, structureType: type,
+    narrative: 'Ordered a ' + global.ACKS.constructionDutyTypeLabel(type).toLowerCase() + ' built (construction target now ' + constructionDutyTargetGp(campaign, rec).toLocaleString() + 'gp).' });
+  return rec;
+}
+// Remove a construction order by index (the liege un-orders a structure) — lowers the target when it was
+// the last order in that hex. Records history. Returns the obligation.
+function removeConstructionOrder(campaign, obligationId, index, options){
+  options = options || {};
+  const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
+    ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
+  if(!rec || rec.kind !== 'construction' || !Array.isArray(rec.constructionOrders)) return rec || null;
+  const i = Number(index);
+  if(!(i >= 0 && i < rec.constructionOrders.length)) return rec;
+  const removed = rec.constructionOrders.splice(i, 1)[0] || {};
+  const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  if(!Array.isArray(rec.history)) rec.history = [];
+  rec.history.push({ turn: atTurn, type:'construction-order-removed', hexId: removed.hexId, structureType: removed.type });
+  return rec;
+}
+
 // The vassal-ruler character for an obligation (the Call-to-Council traveller): the recorded
 // vassalRulerCharacterId, else the vassal domain's ruler. null if neither resolves.
 function _favorDutyVassalRuler(campaign, rec){
@@ -5022,17 +5130,20 @@ function processFavorsAndDutiesForTurn(campaign, options){
         acc.payers.push({ obligationId: o.id, vassalRulerId: o.vassalRulerCharacterId || vassalDomain.rulerCharacterId || null, vassalDomain });
       }
     } else if(o.kind === 'construction' && o.gpPerMonth > 0){
+      // RAW p.348 — each month the vassal expends gp = his monthly tribute on the ordered construction.
+      // (This monthly self-spend is the PLACEHOLDER for the future full Construction subsystem's actual
+      // building detection; F&D-7 is the liege-side authoring + the target it accumulates toward.)
       const spend = o.gpPerMonth;
       const f = _favorDutyMoveGp(campaign, vassalDomain, null, spend, 'construction', null);
       if(f){
         o.constructionSpentGp = (o.constructionSpentGp || 0) + spend;
         result.gpFlows.push(f);
-        // Auto-revoke at 15,000gp per 6-mile hex in the realm (RR p.348).
-        const hexCount = Math.max(1, ((campaign.hexes || []).filter(h => h && h.domainId === o.vassalDomainId).length) || (vassalDomain.geography && Array.isArray(vassalDomain.geography.hexes) ? vassalDomain.geography.hexes.length : 1));
-        const cap = 15000 * hexCount;
-        if(o.constructionSpentGp >= cap){
+        // Auto-revoke at the construction target (F&D-7: 15,000gp × distinct ordered hexes, else the
+        // RAW realm-wide 15,000gp / 6-mile-hex cap when no orders have been placed).
+        const cap = constructionDutyTargetGp(campaign, o);
+        if(cap > 0 && o.constructionSpentGp >= cap){
           revokeFavorDutyObligation(campaign, o.id, currentTurn, 'construction-cap-reached');
-          _emitFavorDutyEvent(campaign, o, { action:'auto-revoked', gpFlows:[f], narrative:'Construction duty auto-revoked on ' + (vassalDomain.name || o.vassalDomainId) + ' (reached ' + cap.toLocaleString() + 'gp / ' + hexCount + ' hex' + (hexCount===1?'':'es') + ').' });
+          _emitFavorDutyEvent(campaign, o, { action:'auto-revoked', gpFlows:[f], narrative:'Construction duty auto-revoked on ' + (vassalDomain.name || o.vassalDomainId) + ' (reached the ' + cap.toLocaleString() + 'gp target).' });
         } else {
           _emitFavorDutyEvent(campaign, o, { action:'recurring', gpPerMonth:spend, gpFlows:[f], narrative:'Construction: ' + spend.toLocaleString() + 'gp expended on ' + (vassalDomain.name || o.vassalDomainId) + ' (' + o.constructionSpentGp.toLocaleString() + '/' + cap.toLocaleString() + 'gp).' });
         }
@@ -7211,6 +7322,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation,
   setScutageAutoPay, payScutageObligation, stopScutagePayment,
   scutageRate, scutageMonthlyGp, councilAttendanceStatus, sendVassalToCouncil,
+  isLittoralDomain, constructionDutyTypeAllowed, constructionDutyTargetGp, constructionDutyProgress,
+  addConstructionOrder, removeConstructionOrder,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,

@@ -466,6 +466,24 @@ function realmTitleForDomain(domain){
   return 'baron';
 }
 
+// Construction-duty structure types the liege may order (RR p.348: "bridges, roads, forts, towers,
+// or other structures … If a littoral domain … vessels"). `littoralOnly` types are offered only when
+// the vassal domain touches water (isLittoralDomain). The detailed per-type cost model is part of the
+// future full Construction subsystem (Architecture §10); the F&D-7 liege side uses the RAW 15,000gp /
+// 6-mile hex target (constructionDutyTargetGp), so `type` here is the *kind* of work, not a price.
+const CONSTRUCTION_DUTY_TYPES = Object.freeze([
+  Object.freeze({ value:'bridge',    label:'Bridge' }),
+  Object.freeze({ value:'road',      label:'Road' }),
+  Object.freeze({ value:'fort',      label:'Fort' }),
+  Object.freeze({ value:'tower',     label:'Tower' }),
+  Object.freeze({ value:'structure', label:'Other structure' }),
+  Object.freeze({ value:'vessel',    label:'Vessel', littoralOnly:true })
+]);
+function constructionDutyTypeLabel(value){
+  const e = CONSTRUCTION_DUTY_TYPES.find(t => t.value === value);
+  return e ? e.label : (value || '');
+}
+
 // =============================================================================
 // HIRELING AVAILABILITY + RECRUITMENT (Phase 2.95 §4.2 / §310.3)
 // Source: RR pp.164–167. Three availability tables (mercenary, henchman,
@@ -1069,6 +1087,7 @@ Object.assign(ACKS, {
   STRONGHOLD_CATALOG, MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE, EVENT_TABLE, HOUSERULES_REGISTRY, HOUSERULE_CATEGORIES, lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff, rollVagary, lookupVagary, sampleEvent, lookupHouseRule, lookupStrongholdStructure,
   // Favors & Duties (#230, F&D-1) — the 1d20 Favor/Duty table + muster timing (RR pp.345–348)
   FAVOR_DUTY_TABLE, lookupFavorDuty, MUSTER_TIME_BY_TITLE, musterSchedule, realmTitleForDomain,
+  CONSTRUCTION_DUTY_TYPES, constructionDutyTypeLabel,
   // Phase 2.5 Journeys (#475) — overland travel catalogs (J1).
   JOURNEY_MILES_PER_HEX, JOURNEY_BASE_SPEED_MILES_PER_DAY, JOURNEY_TERRAIN_SPEED,
   JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_TEMPERATURE_SPEED, JOURNEY_GROUND_SPEED, JOURNEY_PACE_SPEED,
