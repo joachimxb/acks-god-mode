@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Vassals now answer to their lords month to month — Favors & Duties.** Each month, every vassal domain receives one edict from its liege, rolled on the Favor/Duty table (RR pp.345–348): a **duty** demanded (build forts, pay scutage, loan gold, send troops, attend council, muster an army) or a **favor** granted (a gift, a charter of monopoly, a ceremonial office, stationed troops, a grant of land) — or a previous edict revoked. The lord may **safely demand one duty a month, plus one more for each favor he's granting**; pile on more duties than that and the vassal's loyalty is tested on the Hireling Loyalty table, at a growing penalty for each extra duty (RR p.347) — the mechanical heart of holding a realm together. The gold moves where the rules say it does: a **loan** or **scutage** flows from the vassal's treasury to the lord's (and a loan is repaid, by the lord's Charisma, when it lapses); a **gift** flows the other way; a **construction** duty spends the vassal's own coffers each month until it has built its quota (15,000 gp per hex) and lapses. Duties whose effects belong to systems still to come (mustering armies, senate seats, monopolies, new domains) are recorded with a note for you to resolve in play. It's all driven by the monthly **Advance Month** — on by default, RAW as written; turn off **"Favors & Duties — auto-roll the monthly edict"** in ⚙ House Rules to hand-author edicts instead (the 🔍 Inspector can create and browse them either way). Every edict is logged to the Event Log.
+
 ## [0.22.0] - 2026-06-08
 
 ### Added
