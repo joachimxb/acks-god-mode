@@ -2371,11 +2371,13 @@ document.addEventListener('alpine:init', () => {
                           <li class="flex justify-between items-start gap-2 py-1 border-b border-ink/20">
                             <div>
                               <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdDisplayLabel(o)"></span>
-                              <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + (o.gpPerMonth? ' · ' + o.gpPerMonth.toLocaleString() + 'gp' + (o.isOngoing?'/mo':'') : '')"></span>
+                              <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + fdGpText(o)"></span>
                               <span class="text-xs text-sky-700" x-show="fdIsThisMonth(o)"> · new this month</span>
                               <span class="block opacity-60 text-xs" x-show="fdMuster(o)" x-text="(() => { const m=fdMuster(o); return m ? ('muster: ' + m.periods.map(p=>p.amount).join(' / ') + ' over ' + m.unit + 's') : ''; })()"></span>
+                              <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — not yet given by the vassal (open the vassal to give it)</span>
+                              <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                             </div>
-                            <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" title="Revoke this obligation">revoke</button>
+                            <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" :title="fdLoanGiven(o) ? 'Revoke — repays the loan to the vassal (RR p.348)' : 'Revoke this obligation'">revoke</button>
                           </li>
                         </template>
                       </ul>
@@ -2429,10 +2431,15 @@ document.addEventListener('alpine:init', () => {
                       <li class="flex justify-between items-start gap-2 py-1 border-b border-ink/20">
                         <div>
                           <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdDisplayLabel(o)"></span>
-                          <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + (o.gpPerMonth? ' · ' + o.gpPerMonth.toLocaleString() + 'gp' + (o.isOngoing?'/mo':'') : '')"></span>
+                          <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + fdGpText(o)"></span>
                           <span class="text-xs text-sky-700" x-show="fdIsThisMonth(o)"> · new this month</span>
+                          <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — give it from your realm treasury</span>
+                          <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                         </div>
-                        <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" title="Revoke this obligation">revoke</button>
+                        <div class="flex flex-col items-end gap-1 shrink-0">
+                          <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-emerald-50 whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)">💰 Give loan</button>
+                          <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100" title="Revoke this obligation">revoke</button>
+                        </div>
                       </li>
                     </template>
                   </ul>
@@ -15775,7 +15782,26 @@ return {
   fdRevoke(obligationId){
     const o = window.ACKS.revokeFavorDutyEdict(this.currentCampaign, obligationId, {});
     this.markDirty(); this.schedulePersist();
-    this.toast && this.toast(o ? ('Revoked ' + (o.kind||'obligation') + '.') : 'Nothing to revoke.', 4000);
+    let msg = o ? ('Revoked ' + (o.kind||'obligation') + '.') : 'Nothing to revoke.';
+    // RR p.348 — revoking a given loan repays the principal to the vassal.
+    if(o && o.kind==='loan' && o.loanGivenAtTurn != null) msg = 'Loan revoked — ' + (o.gpPerMonth||0).toLocaleString() + 'gp repaid to the vassal.';
+    this.toast && this.toast(msg, 4500);
+  },
+  // Loan lifecycle (F&D-4; RR p.348). A Loan is DEMANDED (created) but the gp moves only when the
+  // vassal GIVES it — so the liege sees a "not yet given" notice and the vassal gets a Give-loan button.
+  fdLoanNotGiven(o){ return !!o && o.kind==='loan' && o.status==='active' && o.loanGivenAtTurn == null; },
+  fdLoanGiven(o){ return !!o && o.kind==='loan' && o.loanGivenAtTurn != null; },
+  // gp suffix for an obligation row — a loan is a one-time principal (no "/mo"); else per-month if ongoing.
+  fdGpText(o){
+    if(!o || !o.gpPerMonth) return '';
+    const n = o.gpPerMonth.toLocaleString();
+    return o.kind==='loan' ? (' · ' + n + 'gp loan') : (' · ' + n + 'gp' + (o.isOngoing ? '/mo' : ''));
+  },
+  // Vassal-side act: give (fund) a demanded loan — moves the principal vassal → liege (RR p.348).
+  fdGiveLoan(obligationId){
+    const o = window.ACKS.giveLoanObligation(this.currentCampaign, obligationId, {});
+    this.markDirty(); this.schedulePersist();
+    this.toast && this.toast(o && o.loanGivenAtTurn != null ? ('Loan given — ' + (o.gpPerMonth||0).toLocaleString() + 'gp paid to your liege.') : 'Could not give the loan.', 5000);
   },
 
   // Effective per-hex land value INCLUDING agricultural improvements (Phase 2a.5).
