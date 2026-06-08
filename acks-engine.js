@@ -3106,6 +3106,7 @@ function createFavorDutyObligation(campaign, opts={}){
     scutageAutoPay:         opts.scutageAutoPay != null ? !!opts.scutageAutoPay : false,
     scutageLastPaidTurn:    opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
     scutageGpPerFamily:     opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
+    officeTitle:            opts.officeTitle              || '',
     constructionSpentGp:    opts.constructionSpentGp     || 0,
     constructionOrders:     Array.isArray(opts.constructionOrders) ? opts.constructionOrders : [],
     notes:                  opts.notes                   || ''
@@ -4504,7 +4505,7 @@ function _favorDutyResolveNote(entry, ctx){
     case 'troops':
       return base + ' GM: place the stationed garrison under the vassal (Phase 3 Military).';
     case 'office':
-      return base + ' GM: the +1 vassal-loyalty bonus + any senate seat are applied by hand (Politics).';
+      return base + ' The +1 to the holder’s vassals’ loyalty rolls applies automatically (RR p.348). GM: if the lord’s realm is senatorial, the holder is owed a senate seat (RR p.355 — deferred to the senatorial-realms phase).';
     case 'charter-of-monopoly':
       return base + ' GM: apply the merchandise monopoly in M&M (2× volume, +1 price step).';
     case 'grant-of-land':
@@ -4551,16 +4552,33 @@ function _favorDutyRepayLoanOnRevoke(campaign, rec){
   return _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, amt, 'loan-repaid', null);   // lord → vassal
 }
 
+// Office favor (RR p.348, F&D-8) — a character whose LIEGE holds an active Office favor gets a **+1 to
+// their own loyalty rolls** (the office raises the holder's prestige, so his vassals are more loyal to
+// him). The character must be a vassal ruler under that liege; the bonus does NOT stack across multiple
+// offices the liege holds (still +1). Returns 0 or +1. Use it as a situational modifier on any loyalty
+// roll the character makes (it's added in _favorDutyLoyaltyRoll + surfaced in the manual Loyalty modal).
+function officeLoyaltyBonusFor(campaign, characterId){
+  if(!campaign || !characterId) return 0;
+  const v = (campaign.vassalages || []).find(x => x && x.status === 'active' && x.vassalRulerCharacterId === characterId);
+  const liegeId = v ? v.suzerainCharacterId : null;
+  if(!liegeId) return 0;
+  const liegeHoldsOffice = (campaign.favorDutyObligations || []).some(o => o && o.status === 'active' && o.kind === 'office' && o.vassalRulerCharacterId === liegeId);
+  return liegeHoldsOffice ? 1 : 0;
+}
+
 // Fire one Loyalty roll on the vassal ruler (RR p.168 + p.347–348). Rolls 2d6 from the passed rng
 // (deterministic for tests), applies the loyaltyDelta to the ruler's loyalty (clamped −4..+4 per RAW
 // p.166), and records it on the character's loyaltyHistory. opts.reason / opts.reasonNote override the
-// default (over-demanded duties) — the scutage-misappropriation check passes its own. Returns the roll.
+// default (over-demanded duties) — the scutage-misappropriation check passes its own. The Office-favor
+// +1 (RR p.348, F&D-8) is folded into the modifier when this ruler's liege holds an office. Returns the roll.
 function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng, opts){
   rng = rng || Math.random; opts = opts || {};
   const ch = (campaign.characters || []).find(c => c.id === vassalRulerCharacterId) || null;
   const loyaltyScore = ch ? (ch.loyalty || 0) : 0;
+  const officeBonus = officeLoyaltyBonusFor(campaign, vassalRulerCharacterId);   // RR p.348 Office favor (F&D-8)
+  const effMod = (Number(modifier) || 0) + officeBonus;
   const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
-  const rr = global.ACKS.rollLoyalty(loyaltyScore, modifier || 0, { d1, d2 });
+  const rr = global.ACKS.rollLoyalty(loyaltyScore, effMod, { d1, d2 });
   if(ch){
     const before = Number(ch.loyalty || 0);
     const after = Math.max(-4, Math.min(4, before + Number(rr.loyaltyDelta || 0)));
@@ -4568,7 +4586,8 @@ function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng, 
     if(!Array.isArray(ch.loyaltyHistory)) ch.loyaltyHistory = [];
     ch.loyaltyHistory.push({
       turn: campaign.currentTurn || 1, delta: after - before, reason: opts.reason || 'favor-duty-excess',
-      reasonNote: opts.reasonNote || 'over-demanded duties (RR p.347)', rollResult: rr, outcome: rr.bandKey, newValue: after
+      reasonNote: (opts.reasonNote || 'over-demanded duties (RR p.347)') + (officeBonus ? ' [+1 office, RR p.348]' : ''),
+      rollResult: rr, outcome: rr.bandKey, newValue: after
     });
   }
   return rr;
@@ -4672,6 +4691,7 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
     liegeCharacterId: liegeId, vassalDomainId, vassalRulerCharacterId: vassalRulerId,
     kind: entry.kind, isFavor: entry.isFavor, isOngoing: entry.isOngoing,
     gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn, councilHexId, scutageGpPerFamily,
+    officeTitle: entry.kind === 'office' ? (ctx.officeTitle || '') : '',
     customLabel: entry.kind === 'custom' ? (ctx.customLabel || entry.label || '') : '',
     notes: entry.kind === 'custom' ? (ctx.customLabel || '') : _favorDutyResolveNote(entry, { musterTitle })
   });
@@ -4749,6 +4769,7 @@ function applyFavorDutyEdictByKind(campaign, opts, options){
     amountOverride: opts.gpPerMonth != null ? opts.gpPerMonth : null,
     scutageGpPerFamily: opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
     councilHexId: opts.councilHexId || null,
+    officeTitle: opts.officeTitle || '',
     customLabel
   }, rng);
 }
@@ -7339,7 +7360,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   setScutageAutoPay, payScutageObligation, stopScutagePayment,
   scutageRate, scutageMonthlyGp, councilAttendanceStatus, sendVassalToCouncil,
   isLittoralDomain, constructionDutyTypeAllowed, constructionDutyTargetGp, constructionDutyProgress,
-  addConstructionOrder, removeConstructionOrder,
+  addConstructionOrder, removeConstructionOrder, officeLoyaltyBonusFor,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,

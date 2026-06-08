@@ -221,6 +221,7 @@
         { name: 'kind',                   type: 'enum', enumValues: ['construction','scutage','call-to-council','call-to-arms','loan','charter-of-monopoly','gift','office','troops','grant-of-land','custom'], required: true, group: 'Edict', description: 'The Favor/Duty table edict (RR p.348); "custom" = a GM-devised freeform edict (RR p.345)' },
         { name: 'customLabel',            type: 'string', group: 'Edict', description: 'Free-text name for a kind:"custom" edict (blank for table kinds)' },
         { name: 'councilHexId',           type: 'id', idKind: 'hex', group: 'Edict', description: 'Call to Council — the hex (in the lord\'s domain) the vassal must attend; null for other kinds' },
+        { name: 'officeTitle',            type: 'string', group: 'Edict', description: 'Office favor (RR p.348) — the free-text ceremonial office granted (e.g. "Knight Marshal"); grants the holder\'s vassals +1 loyalty. \'\' for non-office kinds' },
         { name: 'isFavor',                type: 'boolean', group: 'Edict', description: 'True = a favor the lord grants; false = a duty the lord demands' },
         { name: 'isOngoing',              type: 'boolean', group: 'Edict', description: 'True = recurs until revoked; false = one-time (gift / grant-of-land)' },
         { name: 'musterTitle',            type: 'enum', enumValues: ['','emperor','king','prince','duke','count','viscount','baron'], group: 'Edict', description: "Realm title sizing the muster periods for Call to Arms / Scutage (blank = derive from the suzerain's realm)" },
