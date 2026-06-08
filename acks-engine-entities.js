@@ -1121,8 +1121,12 @@ function blankFavorDutyObligation(opts={}){
     vassalRulerCharacterId: opts.vassalRulerCharacterId || null,
     // The edict kind (Favor/Duty table, RR p.348). Duties: construction | scutage |
     // call-to-council | call-to-arms | loan. Favors: charter-of-monopoly | gift | office |
-    // troops | grant-of-land. (Revocations modify a prior obligation; they don't create one.)
+    // troops | grant-of-land. Plus 'custom' — a GM-devised freeform edict (RR p.345 "the Judge
+    // should feel free to devise additional favors and duties"), only ever hand-raised, never rolled.
+    // (Revocations modify a prior obligation; they don't create one.)
     kind: opts.kind || '',
+    // Free-text label for a kind:'custom' edict (the GM's own favor/duty name). '' for table kinds.
+    customLabel: opts.customLabel || '',
     isFavor: opts.isFavor || false,    // true = a favor the lord grants; false = a duty the lord demands
     isOngoing: opts.isOngoing || false, // true = recurs until revoked; false = one-time (gift / grant-of-land)
     // The per-month gp basis (1gp × families in the vassal's realm; for construction = the

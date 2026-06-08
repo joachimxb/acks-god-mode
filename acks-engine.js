@@ -3094,6 +3094,7 @@ function createFavorDutyObligation(campaign, opts={}){
     vassalDomainId:         opts.vassalDomainId          || null,
     vassalRulerCharacterId: opts.vassalRulerCharacterId  || null,
     kind:                   opts.kind                    || '',
+    customLabel:            opts.customLabel             || '',
     isFavor:                !!opts.isFavor,
     isOngoing:              !!opts.isOngoing,
     gpPerMonth:             opts.gpPerMonth              || 0,
@@ -4580,18 +4581,32 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   const { liegeId, vassalDomainId, vassalRulerId, vassalDomain, liegeDomain, entry, currentTurn } = ctx;
   const roll = ctx.roll != null ? ctx.roll : null;
 
-  // Compute the gp basis.
+  // Compute the gp amount: a GM amount override (RR p.345 — "a lord may always choose to demand
+  // less when demanding a duty"; a favor's value may likewise be set), else the RAW basis. The
+  // amount is stored on the obligation, so it governs BOTH the on-grant flow and the recurring
+  // Phase B billing. A no-gp standard kind ignores the override; a 'custom' edict's amount is
+  // entirely GM-supplied (ctx.amountOverride).
   const realmFamilies = realmFamiliesForDomain(campaign, vassalDomain);
-  let gpPerMonth = 0;
-  if(entry.gpBasis === 'realm-families')       gpPerMonth = realmFamilies;                       // 1gp × realm families
-  else if(entry.gpBasis === 'monthly-tribute') gpPerMonth = global.ACKS.tributeOwed(campaign, vassalDomain);
+  let gpPerMonth;
+  if(entry.kind === 'custom'){
+    gpPerMonth = Math.max(0, Math.round(Number(ctx.amountOverride) || 0));
+  } else if(ctx.amountOverride != null && entry.gpBasis !== 'none'){
+    gpPerMonth = Math.max(0, Math.round(Number(ctx.amountOverride)));
+  } else if(entry.gpBasis === 'realm-families'){
+    gpPerMonth = realmFamilies;                                                                   // 1gp × realm families
+  } else if(entry.gpBasis === 'monthly-tribute'){
+    gpPerMonth = global.ACKS.tributeOwed(campaign, vassalDomain);
+  } else {
+    gpPerMonth = 0;
+  }
 
   const musterTitle = entry.muster ? global.ACKS.realmTitleForDomain(liegeDomain) : '';
   const obligation = createFavorDutyObligation(campaign, {
     liegeCharacterId: liegeId, vassalDomainId, vassalRulerCharacterId: vassalRulerId,
     kind: entry.kind, isFavor: entry.isFavor, isOngoing: entry.isOngoing,
     gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn,
-    notes: _favorDutyResolveNote(entry, { musterTitle })
+    customLabel: entry.kind === 'custom' ? (ctx.customLabel || entry.label || '') : '',
+    notes: entry.kind === 'custom' ? (ctx.customLabel || '') : _favorDutyResolveNote(entry, { musterTitle })
   });
 
   // STEP 4 — one-time on-grant gp flows (the recurring ones run in Phase B, incl. this month).
@@ -4600,6 +4615,11 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
     _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, gpPerMonth, 'loan-principal', flows);   // vassal → lord, once
   } else if(entry.kind === 'gift' && gpPerMonth > 0){
     _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, gpPerMonth, 'gift', flows);             // lord → vassal, once
+  } else if(entry.kind === 'custom' && !entry.isOngoing && gpPerMonth > 0){
+    // a one-time custom edict moves gp once on grant: a favor pushes lord→vassal, a duty pulls vassal→lord
+    // (an *ongoing* custom edict with gp recurs in Phase B instead — no on-grant move, to avoid double-billing)
+    if(entry.isFavor) _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, gpPerMonth, 'custom-favor', flows);
+    else              _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, gpPerMonth, 'custom-duty', flows);
   }
 
   // Balance + the excess-duty Loyalty roll (duties only — favors never over-demand).
@@ -4620,12 +4640,16 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   return { obligation, gpPerMonth, gpFlows: flows, balance, loyaltyResult, musterTitle, musterSchedule: musterSched, narrative };
 }
 
-// Manually raise a Favor/Duty edict of a chosen KIND — the GM-pick path used by the F&D UI (and
-// whenever favor-duty-auto-roll is off). Resolves the liege + vassal ruler + both domains from the
-// vassal's active vassalage; looks up the table entry by kind (roll = null — it wasn't rolled);
-// runs the same shared core as the monthly pass. Does NOT gate on favor-duty-auto-roll (F&D is RAW
-// core — manual edicts are always available). Returns the edict snapshot, or null when the domain
-// has no active liege or the kind is unknown / 'revocation' (which is roll-only, never hand-picked).
+// Manually raise a Favor/Duty edict — the GM-pick path used by the F&D UI (and whenever
+// favor-duty-auto-roll is off). Resolves the liege + vassal ruler + both domains from the vassal's
+// active vassalage; runs the same shared core as the monthly pass (roll = null — it wasn't rolled).
+// Does NOT gate on favor-duty-auto-roll (F&D is RAW core — manual edicts are always available).
+//   opts.kind         — a 1d20-table kind, OR 'custom' for a freeform edict (RR p.345 — the Judge may
+//                       devise additional favors/duties). 'revocation' is roll-only (returns null).
+//   opts.gpPerMonth   — optional amount override (RR p.345 "a lord may always choose to demand less");
+//                       default = the RAW basis. Ignored for a no-gp standard kind; required-ish for custom.
+//   opts.customLabel / opts.isFavor / opts.isOngoing — for kind:'custom' (the GM-authored edict's shape).
+// Returns the edict snapshot, or null when the domain has no active liege or the kind is unknown.
 function applyFavorDutyEdictByKind(campaign, opts, options){
   opts = opts || {}; options = options || {};
   const rng = options.rng || Math.random;
@@ -4634,15 +4658,28 @@ function applyFavorDutyEdictByKind(campaign, opts, options){
   const v = (campaign.vassalages || []).find(x => x && x.status === 'active' && x.vassalDomainId === vassalDomainId
     && (!opts.liegeCharacterId || x.suzerainCharacterId === opts.liegeCharacterId));
   if(!v) return null;                                    // no active liege → nothing to demand/grant
-  const entry = (global.ACKS.FAVOR_DUTY_TABLE || []).find(e => e.kind === opts.kind);
-  if(!entry || entry.kind === 'revocation') return null; // unknown kind, or the roll-only revocation
   const vassalDomain = (campaign.domains || []).find(d => d.id === vassalDomainId) || null;
   const liegeDomain  = (campaign.domains || []).find(d => d.id === v.suzerainDomainId) || null;
   if(!vassalDomain) return null;
+
+  // The table entry — a standard 1d20 kind, or a synthetic 'custom' entry (gpBasis 'none' → the
+  // amount is entirely GM-supplied; isFavor/isOngoing are the GM's; label = the custom label).
+  let entry, customLabel = '';
+  if(opts.kind === 'custom'){
+    customLabel = String(opts.customLabel || '').trim();
+    entry = { kind: 'custom', isFavor: !!opts.isFavor, isOngoing: !!opts.isOngoing, gpBasis: 'none',
+      muster: false, label: customLabel || (opts.isFavor ? 'Custom favor' : 'Custom duty'), summary: customLabel };
+  } else {
+    entry = (global.ACKS.FAVOR_DUTY_TABLE || []).find(e => e.kind === opts.kind);
+    if(!entry || entry.kind === 'revocation') return null; // unknown kind, or the roll-only revocation
+  }
+
   const currentTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
   return _applyFavorDutyEdict(campaign, {
     liegeId: v.suzerainCharacterId, vassalDomainId, vassalRulerId: v.vassalRulerCharacterId,
-    vassalDomain, liegeDomain, entry, roll: null, currentTurn
+    vassalDomain, liegeDomain, entry, roll: null, currentTurn,
+    amountOverride: opts.gpPerMonth != null ? opts.gpPerMonth : null,
+    customLabel
   }, rng);
 }
 
@@ -4665,8 +4702,13 @@ function processFavorsAndDutiesForTurn(campaign, options){
   options = options || {};
   const rng = options.rng || Math.random;
   const result = { ruleOn: false, rolled: [], revoked: [], loyaltyRolls: [], gpFlows: [], events: 0, logEntries: [] };
-  if(!campaign || !isHouseRuleEnabled(campaign, 'favor-duty-auto-roll')) return result;
-  result.ruleOn = true;
+  if(!campaign) return result;
+  // The favor-duty-auto-roll rule gates ONLY the auto-ROLL of new edicts (Phase A). Lapsing one-time
+  // favors (Phase 0) and billing existing recurring obligations (Phase B) always run on the monthly
+  // turn — they process obligations already in force, however they were raised (auto-rolled OR
+  // hand-authored), so turning auto-roll off never freezes a live scutage / loan / custom recurring edict.
+  const autoRoll = isHouseRuleEnabled(campaign, 'favor-duty-auto-roll');
+  result.ruleOn = autoRoll;
   const currentTurn = campaign.currentTurn || 1;
   const domainsById = id => (campaign.domains || []).find(d => d.id === id) || null;
   const vassalages = (campaign.vassalages || []).filter(v => v && v.status === 'active');
@@ -4678,8 +4720,8 @@ function processFavorsAndDutiesForTurn(campaign, options){
     }
   }
 
-  // PHASE A — roll & create one new edict per active vassalage.
-  for(const v of vassalages){
+  // PHASE A — roll & create one new edict per active vassalage (only when auto-roll is on).
+  if(autoRoll) for(const v of vassalages){
     const liegeId = v.suzerainCharacterId;
     const vassalDomainId = v.vassalDomainId;
     const vassalRulerId = v.vassalRulerCharacterId;
@@ -4766,6 +4808,20 @@ function processFavorsAndDutiesForTurn(campaign, options){
         revokeFavorDutyObligation(campaign, o.id, currentTurn, 'loan-repaid');
         if(f) result.gpFlows.push(f);
         _emitFavorDutyEvent(campaign, o, { action:'repaid', gpFlows: f ? [f] : [], narrative:'Loan of ' + o.gpPerMonth.toLocaleString() + 'gp repaid to ' + (vassalDomain.name || o.vassalDomainId) + ' (CHA ' + chaPct + '% ✓).' });
+        result.events++;
+      }
+    } else if(o.kind === 'custom' && o.isOngoing && o.gpPerMonth > 0){
+      // Recurring custom edict (RR p.345 — a GM-devised favor/duty): a duty pulls vassal→lord, a favor
+      // pushes lord→vassal, every month while active (like scutage). An auto-rolled edict would bill its
+      // grant month here too; a manually-raised one bills from the next monthly turn (no on-grant move
+      // happened for an ongoing custom, so there's no double-billing).
+      const f = o.isFavor
+        ? _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, o.gpPerMonth, 'custom-favor', null)   // lord → vassal
+        : _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, o.gpPerMonth, 'custom-duty', null);   // vassal → lord
+      if(f){
+        result.gpFlows.push(f);
+        _emitFavorDutyEvent(campaign, o, { action:'recurring', gpPerMonth:o.gpPerMonth, gpFlows:[f],
+          narrative: (o.customLabel || 'Custom edict') + ': ' + o.gpPerMonth.toLocaleString() + 'gp ' + (o.isFavor ? 'to ' : 'from ') + (vassalDomain.name || o.vassalDomainId) + '.' });
         result.events++;
       }
     }
