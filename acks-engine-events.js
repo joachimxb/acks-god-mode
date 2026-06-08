@@ -110,6 +110,11 @@ const EVENT_KINDS = Object.freeze([
   // by the 'survival' day-consumer (the field/settled counterpart of journey-day-tick); record-only,
   // campaignLogHidden on a recovery-only day, surfaced when a condition is active. Event Wizard opt-out.
   'survival-day',
+  // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal edict record
+  // (grant / demand / revoke / recurring gp flow). Engine-emitted by the monthly turn's
+  // auto-roll; record-only (audit). Event Wizard opt-out (the GM authors the OBLIGATION via
+  // Inspector Create, not the event). Carries the Event.context envelope.
+  'favor-duty',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
   'gm-narrative',
   // GP Wave B (2026-06-04, Architecture.md §4.3) — the wealth/item movement grammar.
@@ -405,6 +410,18 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { survivalDay: 'boolean', partyId: 'string', hexId: 'string', settled: 'boolean',
          anyHungry: 'boolean', anyThirsty: 'boolean', anyCritical: 'boolean',
          members: 'object', narrative: 'string' }
+  },
+  // Favors & Duties (#230, F&D-1) — the monthly liege↔vassal edict record (RR pp.345–348).
+  // Engine-emitted (record-only); the obligation lives in campaign.favorDutyObligations[].
+  'favor-duty': {
+    R: { kind: 'string', vassalDomainId: 'string' },
+    O: { action: 'string',           // 'granted' | 'revoked' | 'recurring' | 'repaid' | 'auto-revoked' | 'nothing-to-revoke'
+         obligationId: 'string', liegeCharacterId: 'string', vassalRulerCharacterId: 'string',
+         isFavor: 'boolean', isOngoing: 'boolean', roll: 'number', subRoll: 'number',
+         gpPerMonth: 'number', gpFlows: 'array',   // [{ from, to, amount, reason }]
+         balance: 'object',          // favorDutyBalance() snapshot at grant time
+         loyaltyResult: 'object',    // the excess-duty Loyalty roll, when one fired
+         musterTitle: 'string', musterSchedule: 'object', narrative: 'string' }
   },
   // GP Wave B (2026-06-04, Architecture.md §4.3). source/destination are typed handles:
   //   { kind:'treasury'|'character-gp'|'character-stash'|'hex-stash'|'stash'|'party-stash'|'external', id?, label? }
@@ -1829,6 +1846,14 @@ function applyEvent_survivalAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'survival day' } };
 }
 registerEventHandler('survival-day', applyEvent_survivalAudit);
+// Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
+// obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
+// this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
+function applyEvent_favorDutyAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'favor/duty edict' } };
+}
+registerEventHandler('favor-duty', applyEvent_favorDutyAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -2753,7 +2778,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // throw + yield application; the event is a record of what the verb already did).
   'provisioning-activity',
   // CoL-1 — owned by the 'survival' day-consumer (a record of the day's resolution, not a GM verb).
-  'survival-day'
+  'survival-day',
+  // Favors & Duties (#230, F&D-1) — emitted by the monthly auto-roll as an audit of the obligation
+  // it just created/revoked. The GM authors an obligation via Inspector Create, not this raw event.
+  'favor-duty'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

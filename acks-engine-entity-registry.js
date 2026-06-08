@@ -165,6 +165,13 @@
       // blankTributaryAgreement emits `recipientDomainId`, not `payeeDomainId` (integration audit fix).
       displayName: (c, obj) => obj ? ((obj.payerDomainId || '?') + ' → ' + (obj.recipientDomainId || '?')) : '' },
 
+    { kind: 'favorDutyObligation', label: 'Favor / Duty Obligation', pluralLabel: 'Favors & Duties', icon: '📜',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.favorDutyObligations) || [],
+      find: (c, id) => ((c && c.favorDutyObligations) || []).find(x => x && x.id === id),
+      // blankFavorDutyObligation emits `kind` (the edict) + `vassalDomainId` + `liegeCharacterId`.
+      displayName: (c, obj) => obj ? ((obj.kind || 'edict') + ': ' + (obj.liegeCharacterId || '?') + ' → ' + (obj.vassalDomainId || '?')) : '' },
+
     // ── RESERVED (collections defined; subsystems not yet shipped) ──
     { kind: 'congregation', label: 'Congregation', pluralLabel: 'Congregations', icon: '⛪',
       addressable: true, chronicleable: true,

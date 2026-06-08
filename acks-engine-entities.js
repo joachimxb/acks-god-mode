@@ -86,6 +86,10 @@ function blankCampaign(opts={}){
     magistracies: opts.magistracies || [],
     vassalages: opts.vassalages || [],
     tributaryAgreements: opts.tributaryAgreements || [],
+    // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation
+    // relation collection (RR pp.345–348). Populated by the monthly turn's auto-roll
+    // (default-ON favor-duty-auto-roll) or by Inspector Create. Lazy-defaulted on load.
+    favorDutyObligations: opts.favorDutyObligations || [],
     // Wave B.5 (Architecture.md §3.7) — Notable items + custody. Empty containers in
     // commit 2; setters / promote-to-notable / custody-transfer land in B.5.2.
     // Gated by notable-items-tracking house rule (default OFF until UI ships).
@@ -1098,6 +1102,86 @@ function blankTributaryAgreement(opts={}){
 }
 
 // =============================================================================
+// Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation
+// relation (RR pp.345–348). A favor (lord grants) or duty (lord demands) has its own
+// lifecycle (granted → active → revoked / one-time-spent), so it is a first-class
+// relation entity, not a field (Architecture §3). Subject = the vassal domain; the
+// other end = the liege character. gpPerMonth holds the 1gp-×-realm-families basis
+// (0 for non-gp edicts). isOngoing distinguishes recurring duties/favors from one-time
+// ones (only one-time favors offset a duty in the month given — RR p.347).
+// =============================================================================
+function blankFavorDutyObligation(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.favorDutyObligation),
+    // The liege character granting the favor / demanding the duty.
+    liegeCharacterId: opts.liegeCharacterId || null,
+    // The vassal's domain (the subject of the obligation) + its ruler (the Loyalty-roll subject).
+    vassalDomainId: opts.vassalDomainId || null,
+    vassalRulerCharacterId: opts.vassalRulerCharacterId || null,
+    // The edict kind (Favor/Duty table, RR p.348). Duties: construction | scutage |
+    // call-to-council | call-to-arms | loan. Favors: charter-of-monopoly | gift | office |
+    // troops | grant-of-land. Plus 'custom' — a GM-devised freeform edict (RR p.345 "the Judge
+    // should feel free to devise additional favors and duties"), only ever hand-raised, never rolled.
+    // (Revocations modify a prior obligation; they don't create one.)
+    kind: opts.kind || '',
+    // Free-text label for a kind:'custom' edict (the GM's own favor/duty name). '' for table kinds.
+    customLabel: opts.customLabel || '',
+    isFavor: opts.isFavor || false,    // true = a favor the lord grants; false = a duty the lord demands
+    isOngoing: opts.isOngoing || false, // true = recurs until revoked; false = one-time (gift / grant-of-land)
+    // The per-month gp basis (1gp × families in the vassal's realm; for construction = the
+    // vassal's monthly tribute). 0 for non-gp edicts (council / office / charter / grant-of-land).
+    gpPerMonth: opts.gpPerMonth || 0,
+    // Realm title sizing the muster periods for Call to Arms / Scutage (RR p.348). '' = derive
+    // from the suzerain's realm at resolution time. See musterSchedule() in the catalogs.
+    musterTitle: opts.musterTitle || '',
+    // The 1d20 that produced this edict (audit trail); null when GM-picked via the Inspector.
+    roll: opts.roll != null ? opts.roll : null,
+    status: opts.status || 'active',   // 'active' | 'revoked' | 'one-time-spent'
+    grantedAtTurn: opts.grantedAtTurn || 1,
+    revokedAtTurn: opts.revokedAtTurn != null ? opts.revokedAtTurn : null,
+    // Loan lifecycle (RR p.348). A Loan duty is DEMANDED (created) but the gp does not move until
+    // the vassal GIVES it (giveLoanObligation: vassal realm treasury → liege). loanGivenAtTurn = the
+    // turn the loan was given; null = demanded-but-not-yet-given (the liege card shows a notice).
+    // The monthly CHA% repayment check and revoke-repays-the-principal both key off this. null for
+    // every non-loan kind. Read defensively (== null → not given) so legacy saves need no migration.
+    loanGivenAtTurn: opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
+    // Call to Council (RR p.346) — the hex (within the lord's domain) where the vassal must attend.
+    // Set by the liege when demanding the duty (defaults to the liege ruler's current hex); the
+    // vassal travels there via "Go to Council" (plots/re-routes a Journey), and attendance is the
+    // live comparison of the vassal ruler's current hex to this. null for every non-council kind.
+    councilHexId: opts.councilHexId != null ? opts.councilHexId : null,
+    // Scutage lifecycle (RR pp.347–348). scutageAutoPay is the persistent toggle: when true the vassal
+    // pays scutage AUTOMATICALLY every monthly turn (the "Pay Scutage" button turns it on; "Stop Paying"
+    // turns it off), billing as the vassal's garrison expense in the monthly net + crediting the lord each
+    // month until stopped. false = not paying (withheld; the liege card shows a notice). scutageLastPaidTurn
+    // is the AUDIT stamp of the last month scutage actually settled (set by the monthly turn). Both null/false
+    // for every non-scutage kind; read defensively → no migration.
+    scutageAutoPay: opts.scutageAutoPay != null ? !!opts.scutageAutoPay : false,
+    scutageLastPaidTurn: opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
+    // Scutage **rate** in gp per family (RR p.347 — "1gp per family in the vassal's realm"). The monthly
+    // amount is DERIVED LIVE (scutageMonthlyGp = rate × the vassal's current realm families), so it tracks
+    // population growth/decline. null = the RAW default 1gp/family; a lower rate is "demand less" (RR p.345).
+    // null for every non-scutage kind.
+    scutageGpPerFamily: opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
+    // Running total of gp the vassal has expended on a Construction duty (auto-revokes at
+    // 15,000gp per 6-mile hex in the realm — RR p.348). 0 for every other kind.
+    constructionSpentGp: opts.constructionSpentGp || 0,
+    // Office favor (RR p.348 — F&D-8): the free-text ceremonial office the lord granted (e.g. "Knight
+    // Marshal", "Royal Chancellor"). '' for every non-office kind. The office grants the holder's OWN
+    // vassals +1 to their loyalty rolls (officeLoyaltyBonusFor; non-stacking). Read defensively → no migration.
+    officeTitle: opts.officeTitle || '',
+    // Construction-duty orders (RR p.348 — F&D-7 liege side): the hexes + structure types the lord
+    // ordered built, `[{hexId, type}]` (type ∈ CONSTRUCTION_DUTY_TYPES). The liege may add more while
+    // the duty is active; the target gp is derived = 15,000 × distinct ordered hexes (no orders → the
+    // realm-hex cap, legacy). [] for every non-construction kind. Read defensively → no migration.
+    constructionOrders: Array.isArray(opts.constructionOrders) ? opts.constructionOrders : [],
+    notes: opts.notes || '',
+    history: opts.history || []
+  };
+}
+
+// =============================================================================
 // Outpost (Phase 2.95 Stash §H / Phase 3 Military §13) — persistent waypoint owning
 // a garrison + treasury cache. The field-schema (Inspector §4.1) + the Entity Registry
 // already referenced factory:'blankOutpost' but no factory existed (Wave C Step 2 fix).
@@ -1396,6 +1480,8 @@ Object.assign(ACKS, {
   blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
   blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement, blankOutpost,
+  // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation factory
+  blankFavorDutyObligation,
   // Wave B.5 — Notable items + custody factories (2026-05-29)
   blankNotableItem, blankItemCustody,
   // #442 — Group entity factory (Architecture.md §2.4, 2026-05-29)
