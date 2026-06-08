@@ -796,6 +796,18 @@ function blankCharacter(opts={}){
     liegeCharacterId: opts.liegeCharacterId || null,
     loyalty: opts.loyalty || 0,
     monthlyWage: opts.monthlyWage || 0,
+    // Cost of Living (Phase 2.5 §16 CoL-2, RR p.173). All read defensively (null/0/false defaults),
+    // so legacy saves + templates need NO migration backfill and stay migrate-no-ops.
+    //   lifestyleTargetLevel: the level whose wage the character TARGETS spending; null = true level.
+    //   effectiveSocialLevel: the apparent level the latest month's spend bought (RR p.170/173); set by
+    //                         the monthly pass; null = take the true level (also when the rule is off).
+    //   lastLivingExpensePaidGp: audit of the last monthly keep actually paid.
+    //   payKeepFromTreasury: a ruler may pay his own keep AND his henchmen's wages from the domain
+    //                        treasury he rules instead of his coin purse (Joachim 2026-06-08 — one setting).
+    lifestyleTargetLevel: (opts.lifestyleTargetLevel != null ? opts.lifestyleTargetLevel : null),
+    effectiveSocialLevel: (opts.effectiveSocialLevel != null ? opts.effectiveSocialLevel : null),
+    lastLivingExpensePaidGp: opts.lastLivingExpensePaidGp || 0,
+    payKeepFromTreasury: opts.payKeepFromTreasury || false,
     // §310.6 — Loyalty drift ledger fields (RR p.166).
     // permanentWoundPenalty: standing penalty until wound cured (0..-3).
     // mortalityPenalty:      cumulative Tampering side-effect penalty (≤ 0, permanent).

@@ -3718,6 +3718,32 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
+      <!-- CoL-2 — end-of-month living-expenses + henchman-wage preview (read-only; the actual debit
+           happens on commit). Mirrors the pending-events panel. Per-character target set on the Survival tab. -->
+      <template x-if="turnLivingExpenseProposal && turnLivingExpenseProposal.ruleOn && (turnLivingExpenseProposal.charges||[]).length">
+        <div class="mb-4 border-2 border-amber-700/50 rounded p-3" style="background:#f4ecd2">
+          <h3 class="font-bold text-base mb-1">🏠 Living expenses + wages <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnLivingExpenseProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.173)'"></span></h3>
+          <p class="text-sm opacity-70 mb-2 italic">Each self-supporting character pays living expenses for their lifestyle target (the lesser of the target and funds on hand — no debt); lieges pay their henchmen's wages. Adjust a character's target on their Survival tab.</p>
+          <table class="w-full text-sm">
+            <thead><tr class="text-left border-b border-ink/30">
+              <th class="py-1 pr-2">Character</th><th class="py-1 pr-2">Keep</th><th class="py-1 pr-2">Cost</th><th class="py-1 pr-2">Projected pay</th><th class="py-1 pr-2">Apparent level</th>
+            </tr></thead>
+            <tbody>
+              <template x-for="ch in turnLivingExpenseProposal.charges" :key="ch.charId + ':' + ch.kind">
+                <tr class="border-b border-ink/10">
+                  <td class="py-1 pr-2" x-text="ch.name || ch.charId"></td>
+                  <td class="py-1 pr-2" x-text="ch.kind === 'henchman-wage' ? 'Wage (liege pays)' : 'Living expenses'"></td>
+                  <td class="py-1 pr-2 font-mono" x-text="((ch.kind==='henchman-wage' ? ch.wage : ch.target)||0).toLocaleString() + ' gp'"></td>
+                  <td class="py-1 pr-2 font-mono" :class="(!ch.waived && (ch.paid||0) < ((ch.kind==='henchman-wage'?ch.wage:ch.target)||0)) ? 'accent-red' : ''"
+                      x-text="ch.waived ? '— waived (domain income)' : ((ch.paid||0).toLocaleString() + ' gp')"></td>
+                  <td class="py-1 pr-2" x-text="ch.kind==='living-expenses' ? ('L' + ch.effectiveLevel + (ch.effectiveLevel < ch.trueLevel ? ' ↓ (true ' + ch.trueLevel + ')' : '')) : '—'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
       <template x-for="p in (turnProposal || [])" :key="p.domainId">
         <div class="mb-4 border border-ink rounded p-3 vellum">
           <div class="flex justify-between items-center flex-wrap gap-2">
@@ -6464,6 +6490,39 @@ document.addEventListener('alpine:init', () => {
            regime (no rations spent in a settlement / stronghold / a realm ruled by the character or a
            co-located companion), conditions, and the Forage/Hunt action (moved here from Inventory). -->
       <div x-show="characterEditorTab==='survival'" class="space-y-3">
+        <!-- Cost of Living (CoL-2, RR p.173) — the settled counterpart of field rations. Independent of
+             the rations rule (gated on its own `living-expenses`, default ON). Shows the apparent level
+             that last month's spend bought + the lifestyle target lever + the pay source. -->
+        <template x-if="isHouseRuleEnabled('living-expenses')">
+          <div class="border border-amber-700/40 rounded p-3 space-y-2" style="background:#f4ecd2" x-data="{ get le(){ return characterLivingExpense(characterEditing); } }">
+            <h4 class="font-semibold text-sm flex items-center gap-2">🏠 Cost of living <span class="text-xs font-normal opacity-60">(RR p.173)</span></h4>
+            <div class="text-sm flex items-center gap-2 flex-wrap">
+              <span class="w-40">Apparent level (to NPCs)</span>
+              <span class="font-mono font-semibold" :class="le.apparentLevel < le.trueLevel ? 'accent-red' : (le.apparentLevel > le.trueLevel ? 'accent-green' : '')" x-text="le.apparentLevel"></span>
+              <span class="text-xs opacity-70" x-show="le.apparentLevel !== le.trueLevel" x-text="'(true level ' + le.trueLevel + ' — ' + (le.apparentLevel < le.trueLevel ? 'underspending' : 'living large') + ')'"></span>
+              <span class="text-xs opacity-60" x-show="le.apparentLevel === le.trueLevel">matches true level</span>
+            </div>
+            <div class="text-sm flex items-center gap-2 flex-wrap">
+              <span class="w-40">Lifestyle target level</span>
+              <input type="number" min="0" max="14" class="w-16 text-sm border border-ink/40 rounded px-1"
+                     :value="characterEditing.lifestyleTargetLevel != null ? characterEditing.lifestyleTargetLevel : le.trueLevel"
+                     @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'lifestyleTargetLevel', label:'Lifestyle target level', oldValue:characterEditing.lifestyleTargetLevel, newValue:($event.target.value===''?null:Math.max(0,Math.min(14,parseInt($event.target.value)||0)))})">
+              <span class="text-xs opacity-70" x-text="'≈ ' + le.targetWage.toLocaleString() + ' gp/mo' + (characterEditing.lifestyleTargetLevel==null ? ' (default = true level)' : '')"></span>
+            </div>
+            <div class="text-sm flex items-center gap-2">
+              <span class="w-40">Last month paid</span>
+              <span class="font-mono" x-text="(characterEditing.lastLivingExpensePaidGp||0).toLocaleString() + ' gp'"></span>
+            </div>
+            <template x-if="le.rulesADomain">
+              <label class="text-sm flex items-center gap-2">
+                <input type="checkbox" :checked="!!characterEditing.payKeepFromTreasury"
+                       @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'payKeepFromTreasury', label:'Pay keep from domain treasury', oldValue:!!characterEditing.payKeepFromTreasury, newValue:$event.target.checked})">
+                Pay keep (and henchmen's wages) from the domain treasury
+              </label>
+            </template>
+            <p class="text-xs opacity-70" x-text="le.note"></p>
+          </div>
+        </template>
         <template x-if="!rationsShown()">
           <p class="text-sm italic opacity-70">Food &amp; water tracking is off — the <span class="font-semibold">Ignore rations</span> house rule is on. Turn it off in ⚙ House Rules to track provisioning (RR p.278).</p>
         </template>
@@ -6876,6 +6935,10 @@ document.addEventListener('alpine:init', () => {
           <span class="text-sm opacity-60 ml-2">RAW: typically ±2 max</span>
         </div>
       </div>
+      <!-- CoL-2 — apparent-level penalty pre-fill (RR p.170): a henchman outranking his employer's
+           apparent level rolls at −1/level. Shown when it applies (the penalty may exceed ±2). -->
+      <p x-show="loyaltyRollState.apparentNote" class="text-sm -mt-1" style="color:#7a1f1f"
+         x-text="'⚠ ' + loyaltyRollState.apparentNote"></p>
 
       <!-- Roll button + result -->
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
@@ -8346,6 +8409,7 @@ return {
     return ['overview','demographics','economy','officers','military','vassalage','stronghold','history','raw'];
   },
   showTurnModal:false,turnProposal:null,turnProposalError:'',
+  turnLivingExpenseProposal:null, // CoL-2 — end-of-month living-expenses + henchman-wage preview (dryRun)
   turnVentureProposals:null, // Phase 2b.5 — per-turn vagaries for in-transit ventures, set in proposeMonthlyTurn
   turnEventProposals:null, // Turn Cycle v2 — per-turn pending event proposals (accept/edit/reject), set in proposeMonthlyTurn
   dayTickProposal:null, // Phase 2.95 — active proposed day-tick (null when none pending)
@@ -10182,6 +10246,29 @@ return {
     }
     return { onLifestyle, kind: info.kind, label, info };
   },
+  // Cost of Living (CoL-2, RR p.173 + p.170) — the Survival-tab panel data: the apparent level last
+  // month's spend bought, the lifestyle target + its wage, whether the character rules a domain (→ the
+  // pay-from-treasury option), and a plain explanation.
+  characterLivingExpense(ch){
+    const A = window.ACKS;
+    const trueLevel = (ch && ch.level) || 0;
+    const apparentLevel = (A && A.apparentLevel) ? A.apparentLevel(this.currentCampaign, ch) : trueLevel;
+    const targetLevel = (ch && ch.lifestyleTargetLevel != null) ? ch.lifestyleTargetLevel : trueLevel;
+    const targetWage = (A && A.levelMonthlyWage) ? A.levelMonthlyWage(targetLevel) : 0;
+    const rulesADomain = (this.domains || []).some(d => d && d.rulerCharacterId === (ch && ch.id));
+    let note;
+    if(apparentLevel < trueLevel){
+      note = 'Underspending — NPCs (and prospective henchmen) take ' + ((ch && ch.name) || 'this character') +
+             ' for level ' + apparentLevel + ' (RR p.170). Raise the lifestyle target, or keep more coin on hand for month-end.';
+    } else if(apparentLevel > trueLevel){
+      note = 'Living large — appears as level ' + apparentLevel + ' to NPCs, which can let them retain higher-level henchmen (RR p.170).';
+    } else {
+      note = 'Living expenses cover the character’s level. Paid at month end from ' +
+             ((ch && ch.payKeepFromTreasury && rulesADomain) ? 'the domain treasury' : 'the coin purse') +
+             '; short funds force a lower spend (no debt).';
+    }
+    return { trueLevel, apparentLevel, targetLevel, targetWage, rulesADomain, note };
+  },
   // Fresh water available at the character's current hex? (Survival-tab indicator — river/lake/settlement.)
   characterHexSourcesWater(ch){
     if(!ch || !this.currentCampaign || !ch.currentHexId) return false;
@@ -11098,12 +11185,30 @@ return {
   openLoyaltyRollModal(ch, opts){
     if(!ch){ this.showToast('No character to roll for.'); return; }
     opts = opts || {};
+    // RR p.170 — a henchman who outranks his employer's APPARENT level (appearance + living expenses)
+    // rolls loyalty at −1 per apparent level of difference. Pre-fill the modifier with that penalty when
+    // it applies and the caller didn't pass an explicit modifier (CoL-2, 2026-06-08).
+    let mod = Number(opts.modifier ?? 0);
+    let apparentNote = '';
+    if(opts.modifier == null && window.ACKS && window.ACKS.apparentLevelLoyaltyPenalty && ch.liegeCharacterId){
+      const liege = (this.currentCampaign?.characters || []).find(c => c.id === ch.liegeCharacterId);
+      if(liege){
+        const pen = window.ACKS.apparentLevelLoyaltyPenalty(this.currentCampaign, ch, liege);
+        if(pen < 0){
+          mod = pen;
+          apparentNote = (ch.name || 'This henchman') + ' (L' + (ch.level || 0) + ') outranks ' +
+            (liege.name || 'the employer') + "'s apparent level " +
+            window.ACKS.apparentLevel(this.currentCampaign, liege) + ' → ' + pen + ' (RR p.170).';
+        }
+      }
+    }
     this.loyaltyRollState = {
       characterId: ch.id,
       character: ch,
       reason: opts.reason || 'other',
       reasonNote: opts.reasonNote || '',
-      modifier: Number(opts.modifier ?? 0),
+      modifier: mod,
+      apparentNote,
       rollResult: null,
       pendingEventId: opts.pendingEventId || null,
     };
@@ -11591,12 +11696,20 @@ return {
     const row = this.recruitCurrentRow();
     if(!row) return empty;
     const hireLevel = Number(row.level || 0);
-    const patronLevel = Number(s.patron.level || 1);
+    // RR p.170 — henchmen judge an employer by his APPARENT level (appearance + living expenses),
+    // not his true class level. With Living Expenses on, an underspender appears lower (and can hire
+    // fewer); a profligate appears higher. apparentLevel falls back to the true level when the rule
+    // is off or the spend hasn't been computed yet. (CoL-2, 2026-06-08.)
+    const trueLevel = Number(s.patron.level || 1);
+    const patronLevel = (window.ACKS && window.ACKS.apparentLevel)
+      ? Number(window.ACKS.apparentLevel(this.currentCampaign, s.patron) || trueLevel)
+      : trueLevel;
     const expectedMinPatron = hireLevel + 1;
     return {
       applies: true,
       ok: patronLevel >= expectedMinPatron,
-      hireLevel, patronLevel, expectedMinPatron
+      hireLevel, patronLevel, trueLevel, expectedMinPatron,
+      apparentBelowTrue: patronLevel < trueLevel
     };
   },
   recruitBlockedByLevelCap(){
@@ -15866,6 +15979,7 @@ return {
       this.turnEventProposals   = result.turnEventProposals;
       this.turnVentureProposals = result.turnVentureProposals;
       this.turnProposal         = result.turnProposal;
+      this.turnLivingExpenseProposal = result.livingExpenseProposal || null;   // CoL-2 preview
       this.showTurnModal = true;
     } catch(e){
       console.error('proposeMonthlyTurn error', e);

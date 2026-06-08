@@ -401,5 +401,169 @@ section('V4 — reroll (rerollProvisioningActivity: flips the yield on a success
 }
 
 // =============================================================================
+// CoL-2 — Living Expenses (RR p.173) + henchman wages (RR p.168) + apparent level (RR p.170)
+// =============================================================================
+const purse = (ch, gp) => { ch.coins = ch.coins || { pp:0, gp:0, ep:0, sp:0, cp:0 }; ch.coins.gp = gp; ch.personalGp = gp; return ch; };
+
+section('CoL-2 — wage table (RR p.168) + effectiveSocialLevelForSpend (RR p.173)');
+ok('wage(0)=12',  ACKS.levelMonthlyWage(0) === 12);
+ok('wage(6)=800', ACKS.levelMonthlyWage(6) === 800);
+ok('wage(9)=7250', ACKS.levelMonthlyWage(9) === 7250);
+ok('wage(14)=350000', ACKS.levelMonthlyWage(14) === 350000);
+ok('wage clamps >14 to the 14 figure', ACKS.levelMonthlyWage(20) === 350000);
+ok('eff(800)=6 (exact wage)', ACKS.effectiveSocialLevelForSpend(800) === 6);
+ok('eff(799)=5 (one short of L6)', ACKS.effectiveSocialLevelForSpend(799) === 5);
+ok('eff(0)=0 (destitute)', ACKS.effectiveSocialLevelForSpend(0) === 0);
+ok('eff(7250)=9', ACKS.effectiveSocialLevelForSpend(7250) === 9);
+
+section('CoL-2 — living-expenses rule defaults ON (registry default)');
+ok('absent ⇒ ON', ACKS.isHouseRuleEnabled({ houseRules: {} }, 'living-expenses') === true);
+ok('explicit {enabled:false} ⇒ OFF', ACKS.isHouseRuleEnabled({ houseRules: { 'living-expenses': { enabled:false } } }, 'living-expenses') === false);
+ok('a non-default rule still absent ⇒ OFF', ACKS.isHouseRuleEnabled({ houseRules: {} }, 'hidden-stashes') === false);
+ok('registry entry carries default:true', (ACKS.lookupHouseRule('living-expenses') || {}).default === true);
+
+section('CoL-2 — apparentLevel + apparentLevelLoyaltyPenalty (RR p.170)');
+{
+  const camp = freshCampaign();
+  const emp = mkChar('emp', null, { level: 9 });
+  camp.characters = [emp];
+  ok('no eff yet (rule on) ⇒ true level', ACKS.apparentLevel(camp, emp) === 9);
+  emp.effectiveSocialLevel = 4;
+  ok('eff set ⇒ apparent = eff (underspent)', ACKS.apparentLevel(camp, emp) === 4);
+  const off = { houseRules: { 'living-expenses': { enabled:false } }, characters:[emp] };
+  ok('rule OFF ⇒ apparent = true level (ignores stale eff)', ACKS.apparentLevel(off, emp) === 9);
+  const h = mkChar('h', null, { level: 6, socialTier:'henchman', liegeCharacterId:'emp' });
+  ok('penalty: h(6) over emp apparent(4) = −2', ACKS.apparentLevelLoyaltyPenalty(camp, h, emp) === -2);
+  ok('penalty 0 when employer apparent ≥ henchman', ACKS.apparentLevelLoyaltyPenalty(off, h, emp) === 0);
+}
+
+section('CoL-2 — processLivingExpensesForTurn: self + henchman + follower + mercenary');
+{
+  const camp = freshCampaign();
+  const ruler = purse(mkChar('r', null, { level: 6 }), 5000);            // self-supporting L6 → 800
+  const hench = mkChar('h', null, { level: 2, socialTier:'henchman', liegeCharacterId:'r', monthlyWage: 50 });
+  const foll  = purse(mkChar('f', null, { level: 3, socialTier:'follower' }), 999);
+  const merc  = purse(mkChar('m', null, { level: 4, socialTier:'mercenary' }), 999);
+  camp.characters = [ruler, hench, foll, merc];
+  const res = ACKS.processLivingExpensesForTurn(camp);
+  ok('ruleOn', res.ruleOn === true);
+  ok('total = 800 living + 50 wage = 850', res.totalGp === 850);
+  ok('ruler purse 5000 → 4150 (own keep + henchman wage)', ruler.coins.gp === 4150);
+  ok('ruler effectiveSocialLevel = 6', ruler.effectiveSocialLevel === 6);
+  ok('ruler lastLivingExpensePaidGp = 800', ruler.lastLivingExpensePaidGp === 800);
+  ok('henchman takes NO self-debit (effLevel null)', hench.effectiveSocialLevel === null);
+  ok('follower: no debit (purse intact) + effLevel null', foll.coins.gp === 999 && foll.effectiveSocialLevel === null);
+  ok('mercenary: skipped (purse intact)', merc.coins.gp === 999);
+  ok('two wealth-transfers logged', camp.eventLog.filter(e => e.event && e.event.kind === 'wealth-transfer').length === 2);
+  ok('both campaignLogHidden', camp.eventLog.filter(e => e.event && e.event.kind === 'wealth-transfer').every(e => e.event.campaignLogHidden === true));
+}
+
+section('CoL-2 — forced down by funds (no debt) + lifestyle target dial-down');
+{
+  const camp = freshCampaign();
+  const broke = purse(mkChar('b', null, { level: 6 }), 300);   // can only afford 300 of the 800 target
+  camp.characters = [broke];
+  ACKS.processLivingExpensesForTurn(camp);
+  ok('pays only what is on hand (300, no debt)', broke.coins.gp === 0 && broke.lastLivingExpensePaidGp === 300);
+  ok('forced-down apparent level = 4 (wage 200 ≤ 300 < 400)', broke.effectiveSocialLevel === 4);
+
+  const camp2 = freshCampaign();
+  const lord = purse(mkChar('l', null, { level: 9, lifestyleTargetLevel: 6 }), 20000);  // dials down to L6 lifestyle
+  camp2.characters = [lord];
+  ACKS.processLivingExpensesForTurn(camp2);
+  ok('dialled-down target pays the target wage (800), not the L9 wage', lord.lastLivingExpensePaidGp === 800);
+  ok('dialled-down apparent level = 6 even at true L9', lord.effectiveSocialLevel === 6);
+}
+
+section('CoL-2 — rule OFF: no debits + apparent cleared');
+{
+  const camp = freshCampaign();
+  camp.houseRules = { 'living-expenses': { enabled:false } };
+  const ruler = purse(mkChar('r', null, { level: 6 }), 5000); ruler.effectiveSocialLevel = 3;   // stale
+  camp.characters = [ruler];
+  const res = ACKS.processLivingExpensesForTurn(camp);
+  ok('ruleOn false + no charges', res.ruleOn === false && res.charges.length === 0);
+  ok('purse untouched', ruler.coins.gp === 5000);
+  ok('stale effectiveSocialLevel cleared to null', ruler.effectiveSocialLevel === null);
+}
+
+section('CoL-2 — RAW carve-out: vassal-ruling henchman, domain income ≥ wage owes no wage');
+{
+  const camp = freshCampaign();
+  const liege = purse(mkChar('lg', null, { level: 9 }), 50000);
+  const vh = mkChar('vh', null, { level: 4, socialTier:'henchman', liegeCharacterId:'lg', monthlyWage: 200 });
+  camp.characters = [liege, vh];
+  camp.domains = [{ id:'dvh', rulerCharacterId:'vh', treasury:{ gp:0 } }];
+  const origNet = ACKS.monthlyNet; ACKS.monthlyNet = (c, d) => d.id === 'dvh' ? 500 : 0;   // domain nets 500 ≥ wage 200
+  const res = ACKS.processLivingExpensesForTurn(camp);
+  ACKS.monthlyNet = origNet;
+  const wageRow = res.charges.find(c => c.kind === 'henchman-wage');
+  ok('henchman wage waived (paid 0, reason domain-income)', wageRow && wageRow.paid === 0 && wageRow.waived === 'domain-income');
+  ok('liege still pays his own L9 living (50000 → 42750)', liege.coins.gp === 42750);
+}
+
+section('CoL-2 — dryRun previews without moving gp or setting fields');
+{
+  const camp = freshCampaign();
+  const ruler = purse(mkChar('r', null, { level: 6 }), 5000);
+  camp.characters = [ruler];
+  const prev = ACKS.processLivingExpensesForTurn(camp, { dryRun: true });
+  ok('dryRun returns the projected charge (800)', prev.charges.length === 1 && prev.charges[0].paid === 800);
+  ok('dryRun does NOT move gp', ruler.coins.gp === 5000);
+  ok('dryRun does NOT set effectiveSocialLevel', ruler.effectiveSocialLevel == null);
+  ok('dryRun logs no events', camp.eventLog.length === 0);
+}
+
+section('CoL-2 — pay-from-treasury (ruler setting) debits the domain treasury');
+{
+  const camp = ACKS.blankCampaign ? ACKS.blankCampaign() : freshCampaign();
+  camp.currentTurn = 1; camp.currentDayInMonth = 1; camp.houseRules = camp.houseRules || {};
+  const ruler = purse(mkChar('king', null, { level: 6, payKeepFromTreasury: true }), 0);   // empty purse
+  camp.characters = [ruler];
+  const dom = ACKS.blankDomain ? ACKS.blankDomain({ id:'realm', name:'Realm' }) : { id:'realm', name:'Realm', treasury:{ gp:0 }, geography:{ hexes:[] } };
+  dom.rulerCharacterId = 'king';
+  dom.geography = dom.geography || { hexes: [] };
+  dom.geography.hexes = [{ id:'hx', coord:{ q:0, r:0 } }];
+  dom.treasury = { gp: 9000 };
+  camp.domains = [dom];
+  camp.hexes = (camp.hexes || []).concat(dom.geography.hexes);
+  if (ACKS.migrateCampaign) ACKS.migrateCampaign(camp);    // materialize the treasury stash from treasury.gp
+  const before = ACKS.domainTreasuryGp ? ACKS.domainTreasuryGp(camp, 'realm') : dom.treasury.gp;
+  ACKS.processLivingExpensesForTurn(camp);
+  const after = ACKS.domainTreasuryGp ? ACKS.domainTreasuryGp(camp, 'realm') : dom.treasury.gp;
+  ok('treasury had ≥ 800 before', before >= 800, 'before=' + before);
+  ok('keep paid from the treasury (−800)', after === before - 800, 'before=' + before + ' after=' + after);
+  ok('purse stayed empty (paid from treasury, not purse)', ruler.coins.gp === 0);
+  ok('apparent level still 6 (treasury covered the L6 keep)', ruler.effectiveSocialLevel === 6);
+}
+
+section('CoL-2 — headless commitTurn applies the keep + advances the month');
+{
+  const camp = ACKS.blankCampaign ? ACKS.blankCampaign() : freshCampaign();
+  camp.currentTurn = 1; camp.currentDayInMonth = 1; camp.houseRules = camp.houseRules || {};
+  const ruler = purse(mkChar('rk', null, { level: 6 }), 5000);
+  camp.characters = [ruler];
+  const dom = ACKS.blankDomain ? ACKS.blankDomain({ id:'rl', name:'Rl' }) : null;
+  if (dom) {
+    dom.rulerCharacterId = 'rk';
+    dom.geography = dom.geography || { hexes: [] };
+    dom.geography.hexes = [{ id:'h0', coord:{ q:0, r:0 } }];
+    camp.domains = [dom];
+    camp.hexes = (camp.hexes || []).concat(dom.geography.hexes);
+    if (ACKS.migrateCampaign) ACKS.migrateCampaign(camp);
+    const turn0 = camp.currentTurn;
+    const prop = ACKS.proposeMonthlyTurn(camp);
+    ok('proposal previews the living expense (dryRun)', !!(prop.livingExpenseProposal && prop.livingExpenseProposal.charges.length));
+    const result = ACKS.commitTurn(camp, prop);
+    ok('turn advanced', camp.currentTurn === turn0 + 1);
+    ok('commit charged the ruler their L6 keep (purse < 5000)', ruler.coins.gp < 5000);
+    ok('commit set the ruler effectiveSocialLevel', ruler.effectiveSocialLevel != null);
+    ok('commit result carries livingExpenseResult', !!(result.livingExpenseResult && result.livingExpenseResult.ruleOn));
+  } else {
+    ok('blankDomain available for the integration test', false, 'no blankDomain — skipped');
+  }
+}
+
+// =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — cost-of-living.smoke.js: ' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) { console.log('Failures:\n  ' + failures.join('\n  ')); process.exit(1); }

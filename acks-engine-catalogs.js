@@ -264,6 +264,11 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'persistent-hireling-resurfacing', category:'characters', name:'Recruitment — Resurface persisted candidates',
     source:'Phase 2.95 §4.3 design pass',
     description:"When on, saved candidates (kind='candidate') from prior recruitment attempts at the same market + matching type resurface in subsequent solicits. They count against the rolled availability — total candidate budget unchanged. Requires persistent-hireling-candidates (cannot resurface what isn't saved). This is the 'the world remembers' behavior.", requires:["persistent-hireling-candidates"] },
+  // ----- Cost of Living (Phase 2.5 §16 — CoL-2 — 2026-06-08) -----
+  { id:'living-expenses', category:'characters', name:'Living expenses (monthly cost of living)',
+    source:'ACKS II RR p.173 (RAW marks it OPTIONAL; default-ON per community norm — honest gating, CLAUDE §6)',
+    default:true,
+    description:"DEFAULT ON. At the end of each game month, every self-supporting character pays living expenses equal to the henchman wage of their level (RR p.173 — 1→25 … 6→800 … 9→7,250 gp). You may dial a character's lifestyle target down on their sheet; actual spend = min(target, funds on hand), so short funds force a lower spend and there is no debt. Underspending lowers your APPARENT level to NPCs (RR p.170), which feeds the henchman hiring cap and loyalty. A liege also pays his henchmen's/specialists' monthly wages in the same pass (a vassal-ruling henchman whose domain income ≥ his wage owes nothing). Pay comes from the coin purse, or — for a ruler with 'pay keep from the domain treasury' set — from that treasury. When OFF, no monthly keep is charged and everyone is taken at their true level." },
   // ----- Hijinks (Phase 2.7) -----
   { id:'detailed-hijink-tracking', category:'hijinks', name:'Detailed hijink tracking',
     source:'ACKS II RR pp.360-370 (Phase 2.7 — not yet implemented)',
@@ -396,6 +401,29 @@ const HIRELING_HENCHMEN = Object.freeze([
   { id:'henchman-3', label:'3rd level Henchman', level:3, cells:['1d10','1d3','1 (85%)','1 (33%)','1 (15%)','1 (5%)'], wage:100, wagePeriod:'month', wageUnit:'gp' },
   { id:'henchman-4', label:'4th level Henchman', level:4, cells:['1d6','1d2','1 (45%)','1 (15%)','1 (5%)','-'],   wage:200, wagePeriod:'month', wageUnit:'gp' }
 ]);
+
+// Monthly wage by class level (RR p.168) — the COMPLETE table, levels 0–14. The HIRELING_HENCHMEN
+// catalog above carries only 0–4 (the hirable band on the market); this full table drives two CoL-2
+// flows: (a) a liege's monthly henchman-wage outflow, and (b) the Living Expenses rule (RR p.173 —
+// "an adventurer's expected living expenses each month are equal to the wages of a henchman of the
+// same level"). gp/month.
+const LEVEL_MONTHLY_WAGE = Object.freeze({
+  0:12, 1:25, 2:50, 3:100, 4:200, 5:400, 6:800, 7:1600,
+  8:3000, 9:7250, 10:12000, 11:32000, 12:50000, 13:135000, 14:350000
+});
+// Monthly wage for a class level (RR p.168). Clamps to [0,14] (RAW tops out at 14).
+function levelMonthlyWage(level){
+  const L = Math.max(0, Math.min(14, Math.floor(Number(level) || 0)));
+  return LEVEL_MONTHLY_WAGE[L];
+}
+// The apparent social level a monthly living spend buys (RR p.173): the highest level whose wage the
+// character actually pays for. spend ≥ wage(14) → 14; spend < wage(0)=12 → 0 (seen as a destitute commoner).
+function effectiveSocialLevelForSpend(spend){
+  const s = Math.max(0, Number(spend) || 0);
+  let lvl = 0;
+  for(let L = 0; L <= 14; L++){ if(LEVEL_MONTHLY_WAGE[L] <= s) lvl = L; else break; }
+  return lvl;
+}
 
 // Specialist availability — RR p.167. ~46 specialist types × 6 market classes.
 const HIRELING_SPECIALISTS = Object.freeze([
@@ -935,6 +963,8 @@ Object.assign(ACKS, {
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.
   HIRELING_MARKET_CLASSES, HIRELING_MERCENARIES, HIRELING_HENCHMEN, HIRELING_SPECIALISTS,
+  // Phase 2.5 §16 CoL-2 — wage-by-level (RR p.168) + Living Expenses helpers (RR p.173).
+  LEVEL_MONTHLY_WAGE, levelMonthlyWage, effectiveSocialLevelForSpend,
   REACTION_TO_HIRING, HIRELING_SOLICIT_FEE_PER_WEEK, RECRUITMENT_MODIFIERS,
   // Phase 2.95 Activity Budget (#346 / AB-1) — the per-character daily activity allocation.
   ACTIVITY_BUDGET, ACTIVITY_COSTS, activityCostFor,
