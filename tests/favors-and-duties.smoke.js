@@ -878,6 +878,53 @@ ok('CONSTRUCTION_DUTY_TYPES = 7 types (incl. generic), vessel is littoralOnly', 
   ok('total spent ≥ the 15,000 ordered target', after.constructionSpentGp >= 15000);
 }
 
+// =============================================================================
+section('F&D-8 — Office favor: free-text title + RAW +1 vassal-loyalty bonus (RR p.348)');
+// =============================================================================
+// A Lord → Officeholder → Sub-vassal chain (the office bonus helps the officeholder's OWN vassals).
+function mkOfficeChain(){
+  const lord=ACKS.blankCharacter({id:'chr-lord'}), off=ACKS.blankCharacter({id:'chr-off'}), sub=ACKS.blankCharacter({id:'chr-sub'});
+  off.loyalty=0; sub.loyalty=0;
+  const ld=ACKS.blankDomain({id:'dom-lord'}), od=ACKS.blankDomain({id:'dom-off'}), sd=ACKS.blankDomain({id:'dom-sub'});
+  ld.rulerCharacterId='chr-lord'; od.rulerCharacterId='chr-off'; sd.rulerCharacterId='chr-sub';
+  od.liegeId='dom-lord'; sd.liegeId='dom-off';
+  ld.treasury={gp:1e6}; od.treasury={gp:1e6}; sd.treasury={gp:1e6};
+  od.demographics.peasantFamilies=300; sd.demographics.peasantFamilies=200;
+  return { schemaVersion:2, kind:'campaign', id:'c', createdAt:'x', lastModifiedAt:'x', currentTurn:1, houseRules:{ 'favor-duty-auto-roll':{ enabled:false } },
+    domains:[ld,od,sd], characters:[lord,off,sub], hexes:[],
+    vassalages:[
+      { id:'v1', status:'active', vassalRulerCharacterId:'chr-off', suzerainCharacterId:'chr-lord', vassalDomainId:'dom-off', suzerainDomainId:'dom-lord' },
+      { id:'v2', status:'active', vassalRulerCharacterId:'chr-sub', suzerainCharacterId:'chr-off', vassalDomainId:'dom-sub', suzerainDomainId:'dom-off' }
+    ],
+    favorDutyObligations:[], eventLog:[], pendingEvents:[], settlements:[], rumors:[], ventures:[], parties:[] };
+}
+{
+  const c = mkOfficeChain();
+  ok('office bonus is 0 before any office', ACKS.officeLoyaltyBonusFor(c,'chr-sub')===0);
+  const office = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-off', kind:'office', officeTitle:'Knight Marshal' }, { rng: scriptedRng([]) }).obligation;
+  ok('office stores the free-text title', office.kind==='office' && office.officeTitle==='Knight Marshal');
+  ok('office is an ongoing favor with no gp', office.isFavor===true && office.isOngoing===true && office.gpPerMonth===0);
+  ok('the officeholder\'s vassal (sub) gets +1 — his liege holds an office', ACKS.officeLoyaltyBonusFor(c,'chr-sub')===1);
+  ok('the officeholder himself gets 0 (his liege holds no office)', ACKS.officeLoyaltyBonusFor(c,'chr-off')===0);
+  ok('a character with no liege gets 0', ACKS.officeLoyaltyBonusFor(c,'chr-lord')===0);
+  // Non-stacking + each office is its own obligation (RR p.348 "the bonus does not stack … revoke separately").
+  ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-off', kind:'office', officeTitle:'Royal Chancellor' }, { rng: scriptedRng([]) });
+  ok('two offices → still +1 (non-stacking), 2 separate obligations', ACKS.officeLoyaltyBonusFor(c,'chr-sub')===1 && c.favorDutyObligations.filter(o=>o.kind==='office').length===2);
+  ACKS.revokeFavorDutyEdict(c, office.id, {});
+  ok('revoking one office → the other remains, +1 still applies', ACKS.officeLoyaltyBonusFor(c,'chr-sub')===1 && c.favorDutyObligations.filter(o=>o.kind==='office' && o.status==='active').length===1);
+}
+{
+  // The +1 is folded into the sub-vassal's loyalty roll (RR p.348). Over-demanding duties on the sub
+  // fires its loyalty roll; the office bonus is recorded in the loyaltyHistory note.
+  const c = mkOfficeChain();
+  ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-off', kind:'office', officeTitle:'Knight Marshal' }, { rng: scriptedRng([]) });   // lord → officeholder
+  ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-sub', kind:'loan', liegeCharacterId:'chr-off' }, { rng: scriptedRng([]) });        // officeholder → sub, duty 1
+  const r2 = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-sub', kind:'loan', liegeCharacterId:'chr-off' }, { rng: scriptedRng([]) }); // duty 2 → over-demand
+  ok('over-demanding the sub fired a loyalty roll', !!r2.loyaltyResult);
+  const entry = (c.characters.find(ch=>ch.id==='chr-sub').loyaltyHistory||[]).slice(-1)[0];
+  ok('the sub-vassal\'s loyalty roll records the +1 office bonus', !!entry && /\+1 office/.test(entry.reasonNote || ''));
+}
+
 // Schema + factory.
 {
   ok('blankFavorDutyObligation seeds scutageAutoPay false', ACKS.blankFavorDutyObligation({}).scutageAutoPay === false);
@@ -890,6 +937,8 @@ ok('CONSTRUCTION_DUTY_TYPES = 7 types (incl. generic), vessel is littoralOnly', 
   ok('schema has the scutageGpPerFamily field', fdSchema.fields.some(f=>f.name==='scutageGpPerFamily'));
   ok('blankFavorDutyObligation seeds constructionOrders []', Array.isArray(ACKS.blankFavorDutyObligation({}).constructionOrders) && ACKS.blankFavorDutyObligation({}).constructionOrders.length===0);
   ok('schema has the constructionOrders array field', fdSchema.fields.some(f=>f.name==='constructionOrders' && f.type==='array'));
+  ok('blankFavorDutyObligation seeds officeTitle ""', ACKS.blankFavorDutyObligation({}).officeTitle === '');
+  ok('schema has the officeTitle field', fdSchema.fields.some(f=>f.name==='officeTitle'));
 }
 
 console.log('\n=============================================');
