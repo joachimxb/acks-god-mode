@@ -2354,7 +2354,7 @@ document.addEventListener('alpine:init', () => {
                 <div>
                   <h3 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-2">Over your vassals</h3>
                   <template x-for="v in vassalsOf(selectedDomain.id)" :key="'fd-'+v.id">
-                    <div class="border border-ink/30 rounded p-2 mb-2" x-data="{ open:false, isFavor:false, kind:'', label:'', ongoing:false, amount:'' }">
+                    <div class="border border-ink/30 rounded p-2 mb-2" x-data="{ open:false, isFavor:false, kind:'', label:'', ongoing:false, amount:'', councilHexId:'' }">
                       <div class="flex justify-between items-center gap-2">
                         <button @click="selectedDomainId = v.id" class="font-semibold underline" x-text="v.name"></button>
                         <span class="text-sm whitespace-nowrap" :class="(fdBalance(v.id)?.excess||0) > 0 ? 'accent-red' : 'opacity-70'"
@@ -2376,6 +2376,7 @@ document.addEventListener('alpine:init', () => {
                               <span class="block opacity-60 text-xs" x-show="fdMuster(o)" x-text="(() => { const m=fdMuster(o); return m ? ('muster: ' + m.periods.map(p=>p.amount).join(' / ') + ' over ' + m.unit + 's') : ''; })()"></span>
                               <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — not yet given by the vassal (open the vassal to give it)</span>
                               <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
+                              <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
                             </div>
                             <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" :title="fdLoanGiven(o) ? 'Revoke — repays the loan to the vassal (RR p.348)' : 'Revoke this obligation'">revoke</button>
                           </li>
@@ -2385,16 +2386,24 @@ document.addEventListener('alpine:init', () => {
                       <!-- Edict composer: Grant favor / Demand duty, with a settable amount (RR p.345 "demand less") + a freeform Custom edict. -->
                       <div class="mt-2 text-sm">
                         <div class="flex gap-2" x-show="!open">
-                          <button @click="open=true; isFavor=true; kind=''; label=''; ongoing=false; amount=''" class="px-2 py-0.5 border border-ink rounded hover:bg-emerald-50">🎁 Grant favor</button>
-                          <button @click="open=true; isFavor=false; kind=''; label=''; ongoing=false; amount=''" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-50">⚔ Demand duty</button>
+                          <button @click="open=true; isFavor=true; kind=''; label=''; ongoing=false; amount=''; councilHexId=''" class="px-2 py-0.5 border border-ink rounded hover:bg-emerald-50">🎁 Grant favor</button>
+                          <button @click="open=true; isFavor=false; kind=''; label=''; ongoing=false; amount=''; councilHexId=''" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-50">⚔ Demand duty</button>
                         </div>
                         <div x-show="open" class="border border-ink/40 rounded p-2 mt-1 space-y-1 bg-black/5">
                           <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="isFavor ? 'Grant a favor' : 'Demand a duty'"></div>
-                          <select x-model="kind" @change="amount = (kind==='custom' || !fdKindHasGp(kind)) ? '' : fdDefaultAmount(v.id, kind)" class="w-full text-sm border border-ink rounded px-1 py-0.5">
+                          <select x-model="kind" @change="amount = (kind==='custom' || !fdKindHasGp(kind)) ? '' : fdDefaultAmount(v.id, kind); councilHexId = (kind==='call-to-council') ? (fdLiegeRulerCurrentHex() || (fdCouncilHexOptions()[0]?.id || '')) : ''" class="w-full text-sm border border-ink rounded px-1 py-0.5">
                             <option value="">— choose —</option>
                             <template x-for="e in (isFavor ? fdFavorKinds() : fdDutyKinds())" :key="'k-'+e.kind"><option :value="e.kind" x-text="e.label"></option></template>
                             <option value="custom">✏️ Custom…</option>
                           </select>
+                          <template x-if="kind==='call-to-council'">
+                            <label class="flex items-center gap-2 text-xs">
+                              <span class="whitespace-nowrap opacity-70">council location</span>
+                              <select x-model="councilHexId" class="flex-1 text-sm border border-ink rounded px-1 py-0.5">
+                                <template x-for="h in fdCouncilHexOptions()" :key="'cc-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+                              </select>
+                            </label>
+                          </template>
                           <template x-if="kind==='custom'">
                             <div class="space-y-1">
                               <input type="text" x-model="label" placeholder="Edict name (e.g. 'Hostage exchange')" class="w-full text-sm border border-ink rounded px-1 py-0.5">
@@ -2409,7 +2418,7 @@ document.addEventListener('alpine:init', () => {
                           </template>
                           <p class="text-xs opacity-60" x-show="kind && kind!=='custom'" x-text="(fdFavorKinds().concat(fdDutyKinds()).find(e=>e.kind===kind)||{}).summary || ''"></p>
                           <div class="flex gap-2 pt-1">
-                            <button @click="fdRaiseEdict(v.id, { kind, customLabel: label, isFavor, isOngoing: ongoing, gpPerMonth: amount }); open=false" :disabled="!kind || (kind==='custom' && !label.trim())" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 disabled:opacity-40" title="Apply this edict" x-text="isFavor ? 'Grant' : 'Demand'"></button>
+                            <button @click="fdRaiseEdict(v.id, { kind, customLabel: label, isFavor, isOngoing: ongoing, gpPerMonth: amount, councilHexId }); open=false" :disabled="!kind || (kind==='custom' && !label.trim())" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 disabled:opacity-40" title="Apply this edict" x-text="isFavor ? 'Grant' : 'Demand'"></button>
                             <button @click="open=false" class="px-2 py-0.5 border border-ink rounded hover:bg-gray-100">Cancel</button>
                           </div>
                         </div>
@@ -2435,9 +2444,11 @@ document.addEventListener('alpine:init', () => {
                           <span class="text-xs text-sky-700" x-show="fdIsThisMonth(o)"> · new this month</span>
                           <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — give it from your realm treasury</span>
                           <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
+                          <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
                         </div>
                         <div class="flex flex-col items-end gap-1 shrink-0">
                           <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-emerald-50 whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)">💰 Give loan</button>
+                          <button x-show="fdIsCallToCouncil(o) && fdCouncilStatus(o).status==='away'" @click="fdGoToCouncil(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-50 whitespace-nowrap" title="Send the vassal (or his party) to the lord's council — plots or re-routes a journey (RR p.346)">🧭 Go to Council</button>
                           <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100" title="Revoke this obligation">revoke</button>
                         </div>
                       </li>
@@ -15772,6 +15783,7 @@ return {
     } else if(opts.gpPerMonth !== '' && opts.gpPerMonth != null){
       payload.gpPerMonth = Math.max(0, Number(opts.gpPerMonth) || 0);   // the "demand less" override (RR p.345)
     }
+    if(opts.kind==='call-to-council' && opts.councilHexId) payload.councilHexId = opts.councilHexId;   // F&D-5 — the chosen council location (RR p.346)
     const res = window.ACKS.applyFavorDutyEdictByKind(this.currentCampaign, payload, { rng: Math.random });
     if(!res || !res.obligation){ this.toast && this.toast('Could not apply — this domain has no active liege.', 4000); return; }
     this.markDirty(); this.schedulePersist();
@@ -15802,6 +15814,50 @@ return {
     const o = window.ACKS.giveLoanObligation(this.currentCampaign, obligationId, {});
     this.markDirty(); this.schedulePersist();
     this.toast && this.toast(o && o.loanGivenAtTurn != null ? ('Loan given — ' + (o.gpPerMonth||0).toLocaleString() + 'gp paid to your liege.') : 'Could not give the loan.', 5000);
+  },
+  // Call to Council (F&D-5; RR p.346). The liege picks a council hex in his domain (default = where
+  // he is now); the vassal travels there via "Go to Council" (plots/re-routes a journey); the live
+  // attendance status (at-council / en-route / away) shows on the card.
+  fdIsCallToCouncil(o){ return !!o && o.kind === 'call-to-council'; },
+  // The liege ruler's (selectedDomain's ruler's) current hex — the default council location.
+  fdLiegeRulerCurrentHex(){
+    const dom = this.selectedDomain; if(!dom || !dom.rulerCharacterId) return null;
+    const r = (this.currentCampaign?.characters||[]).find(c => c && c.id === dom.rulerCharacterId);
+    return r ? (r.currentHexId || null) : null;
+  },
+  // Hex options for the council picker — the liege (selectedDomain) domain hexes, plus the liege
+  // ruler's current hex if it's outside the domain (so "where he is now" is always offerable).
+  fdCouncilHexOptions(){
+    const dom = this.selectedDomain; if(!dom) return [];
+    const opts = (this.currentCampaign?.hexes||[]).filter(h => h && h.domainId === dom.id).map(h => ({ id:h.id, label: this.journeyHexLabel(h.id) }));
+    const cur = this.fdLiegeRulerCurrentHex();
+    if(cur && !opts.some(o => o.id === cur)) opts.unshift({ id:cur, label: this.journeyHexLabel(cur) + ' (current location)' });
+    return opts;
+  },
+  fdCouncilLocationLabel(o){ return o && o.councilHexId ? this.journeyHexLabel(o.councilHexId) : '—'; },
+  fdCouncilStatus(o){ return window.ACKS.councilAttendanceStatus(this.currentCampaign, o); },
+  // Card text for the council attendance (neutral wording — reads on both the liege + vassal side).
+  fdCouncilStatusText(o){
+    const s = this.fdCouncilStatus(o);
+    if(s.status === 'no-location') return 'council location not set';
+    const loc = this.fdCouncilLocationLabel(o);
+    if(s.status === 'at-council') return 'council at ' + loc + ' · ✓ vassal present';
+    if(s.status === 'en-route')   return 'council at ' + loc + ' · 🧭 vassal en route';
+    return 'council at ' + loc + ' · — vassal not yet there';
+  },
+  // Vassal-side act: send the vassal (or his party) to council — plots or re-routes a journey.
+  fdGoToCouncil(obligationId){
+    const r = this._journeyWithDomains(() => window.ACKS.sendVassalToCouncil(this.currentCampaign, obligationId, {}));
+    this.markDirty(); this.schedulePersist();
+    const msg = ({
+      started: 'Set out for council — a journey is under way.',
+      rerouted: 'Re-routed the journey toward the council location.',
+      'already-there': 'Already at the council location.',
+      'no-location': 'No council location set on this duty.',
+      'no-origin': "Set the vassal's location first — no hex to set out from.",
+      'no-traveller': 'No vassal ruler to send.'
+    })[r && r.action] || 'Could not send to council.';
+    this.toast && this.toast(msg, 5000);
   },
 
   // Effective per-hex land value INCLUDING agricultural improvements (Phase 2a.5).
