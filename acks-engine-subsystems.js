@@ -3808,6 +3808,38 @@ function _buildSurvivalDayEvent(campaign, surv, memberChars, partyId, hex, settl
   };
 }
 
+// Deterministic survival PREVIEW seed (CoL-1, 2026-06-08) — the same fix the journey path uses
+// (_seededJourneyRng above). The off-journey 'survival' consumer's ONLY die is the Dehydrated 1d6
+// CON loss (resolveDaySurvival §1.3). If it rolled with Math.random, the floating Day-tick review
+// would show a DIFFERENT loss each time it re-opened (the GM cancels + re-ticks, or the review
+// refreshes) — the committed state hadn't changed, but the previewed dehydration jumped around.
+// Instead seed each group's dice from a fingerprint of its CURRENT committed pre-state + the world
+// day: re-opening previews the IDENTICAL day, and it changes only when the GM changes something real
+// (advance the clock, give the party water → a new fingerprint → a new, still-stable preview).
+// commitSurvivalRecord replays the recorded absolutes, so the ratified loss is exactly what was
+// reviewed. A caller may still inject ctx.rng to force genuine randomness. Reuses the journey path's
+// _jHash32 (FNV-1a) + _jMulberry32 PRNG (defined above).
+function _survivalPreviewFingerprint(campaign, group, ctx){
+  ctx = ctx || {};
+  const cal = (campaign && campaign.calendar) || {};
+  const surv = [];
+  for(const c of (group.members || [])){
+    if(!c){ surv.push('?'); continue; }
+    surv.push([c.id, c.hungerDays || 0, c.dehydrationDays || 0, c.waterDaysCarried || 0,
+               c.foodDeficitDays || 0, c.waterDeficitDays || 0,
+               c.conLossHunger || 0, c.conLossThirst || 0,
+               c.underfed ? 1 : 0, c.starving ? 1 : 0, c.dehydrated ? 1 : 0].join('|'));
+  }
+  return JSON.stringify({
+    d: ctx.dayInMonth || (campaign && campaign.currentDayInMonth) || 1, y: cal.year || 1, m: cal.month || 1,
+    party: group.partyId || null, hex: (group.hex && group.hex.id) || null,
+    share: group.share ? 1 : 0, settled: group.settled ? 1 : 0, surv: surv
+  });
+}
+function _seededSurvivalRng(campaign, group, ctx){
+  return _jMulberry32(_jHash32(_survivalPreviewFingerprint(campaign, group, ctx)));
+}
+
 // PURE handler (Calendar §14): propose each field group's survival + settled top-ups. No mutation.
 function proposeSurvivalDay(campaign, ctx){
   const A = _jACKS();
@@ -3815,10 +3847,13 @@ function proposeSurvivalDay(campaign, ctx){
   if(!campaign || (A.isHouseRuleEnabled && A.isHouseRuleEnabled(campaign, 'ignore-rations'))) return out;
   const split = _survivalDayGroups(campaign);
   for(const g of split.groups){
+    // Stable preview: seed the day's 1d6 dehydration from the group's committed fingerprint unless
+    // the caller forced an rng — so re-opening / refreshing the review reproduces the same day.
+    const rng = (ctx && ctx.rng) || _seededSurvivalRng(campaign, g, ctx);
     const surv = resolveDaySurvival(campaign, {
       members: g.members, hex: g.hex, share: g.share, camp: g.camp, leaderId: g.leaderId,
       notable: { kind: 'survival-day-tick', prefix: g.prefix, primaryHexId: (g.hex && g.hex.id) || null, payload: g.payload, transient: true }
-    }, ctx || {});
+    }, Object.assign({}, ctx || {}, { rng: rng }));
     if(surv.ignored) continue;
     out.pendingRecords.push({ kind: 'survival', partyId: g.partyId, memberIds: g.members.map(m => m.id), survival: surv });
     (surv.notableEvents || []).forEach(e => out.notableEvents.push(e));
@@ -3832,11 +3867,14 @@ function proposeSurvivalDay(campaign, ctx){
   for(const c of split.settled){
     if(!_settledNeedsTopUp(campaign, c)) continue;
     const hex = A.findHex(campaign, c.currentHexId);
+    // A settled day tops water to capacity (freeWater) so the 1d6 never rolls — but seed it anyway
+    // for consistency, so any future settled die is preview-stable too.
+    const rng = (ctx && ctx.rng) || _seededSurvivalRng(campaign, { members: [c], hex: hex, partyId: null, share: false, settled: true }, ctx);
     const surv = resolveDaySurvival(campaign, {
       members: [c], hex: hex, share: false, camp: null, leaderId: null,
       freeFood: true, freeWater: true,
       notable: { kind: 'survival-day-tick', prefix: c.name || 'A character', primaryHexId: c.currentHexId || null, payload: { characterId: c.id }, transient: true }
-    }, ctx || {});
+    }, Object.assign({}, ctx || {}, { rng: rng }));
     if(surv.ignored) continue;
     out.pendingRecords.push({ kind: 'survival', partyId: null, memberIds: [c.id], survival: surv });
     // A settled top-up that CLEARS a deficit (recovery) is recorded too — campaignLogHidden, but in history.

@@ -225,6 +225,48 @@ section("'survival' day-consumer — field dehydration vs settled top-up (integr
 }
 
 // =============================================================================
+section("'survival' day-consumer — Dehydrated 1d6 preview is deterministic (re-open is stable)");
+{
+  // Same fix the journey path uses (_seededJourneyRng): the off-journey survival 1d6 dehydration
+  // loss must NOT re-roll every time the day-tick review re-opens. proposeSurvivalDay is the pure
+  // preview path; called twice on identical committed state it must reproduce the SAME loss.
+  const setup = () => {
+    const camp = freshCampaign();
+    camp.hexes = [{ id: 'hex-dry', terrain: 'desert' }];   // no fresh source — water deficit + 1d6 loss
+    camp.characters = [mkChar('chr-d', 'hex-dry', { waterDaysCarried: 0, conLossThirst: 0, inventory: [] })];
+    return camp;
+  };
+  const lossOf = (out) => {
+    const r = (out.pendingRecords || []).find(x => x.kind === 'survival' && (x.memberIds || []).indexOf('chr-d') >= 0);
+    const m = r && r.survival && r.survival.members && r.survival.members['chr-d'];
+    return m ? m.conLossThirst : null;
+  };
+  const c1 = setup();
+  const a = lossOf(ACKS.proposeSurvivalDay(c1, {}));
+  const b = lossOf(ACKS.proposeSurvivalDay(c1, {}));   // re-open: SAME campaign, SAME ctx
+  ok('1d6 dehydration loss in range', a >= 1 && a <= 6);
+  ok('re-opening the review reproduces the IDENTICAL loss', a === b, 'a=' + a + ' b=' + b);
+
+  // A second identical campaign (fresh objects, same state) seeds to the same value — proves it's a
+  // pure function of the committed state, not a per-object cache.
+  const c2 = setup();
+  const d = lossOf(ACKS.proposeSurvivalDay(c2, {}));
+  ok('identical state on a fresh campaign → identical loss', a === d, 'a=' + a + ' d=' + d);
+
+  // Advancing the world day changes the fingerprint → a (still-stable) new day's roll may differ.
+  const c3 = setup();
+  c3.currentDayInMonth = 5; c3.calendar.day = 5;
+  const e1 = lossOf(ACKS.proposeSurvivalDay(c3, {}));
+  const e2 = lossOf(ACKS.proposeSurvivalDay(c3, {}));
+  ok('a different world day is itself stable on re-open', e1 === e2);
+
+  // An injected ctx.rng still overrides the seed (genuine randomness path stays available).
+  const c4 = setup();
+  const forced = lossOf(ACKS.proposeSurvivalDay(c4, { rng: () => 0.99 }));   // floor(0.99*6)=5 → loss 6
+  ok('ctx.rng override is honored (1 + floor(0.99*6) = 6)', forced === 6, 'forced=' + forced);
+}
+
+// =============================================================================
 section("'survival' day-consumer — journey participants are deduped (one resolution/char/day)");
 {
   const camp = freshCampaign();
