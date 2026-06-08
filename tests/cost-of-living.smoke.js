@@ -273,6 +273,67 @@ section('ignore-rations opt-out skips the survival consumer entirely');
 }
 
 // =============================================================================
+section('CoL-1 — off-journey survival conditions persist to the eventLog / history (survival-day)');
+ok('survival-day is a known event kind', ACKS.isEventKindKnown('survival-day') === true);
+ok('survival-day is NOT GM-emittable (Event Wizard opt-out)', ACKS.isWizardEmittable('survival-day') === false);
+{
+  // a field character with no food + no water → a condition day → recorded AND visible in the Campaign Log
+  const camp = freshCampaign();
+  camp.hexes = [{ id: 'hex-wild', terrain: 'barrens' }];
+  camp.characters = [mkChar('chr-w', 'hex-wild', { name: 'Wanderer', waterDaysCarried: 0, inventory: [] })];
+  const prop = ACKS.proposeDayTick(camp, 1, { force: true });
+  const sd = (prop.notableEvents || []).filter(e => e.kind === 'survival-day');
+  ok('one survival-day notable proposed for the field char', sd.length === 1);
+  ok('a hungry/thirsty day is NOT campaignLogHidden', sd[0].campaignLogHidden === false);
+  ok('it tags the character in relatedEntities', (sd[0].relatedEntities || []).some(r => r.kind === 'character' && r.id === 'chr-w'));
+  ok('it tags the hex as primaryHexId', sd[0].primaryHexId === 'hex-wild');
+  ACKS.commitDayTick(camp, prop, null);
+  ok('one survival-day entry committed to the eventLog', camp.eventLog.filter(e => e.event && e.event.kind === 'survival-day').length === 1);
+  ok('it surfaces in characterHistory', ACKS.characterHistory(camp, 'chr-w').some(e => e.event.kind === 'survival-day'));
+  ok('it surfaces in hexHistory', ACKS.hexHistory(camp, 'hex-wild').some(e => e.event.kind === 'survival-day'));
+  const ev = camp.eventLog.find(e => e.event && e.event.kind === 'survival-day');
+  ok('payload carries the per-member outcome', !!(ev.event.payload && ev.event.payload.members && ev.event.payload.members['chr-w']));
+  ok('narrative summary is human-readable', /hungry|dehydrated|CON/i.test(ev.result.narrativeSummary || ''));
+}
+{
+  // a routine fed + watered field day records NOTHING (no eventLog noise)
+  const camp = freshCampaign();
+  camp.hexes = [{ id: 'hex-wild', terrain: 'forest' }];
+  camp.characters = [mkChar('chr-ok', 'hex-wild', { waterDaysCarried: 5, inventory: [ACKS.makeRationLine({ rationType: 'iron', daysRemaining: 7 })] })];
+  const prop = ACKS.proposeDayTick(camp, 1, { force: true });
+  ok('a routine fed+watered field day records NO survival-day event', (prop.notableEvents || []).filter(e => e.kind === 'survival-day').length === 0);
+  ACKS.commitDayTick(camp, prop, null);
+  ok('routine day leaves no survival-day in the eventLog', camp.eventLog.filter(e => e.event && e.event.kind === 'survival-day').length === 0);
+}
+{
+  // a settled recovery (clearing a prior deficit) IS recorded — but campaignLogHidden (history, not the log)
+  const camp = freshCampaign();
+  camp.hexes = [{ id: 'hex-town', settlement: { name: 'Town' } }];
+  camp.characters = [mkChar('chr-rec', 'hex-town', { waterDaysCarried: 0, foodDeficitDays: 3, waterDeficitDays: 1, conLossThirst: 2, inventory: [] })];
+  const prop = ACKS.proposeDayTick(camp, 1, { force: true });
+  const sd = (prop.notableEvents || []).filter(e => e.kind === 'survival-day');
+  ok('a settled recovery day IS recorded', sd.length === 1);
+  ok('a recovery day is campaignLogHidden', sd[0].campaignLogHidden === true);
+  ok('the recovery event is flagged settled', !!(sd[0].payload && sd[0].payload.settled === true));
+  ACKS.commitDayTick(camp, prop, null);
+  ok('recovery surfaces in characterHistory', ACKS.characterHistory(camp, 'chr-rec').some(e => e.event.kind === 'survival-day'));
+}
+{
+  // a shared party group → ONE event tagging the party (partyHistory) + every member
+  const camp = freshCampaign();
+  camp.hexes = [{ id: 'hex-wild', terrain: 'barrens' }];
+  camp.characters = [mkChar('chr-pa', 'hex-wild', { waterDaysCarried: 0, inventory: [] }), mkChar('chr-pb', 'hex-wild', { waterDaysCarried: 0, inventory: [] })];
+  camp.parties = [{ id: 'pty-x', name: 'Band', memberCharacterIds: ['chr-pa', 'chr-pb'], leaderCharacterId: 'chr-pa', currentHexId: 'hex-wild', shareProvisions: true, status: 'active' }];
+  const prop = ACKS.proposeDayTick(camp, 1, { force: true });
+  const sd = (prop.notableEvents || []).filter(e => e.kind === 'survival-day');
+  ok('one survival-day event for the shared party group', sd.length === 1);
+  ok('it tags the party (→ partyHistory)', (sd[0].relatedEntities || []).some(r => r.kind === 'party' && r.id === 'pty-x'));
+  ok('it tags both members', ['chr-pa', 'chr-pb'].every(id => (sd[0].relatedEntities || []).some(r => r.kind === 'character' && r.id === id)));
+  ACKS.commitDayTick(camp, prop, null);
+  ok('it surfaces in partyHistory', ACKS.partyHistory(camp, 'pty-x').some(e => e.event.kind === 'survival-day'));
+}
+
+// =============================================================================
 // V4 — the general Forage / Hunt activity (RR p.278 §1.4)
 const HI = () => 0.99;   // d20 = 20
 const LO = () => 0;      // d20 = 1

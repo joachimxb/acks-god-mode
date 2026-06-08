@@ -3731,6 +3731,83 @@ function _survivalDayGroups(campaign){
   return { groups: groups, settled: settled };
 }
 
+// CoL-1 (2026-06-08) — whether the day's survival outcome is worth a permanent record. A purely routine
+// fed+watered day with no deficit and no change is NOT recorded (no eventLog noise). Recorded when any
+// member is hungry/thirsty/critical, is still carrying a deficit or CON loss, or changed today (lost OR
+// recovered CON / cleared a deficit) — i.e. there is an actual survival CONDITION to write to history.
+function _survivalDayWorthRecording(surv){
+  if(!surv || surv.ignored) return false;
+  if(surv.anyHungry || surv.anyThirsty || surv.anyCritical) return true;
+  const ms = surv.members || {};
+  for(const id in ms){
+    const m = ms[id]; if(!m) continue;
+    if((m.foodDeficitDays || 0) > 0 || (m.waterDeficitDays || 0) > 0) return true;   // still in deficit
+    if((m.conLossHunger || 0) > 0 || (m.conLossThirst || 0) > 0) return true;        // still carrying CON loss
+    if((m.conLostHunger || 0) !== 0 || (m.conLostThirst || 0) !== 0) return true;    // changed today (loss or recovery)
+  }
+  return false;
+}
+
+// A compact per-member status fragment for the survival-day label/history.
+function _survivalMemberFragment(name, m){
+  if(!m) return name;
+  const bits = [];
+  if(m.starving) bits.push('starving (day ' + (m.foodDeficitDays || 0) + ')');
+  else if(m.underfed) bits.push('underfed (day ' + (m.foodDeficitDays || 0) + ')');
+  else if(m.hungry) bits.push('hungry');
+  if(m.dehydrated) bits.push('dehydrated (day ' + (m.waterDeficitDays || 0) + ')');
+  const net = (m.conLostHunger || 0) + (m.conLostThirst || 0);                       // +lost / −recovered today
+  if(net > 0) bits.push('lost ' + net + ' CON');
+  else if(net < 0) bits.push('regained ' + (-net) + ' CON');
+  if(m.critical) bits.push('at death’s door (CON 0)');
+  if(!bits.length) bits.push('fed and watered');
+  return name + ' — ' + bits.join(', ');
+}
+
+// Build the comprehensive (non-transient) survival-day event for one resolved group — the off-journey
+// counterpart of journey-day-tick (CoL-1, 2026-06-08). Carries the full day's per-member outcome + the
+// context envelope (the hex as primaryHexId, each member as a related character, the party), so the day
+// surfaces in ACKS.characterHistory / hexHistory / partyHistory. campaignLogHidden on a recovery-only
+// day (stays in the Event Log + histories, off the narrative Campaign Log); surfaced when a condition is
+// active that day. The per-thing transient signals still drive the pause + day-review digest.
+function _buildSurvivalDayEvent(campaign, surv, memberChars, partyId, hex, settled){
+  const related = [];
+  const membersOut = {};
+  (memberChars || []).forEach(c => {
+    if(!c || !c.id) return;
+    related.push({ kind: 'character', id: c.id, role: 'subject' });
+    const m = surv.members && surv.members[c.id];
+    if(m) membersOut[c.id] = {
+      name: c.name || c.id, fedFood: !!m.fedFood, fedWater: !!m.fedWater,
+      foodDeficitDays: m.foodDeficitDays || 0, waterDeficitDays: m.waterDeficitDays || 0,
+      conLossHunger: m.conLossHunger || 0, conLossThirst: m.conLossThirst || 0,
+      conLostHunger: m.conLostHunger || 0, conLostThirst: m.conLostThirst || 0,
+      hungry: !!m.hungry, underfed: !!m.underfed, starving: !!m.starving, dehydrated: !!m.dehydrated,
+      critical: !!m.critical, waterDaysCarried: m.waterDaysCarried || 0
+    };
+  });
+  if(partyId) related.push({ kind: 'party', id: partyId, role: 'subject' });
+  const frags = (memberChars || []).map(c => _survivalMemberFragment(c.name || c.id, surv.members && surv.members[c.id]));
+  let label = frags.slice(0, 3).join('; ');
+  if(frags.length > 3) label += '; and ' + (frags.length - 3) + ' more';
+  if(settled && label) label += ' (sheltered)';
+  const notableNow = !!(surv.anyHungry || surv.anyThirsty || surv.anyCritical);
+  return {
+    kind: 'survival-day',
+    type: 'survival-day',
+    transient: false,
+    primaryHexId: (hex && hex.id) || null,
+    relatedEntities: related,
+    campaignLogHidden: !notableNow,    // recovery-only days stay out of the Campaign Log (still in history)
+    label: label || 'survival day',
+    payload: {
+      survivalDay: true, partyId: partyId || null, hexId: (hex && hex.id) || null, settled: !!settled,
+      anyHungry: !!surv.anyHungry, anyThirsty: !!surv.anyThirsty, anyCritical: !!surv.anyCritical,
+      members: membersOut, narrative: label || 'survival day'
+    }
+  };
+}
+
 // PURE handler (Calendar §14): propose each field group's survival + settled top-ups. No mutation.
 function proposeSurvivalDay(campaign, ctx){
   const A = _jACKS();
@@ -3745,16 +3822,27 @@ function proposeSurvivalDay(campaign, ctx){
     if(surv.ignored) continue;
     out.pendingRecords.push({ kind: 'survival', partyId: g.partyId, memberIds: g.members.map(m => m.id), survival: surv });
     (surv.notableEvents || []).forEach(e => out.notableEvents.push(e));
+    // CoL-1 (2026-06-08): persist the day to the eventLog/history when it carries a condition (not a
+    // routine fed day). One comprehensive survival-day event per group — the off-journey counterpart of
+    // journey-day-tick — surfaces in characterHistory / hexHistory / partyHistory.
+    if(_survivalDayWorthRecording(surv)){
+      out.notableEvents.push(_buildSurvivalDayEvent(campaign, surv, g.members, g.partyId, g.hex, false));
+    }
   }
   for(const c of split.settled){
     if(!_settledNeedsTopUp(campaign, c)) continue;
+    const hex = A.findHex(campaign, c.currentHexId);
     const surv = resolveDaySurvival(campaign, {
-      members: [c], hex: A.findHex(campaign, c.currentHexId), share: false, camp: null, leaderId: null,
+      members: [c], hex: hex, share: false, camp: null, leaderId: null,
       freeFood: true, freeWater: true,
       notable: { kind: 'survival-day-tick', prefix: c.name || 'A character', primaryHexId: c.currentHexId || null, payload: { characterId: c.id }, transient: true }
     }, ctx || {});
     if(surv.ignored) continue;
     out.pendingRecords.push({ kind: 'survival', partyId: null, memberIds: [c.id], survival: surv });
+    // A settled top-up that CLEARS a deficit (recovery) is recorded too — campaignLogHidden, but in history.
+    if(_survivalDayWorthRecording(surv)){
+      out.notableEvents.push(_buildSurvivalDayEvent(campaign, surv, [c], null, hex, true));
+    }
   }
   return out;
 }

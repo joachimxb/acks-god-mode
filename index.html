@@ -15937,9 +15937,9 @@ return {
     if(!p || !record) return [];
     return (p.notableEvents || []).filter(e => {
       if(!e || e.consumer !== record.consumer) return false;
-      // The comprehensive per-day umbrella (Travel pivot) is conveyed by the record summary line itself;
-      // the per-thing notables (lost/hunger/fording/…) are what the GM reviews under it.
-      if(e.type === 'travel-day') return false;
+      // The comprehensive per-day umbrella (Travel pivot / CoL-1 survival-day) is conveyed by the record
+      // summary line itself; the per-thing notables (lost/hunger/fording/…) are what the GM reviews under it.
+      if(e.type === 'travel-day' || e.type === 'survival-day') return false;
       // Match by journeyId AND dayIndex — a multi-day advance has one record per day for the same journey,
       // so journeyId alone showed every day's notables under each day's record (an earlier day surfaced a
       // later day's dehydration — the review must not look into the future). tickJourneyDay stamps dayIndex.

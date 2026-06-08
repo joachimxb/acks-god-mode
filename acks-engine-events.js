@@ -106,6 +106,10 @@ const EVENT_KINDS = Object.freeze([
   // Event Wizard below. Carries payload.activityCost so the #346 day budget counts it (forage=ancillary,
   // hunt=dedicated).
   'provisioning-activity',
+  // CoL-1 (Phase 2.5 Provisioning §16.2, 2026-06-08) — off-journey survival day record. Engine-emitted
+  // by the 'survival' day-consumer (the field/settled counterpart of journey-day-tick); record-only,
+  // campaignLogHidden on a recovery-only day, surfaced when a condition is active. Event Wizard opt-out.
+  'survival-day',
   // #551 Wave Entity-B (2026-05-31) — Chronicle Entry freeform GM narrative
   'gm-narrative',
   // GP Wave B (2026-06-04, Architecture.md §4.3) — the wealth/item movement grammar.
@@ -394,6 +398,13 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { forageKind: 'string', rolled: 'number', target: 'number', bonus: 'number', terrMod: 'number',
          success: 'boolean', auto: 'boolean', yieldDays: 'number', yieldStone: 'number',
          wanderingMonsterRisk: 'boolean', hexId: 'string', activityCost: 'object', narrative: 'string' }
+  },
+  // CoL-1 (Phase 2.5 Provisioning §16.2) — off-journey survival day record (engine-emitted, record-only).
+  'survival-day': {
+    R: {},
+    O: { survivalDay: 'boolean', partyId: 'string', hexId: 'string', settled: 'boolean',
+         anyHungry: 'boolean', anyThirsty: 'boolean', anyCritical: 'boolean',
+         members: 'object', narrative: 'string' }
   },
   // GP Wave B (2026-06-04, Architecture.md §4.3). source/destination are typed handles:
   //   { kind:'treasury'|'character-gp'|'character-stash'|'hex-stash'|'stash'|'party-stash'|'external', id?, label? }
@@ -1810,6 +1821,14 @@ registerEventHandler('journey-resupply', applyEvent_journeyAudit);
 registerEventHandler('journey-encounter', applyEvent_journeyAudit);
 registerEventHandler('journey-aborted', applyEvent_journeyAudit);
 registerEventHandler('journey-rerouted', applyEvent_journeyAudit);
+// CoL-1 (Provisioning §16.2) — the off-journey survival day record shares the same audit posture:
+// the survival absolutes were already applied in the 'survival' consumer commit; this handler exists
+// only so the event is well-formed if ever replayed (a no-op beyond recording the narrative).
+function applyEvent_survivalAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'survival day' } };
+}
+registerEventHandler('survival-day', applyEvent_survivalAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -2732,7 +2751,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'market-transaction',
   // Phase 2.5 Provisioning V4 — owned by forageActivity/huntActivity (raw emit would skip the
   // throw + yield application; the event is a record of what the verb already did).
-  'provisioning-activity'
+  'provisioning-activity',
+  // CoL-1 — owned by the 'survival' day-consumer (a record of the day's resolution, not a GM verb).
+  'survival-day'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
