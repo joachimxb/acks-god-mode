@@ -804,7 +804,7 @@ function mkConstruction(){
   c.domains.find(d=>d.id==='dom-vassal').geography.hexes = c.hexes.filter(h=>h.domainId==='dom-vassal');
   return c;
 }
-ok('CONSTRUCTION_DUTY_TYPES = 6 types, vessel is littoralOnly', ACKS.CONSTRUCTION_DUTY_TYPES.length===6 && ACKS.CONSTRUCTION_DUTY_TYPES.find(t=>t.value==='vessel').littoralOnly===true);
+ok('CONSTRUCTION_DUTY_TYPES = 7 types (incl. generic), vessel is littoralOnly', ACKS.CONSTRUCTION_DUTY_TYPES.length===7 && ACKS.CONSTRUCTION_DUTY_TYPES.find(t=>t.value==='vessel').littoralOnly===true && ACKS.CONSTRUCTION_DUTY_TYPES.find(t=>t.value==='generic').generic===true);
 {
   const c = mkConstruction();
   const vd = c.domains.find(d=>d.id==='dom-vassal');
@@ -830,6 +830,28 @@ ok('CONSTRUCTION_DUTY_TYPES = 6 types, vessel is littoralOnly', ACKS.CONSTRUCTIO
   ok('progress orders carry type labels (Fort)', p.orders.length===3 && p.orders[0].typeLabel==='Fort');
   ACKS.removeConstructionOrder(c, con.id, 1);   // removes the hex-b tower
   ok('remove order → target back to 15,000 (only hex-a remains)', ACKS.constructionDutyTargetGp(c, con)===15000 && con.constructionOrders.length===2);
+}
+{
+  // Generic construction (RR p.348 "or other structures somewhere within his realm") — no hex/type;
+  // target = the realm-wide cap; it dominates any specific orders; one generic per duty.
+  ok('CONSTRUCTION_DUTY_TYPES leads with generic', ACKS.CONSTRUCTION_DUTY_TYPES[0].value==='generic' && ACKS.CONSTRUCTION_DUTY_TYPES[0].generic===true);
+  const c = mkConstruction();
+  const con = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'construction' }, { rng: scriptedRng([]) }).obligation;
+  ok('empty construction → realm cap (3 hexes = 45,000)', ACKS.constructionDutyTargetGp(c, con) === 45000);
+  ACKS.addConstructionOrder(c, con.id, { hexId:'hex-a', type:'fort' });
+  ok('a specific order scopes the target to 15,000', ACKS.constructionDutyTargetGp(c, con) === 15000);
+  ACKS.addConstructionOrder(c, con.id, { type:'generic' });   // no hex
+  ok('a generic order needs no hex + dominates → realm cap 45,000', ACKS.constructionDutyTargetGp(c, con)===45000 && con.constructionOrders.length===2);
+  ACKS.addConstructionOrder(c, con.id, { type:'generic' });
+  ok('only one generic order per duty', con.constructionOrders.filter(x=>x.type==='generic').length===1);
+  const p = ACKS.constructionDutyProgress(c, con);
+  ok('progress flags hasGeneric + excludes generic from orderedHexCount', p.hasGeneric===true && p.orderedHexCount===1);
+  ok('generic order carries its label (no hex)', p.orders.some(x=>x.generic && x.typeLabel==='Any construction (anywhere in the realm)' && x.hexId===null));
+  // remove the generic order → back to the specific scope
+  const gi = con.constructionOrders.findIndex(x=>x.type==='generic');
+  ACKS.removeConstructionOrder(c, con.id, gi);
+  ok('removing the generic order → back to the specific 15,000 scope', ACKS.constructionDutyTargetGp(c, con)===15000 && !con.constructionOrders.some(x=>x.type==='generic'));
+  ok('constructionDutyTypeAllowed("generic") is true', ACKS.constructionDutyTypeAllowed(c, c.domains.find(d=>d.id==='dom-vassal'), 'generic') === true);
 }
 {
   // Landlocked realm → vessel not allowed.
