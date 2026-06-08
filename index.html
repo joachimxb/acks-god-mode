@@ -286,16 +286,36 @@ document.addEventListener('alpine:init', () => {
                       <template x-if="r.cadence === 'monthly'">
                         <span class="text-xs opacity-50 italic whitespace-nowrap" title="Advances at month-end via the monthly turn, not per-day">at month-end</span>
                       </template>
-                      <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
+                      <!-- survival isn't rejectable (field always consumes, RR p.278) — the GM acts via the per-member Survival → links below -->
+                      <template x-if="r.kind !== 'survival'">
+                        <button @click="toggleRejectDayTickRecord(r)" class="text-xs px-1 border border-ink rounded" x-text="r.rejected ? 'restore' : 'reject'"></button>
+                      </template>
                     </span>
                   </div>
                   <!-- This record's notable events (lost / hungry / dehydrated / encounter …), in red,
                        under their own record — the journey label above isn't repeated. The day's ROLLS
                        (nav / forage) are NOT shown here — they live in the Journey view's day log (the
                        pending "Day N" row), so the review stays a results summary (Joachim 2026-06-05). -->
-                  <div x-show="!r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
+                  <div x-show="r.kind !== 'survival' && !r.rejected && (r._notables||[]).length" class="ml-3 pb-0.5">
                     <template x-for="(ne, nei) in (r._notables||[])" :key="grp.consumer + '-' + ri + '-ntl-' + nei">
                       <div class="text-xs text-red-700 leading-snug" x-text="'• ' + dayTickNotableText(ne)"></div>
+                    </template>
+                  </div>
+                  <!-- SURVIVAL records (CoL-1): a per-member detail row — name + conditions (hunger/thirst
+                       + CON loss) + whether they ate/drank + food/water left — and a Survival → link to act
+                       on each one (replaces reject; survival always commits, the GM forages/moves instead). -->
+                  <div x-show="r.kind === 'survival'" class="ml-3 pb-1 space-y-0.5">
+                    <template x-for="(sr, sri) in (r._survivalRows||[])" :key="grp.consumer + '-' + ri + '-sv-' + sri">
+                      <div class="flex items-start justify-between gap-2">
+                        <div class="text-xs leading-snug">
+                          <!-- name only when the record covers more than one traveller; a lone record's header already names them -->
+                          <span class="font-semibold" x-show="(r._survivalRows||[]).length > 1" x-text="sr.name"></span>
+                          <template x-for="cond in sr.conditions" :key="sr.id + '-' + cond.label"><span class="mr-1 px-1 rounded font-semibold" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                          <span class="opacity-70" x-text="' · ' + (sr.fedFood ? 'ate' : 'no food') + ' · ' + (sr.fedWater ? 'drank' : 'no water') + ' · ' + sr.foodDays + ' food / ' + sr.waterDays + ' water left'"></span>
+                          <span x-show="sr.critical" class="ml-1 text-red-700 font-semibold">⚠ CON 0</span>
+                        </div>
+                        <button @click="dayTickGoToSurvival(sr.id)" class="text-xs px-1 border border-ink rounded hover:bg-yellow-100 shrink-0" title="Open this character's Survival tab to forage, move, or review">Survival &rarr;</button>
+                      </div>
                     </template>
                   </div>
                 </div>
@@ -1026,6 +1046,70 @@ document.addEventListener('alpine:init', () => {
       <div class="wizard-submit-gate">
         <span class="wizard-submit-disabled-reason" x-text="tradeSubmitDisabledReason()"></span>
         <button @click="tradeSubmit()" :disabled="!tradeCanSubmit()" :class="tradeCanSubmit() ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold" x-text="trade.dir==='buy' ? '🛒 Buy' : '💰 Sell'"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Forage / Hunt action (Provisioning V4 — Phase_2.5_Provisioning_Plan.md §9). The camp/survival
+     counterpart to 🛒 Trade, over ACKS.forageActivity / huntActivity. Opens from the character sheet
+     (🌿 Forage / 🏹 Hunt) or a hex card. Forage = ancillary, Hunt = dedicated (#346); +4 with Survival;
+     terrain/territory modifiers on food + hunt (RR p.278). Layered at z-75 (above the character sheet). -->
+<div x-show="forage.open" @keydown.escape.window="closeForage()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <div>
+        <h3 class="font-bold text-lg">🌿 Forage / 🏹 Hunt<span x-show="forageActor()" class="font-normal opacity-80"> — <span x-text="forageActor()?.name||'(unnamed)'"></span></span></h3>
+        <p class="text-sm opacity-70">Live off the land (RR p.278). Forage = one ancillary task; hunting takes the day (dedicated).</p>
+      </div>
+      <button @click="closeForage()" class="text-2xl leading-none px-2" title="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <label class="text-sm block">Character<br>
+        <select @change="forage.actorId=$event.target.value; forage.results=[]" class="text-sm w-full" style="max-width:100%">
+          <option value="" :selected="!forage.actorId">— pick a character —</option>
+          <template x-for="c in forageCharacters()" :key="c.id"><option :value="c.id" :selected="forage.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
+        </select>
+      </label>
+      <div class="flex gap-1 text-sm flex-wrap">
+        <template x-for="k in [['water','🥤 Water'],['food','🌿 Food'],['firewood','🪵 Firewood'],['hunt','🏹 Hunt']]" :key="k[0]">
+          <button @click="forage.kind=k[0]" :class="(forage.kind===k[0] ? 'tab-active font-semibold' : 'hover:bg-yellow-100') + (forageKindFits(k[0]).fits ? '' : ' opacity-40')" :title="forageKindFits(k[0]).reason || k[1]" class="px-3 py-1 border border-ink/40 rounded" x-text="k[1]"></button>
+        </template>
+      </div>
+      <template x-if="forageActor() && forageForecast()">
+        <div class="text-sm border border-ink/20 rounded p-3 bg-black/5 space-y-1">
+          <template x-if="forageForecast().auto"><div>💧 <span x-text="forageForecast().note"></span></div></template>
+          <template x-if="!forageForecast().auto">
+            <div class="space-y-1">
+              <div>Throw: <span class="font-mono" x-text="'1d20' + (forageForecast().bonus?(' +'+forageForecast().bonus+' Survival'):'') + (forageForecast().terrMod?(forageForecast().terrMod>0?(' +'+forageForecast().terrMod):(' '+forageForecast().terrMod)):'') + ' vs ' + forageForecast().target + '+'"></span></div>
+              <div class="opacity-70" x-text="forageForecast().note"></div>
+              <div class="opacity-70">Cost: <span class="font-semibold" x-text="forageForecast().costLabel"></span> activity (#346)<span x-show="forageForecast().territory"> · territory <span x-text="forageForecast().territory"></span></span></div>
+              <div class="opacity-70" x-text="forageBudgetLine()"></div>
+            </div>
+          </template>
+        </div>
+      </template>
+      <!-- Results — each attempt STACKS (newest at the bottom) rather than replacing; each one is
+           rerollable (the GM's "that throw was unlucky" redo — re-rolls the die + swaps the yield). -->
+      <template x-if="forage.results.length">
+        <div class="space-y-1.5">
+          <template x-for="(res, ri) in forage.results" :key="res.id || ri">
+            <div class="text-sm rounded p-2 flex items-center justify-between gap-2" :class="(res.success || res.auto) ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
+              <span>
+                <span class="font-semibold" x-text="forageKindLabel(res.kind)"></span>
+                <template x-if="res.auto"><span> — 💧 filled up (free)</span></template>
+                <template x-if="!res.auto"><span x-text="' — ' + (res.success ? '✓' : '✗') + ' rolled ' + res.rolled + (res.bonus ? ('+' + res.bonus) : '') + (res.terrMod ? (res.terrMod > 0 ? ('+' + res.terrMod) : ('' + res.terrMod)) : '') + ' vs ' + res.target + '+ → ' + (res.success ? forageYieldText(res) : 'nothing')"></span></template>
+                <template x-if="!res.auto && res.success && res.kind === 'hunt'"><span class="opacity-80"> · ⚠ wandering-monster risk</span></template>
+              </span>
+              <button x-show="!res.auto" @click="rerollForageResult(ri)" class="shrink-0 text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-roll this throw">⟳ Reroll</button>
+            </div>
+          </template>
+        </div>
+      </template>
+      <div class="flex justify-end items-center gap-2 pt-1">
+        <span x-show="forageActor() && !forageKindFits(forage.kind).fits" class="text-xs accent-red mr-auto" x-text="forageKindFits(forage.kind).reason"></span>
+        <button @click="closeForage()" class="px-3 py-1.5 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
+        <button @click="runForage()" :disabled="!forageActor() || !forageKindFits(forage.kind).fits" :class="(forageActor() && forageKindFits(forage.kind).fits) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm" x-text="forage.kind==='hunt' ? '🏹 Hunt' : '🌿 Forage'"></button>
       </div>
     </div>
   </div>
@@ -3139,8 +3223,10 @@ document.addEventListener('alpine:init', () => {
                           :title="characterAtSettlement(r.c) ? ('Buy or sell at ' + (characterAtSettlement(r.c).name || 'the local market')) : 'Buy or sell at a market (pick the settlement in the wizard)'">🛒 Market</button>
                   <button @click="recruitDeepLink({ patronId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
                           title="Recruit hirelings, henchmen or specialists with this character as patron">⚔ Recruit</button>
-                  <button @click="startJourneyForCharacter(r.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100"
+                  <button @click="startJourneyForCharacter(r.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
                           :title="characterPartyOf(r.c) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 Travel</button>
+                  <button @click="openForage({ actorCharacterId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100"
+                          title="Forage (firewood / water / food) or hunt — live off the land (RR p.278)">🌿 Forage</button>
                 </td>
               </tr>
             </template>
@@ -3195,7 +3281,7 @@ document.addEventListener('alpine:init', () => {
                   </button>
                   <button x-show="row.affordance.mode === 'navigate'" @click="rejectActivity(row)"
                           class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-100"
-                          title="A travelled day can't be rewound — open the journey and Stop Moving there">
+                          :title="row.activity.sourceKind === 'recruitment-drive' ? 'Open the search and Stop soliciting there' : 'A travelled day can\'t be rewound — open the journey and Stop Moving there'">
                     <span x-text="row.affordance.label"></span> →
                   </button>
                   <span x-show="row.affordance.mode === 'none'" class="text-xs opacity-40">—</span>
@@ -3625,6 +3711,32 @@ document.addEventListener('alpine:init', () => {
                       <input type="text" x-model="ep.gmNotes" placeholder="GM notes (optional)" class="w-full text-sm" style="font-size:0.7rem">
                     </div>
                   </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <!-- CoL-2 — end-of-month living-expenses + henchman-wage preview (read-only; the actual debit
+           happens on commit). Mirrors the pending-events panel. Per-character target set on the Survival tab. -->
+      <template x-if="turnLivingExpenseProposal && turnLivingExpenseProposal.ruleOn && (turnLivingExpenseProposal.charges||[]).length">
+        <div class="mb-4 border-2 border-amber-700/50 rounded p-3" style="background:#f4ecd2">
+          <h3 class="font-bold text-base mb-1">🏠 Living expenses + wages <span class="text-sm opacity-70 font-normal" x-text="'(≈ ' + (turnLivingExpenseProposal.totalGp||0).toLocaleString() + ' gp at month end · RR p.173)'"></span></h3>
+          <p class="text-sm opacity-70 mb-2 italic">Each self-supporting character pays living expenses for their lifestyle target (the lesser of the target and funds on hand — no debt); lieges pay their henchmen's wages. Adjust a character's target on their Survival tab.</p>
+          <table class="w-full text-sm">
+            <thead><tr class="text-left border-b border-ink/30">
+              <th class="py-1 pr-2">Character</th><th class="py-1 pr-2">Keep</th><th class="py-1 pr-2">Cost</th><th class="py-1 pr-2">Projected pay</th><th class="py-1 pr-2">Apparent level</th>
+            </tr></thead>
+            <tbody>
+              <template x-for="ch in turnLivingExpenseProposal.charges" :key="ch.charId + ':' + ch.kind">
+                <tr class="border-b border-ink/10">
+                  <td class="py-1 pr-2" x-text="ch.name || ch.charId"></td>
+                  <td class="py-1 pr-2" x-text="ch.kind === 'henchman-wage' ? 'Wage (liege pays)' : 'Living expenses'"></td>
+                  <td class="py-1 pr-2 font-mono" x-text="((ch.kind==='henchman-wage' ? ch.wage : ch.target)||0).toLocaleString() + ' gp'"></td>
+                  <td class="py-1 pr-2 font-mono" :class="(!ch.waived && (ch.paid||0) < ((ch.kind==='henchman-wage'?ch.wage:ch.target)||0)) ? 'accent-red' : ''"
+                      x-text="ch.waived ? '— waived (domain income)' : ((ch.paid||0).toLocaleString() + ' gp')"></td>
+                  <td class="py-1 pr-2" x-text="ch.kind==='living-expenses' ? ('L' + ch.effectiveLevel + (ch.effectiveLevel < ch.trueLevel ? ' ↓ (true ' + ch.trueLevel + ')' : '')) : '—'"></td>
                 </tr>
               </template>
             </tbody>
@@ -4093,11 +4205,16 @@ document.addEventListener('alpine:init', () => {
         <!-- supplies tracker + status conditions — Provisioning V5: totals are now TIGHT inventory
              (members' carried rations + water + the party camp), not the retired abstract counter. -->
         <div class="border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown()">
+          <!-- CoL-1 lifestyle banner: in a settlement / stronghold / a realm ruled by a traveller (or a
+               companion), no rations or water are spent — the party lives off the lifestyle (RR p.278). -->
+          <template x-if="journeyProvisioningInfo(journeyDetail()).onLifestyle">
+            <div class="mb-2 text-xs text-green-800 bg-green-50/60 border border-green-700/30 rounded px-2 py-1">🏠 On lifestyle — no food or water consumed<span x-show="journeyProvisioningInfo(journeyDetail()).label" x-text="' · ' + journeyProvisioningInfo(journeyDetail()).label"></span></div>
+          </template>
           <div class="flex flex-wrap gap-4">
             <span title="Total ration days across all travellers + the party camp">🍖 Food: <span class="font-semibold" x-text="journeyTotalFoodDays(journeyDetail())"></span> day(s)</span>
             <span title="Total drinking-water days carried by the party">💧 Water: <span class="font-semibold" x-text="journeyTotalWaterDays(journeyDetail())"></span> day(s)</span>
             <span>🔥 Fatigue streak: <span class="font-semibold" x-text="(journeyDetail().fatigueDays)||0"></span>/6</span>
-            <span :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) for the party'"></span>
+            <span x-show="!journeyProvisioningInfo(journeyDetail()).onLifestyle" :class="journeySupplyDaysLeft(journeyDetail()) < 3 ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="'≈ ' + journeySupplyDaysLeft(journeyDetail()) + ' day(s) for the party'"></span>
           </div>
           <!-- §8 party day-tick toggles: forage for water (greyed when the hex auto-supplies), share rations -->
           <div class="flex flex-wrap gap-4 mt-2 pt-2 border-t border-dashed border-ink/30" x-show="journeyDetail().status==='in-transit'">
@@ -4726,9 +4843,6 @@ document.addEventListener('alpine:init', () => {
         <button @click="charactersSubView='parties'" :class="charactersSubView==='parties' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="charactersSubView==='parties' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
           🧭 Parties <span class="opacity-60 text-sm" x-text="'(' + (currentCampaign?.parties||[]).length + ')'"></span>
         </button>
-        <button @click="charactersSubView='recruit'" :class="charactersSubView==='recruit' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="charactersSubView==='recruit' ? 'border-color:#2a1f12;font-weight:600' : 'border-color:transparent'">
-          🤝 Recruit
-        </button>
       </div>
     </div>
 
@@ -5002,6 +5116,11 @@ document.addEventListener('alpine:init', () => {
               </div>
               <div class="mt-3">
                 <div class="text-sm uppercase tracking-wide opacity-70 mb-1">Members</div>
+                <!-- CoL-1 lifestyle banner (Joachim 2026-06-06): in a settlement / stronghold / a realm the
+                     party's ruler holds, no rations or water are spent — they live off the lifestyle. -->
+                <template x-if="rationsShown() && partyMembers(pt).length > 0 && partyProvisioningInfo(pt).onLifestyle">
+                  <div class="mb-2 text-xs text-green-800 bg-green-50/60 border border-green-700/30 rounded px-2 py-1 max-w-3xl">🏠 On lifestyle — no food or water consumed<span x-show="partyProvisioningInfo(pt).label" x-text="' · ' + partyProvisioningInfo(pt).label"></span></div>
+                </template>
                 <template x-if="partyMembers(pt).length === 0">
                   <p class="text-sm italic opacity-60">No members. Add characters below.</p>
                 </template>
@@ -5143,7 +5262,13 @@ document.addEventListener('alpine:init', () => {
          Recruiting Wizard; this comment is the convention reference for everyone after it. -->
     
     <!-- ───── Sub-tab: RECRUIT (Phase 2.95 §4.2) ───── -->
-    <div x-show="charactersSubView==='recruit'" class="vellum border border-ink rounded p-4">
+  </div>
+</div>
+
+<!-- ───── Activities ▸ RECRUIT (moved here from the Characters tab, 2026-06-06) ───── -->
+<div x-show="currentView === 'activities' && activitiesSubView === 'recruit'" class="p-4" x-cloak>
+  <div class="space-y-4">
+    <div class="vellum border border-ink rounded p-4">
       <div class="flex justify-between items-baseline mb-3 flex-wrap gap-2">
         <h3 class="font-bold text-lg">🤝 Recruit Hirelings <span class="text-sm opacity-70 font-normal">· RR pp.164–167</span></h3>
         <div class="text-sm opacity-70">Solicit · Engage · Negotiate · Hire</div>
@@ -5152,6 +5277,39 @@ document.addEventListener('alpine:init', () => {
       <!-- Empty state -->
       <template x-if="!recruitState">
         <div class="space-y-3">
+          <!-- On-going recruiting efforts (R3 — the campaign roster, like the Journeys/Travel list) -->
+          <template x-if="recruitOngoingDrives().length > 0">
+            <div class="border border-ink/40 rounded p-3 space-y-2">
+              <div class="font-semibold">On-going recruiting <span class="text-sm opacity-60 font-normal" x-text="'· ' + pluralize(recruitOngoingDrives().length, 'search', 'searches')"></span></div>
+              <table class="text-sm w-full" style="border-collapse:collapse;">
+                <thead>
+                  <tr style="background:#f6efdf">
+                    <th class="px-2 py-1 text-left border-b border-ink/20">Patron</th>
+                    <th class="px-2 py-1 text-left border-b border-ink/20">Seeking</th>
+                    <th class="px-2 py-1 text-left border-b border-ink/20">Progress</th>
+                    <th class="px-2 py-1 text-right border-b border-ink/20">Available</th>
+                    <th class="px-2 py-1 text-right border-b border-ink/20">Fees</th>
+                    <th class="px-2 py-1 text-right border-b border-ink/20">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in recruitOngoingDrives()" :key="row.drive.id">
+                    <tr class="border-b border-ink/10">
+                      <td class="px-2 py-1"><button @click="recruitOpenDrive(row.patron.id)" class="underline font-semibold" x-text="row.patron.name || '(unnamed)'"></button></td>
+                      <td class="px-2 py-1" x-text="row.drive.hireTypeLabel || row.drive.hireTypeId"></td>
+                      <td class="px-2 py-1" x-text="row.drive.status === 'complete' ? 'search complete' : ('week ' + Math.min((row.drive.weeksRevealed||0) + 1, 3) + ' of 3')"></td>
+                      <td class="px-2 py-1 text-right font-mono" x-text="row.drive.revealedAvailable || 0"></td>
+                      <td class="px-2 py-1 text-right font-mono" x-text="(row.drive.feesAccruedGp || 0) + 'gp'"></td>
+                      <td class="px-2 py-1 text-right whitespace-nowrap">
+                        <button @click="recruitOpenDrive(row.patron.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Open</button>
+                        <button x-show="row.drive.status === 'active'" @click="recruitStopDrive(row.patron.id, row.drive.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100">⏹ Stop</button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </template>
           <p class="text-sm opacity-80">
             Recruitment runs on the patron-character model (RR p.164): the patron solicits in a market,
             individuates candidates, negotiates with them, and hires those who accept. Mercenary units
@@ -5205,6 +5363,10 @@ document.addEventListener('alpine:init', () => {
               <span x-text="recruitPatronPersuasionProfs().map(p => p.label).join(', ')"></span>
               <span class="opacity-70 italic" x-text="recruitPatronPersuasionProfs().length === 1 ? '(auto-applied — +1 to reaction rolls)' : '(GM picks one per attempt)'"></span>
             </div>
+            <!-- R3 — setup (category/type/settlement/offer/role) is editable only
+                 before a drive starts; once soliciting, the drive locks these. -->
+            <template x-if="!recruitActiveDrive()">
+            <div class="space-y-2">
             <div class="text-sm flex items-center gap-2">
               <span class="w-28">Category</span>
               <template x-for="cat in [{id:'henchman',label:'Henchman'},{id:'specialist',label:'Specialist'},{id:'mercenary',label:'Mercenary'}]" :key="cat.id">
@@ -5280,85 +5442,86 @@ document.addEventListener('alpine:init', () => {
                 </div>
               </div>
             </template>
-          </div>
-
-          <!-- Solicit -->
-          <div class="border border-ink/40 rounded p-3 space-y-2">
-            <div class="flex justify-between items-baseline flex-wrap gap-2">
-              <div>
-                <span class="font-semibold">Solicit</span>
-                <span class="opacity-70 text-sm" x-text="' · Week ' + (recruitState.solicitWeeksUsed || 0) + ' of 4 spent this month (RR p.164)'"></span>
-              </div>
-              <button @click="recruitSolicit()"
-                      :disabled="!recruitState.hireTypeId || (recruitState.solicitWeeksUsed >= 4) || recruitBlockedByHenchmanCap() || recruitBlockedByLevelCap() || recruitNoChance()"
-                      :class="(!recruitState.hireTypeId || recruitState.solicitWeeksUsed >= 4 || recruitBlockedByHenchmanCap() || recruitBlockedByLevelCap() || recruitNoChance()) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
-                      :title="recruitNoChance() ? 'No chance of finding this hire type at this market — see Forecast' : 'Spend a week soliciting'"
-                      class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
-                      x-text="recruitNoChance() ? '✗ No chance' : (recruitBlockedByLevelCap() ? '✗ Over level cap' : (recruitBlockedByHenchmanCap() ? '✗ At henchman cap' : (recruitState.solicitWeeksUsed >= 4 ? '✗ Out of weeks' : (recruitState.solicitResult ? '🎲 Solicit another week' : '🎲 Solicit this week'))))"></button>
             </div>
-            <template x-if="recruitState.solicitResult">
-              <div class="text-sm space-y-2">
-                <div><strong x-text="recruitState.solicitResult.totalAvailable + ' available total'"></strong> <span class="opacity-70" x-text="'(this week: ' + (recruitState.solicitResult.weekDetails && recruitState.solicitResult.weekDetails.length > 0 ? recruitState.solicitResult.weekDetails[recruitState.solicitResult.weekDetails.length-1].rolledTotal : 0) + ')'"></span></div>
-                <!-- §310.3f-fix21 — per-week breakdown. One row per solicit click. -->
-                <template x-if="recruitState.solicitResult.weekDetails && recruitState.solicitResult.weekDetails.length > 0">
-                  <!-- §310.3f-fix28 — table ends at Fee gp; reroll column is a sibling outside the bordered box. -->
-                  <div class="flex items-start gap-3">
-                    <table class="text-sm border border-ink/20" style="border-collapse:collapse; min-width:42rem;">
-                      <thead>
-                        <tr style="background:#f6efdf">
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Week</th>
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Spec <span class="opacity-60 font-normal" x-text="'(' + (recruitMarketClasses()[recruitState.marketClassIdx]?.label || '?') + ')'"></span></th>
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Roll outcome</th>
-                          <th class="px-2 py-1 text-right border-b border-ink/20">Found</th>
-                          <th class="px-2 py-1 text-left border-b border-ink/20">Fee roll</th>
-                          <th class="px-2 py-1 text-right border-b border-ink/20">Fee gp</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <template x-for="(wd, idx) in recruitState.solicitResult.weekDetails" :key="idx">
-                          <tr class="border-b border-ink/10">
-                            <td class="px-2 py-1 font-mono" x-text="'W' + wd.weekIndex"></td>
-                            <td class="px-2 py-1 font-mono" x-text="wd.availabilityDetail?.cellRaw || '—'"></td>
-                            <td class="px-2 py-1 font-mono text-sm" x-text="recruitFormatAvailability(wd.availabilityDetail)"></td>
-                            <td class="px-2 py-1 text-right font-mono" x-text="wd.rolledTotal"></td>
-                            <td class="px-2 py-1 font-mono text-sm opacity-80" x-text="recruitFormatFee(wd.feeDetail, wd.feeNotation, wd.fee)"></td>
-                            <td class="px-2 py-1 text-right font-mono" x-text="wd.fee + 'gp'"></td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                    <!-- Reroll column: one button per row, vertically aligned by mirroring the table's
-                         px-2 py-1 cell padding so each button sits opposite its row. Header spacer at top
-                         matches the <thead> row height. -->
-                    <div class="flex flex-col">
-                      <div class="px-2 py-1 text-sm" style="visibility:hidden;">_</div>
-                      <template x-for="(wd, idx) in recruitState.solicitResult.weekDetails" :key="'rr-'+idx">
-                        <div class="px-2 py-1">
-                          <button @click="recruitRerollSolicitWeek(idx)"
-                                  title="Reroll this week's availability"
-                                  class="text-sm px-2 py-0.5 opacity-70 hover:opacity-100 hover:bg-yellow-100 rounded"
-                                  style="background:none; border:1px solid #c4b88f; cursor:pointer;">🎲 Reroll</button>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-                </template>
+            </template>
+            <!-- R3 — read-only setup summary while a drive is in flight. -->
+            <template x-if="recruitActiveDrive()">
+              <div class="text-sm flex items-start gap-2 flex-wrap">
+                <span class="w-28">Soliciting</span>
+                <span x-text="recruitDriveSummaryLine()"></span>
               </div>
             </template>
-            <template x-if="recruitState.solicitResult && recruitState.solicitResult.totalAvailable === 0">
-              <p class="text-sm italic opacity-70">None available this week. Consider a larger market, or re-solicit.</p>
+          </div>
+
+          <!-- Soliciting (R3 — persistent day-aware drive; the global Day Clock advances it, RR p.164) -->
+          <div class="border border-ink/40 rounded p-3 space-y-2">
+            <!-- No drive yet → Start soliciting (budget-gated, like Forage). -->
+            <template x-if="!recruitActiveDrive()">
+              <div class="space-y-2">
+                <div class="flex justify-between items-baseline flex-wrap gap-2">
+                  <div>
+                    <span class="font-semibold">Solicit hirelings</span>
+                    <span class="opacity-70 text-sm"> · an ongoing ancillary activity (RR p.164)</span>
+                  </div>
+                  <button @click="recruitStartSoliciting()"
+                          :disabled="!recruitStartFits().fits"
+                          :class="recruitStartFits().fits ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                          :title="recruitStartFits().reason || 'Begin soliciting — week-1 candidates appear at once; advance the Day Clock for weeks 2–3'"
+                          class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
+                          x-text="recruitStartFits().label"></button>
+                </div>
+                <div class="text-sm opacity-70" x-text="recruitBudgetLine()"></div>
+                <p class="text-sm accent-red" x-show="!recruitStartFits().fits && recruitStartFits().reason" x-text="recruitStartFits().reason"></p>
+              </div>
+            </template>
+            <!-- Active / complete drive → status + Stop. The global Day Clock reveals weeks 2–3. -->
+            <template x-if="recruitActiveDrive()">
+              <div class="text-sm space-y-2">
+                <div class="flex justify-between items-baseline flex-wrap gap-2">
+                  <div>
+                    <span class="font-semibold" x-text="recruitActiveDrive().status === 'complete' ? 'Search complete' : ('Soliciting · week ' + Math.min(recruitActiveDrive().weeksRevealed + 1, 3) + ' of 3')"></span>
+                    <span class="opacity-70" x-show="recruitActiveDrive().status === 'active'" x-text="' · day ' + recruitDriveWeekDays() + '/7 this week'"></span>
+                    <span class="opacity-70" x-text="' · ' + recruitActiveDrive().revealedAvailable + ' available so far'"></span>
+                  </div>
+                  <button @click="recruitStopSoliciting()"
+                          x-show="recruitActiveDrive().status === 'active'"
+                          class="px-3 py-1 border border-ink rounded text-sm hover:bg-red-100">⏹ Stop soliciting</button>
+                </div>
+                <!-- Per-week schedule (½ week 1 / ¼ week 2 / remainder week 3, RR p.164). -->
+                <table class="text-sm border border-ink/20" style="border-collapse:collapse; min-width:24rem;">
+                  <thead>
+                    <tr style="background:#f6efdf">
+                      <th class="px-2 py-1 text-left border-b border-ink/20">Week</th>
+                      <th class="px-2 py-1 text-right border-b border-ink/20">Candidates</th>
+                      <th class="px-2 py-1 text-left border-b border-ink/20">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="(n, i) in (recruitActiveDrive().weekly || [])" :key="i">
+                      <tr class="border-b border-ink/10">
+                        <td class="px-2 py-1 font-mono" x-text="'W' + (i+1)"></td>
+                        <td class="px-2 py-1 text-right font-mono" x-text="n"></td>
+                        <td class="px-2 py-1" x-text="(i+1) <= recruitActiveDrive().weeksRevealed ? '✓ available' : ((i+1) === recruitActiveDrive().weeksRevealed + 1 && recruitActiveDrive().status === 'active' ? ('⏳ soliciting this week · day ' + recruitDriveWeekDays() + '/7') : '… advance the Day Clock')"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <div class="opacity-70" x-text="'Solicitation fees paid: ' + (recruitActiveDrive().feesAccruedGp || 0) + ' gp · ' + recruitBudgetLine()"></div>
+                <p class="text-sm italic opacity-70" x-show="recruitActiveDrive().status === 'active'">Advance the campaign <strong>Day Clock</strong> — each week of soliciting reveals its candidates (RR p.164). Engage the available candidates below; submitting concludes the search.</p>
+                <p class="text-sm italic opacity-70" x-show="recruitRevealedAvailable() === 0">No candidates yet. Advance the Day Clock, or stop and try a larger market.</p>
+              </div>
             </template>
           </div>
 
                     <!-- Mercenary count-level hire -->
-          <template x-if="recruitState.hireCategory === 'mercenary' && recruitState.solicitResult && recruitState.solicitResult.totalAvailable > 0">
+          <template x-if="recruitState.hireCategory === 'mercenary' && recruitRevealedAvailable() > 0">
             <div class="border border-ink/40 rounded p-3 space-y-2">
               <div class="font-semibold">Mercenary hire</div>
               <div class="text-sm flex items-center gap-2">
                 <span class="w-28">Hire count</span>
                 <input type="number" x-model.number="recruitState.mercenaryHireCount" min="0"
-                       :max="recruitState.solicitResult.totalAvailable" class="text-sm" style="width:6rem">
-                <span class="opacity-60" x-text="'/ ' + recruitState.solicitResult.totalAvailable + ' available'"></span>
+                       :max="recruitRevealedAvailable()" class="text-sm" style="width:6rem">
+                <span class="opacity-60" x-text="'/ ' + recruitRevealedAvailable() + ' available'"></span>
               </div>
               <!-- Destination picker — landed patrons get a choice;
                    landless patrons land in their personal company by necessity. -->
@@ -5398,15 +5561,15 @@ document.addEventListener('alpine:init', () => {
           </template>
 
           <!-- Individual hires: candidate engagement -->
-          <template x-if="(recruitState.hireCategory === 'henchman' || recruitState.hireCategory === 'specialist') && recruitState.solicitResult && recruitState.solicitResult.totalAvailable > 0">
+          <template x-if="(recruitState.hireCategory === 'henchman' || recruitState.hireCategory === 'specialist') && recruitRevealedAvailable() > 0">
             <div class="border border-ink/40 rounded p-3 space-y-3">
               <div class="flex justify-between items-baseline">
                 <div class="font-semibold">Candidates</div>
                 <button @click="recruitEngageOne()"
-                        :disabled="recruitState.engagedIds.length >= recruitState.solicitResult.totalAvailable"
-                        :class="recruitState.engagedIds.length >= recruitState.solicitResult.totalAvailable ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
+                        :disabled="recruitState.engagedIds.length >= recruitRevealedAvailable()"
+                        :class="recruitState.engagedIds.length >= recruitRevealedAvailable() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
                         class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold"
-                        x-text="'+ Engage candidate (' + recruitState.engagedIds.length + ' / ' + recruitState.solicitResult.totalAvailable + ' engaged)'"></button>
+                        x-text="'+ Engage candidate (' + recruitState.engagedIds.length + ' / ' + recruitRevealedAvailable() + ' engaged)'"></button>
               </div>
               <template x-if="recruitState.engagedIds.length === 0">
                 <p class="text-sm italic opacity-70">Engage a candidate to roll them up. By default, only hired candidates are kept on the roster; engaged-but-not-hired ones are discarded when this session ends (whether you Submit or Cancel). The persistent-hireling-candidates house rule keeps every engaged record, and persistent-hireling-resurfacing makes them re-appear in future solicits at this market.</p>
@@ -5567,7 +5730,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <!-- Sub-tab bar inside the modal -->
     <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
-      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
+      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
         <button @click="characterEditorTab=tab.id" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
@@ -6323,6 +6486,56 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
 
+      <!-- SURVIVAL tab (CoL-1 / Provisioning §16, RR p.278) — food & water stocks, the lifestyle-vs-field
+           regime (no rations spent in a settlement / stronghold / a realm ruled by the character or a
+           co-located companion), conditions, and the Forage/Hunt action. The Cost-of-living panel
+           (CoL-2) moved to the Expenses tab. -->
+      <div x-show="characterEditorTab==='survival'" class="space-y-3">
+        <template x-if="!rationsShown()">
+          <p class="text-sm italic opacity-70">Food &amp; water tracking is off — the <span class="font-semibold">Ignore rations</span> house rule is on. Turn it off in ⚙ House Rules to track provisioning (RR p.278).</p>
+        </template>
+        <template x-if="rationsShown()">
+          <div class="space-y-3" x-data="{ get reg(){ return characterSurvivalRegime(characterEditing); } }">
+            <!-- Regime banner: on lifestyle (no consumption) vs in the field (daily food + water) -->
+            <div class="rounded p-3 border" :class="reg.onLifestyle ? 'border-green-700/40 bg-green-50/50' : 'border-orange-700/40 bg-orange-50/50'">
+              <div class="flex items-center gap-2">
+                <span x-text="reg.onLifestyle ? '🏠' : '🏕'"></span>
+                <span class="font-semibold text-sm" x-text="reg.onLifestyle ? 'On lifestyle' : 'In the field'"></span>
+              </div>
+              <p class="text-xs opacity-80 mt-0.5" x-text="reg.label"></p>
+            </div>
+            <!-- Food + Water stocks -->
+            <div class="grid grid-cols-2 gap-3">
+              <div class="border border-ink/30 rounded p-3">
+                <h4 class="font-semibold text-sm mb-1">🍖 Food</h4>
+                <p class="text-sm"><span class="font-mono font-semibold" :class="characterFoodDays(characterEditing)<=0 ? 'accent-red' : ''" x-text="characterFoodDays(characterEditing)"></span> day(s) of rations carried</p>
+                <p class="text-xs opacity-60 mt-0.5" x-text="reg.onLifestyle ? 'Not consumed while on lifestyle.' : 'One ration consumed per day in the field.'"></p>
+              </div>
+              <div class="border border-ink/30 rounded p-3">
+                <h4 class="font-semibold text-sm mb-1">💧 Water</h4>
+                <p class="text-sm"><span class="font-mono font-semibold" :class="characterWaterDays(characterEditing)<=0 ? 'accent-red' : ''" x-text="characterWaterDays(characterEditing)+' / '+characterWaterCap(characterEditing)"></span> day(s) carried / capacity</p>
+                <p class="text-xs mt-0.5" :class="characterHexSourcesWater(characterEditing) ? 'text-sky-700' : 'opacity-60'" x-text="characterHexSourcesWater(characterEditing) ? '💧 Fresh water available at this hex' : (reg.onLifestyle ? 'Topped up while on lifestyle.' : 'No water source at this hex.')"></p>
+              </div>
+            </div>
+            <!-- Conditions (shared with the Journey members table — RR p.278 ladders + CON loss) -->
+            <div class="border border-ink/30 rounded p-3">
+              <h4 class="font-semibold text-sm mb-1">Conditions</h4>
+              <template x-if="characterJourneyConditions(characterEditing).length">
+                <span class="flex flex-wrap gap-1">
+                  <template x-for="cond in characterJourneyConditions(characterEditing)" :key="'sv-'+cond.key"><span class="text-xs font-semibold px-1.5 py-0.5 rounded" :class="cond.cls" x-text="cond.label + (cond.detail ? (' · ' + cond.detail) : '')"></span></template>
+                </span>
+              </template>
+              <p class="text-xs opacity-60" x-show="!characterJourneyConditions(characterEditing).length">No hunger, thirst, or fatigue.</p>
+            </div>
+            <!-- Action: live off the land here -->
+            <div class="flex items-center gap-2">
+              <button @click="openForage({ actorCharacterId: characterEditing.id })" class="text-sm px-3 py-1 border border-ink rounded hover:bg-yellow-100" title="Forage (firewood / water / food) or hunt — live off the land (RR p.278)">🌿 Forage / 🏹 Hunt</button>
+              <span class="text-xs opacity-60">Live off the land at this hex.</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <!-- BACKGROUND tab — free-text fields under the same lock-edit-save standard.
            Single-line fields use editableStat(text); multiline use editableStat with a textarea
            in the edit template. Goals + Relationships are arrays — same list pattern as skills. -->
@@ -6403,6 +6616,91 @@ document.addEventListener('alpine:init', () => {
             <button @click="if(newRel.trim()){ commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'relationships', label:'Relationship', action:'add', value:newRel.trim()}); newRel=''; }" :disabled="!newRel.trim()" class="px-2 py-1 border border-ink rounded text-sm hover:bg-yellow-100" :class="newRel.trim() ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
           </div>
         </div>
+      </div>
+
+      <!-- EXPENSES tab (CoL-2, RR p.173 + p.168) — the character's monthly outlay: its own lifestyle
+           keep (moved here from Survival; gated on the Living Expenses rule) + the wages it pays as a
+           liege to its henchmen & specialists, with a total. -->
+      <div x-show="characterEditorTab==='expenses'" class="space-y-3"
+           x-data="{ get le(){ return characterLivingExpense(characterEditing); }, get ex(){ return characterExpenses(characterEditing); } }">
+
+        <!-- Cost of Living (moved from Survival) — apparent level, lifestyle target, last paid, pay source -->
+        <template x-if="isHouseRuleEnabled('living-expenses')">
+          <div class="border border-amber-700/40 rounded p-3 space-y-2" style="background:#f4ecd2">
+            <h4 class="font-semibold text-sm flex items-center gap-2">🏠 Cost of living <span class="text-xs font-normal opacity-60">(RR p.173)</span></h4>
+            <div class="text-sm flex items-center gap-2 flex-wrap">
+              <span class="w-40">Apparent level (to NPCs)</span>
+              <span class="font-mono font-semibold" :class="le.apparentLevel < le.trueLevel ? 'accent-red' : ''" x-text="le.apparentLevel"></span>
+              <span class="text-xs opacity-70" x-show="le.apparentLevel < le.trueLevel" x-text="'(true level ' + le.trueLevel + ' — underspending)'"></span>
+              <span class="text-xs opacity-60" x-show="le.apparentLevel >= le.trueLevel">matches true level</span>
+            </div>
+            <div class="text-sm flex items-center gap-2 flex-wrap">
+              <span class="w-40">Lifestyle target level</span>
+              <input type="number" min="0" :max="le.trueLevel" class="w-16 text-sm border border-ink/40 rounded px-1"
+                     :value="characterEditing.lifestyleTargetLevel != null ? characterEditing.lifestyleTargetLevel : le.trueLevel"
+                     @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'lifestyleTargetLevel', label:'Lifestyle target level', oldValue:characterEditing.lifestyleTargetLevel, newValue:($event.target.value===''?null:Math.max(0,Math.min(le.trueLevel,parseInt($event.target.value)||0)))})">
+              <span class="text-xs opacity-70" x-text="'≈ ' + le.targetWage.toLocaleString() + ' gp/mo' + (characterEditing.lifestyleTargetLevel==null ? ' (default = true level)' : '') + ' · living frugally appears lower (RR p.173)'"></span>
+            </div>
+            <div class="text-sm flex items-center gap-2">
+              <span class="w-40">Last month paid</span>
+              <span class="font-mono" x-text="(characterEditing.lastLivingExpensePaidGp||0).toLocaleString() + ' gp'"></span>
+            </div>
+            <template x-if="le.rulesADomain">
+              <label class="text-sm flex items-center gap-2">
+                <input type="checkbox" :checked="characterEditing.payKeepFromTreasury !== false"
+                       @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'payKeepFromTreasury', label:'Pay keep from domain treasury', oldValue:characterEditing.payKeepFromTreasury !== false, newValue:$event.target.checked})">
+                Pay keep (and henchmen's wages) from the domain treasury <span class="text-xs opacity-60">(default for a ruler)</span>
+              </label>
+            </template>
+            <p class="text-xs opacity-70" x-text="le.note"></p>
+          </div>
+        </template>
+
+        <!-- Henchmen & specialist wages (RR p.168) — the wages this character pays as a liege -->
+        <div class="border border-ink/30 rounded p-3 space-y-2">
+          <h4 class="font-semibold text-sm flex items-center gap-2">💰 Henchmen &amp; specialist wages <span class="text-xs font-normal opacity-60">(RR p.168)</span></h4>
+          <template x-if="ex.henchmen.length">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left border-b border-ink/30 text-xs uppercase tracking-wide opacity-70">
+                  <th class="py-1 font-semibold">Name</th>
+                  <th class="font-semibold">Role</th>
+                  <th class="text-center font-semibold">Level</th>
+                  <th class="text-right font-semibold">Wage / mo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="h in ex.henchmen" :key="h.id">
+                  <tr class="border-b border-ink/10">
+                    <td class="py-1">
+                      <button class="underline hover:text-amber-800" @click="openCharacterEditor((currentCampaign.characters||[]).find(x=>x.id===h.id))" x-text="h.name || '(unnamed)'"></button>
+                    </td>
+                    <td class="capitalize opacity-80" x-text="h.role"></td>
+                    <td class="text-center font-mono" x-text="h.level"></td>
+                    <td class="text-right font-mono">
+                      <span x-show="!h.waived" x-text="h.wage.toLocaleString() + ' gp'"></span>
+                      <span x-show="h.waived" class="text-xs italic opacity-60" title="Waived — this vassal's domain income covers his wage (RR p.168)" x-text="'waived (' + h.wage.toLocaleString() + ' gp)'"></span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+              <tfoot>
+                <tr class="border-t-2 border-ink/40 font-semibold">
+                  <td class="py-1" colspan="3">Total henchmen wages</td>
+                  <td class="text-right font-mono" x-text="ex.henchmenTotal.toLocaleString() + ' gp'"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </template>
+          <p class="text-xs opacity-60" x-show="!ex.henchmen.length">No henchmen or specialists on this character's payroll.</p>
+        </div>
+
+        <!-- Total monthly expenses = lifestyle keep (when the rule is on) + henchmen wages -->
+        <div class="border-2 border-amber-800/50 rounded p-3 flex items-center justify-between" style="background:#efe6cf">
+          <span class="font-semibold text-sm">Total monthly expenses</span>
+          <span class="font-mono font-bold text-base" x-text="ex.total.toLocaleString() + ' gp'"></span>
+        </div>
+        <p class="text-xs opacity-60" x-show="!ex.ruleOn">The <span class="font-semibold">Living Expenses</span> house rule is off, so lifestyle keep and wages aren't debited automatically at month end. Turn it on in ⚙ House Rules (RR p.173).</p>
       </div>
 
       <!-- LOCATION tab — pick hex only; domain is auto-derived from the hex's owning domain.
@@ -6690,6 +6988,10 @@ document.addEventListener('alpine:init', () => {
           <span class="text-sm opacity-60 ml-2">RAW: typically ±2 max</span>
         </div>
       </div>
+      <!-- CoL-2 — apparent-level penalty pre-fill (RR p.170): a henchman outranking his employer's
+           apparent level rolls at −1/level. Shown when it applies (the penalty may exceed ±2). -->
+      <p x-show="loyaltyRollState.apparentNote" class="text-sm -mt-1" style="color:#7a1f1f"
+         x-text="'⚠ ' + loyaltyRollState.apparentNote"></p>
 
       <!-- Roll button + result -->
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
@@ -6959,6 +7261,15 @@ document.addEventListener('alpine:init', () => {
           <p class="text-xs italic opacity-60 mt-1">Retail buy/sell of equipment + mounts (RR p.124 availability), paid through the character's purse.</p>
         </div>
       </template>
+
+      <!-- Forage / Hunt (Provisioning V4) — live off the land here; available on any hex. -->
+      <div class="vellum border border-ink/40 rounded p-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h4 class="font-semibold text-sm">🌿 Forage / 🏹 Hunt</h4>
+          <button @click="openForage({ hexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Forage (firewood / water / food) or hunt at this hex (RR p.278)">🌿 Forage / 🏹 Hunt</button>
+        </div>
+        <p class="text-xs italic opacity-60 mt-1">Foraging is one ancillary task; hunting takes the day. +4 with Survival; terrain &amp; territory modify food &amp; hunting (RR p.278).</p>
+      </div>
 
       <!-- Domain-relevant slim view -->
       <div class="vellum border border-ink/40 rounded p-2">
@@ -8151,6 +8462,7 @@ return {
     return ['overview','demographics','economy','officers','military','vassalage','stronghold','history','raw'];
   },
   showTurnModal:false,turnProposal:null,turnProposalError:'',
+  turnLivingExpenseProposal:null, // CoL-2 — end-of-month living-expenses + henchman-wage preview (dryRun)
   turnVentureProposals:null, // Phase 2b.5 — per-turn vagaries for in-transit ventures, set in proposeMonthlyTurn
   turnEventProposals:null, // Turn Cycle v2 — per-turn pending event proposals (accept/edit/reject), set in proposeMonthlyTurn
   dayTickProposal:null, // Phase 2.95 — active proposed day-tick (null when none pending)
@@ -9252,6 +9564,7 @@ return {
       { id:'activities',     label:'📋 Activities',    ready: true,  count: (this.currentCampaign?.characters||[]).filter(c => c && (window.ACKS?.isActive ? window.ACKS.isActive(c) : (c.lifecycleState||'active')==='active' && c.alive!==false)).length, placeholderNote: '' },
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
+      { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
       { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
@@ -9521,17 +9834,33 @@ return {
     }
 
     // ── Contributor 4: Journeys (Priority 1) — Phase 2.5 #475 ───────────────
-    // An in-flight (or resting) Journey the character is participating in. Mode-
-    // discriminated icon per the Journeys plan §15. deepLinkTo reserved for the
-    // Journeys sub-tab (J2) / inspectorOpen.
+    // An in-flight (or resting) Journey the character is participating in, OR one that TRAVELLED on the
+    // current world day even if it has since ARRIVED / been stopped (Joachim 2026-06-08 — keep the
+    // projection consistent with the Activities dashboard, which counts a journey's travel + forage on
+    // its arrival day). lastTravelWorldOrd (turn*30 + day, commitJourneyRecord) is the day it last
+    // travelled; === today ⇒ the party travelled (and foraged) today. A Day-Clock advance moves the clock
+    // past the leg, so an arrived journey then drops out. Mode-discriminated icon per the Journeys plan §15.
+    const _jTodayOrd = ((this.currentCampaign?.currentTurn || 1) * 30) + (this.currentCampaign?.currentDayInMonth || 1);
     const journeys = (this.currentCampaign?.journeys || [])
-      .filter(j => j && (j.status === 'in-transit' || j.status === 'resting') && (j.participantCharacterIds || []).includes(c.id));
+      .filter(j => {
+        if(!j || !(j.participantCharacterIds || []).includes(c.id)) return false;
+        if(j.status === 'in-transit' || j.status === 'resting') return true;
+        return j.lastTravelWorldOrd != null && j.lastTravelWorldOrd === _jTodayOrd;   // travelled today, now ended
+      });
     for(const j of journeys){
       const destLabel = this._journeyHexLabel(j.destinationHexId);
       const curLabel = this._journeyHexLabel(j.currentHexId);
       const dayN = (j.currentDayIndex || 0) + 1;
       const link = {entity:'journey', id:j.id};
-      if(j.isLost){
+      const endedToday = (j.status !== 'in-transit' && j.status !== 'resting');   // travelled today but arrived/stopped
+      if(endedToday){
+        // "What happened today" — the leg the party walked before the journey ended.
+        if(j.status === 'arrived'){
+          acts.push({kind:'journey-arrivedtoday:' + j.id, icon:'🥾', label:'travelled to ' + destLabel + ' today', priority:1, deepLinkTo:link});
+        } else {
+          acts.push({kind:'journey-stoppedtoday:' + j.id, icon:'🥾', label:'travelled to ' + curLabel + ' today', priority:1, deepLinkTo:link});
+        }
+      } else if(j.isLost){
         acts.push({kind:'journey-lost:' + j.id, icon:'🧭', label:'lost en route to ' + destLabel, priority:1, deepLinkTo:link});
       } else if(j.status === 'resting'){
         acts.push({kind:'journey-resting:' + j.id, icon:'⛺', label:'resting at ' + curLabel, priority:1, deepLinkTo:link});
@@ -9541,6 +9870,12 @@ return {
         acts.push({kind:'journey-aerial:' + j.id, icon:'🦅', label:'flying to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
       } else {
         acts.push({kind:'journey-overland:' + j.id, icon:'🥾', label:'on journey to ' + destLabel + ' (day ' + dayN + ')', priority:1, deepLinkTo:link});
+      }
+      // Foraging for water on the march — an ancillary activity riding in the travel day (RR p.272).
+      // Shown when the party forages AND the current hex has no free water source (matches the
+      // activity-budget contributor). Counts while underway OR travelled-today (then past-tense).
+      if((j.status === 'in-transit' || endedToday) && j.forageWaterEnabled && !this.journeyHexSourcesWater(j)){
+        acts.push({kind:'journey-forage:' + j.id, icon:'🌿', label: endedToday ? 'foraged for water today' : 'foraging for water', priority:3, deepLinkTo:link});
       }
     }
 
@@ -9570,6 +9905,51 @@ return {
         units += (p.activityCost && p.activityCost.units) || 1;
       }
       if(units > 0) acts.push({kind:'shopping', icon:'🛒', label:'shopped (' + units + ' ancillary errand' + (units === 1 ? '' : 's') + ')', priority:3});
+    }
+
+    // ── Contributor 6: Foraging / Hunting TODAY (Provisioning V4) — the §8.9 mandate ──
+    // provisioning-activity events (forage = ancillary, hunt = dedicated), windowed to this game day
+    // exactly like shopping. 🌿 foraged / 🏹 hunted (🌿 distinct from the journey 🥾). Auto water-fills
+    // at a source carry no activityCost (free) → not counted.
+    if(Array.isArray(_log) && _log.length){
+      const turn = this.currentCampaign.currentTurn || 1;
+      const day  = this.currentCampaign.currentDayInMonth || 1;
+      let forageUnits = 0, hunted = false;
+      for(const entry of _log){
+        const ev = entry && entry.event;
+        if(!ev || ev.kind !== 'provisioning-activity') continue;
+        const at = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+        if(at != null && at !== turn) continue;
+        const atDay = (entry.appliedAtDay != null) ? entry.appliedAtDay : ev.appliedAtDay;
+        if(atDay !== day) continue;
+        const p = ev.payload || {};
+        const mine = p.actorCharacterId === c.id || ((ev.context?.relatedEntities)||[]).some(r => r && r.kind === 'character' && r.id === c.id);
+        if(!mine || !p.activityCost) continue;                 // auto/free water has no cost → skip
+        if(p.activity === 'hunt') hunted = true;
+        else forageUnits += (p.activityCost.units || 1);
+      }
+      if(forageUnits > 0) acts.push({kind:'foraging', icon:'🌿', label:'foraged (' + forageUnits + ' ancillary errand' + (forageUnits === 1 ? '' : 's') + ')', priority:3});
+      if(hunted) acts.push({kind:'hunting', icon:'🏹', label:'hunted (dedicated)', priority:2});
+    }
+
+    // ── Contributor 7: Recruitment drives (Priority 3) — R3, the §8.9 mandate ──
+    // An active solicitation drive engages the patron for 1 ancillary/day per hireling type
+    // (the activity budget counts it). Ongoing state on the patron (character.recruitmentDrives[]),
+    // so it surfaces like a journey / role post — one chip per active drive. RR p.164. A drive also
+    // solicited on the DAY IT COMPLETED — the week-3 reveal (startedDayOrd + 21) is the last of the 3
+    // solicitation weeks, not a separate hiring day (Joachim 2026-06-08; matches characterActivityBudget),
+    // so show it that one day then roll off. Recruit ordinal = (turn-1)*30 + day (startedDayOrd's convention).
+    if(Array.isArray(c.recruitmentDrives)){
+      const _recruitTodayOrd = ((this.currentCampaign?.currentTurn || 1) - 1) * 30 + (this.currentCampaign?.currentDayInMonth || 1);
+      for(const d of c.recruitmentDrives){
+        if(!d) continue;
+        const completedToday = (d.status === 'complete' && d.startedDayOrd != null && (d.startedDayOrd + 21) === _recruitTodayOrd);
+        if(d.status !== 'active' && !completedToday) continue;
+        const wk = completedToday ? 3 : (d.weeksRevealed || 1);
+        acts.push({kind:'recruiting:' + d.id, icon:'🤝',
+                   label:'soliciting ' + (d.hireTypeLabel || d.hireTypeId || 'hirelings') + ' (week ' + wk + ' of 3)',
+                   priority:3});
+      }
     }
 
     // ── Future contributors land here. Each adds zero or more descriptors. ──
@@ -9667,8 +10047,13 @@ return {
     if(!row || !row.activity) return;
     const a = row.activity, c = row.c;
     const mode = row.affordance ? row.affordance.mode : 'none';
-    if(mode === 'navigate'){                                   // a journey — can't rewind a travelled day; open it (Stop Moving lives there)
-      this.journeyOpenDetail(a.sourceId);
+    if(mode === 'navigate'){
+      if(a.sourceKind === 'recruitment-drive'){                // a search — can't refund a week of soliciting; open the Recruit panel for this patron (Stop soliciting lives there)
+        this.currentView = 'activities'; this.activitiesSubView = 'recruit';
+        this.recruitStart(c.id);                               // adopts the patron's in-flight drive
+        return;
+      }
+      this.journeyOpenDetail(a.sourceId);                      // a journey — can't rewind a travelled day; open it (Stop Moving lives there)
       return;
     }
     if(mode !== 'reverse'){ this.showToast('That activity can’t be rejected.'); return; }
@@ -9888,6 +10273,91 @@ return {
   characterFoodDays(ch){ return ch ? (window.ACKS.rationDaysAvailable(ch)||0) : 0; },          // personal ration days
   characterWaterDays(ch){ return ch ? (Math.round((Number(ch.waterDaysCarried)||0)*10)/10) : 0; },
   characterWaterCap(ch){ return ch ? (Math.round((window.ACKS.waterCapacityDays(ch)||0)*10)/10) : 0; },
+  // CoL-1 (Joachim 2026-06-06): is this character on LIFESTYLE (no food/water spent — sheltered or in a
+  // realm ruled by them or a co-located companion) or in the FIELD (consuming daily, RR p.278)? Returns a
+  // human label naming WHY. Companion-aware via the engine's effective regime.
+  characterSurvivalRegime(ch){
+    const A = window.ACKS;
+    if(!ch || !this.currentCampaign || !ch.currentHexId) return { onLifestyle:true, kind:'unlocated', label:'No location set — assumed provisioned' };
+    const info = (A.characterEffectiveProvisioningInfo ? A.characterEffectiveProvisioningInfo(this.currentCampaign, ch.id) : null) || { regime:'field' };
+    const onLifestyle = info.regime === 'settled';
+    let label;
+    if(!onLifestyle){
+      label = 'In the field — consuming food & water daily (RR p.278)';
+    } else if(info.kind === 'settlement'){
+      const s = (this.currentCampaign.settlements||[]).find(x => x && x.id === info.settlementId);
+      label = 'On lifestyle — sheltered at ' + ((s && s.name) || 'a settlement here') + ' · no rations spent';
+    } else if(info.kind === 'stronghold'){
+      label = 'On lifestyle — quartered at a stronghold here · no rations spent';
+    } else if(info.kind === 'domain'){
+      const d = (this.currentCampaign.domains||[]).find(x => x && x.id === info.domainId);
+      const host = (this.currentCampaign.characters||[]).find(x => x && x.id === info.hostCharacterId);
+      const whose = (host && host.id === ch.id) ? 'own realm' : ((host && host.name) ? (host.name + '’s realm') : 'a companion’s realm');
+      label = 'On lifestyle — in ' + ((d && d.name) || 'a home domain') + ' (' + whose + (info.viaVassal ? ', a vassal realm' : '') + ') · no rations spent';
+    } else {
+      label = 'On lifestyle — no rations spent';
+    }
+    return { onLifestyle, kind: info.kind, label, info };
+  },
+  // Cost of Living (CoL-2, RR p.173 + p.170) — the Survival-tab panel data: the apparent level last
+  // month's spend bought, the lifestyle target + its wage, whether the character rules a domain (→ the
+  // pay-from-treasury option), and a plain explanation.
+  characterLivingExpense(ch){
+    const A = window.ACKS;
+    const trueLevel = (ch && ch.level) || 0;
+    const apparentLevel = (A && A.apparentLevel) ? A.apparentLevel(this.currentCampaign, ch) : trueLevel;
+    const targetLevel = (ch && ch.lifestyleTargetLevel != null) ? ch.lifestyleTargetLevel : trueLevel;
+    const targetWage = (A && A.levelMonthlyWage) ? A.levelMonthlyWage(targetLevel) : 0;
+    const rulesADomain = (this.domains || []).some(d => d && d.rulerCharacterId === (ch && ch.id));
+    let note;
+    if(apparentLevel < trueLevel){
+      note = 'Underspending — NPCs (and prospective henchmen) take ' + ((ch && ch.name) || 'this character') +
+             ' for level ' + apparentLevel + ' (RR p.173). Raise the lifestyle target, or keep more coin on hand for month-end.';
+    } else {
+      note = 'Living expenses cover the character’s level. Paid at month end from ' +
+             ((ch && ch.payKeepFromTreasury !== false && rulesADomain) ? 'the domain treasury' : 'the coin purse') +
+             '; short funds force a lower spend (no debt). Spending above your level doesn’t raise your apparent level (RR p.173 is downward-only).';
+    }
+    return { trueLevel, apparentLevel, targetLevel, targetWage, rulesADomain, note };
+  },
+  // Per-character monthly expense breakdown (CoL-2) — the Expenses tab: lifestyle keep + the wages
+  // this character pays as a liege to its henchmen/specialists + the total. Pure engine read.
+  characterExpenses(ch){
+    const A = window.ACKS;
+    if(A && A.characterExpenseBreakdown) return A.characterExpenseBreakdown(this.currentCampaign, ch);
+    return { ruleOn:false, selfSupporting:false, lifestyle:null, henchmen:[], henchmenTotal:0, lifestyleGp:0, total:0 };
+  },
+  // Fresh water available at the character's current hex? (Survival-tab indicator — river/lake/settlement.)
+  characterHexSourcesWater(ch){
+    if(!ch || !this.currentCampaign || !ch.currentHexId) return false;
+    const hx = (this.currentCampaign.hexes||[]).find(h => h && h.id === ch.currentHexId);
+    return hx ? !!window.ACKS.hasFreshSource(this.currentCampaign, hx) : false;
+  },
+  // CoL-1: a journey/party group's lifestyle status at its current hex (no rations spent) + a short label.
+  groupProvisioningLabel(members, hexId){
+    const A = window.ACKS;
+    if(!this.currentCampaign) return { onLifestyle:false, label:'' };
+    const hx = (this.currentCampaign.hexes||[]).find(h => h && h.id === hexId) || null;
+    const info = (A.groupProvisioningInfo ? A.groupProvisioningInfo(this.currentCampaign, members||[], hx) : null) || { regime:'field' };
+    const onLifestyle = info.regime === 'settled';
+    let label = '';
+    if(onLifestyle){
+      if(info.kind === 'settlement'){ const s=(this.currentCampaign.settlements||[]).find(x=>x&&x.id===info.settlementId); label = 'At ' + ((s&&s.name)||'a settlement'); }
+      else if(info.kind === 'stronghold'){ label = 'At a stronghold'; }
+      else if(info.kind === 'domain'){ const d=(this.currentCampaign.domains||[]).find(x=>x&&x.id===info.domainId); label = 'In ' + ((d&&d.name)||'a home domain') + (info.viaVassal?' (vassal realm)':''); }
+    }
+    return { onLifestyle, kind: info.kind, label };
+  },
+  journeyProvisioningInfo(j){
+    if(!j) return { onLifestyle:false, label:'' };
+    const members = (j.participantCharacterIds||[]).map(id => (this.currentCampaign?.characters||[]).find(c=>c&&c.id===id)).filter(Boolean);
+    return this.groupProvisioningLabel(members, j.currentHexId || j.startHexId);
+  },
+  partyProvisioningInfo(pt){
+    if(!pt) return { onLifestyle:false, label:'' };
+    const members = (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === pt.id);
+    return this.groupProvisioningLabel(members, pt.currentHexId);
+  },
   // The hex a journey is currently in supplies free water? (greys the forage-water tick — §8.)
   journeyHexSourcesWater(j){
     if(!j || !this.currentCampaign) return false;
@@ -10773,12 +11243,30 @@ return {
   openLoyaltyRollModal(ch, opts){
     if(!ch){ this.showToast('No character to roll for.'); return; }
     opts = opts || {};
+    // RR p.170 — a henchman who outranks his employer's APPARENT level (appearance + living expenses)
+    // rolls loyalty at −1 per apparent level of difference. Pre-fill the modifier with that penalty when
+    // it applies and the caller didn't pass an explicit modifier (CoL-2, 2026-06-08).
+    let mod = Number(opts.modifier ?? 0);
+    let apparentNote = '';
+    if(opts.modifier == null && window.ACKS && window.ACKS.apparentLevelLoyaltyPenalty && ch.liegeCharacterId){
+      const liege = (this.currentCampaign?.characters || []).find(c => c.id === ch.liegeCharacterId);
+      if(liege){
+        const pen = window.ACKS.apparentLevelLoyaltyPenalty(this.currentCampaign, ch, liege);
+        if(pen < 0){
+          mod = pen;
+          apparentNote = (ch.name || 'This henchman') + ' (L' + (ch.level || 0) + ') outranks ' +
+            (liege.name || 'the employer') + "'s apparent level " +
+            window.ACKS.apparentLevel(this.currentCampaign, liege) + ' → ' + pen + ' (RR p.170).';
+        }
+      }
+    }
     this.loyaltyRollState = {
       characterId: ch.id,
       character: ch,
       reason: opts.reason || 'other',
       reasonNote: opts.reasonNote || '',
-      modifier: Number(opts.modifier ?? 0),
+      modifier: mod,
+      apparentNote,
       rollResult: null,
       pendingEventId: opts.pendingEventId || null,
     };
@@ -11039,8 +11527,10 @@ return {
       roleToFill: '',
       roleDomainId: autoRoleDomainId,
       commandUnitId: '',
-      solicitResult: null,
-      solicitWeeksUsed: 0,
+      // R3 — the persistent solicitation drive lives on the patron
+      // (character.recruitmentDrives[]); the wizard holds only its id. Null until
+      // "Start soliciting". Replaces the old instant solicitResult / solicitWeeksUsed.
+      driveId: null,
       engagedIds: [],
       // §310.3f-fix13 — id→candidate map for NEW individuations this session.
       // Resurfaced candidates (kind='candidate' already in camp.characters via
@@ -11052,6 +11542,22 @@ return {
       destinationKind: defaultDestKind,    // 'garrison' | 'company' — for mercenary hires
       targetGarrisonUnitId: '',            // #548 — '' = auto-merge to first same-type, '__new__' = force new, else unit id
     };
+    // R3 — resume an in-flight drive. A drive started earlier (and advanced across
+    // days by the global Day Clock) persists on the patron; adopt it so re-entering
+    // Recruit picks up where it left off, locking the setup to the drive's params.
+    if(patron && window.ACKS && window.ACKS.recruitmentDrivesForPatron){
+      const open = window.ACKS.recruitmentDrivesForPatron(this.currentCampaign, patron.id)
+        .find(d => d && (d.status === 'active' || d.status === 'complete'));
+      if(open){
+        this.recruitState.driveId = open.id;
+        this.recruitState.hireCategory = open.hireCategory;
+        this.recruitState.hireTypeId = open.hireTypeId;
+        this.recruitState.marketClassIdx = open.marketClassIdx;
+        if(open.settlementId) this.recruitState.settlementId = open.settlementId;
+        const row = this.recruitCurrentRow();
+        if(row && typeof row.wage === 'number') this.recruitState.monthlyOffer = row.wage;
+      }
+    }
   },
   recruitMarketClassStrToIdx(s){
     if(!s) return 2;
@@ -11123,6 +11629,7 @@ return {
     const origin = {
       view: this.currentView,
       charactersSubView: this.charactersSubView,
+      activitiesSubView: this.activitiesSubView,
       selectedDomainId: this.selectedDomainId,
       activeTab: this.activeTab
     };
@@ -11138,21 +11645,22 @@ return {
       munerator:      { category:'specialist', typeId:'quartermaster' },
       steward:        { category:'specialist', typeId:'sage' }
     };
-    const def = opts.roleToFill ? roleDefaults[opts.roleToFill] : null;
+    // R3 — if recruitStart adopted an in-flight drive, its category/type are fixed; skip the deep-link override.
+    const def = (!this.recruitState.driveId && opts.roleToFill) ? roleDefaults[opts.roleToFill] : null;
     if(def){
       this.recruitState.hireCategory = def.category;
       this.recruitState.hireTypeId   = def.typeId;
       // Replicate recruitOnTypeChange's wage-fill so the offer auto-populates.
       const row = this.recruitCurrentRow();
       if(row && typeof row.wage === 'number') this.recruitState.monthlyOffer = row.wage;
-    } else if(opts.category){
+    } else if(!this.recruitState.driveId && opts.category){
       this.recruitState.hireCategory = opts.category;
       this.recruitOnCategoryChange();
     }
     if(opts.roleToFill)   this.recruitState.roleToFill   = opts.roleToFill;
     if(opts.roleDomainId) this.recruitState.roleDomainId = opts.roleDomainId;
-    this.currentView      = 'characters';
-    this.charactersSubView = 'recruit';
+    this.currentView      = 'activities';
+    this.activitiesSubView = 'recruit';
   },
   // §310.3f-fix4 — true when chosen settlement matches patron's current hex.
   recruitPatronAtSettlement(){
@@ -11246,12 +11754,20 @@ return {
     const row = this.recruitCurrentRow();
     if(!row) return empty;
     const hireLevel = Number(row.level || 0);
-    const patronLevel = Number(s.patron.level || 1);
+    // RR p.170 — henchmen judge an employer by his APPARENT level (appearance + living expenses),
+    // not his true class level. With Living Expenses on, an underspender appears lower (and can hire
+    // fewer); a profligate appears higher. apparentLevel falls back to the true level when the rule
+    // is off or the spend hasn't been computed yet. (CoL-2, 2026-06-08.)
+    const trueLevel = Number(s.patron.level || 1);
+    const patronLevel = (window.ACKS && window.ACKS.apparentLevel)
+      ? Number(window.ACKS.apparentLevel(this.currentCampaign, s.patron) || trueLevel)
+      : trueLevel;
     const expectedMinPatron = hireLevel + 1;
     return {
       applies: true,
       ok: patronLevel >= expectedMinPatron,
-      hireLevel, patronLevel, expectedMinPatron
+      hireLevel, patronLevel, trueLevel, expectedMinPatron,
+      apparentBelowTrue: patronLevel < trueLevel
     };
   },
   recruitBlockedByLevelCap(){
@@ -11293,6 +11809,7 @@ return {
     if(origin){
       if(origin.view) this.currentView = origin.view;
       if(origin.charactersSubView) this.charactersSubView = origin.charactersSubView;
+      if(origin.activitiesSubView) this.activitiesSubView = origin.activitiesSubView;
       if(origin.selectedDomainId) this.selectedDomainId = origin.selectedDomainId;
       if(origin.activeTab) this.activeTab = origin.activeTab;
     }
@@ -11320,7 +11837,7 @@ return {
   recruitMarketClasses(){ return (window.ACKS && window.ACKS.HIRELING_MARKET_CLASSES) || []; },
   recruitOnCategoryChange(){
     const s = this.recruitState; if(!s) return;
-    s.hireTypeId = ''; s.solicitResult = null; s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
+    s.hireTypeId = ''; s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
     s.roleToFill = '';
   },
   recruitOnTypeChange(){
@@ -11328,7 +11845,7 @@ return {
     const row = this.recruitCurrentRow();
     s.monthlyOffer = (row && typeof row.wage === 'number') ? row.wage : 0;
     // §310.3f-fix16 — also clear candidatePool so stale entries don't survive.
-    s.solicitResult = null; s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
+    s.engagedIds = []; s.negotiations = {}; s.mercenaryHireCount = 0; s.candidatePool = {};
   },
   recruitPatronDomains(){
     const s = this.recruitState; if(!s || !s.patronCharacterId) return [];
@@ -11358,106 +11875,124 @@ return {
     if(s.roleToFill === 'chaplain') return 'Cleric';
     return '';
   },
-  recruitSolicit(){
-    const s = this.recruitState; if(!s) return;
-    if(!s.hireCategory || !s.hireTypeId){ this.showToast('Pick a category and a type first.'); return; }
-    if((s.solicitWeeksUsed||0) >= 4){
-      this.showToast('Already spent 4 weeks soliciting this month (RR p.164 cap).');
-      return;
-    }
-    try {
-      const newRoll = window.ACKS.solicitHirelings({
-        hireCategory: s.hireCategory, hireTypeId: s.hireTypeId, marketClassIdx: Number(s.marketClassIdx)
-      });
-      // §310.3f-fix20 — accumulate across solicit weeks. Each click adds the
-      // rolled total to the running budget, so prior engagements aren't
-      // stranded above a fresh smaller roll.
-      // §310.3f-fix21 — also push each call's detail into a weekDetails array
-      // for the transparency breakdown in the UI.
-      const weekDetailEntry = {
-        weekIndex: (s.solicitResult ? (s.solicitResult.weekDetails||[]).length : 0) + 1,
-        availabilityDetail: newRoll.availabilityDetail || null,
-        feeDetail: newRoll.feeDetail || null,
-        feeNotation: newRoll.feeNotation || '-',
-        rolledTotal: newRoll.totalAvailable || 0,
-        fee: newRoll.feeWeekly || 0
-      };
-      if(s.solicitResult){
-        s.solicitResult.totalAvailable = (s.solicitResult.totalAvailable || 0) + (newRoll.totalAvailable || 0);
-        s.solicitResult.weekly = (s.solicitResult.weekly || []).concat(newRoll.weekly || []);
-        s.solicitResult.feeWeekly = newRoll.feeWeekly;
-        s.solicitResult.weekDetails = (s.solicitResult.weekDetails || []).concat(weekDetailEntry);
-      } else {
-        s.solicitResult = newRoll;
-        s.solicitResult.weekDetails = [weekDetailEntry];
+  // ─── R3 — drive-based soliciting. The persistent drive lives on the patron
+  // (character.recruitmentDrives[]); the GLOBAL Day Clock advances it (Day-Clock-only,
+  // per Joachim) — no recruit-panel advance button. The wizard starts / shows / stops
+  // the drive and engages candidates against its revealed pool. RR p.164.
+  recruitActiveDrive(){
+    const s = this.recruitState; if(!s || !s.driveId) return null;
+    const list = (window.ACKS && window.ACKS.recruitmentDrivesForPatron)
+      ? window.ACKS.recruitmentDrivesForPatron(this.currentCampaign, s.patronCharacterId) : [];
+    return list.find(d => d && d.id === s.driveId) || null;
+  },
+  recruitRevealedAvailable(){
+    const d = this.recruitActiveDrive();
+    return d ? (d.revealedAvailable || 0) : 0;
+  },
+  // Days elapsed in the CURRENT soliciting week, 0..7 (RR p.164 — a week reveals at +7/+14/+21 days).
+  // Counts game days since the start of the in-progress week (start, or the last week revealed).
+  recruitDriveWeekDays(){
+    const d = this.recruitActiveDrive(); if(!d || !this.currentCampaign) return 0;
+    const c = this.currentCampaign;
+    const ord = (((c.currentTurn || 1) - 1) * 30) + (c.currentDayInMonth || 1);
+    const elapsed = Math.max(0, ord - (d.startedDayOrd || ord));
+    return Math.max(0, Math.min(7, elapsed - (d.weeksRevealed || 0) * 7));
+  },
+  recruitDriveSummaryLine(){
+    const d = this.recruitActiveDrive(); if(!d) return '';
+    const cat = d.hireCategory ? (d.hireCategory.charAt(0).toUpperCase() + d.hireCategory.slice(1)) : '';
+    const where = d.settlementId ? (' at ' + d.settlementId) : '';
+    return cat + ' · ' + (d.hireTypeLabel || d.hireTypeId) + where;
+  },
+  // Start gate — a drive costs 1 ancillary/day (ongoing). Mirror the Forage ancillary
+  // gate: block Start when the patron has no short-task room today. Also blocks the RAW
+  // level / henchman caps + a zero-chance market. Returns { fits, reason, label }.
+  recruitStartFits(){
+    const s = this.recruitState;
+    if(!s || !s.hireTypeId) return { fits:false, reason:'Pick a category and a type first.', label:'Start soliciting' };
+    if(this.recruitNoChance()) return { fits:false, reason:'No chance of finding this hire type at this market — see Forecast.', label:'✗ No chance' };
+    if(this.recruitBlockedByLevelCap()) return { fits:false, reason:'Over RAW level cap — pick a lower-level type or a higher-level patron.', label:'✗ Over level cap' };
+    if(this.recruitBlockedByHenchmanCap()) return { fits:false, reason:'Patron at henchman cap — release a current henchman first.', label:'✗ At henchman cap' };
+    const A = window.ACKS, c = s.patron;
+    if(A && A.characterActivityBudget && c){
+      const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+      const b = A.characterActivityBudget(this.currentCampaign, c.id);
+      const dedUsed = b.dedicatedUsed || 0, ancUsed = b.ancillaryUsed || 0;
+      const ancCap = (dedUsed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+      if(ancUsed + 1 > ancCap){
+        const who = c.name || 'They';
+        return { fits:false, label:'Start soliciting',
+          reason: who + ' has no time left today — ' + ancUsed + ' of ' + ancCap + ' short tasks used' + (dedUsed >= 1 ? ' alongside a full-day task' : '') + '. Soliciting is an ancillary activity (RR p.164).' };
       }
-      s.solicitWeeksUsed = (s.solicitWeeksUsed || 0) + 1;
-    } catch(e){ this.showToast('Solicit failed: '+e.message); }
+    }
+    return { fits:true, reason:'', label:'🎲 Start soliciting' };
   },
-  // §310.3f-fix25 — Reroll a specific solicit week. Replaces its weekDetails
-  // entry with a fresh roll using the same hire type + market class params.
-  // Recomputes the cumulative totalAvailable from the updated array so the
-  // engage budget tracks correctly.
-  recruitRerollSolicitWeek(idx){
-    const s = this.recruitState; if(!s || !s.solicitResult) return;
-    const wds = s.solicitResult.weekDetails || [];
-    if(idx < 0 || idx >= wds.length) return;
+  recruitBudgetLine(){
+    const s = this.recruitState; if(!s || !s.patron) return '';
+    const A = window.ACKS; if(!A || !A.characterActivityBudget) return '';
+    const b = A.characterActivityBudget(this.currentCampaign, s.patron.id);
+    return 'Today: ' + (b.dedicatedUsed || 0) + ' dedicated · ' + (b.ancillaryUsed || 0) + ' ancillary' + (b.overBudget ? ' (over budget)' : '');
+  },
+  recruitStartSoliciting(){
+    const s = this.recruitState; if(!s) return;
+    const camp = this.currentCampaign; if(!camp){ this.showToast('No campaign loaded.'); return; }
+    const fit = this.recruitStartFits();
+    if(!fit.fits){ this.showToast(fit.reason); return; }
+    if(!window.ACKS || !window.ACKS.startRecruitmentDrive){ this.showToast('Recruitment engine unavailable.'); return; }
     try {
-      const newRoll = window.ACKS.solicitHirelings({
-        hireCategory: s.hireCategory, hireTypeId: s.hireTypeId, marketClassIdx: Number(s.marketClassIdx)
+      const res = window.ACKS.startRecruitmentDrive(camp, {
+        patronCharacterId: s.patronCharacterId,
+        settlementId: s.settlementId || null,
+        marketClassIdx: Number(s.marketClassIdx),
+        hireCategory: s.hireCategory,
+        hireTypeId: s.hireTypeId
       });
-      const previousLabel = wds[idx].weekIndex; // preserve W{n} label
-      wds[idx] = {
-        weekIndex: previousLabel,
-        availabilityDetail: newRoll.availabilityDetail || null,
-        feeDetail: newRoll.feeDetail || null,
-        feeNotation: newRoll.feeNotation || '-',
-        rolledTotal: newRoll.totalAvailable || 0,
-        fee: newRoll.feeWeekly || 0
-      };
-      // Recompute cumulative totalAvailable from all weeks.
-      s.solicitResult.totalAvailable = wds.reduce((sum, w) => sum + (w.rolledTotal||0), 0);
-      // Rebuild weekly[] by concatenating the per-week distributions
-      // (best-effort — engine returns a 3-week split per call; for reroll we
-      // just use the rolledTotal as a single value in weekly[] terms).
-      s.solicitResult.weekDetails = wds;
-      this.showToast('Week ' + previousLabel + ' rerolled.');
-    } catch(e){ this.showToast('Reroll failed: '+e.message); }
+      if(!res || !res.ok){ this.showToast('Could not start soliciting: ' + ((res && res.error) || 'unknown')); return; }
+      s.driveId = res.drive.id;
+      // Debit week-1 solicit fee from the patron's purse (RR p.164 — per week, per type), GP Wave B.
+      const fee = res.feeOwedGp || 0;
+      if(fee > 0 && window.ACKS.applyWealthTransfer){
+        const spec = { amount: fee, source: { kind:'character-gp', id: s.patronCharacterId }, destination: { kind:'external', label:'Solicitation fee' }, allowOverdraft:true, reason:'Hireling solicitation fee', bucket:'recruitment' };
+        try { window.ACKS.applyWealthTransfer(camp, spec); if(window.ACKS.recordWealthTransfer) window.ACKS.recordWealthTransfer(camp, spec, { submittedBy:'gm' }); } catch(e){}
+      }
+      this.markDirty(); this.schedulePersist();
+      this.showToast('Soliciting started — candidates arrive after a week of soliciting (RR p.164). Advance the Day Clock.');
+    } catch(e){ this.showToast('Start failed: ' + e.message); }
   },
-  // §310.3f-fix21 — Render a single solicit week's availability detail as
-  // text. Examples:
-  //   "1d10 → [7] = 7"
-  //   "2d4 → [3,4] = 7 (subtotal × 50 = 350)"
-  //   "1 (85%) → d100=42 ≤ 85 — succeeded, count=1"
-  //   "1d3 (33%) → d100=88 > 33 — failed, count=0"
-  recruitFormatAvailability(d){
-    // §310.3f-fix22 — the raw cell value now lives in its own column. This
-    // helper formats the OUTCOME side only (rolls, percent gates, etc.).
-    if(!d) return '—';
-    if(d.kind === 'none')  return 'no candidates of this type available at this market class';
-    if(d.kind === 'count') return 'flat — no roll needed';
-    if(d.kind === 'dice'){
-      const dr = d.diceRoll || {};
-      return '[' + (dr.dice||[]).join(',') + ']' + (dr.modifier ? (dr.modifier > 0 ? ' + ' + dr.modifier : ' − ' + Math.abs(dr.modifier)) : '') + ' = ' + d.total;
+  recruitStopSoliciting(){
+    const s = this.recruitState; if(!s) return;
+    const camp = this.currentCampaign; const d = this.recruitActiveDrive();
+    if(camp && d && window.ACKS && window.ACKS.stopRecruitmentDrive){
+      try { window.ACKS.stopRecruitmentDrive(camp, s.patronCharacterId, d.id); } catch(e){}
     }
-    if(d.kind === 'dice-times'){
-      const dr = d.diceRoll || {};
-      return '[' + (dr.dice||[]).join(',') + '] = ' + dr.total + ' × ' + d.multiplier + ' = ' + d.total;
-    }
-    if(d.kind === 'percent-single'){
-      return 'd100=' + d.percentRoll + (d.succeeded ? (' ≤ ' + d.percentTarget + ' — succeeded, count=' + d.count) : (' > ' + d.percentTarget + ' — failed, count=0'));
-    }
-    if(d.kind === 'percent-dice'){
-      if(!d.succeeded) return 'd100=' + d.percentRoll + ' > ' + d.percentTarget + ' — failed, count=0';
-      const dr = d.diceRoll || {};
-      return 'd100=' + d.percentRoll + ' ≤ ' + d.percentTarget + ' — passed; ' + (dr.notation || '?') + ' → [' + (dr.dice||[]).join(',') + '] = ' + dr.total;
-    }
-    return '(?)';
+    s.driveId = null;
+    s.engagedIds = []; s.negotiations = {}; s.candidatePool = {}; s.mercenaryHireCount = 0;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Soliciting stopped.');
   },
-  recruitFormatFee(detail, notation, total){
-    if(!detail) return notation + ' = ' + (total || 0) + 'gp';
-    if(!detail.dice || detail.dice.length === 0) return notation + ' = ' + total + 'gp';
-    return notation + ' → [' + detail.dice.join(',') + ']' + (detail.modifier ? (detail.modifier > 0 ? ' + ' + detail.modifier : ' − ' + Math.abs(detail.modifier)) : '') + ' = ' + detail.total + 'gp';
+  // ─── R3 roster — every in-flight recruiting effort across the campaign (the Recruit landing,
+  // mirroring the Journeys/Travel list). status active OR complete (a complete search still has
+  // candidates left to hire). Players first, then by patron name. ───────────────────────────────
+  recruitOngoingDrives(){
+    const camp = this.currentCampaign; if(!camp || !Array.isArray(camp.characters)) return [];
+    const A = window.ACKS || {};
+    const out = [];
+    for(const c of camp.characters){
+      if(!c || !Array.isArray(c.recruitmentDrives)) continue;
+      for(const d of c.recruitmentDrives){
+        if(d && (d.status === 'active' || d.status === 'complete')) out.push({ patron: c, drive: d });
+      }
+    }
+    const isPC = A.isPlayerControlled || (c => c && c.controlledBy === 'player');
+    out.sort((a, b) => (isPC(a.patron) ? 0 : 1) - (isPC(b.patron) ? 0 : 1) || (a.patron.name || '').localeCompare(b.patron.name || ''));
+    return out;
+  },
+  // Open a roster drive's patron in the wizard (recruitStart adopts the in-flight drive).
+  recruitOpenDrive(patronId){ this.recruitStart(patronId); },
+  // Stop a drive straight from the roster (no need to open the wizard first).
+  recruitStopDrive(patronId, driveId){
+    const camp = this.currentCampaign; if(!camp || !window.ACKS || !window.ACKS.stopRecruitmentDrive) return;
+    try { window.ACKS.stopRecruitmentDrive(camp, patronId, driveId); this.markDirty(); this.schedulePersist(); this.showToast('Soliciting stopped.'); } catch(e){}
   },
   // §310.3f-fix23 — Pre-solicit forecast: read the RAW cell for the chosen
   // hire type × market class and translate it into plain English so the GM
@@ -11511,7 +12046,7 @@ return {
     return !!(f && f.noChance);
   },
   recruitEngageOne(){
-    const s = this.recruitState; if(!s || !s.solicitResult) return;
+    const s = this.recruitState; if(!s || !this.recruitActiveDrive()) return;
     const row = this.recruitCurrentRow(); if(!row) return;
     const camp = this.currentCampaign; if(!camp){ this.showToast('No campaign loaded.'); return; }
     // §310.3f-fix18 — resurfaced-first: if persistent-hireling-resurfacing is
@@ -11645,11 +12180,12 @@ return {
     }
     return Math.round(total);
   },
-  // Sum of all solicit-week fees rolled this session.
+  // R3 — total solicit fees charged on the active drive (live-debited at Start + by the
+  // day-tick consumer). Recorded on the recruit-hireling payload for audit — no money
+  // moves here (the handler sets treasuryDelta:0); the drive already paid the fees.
   recruitComputeSolicitFeesGp(){
-    const s = this.recruitState; if(!s || !s.solicitResult) return 0;
-    const wds = s.solicitResult.weekDetails || [];
-    return wds.reduce((sum, w) => sum + Number(w.fee || 0), 0);
+    const d = this.recruitActiveDrive();
+    return d ? (d.feesAccruedGp || 0) : 0;
   },
   recruitHiredCount(){
     const s = this.recruitState; if(!s) return 0;
@@ -11746,6 +12282,10 @@ return {
         appliedAt: new Date().toISOString()
       });
       this.showToast(out.result && out.result.narrativeSummary ? out.result.narrativeSummary : 'Recruitment recorded.');
+      // R3 — conclude the drive (the search ended in a hire). Fees were charged live
+      // (Start + day-tick); stopping just removes it from the active set + the budget.
+      const _drv = this.recruitActiveDrive();
+      if(_drv && window.ACKS.stopRecruitmentDrive){ try { window.ACKS.stopRecruitmentDrive(camp, s.patronCharacterId, _drv.id); } catch(e){} }
       this.recruitReset();
     } catch(e){
       console.error(e);
@@ -12366,6 +12906,8 @@ return {
     gName:'', gPrice:null, gStone:null,      // generic-by-price entry
     visitedBefore:false, partyOf12Dedicated:false
   },
+  // Forage / Hunt action (Provisioning V4) — a thin UI over ACKS.forageActivity / huntActivity.
+  forage:{ open:false, actorId:null, kind:'food', results:[] },   // kind: 'water'|'food'|'firewood'|'hunt'; results = this session's stacked attempts (each rerollable)
   allStashes(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.stashes)) return [];
@@ -12626,6 +13168,106 @@ return {
     if(actorId) this.tradeInitSellRows();
   },
   closeTrade(){ this.trade.open = false; },
+
+  // ── Forage / Hunt action (Provisioning V4) — thin UI over ACKS.forageActivity / huntActivity ──
+  openForage(opts){
+    opts = opts || {};
+    const f = this.forage;
+    f.open = true; f.kind = opts.kind || 'food'; f.results = [];
+    let actorId = opts.actorCharacterId || null;
+    // hex-card entry: pick a character standing on the hex if none supplied
+    if(!actorId && opts.hexId){ const at = (this.currentCampaign?.characters||[]).filter(c => c && c.currentHexId === opts.hexId); if(at[0]) actorId = at[0].id; }
+    f.actorId = actorId;
+  },
+  closeForage(){ this.forage.open = false; },
+  forageActor(){ return this.forage.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.forage.actorId) : null; },
+  forageCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
+  forageHex(){ const c = this.forageActor(); return (c && c.currentHexId) ? (this.currentCampaign?.hexes||[]).find(h => h && h.id === c.currentHexId) : null; },
+  _forageHasProf(re){ const c = this.forageActor(); return !!(c && (c.proficiencies||[]).some(p => re.test(typeof p === 'string' ? p : (p && p.name) || ''))); },
+  _forageTerritory(hex){
+    if(hex && hex.domainId){ const d = (this.currentCampaign?.domains||[]).find(x => x && x.id === hex.domainId);
+      if(d){ const cls = window.ACKS.effectiveDomainClassification ? window.ACKS.effectiveDomainClassification(d) : (d.classification||null); if(cls) return cls; } }
+    return 'Unsettled';
+  },
+  // Forecast for the selected kind: { target, bonus, terrMod, total, costLabel, note, auto?, territory? }.
+  forageForecast(){
+    const c = this.forageActor(); if(!c) return null;
+    const hex = this.forageHex(); const A = window.ACKS;
+    const dry = !!(hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
+    const forest = !!(hex && hex.terrain === 'forest');
+    const surv = this._forageHasProf(/survival/i);
+    const k = this.forage.kind;
+    const mk = (o) => Object.assign({ bonus:0, terrMod:0 }, o, { total: (o.target!=null ? (o.target) : null) });
+    if(k === 'water'){
+      if(A.hasFreshSource && A.hasFreshSource(this.currentCampaign, hex)) return { auto:true, costLabel:'free', note:'Fresh water here — fill up free (no roll, no activity).' };
+      return mk({ target: dry?18:14, bonus: surv?4:0, terrMod:0, costLabel:'ancillary', note:'Water for 3 days (capped at your containers).' });
+    }
+    if(k === 'firewood') return mk({ target: forest?3:14, bonus: surv?4:0, terrMod:0, costLabel:'ancillary', note:'8 st firewood (~4 hrs of fire).' });
+    if(k === 'hunt'){
+      const terr = this._forageTerritory(hex); let tm = 0; if(terr==='Civilized') tm-=4; else if(terr==='Outlands') tm+=2; else if(terr==='Unsettled') tm+=4;
+      return mk({ target:14, bonus: this._forageHasProf(/hunting|survival/i)?4:0, terrMod:tm, costLabel:'dedicated', territory:terr, note:'1 st game, feeds 6 (6 days’ food). Risks a wandering-monster roll.' });
+    }
+    // food
+    const terr = this._forageTerritory(hex); let tm = 0; if(dry) tm-=4; if(terr==='Civilized') tm-=4; else if(terr==='Borderlands') tm-=2;
+    return mk({ target:18, bonus: surv?4:0, terrMod:tm, costLabel:'ancillary', territory:terr, note:'½ st food, feeds 3 (3 days’ food).' });
+  },
+  runForage(){
+    const c = this.forageActor(); if(!c){ this.showToast('Pick a character first.', 3500); return; }
+    const A = window.ACKS; const kind = this.forage.kind; let r;
+    if(kind === 'hunt') r = A.huntActivity(this.currentCampaign, { actorCharacterId:c.id });
+    else r = A.forageActivity(this.currentCampaign, { actorCharacterId:c.id, forageKind:kind });
+    if(!r || !r.ok){ this.showToast('Could not ' + kind + ': ' + ((r && r.error) || 'unknown error'), 4000); return; }
+    this.forage.results.push(this._forageResultRow(kind, r));   // STACK — newest at the bottom, not replacing
+    this.markDirty(); this.schedulePersist();
+  },
+  // Compact display row from a forage/hunt (or reroll) result.
+  _forageResultRow(kind, r){
+    return { id: (r.event && r.event.id) || null, kind: kind, auto: !!r.auto, success: !!r.success,
+             rolled: r.rolled, target: r.target, bonus: r.bonus || 0, terrMod: r.terrMod || 0,
+             wanderingMonsterRisk: !!r.wanderingMonsterRisk };
+  },
+  // Re-roll a specific stacked attempt (the GM's "unlucky throw" redo). The engine flips the yield if the
+  // success state changed (adds/removes the rations/firewood, or restores water); the row updates in place.
+  rerollForageResult(ri){
+    const row = this.forage.results[ri]; if(!row || !row.id || row.auto) return;
+    const r = window.ACKS.rerollProvisioningActivity(this.currentCampaign, row.id);
+    if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || 'unknown error'), 3500); return; }
+    this.forage.results.splice(ri, 1, this._forageResultRow(row.kind, r));
+    this.markDirty(); this.schedulePersist();
+  },
+  forageKindLabel(kind){ return ({ water:'🥤 Water', food:'🌿 Food', firewood:'🪵 Firewood', hunt:'🏹 Hunt' })[kind] || kind; },
+  forageYieldText(res){
+    if(res.kind === 'water') return 'water topped up';
+    if(res.kind === 'firewood') return '8 st firewood';
+    if(res.kind === 'hunt') return '+6 days food';
+    return '+3 days food';
+  },
+  // Does `kind` fit the actor's RAW day-activity budget (#346)? Forage = 1 ancillary, hunt = the whole
+  // dedicated day; water AT a fresh source is free (no throw, no slot) → always fits. Returns {fits, reason}.
+  forageKindFits(kind){
+    const c = this.forageActor(); if(!c) return { fits:false, reason:'Pick a character first.' };
+    if(kind === 'water' && window.ACKS.hasFreshSource && window.ACKS.hasFreshSource(this.currentCampaign, this.forageHex())) return { fits:true, reason:'' };
+    const A = window.ACKS;
+    const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+    const b = A.characterActivityBudget(this.currentCampaign, c.id);
+    const dedUsed = b.dedicatedUsed || 0, ancUsed = b.ancillaryUsed || 0;
+    const who = c.name || 'They';
+    if(kind === 'hunt'){
+      // Hunt is a DEDICATED, whole-day task.
+      if(dedUsed + 1 > BUDGET.dedicatedPerDay) return { fits:false, reason: who + ' has no dedicated time left today — hunting takes the whole day, and ' + dedUsed + ' dedicated task' + (dedUsed === 1 ? ' is' : 's are') + ' already under way.' };
+      if(ancUsed > BUDGET.ancillaryPerDedicatedDay) return { fits:false, reason: who + ' can’t hunt today — a full-day hunt leaves room for only ' + BUDGET.ancillaryPerDedicatedDay + ' short tasks, and ' + ancUsed + ' are already done.' };
+      return { fits:true, reason:'' };
+    }
+    // Forage is ONE ancillary (short) task — judged on ancillary room, not the dedicated overage.
+    const ancCap = (dedUsed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+    if(ancUsed + 1 > ancCap) return { fits:false, reason: who + ' has no time left today — ' + ancUsed + ' of ' + ancCap + ' short tasks used' + (dedUsed >= 1 ? ' alongside a full-day task' : '') + '.' };
+    return { fits:true, reason:'' };
+  },
+  forageBudgetLine(){
+    const c = this.forageActor(); if(!c) return '';
+    const b = window.ACKS.characterActivityBudget(this.currentCampaign, c.id);
+    return 'Today used: ' + (b.dedicatedUsed || 0) + ' dedicated · ' + (b.ancillaryUsed || 0) + ' ancillary' + (b.overBudget ? ' (over budget)' : '');
+  },
   // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
   // shown ONLY to venturers, and auto-set when this venturer has previously entered this market.
   tradeActorIsVenturer(){ return window.ACKS.hasMercantileNetwork(this.tradeActor()); },
@@ -15227,7 +15869,11 @@ return {
       // notables show); iterating r._notables is reliable.
       if(this.dayTickProposal){
         this.dayTickProposal.daysRequested = days;  // for the "paused early" check (see dayTickPausedEarly)
-        (this.dayTickProposal.pendingRecords||[]).forEach(r => { if(r) r._notables = this.dayTickRecordNotables(r); });
+        (this.dayTickProposal.pendingRecords||[]).forEach(r => {
+          if(!r) return;
+          r._notables = this.dayTickRecordNotables(r);
+          if(r.kind === 'survival'){ r.label = this._dayTickSurvivalLabel(r); r._survivalRows = this.dayTickSurvivalRows(r); }
+        });
       }
     }
     catch(e){ console.error('proposeDayTick error', e); this.dayTickError = String((e && e.message) || e); }
@@ -15291,9 +15937,9 @@ return {
     if(!p || !record) return [];
     return (p.notableEvents || []).filter(e => {
       if(!e || e.consumer !== record.consumer) return false;
-      // The comprehensive per-day umbrella (Travel pivot) is conveyed by the record summary line itself;
-      // the per-thing notables (lost/hunger/fording/…) are what the GM reviews under it.
-      if(e.type === 'travel-day') return false;
+      // The comprehensive per-day umbrella (Travel pivot / CoL-1 survival-day) is conveyed by the record
+      // summary line itself; the per-thing notables (lost/hunger/fording/…) are what the GM reviews under it.
+      if(e.type === 'travel-day' || e.type === 'survival-day') return false;
       // Match by journeyId AND dayIndex — a multi-day advance has one record per day for the same journey,
       // so journeyId alone showed every day's notables under each day's record (an earlier day surfaced a
       // later day's dehydration — the review must not look into the future). tickJourneyDay stamps dayIndex.
@@ -15313,6 +15959,52 @@ return {
     return (i > 0 && i < 80) ? t.slice(i + 2) : t;
   },
   toggleRejectDayTickRecord(r){ if(r) r.rejected = !r.rejected; },
+  // ── Survival record detail (CoL-1, Joachim 2026-06-06) ──────────────────────────────────────────
+  // A survival record's header label: who (party or lone character) + where. More legible than the bare
+  // "survival record". Set on the record in _proposeDayTick.
+  _dayTickSurvivalLabel(record){
+    const camp = this.currentCampaign || {}; const ids = record.memberIds || [];
+    const first = (camp.characters||[]).find(c => c && c.id === ids[0]);
+    let who;
+    if(record.partyId){ const p = (camp.parties||[]).find(x => x && x.id === record.partyId); who = (p && p.name) || 'Party'; }
+    else who = (first && first.name) || 'A character';
+    const hexId = first && first.currentHexId;
+    const hex = hexId ? (camp.hexes||[]).find(h => h && h.id === hexId) : null;
+    const where = hex ? (' · ' + (window.ACKS.hexName ? window.ACKS.hexName(hex) : hexId)) : '';
+    return '🍖 ' + who + where;
+  },
+  // Per-member rows for a survival record's detail: name + conditions (hunger/thirst ladders + CON loss)
+  // + whether they ate/drank today + food/water left + a critical (CON 0) flag. Reads the PROPOSED
+  // post-day member state (record.survival.members) so the review shows the day's actual outcome.
+  dayTickSurvivalRows(record){
+    if(!record || record.kind !== 'survival' || !record.survival || !record.survival.members) return [];
+    const camp = this.currentCampaign || {}; const A = window.ACKS;
+    const upd = record.survival.inventoryUpdates || {};
+    const out = [];
+    for(const id of (record.memberIds || Object.keys(record.survival.members))){
+      const m = record.survival.members[id]; if(!m) continue;
+      const ch = (camp.characters||[]).find(x => x && x.id === id);
+      const conds = [];
+      const h = m.foodDeficitDays || 0;
+      if(h > 0) conds.push({ label: (h>=7?'Starving':(h>=2?'Underfed':'Hungry')), detail: 'day '+h+((m.conLossHunger||0)>0?(' · −'+m.conLossHunger+' CON'):''), cls:'bg-orange-200 text-orange-900' });
+      const d = m.waterDeficitDays || 0;
+      if(d > 0) conds.push({ label:'Dehydrated', detail:'day '+d+((m.conLossThirst||0)>0?(' · −'+m.conLossThirst+' CON'):''), cls:'bg-sky-200 text-sky-900' });
+      const inv = upd[id] || (ch && ch.inventory) || [];
+      const foodDays = (A && A.rationDaysAvailable) ? (A.rationDaysAvailable({ inventory: inv }) || 0) : 0;
+      out.push({ id, name: (ch && ch.name) || id, conditions: conds, fedFood: !!m.fedFood, fedWater: !!m.fedWater,
+                 foodDays: Math.round(foodDays), waterDays: Math.round((m.waterDaysCarried||0)*10)/10, critical: !!m.critical });
+    }
+    return out;
+  },
+  // Step out of the review to a character's Survival tab to act (forage / move). Cancels the proposal
+  // first (it's a snapshot; acting would stale it) — mirrors the over-budget "Resolve →" pattern.
+  dayTickGoToSurvival(id){
+    const ch = (this.currentCampaign && this.currentCampaign.characters || []).find(c => c && c.id === id);
+    if(!ch) return;
+    this.cancelDayTick();
+    this.openCharacterEditor(ch);
+    this.characterEditorTab = 'survival';
+  },
   cancelDayTick(){ this.dayTickProposal = null; this.dayTickError = null; },
   _persistDayTick(){
     // A day-tick is a content mutation — mark dirty + persist to the SESSION cache (debounced),
@@ -15345,6 +16037,7 @@ return {
       this.turnEventProposals   = result.turnEventProposals;
       this.turnVentureProposals = result.turnVentureProposals;
       this.turnProposal         = result.turnProposal;
+      this.turnLivingExpenseProposal = result.livingExpenseProposal || null;   // CoL-2 preview
       this.showTurnModal = true;
     } catch(e){
       console.error('proposeMonthlyTurn error', e);

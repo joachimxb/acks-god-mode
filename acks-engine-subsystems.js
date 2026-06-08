@@ -1120,6 +1120,141 @@ function solicitHirelings(opts){
   };
 }
 
+// ─── Day-aware recruitment drives (Phase 2.95 #310 — RR p.164) ─────────────────────────────────
+// Soliciting for hirelings is an ONGOING activity: the patron is "in the market" for up to 3 weeks,
+// candidates trickle in (½ week 1, ¼ week 2, remainder week 3), each week costs the solicit fee, and it
+// costs 1 ancillary/day (the activity budget reads the active drive). The global Day Clock advances it
+// (the 'recruitment' day-consumer). A drive lives on the patron (character.recruitmentDrives[]).
+
+// Game-day ordinal (months are 30 days) — a monotonic day count for measuring elapsed weeks.
+function _campaignDayOrd(campaign){
+  return (((campaign && campaign.currentTurn) || 1) - 1) * 30 + (((campaign && campaign.currentDayInMonth) || 1));
+}
+function recruitmentDrivesForPatron(campaign, patronId){
+  const c = ((campaign && campaign.characters) || []).find(x => x && x.id === patronId);
+  return (c && Array.isArray(c.recruitmentDrives)) ? c.recruitmentDrives : [];
+}
+function activeRecruitmentDrivesForPatron(campaign, patronId){
+  return recruitmentDrivesForPatron(campaign, patronId).filter(d => d && d.status === 'active');
+}
+
+// Start a solicitation drive: rolls the total availability + the RAW 3-week schedule once
+// (solicitHirelings). RAW p.164 — candidates arrive AFTER a week of soliciting, so a fresh drive reveals
+// NOTHING on day 0; the 'recruitment' day-consumer reveals ½/¼/remainder at +7/+14/+21 days and charges
+// each week's fee as that week completes. PURE state. Returns { ok, drive, feeOwedGp:0 } or { ok:false, error }.
+function startRecruitmentDrive(campaign, opts){
+  opts = opts || {};
+  const patron = ((campaign && campaign.characters) || []).find(c => c && c.id === opts.patronCharacterId);
+  if(!patron) return { ok:false, error:'unknown-patron' };
+  if(opts.marketClassIdx == null || opts.marketClassIdx < 0 || opts.marketClassIdx > 5) return { ok:false, error:'bad-market-class' };
+  let sol;
+  try { sol = solicitHirelings({ hireCategory: opts.hireCategory, hireTypeId: opts.hireTypeId, marketClassIdx: opts.marketClassIdx, rng: opts.rng }); }
+  catch(e){ return { ok:false, error:'solicit-failed', detail:String((e && e.message) || e) }; }
+  const ord = _campaignDayOrd(campaign);
+  const drive = {
+    id: newId(ID_PREFIXES.recruitmentDrive),
+    patronCharacterId: patron.id,
+    settlementId: opts.settlementId || null,
+    marketClassIdx: opts.marketClassIdx,
+    hireCategory: opts.hireCategory, hireTypeId: opts.hireTypeId,
+    hireTypeLabel: (sol.row && sol.row.label) || opts.hireTypeId,
+    startedTurn: (campaign && campaign.currentTurn) || 1, startedDayOrd: ord,
+    totalAvailable: sol.totalAvailable, weekly: (sol.weekly || []).slice(), feeWeekly: sol.feeWeekly,
+    weeksRevealed: 0,                                  // RAW p.164: candidates arrive after a week of soliciting, not on day 0
+    revealedAvailable: 0,
+    weeksCharged: 0, feesAccruedGp: 0,                 // each week's fee is charged by the day-consumer when that week completes
+    status: 'active'
+  };
+  patron.recruitmentDrives = patron.recruitmentDrives || [];
+  patron.recruitmentDrives.push(drive);
+  return { ok:true, drive: drive, feeOwedGp: 0 };       // no upfront fee — week 1's fee lands when week 1 completes (+7 days)
+}
+
+// PURE peek: what a drive would reveal at game-day `dayOrd` (no mutation). null = no new week yet.
+// RAW p.164: week N's candidates (+ its fee) land after N full weeks of soliciting have elapsed, so a
+// fresh drive (elapsedWeeks 0) reveals nothing; week 1 at +7, week 2 at +14, week 3 at +21 (complete).
+// Returns { weeksRevealed, revealedAvailable, weeksCharged, feeOwed, completed }.
+function _recruitmentDriveRevealAt(d, dayOrd){
+  const elapsedWeeks = Math.max(0, Math.floor((dayOrd - (d.startedDayOrd || dayOrd)) / 7));
+  const target = Math.min(3, elapsedWeeks);            // week N arrives after N full weeks (was 1+elapsedWeeks — that revealed week 1 on day 0)
+  if(target <= d.weeksRevealed) return null;           // no new week elapsed yet
+  const revealedAvailable = (d.weekly || []).slice(0, target).reduce((s, n) => s + (n || 0), 0);
+  const newWeeks = Math.max(0, target - d.weeksCharged);
+  return { weeksRevealed: target, revealedAvailable, weeksCharged: Math.max(d.weeksCharged, target), feeOwed: newWeeks * (d.feeWeekly || 0), completed: target >= 3 };
+}
+function _applyRecruitmentReveal(d, rev){
+  d.weeksRevealed = rev.weeksRevealed; d.revealedAvailable = rev.revealedAvailable;
+  d.weeksCharged = rev.weeksCharged; d.feesAccruedGp = (d.feesAccruedGp || 0) + (rev.feeOwed || 0);
+  if(rev.completed) d.status = 'complete';              // all candidates available — search done (RR p.164)
+}
+
+// Advance every active drive to the current game day: reveal newly-available weeks + accrue their fees
+// (no gp debit — the day-tick / caller debits the returned feeOwedGp). Returns the changed drives:
+// [{ patronId, drive, weeksNewlyRevealed, feeOwedGp, completed }].
+function advanceRecruitmentDrives(campaign, opts){
+  opts = opts || {};
+  const ord = (typeof opts.dayOrd === 'number') ? opts.dayOrd : _campaignDayOrd(campaign);
+  const out = [];
+  for(const c of ((campaign && campaign.characters) || [])){
+    if(!c || !Array.isArray(c.recruitmentDrives)) continue;
+    for(const d of c.recruitmentDrives){
+      if(!d || d.status !== 'active') continue;
+      const rev = _recruitmentDriveRevealAt(d, ord);
+      if(!rev) continue;
+      const before = d.weeksRevealed;
+      _applyRecruitmentReveal(d, rev);
+      out.push({ patronId: c.id, drive: d, weeksNewlyRevealed: rev.weeksRevealed - before, feeOwedGp: rev.feeOwed, completed: rev.completed });
+    }
+  }
+  return out;
+}
+
+// ─── 'recruitment' day-consumer (Calendar §14) — the global Day Clock advances active drives ──────
+// PURE propose: peeks each active drive at the target day and emits one record per drive that reveals a
+// new week (carrying the resolved post-state + the week's fee) + a transient "now available" notable.
+// Commit applies the reveal to the real drive and charges the week's solicit fee from the patron's purse
+// (GP Wave B; RR p.164 — per week, per hireling type). order 45 (after survival 35, before construction 50).
+function proposeRecruitmentDay(campaign, ctx){
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  const dayInMonth = (ctx && ctx.dayInMonth) || ((campaign && campaign.currentDayInMonth) || 1);
+  const dayOrd = (((campaign && campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
+  for(const c of ((campaign && campaign.characters) || [])){
+    if(!c || !Array.isArray(c.recruitmentDrives)) continue;
+    for(const d of c.recruitmentDrives){
+      if(!d || d.status !== 'active') continue;
+      const rev = _recruitmentDriveRevealAt(d, dayOrd);
+      if(!rev) continue;
+      out.pendingRecords.push({ kind: 'recruitment', patronId: c.id, driveId: d.id, reveal: rev });
+      out.notableEvents.push({ kind: 'gm-narrative', type: 'recruitment', transient: true, primaryHexId: null,
+        label: (c.name || 'A patron') + ': ' + rev.revealedAvailable + ' ' + (d.hireTypeLabel || d.hireTypeId) + (rev.completed ? ' available — search complete' : ' available so far'),
+        payload: { characterId: c.id, driveId: d.id } });
+    }
+  }
+  return out;
+}
+function commitRecruitmentRecord(campaign, record){
+  if(!record || record.kind !== 'recruitment' || !record.reveal) return;
+  const A = _jACKS();
+  const c = ((campaign && campaign.characters) || []).find(x => x && x.id === record.patronId);
+  const d = (c && Array.isArray(c.recruitmentDrives)) ? c.recruitmentDrives.find(x => x && x.id === record.driveId) : null;
+  if(!d) return;
+  _applyRecruitmentReveal(d, record.reveal);
+  // charge the week's solicit fee from the patron's purse (RR p.164 — per week, per type), GP Wave B.
+  const fee = record.reveal.feeOwed || 0;
+  if(fee > 0 && typeof A.applyWealthTransfer === 'function'){
+    const spec = { amount: fee, source: { kind: 'character-gp', id: c.id }, destination: { kind: 'external', label: 'Solicitation fee' }, allowOverdraft: true, reason: 'Hireling solicitation fee', bucket: 'recruitment' };
+    try { A.applyWealthTransfer(campaign, spec); if(typeof A.recordWealthTransfer === 'function') A.recordWealthTransfer(campaign, spec, { submittedBy: 'engine' }); } catch(e){}
+  }
+}
+
+// Stop a drive (the patron leaves the market / has hired enough) — marks it 'stopped' (kept for history).
+function stopRecruitmentDrive(campaign, patronId, driveId){
+  const d = recruitmentDrivesForPatron(campaign, patronId).find(x => x && x.id === driveId);
+  if(!d) return { ok:false, error:'drive-not-found' };
+  if(d.status === 'active') d.status = 'stopped';
+  return { ok:true, drive: d };
+}
+
 // individuateHirelingCandidate — materialise a single Character record for a
 // rolled candidate the patron wants to engage. Idempotent insofar as it
 // always produces a fresh Character with stable id; the caller is responsible
@@ -1699,26 +1834,31 @@ function _drawRationDays(inv, nDays){
 }
 
 // The per-member daily survival resolution (§4.1 water, §4.2 food, §6 sharing). PURE — reads campaign
-// state, simulates on clones, returns the post-state absolutes commit replays. Food/water sources, the
-// forage-water throw, the share-rations pooling (camp-first, leader-priority), and the §1.2/§1.3
-// deficit ladders + CON loss all live here. The day-tick splices this in; commit applies it.
-function journeyDaySurvival(campaign, journey, hex, opts){
+// state, simulates on clones, returns the post-state absolutes commit replays. MOVER-AGNOSTIC (CoL-1,
+// Architecture §3.13): it operates on an explicit member set + share context (args), so BOTH the journey
+// tick and the off-journey 'survival' day-consumer reuse the EXACT same resolution — one resolution per
+// character per day. journeyDaySurvival (below) is the thin journey adapter; the survival consumer is the
+// other caller. Food/water sources, the forage-water throw, the share-rations pooling (camp-first,
+// leader-priority), and the §1.2/§1.3 deficit ladders + CON loss all live here.
+//   args = { members:[char], hex, share, camp, leaderId, poolRations, poolWater, forageWater,
+//            notable:{ kind, prefix, primaryHexId, payload, transient } }
+function resolveDaySurvival(campaign, args, opts){
   const A = _jACKS();
   opts = opts || {};
+  args = args || {};
   const rng = opts.rng || Math.random;
   const FOOD_ST = A.RATION_FOOD_ST_PER_DAY || 1 / 6;
   const out = { ignored: false, waterSourced: false, waterForage: null, members: {}, inventoryUpdates: {}, campItems: null, campWater: null, notableEvents: [], anyHungry: false, anyThirsty: false, anyCritical: false };
   if(A.isHouseRuleEnabled(campaign, 'ignore-rations')){ out.ignored = true; return out; }
 
-  const ids = (journey.participantCharacterIds || []).filter(Boolean);
-  const members = ids.map(id => (campaign.characters || []).find(c => c && c.id === id)).filter(Boolean);
+  const members = (args.members || []).filter(Boolean);
   if(!members.length) return out;
+  const hex = args.hex;
 
-  const share = !!journey.shareRations;
-  const party = journey.partyId ? (campaign.parties || []).find(p => p && p.id === journey.partyId) : null;
-  const camp = (party && typeof A.partyCampStash === 'function') ? A.partyCampStash(campaign, party.id) : null;
+  const share = !!args.share;
+  const camp = args.camp || null;
   // Leader-first ordering (decision #8, 🔧): the party leader, then the others in a stable order.
-  const leaderId = party ? (party.leaderCharacterId || (Array.isArray(party.memberCharacterIds) && party.memberCharacterIds[0]) || null) : null;
+  const leaderId = args.leaderId || null;
   const order = members.slice().sort((a, b) => (a.id === leaderId ? -1 : b.id === leaderId ? 1 : 0));
 
   // working clones (tick is pure) — full inventories so non-ration items survive the record.
@@ -1744,8 +1884,8 @@ function journeyDaySurvival(campaign, journey, hex, opts){
   // (when sharing) camp. seedJourneyProvisions zeroes these at launch/load (decision #1 — real
   // inventory), so a provisioned journey is fully tight (pool 0); an unseeded/legacy one draws here and
   // behaves exactly as before. Recorded post-draw as newRations / newWaterRations.
-  let poolRations = (journey.supplies && Number(journey.supplies.rations)) || 0;
-  let poolWater = (journey.supplies && Number(journey.supplies.waterRations)) || 0;
+  let poolRations = Number(args.poolRations) || 0;
+  let poolWater = Number(args.poolWater) || 0;
   const hasOwnRation = inv => (inv || []).some(x => A.isRationLine(x) && (Number(x.daysRemaining) || 0) >= 1);
 
   // ── §4.1 WATER — free source → forage → drink (own → shared camp/others → shared pool), leader-first ──
@@ -1754,12 +1894,12 @@ function journeyDaySurvival(campaign, journey, hex, opts){
   // an unauthored day-start can land on a watered hex (the arrival hex / the last authored hex) where the
   // original tick had foraged on a sourceless environment — without this the throw would silently vanish.
   const forceForage = !!opts.forageNoSource;
-  if(!forceForage && hasFreshSource(campaign, hex)){
+  if(!forceForage && (args.freeWater || hasFreshSource(campaign, hex))){   // args.freeWater: settled regime (CoL-1 §16.1) — water tops up even with no mapped source
     out.waterSourced = true;
     for(const c of members){ const m = M[c.id]; m.water = m.waterCap; m.fedWater = true; }   // free top-up to capacity
   } else {
     let foraged = false;
-    if(journey.forageWaterEnabled){
+    if(args.forageWater){
       // one party Foraging throw (14+, 18+ barrens/desert; +4 if any member has Survival proficiency).
       // forageTarget pins the original throw's target so a reroll re-rolls the same throw, only the die.
       const dry = (hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
@@ -1792,6 +1932,7 @@ function journeyDaySurvival(campaign, journey, hex, opts){
   // ── §4.2 FOOD — own rations → (shared) camp → (shared) a comrade's → shared pool, leader-first ──
   for(const c of order){
     const m = M[c.id];
+    if(args.freeFood){ m.fedFood = true; continue; }                                            // settled regime (CoL-1 §16.1) — food abstracted into cost of living
     if(_drawRationDays(m.inv, 1) > 0){ m.fedFood = true; continue; }                            // own pack
     if(share && campItems && _drawRationDays(campItems, 1) > 0){ campItemsTouched = true; m.fedFood = true; continue; }  // camp stash
     if(share){ const d = order.find(o => hasOwnRation(M[o.id].inv)); if(d && _drawRationDays(M[d.id].inv, 1) > 0){ m.fedFood = true; continue; } }  // a comrade's pack
@@ -1839,14 +1980,47 @@ function journeyDaySurvival(campaign, journey, hex, opts){
   if(campWaterTouched) out.campWater = campWater;
 
   // ── transient notable signals (folded into the umbrella event; drive the pause check + day digest) ──
-  const nm = (journey.name || 'Journey');
-  if(out.anyHungry) out.notableEvents.push({ kind:'journey-day-tick', type:'hunger', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': a traveller is going hungry (no food)', payload:{ journeyId: journey.id } });
-  if(out.anyThirsty) out.notableEvents.push({ kind:'journey-day-tick', type:'dehydration', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': a traveller is dehydrated (no water)', payload:{ journeyId: journey.id } });
-  if(out.anyCritical) out.notableEvents.push({ kind:'journey-day-tick', type:'survival-critical', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': a traveller is at death’s door (CON 0) — GM, resolve', payload:{ journeyId: journey.id } });
+  const _n = args.notable || {};
+  const nKind = _n.kind || 'journey-day-tick';
+  const nm = _n.prefix || 'Journey';
+  const nHex = _n.primaryHexId || null;
+  const nPay = _n.payload || {};
+  const nTrans = !!_n.transient;
+  const _push = (type, label) => out.notableEvents.push({ kind: nKind, type: type, pauseTrigger: 'supplies-low', transient: nTrans, primaryHexId: nHex, label: label, payload: nPay });
+  if(out.anyHungry) _push('hunger', nm + ': a traveller is going hungry (no food)');
+  if(out.anyThirsty) _push('dehydration', nm + ': a traveller is dehydrated (no water)');
+  if(out.anyCritical) _push('survival-critical', nm + ': a traveller is at death’s door (CON 0) — GM, resolve');
   // legacy party stores running low (only when nobody's actually going hungry yet)
   const lowAt = members.length * (A.JOURNEY_SUPPLY_LOW_DAYS || 3);
-  if(!out.anyHungry && out.newRations > 0 && out.newRations < lowAt) out.notableEvents.push({ kind:'journey-day-tick', type:'supplies-low', pauseTrigger:'supplies-low', primaryHexId: journey.startHexId || null, label: nm + ': party stores low (' + out.newRations + ' rations left)', payload:{ journeyId: journey.id } });
+  if(!out.anyHungry && out.newRations > 0 && out.newRations < lowAt) _push('supplies-low', nm + ': party stores low (' + out.newRations + ' rations left)');
   return out;
+}
+
+// Thin journey adapter (CoL-1): builds the member set + share/camp/pool context from the journey and
+// delegates to resolveDaySurvival. Identical inputs → identical output, so the journey path is byte-for-
+// byte unchanged. (Off-journey party sharing rides on party.shareProvisions via the 'survival' consumer;
+// the journey keeps its own shareRations flag — the GM's per-journey override.)
+function journeyDaySurvival(campaign, journey, hex, opts){
+  const A = _jACKS();
+  const ids = (journey.participantCharacterIds || []).filter(Boolean);
+  const members = ids.map(id => (campaign.characters || []).find(c => c && c.id === id)).filter(Boolean);
+  const party = journey.partyId ? (campaign.parties || []).find(p => p && p.id === journey.partyId) : null;
+  const camp = (party && typeof A.partyCampStash === 'function') ? A.partyCampStash(campaign, party.id) : null;
+  const leaderId = party ? (party.leaderCharacterId || (Array.isArray(party.memberCharacterIds) && party.memberCharacterIds[0]) || null) : null;
+  // CoL-1 lifestyle exemption (Joachim 2026-06-06): a day travelled through a hex that shelters the party
+  // — a settlement, a complete stronghold, or a domain ruled (own / vassal chain) by ANY traveller —
+  // consumes no rations or water (they live off the lifestyle). Out of such a hex, the field day resolves
+  // as normal. groupProvisioningRegime reads the whole member set, so a ruler carries his companions.
+  const onLifestyle = (typeof A.groupProvisioningRegime === 'function')
+    && A.groupProvisioningRegime(campaign, members, hex) === 'settled';
+  return resolveDaySurvival(campaign, {
+    members: members, hex: hex, share: !!journey.shareRations, camp: camp, leaderId: leaderId,
+    freeFood: onLifestyle, freeWater: onLifestyle,
+    poolRations: (journey.supplies && Number(journey.supplies.rations)) || 0,
+    poolWater: (journey.supplies && Number(journey.supplies.waterRations)) || 0,
+    forageWater: !!journey.forageWaterEnabled,
+    notable: { kind: 'journey-day-tick', prefix: (journey.name || 'Journey'), primaryHexId: journey.startHexId || null, payload: { journeyId: journey.id } }
+  }, opts);
 }
 // True when two inventories' ration lines differ (count or remaining days) — so commit only rewrites
 // a member's inventory when its food actually changed.
@@ -1859,7 +2033,11 @@ function _invRationsDiffer(a, b){
 // Apply the recorded survival absolutes to the campaign (called by commitJourneyRecord). Sets each
 // member's water + deficit counters + condition flags + CON loss, rewrites changed inventories, and
 // updates the camp stash's rations/water. Mirrors the legacy hungerDays/dehydrationDays for back-compat.
-function applyJourneyDaySurvival(campaign, journey, survival){
+// Apply the recorded survival absolutes to the campaign. MOVER-AGNOSTIC (CoL-1): sets each member's water
+// + deficit counters + condition flags + CON loss, rewrites changed inventories, and (when a partyId is
+// given) updates that party's camp stash rations/water. Both the journey commit and the 'survival'
+// consumer commit call this.
+function applyDaySurvival(campaign, survival, partyId){
   if(!campaign || !survival || survival.ignored || !survival.members) return;
   for(const id of Object.keys(survival.members)){
     const c = (campaign.characters || []).find(x => x && x.id === id);
@@ -1873,14 +2051,17 @@ function applyJourneyDaySurvival(campaign, journey, survival){
     c.hungerDays = m.foodDeficitDays; c.dehydrationDays = m.waterDeficitDays;   // legacy mirror
     if(survival.inventoryUpdates && survival.inventoryUpdates[id]) c.inventory = survival.inventoryUpdates[id];
   }
-  if(survival.campItems != null || survival.campWater != null){
-    const party = journey.partyId ? (campaign.parties || []).find(p => p && p.id === journey.partyId) : null;
+  if((survival.campItems != null || survival.campWater != null) && partyId){
+    const party = (campaign.parties || []).find(p => p && p.id === partyId);
     const camp = (party && global.ACKS && global.ACKS.partyCampStash) ? global.ACKS.partyCampStash(campaign, party.id) : null;
     if(camp){
       if(survival.campItems != null) camp.items = survival.campItems;
       if(survival.campWater != null) camp.waterDaysCarried = survival.campWater;
     }
   }
+}
+function applyJourneyDaySurvival(campaign, journey, survival){
+  applyDaySurvival(campaign, survival, journey && journey.partyId);
 }
 
 // §5.1 — resolve ONE day for ONE in-transit journey. PURE: returns the pending record
@@ -3480,6 +3661,236 @@ function mapTerrainTypes(){
   return Object.keys(HEX_TERRAIN_COLORS).map(k => ({ value: k, label: k.charAt(0).toUpperCase() + k.slice(1) }));
 }
 
+// ─── CoL-1 (Phase 2.5 Provisioning §16.2) — off-journey survival day-consumer ──────────────────────
+// Generalizes the field food/water resolution to EVERY field character not already resolved by a journey,
+// so a character standing in the wild gets hungry/thirsty when the GM advances the day. Runs the SAME
+// resolveDaySurvival primitive as the journey tick. Field characters are grouped by (party, hex) so a
+// co-located sharing party pools food+water (camp-first, leader-first); everyone else resolves alone.
+// SETTLED characters (settlement / ruled-domain / stronghold hex — characterProvisioningRegime) are
+// auto-provisioned: a settled day = free food + topped water (freeFood/freeWater), so deficits clear and
+// a character leaves town topped up — but only when they actually need it (no no-op churn). Dedups against
+// the 'journeys' consumer by membership. Notable signals are TRANSIENT (pause + review surface only;
+// condition flags persist via commit — no eventLog spam in CoL-1).
+
+// A settled character needs a top-up day only if under water capacity OR carrying any deficit / CON loss.
+function _settledNeedsTopUp(campaign, c){
+  const A = _jACKS();
+  if(!c) return false;
+  if((Number(c.foodDeficitDays) || 0) > 0 || (Number(c.waterDeficitDays) || 0) > 0) return true;
+  if((Number(c.conLossHunger) || 0) > 0 || (Number(c.conLossThirst) || 0) > 0) return true;
+  const cap = (typeof A.waterCapacityDays === 'function') ? A.waterCapacityDays(c) : 0;
+  return (Number(c.waterDaysCarried) || 0) < cap;
+}
+
+// Partition active characters into FIELD groups (resolved this day) + SETTLED chars (topped up if needed).
+function _survivalDayGroups(campaign){
+  const A = _jACKS();
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  const isActive = A.isActive;
+  // Companion-aware (CoL-1, Joachim 2026-06-06): a character is on lifestyle if anyone in their cohort
+  // (party / journey co-members at the same hex) rules the hex's domain — so a ruler's companions standing
+  // in his realm are exempt, party-sharing or not. Field characters everywhere else always consume.
+  const regimeOf = A.characterEffectiveRegime || A.characterProvisioningRegime;
+  const onJourney = {};
+  (campaign.journeys || []).forEach(j => {
+    if(j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost')){
+      (j.participantCharacterIds || []).forEach(id => { onJourney[id] = 1; });
+    }
+  });
+  const parties = (campaign.parties || []);
+  const partyOf = (cid) => parties.find(p => p && Array.isArray(p.memberCharacterIds) && p.memberCharacterIds.indexOf(cid) >= 0) || null;
+  const field = [], settled = [];
+  for(const c of chars){
+    if(!c || !c.id) continue;
+    if(typeof isActive === 'function' && !isActive(c)) continue;
+    if(onJourney[c.id]) continue;
+    const r = (typeof regimeOf === 'function') ? regimeOf(campaign, c) : 'field';
+    if(r === 'settled') settled.push(c); else field.push(c);
+  }
+  const groups = [], claimed = {};
+  for(const c of field){
+    if(claimed[c.id]) continue;
+    const p = partyOf(c.id);
+    if(p && p.shareProvisions && p.currentHexId && c.currentHexId === p.currentHexId){
+      const mates = field.filter(x => !claimed[x.id] && partyOf(x.id) === p && x.currentHexId === p.currentHexId);
+      mates.forEach(x => { claimed[x.id] = 1; });
+      groups.push({
+        partyId: p.id, members: mates, hex: A.findHex(campaign, p.currentHexId), share: true,
+        camp: (typeof A.partyCampStash === 'function') ? A.partyCampStash(campaign, p.id) : null,
+        leaderId: p.leaderCharacterId || (p.memberCharacterIds || [])[0] || null,
+        prefix: p.name || 'Party', payload: { partyId: p.id, campaignLogHidden: true }
+      });
+    } else {
+      claimed[c.id] = 1;
+      groups.push({
+        partyId: null, members: [c], hex: A.findHex(campaign, c.currentHexId), share: false, camp: null, leaderId: null,
+        prefix: c.name || 'A character', payload: { characterId: c.id, campaignLogHidden: true }
+      });
+    }
+  }
+  return { groups: groups, settled: settled };
+}
+
+// CoL-1 (2026-06-08) — whether the day's survival outcome is worth a permanent record. A purely routine
+// fed+watered day with no deficit and no change is NOT recorded (no eventLog noise). Recorded when any
+// member is hungry/thirsty/critical, is still carrying a deficit or CON loss, or changed today (lost OR
+// recovered CON / cleared a deficit) — i.e. there is an actual survival CONDITION to write to history.
+function _survivalDayWorthRecording(surv){
+  if(!surv || surv.ignored) return false;
+  if(surv.anyHungry || surv.anyThirsty || surv.anyCritical) return true;
+  const ms = surv.members || {};
+  for(const id in ms){
+    const m = ms[id]; if(!m) continue;
+    if((m.foodDeficitDays || 0) > 0 || (m.waterDeficitDays || 0) > 0) return true;   // still in deficit
+    if((m.conLossHunger || 0) > 0 || (m.conLossThirst || 0) > 0) return true;        // still carrying CON loss
+    if((m.conLostHunger || 0) !== 0 || (m.conLostThirst || 0) !== 0) return true;    // changed today (loss or recovery)
+  }
+  return false;
+}
+
+// A compact per-member status fragment for the survival-day label/history.
+function _survivalMemberFragment(name, m){
+  if(!m) return name;
+  const bits = [];
+  if(m.starving) bits.push('starving (day ' + (m.foodDeficitDays || 0) + ')');
+  else if(m.underfed) bits.push('underfed (day ' + (m.foodDeficitDays || 0) + ')');
+  else if(m.hungry) bits.push('hungry');
+  if(m.dehydrated) bits.push('dehydrated (day ' + (m.waterDeficitDays || 0) + ')');
+  const net = (m.conLostHunger || 0) + (m.conLostThirst || 0);                       // +lost / −recovered today
+  if(net > 0) bits.push('lost ' + net + ' CON');
+  else if(net < 0) bits.push('regained ' + (-net) + ' CON');
+  if(m.critical) bits.push('at death’s door (CON 0)');
+  if(!bits.length) bits.push('fed and watered');
+  return name + ' — ' + bits.join(', ');
+}
+
+// Build the comprehensive (non-transient) survival-day event for one resolved group — the off-journey
+// counterpart of journey-day-tick (CoL-1, 2026-06-08). Carries the full day's per-member outcome + the
+// context envelope (the hex as primaryHexId, each member as a related character, the party), so the day
+// surfaces in ACKS.characterHistory / hexHistory / partyHistory. campaignLogHidden on a recovery-only
+// day (stays in the Event Log + histories, off the narrative Campaign Log); surfaced when a condition is
+// active that day. The per-thing transient signals still drive the pause + day-review digest.
+function _buildSurvivalDayEvent(campaign, surv, memberChars, partyId, hex, settled){
+  const related = [];
+  const membersOut = {};
+  (memberChars || []).forEach(c => {
+    if(!c || !c.id) return;
+    related.push({ kind: 'character', id: c.id, role: 'subject' });
+    const m = surv.members && surv.members[c.id];
+    if(m) membersOut[c.id] = {
+      name: c.name || c.id, fedFood: !!m.fedFood, fedWater: !!m.fedWater,
+      foodDeficitDays: m.foodDeficitDays || 0, waterDeficitDays: m.waterDeficitDays || 0,
+      conLossHunger: m.conLossHunger || 0, conLossThirst: m.conLossThirst || 0,
+      conLostHunger: m.conLostHunger || 0, conLostThirst: m.conLostThirst || 0,
+      hungry: !!m.hungry, underfed: !!m.underfed, starving: !!m.starving, dehydrated: !!m.dehydrated,
+      critical: !!m.critical, waterDaysCarried: m.waterDaysCarried || 0
+    };
+  });
+  if(partyId) related.push({ kind: 'party', id: partyId, role: 'subject' });
+  const frags = (memberChars || []).map(c => _survivalMemberFragment(c.name || c.id, surv.members && surv.members[c.id]));
+  let label = frags.slice(0, 3).join('; ');
+  if(frags.length > 3) label += '; and ' + (frags.length - 3) + ' more';
+  if(settled && label) label += ' (sheltered)';
+  const notableNow = !!(surv.anyHungry || surv.anyThirsty || surv.anyCritical);
+  return {
+    kind: 'survival-day',
+    type: 'survival-day',
+    transient: false,
+    primaryHexId: (hex && hex.id) || null,
+    relatedEntities: related,
+    campaignLogHidden: !notableNow,    // recovery-only days stay out of the Campaign Log (still in history)
+    label: label || 'survival day',
+    payload: {
+      survivalDay: true, partyId: partyId || null, hexId: (hex && hex.id) || null, settled: !!settled,
+      anyHungry: !!surv.anyHungry, anyThirsty: !!surv.anyThirsty, anyCritical: !!surv.anyCritical,
+      members: membersOut, narrative: label || 'survival day'
+    }
+  };
+}
+
+// Deterministic survival PREVIEW seed (CoL-1, 2026-06-08) — the same fix the journey path uses
+// (_seededJourneyRng above). The off-journey 'survival' consumer's ONLY die is the Dehydrated 1d6
+// CON loss (resolveDaySurvival §1.3). If it rolled with Math.random, the floating Day-tick review
+// would show a DIFFERENT loss each time it re-opened (the GM cancels + re-ticks, or the review
+// refreshes) — the committed state hadn't changed, but the previewed dehydration jumped around.
+// Instead seed each group's dice from a fingerprint of its CURRENT committed pre-state + the world
+// day: re-opening previews the IDENTICAL day, and it changes only when the GM changes something real
+// (advance the clock, give the party water → a new fingerprint → a new, still-stable preview).
+// commitSurvivalRecord replays the recorded absolutes, so the ratified loss is exactly what was
+// reviewed. A caller may still inject ctx.rng to force genuine randomness. Reuses the journey path's
+// _jHash32 (FNV-1a) + _jMulberry32 PRNG (defined above).
+function _survivalPreviewFingerprint(campaign, group, ctx){
+  ctx = ctx || {};
+  const cal = (campaign && campaign.calendar) || {};
+  const surv = [];
+  for(const c of (group.members || [])){
+    if(!c){ surv.push('?'); continue; }
+    surv.push([c.id, c.hungerDays || 0, c.dehydrationDays || 0, c.waterDaysCarried || 0,
+               c.foodDeficitDays || 0, c.waterDeficitDays || 0,
+               c.conLossHunger || 0, c.conLossThirst || 0,
+               c.underfed ? 1 : 0, c.starving ? 1 : 0, c.dehydrated ? 1 : 0].join('|'));
+  }
+  return JSON.stringify({
+    d: ctx.dayInMonth || (campaign && campaign.currentDayInMonth) || 1, y: cal.year || 1, m: cal.month || 1,
+    party: group.partyId || null, hex: (group.hex && group.hex.id) || null,
+    share: group.share ? 1 : 0, settled: group.settled ? 1 : 0, surv: surv
+  });
+}
+function _seededSurvivalRng(campaign, group, ctx){
+  return _jMulberry32(_jHash32(_survivalPreviewFingerprint(campaign, group, ctx)));
+}
+
+// PURE handler (Calendar §14): propose each field group's survival + settled top-ups. No mutation.
+function proposeSurvivalDay(campaign, ctx){
+  const A = _jACKS();
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  if(!campaign || (A.isHouseRuleEnabled && A.isHouseRuleEnabled(campaign, 'ignore-rations'))) return out;
+  const split = _survivalDayGroups(campaign);
+  for(const g of split.groups){
+    // Stable preview: seed the day's 1d6 dehydration from the group's committed fingerprint unless
+    // the caller forced an rng — so re-opening / refreshing the review reproduces the same day.
+    const rng = (ctx && ctx.rng) || _seededSurvivalRng(campaign, g, ctx);
+    const surv = resolveDaySurvival(campaign, {
+      members: g.members, hex: g.hex, share: g.share, camp: g.camp, leaderId: g.leaderId,
+      notable: { kind: 'survival-day-tick', prefix: g.prefix, primaryHexId: (g.hex && g.hex.id) || null, payload: g.payload, transient: true }
+    }, Object.assign({}, ctx || {}, { rng: rng }));
+    if(surv.ignored) continue;
+    out.pendingRecords.push({ kind: 'survival', partyId: g.partyId, memberIds: g.members.map(m => m.id), survival: surv });
+    (surv.notableEvents || []).forEach(e => out.notableEvents.push(e));
+    // CoL-1 (2026-06-08): persist the day to the eventLog/history when it carries a condition (not a
+    // routine fed day). One comprehensive survival-day event per group — the off-journey counterpart of
+    // journey-day-tick — surfaces in characterHistory / hexHistory / partyHistory.
+    if(_survivalDayWorthRecording(surv)){
+      out.notableEvents.push(_buildSurvivalDayEvent(campaign, surv, g.members, g.partyId, g.hex, false));
+    }
+  }
+  for(const c of split.settled){
+    if(!_settledNeedsTopUp(campaign, c)) continue;
+    const hex = A.findHex(campaign, c.currentHexId);
+    // A settled day tops water to capacity (freeWater) so the 1d6 never rolls — but seed it anyway
+    // for consistency, so any future settled die is preview-stable too.
+    const rng = (ctx && ctx.rng) || _seededSurvivalRng(campaign, { members: [c], hex: hex, partyId: null, share: false, settled: true }, ctx);
+    const surv = resolveDaySurvival(campaign, {
+      members: [c], hex: hex, share: false, camp: null, leaderId: null,
+      freeFood: true, freeWater: true,
+      notable: { kind: 'survival-day-tick', prefix: c.name || 'A character', primaryHexId: c.currentHexId || null, payload: { characterId: c.id }, transient: true }
+    }, Object.assign({}, ctx || {}, { rng: rng }));
+    if(surv.ignored) continue;
+    out.pendingRecords.push({ kind: 'survival', partyId: null, memberIds: [c.id], survival: surv });
+    // A settled top-up that CLEARS a deficit (recovery) is recorded too — campaignLogHidden, but in history.
+    if(_survivalDayWorthRecording(surv)){
+      out.notableEvents.push(_buildSurvivalDayEvent(campaign, surv, [c], null, hex, true));
+    }
+  }
+  return out;
+}
+
+// COMMIT (Calendar §14): apply one ratified survival record's absolutes.
+function commitSurvivalRecord(campaign, record){
+  if(!record || record.kind !== 'survival' || !record.survival) return;
+  applyDaySurvival(campaign, record.survival, record.partyId || null);
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -3489,10 +3900,15 @@ Object.assign(ACKS, {
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
   journeyRoute, roadBonusForStep, riverCrossingForStep, journeyFordingThrow,
   // Phase 2.5 Provisioning (RR p.278) — per-member food/water resolution (V2/V3) + the forage reroll.
-  hasFreshSource, seedJourneyProvisions, journeyDaySurvival, applyJourneyDaySurvival, rerollJourneyForage, rerollJourneyNav, reapplyLatestDaySurvival,
+  hasFreshSource, seedJourneyProvisions, resolveDaySurvival, journeyDaySurvival, applyDaySurvival, applyJourneyDaySurvival, rerollJourneyForage, rerollJourneyNav, reapplyLatestDaySurvival,
+  // CoL-1 (Provisioning §16.2) — off-journey survival day-consumer.
+  proposeSurvivalDay, commitSurvivalRecord,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
+  // Phase 2.95 #310 — day-aware recruitment drives (RR p.164).
+  startRecruitmentDrive, advanceRecruitmentDrives, stopRecruitmentDrive, recruitmentDrivesForPatron, activeRecruitmentDrivesForPatron,
+  proposeRecruitmentDay, commitRecruitmentRecord,
   // Phase 2.5 Map Mode (#225) — pure geometry + fill-layer helpers (Architecture §11).
   // M0–M2: projection, bounds, labels, fill layers. M3–M6: adjacency/edges, glyph sizing, layer catalogs.
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName, generateBlankHexGrid,
@@ -3510,6 +3926,20 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 30,
     pauseTriggers: ['encounter', 'navigation-fail', 'supplies-low', 'fording'],
     commit: commitJourneyRecord
+  });
+  // CoL-1 (Provisioning §16.2) — off-journey survival, slot 35 (right after travel; dedups vs journeys).
+  ACKS.registerDayConsumer('survival', {
+    handler: proposeSurvivalDay,
+    order: 35,
+    pauseTriggers: ['supplies-low'],
+    commit: commitSurvivalRecord
+  });
+  // Phase 2.95 #310 — day-aware recruitment, slot 45: advances active solicitation drives (RR p.164).
+  ACKS.registerDayConsumer('recruitment', {
+    handler: proposeRecruitmentDay,
+    order: 45,
+    pauseTriggers: [],
+    commit: commitRecruitmentRecord
   });
 }
 

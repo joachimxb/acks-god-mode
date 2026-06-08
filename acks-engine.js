@@ -123,7 +123,9 @@ const ID_PREFIXES = Object.freeze({
   oath:                 'oth',
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30) — Project + Constructible
   project:              'prj',
-  constructible:        'cst'
+  constructible:        'cst',
+  // Phase 2.95 Hirelings (#310) — day-aware recruitment drive (sub-object on the patron, 2026-06-06)
+  recruitmentDrive:     'rcd'
 });
 
 function newId(prefix){
@@ -3129,6 +3131,92 @@ function derivedTributeOutflowGpFor(campaign, payerDomainId){
     .reduce((sum, t) => sum + (t.amount || 0), 0);
 }
 
+// CoL-1 (Phase 2.5 Provisioning §16.1) — does the character live in the SETTLED regime (food + lodging
+// abstracted into a monthly cost of living, no ration tracking) or the FIELD regime (stone-tracked
+// rations + water, the §4 survival resolution)? Settled when the character's CURRENT hex (a) has a
+// settlement, (b) holds a complete habitable stronghold (a Constructible), or (c) sits in a domain the
+// character rules — directly (domain.rulerCharacterId) or up the vassalage chain (derivedVassalDomainsOf;
+// "a ruler anywhere in his domain lives off his lifestyle"). A character with no current hex is SETTLED
+// ("can't starve in limbo"). RAW abstracts town food/lodging into the cost of living (RR p.173); treating
+// the wilderness chapter's ration rules (RR p.278) as the field-only regime is the structural reading (🔧).
+const _SETTLED_CONSTRUCTIBLE_KINDS = { 'stronghold-component':1, 'settlement-building':1, 'sanctum':1 };
+// ── Provisioning regime (CoL-1, Joachim 2026-06-06) ──────────────────────────────────────────────
+// A character/group is on LIFESTYLE ('settled' — no rations or water consumed, "as if relying on
+// living-expenses") when the hex shelters them; otherwise they're in the FIELD ('field' — daily food
+// + water, RR p.278). A hex shelters a group when:
+//   (a) a settlement is in the hex,
+//   (b) a complete habitable stronghold is at the hex (keep / hall / sanctum — not a mill or dungeon), or
+//   (c) the hex's domain is ruled (own OR up the vassalage chain) by SOMEONE IN THE GROUP — a ruler in
+//       his own / his vassals' realm, and his party + journey companions, all live off the lifestyle
+//       (Joachim's ruling: the own-domain exemption extends to companions; a vassal's realm counts as
+//       the ruler's own). groupProvisioningInfo returns the structured reason so the UI can say WHY no
+//       rations are spent; groupProvisioningRegime is the bare 'settled' | 'field'.
+function groupProvisioningInfo(campaign, members, hex){
+  if(!hex) return { regime: 'field', kind: null, domainId: null };
+  // (a) settlement at the hex (embedded mirror or top-level by hexId) — shelters everyone present.
+  const set = hex.settlement || settlementForHex(campaign, hex.id);
+  if(set) return { regime: 'settled', kind: 'settlement', settlementId: (set.id || null), domainId: (hex.domainId || null) };
+  // (b) a complete habitable stronghold at the hex.
+  const keep = constructiblesAtHex(campaign, hex.id).find(k =>
+    k && _SETTLED_CONSTRUCTIBLE_KINDS[k.constructibleKind] &&
+    (k.constructionState === 'complete' || k.lifecycleState === 'complete'));
+  if(keep) return { regime: 'settled', kind: 'stronghold', constructibleId: (keep.id || null), domainId: (hex.domainId || null) };
+  // (c) a domain ruled (own / vassal chain) by any group member — the host carries his companions.
+  if(hex.domainId){
+    for(const c of (members || [])){
+      if(!c) continue;
+      const owns = (campaign.domains || []).some(d => d && d.id === hex.domainId && d.rulerCharacterId === c.id);
+      const viaVassal = !owns && (derivedVassalDomainsOf(campaign, c.id) || []).indexOf(hex.domainId) >= 0;
+      if(owns || viaVassal) return { regime: 'settled', kind: 'domain', domainId: hex.domainId, hostCharacterId: c.id, viaVassal: viaVassal };
+    }
+  }
+  return { regime: 'field', kind: null, domainId: (hex.domainId || null) };
+}
+function groupProvisioningRegime(campaign, members, hex){
+  return groupProvisioningInfo(campaign, members, hex).regime;
+}
+function _resolveProvisioningChar(campaign, char){
+  return (typeof char === 'string')
+    ? (campaign && Array.isArray(campaign.characters) ? campaign.characters.find(x => x && x.id === char) : null)
+    : char;
+}
+// The cohort whose ruler-status counts toward a character's lifestyle: the character itself + every party
+// co-member + every journey co-participant standing at the SAME hex. (So a henchman travelling with his
+// lord through the lord's realm is on lifestyle whether or not the party shares rations; an arrived
+// journey still counts as companionship.)
+function characterCohort(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c) return [];
+  const hexId = c.currentHexId || null;
+  const seen = {}; seen[c.id] = 1; const out = [c];
+  const add = (id) => {
+    if(!id || seen[id]) return;
+    const m = (campaign.characters || []).find(x => x && x.id === id);
+    if(m && (m.currentHexId || null) === hexId){ seen[id] = 1; out.push(m); }
+  };
+  if(c.partyId) (campaign.characters || []).forEach(x => { if(x && x.partyId === c.partyId) add(x.id); });
+  (journeysWithParticipant(campaign, c.id) || []).forEach(j => (j.participantCharacterIds || []).forEach(add));
+  return out;
+}
+// Regime for a single character, COMPANION-AWARE (the cohort's rulers count). This is what the day-tick
+// survival consumer + the character-sheet Survival tab read. characterProvisioningRegime stays the pure
+// per-character primitive (own rule only) for callers wanting just this character's standing.
+function characterEffectiveRegime(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c || !c.currentHexId) return 'settled';
+  return groupProvisioningRegime(campaign, characterCohort(campaign, c), findHex(campaign, c.currentHexId));
+}
+function characterEffectiveProvisioningInfo(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c || !c.currentHexId) return { regime: 'settled', kind: 'unlocated' };
+  return groupProvisioningInfo(campaign, characterCohort(campaign, c), findHex(campaign, c.currentHexId));
+}
+function characterProvisioningRegime(campaign, char){
+  const c = _resolveProvisioningChar(campaign, char);
+  if(!c || !c.currentHexId) return 'settled';
+  return groupProvisioningRegime(campaign, [c], findHex(campaign, c.currentHexId));
+}
+
 // =============================================================================
 // reconcileWaveARelations — load-time invariant check + relational integrity.
 // Returns array of warning strings. Empty array = clean. Does NOT mutate the
@@ -4093,6 +4181,173 @@ function checkAllCharacterLevelUps(campaign){
   return results;
 }
 
+// ─── Cost of Living (Phase 2.5 §16 CoL-2 — RR p.173 + p.168) ─────────────────────────────────────
+// The end-of-month keep pass, run from commitTurn AFTER domains + passive investments bank income
+// (RR: a ruler banks his domain income before paying his own keep). Two independent line items per
+// the §16.6 payer taxonomy:
+//   (1) Self-supporting characters (PCs / independent NPCs) pay their OWN living expenses =
+//       min(target wage, funds on hand) — NO debt; effectiveSocialLevel is set from what they actually
+//       spent (RR p.173: an underspender is taken for a lower level by NPCs → feeds the hiring cap + loyalty).
+//   (2) A liege pays the monthly WAGE of each henchman/specialist bound to him (the long-open Stash C.4
+//       outflow). RAW carve-out (RR p.168): a vassal-ruling henchman whose domain income ≥ his wage owes
+//       nothing. The henchman takes NO self-debit (the wage IS his keep), so his effectiveSocialLevel = null
+//       (apparent = true level).
+// Pay source per payer (Joachim 2026-06-08 — one setting governs his keep AND the wages he owes): the
+// treasury of a domain he rules (the DEFAULT for a ruler — payKeepFromTreasury defaults on; only an
+// explicit false opts him out to his coin purse), or his coin purse when he rules no domain. Routed
+// through the GP Wave B wealth-transfer grammar (applyWealthTransfer MOVES; recordWealthTransfer logs,
+// campaignLogHidden so the routine debit stays in the Event Log audit but off the narrative Campaign Log).
+// Gated on `living-expenses` (default ON via the registry default); OFF ⇒ no debits + apparent = true level.
+//   opts.dryRun: compute the charges WITHOUT moving gp / setting fields (the proposeMonthlyTurn preview).
+// Returns { ruleOn, charges:[{charId,name,kind,trueLevel?,target?,wage?,paid,effectiveLevel?,liegeId?,waived?}], totalGp }.
+// Shared wage helpers (CoL-2, RR p.168) — used by both the monthly living-expenses pass and the
+// per-character Expenses breakdown so the two never drift. A henchman/specialist's monthly wage is
+// his explicit monthlyWage when set, else the wage of his level (RR p.168 table).
+function henchmanMonthlyWage(campaign, c){
+  const A = global.ACKS || {};
+  return (c && c.monthlyWage > 0) ? c.monthlyWage : (A.levelMonthlyWage ? A.levelMonthlyWage(c ? c.level : 0) : 0);
+}
+// RAW carve-out (RR p.168): a henchman given a domain to rule as a vassal owes no wage when that
+// domain's income ≥ his wage. Returns the waiver reason string, or null when the wage is owed.
+function henchmanWageWaiver(campaign, c){
+  const A = global.ACKS || {};
+  const ruled = ((campaign && campaign.domains) || []).find(d => d && d.rulerCharacterId === (c && c.id));
+  if(!ruled) return null;
+  let income = 0; try { income = A.monthlyNet ? A.monthlyNet(campaign, ruled) : 0; } catch(e){ income = 0; }
+  return (income >= henchmanMonthlyWage(campaign, c)) ? 'domain-income' : null;
+}
+
+function processLivingExpensesForTurn(campaign, opts){
+  opts = opts || {};
+  const A = global.ACKS || {};
+  const dryRun = !!opts.dryRun;
+  const chars = (campaign && campaign.characters) || [];
+  const out = { ruleOn: false, charges: [], totalGp: 0 };
+  out.ruleOn = isHouseRuleEnabled(campaign, 'living-expenses');
+  const active = (c) => A.isActive ? A.isActive(c)
+    : (c && c.alive !== false && c.kind !== 'candidate' && c.lifecycleState !== 'candidate' && c.lifecycleState !== 'deceased');
+  if(!out.ruleOn){
+    if(!dryRun) for(const c of chars){ if(c) c.effectiveSocialLevel = null; }   // OFF ⇒ apparent = true level
+    return out;
+  }
+  const wageFor = (c) => henchmanMonthlyWage(campaign, c);
+  // The pay handle (a ruler's domain treasury if he opted in, else his purse) + its available gp.
+  const payHandle = (payer) => {
+    // Default-on for rulers: absent/null ⇒ treasury; only an explicit false opts the ruler out to his
+    // purse. A non-ruler can't draw a treasury — the find below returns nothing, so we fall through.
+    if(payer && payer.payKeepFromTreasury !== false){
+      const dom = (campaign.domains || []).find(d => d && d.rulerCharacterId === payer.id);
+      if(dom){
+        const gp = A.domainTreasuryGp ? A.domainTreasuryGp(campaign, dom.id) : ((dom.treasury && dom.treasury.gp) || 0);
+        return { handle:{ kind:'treasury', id: dom.id }, available: Math.max(0, gp) };
+      }
+    }
+    const gp = (payer && payer.coins) ? (Number(payer.coins.gp) || 0) : (Number(payer && payer.personalGp) || 0);
+    return { handle:{ kind:'character-gp', id: payer.id }, available: Math.max(0, gp) };
+  };
+  // Move up to `amount` gp out of the payer's handle to the world (no debt — clamp to funds). Returns paid.
+  const pay = (payer, amount, reason, bucket) => {
+    if(!payer || amount <= 0) return 0;
+    const ph = payHandle(payer);
+    const amt = Math.min(amount, ph.available);
+    if(amt <= 0) return 0;
+    if(dryRun) return amt;
+    const spec = { amount: amt, source: ph.handle, destination:{ kind:'external', label: reason }, allowOverdraft:false, reason, bucket };
+    try {
+      if(A.applyWealthTransfer) A.applyWealthTransfer(campaign, spec);
+      if(A.recordWealthTransfer) A.recordWealthTransfer(campaign, spec, { submittedBy:'engine', campaignLogHidden:true });
+    } catch(e){ return 0; }
+    return amt;
+  };
+
+  // (1) Self-supporting characters pay their own living expenses.
+  for(const c of chars){
+    if(!c || !active(c)) continue;
+    if(isFollower(c) || isMercenaryOfficer(c)){ if(!dryRun) c.effectiveSocialLevel = null; continue; }  // no self-keep
+    if((isHenchman(c) || isSpecialist(c)) && c.liegeCharacterId){ if(!dryRun) c.effectiveSocialLevel = null; continue; } // liege-paid (pass 2)
+    const trueLevel = c.level || 0;
+    const targetLevel = (c.lifestyleTargetLevel != null) ? c.lifestyleTargetLevel : trueLevel;
+    const target = A.levelMonthlyWage ? A.levelMonthlyWage(targetLevel) : 0;
+    const paid = pay(c, target, 'Living expenses', 'living-expenses');
+    // RR p.173 is downward-only: underspending drops you to the level your spend covers; overspending
+    // does NOT raise you above your true level (the profligate "fool a henchman" is a Judge-discretion
+    // bluff, RR p.170, not a cap-raise). So cap the apparent level at the true level.
+    const eff = A.effectiveSocialLevelForSpend ? Math.min(trueLevel, A.effectiveSocialLevelForSpend(paid)) : trueLevel;
+    if(!dryRun){ c.lastLivingExpensePaidGp = paid; c.effectiveSocialLevel = eff; }
+    out.charges.push({ charId: c.id, name: c.name, kind:'living-expenses', trueLevel, targetLevel, target, paid, effectiveLevel: eff });
+    out.totalGp += paid;
+  }
+  // (2) Lieges pay the monthly wage of each henchman/specialist bound to them (Stash C.4 outflow).
+  for(const c of chars){
+    if(!c || !active(c)) continue;
+    if(!((isHenchman(c) || isSpecialist(c)) && c.liegeCharacterId)) continue;
+    const liege = chars.find(x => x && x.id === c.liegeCharacterId);
+    if(!liege) continue;
+    const wage = wageFor(c);
+    const waived = henchmanWageWaiver(campaign, c);   // RR p.168 carve-out: vassal domain income ≥ wage
+    if(waived){ out.charges.push({ charId: c.id, name: c.name, liegeId: liege.id, kind:'henchman-wage', wage, paid:0, waived }); continue; }
+    const paid = pay(liege, wage, 'Wage: ' + (c.name || c.id), 'henchman-wage');
+    out.charges.push({ charId: c.id, name: c.name, liegeId: liege.id, kind:'henchman-wage', wage, paid });
+    out.totalGp += paid;
+  }
+  return out;
+}
+
+// The level a character APPEARS to be to NPCs (RR p.173) — the apparent/social level the henchman
+// hiring cap + loyalty read. RAW is DOWNWARD ONLY: "Adventurers who do not spend at least this much
+// are considered to be of LOWER level (equivalent to what they do spend)" (RR p.173). Overspending does
+// NOT mechanically raise you above your true level — a profligate "might be able to fool a powerful
+// henchman" (RR p.170) but that's a Judge-discretion bluff (with its own loyalty-roll catch), not an
+// automatic cap-raise. So apparent = min(true level, what the spend bought). null / rule off ⇒ true level.
+function apparentLevel(campaign, char){
+  if(!char) return 0;
+  const trueLevel = char.level || 0;
+  if(!isHouseRuleEnabled(campaign, 'living-expenses')) return trueLevel;
+  return (char.effectiveSocialLevel != null) ? Math.min(trueLevel, char.effectiveSocialLevel) : trueLevel;
+}
+// RR p.170: if a henchman concludes he is more powerful than his (apparent) employer, it triggers an
+// immediate Loyalty roll at −1 per apparent level of difference. Returns the loyalty modifier (≤ 0).
+function apparentLevelLoyaltyPenalty(campaign, henchman, employer){
+  if(!henchman || !employer) return 0;
+  const hl = henchman.level || 0;
+  const al = apparentLevel(campaign, employer);
+  return (hl > al) ? -(hl - al) : 0;
+}
+
+// Per-character monthly expense breakdown (CoL-2, RR p.173 + p.168) — a read-only view for the
+// character sheet's Expenses tab: the character's own lifestyle keep (counted toward the total only
+// when the rule is on AND the character is self-supporting) plus the wages it pays as a liege to its
+// bound henchmen/specialists, and the total. Mirrors processLivingExpensesForTurn without mutating.
+function characterExpenseBreakdown(campaign, char){
+  const A = global.ACKS || {};
+  const ch = (typeof char === 'string') ? ((campaign && campaign.characters) || []).find(c => c && c.id === char) : char;
+  const out = { ruleOn:false, selfSupporting:false, lifestyle:null, henchmen:[], henchmenTotal:0, lifestyleGp:0, total:0 };
+  if(!ch || !campaign) return out;
+  out.ruleOn = isHouseRuleEnabled(campaign, 'living-expenses');
+  const active = (c) => A.isActive ? A.isActive(c)
+    : (c && c.alive !== false && c.lifecycleState !== 'candidate' && c.lifecycleState !== 'deceased');
+  // (1) The character's own lifestyle keep. Only self-supporting characters pay it — a liege-paid
+  //     henchman/specialist, a follower, or a mercenary officer pays none (the liege covers them).
+  out.selfSupporting = !(isFollower(ch) || isMercenaryOfficer(ch) || ((isHenchman(ch) || isSpecialist(ch)) && ch.liegeCharacterId));
+  const trueLevel = ch.level || 0;
+  const targetLevel = (ch.lifestyleTargetLevel != null) ? ch.lifestyleTargetLevel : trueLevel;
+  const targetWage = A.levelMonthlyWage ? A.levelMonthlyWage(targetLevel) : 0;
+  out.lifestyle = { targetLevel, targetWage, lastPaid: ch.lastLivingExpensePaidGp || 0 };
+  out.lifestyleGp = (out.ruleOn && out.selfSupporting) ? targetWage : 0;
+  // (2) Wages this character pays as a liege to its bound henchmen + specialists (the RR p.168 bill).
+  for(const c of ((campaign.characters) || [])){
+    if(!c || !active(c)) continue;
+    if(!((isHenchman(c) || isSpecialist(c)) && c.liegeCharacterId === ch.id)) continue;
+    const wage = henchmanMonthlyWage(campaign, c);
+    const waived = henchmanWageWaiver(campaign, c);
+    const due = waived ? 0 : wage;
+    out.henchmen.push({ id:c.id, name:c.name, level:c.level || 0, role: isSpecialist(c) ? 'specialist' : 'henchman', wage, waived, due });
+    out.henchmenTotal += due;
+  }
+  out.total = out.lifestyleGp + out.henchmenTotal;
+  return out;
+}
+
 function proposeMonthlyTurn(campaign, options){
   options = options || {};
   const rng = options.rng || Math.random;
@@ -4212,11 +4467,15 @@ function proposeMonthlyTurn(campaign, options){
     }
   }).filter(p => !p._error);
 
+  // CoL-2 — preview the end-of-month living-expenses + henchman-wage debits (read-only; dryRun).
+  const livingExpenseProposal = processLivingExpensesForTurn(campaign, { dryRun: true });
+
   return {
     error: null,
     turnEventProposals,
     turnVentureProposals,
-    turnProposal
+    turnProposal,
+    livingExpenseProposal
   };
 }
 
@@ -4760,6 +5019,22 @@ function commitTurn(campaign, proposal, options){
   // caller's logEvent, so we don't push anything here.
   const levelUpResults = checkAllCharacterLevelUps(campaign) || [];
 
+  // === LIVING EXPENSES + HENCHMAN WAGES (RR p.173 + p.168 — CoL-2) ===
+  // The end-of-month keep. Gated on committed > 0 (a real month rolled) so it never double-charges
+  // when the GM advances with all domains skipped. Sets effectiveSocialLevel (apparent level → the
+  // henchman hiring cap + loyalty). Gated on the `living-expenses` rule (default ON) inside the helper.
+  let livingExpenseResult = { ruleOn:false, charges: [], totalGp: 0 };
+  if(committed > 0){
+    livingExpenseResult = processLivingExpensesForTurn(campaign) || livingExpenseResult;
+    if(livingExpenseResult.ruleOn && livingExpenseResult.totalGp > 0){
+      const selfN = livingExpenseResult.charges.filter(x => x.kind === 'living-expenses' && x.paid > 0).length;
+      const wageN = livingExpenseResult.charges.filter(x => x.kind === 'henchman-wage' && x.paid > 0).length;
+      logEntries.push('Living expenses + wages: ' + livingExpenseResult.totalGp.toLocaleString() + 'gp ('
+        + selfN + ' living expense' + (selfN === 1 ? '' : 's')
+        + (wageN ? ', ' + wageN + ' henchman wage' + (wageN === 1 ? '' : 's') : '') + ')');
+    }
+  }
+
   // === HENCHMAN LOYALTY DRIFT === (RAW baseline — always runs)
   // Domains live on the campaign (single home) — tickHenchmanLoyalty traverses them directly.
   let loyaltyDrifts = 0;
@@ -4856,6 +5131,7 @@ function commitTurn(campaign, proposal, options){
     ventureAnnihilations,
     passiveResult,
     levelUpResults,
+    livingExpenseResult,
     loyaltyDrifts,
     rumorDrifts,
     newCurrentTurn: campaign.currentTurn,
@@ -4869,11 +5145,17 @@ function commitTurn(campaign, proposal, options){
 
 // §310.3f-fix26 — Canonical house-rule shape accessor.
 function isHouseRuleEnabled(campaign, id){
-  if(!campaign || !campaign.houseRules) return false;
-  const v = campaign.houseRules[id];
-  if(v == null) return false;
+  const v = (campaign && campaign.houseRules) ? campaign.houseRules[id] : undefined;
   if(v === true) return true;
-  if(typeof v === 'object' && v.enabled === true) return true;
+  if(typeof v === 'object' && v && v.enabled === true) return true;
+  if(typeof v === 'object' && v && v.enabled === false) return false;   // explicit off wins over the registry default
+  if(v === false) return false;                                          // explicit off (bare boolean)
+  if(v == null){
+    // Absent → fall back to the registry default (default:true rules like `living-expenses`).
+    // Every other rule has no `default` field, so absent ⇒ OFF exactly as before.
+    const reg = (global.ACKS && global.ACKS.lookupHouseRule) ? global.ACKS.lookupHouseRule(id) : null;
+    return !!(reg && reg.default === true);
+  }
   return false;
 }
 
@@ -5718,8 +6000,18 @@ function characterActivityBudget(campaign, charId, opts){
   // that to read a traveller's "other load" without recursing back into the cap.
   const HALF_DAY_ANCILLARY = 4;   // 4 hours = half the 8-hour dedicated travel day
   const JOURNEY_ACTIVE = { 'in-transit':1, 'resting':1, 'lost':1 };
+  // "What happened today" vs "what's underway now" (Joachim 2026-06-06): a journey that TRAVELLED on the
+  // current world day still spent the party's day even if it has since ARRIVED (or been stopped) — so its
+  // travel + forage stay on the budget for that day and roll off the next. lastTravelWorldOrd (turn*30 +
+  // day, stamped by commitJourneyRecord on every committed leg) is the day it last travelled; when that
+  // equals today's ord the party travelled (and foraged) today. This is the Complete-Movement-to-arrival
+  // case the GM sees with the clock still on the arrival day; a Day-Clock advance moves the clock PAST the
+  // leg, so an arrived journey then reads as yesterday's travel (correctly dropped).
+  const _todayOrd = (((campaign && campaign.currentTurn) || 1) * 30) + (((campaign && campaign.currentDayInMonth) || 1));
   for(const j of journeysWithParticipant(campaign, charId)){
-    if(!j || !JOURNEY_ACTIVE[j.status]) continue;
+    if(!j) continue;
+    const actedTodayJ = (j.lastTravelWorldOrd != null && j.lastTravelWorldOrd === _todayOrd);
+    if(!JOURNEY_ACTIVE[j.status] && !actedTodayJ) continue;   // active now, OR it travelled today (now ended)
     if(opts.excludeJourneyId && j.id === opts.excludeJourneyId) continue;   // omit this journey (journeyMaxPace's "other load")
     if(j.status === 'resting'){
       const cc = costFor('rest');
@@ -5742,6 +6034,19 @@ function characterActivityBudget(campaign, charId, opts){
     } else {
       const cc = costFor('travel');
       activities.push({ kind:'travel', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
+      // Foraging for water on the march is an ANCILLARY activity that rides in the normal-pace day's free
+      // ancillary hours (RR p.272 — a full-speed day leaves 4 ancillary slots). Count it when the party is
+      // set to forage for water AND the current hex has no free source (a river/lake/settlement needs no
+      // foraging). Per traveller, derived from the journey — exactly like travel. (Half-speed/forced/halted
+      // days already spend the ancillary hours on travel, so foraging doesn't ride along there.)
+      if(j.forageWaterEnabled){
+        const fhex = (typeof findHex === 'function') ? findHex(campaign, j.currentHexId || j.startHexId) : null;
+        const sourced = (A.hasFreshSource && fhex) ? !!A.hasFreshSource(campaign, fhex) : false;
+        if(!sourced){
+          const fc = costFor('forage');
+          activities.push({ kind:'forage', label: (fc.label || 'Forage') + ' for water', cost: (fc.cost || 'ancillary'), strenuous: !!fc.strenuous, sourceKind:'journey', sourceId: j.id });
+        }
+      }
     }
   }
   // Domain administration — RAW: "Administer a domain" IS a dedicated activity (RR p.352, "hold
@@ -5768,6 +6073,26 @@ function characterActivityBudget(campaign, charId, opts){
       seenDomains[d.id] = 1;
       const cc = costFor('domain-admin');
       activities.push({ kind:'domain-admin', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'domain', sourceId: d.id });
+    }
+  }
+
+  // Recruitment (Phase 2.95 #310) — soliciting hirelings is an ongoing ANCILLARY activity (RR p.164:
+  // "These count as ancillary activities"), one per ACTIVE drive (per hireling type) per day while the
+  // patron is in the market. Derived from the patron's active recruitmentDrives, exactly like travel
+  // from a journey; the 'recruitment' day-consumer advances them (½/¼/remainder over 3 weeks).
+  // "What happened today" (Joachim 2026-06-08): a drive also solicited on the DAY IT COMPLETED — the
+  // week-3 reveal is the LAST of the 3 solicitation weeks, not a separate hiring day, so it should still
+  // read as soliciting that day (then roll off). The drive completes deterministically at startedDayOrd
+  // + 21 days (when elapsedWeeks first reaches 3 — RR p.164); compare to today on the RECRUIT ordinal
+  // ((turn-1)*30 + day, the convention startedDayOrd is stamped with — distinct from the journey ordinal).
+  if(char && Array.isArray(char.recruitmentDrives)){
+    const _recruitTodayOrd = (((campaign && campaign.currentTurn) || 1) - 1) * 30 + (((campaign && campaign.currentDayInMonth) || 1));
+    for(const d of char.recruitmentDrives){
+      if(!d) continue;
+      const completedToday = (d.status === 'complete' && d.startedDayOrd != null && (d.startedDayOrd + 21) === _recruitTodayOrd);
+      if(d.status !== 'active' && !completedToday) continue;
+      const cc = costFor('recruit');
+      activities.push({ kind:'recruit', label: cc.label + (d.hireTypeLabel ? (' (' + d.hireTypeLabel + ')') : ''), cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'recruitment-drive', sourceId: d.id });
     }
   }
 
@@ -5919,6 +6244,7 @@ function activityRejectAffordance(activity){
   switch(activity.sourceKind){
     case 'domain':  return { mode:'reverse',  label:'Untick admin', verb:'untick' };
     case 'journey': return { mode:'navigate', label:'Go to journey', verb:'navigate' };
+    case 'recruitment-drive': return { mode:'navigate', label:'Go to Recruit', verb:'navigate' };  // a search is an ongoing process — open it + Stop soliciting (like a journey)
     case 'errand-event':
       return (activity.kind === 'market-transaction')
         ? { mode:'reverse', label:'Refund', verb:'refund' }
@@ -6123,6 +6449,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,
   reconcileWaveARelations,
+  // CoL-1 (Phase 2.5 Provisioning §16.1) — settled/field regime predicate + group/companion lifestyle
+  characterProvisioningRegime, groupProvisioningRegime, groupProvisioningInfo,
+  characterCohort, characterEffectiveRegime, characterEffectiveProvisioningInfo,
   // #445 — Legacy backfill migration (Architecture.md §3.5, 2026-05-29)
   migrateLegacyHenchmanshipsToRelations, migrateLegacySpecialistContractsToRelations,
   migrateLegacyHirelingContractsToRelations, migrateLegacyMagistraciesToRelations,
@@ -6150,7 +6479,10 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // §9.8a orchestration-tail helpers lifted from the Alpine UI (audit batch 3). UI delegates to these.
   addCharacterHistory, recordAppliedEvent, summarizeEventTarget, summarizeEventPayload,
   passiveInvestmentRate, passiveInvestmentMonthlyGp, processPassiveInvestmentsForTurn,
-  applyVagaryToVenture, levelUpCharacter, checkAllCharacterLevelUps
+  applyVagaryToVenture, levelUpCharacter, checkAllCharacterLevelUps,
+  // Cost of Living (Phase 2.5 §16 CoL-2 — RR p.173 + p.168).
+  processLivingExpensesForTurn, apparentLevel, apparentLevelLoyaltyPenalty,
+  characterExpenseBreakdown, henchmanMonthlyWage, henchmanWageWaiver
 });
 // Object.freeze omitted: later modules (subsystems, future splits) extend the namespace.
 

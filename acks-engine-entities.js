@@ -738,6 +738,11 @@ function blankCharacter(opts={}){
     inventory: opts.inventory || [],
     coins: _coins,                  // {pp,gp,ep,sp,cp} multi-denomination purse (RAW)
     personalGp: _coins.gp,          // synced mirror of coins.gp (canonical-setter rule #10)
+    // Phase 2.95 Hirelings (#310) — day-aware recruitment. A patron "in the market for hirelings"
+    // runs ongoing solicitation drives: each costs 1 ancillary/day/type (RR p.164) + a weekly fee,
+    // with availability trickling in 1/2, 1/4, remainder over 3 weeks. Advanced by the Day Clock
+    // (the 'recruitment' day-consumer). Empty = not soliciting. Lazy-defaulted on load.
+    recruitmentDrives: opts.recruitmentDrives || [],
     // 2026-05-30 post-survey reservations — additive optional fields.
     // Phase 6 Codes (gap I, JJ pp.394-398) — Heroic Codes + Heroic Fate. Research-first
     // per Joachim's response; reserved here so the schema is stable.
@@ -791,6 +796,21 @@ function blankCharacter(opts={}){
     liegeCharacterId: opts.liegeCharacterId || null,
     loyalty: opts.loyalty || 0,
     monthlyWage: opts.monthlyWage || 0,
+    // Cost of Living (Phase 2.5 §16 CoL-2, RR p.173). All read defensively (null/0/false defaults),
+    // so legacy saves + templates need NO migration backfill and stay migrate-no-ops.
+    //   lifestyleTargetLevel: the level whose wage the character TARGETS spending; null = true level.
+    //   effectiveSocialLevel: the apparent level the latest month's spend bought (RR p.170/173); set by
+    //                         the monthly pass; null = take the true level (also when the rule is off).
+    //   lastLivingExpensePaidGp: audit of the last monthly keep actually paid.
+    //   payKeepFromTreasury: a ruler pays his own keep AND his henchmen's wages from the domain treasury
+    //                        he rules instead of his coin purse (Joachim 2026-06-08 — one setting). DEFAULT
+    //                        ON for rulers: null/absent ⇒ on. It only ever applies to a domain ruler — a
+    //                        non-ruler has no treasury, so the engine + UI gate it on ruler status; an
+    //                        explicit false is the GM opting a specific ruler out (back to the coin purse).
+    lifestyleTargetLevel: (opts.lifestyleTargetLevel != null ? opts.lifestyleTargetLevel : null),
+    effectiveSocialLevel: (opts.effectiveSocialLevel != null ? opts.effectiveSocialLevel : null),
+    lastLivingExpensePaidGp: opts.lastLivingExpensePaidGp || 0,
+    payKeepFromTreasury: (opts.payKeepFromTreasury != null ? opts.payKeepFromTreasury : null),
     // §310.6 — Loyalty drift ledger fields (RR p.166).
     // permanentWoundPenalty: standing penalty until wound cured (0..-3).
     // mortalityPenalty:      cumulative Tampering side-effect penalty (≤ 0, permanent).
@@ -831,6 +851,7 @@ function blankParty(opts={}){
     travelPace: opts.travelPace || 'walking',
     // #521 (2026-05-30) Party-as-actor fields:
     activeJourneyId: opts.activeJourneyId || null,        // pointer when journeying (Phase 2.5 #475)
+    shareProvisions: opts.shareProvisions || false,       // CoL-1 (Provisioning §16.3) — pool food+water (camp-first, leader-first) for the party whenever it shares, journey or not; journey.shareRations overrides
     status: opts.status || 'active',                       // 'active' | 'resting' | 'disbanded'
     formedAtTurn: opts.formedAtTurn || null,
     disbandedAtTurn: opts.disbandedAtTurn || null,
