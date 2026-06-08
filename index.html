@@ -2354,7 +2354,7 @@ document.addEventListener('alpine:init', () => {
                 <div>
                   <h3 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-2">Over your vassals</h3>
                   <template x-for="v in vassalsOf(selectedDomain.id)" :key="'fd-'+v.id">
-                    <div class="border border-ink/30 rounded p-2 mb-2" x-data="{ favorKind:'', dutyKind:'' }">
+                    <div class="border border-ink/30 rounded p-2 mb-2" x-data="{ open:false, isFavor:false, kind:'', label:'', ongoing:false, amount:'' }">
                       <div class="flex justify-between items-center gap-2">
                         <button @click="selectedDomainId = v.id" class="font-semibold underline" x-text="v.name"></button>
                         <span class="text-sm whitespace-nowrap" :class="(fdBalance(v.id)?.excess||0) > 0 ? 'accent-red' : 'opacity-70'"
@@ -2370,7 +2370,7 @@ document.addEventListener('alpine:init', () => {
                         <template x-for="o in fdActiveObligations(v.id)" :key="o.id">
                           <li class="flex justify-between items-start gap-2 py-1 border-b border-ink/20">
                             <div>
-                              <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdKindLabel(o.kind)"></span>
+                              <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdDisplayLabel(o)"></span>
                               <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + (o.gpPerMonth? ' · ' + o.gpPerMonth.toLocaleString() + 'gp' + (o.isOngoing?'/mo':'') : '')"></span>
                               <span class="text-xs text-sky-700" x-show="fdIsThisMonth(o)"> · new this month</span>
                               <span class="block opacity-60 text-xs" x-show="fdMuster(o)" x-text="(() => { const m=fdMuster(o); return m ? ('muster: ' + m.periods.map(p=>p.amount).join(' / ') + ' over ' + m.unit + 's') : ''; })()"></span>
@@ -2380,21 +2380,37 @@ document.addEventListener('alpine:init', () => {
                         </template>
                       </ul>
 
-                      <div class="flex flex-wrap gap-2 mt-2 text-sm items-center">
-                        <span class="ed-stat">
-                          <select x-model="favorKind" class="text-sm border border-ink rounded px-1 py-0.5">
-                            <option value="">🎁 Grant favor…</option>
-                            <template x-for="e in fdFavorKinds()" :key="'gf-'+e.kind"><option :value="e.kind" x-text="e.label"></option></template>
+                      <!-- Edict composer: Grant favor / Demand duty, with a settable amount (RR p.345 "demand less") + a freeform Custom edict. -->
+                      <div class="mt-2 text-sm">
+                        <div class="flex gap-2" x-show="!open">
+                          <button @click="open=true; isFavor=true; kind=''; label=''; ongoing=false; amount=''" class="px-2 py-0.5 border border-ink rounded hover:bg-emerald-50">🎁 Grant favor</button>
+                          <button @click="open=true; isFavor=false; kind=''; label=''; ongoing=false; amount=''" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-50">⚔ Demand duty</button>
+                        </div>
+                        <div x-show="open" class="border border-ink/40 rounded p-2 mt-1 space-y-1 bg-black/5">
+                          <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="isFavor ? 'Grant a favor' : 'Demand a duty'"></div>
+                          <select x-model="kind" @change="amount = (kind==='custom' || !fdKindHasGp(kind)) ? '' : fdDefaultAmount(v.id, kind)" class="w-full text-sm border border-ink rounded px-1 py-0.5">
+                            <option value="">— choose —</option>
+                            <template x-for="e in (isFavor ? fdFavorKinds() : fdDutyKinds())" :key="'k-'+e.kind"><option :value="e.kind" x-text="e.label"></option></template>
+                            <option value="custom">✏️ Custom…</option>
                           </select>
-                          <button @click="if(favorKind){ fdGrantOrDemand(v.id, favorKind); favorKind=''; }" class="ed-btn" :disabled="!favorKind" title="Grant this favor">✓</button>
-                        </span>
-                        <span class="ed-stat">
-                          <select x-model="dutyKind" class="text-sm border border-ink rounded px-1 py-0.5">
-                            <option value="">⚔ Demand duty…</option>
-                            <template x-for="e in fdDutyKinds()" :key="'dd-'+e.kind"><option :value="e.kind" x-text="e.label"></option></template>
-                          </select>
-                          <button @click="if(dutyKind){ fdGrantOrDemand(v.id, dutyKind); dutyKind=''; }" class="ed-btn" :disabled="!dutyKind" title="Demand this duty (over-demanding rolls Loyalty)">✓</button>
-                        </span>
+                          <template x-if="kind==='custom'">
+                            <div class="space-y-1">
+                              <input type="text" x-model="label" placeholder="Edict name (e.g. 'Hostage exchange')" class="w-full text-sm border border-ink rounded px-1 py-0.5">
+                              <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="ongoing"> Recurs each month (ongoing)</label>
+                            </div>
+                          </template>
+                          <template x-if="kind==='custom' || fdKindHasGp(kind)">
+                            <label class="flex items-center gap-2 text-xs">
+                              <span class="whitespace-nowrap opacity-70" x-text="kind==='custom' ? ('amount gp' + (ongoing?'/mo':'') + ' (optional)') : 'amount gp (default = RAW; lower to demand less)'"></span>
+                              <input type="number" min="0" x-model="amount" class="w-24 text-sm border border-ink rounded px-1 py-0.5">
+                            </label>
+                          </template>
+                          <p class="text-xs opacity-60" x-show="kind && kind!=='custom'" x-text="(fdFavorKinds().concat(fdDutyKinds()).find(e=>e.kind===kind)||{}).summary || ''"></p>
+                          <div class="flex gap-2 pt-1">
+                            <button @click="fdRaiseEdict(v.id, { kind, customLabel: label, isFavor, isOngoing: ongoing, gpPerMonth: amount }); open=false" :disabled="!kind || (kind==='custom' && !label.trim())" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 disabled:opacity-40" title="Apply this edict" x-text="isFavor ? 'Grant' : 'Demand'"></button>
+                            <button @click="open=false" class="px-2 py-0.5 border border-ink rounded hover:bg-gray-100">Cancel</button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </template>
@@ -2412,7 +2428,7 @@ document.addEventListener('alpine:init', () => {
                     <template x-for="o in fdActiveObligations(selectedDomain.id)" :key="'self-'+o.id">
                       <li class="flex justify-between items-start gap-2 py-1 border-b border-ink/20">
                         <div>
-                          <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdKindLabel(o.kind)"></span>
+                          <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdDisplayLabel(o)"></span>
                           <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + (o.gpPerMonth? ' · ' + o.gpPerMonth.toLocaleString() + 'gp' + (o.isOngoing?'/mo':'') : '')"></span>
                           <span class="text-xs text-sky-700" x-show="fdIsThisMonth(o)"> · new this month</span>
                         </div>
@@ -15724,12 +15740,35 @@ return {
   fdKindLabel(kind){ const e=(window.ACKS.FAVOR_DUTY_TABLE||[]).find(x=>x.kind===kind); return e?e.label:kind; },
   fdMuster(o){ if(!o||!o.musterTitle||!o.gpPerMonth)return null; return window.ACKS.musterSchedule(o.musterTitle,o.gpPerMonth); },
   fdIsThisMonth(o){ return o && o.grantedAtTurn === (this.currentCampaign?.currentTurn||1); },
-  fdGrantOrDemand(vDomainId, kind){
-    if(!kind) return;
-    const res = window.ACKS.applyFavorDutyEdictByKind(this.currentCampaign, { vassalDomainId:vDomainId, kind }, { rng: Math.random });
+  fdKindHasGp(kind){ const e=(window.ACKS.FAVOR_DUTY_TABLE||[]).find(x=>x.kind===kind); return !!e && e.gpBasis !== 'none'; },
+  // The RAW default gp for a standard kind on a vassal (the "demand less" field pre-fills with this).
+  fdDefaultAmount(vDomainId, kind){
+    const e=(window.ACKS.FAVOR_DUTY_TABLE||[]).find(x=>x.kind===kind); if(!e) return 0;
+    const d=(this.currentCampaign?.domains||[]).find(x=>x.id===vDomainId); if(!d) return 0;
+    if(e.gpBasis==='realm-families') return window.ACKS.realmFamiliesForDomain(this.currentCampaign, d);
+    if(e.gpBasis==='monthly-tribute') return window.ACKS.tributeOwed(this.currentCampaign, d);
+    return 0;
+  },
+  // Display name for an obligation — the custom label for a custom edict, else the table label.
+  fdDisplayLabel(o){ return o && o.kind==='custom' ? (o.customLabel||'Custom edict') : this.fdKindLabel(o&&o.kind); },
+  // Raise an edict via the composer. opts: { kind, customLabel?, isFavor?, isOngoing?, gpPerMonth? }.
+  // A blank gpPerMonth means "RAW default" for a standard kind (the engine fills it); for custom it's 0.
+  fdRaiseEdict(vDomainId, opts){
+    opts = opts || {}; if(!opts.kind) return;
+    if(opts.kind==='custom' && !String(opts.customLabel||'').trim()){ this.toast && this.toast('Give the custom edict a name first.', 3500); return; }
+    const payload = { vassalDomainId: vDomainId, kind: opts.kind };
+    if(opts.kind==='custom'){
+      payload.customLabel = String(opts.customLabel||'').trim();
+      payload.isFavor = !!opts.isFavor;
+      payload.isOngoing = !!opts.isOngoing;
+      if(opts.gpPerMonth !== '' && opts.gpPerMonth != null) payload.gpPerMonth = Math.max(0, Number(opts.gpPerMonth) || 0);
+    } else if(opts.gpPerMonth !== '' && opts.gpPerMonth != null){
+      payload.gpPerMonth = Math.max(0, Number(opts.gpPerMonth) || 0);   // the "demand less" override (RR p.345)
+    }
+    const res = window.ACKS.applyFavorDutyEdictByKind(this.currentCampaign, payload, { rng: Math.random });
     if(!res || !res.obligation){ this.toast && this.toast('Could not apply — this domain has no active liege.', 4000); return; }
     this.markDirty(); this.schedulePersist();
-    let msg = res.narrative || (this.fdKindLabel(kind)+' applied.');
+    let msg = res.narrative || 'Edict applied.';
     if(res.loyaltyResult){ msg += ' Loyalty roll at ' + res.balance.loyaltyModifier + ' → ' + (res.loyaltyResult.bandLabel || res.loyaltyResult.bandKey) + '.'; }
     this.toast && this.toast(msg, 6000);
   },
