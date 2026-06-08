@@ -2381,21 +2381,21 @@ document.addEventListener('alpine:init', () => {
                               <!-- F&D-7 — Construction duty: the liege orders structures (hex + type) built in the vassal's realm. -->
                               <template x-if="fdIsConstruction(o)">
                                 <div class="block mt-1 text-xs border-l-2 border-amber-300 pl-2 space-y-0.5" x-data="{ ordHex:'', ordType:'' }">
-                                  <div class="opacity-80" x-text="(() => { const p=fdConstructionProgress(o); return '🏗 built ' + p.spent.toLocaleString() + ' / ' + p.target.toLocaleString() + 'gp (' + p.orderedHexCount + ' hex' + (p.orderedHexCount===1?'':'es') + ' × 15,000) — ' + p.remaining.toLocaleString() + 'gp left'; })()"></div>
+                                  <div class="opacity-80" x-text="(() => { const p=fdConstructionProgress(o); const scope = (p.hasGeneric || p.orderedHexCount===0) ? 'realm-wide' : (p.orderedHexCount + ' hex' + (p.orderedHexCount===1?'':'es') + ' × 15,000'); return '🏗 built ' + p.spent.toLocaleString() + ' / ' + p.target.toLocaleString() + 'gp (' + scope + ') — ' + p.remaining.toLocaleString() + 'gp left'; })()"></div>
                                   <div>
                                     <span :class="fdConstructionProgress(o).minimumMet ? 'text-emerald-700' : 'opacity-60'" x-text="(fdConstructionProgress(o).minimumMet ? '✓ minimum built' : '⏳ minimum not yet built') + ' (≥ ' + fdConstructionProgress(o).monthlyMinimum.toLocaleString() + 'gp/mo = tribute)'"></span>
                                     <span class="text-emerald-700 ml-1" x-show="fdConstructionProgress(o).targetReached">· ✓ target reached</span>
                                   </div>
                                   <ul>
                                     <template x-for="(ord, oi) in fdConstructionProgress(o).orders" :key="'co-'+o.id+'-'+oi">
-                                      <li class="flex items-center gap-1"><span x-text="'• ' + ord.typeLabel + ' at ' + fdConstructionHexLabel(ord.hexId)"></span><button @click="fdRemoveConstructionOrder(o.id, oi)" class="opacity-50 hover:opacity-100 accent-red" title="Remove this order">×</button></li>
+                                      <li class="flex items-center gap-1"><span x-text="'• ' + (ord.generic ? ord.typeLabel : (ord.typeLabel + ' at ' + fdConstructionHexLabel(ord.hexId)))"></span><button @click="fdRemoveConstructionOrder(o.id, oi)" class="opacity-50 hover:opacity-100 accent-red" title="Remove this order">×</button></li>
                                     </template>
-                                    <li class="opacity-50 italic" x-show="fdConstructionProgress(o).orders.length===0">No structures ordered yet — choose a hex + type below.</li>
+                                    <li class="opacity-50 italic" x-show="fdConstructionProgress(o).orders.length===0">No specific orders — generic construction anywhere in the realm (target = realm cap). Pick a hex + type to pin work, or order ✦ Any.</li>
                                   </ul>
                                   <div class="flex flex-wrap items-center gap-1 pt-0.5">
-                                    <select x-model="ordHex" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— hex —</option><template x-for="h in fdConstructionHexOptions(o.vassalDomainId)" :key="'ch-'+o.id+'-'+h.id"><option :value="h.id" x-text="h.label"></option></template></select>
-                                    <select x-model="ordType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— type —</option><template x-for="t in fdConstructionTypes(o.vassalDomainId)" :key="'ct-'+o.id+'-'+t.value"><option :value="t.value" x-text="t.label"></option></template></select>
-                                    <button @click="fdAddConstructionOrder(o.id, ordHex, ordType); ordHex=''; ordType=''" :disabled="!ordHex || !ordType" class="text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-amber-50 disabled:opacity-40" title="Order this structure (RR p.348 — adds 15,000gp to the target per new hex)">+ order build</button>
+                                    <select x-show="ordType !== 'generic'" x-model="ordHex" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— hex —</option><template x-for="h in fdConstructionHexOptions(o.vassalDomainId)" :key="'ch-'+o.id+'-'+h.id"><option :value="h.id" x-text="h.label"></option></template></select>
+                                    <select x-model="ordType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— type —</option><template x-for="t in fdConstructionTypes(o.vassalDomainId)" :key="'ct-'+o.id+'-'+t.value"><option :value="t.value" x-text="t.generic ? '✦ '+t.label : t.label"></option></template></select>
+                                    <button @click="fdAddConstructionOrder(o.id, ordHex, ordType); ordHex=''; ordType=''" :disabled="!ordType || (ordType!=='generic' && !ordHex)" class="text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-amber-50 disabled:opacity-40" title="Order this construction (RR p.348 — a new hex adds 15,000gp; generic = the realm-wide cap)">+ order build</button>
                                   </div>
                                 </div>
                               </template>
@@ -15894,17 +15894,17 @@ return {
   fdConstructionTypes(vDomainId){
     const dom = (this.currentCampaign?.domains || []).find(d => d.id === vDomainId) || null;
     const littoral = dom ? window.ACKS.isLittoralDomain(this.currentCampaign, dom) : false;
-    return (window.ACKS.CONSTRUCTION_DUTY_TYPES || []).filter(t => !t.littoralOnly || littoral).map(t => ({ value:t.value, label:t.label }));
+    return (window.ACKS.CONSTRUCTION_DUTY_TYPES || []).filter(t => !t.littoralOnly || littoral).map(t => ({ value:t.value, label:t.label, generic: !!t.generic }));
   },
   fdAddConstructionOrder(obligationId, hexId, type){
-    if(!hexId || !type) return;
+    if(!type || (type !== 'generic' && !hexId)) return;
     const before = (this.currentCampaign.favorDutyObligations.find(o=>o.id===obligationId)?.constructionOrders||[]).length;
-    const o = window.ACKS.addConstructionOrder(this.currentCampaign, obligationId, { hexId, type });
+    const o = window.ACKS.addConstructionOrder(this.currentCampaign, obligationId, type === 'generic' ? { type:'generic' } : { hexId, type });
     this.markDirty(); this.schedulePersist();
     const added = o && (o.constructionOrders||[]).length > before;
     this.showToast && this.showToast(added
-      ? ('Ordered ' + window.ACKS.constructionDutyTypeLabel(type).toLowerCase() + ' — construction target now ' + window.ACKS.constructionDutyTargetGp(this.currentCampaign, o).toLocaleString() + 'gp.')
-      : 'Could not add the order (hex must be in the vassal’s realm; vessels need a littoral realm).', 5000);
+      ? ((type === 'generic' ? 'Ordered generic construction (anywhere in the realm)' : ('Ordered ' + window.ACKS.constructionDutyTypeLabel(type).toLowerCase())) + ' — construction target now ' + window.ACKS.constructionDutyTargetGp(this.currentCampaign, o).toLocaleString() + 'gp.')
+      : (type === 'generic' ? 'Generic construction is already ordered.' : 'Could not add the order (hex must be in the vassal’s realm; vessels need a littoral realm).'), 5000);
   },
   fdRemoveConstructionOrder(obligationId, index){
     const o = window.ACKS.removeConstructionOrder(this.currentCampaign, obligationId, index, {});
