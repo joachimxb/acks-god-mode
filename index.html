@@ -2354,7 +2354,7 @@ document.addEventListener('alpine:init', () => {
                 <div>
                   <h3 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-2">Over your vassals</h3>
                   <template x-for="v in vassalsOf(selectedDomain.id)" :key="'fd-'+v.id">
-                    <div class="border border-ink/30 rounded p-2 mb-2" x-data="{ open:false, isFavor:false, kind:'', label:'', ongoing:false, amount:'', councilHexId:'' }">
+                    <div class="border border-ink/30 rounded p-2 mb-2" x-data="{ open:false, isFavor:false, kind:'', label:'', ongoing:false, amount:'', councilHexId:'', officeTitle:'' }">
                       <div class="flex justify-between items-center gap-2">
                         <button @click="selectedDomainId = v.id" class="font-semibold underline" x-text="v.name"></button>
                         <span class="text-sm whitespace-nowrap" :class="(fdBalance(v.id)?.excess||0) > 0 ? 'accent-red' : 'opacity-70'"
@@ -2378,6 +2378,7 @@ document.addEventListener('alpine:init', () => {
                               <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                               <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
                               <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutageAutoPay(o) ? 'text-emerald-700' : 'accent-red'" x-text="fdScutageAutoPay(o) ? '✓ scutage being paid (automatically, each month)' : '⚠ scutage not being paid'"></span>
+                              <span class="block text-xs text-emerald-700" x-show="fdIsOffice(o)" x-text="'📜 ' + (o.officeTitle || 'ceremonial office') + ' — +1 to the holder’s vassals’ loyalty rolls'"></span>
                               <!-- F&D-7 — Construction duty: the liege orders structures (hex + type) built in the vassal's realm. -->
                               <template x-if="fdIsConstruction(o)">
                                 <div class="block mt-1 text-xs border-l-2 border-amber-300 pl-2 space-y-0.5" x-data="{ ordHex:'', ordType:'' }">
@@ -2408,8 +2409,8 @@ document.addEventListener('alpine:init', () => {
                       <!-- Edict composer: Grant favor / Demand duty, with a settable amount (RR p.345 "demand less") + a freeform Custom edict. -->
                       <div class="mt-2 text-sm">
                         <div class="flex gap-2" x-show="!open">
-                          <button @click="open=true; isFavor=true; kind=''; label=''; ongoing=false; amount=''; councilHexId=''" class="px-2 py-0.5 border border-ink rounded hover:bg-emerald-50">🎁 Grant favor</button>
-                          <button @click="open=true; isFavor=false; kind=''; label=''; ongoing=false; amount=''; councilHexId=''" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-50">⚔ Demand duty</button>
+                          <button @click="open=true; isFavor=true; kind=''; label=''; ongoing=false; amount=''; councilHexId=''; officeTitle=''" class="px-2 py-0.5 border border-ink rounded hover:bg-emerald-50">🎁 Grant favor</button>
+                          <button @click="open=true; isFavor=false; kind=''; label=''; ongoing=false; amount=''; councilHexId=''; officeTitle=''" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-50">⚔ Demand duty</button>
                         </div>
                         <div x-show="open" class="border border-ink/40 rounded p-2 mt-1 space-y-1 bg-black/5">
                           <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="isFavor ? 'Grant a favor' : 'Demand a duty'"></div>
@@ -2425,6 +2426,12 @@ document.addEventListener('alpine:init', () => {
                                 <template x-for="h in fdCouncilHexOptions()" :key="'cc-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
                               </select>
                             </label>
+                          </template>
+                          <template x-if="kind==='office'">
+                            <div class="space-y-0.5">
+                              <input type="text" x-model="officeTitle" placeholder="Office title (e.g. 'Knight Marshal', 'Royal Chancellor')" class="w-full text-sm border border-ink rounded px-1 py-0.5">
+                              <p class="text-xs opacity-60">Grants the holder's own vassals +1 to their loyalty rolls (RR p.348). A senate seat (if the realm is senatorial) is deferred.</p>
+                            </div>
                           </template>
                           <template x-if="kind==='custom'">
                             <div class="space-y-1">
@@ -2443,7 +2450,7 @@ document.addEventListener('alpine:init', () => {
                           </template>
                           <p class="text-xs opacity-60" x-show="kind && kind!=='custom'" x-text="(fdFavorKinds().concat(fdDutyKinds()).find(e=>e.kind===kind)||{}).summary || ''"></p>
                           <div class="flex gap-2 pt-1">
-                            <button @click="fdRaiseEdict(v.id, { kind, customLabel: label, isFavor, isOngoing: ongoing, gpPerMonth: amount, scutageGpPerFamily: amount, councilHexId }); open=false" :disabled="!kind || (kind==='custom' && !label.trim())" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 disabled:opacity-40" title="Apply this edict" x-text="isFavor ? 'Grant' : 'Demand'"></button>
+                            <button @click="fdRaiseEdict(v.id, { kind, customLabel: label, isFavor, isOngoing: ongoing, gpPerMonth: amount, scutageGpPerFamily: amount, councilHexId, officeTitle }); open=false" :disabled="!kind || (kind==='custom' && !label.trim())" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 disabled:opacity-40" title="Apply this edict" x-text="isFavor ? 'Grant' : 'Demand'"></button>
                             <button @click="open=false" class="px-2 py-0.5 border border-ink rounded hover:bg-gray-100">Cancel</button>
                           </div>
                         </div>
@@ -2471,6 +2478,7 @@ document.addEventListener('alpine:init', () => {
                           <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                           <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
                           <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutageAutoPay(o) ? 'text-emerald-700' : 'opacity-70'" x-text="fdScutageAutoPay(o) ? '✓ paying scutage automatically each month' : '⚠ scutage not being paid — start paying to satisfy your liege'"></span>
+                          <span class="block text-xs text-emerald-700" x-show="fdIsOffice(o)" x-text="'📜 ' + (o.officeTitle || 'ceremonial office') + ' — +1 to your own vassals’ loyalty rolls'"></span>
                         </div>
                         <div class="flex flex-col items-end gap-1 shrink-0">
                           <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-emerald-50 whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)">💰 Give loan</button>
@@ -7139,6 +7147,8 @@ document.addEventListener('alpine:init', () => {
            apparent level rolls at −1/level. Shown when it applies (the penalty may exceed ±2). -->
       <p x-show="loyaltyRollState.apparentNote" class="text-sm -mt-1" style="color:#7a1f1f"
          x-text="'⚠ ' + loyaltyRollState.apparentNote"></p>
+      <p x-show="loyaltyRollState.officeNote" class="text-sm -mt-1 text-emerald-700"
+         x-text="'📜 ' + loyaltyRollState.officeNote"></p>
 
       <!-- Roll button + result -->
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
@@ -11407,6 +11417,13 @@ return {
         }
       }
     }
+    // RR p.348 Office favor (F&D-8) — +1 to this character's loyalty rolls when his LIEGE holds an
+    // active ceremonial office (the office raises the holder's prestige → his vassals are more loyal).
+    let officeNote = '';
+    if(window.ACKS && window.ACKS.officeLoyaltyBonusFor){
+      const ob = window.ACKS.officeLoyaltyBonusFor(this.currentCampaign, ch.id);
+      if(ob){ mod += ob; officeNote = '+1 — ' + (ch.name || 'this vassal') + "'s liege holds a ceremonial office (RR p.348)."; }
+    }
     this.loyaltyRollState = {
       characterId: ch.id,
       character: ch,
@@ -11414,6 +11431,7 @@ return {
       reasonNote: opts.reasonNote || '',
       modifier: mod,
       apparentNote,
+      officeNote,
       rollResult: null,
       pendingEventId: opts.pendingEventId || null,
     };
@@ -15821,6 +15839,7 @@ return {
       payload.gpPerMonth = Math.max(0, Number(opts.gpPerMonth) || 0);   // the "demand less" override (RR p.345)
     }
     if(opts.kind==='call-to-council' && opts.councilHexId) payload.councilHexId = opts.councilHexId;   // F&D-5 — the chosen council location (RR p.346)
+    if(opts.kind==='office' && opts.officeTitle) payload.officeTitle = String(opts.officeTitle).trim();  // F&D-8 — the ceremonial office name (RR p.348)
     const res = window.ACKS.applyFavorDutyEdictByKind(this.currentCampaign, payload, { rng: Math.random });
     if(!res || !res.obligation){ this.showToast && this.showToast('Could not apply — this domain has no active liege.', 4000); return; }
     this.markDirty(); this.schedulePersist();
@@ -15883,6 +15902,9 @@ return {
   // the vassal's realm; the target gp = 15,000 × distinct ordered hexes; the card shows progress + lets
   // the liege add/remove orders while the duty is on-going. (Actual building detection + auto-revoke-on-
   // completion is the future full Construction subsystem; for now the monthly self-spend drives progress.)
+  // Office favor (F&D-8; RR p.348) — the holder's ceremonial office; grants the holder's own vassals
+  // +1 to their loyalty rolls (applied automatically in loyalty rolls). The title is free text.
+  fdIsOffice(o){ return !!o && o.kind === 'office'; },
   fdIsConstruction(o){ return !!o && o.kind === 'construction' && o.status === 'active'; },
   fdConstructionProgress(o){ return window.ACKS.constructionDutyProgress(this.currentCampaign, o); },
   fdConstructionHexLabel(hexId){ return this.journeyHexLabel(hexId); },
