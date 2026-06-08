@@ -198,6 +198,10 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'separating-land-and-lordship', category:'domain', name:'Separating land and lordship',
     source:'ACKS II RR p.355-ish (Phase 2/4 — not yet implemented)',
     description:"Splits domain ownership between a landowner (collects land + service revenue) and a governor (collects tax + tribute + urban revenue). When on, each domain can declare distinct landowner and governor character ids." },
+  { id:'favor-duty-auto-roll', category:'domain', name:'Favors & Duties — auto-roll the monthly edict',
+    source:'ACKS II RR pp.345–348 (RAW core; this toggle is a UX preference, not a RAW divergence)',
+    default:true,
+    description:"DEFAULT ON. Favors & Duties is RAW core: each month a vassal ruler rolls on the Favor/Duty table (RR p.348) for what his lord grants or demands. With this ON, the monthly turn auto-rolls one edict per active vassalage (recording a favorDutyObligation, applying the gp flows for Loan/Scutage/Gift, and firing the excess-duty Loyalty roll when the lord over-demands). When OFF, the engine never auto-generates edicts — the GM drives obligations by hand (Inspector Create) and resolves them in fiction. Either way the resulting obligation data is identical RAW; this only chooses who rolls the d20." },
   // ----- Construction & improvement -----
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',
@@ -352,6 +356,115 @@ const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'cultural',     label:'🌍 Cultural',        description:'Slavery, dwarven/elven/beastman civilization supplements.' }
 ]);
 function lookupHouseRule(id){ return HOUSERULES_REGISTRY.find(r => r.id === id) || null; }
+
+// =============================================================================
+// FAVORS & DUTIES (#230, F&D-1) — the monthly liege↔vassal obligation tables.
+// Source: RR pp.345–348. The 1d20 Favor/Duty table (each entry's kind, favor/duty
+// polarity, ongoing/one-time, and gp basis) + the muster-timing table by realm title.
+// =============================================================================
+
+// The 1d20 Favor/Duty table (RR p.348). Each entry covers a roll RANGE [min, max].
+//   isFavor   — true = a favor the lord grants; false = a duty the lord demands.
+//   isOngoing — true = recurs until revoked; false = one-time (offsets a duty only the month given).
+//   gpBasis   — how the engine derives gpPerMonth: 'realm-families' (1gp × families in the vassal's
+//               realm), 'monthly-tribute' (= the vassal's monthly tribute, for Construction),
+//               or 'none' (no gp amount).
+//   muster    — true for Call to Arms + Scutage: troops/funds arrive over three title-sized periods.
+// The 9–12 'revocation' entry does NOT create an obligation — it revokes the vassal's most recent
+// favor (on a 1d6 of 1) or duty (on 2–6); the roll orchestration handles it specially.
+const FAVOR_DUTY_TABLE = Object.freeze([
+  Object.freeze({ min:1,  max:1,  kind:'construction',        isFavor:false, isOngoing:true,  gpBasis:'monthly-tribute', muster:false,
+    label:'Construction',
+    summary:"Build bridges, roads, forts, towers, or vessels in the realm. Expend gp equal to the monthly tribute each month; auto-revokes once the vassal has spent 15,000gp per 6-mile hex in his realm." }),
+  Object.freeze({ min:2,  max:2,  kind:'scutage',             isFavor:false, isOngoing:true,  gpBasis:'realm-families',  muster:true,
+    label:'Scutage',
+    summary:"A special tax of 1gp per family in the realm, paid monthly to the lord until revoked. Counts as garrison expense; the lord must spend it on troops or take −4 Loyalty. Not domain income for XP." }),
+  Object.freeze({ min:3,  max:4,  kind:'call-to-council',     isFavor:false, isOngoing:true,  gpBasis:'none',            muster:false,
+    label:'Call to Council',
+    summary:"The vassal travels to the lord's domain to give judicial and managerial counsel until revoked. Rolled again, the lord also summons the vassal's henchmen." }),
+  Object.freeze({ min:5,  max:6,  kind:'call-to-arms',        isFavor:false, isOngoing:true,  gpBasis:'realm-families',  muster:true,
+    label:'Call to Arms',
+    summary:"Muster an army with troop wages equal to 1gp per family in the realm, available to the lord until revoked. Can be imposed multiple times." }),
+  Object.freeze({ min:7,  max:8,  kind:'loan',                isFavor:false, isOngoing:true,  gpBasis:'realm-families',  muster:false,
+    label:'Loan',
+    summary:"The lord demands a loan equal to 1gp per family in the realm. Repaid when revoked; otherwise the lord's CHA% chance of repayment each month. No interest. Can be imposed multiple times." }),
+  Object.freeze({ min:9,  max:12, kind:'revocation',          isFavor:null,  isOngoing:false, gpBasis:'none',            muster:false,
+    label:'Previous duty/favor revoked',
+    summary:"The vassal loses his most recently granted favor (on a 1d6 of 1) or duty (on 2–6)." }),
+  Object.freeze({ min:13, max:14, kind:'charter-of-monopoly', isFavor:true,  isOngoing:true,  gpBasis:'none',            muster:false,
+    label:'Charter of Monopoly',
+    summary:"A monopoly on a merchandise type in the realm: merchants trade 2× the normal volume and prices shift 1 step in the vassal's favor. Counts as ONE favor even across multiple merchandise types." }),
+  Object.freeze({ min:15, max:16, kind:'gift',                isFavor:true,  isOngoing:false, gpBasis:'realm-families',  muster:false,
+    label:'Gift',
+    summary:"A gift worth at least 1gp per family in the realm (investments, festivals, treasure, warhorses, magic, etc.). Raises the vassal's domain income for XP and lowers the grantor's. A one-time favor." }),
+  Object.freeze({ min:17, max:18, kind:'office',              isFavor:true,  isOngoing:true,  gpBasis:'none',            muster:false,
+    label:'Office',
+    summary:"A ceremonial office: +1 to Loyalty rolls by the officeholder's own vassals, and a senate seat in a senatorial realm (p.355). Bonus does not stack; each office is revoked separately." }),
+  Object.freeze({ min:19, max:19, kind:'troops',              isFavor:true,  isOngoing:true,  gpBasis:'realm-families',  muster:false,
+    label:'Troops',
+    summary:"The lord stations a garrison (gp value at least 1gp per family) under the vassal's command; the vassal pays no wages. Usually counterbalanced by a demand for scutage." }),
+  Object.freeze({ min:20, max:20, kind:'grant-of-land',       isFavor:true,  isOngoing:false, gpBasis:'none',            muster:false,
+    label:'Grant of Land',
+    summary:"A new domain (at least the size of the vassal's smallest sub-vassal domain, else 1 border hex), generated normally." })
+]);
+
+// Look up the Favor/Duty entry for a 1d20 roll (1..20).
+function lookupFavorDuty(roll){
+  const r = Number(roll) || 0;
+  return FAVOR_DUTY_TABLE.find(e => r >= e.min && r <= e.max) || null;
+}
+
+// Muster-timing table (RR p.348) — the period unit is sized by the LORD's realm title.
+const MUSTER_TIME_BY_TITLE = Object.freeze({
+  emperor:'season', king:'season', prince:'month', duke:'month',
+  count:'week', viscount:'week', baron:'week'
+});
+
+// Split a muster (troops or scutage funds) over the three title-sized periods (RR p.348):
+// ½ (rounded up) in period 1, ¼ (rounded down, min 1) in period 2, the remainder in period 3.
+// Returns { unit, total, periods:[{period, unit, amount}×3] }. Defensively clamps so the three
+// amounts always sum to the total (the "min 1" can't apply when nothing is left).
+function musterSchedule(title, totalAmount){
+  const unit = MUSTER_TIME_BY_TITLE[String(title || '').toLowerCase()] || 'week';
+  const total = Math.max(0, Math.round(Number(totalAmount) || 0));
+  const p1 = Math.ceil(total / 2);
+  const quarter = total > 0 ? Math.max(1, Math.floor(total / 4)) : 0;
+  const p2 = Math.min(Math.max(0, total - p1), quarter);
+  const p3 = total - p1 - p2;
+  return Object.freeze({
+    unit, total,
+    periods: Object.freeze([
+      Object.freeze({ period:1, unit, amount:p1 }),
+      Object.freeze({ period:2, unit, amount:p2 }),
+      Object.freeze({ period:3, unit, amount:p3 })
+    ])
+  });
+}
+
+// Best-effort realm title for a domain (for muster timing). Reads the domain's free-text tags
+// (and name as a fallback) for one of the seven titles; a March/Marquis maps to Count (a frontier
+// county-equivalent). Defaults to 'baron' (the fastest muster) when nothing matches — titles are
+// not a canonical field, so this is a sensible default the GM can override on the obligation.
+const _TITLE_WORDS = Object.freeze([
+  ['emperor','emperor'], ['empress','emperor'], ['imperial','emperor'],
+  ['king','king'], ['queen','king'], ['kingdom','king'], ['royal','king'],
+  ['prince','prince'], ['princess','prince'], ['principality','prince'],
+  ['duke','duke'], ['duchess','duke'], ['duchy','duke'], ['archduke','duke'],
+  ['marquis','count'], ['marquess','count'], ['marchioness','count'], ['margrave','count'], ['march','count'], ['marquisate','count'],
+  ['count','count'], ['countess','count'], ['county','count'], ['earl','count'],
+  ['viscount','viscount'], ['viscountess','viscount'],
+  ['baron','baron'], ['baroness','baron'], ['barony','baron']
+]);
+function realmTitleForDomain(domain){
+  if(!domain) return 'baron';
+  const hay = []
+    .concat(Array.isArray(domain.tags) ? domain.tags : [])
+    .concat([domain.name || ''])
+    .join(' ')
+    .toLowerCase();
+  for(const [word, title] of _TITLE_WORDS){ if(hay.includes(word)) return title; }
+  return 'baron';
+}
 
 // =============================================================================
 // HIRELING AVAILABILITY + RECRUITMENT (Phase 2.95 §4.2 / §310.3)
@@ -954,6 +1067,8 @@ function equipmentByCategory(cat){ return EQUIPMENT_CATALOG.filter(e => e.catego
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   STRONGHOLD_CATALOG, MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE, EVENT_TABLE, HOUSERULES_REGISTRY, HOUSERULE_CATEGORIES, lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff, rollVagary, lookupVagary, sampleEvent, lookupHouseRule, lookupStrongholdStructure,
+  // Favors & Duties (#230, F&D-1) — the 1d20 Favor/Duty table + muster timing (RR pp.345–348)
+  FAVOR_DUTY_TABLE, lookupFavorDuty, MUSTER_TIME_BY_TITLE, musterSchedule, realmTitleForDomain,
   // Phase 2.5 Journeys (#475) — overland travel catalogs (J1).
   JOURNEY_MILES_PER_HEX, JOURNEY_BASE_SPEED_MILES_PER_DAY, JOURNEY_TERRAIN_SPEED,
   JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_TEMPERATURE_SPEED, JOURNEY_GROUND_SPEED, JOURNEY_PACE_SPEED,
