@@ -209,32 +209,48 @@ section('gp flows — Loan principal / Gift / Scutage recurrence / Loan repaymen
   ok('gift moved lord → vassal (lord −X, vassal +X)', treasuryGp(c,'dom-lord') === lordBefore - gift.gpPerMonth && treasuryGp(c,'dom-vassal') === vassBefore + gift.gpPerMonth);
 }
 {
-  // Scutage (roll 2) — F&D-6 model: a recurring duty the vassal PAYS each month (payScutageObligation,
-  // the Pay Scutage button). Demanding it moves NO gp; the lord is credited only when the vassal pays.
+  // Scutage (roll 2) — F&D-6 model: a recurring duty with a persistent AUTO-PAY toggle. "Pay Scutage"
+  // (payScutageObligation) turns it ON → it bills automatically every monthly turn; "Stop Paying" turns it off.
   const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
   const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
   ok('scutage created (recurring duty)', scu.kind==='scutage' && scu.isOngoing === true);
   ok('scutage moves NO gp on demand', treasuryGp(c,'dom-vassal') === 50000 && treasuryGp(c,'dom-lord') === 100000);
-  ok('scutage starts unpaid (scutageLastPaidTurn null)', scu.scutageLastPaidTurn == null);
-  // An UNPAID month: Phase B settles nothing (the lord isn't credited).
+  ok('scutage starts NOT auto-paying (scutageAutoPay false)', scu.scutageAutoPay === false);
+  // While auto-pay is OFF: Phase B settles nothing (the lord isn't credited).
   ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
-  ok('unpaid scutage → lord NOT credited', treasuryGp(c,'dom-lord') === 100000);
-  // Pay it: stamps the current turn; no gp moves on the click (it settles at the monthly turn).
+  ok('auto-pay off → lord NOT credited', treasuryGp(c,'dom-lord') === 100000);
+  // Turn auto-pay ON: no gp moves on the click (it settles at the monthly turn).
   ACKS.payScutageObligation(c, scu.id, {});
-  ok('payScutageObligation stamps scutageLastPaidTurn = currentTurn', c.favorDutyObligations.find(o=>o.id===scu.id).scutageLastPaidTurn === c.currentTurn);
-  ok('paying scutage moves no gp itself', treasuryGp(c,'dom-vassal') === 50000 && treasuryGp(c,'dom-lord') === 100000);
+  ok('payScutageObligation enables auto-pay (scutageAutoPay true)', c.favorDutyObligations.find(o=>o.id===scu.id).scutageAutoPay === true);
+  ok('turning auto-pay on moves no gp itself', treasuryGp(c,'dom-vassal') === 50000 && treasuryGp(c,'dom-lord') === 100000);
   // Phase B now CREDITS the lord (one-sided — the vassal debit is the monthly NET, tested in F&D-6 below).
   ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
-  ok('paid scutage → lord credited the amount', treasuryGp(c,'dom-lord') === 100000 + scu.gpPerMonth);
+  ok('auto-pay on → lord credited the amount', treasuryGp(c,'dom-lord') === 100000 + scu.gpPerMonth);
   ok('Phase B does NOT debit the vassal (that is the monthly net)', treasuryGp(c,'dom-vassal') === 50000);
+  ok('the monthly turn stamps scutageLastPaidTurn (audit)', c.favorDutyObligations.find(o=>o.id===scu.id).scutageLastPaidTurn === c.currentTurn);
   ok('scutage is still active (recurs until revoked)', c.favorDutyObligations.find(o => o.id===scu.id).status === 'active');
-  // Idempotent within the month: a second pay does not re-pledge / spam history.
-  ACKS.payScutageObligation(c, scu.id, {});
-  ok('payScutageObligation idempotent within the month', c.favorDutyObligations.find(o=>o.id===scu.id).history.filter(h=>h.type==='scutage-paid').length === 1);
+  // It keeps paying AUTOMATICALLY the next month — no re-click (the whole point of the toggle).
+  c.currentTurn = 2;
+  const lordM2 = treasuryGp(c,'dom-lord');
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('auto-pay keeps billing every month with no re-click', treasuryGp(c,'dom-lord') === lordM2 + scu.gpPerMonth);
+  // "Stop Paying": withheld going forward — the lord is no longer credited.
+  ACKS.stopScutagePayment(c, scu.id, {});
+  ok('stopScutagePayment turns auto-pay off', c.favorDutyObligations.find(o=>o.id===scu.id).scutageAutoPay === false);
+  c.currentTurn = 3;
+  const lordM3 = treasuryGp(c,'dom-lord');
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('after Stop Paying → lord NOT credited (withheld)', treasuryGp(c,'dom-lord') === lordM3);
+  // Idempotent: a second consecutive "Pay Scutage" (already on) adds no history / event.
+  ACKS.payScutageObligation(c, scu.id, {});   // re-enable (a real on-transition)
+  const onCount1 = c.favorDutyObligations.find(o=>o.id===scu.id).history.filter(h=>h.type==='scutage-autopay-on').length;
+  ACKS.payScutageObligation(c, scu.id, {});   // already on → no-op
+  const onCount2 = c.favorDutyObligations.find(o=>o.id===scu.id).history.filter(h=>h.type==='scutage-autopay-on').length;
+  ok('payScutageObligation idempotent (a second consecutive Pay adds no history)', onCount2 === onCount1);
   // Guarded on a non-scutage obligation.
   const gift = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'gift' }, { rng: scriptedRng([]) }).obligation;
   ACKS.payScutageObligation(c, gift.id, {});
-  ok('payScutageObligation on a non-scutage is a no-op (no scutageLastPaidTurn)', gift.scutageLastPaidTurn == null);
+  ok('payScutageObligation on a non-scutage is a no-op (scutageAutoPay stays false)', gift.scutageAutoPay === false);
   ok('payScutageObligation on an unknown id → null', ACKS.payScutageObligation(c, 'fdo-nope', {}) === null);
 }
 {
@@ -775,10 +791,12 @@ section('F&D-6 — scutage as garrison expense + collection + misappropriation (
 
 // Schema + factory.
 {
+  ok('blankFavorDutyObligation seeds scutageAutoPay false', ACKS.blankFavorDutyObligation({}).scutageAutoPay === false);
   ok('blankFavorDutyObligation seeds scutageLastPaidTurn null', ACKS.blankFavorDutyObligation({}).scutageLastPaidTurn === null);
   ok('blankFavorDutyObligation seeds scutageGpPerFamily null', ACKS.blankFavorDutyObligation({}).scutageGpPerFamily === null);
   ok('scutageMonthlyGp on a non-scutage falls back to gpPerMonth', ACKS.scutageMonthlyGp(mkCampaign(), ACKS.blankFavorDutyObligation({ kind:'gift', gpPerMonth: 77 })) === 77);
   const fdSchema = ACKS.fieldSchemaFor('favorDutyObligation');
+  ok('schema has the scutageAutoPay field', fdSchema.fields.some(f=>f.name==='scutageAutoPay'));
   ok('schema has the scutageLastPaidTurn field', fdSchema.fields.some(f=>f.name==='scutageLastPaidTurn'));
   ok('schema has the scutageGpPerFamily field', fdSchema.fields.some(f=>f.name==='scutageGpPerFamily'));
 }
