@@ -1157,6 +1157,11 @@ function blankFavorDutyObligation(opts={}){
     // and the lord is credited that month; an unpaid month is withheld (the liege card shows a notice).
     // null for every non-scutage kind; reset each month (the vassal re-pays). Read defensively → no migration.
     scutageLastPaidTurn: opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
+    // Scutage **rate** in gp per family (RR p.347 — "1gp per family in the vassal's realm"). The monthly
+    // amount is DERIVED LIVE (scutageMonthlyGp = rate × the vassal's current realm families), so it tracks
+    // population growth/decline. null = the RAW default 1gp/family; a lower rate is "demand less" (RR p.345).
+    // null for every non-scutage kind.
+    scutageGpPerFamily: opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
     // Running total of gp the vassal has expended on a Construction duty (auto-revokes at
     // 15,000gp per 6-mile hex in the realm — RR p.348). 0 for every other kind.
     constructionSpentGp: opts.constructionSpentGp || 0,

@@ -275,7 +275,7 @@ function scutagePaidThisMonth(campaign, d){
   const curTurn = campaign.currentTurn || 1;
   return campaign.favorDutyObligations.reduce((s, o) =>
     (o && o.status === 'active' && o.kind === 'scutage' && o.vassalDomainId === d.id && o.scutageLastPaidTurn === curTurn)
-      ? s + Math.round(o.gpPerMonth || 0) : s, 0);
+      ? s + global.ACKS.scutageMonthlyGp(campaign, o) : s, 0);   // LIVE = rate × current realm families
 }
 
 // =============================================================================
@@ -412,7 +412,8 @@ function expenseBreakdown(campaign, d){
       const liege = (campaign.characters||[]).find(c => c.id === o.liegeCharacterId);
       const liegeName = liege ? liege.name : 'liege';
       if(o.scutageLastPaidTurn === curTurn){
-        rows.push({ label: 'Scutage to ' + liegeName + ' (RR p.347 · counts as garrison)', gp: Math.round(o.gpPerMonth||0) });
+        // LIVE amount = rate × current realm families (RR p.347), so it tracks population growth/decline.
+        rows.push({ label: 'Scutage to ' + liegeName + ' (RR p.347 · counts as garrison)', gp: global.ACKS.scutageMonthlyGp(campaign, o) });
       } else {
         rows.push({ label: 'Scutage to ' + liegeName + ' (NOT PAID — withheld this month)', gp: 0 });
       }

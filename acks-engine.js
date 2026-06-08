@@ -3104,6 +3104,7 @@ function createFavorDutyObligation(campaign, opts={}){
     loanGivenAtTurn:        opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
     councilHexId:           opts.councilHexId             || null,
     scutageLastPaidTurn:    opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
+    scutageGpPerFamily:     opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
     constructionSpentGp:    opts.constructionSpentGp     || 0,
     notes:                  opts.notes                   || ''
   });
@@ -3161,6 +3162,19 @@ function realmFamiliesForDomain(campaign, domain){
   let families = global.ACKS.totalFamilies(domain);
   for(const { domain:v } of global.ACKS.vassalChainUnder(campaign, domain.id)) families += global.ACKS.totalFamilies(v);
   return families;
+}
+
+// The scutage rate in gp/family (RR p.347 — default 1gp/family; a lower rate is "demand less", RR p.345).
+function scutageRate(o){ return (o && o.scutageGpPerFamily != null) ? Number(o.scutageGpPerFamily) : 1; }
+// The LIVE monthly scutage for an obligation = rate × the vassal's CURRENT realm families (RR p.347 —
+// "1gp per family in the vassal's realm"), recomputed each read so it tracks population growth/decline.
+// This is canonical for billing + display; the stored gpPerMonth is only a demand-month snapshot. A
+// non-scutage obligation falls back to its stored gpPerMonth.
+function scutageMonthlyGp(campaign, o){
+  if(!o || o.kind !== 'scutage') return Math.round(Number(o && o.gpPerMonth) || 0);
+  const vassalDomain = (campaign && campaign.domains || []).find(d => d.id === o.vassalDomainId) || null;
+  if(!vassalDomain) return Math.round(Number(o.gpPerMonth) || 0);
+  return Math.round(scutageRate(o) * realmFamiliesForDomain(campaign, vassalDomain));
 }
 
 // The favor/duty balance for a (liege, vassal) in a given month (RR p.347). A vassal can be
@@ -4614,8 +4628,18 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   // Phase B billing. A no-gp standard kind ignores the override; a 'custom' edict's amount is
   // entirely GM-supplied (ctx.amountOverride).
   const realmFamilies = realmFamiliesForDomain(campaign, vassalDomain);
-  let gpPerMonth;
-  if(entry.kind === 'custom'){
+  let gpPerMonth, scutageGpPerFamily = null;
+  if(entry.kind === 'scutage'){
+    // Scutage is a per-family RATE (RR p.347 — "1gp per family in the vassal's realm"); the monthly amount
+    // is DERIVED LIVE (scutageMonthlyGp = rate × current realm families) so it tracks population. We store
+    // the rate; gpPerMonth is only the demand-month snapshot. The override is the *rate* (ctx.scutageGpPerFamily,
+    // default 1gp/family — a lower rate is "demand less", RR p.345); a legacy total (ctx.amountOverride) is
+    // converted to an equivalent per-family rate at demand time.
+    if(ctx.scutageGpPerFamily != null) scutageGpPerFamily = Math.max(0, Number(ctx.scutageGpPerFamily));
+    else if(ctx.amountOverride != null) scutageGpPerFamily = realmFamilies > 0 ? Math.max(0, Number(ctx.amountOverride)) / realmFamilies : 0;
+    else scutageGpPerFamily = 1;
+    gpPerMonth = Math.round(scutageGpPerFamily * realmFamilies);
+  } else if(entry.kind === 'custom'){
     gpPerMonth = Math.max(0, Math.round(Number(ctx.amountOverride) || 0));
   } else if(ctx.amountOverride != null && entry.gpBasis !== 'none'){
     gpPerMonth = Math.max(0, Math.round(Number(ctx.amountOverride)));
@@ -4645,7 +4669,7 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   const obligation = createFavorDutyObligation(campaign, {
     liegeCharacterId: liegeId, vassalDomainId, vassalRulerCharacterId: vassalRulerId,
     kind: entry.kind, isFavor: entry.isFavor, isOngoing: entry.isOngoing,
-    gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn, councilHexId,
+    gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn, councilHexId, scutageGpPerFamily,
     customLabel: entry.kind === 'custom' ? (ctx.customLabel || entry.label || '') : '',
     notes: entry.kind === 'custom' ? (ctx.customLabel || '') : _favorDutyResolveNote(entry, { musterTitle })
   });
@@ -4721,6 +4745,7 @@ function applyFavorDutyEdictByKind(campaign, opts, options){
     liegeId: v.suzerainCharacterId, vassalDomainId, vassalRulerId: v.vassalRulerCharacterId,
     vassalDomain, liegeDomain, entry, roll: null, currentTurn,
     amountOverride: opts.gpPerMonth != null ? opts.gpPerMonth : null,
+    scutageGpPerFamily: opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
     councilHexId: opts.councilHexId || null,
     customLabel
   }, rng);
@@ -4971,13 +4996,14 @@ function processFavorsAndDutiesForTurn(campaign, options){
     const v = (campaign.vassalages || []).find(x => x && x.status === 'active' && x.vassalDomainId === o.vassalDomainId && x.suzerainCharacterId === o.liegeCharacterId);
     const liegeDomain = v ? domainsById(v.suzerainDomainId) : null;
 
-    if(o.kind === 'scutage' && o.gpPerMonth > 0){
+    if(o.kind === 'scutage'){
       // Scutage settles ONLY when the vassal paid it this month (the Pay Scutage button — RR pp.347–348).
+      // The amount is DERIVED LIVE (scutageMonthlyGp = rate × current realm families) so it tracks population.
       // The vassal is debited via the monthly NET (scutage is a garrison-expense row in expenseBreakdown,
       // already applied before this runs); here we only CREDIT the lord (one-sided — no double-move). An
       // unpaid month does nothing (the gp stays with the vassal; the liege card shows it wasn't paid).
-      if(o.scutageLastPaidTurn === currentTurn && liegeDomain){
-        const amt = Math.round(o.gpPerMonth);
+      const amt = scutageMonthlyGp(campaign, o);
+      if(amt > 0 && o.scutageLastPaidTurn === currentTurn && liegeDomain){
         _applyDomainTreasuryDelta(campaign, liegeDomain, +amt, { reason:'scutage', label:'favor-duty: scutage (collected)' });
         const flow = { from: vassalDomain.id, to: liegeDomain.id, amount: amt, reason:'scutage' };
         result.gpFlows.push(flow);
@@ -7176,7 +7202,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   activeFavorDutyObligationsFor, favorDutyObligationsForVassalDomain, realmFamiliesForDomain,
   favorDutyBalance, processFavorsAndDutiesForTurn,
   applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation, payScutageObligation,
-  councilAttendanceStatus, sendVassalToCouncil,
+  scutageRate, scutageMonthlyGp, councilAttendanceStatus, sendVassalToCouncil,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,
