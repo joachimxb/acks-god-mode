@@ -802,12 +802,15 @@ function blankCharacter(opts={}){
     //   effectiveSocialLevel: the apparent level the latest month's spend bought (RR p.170/173); set by
     //                         the monthly pass; null = take the true level (also when the rule is off).
     //   lastLivingExpensePaidGp: audit of the last monthly keep actually paid.
-    //   payKeepFromTreasury: a ruler may pay his own keep AND his henchmen's wages from the domain
-    //                        treasury he rules instead of his coin purse (Joachim 2026-06-08 — one setting).
+    //   payKeepFromTreasury: a ruler pays his own keep AND his henchmen's wages from the domain treasury
+    //                        he rules instead of his coin purse (Joachim 2026-06-08 — one setting). DEFAULT
+    //                        ON for rulers: null/absent ⇒ on. It only ever applies to a domain ruler — a
+    //                        non-ruler has no treasury, so the engine + UI gate it on ruler status; an
+    //                        explicit false is the GM opting a specific ruler out (back to the coin purse).
     lifestyleTargetLevel: (opts.lifestyleTargetLevel != null ? opts.lifestyleTargetLevel : null),
     effectiveSocialLevel: (opts.effectiveSocialLevel != null ? opts.effectiveSocialLevel : null),
     lastLivingExpensePaidGp: opts.lastLivingExpensePaidGp || 0,
-    payKeepFromTreasury: opts.payKeepFromTreasury || false,
+    payKeepFromTreasury: (opts.payKeepFromTreasury != null ? opts.payKeepFromTreasury : null),
     // §310.6 — Loyalty drift ledger fields (RR p.166).
     // permanentWoundPenalty: standing penalty until wound cured (0..-3).
     // mortalityPenalty:      cumulative Tampering side-effect penalty (≤ 0, permanent).

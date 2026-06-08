@@ -649,17 +649,67 @@ section('CoL-2 — pay-from-treasury (ruler setting) debits the domain treasury'
   ok('apparent level still 6 (treasury covered the L6 keep)', ruler.effectiveSocialLevel === 6);
 }
 
+section('CoL-2 — pay-from-treasury is the DEFAULT for a ruler (absent → on); opt-out + non-ruler carve-out');
+{
+  // (a) DEFAULT-ON: a ruler with the field ABSENT pays his keep from the domain treasury (no purse needed).
+  const camp = ACKS.blankCampaign ? ACKS.blankCampaign() : freshCampaign();
+  camp.currentTurn = 1; camp.currentDayInMonth = 1; camp.houseRules = camp.houseRules || {};
+  const king = purse(mkChar('king', null, { level: 6 }), 0);    // empty purse, no payKeepFromTreasury set
+  ok('blankCharacter default is null (on-for-rulers), not false', king.payKeepFromTreasury == null);
+  camp.characters = [king];
+  const dom = ACKS.blankDomain ? ACKS.blankDomain({ id:'realm', name:'Realm' }) : { id:'realm', treasury:{gp:0}, geography:{hexes:[]} };
+  dom.rulerCharacterId = 'king';
+  dom.geography = dom.geography || { hexes: [] };
+  dom.geography.hexes = [{ id:'hx', coord:{ q:0, r:0 } }];
+  dom.treasury = { gp: 9000 };
+  camp.domains = [dom];
+  camp.hexes = (camp.hexes || []).concat(dom.geography.hexes);
+  if (ACKS.migrateCampaign) ACKS.migrateCampaign(camp);
+  const before = ACKS.domainTreasuryGp ? ACKS.domainTreasuryGp(camp, 'realm') : dom.treasury.gp;
+  ACKS.processLivingExpensesForTurn(camp);
+  const after = ACKS.domainTreasuryGp ? ACKS.domainTreasuryGp(camp, 'realm') : dom.treasury.gp;
+  ok('absent field ⇒ keep paid from the treasury by default (−800)', after === before - 800, 'before=' + before + ' after=' + after);
+  ok('purse stayed empty (treasury default, not purse)', king.coins.gp === 0);
+  ok('apparent level 6 (treasury covered the L6 keep)', king.effectiveSocialLevel === 6);
+
+  // (b) OPT-OUT: a ruler with payKeepFromTreasury:false pays from his purse; treasury untouched.
+  const camp2 = ACKS.blankCampaign ? ACKS.blankCampaign() : freshCampaign();
+  camp2.currentTurn = 1; camp2.currentDayInMonth = 1; camp2.houseRules = camp2.houseRules || {};
+  const duke = purse(mkChar('duke', null, { level: 6, payKeepFromTreasury: false }), 5000);
+  camp2.characters = [duke];
+  const dom2 = ACKS.blankDomain ? ACKS.blankDomain({ id:'duchy', name:'Duchy' }) : { id:'duchy', treasury:{gp:0}, geography:{hexes:[]} };
+  dom2.rulerCharacterId = 'duke';
+  dom2.geography = dom2.geography || { hexes: [] };
+  dom2.geography.hexes = [{ id:'hx2', coord:{ q:0, r:0 } }];
+  dom2.treasury = { gp: 9000 };
+  camp2.domains = [dom2];
+  camp2.hexes = (camp2.hexes || []).concat(dom2.geography.hexes);
+  if (ACKS.migrateCampaign) ACKS.migrateCampaign(camp2);
+  const t2before = ACKS.domainTreasuryGp ? ACKS.domainTreasuryGp(camp2, 'duchy') : dom2.treasury.gp;
+  ACKS.processLivingExpensesForTurn(camp2);
+  ok('opt-out (false) ⇒ keep paid from the purse (5000 → 4200)', duke.coins.gp === 4200);
+  ok('opt-out ⇒ treasury untouched', (ACKS.domainTreasuryGp ? ACKS.domainTreasuryGp(camp2, 'duchy') : dom2.treasury.gp) === t2before, 't2before=' + t2before);
+
+  // (c) CARVE-OUT: a non-ruler (default-on field) still pays from his purse — he has no treasury to draw.
+  const camp3 = freshCampaign();
+  const pc = purse(mkChar('pc', null, { level: 4 }), 3000);   // domain-less PC, field absent (default-on)
+  camp3.characters = [pc];
+  ACKS.processLivingExpensesForTurn(camp3);
+  ok('non-ruler ⇒ keep from the purse despite default-on (3000 − L4 wage)', pc.coins.gp === 3000 - ACKS.levelMonthlyWage(4), 'got ' + pc.coins.gp);
+}
+
 section('CoL-2 — headless commitTurn applies the keep + advances the month');
 {
   const camp = ACKS.blankCampaign ? ACKS.blankCampaign() : freshCampaign();
   camp.currentTurn = 1; camp.currentDayInMonth = 1; camp.houseRules = camp.houseRules || {};
-  const ruler = purse(mkChar('rk', null, { level: 6 }), 5000);
+  const ruler = purse(mkChar('rk', null, { level: 6 }), 0);   // empty purse — the keep comes from the treasury (default)
   camp.characters = [ruler];
   const dom = ACKS.blankDomain ? ACKS.blankDomain({ id:'rl', name:'Rl' }) : null;
   if (dom) {
     dom.rulerCharacterId = 'rk';
     dom.geography = dom.geography || { hexes: [] };
     dom.geography.hexes = [{ id:'h0', coord:{ q:0, r:0 } }];
+    dom.treasury = { gp: 9000 };
     camp.domains = [dom];
     camp.hexes = (camp.hexes || []).concat(dom.geography.hexes);
     if (ACKS.migrateCampaign) ACKS.migrateCampaign(camp);
@@ -668,7 +718,7 @@ section('CoL-2 — headless commitTurn applies the keep + advances the month');
     ok('proposal previews the living expense (dryRun)', !!(prop.livingExpenseProposal && prop.livingExpenseProposal.charges.length));
     const result = ACKS.commitTurn(camp, prop);
     ok('turn advanced', camp.currentTurn === turn0 + 1);
-    ok('commit charged the ruler their L6 keep (purse < 5000)', ruler.coins.gp < 5000);
+    ok('commit covered the ruler L6 keep from the treasury (apparent 6, purse stayed 0)', ruler.effectiveSocialLevel === 6 && ruler.coins.gp === 0, 'eff=' + ruler.effectiveSocialLevel + ' purse=' + ruler.coins.gp);
     ok('commit set the ruler effectiveSocialLevel', ruler.effectiveSocialLevel != null);
     ok('commit result carries livingExpenseResult', !!(result.livingExpenseResult && result.livingExpenseResult.ruleOn));
   } else {

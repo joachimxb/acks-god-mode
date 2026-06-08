@@ -4192,8 +4192,9 @@ function checkAllCharacterLevelUps(campaign){
 //       outflow). RAW carve-out (RR p.168): a vassal-ruling henchman whose domain income ≥ his wage owes
 //       nothing. The henchman takes NO self-debit (the wage IS his keep), so his effectiveSocialLevel = null
 //       (apparent = true level).
-// Pay source per payer (Joachim 2026-06-08 — one setting governs his keep AND the wages he owes): his coin
-// purse, OR — if he's a ruler with payKeepFromTreasury set — the treasury of a domain he rules. Routed
+// Pay source per payer (Joachim 2026-06-08 — one setting governs his keep AND the wages he owes): the
+// treasury of a domain he rules (the DEFAULT for a ruler — payKeepFromTreasury defaults on; only an
+// explicit false opts him out to his coin purse), or his coin purse when he rules no domain. Routed
 // through the GP Wave B wealth-transfer grammar (applyWealthTransfer MOVES; recordWealthTransfer logs,
 // campaignLogHidden so the routine debit stays in the Event Log audit but off the narrative Campaign Log).
 // Gated on `living-expenses` (default ON via the registry default); OFF ⇒ no debits + apparent = true level.
@@ -4232,7 +4233,9 @@ function processLivingExpensesForTurn(campaign, opts){
   const wageFor = (c) => henchmanMonthlyWage(campaign, c);
   // The pay handle (a ruler's domain treasury if he opted in, else his purse) + its available gp.
   const payHandle = (payer) => {
-    if(payer && payer.payKeepFromTreasury){
+    // Default-on for rulers: absent/null ⇒ treasury; only an explicit false opts the ruler out to his
+    // purse. A non-ruler can't draw a treasury — the find below returns nothing, so we fall through.
+    if(payer && payer.payKeepFromTreasury !== false){
       const dom = (campaign.domains || []).find(d => d && d.rulerCharacterId === payer.id);
       if(dom){
         const gp = A.domainTreasuryGp ? A.domainTreasuryGp(campaign, dom.id) : ((dom.treasury && dom.treasury.gp) || 0);

@@ -94,6 +94,12 @@ function buildDemoCampaign(){
   ACKS.liftToTopLevelCollections(liftSynth);
   camp.hexes = liftSynth.hexes; camp.settlements = liftSynth.settlements; camp.rumors = liftSynth.rumors;
   ACKS.migrateAgriculturalToProjects(camp);
+  // Living expenses (CoL-2) is orthogonal to the economy lift this suite verifies, and a ruler now draws
+  // his keep from the treasury by DEFAULT — which would perturb the pure income/expense/treasury deltas
+  // asserted below. Disable it here so the treasury invariant stays a clean economy check
+  // (cost-of-living.smoke.js owns the living-expenses behaviour end-to-end, including a headless turn).
+  camp.houseRules = camp.houseRules || {};
+  camp.houseRules['living-expenses'] = { enabled: false };
   return camp;
 }
 

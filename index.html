@@ -6647,9 +6647,9 @@ document.addEventListener('alpine:init', () => {
             </div>
             <template x-if="le.rulesADomain">
               <label class="text-sm flex items-center gap-2">
-                <input type="checkbox" :checked="!!characterEditing.payKeepFromTreasury"
-                       @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'payKeepFromTreasury', label:'Pay keep from domain treasury', oldValue:!!characterEditing.payKeepFromTreasury, newValue:$event.target.checked})">
-                Pay keep (and henchmen's wages) from the domain treasury
+                <input type="checkbox" :checked="characterEditing.payKeepFromTreasury !== false"
+                       @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'payKeepFromTreasury', label:'Pay keep from domain treasury', oldValue:characterEditing.payKeepFromTreasury !== false, newValue:$event.target.checked})">
+                Pay keep (and henchmen's wages) from the domain treasury <span class="text-xs opacity-60">(default for a ruler)</span>
               </label>
             </template>
             <p class="text-xs opacity-70" x-text="le.note"></p>
@@ -10315,7 +10315,7 @@ return {
              ' for level ' + apparentLevel + ' (RR p.173). Raise the lifestyle target, or keep more coin on hand for month-end.';
     } else {
       note = 'Living expenses cover the character’s level. Paid at month end from ' +
-             ((ch && ch.payKeepFromTreasury && rulesADomain) ? 'the domain treasury' : 'the coin purse') +
+             ((ch && ch.payKeepFromTreasury !== false && rulesADomain) ? 'the domain treasury' : 'the coin purse') +
              '; short funds force a lower spend (no debt). Spending above your level doesn’t raise your apparent level (RR p.173 is downward-only).';
     }
     return { trueLevel, apparentLevel, targetLevel, targetWage, rulesADomain, note };
