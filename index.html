@@ -2377,6 +2377,7 @@ document.addEventListener('alpine:init', () => {
                               <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — not yet given by the vassal (open the vassal to give it)</span>
                               <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                               <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
+                              <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutagePaid(o) ? 'text-emerald-700' : 'accent-red'" x-text="fdScutagePaid(o) ? '✓ scutage paid this month' : '⚠ scutage not yet paid this month'"></span>
                             </div>
                             <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" :title="fdLoanGiven(o) ? 'Revoke — repays the loan to the vassal (RR p.348)' : 'Revoke this obligation'">revoke</button>
                           </li>
@@ -2445,9 +2446,11 @@ document.addEventListener('alpine:init', () => {
                           <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — give it from your realm treasury</span>
                           <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                           <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
+                          <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutagePaid(o) ? 'text-emerald-700' : 'opacity-70'" x-text="fdScutagePaid(o) ? '✓ scutage paid this month' : '⚠ scutage due this month — pay it to satisfy your liege'"></span>
                         </div>
                         <div class="flex flex-col items-end gap-1 shrink-0">
                           <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-emerald-50 whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)">💰 Give loan</button>
+                          <button x-show="fdIsScutage(o) && !fdScutagePaid(o)" @click="fdPayScutage(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-50 whitespace-nowrap" title="Pay this month's scutage — counts as your garrison expense and settles to your liege at the monthly turn (RR p.347)">💰 Pay Scutage</button>
                           <button x-show="fdIsCallToCouncil(o) && fdCouncilStatus(o).status==='away'" @click="fdGoToCouncil(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-50 whitespace-nowrap" title="Send the vassal (or his party) to the lord's council — plots or re-routes a journey (RR p.346)">🧭 Go to Council</button>
                           <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100" title="Revoke this obligation">revoke</button>
                         </div>
@@ -15814,6 +15817,20 @@ return {
     const o = window.ACKS.giveLoanObligation(this.currentCampaign, obligationId, {});
     this.markDirty(); this.schedulePersist();
     this.toast && this.toast(o && o.loanGivenAtTurn != null ? ('Loan given — ' + (o.gpPerMonth||0).toLocaleString() + 'gp paid to your liege.') : 'Could not give the loan.', 5000);
+  },
+  // Scutage lifecycle (F&D-6; RR pp.347–348). Scutage is a recurring tax the vassal PAYS each month
+  // (Pay Scutage). It bills as the vassal's garrison expense in the monthly net + credits the lord; the
+  // liege sees whether it was paid. fdScutagePaid(o) = paid for the current month (resets each turn).
+  fdIsScutage(o){ return !!o && o.kind === 'scutage' && o.status === 'active'; },
+  fdScutagePaid(o){ return !!o && o.kind === 'scutage' && o.scutageLastPaidTurn === (this.currentCampaign?.currentTurn || 1); },
+  // Vassal-side act: pay this month's scutage — stamps the turn; the gp settles at the monthly turn
+  // (the vassal is debited via the garrison-expense line, the lord credited).
+  fdPayScutage(obligationId){
+    const o = window.ACKS.payScutageObligation(this.currentCampaign, obligationId, {});
+    this.markDirty(); this.schedulePersist();
+    this.toast && this.toast(o && this.fdScutagePaid(o)
+      ? ('Scutage of ' + (o.gpPerMonth||0).toLocaleString() + 'gp pledged this month — it settles (vassal → lord) at the monthly turn.')
+      : 'Could not pay scutage.', 5000);
   },
   // Call to Council (F&D-5; RR p.346). The liege picks a council hex in his domain (default = where
   // he is now); the vassal travels there via "Go to Council" (plots/re-routes a journey); the live
