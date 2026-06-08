@@ -2377,7 +2377,7 @@ document.addEventListener('alpine:init', () => {
                               <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — not yet given by the vassal (open the vassal to give it)</span>
                               <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                               <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
-                              <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutagePaid(o) ? 'text-emerald-700' : 'accent-red'" x-text="fdScutagePaid(o) ? '✓ scutage paid this month' : '⚠ scutage not yet paid this month'"></span>
+                              <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutageAutoPay(o) ? 'text-emerald-700' : 'accent-red'" x-text="fdScutageAutoPay(o) ? '✓ scutage being paid (automatically, each month)' : '⚠ scutage not being paid'"></span>
                             </div>
                             <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" :title="fdLoanGiven(o) ? 'Revoke — repays the loan to the vassal (RR p.348)' : 'Revoke this obligation'">revoke</button>
                           </li>
@@ -2449,11 +2449,12 @@ document.addEventListener('alpine:init', () => {
                           <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — give it from your realm treasury</span>
                           <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                           <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
-                          <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutagePaid(o) ? 'text-emerald-700' : 'opacity-70'" x-text="fdScutagePaid(o) ? '✓ scutage paid this month' : '⚠ scutage due this month — pay it to satisfy your liege'"></span>
+                          <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutageAutoPay(o) ? 'text-emerald-700' : 'opacity-70'" x-text="fdScutageAutoPay(o) ? '✓ paying scutage automatically each month' : '⚠ scutage not being paid — start paying to satisfy your liege'"></span>
                         </div>
                         <div class="flex flex-col items-end gap-1 shrink-0">
                           <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-emerald-50 whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)">💰 Give loan</button>
-                          <button x-show="fdIsScutage(o) && !fdScutagePaid(o)" @click="fdPayScutage(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-50 whitespace-nowrap" title="Pay this month's scutage — counts as your garrison expense and settles to your liege at the monthly turn (RR p.347)">💰 Pay Scutage</button>
+                          <button x-show="fdIsScutage(o) && !fdScutageAutoPay(o)" @click="fdPayScutage(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-50 whitespace-nowrap" title="Start paying scutage — it will settle automatically each monthly turn (counts as your garrison expense, RR p.347) until you stop">💰 Pay Scutage</button>
+                          <button x-show="fdIsScutage(o) && fdScutageAutoPay(o)" @click="fdStopScutage(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-50 whitespace-nowrap" title="Stop paying scutage — it will be withheld from your liege going forward">🛑 Stop Paying</button>
                           <button x-show="fdIsCallToCouncil(o) && fdCouncilStatus(o).status==='away'" @click="fdGoToCouncil(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-50 whitespace-nowrap" title="Send the vassal (or his party) to the lord's council — plots or re-routes a journey (RR p.346)">🧭 Go to Council</button>
                           <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100" title="Revoke this obligation">revoke</button>
                         </div>
@@ -9171,7 +9172,7 @@ return {
         appliedAt: new Date().toISOString()
       });
     } catch(err){ console.warn('addGarrisonUnit: failed to emit audit event', err); }
-    this.toast && this.toast('Added unit: ' + u.displayName, 3000);
+    this.showToast && this.showToast('Added unit: ' + u.displayName, 3000);
   },
 
   // ─── #547 Garrison unit interim split + merge (2026-05-30) ───
@@ -9199,7 +9200,7 @@ return {
     });
     unit.count = cur - n;
     domain.garrison.units.push(newUnit);
-    this.toast && this.toast('Split: ' + n + ' soldiers into new unit (' + (unit.displayName || unit.unitTypeKey) + ')', 3500);
+    this.showToast && this.showToast('Split: ' + n + ' soldiers into new unit (' + (unit.displayName || unit.unitTypeKey) + ')', 3500);
   },
   mergeGarrisonUnit(domain, unit){
     if(!domain || !unit) return;
@@ -9225,7 +9226,7 @@ return {
     target.count = Number(target.count || 0) + Number(unit.count || 0);
     const removeIdx = domain.garrison.units.indexOf(unit);
     if(removeIdx >= 0) domain.garrison.units.splice(removeIdx, 1);
-    this.toast && this.toast('Merged into ' + (target.displayName || target.unitTypeKey) + ' (now ' + target.count + ' soldiers)', 3500);
+    this.showToast && this.showToast('Merged into ' + (target.displayName || target.unitTypeKey) + ' (now ' + target.count + ' soldiers)', 3500);
   },
 
   // ─── #541 Event Wizard methods (2026-05-30) ───
@@ -9294,7 +9295,7 @@ return {
       }
       this.currentCampaign.pendingEvents = this.currentCampaign.pendingEvents || [];
       this.currentCampaign.pendingEvents.push(ev);
-      this.toast && this.toast('Event emitted: ' + this.emitWizardKind + ' (id=' + ev.id + '). Resolve from Event Log.', 4000);
+      this.showToast && this.showToast('Event emitted: ' + this.emitWizardKind + ' (id=' + ev.id + '). Resolve from Event Log.', 4000);
       this.emitWizardReset();
     } catch(err){ alert('Failed to emit: ' + (err && err.message || err)); }
   },
@@ -9366,9 +9367,9 @@ return {
   chronicleEditExisting(eventId){
     // Open the Chronicle sub-tab pre-populated with the event's current values for editing.
     const entry = (this.currentCampaign && this.currentCampaign.eventLog || []).find(e => (e && e.event && e.event.id) === eventId);
-    if(!entry || !entry.event){ this.toast && this.toast('Could not find chronicle entry to edit', 4000); return; }
+    if(!entry || !entry.event){ this.showToast && this.showToast('Could not find chronicle entry to edit', 4000); return; }
     const ev = entry.event;
-    if(ev.kind !== 'gm-narrative'){ this.toast && this.toast('Only chronicle entries can be edited here', 4000); return; }
+    if(ev.kind !== 'gm-narrative'){ this.showToast && this.showToast('Only chronicle entries can be edited here', 4000); return; }
     const payload = ev.payload || {};
     // Hydrate from context envelope into attached list
     const attached = [];
@@ -9400,7 +9401,7 @@ return {
       // Find the existing entry and reuse its event object so id/createdAt are preserved
       const existing = (this.currentCampaign.eventLog || []).find(e => (e && e.event && e.event.id) === s.editingEventId);
       if(!existing){
-        this.toast && this.toast('Chronicle entry not found — perhaps it was deleted. Submit will create a new one.', 4500);
+        this.showToast && this.showToast('Chronicle entry not found — perhaps it was deleted. Submit will create a new one.', 4500);
       }
       ev = existing ? existing.event : A.newEvent('gm-narrative', { submittedBy: 'gm', targetTurn: currentTurn });
       ev.payload = {
@@ -9455,7 +9456,7 @@ return {
       ev.result = result.result;
     } catch(err){
       console.error('Chronicle submit failed', err);
-      this.toast && this.toast('Chronicle submit failed: ' + err.message, 5000);
+      this.showToast && this.showToast('Chronicle submit failed: ' + err.message, 5000);
       return;
     }
     if(!Array.isArray(this.currentCampaign.eventLog)) this.currentCampaign.eventLog = [];
@@ -9470,21 +9471,21 @@ return {
           appliedAt: this.currentCampaign.eventLog[idx].appliedAt || new Date().toISOString(),
           lastEditedAt: new Date().toISOString()
         };
-        this.toast && this.toast('Chronicle entry updated: ' + s.title.trim().slice(0, 40), 3500);
+        this.showToast && this.showToast('Chronicle entry updated: ' + s.title.trim().slice(0, 40), 3500);
       } else {
         // Existing wasn't found — fall through to append
         this.currentCampaign.eventLog.push({
           event: ev, result: ev.result,
           appliedAtTurn: currentTurn, appliedAt: new Date().toISOString()
         });
-        this.toast && this.toast('Chronicle entry added (could not find original to update): ' + s.title.trim().slice(0, 40), 4500);
+        this.showToast && this.showToast('Chronicle entry added (could not find original to update): ' + s.title.trim().slice(0, 40), 4500);
       }
     } else {
       this.currentCampaign.eventLog.push({
         event: ev, result: ev.result,
         appliedAtTurn: currentTurn, appliedAt: new Date().toISOString()
       });
-      this.toast && this.toast('Chronicle entry added: ' + s.title.trim().slice(0, 40), 3500);
+      this.showToast && this.showToast('Chronicle entry added: ' + s.title.trim().slice(0, 40), 3500);
     }
     this.chronicleReset();
   },
@@ -15784,7 +15785,7 @@ return {
   // A blank gpPerMonth means "RAW default" for a standard kind (the engine fills it); for custom it's 0.
   fdRaiseEdict(vDomainId, opts){
     opts = opts || {}; if(!opts.kind) return;
-    if(opts.kind==='custom' && !String(opts.customLabel||'').trim()){ this.toast && this.toast('Give the custom edict a name first.', 3500); return; }
+    if(opts.kind==='custom' && !String(opts.customLabel||'').trim()){ this.showToast && this.showToast('Give the custom edict a name first.', 3500); return; }
     const payload = { vassalDomainId: vDomainId, kind: opts.kind };
     if(opts.kind==='custom'){
       payload.customLabel = String(opts.customLabel||'').trim();
@@ -15800,11 +15801,11 @@ return {
     }
     if(opts.kind==='call-to-council' && opts.councilHexId) payload.councilHexId = opts.councilHexId;   // F&D-5 — the chosen council location (RR p.346)
     const res = window.ACKS.applyFavorDutyEdictByKind(this.currentCampaign, payload, { rng: Math.random });
-    if(!res || !res.obligation){ this.toast && this.toast('Could not apply — this domain has no active liege.', 4000); return; }
+    if(!res || !res.obligation){ this.showToast && this.showToast('Could not apply — this domain has no active liege.', 4000); return; }
     this.markDirty(); this.schedulePersist();
     let msg = res.narrative || 'Edict applied.';
     if(res.loyaltyResult){ msg += ' Loyalty roll at ' + res.balance.loyaltyModifier + ' → ' + (res.loyaltyResult.bandLabel || res.loyaltyResult.bandKey) + '.'; }
-    this.toast && this.toast(msg, 6000);
+    this.showToast && this.showToast(msg, 6000);
   },
   fdRevoke(obligationId){
     const o = window.ACKS.revokeFavorDutyEdict(this.currentCampaign, obligationId, {});
@@ -15812,7 +15813,7 @@ return {
     let msg = o ? ('Revoked ' + (o.kind||'obligation') + '.') : 'Nothing to revoke.';
     // RR p.348 — revoking a given loan repays the principal to the vassal.
     if(o && o.kind==='loan' && o.loanGivenAtTurn != null) msg = 'Loan revoked — ' + (o.gpPerMonth||0).toLocaleString() + 'gp repaid to the vassal.';
-    this.toast && this.toast(msg, 4500);
+    this.showToast && this.showToast(msg, 4500);
   },
   // Loan lifecycle (F&D-4; RR p.348). A Loan is DEMANDED (created) but the gp moves only when the
   // vassal GIVES it — so the liege sees a "not yet given" notice and the vassal gets a Give-loan button.
@@ -15836,22 +15837,26 @@ return {
   fdGiveLoan(obligationId){
     const o = window.ACKS.giveLoanObligation(this.currentCampaign, obligationId, {});
     this.markDirty(); this.schedulePersist();
-    this.toast && this.toast(o && o.loanGivenAtTurn != null ? ('Loan given — ' + (o.gpPerMonth||0).toLocaleString() + 'gp paid to your liege.') : 'Could not give the loan.', 5000);
+    this.showToast && this.showToast(o && o.loanGivenAtTurn != null ? ('Loan given — ' + (o.gpPerMonth||0).toLocaleString() + 'gp paid to your liege.') : 'Could not give the loan.', 5000);
   },
-  // Scutage lifecycle (F&D-6; RR pp.347–348). Scutage is a recurring tax the vassal PAYS each month
-  // (Pay Scutage). It bills as the vassal's garrison expense in the monthly net + credits the lord; the
-  // liege sees whether it was paid. fdScutagePaid(o) = paid for the current month (resets each turn).
+  // Scutage lifecycle (F&D-6; RR pp.347–348). Scutage is a recurring tax with a persistent AUTO-PAY toggle:
+  // "Pay Scutage" turns it on (it then bills automatically every monthly turn — garrison expense for the
+  // vassal, credited to the lord), "Stop Paying" turns it off. fdScutageAutoPay(o) = the toggle is on.
   fdIsScutage(o){ return !!o && o.kind === 'scutage' && o.status === 'active'; },
-  fdScutagePaid(o){ return !!o && o.kind === 'scutage' && o.scutageLastPaidTurn === (this.currentCampaign?.currentTurn || 1); },
-  // Vassal-side act: pay this month's scutage — stamps the turn; the gp settles at the monthly turn
-  // (the vassal is debited via the garrison-expense line, the lord credited).
+  fdScutageAutoPay(o){ return !!o && o.kind === 'scutage' && o.scutageAutoPay === true; },
+  // Vassal-side acts: start paying scutage automatically each month, or stop.
   fdPayScutage(obligationId){
     const o = window.ACKS.payScutageObligation(this.currentCampaign, obligationId, {});
     this.markDirty(); this.schedulePersist();
     const amt = o ? window.ACKS.scutageMonthlyGp(this.currentCampaign, o) : 0;
-    this.toast && this.toast(o && this.fdScutagePaid(o)
-      ? ('Scutage of ' + amt.toLocaleString() + 'gp pledged this month — it settles (vassal → lord) at the monthly turn.')
-      : 'Could not pay scutage.', 5000);
+    this.showToast && this.showToast(o && this.fdScutageAutoPay(o)
+      ? ('Now paying scutage automatically — ' + amt.toLocaleString() + 'gp/mo settles (vassal → lord) each monthly turn until you stop.')
+      : 'Could not pay scutage.', 5500);
+  },
+  fdStopScutage(obligationId){
+    const o = window.ACKS.stopScutagePayment(this.currentCampaign, obligationId, {});
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast(o && !this.fdScutageAutoPay(o) ? 'Stopped paying scutage — it is now withheld from your liege.' : 'Could not stop scutage.', 5000);
   },
   // Call to Council (F&D-5; RR p.346). The liege picks a council hex in his domain (default = where
   // he is now); the vassal travels there via "Go to Council" (plots/re-routes a journey); the live
@@ -15895,7 +15900,7 @@ return {
       'no-origin': "Set the vassal's location first — no hex to set out from.",
       'no-traveller': 'No vassal ruler to send.'
     })[r && r.action] || 'Could not send to council.';
-    this.toast && this.toast(msg, 5000);
+    this.showToast && this.showToast(msg, 5000);
   },
 
   // Effective per-hex land value INCLUDING agricultural improvements (Phase 2a.5).
