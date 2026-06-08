@@ -1151,6 +1151,12 @@ function blankFavorDutyObligation(opts={}){
     // vassal travels there via "Go to Council" (plots/re-routes a Journey), and attendance is the
     // live comparison of the vassal ruler's current hex to this. null for every non-council kind.
     councilHexId: opts.councilHexId != null ? opts.councilHexId : null,
+    // Scutage lifecycle (RR pp.347–348) — a recurring duty the vassal must PAY each month (the "Pay
+    // Scutage" button: payScutageObligation stamps this to the current turn). It bills as the vassal's
+    // garrison expense in the monthly net (expenseBreakdown) when scutageLastPaidTurn === currentTurn,
+    // and the lord is credited that month; an unpaid month is withheld (the liege card shows a notice).
+    // null for every non-scutage kind; reset each month (the vassal re-pays). Read defensively → no migration.
+    scutageLastPaidTurn: opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
     // Running total of gp the vassal has expended on a Construction duty (auto-revokes at
     // 15,000gp per 6-mile hex in the realm — RR p.348). 0 for every other kind.
     constructionSpentGp: opts.constructionSpentGp || 0,

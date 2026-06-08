@@ -266,6 +266,18 @@ function tributeOwed(campaign, d){
   return roundToNearest5(d.expenses?.tributeToLiege || 0);
 }
 
+// Scutage paid by this domain THIS MONTH (RR pp.347–348) — the sum of active scutage obligations the
+// vassal elected to pay this turn (the Pay Scutage button stamps scutageLastPaidTurn). It bills as a
+// garrison-expense row in expenseBreakdown AND counts toward the domain's garrison adequacy in
+// moraleModifiersFor (RR p.347 "scutage counts as garrison expense for the vassal"). 0 when none paid.
+function scutagePaidThisMonth(campaign, d){
+  if(!campaign || !d || !Array.isArray(campaign.favorDutyObligations)) return 0;
+  const curTurn = campaign.currentTurn || 1;
+  return campaign.favorDutyObligations.reduce((s, o) =>
+    (o && o.status === 'active' && o.kind === 'scutage' && o.vassalDomainId === d.id && o.scutageLastPaidTurn === curTurn)
+      ? s + Math.round(o.gpPerMonth || 0) : s, 0);
+}
+
 // =============================================================================
 // Income / expense / morale breakdowns + sums + net (RR pp.339–351)
 // =============================================================================
@@ -388,6 +400,24 @@ function expenseBreakdown(campaign, d){
     const tgt = t.toDomainId ? ((campaign.domains||[]).find(x => x.id === t.toDomainId)?.name || t.toDomainId) : '?';
     rows.push({ label: 'Tribute to ' + tgt, gp });
   });
+  // Scutage to the liege (RR pp.347–348 — #230) — a duty that COUNTS AS the vassal's garrison expense.
+  // Billed only when the vassal paid it this month (the Pay Scutage button stamps scutageLastPaidTurn);
+  // an unpaid month shows withheld (gp 0), like a defiant tribute. The lord is credited in
+  // processFavorsAndDutiesForTurn — so this row is the vassal's SINGLE debit (no double-move). One row
+  // per active scutage obligation (RR allows imposing it multiple times → stacked scutage).
+  {
+    const curTurn = campaign.currentTurn || 1;
+    (campaign.favorDutyObligations || []).forEach(o => {
+      if(!o || o.status !== 'active' || o.kind !== 'scutage' || o.vassalDomainId !== d.id) return;
+      const liege = (campaign.characters||[]).find(c => c.id === o.liegeCharacterId);
+      const liegeName = liege ? liege.name : 'liege';
+      if(o.scutageLastPaidTurn === curTurn){
+        rows.push({ label: 'Scutage to ' + liegeName + ' (RR p.347 · counts as garrison)', gp: Math.round(o.gpPerMonth||0) });
+      } else {
+        rows.push({ label: 'Scutage to ' + liegeName + ' (NOT PAID — withheld this month)', gp: 0 });
+      }
+    });
+  }
   return rows;
 }
 function monthlyExpenses(campaign, d){ return expenseBreakdown(campaign, d).reduce((s,r) => s + (r.gp||0), 0); }
@@ -406,7 +436,9 @@ function moraleModifiersFor(campaign, d){
   const taxRate = DEFAULT_TAX_RATES[d.taxPolicy?.rate] ?? 2;
   const liturgy = d.expenses.liturgyPerFamily ?? 1;
   const reqRate = REQUIRED_GARRISON_PER_FAMILY[effectiveDomainClassification(d)] || 2;
-  const gpf = fam > 0 ? garrisonCost(d)/fam : reqRate;
+  // Scutage paid this month counts as garrison expense for the vassal (RR p.347) → add it to the
+  // effective garrison spend the adequacy check sees, so a scutage-paying vassal isn't double-burdened.
+  const gpf = fam > 0 ? (garrisonCost(d) + scutagePaidThisMonth(campaign, d))/fam : reqRate;
   if(gpf < reqRate && fam > 0) mods.push({ label: 'Garrison below required (' + reqRate + 'gp/family)', value: -Math.max(1, Math.ceil(reqRate - gpf)) });
   // RR p.349 — stronghold-adequacy penalty, emitted as a row so it flows through moraleModSum.
   const strongholdReq = strongholdRequired(d), strongholdVal = strongholdValue(campaign, d);
@@ -464,6 +496,8 @@ Object.assign(ACKS, {
   rulerCharacter, effectiveRuler, domainIncome,
   // Tribute
   tributeOwed,
+  // Scutage (RR pp.347–348 — counts as the vassal's garrison expense)
+  scutagePaidThisMonth,
   // Income / expense / morale
   incomeFactor, incomeBreakdown, monthlyGrossIncome, expenseBreakdown, monthlyExpenses, monthlyNet, moraleModifiersFor,
   incomeSum, expenseSum, moraleModSum, domainXpFromNet

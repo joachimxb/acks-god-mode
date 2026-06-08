@@ -3103,6 +3103,7 @@ function createFavorDutyObligation(campaign, opts={}){
     grantedAtTurn:          opts.grantedAtTurn           || 1,
     loanGivenAtTurn:        opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
     councilHexId:           opts.councilHexId             || null,
+    scutageLastPaidTurn:    opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
     constructionSpentGp:    opts.constructionSpentGp     || 0,
     notes:                  opts.notes                   || ''
   });
@@ -4534,11 +4535,12 @@ function _favorDutyRepayLoanOnRevoke(campaign, rec){
   return _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, amt, 'loan-repaid', null);   // lord → vassal
 }
 
-// Fire one excess-duty Loyalty roll on the vassal ruler (RR p.168 + p.347). Rolls 2d6 from the
-// passed rng (deterministic for tests), applies the loyaltyDelta to the ruler's loyalty (clamped
-// −4..+4 per RAW p.166), and records it on the character's loyaltyHistory. Returns the roll result.
-function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng){
-  rng = rng || Math.random;
+// Fire one Loyalty roll on the vassal ruler (RR p.168 + p.347–348). Rolls 2d6 from the passed rng
+// (deterministic for tests), applies the loyaltyDelta to the ruler's loyalty (clamped −4..+4 per RAW
+// p.166), and records it on the character's loyaltyHistory. opts.reason / opts.reasonNote override the
+// default (over-demanded duties) — the scutage-misappropriation check passes its own. Returns the roll.
+function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng, opts){
+  rng = rng || Math.random; opts = opts || {};
   const ch = (campaign.characters || []).find(c => c.id === vassalRulerCharacterId) || null;
   const loyaltyScore = ch ? (ch.loyalty || 0) : 0;
   const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
@@ -4549,8 +4551,8 @@ function _favorDutyLoyaltyRoll(campaign, vassalRulerCharacterId, modifier, rng){
     ch.loyalty = after;
     if(!Array.isArray(ch.loyaltyHistory)) ch.loyaltyHistory = [];
     ch.loyaltyHistory.push({
-      turn: campaign.currentTurn || 1, delta: after - before, reason: 'favor-duty-excess',
-      reasonNote: 'over-demanded duties (RR p.347)', rollResult: rr, outcome: rr.bandKey, newValue: after
+      turn: campaign.currentTurn || 1, delta: after - before, reason: opts.reason || 'favor-duty-excess',
+      reasonNote: opts.reasonNote || 'over-demanded duties (RR p.347)', rollResult: rr, outcome: rr.bandKey, newValue: after
     });
   }
   return rr;
@@ -4770,6 +4772,32 @@ function giveLoanObligation(campaign, obligationId, options){
   return rec;
 }
 
+// Pay this month's scutage — the vassal-side act (the "Pay Scutage" button, RR pp.347–348). Scutage
+// is a recurring monthly tax (1gp/family) the vassal MUST PAY each month or withhold. Paying stamps
+// scutageLastPaidTurn to the current turn; from there the monthly turn does the actual gp settlement:
+// the amount bills as the vassal's GARRISON EXPENSE in expenseBreakdown (so the vassal's net debits it,
+// and it counts toward the vassal's garrison adequacy — RR p.347 "scutage counts as garrison expense
+// for the vassal"), and the lord is CREDITED in processFavorsAndDutiesForTurn (a single move, no double-
+// debit). Unpaid months simply aren't billed (the liege card shows "not yet paid"). Idempotent within a
+// month (already paid this turn → no-op). Guarded: a non-scutage / inactive obligation is a no-op.
+// Returns the obligation record, or null when it doesn't exist.
+function payScutageObligation(campaign, obligationId, options){
+  options = options || {};
+  const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
+    ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
+  if(!rec) return null;
+  if(rec.status !== 'active' || rec.kind !== 'scutage') return rec;          // guarded no-op
+  const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  if(rec.scutageLastPaidTurn === atTurn) return rec;                          // already paid this month
+  rec.scutageLastPaidTurn = atTurn;
+  if(!Array.isArray(rec.history)) rec.history = [];
+  rec.history.push({ turn: atTurn, type: 'scutage-paid', amount: Math.round(rec.gpPerMonth || 0) });
+  const dname = ((campaign.domains || []).find(d => d.id === rec.vassalDomainId) || {}).name || rec.vassalDomainId;
+  _emitFavorDutyEvent(campaign, rec, { action:'scutage-paid', gpPerMonth: rec.gpPerMonth,
+    narrative: 'Scutage of ' + Math.round(rec.gpPerMonth || 0).toLocaleString() + 'gp pledged by ' + dname + ' this month (settles at the monthly turn).' });
+  return rec;
+}
+
 // The vassal-ruler character for an obligation (the Call-to-Council traveller): the recorded
 // vassalRulerCharacterId, else the vassal domain's ruler. null if neither resolves.
 function _favorDutyVassalRuler(campaign, rec){
@@ -4934,6 +4962,8 @@ function processFavorsAndDutiesForTurn(campaign, options){
   }
 
   // PHASE B — recurring monthly gp for active ongoing gp duties.
+  // Per-lord scutage tally (RR p.348 misappropriation check, run after the loop).
+  const scutageReceivedByLiege = {};
   for(const o of (campaign.favorDutyObligations || [])){
     if(o.status !== 'active') continue;
     const vassalDomain = domainsById(o.vassalDomainId);
@@ -4942,8 +4972,22 @@ function processFavorsAndDutiesForTurn(campaign, options){
     const liegeDomain = v ? domainsById(v.suzerainDomainId) : null;
 
     if(o.kind === 'scutage' && o.gpPerMonth > 0){
-      const f = _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, o.gpPerMonth, 'scutage', null);
-      if(f){ result.gpFlows.push(f); _emitFavorDutyEvent(campaign, o, { action:'recurring', gpPerMonth:o.gpPerMonth, gpFlows:[f], narrative:'Scutage paid: ' + o.gpPerMonth.toLocaleString() + 'gp from ' + (vassalDomain.name || o.vassalDomainId) + '.' }); result.events++; }
+      // Scutage settles ONLY when the vassal paid it this month (the Pay Scutage button — RR pp.347–348).
+      // The vassal is debited via the monthly NET (scutage is a garrison-expense row in expenseBreakdown,
+      // already applied before this runs); here we only CREDIT the lord (one-sided — no double-move). An
+      // unpaid month does nothing (the gp stays with the vassal; the liege card shows it wasn't paid).
+      if(o.scutageLastPaidTurn === currentTurn && liegeDomain){
+        const amt = Math.round(o.gpPerMonth);
+        _applyDomainTreasuryDelta(campaign, liegeDomain, +amt, { reason:'scutage', label:'favor-duty: scutage (collected)' });
+        const flow = { from: vassalDomain.id, to: liegeDomain.id, amount: amt, reason:'scutage' };
+        result.gpFlows.push(flow);
+        _emitFavorDutyEvent(campaign, o, { action:'scutage-collected', gpPerMonth:amt, gpFlows:[flow], narrative:'Scutage of ' + amt.toLocaleString() + 'gp collected by the lord from ' + (vassalDomain.name || o.vassalDomainId) + ' (counts as the vassal’s garrison expense).' });
+        result.events++;
+        const key = o.liegeCharacterId || liegeDomain.id;
+        const acc = scutageReceivedByLiege[key] || (scutageReceivedByLiege[key] = { liegeDomain, liegeCharacterId: o.liegeCharacterId, total: 0, payers: [] });
+        acc.total += amt;
+        acc.payers.push({ obligationId: o.id, vassalRulerId: o.vassalRulerCharacterId || vassalDomain.rulerCharacterId || null, vassalDomain });
+      }
     } else if(o.kind === 'construction' && o.gpPerMonth > 0){
       const spend = o.gpPerMonth;
       const f = _favorDutyMoveGp(campaign, vassalDomain, null, spend, 'construction', null);
@@ -4990,6 +5034,28 @@ function processFavorsAndDutiesForTurn(campaign, options){
         result.events++;
       }
     }
+  }
+
+  // PHASE C — scutage misappropriation (RR p.348): "A lord who receives scutage must spend the funds
+  // on troops or provoke Henchman Loyalty rolls at -4." If the lord did NOT out-spend the scutage he
+  // collected this month on troops (interpreted as his garrison cost — the domain's standing troop
+  // wage), every vassal who paid him scutage makes a Henchman Loyalty roll at -4.
+  for(const key of Object.keys(scutageReceivedByLiege)){
+    const acc = scutageReceivedByLiege[key];
+    const troopSpend = global.ACKS.garrisonCost(acc.liegeDomain);
+    if(troopSpend > acc.total) continue;                                   // lord spent enough on troops — no penalty
+    for(const p of acc.payers){
+      if(!p.vassalRulerId) continue;
+      const rr = _favorDutyLoyaltyRoll(campaign, p.vassalRulerId, -4, rng,
+        { reason:'scutage-misappropriated', reasonNote:'lord did not spend scutage on troops (RR p.348)' });
+      result.loyaltyRolls.push({ vassalDomainId: p.vassalDomain.id, vassalRulerCharacterId: p.vassalRulerId, modifier: -4, bandKey: rr.bandKey, reason:'scutage-misappropriated' });
+    }
+    const liegeName = ((campaign.characters || []).find(c => c.id === acc.liegeCharacterId) || {}).name || (acc.liegeDomain && acc.liegeDomain.name) || 'The lord';
+    _emitFavorDutyEvent(campaign,
+      { id:null, kind:'scutage', vassalDomainId:(acc.payers[0] && acc.payers[0].vassalDomain.id) || null, liegeCharacterId: acc.liegeCharacterId, vassalRulerCharacterId:null, isFavor:false, isOngoing:true, roll:null, gpPerMonth: acc.total },
+      { action:'scutage-misappropriated', narrative: liegeName + ' spent only ' + troopSpend.toLocaleString() + 'gp on troops against ' + acc.total.toLocaleString() + 'gp of scutage received — ' + acc.payers.length + ' scutage-paying vassal' + (acc.payers.length===1?'':'s') + ' roll Loyalty at -4 (RR p.348).' });
+    result.events++;
+    result.logEntries.push('Favor/Duty — scutage misappropriated by ' + liegeName + ' (troops ' + troopSpend.toLocaleString() + 'gp ≤ scutage ' + acc.total.toLocaleString() + 'gp) → ' + acc.payers.length + ' vassal Loyalty roll' + (acc.payers.length===1?'':'s') + ' at -4.');
   }
 
   return result;
@@ -7109,7 +7175,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   createFavorDutyObligation, revokeFavorDutyObligation, spendOneTimeFavorObligation,
   activeFavorDutyObligationsFor, favorDutyObligationsForVassalDomain, realmFamiliesForDomain,
   favorDutyBalance, processFavorsAndDutiesForTurn,
-  applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation,
+  applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation, payScutageObligation,
   councilAttendanceStatus, sendVassalToCouncil,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,

@@ -230,6 +230,7 @@
         { name: 'status',                 type: 'enum', enumValues: ['active','revoked','one-time-spent'], group: 'Lifecycle' },
         { name: 'grantedAtTurn',          type: 'number', group: 'Lifecycle' },
         { name: 'loanGivenAtTurn',        type: 'number', group: 'Lifecycle', description: 'Turn a demanded Loan was given (vassal→liege); null = not yet given. The repayment check + revoke-repay key off it' },
+        { name: 'scutageLastPaidTurn',    type: 'number', group: 'Lifecycle', description: 'Turn the vassal last paid scutage (the Pay Scutage button); === currentTurn → billed this month as garrison expense + collected by the lord. null = never/not this month' },
         { name: 'revokedAtTurn',          type: 'number', group: 'Lifecycle', description: 'Set on revoke — null while active' },
         { name: 'notes',                  type: 'longText', group: 'History', description: 'GM-resolve note for duties whose cross-subsystem effect is not yet automated' },
         { name: 'history',                type: 'history', readonly: true, group: 'History' }
