@@ -100,6 +100,10 @@ function buildDemoCampaign(){
   // (cost-of-living.smoke.js owns the living-expenses behaviour end-to-end, including a headless turn).
   camp.houseRules = camp.houseRules || {};
   camp.houseRules['living-expenses'] = { enabled: false };
+  // Favors & Duties auto-roll (default ON) moves gp between vassal/lord treasuries each month,
+  // which would likewise perturb the pure income/expense/treasury invariant asserted below.
+  // Disable it here — favors-and-duties.smoke.js owns the F&D gp flows end-to-end.
+  camp.houseRules['favor-duty-auto-roll'] = { enabled: false };
   return camp;
 }
 

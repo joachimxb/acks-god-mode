@@ -2341,7 +2341,162 @@ document.addEventListener('alpine:init', () => {
                   </li>
                 </template>
               </ul>
-              <p class="text-sm opacity-70 mt-3">Per ACKS II, tribute depends on realm structure. Default auto-calc is 10% of vassal gross income — adjust per-vassal on each vassal's <strong>Economy</strong> tab.</p>
+              <p class="text-sm opacity-70 mt-3">Per ACKS II, tribute is a fixed obligation by the families in the vassal's whole realm (RR p.346) when auto is on — set or override it per-vassal on each vassal's <strong>Economy</strong> tab.</p>
+            </div>
+
+            <!-- Favors & Duties (F&D-2) — the monthly liege↔vassal edicts (RR pp.345–348). -->
+            <div class="md:col-span-2 vellum border border-ink p-3 rounded">
+              <h2 class="font-bold text-lg mb-1">📜 Favors &amp; Duties</h2>
+              <p class="text-sm opacity-70 mb-3">The monthly liege↔vassal obligation engine (RR pp.345–348). One edict is auto-rolled per active vassalage each month while the <strong>Favors &amp; Duties — auto-roll</strong> house rule is on; you can also raise edicts by hand here. A lord may safely demand one duty per month, plus one for each favor he grants — over-demanding rolls the vassal's Loyalty.</p>
+
+              <!-- As LIEGE: per vassal — balance + active obligations + Grant favor / Demand duty. -->
+              <template x-if="vassalsOf(selectedDomain.id).length > 0">
+                <div>
+                  <h3 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-2">Over your vassals</h3>
+                  <template x-for="v in vassalsOf(selectedDomain.id)" :key="'fd-'+v.id">
+                    <div class="border border-ink/30 rounded p-2 mb-2" x-data="{ open:false, isFavor:false, kind:'', label:'', ongoing:false, amount:'', councilHexId:'', officeTitle:'' }">
+                      <div class="flex justify-between items-center gap-2">
+                        <button @click="selectedDomainId = v.id" class="font-semibold underline" x-text="v.name"></button>
+                        <span class="text-sm whitespace-nowrap" :class="(fdBalance(v.id)?.excess||0) > 0 ? 'accent-red' : 'opacity-70'"
+                              x-text="(() => { const b=fdBalance(v.id); return b ? (b.activeDuties + ' ' + (b.activeDuties===1?'duty':'duties') + ' in force · ' + b.safeDutyCount + ' safe') : ''; })()"></span>
+                      </div>
+                      <p class="text-sm accent-red mt-0.5" x-show="(fdBalance(v.id)?.excess||0) > 0"
+                         x-text="'⚠ Over-demanded by ' + (fdBalance(v.id)?.excess||0) + ' — a further duty rolls Loyalty at ' + (fdBalance(v.id)?.loyaltyModifier||0) + '.'"></p>
+
+                      <template x-if="fdActiveObligations(v.id).length === 0">
+                        <p class="text-sm italic opacity-60 mt-1">No active favors or duties.</p>
+                      </template>
+                      <ul class="text-sm mt-1">
+                        <template x-for="o in fdActiveObligations(v.id)" :key="o.id">
+                          <li class="flex justify-between items-start gap-2 py-1 border-b border-ink/20">
+                            <div>
+                              <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdDisplayLabel(o)"></span>
+                              <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + fdGpText(o)"></span>
+                              <span class="text-xs text-sky-700" x-show="fdIsThisMonth(o)"> · new this month</span>
+                              <span class="block opacity-60 text-xs" x-show="fdMuster(o)" x-text="(() => { const m=fdMuster(o); return m ? ('muster: ' + m.periods.map(p=>p.amount).join(' / ') + ' over ' + m.unit + 's') : ''; })()"></span>
+                              <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — not yet given by the vassal (open the vassal to give it)</span>
+                              <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
+                              <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
+                              <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutageAutoPay(o) ? 'text-emerald-700' : 'accent-red'" x-text="fdScutageAutoPay(o) ? '✓ scutage being paid (automatically, each month)' : '⚠ scutage not being paid'"></span>
+                              <span class="block text-xs text-emerald-700" x-show="fdIsOffice(o)" x-text="'📜 ' + (o.officeTitle || 'ceremonial office') + ' — +1 to the holder’s vassals’ loyalty rolls'"></span>
+                              <!-- F&D-7 — Construction duty: the liege orders structures (hex + type) built in the vassal's realm. -->
+                              <template x-if="fdIsConstruction(o)">
+                                <div class="block mt-1 text-xs border-l-2 border-amber-300 pl-2 space-y-0.5" x-data="{ ordHex:'', ordType:'' }">
+                                  <div class="opacity-80" x-text="(() => { const p=fdConstructionProgress(o); const scope = (p.hasGeneric || p.orderedHexCount===0) ? 'realm-wide' : (p.orderedHexCount + ' hex' + (p.orderedHexCount===1?'':'es') + ' × 15,000'); return '🏗 built ' + p.spent.toLocaleString() + ' / ' + p.target.toLocaleString() + 'gp (' + scope + ') — ' + p.remaining.toLocaleString() + 'gp left'; })()"></div>
+                                  <div>
+                                    <span :class="fdConstructionProgress(o).minimumMet ? 'text-emerald-700' : 'opacity-60'" x-text="(fdConstructionProgress(o).minimumMet ? '✓ minimum built' : '⏳ minimum not yet built') + ' (≥ ' + fdConstructionProgress(o).monthlyMinimum.toLocaleString() + 'gp/mo = tribute)'"></span>
+                                    <span class="text-emerald-700 ml-1" x-show="fdConstructionProgress(o).targetReached">· ✓ target reached</span>
+                                  </div>
+                                  <ul>
+                                    <template x-for="(ord, oi) in fdConstructionProgress(o).orders" :key="'co-'+o.id+'-'+oi">
+                                      <li class="flex items-center gap-1"><span x-text="'• ' + (ord.generic ? ord.typeLabel : (ord.typeLabel + ' at ' + fdConstructionHexLabel(ord.hexId)))"></span><button @click="fdRemoveConstructionOrder(o.id, oi)" class="opacity-50 hover:opacity-100 accent-red" title="Remove this order">×</button></li>
+                                    </template>
+                                    <li class="opacity-50 italic" x-show="fdConstructionProgress(o).orders.length===0">No specific orders — generic construction anywhere in the realm (target = realm cap). Pick a hex + type to pin work, or order ✦ Any.</li>
+                                  </ul>
+                                  <div class="flex flex-wrap items-center gap-1 pt-0.5">
+                                    <select x-show="ordType !== 'generic'" x-model="ordHex" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— hex —</option><template x-for="h in fdConstructionHexOptions(o.vassalDomainId)" :key="'ch-'+o.id+'-'+h.id"><option :value="h.id" x-text="h.label"></option></template></select>
+                                    <select x-model="ordType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— type —</option><template x-for="t in fdConstructionTypes(o.vassalDomainId)" :key="'ct-'+o.id+'-'+t.value"><option :value="t.value" x-text="t.generic ? '✦ '+t.label : t.label"></option></template></select>
+                                    <button @click="fdAddConstructionOrder(o.id, ordHex, ordType); ordHex=''; ordType=''" :disabled="!ordType || (ordType!=='generic' && !ordHex)" class="text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-amber-50 disabled:opacity-40" title="Order this construction (RR p.348 — a new hex adds 15,000gp; generic = the realm-wide cap)">+ order build</button>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                            <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" :title="fdLoanGiven(o) ? 'Revoke — repays the loan to the vassal (RR p.348)' : 'Revoke this obligation'">revoke</button>
+                          </li>
+                        </template>
+                      </ul>
+
+                      <!-- Edict composer: Grant favor / Demand duty, with a settable amount (RR p.345 "demand less") + a freeform Custom edict. -->
+                      <div class="mt-2 text-sm">
+                        <div class="flex gap-2" x-show="!open">
+                          <button @click="open=true; isFavor=true; kind=''; label=''; ongoing=false; amount=''; councilHexId=''; officeTitle=''" class="px-2 py-0.5 border border-ink rounded hover:bg-emerald-50">🎁 Grant favor</button>
+                          <button @click="open=true; isFavor=false; kind=''; label=''; ongoing=false; amount=''; councilHexId=''; officeTitle=''" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-50">⚔ Demand duty</button>
+                        </div>
+                        <div x-show="open" class="border border-ink/40 rounded p-2 mt-1 space-y-1 bg-black/5">
+                          <div class="font-semibold text-xs uppercase tracking-wide opacity-70" x-text="isFavor ? 'Grant a favor' : 'Demand a duty'"></div>
+                          <select x-model="kind" @change="amount = (kind==='custom' || !fdKindHasGp(kind)) ? '' : (kind==='scutage' ? 1 : fdDefaultAmount(v.id, kind)); councilHexId = (kind==='call-to-council') ? (fdLiegeRulerCurrentHex() || (fdCouncilHexOptions()[0]?.id || '')) : ''" class="w-full text-sm border border-ink rounded px-1 py-0.5">
+                            <option value="">— choose —</option>
+                            <template x-for="e in (isFavor ? fdFavorKinds() : fdDutyKinds())" :key="'k-'+e.kind"><option :value="e.kind" x-text="e.label"></option></template>
+                            <option value="custom">✏️ Custom…</option>
+                          </select>
+                          <template x-if="kind==='call-to-council'">
+                            <label class="flex items-center gap-2 text-xs">
+                              <span class="whitespace-nowrap opacity-70">council location</span>
+                              <select x-model="councilHexId" class="flex-1 text-sm border border-ink rounded px-1 py-0.5">
+                                <template x-for="h in fdCouncilHexOptions()" :key="'cc-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+                              </select>
+                            </label>
+                          </template>
+                          <template x-if="kind==='office'">
+                            <div class="space-y-0.5">
+                              <input type="text" x-model="officeTitle" placeholder="Office title (e.g. 'Knight Marshal', 'Royal Chancellor')" class="w-full text-sm border border-ink rounded px-1 py-0.5">
+                              <p class="text-xs opacity-60">Grants the holder's own vassals +1 to their loyalty rolls (RR p.348). A senate seat (if the realm is senatorial) is deferred.</p>
+                            </div>
+                          </template>
+                          <template x-if="kind==='custom'">
+                            <div class="space-y-1">
+                              <input type="text" x-model="label" placeholder="Edict name (e.g. 'Hostage exchange')" class="w-full text-sm border border-ink rounded px-1 py-0.5">
+                              <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="ongoing"> Recurs each month (ongoing)</label>
+                            </div>
+                          </template>
+                          <template x-if="kind==='custom' || fdKindHasGp(kind)">
+                            <div>
+                              <label class="flex items-center gap-2 text-xs">
+                                <span class="whitespace-nowrap opacity-70" x-text="kind==='custom' ? ('amount gp' + (ongoing?'/mo':'') + ' (optional)') : (kind==='scutage' ? 'gp per family (default 1; lower to demand less)' : 'amount gp (default = RAW; lower to demand less)')"></span>
+                                <input type="number" min="0" :step="kind==='scutage' ? 'any' : '1'" x-model="amount" class="w-24 text-sm border border-ink rounded px-1 py-0.5">
+                              </label>
+                              <p class="text-xs opacity-60 mt-0.5" x-show="kind==='scutage'" x-text="'= ' + Math.round((Number(amount)||0) * fdRealmFamilies(v.id)).toLocaleString() + ' gp/mo at ' + fdRealmFamilies(v.id).toLocaleString() + ' families (tracks population)'"></p>
+                            </div>
+                          </template>
+                          <p class="text-xs opacity-60" x-show="kind && kind!=='custom'" x-text="(fdFavorKinds().concat(fdDutyKinds()).find(e=>e.kind===kind)||{}).summary || ''"></p>
+                          <div class="flex gap-2 pt-1">
+                            <button @click="fdRaiseEdict(v.id, { kind, customLabel: label, isFavor, isOngoing: ongoing, gpPerMonth: amount, scutageGpPerFamily: amount, councilHexId, officeTitle }); open=false" :disabled="!kind || (kind==='custom' && !label.trim())" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 disabled:opacity-40" title="Apply this edict" x-text="isFavor ? 'Grant' : 'Demand'"></button>
+                            <button @click="open=false" class="px-2 py-0.5 border border-ink rounded hover:bg-gray-100">Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- As VASSAL: the read view of what this domain's liege has imposed. -->
+              <template x-if="selectedDomain.liegeId">
+                <div class="mt-3">
+                  <h3 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-2">To your liege<span x-show="liegeOf(selectedDomain)?.name" x-text="' — ' + (liegeOf(selectedDomain)?.name||'')"></span></h3>
+                  <template x-if="fdActiveObligations(selectedDomain.id).length === 0">
+                    <p class="text-sm italic opacity-60">No active favors or duties from your liege.</p>
+                  </template>
+                  <ul class="text-sm">
+                    <template x-for="o in fdActiveObligations(selectedDomain.id)" :key="'self-'+o.id">
+                      <li class="flex justify-between items-start gap-2 py-1 border-b border-ink/20">
+                        <div>
+                          <span :class="o.isFavor ? 'text-emerald-700' : 'text-amber-800'" x-text="(o.isFavor?'🎁 ':'⚔ ') + fdDisplayLabel(o)"></span>
+                          <span class="opacity-70" x-text="(o.isOngoing?' · ongoing':' · one-time') + fdGpText(o)"></span>
+                          <span class="text-xs text-sky-700" x-show="fdIsThisMonth(o)"> · new this month</span>
+                          <span class="block text-xs accent-red" x-show="fdLoanNotGiven(o)">⚠ loan demanded — give it from your realm treasury</span>
+                          <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
+                          <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
+                          <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutageAutoPay(o) ? 'text-emerald-700' : 'opacity-70'" x-text="fdScutageAutoPay(o) ? '✓ paying scutage automatically each month' : '⚠ scutage not being paid — start paying to satisfy your liege'"></span>
+                          <span class="block text-xs text-emerald-700" x-show="fdIsOffice(o)" x-text="'📜 ' + (o.officeTitle || 'ceremonial office') + ' — +1 to your own vassals’ loyalty rolls'"></span>
+                        </div>
+                        <div class="flex flex-col items-end gap-1 shrink-0">
+                          <button x-show="fdLoanNotGiven(o)" @click="fdGiveLoan(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-emerald-50 whitespace-nowrap" title="Give this loan — pays the principal from your realm treasury to your liege (RR p.348)">💰 Give loan</button>
+                          <button x-show="fdIsScutage(o) && !fdScutageAutoPay(o)" @click="fdPayScutage(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-50 whitespace-nowrap" title="Start paying scutage — it will settle automatically each monthly turn (counts as your garrison expense, RR p.347) until you stop">💰 Pay Scutage</button>
+                          <button x-show="fdIsScutage(o) && fdScutageAutoPay(o)" @click="fdStopScutage(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-50 whitespace-nowrap" title="Stop paying scutage — it will be withheld from your liege going forward">🛑 Stop Paying</button>
+                          <button x-show="fdIsCallToCouncil(o) && fdCouncilStatus(o).status==='away'" @click="fdGoToCouncil(o.id)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-50 whitespace-nowrap" title="Send the vassal (or his party) to the lord's council — plots or re-routes a journey (RR p.346)">🧭 Go to Council</button>
+                          <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100" title="Revoke this obligation">revoke</button>
+                        </div>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+
+              <!-- Independent domain with no vassals → nothing to show. -->
+              <template x-if="vassalsOf(selectedDomain.id).length === 0 && !selectedDomain.liegeId">
+                <p class="text-sm italic opacity-60">This domain is independent with no vassals — no favors or duties. Give it a liege (above) or vassals to raise edicts.</p>
+              </template>
             </div>
 
             <!-- Full hierarchy view including indirect (sub-vassals) -->
@@ -6992,6 +7147,8 @@ document.addEventListener('alpine:init', () => {
            apparent level rolls at −1/level. Shown when it applies (the penalty may exceed ±2). -->
       <p x-show="loyaltyRollState.apparentNote" class="text-sm -mt-1" style="color:#7a1f1f"
          x-text="'⚠ ' + loyaltyRollState.apparentNote"></p>
+      <p x-show="loyaltyRollState.officeNote" class="text-sm -mt-1 text-emerald-700"
+         x-text="'📜 ' + loyaltyRollState.officeNote"></p>
 
       <!-- Roll button + result -->
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
@@ -9046,7 +9203,7 @@ return {
         appliedAt: new Date().toISOString()
       });
     } catch(err){ console.warn('addGarrisonUnit: failed to emit audit event', err); }
-    this.toast && this.toast('Added unit: ' + u.displayName, 3000);
+    this.showToast && this.showToast('Added unit: ' + u.displayName, 3000);
   },
 
   // ─── #547 Garrison unit interim split + merge (2026-05-30) ───
@@ -9074,7 +9231,7 @@ return {
     });
     unit.count = cur - n;
     domain.garrison.units.push(newUnit);
-    this.toast && this.toast('Split: ' + n + ' soldiers into new unit (' + (unit.displayName || unit.unitTypeKey) + ')', 3500);
+    this.showToast && this.showToast('Split: ' + n + ' soldiers into new unit (' + (unit.displayName || unit.unitTypeKey) + ')', 3500);
   },
   mergeGarrisonUnit(domain, unit){
     if(!domain || !unit) return;
@@ -9100,7 +9257,7 @@ return {
     target.count = Number(target.count || 0) + Number(unit.count || 0);
     const removeIdx = domain.garrison.units.indexOf(unit);
     if(removeIdx >= 0) domain.garrison.units.splice(removeIdx, 1);
-    this.toast && this.toast('Merged into ' + (target.displayName || target.unitTypeKey) + ' (now ' + target.count + ' soldiers)', 3500);
+    this.showToast && this.showToast('Merged into ' + (target.displayName || target.unitTypeKey) + ' (now ' + target.count + ' soldiers)', 3500);
   },
 
   // ─── #541 Event Wizard methods (2026-05-30) ───
@@ -9169,7 +9326,7 @@ return {
       }
       this.currentCampaign.pendingEvents = this.currentCampaign.pendingEvents || [];
       this.currentCampaign.pendingEvents.push(ev);
-      this.toast && this.toast('Event emitted: ' + this.emitWizardKind + ' (id=' + ev.id + '). Resolve from Event Log.', 4000);
+      this.showToast && this.showToast('Event emitted: ' + this.emitWizardKind + ' (id=' + ev.id + '). Resolve from Event Log.', 4000);
       this.emitWizardReset();
     } catch(err){ alert('Failed to emit: ' + (err && err.message || err)); }
   },
@@ -9241,9 +9398,9 @@ return {
   chronicleEditExisting(eventId){
     // Open the Chronicle sub-tab pre-populated with the event's current values for editing.
     const entry = (this.currentCampaign && this.currentCampaign.eventLog || []).find(e => (e && e.event && e.event.id) === eventId);
-    if(!entry || !entry.event){ this.toast && this.toast('Could not find chronicle entry to edit', 4000); return; }
+    if(!entry || !entry.event){ this.showToast && this.showToast('Could not find chronicle entry to edit', 4000); return; }
     const ev = entry.event;
-    if(ev.kind !== 'gm-narrative'){ this.toast && this.toast('Only chronicle entries can be edited here', 4000); return; }
+    if(ev.kind !== 'gm-narrative'){ this.showToast && this.showToast('Only chronicle entries can be edited here', 4000); return; }
     const payload = ev.payload || {};
     // Hydrate from context envelope into attached list
     const attached = [];
@@ -9275,7 +9432,7 @@ return {
       // Find the existing entry and reuse its event object so id/createdAt are preserved
       const existing = (this.currentCampaign.eventLog || []).find(e => (e && e.event && e.event.id) === s.editingEventId);
       if(!existing){
-        this.toast && this.toast('Chronicle entry not found — perhaps it was deleted. Submit will create a new one.', 4500);
+        this.showToast && this.showToast('Chronicle entry not found — perhaps it was deleted. Submit will create a new one.', 4500);
       }
       ev = existing ? existing.event : A.newEvent('gm-narrative', { submittedBy: 'gm', targetTurn: currentTurn });
       ev.payload = {
@@ -9330,7 +9487,7 @@ return {
       ev.result = result.result;
     } catch(err){
       console.error('Chronicle submit failed', err);
-      this.toast && this.toast('Chronicle submit failed: ' + err.message, 5000);
+      this.showToast && this.showToast('Chronicle submit failed: ' + err.message, 5000);
       return;
     }
     if(!Array.isArray(this.currentCampaign.eventLog)) this.currentCampaign.eventLog = [];
@@ -9345,21 +9502,21 @@ return {
           appliedAt: this.currentCampaign.eventLog[idx].appliedAt || new Date().toISOString(),
           lastEditedAt: new Date().toISOString()
         };
-        this.toast && this.toast('Chronicle entry updated: ' + s.title.trim().slice(0, 40), 3500);
+        this.showToast && this.showToast('Chronicle entry updated: ' + s.title.trim().slice(0, 40), 3500);
       } else {
         // Existing wasn't found — fall through to append
         this.currentCampaign.eventLog.push({
           event: ev, result: ev.result,
           appliedAtTurn: currentTurn, appliedAt: new Date().toISOString()
         });
-        this.toast && this.toast('Chronicle entry added (could not find original to update): ' + s.title.trim().slice(0, 40), 4500);
+        this.showToast && this.showToast('Chronicle entry added (could not find original to update): ' + s.title.trim().slice(0, 40), 4500);
       }
     } else {
       this.currentCampaign.eventLog.push({
         event: ev, result: ev.result,
         appliedAtTurn: currentTurn, appliedAt: new Date().toISOString()
       });
-      this.toast && this.toast('Chronicle entry added: ' + s.title.trim().slice(0, 40), 3500);
+      this.showToast && this.showToast('Chronicle entry added: ' + s.title.trim().slice(0, 40), 3500);
     }
     this.chronicleReset();
   },
@@ -11260,6 +11417,13 @@ return {
         }
       }
     }
+    // RR p.348 Office favor (F&D-8) — +1 to this character's loyalty rolls when his LIEGE holds an
+    // active ceremonial office (the office raises the holder's prestige → his vassals are more loyal).
+    let officeNote = '';
+    if(window.ACKS && window.ACKS.officeLoyaltyBonusFor){
+      const ob = window.ACKS.officeLoyaltyBonusFor(this.currentCampaign, ch.id);
+      if(ob){ mod += ob; officeNote = '+1 — ' + (ch.name || 'this vassal') + "'s liege holds a ceremonial office (RR p.348)."; }
+    }
     this.loyaltyRollState = {
       characterId: ch.id,
       character: ch,
@@ -11267,6 +11431,7 @@ return {
       reasonNote: opts.reasonNote || '',
       modifier: mod,
       apparentNote,
+      officeNote,
       rollResult: null,
       pendingEventId: opts.pendingEventId || null,
     };
@@ -15048,7 +15213,9 @@ return {
       'congregations', 'divineFavors', 'attunements',
       'settlementVisits', 'oaths', 'vagaryOfIncursionEvents',
       // Phase 4 Construction Wave A (2026-05-30) — Project + Constructible collections
-      'projects', 'constructibles'
+      'projects', 'constructibles',
+      // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation
+      'favorDutyObligations'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -15623,6 +15790,193 @@ return {
   // a percentage of income. Otherwise (auto off), the GM's manual tributeToLiege ("set as desired"
   // is itself RAW). The %-of-gross-income auto mode + tributePct field were removed 2026-06-05.
   tributeOwed(d){return window.ACKS.tributeOwed(this.currentCampaign, d);},
+
+  // --- Favors & Duties (F&D-2 UI; RR pp.345–348). The card lives on the Vassalage tab. Reads route
+  //     through the engine accessors; Grant / Demand / Revoke go through the shared engine edict core
+  //     (applyFavorDutyEdictByKind / revokeFavorDutyEdict) so a hand-raised edict is identical to the
+  //     monthly auto-roll. F&D is RAW core — these actions are always available (independent of the
+  //     favor-duty-auto-roll toggle, which only governs the monthly auto-roll). ---
+  fdLiegeOfVassal(vDomainId){ const v=(this.currentCampaign?.vassalages||[]).find(x=>x&&x.status==='active'&&x.vassalDomainId===vDomainId); return v?v.suzerainCharacterId:null; },
+  fdActiveObligations(vDomainId){ const L=this.fdLiegeOfVassal(vDomainId); return L?window.ACKS.activeFavorDutyObligationsFor(this.currentCampaign,L,vDomainId):[]; },
+  fdBalance(vDomainId){ const L=this.fdLiegeOfVassal(vDomainId); return L?window.ACKS.favorDutyBalance(this.currentCampaign,L,vDomainId,{turn:this.currentCampaign?.currentTurn||1}):null; },
+  fdFavorKinds(){ return (window.ACKS.FAVOR_DUTY_TABLE||[]).filter(e=>e.isFavor===true); },
+  fdDutyKinds(){ return (window.ACKS.FAVOR_DUTY_TABLE||[]).filter(e=>e.isFavor===false); },
+  fdKindLabel(kind){ const e=(window.ACKS.FAVOR_DUTY_TABLE||[]).find(x=>x.kind===kind); return e?e.label:kind; },
+  fdMuster(o){ if(!o||!o.musterTitle||!o.gpPerMonth)return null; return window.ACKS.musterSchedule(o.musterTitle,o.gpPerMonth); },
+  fdIsThisMonth(o){ return o && o.grantedAtTurn === (this.currentCampaign?.currentTurn||1); },
+  fdKindHasGp(kind){ const e=(window.ACKS.FAVOR_DUTY_TABLE||[]).find(x=>x.kind===kind); return !!e && e.gpBasis !== 'none'; },
+  // The RAW default gp for a standard kind on a vassal (the "demand less" field pre-fills with this).
+  fdDefaultAmount(vDomainId, kind){
+    const e=(window.ACKS.FAVOR_DUTY_TABLE||[]).find(x=>x.kind===kind); if(!e) return 0;
+    const d=(this.currentCampaign?.domains||[]).find(x=>x.id===vDomainId); if(!d) return 0;
+    if(e.gpBasis==='realm-families') return window.ACKS.realmFamiliesForDomain(this.currentCampaign, d);
+    if(e.gpBasis==='monthly-tribute') return window.ACKS.tributeOwed(this.currentCampaign, d);
+    return 0;
+  },
+  // The vassal's current realm family count (RR p.346) — drives the live scutage preview in the composer.
+  fdRealmFamilies(vDomainId){
+    const d=(this.currentCampaign?.domains||[]).find(x=>x.id===vDomainId); if(!d) return 0;
+    return window.ACKS.realmFamiliesForDomain(this.currentCampaign, d);
+  },
+  // Display name for an obligation — the custom label for a custom edict, else the table label.
+  fdDisplayLabel(o){ return o && o.kind==='custom' ? (o.customLabel||'Custom edict') : this.fdKindLabel(o&&o.kind); },
+  // Raise an edict via the composer. opts: { kind, customLabel?, isFavor?, isOngoing?, gpPerMonth? }.
+  // A blank gpPerMonth means "RAW default" for a standard kind (the engine fills it); for custom it's 0.
+  fdRaiseEdict(vDomainId, opts){
+    opts = opts || {}; if(!opts.kind) return;
+    if(opts.kind==='custom' && !String(opts.customLabel||'').trim()){ this.showToast && this.showToast('Give the custom edict a name first.', 3500); return; }
+    const payload = { vassalDomainId: vDomainId, kind: opts.kind };
+    if(opts.kind==='custom'){
+      payload.customLabel = String(opts.customLabel||'').trim();
+      payload.isFavor = !!opts.isFavor;
+      payload.isOngoing = !!opts.isOngoing;
+      if(opts.gpPerMonth !== '' && opts.gpPerMonth != null) payload.gpPerMonth = Math.max(0, Number(opts.gpPerMonth) || 0);
+    } else if(opts.kind==='scutage'){
+      // Scutage is a per-family RATE (RR p.347 — the monthly amount derives live from current realm families);
+      // the override is the rate (default 1gp/family; a lower rate is "demand less", RR p.345).
+      if(opts.scutageGpPerFamily !== '' && opts.scutageGpPerFamily != null) payload.scutageGpPerFamily = Math.max(0, Number(opts.scutageGpPerFamily) || 0);
+    } else if(opts.gpPerMonth !== '' && opts.gpPerMonth != null){
+      payload.gpPerMonth = Math.max(0, Number(opts.gpPerMonth) || 0);   // the "demand less" override (RR p.345)
+    }
+    if(opts.kind==='call-to-council' && opts.councilHexId) payload.councilHexId = opts.councilHexId;   // F&D-5 — the chosen council location (RR p.346)
+    if(opts.kind==='office' && opts.officeTitle) payload.officeTitle = String(opts.officeTitle).trim();  // F&D-8 — the ceremonial office name (RR p.348)
+    const res = window.ACKS.applyFavorDutyEdictByKind(this.currentCampaign, payload, { rng: Math.random });
+    if(!res || !res.obligation){ this.showToast && this.showToast('Could not apply — this domain has no active liege.', 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    let msg = res.narrative || 'Edict applied.';
+    if(res.loyaltyResult){ msg += ' Loyalty roll at ' + res.balance.loyaltyModifier + ' → ' + (res.loyaltyResult.bandLabel || res.loyaltyResult.bandKey) + '.'; }
+    this.showToast && this.showToast(msg, 6000);
+  },
+  fdRevoke(obligationId){
+    const o = window.ACKS.revokeFavorDutyEdict(this.currentCampaign, obligationId, {});
+    this.markDirty(); this.schedulePersist();
+    let msg = o ? ('Revoked ' + (o.kind||'obligation') + '.') : 'Nothing to revoke.';
+    // RR p.348 — revoking a given loan repays the principal to the vassal.
+    if(o && o.kind==='loan' && o.loanGivenAtTurn != null) msg = 'Loan revoked — ' + (o.gpPerMonth||0).toLocaleString() + 'gp repaid to the vassal.';
+    this.showToast && this.showToast(msg, 4500);
+  },
+  // Loan lifecycle (F&D-4; RR p.348). A Loan is DEMANDED (created) but the gp moves only when the
+  // vassal GIVES it — so the liege sees a "not yet given" notice and the vassal gets a Give-loan button.
+  fdLoanNotGiven(o){ return !!o && o.kind==='loan' && o.status==='active' && o.loanGivenAtTurn == null; },
+  fdLoanGiven(o){ return !!o && o.kind==='loan' && o.loanGivenAtTurn != null; },
+  // gp suffix for an obligation row — a loan is a one-time principal (no "/mo"); scutage shows its LIVE
+  // amount (rate × current realm families) + the breakdown so it's clear it tracks population; else per-month.
+  fdGpText(o){
+    if(o && o.kind==='scutage'){
+      const fams = this.fdRealmFamilies(o.vassalDomainId);
+      const rate = window.ACKS.scutageRate(o);
+      const amt = window.ACKS.scutageMonthlyGp(this.currentCampaign, o);
+      const rateStr = (rate === 1) ? '1gp' : (rate + 'gp');
+      return ' · ' + amt.toLocaleString() + 'gp/mo (' + rateStr + '/family × ' + fams.toLocaleString() + ')';
+    }
+    if(!o || !o.gpPerMonth) return '';
+    const n = o.gpPerMonth.toLocaleString();
+    return o.kind==='loan' ? (' · ' + n + 'gp loan') : (' · ' + n + 'gp' + (o.isOngoing ? '/mo' : ''));
+  },
+  // Vassal-side act: give (fund) a demanded loan — moves the principal vassal → liege (RR p.348).
+  fdGiveLoan(obligationId){
+    const o = window.ACKS.giveLoanObligation(this.currentCampaign, obligationId, {});
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast(o && o.loanGivenAtTurn != null ? ('Loan given — ' + (o.gpPerMonth||0).toLocaleString() + 'gp paid to your liege.') : 'Could not give the loan.', 5000);
+  },
+  // Scutage lifecycle (F&D-6; RR pp.347–348). Scutage is a recurring tax with a persistent AUTO-PAY toggle:
+  // "Pay Scutage" turns it on (it then bills automatically every monthly turn — garrison expense for the
+  // vassal, credited to the lord), "Stop Paying" turns it off. fdScutageAutoPay(o) = the toggle is on.
+  fdIsScutage(o){ return !!o && o.kind === 'scutage' && o.status === 'active'; },
+  fdScutageAutoPay(o){ return !!o && o.kind === 'scutage' && o.scutageAutoPay === true; },
+  // Vassal-side acts: start paying scutage automatically each month, or stop.
+  fdPayScutage(obligationId){
+    const o = window.ACKS.payScutageObligation(this.currentCampaign, obligationId, {});
+    this.markDirty(); this.schedulePersist();
+    const amt = o ? window.ACKS.scutageMonthlyGp(this.currentCampaign, o) : 0;
+    this.showToast && this.showToast(o && this.fdScutageAutoPay(o)
+      ? ('Now paying scutage automatically — ' + amt.toLocaleString() + 'gp/mo settles (vassal → lord) each monthly turn until you stop.')
+      : 'Could not pay scutage.', 5500);
+  },
+  fdStopScutage(obligationId){
+    const o = window.ACKS.stopScutagePayment(this.currentCampaign, obligationId, {});
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast(o && !this.fdScutageAutoPay(o) ? 'Stopped paying scutage — it is now withheld from your liege.' : 'Could not stop scutage.', 5000);
+  },
+  // Construction duty — liege side (F&D-7; RR p.348). The lord orders structures (hex + type) built in
+  // the vassal's realm; the target gp = 15,000 × distinct ordered hexes; the card shows progress + lets
+  // the liege add/remove orders while the duty is on-going. (Actual building detection + auto-revoke-on-
+  // completion is the future full Construction subsystem; for now the monthly self-spend drives progress.)
+  // Office favor (F&D-8; RR p.348) — the holder's ceremonial office; grants the holder's own vassals
+  // +1 to their loyalty rolls (applied automatically in loyalty rolls). The title is free text.
+  fdIsOffice(o){ return !!o && o.kind === 'office'; },
+  fdIsConstruction(o){ return !!o && o.kind === 'construction' && o.status === 'active'; },
+  fdConstructionProgress(o){ return window.ACKS.constructionDutyProgress(this.currentCampaign, o); },
+  fdConstructionHexLabel(hexId){ return this.journeyHexLabel(hexId); },
+  // The vassal realm's hexes for the order picker.
+  fdConstructionHexOptions(vDomainId){
+    return (this.currentCampaign?.hexes || []).filter(h => h && h.domainId === vDomainId).map(h => ({ id:h.id, label: this.journeyHexLabel(h.id) }));
+  },
+  // The structure types the liege may order (vessel only on a littoral realm).
+  fdConstructionTypes(vDomainId){
+    const dom = (this.currentCampaign?.domains || []).find(d => d.id === vDomainId) || null;
+    const littoral = dom ? window.ACKS.isLittoralDomain(this.currentCampaign, dom) : false;
+    return (window.ACKS.CONSTRUCTION_DUTY_TYPES || []).filter(t => !t.littoralOnly || littoral).map(t => ({ value:t.value, label:t.label, generic: !!t.generic }));
+  },
+  fdAddConstructionOrder(obligationId, hexId, type){
+    if(!type || (type !== 'generic' && !hexId)) return;
+    const before = (this.currentCampaign.favorDutyObligations.find(o=>o.id===obligationId)?.constructionOrders||[]).length;
+    const o = window.ACKS.addConstructionOrder(this.currentCampaign, obligationId, type === 'generic' ? { type:'generic' } : { hexId, type });
+    this.markDirty(); this.schedulePersist();
+    const added = o && (o.constructionOrders||[]).length > before;
+    this.showToast && this.showToast(added
+      ? ((type === 'generic' ? 'Ordered generic construction (anywhere in the realm)' : ('Ordered ' + window.ACKS.constructionDutyTypeLabel(type).toLowerCase())) + ' — construction target now ' + window.ACKS.constructionDutyTargetGp(this.currentCampaign, o).toLocaleString() + 'gp.')
+      : (type === 'generic' ? 'Generic construction is already ordered.' : 'Could not add the order (hex must be in the vassal’s realm; vessels need a littoral realm).'), 5000);
+  },
+  fdRemoveConstructionOrder(obligationId, index){
+    const o = window.ACKS.removeConstructionOrder(this.currentCampaign, obligationId, index, {});
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast(o ? ('Order removed — construction target now ' + window.ACKS.constructionDutyTargetGp(this.currentCampaign, o).toLocaleString() + 'gp.') : 'Could not remove the order.', 4000);
+  },
+  // Call to Council (F&D-5; RR p.346). The liege picks a council hex in his domain (default = where
+  // he is now); the vassal travels there via "Go to Council" (plots/re-routes a journey); the live
+  // attendance status (at-council / en-route / away) shows on the card.
+  fdIsCallToCouncil(o){ return !!o && o.kind === 'call-to-council'; },
+  // The liege ruler's (selectedDomain's ruler's) current hex — the default council location.
+  fdLiegeRulerCurrentHex(){
+    const dom = this.selectedDomain; if(!dom || !dom.rulerCharacterId) return null;
+    const r = (this.currentCampaign?.characters||[]).find(c => c && c.id === dom.rulerCharacterId);
+    return r ? (r.currentHexId || null) : null;
+  },
+  // Hex options for the council picker — the liege (selectedDomain) domain hexes, plus the liege
+  // ruler's current hex if it's outside the domain (so "where he is now" is always offerable).
+  fdCouncilHexOptions(){
+    const dom = this.selectedDomain; if(!dom) return [];
+    const opts = (this.currentCampaign?.hexes||[]).filter(h => h && h.domainId === dom.id).map(h => ({ id:h.id, label: this.journeyHexLabel(h.id) }));
+    const cur = this.fdLiegeRulerCurrentHex();
+    if(cur && !opts.some(o => o.id === cur)) opts.unshift({ id:cur, label: this.journeyHexLabel(cur) + ' (current location)' });
+    return opts;
+  },
+  fdCouncilLocationLabel(o){ return o && o.councilHexId ? this.journeyHexLabel(o.councilHexId) : '—'; },
+  fdCouncilStatus(o){ return window.ACKS.councilAttendanceStatus(this.currentCampaign, o); },
+  // Card text for the council attendance (neutral wording — reads on both the liege + vassal side).
+  fdCouncilStatusText(o){
+    const s = this.fdCouncilStatus(o);
+    if(s.status === 'no-location') return 'council location not set';
+    const loc = this.fdCouncilLocationLabel(o);
+    if(s.status === 'at-council') return 'council at ' + loc + ' · ✓ vassal present';
+    if(s.status === 'en-route')   return 'council at ' + loc + ' · 🧭 vassal en route';
+    return 'council at ' + loc + ' · — vassal not yet there';
+  },
+  // Vassal-side act: send the vassal (or his party) to council — plots or re-routes a journey.
+  fdGoToCouncil(obligationId){
+    const r = this._journeyWithDomains(() => window.ACKS.sendVassalToCouncil(this.currentCampaign, obligationId, {}));
+    this.markDirty(); this.schedulePersist();
+    const msg = ({
+      started: 'Set out for council — a journey is under way.',
+      rerouted: 'Re-routed the journey toward the council location.',
+      'already-there': 'Already at the council location.',
+      'no-location': 'No council location set on this duty.',
+      'no-origin': "Set the vassal's location first — no hex to set out from.",
+      'no-traveller': 'No vassal ruler to send.'
+    })[r && r.action] || 'Could not send to council.';
+    this.showToast && this.showToast(msg, 5000);
+  },
 
   // Effective per-hex land value INCLUDING agricultural improvements (Phase 2a.5).
   // Hard cap at 9gp/family per RR p.341.
