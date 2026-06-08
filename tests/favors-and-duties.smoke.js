@@ -190,13 +190,15 @@ section('Monthly roll — processFavorsAndDutiesForTurn (default ON / off)');
 section('gp flows — Loan principal / Gift / Scutage recurrence / Loan repayment');
 // =============================================================================
 {
-  // Loan (roll 7): principal moves vassal → lord, once, on grant.
+  // Loan (roll 7): DEMANDED but NOT given on grant — the principal moves only when the vassal gives it
+  // (RR p.348). The obligation is created ungiven; treasuries are untouched until giveLoanObligation.
   const c = mkCampaign();
   const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
   ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(7) ]) });
   const loan = c.favorDutyObligations.find(o => o.kind==='loan');
   ok('loan obligation created with gpPerMonth = 1gp × realm families', !!loan && loan.gpPerMonth === ACKS.realmFamiliesForDomain(c, c.domains.find(d=>d.id==='dom-vassal')));
-  ok('loan principal moved vassal → lord (vassal −X, lord +X)', treasuryGp(c,'dom-vassal') === vassBefore - loan.gpPerMonth && treasuryGp(c,'dom-lord') === lordBefore + loan.gpPerMonth);
+  ok('loan starts NOT given (loanGivenAtTurn null)', loan.loanGivenAtTurn == null);
+  ok('NO gp moves on grant (loan is demanded, not yet given)', treasuryGp(c,'dom-vassal') === vassBefore && treasuryGp(c,'dom-lord') === lordBefore);
 }
 {
   // Gift (roll 15): gp moves lord → vassal, once.
@@ -221,13 +223,13 @@ section('gp flows — Loan principal / Gift / Scutage recurrence / Loan repaymen
   ok('scutage is still active (recurs until revoked)', c.favorDutyObligations.find(o => o.kind==='scutage').status === 'active');
 }
 {
-  // Loan repayment: a loan granted in a PRIOR month gets a CHA% repayment check (CHA 100 → always repays).
+  // Loan repayment: a GIVEN loan (funded in a PRIOR month) gets a CHA% repayment check (CHA 100 → always repays).
   const c = mkCampaign({ lordCha: 100, turn: 2 });
-  const loan = ACKS.createFavorDutyObligation(c, { liegeCharacterId:'chr-lord', vassalDomainId:'dom-vassal', vassalRulerCharacterId:'chr-vassal', kind:'loan', isFavor:false, isOngoing:true, gpPerMonth:500, grantedAtTurn:1 });
+  const loan = ACKS.createFavorDutyObligation(c, { liegeCharacterId:'chr-lord', vassalDomainId:'dom-vassal', vassalRulerCharacterId:'chr-vassal', kind:'loan', isFavor:false, isOngoing:true, gpPerMonth:500, grantedAtTurn:1, loanGivenAtTurn:1 });
   const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
   // month-2 roll: force a no-op edict (revocation of a non-existent favor), so only Phase B (repayment) acts.
   ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(9), d6Val(1), d100Val(50) ]) });
-  ok('loan repaid at CHA 100% → status revoked', c.favorDutyObligations.find(o=>o.id===loan.id).status === 'revoked');
+  ok('given loan repaid at CHA 100% → status revoked', c.favorDutyObligations.find(o=>o.id===loan.id).status === 'revoked');
   ok('loan repayment moved lord → vassal', treasuryGp(c,'dom-lord') === lordBefore - 500 && treasuryGp(c,'dom-vassal') === vassBefore + 500);
 }
 
@@ -403,12 +405,15 @@ section('F&D-3 — configurable amounts (RR p.345 "demand less") + custom edict'
   const less = Math.floor(realmF/2);
   const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan', gpPerMonth: less }, { rng: scriptedRng([]) });
   ok('override: loan stores the reduced gpPerMonth (< RAW max)', d.obligation.gpPerMonth === less && less < realmF);
-  ok('override: on-grant principal moved the reduced amount (vassal→lord)', treasuryGp(c,'dom-vassal') === vassBefore - less && treasuryGp(c,'dom-lord') === lordBefore + less);
+  ok('override: nothing moves on grant (loan demanded, not yet given)', treasuryGp(c,'dom-vassal') === vassBefore && treasuryGp(c,'dom-lord') === lordBefore);
+  ACKS.giveLoanObligation(c, d.obligation.id, {});
+  ok('override: giving the loan moves the reduced amount (vassal→lord)', treasuryGp(c,'dom-vassal') === vassBefore - less && treasuryGp(c,'dom-lord') === lordBefore + less);
 }
-// The override persists to the recurring Phase B billing.
+// The override persists to the recurring Phase B billing (after the loan is given).
 {
   const c = mkCampaign({ lordCha: 100, turn: 2 });
   const loan = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan', gpPerMonth: 100 }, { atTurn: 1, rng: scriptedRng([]) }).obligation;
+  ACKS.giveLoanObligation(c, loan.id, { atTurn: 1 });   // funded in month 1
   const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
   ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(9), d6Val(1), d100Val(50) ]) });  // no-op edict + CHA-100 repay
   ok('override persists: Phase B repays exactly the reduced 100gp (lord→vassal) + revokes', treasuryGp(c,'dom-lord') === lordBefore - 100 && treasuryGp(c,'dom-vassal') === vassBefore + 100 && c.favorDutyObligations.find(o=>o.id===loan.id).status === 'revoked');
@@ -481,6 +486,76 @@ section('F&D-3 — configurable amounts (RR p.345 "demand less") + custom edict'
   const r = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
   ok('auto-roll OFF → no new edict rolled (Phase A skipped, ruleOn false)', r.ruleOn===false && r.rolled.length===0);
   ok('auto-roll OFF → an existing custom recurring duty STILL bills (Phase B always runs)', treasuryGp(c,'dom-vassal')===vassBefore-60 && treasuryGp(c,'dom-lord')===lordBefore+60);
+}
+
+// =============================================================================
+section('F&D-4 — Loan give/repay lifecycle (RR p.348): demand → give → repay');
+// =============================================================================
+// Schema + factory carry the loanGivenAtTurn lifecycle field.
+{
+  ok('blankFavorDutyObligation seeds loanGivenAtTurn null', ACKS.blankFavorDutyObligation({}).loanGivenAtTurn === null);
+  const fdSchema = ACKS.fieldSchemaFor('favorDutyObligation');
+  ok('schema has the loanGivenAtTurn field', fdSchema.fields.some(f=>f.name==='loanGivenAtTurn'));
+}
+// Demand → ungiven → give: the vassal-side act moves the principal (vassal → lord), once.
+{
+  const c = mkCampaign();
+  const realmF = ACKS.realmFamiliesForDomain(c, c.domains.find(d=>d.id==='dom-vassal'));
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan' }, { rng: scriptedRng([]) });
+  ok('demanded loan: ungiven + no gp moved', d.obligation.loanGivenAtTurn == null && treasuryGp(c,'dom-vassal') === vassBefore && treasuryGp(c,'dom-lord') === lordBefore);
+  const evBefore = c.eventLog.length;
+  const r = ACKS.giveLoanObligation(c, d.obligation.id, {});
+  ok('giveLoanObligation moves the principal vassal → lord', treasuryGp(c,'dom-vassal') === vassBefore - realmF && treasuryGp(c,'dom-lord') === lordBefore + realmF);
+  ok('give stamps loanGivenAtTurn + a loan-given history entry', r.loanGivenAtTurn === (c.currentTurn||1) && r.history.some(h=>h.type==='loan-given'));
+  ok('give emits a favor-duty event with action loan-given', c.eventLog.length === evBefore + 1 && c.eventLog[c.eventLog.length-1].event.payload.action === 'loan-given');
+  // Idempotent — a 2nd give moves nothing more.
+  const lordMid = treasuryGp(c,'dom-lord'), vassMid = treasuryGp(c,'dom-vassal');
+  ACKS.giveLoanObligation(c, d.obligation.id, {});
+  ok('giveLoanObligation is idempotent (no 2nd transfer)', treasuryGp(c,'dom-lord') === lordMid && treasuryGp(c,'dom-vassal') === vassMid);
+}
+// Guards: a non-loan / inactive / unknown obligation is a guarded no-op.
+{
+  const c = mkCampaign();
+  const vassBefore = treasuryGp(c,'dom-vassal');
+  const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  ACKS.giveLoanObligation(c, scu.id, {});
+  ok('giveLoanObligation on a non-loan is a no-op (no loanGivenAtTurn)', scu.loanGivenAtTurn == null);
+  ok('giveLoanObligation on an unknown id → null', ACKS.giveLoanObligation(c, 'fdo-nope', {}) === null);
+}
+// Revoke repays a GIVEN loan (lord → vassal); revoking an ungiven loan moves nothing.
+{
+  const c = mkCampaign();
+  const realmF = ACKS.realmFamiliesForDomain(c, c.domains.find(d=>d.id==='dom-vassal'));
+  const given = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan' }, { rng: scriptedRng([]) }).obligation;
+  ACKS.giveLoanObligation(c, given.id, {});
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  ACKS.revokeFavorDutyEdict(c, given.id, {});
+  ok('revoking a given loan repays the principal (lord → vassal) + revokes', treasuryGp(c,'dom-lord') === lordBefore - realmF && treasuryGp(c,'dom-vassal') === vassBefore + realmF && c.favorDutyObligations.find(o=>o.id===given.id).status === 'revoked');
+
+  const ungiven = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan' }, { rng: scriptedRng([]) }).obligation;
+  const lord2 = treasuryGp(c,'dom-lord'), vass2 = treasuryGp(c,'dom-vassal');
+  ACKS.revokeFavorDutyEdict(c, ungiven.id, {});
+  ok('revoking an UNGIVEN loan moves no gp (nothing to repay) + revokes', treasuryGp(c,'dom-lord') === lord2 && treasuryGp(c,'dom-vassal') === vass2 && c.favorDutyObligations.find(o=>o.id===ungiven.id).status === 'revoked');
+}
+// The monthly CHA% repayment keys off GIVEN — an ungiven loan is never repaid by Phase B.
+{
+  const c = mkCampaign({ lordCha: 100, turn: 2 });
+  const loan = ACKS.createFavorDutyObligation(c, { liegeCharacterId:'chr-lord', vassalDomainId:'dom-vassal', vassalRulerCharacterId:'chr-vassal', kind:'loan', isFavor:false, isOngoing:true, gpPerMonth:500, grantedAtTurn:1 });  // never given
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(9), d6Val(1) ]) });  // no-op edict; Phase B should skip the ungiven loan
+  ok('Phase B does NOT repay an ungiven loan even at CHA 100%', treasuryGp(c,'dom-lord') === lordBefore && treasuryGp(c,'dom-vassal') === vassBefore && c.favorDutyObligations.find(o=>o.id===loan.id).status === 'active');
+}
+// The 1d20 9–12 table-revocation of a GIVEN loan repays it too (same RAW rule as a manual revoke).
+{
+  const c = mkCampaign({ turn: 2 });
+  const loan = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan' }, { atTurn: 1, rng: scriptedRng([]) }).obligation;
+  ACKS.giveLoanObligation(c, loan.id, { atTurn: 1 });
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  // month-2: force roll 10 (revocation) + subRoll 3 (2–6 → revoke a duty) → revokes the loan in Phase A (+ repays).
+  const r = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(10), d6Val(3) ]) });
+  ok('table-revocation revoked the given loan', c.favorDutyObligations.find(o=>o.id===loan.id).status === 'revoked');
+  ok('table-revocation of a given loan repaid the principal (lord → vassal)', treasuryGp(c,'dom-lord') === lordBefore - loan.gpPerMonth && treasuryGp(c,'dom-vassal') === vassBefore + loan.gpPerMonth);
 }
 
 console.log('\n=============================================');
