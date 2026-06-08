@@ -209,6 +209,23 @@ section('gp flows — Loan principal / Gift / Scutage recurrence / Loan repaymen
   ok('gift moved lord → vassal (lord −X, vassal +X)', treasuryGp(c,'dom-lord') === lordBefore - gift.gpPerMonth && treasuryGp(c,'dom-vassal') === vassBefore + gift.gpPerMonth);
 }
 {
+  // A one-time favor (Gift) must NOT last beyond its grant month (RR p.347). A MANUALLY-granted gift
+  // (grantedAtTurn === currentTurn) lapses at the very next monthly turn — not one month later.
+  const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } }, turn: 5 });
+  const g = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'gift' }, { rng: scriptedRng([]) }).obligation;
+  ok('manual gift starts active in its grant month', g.status === 'active' && g.grantedAtTurn === 5);
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });   // the monthly turn ending month 5
+  ok('manual gift lapses at the first monthly turn (one-time-spent, not lingering)', c.favorDutyObligations.find(o=>o.id===g.id).status === 'one-time-spent');
+  // An AUTO-ROLLED gift is created in Phase A (after the Phase-0 lapse), so it survives its grant commit.
+  const c2 = mkCampaign({ turn: 5 });   // auto-roll on
+  ACKS.processFavorsAndDutiesForTurn(c2, { rng: scriptedRng([ d20Val(15) ]) });   // rolls a gift at turn 5
+  const ag = c2.favorDutyObligations.find(o => o.kind==='gift');
+  ok('an auto-rolled gift survives its own grant commit (active)', !!ag && ag.status === 'active');
+  c2.currentTurn = 6;
+  ACKS.processFavorsAndDutiesForTurn(c2, { rng: scriptedRng([ d20Val(9), d6Val(1) ]) });   // next month: a no-op edict
+  ok('the auto-rolled gift lapses at the following monthly turn', c2.favorDutyObligations.find(o=>o.id===ag.id).status === 'one-time-spent');
+}
+{
   // Scutage (roll 2) — F&D-6 model: a recurring duty with a persistent AUTO-PAY toggle. "Pay Scutage"
   // (payScutageObligation) turns it ON → it bills automatically every monthly turn; "Stop Paying" turns it off.
   const c = mkCampaign({ houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });

@@ -4481,7 +4481,7 @@ function characterExpenseBreakdown(campaign, char){
 // Favors & Duties (#230, F&D-1 — RR pp.345–348) — the monthly orchestrator.
 // Called from commitTurn when the favor-duty-auto-roll rule is on (default ON). Once per
 // month, per active vassalage:
-//   PHASE 0 — lapse one-time favors granted in a prior month (status → 'one-time-spent').
+//   PHASE 0 — lapse one-time favors whose month has ended (status → 'one-time-spent'); runs before A.
 //   PHASE A — roll 1d20 on the Favor/Duty table; create the obligation (or, on 9–12, revoke
 //             the most-recent favor/duty); apply the one-time on-grant gp flow (Loan principal,
 //             Gift); on a duty, check the favor/duty balance and fire the excess-duty Loyalty
@@ -5075,9 +5075,13 @@ function processFavorsAndDutiesForTurn(campaign, options){
   const domainsById = id => (campaign.domains || []).find(d => d.id === id) || null;
   const vassalages = (campaign.vassalages || []).filter(v => v && v.status === 'active');
 
-  // PHASE 0 — lapse one-time favors granted in an earlier month (RR p.347 — they offset only that month).
+  // PHASE 0 — lapse one-time favors whose month has ended (RR p.347 — a one-time favor offsets a duty
+  // only in the month it is given, and must not linger as active afterward). Uses `<=`: this runs BEFORE
+  // Phase A, so any one-time favor present here was granted in a PRIOR month OR manually during the month
+  // now ending — both have had their month, so both lapse. A favor auto-rolled THIS commit (Phase A,
+  // below) is created after this and survives to next month (it lapses at the following monthly turn).
   for(const o of (campaign.favorDutyObligations || [])){
-    if(o.status === 'active' && o.isFavor && !o.isOngoing && o.grantedAtTurn < currentTurn){
+    if(o.status === 'active' && o.isFavor && !o.isOngoing && o.grantedAtTurn <= currentTurn){
       spendOneTimeFavorObligation(campaign, o.id, currentTurn, 'one-time-favor-lapsed');
     }
   }
