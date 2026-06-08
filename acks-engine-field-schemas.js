@@ -205,6 +205,34 @@
       ]
     },
 
+    // Favors & Duties (#230, F&D-1 — 2026-06-08) — relation entity (RR pp.345–348).
+    // Inspector-creatable: pick the liege + vassal domain + edict kind; the monthly turn
+    // auto-rolls these by default (favor-duty-auto-roll). Every field is a blankFavorDutyObligation
+    // key (guarded by the global schema⊆factory invariant).
+    'favorDutyObligation': {
+      factory: 'blankFavorDutyObligation',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Edict', 'Economics', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                     type: 'string', readonly: true, group: 'Parties' },
+        { name: 'liegeCharacterId',       type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'The liege granting the favor / demanding the duty' },
+        { name: 'vassalDomainId',         type: 'id', idKind: 'domain', required: true, group: 'Parties', description: 'The vassal domain bound by the obligation' },
+        { name: 'vassalRulerCharacterId', type: 'id', idKind: 'character', group: 'Parties', description: 'The vassal ruler — the subject of any excess-duty Loyalty roll' },
+        { name: 'kind',                   type: 'enum', enumValues: ['construction','scutage','call-to-council','call-to-arms','loan','charter-of-monopoly','gift','office','troops','grant-of-land'], required: true, group: 'Edict', description: 'The Favor/Duty table edict (RR p.348)' },
+        { name: 'isFavor',                type: 'boolean', group: 'Edict', description: 'True = a favor the lord grants; false = a duty the lord demands' },
+        { name: 'isOngoing',              type: 'boolean', group: 'Edict', description: 'True = recurs until revoked; false = one-time (gift / grant-of-land)' },
+        { name: 'musterTitle',            type: 'enum', enumValues: ['','emperor','king','prince','duke','count','viscount','baron'], group: 'Edict', description: "Realm title sizing the muster periods for Call to Arms / Scutage (blank = derive from the suzerain's realm)" },
+        { name: 'gpPerMonth',             type: 'gp', group: 'Economics', description: '1gp × families in the vassal realm (for construction = the monthly tribute); 0 for non-gp edicts' },
+        { name: 'constructionSpentGp',    type: 'gp', group: 'Economics', description: 'Running gp expended on a Construction duty (auto-revokes at 15,000gp / 6-mile hex)' },
+        { name: 'roll',                   type: 'number', group: 'Lifecycle', description: 'The 1d20 that produced this edict (null when GM-picked)' },
+        { name: 'status',                 type: 'enum', enumValues: ['active','revoked','one-time-spent'], group: 'Lifecycle' },
+        { name: 'grantedAtTurn',          type: 'number', group: 'Lifecycle' },
+        { name: 'revokedAtTurn',          type: 'number', group: 'Lifecycle', description: 'Set on revoke — null while active' },
+        { name: 'notes',                  type: 'longText', group: 'History', description: 'GM-resolve note for duties whose cross-subsystem effect is not yet automated' },
+        { name: 'history',                type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
     // ─── Wave C schemas (authored against the factories in acks-engine-entities.js).
     // Every field is a key the factory emits (guarded by the global schema⊆factory
     // invariant in tests/smoke.js). Freeform-map fields the factories default to {}

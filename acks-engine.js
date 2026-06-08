@@ -125,7 +125,9 @@ const ID_PREFIXES = Object.freeze({
   project:              'prj',
   constructible:        'cst',
   // Phase 2.95 Hirelings (#310) — day-aware recruitment drive (sub-object on the patron, 2026-06-06)
-  recruitmentDrive:     'rcd'
+  recruitmentDrive:     'rcd',
+  // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
+  favorDutyObligation:  'fdo'
 });
 
 function newId(prefix){
@@ -818,6 +820,8 @@ function lazyDefaultV1ScopeReservations(campaign){
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   if(!Array.isArray(campaign.projects))       campaign.projects       = [];
   if(!Array.isArray(campaign.constructibles)) campaign.constructibles = [];
+  // Favors & Duties (#230, F&D-1 — 2026-06-08) — the liege↔vassal obligation relation collection.
+  if(!Array.isArray(campaign.favorDutyObligations)) campaign.favorDutyObligations = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
