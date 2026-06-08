@@ -734,11 +734,53 @@ section('F&D-6 — scutage as garrison expense + collection + misappropriation (
   const res = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
   ok('lord out-spends scutage on troops → no misappropriation roll', !res.loyaltyRolls.some(r => r.reason==='scutage-misappropriated'));
 }
+// Scutage is a per-family RATE that tracks population (RR p.347 — "1gp per family in the vassal's realm").
+{
+  const c = mkCampaign({ vassalFamilies: 500, houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  const vd = () => c.domains.find(d=>d.id==='dom-vassal');
+  const scu = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage' }, { rng: scriptedRng([]) }).obligation;
+  ok('scutage stores the default rate (1gp/family)', scu.scutageGpPerFamily === 1);
+  ok('scutageMonthlyGp = rate × realm families (500)', ACKS.scutageMonthlyGp(c, scu) === 500);
+  ok('gpPerMonth snapshot = the demand-month amount (500)', scu.gpPerMonth === 500);
+  // Population GROWS → the live amount tracks it (the stored snapshot does not).
+  vd().demographics.peasantFamilies = 800;
+  ok('families grow → scutageMonthlyGp recomputes UP (800)', ACKS.scutageMonthlyGp(c, scu) === 800);
+  ok('the stored gpPerMonth snapshot is unchanged (500)', scu.gpPerMonth === 500);
+  ACKS.payScutageObligation(c, scu.id, {});
+  const row = ACKS.expenseBreakdown(c, vd()).find(r => /Scutage/.test(r.label) && /counts as garrison/.test(r.label));
+  ok('the garrison-expense row bills the LIVE grown amount (800)', row && row.gp === 800);
+  ok('scutagePaidThisMonth bills the LIVE grown amount (800)', ACKS.scutagePaidThisMonth(c, vd()) === 800);
+  const lordBefore = treasuryGp(c,'dom-lord');
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('the lord is credited the LIVE grown amount (800)', treasuryGp(c,'dom-lord') === lordBefore + 800);
+  // Population SHRINKS → tracks down too.
+  vd().demographics.peasantFamilies = 300;
+  ok('families shrink → scutageMonthlyGp recomputes DOWN (300)', ACKS.scutageMonthlyGp(c, scu) === 300);
+}
+// "Demand less" is now a lower per-family RATE (RR p.345); a legacy total override converts to a rate.
+{
+  const c = mkCampaign({ vassalFamilies: 400, houseRules:{ 'favor-duty-auto-roll':{ enabled:false } } });
+  const half = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage', scutageGpPerFamily: 0.5 }, { rng: scriptedRng([]) }).obligation;
+  ok('rate override stored (0.5gp/family)', half.scutageGpPerFamily === 0.5);
+  ok('scutageMonthlyGp = round(0.5 × 400) = 200', ACKS.scutageMonthlyGp(c, half) === 200);
+  ACKS.revokeFavorDutyEdict(c, half.id, {});
+  // a legacy total override (gpPerMonth) → converts to an equivalent per-family rate at demand time
+  const legacy = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'scutage', gpPerMonth: 200 }, { rng: scriptedRng([]) }).obligation;
+  ok('legacy total override converts to a rate (200/400 = 0.5)', Math.abs(legacy.scutageGpPerFamily - 0.5) < 1e-9);
+  ok('legacy-rate scutageMonthlyGp = 200 at demand', ACKS.scutageMonthlyGp(c, legacy) === 200);
+  // and that converted rate then TRACKS population (the point of the rework)
+  c.domains.find(d=>d.id==='dom-vassal').demographics.peasantFamilies = 600;
+  ok('converted rate tracks population (0.5 × 600 = 300)', ACKS.scutageMonthlyGp(c, legacy) === 300);
+}
+
 // Schema + factory.
 {
   ok('blankFavorDutyObligation seeds scutageLastPaidTurn null', ACKS.blankFavorDutyObligation({}).scutageLastPaidTurn === null);
+  ok('blankFavorDutyObligation seeds scutageGpPerFamily null', ACKS.blankFavorDutyObligation({}).scutageGpPerFamily === null);
+  ok('scutageMonthlyGp on a non-scutage falls back to gpPerMonth', ACKS.scutageMonthlyGp(mkCampaign(), ACKS.blankFavorDutyObligation({ kind:'gift', gpPerMonth: 77 })) === 77);
   const fdSchema = ACKS.fieldSchemaFor('favorDutyObligation');
   ok('schema has the scutageLastPaidTurn field', fdSchema.fields.some(f=>f.name==='scutageLastPaidTurn'));
+  ok('schema has the scutageGpPerFamily field', fdSchema.fields.some(f=>f.name==='scutageGpPerFamily'));
 }
 
 console.log('\n=============================================');
