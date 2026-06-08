@@ -385,6 +385,104 @@ section('Manual GM-pick path — applyFavorDutyEdictByKind + revokeFavorDutyEdic
   ok('revokeFavorDutyEdict is idempotent (no 2nd event)', c.eventLog.length === evAfter);
 }
 
+// =============================================================================
+section('F&D-3 — configurable amounts (RR p.345 "demand less") + custom edict');
+// =============================================================================
+// schema reflects the custom kind + label
+{
+  const fdSchema = ACKS.fieldSchemaFor('favorDutyObligation');
+  ok('schema kind enum includes "custom"', fdSchema.fields.find(f=>f.name==='kind').enumValues.includes('custom'));
+  ok('schema has the customLabel field', fdSchema.fields.some(f=>f.name==='customLabel'));
+  ok('blankFavorDutyObligation seeds customLabel ""', ACKS.blankFavorDutyObligation({}).customLabel === '');
+}
+// Amount override on a standard gp-duty — "a lord may always choose to demand less" (RR p.345).
+{
+  const c = mkCampaign();
+  const realmF = ACKS.realmFamiliesForDomain(c, c.domains.find(d=>d.id==='dom-vassal'));
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  const less = Math.floor(realmF/2);
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan', gpPerMonth: less }, { rng: scriptedRng([]) });
+  ok('override: loan stores the reduced gpPerMonth (< RAW max)', d.obligation.gpPerMonth === less && less < realmF);
+  ok('override: on-grant principal moved the reduced amount (vassal→lord)', treasuryGp(c,'dom-vassal') === vassBefore - less && treasuryGp(c,'dom-lord') === lordBefore + less);
+}
+// The override persists to the recurring Phase B billing.
+{
+  const c = mkCampaign({ lordCha: 100, turn: 2 });
+  const loan = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'loan', gpPerMonth: 100 }, { atTurn: 1, rng: scriptedRng([]) }).obligation;
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(9), d6Val(1), d100Val(50) ]) });  // no-op edict + CHA-100 repay
+  ok('override persists: Phase B repays exactly the reduced 100gp (lord→vassal) + revokes', treasuryGp(c,'dom-lord') === lordBefore - 100 && treasuryGp(c,'dom-vassal') === vassBefore + 100 && c.favorDutyObligations.find(o=>o.id===loan.id).status === 'revoked');
+}
+// A no-gp standard kind ignores an override.
+{
+  const c = mkCampaign();
+  const vassBefore = treasuryGp(c,'dom-vassal');
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council', gpPerMonth: 999 }, { rng: scriptedRng([]) });
+  ok('override ignored for a no-gp kind (call-to-council stays 0)', d.obligation.gpPerMonth === 0 && treasuryGp(c,'dom-vassal') === vassBefore);
+}
+// Custom one-time duty (gp) — moves vassal→lord on grant, counts as a duty.
+{
+  const c = mkCampaign();
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Hostage exchange', isFavor:false, isOngoing:false, gpPerMonth: 250 }, { rng: scriptedRng([]) });
+  ok('custom duty: kind="custom" + customLabel stored + isFavor false', d.obligation.kind==='custom' && d.obligation.customLabel==='Hostage exchange' && d.obligation.isFavor===false);
+  ok('custom one-time duty moves gp vassal→lord on grant', treasuryGp(c,'dom-vassal')===vassBefore-250 && treasuryGp(c,'dom-lord')===lordBefore+250);
+  ok('custom duty counts toward the favor/duty balance', ACKS.favorDutyBalance(c,'chr-lord','dom-vassal').activeDuties === 1);
+}
+// Custom one-time favor (gp) — moves lord→vassal on grant, raises the safe count.
+{
+  const c = mkCampaign();
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Royal pardon', isFavor:true, isOngoing:false, gpPerMonth: 300 }, { rng: scriptedRng([]) });
+  ok('custom one-time favor moves gp lord→vassal on grant', treasuryGp(c,'dom-lord')===lordBefore-300 && treasuryGp(c,'dom-vassal')===vassBefore+300);
+  ok('custom favor (one-time, this month) raises the safe duty count', ACKS.favorDutyBalance(c,'chr-lord','dom-vassal').safeDutyCount === 2);
+}
+// Custom ONGOING duty (gp) — no on-grant flow; recurs vassal→lord in Phase B.
+{
+  const c = mkCampaign();
+  const vassBefore = treasuryGp(c,'dom-vassal'), lordBefore = treasuryGp(c,'dom-lord');
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'War levy', isFavor:false, isOngoing:true, gpPerMonth: 120 }, { rng: scriptedRng([]) });
+  ok('custom ongoing edict does NOT move gp on grant (recurs in Phase B)', treasuryGp(c,'dom-vassal')===vassBefore && treasuryGp(c,'dom-lord')===lordBefore && d.obligation.isOngoing===true);
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(9), d6Val(1) ]) });  // no-op edict; Phase B bills the custom duty
+  ok('custom ongoing duty recurs vassal→lord on the monthly turn', treasuryGp(c,'dom-vassal')===vassBefore-120 && treasuryGp(c,'dom-lord')===lordBefore+120);
+}
+// Custom ONGOING favor (gp) — recurs lord→vassal in Phase B.
+{
+  const c = mkCampaign();
+  const vassBefore = treasuryGp(c,'dom-vassal'), lordBefore = treasuryGp(c,'dom-lord');
+  ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Stipend', isFavor:true, isOngoing:true, gpPerMonth: 80 }, { rng: scriptedRng([]) });
+  ok('custom ongoing favor: no on-grant move', treasuryGp(c,'dom-vassal')===vassBefore);
+  ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([ d20Val(9), d6Val(2) ]) });  // no-op edict (revoke a duty, none); Phase B bills the custom favor
+  ok('custom ongoing favor recurs lord→vassal on the monthly turn', treasuryGp(c,'dom-lord')===lordBefore-80 && treasuryGp(c,'dom-vassal')===vassBefore+80);
+}
+// Custom edict with no gp — pure record; still counts toward the balance.
+{
+  const c = mkCampaign();
+  const vassBefore = treasuryGp(c,'dom-vassal');
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Attend the wedding', isFavor:false, isOngoing:false }, { rng: scriptedRng([]) });
+  ok('custom edict with no gp: record only, no flow', d.obligation.gpPerMonth===0 && treasuryGp(c,'dom-vassal')===vassBefore);
+  ok('no-gp custom edict still counts toward the balance', ACKS.favorDutyBalance(c,'chr-lord','dom-vassal').activeDuties===1);
+}
+// Blank label falls back to a default; custom revokes like any other.
+{
+  const c = mkCampaign();
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', isFavor:true, isOngoing:false }, { rng: scriptedRng([]) });
+  ok('blank custom label → falls back to "Custom favor"', d.obligation.customLabel==='Custom favor' && /Custom favor/.test(d.narrative));
+  const o = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Recurring tithe', isFavor:false, isOngoing:true, gpPerMonth:50 }, { rng: scriptedRng([]) }).obligation;
+  ACKS.revokeFavorDutyEdict(c, o.id, {});
+  ok('a custom obligation revokes like any other', c.favorDutyObligations.find(x=>x.id===o.id).status==='revoked');
+}
+// Recurring billing (Phase B) runs even with auto-roll OFF — the toggle gates only the auto-roll of
+// NEW edicts (Phase A), not the billing of obligations already in force (hand-authored or rolled).
+{
+  const c = mkCampaign({ houseRules: { 'favor-duty-auto-roll': { enabled:false } } });
+  ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'custom', customLabel:'Levy', isFavor:false, isOngoing:true, gpPerMonth: 60 }, { rng: scriptedRng([]) });  // manual works regardless of the toggle
+  const vassBefore = treasuryGp(c,'dom-vassal'), lordBefore = treasuryGp(c,'dom-lord');
+  const r = ACKS.processFavorsAndDutiesForTurn(c, { rng: scriptedRng([]) });
+  ok('auto-roll OFF → no new edict rolled (Phase A skipped, ruleOn false)', r.ruleOn===false && r.rolled.length===0);
+  ok('auto-roll OFF → an existing custom recurring duty STILL bills (Phase B always runs)', treasuryGp(c,'dom-vassal')===vassBefore-60 && treasuryGp(c,'dom-lord')===lordBefore+60);
+}
+
 console.log('\n=============================================');
 console.log('favors-and-duties.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
