@@ -2378,6 +2378,27 @@ document.addEventListener('alpine:init', () => {
                               <span class="block text-xs text-emerald-700" x-show="fdLoanGiven(o)" x-text="'✓ loan given · turn ' + o.loanGivenAtTurn"></span>
                               <span class="block text-xs" x-show="fdIsCallToCouncil(o)" :class="(fdCouncilStatus(o).status==='at-council') ? 'text-emerald-700' : ((fdCouncilStatus(o).status==='en-route') ? 'text-sky-700' : 'opacity-70')" x-text="'📍 ' + fdCouncilStatusText(o)"></span>
                               <span class="block text-xs" x-show="fdIsScutage(o)" :class="fdScutageAutoPay(o) ? 'text-emerald-700' : 'accent-red'" x-text="fdScutageAutoPay(o) ? '✓ scutage being paid (automatically, each month)' : '⚠ scutage not being paid'"></span>
+                              <!-- F&D-7 — Construction duty: the liege orders structures (hex + type) built in the vassal's realm. -->
+                              <template x-if="fdIsConstruction(o)">
+                                <div class="block mt-1 text-xs border-l-2 border-amber-300 pl-2 space-y-0.5" x-data="{ ordHex:'', ordType:'' }">
+                                  <div class="opacity-80" x-text="(() => { const p=fdConstructionProgress(o); return '🏗 built ' + p.spent.toLocaleString() + ' / ' + p.target.toLocaleString() + 'gp (' + p.orderedHexCount + ' hex' + (p.orderedHexCount===1?'':'es') + ' × 15,000) — ' + p.remaining.toLocaleString() + 'gp left'; })()"></div>
+                                  <div>
+                                    <span :class="fdConstructionProgress(o).minimumMet ? 'text-emerald-700' : 'opacity-60'" x-text="(fdConstructionProgress(o).minimumMet ? '✓ minimum built' : '⏳ minimum not yet built') + ' (≥ ' + fdConstructionProgress(o).monthlyMinimum.toLocaleString() + 'gp/mo = tribute)'"></span>
+                                    <span class="text-emerald-700 ml-1" x-show="fdConstructionProgress(o).targetReached">· ✓ target reached</span>
+                                  </div>
+                                  <ul>
+                                    <template x-for="(ord, oi) in fdConstructionProgress(o).orders" :key="'co-'+o.id+'-'+oi">
+                                      <li class="flex items-center gap-1"><span x-text="'• ' + ord.typeLabel + ' at ' + fdConstructionHexLabel(ord.hexId)"></span><button @click="fdRemoveConstructionOrder(o.id, oi)" class="opacity-50 hover:opacity-100 accent-red" title="Remove this order">×</button></li>
+                                    </template>
+                                    <li class="opacity-50 italic" x-show="fdConstructionProgress(o).orders.length===0">No structures ordered yet — choose a hex + type below.</li>
+                                  </ul>
+                                  <div class="flex flex-wrap items-center gap-1 pt-0.5">
+                                    <select x-model="ordHex" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— hex —</option><template x-for="h in fdConstructionHexOptions(o.vassalDomainId)" :key="'ch-'+o.id+'-'+h.id"><option :value="h.id" x-text="h.label"></option></template></select>
+                                    <select x-model="ordType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— type —</option><template x-for="t in fdConstructionTypes(o.vassalDomainId)" :key="'ct-'+o.id+'-'+t.value"><option :value="t.value" x-text="t.label"></option></template></select>
+                                    <button @click="fdAddConstructionOrder(o.id, ordHex, ordType); ordHex=''; ordType=''" :disabled="!ordHex || !ordType" class="text-xs px-1.5 py-0.5 border border-ink rounded hover:bg-amber-50 disabled:opacity-40" title="Order this structure (RR p.348 — adds 15,000gp to the target per new hex)">+ order build</button>
+                                  </div>
+                                </div>
+                              </template>
                             </div>
                             <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" :title="fdLoanGiven(o) ? 'Revoke — repays the loan to the vassal (RR p.348)' : 'Revoke this obligation'">revoke</button>
                           </li>
@@ -15857,6 +15878,38 @@ return {
     const o = window.ACKS.stopScutagePayment(this.currentCampaign, obligationId, {});
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast(o && !this.fdScutageAutoPay(o) ? 'Stopped paying scutage — it is now withheld from your liege.' : 'Could not stop scutage.', 5000);
+  },
+  // Construction duty — liege side (F&D-7; RR p.348). The lord orders structures (hex + type) built in
+  // the vassal's realm; the target gp = 15,000 × distinct ordered hexes; the card shows progress + lets
+  // the liege add/remove orders while the duty is on-going. (Actual building detection + auto-revoke-on-
+  // completion is the future full Construction subsystem; for now the monthly self-spend drives progress.)
+  fdIsConstruction(o){ return !!o && o.kind === 'construction' && o.status === 'active'; },
+  fdConstructionProgress(o){ return window.ACKS.constructionDutyProgress(this.currentCampaign, o); },
+  fdConstructionHexLabel(hexId){ return this.journeyHexLabel(hexId); },
+  // The vassal realm's hexes for the order picker.
+  fdConstructionHexOptions(vDomainId){
+    return (this.currentCampaign?.hexes || []).filter(h => h && h.domainId === vDomainId).map(h => ({ id:h.id, label: this.journeyHexLabel(h.id) }));
+  },
+  // The structure types the liege may order (vessel only on a littoral realm).
+  fdConstructionTypes(vDomainId){
+    const dom = (this.currentCampaign?.domains || []).find(d => d.id === vDomainId) || null;
+    const littoral = dom ? window.ACKS.isLittoralDomain(this.currentCampaign, dom) : false;
+    return (window.ACKS.CONSTRUCTION_DUTY_TYPES || []).filter(t => !t.littoralOnly || littoral).map(t => ({ value:t.value, label:t.label }));
+  },
+  fdAddConstructionOrder(obligationId, hexId, type){
+    if(!hexId || !type) return;
+    const before = (this.currentCampaign.favorDutyObligations.find(o=>o.id===obligationId)?.constructionOrders||[]).length;
+    const o = window.ACKS.addConstructionOrder(this.currentCampaign, obligationId, { hexId, type });
+    this.markDirty(); this.schedulePersist();
+    const added = o && (o.constructionOrders||[]).length > before;
+    this.showToast && this.showToast(added
+      ? ('Ordered ' + window.ACKS.constructionDutyTypeLabel(type).toLowerCase() + ' — construction target now ' + window.ACKS.constructionDutyTargetGp(this.currentCampaign, o).toLocaleString() + 'gp.')
+      : 'Could not add the order (hex must be in the vassal’s realm; vessels need a littoral realm).', 5000);
+  },
+  fdRemoveConstructionOrder(obligationId, index){
+    const o = window.ACKS.removeConstructionOrder(this.currentCampaign, obligationId, index, {});
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast(o ? ('Order removed — construction target now ' + window.ACKS.constructionDutyTargetGp(this.currentCampaign, o).toLocaleString() + 'gp.') : 'Could not remove the order.', 4000);
   },
   // Call to Council (F&D-5; RR p.346). The liege picks a council hex in his domain (default = where
   // he is now); the vassal travels there via "Go to Council" (plots/re-routes a journey); the live
