@@ -4567,6 +4567,100 @@ function _emitFavorDutyEvent(campaign, obligation, payloadExtra){
   return ev;
 }
 
+// The shared per-edict core (RR pp.345–348). Given a resolved (liege, vassal) context + a chosen
+// table entry, it: computes the gp basis, creates the obligation, runs the one-time on-grant gp
+// flows (loan principal / gift), derives the favor/duty balance, fires the single excess-duty
+// Loyalty roll when a duty over-demands, and emits the record-only favor-duty event. BOTH the
+// monthly auto-roll (processFavorsAndDutiesForTurn PHASE A) and the manual GM-pick path
+// (applyFavorDutyEdictByKind) call this — so an edict is identical however it was raised. `roll`
+// is the 1d20 result for an auto-roll, or null for a hand-picked edict. Returns the snapshot
+// { obligation, gpPerMonth, gpFlows, balance, loyaltyResult, musterTitle, musterSchedule, narrative }.
+function _applyFavorDutyEdict(campaign, ctx, rng){
+  rng = rng || Math.random;
+  const { liegeId, vassalDomainId, vassalRulerId, vassalDomain, liegeDomain, entry, currentTurn } = ctx;
+  const roll = ctx.roll != null ? ctx.roll : null;
+
+  // Compute the gp basis.
+  const realmFamilies = realmFamiliesForDomain(campaign, vassalDomain);
+  let gpPerMonth = 0;
+  if(entry.gpBasis === 'realm-families')       gpPerMonth = realmFamilies;                       // 1gp × realm families
+  else if(entry.gpBasis === 'monthly-tribute') gpPerMonth = global.ACKS.tributeOwed(campaign, vassalDomain);
+
+  const musterTitle = entry.muster ? global.ACKS.realmTitleForDomain(liegeDomain) : '';
+  const obligation = createFavorDutyObligation(campaign, {
+    liegeCharacterId: liegeId, vassalDomainId, vassalRulerCharacterId: vassalRulerId,
+    kind: entry.kind, isFavor: entry.isFavor, isOngoing: entry.isOngoing,
+    gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn,
+    notes: _favorDutyResolveNote(entry, { musterTitle })
+  });
+
+  // STEP 4 — one-time on-grant gp flows (the recurring ones run in Phase B, incl. this month).
+  const flows = [];
+  if(entry.kind === 'loan' && gpPerMonth > 0){
+    _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, gpPerMonth, 'loan-principal', flows);   // vassal → lord, once
+  } else if(entry.kind === 'gift' && gpPerMonth > 0){
+    _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, gpPerMonth, 'gift', flows);             // lord → vassal, once
+  }
+
+  // Balance + the excess-duty Loyalty roll (duties only — favors never over-demand).
+  let loyaltyResult = null;
+  const balance = favorDutyBalance(campaign, liegeId, vassalDomainId, { turn: currentTurn });
+  if(!entry.isFavor && balance.excess > 0){
+    loyaltyResult = _favorDutyLoyaltyRoll(campaign, vassalRulerId, balance.loyaltyModifier, rng);
+  }
+
+  const musterSched = entry.muster ? global.ACKS.musterSchedule(musterTitle, gpPerMonth) : null;
+  const verb = entry.isFavor ? 'granted ' : 'demanded ';
+  const gpStr = gpPerMonth > 0 ? ' (' + gpPerMonth.toLocaleString() + 'gp)' : '';
+  const narrative = verb + entry.label + ' on ' + (vassalDomain.name || vassalDomainId) + gpStr + '.';
+  _emitFavorDutyEvent(campaign, obligation, {
+    action: 'granted', roll, gpPerMonth, gpFlows: flows,
+    balance, loyaltyResult, musterTitle, musterSchedule: musterSched, narrative
+  });
+  return { obligation, gpPerMonth, gpFlows: flows, balance, loyaltyResult, musterTitle, musterSchedule: musterSched, narrative };
+}
+
+// Manually raise a Favor/Duty edict of a chosen KIND — the GM-pick path used by the F&D UI (and
+// whenever favor-duty-auto-roll is off). Resolves the liege + vassal ruler + both domains from the
+// vassal's active vassalage; looks up the table entry by kind (roll = null — it wasn't rolled);
+// runs the same shared core as the monthly pass. Does NOT gate on favor-duty-auto-roll (F&D is RAW
+// core — manual edicts are always available). Returns the edict snapshot, or null when the domain
+// has no active liege or the kind is unknown / 'revocation' (which is roll-only, never hand-picked).
+function applyFavorDutyEdictByKind(campaign, opts, options){
+  opts = opts || {}; options = options || {};
+  const rng = options.rng || Math.random;
+  const vassalDomainId = opts.vassalDomainId;
+  if(!campaign || !vassalDomainId) return null;
+  const v = (campaign.vassalages || []).find(x => x && x.status === 'active' && x.vassalDomainId === vassalDomainId
+    && (!opts.liegeCharacterId || x.suzerainCharacterId === opts.liegeCharacterId));
+  if(!v) return null;                                    // no active liege → nothing to demand/grant
+  const entry = (global.ACKS.FAVOR_DUTY_TABLE || []).find(e => e.kind === opts.kind);
+  if(!entry || entry.kind === 'revocation') return null; // unknown kind, or the roll-only revocation
+  const vassalDomain = (campaign.domains || []).find(d => d.id === vassalDomainId) || null;
+  const liegeDomain  = (campaign.domains || []).find(d => d.id === v.suzerainDomainId) || null;
+  if(!vassalDomain) return null;
+  const currentTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  return _applyFavorDutyEdict(campaign, {
+    liegeId: v.suzerainCharacterId, vassalDomainId, vassalRulerId: v.vassalRulerCharacterId,
+    vassalDomain, liegeDomain, entry, roll: null, currentTurn
+  }, rng);
+}
+
+// Manually revoke an active Favor/Duty obligation AND emit the favor-duty event (the bare
+// revokeFavorDutyObligation setter only flips status — it does not emit). Used by the F&D UI's
+// per-obligation Revoke. Idempotent: returns the record unchanged (no event) if it isn't active.
+function revokeFavorDutyEdict(campaign, obligationId, options){
+  options = options || {};
+  const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
+    ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
+  if(!rec || rec.status !== 'active') return rec || null;
+  const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  revokeFavorDutyObligation(campaign, obligationId, atTurn, options.reason || 'gm-revoked');
+  const dname = ((campaign.domains || []).find(d => d.id === rec.vassalDomainId) || {}).name || rec.vassalDomainId;
+  _emitFavorDutyEvent(campaign, rec, { action:'revoked', narrative: 'Revoked ' + rec.kind + ' (' + (rec.isFavor ? 'favor' : 'duty') + ') on ' + dname + '.' });
+  return rec;
+}
+
 function processFavorsAndDutiesForTurn(campaign, options){
   options = options || {};
   const rng = options.rng || Math.random;
@@ -4621,49 +4715,16 @@ function processFavorsAndDutiesForTurn(campaign, options){
       continue;
     }
 
-    // Compute the gp basis.
-    const realmFamilies = realmFamiliesForDomain(campaign, vassalDomain);
-    let gpPerMonth = 0;
-    if(entry.gpBasis === 'realm-families')      gpPerMonth = realmFamilies;                       // 1gp × realm families
-    else if(entry.gpBasis === 'monthly-tribute') gpPerMonth = global.ACKS.tributeOwed(campaign, vassalDomain);
-
-    const musterTitle = entry.muster ? global.ACKS.realmTitleForDomain(liegeDomain) : '';
-    const obligation = createFavorDutyObligation(campaign, {
-      liegeCharacterId: liegeId, vassalDomainId, vassalRulerCharacterId: vassalRulerId,
-      kind: entry.kind, isFavor: entry.isFavor, isOngoing: entry.isOngoing,
-      gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn,
-      notes: _favorDutyResolveNote(entry, { musterTitle })
-    });
-
-    // STEP 4 — one-time on-grant gp flows (the recurring ones run in Phase B, incl. this month).
-    const flows = [];
-    if(entry.kind === 'loan' && gpPerMonth > 0){
-      _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, gpPerMonth, 'loan-principal', flows);   // vassal → lord, once
-    } else if(entry.kind === 'gift' && gpPerMonth > 0){
-      _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, gpPerMonth, 'gift', flows);             // lord → vassal, once
+    // Apply the edict via the shared core (the same path the manual GM-pick UI calls).
+    const r = _applyFavorDutyEdict(campaign, { liegeId, vassalDomainId, vassalRulerId, vassalDomain, liegeDomain, entry, roll, currentTurn }, rng);
+    r.gpFlows.forEach(f => result.gpFlows.push(f));
+    if(r.loyaltyResult){
+      result.loyaltyRolls.push({ vassalDomainId, vassalRulerCharacterId: vassalRulerId, modifier: r.balance.loyaltyModifier, bandKey: r.loyaltyResult.bandKey });
+      result.logEntries.push('Favor/Duty — ' + (vassalDomain.name || vassalDomainId) + ': over-demanded (' + r.balance.activeDuties + ' duties vs ' + r.balance.safeDutyCount + ' safe) → Loyalty roll at ' + r.balance.loyaltyModifier + ' → ' + r.loyaltyResult.bandLabel + '.');
     }
-    flows.forEach(f => result.gpFlows.push(f));
-
-    // Balance + the excess-duty Loyalty roll (duties only — favors never over-demand).
-    let loyaltyResult = null;
-    const balance = favorDutyBalance(campaign, liegeId, vassalDomainId, { turn: currentTurn });
-    if(!entry.isFavor && balance.excess > 0){
-      loyaltyResult = _favorDutyLoyaltyRoll(campaign, vassalRulerId, balance.loyaltyModifier, rng);
-      result.loyaltyRolls.push({ vassalDomainId, vassalRulerCharacterId: vassalRulerId, modifier: balance.loyaltyModifier, bandKey: loyaltyResult.bandKey });
-      result.logEntries.push('Favor/Duty — ' + (vassalDomain.name || vassalDomainId) + ': over-demanded (' + balance.activeDuties + ' duties vs ' + balance.safeDutyCount + ' safe) → Loyalty roll at ' + balance.loyaltyModifier + ' → ' + loyaltyResult.bandLabel + '.');
-    }
-
-    const musterSched = entry.muster ? global.ACKS.musterSchedule(musterTitle, gpPerMonth) : null;
-    const verb = entry.isFavor ? 'granted ' : 'demanded ';
-    const gpStr = gpPerMonth > 0 ? ' (' + gpPerMonth.toLocaleString() + 'gp)' : '';
-    const narrative = verb + entry.label + ' on ' + (vassalDomain.name || vassalDomainId) + gpStr + '.';
-    _emitFavorDutyEvent(campaign, obligation, {
-      action: 'granted', roll, gpPerMonth, gpFlows: flows,
-      balance, loyaltyResult, musterTitle, musterSchedule: musterSched, narrative
-    });
     result.events++;
-    result.rolled.push({ obligationId: obligation.id, kind: entry.kind, isFavor: entry.isFavor, roll, gpPerMonth, vassalDomainId });
-    if(!loyaltyResult) result.logEntries.push('Favor/Duty — ' + narrative);
+    result.rolled.push({ obligationId: r.obligation.id, kind: entry.kind, isFavor: entry.isFavor, roll, gpPerMonth: r.gpPerMonth, vassalDomainId });
+    if(!r.loyaltyResult) result.logEntries.push('Favor/Duty — ' + r.narrative);
   }
 
   // PHASE B — recurring monthly gp for active ongoing gp duties.
@@ -6827,6 +6888,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   createFavorDutyObligation, revokeFavorDutyObligation, spendOneTimeFavorObligation,
   activeFavorDutyObligationsFor, favorDutyObligationsForVassalDomain, realmFamiliesForDomain,
   favorDutyBalance, processFavorsAndDutiesForTurn,
+  applyFavorDutyEdictByKind, revokeFavorDutyEdict,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,
