@@ -1151,11 +1151,13 @@ function blankFavorDutyObligation(opts={}){
     // vassal travels there via "Go to Council" (plots/re-routes a Journey), and attendance is the
     // live comparison of the vassal ruler's current hex to this. null for every non-council kind.
     councilHexId: opts.councilHexId != null ? opts.councilHexId : null,
-    // Scutage lifecycle (RR pp.347–348) — a recurring duty the vassal must PAY each month (the "Pay
-    // Scutage" button: payScutageObligation stamps this to the current turn). It bills as the vassal's
-    // garrison expense in the monthly net (expenseBreakdown) when scutageLastPaidTurn === currentTurn,
-    // and the lord is credited that month; an unpaid month is withheld (the liege card shows a notice).
-    // null for every non-scutage kind; reset each month (the vassal re-pays). Read defensively → no migration.
+    // Scutage lifecycle (RR pp.347–348). scutageAutoPay is the persistent toggle: when true the vassal
+    // pays scutage AUTOMATICALLY every monthly turn (the "Pay Scutage" button turns it on; "Stop Paying"
+    // turns it off), billing as the vassal's garrison expense in the monthly net + crediting the lord each
+    // month until stopped. false = not paying (withheld; the liege card shows a notice). scutageLastPaidTurn
+    // is the AUDIT stamp of the last month scutage actually settled (set by the monthly turn). Both null/false
+    // for every non-scutage kind; read defensively → no migration.
+    scutageAutoPay: opts.scutageAutoPay != null ? !!opts.scutageAutoPay : false,
     scutageLastPaidTurn: opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
     // Scutage **rate** in gp per family (RR p.347 — "1gp per family in the vassal's realm"). The monthly
     // amount is DERIVED LIVE (scutageMonthlyGp = rate × the vassal's current realm families), so it tracks

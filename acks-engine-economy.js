@@ -272,10 +272,9 @@ function tributeOwed(campaign, d){
 // moraleModifiersFor (RR p.347 "scutage counts as garrison expense for the vassal"). 0 when none paid.
 function scutagePaidThisMonth(campaign, d){
   if(!campaign || !d || !Array.isArray(campaign.favorDutyObligations)) return 0;
-  const curTurn = campaign.currentTurn || 1;
   return campaign.favorDutyObligations.reduce((s, o) =>
-    (o && o.status === 'active' && o.kind === 'scutage' && o.vassalDomainId === d.id && o.scutageLastPaidTurn === curTurn)
-      ? s + global.ACKS.scutageMonthlyGp(campaign, o) : s, 0);   // LIVE = rate × current realm families
+    (o && o.status === 'active' && o.kind === 'scutage' && o.vassalDomainId === d.id && o.scutageAutoPay === true)
+      ? s + global.ACKS.scutageMonthlyGp(campaign, o) : s, 0);   // LIVE = rate × current realm families (auto-pay on)
 }
 
 // =============================================================================
@@ -406,16 +405,15 @@ function expenseBreakdown(campaign, d){
   // processFavorsAndDutiesForTurn — so this row is the vassal's SINGLE debit (no double-move). One row
   // per active scutage obligation (RR allows imposing it multiple times → stacked scutage).
   {
-    const curTurn = campaign.currentTurn || 1;
     (campaign.favorDutyObligations || []).forEach(o => {
       if(!o || o.status !== 'active' || o.kind !== 'scutage' || o.vassalDomainId !== d.id) return;
       const liege = (campaign.characters||[]).find(c => c.id === o.liegeCharacterId);
       const liegeName = liege ? liege.name : 'liege';
-      if(o.scutageLastPaidTurn === curTurn){
+      if(o.scutageAutoPay === true){
         // LIVE amount = rate × current realm families (RR p.347), so it tracks population growth/decline.
         rows.push({ label: 'Scutage to ' + liegeName + ' (RR p.347 · counts as garrison)', gp: global.ACKS.scutageMonthlyGp(campaign, o) });
       } else {
-        rows.push({ label: 'Scutage to ' + liegeName + ' (NOT PAID — withheld this month)', gp: 0 });
+        rows.push({ label: 'Scutage to ' + liegeName + ' (NOT PAID — not being paid)', gp: 0 });
       }
     });
   }

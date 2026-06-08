@@ -3103,6 +3103,7 @@ function createFavorDutyObligation(campaign, opts={}){
     grantedAtTurn:          opts.grantedAtTurn           || 1,
     loanGivenAtTurn:        opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
     councilHexId:           opts.councilHexId             || null,
+    scutageAutoPay:         opts.scutageAutoPay != null ? !!opts.scutageAutoPay : false,
     scutageLastPaidTurn:    opts.scutageLastPaidTurn != null ? opts.scutageLastPaidTurn : null,
     scutageGpPerFamily:     opts.scutageGpPerFamily != null ? opts.scutageGpPerFamily : null,
     constructionSpentGp:    opts.constructionSpentGp     || 0,
@@ -4797,31 +4798,35 @@ function giveLoanObligation(campaign, obligationId, options){
   return rec;
 }
 
-// Pay this month's scutage — the vassal-side act (the "Pay Scutage" button, RR pp.347–348). Scutage
-// is a recurring monthly tax (1gp/family) the vassal MUST PAY each month or withhold. Paying stamps
-// scutageLastPaidTurn to the current turn; from there the monthly turn does the actual gp settlement:
-// the amount bills as the vassal's GARRISON EXPENSE in expenseBreakdown (so the vassal's net debits it,
-// and it counts toward the vassal's garrison adequacy — RR p.347 "scutage counts as garrison expense
-// for the vassal"), and the lord is CREDITED in processFavorsAndDutiesForTurn (a single move, no double-
-// debit). Unpaid months simply aren't billed (the liege card shows "not yet paid"). Idempotent within a
-// month (already paid this turn → no-op). Guarded: a non-scutage / inactive obligation is a no-op.
-// Returns the obligation record, or null when it doesn't exist.
-function payScutageObligation(campaign, obligationId, options){
+// Turn scutage auto-pay on/off — the vassal-side toggle (RR pp.347–348). Scutage is a recurring monthly
+// tax (1gp/family); rather than re-paying each month, the vassal sets it to pay AUTOMATICALLY: with
+// scutageAutoPay true the monthly turn bills it as the vassal's GARRISON EXPENSE (so the net debits it +
+// it counts toward garrison adequacy, RR p.347) and CREDITS the lord, every month until stopped; false =
+// withheld (the liege card shows a notice). The "Pay Scutage" button turns it on; "Stop Paying" turns it
+// off. Idempotent (already in that state → no-op, no duplicate event). Guarded: a non-scutage / inactive
+// obligation is a no-op. Returns the obligation record, or null when it doesn't exist.
+function setScutageAutoPay(campaign, obligationId, on, options){
   options = options || {};
   const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
     ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
   if(!rec) return null;
   if(rec.status !== 'active' || rec.kind !== 'scutage') return rec;          // guarded no-op
+  const want = !!on;
+  if(!!rec.scutageAutoPay === want) return rec;                              // already in that state
   const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
-  if(rec.scutageLastPaidTurn === atTurn) return rec;                          // already paid this month
-  rec.scutageLastPaidTurn = atTurn;
+  rec.scutageAutoPay = want;
   if(!Array.isArray(rec.history)) rec.history = [];
-  rec.history.push({ turn: atTurn, type: 'scutage-paid', amount: Math.round(rec.gpPerMonth || 0) });
+  rec.history.push({ turn: atTurn, type: want ? 'scutage-autopay-on' : 'scutage-autopay-off' });
   const dname = ((campaign.domains || []).find(d => d.id === rec.vassalDomainId) || {}).name || rec.vassalDomainId;
-  _emitFavorDutyEvent(campaign, rec, { action:'scutage-paid', gpPerMonth: rec.gpPerMonth,
-    narrative: 'Scutage of ' + Math.round(rec.gpPerMonth || 0).toLocaleString() + 'gp pledged by ' + dname + ' this month (settles at the monthly turn).' });
+  _emitFavorDutyEvent(campaign, rec, { action: want ? 'scutage-autopay-on' : 'scutage-autopay-off',
+    narrative: want
+      ? (dname + ' now pays scutage automatically each month (it settles at the monthly turn).')
+      : (dname + ' has stopped paying scutage.') });
   return rec;
 }
+// Thin vassal-side wrappers: "Pay Scutage" = enable auto-pay; "Stop Paying" = disable.
+function payScutageObligation(campaign, obligationId, options){ return setScutageAutoPay(campaign, obligationId, true, options); }
+function stopScutagePayment(campaign, obligationId, options){ return setScutageAutoPay(campaign, obligationId, false, options); }
 
 // The vassal-ruler character for an obligation (the Call-to-Council traveller): the recorded
 // vassalRulerCharacterId, else the vassal domain's ruler. null if neither resolves.
@@ -5000,11 +5005,13 @@ function processFavorsAndDutiesForTurn(campaign, options){
       // Scutage settles ONLY when the vassal paid it this month (the Pay Scutage button — RR pp.347–348).
       // The amount is DERIVED LIVE (scutageMonthlyGp = rate × current realm families) so it tracks population.
       // The vassal is debited via the monthly NET (scutage is a garrison-expense row in expenseBreakdown,
-      // already applied before this runs); here we only CREDIT the lord (one-sided — no double-move). An
-      // unpaid month does nothing (the gp stays with the vassal; the liege card shows it wasn't paid).
+      // already applied before this runs); here we only CREDIT the lord (one-sided — no double-move). A
+      // not-paying month does nothing (the gp stays with the vassal; the liege card shows it wasn't paid).
+      // Gated on the auto-pay toggle (scutageAutoPay) — it bills automatically each month while on.
       const amt = scutageMonthlyGp(campaign, o);
-      if(amt > 0 && o.scutageLastPaidTurn === currentTurn && liegeDomain){
+      if(amt > 0 && o.scutageAutoPay === true && liegeDomain){
         _applyDomainTreasuryDelta(campaign, liegeDomain, +amt, { reason:'scutage', label:'favor-duty: scutage (collected)' });
+        o.scutageLastPaidTurn = currentTurn;   // audit: the last month scutage actually settled
         const flow = { from: vassalDomain.id, to: liegeDomain.id, amount: amt, reason:'scutage' };
         result.gpFlows.push(flow);
         _emitFavorDutyEvent(campaign, o, { action:'scutage-collected', gpPerMonth:amt, gpFlows:[flow], narrative:'Scutage of ' + amt.toLocaleString() + 'gp collected by the lord from ' + (vassalDomain.name || o.vassalDomainId) + ' (counts as the vassal’s garrison expense).' });
@@ -7201,7 +7208,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   createFavorDutyObligation, revokeFavorDutyObligation, spendOneTimeFavorObligation,
   activeFavorDutyObligationsFor, favorDutyObligationsForVassalDomain, realmFamiliesForDomain,
   favorDutyBalance, processFavorsAndDutiesForTurn,
-  applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation, payScutageObligation,
+  applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation,
+  setScutageAutoPay, payScutageObligation, stopScutagePayment,
   scutageRate, scutageMonthlyGp, councilAttendanceStatus, sendVassalToCouncil,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
