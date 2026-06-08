@@ -324,6 +324,67 @@ section('commitTurn integration — F&D rides the monthly turn deterministically
   ok('favor-duty events landed in the eventLog', demo.eventLog.some(e => e.event && e.event.kind === 'favor-duty'));
 }
 
+// =============================================================================
+section('Manual GM-pick path — applyFavorDutyEdictByKind + revokeFavorDutyEdict (F&D-2 UI)');
+// =============================================================================
+{
+  // Grant a favor (gift) by kind — resolves liege/ruler/domains from the vassalage; roll = null.
+  const c = mkCampaign();
+  const lordBefore = treasuryGp(c,'dom-lord'), vassBefore = treasuryGp(c,'dom-vassal');
+  const realmF = ACKS.realmFamiliesForDomain(c, c.domains.find(d=>d.id==='dom-vassal'));
+  const g = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'gift' }, { rng: scriptedRng([]) });
+  ok('grant favor by kind returns a result + obligation', !!g && !!g.obligation && g.obligation.kind === 'gift' && g.obligation.isFavor === true);
+  ok('manual edict records roll = null (hand-picked, not rolled)', g.obligation.roll === null);
+  ok('manual gift lands in the collection, active', c.favorDutyObligations.some(o => o.id === g.obligation.id && o.status === 'active'));
+  ok('manual gift moves gp lord → vassal (same core as the monthly pass)', treasuryGp(c,'dom-lord') === lordBefore - realmF && treasuryGp(c,'dom-vassal') === vassBefore + realmF);
+  ok('manual edict emits a favor-duty event', c.eventLog.some(e => e.event && e.event.kind === 'favor-duty'));
+}
+{
+  // Demand a duty (call-to-arms) by kind — realm-families gp basis, no over-demand yet.
+  const c = mkCampaign();
+  const realmF = ACKS.realmFamiliesForDomain(c, c.domains.find(d=>d.id==='dom-vassal'));
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-arms' }, { rng: scriptedRng([]) });
+  ok('demand duty by kind → duty obligation (isFavor false)', !!d && d.obligation.kind === 'call-to-arms' && d.obligation.isFavor === false);
+  ok('call-to-arms gpPerMonth = 1gp × realm families', d.obligation.gpPerMonth === realmF);
+  ok('a single duty (no prior) does not over-demand → no Loyalty roll', d.loyaltyResult === null && d.balance.excess === 0);
+}
+{
+  // Manual demand that OVER-demands → fires the Loyalty roll through the shared core.
+  const c = mkCampaign({ vassalLoyalty: 0 });
+  ACKS.createFavorDutyObligation(c, { liegeCharacterId:'chr-lord', vassalDomainId:'dom-vassal', vassalRulerCharacterId:'chr-vassal', kind:'loan', isFavor:false, isOngoing:true, gpPerMonth:0, grantedAtTurn:1 });
+  // demand a 2nd duty → excess 1 → roll at modifier 0; 2d6 = 3+3 → grudging, delta −1 (loyalty 0 → −1)
+  const d = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'call-to-council' }, { rng: scriptedRng([ d6Val(3), d6Val(3) ]) });
+  ok('manual over-demand fires the excess-duty Loyalty roll', !!d.loyaltyResult && d.balance.excess === 1 && d.balance.loyaltyModifier === 0);
+  ok('the vassal ruler loyalty changed per the roll band', c.characters.find(x=>x.id==='chr-vassal').loyalty === -1);
+}
+{
+  // The manual path is RAW-core — available even when favor-duty-auto-roll is OFF.
+  const c = mkCampaign({ houseRules: { 'favor-duty-auto-roll': { enabled:false } } });
+  const g = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'office' }, { rng: scriptedRng([]) });
+  ok('manual grant works with auto-roll OFF (manual is always available)', !!g && c.favorDutyObligations.length === 1 && g.obligation.kind === 'office');
+}
+{
+  // Guards: unknown kind, the roll-only revocation, and a domain with no active liege → null.
+  const c = mkCampaign();
+  ok('unknown kind → null', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'not-a-kind' }) === null);
+  ok('revocation kind (roll-only) → null', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-vassal', kind:'revocation' }) === null);
+  ok('domain with no active liege → null', ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId:'dom-lord', kind:'gift' }) === null);
+  ok('no obligations created by the rejected calls', c.favorDutyObligations.length === 0);
+}
+{
+  // revokeFavorDutyEdict — revoke + emit; idempotent (no 2nd event).
+  const c = mkCampaign();
+  const o = ACKS.createFavorDutyObligation(c, { liegeCharacterId:'chr-lord', vassalDomainId:'dom-vassal', kind:'scutage', isFavor:false, isOngoing:true, grantedAtTurn:1 });
+  const evBefore = c.eventLog.length;
+  const rev = ACKS.revokeFavorDutyEdict(c, o.id, {});
+  ok('revokeFavorDutyEdict sets status revoked', rev && rev.status === 'revoked');
+  ok('revokeFavorDutyEdict emits one favor-duty event', c.eventLog.length === evBefore + 1 && c.eventLog[c.eventLog.length-1].event.kind === 'favor-duty');
+  ok('revoked obligation drops out of the active set', ACKS.activeFavorDutyObligationsFor(c,'chr-lord','dom-vassal').length === 0);
+  const evAfter = c.eventLog.length;
+  ACKS.revokeFavorDutyEdict(c, o.id, {});  // 2nd call — already revoked
+  ok('revokeFavorDutyEdict is idempotent (no 2nd event)', c.eventLog.length === evAfter);
+}
+
 console.log('\n=============================================');
 console.log('favors-and-duties.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
