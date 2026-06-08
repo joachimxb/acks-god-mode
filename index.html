@@ -6498,16 +6498,16 @@ document.addEventListener('alpine:init', () => {
             <h4 class="font-semibold text-sm flex items-center gap-2">🏠 Cost of living <span class="text-xs font-normal opacity-60">(RR p.173)</span></h4>
             <div class="text-sm flex items-center gap-2 flex-wrap">
               <span class="w-40">Apparent level (to NPCs)</span>
-              <span class="font-mono font-semibold" :class="le.apparentLevel < le.trueLevel ? 'accent-red' : (le.apparentLevel > le.trueLevel ? 'accent-green' : '')" x-text="le.apparentLevel"></span>
-              <span class="text-xs opacity-70" x-show="le.apparentLevel !== le.trueLevel" x-text="'(true level ' + le.trueLevel + ' — ' + (le.apparentLevel < le.trueLevel ? 'underspending' : 'living large') + ')'"></span>
-              <span class="text-xs opacity-60" x-show="le.apparentLevel === le.trueLevel">matches true level</span>
+              <span class="font-mono font-semibold" :class="le.apparentLevel < le.trueLevel ? 'accent-red' : ''" x-text="le.apparentLevel"></span>
+              <span class="text-xs opacity-70" x-show="le.apparentLevel < le.trueLevel" x-text="'(true level ' + le.trueLevel + ' — underspending)'"></span>
+              <span class="text-xs opacity-60" x-show="le.apparentLevel >= le.trueLevel">matches true level</span>
             </div>
             <div class="text-sm flex items-center gap-2 flex-wrap">
               <span class="w-40">Lifestyle target level</span>
-              <input type="number" min="0" max="14" class="w-16 text-sm border border-ink/40 rounded px-1"
+              <input type="number" min="0" :max="le.trueLevel" class="w-16 text-sm border border-ink/40 rounded px-1"
                      :value="characterEditing.lifestyleTargetLevel != null ? characterEditing.lifestyleTargetLevel : le.trueLevel"
-                     @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'lifestyleTargetLevel', label:'Lifestyle target level', oldValue:characterEditing.lifestyleTargetLevel, newValue:($event.target.value===''?null:Math.max(0,Math.min(14,parseInt($event.target.value)||0)))})">
-              <span class="text-xs opacity-70" x-text="'≈ ' + le.targetWage.toLocaleString() + ' gp/mo' + (characterEditing.lifestyleTargetLevel==null ? ' (default = true level)' : '')"></span>
+                     @change="commitStatEdit({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'lifestyleTargetLevel', label:'Lifestyle target level', oldValue:characterEditing.lifestyleTargetLevel, newValue:($event.target.value===''?null:Math.max(0,Math.min(le.trueLevel,parseInt($event.target.value)||0)))})">
+              <span class="text-xs opacity-70" x-text="'≈ ' + le.targetWage.toLocaleString() + ' gp/mo' + (characterEditing.lifestyleTargetLevel==null ? ' (default = true level)' : '') + ' · living frugally appears lower (RR p.173)'"></span>
             </div>
             <div class="text-sm flex items-center gap-2">
               <span class="w-40">Last month paid</span>
@@ -10259,13 +10259,11 @@ return {
     let note;
     if(apparentLevel < trueLevel){
       note = 'Underspending — NPCs (and prospective henchmen) take ' + ((ch && ch.name) || 'this character') +
-             ' for level ' + apparentLevel + ' (RR p.170). Raise the lifestyle target, or keep more coin on hand for month-end.';
-    } else if(apparentLevel > trueLevel){
-      note = 'Living large — appears as level ' + apparentLevel + ' to NPCs, which can let them retain higher-level henchmen (RR p.170).';
+             ' for level ' + apparentLevel + ' (RR p.173). Raise the lifestyle target, or keep more coin on hand for month-end.';
     } else {
       note = 'Living expenses cover the character’s level. Paid at month end from ' +
              ((ch && ch.payKeepFromTreasury && rulesADomain) ? 'the domain treasury' : 'the coin purse') +
-             '; short funds force a lower spend (no debt).';
+             '; short funds force a lower spend (no debt). Spending above your level doesn’t raise your apparent level (RR p.173 is downward-only).';
     }
     return { trueLevel, apparentLevel, targetLevel, targetWage, rulesADomain, note };
   },

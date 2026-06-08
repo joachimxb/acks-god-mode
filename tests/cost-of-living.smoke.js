@@ -473,6 +473,15 @@ section('CoL-2 — forced down by funds (no debt) + lifestyle target dial-down')
   ACKS.processLivingExpensesForTurn(camp2);
   ok('dialled-down target pays the target wage (800), not the L9 wage', lord.lastLivingExpensePaidGp === 800);
   ok('dialled-down apparent level = 6 even at true L9', lord.effectiveSocialLevel === 6);
+
+  // RR p.173 is DOWNWARD-ONLY: overspending (a target above the true level — only reachable via an old
+  // save / Inspector; the Survival-tab lever is capped at the true level) does NOT raise apparent level.
+  const camp3 = freshCampaign();
+  const prof = purse(mkChar('p', null, { level: 3, lifestyleTargetLevel: 9 }), 20000);
+  camp3.characters = [prof];
+  ACKS.processLivingExpensesForTurn(camp3);
+  ok('overspend does NOT raise apparent level above true (capped at 3)', prof.effectiveSocialLevel === 3);
+  ok('apparentLevel never exceeds true level', ACKS.apparentLevel(camp3, prof) === 3);
 }
 
 section('CoL-2 — rule OFF: no debits + apparent cleared');

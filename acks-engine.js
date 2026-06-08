@@ -4249,7 +4249,10 @@ function processLivingExpensesForTurn(campaign, opts){
     const targetLevel = (c.lifestyleTargetLevel != null) ? c.lifestyleTargetLevel : trueLevel;
     const target = A.levelMonthlyWage ? A.levelMonthlyWage(targetLevel) : 0;
     const paid = pay(c, target, 'Living expenses', 'living-expenses');
-    const eff = A.effectiveSocialLevelForSpend ? A.effectiveSocialLevelForSpend(paid) : trueLevel;
+    // RR p.173 is downward-only: underspending drops you to the level your spend covers; overspending
+    // does NOT raise you above your true level (the profligate "fool a henchman" is a Judge-discretion
+    // bluff, RR p.170, not a cap-raise). So cap the apparent level at the true level.
+    const eff = A.effectiveSocialLevelForSpend ? Math.min(trueLevel, A.effectiveSocialLevelForSpend(paid)) : trueLevel;
     if(!dryRun){ c.lastLivingExpensePaidGp = paid; c.effectiveSocialLevel = eff; }
     out.charges.push({ charId: c.id, name: c.name, kind:'living-expenses', trueLevel, targetLevel, target, paid, effectiveLevel: eff });
     out.totalGp += paid;
@@ -4276,15 +4279,17 @@ function processLivingExpensesForTurn(campaign, opts){
   return out;
 }
 
-// The level a character APPEARS to be to NPCs (RR p.170 + p.173) — the apparent/social level the
-// henchman hiring cap + loyalty read. With Living Expenses on, it's effectiveSocialLevel (what last
-// month's spend bought: underspend → lower, overspend → higher — "profligate adventurers might fool a
-// powerful henchman", RR p.170); null (not yet computed) or the rule off ⇒ the true class level.
+// The level a character APPEARS to be to NPCs (RR p.173) — the apparent/social level the henchman
+// hiring cap + loyalty read. RAW is DOWNWARD ONLY: "Adventurers who do not spend at least this much
+// are considered to be of LOWER level (equivalent to what they do spend)" (RR p.173). Overspending does
+// NOT mechanically raise you above your true level — a profligate "might be able to fool a powerful
+// henchman" (RR p.170) but that's a Judge-discretion bluff (with its own loyalty-roll catch), not an
+// automatic cap-raise. So apparent = min(true level, what the spend bought). null / rule off ⇒ true level.
 function apparentLevel(campaign, char){
   if(!char) return 0;
   const trueLevel = char.level || 0;
   if(!isHouseRuleEnabled(campaign, 'living-expenses')) return trueLevel;
-  return (char.effectiveSocialLevel != null) ? char.effectiveSocialLevel : trueLevel;
+  return (char.effectiveSocialLevel != null) ? Math.min(trueLevel, char.effectiveSocialLevel) : trueLevel;
 }
 // RR p.170: if a henchman concludes he is more powerful than his (apparent) employer, it triggers an
 // immediate Loyalty roll at −1 per apparent level of difference. Returns the loyalty modifier (≤ 0).
