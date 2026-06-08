@@ -1140,6 +1140,12 @@ function blankFavorDutyObligation(opts={}){
     status: opts.status || 'active',   // 'active' | 'revoked' | 'one-time-spent'
     grantedAtTurn: opts.grantedAtTurn || 1,
     revokedAtTurn: opts.revokedAtTurn != null ? opts.revokedAtTurn : null,
+    // Loan lifecycle (RR p.348). A Loan duty is DEMANDED (created) but the gp does not move until
+    // the vassal GIVES it (giveLoanObligation: vassal realm treasury → liege). loanGivenAtTurn = the
+    // turn the loan was given; null = demanded-but-not-yet-given (the liege card shows a notice).
+    // The monthly CHA% repayment check and revoke-repays-the-principal both key off this. null for
+    // every non-loan kind. Read defensively (== null → not given) so legacy saves need no migration.
+    loanGivenAtTurn: opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
     // Running total of gp the vassal has expended on a Construction duty (auto-revokes at
     // 15,000gp per 6-mile hex in the realm — RR p.348). 0 for every other kind.
     constructionSpentGp: opts.constructionSpentGp || 0,

@@ -3101,6 +3101,7 @@ function createFavorDutyObligation(campaign, opts={}){
     musterTitle:            opts.musterTitle             || '',
     roll:                   opts.roll != null ? opts.roll : null,
     grantedAtTurn:          opts.grantedAtTurn           || 1,
+    loanGivenAtTurn:        opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
     constructionSpentGp:    opts.constructionSpentGp     || 0,
     notes:                  opts.notes                   || ''
   });
@@ -4509,6 +4510,29 @@ function _favorDutyMoveGp(campaign, fromDomain, toDomain, amount, reason, flows)
   return flow;
 }
 
+// Resolve (vassalDomain, liegeDomain) for an obligation from its active vassalage — mirrors the
+// Phase B / edict-core resolution. liegeDomain is null if the vassalage is gone.
+function _favorDutyDomainsFor(campaign, rec){
+  const vassalDomain = (campaign.domains || []).find(d => d.id === rec.vassalDomainId) || null;
+  const v = (campaign.vassalages || []).find(x => x && x.status === 'active'
+    && x.vassalDomainId === rec.vassalDomainId && x.suzerainCharacterId === rec.liegeCharacterId);
+  const liegeDomain = v ? ((campaign.domains || []).find(d => d.id === v.suzerainDomainId) || null) : null;
+  return { vassalDomain, liegeDomain };
+}
+
+// RR p.348 — "The loan is repaid when the duty is revoked." When an active Loan obligation that was
+// actually GIVEN (loanGivenAtTurn set) is revoked by any path (manual revoke OR the 1d20 9–12
+// table-revocation), the lord returns the principal to the vassal (lord → vassal). Returns the gp
+// flow, or null for a non-loan / never-given / zero-amount loan. Mutates treasuries; does NOT
+// revoke (the caller owns that, so the order of operations stays explicit at each call site).
+function _favorDutyRepayLoanOnRevoke(campaign, rec){
+  if(!rec || rec.kind !== 'loan' || rec.loanGivenAtTurn == null) return null;
+  const amt = Math.round(Number(rec.gpPerMonth) || 0);
+  if(amt <= 0) return null;
+  const { vassalDomain, liegeDomain } = _favorDutyDomainsFor(campaign, rec);
+  return _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, amt, 'loan-repaid', null);   // lord → vassal
+}
+
 // Fire one excess-duty Loyalty roll on the vassal ruler (RR p.168 + p.347). Rolls 2d6 from the
 // passed rng (deterministic for tests), applies the loyaltyDelta to the ruler's loyalty (clamped
 // −4..+4 per RAW p.166), and records it on the character's loyaltyHistory. Returns the roll result.
@@ -4610,10 +4634,11 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   });
 
   // STEP 4 — one-time on-grant gp flows (the recurring ones run in Phase B, incl. this month).
+  // NB a Loan moves NO gp on grant (RR p.348 — the lord *demands* the loan; the vassal provides it
+  // as a separate act). The principal moves only when the vassal gives it (giveLoanObligation:
+  // vassal → lord), and is repaid on revoke or via the monthly CHA% check (lord → vassal).
   const flows = [];
-  if(entry.kind === 'loan' && gpPerMonth > 0){
-    _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, gpPerMonth, 'loan-principal', flows);   // vassal → lord, once
-  } else if(entry.kind === 'gift' && gpPerMonth > 0){
+  if(entry.kind === 'gift' && gpPerMonth > 0){
     _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, gpPerMonth, 'gift', flows);             // lord → vassal, once
   } else if(entry.kind === 'custom' && !entry.isOngoing && gpPerMonth > 0){
     // a one-time custom edict moves gp once on grant: a favor pushes lord→vassal, a duty pulls vassal→lord
@@ -4692,9 +4717,40 @@ function revokeFavorDutyEdict(campaign, obligationId, options){
     ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
   if(!rec || rec.status !== 'active') return rec || null;
   const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  // RR p.348 — revoking a GIVEN Loan repays the principal (lord → vassal) first.
+  const repayFlow = _favorDutyRepayLoanOnRevoke(campaign, rec);
   revokeFavorDutyObligation(campaign, obligationId, atTurn, options.reason || 'gm-revoked');
   const dname = ((campaign.domains || []).find(d => d.id === rec.vassalDomainId) || {}).name || rec.vassalDomainId;
-  _emitFavorDutyEvent(campaign, rec, { action:'revoked', narrative: 'Revoked ' + rec.kind + ' (' + (rec.isFavor ? 'favor' : 'duty') + ') on ' + dname + '.' });
+  const narrative = repayFlow
+    ? 'Revoked loan on ' + dname + ' — ' + repayFlow.amount.toLocaleString() + 'gp repaid to the vassal.'
+    : 'Revoked ' + rec.kind + ' (' + (rec.isFavor ? 'favor' : 'duty') + ') on ' + dname + '.';
+  _emitFavorDutyEvent(campaign, rec, { action:'revoked', gpFlows: repayFlow ? [repayFlow] : [], narrative });
+  return rec;
+}
+
+// Give (fund) a demanded Loan duty — the vassal-side act that actually moves the money (RR p.348:
+// the lord demands the loan; the vassal provides it). Transfers gpPerMonth from the vassal's realm
+// treasury to the liege's, stamps loanGivenAtTurn (so the monthly CHA% repayment check + revoke-
+// repays-the-principal both engage), records the funding in history, and emits the favor-duty event.
+// Idempotent / guarded: a non-loan, inactive, or already-given obligation is returned unchanged
+// (no money moves). Returns the obligation record, or null when it doesn't exist.
+function giveLoanObligation(campaign, obligationId, options){
+  options = options || {};
+  const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
+    ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
+  if(!rec) return null;
+  if(rec.status !== 'active' || rec.kind !== 'loan' || rec.loanGivenAtTurn != null) return rec;  // guarded no-op
+  const atTurn = options.atTurn != null ? options.atTurn : (campaign.currentTurn || 1);
+  const amt = Math.round(Number(rec.gpPerMonth) || 0);
+  const { vassalDomain, liegeDomain } = _favorDutyDomainsFor(campaign, rec);
+  const flows = [];
+  if(amt > 0) _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, amt, 'loan-principal', flows);  // vassal → lord
+  rec.loanGivenAtTurn = atTurn;
+  if(!Array.isArray(rec.history)) rec.history = [];
+  rec.history.push({ turn: atTurn, type: 'loan-given', amount: amt });
+  const dname = (vassalDomain && vassalDomain.name) || rec.vassalDomainId;
+  _emitFavorDutyEvent(campaign, rec, { action:'loan-given', gpFlows: flows,
+    narrative: 'Loan of ' + amt.toLocaleString() + 'gp given by ' + dname + ' to its liege.' });
   return rec;
 }
 
@@ -4742,9 +4798,14 @@ function processFavorsAndDutiesForTurn(campaign, options){
       let target = null;
       for(const o of candidates){ if(!target || (o.grantedAtTurn || 0) >= (target.grantedAtTurn || 0)) target = o; }
       if(target){
+        // RR p.348 — a revoked given Loan repays the principal (lord → vassal), same as a manual revoke.
+        const repayFlow = _favorDutyRepayLoanOnRevoke(campaign, target);
+        if(repayFlow) result.gpFlows.push(repayFlow);
         revokeFavorDutyObligation(campaign, target.id, currentTurn, 'favor-duty-table-revocation');
-        const narrative = 'Revoked ' + target.kind + ' (' + (wantFavor ? 'favor' : 'duty') + ') for ' + (vassalDomain.name || vassalDomainId) + '.';
-        _emitFavorDutyEvent(campaign, target, { action:'revoked', roll, subRoll, narrative });
+        const narrative = repayFlow
+          ? 'Revoked loan for ' + (vassalDomain.name || vassalDomainId) + ' — ' + repayFlow.amount.toLocaleString() + 'gp repaid.'
+          : 'Revoked ' + target.kind + ' (' + (wantFavor ? 'favor' : 'duty') + ') for ' + (vassalDomain.name || vassalDomainId) + '.';
+        _emitFavorDutyEvent(campaign, target, { action:'revoked', roll, subRoll, gpFlows: repayFlow ? [repayFlow] : [], narrative });
         result.revoked.push({ obligationId: target.id, kind: target.kind, wantFavor });
         result.events++;
         result.logEntries.push('Favor/Duty — ' + (vassalDomain.name || vassalDomainId) + ': ' + narrative);
@@ -4797,8 +4858,9 @@ function processFavorsAndDutiesForTurn(campaign, options){
         }
         result.events++;
       }
-    } else if(o.kind === 'loan' && o.gpPerMonth > 0 && (o.grantedAtTurn || 0) < currentTurn){
-      // Repayment check (RR p.348): the lord's CHA% chance each month; success repays + revokes.
+    } else if(o.kind === 'loan' && o.gpPerMonth > 0 && o.loanGivenAtTurn != null && o.loanGivenAtTurn < currentTurn){
+      // Repayment check (RR p.348): once the loan has been GIVEN, the lord's CHA% chance each month;
+      // success repays (lord → vassal) + revokes. A demanded-but-ungiven loan is not yet repayable.
       const lord = (campaign.characters || []).find(c => c.id === o.liegeCharacterId) || null;
       const chaPct = lord ? Math.max(0, Math.min(100, Number((lord.abilities && lord.abilities.CHA) || 0))) : 0;
       // CHA score (3..18) used directly as a percentage chance (RAW phrases it as "CHA as a percentage").
@@ -6944,7 +7006,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   createFavorDutyObligation, revokeFavorDutyObligation, spendOneTimeFavorObligation,
   activeFavorDutyObligationsFor, favorDutyObligationsForVassalDomain, realmFamiliesForDomain,
   favorDutyBalance, processFavorsAndDutiesForTurn,
-  applyFavorDutyEdictByKind, revokeFavorDutyEdict,
+  applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,
