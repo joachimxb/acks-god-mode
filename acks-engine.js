@@ -5886,9 +5886,17 @@ function characterActivityBudget(campaign, charId, opts){
   // "These count as ancillary activities"), one per ACTIVE drive (per hireling type) per day while the
   // patron is in the market. Derived from the patron's active recruitmentDrives, exactly like travel
   // from a journey; the 'recruitment' day-consumer advances them (½/¼/remainder over 3 weeks).
+  // "What happened today" (Joachim 2026-06-08): a drive also solicited on the DAY IT COMPLETED — the
+  // week-3 reveal is the LAST of the 3 solicitation weeks, not a separate hiring day, so it should still
+  // read as soliciting that day (then roll off). The drive completes deterministically at startedDayOrd
+  // + 21 days (when elapsedWeeks first reaches 3 — RR p.164); compare to today on the RECRUIT ordinal
+  // ((turn-1)*30 + day, the convention startedDayOrd is stamped with — distinct from the journey ordinal).
   if(char && Array.isArray(char.recruitmentDrives)){
+    const _recruitTodayOrd = (((campaign && campaign.currentTurn) || 1) - 1) * 30 + (((campaign && campaign.currentDayInMonth) || 1));
     for(const d of char.recruitmentDrives){
-      if(!d || d.status !== 'active') continue;
+      if(!d) continue;
+      const completedToday = (d.status === 'complete' && d.startedDayOrd != null && (d.startedDayOrd + 21) === _recruitTodayOrd);
+      if(d.status !== 'active' && !completedToday) continue;
       const cc = costFor('recruit');
       activities.push({ kind:'recruit', label: cc.label + (d.hireTypeLabel ? (' (' + d.hireTypeLabel + ')') : ''), cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'recruitment-drive', sourceId: d.id });
     }

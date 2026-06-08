@@ -9717,17 +9717,33 @@ return {
     }
 
     // ── Contributor 4: Journeys (Priority 1) — Phase 2.5 #475 ───────────────
-    // An in-flight (or resting) Journey the character is participating in. Mode-
-    // discriminated icon per the Journeys plan §15. deepLinkTo reserved for the
-    // Journeys sub-tab (J2) / inspectorOpen.
+    // An in-flight (or resting) Journey the character is participating in, OR one that TRAVELLED on the
+    // current world day even if it has since ARRIVED / been stopped (Joachim 2026-06-08 — keep the
+    // projection consistent with the Activities dashboard, which counts a journey's travel + forage on
+    // its arrival day). lastTravelWorldOrd (turn*30 + day, commitJourneyRecord) is the day it last
+    // travelled; === today ⇒ the party travelled (and foraged) today. A Day-Clock advance moves the clock
+    // past the leg, so an arrived journey then drops out. Mode-discriminated icon per the Journeys plan §15.
+    const _jTodayOrd = ((this.currentCampaign?.currentTurn || 1) * 30) + (this.currentCampaign?.currentDayInMonth || 1);
     const journeys = (this.currentCampaign?.journeys || [])
-      .filter(j => j && (j.status === 'in-transit' || j.status === 'resting') && (j.participantCharacterIds || []).includes(c.id));
+      .filter(j => {
+        if(!j || !(j.participantCharacterIds || []).includes(c.id)) return false;
+        if(j.status === 'in-transit' || j.status === 'resting') return true;
+        return j.lastTravelWorldOrd != null && j.lastTravelWorldOrd === _jTodayOrd;   // travelled today, now ended
+      });
     for(const j of journeys){
       const destLabel = this._journeyHexLabel(j.destinationHexId);
       const curLabel = this._journeyHexLabel(j.currentHexId);
       const dayN = (j.currentDayIndex || 0) + 1;
       const link = {entity:'journey', id:j.id};
-      if(j.isLost){
+      const endedToday = (j.status !== 'in-transit' && j.status !== 'resting');   // travelled today but arrived/stopped
+      if(endedToday){
+        // "What happened today" — the leg the party walked before the journey ended.
+        if(j.status === 'arrived'){
+          acts.push({kind:'journey-arrivedtoday:' + j.id, icon:'🥾', label:'travelled to ' + destLabel + ' today', priority:1, deepLinkTo:link});
+        } else {
+          acts.push({kind:'journey-stoppedtoday:' + j.id, icon:'🥾', label:'travelled to ' + curLabel + ' today', priority:1, deepLinkTo:link});
+        }
+      } else if(j.isLost){
         acts.push({kind:'journey-lost:' + j.id, icon:'🧭', label:'lost en route to ' + destLabel, priority:1, deepLinkTo:link});
       } else if(j.status === 'resting'){
         acts.push({kind:'journey-resting:' + j.id, icon:'⛺', label:'resting at ' + curLabel, priority:1, deepLinkTo:link});
@@ -9740,9 +9756,9 @@ return {
       }
       // Foraging for water on the march — an ancillary activity riding in the travel day (RR p.272).
       // Shown when the party forages AND the current hex has no free water source (matches the
-      // activity-budget contributor in characterActivityBudget).
-      if(j.status === 'in-transit' && j.forageWaterEnabled && !this.journeyHexSourcesWater(j)){
-        acts.push({kind:'journey-forage:' + j.id, icon:'🌿', label:'foraging for water', priority:3, deepLinkTo:link});
+      // activity-budget contributor). Counts while underway OR travelled-today (then past-tense).
+      if((j.status === 'in-transit' || endedToday) && j.forageWaterEnabled && !this.journeyHexSourcesWater(j)){
+        acts.push({kind:'journey-forage:' + j.id, icon:'🌿', label: endedToday ? 'foraged for water today' : 'foraging for water', priority:3, deepLinkTo:link});
       }
     }
 
@@ -9802,12 +9818,19 @@ return {
     // ── Contributor 7: Recruitment drives (Priority 3) — R3, the §8.9 mandate ──
     // An active solicitation drive engages the patron for 1 ancillary/day per hireling type
     // (the activity budget counts it). Ongoing state on the patron (character.recruitmentDrives[]),
-    // so it surfaces like a journey / role post — one chip per active drive. RR p.164.
+    // so it surfaces like a journey / role post — one chip per active drive. RR p.164. A drive also
+    // solicited on the DAY IT COMPLETED — the week-3 reveal (startedDayOrd + 21) is the last of the 3
+    // solicitation weeks, not a separate hiring day (Joachim 2026-06-08; matches characterActivityBudget),
+    // so show it that one day then roll off. Recruit ordinal = (turn-1)*30 + day (startedDayOrd's convention).
     if(Array.isArray(c.recruitmentDrives)){
+      const _recruitTodayOrd = ((this.currentCampaign?.currentTurn || 1) - 1) * 30 + (this.currentCampaign?.currentDayInMonth || 1);
       for(const d of c.recruitmentDrives){
-        if(!d || d.status !== 'active') continue;
+        if(!d) continue;
+        const completedToday = (d.status === 'complete' && d.startedDayOrd != null && (d.startedDayOrd + 21) === _recruitTodayOrd);
+        if(d.status !== 'active' && !completedToday) continue;
+        const wk = completedToday ? 3 : (d.weeksRevealed || 1);
         acts.push({kind:'recruiting:' + d.id, icon:'🤝',
-                   label:'soliciting ' + (d.hireTypeLabel || d.hireTypeId || 'hirelings') + ' (week ' + (d.weeksRevealed || 1) + ' of 3)',
+                   label:'soliciting ' + (d.hireTypeLabel || d.hireTypeId || 'hirelings') + ' (week ' + wk + ' of 3)',
                    priority:3});
       }
     }

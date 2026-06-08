@@ -91,6 +91,28 @@ section('activity-budget contributor — active drive = 1 ancillary/day per type
 }
 
 // =============================================================================
+section('activity-budget contributor — the COMPLETION day still counts as soliciting');
+{
+  // RR p.164: soliciting runs 3 weeks; the week-3 reveal (the completion) is the LAST of the 21
+  // solicitation days, not a separate hiring day — so the budget still reads as soliciting on that day
+  // (Joachim 2026-06-08), then it rolls off the next. Mirrors the journey "acted today" rule.
+  const c = mkCampaign();
+  const d = ACKS.startRecruitmentDrive(c, { patronCharacterId: 'pat', marketClassIdx: 2, hireCategory: 'mercenary', hireTypeId: MERC.id, rng: HALF }).drive;
+  c.currentDayInMonth = 22;     // +21 days = week 3 completes the drive
+  ACKS.advanceRecruitmentDrives(c);
+  ok('drive completed on day 22', d.status === 'complete');
+  const bDone = ACKS.characterActivityBudget(c, 'pat');
+  ok('completion day still counts as soliciting (1 ancillary)', bDone.ancillaryUsed === 1 && bDone.ancillary.some(a => a.kind === 'recruit'));
+  c.currentDayInMonth = 23;     // the next day — soliciting is genuinely over
+  ok('the day AFTER completion no longer counts', !ACKS.characterActivityBudget(c, 'pat').ancillary.some(a => a.kind === 'recruit'));
+  // a STOPPED drive never counts (the patron pulled out — not a completed solicitation)
+  const c2 = mkCampaign();
+  const d2 = ACKS.startRecruitmentDrive(c2, { patronCharacterId: 'pat', marketClassIdx: 2, hireCategory: 'mercenary', hireTypeId: MERC.id, rng: HALF }).drive;
+  ACKS.stopRecruitmentDrive(c2, 'pat', d2.id);
+  ok('a stopped drive does not count, even on its stop day', !ACKS.characterActivityBudget(c2, 'pat').ancillary.some(a => a.kind === 'recruit'));
+}
+
+// =============================================================================
 section("'recruitment' day-consumer — reveal + fee debit from the purse (GP grammar)");
 {
   const c = mkCampaign(1000);
