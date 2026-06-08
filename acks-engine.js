@@ -3102,6 +3102,7 @@ function createFavorDutyObligation(campaign, opts={}){
     roll:                   opts.roll != null ? opts.roll : null,
     grantedAtTurn:          opts.grantedAtTurn           || 1,
     loanGivenAtTurn:        opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
+    councilHexId:           opts.councilHexId             || null,
     constructionSpentGp:    opts.constructionSpentGp     || 0,
     notes:                  opts.notes                   || ''
   });
@@ -4625,10 +4626,24 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   }
 
   const musterTitle = entry.muster ? global.ACKS.realmTitleForDomain(liegeDomain) : '';
+  // Call to Council (RR p.346) — the vassal must attend the lord at a hex in the lord's domain.
+  // The location defaults to where the lord is now (the liege ruler's current hex), else the
+  // liege domain's first hex; a GM-supplied ctx.councilHexId (the location picker) overrides.
+  let councilHexId = null;
+  if(entry.kind === 'call-to-council'){
+    if(ctx.councilHexId){
+      councilHexId = ctx.councilHexId;
+    } else {
+      const liegeRuler = (campaign.characters || []).find(c => c && c.id === liegeId) || null;
+      councilHexId = (liegeRuler && liegeRuler.currentHexId)
+        || ((((campaign.hexes || []).find(h => h && h.domainId === (liegeDomain && liegeDomain.id))) || {}).id)
+        || null;
+    }
+  }
   const obligation = createFavorDutyObligation(campaign, {
     liegeCharacterId: liegeId, vassalDomainId, vassalRulerCharacterId: vassalRulerId,
     kind: entry.kind, isFavor: entry.isFavor, isOngoing: entry.isOngoing,
-    gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn,
+    gpPerMonth, musterTitle, roll, grantedAtTurn: currentTurn, councilHexId,
     customLabel: entry.kind === 'custom' ? (ctx.customLabel || entry.label || '') : '',
     notes: entry.kind === 'custom' ? (ctx.customLabel || '') : _favorDutyResolveNote(entry, { musterTitle })
   });
@@ -4704,6 +4719,7 @@ function applyFavorDutyEdictByKind(campaign, opts, options){
     liegeId: v.suzerainCharacterId, vassalDomainId, vassalRulerId: v.vassalRulerCharacterId,
     vassalDomain, liegeDomain, entry, roll: null, currentTurn,
     amountOverride: opts.gpPerMonth != null ? opts.gpPerMonth : null,
+    councilHexId: opts.councilHexId || null,
     customLabel
   }, rng);
 }
@@ -4752,6 +4768,93 @@ function giveLoanObligation(campaign, obligationId, options){
   _emitFavorDutyEvent(campaign, rec, { action:'loan-given', gpFlows: flows,
     narrative: 'Loan of ' + amt.toLocaleString() + 'gp given by ' + dname + ' to its liege.' });
   return rec;
+}
+
+// The vassal-ruler character for an obligation (the Call-to-Council traveller): the recorded
+// vassalRulerCharacterId, else the vassal domain's ruler. null if neither resolves.
+function _favorDutyVassalRuler(campaign, rec){
+  if(!campaign || !rec) return null;
+  let ch = rec.vassalRulerCharacterId ? (campaign.characters || []).find(c => c && c.id === rec.vassalRulerCharacterId) : null;
+  if(!ch){
+    const vd = (campaign.domains || []).find(d => d.id === rec.vassalDomainId) || null;
+    if(vd && vd.rulerCharacterId) ch = (campaign.characters || []).find(c => c && c.id === vd.rulerCharacterId) || null;
+  }
+  return ch || null;
+}
+
+// Derived Call-to-Council attendance (RR p.346) — a LIVE read off the vassal ruler's current hex, so
+// it's correct however he got there (a Go-to-Council journey, the Day Clock, or a manual move).
+// Returns { kind, councilHexId, travellerId, journeyId, status } where status is:
+//   'no-location' (no councilHexId) | 'at-council' (the vassal ruler is at the hex) |
+//   'en-route' (on an active journey whose destination IS the council hex) | 'away' (elsewhere).
+// A non-council obligation returns kind:'other'.
+function councilAttendanceStatus(campaign, obligation){
+  const rec = (typeof obligation === 'string')
+    ? ((campaign && (campaign.favorDutyObligations || []).find(o => o.id === obligation)) || null)
+    : obligation;
+  if(!rec || rec.kind !== 'call-to-council') return { kind:'other', councilHexId:null, travellerId:null, journeyId:null, status:'other' };
+  const councilHexId = rec.councilHexId || null;
+  const ruler = _favorDutyVassalRuler(campaign, rec);
+  const travellerId = ruler ? ruler.id : null;
+  if(!councilHexId) return { kind:'call-to-council', councilHexId:null, travellerId, journeyId:null, status:'no-location' };
+  // A party on a journey moves with it (party.currentHexId / activeJourneyId); else the character's
+  // own currentHexId (which the journey day-tick keeps current) + currentJourneyId.
+  let atHex = ruler ? ruler.currentHexId : null;
+  let journeyId = ruler ? (ruler.currentJourneyId || null) : null;
+  if(ruler && ruler.partyId){
+    const pt = (campaign.parties || []).find(p => p && p.id === ruler.partyId) || null;
+    if(pt){ if(pt.currentHexId) atHex = pt.currentHexId; if(pt.activeJourneyId) journeyId = pt.activeJourneyId; }
+  }
+  if(atHex && atHex === councilHexId) return { kind:'call-to-council', councilHexId, travellerId, journeyId:null, status:'at-council' };
+  const j = journeyId ? ((campaign.journeys || []).find(x => x && x.id === journeyId) || null) : null;
+  if(j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost') && j.destinationHexId === councilHexId){
+    return { kind:'call-to-council', councilHexId, travellerId, journeyId: j.id, status:'en-route' };
+  }
+  return { kind:'call-to-council', councilHexId, travellerId, journeyId: (j ? j.id : null), status:'away' };
+}
+
+// "Go to Council" — plot (or re-route) the vassal's Journey to the council hex (RR p.346). The vassal
+// ruler travels; if he's in a party, the whole party travels. If he (or his party) is already on an
+// active journey, re-route its destination to the council hex; otherwise create a new journey from his
+// current hex and set out. Returns { action, journey, status }, action ∈ 'rerouted' | 'started' |
+// 'already-there' | 'no-location' | 'no-traveller' | 'no-origin' | 'not-applicable'.
+function sendVassalToCouncil(campaign, obligationId, options){
+  options = options || {};
+  const rec = (campaign && Array.isArray(campaign.favorDutyObligations))
+    ? campaign.favorDutyObligations.find(o => o.id === obligationId) : null;
+  if(!rec || rec.status !== 'active' || rec.kind !== 'call-to-council') return { action:'not-applicable', journey:null, status:null };
+  const councilHexId = rec.councilHexId || null;
+  if(!councilHexId) return { action:'no-location', journey:null, status:null };
+  const ruler = _favorDutyVassalRuler(campaign, rec);
+  if(!ruler) return { action:'no-traveller', journey:null, status:null };
+  const pt = ruler.partyId ? ((campaign.parties || []).find(p => p && p.id === ruler.partyId) || null) : null;
+  const atHex = (pt && pt.currentHexId) ? pt.currentHexId : ruler.currentHexId;
+  if(atHex && atHex === councilHexId) return { action:'already-there', journey:null, status:'at-council' };
+  // Re-route an existing active journey (the ruler's, or his party's).
+  const activeJourneyId = ruler.currentJourneyId || (pt && pt.activeJourneyId) || null;
+  const activeJourney = activeJourneyId ? ((campaign.journeys || []).find(x => x && x.id === activeJourneyId) || null) : null;
+  if(activeJourney && ['in-transit','resting','lost','planning'].indexOf(activeJourney.status) >= 0){
+    global.ACKS.reRouteJourney(campaign, activeJourney.id, { destinationHexId: councilHexId });
+    return { action:'rerouted', journey: activeJourney, status:'en-route' };
+  }
+  // Otherwise plot + start a new journey from the ruler's current hex.
+  if(!atHex) return { action:'no-origin', journey:null, status:null };
+  const participantIds = pt
+    ? (campaign.characters || []).filter(c => c && c.partyId === pt.id).map(c => c.id)
+    : [ruler.id];
+  if(participantIds.indexOf(ruler.id) < 0) participantIds.push(ruler.id);
+  const j = global.ACKS.blankJourney({
+    name: global.ACKS.journeyDefaultName(campaign, { partyId: pt ? pt.id : null, participantCharacterIds: participantIds }) || 'Call to council',
+    participantCharacterIds: participantIds,
+    partyId: pt ? pt.id : null,
+    startHexId: atHex,
+    destinationHexId: councilHexId,
+    mode: 'foot', pace: 'normal'
+  });
+  if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
+  campaign.journeys.push(j);
+  global.ACKS.startJourney(campaign, j);
+  return { action:'started', journey: j, status:'en-route' };
 }
 
 function processFavorsAndDutiesForTurn(campaign, options){
@@ -7007,6 +7110,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   activeFavorDutyObligationsFor, favorDutyObligationsForVassalDomain, realmFamiliesForDomain,
   favorDutyBalance, processFavorsAndDutiesForTurn,
   applyFavorDutyEdictByKind, revokeFavorDutyEdict, giveLoanObligation,
+  councilAttendanceStatus, sendVassalToCouncil,
   // #444 — Wave A derived accessors + reconcile (Architecture.md §3.6, 2026-05-29)
   derivedSocialTierFor, derivedLiegeFor, derivedEmployerFor,
   derivedMagistrateRolesFor, derivedVassalDomainsOf, derivedTributeOutflowGpFor,

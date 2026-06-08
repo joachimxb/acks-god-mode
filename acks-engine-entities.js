@@ -1146,6 +1146,11 @@ function blankFavorDutyObligation(opts={}){
     // The monthly CHA% repayment check and revoke-repays-the-principal both key off this. null for
     // every non-loan kind. Read defensively (== null → not given) so legacy saves need no migration.
     loanGivenAtTurn: opts.loanGivenAtTurn != null ? opts.loanGivenAtTurn : null,
+    // Call to Council (RR p.346) — the hex (within the lord's domain) where the vassal must attend.
+    // Set by the liege when demanding the duty (defaults to the liege ruler's current hex); the
+    // vassal travels there via "Go to Council" (plots/re-routes a Journey), and attendance is the
+    // live comparison of the vassal ruler's current hex to this. null for every non-council kind.
+    councilHexId: opts.councilHexId != null ? opts.councilHexId : null,
     // Running total of gp the vassal has expended on a Construction duty (auto-revokes at
     // 15,000gp per 6-mile hex in the realm — RR p.348). 0 for every other kind.
     constructionSpentGp: opts.constructionSpentGp || 0,
