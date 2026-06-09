@@ -785,6 +785,11 @@ function migrateCampaign(raw){
   // Idempotent. Ensures Campaign/Hex/Character/Settlement/Event new optional fields
   // exist on legacy saves. See Data_Dictionary.md §13.2 + §13.3.
   lazyDefaultV1ScopeReservations(current);
+  // Phase 2.5 Monster Persistence (#476, M0) — lift legacy nested hex.lairs[] sub-entities to the
+  // first-class campaign.lairs[] collection (same pattern as the treasury→stash lift). Runs after
+  // lazyDefaultV1ScopeReservations guarantees campaign.lairs[]. Idempotent; a no-op on campaigns
+  // with no nested lairs (every shipped template). See migrateLegacyHexLairs below.
+  migrateLegacyHexLairs(current);
   // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
   // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
   // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
@@ -822,6 +827,8 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!Array.isArray(campaign.constructibles)) campaign.constructibles = [];
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the liege↔vassal obligation relation collection.
   if(!Array.isArray(campaign.favorDutyObligations)) campaign.favorDutyObligations = [];
+  // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed entities.
+  if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -2797,6 +2804,98 @@ function groupActiveCount(group){
   const count = group.count || 0;
   const casualties = group.casualties || 0;
   return Math.max(0, count - casualties);
+}
+
+// =============================================================================
+// Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lair lookups + the legacy lift.
+// Lairs are first-class placed entities (campaign.lairs[]); see blankLair (§3.1). These pure
+// finds mirror the Group/Outpost lookup shape; the encounter pipeline (M3) and discovery (M4)
+// build on them. RAW core — catalog-free.
+// =============================================================================
+function findLair(campaign, lairId){
+  if(!campaign || !Array.isArray(campaign.lairs)) return null;
+  return campaign.lairs.find(l => l && l.id === lairId) || null;
+}
+// All lairs in a hex, any status (the encounter pool + UI filter by status downstream).
+function lairsAtHex(campaign, hexId){
+  if(!campaign || !Array.isArray(campaign.lairs) || !hexId) return [];
+  return campaign.lairs.filter(l => l && l.hexId === hexId);
+}
+// All lairs of a given monster type — "where do the dire wolves den in this world?"
+function lairsByMonsterKey(campaign, monsterCatalogKey){
+  if(!campaign || !Array.isArray(campaign.lairs)) return [];
+  return campaign.lairs.filter(l => l && l.monsterCatalogKey === monsterCatalogKey);
+}
+function activeLairs(campaign){
+  if(!campaign || !Array.isArray(campaign.lairs)) return [];
+  return campaign.lairs.filter(l => l && l.status === 'active');
+}
+function clearedLairs(campaign){
+  if(!campaign || !Array.isArray(campaign.lairs)) return [];
+  return campaign.lairs.filter(l => l && l.status === 'cleared');
+}
+// Derived inhabitant total = Σ active group counts (count − casualties) + individuated leader
+// Characters. Pure; recompute on demand — lair.totalInhabitantCount is only a cache.
+function lairInhabitantCount(campaign, lair){
+  if(!lair) return 0;
+  let n = 0;
+  if(Array.isArray(lair.groupIds) && campaign && Array.isArray(campaign.groups)){
+    for(const gid of lair.groupIds){
+      const g = campaign.groups.find(x => x && x.id === gid);
+      if(g) n += groupActiveCount(g);
+    }
+  }
+  if(Array.isArray(lair.leaderCharacterIds)) n += lair.leaderCharacterIds.length;
+  return n;
+}
+
+// Lift legacy nested hex.lairs[] sub-entities ({id,name,creatureType,hd,numberAppearing,description})
+// to the first-class campaign.lairs[] collection (blankLair §3.1). Same pattern as the treasury→stash
+// lift. No shipped template carries populated nested lairs, so this is purely defensive for old
+// community saves — and a no-op (returns 0) on every template, preserving the migrate-no-op invariant.
+// Mirrors the migrateAgriculturalToProjects hex-collection idiom (reads BOTH campaign.hexes and each
+// domain.geography.hexes; migrateCampaign runs before liftToTopLevelCollections). Idempotent: an
+// entry already lifted (id present in campaign.lairs) is dropped, and each hex's nested array is
+// cleared once processed, so a second pass finds nothing. Returns the count lifted.
+function migrateLegacyHexLairs(campaign){
+  if(!campaign || typeof campaign !== 'object') return 0;
+  if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
+  const existingIds = new Set(campaign.lairs.map(l => l && l.id).filter(Boolean));
+  const hexById = Object.create(null);
+  const addHexes = (arr) => { if(Array.isArray(arr)){ for(const h of arr){ if(h && h.id && !hexById[h.id]) hexById[h.id] = h; } } };
+  addHexes(campaign.hexes);
+  if(Array.isArray(campaign.domains)){ for(const d of campaign.domains){ if(d && d.geography) addHexes(d.geography.hexes); } }
+  let lifted = 0;
+  for(const hexId of Object.keys(hexById)){
+    const hex = hexById[hexId];
+    if(!hex || !Array.isArray(hex.lairs) || hex.lairs.length === 0) continue;
+    for(const legacy of hex.lairs){
+      if(!legacy || typeof legacy !== 'object') continue;
+      if(legacy.id && existingIds.has(legacy.id)) continue;  // already lifted — drop the nested dup
+      // No clean target for creatureType/hd/numberAppearing in the §3.1 shape, so fold them into
+      // notes with a citation; description → notes. Authored content → status:'active'.
+      const bits = [];
+      if(legacy.creatureType)   bits.push('Creature: ' + legacy.creatureType);
+      if(legacy.hd)             bits.push('HD: ' + legacy.hd);
+      if(legacy.numberAppearing)bits.push('No. appearing: ' + legacy.numberAppearing);
+      const noteParts = [];
+      if(legacy.description) noteParts.push(legacy.description);
+      if(bits.length)        noteParts.push('(legacy ' + bits.join(', ') + ')');
+      const lair = global.ACKS.blankLair({
+        id: legacy.id || undefined,
+        name: legacy.name || '',
+        status: 'active',
+        hexId: hex.id,
+        establishedBy: 'gm-fiat',
+        notes: noteParts.join(' ').trim()
+      });
+      campaign.lairs.push(lair);
+      existingIds.add(lair.id);
+      lifted++;
+    }
+    hex.lairs = [];  // canonical home is campaign.lairs[]; clear the nested array once lifted
+  }
+  return lifted;
 }
 
 // =============================================================================
@@ -7349,6 +7448,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   notableItemsInCustodian, notableItemsHeldByCharacter, notableItemsAtHex,
   // #442 — Group entity lookups (Architecture.md §2.4, 2026-05-29)
   findGroup, groupsAtHex, groupsByCatalogKey, groupsCommandedBy, groupActiveCount,
+  // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
+  findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
   createSpecialistContract, endSpecialistContract, activeSpecialistContractFor, specialistContractsByEmployer,

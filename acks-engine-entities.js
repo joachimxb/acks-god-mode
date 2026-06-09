@@ -123,7 +123,10 @@ function blankCampaign(opts={}){
     vagaryOfIncursionEvents: opts.vagaryOfIncursionEvents || [],
     // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30) — Project + Constructible
     projects:       opts.projects       || [],
-    constructibles: opts.constructibles || []
+    constructibles: opts.constructibles || [],
+    // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed
+    // entities (the RAW-core layer). Lifted from legacy nested hex.lairs[] by migrateCampaign.
+    lairs: opts.lairs || []
   };
 }
 
@@ -325,15 +328,57 @@ function blankSettlement(opts={}){
   };
 }
 
+// Phase 2.5 Monster Persistence (#476) — Lair, a first-class placed entity.
+// M0 (2026-06-09) promoted blankLair from the legacy nested hex.lairs[] sub-entity
+// ({id,name,creatureType,hd,numberAppearing,description}) to this shape; legacy nested
+// lairs are lifted to campaign.lairs[] by migrateLegacyHexLairs (acks-engine.js). The RAW
+// CORE is catalog-free — monsterCatalogKey is just a string until the MONSTER_CATALOG (M2)
+// exists; generation (lairPct rolls, treasure, structured population) is the catalog-gated
+// part (M3). Two-layer model (survey §2): the Lair entity + lifecycle is the RAW core
+// (default behaviour); the "world remembers" persistence layer is default-OFF rules (M10+).
+// Population is COMPOSITION (survey §5): groupIds[] → the rank-and-file campaign.groups[],
+// leaderCharacterIds[] → individuated leaders in campaign.characters[]. Treasure is lair-only
+// (a wandering Group carries none). See Phase_2.5_Monster_Persistence_Plan.md §3.1.
 function blankLair(opts={}){
   return {
     schemaVersion: SCHEMA_VERSION,
     id: opts.id || newId(ID_PREFIXES.lair),
     name: opts.name || '',
-    creatureType: opts.creatureType || '',
-    hd: opts.hd || '',
-    numberAppearing: opts.numberAppearing || '',
-    description: opts.description || ''
+    // Lifecycle status. 'dynamic' = authored-but-unplaced pool entry (hexId null), revealed
+    // into a hex on a lair roll (the RAW dynamic lair, JJ p.195). 'unknown' = placed but
+    // undetailed (the dynamic-lair authoring mode). See §3.2.
+    status: opts.status || 'active',  // active|cleared|abandoned|destroyed|unknown|dynamic
+    // Placement (D2 — strictly hex-local; no territory radius in v1).
+    hexId: opts.hexId || null,                       // null while status:'dynamic'
+    precisePlacement: opts.precisePlacement || '',   // GM narrative: "cave on the eastern slope"
+    knownToPlayers: opts.knownToPlayers === true,    // discovered via search/tracking? (§6)
+    hiddenDC: (opts.hiddenDC === undefined ? null : opts.hiddenDC),  // hex-search modifier
+    // Content — the STRUCTURED population (survey §5; NOT a flat count).
+    monsterCatalogKey: opts.monsterCatalogKey || '', // → MONSTER_CATALOG (M2); free string until then
+    lairPct: (opts.lairPct === undefined ? null : opts.lairPct),     // the monster's Lair % (0 = never lairs)
+    groupIds: opts.groupIds || [],                   // rank-and-file Groups → campaign.groups[]
+    leaderCharacterIds: opts.leaderCharacterIds || [], // individuated leaders → campaign.characters[]
+    totalInhabitantCount: opts.totalInhabitantCount || 0,  // derived-cache (ACKS.lairInhabitantCount)
+    // Treasure (lair-only — survey §16.3; a wandering Group carries no hoard).
+    treasureType: opts.treasureType || '',           // 'A'..'R' or '' if none
+    treasureCustodyId: opts.treasureCustodyId || null, // → campaign.itemCustody[] kind 'monster-hoard'
+    // Characteristics
+    lairType: opts.lairType || 'lair',               // lair|lair-large|hideout|ruin|natural-cave|dungeon-level
+    terrain: opts.terrain || '',
+    hasFortifications: opts.hasFortifications === true,
+    features: opts.features || [],
+    factionKey: opts.factionKey || null,             // reserved — cross-hex-lair-network (M10+)
+    // Lifecycle
+    establishedAtTurn: opts.establishedAtTurn || 1,
+    establishedBy: opts.establishedBy || 'gm-fiat',  // genesis|hex-seeding|dynamic-reveal|persistent-wanderer|gm-fiat
+    lastVisitedTurn: (opts.lastVisitedTurn === undefined ? null : opts.lastVisitedTurn),
+    clearedAtTurn: (opts.clearedAtTurn === undefined ? null : opts.clearedAtTurn),
+    clearedByEventId: opts.clearedByEventId || null,
+    repopulationChance: (opts.repopulationChance === undefined ? null : opts.repopulationChance), // reserved
+    // Audit (notability is EMERGENT from history — survey §18.8)
+    discoveryHistory: opts.discoveryHistory || [],
+    notes: opts.notes || '',
+    history: opts.history || []                       // derived via Event.context where possible
   };
 }
 

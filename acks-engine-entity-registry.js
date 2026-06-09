@@ -85,6 +85,14 @@
       find: (c, id) => ((c && c.outposts) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
 
+    // Phase 2.5 Monster Persistence (#476, M0) — Lair, the NPC-inhabited placed entity (the
+    // Outpost is its player-controlled mirror). campaign.lairs[]; see blankLair (§3.1).
+    { kind: 'lair', label: 'Lair', pluralLabel: 'Lairs', icon: '🏚',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.lairs) || [],
+      find: (c, id) => ((c && c.lairs) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.monsterCatalogKey) || (obj && obj.id) },
+
     // ── WEALTH + INVENTORY ──
     { kind: 'stash', label: 'Stash', pluralLabel: 'Stashes', icon: '💰',
       addressable: true, chronicleable: true,

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Monster lairs are now first-class places in your world.** A monster's lair — its den, warren, or webbed deep — is tracked as a proper entity bound to a hex, holding its inhabitants (the monster group that dens there), its treasure, its discovery state, and its own history, with a lifecycle (active, cleared, abandoned, destroyed). The 🔍 Inspector can browse and create lairs, and clearing one through an adventure result now marks it **cleared** (the structure remains, ready to be reoccupied) instead of erasing it. The bundled demo ships the three lairs that beset the March of Saltspur — the Grey Pack's den, the Drowned Causeway of the Mere-Folk, and the Weaver Deeps — each tied to the monster band that holds it; the Frontier Barony template's goblin warren is likewise now a real lair you can inspect. *(This is the foundation. Finding lairs by searching a hex, the wilderness encounter pipeline that draws on them, and a dedicated Lairs view come next.)*
+
 ## [0.23.0] - 2026-06-08
 
 ### Added
