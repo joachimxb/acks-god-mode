@@ -3425,6 +3425,9 @@ function hexName(hex){
   if(!base && hex.terrain){
     const t = String(hex.terrain).trim();
     base = t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+    // Terrain model — a sub-type'd hex names as "Barrens (tundra)"; an unset sub-type is omitted.
+    const sub = hex.terrainSubtype ? String(hex.terrainSubtype).trim() : '';
+    if(base && sub) base = base + ' (' + sub + ')';
   }
   if(!base) return coords;
   return coords ? (base + ' (' + coords + ')') : base;

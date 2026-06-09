@@ -174,6 +174,15 @@ section('blankHex — the 3 additive axes');
   ok('biomeForHex on a fresh authored hex derives', ACKS.biomeForHex(h2) === 'Rainforest');
 }
 
+section('hexName — sub-type shows in the name; unset is omitted (canonical hexName, Architecture §11.3.1)');
+{
+  ok('terrain + sub-type → "Barrens (tundra) (0000)"', ACKS.hexName({ terrain: 'barrens', terrainSubtype: 'tundra', coord: { q: 0, r: 0 } }) === 'Barrens (tundra) (0000)');
+  ok('forest + taiga', ACKS.hexName({ terrain: 'forest', terrainSubtype: 'taiga', coord: { q: 0, r: 0 } }) === 'Forest (taiga) (0000)');
+  ok('unset sub-type omitted', ACKS.hexName({ terrain: 'barrens', coord: { q: 0, r: 0 } }) === 'Barrens (0000)');
+  ok('empty-string sub-type omitted', ACKS.hexName({ terrain: 'barrens', terrainSubtype: '', coord: { q: 0, r: 0 } }) === 'Barrens (0000)');
+  ok('settlement wins — no sub-type shown', ACKS.hexName({ terrain: 'barrens', terrainSubtype: 'tundra', settlement: { name: 'Keep' }, coord: { q: 0, r: 0 } }) === 'Keep (0000)');
+}
+
 // =============================================================================
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' — terrain.smoke.js: ' + pass + ' passed, ' + fail + ' failed.');
 if (fail) { console.log('Failures:\n  ' + failures.join('\n  ')); process.exit(1); }

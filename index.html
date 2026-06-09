@@ -1375,7 +1375,7 @@ document.addEventListener('alpine:init', () => {
         <template x-if="mapBrushSubtypeOptions().length">
           <span class="flex items-center gap-1">· sub-type:
             <select x-model="mapCreateSubtype" class="border border-ink rounded px-2 py-0.5" title="Terrain sub-type — drives lair density (JJ p.69), encounters (JJ pp.45–67) and visibility (RR p.275)">
-              <option value="">— any —</option>
+              <option value="">— unset —</option>
               <template x-for="s in mapBrushSubtypeOptions()" :key="s.value"><option :value="s.value" x-text="s.label"></option></template>
             </select>
           </span>
@@ -7440,7 +7440,7 @@ document.addEventListener('alpine:init', () => {
           <span class="w-20">Sub-type</span>
           <select @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'terrainSubtype', label:'Terrain sub-type', oldValue:worldHexEditingHex().terrainSubtype||'', newValue:$event.target.value})"
                   class="text-sm" style="width:14rem" title="Refines the base terrain — drives the lair count (JJ p.69), the encounter sub-table (JJ pp.45–67) and visibility (RR p.275)">
-            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().terrainSubtype)">— any —</option>
+            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().terrainSubtype)">— unset —</option>
             <template x-for="s in hexSubtypeOptions()" :key="s.value">
               <option :value="s.value" :selected="worldHexEditingHex() && worldHexEditingHex().terrainSubtype === s.value" x-text="s.label"></option>
             </template>
