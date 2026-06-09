@@ -19,10 +19,11 @@ const fs = require('fs');
 const assert = require('assert');
 
 const DIR = path.join(__dirname, '..');
-// Load order matters (catalogs → engine → entities → entity-registry →
+// Load order matters (catalogs → monsters → engine → entities → entity-registry →
 // field-schemas → events → subsystems); each module extends global.ACKS.
 [
   'acks-engine-catalogs.js',
+  'acks-engine-monsters.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-entity-registry.js',

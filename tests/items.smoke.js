@@ -14,7 +14,7 @@ const fs = require('fs');
 
 const DIR = path.join(__dirname, '..');
 [
-  'acks-engine-catalogs.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',

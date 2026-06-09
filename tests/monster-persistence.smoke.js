@@ -16,7 +16,7 @@
 const path = require('path');
 const DIR = path.join(__dirname, '..');
 [
-  'acks-engine-catalogs.js', 'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
   'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-subsystems.js',
 ].forEach(f => require(path.join(DIR, f)));
 const ACKS = global.ACKS;
@@ -345,6 +345,47 @@ section('M1 seedHexLairs — D4 opt-in seeding (unsettled hexes only)');
   const c2 = ACKS.blankCampaign({ name: 'seed2' });
   c2.hexes = [ ACKS.blankHex({ id: 'hex-f', terrain: 'forest' }) ];
   ok('rng path seeds the rolled count (forest 2d4, min-rng = 2)', ACKS.seedHexLairs(c2, 'hex-f', { rng: () => 0.0 }).length === 2);
+}
+
+// =============================================================================
+section('M2 MONSTER_CATALOG — module loaded + shape');
+{
+  const cat = ACKS.MONSTER_CATALOG;
+  ok('MONSTER_CATALOG is a non-trivial array', Array.isArray(cat) && cat.length >= 200, 'len=' + (cat && cat.length));
+  const RAW_TYPES = ['animal', 'beastman', 'construct', 'enchanted-creature', 'giant', 'humanoid', 'incarnation', 'monstrosity', 'ooze', 'plant', 'undead', 'vermin'];
+  ok('every entry has a non-empty key + name', cat.every(m => m.key && m.name));
+  ok('keys are unique', new Set(cat.map(m => m.key)).size === cat.length);
+  ok('every entry cites an MM page (number)', cat.every(m => typeof m.page === 'number' && m.page >= 9));
+  ok('every entry has ≥1 creatureType, all from the 12 RAW types', cat.every(m => m.creatureTypes.length && m.creatureTypes.every(t => RAW_TYPES.includes(t))));
+  ok('every entry has hd (string) + ac (number)', cat.every(m => typeof m.hd === 'string' && m.hd && typeof m.ac === 'number'));
+  ok('lairPct is 0..100 on every entry', cat.every(m => typeof m.lairPct === 'number' && m.lairPct >= 0 && m.lairPct <= 100));
+  ok('alignment is Lawful/Neutral/Chaotic on every entry', cat.every(m => /^(Lawful|Neutral|Chaotic)(\/(Lawful|Neutral|Chaotic))*$/.test(m.alignment)));
+  ok('xp is a number on every entry', cat.every(m => typeof m.xp === 'number'));
+  ok('numberAppearing has wandering+lair dice strings', cat.every(m => m.numberAppearing && typeof m.numberAppearing.wandering === 'string'));
+  ok('canTrack is boolean; ≥1 tracker exists', cat.every(m => typeof m.canTrack === 'boolean') && cat.some(m => m.canTrack));
+}
+
+section('M2 catalog lookups');
+{
+  ok('findMonster(orc) → Orc (HD 1, lair 35%, TT G, Chaotic)', (() => { const m = ACKS.findMonster('orc'); return m && m.name === 'Orc' && m.hd === '1' && m.lairPct === 35 && m.treasureType === 'G' && m.alignment === 'Chaotic'; })());
+  ok('findMonster is case-insensitive', ACKS.findMonster('ORC') && ACKS.findMonster('ORC').key === 'orc');
+  ok('findMonster(unknown) → null', ACKS.findMonster('definitely-not-a-monster') === null);
+  ok('findMonster(null) → null', ACKS.findMonster(null) === null);
+  ok('alias giant-spider → giant-crab-spider', ACKS.findMonster('giant-spider') && ACKS.findMonster('giant-spider').key === 'giant-crab-spider');
+  ok('alias lizardfolk → lizardman', ACKS.findMonster('lizardfolk') && ACKS.findMonster('lizardfolk').key === 'lizardman');
+  ok('monstersByType(beastman) non-empty + all are beastmen', (() => { const ms = ACKS.monstersByType('beastman'); return ms.length >= 4 && ms.every(m => m.creatureTypes.includes('beastman')); })());
+  ok('isCatalogMonster(orc)=true / (xyzzy)=false', ACKS.isCatalogMonster('orc') === true && ACKS.isCatalogMonster('xyzzy') === false);
+  ok('monsterCanTrack(dire-wolf)=true', ACKS.monsterCanTrack('dire-wolf') === true);
+  ok('monsterDisplayName resolves key + falls back', ACKS.monsterDisplayName('orc') === 'Orc' && ACKS.monsterDisplayName('xyzzy') === 'xyzzy');
+}
+
+section('M2 demo monster keys resolve');
+{
+  // The demo + Frontier Barony templates reference these keys; M3 generation needs them resolvable.
+  for (const k of ['dire-wolf', 'lizardman', 'giant-spider', 'goblin']) {
+    ok('demo key resolves: ' + k, !!ACKS.findMonster(k), 'findMonster returned null');
+  }
+  ok('lizardman fixup applied (TT J, Chaotic)', (() => { const m = ACKS.findMonster('lizardman'); return m && m.treasureType === 'J' && m.alignment === 'Chaotic'; })());
 }
 
 // =============================================================================
