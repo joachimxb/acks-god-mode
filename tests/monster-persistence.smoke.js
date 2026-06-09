@@ -389,6 +389,51 @@ section('M2 demo monster keys resolve');
 }
 
 // =============================================================================
+section('M3 _rollDiceStr — XdY±Z roller');
+{
+  ok('plain integer', ACKS._rollDiceStr('3') === 3 && ACKS._rollDiceStr('1') === 1);
+  ok('XdY in range (1d10 over 200 rolls)', (() => { for (let i = 0; i < 200; i++) { const v = ACKS._rollDiceStr('1d10'); if (v < 1 || v > 10) return false; } return true; })());
+  ok('NdY+M honoured (2d4+1 ∈ [3,9])', (() => { for (let i = 0; i < 200; i++) { const v = ACKS._rollDiceStr('2d4+1'); if (v < 3 || v > 9) return false; } return true; })());
+  ok('seeded determinism', (() => { const mk = () => { let s = 7; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }; return ACKS._rollDiceStr('3d6', mk()) === ACKS._rollDiceStr('3d6', mk()); })());
+  ok('garbage → 0', ACKS._rollDiceStr('') === 0 && ACKS._rollDiceStr(null) === 0);
+}
+
+section('M3 generateLair — catalog-gated generation (Plan §5.3)');
+{
+  const c = ACKS.blankCampaign({ name: 'gen' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' })];
+  const res = ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1', establishedBy: 'dynamic-reveal' });
+  ok('returns {lair, group, entry, count}', res && res.lair && res.group && res.entry && res.count >= 1);
+  ok('lair lands in campaign.lairs, status active, on the hex', c.lairs.length === 1 && res.lair.status === 'active' && res.lair.hexId === 'hex-1');
+  ok('lair records catalog identity (key/lairPct/TT from catalog)', res.lair.monsterCatalogKey === 'orc' && res.lair.lairPct === 35 && res.lair.treasureType === 'G');
+  ok('a Group is created in campaign.groups + bound to the lair', c.groups.length === 1 && res.lair.groupIds.length === 1 && res.lair.groupIds[0] === res.group.id);
+  ok('Group template carries catalog stats', res.group.groupTemplate.monsterCatalogKey === 'orc' && res.group.groupTemplate.hitDice === '1' && res.group.groupTemplate.creatureTypes.includes('beastman'));
+  ok('Group count = rolled population (≥1) at the lair hex; wild/independent', res.group.count >= 1 && res.group.currentHexId === 'hex-1' && res.group.lifecycleState === 'wild');
+  ok('totalInhabitantCount derived', res.lair.totalInhabitantCount === ACKS.lairInhabitantCount(c, res.lair));
+  ok('history stamps a generated entry', res.lair.history.some(h => h.type === 'generated'));
+  ok('count override honoured', ACKS.generateLair(c, { monsterCatalogKey: 'goblin', hexId: 'hex-1', count: 7 }).group.count === 7);
+
+  // populate an existing 'unknown' seeded shell
+  const shell = ACKS.createLair(c, { hexId: 'hex-1', status: 'unknown', establishedBy: 'hex-seeding' });
+  const r2 = ACKS.generateLair(c, { lairId: shell.id, monsterCatalogKey: 'kobold' });
+  ok('populate existing shell → same lair, now active + populated', r2.lair.id === shell.id && r2.lair.status === 'active' && r2.lair.monsterCatalogKey === 'kobold' && r2.group && r2.lair.groupIds.length >= 1);
+
+  // reveal-then-generate a dynamic pool lair
+  const dyn = ACKS.createLair(c, { status: 'dynamic', hexId: null, monsterCatalogKey: 'gnoll' });
+  ACKS.revealDynamicLair(c, dyn.id, 'hex-1');
+  const r3 = ACKS.generateLair(c, { lairId: dyn.id, monsterCatalogKey: 'gnoll' });
+  ok('reveal+generate a dynamic lair populates it', r3.lair.status === 'active' && r3.lair.hexId === 'hex-1' && r3.group && r3.group.groupTemplate.monsterCatalogKey === 'gnoll');
+
+  // alias key resolves through generation
+  const r4 = ACKS.generateLair(c, { monsterCatalogKey: 'giant-spider', hexId: 'hex-1' });
+  ok('alias key generates (giant-spider → giant-crab-spider)', r4.group && r4.lair.monsterCatalogKey === 'giant-crab-spider');
+
+  // unknown key → bare lair shell, no group
+  const r5 = ACKS.generateLair(c, { monsterCatalogKey: 'no-such-monster', hexId: 'hex-1' });
+  ok('unknown key → lair shell returned, no group/entry', r5.lair && r5.entry === null && r5.group === null && r5.count === 0);
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

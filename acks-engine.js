@@ -3011,6 +3011,93 @@ function revealDynamicLair(campaign, lairId, hexId, opts){
   return lair;
 }
 
+// --- M3 catalog-gated generation (Plan §5.3) --------------------------------
+// generateLair is the SHARED generation primitive: the M3 collision consumer calls it for a fresh
+// lair, the Lair Wizard "Generate from catalog" mode calls it on demand, and revealing an 'unknown'
+// seeded shell or a 'dynamic' pool lair populates it via opts.lairId. It rolls the RAW lair
+// population (numberAppearing.lair) into a Group bound to the lair (the structured-population model,
+// flat-count for v1 — Plan §3.3) and records the Treasure Type from the catalog. NB: full hoard
+// CONTENTS materialization (stash + monster-hoard custody + Notable-item promotion, Plan §3.4) is
+// DEFERRED to a treasure-generation wave that consumes the Treasure-Type tables (Treasure_Tome
+// survey) — v1 records lair.treasureType so the hoard can be rolled later.
+
+// Roll an "XdY±Z" (or plain integer) dice string. rng injectable. Clamped ≥0.
+function _rollDiceStr(s, rng){
+  const r = rng || Math.random;
+  const str = String(s == null ? '' : s).trim();
+  if(/^\d+$/.test(str)) return parseInt(str, 10);
+  const m = str.match(/^(\d*)d(\d+)\s*([+\-]\s*\d+)?$/i);
+  if(!m){ const n = parseInt(str, 10); return isNaN(n) ? 0 : n; }
+  const n = m[1] ? parseInt(m[1], 10) : 1, d = parseInt(m[2], 10), mod = m[3] ? parseInt(m[3].replace(/\s+/g, ''), 10) : 0;
+  let t = mod; for(let i = 0; i < n; i++) t += 1 + Math.floor(r() * d);
+  return Math.max(0, t);
+}
+
+// Generate (or populate) a lair from the MONSTER_CATALOG. opts: { monsterCatalogKey, hexId, lairId?,
+// establishedBy?, count?, atTurn?, knownToPlayers?, name?, reason? }. With lairId, populates an
+// existing lair (e.g. a revealed dynamic/unknown shell); else creates a fresh active lair. Returns
+// { lair, group, entry, count } (entry null + group null when the key isn't in the catalog — the
+// lair shell is still returned so the GM can author it via the Inspector).
+function generateLair(campaign, opts, rng){
+  if(!campaign || typeof campaign !== 'object') return null;
+  const o = Object.assign({}, opts || {});
+  const r = rng || Math.random;
+  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
+  const entry = global.ACKS.findMonster ? global.ACKS.findMonster(o.monsterCatalogKey) : null;
+
+  // get-or-create the lair
+  let lair;
+  if(o.lairId){
+    lair = findLair(campaign, o.lairId);
+    if(!lair) return null;
+    if(o.hexId) lair.hexId = o.hexId;
+    if(lair.status === 'unknown' || lair.status === 'dynamic') lair.status = 'active';
+    if(o.knownToPlayers === true) lair.knownToPlayers = true;
+  } else {
+    lair = createLair(campaign, {
+      hexId: o.hexId || null,
+      monsterCatalogKey: o.monsterCatalogKey || '',
+      status: 'active',
+      establishedBy: o.establishedBy || 'gm-fiat',
+      establishedAtTurn: turn,
+      knownToPlayers: o.knownToPlayers === true,
+      name: o.name || (entry ? entry.name + ' lair' : '')
+    });
+  }
+  if(!lair) return null;
+
+  // record catalog identity + treasure type (hoard contents deferred — see header)
+  if(entry){
+    lair.monsterCatalogKey = entry.key;
+    if(lair.lairPct == null) lair.lairPct = entry.lairPct;
+    if(!lair.treasureType) lair.treasureType = entry.treasureType || '';
+  }
+
+  // roll the population into a bound Group
+  let group = null, count = 0;
+  if(entry){
+    count = (o.count != null) ? o.count
+          : Math.max(1, _rollDiceStr((entry.numberAppearing && (entry.numberAppearing.lair || entry.numberAppearing.wandering)) || '1', r));
+    if(!Array.isArray(campaign.groups)) campaign.groups = [];
+    group = global.ACKS.blankGroup({
+      name: entry.name,
+      groupTemplate: { monsterCatalogKey: entry.key, creatureTypes: (entry.creatureTypes || []).slice(), hitDice: entry.hd || null },
+      count: count,
+      currentHexId: lair.hexId || null,
+      socialTier: 'independent',
+      lifecycleState: 'wild'
+    });
+    campaign.groups.push(group);
+    if(!Array.isArray(lair.groupIds)) lair.groupIds = [];
+    lair.groupIds.push(group.id);
+    lair.totalInhabitantCount = lairInhabitantCount(campaign, lair);
+  }
+
+  _lairHistory(lair, turn, 'generated', o.reason || (entry ? 'catalog:' + entry.key : 'no-catalog-entry'),
+    { monsterCatalogKey: o.monsterCatalogKey || (entry && entry.key) || null, count: count, treasureType: lair.treasureType || '' });
+  return { lair: lair, group: group, entry: entry, count: count };
+}
+
 // --- D4 hex-density seeding (JJ p.69; Plan §4) -------------------------------
 // The COUNT half of RAW wilderness stocking (catalog-free). lairDiceForTerrain maps a hex's terrain
 // → the LAIRS_PER_HEX dice spec (alias-normalized); rollLairCount rolls it; seedHexLairs creates that
@@ -7626,6 +7713,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
   createLair, clearLair, discoverLair, abandonLair, destroyLair, revealDynamicLair,
+  generateLair, _rollDiceStr,
   rollLairCount, lairDiceForTerrain, seedHexLairs,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
