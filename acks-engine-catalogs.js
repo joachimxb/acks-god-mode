@@ -1244,6 +1244,18 @@ function terrainKey(hex){
   return sub ? (base + '-' + sub) : base;
 }
 
+// allTerrainSubtypes() → the deduped, sorted union of every base's sub-types.
+// Sub-types are per-base (plan §3.4), but the authoring controls (map brush / hex
+// editor) offer the full set when no terrain base is chosen yet, so a GM can still
+// pre-pick a sub-type default; picking a base then narrows it.
+function allTerrainSubtypes(){
+  const seen = new Set(), out = [];
+  for(const k of TERRAIN_BASES){
+    for(const s of (TERRAIN_SUBTYPES[k] || [])){ if(!seen.has(s)){ seen.add(s); out.push(s); } }
+  }
+  return out.sort();
+}
+
 // biomeFromKoppen(code) → the JJ p.40 biome label ('' if unknown). koppenSuggestions(code)
 // → the [{terrain,subtype}] the code maps to (first = primary; [] if unknown).
 function biomeFromKoppen(code){ const c = KOPPEN_CLIMATE[String(code || '').trim()]; return (c && c.biome) || ''; }
@@ -1287,7 +1299,7 @@ Object.assign(ACKS, {
   // Favors & Duties (#230, F&D-1) — the 1d20 Favor/Duty table + muster timing (RR pp.345–348)
   FAVOR_DUTY_TABLE, lookupFavorDuty, MUSTER_TIME_BY_TITLE, musterSchedule, realmTitleForDomain,
   // Terrain model (Phase_2.5_Terrain_Model_Plan.md, T1) — taxonomy + resolution layer
-  TERRAIN_BASES, TERRAIN_SUBTYPES, BIOMES, KOPPEN_CLIMATE, terrainBase, terrainKey,
+  TERRAIN_BASES, TERRAIN_SUBTYPES, BIOMES, KOPPEN_CLIMATE, terrainBase, terrainKey, allTerrainSubtypes,
   biomeFromKoppen, koppenSuggestions, biomeForHex, visibilityFactorForHex, encounterTerrainForHex,
   CONSTRUCTION_DUTY_TYPES, constructionDutyTypeLabel,
   // Phase 2.5 Journeys (#475) — overland travel catalogs (J1).

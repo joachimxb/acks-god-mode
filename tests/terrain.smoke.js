@@ -36,6 +36,14 @@ section('catalogs — taxonomy shape');
   ok('mountains: forested/rocky/snowy/volcanic', ['forested','rocky','snowy','volcanic'].every(s => ACKS.TERRAIN_SUBTYPES.mountains.indexOf(s) >= 0));
   ok('swamp: scrubby/forested (RR p.275)', ['scrubby','forested'].every(s => ACKS.TERRAIN_SUBTYPES.swamp.indexOf(s) >= 0));
   ok('grassland: farm/savanna/steppe', ['farm','savanna','steppe'].every(s => ACKS.TERRAIN_SUBTYPES.grassland.indexOf(s) >= 0));
+  // allTerrainSubtypes() — the deduped, sorted union the authoring controls offer when terrain is unset
+  const allSubs = ACKS.allTerrainSubtypes();
+  ok('allTerrainSubtypes is an array', Array.isArray(allSubs) && allSubs.length > 0);
+  ok('allTerrainSubtypes deduped', new Set(allSubs).size === allSubs.length);
+  ok('allTerrainSubtypes sorted', allSubs.slice().sort().join(',') === allSubs.join(','));
+  ok('allTerrainSubtypes covers every base subtype', ACKS.TERRAIN_BASES.every(b => (ACKS.TERRAIN_SUBTYPES[b] || []).every(s => allSubs.indexOf(s) >= 0)));
+  ok('allTerrainSubtypes ⊆ some base', allSubs.every(s => ACKS.TERRAIN_BASES.some(b => (ACKS.TERRAIN_SUBTYPES[b] || []).indexOf(s) >= 0)));
+  ok('forested (shared by mtn/swamp/hills) appears once', allSubs.filter(s => s === 'forested').length === 1);
   ok('BIOMES has 10', Array.isArray(ACKS.BIOMES) && ACKS.BIOMES.length === 10);
 }
 

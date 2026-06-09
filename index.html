@@ -1370,8 +1370,9 @@ document.addEventListener('alpine:init', () => {
             <option :value="t.value" x-text="t.label"></option>
           </template>
         </select>
-        <!-- Terrain model — sub-type (contextual to the base) + Köppen climate, as new-hex defaults / for the
-             selected hex. Sub-type hides when the base has no variants. biome stays derived (no brush control). -->
+        <!-- Terrain model — sub-type (the full union while terrain is unset, narrowing to the base's variants
+             once a terrain is chosen) + Köppen climate, as new-hex defaults / for the selected hex. Sub-type hides
+             only for a base with no variants (water/jungle). biome stays derived (no brush control). -->
         <template x-if="mapBrushSubtypeOptions().length">
           <span class="flex items-center gap-1">· sub-type:
             <select x-model="mapCreateSubtype" class="border border-ink rounded px-2 py-0.5" title="Terrain sub-type — drives lair density (JJ p.69), encounters (JJ pp.45–67) and visibility (RR p.275)">
@@ -7432,8 +7433,9 @@ document.addEventListener('alpine:init', () => {
           </select>
         </div>
         <!-- Terrain refinement — sub-type / Köppen climate / derived biome (Phase_2.5_Terrain_Model_Plan.md, T2).
-             Each commits via gm-fiat like Terrain above. Sub-type is contextual to the base (hidden when the
-             base has none); the Köppen picker is the weather key (JJ p.41) + the biome source; biome is DERIVED
+             Each commits via gm-fiat like Terrain above. Sub-type offers the full union while terrain is unset,
+             narrows to the base's variants once chosen, and hides only for a base with no variants (water/jungle);
+             the Köppen picker is the weather key (JJ p.41) + the biome source; biome is DERIVED
              (override optional). The ✨ button applies the Köppen-suggested terrain+sub-type (the Köppen-led path). -->
         <template x-if="hexSubtypeOptions().length">
         <div class="block text-sm flex items-center gap-2">
@@ -13886,7 +13888,10 @@ return {
   hexSubtypeOptions(){
     const hex = this.worldHexEditingHex();
     const base = window.ACKS.terrainBase(hex && hex.terrain);
-    const subs = (window.ACKS.TERRAIN_SUBTYPES && window.ACKS.TERRAIN_SUBTYPES[base]) || [];
+    // base chosen → that base's variants; terrain unset → the full union (so a sub-type
+    // can still be pre-picked); a base with no variants (water/jungle) → [] (control hides).
+    const subs = base ? ((window.ACKS.TERRAIN_SUBTYPES && window.ACKS.TERRAIN_SUBTYPES[base]) || [])
+                      : window.ACKS.allTerrainSubtypes();
     return subs.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
   },
   hexKoppenOptions(){
@@ -14365,7 +14370,10 @@ return {
   // Sub-type options for the map Add/Edit brush — contextual to the brush's terrain base (terrain model T2).
   mapBrushSubtypeOptions(){
     const base = window.ACKS.terrainBase(this.mapCreateTerrain);
-    const subs = (window.ACKS.TERRAIN_SUBTYPES && window.ACKS.TERRAIN_SUBTYPES[base]) || [];
+    // brush terrain chosen → that base's variants; brush terrain unset (the no-hex-selected
+    // default state) → the full union, so the GM can pre-pick a sub-type default; water/jungle → [].
+    const subs = base ? ((window.ACKS.TERRAIN_SUBTYPES && window.ACKS.TERRAIN_SUBTYPES[base]) || [])
+                      : window.ACKS.allTerrainSubtypes();
     return subs.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
   },
   _mapFindHexById(id){
