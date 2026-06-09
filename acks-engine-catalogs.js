@@ -1141,12 +1141,154 @@ function lairDiceLabel(spec){
   return s;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Terrain model (Phase_2.5_Terrain_Model_Plan.md) — the four-VALUE taxonomy.
+// THREE stored hex axes (terrain · terrainSubtype · koppen; + a rarely-set
+// biomeOverride) and a DERIVED biome. RAW keys terrain at five grains: movement
+// (RR p.272) + getting-lost (RR p.275) read the BASE; visibility (RR p.275) +
+// lair count (JJ p.69) + encounter content (JJ pp.45–67) read base+SUB-TYPE;
+// weather reads the KÖPPEN code (Weather Modifiers by Climate and Season, JJ
+// p.41 — the 30×4 table is T4, deferred). These helpers are the single
+// resolution boundary: every consumer reads (terrain, terrainSubtype, koppen)
+// through here. ADDITIVE — no migration; absent axes fall back to today's base.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// The 10 canonical base terrains (the existing hex.terrain enum).
+const TERRAIN_BASES = Object.freeze(['barrens','desert','forest','grassland','hills','jungle','mountains','scrubland','swamp','water']);
+
+// Per-base sub-type tokens — the §3.4 union across the lair (JJ p.69) / encounter
+// (JJ pp.45–67) / visibility (RR p.275) tables. '' = the base default ("(any)").
+// jungle + water have none. (River is an encounter OVERLAY derived from river
+// geometry, not a stored base — see encounterTerrainForHex.)
+const TERRAIN_SUBTYPES = Object.freeze({
+  barrens:   ['rocky','sandy','tundra'],            // enc: Rocky/Sandy · Tundra
+  desert:    ['sandy','rocky'],                     // lair: rocky 1d2 / sandy 1d4
+  forest:    ['deciduous','taiga'],                 // enc: Deciduous · Taiga
+  grassland: ['farm','savanna','steppe'],           // farm = prairie/farmland
+  hills:     ['forested','rocky'],                  // lair: forested 2d4 / rocky 1d4
+  jungle:    [],
+  mountains: ['forested','rocky','snowy','volcanic'],
+  scrubland: ['sparse','dense'],                    // sparse = low · dense = high
+  swamp:     ['scrubby','forested'],                // RR p.275 visibility: scrubby −33% / forested −50%
+  water:     []
+});
+
+// The 10 biomes (the JJ p.40 "Biome" column) — DERIVED from Köppen, never a stored peer.
+const BIOMES = Object.freeze(['Rainforest','Savanna','Desert','Semi-Arid Desert','Steppe','Scrub','Forest','Taiga','Prairie','Tundra']);
+
+// Climate by Terrain (JJ p.40) — the 30 Köppen codes → { name, biome, suggestions:[{terrain,subtype}] }.
+// The FIRST suggestion is the primary; "or" codes (Csb, Dfd) carry two. Drives biomeFromKoppen + the
+// Köppen-led hex creator (T2). Köppen is ALSO the weather key (JJ p.41; that table is T4, deferred).
+const KOPPEN_CLIMATE = Object.freeze({
+  Af:  { name:'Tropical rainforest',                   biome:'Rainforest',       suggestions:[{terrain:'jungle',   subtype:''}] },
+  Am:  { name:'Tropical monsoon',                      biome:'Rainforest',       suggestions:[{terrain:'jungle',   subtype:''}] },
+  Aw:  { name:'Tropical savanna, dry winter',          biome:'Savanna',          suggestions:[{terrain:'grassland',subtype:'savanna'}] },
+  As:  { name:'Tropical savanna, dry summer',          biome:'Savanna',          suggestions:[{terrain:'grassland',subtype:'savanna'}] },
+  BWh: { name:'Hot arid desert',                       biome:'Desert',           suggestions:[{terrain:'desert',   subtype:'sandy'},{terrain:'desert',subtype:'rocky'}] },
+  BWk: { name:'Cold arid desert',                      biome:'Desert',           suggestions:[{terrain:'desert',   subtype:'sandy'},{terrain:'desert',subtype:'rocky'}] },
+  BSh: { name:'Hot semi-arid steppe',                  biome:'Semi-Arid Desert', suggestions:[{terrain:'barrens',  subtype:'rocky'}] },
+  BSk: { name:'Cold semi-arid steppe',                 biome:'Steppe',           suggestions:[{terrain:'grassland',subtype:'steppe'}] },
+  Csa: { name:'Temperate, dry hot summer',             biome:'Scrub',            suggestions:[{terrain:'scrubland',subtype:'sparse'},{terrain:'scrubland',subtype:'dense'}] },
+  Csb: { name:'Temperate, dry warm summer',            biome:'Scrub',            suggestions:[{terrain:'scrubland',subtype:'dense'},{terrain:'forest',subtype:'deciduous'}] },
+  Csc: { name:'Temperate, dry cold summer',            biome:'Forest',           suggestions:[{terrain:'forest',   subtype:'deciduous'}] },
+  Cwa: { name:'Temperate, dry winter, hot summer',     biome:'Forest',           suggestions:[{terrain:'forest',   subtype:'deciduous'}] },
+  Cwb: { name:'Temperate, dry winter, warm summer',    biome:'Forest',           suggestions:[{terrain:'forest',   subtype:'deciduous'}] },
+  Cwc: { name:'Temperate, dry winter, cold summer',    biome:'Forest',           suggestions:[{terrain:'forest',   subtype:'deciduous'}] },
+  Cfa: { name:'Temperate, damp, hot summer',           biome:'Forest',           suggestions:[{terrain:'forest',   subtype:'deciduous'}] },
+  Cfb: { name:'Temperate, damp, warm summer',          biome:'Forest',           suggestions:[{terrain:'forest',   subtype:'deciduous'}] },
+  Cfc: { name:'Temperate, damp, cold summer',          biome:'Taiga',            suggestions:[{terrain:'forest',   subtype:'taiga'}] },
+  Dsa: { name:'Continental, hot dry summer',           biome:'Forest',           suggestions:[{terrain:'forest',   subtype:'deciduous'}] },
+  Dsb: { name:'Continental, warm dry summer',          biome:'Taiga',            suggestions:[{terrain:'forest',   subtype:'taiga'}] },
+  Dsc: { name:'Continental, cold dry summer',          biome:'Taiga',            suggestions:[{terrain:'forest',   subtype:'taiga'}] },
+  Dwa: { name:'Continental, dry winter, hot summer',   biome:'Steppe',           suggestions:[{terrain:'grassland',subtype:'steppe'}] },
+  Dwb: { name:'Continental, dry winter, warm summer',  biome:'Steppe',           suggestions:[{terrain:'grassland',subtype:'steppe'}] },
+  Dwc: { name:'Continental, dry winter, cold summer',  biome:'Steppe',           suggestions:[{terrain:'grassland',subtype:'steppe'}] },
+  Dwd: { name:'Continental, dry winter, very cold',    biome:'Tundra',           suggestions:[{terrain:'barrens',  subtype:'tundra'}] },
+  Dfa: { name:'Continental, damp, hot summer',         biome:'Prairie',          suggestions:[{terrain:'grassland',subtype:'farm'}] },
+  Dfb: { name:'Continental, damp, warm summer',        biome:'Taiga',            suggestions:[{terrain:'forest',   subtype:'taiga'}] },
+  Dfc: { name:'Continental, damp, cold summer',        biome:'Taiga',            suggestions:[{terrain:'forest',   subtype:'taiga'}] },
+  Dfd: { name:'Continental, damp, very cold winter',   biome:'Taiga',            suggestions:[{terrain:'forest',   subtype:'taiga'},{terrain:'barrens',subtype:'tundra'}] },
+  ET:  { name:'Polar tundra',                          biome:'Tundra',           suggestions:[{terrain:'barrens',  subtype:'tundra'}] },
+  EF:  { name:'Polar ice cap',                         biome:'Tundra',           suggestions:[{terrain:'barrens',  subtype:'tundra'}] }
+});
+
+// terrainBase(value) → one of the 10 bases (or '' if unknown). THE single base
+// normalizer: handles the canonical base, a "base-subtype" compound (strips to
+// base), and folds BOTH legacy synonym maps at call-time — HEX_TERRAIN_ALIASES
+// (subsystems, map render) + LAIR_TERRAIN_ALIAS (this file, lair seeding) — read
+// off global.ACKS so there is no third copied map. New code routes through here;
+// the two legacy maps are slated to retire through it (plan §6).
+function terrainBase(value){
+  let k = String(value || '').toLowerCase().trim();
+  if(!k) return '';
+  if(TERRAIN_BASES.indexOf(k) >= 0) return k;
+  const dash = k.indexOf('-');
+  if(dash > 0 && TERRAIN_BASES.indexOf(k.slice(0, dash)) >= 0) return k.slice(0, dash);
+  const A = global.ACKS || {};
+  let aliased = (A.HEX_TERRAIN_ALIASES && A.HEX_TERRAIN_ALIASES[k]) || (A.LAIR_TERRAIN_ALIAS && A.LAIR_TERRAIN_ALIAS[k]);
+  if(aliased){
+    aliased = String(aliased).toLowerCase();
+    if(TERRAIN_BASES.indexOf(aliased) >= 0) return aliased;
+    const d2 = aliased.indexOf('-');
+    if(d2 > 0 && TERRAIN_BASES.indexOf(aliased.slice(0, d2)) >= 0) return aliased.slice(0, d2);
+  }
+  return '';
+}
+
+// terrainKey(hex) → "base" or "base-subtype" — the compound key the lair (JJ p.69)
+// and encounter (JJ pp.45–67) tables look up. '' for an unknown base.
+function terrainKey(hex){
+  const base = terrainBase(hex && hex.terrain);
+  if(!base) return '';
+  const sub = String((hex && hex.terrainSubtype) || '').toLowerCase().trim();
+  return sub ? (base + '-' + sub) : base;
+}
+
+// biomeFromKoppen(code) → the JJ p.40 biome label ('' if unknown). koppenSuggestions(code)
+// → the [{terrain,subtype}] the code maps to (first = primary; [] if unknown).
+function biomeFromKoppen(code){ const c = KOPPEN_CLIMATE[String(code || '').trim()]; return (c && c.biome) || ''; }
+function koppenSuggestions(code){ const c = KOPPEN_CLIMATE[String(code || '').trim()]; return (c && c.suggestions) ? c.suggestions.slice() : []; }
+
+// biomeForHex(hex) → the DERIVED biome: a GM override wins, else the Köppen-implied
+// biome, else '' (biome is never a stored peer of terrain — plan §4.1).
+function biomeForHex(hex){ return (hex && hex.biomeOverride) || biomeFromKoppen(hex && hex.koppen) || ''; }
+
+// visibilityFactorForHex(hex) → 1 / 0.67 / 0.5 sighting multiplier (RR p.275): barren,
+// desert, forest, forested hills, scrubby swamp = −33%; forested mountain, forested
+// swamp, jungle = −50%; else full. Feeds the LOS / reveal-radius overlay (Map §2.5).
+function visibilityFactorForHex(hex){
+  const base = terrainBase(hex && hex.terrain);
+  const sub  = String((hex && hex.terrainSubtype) || '').toLowerCase().trim();
+  if(base === 'jungle') return 0.5;
+  if(base === 'mountains' && sub === 'forested') return 0.5;
+  if(base === 'swamp' && sub === 'forested') return 0.5;
+  if(base === 'swamp' && sub === 'scrubby') return 0.67;
+  if(base === 'hills' && sub === 'forested') return 0.67;
+  if(base === 'barrens' || base === 'desert' || base === 'forest') return 0.67;
+  return 1;
+}
+
+// encounterTerrainForHex(hex) → the Monster-Encounter sub-table KEY (JJ pp.45–67). A
+// hex with a river runs the River OVERLAY instead of its base terrain (River (Desert
+// and Jungle) vs River (Any but Desert/Jungle)). The encounter TABLES themselves are
+// M2+/#141; this is the seam they read.
+function encounterTerrainForHex(hex){
+  const base = terrainBase(hex && hex.terrain);
+  const hasRiver = !!(hex && Array.isArray(hex.riverSides) && hex.riverSides.length);
+  if(hasRiver) return (base === 'desert' || base === 'jungle') ? 'river-desert-jungle' : 'river-temperate';
+  const sub = String((hex && hex.terrainSubtype) || '').toLowerCase().trim();
+  return sub ? (base + '-' + sub) : base;
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
   STRONGHOLD_CATALOG, MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE, EVENT_TABLE, HOUSERULES_REGISTRY, HOUSERULE_CATEGORIES, lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff, rollVagary, lookupVagary, sampleEvent, lookupHouseRule, lookupStrongholdStructure,
   // Favors & Duties (#230, F&D-1) — the 1d20 Favor/Duty table + muster timing (RR pp.345–348)
   FAVOR_DUTY_TABLE, lookupFavorDuty, MUSTER_TIME_BY_TITLE, musterSchedule, realmTitleForDomain,
+  // Terrain model (Phase_2.5_Terrain_Model_Plan.md, T1) — taxonomy + resolution layer
+  TERRAIN_BASES, TERRAIN_SUBTYPES, BIOMES, KOPPEN_CLIMATE, terrainBase, terrainKey,
+  biomeFromKoppen, koppenSuggestions, biomeForHex, visibilityFactorForHex, encounterTerrainForHex,
   CONSTRUCTION_DUTY_TYPES, constructionDutyTypeLabel,
   // Phase 2.5 Journeys (#475) — overland travel catalogs (J1).
   JOURNEY_MILES_PER_HEX, JOURNEY_BASE_SPEED_MILES_PER_DAY, JOURNEY_TERRAIN_SPEED,

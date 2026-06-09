@@ -257,6 +257,14 @@ function blankHex(opts={}){
     constructionSupervisorCharacterIds: opts.constructionSupervisorCharacterIds
       || (opts.constructionSupervisorCharacterId ? [opts.constructionSupervisorCharacterId] : []),
     terrain: opts.terrain || '',
+    // Phase_2.5_Terrain_Model_Plan.md — terrain refinement axes (additive, optional; no migration).
+    // terrainSubtype: a TERRAIN_SUBTYPES token for the base (sandy/taiga/volcanic/scrubby/…) — drives the
+    // lair count (JJ p.69), the encounter sub-table (JJ pp.45–67), and visibility (RR p.275). koppen: a
+    // Köppen climate code (Af…EF) — the weather key (JJ p.41) + the biome source. biomeOverride: set ONLY
+    // to override the Köppen-derived biome (biome is DERIVED via ACKS.biomeForHex, never stored).
+    terrainSubtype: opts.terrainSubtype || '',
+    koppen:         opts.koppen || '',
+    biomeOverride:  opts.biomeOverride || '',
     // Phase 2.5 Journeys (#475) — travel-relevant hex geography. terrain (above) keys the
     // speed + navigation catalogs; these refine route cost. GM-settable on the hex card.
     hasRoad: opts.hasRoad === true,        // legacy COARSE travel flag (×3/2 speed, RR p.272) read by the
