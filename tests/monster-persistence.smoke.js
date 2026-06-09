@@ -323,7 +323,7 @@ section('M1 seedHexLairs — D4 opt-in seeding (unsettled hexes only)');
   c.hexes = [
     ACKS.blankHex({ id: 'hex-wild', terrain: 'forest' }),                  // unsettled (no domainId)
     Object.assign(ACKS.blankHex({ id: 'hex-dom', terrain: 'forest' }), { domainId: 'dom-1' }), // settled (domainId is backfilled by liftToTopLevelCollections in-app)
-    ACKS.blankHex({ id: 'hex-odd', terrain: 'tundra' }),                    // unknown terrain
+    ACKS.blankHex({ id: 'hex-odd', terrain: 'voidlands' }),                 // genuinely-unknown terrain (NB 'tundra' now resolves → barrens via the terrain model, T1)
     ACKS.blankHex({ id: 'hex-sea', terrain: 'water' }),                     // open water → 0
   ];
   // count override → exact N empty shells
