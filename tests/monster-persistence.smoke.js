@@ -9,7 +9,7 @@
  *
  * M1 = the lifecycle setters (createLair / clearLair / discoverLair / abandonLair / destroyLair /
  * revealDynamicLair, each idempotent + history-stamped) and the D4 terrain-keyed hex-density seeding
- * (LAIRS_PER_HEX, JJ p.71 — lairDiceForTerrain / rollLairCount / seedHexLairs; the COUNT only, which
+ * (LAIRS_PER_HEX, JJ p.69 — lairDiceForTerrain / rollLairCount / seedHexLairs; the COUNT only, which
  * is catalog-free). The manual Lair Wizard is browser-verified (index.html).
  */
 'use strict';
@@ -269,9 +269,9 @@ section('M1 revealDynamicLair — dynamic pool → placed active');
 }
 
 // =============================================================================
-// ===== M1: D4 hex-density seeding (Lairs per Hex, JJ p.71) ===================
+// ===== M1: D4 hex-density seeding (Lairs per Hex, JJ p.69) ===================
 // =============================================================================
-section('M1 LAIRS_PER_HEX table — RAW values (JJ p.71)');
+section('M1 LAIRS_PER_HEX table — RAW values (JJ p.69)');
 {
   const T = ACKS.LAIRS_PER_HEX;
   ok('20 keys (10 base + finer sub-keys)', Object.keys(T).length === 20);

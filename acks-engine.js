@@ -3011,7 +3011,7 @@ function revealDynamicLair(campaign, lairId, hexId, opts){
   return lair;
 }
 
-// --- D4 hex-density seeding (JJ p.71; Plan §4) -------------------------------
+// --- D4 hex-density seeding (JJ p.69; Plan §4) -------------------------------
 // The COUNT half of RAW wilderness stocking (catalog-free). lairDiceForTerrain maps a hex's terrain
 // → the LAIRS_PER_HEX dice spec (alias-normalized); rollLairCount rolls it; seedHexLairs creates that
 // many empty status:'unknown' shells the GM then fleshes (Lair Wizard / Inspector) or the catalog

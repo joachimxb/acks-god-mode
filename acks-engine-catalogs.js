@@ -1084,7 +1084,7 @@ const EQUIPMENT_CATALOG = Object.freeze([
 function lookupEquipment(id){ return EQUIPMENT_CATALOG.find(e => e.id === id) || null; }
 function equipmentByCategory(cat){ return EQUIPMENT_CATALOG.filter(e => e.category === cat); }
 
-// ─── #476 Monster Persistence — Lairs per Hex (JJ p.71) ───────────────────────
+// ─── #476 Monster Persistence — Lairs per Hex (JJ p.69) ───────────────────────
 // RAW wilderness lair DENSITY by terrain — the COUNT only, which is catalog-free; populating each
 // lair (the 1d20 Rarity → 1d100 Encounter chain) is the catalog-gated part (M2/M3). Keyed like
 // JOURNEY_NAV_THROWS: the 10 canonical HEX_TERRAIN base types PLUS RAW's finer sub-keys where the
@@ -1153,7 +1153,7 @@ Object.assign(ACKS, {
   JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_TEMPERATURE_SPEED, JOURNEY_GROUND_SPEED, JOURNEY_PACE_SPEED,
   JOURNEY_RATION_PER_PERSON_DAY, JOURNEY_WATER_PER_PERSON_DAY, JOURNEY_SUPPLY_LOW_DAYS,
   JOURNEY_FATIGUE_CYCLE_DAYS,
-  // #476 Monster Persistence M1 — Lairs per Hex density table (JJ p.71)
+  // #476 Monster Persistence M1 — Lairs per Hex density table (JJ p.69)
   LAIRS_PER_HEX, LAIR_TERRAIN_ALIAS, lairDiceLabel,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
