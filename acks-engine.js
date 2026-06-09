@@ -2899,6 +2899,180 @@ function migrateLegacyHexLairs(campaign){
 }
 
 // =============================================================================
+// #476 Monster Persistence M1 — Lair lifecycle setters (Phase_2.5_Monster_Persistence_Plan.md §13).
+// These are the CANONICAL mutation primitives for a lair's lifecycle — callers (the Lair Wizard,
+// the Inspector, event handlers like adventure-result, the future collision consumer) go through
+// them, never mutating campaign.lairs[] directly, so every transition is coherent + audited. Each
+// stamps a {turn,type,reason,...} entry on lair.history (the same convention as the Wave A relation
+// setters + stash history). Status semantics (blankLair §3.2): active | cleared (inhabitants gone,
+// structure remains — RAW §3.2, NOT deleted) | abandoned (left of their own accord) | destroyed
+// (the structure itself razed) | unknown (placed, undetailed — the hex-seeding shell) | dynamic
+// (authored but unplaced — the JJ p.195 dynamic-lair pool, revealed into a hex on demand). Catalog-
+// free: none of this needs MONSTER_CATALOG (that gates generation, M2/M3).
+// =============================================================================
+
+// Internal: stamp a lifecycle entry on a lair's history[]. Mirrors the Wave A / stash convention.
+function _lairHistory(lair, turn, type, reason, extra){
+  if(!lair) return;
+  if(!Array.isArray(lair.history)) lair.history = [];
+  lair.history.push(Object.assign({ turn: (turn === undefined || turn === null) ? null : turn, type: type, reason: reason || type }, extra || {}));
+}
+
+// Author a lair into campaign.lairs[] (the Lair Wizard's / Inspector's create path; also used by
+// seedHexLairs + migrateLegacyHexLairs callers). opts is a blankLair opts bag. Stamps a 'created'
+// history entry. establishedAtTurn defaults to the campaign's current turn. Returns the new lair.
+function createLair(campaign, opts){
+  if(!campaign || typeof campaign !== 'object') return null;
+  if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
+  const o = Object.assign({}, opts || {});
+  if(o.establishedAtTurn === undefined) o.establishedAtTurn = campaign.currentTurn || 1;
+  const lair = global.ACKS.blankLair(o);
+  _lairHistory(lair, lair.establishedAtTurn, 'created', (opts && opts.createReason) || lair.establishedBy || 'created');
+  campaign.lairs.push(lair);
+  return lair;
+}
+
+// Clear a lair — RAW §3.2: inhabitants are driven off / slain and treasure taken, but the structure
+// REMAINS (status:'cleared', not deletion; it can later repopulate). Idempotent (already-cleared →
+// no-op return). Stamps clearedAtTurn + clearedByEventId (when an event drove it). The canonical
+// setter the adventure-result handler delegates to.
+function clearLair(campaign, lairId, opts){
+  const lair = findLair(campaign, lairId);
+  if(!lair) return null;
+  if(lair.status === 'cleared') return lair;
+  const o = opts || {};
+  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
+  lair.status = 'cleared';
+  lair.clearedAtTurn = turn;
+  if(o.byEventId) lair.clearedByEventId = o.byEventId;
+  _lairHistory(lair, turn, 'cleared', o.reason || 'cleared', o.byEventId ? { byEventId: o.byEventId } : null);
+  return lair;
+}
+
+// Mark a lair discovered by the players (hex-search / tracking / GM reveal — §6/§7). Sets
+// knownToPlayers + lastVisitedTurn, appends a discoveryHistory entry, and stamps history.
+// Idempotent on knownToPlayers (re-discovery just refreshes lastVisitedTurn + logs a visit).
+function discoverLair(campaign, lairId, opts){
+  const lair = findLair(campaign, lairId);
+  if(!lair) return null;
+  const o = opts || {};
+  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
+  const firstTime = !lair.knownToPlayers;
+  lair.knownToPlayers = true;
+  lair.lastVisitedTurn = turn;
+  if(!Array.isArray(lair.discoveryHistory)) lair.discoveryHistory = [];
+  lair.discoveryHistory.push({ turn: turn, by: o.by || null, method: o.method || 'gm-reveal' });
+  _lairHistory(lair, turn, firstTime ? 'discovered' : 'revisited', o.reason || (firstTime ? 'discovered' : 'revisited'), o.by ? { by: o.by } : null);
+  return lair;
+}
+
+// Abandon a lair — its inhabitants leave of their own accord (migration, depletion, fear). Structure
+// remains (status:'abandoned'). Idempotent. Distinct from 'cleared' (driven out by adventurers).
+function abandonLair(campaign, lairId, opts){
+  const lair = findLair(campaign, lairId);
+  if(!lair) return null;
+  if(lair.status === 'abandoned') return lair;
+  const o = opts || {};
+  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
+  lair.status = 'abandoned';
+  _lairHistory(lair, turn, 'abandoned', o.reason || 'abandoned');
+  return lair;
+}
+
+// Destroy a lair — the structure itself is razed/collapsed (status:'destroyed'); the site no longer
+// functions as a lair. Idempotent. (Clearing leaves a reoccupiable structure; destroying does not.)
+function destroyLair(campaign, lairId, opts){
+  const lair = findLair(campaign, lairId);
+  if(!lair) return null;
+  if(lair.status === 'destroyed') return lair;
+  const o = opts || {};
+  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
+  lair.status = 'destroyed';
+  _lairHistory(lair, turn, 'destroyed', o.reason || 'destroyed');
+  return lair;
+}
+
+// Reveal a dynamic-pool lair into a hex (the JJ p.195 dynamic lair, §12.5(b) / D5): bind hexId,
+// flip status:'dynamic' → 'active', record establishedBy:'dynamic-reveal'. opts.knownToPlayers sets
+// discovery (when the party found it on the roll). Returns the lair (or null). Refuses a non-dynamic
+// lair (use the other setters for those).
+function revealDynamicLair(campaign, lairId, hexId, opts){
+  const lair = findLair(campaign, lairId);
+  if(!lair || !hexId) return null;
+  if(lair.status !== 'dynamic') return lair;  // only pooled dynamic lairs are revealed
+  const o = opts || {};
+  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
+  lair.hexId = hexId;
+  lair.status = 'active';
+  lair.establishedBy = 'dynamic-reveal';
+  lair.establishedAtTurn = turn || lair.establishedAtTurn;
+  if(o.knownToPlayers === true) lair.knownToPlayers = true;
+  _lairHistory(lair, turn, 'revealed', o.reason || 'dynamic-reveal', { hexId: hexId });
+  return lair;
+}
+
+// --- D4 hex-density seeding (JJ p.71; Plan §4) -------------------------------
+// The COUNT half of RAW wilderness stocking (catalog-free). lairDiceForTerrain maps a hex's terrain
+// → the LAIRS_PER_HEX dice spec (alias-normalized); rollLairCount rolls it; seedHexLairs creates that
+// many empty status:'unknown' shells the GM then fleshes (Lair Wizard / Inspector) or the catalog
+// populates (M2/M3). Seeding is OPT-IN — never auto-called — and only UNSETTLED hexes seed (a domain
+// hex seeds none unless forced; securing clears lairs, RR p.338).
+
+// Roll a lair-count dice spec {n,d,mod}; clamped to ≥0 (steppe 1d3−1 can roll 0). rng injectable.
+function rollLairCount(spec, rng){
+  if(!spec || !spec.d || !spec.n) return 0;
+  const r = rng || Math.random;
+  let total = spec.mod || 0;
+  for(let i=0;i<spec.n;i++) total += 1 + Math.floor(r()*spec.d);
+  return Math.max(0, total);
+}
+
+// Resolve a terrain value → { key, spec:{n,d,mod}, label } from LAIRS_PER_HEX (alias-normalized),
+// or null for unknown terrain. 'water' resolves to a zero spec (no land lairs). Catalog-sourced, so
+// it reads through global.ACKS (set by acks-engine-catalogs.js, which loads first).
+function lairDiceForTerrain(terrain){
+  const T = global.ACKS.LAIRS_PER_HEX || {};
+  const ALIAS = global.ACKS.LAIR_TERRAIN_ALIAS || {};
+  let key = String(terrain || '').toLowerCase().trim();
+  if(!key) return null;
+  if(!(key in T) && (key in ALIAS)) key = ALIAS[key];
+  const spec = T[key];
+  if(!spec) return null;
+  const label = (typeof global.ACKS.lairDiceLabel === 'function') ? global.ACKS.lairDiceLabel(spec) : '';
+  return { key: key, spec: spec, label: label };
+}
+
+// Seed a hex's wilderness lairs (D4). Rolls the terrain count and creates that many empty
+// status:'unknown' shells (establishedBy:'hex-seeding'). OPT-IN — callers invoke it explicitly
+// (a button / wizard mode), never on bulk map generation. Returns the created lairs ([] if the
+// hex is missing, belongs to a domain (RAW: domain hexes seed none) without opts.force, has
+// unknown terrain, or the count rolls 0). opts: { count? (override the roll), rng?, atTurn?,
+// terrain? (override hex.terrain), force? (seed a domain hex anyway) }.
+function seedHexLairs(campaign, hexId, opts){
+  if(!campaign) return [];
+  const o = opts || {};
+  const hex = Array.isArray(campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
+  if(!hex) return [];
+  if(hex.domainId && !o.force) return [];                 // RAW: settled (domain) hexes seed none
+  const dice = lairDiceForTerrain(o.terrain || hex.terrain);
+  if(!dice) return [];
+  const count = (o.count !== undefined) ? Math.max(0, o.count|0) : rollLairCount(dice.spec, o.rng);
+  const turn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
+  const out = [];
+  for(let i=0; i<count; i++){
+    out.push(createLair(campaign, {
+      status: 'unknown',
+      hexId: hex.id,
+      terrain: dice.key,
+      establishedBy: 'hex-seeding',
+      establishedAtTurn: turn,
+      createReason: 'hex-seeding'
+    }));
+  }
+  return out;
+}
+
+// =============================================================================
 // #443 — Wave A relation setters (Architecture.md §3.5, 2026-05-29).
 // Six relation collections (henchmanships, specialistContracts, hirelingContracts,
 // magistracies, vassalages, tributaryAgreements) each get a create + end pair plus
@@ -7450,6 +7624,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findGroup, groupsAtHex, groupsByCatalogKey, groupsCommandedBy, groupActiveCount,
   // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
+  // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
+  createLair, clearLair, discoverLair, abandonLair, destroyLair, revealDynamicLair,
+  rollLairCount, lairDiceForTerrain, seedHexLairs,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
   createSpecialistContract, endSpecialistContract, activeSpecialistContractFor, specialistContractsByEmployer,

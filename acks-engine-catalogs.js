@@ -1084,6 +1084,63 @@ const EQUIPMENT_CATALOG = Object.freeze([
 function lookupEquipment(id){ return EQUIPMENT_CATALOG.find(e => e.id === id) || null; }
 function equipmentByCategory(cat){ return EQUIPMENT_CATALOG.filter(e => e.category === cat); }
 
+// ─── #476 Monster Persistence — Lairs per Hex (JJ p.71) ───────────────────────
+// RAW wilderness lair DENSITY by terrain — the COUNT only, which is catalog-free; populating each
+// lair (the 1d20 Rarity → 1d100 Encounter chain) is the catalog-gated part (M2/M3). Keyed like
+// JOURNEY_NAV_THROWS: the 10 canonical HEX_TERRAIN base types PLUS RAW's finer sub-keys where the
+// table splits a terrain (desert rocky/sandy · hills forested/rocky · mountains forested/rocky-snowy
+// · scrubland low/dense · grassland farm/steppe). The bare base key carries a documented DEFAULT row
+// for our coarser hex.terrain enum — the iconic/most-common image of each unqualified terrain:
+//   desert→sandy (1d4) · grassland→farm/prairie (1d3) · hills→rocky (1d4) ·
+//   mountains→rocky/snowy (1d4+1) · scrubland→low/sparse (1d2)
+// The GM picks the finer key, or just edits the rolled count, in the Lair Wizard. 'water' = open
+// ocean → no LAND lairs (0); aquatic lairs are a separate RAW track, out of v1 scope. Dice spec
+// {n,d,mod} → roll n×dM + mod, clamped ≥0 (steppe 1d3−1 can yield 0). Range: 1d3−1 … 2d8.
+const LAIRS_PER_HEX = Object.freeze({
+  barrens:              { n:1, d:4, mod:0 },
+  desert:               { n:1, d:4, mod:0 },   // default: sandy
+  'desert-rocky':       { n:1, d:2, mod:0 },
+  'desert-sandy':       { n:1, d:4, mod:0 },
+  forest:               { n:2, d:4, mod:0 },
+  grassland:            { n:1, d:3, mod:0 },   // default: farm/prairie
+  'grassland-farm':     { n:1, d:3, mod:0 },
+  'grassland-steppe':   { n:1, d:3, mod:-1 },
+  hills:                { n:1, d:4, mod:0 },   // default: rocky
+  'hills-forested':     { n:2, d:4, mod:0 },
+  'hills-rocky':        { n:1, d:4, mod:0 },
+  jungle:               { n:2, d:8, mod:0 },
+  mountains:            { n:1, d:4, mod:1 },   // default: rocky/snowy
+  'mountains-forested': { n:2, d:4, mod:0 },
+  'mountains-rocky':    { n:1, d:4, mod:1 },
+  scrubland:            { n:1, d:2, mod:0 },   // default: low/sparse
+  'scrubland-low':      { n:1, d:2, mod:0 },
+  'scrubland-dense':    { n:2, d:4, mod:0 },
+  swamp:                { n:2, d:4, mod:1 },
+  water:                { n:0, d:0, mod:0 }    // open ocean — no land lairs in v1
+});
+// Common GM/author terrain synonyms → a LAIRS_PER_HEX key (covers what the templates + demo use;
+// a subset of subsystems' HEX_TERRAIN_ALIASES, kept HERE so lair seeding doesn't depend on the
+// subsystems module being loaded — catalogs loads first).
+const LAIR_TERRAIN_ALIAS = Object.freeze({
+  plains:'grassland', plain:'grassland', prairie:'grassland-farm', farmland:'grassland-farm', meadow:'grassland', pasture:'grassland', fields:'grassland',
+  steppe:'grassland-steppe', savanna:'grassland-steppe', savannah:'grassland-steppe',
+  coast:'grassland', coastal:'grassland', shore:'grassland', shoreline:'grassland', seaside:'grassland', beach:'grassland',
+  woods:'forest', woodland:'forest', woodlands:'forest', taiga:'forest', boreal:'forest',
+  mountain:'mountains', peaks:'mountains', alpine:'mountains',
+  hill:'hills', highlands:'hills',
+  marsh:'swamp', marshland:'swamp', bog:'swamp', fen:'swamp', wetland:'swamp', wetlands:'swamp',
+  scrub:'scrubland', heath:'scrubland', moor:'scrubland', moorland:'scrubland',
+  sea:'water', seas:'water', ocean:'water', oceans:'water', waters:'water'
+});
+// Human label for a lair-count dice spec: {n,d,mod} → "2d4" / "1d3−1" / "1d4+1" / "—" (none).
+function lairDiceLabel(spec){
+  if(!spec || !spec.d || !spec.n) return '—';
+  let s = spec.n + 'd' + spec.d;
+  if(spec.mod > 0) s += '+' + spec.mod;
+  else if(spec.mod < 0) s += '−' + Math.abs(spec.mod);  // U+2212, matches the survey table
+  return s;
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -1096,6 +1153,8 @@ Object.assign(ACKS, {
   JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_TEMPERATURE_SPEED, JOURNEY_GROUND_SPEED, JOURNEY_PACE_SPEED,
   JOURNEY_RATION_PER_PERSON_DAY, JOURNEY_WATER_PER_PERSON_DAY, JOURNEY_SUPPLY_LOW_DAYS,
   JOURNEY_FATIGUE_CYCLE_DAYS,
+  // #476 Monster Persistence M1 — Lairs per Hex density table (JJ p.71)
+  LAIRS_PER_HEX, LAIR_TERRAIN_ALIAS, lairDiceLabel,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.
