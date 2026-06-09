@@ -1364,11 +1364,26 @@ document.addEventListener('alpine:init', () => {
           </template>
         </select>
         <span>· terrain:</span>
-        <select x-model="mapCreateTerrain" class="border border-ink rounded px-2 py-0.5">
+        <select x-model="mapCreateTerrain" @change="if(!mapBrushSubtypeOptions().some(s=>s.value===mapCreateSubtype)) mapCreateSubtype=''" class="border border-ink rounded px-2 py-0.5">
           <option value="">— unset —</option>
           <template x-for="t in mapTerrainOptions()" :key="t.value">
             <option :value="t.value" x-text="t.label"></option>
           </template>
+        </select>
+        <!-- Terrain model — sub-type (contextual to the base) + Köppen climate, as new-hex defaults / for the
+             selected hex. Sub-type hides when the base has no variants. biome stays derived (no brush control). -->
+        <template x-if="mapBrushSubtypeOptions().length">
+          <span class="flex items-center gap-1">· sub-type:
+            <select x-model="mapCreateSubtype" class="border border-ink rounded px-2 py-0.5" title="Terrain sub-type — drives lair density (JJ p.69), encounters (JJ pp.45–67) and visibility (RR p.275)">
+              <option value="">— any —</option>
+              <template x-for="s in mapBrushSubtypeOptions()" :key="s.value"><option :value="s.value" x-text="s.label"></option></template>
+            </select>
+          </span>
+        </template>
+        <span>· climate:</span>
+        <select x-model="mapCreateKoppen" class="border border-ink rounded px-2 py-0.5" title="Köppen climate code (JJ p.40) — the weather key (JJ p.41) + biome source">
+          <option value="">— unset —</option>
+          <template x-for="k in hexKoppenOptions()" :key="k.value"><option :value="k.value" x-text="k.label"></option></template>
         </select>
         <!-- Rivers/roads + Save/Cancel only once a cell is selected (they act on that specific hex). -->
         <template x-if="mapCreateAt">
@@ -13991,6 +14006,8 @@ return {
   mapEditHexId: null,        // when the picker is editing an existing hex (vs creating); null = create
   mapCreateDomainId: '',     // chosen domain for the hex ('' = unclaimed wilderness)
   mapCreateTerrain: '',      // chosen terrain for the hex ('' = unset)
+  mapCreateSubtype: '',      // terrain model — sub-type for the new/edited hex (contextual to the base; '' = any)
+  mapCreateKoppen: '',       // terrain model — Köppen climate code for the new/edited hex ('' = unset)
   mapCreateRiverSides: [],   // #225 — hex sides (0..5) carrying a river (drawn along those edges; a movement barrier)
   mapCreateRoadSides: [],    // #225 — hex sides (0..5) the road reaches from the centre (with circular bends)
   mapCreateCrossingSides: [], // #225 — river sides (0..5) carrying a ford/bridge (negates the barrier); road×river is an implicit bridge
@@ -14268,7 +14285,7 @@ return {
   // M5 "Add/Edit hexes" flow — the persistent picker panel shows the moment the toggle flips. This
   // resets it to the "no hex selected" state with default new-hex settings (the brush). mapEnterAddMode
   // is for the USER toggle; addHexViaMap enters the same way but pre-sets the brush domain.
-  mapEnterAddMode(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; this.schedulePersist(); },
+  mapEnterAddMode(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateSubtype = ''; this.mapCreateKoppen = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; this.schedulePersist(); },
   // Click an empty cell → select it for creation. KEEP the current domain/terrain brush (so settings
   // chosen in the panel before clicking carry into the new hex); only the per-hex geometry resets.
   mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
@@ -14279,6 +14296,8 @@ return {
     this.mapEditHexId = h.id;
     this.mapCreateDomainId = h.domainId || '';
     this.mapCreateTerrain = h.terrain || '';
+    this.mapCreateSubtype = h.terrainSubtype || '';
+    this.mapCreateKoppen = h.koppen || '';
     this.mapCreateRiverSides    = Array.isArray(h.riverSides)    ? h.riverSides.slice()    : [];
     this.mapCreateRoadSides     = Array.isArray(h.roadSides)     ? h.roadSides.slice()     : [];
     this.mapCreateCrossingSides = Array.isArray(h.crossingSides) ? h.crossingSides.slice() : [];
@@ -14343,6 +14362,12 @@ return {
     if(cur && !base.some(t => t.value === cur)) return [{ value: cur, label: cur + ' (current)' }].concat(base);
     return base;
   },
+  // Sub-type options for the map Add/Edit brush — contextual to the brush's terrain base (terrain model T2).
+  mapBrushSubtypeOptions(){
+    const base = window.ACKS.terrainBase(this.mapCreateTerrain);
+    const subs = (window.ACKS.TERRAIN_SUBTYPES && window.ACKS.TERRAIN_SUBTYPES[base]) || [];
+    return subs.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
+  },
   _mapFindHexById(id){
     let h = (this.currentCampaign?.hexes || []).find(x => x.id === id);
     if(h) return h;
@@ -14404,6 +14429,8 @@ return {
       if(hex){
         this.mapRehomeHex(hex, this.mapCreateDomainId || '');
         hex.terrain = this.mapCreateTerrain || '';
+        hex.terrainSubtype = this.mapCreateSubtype || '';   // terrain model
+        hex.koppen = this.mapCreateKoppen || '';            // terrain model
         hex.roadSides = (this.mapCreateRoadSides || []).slice(); // CARTOGRAPHIC; hasRoad (travel flag) left untouched — see Phase_2.5_Journeys_Plan §24
         this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides);
         this.markDirty(); this.schedulePersist();
@@ -14419,6 +14446,7 @@ return {
     const domId = this.mapCreateDomainId || '';
     // Unclaimed wilderness starts UNexplored (uncharted); a hex placed into a domain stays explored.
     const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
+      terrainSubtype: this.mapCreateSubtype || '', koppen: this.mapCreateKoppen || '', // terrain model — brush defaults
       roadSides: (this.mapCreateRoadSides || []).slice(), explored: !!domId }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
     if(domId){
       const d = this.domains.find(x => x.id === domId);
@@ -14756,7 +14784,7 @@ return {
     // Enter add mode with the brush pre-set to this domain (no cell selected yet) — the persistent
     // panel shows it immediately, and mapClickEmpty keeps it when the GM clicks a cell to place.
     this.mapCreateAt = null; this.mapEditHexId = null;
-    this.mapCreateDomainId = domainId || ''; this.mapCreateTerrain = '';
+    this.mapCreateDomainId = domainId || ''; this.mapCreateTerrain = ''; this.mapCreateSubtype = ''; this.mapCreateKoppen = '';
     this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
     this.worldSubView = 'map'; this.currentView = 'world'; // subView first so the currentView watch sees map
     this.mapEnsureView();
