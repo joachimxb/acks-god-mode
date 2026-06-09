@@ -832,6 +832,86 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- #476 M1 — Lair Wizard (Inspector Create > Lair). Manual, catalog-free authoring (§12.5):
+     'author' = one detailed lair (place on a hex, or hold unplaced in the dynamic pool); 'seed' =
+     roll the RAW Lairs-per-Hex count (JJ p.71) for an unsettled hex into empty status:'unknown'
+     shells. GLOBAL modal (launched from the Inspector Create tab) — rendered regardless of the
+     active tab, like the other modals here; the bare Inspector schemaForm edit is the admin path. -->
+<div x-show="lairWizardOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:55; background:rgba(0,0,0,.4)" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="lairWizardOpen = false">
+  <div class="vellum border border-ink rounded-lg shadow-xl max-w-lg w-full mx-4 p-5 space-y-4">
+    <div class="flex justify-between items-center">
+      <h2 class="font-bold text-lg">🏚 Lair Wizard</h2>
+      <button @click="lairWizardOpen = false" class="text-xl px-2 leading-none">×</button>
+    </div>
+    <div class="flex gap-2 text-sm">
+      <button @click="lairWizardMode='author'" :class="lairWizardMode==='author' ? 'bg-yellow-200 font-semibold' : ''" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Author a lair</button>
+      <button @click="lairWizardMode='seed'" :class="lairWizardMode==='seed' ? 'bg-yellow-200 font-semibold' : ''" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Seed a wilderness hex</button>
+    </div>
+
+    <!-- AUTHOR mode -->
+    <div x-show="lairWizardMode==='author'" class="space-y-3">
+      <p class="text-sm opacity-70">Author one lair by hand (catalog-free). Inhabitants is a manual estimate for now — a later milestone generates structured groups + treasure from the monster catalog.</p>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <label class="col-span-2">Name<input x-model="lairWizardForm.name" placeholder="e.g. Bloodfang Cave" class="w-full border border-ink rounded px-2 py-1"></label>
+        <label class="col-span-2">Monster <span class="opacity-50">(free text)</span><input x-model="lairWizardForm.monsterCatalogKey" placeholder="e.g. dire wolves" class="w-full border border-ink rounded px-2 py-1"></label>
+        <label>Lair type<select x-model="lairWizardForm.lairType" class="w-full border border-ink rounded px-2 py-1">
+          <template x-for="t in ['lair','lair-large','hideout','ruin','natural-cave','dungeon-level']" :key="t"><option :value="t" x-text="t"></option></template>
+        </select></label>
+        <label>Terrain<select x-model="lairWizardForm.terrain" class="w-full border border-ink rounded px-2 py-1">
+          <option value="">(unset)</option>
+          <template x-for="tt in lairWizardTerrainOptions()" :key="tt.value"><option :value="tt.value" x-text="tt.label"></option></template>
+        </select></label>
+        <label>Inhabitants <span class="opacity-50">(est.)</span><input type="number" min="0" x-model.number="lairWizardForm.inhabitants" class="w-full border border-ink rounded px-2 py-1"></label>
+        <label>Treasure type <span class="opacity-50">(A–R)</span><input x-model="lairWizardForm.treasureType" maxlength="2" class="w-full border border-ink rounded px-2 py-1"></label>
+        <label class="col-span-2">Precise placement <span class="opacity-50">(narrative)</span><input x-model="lairWizardForm.precisePlacement" placeholder="e.g. cave on the eastern slope" class="w-full border border-ink rounded px-2 py-1"></label>
+        <label class="flex items-center gap-2"><input type="checkbox" x-model="lairWizardForm.hasFortifications"> Fortified</label>
+        <label class="flex items-center gap-2"><input type="checkbox" x-model="lairWizardForm.knownToPlayers"> Known to players</label>
+        <label class="col-span-2">Notes<textarea x-model="lairWizardForm.notes" rows="2" class="w-full border border-ink rounded px-2 py-1"></textarea></label>
+      </div>
+      <div class="border-t border-ink/20 pt-2 space-y-1">
+        <div class="text-sm font-semibold">Destination</div>
+        <label class="text-sm flex items-center gap-2"><input type="radio" value="hex" x-model="lairWizardForm.destination"> Place on a hex <span class="opacity-50">(active)</span></label>
+        <select x-show="lairWizardForm.destination==='hex'" x-model="lairWizardForm.hexId" class="w-full border border-ink rounded px-2 py-1 text-sm">
+          <option value="">— pick a hex —</option>
+          <template x-for="h in lairWizardHexOptions()" :key="h.id"><option :value="h.id" x-text="h.label"></option></template>
+        </select>
+        <label class="text-sm flex items-center gap-2"><input type="radio" value="dynamic" x-model="lairWizardForm.destination"> Dynamic pool <span class="opacity-50">(drop in later — JJ p.195)</span></label>
+        <p x-show="lairWizardForm.destination==='dynamic'" class="text-xs opacity-60">Held unplaced (no hex) — reveal it into a hex later. The encounter pipeline can draw a pooled dynamic lair on a lair roll (a later milestone).</p>
+      </div>
+    </div>
+
+    <!-- SEED mode -->
+    <div x-show="lairWizardMode==='seed'" class="space-y-3">
+      <p class="text-sm opacity-70">Roll the RAW wilderness lair density for an <strong>unsettled</strong> hex (JJ p.71, <em>Lairs per Hex</em>) — it creates that many empty, undetailed lair shells you flesh out later. Hexes inside a domain seed none (securing a hex clears its lairs).</p>
+      <label class="text-sm block">Hex<select x-model="lairWizardSeed.hexId" @change="lairWizardSeed.count = 0" class="w-full border border-ink rounded px-2 py-1">
+        <option value="">— pick a hex —</option>
+        <template x-for="h in lairWizardHexOptions()" :key="h.id"><option :value="h.id" x-text="h.label"></option></template>
+      </select></label>
+      <template x-if="lairWizardSeed.hexId">
+        <div class="text-sm space-y-2">
+          <div x-show="lairWizardSeedIsDomain()" class="accent-red text-xs">⚠ This hex belongs to a domain — RAW seeds none here. Use Author mode, or seed an unclaimed hex.</div>
+          <template x-if="!lairWizardSeedIsDomain()">
+            <div class="space-y-2">
+              <div class="opacity-80">Terrain: <span class="font-semibold" x-text="lairWizardSeedDiceLabel()"></span></div>
+              <template x-if="lairWizardSeedDice()">
+                <div class="flex items-center gap-2">
+                  <button @click="lairWizardRollSeed()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100">🎲 Roll count</button>
+                  <label class="flex items-center gap-1">Lairs <input type="number" min="0" max="50" x-model.number="lairWizardSeed.count" class="w-20 border border-ink rounded px-2 py-1"></label>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-ink/20 pt-2">
+      <button @click="lairWizardOpen = false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+      <button @click="lairWizardSubmit()" :disabled="!lairWizardCanSubmit()" :class="!lairWizardCanSubmit() ? 'opacity-50 cursor-not-allowed' : ''" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold" x-text="lairWizardMode==='seed' ? 'Seed lairs' : 'Create lair'"></button>
+    </div>
+  </div>
+</div>
+
 <!-- Carry ⇄ stash transfer modal (Items I1 Step 3) — the character's actor verb: cache carry
      items/coins into a co-located stash, or draw them back. Layered above the character editor
      (z-50) at z-70. Engine: ACKS.cacheToStash / drawFromStash (purse + Phase-2.6 carry shapes). -->
@@ -8823,6 +8903,7 @@ return {
       case 'character': return () => this.openNewCharacterEditor({ kind: 'NPC' });
       case 'domain':    return () => this.addBlankDomain();  // queued: Domain Wizard (#435) replaces this when shipped
       case 'journey':   return () => this.inspectorCreateBlankJourney();  // Phase 2.5 #475 — Admin verb (free-form); set status=in-transit + Tick Day to drive
+      case 'lair':      return () => this.openLairWizard('author');  // #476 M1 — the manual Lair Wizard (§12.5); the schemaForm edit sits under it for admin tweaks
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -8846,6 +8927,85 @@ return {
     this.inspectorOpenInspect('journey', j.id);
     this.inspectorEditMode = true;
     if(this.showToast) this.showToast('New Journey created — set participants, start + destination hexes, then status = in-transit.');
+  },
+
+  // ── #476 M1 — Lair Wizard (Inspector Create > Lair; §12.5) ──────────────────
+  // The manual, catalog-free authoring front-end. Two modes: 'author' (one detailed lair → place on
+  // a hex, or hold in the dynamic pool) and 'seed' (roll the RAW Lairs-per-Hex count, JJ p.71, for an
+  // unsettled hex → empty status:'unknown' shells). The bare Inspector schemaForm edit sits under it
+  // (Browse → Inspect → Edit) as the no-frills admin path. Population/treasure generation is M2/M3.
+  openLairWizard(mode){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    this.lairWizardMode = (mode === 'seed') ? 'seed' : 'author';
+    this.lairWizardForm = { name:'', monsterCatalogKey:'', lairType:'lair', terrain:'', inhabitants:0, hasFortifications:false, knownToPlayers:false, treasureType:'', precisePlacement:'', notes:'', destination:'hex', hexId:'' };
+    this.lairWizardSeed = { hexId:'', count:0 };
+    this.lairWizardOpen = true;
+  },
+  lairWizardTerrainOptions(){ return (window.ACKS.mapTerrainTypes ? window.ACKS.mapTerrainTypes() : []); },
+  lairWizardHexOptions(){
+    const camp = this.currentCampaign; const hexes = (camp && camp.hexes) || [];
+    return hexes.map(h => {
+      const coord = h.coord ? window.ACKS.hexDisplayLabel(h.coord.q, h.coord.r) : h.id;
+      const dom = h.domainId ? (camp.domains||[]).find(d => d.id === h.domainId) : null;
+      const parts = [coord];
+      if(h.name) parts.push(h.name);
+      if(h.terrain) parts.push('· ' + h.terrain);
+      parts.push(dom ? ('· ' + dom.name) : '· unclaimed');
+      return { id: h.id, label: parts.join(' ') };
+    });
+  },
+  _lairWizardHex(id){ const camp = this.currentCampaign; return ((camp && camp.hexes) || []).find(h => h.id === id) || null; },
+  lairWizardSeedIsDomain(){ const h = this._lairWizardHex(this.lairWizardSeed.hexId); return !!(h && h.domainId); },
+  lairWizardSeedDice(){ const h = this._lairWizardHex(this.lairWizardSeed.hexId); return h ? window.ACKS.lairDiceForTerrain(h.terrain) : null; },
+  lairWizardSeedDiceLabel(){
+    const d = this.lairWizardSeedDice();
+    if(d) return d.key + ' (' + d.label + ' lairs)';
+    const h = this._lairWizardHex(this.lairWizardSeed.hexId);
+    return (h && h.terrain ? h.terrain : '(no terrain set)') + ' — no RAW lair density';
+  },
+  lairWizardRollSeed(){
+    const dice = this.lairWizardSeedDice();
+    this.lairWizardSeed.count = dice ? window.ACKS.rollLairCount(dice.spec) : 0;
+  },
+  lairWizardCanSubmit(){
+    if(this.lairWizardMode === 'seed'){
+      return !!this.lairWizardSeed.hexId && !this.lairWizardSeedIsDomain() && !!this.lairWizardSeedDice() && (this.lairWizardSeed.count|0) > 0;
+    }
+    const f = this.lairWizardForm;
+    if(!f.name && !f.monsterCatalogKey) return false;       // need at least a name or a monster
+    if(f.destination === 'hex' && !f.hexId) return false;   // a placed lair needs a hex
+    return true;
+  },
+  lairWizardSubmit(){
+    if(!this.currentCampaign || !this.lairWizardCanSubmit()) return;
+    const A = window.ACKS;
+    if(this.lairWizardMode === 'seed'){
+      const seeded = A.seedHexLairs(this.currentCampaign, this.lairWizardSeed.hexId, { count: this.lairWizardSeed.count|0 });
+      this.markDirty(); this.schedulePersist();
+      this.lairWizardOpen = false;
+      if(this.showToast) this.showToast('Seeded ' + seeded.length + ' lair' + (seeded.length===1?'':'s') + ' — undetailed shells; flesh them out via the Inspector or Author mode.');
+      return;
+    }
+    const f = this.lairWizardForm;
+    const opts = {
+      name: (f.name||'').trim(),
+      monsterCatalogKey: (f.monsterCatalogKey||'').trim(),
+      lairType: f.lairType,
+      terrain: f.terrain,
+      hasFortifications: !!f.hasFortifications,
+      knownToPlayers: !!f.knownToPlayers,
+      treasureType: (f.treasureType||'').trim().toUpperCase(),
+      precisePlacement: (f.precisePlacement||'').trim(),
+      notes: (f.notes||'').trim(),
+      totalInhabitantCount: Math.max(0, f.inhabitants|0)   // manual estimate until M2 individuates groups
+    };
+    if(f.destination === 'dynamic'){ opts.status = 'dynamic'; opts.hexId = null; opts.establishedBy = 'dynamic-reveal'; }
+    else { opts.status = 'active'; opts.hexId = f.hexId; opts.establishedBy = 'gm-fiat'; }
+    const lair = A.createLair(this.currentCampaign, opts);
+    this.markDirty(); this.schedulePersist();
+    this.lairWizardOpen = false;
+    if(this.showToast) this.showToast((f.destination==='dynamic' ? 'Dynamic lair authored (held unplaced).' : 'Lair created.') + ' Open it to add population + treasure.');
+    if(lair) this.inspectorOpenInspect('lair', lair.id);
   },
 
   // Friendly description of the wizard situation for the current kind.
@@ -13769,6 +13929,12 @@ return {
   mapGridRows: 10,
   mapGridStartCol: 1,
   mapGridStartRow: 1,
+  // #476 M1 — Lair Wizard (Inspector Create > Lair; §12.5). 'author' = one detailed lair (place on a
+  // hex / hold in the dynamic pool); 'seed' = roll the RAW Lairs-per-Hex count for an unsettled hex.
+  lairWizardOpen: false,
+  lairWizardMode: 'author',
+  lairWizardForm: { name:'', monsterCatalogKey:'', lairType:'lair', terrain:'', inhabitants:0, hasFortifications:false, knownToPlayers:false, treasureType:'', precisePlacement:'', notes:'', destination:'hex', hexId:'' },
+  lairWizardSeed: { hexId:'', count:0 },
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,
