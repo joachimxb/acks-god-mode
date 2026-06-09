@@ -124,17 +124,7 @@
             "terrain": "forest",
             "primaryStructure": "",
             "settlement": null,
-            "lairs": [
-              {
-                "schemaVersion": 2,
-                "id": "lai-thorn-wood-goblins",
-                "name": "Splinter-Tooth Goblin Warren",
-                "creatureType": "goblins",
-                "hd": "1-1",
-                "numberAppearing": "2d10",
-                "description": "Old badger setts colonized by goblins. Skirmish the Northern Farmsteads in the fortnight before harvest."
-              }
-            ],
+            "lairs": [],
             "dungeons": [],
             "pointsOfInterest": [
               {
@@ -524,6 +514,39 @@
           "seededFromScalarGp": 2400
         }
       ]
+    }
+  ],
+  "lairs": [
+    {
+      "schemaVersion": 2,
+      "id": "lai-thorn-wood-goblins",
+      "name": "Splinter-Tooth Goblin Warren",
+      "status": "active",
+      "hexId": "hex-thorn-wood",
+      "precisePlacement": "",
+      "knownToPlayers": false,
+      "hiddenDC": null,
+      "monsterCatalogKey": "",
+      "lairPct": null,
+      "groupIds": [],
+      "leaderCharacterIds": [],
+      "totalInhabitantCount": 0,
+      "treasureType": "",
+      "treasureCustodyId": null,
+      "lairType": "lair",
+      "terrain": "",
+      "hasFortifications": false,
+      "features": [],
+      "factionKey": null,
+      "establishedAtTurn": 1,
+      "establishedBy": "gm-fiat",
+      "lastVisitedTurn": null,
+      "clearedAtTurn": null,
+      "clearedByEventId": null,
+      "repopulationChance": null,
+      "discoveryHistory": [],
+      "notes": "Old badger setts colonized by goblins. Skirmish the Northern Farmsteads in the fortnight before harvest. (legacy Creature: goblins, HD: 1-1, No. appearing: 2d10)",
+      "history": []
     }
   ]
 }
