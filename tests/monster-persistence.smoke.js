@@ -1,11 +1,16 @@
-/* tests/monster-persistence.smoke.js — Phase 2.5 Monster Persistence (#476), M0 Foundations.
+/* tests/monster-persistence.smoke.js — Phase 2.5 Monster Persistence (#476), M0 + M1.
  *
  *   node tests/monster-persistence.smoke.js   (or via `npm test`)
  *
  * M0 = the catalog-free RAW-core data layer: blankLair promoted to the first-class §3.1 entity,
  * campaign.lairs[] collection, the 5 lookups + lairInhabitantCount, the migrateLegacyHexLairs lift
  * (legacy nested hex.lairs[] → first-class), entity-registry + field-schema registration, and the
- * demo's 3 monster-Groups bound as Lairs. Pool-first encounters / discovery / generation are M3+.
+ * demo's 3 monster-Groups bound as Lairs. Pool-first encounters / generation are M3+.
+ *
+ * M1 = the lifecycle setters (createLair / clearLair / discoverLair / abandonLair / destroyLair /
+ * revealDynamicLair, each idempotent + history-stamped) and the D4 terrain-keyed hex-density seeding
+ * (LAIRS_PER_HEX, JJ p.71 — lairDiceForTerrain / rollLairCount / seedHexLairs; the COUNT only, which
+ * is catalog-free). The manual Lair Wizard is browser-verified (index.html).
  */
 'use strict';
 const path = require('path');
@@ -178,6 +183,168 @@ section('adventure-result clears a lair → status flips to cleared (campaign.la
   ok('cleared lair stamped clearedAtTurn', after.clearedAtTurn === 4);
   ok('cleared lair stamped clearedByEventId', after.clearedByEventId === ev.id);
   ok('cleared lair no longer in activeLairs', ACKS.activeLairs(c).length === 0 && ACKS.clearedLairs(c).length === 1);
+}
+
+// =============================================================================
+// ===== M1: lifecycle setters =================================================
+// =============================================================================
+section('M1 createLair — author into campaign.lairs[] + history stamp');
+{
+  const c = ACKS.blankCampaign({ name: 'create' }); c.currentTurn = 5;
+  const l = ACKS.createLair(c, { name: 'Spider Hollow', monsterCatalogKey: 'giant-spider', status: 'active' });
+  ok('createLair returns the lair', l && /^lai-/.test(l.id));
+  ok('createLair pushes into campaign.lairs', c.lairs.length === 1 && c.lairs[0] === l);
+  ok('createLair defaults establishedAtTurn to currentTurn', l.establishedAtTurn === 5);
+  ok('createLair stamps a created history entry', l.history.length === 1 && l.history[0].type === 'created');
+  ok('createLair honours opts', l.name === 'Spider Hollow' && l.monsterCatalogKey === 'giant-spider');
+  ok('createLair defensive on null campaign', ACKS.createLair(null, {}) === null);
+}
+
+section('M1 clearLair / abandonLair / destroyLair — status transitions + idempotent + history');
+{
+  const c = ACKS.blankCampaign({ name: 'transitions' }); c.currentTurn = 7;
+  c.lairs = [
+    ACKS.blankLair({ id: 'lai-c', status: 'active', hexId: 'hex-1' }),
+    ACKS.blankLair({ id: 'lai-a', status: 'active', hexId: 'hex-1' }),
+    ACKS.blankLair({ id: 'lai-d', status: 'active', hexId: 'hex-1' }),
+  ];
+  // clearLair
+  const cl = ACKS.clearLair(c, 'lai-c', { byEventId: 'evt-9', reason: 'party raid' });
+  ok('clearLair flips to cleared', cl.status === 'cleared');
+  ok('clearLair stamps clearedAtTurn (currentTurn)', cl.clearedAtTurn === 7);
+  ok('clearLair records byEventId', cl.clearedByEventId === 'evt-9');
+  ok('clearLair stamps history (type cleared + byEventId)', cl.history.some(h => h.type === 'cleared' && h.byEventId === 'evt-9'));
+  const histLen = cl.history.length;
+  ACKS.clearLair(c, 'lai-c');  // idempotent
+  ok('clearLair idempotent — no second history entry', cl.history.length === histLen && cl.status === 'cleared');
+  // abandonLair
+  const ab = ACKS.abandonLair(c, 'lai-a', { atTurn: 3, reason: 'depleted hunting' });
+  ok('abandonLair flips to abandoned', ab.status === 'abandoned');
+  ok('abandonLair honours atTurn in history', ab.history.some(h => h.type === 'abandoned' && h.turn === 3));
+  ACKS.abandonLair(c, 'lai-a');
+  ok('abandonLair idempotent', ab.history.filter(h => h.type === 'abandoned').length === 1);
+  // destroyLair
+  const de = ACKS.destroyLair(c, 'lai-d');
+  ok('destroyLair flips to destroyed', de.status === 'destroyed');
+  ok('destroyLair stamps history', de.history.some(h => h.type === 'destroyed'));
+  // defensive
+  ok('transitions on missing id → null', ACKS.clearLair(c, 'lai-none') === null && ACKS.abandonLair(c, 'lai-none') === null && ACKS.destroyLair(c, 'lai-none') === null);
+}
+
+section('M1 discoverLair — knownToPlayers + discoveryHistory + first/revisit');
+{
+  const c = ACKS.blankCampaign({ name: 'discover' }); c.currentTurn = 2;
+  c.lairs = [ ACKS.blankLair({ id: 'lai-1', status: 'active', hexId: 'hex-1', knownToPlayers: false }) ];
+  const d = ACKS.discoverLair(c, 'lai-1', { by: 'party-1', method: 'hex-search' });
+  ok('discoverLair sets knownToPlayers', d.knownToPlayers === true);
+  ok('discoverLair sets lastVisitedTurn', d.lastVisitedTurn === 2);
+  ok('discoverLair appends discoveryHistory', d.discoveryHistory.length === 1 && d.discoveryHistory[0].by === 'party-1' && d.discoveryHistory[0].method === 'hex-search');
+  ok('discoverLair first time → history type discovered', d.history.some(h => h.type === 'discovered'));
+  c.currentTurn = 6;
+  ACKS.discoverLair(c, 'lai-1', { by: 'party-1' });
+  ok('discoverLair second time → revisited + still known', d.history.some(h => h.type === 'revisited') && d.knownToPlayers === true);
+  ok('discoverLair re-visit appends discoveryHistory + refreshes lastVisitedTurn', d.discoveryHistory.length === 2 && d.lastVisitedTurn === 6);
+  ok('discoverLair on missing id → null', ACKS.discoverLair(c, 'lai-none') === null);
+}
+
+section('M1 revealDynamicLair — dynamic pool → placed active');
+{
+  const c = ACKS.blankCampaign({ name: 'reveal' }); c.currentTurn = 9;
+  c.lairs = [
+    ACKS.blankLair({ id: 'lai-dyn', status: 'dynamic', hexId: null, monsterCatalogKey: 'ogre' }),
+    ACKS.blankLair({ id: 'lai-act', status: 'active', hexId: 'hex-1' }),
+  ];
+  const r = ACKS.revealDynamicLair(c, 'lai-dyn', 'hex-7', { knownToPlayers: true });
+  ok('reveal binds hexId', r.hexId === 'hex-7');
+  ok('reveal flips dynamic → active', r.status === 'active');
+  ok('reveal sets establishedBy dynamic-reveal', r.establishedBy === 'dynamic-reveal');
+  ok('reveal sets establishedAtTurn', r.establishedAtTurn === 9);
+  ok('reveal honours knownToPlayers', r.knownToPlayers === true);
+  ok('reveal stamps history (revealed + hexId)', r.history.some(h => h.type === 'revealed' && h.hexId === 'hex-7'));
+  ok('reveal now appears in lairsAtHex + activeLairs', ACKS.lairsAtHex(c, 'hex-7').length === 1 && ACKS.activeLairs(c).length === 2);
+  // refuses a non-dynamic lair (returns it unchanged)
+  const no = ACKS.revealDynamicLair(c, 'lai-act', 'hex-9');
+  ok('reveal refuses a non-dynamic lair (unchanged)', no.status === 'active' && no.hexId === 'hex-1');
+  ok('reveal on missing id / no hex → null', ACKS.revealDynamicLair(c, 'lai-none', 'hex-1') === null && ACKS.revealDynamicLair(c, 'lai-dyn', null) === null);
+}
+
+// =============================================================================
+// ===== M1: D4 hex-density seeding (Lairs per Hex, JJ p.71) ===================
+// =============================================================================
+section('M1 LAIRS_PER_HEX table — RAW values (JJ p.71)');
+{
+  const T = ACKS.LAIRS_PER_HEX;
+  ok('20 keys (10 base + finer sub-keys)', Object.keys(T).length === 20);
+  const eq = (k, n, d, m) => T[k] && T[k].n === n && T[k].d === d && T[k].mod === m;
+  ok('forest 2d4', eq('forest', 2, 4, 0));
+  ok('jungle 2d8', eq('jungle', 2, 8, 0));
+  ok('swamp 2d4+1', eq('swamp', 2, 4, 1));
+  ok('barrens 1d4', eq('barrens', 1, 4, 0));
+  ok('grassland-steppe 1d3−1', eq('grassland-steppe', 1, 3, -1));
+  ok('hills-forested 2d4 vs hills(rocky) 1d4', eq('hills-forested', 2, 4, 0) && eq('hills', 1, 4, 0));
+  ok('mountains default rocky/snowy 1d4+1', eq('mountains', 1, 4, 1) && eq('mountains-forested', 2, 4, 0));
+  ok('desert default sandy 1d4 vs rocky 1d2', eq('desert', 1, 4, 0) && eq('desert-rocky', 1, 2, 0));
+  ok('scrubland default low 1d2 vs dense 2d4', eq('scrubland', 1, 2, 0) && eq('scrubland-dense', 2, 4, 0));
+  ok('water 0 (no land lairs)', eq('water', 0, 0, 0));
+  ok('lairDiceLabel formats', ACKS.lairDiceLabel(T.forest) === '2d4' && ACKS.lairDiceLabel(T['grassland-steppe']) === '1d3−1' && ACKS.lairDiceLabel(T.mountains) === '1d4+1' && ACKS.lairDiceLabel(T.water) === '—');
+}
+
+section('M1 lairDiceForTerrain — base / alias / finer sub-key / water / unknown');
+{
+  ok('forest → 2d4', ACKS.lairDiceForTerrain('forest').label === '2d4');
+  ok('alias plains → grassland 1d3', ACKS.lairDiceForTerrain('plains').key === 'grassland' && ACKS.lairDiceForTerrain('plains').label === '1d3');
+  ok('alias steppe → grassland-steppe 1d3−1', ACKS.lairDiceForTerrain('steppe').key === 'grassland-steppe');
+  ok('alias marsh → swamp', ACKS.lairDiceForTerrain('marsh').key === 'swamp');
+  ok('finer key hills-forested honoured', ACKS.lairDiceForTerrain('hills-forested').label === '2d4');
+  ok('case-insensitive + trim', ACKS.lairDiceForTerrain('  Forest ').label === '2d4');
+  ok('water → zero spec', ACKS.lairDiceForTerrain('water').spec.n === 0);
+  ok('unknown terrain → null', ACKS.lairDiceForTerrain('tundra') === null);
+  ok('empty → null', ACKS.lairDiceForTerrain('') === null && ACKS.lairDiceForTerrain(null) === null);
+}
+
+section('M1 rollLairCount — roll, mod, clamp, seeded determinism');
+{
+  const lo = () => 0.0;    // min die face (1)
+  const hi = () => 0.999;  // max die face (= d)
+  ok('forest 2d4 min = 2', ACKS.rollLairCount({ n: 2, d: 4, mod: 0 }, lo) === 2);
+  ok('forest 2d4 max = 8', ACKS.rollLairCount({ n: 2, d: 4, mod: 0 }, hi) === 8);
+  ok('mod +1 applied (1d4+1 max = 5)', ACKS.rollLairCount({ n: 1, d: 4, mod: 1 }, hi) === 5);
+  ok('steppe 1d3−1 can be 0 (clamped, not −0)', ACKS.rollLairCount({ n: 1, d: 3, mod: -1 }, lo) === 0);
+  ok('steppe 1d3−1 max = 2', ACKS.rollLairCount({ n: 1, d: 3, mod: -1 }, hi) === 2);
+  ok('zero spec (water) → 0', ACKS.rollLairCount({ n: 0, d: 0, mod: 0 }, hi) === 0);
+  // seeded determinism: same rng sequence → same total
+  const seq = () => { let i = 0; const v = [0.1, 0.9, 0.5]; return () => v[i++ % v.length]; };
+  ok('deterministic under a fixed rng', ACKS.rollLairCount({ n: 3, d: 6, mod: 0 }, seq()) === ACKS.rollLairCount({ n: 3, d: 6, mod: 0 }, seq()));
+}
+
+section('M1 seedHexLairs — D4 opt-in seeding (unsettled hexes only)');
+{
+  const c = ACKS.blankCampaign({ name: 'seed' }); c.currentTurn = 1;
+  c.hexes = [
+    ACKS.blankHex({ id: 'hex-wild', terrain: 'forest' }),                  // unsettled (no domainId)
+    Object.assign(ACKS.blankHex({ id: 'hex-dom', terrain: 'forest' }), { domainId: 'dom-1' }), // settled (domainId is backfilled by liftToTopLevelCollections in-app)
+    ACKS.blankHex({ id: 'hex-odd', terrain: 'tundra' }),                    // unknown terrain
+    ACKS.blankHex({ id: 'hex-sea', terrain: 'water' }),                     // open water → 0
+  ];
+  // count override → exact N empty shells
+  const seeded = ACKS.seedHexLairs(c, 'hex-wild', { count: 3 });
+  ok('seeds the requested count', seeded.length === 3 && c.lairs.length === 3);
+  ok('seeded lairs are status:unknown', seeded.every(l => l.status === 'unknown'));
+  ok('seeded lairs establishedBy hex-seeding', seeded.every(l => l.establishedBy === 'hex-seeding'));
+  ok('seeded lairs bound to the hex + terrain', seeded.every(l => l.hexId === 'hex-wild' && l.terrain === 'forest'));
+  ok('seeded lairs have a created history entry', seeded.every(l => l.history.some(h => h.type === 'created')));
+  ok('seeded lairs land in campaign.lairs', ACKS.lairsAtHex(c, 'hex-wild').length === 3);
+  // RAW: settled (domain) hexes seed none, unless forced
+  ok('domain hex seeds none', ACKS.seedHexLairs(c, 'hex-dom', { count: 2 }).length === 0);
+  ok('domain hex with force seeds', ACKS.seedHexLairs(c, 'hex-dom', { count: 2, force: true }).length === 2);
+  // unknown terrain + open water + missing hex
+  ok('unknown terrain → []', ACKS.seedHexLairs(c, 'hex-odd', { count: 2 }).length === 0);
+  ok('open water → [] (0 spec, even with rng)', ACKS.seedHexLairs(c, 'hex-sea', {}).length === 0);
+  ok('missing hex → []', ACKS.seedHexLairs(c, 'hex-none', { count: 2 }).length === 0);
+  // rng path (no count override): forest 2d4 with a min-rng → exactly 2
+  const c2 = ACKS.blankCampaign({ name: 'seed2' });
+  c2.hexes = [ ACKS.blankHex({ id: 'hex-f', terrain: 'forest' }) ];
+  ok('rng path seeds the rolled count (forest 2d4, min-rng = 2)', ACKS.seedHexLairs(c2, 'hex-f', { rng: () => 0.0 }).length === 2);
 }
 
 // =============================================================================
