@@ -434,6 +434,44 @@ section('M3 generateLair — catalog-gated generation (Plan §5.3)');
 }
 
 // =============================================================================
+section('M3 lairEncounterProposal — pool-first selector (Plan §5.2, D5)');
+{
+  const c = ACKS.blankCampaign({ name: 'pool' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' }), ACKS.blankHex({ id: 'hex-2', terrain: 'forest' })];
+  ok('empty hex → source fresh', ACKS.lairEncounterProposal(c, 'hex-1').source === 'fresh');
+  ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1' });
+  const p = ACKS.lairEncounterProposal(c, 'hex-1');
+  ok('hex with an active lair → existing-lair + contents (D5)', p.source === 'existing-lair' && p.lairId && p.contents.monsterCatalogKey === 'orc' && p.contents.totalInhabitantCount >= 1);
+  // a cleared lair must NOT be selected (only active)
+  ACKS.clearLair(c, p.lairId);
+  ok('cleared lair → falls through to fresh', ACKS.lairEncounterProposal(c, 'hex-1').source === 'fresh');
+  // ≥2 active lairs at one hex → picks one (pure, rng-driven)
+  ACKS.generateLair(c, { monsterCatalogKey: 'goblin', hexId: 'hex-2' });
+  ACKS.generateLair(c, { monsterCatalogKey: 'kobold', hexId: 'hex-2' });
+  const multi = ACKS.lairEncounterProposal(c, 'hex-2', { rng: () => 0.9 });
+  ok('≥2 active lairs → picks one existing-lair', multi.source === 'existing-lair' && ACKS.lairsAtHex(c, 'hex-2').filter(l => l.status === 'active').length === 2);
+  // dynamic pool
+  const c2 = ACKS.blankCampaign({ name: 'dyn' });
+  ACKS.createLair(c2, { status: 'dynamic', hexId: null, monsterCatalogKey: 'ogre' });
+  ok('no hex lair but a pooled dynamic lair → dynamic-pool candidates', ACKS.lairEncounterProposal(c2, 'hex-x').source === 'dynamic-pool' && ACKS.lairEncounterProposal(c2, 'hex-x').candidates.length === 1);
+  ok('includeDynamicPool:false → fresh (reveal is a GM decision)', ACKS.lairEncounterProposal(c2, 'hex-x', { includeDynamicPool: false }).source === 'fresh');
+}
+
+section('M3 journey rollEncounter is pool-aware (D5)');
+{
+  const c = ACKS.blankCampaign({ name: 'enc' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' }), ACKS.blankHex({ id: 'hex-2', terrain: 'forest' })];
+  ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1' });
+  const force = () => 0.0; // 0 < 1/6 → encounter always fires
+  const r1 = ACKS.rollEncounter(c, { id: 'jrn-1', name: 'Caravan', currentHexId: 'hex-1' }, { rng: force, hasRoad: false, hexId: 'hex-1' });
+  ok('encounter at a lair hex → notable references the lair (lairId + name)', r1 && r1.notableEvent.payload.lairId && /orc lair/i.test(r1.notableEvent.label));
+  ok('encounterRecord carries lairId + the lair groups', r1.encounterRecord.lairId && r1.encounterRecord.monsters.length >= 1);
+  const r2 = ACKS.rollEncounter(c, { id: 'jrn-2', name: 'Caravan', currentHexId: 'hex-2' }, { rng: force, hasRoad: false, hexId: 'hex-2' });
+  ok('encounter at an empty hex → generic stub (no lairId)', r2 && r2.notableEvent.payload.lairId === null && /encounter check/.test(r2.notableEvent.label));
+  ok('roads stay safe (no encounter)', ACKS.rollEncounter(c, { id: 'jrn-3', name: 'Caravan', currentHexId: 'hex-1' }, { rng: force, hasRoad: true, hexId: 'hex-1' }) === null);
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

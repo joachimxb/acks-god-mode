@@ -1742,18 +1742,35 @@ function rollEncounter(campaign, journey, opts){
   const rng = opts.rng || Math.random;
   const chance = opts.hasRoad ? 0 : (1 / 6); // ~1-in-6 wilderness; roads safe for J1
   if(chance <= 0 || rng() >= chance) return null;
-  const hexId = (journey && journey.startHexId) || null;
+  const hexId = opts.hexId || (journey && (journey.currentHexId || journey.startHexId)) || null;
   const dayIndex = opts.dayIndex || ((journey && journey.currentDayIndex) || 0) + 1;
   const encId = 'enc-' + Math.floor(rng() * 2176782336).toString(36); // 'enc' is not a registered ID prefix
+  // M3 pool-first (D5): if this hex holds an active lair, the encounter IS that lair (its revealed
+  // contents) — not a generic stub. lairEncounterProposal is pure + consumes rng only on a ≥2-lair
+  // pick, so seeded journey previews stay byte-stable. includeDynamicPool:false here — revealing a
+  // pooled dynamic lair is a GM decision, not an automatic travel surprise.
+  const prop = (campaign && typeof ACKS.lairEncounterProposal === 'function')
+    ? ACKS.lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: false }) : null;
+  let label, monsters = [], lairId = null;
+  if(prop && prop.source === 'existing-lair'){
+    lairId = prop.lairId;
+    const mName = (typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'unknown creatures';
+    label = ((journey && journey.name) || 'Journey') + ': encounter — ' + mName + ' lair'
+      + (prop.contents.totalInhabitantCount ? ' (' + prop.contents.totalInhabitantCount + ' inhabitants)' : '')
+      + ' — GM, resolve';
+    monsters = prop.contents.groupIds.map(id => ({ groupId: id }));
+  } else {
+    label = ((journey && journey.name) || 'Journey') + ': encounter check — GM, resolve this encounter (' + (opts.terrain || 'wilderness') + ')';
+  }
   const encounterRecord = {
     id: encId, dayIndex, hexId, triggeredBy: 'wandering-roll', encounterTableUsed: null,
-    monsters: [], rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
+    monsters: monsters, lairId: lairId, rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
     partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null
   };
   const notableEvent = {
     kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
-    label: ((journey && journey.name) || 'Journey') + ': encounter check — GM, resolve this encounter (' + (opts.terrain || 'wilderness') + ')',
-    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId }
+    label: label,
+    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId, lairId: lairId }
   };
   return { encounterRecord, notableEvent };
 }

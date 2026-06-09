@@ -3098,6 +3098,38 @@ function generateLair(campaign, opts, rng){
   return { lair: lair, group: group, entry: entry, count: count };
 }
 
+// Pool-first encounter selector (Plan §5.2 / D5) — PURE. Given an encounter has fired at a hex,
+// decide what it IS by consulting the per-hex POOL before any fresh generation: an existing ACTIVE
+// lair populates the encounter (random pick if several — D5); else a pooled 'dynamic' lair may be
+// revealed into the hex; else it's a fresh roll (the seam Phase 3 #141 / a generateLair call fills).
+// Returns a proposal { source:'existing-lair'|'dynamic-pool'|'fresh', hexId, lair?, lairId?,
+// contents?, candidates? }; NEVER mutates — the caller (the journey encounter, the GM, or a future
+// all-actor slot-80 consumer with the territory-class probability, M8/Vagaries) acts on it. rng is
+// only consumed when ≥2 active lairs share the hex (the random pick), so seeded previews stay stable.
+function lairEncounterProposal(campaign, hexId, opts){
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  const here = (lairsAtHex(campaign, hexId) || []).filter(l => l && l.status === 'active');
+  if(here.length){
+    const lair = here.length === 1 ? here[0] : here[Math.floor(r() * here.length)];
+    return {
+      source: 'existing-lair', hexId: hexId, lairId: lair.id, lair: lair,
+      contents: {
+        monsterCatalogKey: lair.monsterCatalogKey || '',
+        groupIds: (lair.groupIds || []).slice(),
+        totalInhabitantCount: lairInhabitantCount(campaign, lair),
+        treasureType: lair.treasureType || '',
+        knownToPlayers: !!lair.knownToPlayers
+      }
+    };
+  }
+  if(o.includeDynamicPool !== false){
+    const pool = (Array.isArray(campaign && campaign.lairs) ? campaign.lairs : []).filter(l => l && l.status === 'dynamic' && !l.hexId);
+    if(pool.length) return { source: 'dynamic-pool', hexId: hexId, candidates: pool.slice() };
+  }
+  return { source: 'fresh', hexId: hexId };
+}
+
 // --- D4 hex-density seeding (JJ p.69; Plan §4) -------------------------------
 // The COUNT half of RAW wilderness stocking (catalog-free). lairDiceForTerrain maps a hex's terrain
 // → the LAIRS_PER_HEX dice spec (alias-normalized); rollLairCount rolls it; seedHexLairs creates that
@@ -7713,7 +7745,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
   createLair, clearLair, discoverLair, abandonLair, destroyLair, revealDynamicLair,
-  generateLair, _rollDiceStr,
+  generateLair, _rollDiceStr, lairEncounterProposal,
   rollLairCount, lairDiceForTerrain, seedHexLairs,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
