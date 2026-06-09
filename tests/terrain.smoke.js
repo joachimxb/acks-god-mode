@@ -138,15 +138,27 @@ section('lairDiceForHex — sub-type-aware lair dice (closes the M1 gap)');
   ok('desert base default == lairDiceForTerrain(desert)', sameSpec(ACKS.lairDiceForHex({ terrain: 'desert' }).spec, ACKS.lairDiceForTerrain('desert').spec));
   ok('desert + rocky → 1d2', sameSpec(ACKS.lairDiceForHex({ terrain: 'desert', terrainSubtype: 'rocky' }).spec, { n: 1, d: 2, mod: 0 }));
   ok('desert + sandy → 1d4', sameSpec(ACKS.lairDiceForHex({ terrain: 'desert', terrainSubtype: 'sandy' }).spec, { n: 1, d: 4, mod: 0 }));
-  ok('scrubland + sparse → scrubland-low 1d2', sameSpec(ACKS.lairDiceForHex({ terrain: 'scrubland', terrainSubtype: 'sparse' }).spec, { n: 1, d: 2, mod: 0 }));
+  ok('scrubland + sparse → scrubland-sparse 1d2', sameSpec(ACKS.lairDiceForHex({ terrain: 'scrubland', terrainSubtype: 'sparse' }).spec, { n: 1, d: 2, mod: 0 }));
+  ok('scrubland + low (RAW synonym) → scrubland-sparse 1d2', sameSpec(ACKS.lairDiceForHex({ terrain: 'scrubland', terrainSubtype: 'low' }).spec, { n: 1, d: 2, mod: 0 }));
   ok('scrubland + dense → 2d4', sameSpec(ACKS.lairDiceForHex({ terrain: 'scrubland', terrainSubtype: 'dense' }).spec, { n: 2, d: 4, mod: 0 }));
   ok('mountains + forested → 2d4', sameSpec(ACKS.lairDiceForHex({ terrain: 'mountains', terrainSubtype: 'forested' }).spec, { n: 2, d: 4, mod: 0 }));
   ok('mountains + rocky → 1d4+1', sameSpec(ACKS.lairDiceForHex({ terrain: 'mountains', terrainSubtype: 'rocky' }).spec, { n: 1, d: 4, mod: 1 }));
-  ok('mountains + snowy → base mountains 1d4+1 (no snowy row)', sameSpec(ACKS.lairDiceForHex({ terrain: 'mountains', terrainSubtype: 'snowy' }).spec, { n: 1, d: 4, mod: 1 }));
-  ok('mountains + volcanic → base mountains 1d4+1', sameSpec(ACKS.lairDiceForHex({ terrain: 'mountains', terrainSubtype: 'volcanic' }).spec, { n: 1, d: 4, mod: 1 }));
+  ok('mountains + snowy → mountains-snowy 1d4+1 (RAW rocky/snowy row, now explicit)', sameSpec(ACKS.lairDiceForHex({ terrain: 'mountains', terrainSubtype: 'snowy' }).spec, { n: 1, d: 4, mod: 1 }));
+  ok('mountains + volcanic → mountains-volcanic 1d4+1 (🔧 matched to rocky/snowy)', sameSpec(ACKS.lairDiceForHex({ terrain: 'mountains', terrainSubtype: 'volcanic' }).spec, { n: 1, d: 4, mod: 1 }));
   ok('grassland + steppe → 1d3-1', sameSpec(ACKS.lairDiceForHex({ terrain: 'grassland', terrainSubtype: 'steppe' }).spec, { n: 1, d: 3, mod: -1 }));
-  ok('grassland + savanna → base grassland 1d3 (no savanna row)', sameSpec(ACKS.lairDiceForHex({ terrain: 'grassland', terrainSubtype: 'savanna' }).spec, { n: 1, d: 3, mod: 0 }));
+  ok('grassland + savanna → grassland-savanna 1d3 (🔧 matched to farm/prairie)', sameSpec(ACKS.lairDiceForHex({ terrain: 'grassland', terrainSubtype: 'savanna' }).spec, { n: 1, d: 3, mod: 0 }));
   ok('hills + forested → 2d4', sameSpec(ACKS.lairDiceForHex({ terrain: 'hills', terrainSubtype: 'forested' }).spec, { n: 2, d: 4, mod: 0 }));
+  // every RAW-split-base sub-type resolves to its OWN explicit key (not a silent fallback) …
+  ok('mountains-snowy is an explicit key', ACKS.lairDiceForTerrain('mountains-snowy').key === 'mountains-snowy');
+  ok('grassland-savanna is an explicit key', ACKS.lairDiceForTerrain('grassland-savanna').key === 'grassland-savanna');
+  ok('mountains-volcanic is an explicit key', ACKS.lairDiceForTerrain('mountains-volcanic').key === 'mountains-volcanic');
+  ok('scrubland-sparse is an explicit key', ACKS.lairDiceForTerrain('scrubland-sparse').key === 'scrubland-sparse');
+  // … while a RAW "(any)" base's sub-types correctly fall back to the single base row.
+  ok('barrens + tundra → barrens (RAW any) 1d4', ACKS.lairDiceForHex({ terrain: 'barrens', terrainSubtype: 'tundra' }).key === 'barrens');
+  ok('forest + taiga → forest (RAW any) 2d4', ACKS.lairDiceForHex({ terrain: 'forest', terrainSubtype: 'taiga' }).key === 'forest');
+  ok('swamp + forested → swamp (RAW any) 2d4+1', ACKS.lairDiceForHex({ terrain: 'swamp', terrainSubtype: 'forested' }).key === 'swamp');
+  // every TERRAIN_SUBTYPES token resolves to a non-null spec for its base (no expressible gap).
+  ok('every (base,subtype) resolves', ACKS.TERRAIN_BASES.every(b => (ACKS.TERRAIN_SUBTYPES[b] || []).every(s => ACKS.lairDiceForHex({ terrain: b, terrainSubtype: s }) !== null) || b === 'water'));
   ok('alias terrain (plains) → grassland 1d3', sameSpec(ACKS.lairDiceForHex({ terrain: 'plains' }).spec, { n: 1, d: 3, mod: 0 }));
   ok('alias terrain (tundra) → barrens 1d4 (broadened via terrainBase; was unknown to M1 lairDiceForTerrain)', sameSpec(ACKS.lairDiceForHex({ terrain: 'tundra' }).spec, { n: 1, d: 4, mod: 0 }));
   ok('water → zero spec', ACKS.lairDiceForHex({ terrain: 'water' }).spec.n === 0);

@@ -3043,15 +3043,17 @@ function lairDiceForTerrain(terrain){
 }
 
 // lairDiceForHex(hex) — the SUB-TYPE-aware lair dice (Phase_2.5_Terrain_Model_Plan.md). Composes the
-// hex's (terrain, terrainSubtype) into the LAIRS_PER_HEX key, falling back to the base default when
-// there's no sub-type row (mountains+snowy → mountains 1d4+1; grassland+savanna → grassland 1d3). This
-// is the RAW-correct seeding reading once a hex carries an explicit sub-type (closes the M1 default gap).
+// hex's (terrain, terrainSubtype) into the LAIRS_PER_HEX key (JJ p.69). Every sub-type of a RAW-SPLIT
+// base (desert/grassland/hills/mountains/scrubland) now has its own explicit row, so it resolves to its
+// exact RAW count; the fallback to the bare base only fires for a RAW "(any)" base (barrens/forest/swamp
+// — one value for all sub-types) or a hex with no sub-type set. Closes the M1 coarse-default gap: a hex
+// that carries a sub-type seeds the RAW-correct density (forested mountain 2d4 vs rocky/snowy 1d4+1).
 function lairDiceForHex(hex){
   if(!hex) return null;
   const base = (global.ACKS.terrainBase ? global.ACKS.terrainBase(hex.terrain) : String(hex.terrain || '').toLowerCase().trim());
   if(!base) return null;
   let sub = String(hex.terrainSubtype || '').toLowerCase().trim();
-  if(sub === 'sparse') sub = 'low';   // LAIRS_PER_HEX keys scrubland sparse as 'scrubland-low'
+  if(sub === 'low') sub = 'sparse';   // RAW "low, sparse" synonyms; LAIRS_PER_HEX keys it 'scrubland-sparse'
   return (sub && lairDiceForTerrain(base + '-' + sub)) || lairDiceForTerrain(base);
 }
 

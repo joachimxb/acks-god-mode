@@ -1087,43 +1087,59 @@ function equipmentByCategory(cat){ return EQUIPMENT_CATALOG.filter(e => e.catego
 // ─── #476 Monster Persistence — Lairs per Hex (JJ p.69) ───────────────────────
 // RAW wilderness lair DENSITY by terrain — the COUNT only, which is catalog-free; populating each
 // lair (the 1d20 Rarity → 1d100 Encounter chain) is the catalog-gated part (M2/M3). Keyed like
-// JOURNEY_NAV_THROWS: the 10 canonical HEX_TERRAIN base types PLUS RAW's finer sub-keys where the
-// table splits a terrain (desert rocky/sandy · hills forested/rocky · mountains forested/rocky-snowy
-// · scrubland low/dense · grassland farm/steppe). The bare base key carries a documented DEFAULT row
-// for our coarser hex.terrain enum — the iconic/most-common image of each unqualified terrain:
-//   desert→sandy (1d4) · grassland→farm/prairie (1d3) · hills→rocky (1d4) ·
-//   mountains→rocky/snowy (1d4+1) · scrubland→low/sparse (1d2)
-// The GM picks the finer key, or just edits the rolled count, in the Lair Wizard. 'water' = open
-// ocean → no LAND lairs (0); aquatic lairs are a separate RAW track, out of v1 scope. Dice spec
-// {n,d,mod} → roll n×dM + mod, clamped ≥0 (steppe 1d3−1 can yield 0). Range: 1d3−1 … 2d8.
+// Lairs per Hex (JJ p.69) — keyed 'base' or 'base-subtype' to mirror BOTH the RAW terrain rows
+// AND the TERRAIN_SUBTYPES axis, so a hex's stored sub-type resolves to its exact RAW row.
+// RAW SPLITS desert / grassland / hills / mountains / scrubland by sub-type (each variant its own
+// row below); barrens / forest / swamp are RAW "(any)" — one value for every sub-type, carried by
+// the bare-base row and reached via the fallback in lairDiceForHex; jungle is a single unqualified
+// row. A hex with NO sub-type set takes the bare-base TOOLING DEFAULT (🔧 — RAW gives no "(any)"
+// row for the split bases, so we pick the commonest variant): desert→sandy · grassland→farm/prairie
+// · hills→rocky · mountains→rocky/snowy · scrubland→low/sparse. Two axis sub-types have NO RAW row
+// and are 🔧 best-matched to the nearest RAW variant: grassland-savanna → farm/prairie density,
+// mountains-volcanic → rocky/snowy. 'water' = open ocean → no LAND lairs (0; aquatic lairs are a
+// separate RAW track, out of v1). Dice {n,d,mod} → n×dM + mod, clamped ≥0 (steppe 1d3−1 can be 0).
+// Range 1d3−1 … 2d8. Integrator contract: ACKS_Mechanic_Extensions.md "Lairs per hex (JJ p.69)".
 const LAIRS_PER_HEX = Object.freeze({
-  barrens:              { n:1, d:4, mod:0 },
-  desert:               { n:1, d:4, mod:0 },   // default: sandy
-  'desert-rocky':       { n:1, d:2, mod:0 },
-  'desert-sandy':       { n:1, d:4, mod:0 },
-  forest:               { n:2, d:4, mod:0 },
-  grassland:            { n:1, d:3, mod:0 },   // default: farm/prairie
-  'grassland-farm':     { n:1, d:3, mod:0 },
-  'grassland-steppe':   { n:1, d:3, mod:-1 },
-  hills:                { n:1, d:4, mod:0 },   // default: rocky
-  'hills-forested':     { n:2, d:4, mod:0 },
-  'hills-rocky':        { n:1, d:4, mod:0 },
-  jungle:               { n:2, d:8, mod:0 },
-  mountains:            { n:1, d:4, mod:1 },   // default: rocky/snowy
-  'mountains-forested': { n:2, d:4, mod:0 },
-  'mountains-rocky':    { n:1, d:4, mod:1 },
-  scrubland:            { n:1, d:2, mod:0 },   // default: low/sparse
-  'scrubland-low':      { n:1, d:2, mod:0 },
-  'scrubland-dense':    { n:2, d:4, mod:0 },
-  swamp:                { n:2, d:4, mod:1 },
-  water:                { n:0, d:0, mod:0 }    // open ocean — no land lairs in v1
+  // Barrens — RAW "(any)": rocky/sandy/tundra all 1d4 (sub-types fall back to this row).
+  barrens:              { n:1, d:4, mod:0 },    // RAW (any)
+  // Desert — RAW splits rocky/sandy.
+  desert:               { n:1, d:4, mod:0 },    // 🔧 bare default = sandy
+  'desert-rocky':       { n:1, d:2, mod:0 },    // RAW
+  'desert-sandy':       { n:1, d:4, mod:0 },    // RAW
+  // Forest — RAW "(any)": deciduous/taiga both 2d4 (sub-types fall back to this row).
+  forest:               { n:2, d:4, mod:0 },    // RAW (any)
+  // Grassland — RAW splits farm/prairie + steppe.
+  grassland:            { n:1, d:3, mod:0 },    // 🔧 bare default = farm/prairie
+  'grassland-farm':     { n:1, d:3, mod:0 },    // RAW (farm/prairie)
+  'grassland-savanna':  { n:1, d:3, mod:0 },    // 🔧 no RAW row — matched to farm/prairie density
+  'grassland-steppe':   { n:1, d:3, mod:-1 },   // RAW
+  // Hills — RAW splits forested + rocky.
+  hills:                { n:1, d:4, mod:0 },    // 🔧 bare default = rocky
+  'hills-forested':     { n:2, d:4, mod:0 },    // RAW
+  'hills-rocky':        { n:1, d:4, mod:0 },    // RAW
+  // Jungle — RAW single row.
+  jungle:               { n:2, d:8, mod:0 },    // RAW
+  // Mountains — RAW splits forested + rocky/snowy.
+  mountains:            { n:1, d:4, mod:1 },    // 🔧 bare default = rocky/snowy
+  'mountains-forested': { n:2, d:4, mod:0 },    // RAW
+  'mountains-rocky':    { n:1, d:4, mod:1 },    // RAW (rocky/snowy)
+  'mountains-snowy':    { n:1, d:4, mod:1 },    // RAW (rocky/snowy — snowy shares the row)
+  'mountains-volcanic': { n:1, d:4, mod:1 },    // 🔧 no RAW row — matched to rocky/snowy
+  // Scrubland — RAW splits low/sparse + high/dense.
+  scrubland:            { n:1, d:2, mod:0 },    // 🔧 bare default = low/sparse
+  'scrubland-sparse':   { n:1, d:2, mod:0 },    // RAW (low, sparse)
+  'scrubland-dense':    { n:2, d:4, mod:0 },    // RAW (high, dense)
+  // Swamp — RAW "(any)": scrubby/forested both 2d4+1 (sub-types fall back to this row).
+  swamp:                { n:2, d:4, mod:1 },    // RAW (any)
+  // Water — no RAW row; v1 has no land lairs in open ocean.
+  water:                { n:0, d:0, mod:0 }
 });
 // Common GM/author terrain synonyms → a LAIRS_PER_HEX key (covers what the templates + demo use;
 // a subset of subsystems' HEX_TERRAIN_ALIASES, kept HERE so lair seeding doesn't depend on the
 // subsystems module being loaded — catalogs loads first).
 const LAIR_TERRAIN_ALIAS = Object.freeze({
   plains:'grassland', plain:'grassland', prairie:'grassland-farm', farmland:'grassland-farm', meadow:'grassland', pasture:'grassland', fields:'grassland',
-  steppe:'grassland-steppe', savanna:'grassland-steppe', savannah:'grassland-steppe',
+  steppe:'grassland-steppe', savanna:'grassland-savanna', savannah:'grassland-savanna',
   coast:'grassland', coastal:'grassland', shore:'grassland', shoreline:'grassland', seaside:'grassland', beach:'grassland',
   woods:'forest', woodland:'forest', woodlands:'forest', taiga:'forest', boreal:'forest',
   mountain:'mountains', peaks:'mountains', alpine:'mountains',
