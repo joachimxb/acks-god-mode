@@ -4704,7 +4704,7 @@ document.addEventListener('alpine:init', () => {
       <div class="flex gap-1">
         <button @click="inspectorSubView='browse'" :class="inspectorSubView==='browse' ? 'tab-active' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border border-ink rounded">📋 Browse</button>
         <button @click="inspectorSubView='inspect'" :disabled="!inspectorSelectedId" :class="inspectorSubView==='inspect' ? 'tab-active' : (!inspectorSelectedId ? 'opacity-40' : 'hover:bg-yellow-100')" class="px-3 py-1 text-sm border border-ink rounded">🔎 Inspect</button>
-        <button @click="inspectorSubView='create'" :disabled="!inspectorSelectedKind" :class="inspectorSubView==='create' ? 'tab-active' : (!inspectorSelectedKind ? 'opacity-40' : 'hover:bg-yellow-100')" class="px-3 py-1 text-sm border border-ink rounded">✨ Create</button>
+        <button @click="inspectorOpenCreate(inspectorSelectedKind)" :disabled="!inspectorSelectedKind" :class="inspectorSubView==='create' ? 'tab-active' : (!inspectorSelectedKind ? 'opacity-40' : 'hover:bg-yellow-100')" class="px-3 py-1 text-sm border border-ink rounded">✨ Create</button>
       </div>
     </div>
 
