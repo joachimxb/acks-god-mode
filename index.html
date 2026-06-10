@@ -736,47 +736,82 @@ document.addEventListener('alpine:init', () => {
 <div x-show="currentView === 'world' && worldSubView === 'encounters'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-      <h3 class="font-bold text-lg">⚔ Encounters <span class="text-sm opacity-70 font-normal" x-text="'· ' + encountersActiveCount() + ' active · ' + (allEncounters().length - encountersActiveCount()) + ' resolved'"></span></h3>
-      <div class="flex gap-2 items-center text-sm flex-wrap">
-        <input type="text" x-model="encountersSearch" placeholder="Search monster, hex, trigger…" class="w-56">
-        <select x-model="encountersStatusFilter" class="text-sm">
-          <option value="active">Active (to resolve)</option>
-          <option value="resolved">Resolved</option>
-          <option value="all">All</option>
-        </select>
-        <span class="text-sm opacity-70" x-text="filteredEncounters().length + ' shown'"></span>
-      </div>
+      <h3 class="font-bold text-lg">⚔ Encounters <span class="text-sm opacity-70 font-normal" x-text="'· ' + encountersActiveCount() + ' active · ' + (allEncounters().length - encountersActiveCount()) + ' past'"></span></h3>
+      <input type="text" x-model="encountersSearch" placeholder="Search monster, hex, trigger…" class="w-56 text-sm">
     </div>
     <template x-if="allEncounters().length === 0">
       <p class="text-sm italic opacity-60 py-6 text-center">No encounters yet. They arise from travel (each hex entered), searching a hex, and camping in the wild — or author one via 🔍 Inspector ▸ Create ▸ Encounter.</p>
     </template>
-    <template x-if="allEncounters().length > 0 && filteredEncounters().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center" x-text="encountersStatusFilter === 'active' ? 'Nothing awaits resolution — every encounter is resolved.' : 'Nothing matches the filter.'"></p>
+    <!-- The work queue — active encounters, each awaiting the resolution panel. -->
+    <template x-if="allEncounters().length > 0">
+      <div>
+        <template x-if="activeEncountersFiltered().length === 0">
+          <p class="text-sm italic opacity-60 py-3 text-center" x-text="(encountersSearch || '').trim() ? 'No active encounter matches the search.' : 'Nothing awaits resolution.'"></p>
+        </template>
+        <template x-if="activeEncountersFiltered().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr>
+              <th></th><th>Encounter</th><th>Trigger</th><th>Hex</th><th>When</th><th>Phase</th><th class="text-right">Actions</th>
+            </tr></thead>
+            <tbody>
+              <template x-for="e in activeEncountersFiltered()" :key="e.id">
+                <tr>
+                  <td title="active — needs resolving">⚔</td>
+                  <td><button @click="openEncounterModal(e.id)" class="underline font-semibold text-left" x-text="encounterLabel(e)"></button></td>
+                  <td class="capitalize" x-text="String(e.trigger || '').replace(/-/g, ' ')"></td>
+                  <td>
+                    <template x-if="e.hexId"><button @click="openHexDetailById(e.hexId)" class="underline" x-text="encHexLabel(e)"></button></template>
+                    <template x-if="!e.hexId"><span class="opacity-60 italic">—</span></template>
+                  </td>
+                  <td class="font-mono" x-text="'t' + (e.occurredAtTurn == null ? '?' : e.occurredAtTurn) + (e.occurredOnDayInMonth ? ' d' + e.occurredOnDayInMonth : '')"></td>
+                  <td class="capitalize text-red-700 font-semibold" x-text="e.phase"></td>
+                  <td class="text-right"><button @click="openEncounterModal(e.id)" class="underline text-red-800 font-semibold">⚔ resolve</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
     </template>
-    <template x-if="filteredEncounters().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr>
-          <th></th><th>Encounter</th><th>Trigger</th><th>Hex</th><th>When</th><th>State</th><th class="text-right">Actions</th>
-        </tr></thead>
-        <tbody>
-          <template x-for="e in filteredEncounters()" :key="e.id">
-            <tr>
-              <td x-text="e.status === 'active' ? '⚔' : '✓'" :title="e.status === 'active' ? 'active — needs resolving' : ('resolved — ' + (e.outcome || ''))"></td>
-              <td><button @click="openEncounterModal(e.id)" class="underline font-semibold text-left" x-text="encounterLabel(e)"></button></td>
-              <td class="capitalize" x-text="String(e.trigger || '').replace(/-/g, ' ')"></td>
-              <td>
-                <template x-if="e.hexId"><button @click="openHexDetailById(e.hexId)" class="underline" x-text="encHexLabel(e)"></button></template>
-                <template x-if="!e.hexId"><span class="opacity-60 italic">—</span></template>
-              </td>
-              <td class="font-mono" x-text="'t' + (e.occurredAtTurn == null ? '?' : e.occurredAtTurn) + (e.occurredOnDayInMonth ? ' d' + e.occurredOnDayInMonth : '')"></td>
-              <td class="capitalize" :class="e.status === 'active' ? 'text-red-700 font-semibold' : 'opacity-70'" x-text="e.status === 'active' ? e.phase : (e.outcome || 'resolved')"></td>
-              <td class="text-right"><button @click="openEncounterModal(e.id)" class="underline" :class="e.status === 'active' ? 'text-red-800 font-semibold' : ''" x-text="e.status === 'active' ? '⚔ resolve' : 'open'"></button></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
+    <!-- Past encounters — the resolved record, in its own table (per Joachim 2026-06-10). This is
+         the world's memory: priorReactionBetween reads these, so the Last-attitude column shows
+         what a re-meeting with the same sides would recall. -->
+    <template x-if="allEncounters().length > 0">
+      <div class="mt-4 border-t border-ink/20 pt-2">
+        <h4 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-1">Past encounters <span class="normal-case opacity-60 font-normal" x-text="'· ' + pastEncountersFiltered().length + ((encountersSearch || '').trim() ? ' matching' : '')"></span></h4>
+        <template x-if="pastEncountersFiltered().length === 0">
+          <p class="text-sm italic opacity-60 py-2" x-text="(encountersSearch || '').trim() ? 'No past encounter matches the search.' : 'None yet — resolved encounters land here and become the world\'s memory.'"></p>
+        </template>
+        <template x-if="pastEncountersFiltered().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr>
+              <th></th><th>Encounter</th><th>Trigger</th><th>Hex</th><th>When</th><th>Outcome</th><th>Last attitude</th><th class="text-right">Actions</th>
+            </tr></thead>
+            <tbody>
+              <template x-for="e in pastEncountersFiltered()" :key="e.id">
+                <tr>
+                  <td :title="'resolved — ' + (e.outcome || '')">✓</td>
+                  <td><button @click="openEncounterModal(e.id)" class="underline text-left" x-text="encounterLabel(e)"></button></td>
+                  <td class="capitalize" x-text="String(e.trigger || '').replace(/-/g, ' ')"></td>
+                  <td>
+                    <template x-if="e.hexId"><button @click="openHexDetailById(e.hexId)" class="underline" x-text="encHexLabel(e)"></button></template>
+                    <template x-if="!e.hexId"><span class="opacity-60 italic">—</span></template>
+                  </td>
+                  <td class="font-mono" x-text="'t' + (e.resolvedAtTurn == null ? (e.occurredAtTurn == null ? '?' : e.occurredAtTurn) : e.resolvedAtTurn) + (e.resolvedOnDayInMonth ? ' d' + e.resolvedOnDayInMonth : (e.occurredOnDayInMonth ? ' d' + e.occurredOnDayInMonth : ''))"></td>
+                  <td class="capitalize opacity-80" x-text="e.outcome || 'resolved'"></td>
+                  <td>
+                    <template x-if="e.reaction && e.reaction.current"><span class="capitalize px-1.5 py-0.5 rounded border text-xs" :class="encAttitudeClass(e.reaction.current)" x-text="e.reaction.current"></span></template>
+                    <template x-if="!(e.reaction && e.reaction.current)"><span class="opacity-50">—</span></template>
+                  </td>
+                  <td class="text-right"><button @click="openEncounterModal(e.id)" class="underline opacity-80">open</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
     </template>
-    <p class="text-sm opacity-60 mt-3 italic">The RAW pre-combat procedure (RR pp.280–287) walks each encounter in its resolution panel: distance → surprise → evasion → reaction → parley → outcome. Resolved encounters persist as the world's memory — meet the same lair again and the panel recalls the last attitude.</p>
+    <p class="text-sm opacity-60 mt-3 italic">The RAW pre-combat procedure (RR pp.280–287) walks each encounter in its resolution panel: distance → surprise → evasion → reaction → parley → outcome. Past encounters persist as the world's memory — meet the same lair or band again and the panel recalls the last attitude shown above.</p>
   </div>
 </div>
 
@@ -9996,25 +10031,22 @@ return {
     this.markDirty(); this.schedulePersist();
     if(outcome === 'combat') this.showToast('Combat — GM resolves at the table. Record the result afterwards as an adventure outcome (Events ▸ 📨 Emit Event ▸ adventure-result); a cleared lair flips from there.', 8000);
   },
-  // ── World ▸ ⚔ Encounters (E2g) — the active-encounter work queue. Active first
-  // (newest first within each group); the tab badge counts active only.
+  // ── World ▸ ⚔ Encounters (E2g) — the active work queue + the separate Past table
+  // beneath it (per Joachim 2026-06-10). One search filters both; newest first.
   allEncounters(){ return (this.currentCampaign && this.currentCampaign.encounters) || []; },
   encountersActiveCount(){ return this.allEncounters().filter(e => e && e.status === 'active').length; },
-  filteredEncounters(){
+  _encounterMatchesSearch(e){
     const q = (this.encountersSearch || '').toLowerCase().trim();
-    const sf = this.encountersStatusFilter || 'active';
-    const match = e => {
-      if(!e) return false;
-      if(sf === 'active' && e.status !== 'active') return false;
-      if(sf === 'resolved' && e.status !== 'resolved') return false;
-      if(!q) return true;
-      const hay = (this.encounterLabel(e) + ' ' + (e.trigger || '') + ' ' + (e.category || '') + ' ' + (e.rarity || '')
-        + ' ' + this.encHexLabel(e) + ' ' + (e.outcome || '') + ' ' + (e.status || '')).toLowerCase();
-      return hay.indexOf(q) >= 0;
-    };
-    const act = [], res = [];
-    for(const e of this.allEncounters()){ if(match(e)) (e.status === 'active' ? act : res).push(e); }
-    return act.reverse().concat(res.reverse());
+    if(!q) return true;
+    const hay = (this.encounterLabel(e) + ' ' + (e.trigger || '') + ' ' + (e.category || '') + ' ' + (e.rarity || '')
+      + ' ' + this.encHexLabel(e) + ' ' + (e.outcome || '')).toLowerCase();
+    return hay.indexOf(q) >= 0;
+  },
+  activeEncountersFiltered(){
+    return this.allEncounters().filter(e => e && e.status === 'active' && this._encounterMatchesSearch(e)).reverse();
+  },
+  pastEncountersFiltered(){
+    return this.allEncounters().filter(e => e && e.status !== 'active' && this._encounterMatchesSearch(e)).reverse();
   },
   // Deep-link list helpers (E2c): the lair's meetings (world memory, D9) + the hex's.
   encountersForLair(lairId){
@@ -15131,8 +15163,7 @@ return {
   encounterModalOpen: false,     // the resolution modal's visibility (#476 E2)
   encounterModalId: null,        // the encounter it shows — kept set on close so the mounted
                                  // subtree never re-evaluates against null during teardown (no Alpine warnings)
-  encountersSearch: '',          // World ▸ Encounters list filters (E2g)
-  encountersStatusFilter: 'active',
+  encountersSearch: '',          // World ▸ Encounters — one search over both tables (E2g)
   encModal: {                    // transient step inputs for the resolution modal (reset on open)
     pFore: false, pLos: true, mFore: false, mLos: true, reassert: false,
     pSurpMod: 0, mSurpMod: 0,
