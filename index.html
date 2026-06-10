@@ -3713,8 +3713,13 @@ document.addEventListener('alpine:init', () => {
                           title="Recruit hirelings, henchmen or specialists with this character as patron">⚔ Recruit</button>
                   <button @click="startJourneyForCharacter(r.c)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
                           :title="characterPartyOf(r.c) ? 'Start a journey for this character\'s whole party' : 'Start a journey with this character'">🧭 Travel</button>
-                  <button @click="openForage({ actorCharacterId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100"
+                  <button @click="openForage({ actorCharacterId: r.c.id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mr-1"
                           title="Forage (firewood / water / food) or hunt — live off the land (RR p.278)">🌿 Forage</button>
+                  <!-- #476 M4 — hex search needs a hex to stand on: disabled (with the reason) for a placeless character. -->
+                  <button @click="openSearchHex({ actorCharacterId: r.c.id, hexId: r.c.currentHexId })" :disabled="!r.c.currentHexId"
+                          :class="r.c.currentHexId ? 'hover:bg-yellow-100' : 'opacity-40 cursor-not-allowed'"
+                          class="text-xs px-2 py-0.5 border border-ink rounded"
+                          :title="r.c.currentHexId ? 'Search this character\'s hex for lairs & points of interest (RR pp.276–277) — one ancillary hour per throw' : 'No hex — set the character\'s location first (Location tab)'">🔍 Search</button>
                 </td>
               </tr>
             </template>
