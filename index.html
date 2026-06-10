@@ -726,9 +726,10 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Lair detail modal (#476 M7) — read view + lifecycle actions over the M1 setters. The Inspector
-     stays the no-frills field editor underneath (Open in Inspector). z-60: same layer as the stash
-     detail; the hex-card/lair-list openers close their own modal first when needed. -->
-<div x-show="lairDetailId" @keydown.escape.window="closeLairDetail()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLairDetail()">
+     stays the no-frills field editor underneath (Open in Inspector). z-78: ABOVE the hex card (50)
+     and the search/track modals (75) — their "→ lair" buttons open this as a peek you close to drop
+     back into the session beneath — and below the notable-item modal (80). -->
+<div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLairDetail()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="lairDetailLair()">
       <div>
@@ -988,7 +989,10 @@ document.addEventListener('alpine:init', () => {
      roll the RAW Lairs-per-Hex count (JJ p.71) for an unsettled hex into empty status:'unknown'
      shells. GLOBAL modal (launched from the Inspector Create tab) — rendered regardless of the
      active tab, like the other modals here; the bare Inspector schemaForm edit is the admin path. -->
-<div x-show="lairWizardOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:55; background:rgba(0,0,0,.4)" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="lairWizardOpen = false">
+<!-- Escape stacking: every stacked modal's escape handler acts only while ITS layer is open and marks
+     the event consumed (preventDefault); lower layers skip a consumed event — so one Escape closes one
+     layer, top-down, regardless of listener registration order. -->
+<div x-show="lairWizardOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:55; background:rgba(0,0,0,.4)" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="if(lairWizardOpen){ lairWizardOpen = false; $event.preventDefault() }">
   <div class="vellum border border-ink rounded-lg shadow-xl max-w-lg w-full mx-4 p-5 space-y-4">
     <div class="flex justify-between items-center">
       <h2 class="font-bold text-lg">🏚 Lair Wizard</h2>
@@ -1359,7 +1363,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Search the hex (#476 M4 — RR pp.276–277 "Searching the Wild"). The Judge's secret search-hour:
      one Wilderness Search throw vs the hex's undiscovered lairs + the RAW per-hour encounter check.
      GM-facing — players never see the target or "0 of N found"; results stack like Forage. -->
-<div x-show="searchHex.open" @keydown.escape.window="closeSearchHex()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="searchHex.open" @keydown.escape.window="if(searchHex.open && !$event.defaultPrevented) closeSearchHex()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -1412,7 +1416,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- Track home (#476 M4 — RR p.120 Tracking). Follow a wandering fragment's spoor to its
      undiscovered lair: 11+ with the RAW count band + extra Tracking ranks + the GM's situational mod. -->
-<div x-show="trackHome.open" @keydown.escape.window="closeTrackHome()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented) closeTrackHome()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -7638,7 +7642,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- Demand modifiers modal (Phase 2b.3) — RR p.371. Per-settlement editor for the 29 merchandise DMs. -->
 <!-- Hex detail modal (Phase 2.7 World) — expanded editor for a single hex's full data -->
-<div class="modal-backdrop" x-show="showHexDetailModal" x-cloak @keydown.escape.window="closeHexDetail()" @click.self="closeHexDetail()">
+<div class="modal-backdrop" x-show="showHexDetailModal" x-cloak @keydown.escape.window="if(showHexDetailModal && !$event.defaultPrevented) closeHexDetail()" @click.self="closeHexDetail()">
   <template x-if="worldHexEditingHex()">
   <div class="modal-panel">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
