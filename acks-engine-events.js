@@ -110,6 +110,14 @@ const EVENT_KINDS = Object.freeze([
   // by the 'survival' day-consumer (the field/settled counterpart of journey-day-tick); record-only,
   // campaignLogHidden on a recovery-only day, surfaced when a condition is active. Event Wizard opt-out.
   'survival-day',
+  // #476 M4 (2026-06-10) — a Wilderness Search hour (RR pp.276–277) or a track-home attempt
+  // (RR p.122). Emitted by hexSearchActivity/trackHomeAttempt (record-only; the verb already rolled
+  // + applied discovery). Carries payload.activityCost (one ancillary) for the #346 day budget.
+  // ALWAYS campaignLogHidden — the audit + budget record; discovery is narrated by lair-discovered.
+  'hex-search',
+  // #476 M4 — the players learn of a lair (search / tracking / GM reveal). The chronicle-visible
+  // counterpart of the hex-search record; emitted alongside discoverLair (which owns the state flip).
+  'lair-discovered',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal edict record
   // (grant / demand / revoke / recurring gp flow). Engine-emitted by the monthly turn's
   // auto-roll; record-only (audit). Event Wizard opt-out (the GM authors the OBLIGATION via
@@ -410,6 +418,23 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { survivalDay: 'boolean', partyId: 'string', hexId: 'string', settled: 'boolean',
          anyHungry: 'boolean', anyThirsty: 'boolean', anyCritical: 'boolean',
          members: 'object', narrative: 'string' }
+  },
+  // #476 M4 — a Wilderness Search hour (RR pp.276–277) / track-home attempt (RR p.122). method =
+  // 'search'|'search-specific'|'track-home'. Record-only + always campaignLogHidden (the GM's
+  // secret roll — RR p.276); a discovery is narrated by the paired lair-discovered event.
+  'hex-search': {
+    R: { actorCharacterId: 'string', hexId: 'string', method: 'string' },
+    O: { rolled: 'number', target: 'number', bonus: 'number', mod: 'number', success: 'boolean',
+         foundLairId: 'string', speedMilesPerDay: 'number', specificLairId: 'string',
+         encounter: 'object', survey: 'object', trackedLairId: 'string',
+         activityCost: 'object', narrative: 'string' }
+  },
+  // #476 M4 — the players learn of a lair (the chronicle-visible discovery record; discoverLair
+  // owns the knownToPlayers flip + the lair's own history stamp).
+  'lair-discovered': {
+    R: { lairId: 'string', hexId: 'string' },
+    O: { method: 'string', byCharacterId: 'string', lairName: 'string',
+         monsterCatalogKey: 'string', narrative: 'string' }
   },
   // Favors & Duties (#230, F&D-1) — the monthly liege↔vassal edict record (RR pp.345–348).
   // Engine-emitted (record-only); the obligation lives in campaign.favorDutyObligations[].
@@ -2777,6 +2802,201 @@ function rerollProvisioningActivity(campaign, eventId, opts){
   return { ok: true, success, rolled, target, bonus, terrMod, event: ev, kind: kind, activity: ev.payload.activity, forageKind: ev.payload.forageKind, wanderingMonsterRisk: ev.payload.wanderingMonsterRisk };
 }
 
+// ─── #476 M4 — Wilderness Search + track-home (RR pp.276–277 + p.120; Plan §6) ────────────────────
+// hexSearchActivity = ONE search-hour: the party's Wilderness Search throw against the hex's
+// undiscovered lairs, the RAW per-hour encounter check, and (when a cohort member knows Land
+// Surveying) the POI-count assessment. trackHomeAttempt = the RAW Tracking throw (RR p.120) that
+// follows a wandering fragment home to its undiscovered lair. Both are GM-facing verbs — the Judge
+// rolls secretly; failure reveals nothing (RR p.276) — and both log a record-only, ALWAYS-
+// campaignLogHidden 'hex-search' event carrying payload.activityCost (one ancillary; RR p.276
+// names the search-hour an ancillary activity) so the #346 day budget counts it. A discovery
+// additionally emits the chronicle-visible 'lair-discovered' event (discoverLair owns the flip).
+
+// The party's expedition speed for the search target: the actor's cohort (party / journey
+// co-members at the hex — characterCohort), slowest member's encumbrance mi/day, × the hex's
+// terrain multiplier (the same factor travel uses; RAW's worked example: hills ×2/3, 48 → 32 mi).
+function _searchExpeditionSpeed(campaign, ch, hex){
+  const A = _gpwACKS();
+  const cohort = (typeof A.characterCohort === 'function') ? A.characterCohort(campaign, ch) : [ch];
+  let slowest = Infinity;
+  for(const m of cohort){
+    const mpd = (typeof A.carryEncumbranceInfo === 'function') ? A.carryEncumbranceInfo(m).band.milesPerDay : 24;
+    if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
+  }
+  if(slowest === Infinity) slowest = 24;
+  const tMult = (hex && A.JOURNEY_TERRAIN_SPEED && A.JOURNEY_TERRAIN_SPEED[hex.terrain] != null) ? A.JOURNEY_TERRAIN_SPEED[hex.terrain] : 1;
+  return { speed: slowest * tMult, cohort: cohort };
+}
+function _cohortHasProf(cohort, re){ return (cohort || []).some(m => _provHasProf(m, re)); }
+// Undiscovered POIs at the hex: every placed lair the players haven't found — live or not (a
+// cleared ruin is still a point of interest); the unplaced dynamic pool is in no hex.
+function _undiscoveredLairsAt(campaign, hexId){
+  const A = _gpwACKS();
+  return (A.lairsAtHex(campaign, hexId) || []).filter(l => l && !l.knownToPlayers && l.status !== 'dynamic');
+}
+// Emit the chronicle-visible discovery record (paired with a discoverLair call the caller made).
+function _emitLairDiscovered(campaign, lair, ch, method, parentEv){
+  const A = _gpwACKS();
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, lair.hexId) : null;
+  const ev = newEvent('lair-discovered', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    parentEventId: parentEv ? parentEv.id : null,
+    context: { primaryHexId: lair.hexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null,
+               relatedEntities: [
+                 ch ? { kind: 'character', id: ch.id, role: 'subject' } : null,
+                 { kind: 'lair', id: lair.id, role: 'target' }
+               ].filter(Boolean) },
+    payload: { lairId: lair.id, hexId: lair.hexId || null, method: method || 'gm-reveal',
+               byCharacterId: ch ? ch.id : null, lairName: lair.name || '',
+               monsterCatalogKey: lair.monsterCatalogKey || '' }
+  });
+  const who = (ch && ch.name) || 'The party';
+  const what = lair.name || ((typeof A.monsterDisplayName === 'function') && A.monsterDisplayName(lair.monsterCatalogKey)) || 'a lair';
+  const how = method === 'track-home' ? 'tracks the creatures home to' : (method === 'gm-reveal' ? 'learns of' : 'discovers');
+  return _logAppliedEvent(campaign, ev, { narrativeSummary: who + ' ' + how + ' ' + what + '.' });
+}
+// The M7 "Mark discovered" button's record half (the UI calls discoverLair first): GM reveal.
+function recordLairDiscovered(campaign, lairId, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, lairId) : null;
+  if(!lair) return null;
+  const ch = opts.byCharacterId ? (campaign.characters || []).find(c => c && c.id === opts.byCharacterId) : null;
+  return _emitLairDiscovered(campaign, lair, ch || null, opts.method || 'gm-reveal', null);
+}
+
+// One search-hour (RR pp.276–277). opts: { actorCharacterId, hexId? (default: the actor's),
+// specific? (−4, a particular POI), specificLairId? (only that lair can be found),
+// encounterChance? (default 1/6 — the J1 wilderness stub chance; #141 owns the real tables), rng? }.
+function hexSearchActivity(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const hexId = opts.hexId || ch.currentHexId || null;
+  if(!hexId) return { ok: false, error: 'no-hex' };
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, hexId) : null;
+  const rng = opts.rng || Math.random;
+  const sp = _searchExpeditionSpeed(campaign, ch, hex);
+  const target = (typeof A.wildernessSearchTargetForSpeed === 'function') ? A.wildernessSearchTargetForSpeed(sp.speed) : 18;
+  const bonus = _cohortHasProf(sp.cohort, /tracking/i) ? 4 : 0;   // any member with Tracking → +4 (extra ranks do NOT add here — RR p.120)
+  const mod = opts.specific ? -4 : 0;
+  const rolled = _provD20(rng);
+  const score = rolled + bonus + mod;
+  const throwSuccess = (rolled !== 1) && (score >= target);        // unmodified 1 always fails (ACKS-general)
+  // What a successful throw finds: an undiscovered lair whose hiddenDC the score also clears
+  // (hiddenDC raises that one lair's bar — well-hidden). The Judge picks among qualifiers (RR
+  // p.276 "the Judge will decide which one"); v1 picks randomly.
+  let found = null;
+  if(throwSuccess){
+    let pool = _undiscoveredLairsAt(campaign, hexId).filter(l => score >= target + (Number(l.hiddenDC) || 0));
+    if(opts.specificLairId) pool = pool.filter(l => l.id === opts.specificLairId);
+    if(pool.length) found = pool[Math.floor(rng() * pool.length)];
+  }
+  // RAW p.277: searching triggers one random-encounter roll per hour — pool-first, like travel.
+  // (A failed search can still stumble onto the lair through the encounter it provoked.)
+  let encounter = null;
+  const encChance = (opts.encounterChance != null) ? opts.encounterChance : (1 / 6);
+  if(rng() < encChance && typeof A.lairEncounterProposal === 'function'){
+    const prop = A.lairEncounterProposal(campaign, hexId, { rng: rng, includeDynamicPool: false });
+    if(prop) encounter = {
+      source: prop.source, lairId: prop.lairId || null, encounterKind: prop.encounterKind || null,
+      fragmentCount: (prop.fragment && prop.fragment.count) || null,
+      seededShellLairIds: (prop.source === 'seeded-shell') ? prop.candidates.map(l => l.id) : null
+    };
+  }
+  // Land Surveying (RR p.277): assess the hex's POI count — 18+, cumulative +4 per successful
+  // search conducted here, nat-1 → a false reading the Judge reveals as if true.
+  let survey = null;
+  if(_cohortHasProf(sp.cohort, /land.?surveying/i)){
+    const prior = (campaign.eventLog || []).filter(e => e && e.event && e.event.kind === 'hex-search'
+      && e.event.payload && e.event.payload.hexId === hexId && e.event.payload.success
+      && e.event.payload.method !== 'track-home').length;
+    const sRoll = _provD20(rng);
+    const sBonus = prior * 4;
+    const trueCount = ((typeof A.lairsAtHex === 'function') ? (A.lairsAtHex(campaign, hexId) || []) : []).filter(l => l && l.status !== 'dynamic').length;
+    if(sRoll === 1){
+      let fake = trueCount + ((rng() < 0.5 ? 1 : -1) * (1 + Math.floor(rng() * 3)));
+      if(fake < 0 || fake === trueCount) fake = trueCount + 1;
+      survey = { assessed: true, falseReading: true, count: fake, rolled: sRoll, target: 18, bonus: sBonus };
+    } else if(sRoll + sBonus >= 18){
+      survey = { assessed: true, falseReading: false, count: trueCount, rolled: sRoll, target: 18, bonus: sBonus };
+    } else {
+      survey = { assessed: false, rolled: sRoll, target: 18, bonus: sBonus };
+    }
+  }
+  const ev = newEvent('hex-search', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: hexId, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null,
+               relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
+    payload: {
+      actorCharacterId: ch.id, hexId: hexId, method: opts.specific ? 'search-specific' : 'search',
+      rolled: rolled, target: target, bonus: bonus, mod: mod, success: throwSuccess,
+      foundLairId: found ? found.id : null,
+      speedMilesPerDay: Math.round(sp.speed * 10) / 10,
+      specificLairId: opts.specificLairId || null,
+      encounter: encounter, survey: survey,
+      activityCost: { slot: 'ancillary', units: 1, kind: 'search-hex', label: 'Search the hex' }
+    }
+  });
+  ev.campaignLogHidden = true;   // the Judge's secret roll — audit + budget only; discovery narrates via lair-discovered
+  const who = ch.name || 'The party';
+  _logAppliedEvent(campaign, ev, { narrativeSummary: who + ' searches the hex — ' + (found ? ('finds ' + (found.name || 'a lair') + '.') : 'finds nothing.') });
+  if(found){
+    if(typeof A.discoverLair === 'function') A.discoverLair(campaign, found.id, { by: ch.id, method: ev.payload.method });
+    _emitLairDiscovered(campaign, found, ch, ev.payload.method, ev);
+  }
+  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: throwSuccess,
+           found: found || null, encounter: encounter, survey: survey, speedMilesPerDay: sp.speed, event: ev };
+}
+
+// Track a wandering fragment home to its lair (RR p.120 Tracking; Plan §6.2 — RAW-core, default-on).
+// opts: { actorCharacterId, lairId, countTracked? (the fragment size → the RAW +2/+4/+6/+8 band),
+// mod? (the GM's situational composite: ground / age / weather / light), rng? }. The tracker must
+// have the Tracking proficiency; extra ranks add +4 each to THIS throw (not the lair search).
+function trackHomeAttempt(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, opts.lairId) : null;
+  if(!lair) return { ok: false, error: 'unknown-lair' };
+  if(lair.knownToPlayers) return { ok: false, error: 'already-known' };
+  const ranks = ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))).length;
+  if(ranks < 1) return { ok: false, error: 'no-tracking' };
+  const rng = opts.rng || Math.random;
+  const n = Number(opts.countTracked) || 0;
+  const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
+  const bonus = (ranks - 1) * 4 + countBonus;
+  const mod = Number(opts.mod) || 0;
+  const target = 11;
+  const rolled = _provD20(rng);
+  const success = (rolled !== 1) && (rolled + bonus + mod >= target);
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, lair.hexId) : null;
+  const ev = newEvent('hex-search', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: lair.hexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null,
+               relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
+    payload: {
+      actorCharacterId: ch.id, hexId: lair.hexId || null, method: 'track-home',
+      rolled: rolled, target: target, bonus: bonus, mod: mod, success: success,
+      trackedLairId: lair.id, foundLairId: success ? lair.id : null,
+      activityCost: { slot: 'ancillary', units: 1, kind: 'track', label: 'Track a trail' }
+    }
+  });
+  ev.campaignLogHidden = true;
+  const who = ch.name || 'The tracker';
+  _logAppliedEvent(campaign, ev, { narrativeSummary: who + (success ? ' finds the spoor and follows it home.' : ' finds no usable trail (no retry here for an hour — RR p.120).') });
+  if(success){
+    if(typeof A.discoverLair === 'function') A.discoverLair(campaign, lair.id, { by: ch.id, method: 'tracking' });
+    _emitLairDiscovered(campaign, lair, ch, 'track-home', ev);
+  }
+  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: success, lair: lair, event: ev };
+}
+
 const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'engine-standard-turn',  // engine internal flow — emitting raw would create chaos
   'recruit-hireling',      // owned by Recruiting Wizard — skips candidate individuation
@@ -2795,6 +3015,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'provisioning-activity',
   // CoL-1 — owned by the 'survival' day-consumer (a record of the day's resolution, not a GM verb).
   'survival-day',
+  // #476 M4 — owned by hexSearchActivity / trackHomeAttempt (raw emit would skip the throw +
+  // discovery flip) and by the discovery flows (lair-discovered pairs with a discoverLair call;
+  // raw emit would narrate a discovery the lair state doesn't show).
+  'hex-search', 'lair-discovered',
   // Favors & Duties (#230, F&D-1) — emitted by the monthly auto-roll as an audit of the obligation
   // it just created/revoked. The GM authors an obligation via Inspector Create, not this raw event.
   'favor-duty'
@@ -2849,7 +3073,9 @@ Object.assign(ACKS, {
   // compensating counter-trade that voids the original (dropping it from the budget + ceiling).
   reverseMarketTransaction,
   // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4) + reroll.
-  forageActivity, huntActivity, rerollProvisioningActivity
+  forageActivity, huntActivity, rerollProvisioningActivity,
+  // #476 M4 — Wilderness Search + track-home discovery verbs (RR pp.276–277 + p.120; Plan §6).
+  hexSearchActivity, trackHomeAttempt, recordLairDiscovered
 });
 
 if(typeof module !== 'undefined' && module.exports){

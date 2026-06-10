@@ -535,6 +535,135 @@ section('Fixes — seeded shells in the pool, group fates, reveal sync, shell na
 }
 
 // =============================================================================
+// A sequenced rng for draw-order-sensitive cases: yields the given values in order,
+// then repeats the last one.
+const seq = (...vals) => { let i = 0; return () => (i < vals.length ? vals[i++] : vals[vals.length - 1]); };
+
+section('M4 wildernessSearchTargetForSpeed — the RR p.276 table');
+{
+  ok('≤11 mi → 18+', ACKS.wildernessSearchTargetForSpeed(11) === 18 && ACKS.wildernessSearchTargetForSpeed(0) === 18);
+  ok('12–23 mi → 17+', ACKS.wildernessSearchTargetForSpeed(12) === 17 && ACKS.wildernessSearchTargetForSpeed(23) === 17);
+  ok('32 mi → 16+ (the RAW worked example)', ACKS.wildernessSearchTargetForSpeed(32) === 16);
+  ok('180–191 mi → 3+', ACKS.wildernessSearchTargetForSpeed(180) === 3 && ACKS.wildernessSearchTargetForSpeed(191) === 3);
+  ok('≥192 mi → 2+ (floor)', ACKS.wildernessSearchTargetForSpeed(192) === 2 && ACKS.wildernessSearchTargetForSpeed(500) === 2);
+}
+
+section('M4 hexSecuringBlockers — live lairs block securing (RR p.338)');
+{
+  const c = ACKS.blankCampaign({ name: 'secure' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-b', terrain: 'hills' })];
+  const a = ACKS.createLair(c, { status: 'active', hexId: 'hex-b' });
+  const u = ACKS.createLair(c, { status: 'unknown', hexId: 'hex-b' });
+  ACKS.createLair(c, { status: 'dynamic', hexId: null });
+  ok('active + unknown block', ACKS.hexSecuringBlockers(c, 'hex-b').length === 2);
+  ACKS.clearLair(c, a.id);
+  ok('a cleared lair stops blocking', ACKS.hexSecuringBlockers(c, 'hex-b').length === 1);
+  ACKS.destroyLair(c, u.id);
+  ok('a destroyed shell stops blocking', ACKS.hexSecuringBlockers(c, 'hex-b').length === 0);
+}
+
+section('M4 lair-vs-wandering — the MM p.15 Lair % split in the proposal');
+{
+  const c = ACKS.blankCampaign({ name: 'split' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-w', terrain: 'hills' })];
+  const gen = ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-w' });   // lairPct 35 from the catalog
+  // one lair → first rng draw is the d100. 0.0 → 1 ≤ 35 → at-lair.
+  const atHome = ACKS.lairEncounterProposal(c, 'hex-w', { rng: seq(0.0) });
+  ok('d100 ≤ lairPct → at-lair', atHome.encounterKind === 'at-lair' && atHome.fragment === null);
+  // 0.99 → 100 > 35 → wandering fragment, count capped at the living population.
+  const frag = ACKS.lairEncounterProposal(c, 'hex-w', { rng: seq(0.99, 0.99) });
+  ok('d100 > lairPct → wandering-fragment with a count', frag.encounterKind === 'wandering-fragment' && frag.fragment && frag.fragment.count >= 1);
+  ok('fragment never outnumbers the lair\'s living population', frag.fragment.count <= ACKS.lairInhabitantCount(c, gen.lair));
+  // a GM lairPct:100 pin → always at home
+  gen.lair.lairPct = 100;
+  ok('lairPct 100 → always at-lair', ACKS.lairEncounterProposal(c, 'hex-w', { rng: seq(0.99) }).encounterKind === 'at-lair');
+  // a bare GM-authored lair with a catalog monster falls back to the CATALOG's pct
+  const c2 = ACKS.blankCampaign({ name: 'fallback' });
+  c2.hexes = [ACKS.blankHex({ id: 'hex-f', terrain: 'hills' })];
+  ACKS.createLair(c2, { status: 'active', hexId: 'hex-f', monsterCatalogKey: 'orc' });   // no lairPct on the lair
+  ok('lairPct falls back to the catalog (fragment possible)', ACKS.lairEncounterProposal(c2, 'hex-f', { rng: seq(0.99, 0.5) }).encounterKind === 'wandering-fragment');
+  // no catalog key + no pct → the pre-M4 behaviour (at-lair)
+  const c3 = ACKS.blankCampaign({ name: 'bare' });
+  c3.hexes = [ACKS.blankHex({ id: 'hex-x', terrain: 'hills' })];
+  ACKS.createLair(c3, { status: 'active', hexId: 'hex-x' });
+  ok('no usable pct → at-lair (back-compat)', ACKS.lairEncounterProposal(c3, 'hex-x', { rng: seq(0.99) }).encounterKind === 'at-lair');
+  // the journey encounter labels a fragment + carries encounterKind
+  const enc = ACKS.rollEncounter(c, (gen.lair.lairPct = 35, { id: 'jrn-w', name: 'Scouts', currentHexId: 'hex-w' }), { rng: seq(0.0, 0.5, 0.99, 0.5), hasRoad: false, hexId: 'hex-w' });
+  ok('journey fragment encounter labelled + tagged', enc && enc.notableEvent.payload.encounterKind === 'wandering-fragment' && /out from an unlocated lair/.test(enc.notableEvent.label));
+}
+
+section('M4 hexSearchActivity — the Wilderness Search hour (RR pp.276–277)');
+{
+  const c = ACKS.blankCampaign({ name: 'search' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-s', terrain: 'hills' })];
+  const ch = ACKS.blankCharacter({ name: 'Scout' }); ch.currentHexId = 'hex-s';
+  c.characters.push(ch);
+  const lair = ACKS.createLair(c, { status: 'active', hexId: 'hex-s', name: 'Hidden Den' });
+  // unencumbered 24 mi × hills 2/3 = 16 mi → target 17 (RR table)
+  const r1 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.9, 0.0, 0.99) });   // d20 19 ≥ 17 → found
+  ok('successful throw finds the undiscovered lair', r1.ok && r1.success && r1.found && r1.found.id === lair.id);
+  ok('target derives from expedition speed × terrain (16 mi → 17+)', r1.target === 17 && Math.round(r1.speedMilesPerDay) === 16);
+  ok('discovery flips knownToPlayers + stamps discoveryHistory', lair.knownToPlayers === true && lair.discoveryHistory.length === 1 && lair.discoveryHistory[0].method === 'search');
+  const log = c.eventLog.map(e => e.event);
+  ok('hex-search event logged, campaignLogHidden, with the ancillary cost tag', log.some(e => e.kind === 'hex-search' && e.campaignLogHidden === true && e.payload.activityCost && e.payload.activityCost.kind === 'search-hex'));
+  ok('lair-discovered event logged (chronicle-visible, parented on the search)', log.some(e => e.kind === 'lair-discovered' && !e.campaignLogHidden && e.payload.lairId === lair.id && e.parentEventId));
+  ok('the #346 budget counts the search hour as 1 ancillary', (function(){
+    const b = ACKS.characterActivityBudget(c, ch.id);
+    return b && b.ancillary.some(a => /Search/.test(a.label || '')) && b.ancillaryUsed >= 1;
+  })());
+  // a second search finds nothing (everything known) but the throw still records
+  const r2 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.9, 0.99) });
+  ok('nothing left to find → success without a find', r2.success && !r2.found);
+  // nat-1 always fails — even vs a trivial target
+  const r3 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.99) });
+  ok('an unmodified 1 always fails', !r3.success && r3.rolled === 1);
+  // Tracking on a cohort member → +4 (RR p.276); specific POI → −4
+  ch.proficiencies = ['Tracking'];
+  const r4 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, specific: true, rng: seq(0.9, 0.99) });
+  ok('+4 Tracking / −4 specific are applied', r4.bonus === 4 && r4.mod === -4);
+  // hiddenDC raises that lair\'s bar only
+  const c5 = ACKS.blankCampaign({ name: 'hidden' });
+  c5.hexes = [ACKS.blankHex({ id: 'hex-h', terrain: 'hills' })];
+  const ch5 = ACKS.blankCharacter({ name: 'Seeker' }); ch5.currentHexId = 'hex-h'; c5.characters.push(ch5);
+  ACKS.createLair(c5, { status: 'unknown', hexId: 'hex-h', hiddenDC: 10 });
+  const r5 = ACKS.hexSearchActivity(c5, { actorCharacterId: ch5.id, rng: seq(0.9, 0.99) });   // 19 ≥ 17 but < 27
+  ok('a well-hidden lair (hiddenDC) survives an ordinary success', r5.success && !r5.found);
+  // the per-hour encounter check fires pool-first ("stumble onto it by way of a random encounter")
+  const r6 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.0, 0.0) });   // d20 1 (fail), enc hit, d100 1 → at-lair
+  ok('a failed search can still stumble into the lair via the encounter roll', !r6.success && r6.encounter && r6.encounter.lairId === lair.id);
+  // Land Surveying assessment (RR p.277)
+  const ch6 = ACKS.blankCharacter({ name: 'Surveyor' }); ch6.currentHexId = 'hex-s'; ch6.proficiencies = ['Land Surveying'];
+  c.characters.push(ch6);
+  const r7 = ACKS.hexSearchActivity(c, { actorCharacterId: ch6.id, rng: seq(0.9, 0.99, 0.95) });   // d20 19 (no find left), no enc, survey 20 ≥ 18
+  ok('Land Surveying assesses the true POI count', r7.survey && r7.survey.assessed && !r7.survey.falseReading && r7.survey.count === 1);
+  const r8 = ACKS.hexSearchActivity(c, { actorCharacterId: ch6.id, rng: seq(0.9, 0.99, 0.0, 0.9, 0.9) });   // survey nat-1 → false reading
+  ok('a survey nat-1 yields a false reading', r8.survey && r8.survey.falseReading && r8.survey.count !== 1);
+  ok('guards: unknown actor / no hex', ACKS.hexSearchActivity(c, { actorCharacterId: 'chr-none' }).ok === false
+    && ACKS.hexSearchActivity(c, { actorCharacterId: (c.characters.push(ACKS.blankCharacter({ name: 'Nowhere' })), c.characters[c.characters.length-1].id) }).ok === false);
+}
+
+section('M4 trackHomeAttempt — Tracking follows a fragment home (RR p.120)');
+{
+  const c = ACKS.blankCampaign({ name: 'track' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-t', terrain: 'forest' })];
+  const gen = ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-t' });
+  gen.lair.knownToPlayers = false;
+  const ch = ACKS.blankCharacter({ name: 'Hound' }); ch.currentHexId = 'hex-t'; c.characters.push(ch);
+  ok('no Tracking → refused', ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen.lair.id }).error === 'no-tracking');
+  ch.proficiencies = ['Tracking', 'Tracking'];   // 2 ranks → +4 to the track throw
+  const r = ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen.lair.id, countTracked: 6, rng: seq(0.45) });   // d20 10 +4 ranks +4 count = 18 ≥ 11
+  ok('ranks (+4/extra) + count-tracked band (+4 at 5–8) apply', r.ok && r.bonus === 8 && r.success);
+  ok('success discovers the lair (method tracking) + emits lair-discovered', gen.lair.knownToPlayers === true
+    && gen.lair.discoveryHistory.some(d => d.method === 'tracking')
+    && c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.payload.method === 'track-home'));
+  ok('an already-known lair → refused', ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen.lair.id }).error === 'already-known');
+  // nat-1 fails regardless of bonuses
+  const gen2 = ACKS.generateLair(c, { monsterCatalogKey: 'goblin', hexId: 'hex-t' });
+  const r2 = ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen2.lair.id, countTracked: 20, rng: seq(0.0) });
+  ok('an unmodified 1 fails the track', r2.ok && !r2.success && r2.rolled === 1);
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

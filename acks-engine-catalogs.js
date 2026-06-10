@@ -843,6 +843,7 @@ const ACTIVITY_COSTS = Object.freeze({
   'forage':                   { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Forage' },
   'hunt':                     { cost:'dedicated',  strenuous:true,  lifecycle:'singular', label:'Hunt' },
   'search-hex':               { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Search a hex' },
+  'track':                    { cost:'ancillary',  strenuous:false, lifecycle:'singular', label:'Track a trail' },
   // Reserved homes for their subsystems (so contributors have a place; readers wire in at AB-4).
   'hijink-plan':              { cost:'ancillary',  strenuous:false, lifecycle:'ongoing',  label:'Plan a hijink' },
   'hijink-perpetrate':        { cost:'dedicated',  strenuous:true,  lifecycle:'ongoing',  label:'Perpetrate a hijink' },
@@ -859,6 +860,18 @@ function activityCostFor(kind){
   const e = ACTIVITY_COSTS[kind];
   if(e) return e;
   return { cost:'ancillary', strenuous:false, lifecycle:'singular', label: String(kind || 'activity'), defaulted:true };
+}
+
+// =============================================================================
+// #476 M4 — Wilderness Search target by expedition movement (RR p.276 "Searching the Wild").
+// The RAW table runs 18+ at ≤11 mi/day down one step per 12-mile band to 2+ at ≥192 — exactly
+// 18 − ⌊mpd/12⌋ clamped to [2,18] (verified against every row + the RAW worked example:
+// 32 mi/day → 16+). Speed = the party's expedition movement: slowest member's encumbrance
+// mi/day × the searched hex's terrain multiplier (the same factors travel uses).
+// =============================================================================
+function wildernessSearchTargetForSpeed(milesPerDay){
+  const mpd = Math.max(0, Number(milesPerDay) || 0);
+  return Math.max(2, Math.min(18, 18 - Math.floor(mpd / 12)));
 }
 
 // =============================================================================
@@ -1155,6 +1168,8 @@ Object.assign(ACKS, {
   JOURNEY_FATIGUE_CYCLE_DAYS,
   // #476 Monster Persistence M1 — Lairs per Hex density table (JJ p.69)
   LAIRS_PER_HEX, LAIR_TERRAIN_ALIAS, lairDiceLabel,
+  // #476 M4 — Wilderness Search target (RR p.276)
+  wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.

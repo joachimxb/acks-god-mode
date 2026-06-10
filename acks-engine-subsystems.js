@@ -1751,14 +1751,24 @@ function rollEncounter(campaign, journey, opts){
   // pooled dynamic lair is a GM decision, not an automatic travel surprise.
   const prop = (campaign && typeof ACKS.lairEncounterProposal === 'function')
     ? ACKS.lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: false }) : null;
-  let label, monsters = [], lairId = null, seededShellLairIds = null;
+  let label, monsters = [], lairId = null, seededShellLairIds = null, encounterKind = null, fragmentCount = null;
   if(prop && prop.source === 'existing-lair'){
     lairId = prop.lairId;
+    encounterKind = prop.encounterKind || 'at-lair';
     const mName = (typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'unknown creatures';
-    label = ((journey && journey.name) || 'Journey') + ': encounter — ' + mName + ' lair'
-      + (prop.contents.totalInhabitantCount ? ' (' + prop.contents.totalInhabitantCount + ' inhabitants)' : '')
-      + ' — GM, resolve';
-    monsters = prop.contents.groupIds.map(id => ({ groupId: id }));
+    if(encounterKind === 'wandering-fragment'){
+      // M4 (RAW MM p.15): the lair'd hex's monsters met AWAY from home — a fragment, no hoard,
+      // the lair itself not located. Tracking can follow them home (§6.2 — the GM affordance).
+      fragmentCount = (prop.fragment && prop.fragment.count) || null;
+      label = ((journey && journey.name) || 'Journey') + ': encounter — '
+        + (fragmentCount ? fragmentCount + ' ' : 'a band of ') + mName.toLowerCase() + (fragmentCount === 1 ? '' : 's')
+        + ' out from an unlocated lair in this hex — GM, resolve (Tracking can follow them home)';
+    } else {
+      label = ((journey && journey.name) || 'Journey') + ': encounter — ' + mName + ' lair'
+        + (prop.contents.totalInhabitantCount ? ' (' + prop.contents.totalInhabitantCount + ' inhabitants)' : '')
+        + ' — GM, resolve';
+      monsters = prop.contents.groupIds.map(id => ({ groupId: id }));
+    }
   } else if(prop && prop.source === 'seeded-shell'){
     // D4→D5: the hex was seeded with undetailed lair shells — the encounter should BE one of them,
     // not a fresh invention. The GM populates a shell (lair detail ✨ / Lair Wizard) and resolves.
@@ -1777,7 +1787,7 @@ function rollEncounter(campaign, journey, opts){
   const notableEvent = {
     kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
     label: label,
-    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId, lairId: lairId, seededShellLairIds: seededShellLairIds }
+    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId, lairId: lairId, seededShellLairIds: seededShellLairIds, encounterKind: encounterKind, fragmentCount: fragmentCount }
   };
   return { encounterRecord, notableEvent };
 }

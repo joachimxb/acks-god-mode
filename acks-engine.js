@@ -3143,10 +3143,18 @@ function generateLair(campaign, opts, rng){
 // Plan §4/§5.2.3; a generateLair {lairId} call fleshes the one the GM picks); else a pooled
 // 'dynamic' lair may be revealed into the hex; else it's a fresh roll (the seam Phase 3 #141 /
 // a generateLair call fills). Returns a proposal { source:'existing-lair'|'seeded-shell'|
-// 'dynamic-pool'|'fresh', hexId, lair?, lairId?, contents?, candidates? }; NEVER mutates — the
-// caller (the journey encounter, the GM, or a future all-actor slot-80 consumer with the
-// territory-class probability, M8/Vagaries) acts on it. rng is only consumed when ≥2 active lairs
-// share the hex (the random pick), so seeded previews stay stable.
+// 'dynamic-pool'|'fresh', hexId, lair?, lairId?, contents?, candidates?, encounterKind?,
+// fragment? }; NEVER mutates — the caller (the journey encounter, the GM, or a future all-actor
+// slot-80 consumer with the territory-class probability, M8/Vagaries) acts on it.
+//
+// M4 lair-vs-wandering (RAW, MM p.15 / survey §16.3): meeting the monsters of a lair'd hex is
+// usually a WANDERING FRAGMENT of the lair population away from home (no hoard, lair not located),
+// and only Lair-% of the time the lair itself. When the picked lair carries a usable lairPct
+// (0 < pct < 100) the proposal rolls 1d100: ≤ pct → encounterKind 'at-lair'; > → 'wandering-fragment'
+// with a suggested fragment size (the catalog's numberAppearing.wandering when resolvable). A
+// fragment encounter is the track-home hook (§6.2): the lair exists but stays undiscovered until
+// tracked/searched. No usable pct (null / 0 / ≥100 / GM-authored bare lair) → 'at-lair' (the
+// pre-M4 behaviour). rng draws stay deterministic under a seeded preview (same stream → same day).
 function lairEncounterProposal(campaign, hexId, opts){
   const o = opts || {};
   const r = o.rng || Math.random;
@@ -3154,8 +3162,25 @@ function lairEncounterProposal(campaign, hexId, opts){
   const here = atHex.filter(l => l && l.status === 'active');
   if(here.length){
     const lair = here.length === 1 ? here[0] : here[Math.floor(r() * here.length)];
+    // The lair's own lairPct wins; a GM-authored lair without one falls back to the catalog's
+    // (the monster's nature). Pin lairPct:100 on the lair to mean "they're always at home."
+    const entry = (typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(lair.monsterCatalogKey) : null;
+    const pct = (typeof lair.lairPct === 'number') ? lair.lairPct : ((entry && typeof entry.lairPct === 'number') ? entry.lairPct : null);
+    let encounterKind = 'at-lair', fragment = null;
+    if(pct != null && pct > 0 && pct < 100){
+      const d100 = 1 + Math.floor(r() * 100);
+      if(d100 > pct){
+        encounterKind = 'wandering-fragment';
+        const spec = entry && entry.numberAppearing && entry.numberAppearing.wandering;
+        const alive = lairInhabitantCount(campaign, lair);
+        let count = spec ? _rollDiceStr(spec, r) : null;
+        if(count != null && alive > 0) count = Math.max(1, Math.min(count, alive));  // a fragment can't outnumber the lair's living population
+        fragment = { count: count };
+      }
+    }
     return {
       source: 'existing-lair', hexId: hexId, lairId: lair.id, lair: lair,
+      encounterKind: encounterKind, fragment: fragment,
       contents: {
         monsterCatalogKey: lair.monsterCatalogKey || '',
         groupIds: (lair.groupIds || []).slice(),
@@ -3235,6 +3260,17 @@ function seedHexLairs(campaign, hexId, opts){
     }));
   }
   return out;
+}
+
+// --- §6.3 securing consequence (RR p.338 + p.277; Plan M4) --------------------
+// The lairs standing in the way of securing a hex for settlement: every still-live lair record —
+// 'active' (inhabited) or 'unknown' (seeded/undetailed; RAW: an UNdiscovered hostile lair "will
+// almost certainly disrupt settlement"). Cleared / abandoned / destroyed structures don't block;
+// an unplaced 'dynamic' pool entry isn't in any hex. Pure read — the hex card surfaces it now;
+// Domain Completion DC-0 consumes it as the securing gate. (Whether a specific harmless lair —
+// the RAW lammasu — blocks stays GM judgment: clear it, or mark it cleared/abandoned.)
+function hexSecuringBlockers(campaign, hexId){
+  return (lairsAtHex(campaign, hexId) || []).filter(l => l && (l.status === 'active' || l.status === 'unknown'));
 }
 
 // =============================================================================
@@ -7793,6 +7829,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   createLair, clearLair, discoverLair, abandonLair, destroyLair, revealDynamicLair,
   generateLair, _rollDiceStr, lairEncounterProposal,
   rollLairCount, lairDiceForTerrain, seedHexLairs,
+  // #476 M4 — securing consequence (RR p.338): live lairs block settling the hex (DC-0 consumes)
+  hexSecuringBlockers,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
   createSpecialistContract, endSpecialistContract, activeSpecialistContractFor, specialistContractsByEmployer,
