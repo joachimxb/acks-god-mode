@@ -2824,7 +2824,17 @@ function _searchExpeditionSpeed(campaign, ch, hex){
     if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
   }
   if(slowest === Infinity) slowest = 24;
-  const tMult = (hex && A.JOURNEY_TERRAIN_SPEED && A.JOURNEY_TERRAIN_SPEED[hex.terrain] != null) ? A.JOURNEY_TERRAIN_SPEED[hex.terrain] : 1;
+  // Raw key first (JOURNEY_TERRAIN_SPEED carries finer-than-base keys like 'swamp-forested'),
+  // then terrain's base normalizer so alias terrains (tundra→barrens, forested→forest) pace right.
+  let tMult = 1;
+  if(hex && A.JOURNEY_TERRAIN_SPEED){
+    const raw = String(hex.terrain || '').toLowerCase().trim();
+    if(A.JOURNEY_TERRAIN_SPEED[raw] != null) tMult = A.JOURNEY_TERRAIN_SPEED[raw];
+    else {
+      const base = (typeof A.terrainBase === 'function') ? A.terrainBase(raw) : '';
+      if(base && A.JOURNEY_TERRAIN_SPEED[base] != null) tMult = A.JOURNEY_TERRAIN_SPEED[base];
+    }
+  }
   return { speed: slowest * tMult, cohort: cohort };
 }
 function _cohortHasProf(cohort, re){ return (cohort || []).some(m => _provHasProf(m, re)); }

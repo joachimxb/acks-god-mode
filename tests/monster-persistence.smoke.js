@@ -274,17 +274,20 @@ section('M1 revealDynamicLair — dynamic pool → placed active');
 section('M1 LAIRS_PER_HEX table — RAW values (JJ p.69)');
 {
   const T = ACKS.LAIRS_PER_HEX;
-  ok('20 keys (10 base + finer sub-keys)', Object.keys(T).length === 20);
+  ok('23 keys (10 base + RAW + axis sub-keys)', Object.keys(T).length === 23);
   const eq = (k, n, d, m) => T[k] && T[k].n === n && T[k].d === d && T[k].mod === m;
   ok('forest 2d4', eq('forest', 2, 4, 0));
   ok('jungle 2d8', eq('jungle', 2, 8, 0));
   ok('swamp 2d4+1', eq('swamp', 2, 4, 1));
   ok('barrens 1d4', eq('barrens', 1, 4, 0));
   ok('grassland-steppe 1d3−1', eq('grassland-steppe', 1, 3, -1));
+  ok('grassland-savanna 1d3 (🔧 no RAW row — farm/prairie density)', eq('grassland-savanna', 1, 3, 0));
   ok('hills-forested 2d4 vs hills(rocky) 1d4', eq('hills-forested', 2, 4, 0) && eq('hills', 1, 4, 0));
   ok('mountains default rocky/snowy 1d4+1', eq('mountains', 1, 4, 1) && eq('mountains-forested', 2, 4, 0));
+  ok('mountains-snowy shares the rocky/snowy row (RAW) 1d4+1', eq('mountains-snowy', 1, 4, 1));
+  ok('mountains-volcanic 1d4+1 (🔧 no RAW row — matched to rocky/snowy)', eq('mountains-volcanic', 1, 4, 1));
   ok('desert default sandy 1d4 vs rocky 1d2', eq('desert', 1, 4, 0) && eq('desert-rocky', 1, 2, 0));
-  ok('scrubland default low 1d2 vs dense 2d4', eq('scrubland', 1, 2, 0) && eq('scrubland-dense', 2, 4, 0));
+  ok('scrubland default sparse 1d2 vs dense 2d4', eq('scrubland', 1, 2, 0) && eq('scrubland-sparse', 1, 2, 0) && eq('scrubland-dense', 2, 4, 0));
   ok('water 0 (no land lairs)', eq('water', 0, 0, 0));
   ok('lairDiceLabel formats', ACKS.lairDiceLabel(T.forest) === '2d4' && ACKS.lairDiceLabel(T['grassland-steppe']) === '1d3−1' && ACKS.lairDiceLabel(T.mountains) === '1d4+1' && ACKS.lairDiceLabel(T.water) === '—');
 }
@@ -323,7 +326,7 @@ section('M1 seedHexLairs — D4 opt-in seeding (unsettled hexes only)');
   c.hexes = [
     ACKS.blankHex({ id: 'hex-wild', terrain: 'forest' }),                  // unsettled (no domainId)
     Object.assign(ACKS.blankHex({ id: 'hex-dom', terrain: 'forest' }), { domainId: 'dom-1' }), // settled (domainId is backfilled by liftToTopLevelCollections in-app)
-    ACKS.blankHex({ id: 'hex-odd', terrain: 'tundra' }),                    // unknown terrain
+    ACKS.blankHex({ id: 'hex-odd', terrain: 'voidlands' }),                 // genuinely-unknown terrain (NB 'tundra' now resolves → barrens via the terrain model, T1)
     ACKS.blankHex({ id: 'hex-sea', terrain: 'water' }),                     // open water → 0
   ];
   // count override → exact N empty shells

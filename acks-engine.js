@@ -3232,6 +3232,21 @@ function lairDiceForTerrain(terrain){
   return { key: key, spec: spec, label: label };
 }
 
+// lairDiceForHex(hex) — the SUB-TYPE-aware lair dice (Phase_2.5_Terrain_Model_Plan.md). Composes the
+// hex's (terrain, terrainSubtype) into the LAIRS_PER_HEX key (JJ p.69). Every sub-type of a RAW-SPLIT
+// base (desert/grassland/hills/mountains/scrubland) now has its own explicit row, so it resolves to its
+// exact RAW count; the fallback to the bare base only fires for a RAW "(any)" base (barrens/forest/swamp
+// — one value for all sub-types) or a hex with no sub-type set. Closes the M1 coarse-default gap: a hex
+// that carries a sub-type seeds the RAW-correct density (forested mountain 2d4 vs rocky/snowy 1d4+1).
+function lairDiceForHex(hex){
+  if(!hex) return null;
+  const base = (global.ACKS.terrainBase ? global.ACKS.terrainBase(hex.terrain) : String(hex.terrain || '').toLowerCase().trim());
+  if(!base) return null;
+  let sub = String(hex.terrainSubtype || '').toLowerCase().trim();
+  if(sub === 'low') sub = 'sparse';   // RAW "low, sparse" synonyms; LAIRS_PER_HEX keys it 'scrubland-sparse'
+  return (sub && lairDiceForTerrain(base + '-' + sub)) || lairDiceForTerrain(base);
+}
+
 // Seed a hex's wilderness lairs (D4). Rolls the terrain count and creates that many empty
 // status:'unknown' shells (establishedBy:'hex-seeding'). OPT-IN — callers invoke it explicitly
 // (a button / wizard mode), never on bulk map generation. Returns the created lairs ([] if the
@@ -3244,7 +3259,9 @@ function seedHexLairs(campaign, hexId, opts){
   const hex = Array.isArray(campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
   if(!hex) return [];
   if(hex.domainId && !o.force) return [];                 // RAW: settled (domain) hexes seed none
-  const dice = lairDiceForTerrain(o.terrain || hex.terrain);
+  // Sub-type-aware (T1): default reads the hex's full (terrain, terrainSubtype); an explicit
+  // opts.terrain override stays the string path. Falls back to the bare terrain if neither resolves.
+  const dice = o.terrain ? lairDiceForTerrain(o.terrain) : (lairDiceForHex(hex) || lairDiceForTerrain(hex.terrain));
   if(!dice) return [];
   const count = (o.count !== undefined) ? Math.max(0, o.count|0) : rollLairCount(dice.spec, o.rng);
   const turn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
@@ -7828,7 +7845,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
   createLair, clearLair, discoverLair, abandonLair, destroyLair, revealDynamicLair,
   generateLair, _rollDiceStr, lairEncounterProposal,
-  rollLairCount, lairDiceForTerrain, seedHexLairs,
+  rollLairCount, lairDiceForTerrain, lairDiceForHex, seedHexLairs,
   // #476 M4 — securing consequence (RR p.338): live lairs block settling the hex (DC-0 consumes)
   hexSecuringBlockers,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)

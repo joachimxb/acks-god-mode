@@ -1625,11 +1625,27 @@ document.addEventListener('alpine:init', () => {
           </template>
         </select>
         <span>· terrain:</span>
-        <select x-model="mapCreateTerrain" class="border border-ink rounded px-2 py-0.5">
+        <select x-model="mapCreateTerrain" @change="if(!mapBrushSubtypeOptions().some(s=>s.value===mapCreateSubtype)) mapCreateSubtype=''" class="border border-ink rounded px-2 py-0.5">
           <option value="">— unset —</option>
           <template x-for="t in mapTerrainOptions()" :key="t.value">
             <option :value="t.value" x-text="t.label"></option>
           </template>
+        </select>
+        <!-- Terrain model — sub-type (the full union while terrain is unset, narrowing to the base's variants
+             once a terrain is chosen) + Köppen climate, as new-hex defaults / for the selected hex. Sub-type hides
+             only for a base with no variants (water/jungle). biome stays derived (no brush control). -->
+        <template x-if="mapBrushSubtypeOptions().length">
+          <span class="flex items-center gap-1">· sub-type:
+            <select x-model="mapCreateSubtype" class="border border-ink rounded px-2 py-0.5" title="Terrain sub-type — drives lair density (JJ p.69), encounters (JJ pp.45–67) and visibility (RR p.275)">
+              <option value="">— unset —</option>
+              <template x-for="s in mapBrushSubtypeOptions()" :key="s.value"><option :value="s.value" x-text="s.label"></option></template>
+            </select>
+          </span>
+        </template>
+        <span>· climate:</span>
+        <select x-model="mapCreateKoppen" class="border border-ink rounded px-2 py-0.5" title="Köppen climate code (JJ p.40) — the weather key (JJ p.41) + biome source">
+          <option value="">— unset —</option>
+          <template x-for="k in hexKoppenOptions()" :key="k.value"><option :value="k.value" x-text="k.label"></option></template>
         </select>
         <!-- Rivers/roads + Save/Cancel only once a cell is selected (they act on that specific hex). -->
         <template x-if="mapCreateAt">
@@ -7696,6 +7712,47 @@ document.addEventListener('alpine:init', () => {
             </template>
           </select>
         </div>
+        <!-- Terrain refinement — sub-type / Köppen climate / derived biome (Phase_2.5_Terrain_Model_Plan.md, T2).
+             Each commits via gm-fiat like Terrain above. Sub-type offers the full union while terrain is unset,
+             narrows to the base's variants once chosen, and hides only for a base with no variants (water/jungle);
+             the Köppen picker is the weather key (JJ p.41) + the biome source; biome is DERIVED
+             (override optional). The ✨ button applies the Köppen-suggested terrain+sub-type (the Köppen-led path). -->
+        <template x-if="hexSubtypeOptions().length">
+        <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Sub-type</span>
+          <select @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'terrainSubtype', label:'Terrain sub-type', oldValue:worldHexEditingHex().terrainSubtype||'', newValue:$event.target.value})"
+                  class="text-sm" style="width:14rem" title="Refines the base terrain — drives the lair count (JJ p.69), the encounter sub-table (JJ pp.45–67) and visibility (RR p.275)">
+            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().terrainSubtype)">— unset —</option>
+            <template x-for="s in hexSubtypeOptions()" :key="s.value">
+              <option :value="s.value" :selected="worldHexEditingHex() && worldHexEditingHex().terrainSubtype === s.value" x-text="s.label"></option>
+            </template>
+          </select>
+        </div>
+        </template>
+        <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Climate</span>
+          <select @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'koppen', label:'Köppen climate', oldValue:worldHexEditingHex().koppen||'', newValue:$event.target.value})"
+                  class="text-sm" style="width:14rem" title="Köppen climate code — the weather key (JJ p.41) and the biome source">
+            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().koppen)">— unset —</option>
+            <template x-for="k in hexKoppenOptions()" :key="k.value">
+              <option :value="k.value" :selected="worldHexEditingHex() && worldHexEditingHex().koppen === k.value" x-text="k.label"></option>
+            </template>
+          </select>
+          <template x-if="hexKoppenSuggestionLabel()">
+            <button @click="hexApplyKoppenSuggestion()" class="text-xs px-2 py-0.5 border border-ink rounded bg-emerald-100 hover:bg-emerald-200" :title="'Set terrain + sub-type to the Köppen suggestion: ' + hexKoppenSuggestionLabel()" x-text="'✨ ' + hexKoppenSuggestionLabel()"></button>
+          </template>
+        </div>
+        <div class="block text-sm flex items-center gap-2">
+          <span class="w-20">Biome</span>
+          <span class="text-sm opacity-70" x-text="(hexBiomeLabel() || '—') + (worldHexEditingHex() && worldHexEditingHex().biomeOverride ? ' (override)' : (worldHexEditingHex() && worldHexEditingHex().koppen ? ' (from climate)' : ''))" title="Derived from the Köppen climate; set an override only to diverge"></span>
+          <select @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'biomeOverride', label:'Biome override', oldValue:worldHexEditingHex().biomeOverride||'', newValue:$event.target.value})"
+                  class="text-xs" style="width:9rem" title="Override the derived biome (rarely needed)">
+            <option value="" :selected="!(worldHexEditingHex() && worldHexEditingHex().biomeOverride)">(derive)</option>
+            <template x-for="b in hexBiomeOptions()" :key="b">
+              <option :value="b" :selected="worldHexEditingHex() && worldHexEditingHex().biomeOverride === b" x-text="b"></option>
+            </template>
+          </select>
+        </div>
         <div class="block text-sm flex items-center gap-2">
           <span class="w-20">Ground</span>
           <!-- mud/snow underfoot — ×½ travel speed (RR p.272); commits immediately via gm-fiat -->
@@ -9164,7 +9221,7 @@ return {
   },
   _lairWizardHex(id){ const camp = this.currentCampaign; return ((camp && camp.hexes) || []).find(h => h.id === id) || null; },
   lairWizardSeedIsDomain(){ const h = this._lairWizardHex(this.lairWizardSeed.hexId); return !!(h && h.domainId); },
-  lairWizardSeedDice(){ const h = this._lairWizardHex(this.lairWizardSeed.hexId); return h ? window.ACKS.lairDiceForTerrain(h.terrain) : null; },
+  lairWizardSeedDice(){ const h = this._lairWizardHex(this.lairWizardSeed.hexId); return h ? (window.ACKS.lairDiceForHex(h) || window.ACKS.lairDiceForTerrain(h.terrain)) : null; },
   lairWizardSeedDiceLabel(){
     const d = this.lairWizardSeedDice();
     if(d) return d.key + ' (' + d.label + ' lairs)';
@@ -14320,6 +14377,40 @@ return {
     if(cur && !base.some(t => t.value === cur)) return [{ value: cur, label: cur + ' (current)' }].concat(base);
     return base;
   },
+  // Terrain refinement options for the hex editor (Phase_2.5_Terrain_Model_Plan.md, T2).
+  hexSubtypeOptions(){
+    const hex = this.worldHexEditingHex();
+    const base = window.ACKS.terrainBase(hex && hex.terrain);
+    // base chosen → that base's variants; terrain unset → the full union (so a sub-type
+    // can still be pre-picked); a base with no variants (water/jungle) → [] (control hides).
+    const subs = base ? ((window.ACKS.TERRAIN_SUBTYPES && window.ACKS.TERRAIN_SUBTYPES[base]) || [])
+                      : window.ACKS.allTerrainSubtypes();
+    return subs.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
+  },
+  hexKoppenOptions(){
+    const K = window.ACKS.KOPPEN_CLIMATE || {};
+    return Object.keys(K).map(code => ({ value: code, label: code + ' — ' + K[code].name }));
+  },
+  hexBiomeOptions(){ return (window.ACKS.BIOMES || []).slice(); },
+  hexBiomeLabel(){ return window.ACKS.biomeForHex(this.worldHexEditingHex()) || ''; },
+  // The primary (terrain, sub-type) the editing hex's Köppen code suggests — drives the ✨ apply button.
+  // '' when there is no koppen, no suggestion, or the hex already matches it (so the button hides).
+  hexKoppenSuggestionLabel(){
+    const hex = this.worldHexEditingHex();
+    if(!hex || !hex.koppen) return '';
+    const sug = (window.ACKS.koppenSuggestions(hex.koppen) || [])[0];
+    if(!sug) return '';
+    if(window.ACKS.terrainBase(hex.terrain) === sug.terrain && (hex.terrainSubtype||'') === (sug.subtype||'')) return '';
+    return sug.terrain + (sug.subtype ? ' (' + sug.subtype + ')' : '');
+  },
+  hexApplyKoppenSuggestion(){
+    const hex = this.worldHexEditingHex();
+    if(!hex || !hex.koppen) return;
+    const sug = (window.ACKS.koppenSuggestions(hex.koppen) || [])[0];
+    if(!sug) return;
+    this.commitStatEdit({entityType:'hex', entityId:hex.id, entity:hex, fieldPath:'terrain', label:'Terrain', oldValue:hex.terrain||'', newValue:sug.terrain});
+    this.commitStatEdit({entityType:'hex', entityId:hex.id, entity:hex, fieldPath:'terrainSubtype', label:'Terrain sub-type', oldValue:hex.terrainSubtype||'', newValue:sug.subtype||''});
+  },
   // Set the editing hex's coord from a GM-facing COLUMN·ROW pair (the map-label convention), storing
   // canonical axial {q,r}. Pass null for the axis you're NOT changing — it's read back from the current
   // coord so editing one field holds the other's *displayed* value (which, for column edits, recomputes
@@ -14413,6 +14504,8 @@ return {
   mapEditHexId: null,        // when the picker is editing an existing hex (vs creating); null = create
   mapCreateDomainId: '',     // chosen domain for the hex ('' = unclaimed wilderness)
   mapCreateTerrain: '',      // chosen terrain for the hex ('' = unset)
+  mapCreateSubtype: '',      // terrain model — sub-type for the new/edited hex (contextual to the base; '' = any)
+  mapCreateKoppen: '',       // terrain model — Köppen climate code for the new/edited hex ('' = unset)
   mapCreateRiverSides: [],   // #225 — hex sides (0..5) carrying a river (drawn along those edges; a movement barrier)
   mapCreateRoadSides: [],    // #225 — hex sides (0..5) the road reaches from the centre (with circular bends)
   mapCreateCrossingSides: [], // #225 — river sides (0..5) carrying a ford/bridge (negates the barrier); road×river is an implicit bridge
@@ -14699,7 +14792,7 @@ return {
   // M5 "Add/Edit hexes" flow — the persistent picker panel shows the moment the toggle flips. This
   // resets it to the "no hex selected" state with default new-hex settings (the brush). mapEnterAddMode
   // is for the USER toggle; addHexViaMap enters the same way but pre-sets the brush domain.
-  mapEnterAddMode(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; this.schedulePersist(); },
+  mapEnterAddMode(){ this.mapCreateAt = null; this.mapEditHexId = null; this.mapCreateDomainId = ''; this.mapCreateTerrain = ''; this.mapCreateSubtype = ''; this.mapCreateKoppen = ''; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; this.schedulePersist(); },
   // Click an empty cell → select it for creation. KEEP the current domain/terrain brush (so settings
   // chosen in the panel before clicking carry into the new hex); only the per-hex geometry resets.
   mapClickEmpty(q, r){ this.mapCreateAt = { q, r }; this.mapEditHexId = null; this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = []; },
@@ -14710,6 +14803,8 @@ return {
     this.mapEditHexId = h.id;
     this.mapCreateDomainId = h.domainId || '';
     this.mapCreateTerrain = h.terrain || '';
+    this.mapCreateSubtype = h.terrainSubtype || '';
+    this.mapCreateKoppen = h.koppen || '';
     this.mapCreateRiverSides    = Array.isArray(h.riverSides)    ? h.riverSides.slice()    : [];
     this.mapCreateRoadSides     = Array.isArray(h.roadSides)     ? h.roadSides.slice()     : [];
     this.mapCreateCrossingSides = Array.isArray(h.crossingSides) ? h.crossingSides.slice() : [];
@@ -14774,6 +14869,15 @@ return {
     if(cur && !base.some(t => t.value === cur)) return [{ value: cur, label: cur + ' (current)' }].concat(base);
     return base;
   },
+  // Sub-type options for the map Add/Edit brush — contextual to the brush's terrain base (terrain model T2).
+  mapBrushSubtypeOptions(){
+    const base = window.ACKS.terrainBase(this.mapCreateTerrain);
+    // brush terrain chosen → that base's variants; brush terrain unset (the no-hex-selected
+    // default state) → the full union, so the GM can pre-pick a sub-type default; water/jungle → [].
+    const subs = base ? ((window.ACKS.TERRAIN_SUBTYPES && window.ACKS.TERRAIN_SUBTYPES[base]) || [])
+                      : window.ACKS.allTerrainSubtypes();
+    return subs.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }));
+  },
   _mapFindHexById(id){
     let h = (this.currentCampaign?.hexes || []).find(x => x.id === id);
     if(h) return h;
@@ -14835,6 +14939,8 @@ return {
       if(hex){
         this.mapRehomeHex(hex, this.mapCreateDomainId || '');
         hex.terrain = this.mapCreateTerrain || '';
+        hex.terrainSubtype = this.mapCreateSubtype || '';   // terrain model
+        hex.koppen = this.mapCreateKoppen || '';            // terrain model
         hex.roadSides = (this.mapCreateRoadSides || []).slice(); // CARTOGRAPHIC; hasRoad (travel flag) left untouched — see Phase_2.5_Journeys_Plan §24
         this._mapApplyWaterFeatures(hex, this.mapCreateRiverSides, this.mapCreateCrossingSides);
         this.markDirty(); this.schedulePersist();
@@ -14850,6 +14956,7 @@ return {
     const domId = this.mapCreateDomainId || '';
     // Unclaimed wilderness starts UNexplored (uncharted); a hex placed into a domain stays explored.
     const hex = window.ACKS.blankHex({ coord, terrain: this.mapCreateTerrain || '',
+      terrainSubtype: this.mapCreateSubtype || '', koppen: this.mapCreateKoppen || '', // terrain model — brush defaults
       roadSides: (this.mapCreateRoadSides || []).slice(), explored: !!domId }); // rivers/crossings applied (+ mirrored) after the hex is in the campaign
     if(domId){
       const d = this.domains.find(x => x.id === domId);
@@ -15187,7 +15294,7 @@ return {
     // Enter add mode with the brush pre-set to this domain (no cell selected yet) — the persistent
     // panel shows it immediately, and mapClickEmpty keeps it when the GM clicks a cell to place.
     this.mapCreateAt = null; this.mapEditHexId = null;
-    this.mapCreateDomainId = domainId || ''; this.mapCreateTerrain = '';
+    this.mapCreateDomainId = domainId || ''; this.mapCreateTerrain = ''; this.mapCreateSubtype = ''; this.mapCreateKoppen = '';
     this.mapCreateRiverSides = []; this.mapCreateRoadSides = []; this.mapCreateCrossingSides = [];
     this.worldSubView = 'map'; this.currentView = 'world'; // subView first so the currentView watch sees map
     this.mapEnsureView();
