@@ -2932,10 +2932,19 @@ function createLair(campaign, opts){
   return lair;
 }
 
+// Internal: resolve a lair's bound Groups (campaign.groups[] referenced by lair.groupIds).
+function _lairBoundGroups(campaign, lair){
+  if(!lair || !Array.isArray(lair.groupIds) || !campaign || !Array.isArray(campaign.groups)) return [];
+  return lair.groupIds.map(gid => campaign.groups.find(g => g && g.id === gid)).filter(Boolean);
+}
+
 // Clear a lair — RAW §3.2: inhabitants are driven off / slain and treasure taken, but the structure
 // REMAINS (status:'cleared', not deletion; it can later repopulate). Idempotent (already-cleared →
 // no-op return). Stamps clearedAtTurn + clearedByEventId (when an event drove it). The canonical
-// setter the adventure-result handler delegates to.
+// setter the adventure-result handler delegates to. Bound Groups take FULL casualties so
+// groupsAtHex/groupActiveCount agree with the status (opts.leaveGroups:true skips — e.g. the GM
+// narrates a rout that scattered survivors; the persistence layer owns what becomes of them).
+// GM-authored leader Characters are NOT auto-killed — too destructive for a setter; GM decides.
 function clearLair(campaign, lairId, opts){
   const lair = findLair(campaign, lairId);
   if(!lair) return null;
@@ -2945,6 +2954,10 @@ function clearLair(campaign, lairId, opts){
   lair.status = 'cleared';
   lair.clearedAtTurn = turn;
   if(o.byEventId) lair.clearedByEventId = o.byEventId;
+  if(o.leaveGroups !== true){
+    for(const g of _lairBoundGroups(campaign, lair)) g.casualties = Math.max(g.casualties || 0, g.count || 0);
+    lair.totalInhabitantCount = lairInhabitantCount(campaign, lair);
+  }
   _lairHistory(lair, turn, 'cleared', o.reason || 'cleared', o.byEventId ? { byEventId: o.byEventId } : null);
   return lair;
 }
@@ -2968,6 +2981,9 @@ function discoverLair(campaign, lairId, opts){
 
 // Abandon a lair — its inhabitants leave of their own accord (migration, depletion, fear). Structure
 // remains (status:'abandoned'). Idempotent. Distinct from 'cleared' (driven out by adventurers).
+// Bound Groups DEPART alive: counts kept, currentHexId → null (gone somewhere unspecified — v1 is
+// hex-local, so "away" has no coordinate; the persistence layer will give them destinations).
+// opts.leaveGroups:true keeps them standing at the hex.
 function abandonLair(campaign, lairId, opts){
   const lair = findLair(campaign, lairId);
   if(!lair) return null;
@@ -2975,19 +2991,29 @@ function abandonLair(campaign, lairId, opts){
   const o = opts || {};
   const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
   lair.status = 'abandoned';
+  if(o.leaveGroups !== true){
+    for(const g of _lairBoundGroups(campaign, lair)) g.currentHexId = null;
+  }
   _lairHistory(lair, turn, 'abandoned', o.reason || 'abandoned');
   return lair;
 }
 
 // Destroy a lair — the structure itself is razed/collapsed (status:'destroyed'); the site no longer
 // functions as a lair. Idempotent. (Clearing leaves a reoccupiable structure; destroying does not.)
+// Destroying a still-ACTIVE lair wipes its bound Groups like clearLair (the inhabitants perish with
+// the structure; opts.leaveGroups:true skips); a cleared/abandoned lair's groups are already settled.
 function destroyLair(campaign, lairId, opts){
   const lair = findLair(campaign, lairId);
   if(!lair) return null;
   if(lair.status === 'destroyed') return lair;
   const o = opts || {};
   const turn = (o.atTurn === undefined) ? (campaign.currentTurn || null) : o.atTurn;
+  const wasActive = (lair.status === 'active' || lair.status === 'unknown');
   lair.status = 'destroyed';
+  if(wasActive && o.leaveGroups !== true){
+    for(const g of _lairBoundGroups(campaign, lair)) g.casualties = Math.max(g.casualties || 0, g.count || 0);
+    lair.totalInhabitantCount = lairInhabitantCount(campaign, lair);
+  }
   _lairHistory(lair, turn, 'destroyed', o.reason || 'destroyed');
   return lair;
 }
@@ -3007,6 +3033,15 @@ function revealDynamicLair(campaign, lairId, hexId, opts){
   lair.establishedBy = 'dynamic-reveal';
   lair.establishedAtTurn = turn || lair.establishedAtTurn;
   if(o.knownToPlayers === true) lair.knownToPlayers = true;
+  // The lair's population moves with it: a pool lair generated while unplaced has its bound Groups
+  // (and any GM-authored leader Characters) at currentHexId:null — bind them to the revealed hex.
+  for(const g of _lairBoundGroups(campaign, lair)) g.currentHexId = hexId;
+  if(Array.isArray(lair.leaderCharacterIds) && Array.isArray(campaign && campaign.characters)){
+    for(const cid of lair.leaderCharacterIds){
+      const ch = campaign.characters.find(c => c && c.id === cid);
+      if(ch) ch.currentHexId = hexId;
+    }
+  }
   _lairHistory(lair, turn, 'revealed', o.reason || 'dynamic-reveal', { hexId: hexId });
   return lair;
 }
@@ -3045,13 +3080,15 @@ function generateLair(campaign, opts, rng){
   const turn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
   const entry = global.ACKS.findMonster ? global.ACKS.findMonster(o.monsterCatalogKey) : null;
 
-  // get-or-create the lair
+  // get-or-create the lair. Populating an 'unknown' (placed) shell activates it; a 'dynamic' pool
+  // lair STAYS dynamic — populated-but-unplaced (the pre-rolled JJ p.195 drop-in) — until
+  // revealDynamicLair binds it to a hex (which also moves its population there).
   let lair;
   if(o.lairId){
     lair = findLair(campaign, o.lairId);
     if(!lair) return null;
     if(o.hexId) lair.hexId = o.hexId;
-    if(lair.status === 'unknown' || lair.status === 'dynamic') lair.status = 'active';
+    if(lair.status === 'unknown') lair.status = 'active';
     if(o.knownToPlayers === true) lair.knownToPlayers = true;
   } else {
     lair = createLair(campaign, {
@@ -3071,6 +3108,7 @@ function generateLair(campaign, opts, rng){
     lair.monsterCatalogKey = entry.key;
     if(lair.lairPct == null) lair.lairPct = entry.lairPct;
     if(!lair.treasureType) lair.treasureType = entry.treasureType || '';
+    if(!(lair.name || '').trim()) lair.name = entry.name + ' lair';   // a populated seeded shell gets the same default name as the fresh path
   }
 
   // roll the population into a bound Group
@@ -3100,16 +3138,20 @@ function generateLair(campaign, opts, rng){
 
 // Pool-first encounter selector (Plan §5.2 / D5) — PURE. Given an encounter has fired at a hex,
 // decide what it IS by consulting the per-hex POOL before any fresh generation: an existing ACTIVE
-// lair populates the encounter (random pick if several — D5); else a pooled 'dynamic' lair may be
-// revealed into the hex; else it's a fresh roll (the seam Phase 3 #141 / a generateLair call fills).
-// Returns a proposal { source:'existing-lair'|'dynamic-pool'|'fresh', hexId, lair?, lairId?,
-// contents?, candidates? }; NEVER mutates — the caller (the journey encounter, the GM, or a future
-// all-actor slot-80 consumer with the territory-class probability, M8/Vagaries) acts on it. rng is
-// only consumed when ≥2 active lairs share the hex (the random pick), so seeded previews stay stable.
+// lair populates the encounter (random pick if several — D5); else the hex's seeded-but-undetailed
+// 'unknown' SHELLS surface as populate candidates (D4 — the seeded count IS the hex's placed pool,
+// Plan §4/§5.2.3; a generateLair {lairId} call fleshes the one the GM picks); else a pooled
+// 'dynamic' lair may be revealed into the hex; else it's a fresh roll (the seam Phase 3 #141 /
+// a generateLair call fills). Returns a proposal { source:'existing-lair'|'seeded-shell'|
+// 'dynamic-pool'|'fresh', hexId, lair?, lairId?, contents?, candidates? }; NEVER mutates — the
+// caller (the journey encounter, the GM, or a future all-actor slot-80 consumer with the
+// territory-class probability, M8/Vagaries) acts on it. rng is only consumed when ≥2 active lairs
+// share the hex (the random pick), so seeded previews stay stable.
 function lairEncounterProposal(campaign, hexId, opts){
   const o = opts || {};
   const r = o.rng || Math.random;
-  const here = (lairsAtHex(campaign, hexId) || []).filter(l => l && l.status === 'active');
+  const atHex = lairsAtHex(campaign, hexId) || [];
+  const here = atHex.filter(l => l && l.status === 'active');
   if(here.length){
     const lair = here.length === 1 ? here[0] : here[Math.floor(r() * here.length)];
     return {
@@ -3122,6 +3164,10 @@ function lairEncounterProposal(campaign, hexId, opts){
         knownToPlayers: !!lair.knownToPlayers
       }
     };
+  }
+  if(o.includeSeededShells !== false){
+    const shells = atHex.filter(l => l && l.status === 'unknown');
+    if(shells.length) return { source: 'seeded-shell', hexId: hexId, candidates: shells.slice() };
   }
   if(o.includeDynamicPool !== false){
     const pool = (Array.isArray(campaign && campaign.lairs) ? campaign.lairs : []).filter(l => l && l.status === 'dynamic' && !l.hexId);

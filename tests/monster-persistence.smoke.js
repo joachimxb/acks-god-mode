@@ -472,6 +472,69 @@ section('M3 journey rollEncounter is pool-aware (D5)');
 }
 
 // =============================================================================
+section('Fixes — seeded shells in the pool, group fates, reveal sync, shell naming');
+{
+  // (1) seeded 'unknown' shells AT the hex surface as populate candidates (D4→D5, Plan §4/§5.2.3)
+  const c = ACKS.blankCampaign({ name: 'shellpool' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-s', terrain: 'mountains' })];
+  ACKS.seedHexLairs(c, 'hex-s', { count: 3 });
+  const p = ACKS.lairEncounterProposal(c, 'hex-s');
+  ok('hex with only seeded shells → seeded-shell candidates', p.source === 'seeded-shell' && p.candidates.length === 3);
+  ok('includeSeededShells:false → falls through to fresh', ACKS.lairEncounterProposal(c, 'hex-s', { includeSeededShells: false, includeDynamicPool: false }).source === 'fresh');
+  ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-s' });
+  ok('an active lair outranks the shells', ACKS.lairEncounterProposal(c, 'hex-s').source === 'existing-lair');
+  // the journey encounter surfaces the shells (not a generic stub)
+  const cJ = ACKS.blankCampaign({ name: 'shellenc' });
+  cJ.hexes = [ACKS.blankHex({ id: 'hex-t', terrain: 'forest' })];
+  ACKS.seedHexLairs(cJ, 'hex-t', { count: 2 });
+  const enc = ACKS.rollEncounter(cJ, { id: 'jrn-s', name: 'Scouts', currentHexId: 'hex-t' }, { rng: () => 0.0, hasRoad: false, hexId: 'hex-t' });
+  ok('journey encounter at a seeded hex names the shells', enc && /unauthored lair/.test(enc.notableEvent.label) && (enc.notableEvent.payload.seededShellLairIds || []).length === 2);
+  ok('shell encounter carries no lairId yet (GM picks which shell)', enc.encounterRecord.lairId === null);
+
+  // (2) clearLair wipes bound Groups so groupsAtHex agrees with the status
+  const c2 = ACKS.blankCampaign({ name: 'clearfate' });
+  c2.hexes = [ACKS.blankHex({ id: 'hex-c', terrain: 'hills' })];
+  const gen = ACKS.generateLair(c2, { monsterCatalogKey: 'orc', hexId: 'hex-c' });
+  ACKS.clearLair(c2, gen.lair.id);
+  ok('clearLair → bound group takes full casualties', ACKS.groupActiveCount(gen.group) === 0);
+  ok('clearLair → lairInhabitantCount agrees (0)', ACKS.lairInhabitantCount(c2, gen.lair) === 0 && gen.lair.totalInhabitantCount === 0);
+  const gen2 = ACKS.generateLair(c2, { monsterCatalogKey: 'goblin', hexId: 'hex-c' });
+  ACKS.clearLair(c2, gen2.lair.id, { leaveGroups: true });
+  ok('clearLair leaveGroups:true → group untouched (GM narrates survivors)', ACKS.groupActiveCount(gen2.group) > 0);
+
+  // (2b) destroyLair on a live lair wipes; abandonLair departs alive (hexless, counts kept)
+  const c3 = ACKS.blankCampaign({ name: 'fates' });
+  c3.hexes = [ACKS.blankHex({ id: 'hex-f', terrain: 'forest' })];
+  const g3 = ACKS.generateLair(c3, { monsterCatalogKey: 'kobold', hexId: 'hex-f' });
+  ACKS.destroyLair(c3, g3.lair.id);
+  ok('destroyLair on an active lair → group perishes', ACKS.groupActiveCount(g3.group) === 0);
+  const g4 = ACKS.generateLair(c3, { monsterCatalogKey: 'orc', hexId: 'hex-f' });
+  ACKS.abandonLair(c3, g4.lair.id);
+  ok('abandonLair → group departs alive (currentHexId null, count kept)', g4.group.currentHexId === null && ACKS.groupActiveCount(g4.group) > 0);
+
+  // (3) a populated dynamic lair STAYS pooled until reveal; reveal binds the population to the hex
+  const c4 = ACKS.blankCampaign({ name: 'revealsync' });
+  c4.hexes = [ACKS.blankHex({ id: 'hex-r', terrain: 'hills' })];
+  const dyn = ACKS.createLair(c4, { status: 'dynamic', hexId: null });
+  const gend = ACKS.generateLair(c4, { lairId: dyn.id, monsterCatalogKey: 'ogre' });
+  ok('populate a dynamic lair → stays dynamic + unplaced (pre-rolled drop-in)', dyn.status === 'dynamic' && dyn.hexId === null && gend.group.currentHexId === null);
+  ok('a populated dynamic lair is still a dynamic-pool candidate', ACKS.lairEncounterProposal(c4, 'hex-r').source === 'dynamic-pool');
+  ACKS.revealDynamicLair(c4, dyn.id, 'hex-r');
+  ok('revealDynamicLair binds the bound group to the hex', gend.group.currentHexId === 'hex-r' && dyn.status === 'active');
+  ok('after reveal the hex pool serves the lair', ACKS.lairEncounterProposal(c4, 'hex-r').source === 'existing-lair');
+
+  // (4) a populated seeded shell gets the fresh-path default name; a GM-set name is never clobbered
+  const c5 = ACKS.blankCampaign({ name: 'shellname' });
+  c5.hexes = [ACKS.blankHex({ id: 'hex-n', terrain: 'hills' })];
+  const shells = ACKS.seedHexLairs(c5, 'hex-n', { count: 2 });
+  ACKS.generateLair(c5, { lairId: shells[0].id, monsterCatalogKey: 'orc' });
+  ok('populated shell gets a default name', shells[0].name === 'Orc lair');
+  shells[1].name = 'The Howling Caves';
+  ACKS.generateLair(c5, { lairId: shells[1].id, monsterCatalogKey: 'common-wolf' });
+  ok('a GM-set shell name is preserved', shells[1].name === 'The Howling Caves');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

@@ -1751,7 +1751,7 @@ function rollEncounter(campaign, journey, opts){
   // pooled dynamic lair is a GM decision, not an automatic travel surprise.
   const prop = (campaign && typeof ACKS.lairEncounterProposal === 'function')
     ? ACKS.lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: false }) : null;
-  let label, monsters = [], lairId = null;
+  let label, monsters = [], lairId = null, seededShellLairIds = null;
   if(prop && prop.source === 'existing-lair'){
     lairId = prop.lairId;
     const mName = (typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'unknown creatures';
@@ -1759,6 +1759,13 @@ function rollEncounter(campaign, journey, opts){
       + (prop.contents.totalInhabitantCount ? ' (' + prop.contents.totalInhabitantCount + ' inhabitants)' : '')
       + ' — GM, resolve';
     monsters = prop.contents.groupIds.map(id => ({ groupId: id }));
+  } else if(prop && prop.source === 'seeded-shell'){
+    // D4→D5: the hex was seeded with undetailed lair shells — the encounter should BE one of them,
+    // not a fresh invention. The GM populates a shell (lair detail ✨ / Lair Wizard) and resolves.
+    seededShellLairIds = prop.candidates.map(l => l.id);
+    label = ((journey && journey.name) || 'Journey') + ': encounter — this hex holds '
+      + prop.candidates.length + ' unauthored lair' + (prop.candidates.length === 1 ? '' : 's')
+      + ' (seeded) — GM: populate one or resolve generically';
   } else {
     label = ((journey && journey.name) || 'Journey') + ': encounter check — GM, resolve this encounter (' + (opts.terrain || 'wilderness') + ')';
   }
@@ -1770,7 +1777,7 @@ function rollEncounter(campaign, journey, opts){
   const notableEvent = {
     kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
     label: label,
-    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId, lairId: lairId }
+    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId, lairId: lairId, seededShellLairIds: seededShellLairIds }
   };
   return { encounterRecord, notableEvent };
 }
