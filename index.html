@@ -671,6 +671,156 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- ───── Sub-tab: LAIRS (#476 M7 — Plan §12) ───── -->
+<div x-show="currentView === 'world' && worldSubView === 'lairs'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🏚 Lairs <span class="text-sm opacity-70 font-normal" x-text="'· ' + allLairs().length + ' recorded'"></span></h3>
+      <div class="flex gap-2 items-center text-sm flex-wrap">
+        <input type="text" x-model="lairsSearch" placeholder="Search name, monster, hex…" class="w-56">
+        <select x-model="lairsStatusFilter" class="text-sm">
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="unknown">Unauthored (seeded)</option>
+          <option value="dynamic">Dynamic pool</option>
+          <option value="cleared">Cleared</option>
+          <option value="abandoned">Abandoned</option>
+          <option value="destroyed">Destroyed</option>
+        </select>
+        <span class="text-sm opacity-70" x-text="filteredLairs().length + ' shown'"></span>
+        <button @click="openLairWizard('author')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a lair (place on a hex, or hold in the dynamic pool)">＋ Author a lair</button>
+        <button @click="openLairWizard('seed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Roll the RAW Lairs-per-Hex count for an unsettled wilderness hex (JJ p.69)">🌱 Seed a hex</button>
+      </div>
+    </div>
+    <template x-if="allLairs().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No lairs recorded. Author one, seed a wilderness hex with the RAW count (JJ p.69), or let a journey's encounter surface one.</p>
+    </template>
+    <template x-if="allLairs().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th></th><th>Name</th><th>Monster</th><th>Hex</th><th>Status</th><th>Known</th>
+          <th class="text-right">Inhabitants</th><th>Treasure</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="l in filteredLairs()" :key="l.id">
+            <tr>
+              <td x-text="lairStatusIcon(l)" :title="lairStatusLabel(l)"></td>
+              <td><button @click="openLairDetail(l.id)" class="underline font-semibold text-left" x-text="l.name || '(unnamed)'"></button></td>
+              <td x-text="lairMonsterLabel(l)"></td>
+              <td>
+                <template x-if="l.hexId"><button @click="openHexDetailById(l.hexId)" class="underline" x-text="lairHexLabel(l)"></button></template>
+                <template x-if="!l.hexId"><span class="opacity-60 italic" x-text="lairHexLabel(l)"></span></template>
+              </td>
+              <td x-text="lairStatusLabel(l)"></td>
+              <td x-text="l.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="l.knownToPlayers ? '' : 'opacity-60'"></td>
+              <td class="text-right font-mono" x-text="lairInhabitants(l) || '—'"></td>
+              <td x-text="l.treasureType || '—'"></td>
+              <td class="text-right"><button @click="openLairDetail(l.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">First-class placed lairs in <code>campaign.lairs[]</code> (RAW core, #476). <em>Unauthored</em> = a seeded shell awaiting contents (populate it from the lair's detail panel); <em>dynamic pool</em> = authored but unplaced (JJ p.195), revealed into a hex on demand. 🙈 = the players haven't discovered it.</p>
+  </div>
+</div>
+
+<!-- Lair detail modal (#476 M7) — read view + lifecycle actions over the M1 setters. The Inspector
+     stays the no-frills field editor underneath (Open in Inspector). z-60: same layer as the stash
+     detail; the hex-card/lair-list openers close their own modal first when needed. -->
+<div x-show="lairDetailId" @keydown.escape.window="closeLairDetail()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLairDetail()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
+    <template x-if="lairDetailLair()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg"><span x-text="lairStatusIcon(lairDetailLair())"></span> <span x-text="lairDetailLair().name || '(unnamed lair)'"></span></h3>
+            <p class="text-sm opacity-70">
+              <span x-text="lairMonsterLabel(lairDetailLair())"></span>
+              <span> · </span>
+              <template x-if="lairDetailLair().hexId"><button @click="closeLairDetail(); openHexDetailById(lairDetailLair().hexId)" class="underline hover:opacity-80" x-text="lairHexLabel(lairDetailLair())"></button></template>
+              <template x-if="!lairDetailLair().hexId"><span class="italic" x-text="lairHexLabel(lairDetailLair())"></span></template>
+              <span> · </span><span x-text="lairStatusLabel(lairDetailLair())"></span>
+              <span> · </span><span x-text="lairDetailLair().knownToPlayers ? '👁 known to players' : '🙈 undiscovered'"></span>
+            </p>
+            <p class="text-sm opacity-70" x-show="lairDetailLair().precisePlacement" x-text="'📍 ' + lairDetailLair().precisePlacement"></p>
+          </div>
+          <button @click="closeLairDetail()" class="text-2xl leading-none px-2" title="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <!-- Inhabitants -->
+          <div>
+            <h4 class="font-semibold mb-1">Inhabitants <span class="opacity-60 font-normal" x-text="'· ' + (lairInhabitants(lairDetailLair()) || 0)"></span></h4>
+            <template x-if="lairDetailGroups().length === 0 && lairDetailLeaders().length === 0">
+              <p class="italic opacity-60" x-text="lairDetailLair().status === 'unknown' ? 'Unauthored — no population yet. Populate from the catalog below, or author via the Inspector.' : 'No bound population (estimate: ' + (lairDetailLair().totalInhabitantCount || 0) + ').'"></p>
+            </template>
+            <ul class="space-y-0.5">
+              <template x-for="row in lairDetailGroups()" :key="'ldg-'+row.g.id">
+                <li class="flex items-center gap-2">
+                  <span>👥</span>
+                  <span class="flex-grow" x-text="(row.g.name || '(group)')"></span>
+                  <span class="font-mono text-xs" x-text="row.active + ' / ' + (row.g.count || 0) + ' active'"></span>
+                </li>
+              </template>
+              <template x-for="ch in lairDetailLeaders()" :key="'ldl-'+ch.id">
+                <li class="flex items-center gap-2">
+                  <span>👑</span>
+                  <button class="underline flex-grow text-left" @click="closeLairDetail(); openCharacterEditor(ch.id)" x-text="ch.name || '(leader)'"></button>
+                </li>
+              </template>
+            </ul>
+          </div>
+          <!-- Treasure -->
+          <div class="flex items-center gap-2">
+            <h4 class="font-semibold">Treasure</h4>
+            <span x-text="lairDetailLair().treasureType ? ('Type ' + lairDetailLair().treasureType + ' (hoard contents roll when treasure generation lands)') : '— none recorded'"></span>
+          </div>
+          <!-- ✨ Populate from catalog (shells / dynamic / empty) -->
+          <div x-show="lairDetailCanPopulate()" class="border border-ink/30 rounded p-2" style="background:#fff7d6">
+            <h4 class="font-semibold mb-1">✨ Populate from the catalog</h4>
+            <div class="flex flex-wrap items-center gap-2">
+              <input x-model="lairDetailPopulateKey" list="lairMonsterCatalog" placeholder="e.g. orc, dire-wolf" class="w-48">
+              <button @click="lairPopulate()" :disabled="!lairDetailPopulateEntry()" :class="!lairDetailPopulateEntry() ? 'opacity-50 cursor-not-allowed' : ''" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200">🎲 Populate</button>
+              <span class="text-xs opacity-70" x-show="lairDetailPopulateEntry()" x-text="lairDetailPopulateEntry() ? (lairDetailPopulateEntry().name + ' — appears ' + ((lairDetailPopulateEntry().numberAppearing||{}).lair || (lairDetailPopulateEntry().numberAppearing||{}).wandering || '?') + ' (lair), Treasure ' + (lairDetailPopulateEntry().treasureType || 'none')) : ''"></span>
+            </div>
+            <p class="text-xs opacity-60 mt-1">Rolls the RAW lair population into a bound Group + records the Treasure Type. A dynamic lair stays pooled until revealed.</p>
+          </div>
+          <!-- Reveal a dynamic lair into a hex -->
+          <div x-show="lairDetailLair().status === 'dynamic'" class="border border-ink/30 rounded p-2">
+            <h4 class="font-semibold mb-1">🃏 Reveal into a hex</h4>
+            <div class="flex flex-wrap items-center gap-2">
+              <select x-model="lairDetailRevealHexId" class="text-sm" style="max-width:22rem">
+                <option value="">— pick a hex —</option>
+                <template x-for="h in lairWizardHexOptions()" :key="'ldr-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+              </select>
+              <button @click="lairReveal()" :disabled="!lairDetailRevealHexId" :class="!lairDetailRevealHexId ? 'opacity-50 cursor-not-allowed' : ''" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200">Reveal here</button>
+            </div>
+            <p class="text-xs opacity-60 mt-1">Binds the lair (and its population) to the hex and flips it active — the JJ p.195 dynamic-lair drop-in.</p>
+          </div>
+          <!-- Lifecycle actions -->
+          <div class="flex flex-wrap gap-2 border-t border-ink/20 pt-2">
+            <button x-show="!lairDetailLair().knownToPlayers && lairDetailLair().status !== 'dynamic'" @click="lairMarkDiscovered()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The players learn of this lair (GM reveal — searches & tracking also discover)">👁 Mark discovered</button>
+            <button x-show="lairDetailLair().status === 'active' || lairDetailLair().status === 'unknown'" @click="lairMarkCleared()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Inhabitants slain/driven off; the structure remains (RR — it can repopulate later)">⚔ Mark cleared</button>
+            <button x-show="lairDetailLair().status === 'active'" @click="lairMarkAbandoned()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The inhabitants leave alive of their own accord">🍂 Abandon</button>
+            <button x-show="lairDetailLair().status !== 'destroyed'" @click="lairMarkDestroyed()" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100 accent-red" title="The structure itself is razed">💥 Destroy</button>
+            <button @click="inspectorOpenInspect('lair', lairDetailLair().id); closeLairDetail()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Edit every field via the Inspector">🔍 Open in Inspector</button>
+          </div>
+          <!-- History -->
+          <div x-show="(lairDetailLair().history || []).length">
+            <h4 class="font-semibold mb-1">History</h4>
+            <ul class="text-xs space-y-0.5 max-h-40 overflow-y-auto">
+              <template x-for="(h,hi) in (lairDetailLair().history || []).slice().reverse()" :key="'ldh-'+hi">
+                <li><span class="opacity-60" x-text="'turn ' + (h.turn == null ? '—' : h.turn) + ' · '"></span><span class="font-semibold" x-text="h.type"></span><span class="opacity-70" x-text="h.reason && h.reason !== h.type ? (' — ' + h.reason) : ''"></span></li>
+              </template>
+            </ul>
+          </div>
+          <p class="text-xs opacity-50 italic" x-text="'Established turn ' + (lairDetailLair().establishedAtTurn || '?') + ' (' + (lairDetailLair().establishedBy || '?') + ')' + (lairDetailLair().lastVisitedTurn ? ' · last visited turn ' + lairDetailLair().lastVisitedTurn : '')"></p>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- Stash detail modal (Stash B.4) -->
 <div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
@@ -4583,6 +4733,16 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="(ne,nei) in journeyDayNotables(d,'nav')" :key="'dln-'+di+'-'+nei"><span class="text-amber-700" x-text="'• ' + dayTickNotableText(ne)"></span></template>
                   <button x-show="di === (journeyDetail().days.length - 1) && journeyCanReroll(journeyDetail())" @click="journeyRerollNav(journeyDetail())" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll the current day's navigation & movement (GM) — the party's location updates to match; the water-foraging outcome is held (its own reroll is on the row below)">🎲 reroll nav</button>
                 </div>
+                <!-- Row 2b — encounters (#476 M3/M7): the day's pool-aware encounter(s), each with its
+                     GM affordance — open the lair it surfaced, or the hex whose seeded shells want
+                     populating. Resolution stays GM judgment (the lair detail has the lifecycle actions). -->
+                <template x-for="(ee,eei) in journeyDayEncounters(d)" :key="'dle-'+di+'-'+eei">
+                  <div class="flex flex-wrap gap-x-2 items-baseline pl-3">
+                    <span class="text-red-700">⚔ <span x-text="dayTickNotableText(ee)"></span></span>
+                    <button x-show="ee.payload && ee.payload.lairId" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
+                    <button x-show="ee.payload && (ee.payload.seededShellLairIds||[]).length && ee.payload.hexId" @click="openHexDetailById(ee.payload.hexId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the hex — its seeded (unauthored) lairs are listed there; populate one from its detail panel">→ hex</button>
+                  </div>
+                </template>
                 <!-- Row 3 — provisioning: the day's water-Foraging throw (with modifiers) + hunger/thirst notes,
                      with its OWN reroll (leaves movement + navigation untouched). Only when something happened. -->
                 <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.waterForage || journeyDayNotables(d,'survival').length">
@@ -7598,103 +7758,27 @@ document.addEventListener('alpine:init', () => {
         </template>
       </div>
 
-      <!-- Lairs — audited add/edit/remove. Each lair object lives in hex.lairs[]; add via the
-           draft form; edit a row with ✏ (lock-edit-save, all changed fields audited per gm-fiat);
-           remove via × (logged). -->
-      <div class="vellum border border-ink/40 rounded p-2" x-data="{
-        showAdd: false,
-        addDraft: {name:'', creatureType:'', hd:'', numberAppearing:'', description:''},
-        startAdd(){ this.addDraft = {name:'', creatureType:'', hd:'', numberAppearing:'', description:''}; this.showAdd = true; },
-        cancelAdd(){ this.showAdd = false; },
-        saveAdd(){
-          if(!this.addDraft.name || !this.addDraft.name.trim()){ window.acksApp?.showToast('Lair name required.', 3000); return; }
-          const lair = {
-            id: 'lai-' + Math.random().toString(36).slice(2,8),
-            name: this.addDraft.name.trim(),
-            creatureType: this.addDraft.creatureType || '',
-            hd: this.addDraft.hd || '',
-            numberAppearing: this.addDraft.numberAppearing || '',
-            description: this.addDraft.description || ''
-          };
-          window.acksApp?.commitListMutation({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'lairs', label:'Lair', action:'add', value:lair});
-          this.showAdd = false;
-        }
-      }">
-        <div class="flex justify-between items-baseline mb-1">
-          <h4 class="font-semibold text-sm">⚔ Lairs <span class="text-sm opacity-60 font-normal" x-text="'(' + (worldHexEditingHex().lairs||[]).length + ')'"></span></h4>
-          <button x-show="!showAdd" @click="startAdd()" class="text-sm underline">+ add lair</button>
+      <!-- Lairs (#476 M7) — first-class campaign.lairs[] at this hex. The legacy nested hex.lairs[]
+           editor was retired with the M0 lift (migrateLegacyHexLairs moves old data to first-class
+           on load, so this card always reads the canonical collection). -->
+      <div class="vellum border border-ink/40 rounded p-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h4 class="font-semibold text-sm">🏚 Lairs <span class="text-sm opacity-60 font-normal" x-text="'(' + lairsAtHexId(worldHexEditingHex().id).length + ')'"></span></h4>
+          <button @click="openLairWizardAtHex(worldHexEditingHex().id)" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Author a lair on this hex (Lair Wizard)">+ lair here</button>
         </div>
-        <template x-if="showAdd">
-          <div class="border-2 border-ink rounded p-2 mb-2" style="background:#fff7d6">
-            <div class="text-sm font-semibold mb-1">New lair</div>
-            <div class="grid grid-cols-4 gap-1 text-sm mb-1">
-              <label>Name <input type="text" x-model="addDraft.name" placeholder="Goblin warren" class="w-full" x-init="$nextTick(() => $el.focus())" @keyup.enter="saveAdd()" @keyup.escape="cancelAdd()"></label>
-              <label>Creature <input type="text" x-model="addDraft.creatureType" placeholder="goblins" class="w-full"></label>
-              <label>HD <input type="text" x-model="addDraft.hd" placeholder="1-1" class="w-full"></label>
-              <label>Number <input type="text" x-model="addDraft.numberAppearing" placeholder="2d10" class="w-full"></label>
-            </div>
-            <textarea x-model="addDraft.description" placeholder="Notes about the lair, treasure, history…" class="w-full text-sm mb-1" rows="2"></textarea>
-            <div class="flex gap-1">
-              <button @click="saveAdd()" class="ed-btn" title="Save & log">✓ save</button>
-              <button @click="cancelAdd()" class="ed-btn" title="Cancel">× cancel</button>
-            </div>
-          </div>
+        <template x-if="lairsAtHexId(worldHexEditingHex().id).length === 0">
+          <p class="text-xs italic opacity-60 mt-1">No lairs recorded in this hex. (That is not a promise to the players — RR p.277.)</p>
         </template>
-        <template x-if="(worldHexEditingHex().lairs||[]).length === 0 && !showAdd">
-          <p class="text-sm italic opacity-60">No lairs in this hex.</p>
-        </template>
-        <template x-for="(lair, li) in (worldHexEditingHex().lairs||[])" :key="lair.id || li">
-          <div class="border-l-2 border-ink/30 pl-2 py-1 mb-1" x-data="{
-            editing: false, draft: null, orig: null,
-            start(){
-              this.orig = {name:lair.name||'', creatureType:lair.creatureType||'', hd:lair.hd||'', numberAppearing:lair.numberAppearing||'', description:lair.description||''};
-              this.draft = Object.assign({}, this.orig);
-              this.editing = true;
-            },
-            save(){
-              const app = window.acksApp;
-              const hex = worldHexEditingHex();
-              ['name','creatureType','hd','numberAppearing','description'].forEach(f => {
-                if(this.draft[f] !== this.orig[f]){
-                  app?.commitStatEdit({entityType:'hex', entityId:hex.id, entity:hex, fieldPath:'lairs.'+li+'.'+f, label:'Lair #'+(li+1)+' '+f, oldValue:this.orig[f], newValue:this.draft[f]});
-                }
-              });
-              this.editing = false;
-            },
-            cancel(){ this.editing = false; }
-          }">
-            <template x-if="!editing">
-              <div>
-                <div class="grid grid-cols-4 gap-1 text-sm">
-                  <div><span class="opacity-60">Name:</span> <span x-text="lair.name || '(unnamed)'"></span></div>
-                  <div><span class="opacity-60">Creature:</span> <span x-text="lair.creatureType || '—'"></span></div>
-                  <div><span class="opacity-60">HD:</span> <span x-text="lair.hd || '—'"></span></div>
-                  <div><span class="opacity-60">Number:</span> <span x-text="lair.numberAppearing || '—'"></span></div>
-                </div>
-                <div class="flex gap-1 mt-1 text-sm">
-                  <span class="flex-1 whitespace-pre-wrap" x-text="lair.description || ''"></span>
-                  <button @click="start()" class="ed-edit self-start" title="Edit (logged)">✏</button>
-                  <button @click="commitListMutation({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'lairs', label:'Lair', action:'remove', index:li})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50 self-start" title="Remove (logged)">× remove</button>
-                </div>
-              </div>
-            </template>
-            <template x-if="editing">
-              <div>
-                <div class="grid grid-cols-4 gap-1 text-sm">
-                  <label>Name <input type="text" x-model="draft.name" placeholder="Goblin warren" class="w-full" x-init="$nextTick(() => $el.focus())" @keyup.escape="cancel()"></label>
-                  <label>Creature <input type="text" x-model="draft.creatureType" placeholder="goblins" class="w-full"></label>
-                  <label>HD <input type="text" x-model="draft.hd" placeholder="1-1" class="w-full"></label>
-                  <label>Number <input type="text" x-model="draft.numberAppearing" placeholder="2d10" class="w-full"></label>
-                </div>
-                <div class="flex gap-1 mt-1 text-sm">
-                  <textarea x-model="draft.description" placeholder="Notes…" class="flex-1" rows="2"></textarea>
-                  <button @click="save()" class="ed-btn self-start" title="Save & log">✓</button>
-                  <button @click="cancel()" class="ed-btn self-start" title="Cancel">×</button>
-                </div>
-              </div>
-            </template>
-          </div>
-        </template>
+        <ul class="text-sm mt-1 space-y-0.5">
+          <template x-for="l in lairsAtHexId(worldHexEditingHex().id)" :key="'hxl-'+l.id">
+            <li class="flex items-center gap-2">
+              <span x-text="lairStatusIcon(l)" :title="lairStatusLabel(l)"></span>
+              <button class="underline flex-grow truncate text-left" @click="openLairDetail(l.id)" x-text="(l.name || '(unnamed)') + (lairMonsterLabel(l) !== '—' ? ' · ' + lairMonsterLabel(l) : '')"></button>
+              <span class="text-xs opacity-70 shrink-0" x-text="lairStatusLabel(l)"></span>
+              <span class="text-xs shrink-0" x-show="!l.knownToPlayers" title="The players have not discovered this lair">🙈</span>
+            </li>
+          </template>
+        </ul>
       </div>
 
       <!-- Dungeons — same audited list pattern. -->
@@ -9060,6 +9144,122 @@ return {
     if(lair) this.inspectorOpenInspect('lair', lair.id);
   },
 
+  // ── #476 M7 — Lairs view + lair detail panel (Plan §12) ──────────────────
+  // The world-facing surfaces over campaign.lairs[]: the World ▸ Lairs master list, the per-hex
+  // Lairs card, and the detail modal whose actions route through the M1 lifecycle setters
+  // (createLair/clearLair/discoverLair/…) — the lair's own history[] is the audit trail, same as
+  // the Lair Wizard. The Inspector stays the no-frills field editor underneath (Open in Inspector).
+  allLairs(){ return (this.currentCampaign && this.currentCampaign.lairs) || []; },
+  lairsAtHexId(hexId){ return window.ACKS.lairsAtHex(this.currentCampaign, hexId) || []; },
+  lairMonsterLabel(l){
+    if(!l) return '—';
+    const n = (typeof window.ACKS.monsterDisplayName === 'function') ? window.ACKS.monsterDisplayName(l.monsterCatalogKey) : null;
+    return n || l.monsterCatalogKey || '—';
+  },
+  lairHexLabel(l){
+    if(!l || !l.hexId) return (l && l.status === 'dynamic') ? '(unplaced pool)' : '(no hex)';
+    const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === l.hexId);
+    return h ? window.ACKS.hexName(h) : l.hexId;
+  },
+  lairStatusIcon(l){
+    return { active:'🏚', unknown:'❓', dynamic:'🃏', cleared:'⚔', abandoned:'🍂', destroyed:'💥' }[l && l.status] || '🏚';
+  },
+  lairStatusLabel(l){
+    if(!l) return '';
+    if(l.status === 'unknown') return 'unauthored';
+    if(l.status === 'dynamic') return 'dynamic (pool)';
+    return l.status;
+  },
+  lairInhabitants(l){ return window.ACKS.lairInhabitantCount(this.currentCampaign, l); },
+  filteredLairs(){
+    const q = (this.lairsSearch || '').toLowerCase().trim();
+    const sf = this.lairsStatusFilter || 'all';
+    return this.allLairs().filter(l => {
+      if(!l) return false;
+      if(sf !== 'all' && l.status !== sf) return false;
+      if(!q) return true;
+      const hay = ((l.name||'') + ' ' + this.lairMonsterLabel(l) + ' ' + this.lairHexLabel(l) + ' ' + (l.status||'')).toLowerCase();
+      return hay.indexOf(q) >= 0;
+    });
+  },
+  openLairDetail(id){ this.lairDetailId = id; this.lairDetailPopulateKey = ''; this.lairDetailRevealHexId = ''; },
+  closeLairDetail(){ this.lairDetailId = null; },
+  lairDetailLair(){ return this.lairDetailId ? (window.ACKS.findLair(this.currentCampaign, this.lairDetailId) || null) : null; },
+  lairDetailGroups(){
+    const l = this.lairDetailLair(); if(!l) return [];
+    const groups = (this.currentCampaign && this.currentCampaign.groups) || [];
+    return (l.groupIds || []).map(gid => groups.find(g => g && g.id === gid)).filter(Boolean)
+      .map(g => ({ g: g, active: window.ACKS.groupActiveCount(g) }));
+  },
+  lairDetailLeaders(){
+    const l = this.lairDetailLair(); if(!l) return [];
+    const chars = (this.currentCampaign && this.currentCampaign.characters) || [];
+    return (l.leaderCharacterIds || []).map(cid => chars.find(c => c && c.id === cid)).filter(Boolean);
+  },
+  // A lair that can take a catalog population: an unauthored shell, a dynamic drop-in, or an
+  // authored lair with no bound Groups yet (the Wizard's free-text path).
+  lairDetailCanPopulate(){
+    const l = this.lairDetailLair(); if(!l) return false;
+    if(l.status === 'cleared' || l.status === 'destroyed') return false;
+    return (l.status === 'unknown' || l.status === 'dynamic' || (l.groupIds || []).length === 0);
+  },
+  lairDetailPopulateEntry(){ return window.ACKS.findMonster ? window.ACKS.findMonster((this.lairDetailPopulateKey || '').trim()) : null; },
+  lairPopulate(){
+    const l = this.lairDetailLair(); const e = this.lairDetailPopulateEntry();
+    if(!l || !e) return;
+    const res = window.ACKS.generateLair(this.currentCampaign, { lairId: l.id, monsterCatalogKey: e.key, reason: 'lair-detail-populate' });
+    this.markDirty(); this.schedulePersist();
+    this.lairDetailPopulateKey = '';
+    if(this.showToast) this.showToast(res && res.group
+      ? ('Populated: ' + e.name + ' ×' + res.count + (l.treasureType ? ' · treasure ' + l.treasureType : '') + '.')
+      : 'No catalog entry — authored as a shell.');
+  },
+  lairReveal(){
+    const l = this.lairDetailLair(); const hexId = this.lairDetailRevealHexId;
+    if(!l || l.status !== 'dynamic' || !hexId) return;
+    window.ACKS.revealDynamicLair(this.currentCampaign, l.id, hexId, { reason: 'gm-reveal' });
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Lair revealed into ' + this.lairHexLabel(l) + ' — now active.');
+  },
+  lairMarkDiscovered(){
+    const l = this.lairDetailLair(); if(!l) return;
+    window.ACKS.discoverLair(this.currentCampaign, l.id, { method: 'gm-reveal' });
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Marked discovered — the players now know of ' + (l.name || 'this lair') + '.');
+  },
+  lairMarkCleared(){
+    const l = this.lairDetailLair(); if(!l) return;
+    if(!confirm('Mark "' + (l.name || 'this lair') + '" cleared? Its inhabitants are slain/driven off (bound groups take full casualties); the structure remains.')) return;
+    window.ACKS.clearLair(this.currentCampaign, l.id, { reason: 'gm-resolve' });
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Lair cleared — structure remains (it can be reoccupied later).');
+  },
+  lairMarkAbandoned(){
+    const l = this.lairDetailLair(); if(!l) return;
+    if(!confirm('Mark "' + (l.name || 'this lair') + '" abandoned? Its inhabitants leave alive (their groups go off-map); the structure remains.')) return;
+    window.ACKS.abandonLair(this.currentCampaign, l.id, { reason: 'gm-resolve' });
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Lair abandoned — empty but intact.');
+  },
+  lairMarkDestroyed(){
+    const l = this.lairDetailLair(); if(!l) return;
+    if(!confirm('Destroy "' + (l.name || 'this lair') + '"? The structure itself is razed; a still-active population perishes with it.')) return;
+    window.ACKS.destroyLair(this.currentCampaign, l.id, { reason: 'gm-resolve' });
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Lair destroyed.');
+  },
+  openLairWizardAtHex(hexId){
+    this.openLairWizard('author');
+    this.lairWizardForm.hexId = hexId || '';
+  },
+  openHexDetailById(hexId){
+    const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === hexId);
+    if(h) this.openHexDetail({ hex: h, domainId: h.domainId || null, hexIndex: -1, domainName: null });
+  },
+  // The day's encounter notables (kind journey-encounter) — rendered as their own day-log row with
+  // open-the-lair / open-the-hex affordances (the M3 pool-aware encounter's GM surface).
+  journeyDayEncounters(d){ return ((d && d.notableEvents) || []).filter(ne => ne && ne.type === 'encounter'); },
+
   // Friendly description of the wizard situation for the current kind.
   // Used by the Create sub-view stub to tell GMs what's coming.
   inspectorCreateStubMessage(kind){
@@ -9758,6 +9958,8 @@ return {
     }
     // Stash subsystem is always-on core (inventory-stash-system rule removed v0.17.0).
     tabs.push({ id:'stashes', label:'🪙 Stashes', count: (this.currentCampaign && this.currentCampaign.stashes ? this.currentCampaign.stashes.length : 0) || null });
+    // #476 M7 — first-class lairs (campaign.lairs[]; RAW core, always on).
+    tabs.push({ id:'lairs', label:'🏚 Lairs', count: (this.currentCampaign && this.currentCampaign.lairs ? this.currentCampaign.lairs.length : 0) || null });
     return tabs;
   },
 
@@ -10831,6 +11033,7 @@ return {
   journeyDayNotables(d, which){
     const SURV = ['hunger','dehydration','survival-critical','supplies-low'];
     return ((d && d.notableEvents) || []).filter(ne => {
+      if(ne && ne.type === 'encounter') return false;   // encounters get their own day-log row (journeyDayEncounters) with open-the-lair affordances
       const isSurv = (ne && ne.type) ? (SURV.indexOf(ne.type) >= 0)
         : /hungr|dehydrat|stores low|death.s door|starv|thirst/i.test((ne && ne.text) || '');
       return which === 'survival' ? isSurv : !isSurv;
@@ -13987,6 +14190,12 @@ return {
   lairWizardMode: 'author',
   lairWizardForm: { name:'', monsterCatalogKey:'', lairType:'lair', terrain:'', inhabitants:0, hasFortifications:false, knownToPlayers:false, treasureType:'', precisePlacement:'', notes:'', destination:'hex', hexId:'' },
   lairWizardSeed: { hexId:'', count:0 },
+  // #476 M7 — World ▸ Lairs view + lair detail panel (Plan §12).
+  lairDetailId: null,            // open lair in the detail modal (null = closed)
+  lairsSearch: '',               // Lairs view text filter (name / monster / hex)
+  lairsStatusFilter: 'all',      // Lairs view status filter
+  lairDetailPopulateKey: '',     // ✨ populate-from-catalog monster key (shells / empty lairs)
+  lairDetailRevealHexId: '',     // reveal-a-dynamic-lair hex pick
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,
