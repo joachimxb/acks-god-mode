@@ -1356,6 +1356,98 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Search the hex (#476 M4 — RR pp.276–277 "Searching the Wild"). The Judge's secret search-hour:
+     one Wilderness Search throw vs the hex's undiscovered lairs + the RAW per-hour encounter check.
+     GM-facing — players never see the target or "0 of N found"; results stack like Forage. -->
+<div x-show="searchHex.open" @keydown.escape.window="closeSearchHex()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <div>
+        <h3 class="font-bold text-lg">🔍 Search the hex<span x-show="searchHexObj()" class="font-normal opacity-80"> — <span x-text="searchHexObj() ? window.ACKS.hexName(searchHexObj()) : ''"></span></span></h3>
+        <p class="text-sm opacity-70">One search-hour = one ancillary task; each hour also risks an encounter (RR pp.276–277). The Judge rolls secretly — a failure tells the players nothing.</p>
+      </div>
+      <button @click="closeSearchHex()" class="text-2xl leading-none px-2" title="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <label class="text-sm block">Searching character <span class="opacity-60">(their party searches with them)</span><br>
+        <select @change="searchHex.actorId=$event.target.value; searchHex.results=[]" class="text-sm w-full" style="max-width:100%">
+          <option value="" :selected="!searchHex.actorId">— pick a character at this hex —</option>
+          <template x-for="c in searchHexCharacters()" :key="c.id"><option :value="c.id" :selected="searchHex.actorId===c.id" x-text="(c.name||'(unnamed)')"></option></template>
+        </select>
+      </label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="searchHex.specific"> Searching for a <em>specific</em> point of interest (−4)</label>
+      <template x-if="searchActor() && searchForecast()">
+        <div class="text-sm border border-ink/20 rounded p-3 bg-black/5 space-y-1">
+          <div>Throw: <span class="font-mono" x-text="'1d20' + (searchForecast().bonus ? ' +' + searchForecast().bonus + ' Tracking' : '') + (searchHex.specific ? ' −4 specific' : '') + ' vs ' + searchForecast().target + '+'"></span></div>
+          <div class="opacity-70" x-text="'Expedition speed ' + searchForecast().speed + ' mi/day (slowest of the party, × terrain) sets the target — fast parties cover more ground.'"></div>
+          <div class="opacity-70">Cost: <span class="font-semibold">ancillary</span> activity (#346) · ⚠ each hour risks an encounter</div>
+          <div class="opacity-70" x-text="searchBudgetLine()"></div>
+        </div>
+      </template>
+      <template x-if="searchHex.results.length">
+        <div class="space-y-1.5">
+          <template x-for="(res, ri) in searchHex.results" :key="ri">
+            <div class="text-sm rounded p-2 space-y-0.5" :class="res.found ? 'bg-green-100 border border-green-400' : (res.encounter ? 'bg-amber-100 border border-amber-400' : 'bg-black/5 border border-ink/20')">
+              <div>
+                <span class="font-mono" x-text="'🎲 ' + res.rolled + (res.bonus ? '+' + res.bonus : '') + (res.mod ? res.mod : '') + ' vs ' + res.target + '+'"></span>
+                <span x-text="res.found ? (' → ✓ found: ' + res.foundName) : (res.success ? ' → ✓ throw made — nothing turned up' : ' → ✗ nothing found')"></span>
+                <button x-show="res.foundLairId" @click="openLairDetail(res.foundLairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+              </div>
+              <div x-show="res.encounter" class="text-amber-900">⚔ Encounter! <span x-text="res.encounterText"></span>
+                <button x-show="res.encounter && res.encounter.lairId" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+              </div>
+              <div x-show="res.survey" class="opacity-80">📐 Land Surveying: <span x-text="res.surveyText"></span></div>
+            </div>
+          </template>
+        </div>
+      </template>
+      <div class="flex justify-end items-center gap-2 pt-1">
+        <span x-show="searchActor() && !searchFits().fits" class="text-xs accent-red mr-auto" x-text="searchFits().reason"></span>
+        <button @click="closeSearchHex()" class="px-3 py-1.5 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
+        <button @click="runSearchHour()" :disabled="!searchActor() || !searchFits().fits" :class="(searchActor() && searchFits().fits) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold text-sm">🔍 Search 1 hour</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Track home (#476 M4 — RR p.120 Tracking). Follow a wandering fragment's spoor to its
+     undiscovered lair: 11+ with the RAW count band + extra Tracking ranks + the GM's situational mod. -->
+<div x-show="trackHome.open" @keydown.escape.window="closeTrackHome()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
+    <div class="flex justify-between items-start p-4 border-b border-ink/30">
+      <div>
+        <h3 class="font-bold text-lg">🐾 Track them home</h3>
+        <p class="text-sm opacity-70">Find the fragment's spoor (Tracking 11+, RR p.120) and follow it at half speed to the lair. Lost at water or after an hour of rain/snow — the situational modifier is the Judge's.</p>
+      </div>
+      <button @click="closeTrackHome()" class="text-2xl leading-none px-2" title="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3 text-sm">
+      <label class="block">Tracker <span class="opacity-60">(needs the Tracking proficiency)</span><br>
+        <select @change="trackHome.actorId=$event.target.value" class="text-sm w-full">
+          <option value="" :selected="!trackHome.actorId">— pick a tracker at this hex —</option>
+          <template x-for="c in trackHomeTrackers()" :key="c.id"><option :value="c.id" :selected="trackHome.actorId===c.id" x-text="(c.name||'(unnamed)')"></option></template>
+        </select>
+      </label>
+      <template x-if="trackHomeTrackers().length === 0"><p class="accent-red text-xs">No character at this hex has the Tracking proficiency — only a tracker can follow spoor (RR p.120).</p></template>
+      <div class="flex gap-3 flex-wrap">
+        <label>Creatures tracked <input type="number" min="0" x-model.number="trackHome.countTracked" class="w-20"> <span class="opacity-60 text-xs">(+2 at 2–4 · +4 at 5–8 · +6 at 9–16 · +8 at 17+)</span></label>
+        <label>Judge's modifier <input type="number" x-model.number="trackHome.mod" class="w-20"> <span class="opacity-60 text-xs">(ground / trail age / weather / light)</span></label>
+      </div>
+      <template x-if="trackHome.result">
+        <div class="rounded p-2" :class="trackHome.result.success ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
+          <span class="font-mono" x-text="'🎲 ' + trackHome.result.rolled + (trackHome.result.bonus ? '+' + trackHome.result.bonus : '') + (trackHome.result.mod ? (trackHome.result.mod > 0 ? '+' + trackHome.result.mod : trackHome.result.mod) : '') + ' vs 11+'"></span>
+          <span x-text="trackHome.result.success ? ' → ✓ the spoor leads home — lair discovered!' : ' → ✗ no usable trail (no retry here for an hour)'"></span>
+          <button x-show="trackHome.result.success" @click="openLairDetail(trackHome.lairId); closeTrackHome()" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+        </div>
+      </template>
+      <div class="flex justify-end items-center gap-2 pt-1">
+        <button @click="closeTrackHome()" class="px-3 py-1.5 border border-ink rounded hover:bg-yellow-100">Done</button>
+        <button @click="runTrackHome()" :disabled="!trackHome.actorId || !!trackHome.result" :class="(trackHome.actorId && !trackHome.result) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border border-ink rounded font-semibold">🐾 Track</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════ VIEW: MAP (Phase 2.5 Map Mode #225 — M0–M2) ═══════════ -->
 <!-- A first-class SVG hex map: a PURE VIEW over the campaign's hexes (Architecture §11). Geometry
      + fill-layer math live in the engine (acks-engine-subsystems.js §9.7); this is the render +
@@ -4739,7 +4831,11 @@ document.addEventListener('alpine:init', () => {
                 <template x-for="(ee,eei) in journeyDayEncounters(d)" :key="'dle-'+di+'-'+eei">
                   <div class="flex flex-wrap gap-x-2 items-baseline pl-3">
                     <span class="text-red-700">⚔ <span x-text="dayTickNotableText(ee)"></span></span>
-                    <button x-show="ee.payload && ee.payload.lairId" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind !== 'wandering-fragment'" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
+                    <!-- A wandering FRAGMENT met away from home: the lair is NOT located — Tracking can follow
+                         the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose. -->
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment'" @click="openTrackHome({ lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120)">🐾 Track home</button>
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment'" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
                     <button x-show="ee.payload && (ee.payload.seededShellLairIds||[]).length && ee.payload.hexId" @click="openHexDetailById(ee.payload.hexId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the hex — its seeded (unauthored) lairs are listed there; populate one from its detail panel">→ hex</button>
                   </div>
                 </template>
@@ -7758,13 +7854,16 @@ document.addEventListener('alpine:init', () => {
         </template>
       </div>
 
-      <!-- Lairs (#476 M7) — first-class campaign.lairs[] at this hex. The legacy nested hex.lairs[]
+      <!-- Lairs (#476 M7/M4) — first-class campaign.lairs[] at this hex. The legacy nested hex.lairs[]
            editor was retired with the M0 lift (migrateLegacyHexLairs moves old data to first-class
            on load, so this card always reads the canonical collection). -->
       <div class="vellum border border-ink/40 rounded p-2">
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <h4 class="font-semibold text-sm">🏚 Lairs <span class="text-sm opacity-60 font-normal" x-text="'(' + lairsAtHexId(worldHexEditingHex().id).length + ')'"></span></h4>
-          <button @click="openLairWizardAtHex(worldHexEditingHex().id)" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Author a lair on this hex (Lair Wizard)">+ lair here</button>
+          <div class="flex gap-1">
+            <button @click="openSearchHex({ hexId: worldHexEditingHex().id }); closeHexDetail();" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Search this hex for lairs &amp; points of interest (RR pp.276–277) — one ancillary hour per throw">🔍 Search hex</button>
+            <button @click="openLairWizardAtHex(worldHexEditingHex().id)" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Author a lair on this hex (Lair Wizard)">+ lair here</button>
+          </div>
         </div>
         <template x-if="lairsAtHexId(worldHexEditingHex().id).length === 0">
           <p class="text-xs italic opacity-60 mt-1">No lairs recorded in this hex. (That is not a promise to the players — RR p.277.)</p>
@@ -7779,6 +7878,7 @@ document.addEventListener('alpine:init', () => {
             </li>
           </template>
         </ul>
+        <p class="text-xs accent-red mt-1" x-show="window.ACKS.hexSecuringBlockers(currentCampaign, worldHexEditingHex().id).length" x-text="'⚠ ' + window.ACKS.hexSecuringBlockers(currentCampaign, worldHexEditingHex().id).length + ' lair(s) stand in the way of securing this hex for settlement (RR p.338).'"></p>
       </div>
 
       <!-- Dungeons — same audited list pattern. -->
@@ -9224,6 +9324,7 @@ return {
   lairMarkDiscovered(){
     const l = this.lairDetailLair(); if(!l) return;
     window.ACKS.discoverLair(this.currentCampaign, l.id, { method: 'gm-reveal' });
+    if(window.ACKS.recordLairDiscovered) window.ACKS.recordLairDiscovered(this.currentCampaign, l.id, { method: 'gm-reveal' });   // the chronicle-visible record (M4)
     this.markDirty(); this.schedulePersist();
     if(this.showToast) this.showToast('Marked discovered — the players now know of ' + (l.name || 'this lair') + '.');
   },
@@ -13848,6 +13949,116 @@ return {
     const b = window.ACKS.characterActivityBudget(this.currentCampaign, c.id);
     return 'Today used: ' + (b.dedicatedUsed || 0) + ' dedicated · ' + (b.ancillaryUsed || 0) + ' ancillary' + (b.overBudget ? ' (over budget)' : '');
   },
+
+  // ── #476 M4 — Search-the-hex + track-home (thin UI over ACKS.hexSearchActivity / trackHomeAttempt) ──
+  openSearchHex(opts){
+    opts = opts || {};
+    const s = this.searchHex;
+    s.open = true; s.hexId = opts.hexId || null; s.specific = false; s.results = [];
+    s.actorId = opts.actorCharacterId || null;
+    if(!s.actorId && s.hexId){ const at = this.searchHexCharacters(); if(at[0]) s.actorId = at[0].id; }
+  },
+  closeSearchHex(){ this.searchHex.open = false; },
+  searchActor(){ return this.searchHex.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.searchHex.actorId) : null; },
+  searchHexObj(){
+    const id = this.searchHex.hexId || (this.searchActor() && this.searchActor().currentHexId) || null;
+    return id ? (this.currentCampaign?.hexes||[]).find(h => h && h.id === id) : null;
+  },
+  searchHexCharacters(){
+    const hid = this.searchHex.hexId;
+    return (this.currentCampaign?.characters||[]).filter(c => c && c.id && (!hid || c.currentHexId === hid));
+  },
+  // Forecast: the engine's own speed/target math, run dry (no roll) for the panel.
+  searchForecast(){
+    const c = this.searchActor(); if(!c) return null;
+    const A = window.ACKS;
+    const cohort = (typeof A.characterCohort === 'function') ? A.characterCohort(this.currentCampaign, c) : [c];
+    let slowest = Infinity;
+    for(const m of cohort){ const mpd = A.carryEncumbranceInfo(m).band.milesPerDay; if(typeof mpd === 'number' && mpd < slowest) slowest = mpd; }
+    if(slowest === Infinity) slowest = 24;
+    const hex = this.searchHexObj();
+    const tMult = (hex && A.JOURNEY_TERRAIN_SPEED && A.JOURNEY_TERRAIN_SPEED[hex.terrain] != null) ? A.JOURNEY_TERRAIN_SPEED[hex.terrain] : 1;
+    const speed = slowest * tMult;
+    const bonus = cohort.some(m => (m.proficiencies||[]).some(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))) ? 4 : 0;
+    return { speed: Math.round(speed * 10) / 10, target: A.wildernessSearchTargetForSpeed(speed), bonus: bonus };
+  },
+  searchFits(){
+    const c = this.searchActor(); if(!c) return { fits:false, reason:'Pick a character first.' };
+    const A = window.ACKS;
+    const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay:1, ancillaryPerDedicatedDay:4, ancillaryMaxPerDay:12 };
+    const b = A.characterActivityBudget(this.currentCampaign, c.id);
+    const dedUsed = b.dedicatedUsed || 0, ancUsed = b.ancillaryUsed || 0;
+    const ancCap = (dedUsed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+    if(ancUsed + 1 > ancCap) return { fits:false, reason: (c.name || 'They') + ' has no time left today — ' + ancUsed + ' of ' + ancCap + ' short tasks used' + (dedUsed >= 1 ? ' alongside a full-day task' : '') + '.' };
+    return { fits:true, reason:'' };
+  },
+  searchBudgetLine(){
+    const c = this.searchActor(); if(!c) return '';
+    const b = window.ACKS.characterActivityBudget(this.currentCampaign, c.id);
+    return 'Today used: ' + (b.dedicatedUsed || 0) + ' dedicated · ' + (b.ancillaryUsed || 0) + ' ancillary' + (b.overBudget ? ' (over budget)' : '');
+  },
+  runSearchHour(){
+    const c = this.searchActor(); if(!c){ this.showToast('Pick a character first.', 3500); return; }
+    const r = window.ACKS.hexSearchActivity(this.currentCampaign, {
+      actorCharacterId: c.id, hexId: this.searchHex.hexId || c.currentHexId || null, specific: !!this.searchHex.specific
+    });
+    if(!r || !r.ok){ this.showToast('Could not search: ' + ((r && r.error) || 'unknown error'), 4000); return; }
+    let encounterText = '';
+    if(r.encounter){
+      const A = window.ACKS;
+      if(r.encounter.source === 'existing-lair'){
+        const mName = (A.monsterDisplayName && A.monsterDisplayName((A.findLair(this.currentCampaign, r.encounter.lairId)||{}).monsterCatalogKey)) || 'creatures';
+        encounterText = (r.encounter.encounterKind === 'wandering-fragment')
+          ? ((r.encounter.fragmentCount || 'a band of') + ' ' + mName.toLowerCase() + (r.encounter.fragmentCount === 1 ? '' : 's') + ' out from their lair — GM, resolve')
+          : ('the searchers stumble onto the ' + mName + ' lair itself — GM, resolve');
+      } else if(r.encounter.source === 'seeded-shell'){
+        encounterText = 'this hex holds ' + (r.encounter.seededShellLairIds||[]).length + ' unauthored lair(s) — populate one or resolve generically';
+      } else {
+        encounterText = 'a wandering encounter — GM, resolve (' + ((this.searchHexObj()||{}).terrain || 'wilderness') + ')';
+      }
+    }
+    let surveyText = '';
+    if(r.survey){
+      surveyText = r.survey.assessed
+        ? ('assesses ' + r.survey.count + ' point' + (r.survey.count === 1 ? '' : 's') + ' of interest in this hex' + (r.survey.falseReading ? ' (the Judge knows: a FALSE reading — nat 1)' : ''))
+        : 'not enough information yet (throw ' + r.survey.rolled + (r.survey.bonus ? '+' + r.survey.bonus : '') + ' vs 18+)';
+    }
+    this.searchHex.results.push({
+      rolled: r.rolled, target: r.target, bonus: r.bonus, mod: r.mod, success: r.success,
+      found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null,
+      encounter: r.encounter || null, encounterText: encounterText, survey: r.survey || null, surveyText: surveyText
+    });
+    this.markDirty(); this.schedulePersist();
+  },
+  openTrackHome(opts){
+    opts = opts || {};
+    const t = this.trackHome;
+    t.open = true; t.lairId = opts.lairId || null; t.hexId = opts.hexId || null;
+    t.countTracked = opts.countTracked || 0; t.mod = 0; t.result = null;
+    t.actorId = null;
+    const trackers = this.trackHomeTrackers(); if(trackers[0]) t.actorId = trackers[0].id;
+  },
+  closeTrackHome(){ this.trackHome.open = false; },
+  trackHomeTrackers(){
+    const hid = this.trackHome.hexId;
+    return (this.currentCampaign?.characters||[]).filter(c => c && c.id
+      && (!hid || c.currentHexId === hid)
+      && (c.proficiencies||[]).some(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || '')));
+  },
+  runTrackHome(){
+    const t = this.trackHome;
+    const r = window.ACKS.trackHomeAttempt(this.currentCampaign, {
+      actorCharacterId: t.actorId, lairId: t.lairId, countTracked: t.countTracked || 0, mod: t.mod || 0
+    });
+    if(!r || !r.ok){
+      const msg = ({ 'no-tracking':'That character has no Tracking proficiency.', 'already-known':'That lair is already discovered.', 'unknown-lair':'No lair to track to.', 'unknown-actor':'Pick a tracker first.' })[r && r.error] || 'Could not track.';
+      this.showToast(msg, 4000); return;
+    }
+    t.result = { rolled: r.rolled, bonus: r.bonus, mod: r.mod, success: r.success };
+    this.markDirty(); this.schedulePersist();
+    if(r.success) this.showToast('The spoor leads home — ' + ((r.lair && r.lair.name) || 'the lair') + ' discovered.', 4500);
+  },
+
   // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
   // shown ONLY to venturers, and auto-set when this venturer has previously entered this market.
   tradeActorIsVenturer(){ return window.ACKS.hasMercantileNetwork(this.tradeActor()); },
@@ -14196,6 +14407,9 @@ return {
   lairsStatusFilter: 'all',      // Lairs view status filter
   lairDetailPopulateKey: '',     // ✨ populate-from-catalog monster key (shells / empty lairs)
   lairDetailRevealHexId: '',     // reveal-a-dynamic-lair hex pick
+  // #476 M4 — Search-the-hex (RR pp.276–277) + track-home (RR p.120) modals.
+  searchHex: { open:false, actorId:null, hexId:null, specific:false, results:[] },
+  trackHome: { open:false, actorId:null, lairId:null, hexId:null, countTracked:0, mod:0, result:null },
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,
