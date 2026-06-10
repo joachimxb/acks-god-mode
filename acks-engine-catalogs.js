@@ -1321,6 +1321,422 @@ function encounterTerrainForHex(hex){
   return sub ? (base + '-' + sub) : base;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// #476 ENCOUNTER LAYER (E1) — the RAW pre-combat procedure, as reference data
+// RR pp.280–287: distance → surprise → evasion → reactions → influence/bribes,
+// + the JJ Adventures layer: the 1d20 category draw by territory classification,
+// monster rarity, and encounter frequencies (JJ pp.41–44). Design: survey §19,
+// plan §15, decisions D8–D12. This section is tables + PURE resolvers only; the
+// Encounter entity + lookups live in acks-engine.js, the GM-facing step verbs in
+// acks-engine-events.js, the triggers in acks-engine-subsystems.js. Combat itself
+// (RR p.288+) stays Phase 3 (#141), as do the 1d100 identity tables (D12).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Encounter distance (RR pp.280–281) ──────────────────────────────────────
+// Wilderness distance is a terrain-SUB-TYPE-keyed dice roll; dungeon is 2d6×10'.
+const ENCOUNTER_DISTANCE_CLASSES = Object.freeze({
+  'very-close': Object.freeze({ n: 5, d: 4,  multFt: 3,  avgFt: 38,   label: "5d4 × 3'"  }),
+  'close':      Object.freeze({ n: 5, d: 8,  multFt: 3,  avgFt: 68,   label: "5d8 × 3'"  }),
+  'medium':     Object.freeze({ n: 3, d: 6,  multFt: 15, avgFt: 157,  label: "3d6 × 15'" }),
+  'open':       Object.freeze({ n: 4, d: 6,  multFt: 30, avgFt: 420,  label: "4d6 × 30'" }),
+  'vast':       Object.freeze({ n: 6, d: 20, multFt: 30, avgFt: 1890, label: "6d20 × 30'" }),
+  'dungeon':    Object.freeze({ n: 2, d: 6,  multFt: 10, avgFt: 70,   label: "2d6 × 10'" })
+});
+
+// The 17 RAW terrain rows (Wilderness Encounter Distance + Evasion Throw by Terrain
+// tables — both key on the SAME rows). distance → ENCOUNTER_DISTANCE_CLASSES key;
+// evasionBase → the Evasion throw target at party size ≤6 (+2 per size band above).
+const ENCOUNTER_TERRAIN_ROWS = Object.freeze({
+  'barrens':            Object.freeze({ distance: 'open',       evasionBase: 12 }),  // Barrens (any)
+  'desert-rocky':       Object.freeze({ distance: 'vast',       evasionBase: 16 }),
+  'desert-sandy':       Object.freeze({ distance: 'open',       evasionBase: 12 }),
+  'forest-deciduous':   Object.freeze({ distance: 'close',      evasionBase: 2  }),
+  'forest-taiga':       Object.freeze({ distance: 'medium',     evasionBase: 5  }),
+  'grassland-other':    Object.freeze({ distance: 'open',       evasionBase: 9  }),
+  'grassland-steppe':   Object.freeze({ distance: 'vast',       evasionBase: 16 }),
+  'hills-forested':     Object.freeze({ distance: 'close',      evasionBase: 5  }),
+  'hills-rocky':        Object.freeze({ distance: 'open',       evasionBase: 12 }),  // RAW "rocky/terraced"
+  'jungle':             Object.freeze({ distance: 'very-close', evasionBase: 2  }),  // Jungle (any)
+  'mountains-forested': Object.freeze({ distance: 'close',      evasionBase: 5  }),
+  'mountains-rocky':    Object.freeze({ distance: 'open',       evasionBase: 12 }),  // RAW "rocky/snowy/terraced"
+  'scrubland-sparse':   Object.freeze({ distance: 'open',       evasionBase: 12 }),  // RAW "low, sparse"
+  'scrubland-dense':    Object.freeze({ distance: 'medium',     evasionBase: 9  }),  // RAW "high, dense"
+  'swamp-marshy':       Object.freeze({ distance: 'medium',     evasionBase: 9  }),
+  'swamp-scrubby':      Object.freeze({ distance: 'close',      evasionBase: 5  }),
+  'swamp-forested':     Object.freeze({ distance: 'very-close', evasionBase: 2  })
+});
+
+// Sub-type variants RAW folds into a row, + 🔧 bare-base defaults for a hex with no
+// sub-type set (the EASY/common variant — the same convention JOURNEY_NAV_THROWS uses).
+const _ENCOUNTER_ROW_ALIASES = Object.freeze({
+  'hills-terraced': 'hills-rocky',
+  'mountains-snowy': 'mountains-rocky', 'mountains-terraced': 'mountains-rocky', 'mountains-volcanic': 'mountains-rocky',
+  'grassland-farm': 'grassland-other', 'grassland-prairie': 'grassland-other', 'grassland-savanna': 'grassland-other',
+  'scrubland-low': 'scrubland-sparse', 'scrubland-high': 'scrubland-dense',
+  // bare-base defaults (🔧 — RAW keys on the sub-type; a sub-type-less hex reads the common variant)
+  'desert': 'desert-sandy', 'forest': 'forest-deciduous', 'grassland': 'grassland-other',
+  'hills': 'hills-rocky', 'mountains': 'mountains-rocky', 'scrubland': 'scrubland-sparse', 'swamp': 'swamp-marshy'
+});
+
+// encounterRowKey(terrainKeyOrBase) → one of the 17 canonical row keys, or null
+// (water / unknown — the sea scale is reserved). Accepts a compound "base-subtype"
+// key (terrainKey(hex)) or a bare base; legacy aliases fold through terrainBase.
+function encounterRowKey(key){
+  let k = String(key || '').toLowerCase().trim();
+  if(!k) return null;
+  if(ENCOUNTER_TERRAIN_ROWS[k]) return k;
+  if(_ENCOUNTER_ROW_ALIASES[k]) return _ENCOUNTER_ROW_ALIASES[k];
+  // barrens-*/jungle-* (RAW "(any)") → the base row; then normalize the base itself
+  const dash = k.indexOf('-');
+  const head = dash > 0 ? k.slice(0, dash) : k;
+  if(head === 'barrens' || head === 'jungle') return head;
+  const base = terrainBase(k);
+  if(!base || base === 'water') return null;
+  if(ENCOUNTER_TERRAIN_ROWS[base]) return base;
+  if(_ENCOUNTER_ROW_ALIASES[base]) return _ENCOUNTER_ROW_ALIASES[base];
+  return null;
+}
+function encounterRowKeyForHex(hex){ return encounterRowKey(terrainKey(hex)); }
+
+// Roll a distance class's dice. classOrRowKey may be a distance-class key, a terrain
+// row key, or a hex terrain key (resolved through encounterRowKey).
+function rollEncounterDistanceFt(classOrRowKey, rng){
+  const r = rng || Math.random;
+  let cls = ENCOUNTER_DISTANCE_CLASSES[classOrRowKey];
+  if(!cls){
+    const row = encounterRowKey(classOrRowKey);
+    cls = row ? ENCOUNTER_DISTANCE_CLASSES[ENCOUNTER_TERRAIN_ROWS[row].distance] : null;
+  }
+  if(!cls) return null;
+  let total = 0;
+  for(let i = 0; i < cls.n; i++) total += 1 + Math.floor(r() * cls.d);
+  return total * cls.multFt;
+}
+
+// ── Maximum visibility (RR p.281, cf. p.273) ────────────────────────────────
+const VISIBILITY_BASE_FT = Object.freeze({ 'daylight': 600, 'full-moon': 300, 'half-moon': 150, 'starlight': 75 });
+// Formation size raises how far the SEEN side is visible. Size counting (shared with
+// evasion party size): mounted man / large = 2 men, huge = 6, gigantic = 24, colossal = 120.
+const ENCOUNTER_SIZE_MEN = Object.freeze({ man: 1, mounted: 2, large: 2, huge: 6, gigantic: 24, colossal: 120 });
+function formationVisibilityMult(menCount){
+  const n = Number(menCount) || 0;
+  if(n >= 241) return 5;   // battalion +400%
+  if(n >= 61)  return 3;   // company  +200%
+  if(n >= 31)  return 2;   // platoon  +100%
+  if(n >= 10)  return 1.5; // party    +50%
+  return 1;
+}
+// How far a watcher can see a formation of `seenCount` man-equivalents in this light.
+function maxVisibilityFt(light, seenCount){
+  const base = VISIBILITY_BASE_FT[light] || VISIBILITY_BASE_FT['daylight'];
+  return Math.round(base * formationVisibilityMult(seenCount));
+}
+// Full distance resolution (RR p.281): roll the terrain dice, cap at maximum visibility
+// (computed per side — a small group spots a horde first), note who detected whom.
+// Unknown side counts read as 1 (man-sized scouts) — recompute when sides firm up.
+function computeEncounterDistance(opts){
+  const o = opts || {};
+  const rowKey = encounterRowKey(o.terrainRow || o.terrainKey || '');
+  const rolledFt = (typeof o.rolledFt === 'number') ? o.rolledFt
+    : rollEncounterDistanceFt(o.distanceClass || rowKey, o.rng);
+  if(rolledFt == null) return null;
+  const light = o.light || 'daylight';
+  const aCount = (o.sideACount == null) ? 1 : Number(o.sideACount) || 1;   // the party
+  const bCount = (o.sideBCount == null) ? 1 : Number(o.sideBCount) || 1;   // the monsters
+  const visAofB = maxVisibilityFt(light, bCount);   // how far side A can see side B
+  const visBofA = maxVisibilityFt(light, aCount);
+  const capFt = Math.max(visAofB, visBofA);
+  const distanceFt = Math.min(rolledFt, capFt);
+  let detectedBy = null;                            // which side starts having detected the other
+  if(visAofB >= distanceFt && visBofA >= distanceFt) detectedBy = 'both';
+  else if(visAofB >= distanceFt) detectedBy = 'party';
+  else if(visBofA >= distanceFt) detectedBy = 'monsters';
+  return { rolledFt, capFt, distanceFt, light, detectedBy, terrainRow: rowKey || null };
+}
+
+// ── Surprise (RR pp.281–284) ────────────────────────────────────────────────
+// The Surprise Matrix decomposes: each side's surprise state is a pure function of
+// its OWN (foreknowledge, line-of-sight); evade eligibility is a function of both.
+// Verified cell-by-cell against the RAW 4×4 matrix (tests assert all 16).
+const SURPRISE_AWARENESS_STATES = Object.freeze({
+  'fore+los': Object.freeze({ rolls: false, mod: 0  }),   // not surprised
+  'fore':     Object.freeze({ rolls: true,  mod: 1  }),   // roll surprise (+1)
+  'los':      Object.freeze({ rolls: true,  mod: 0  }),   // roll surprise
+  'none':     Object.freeze({ rolls: true,  mod: -1 })    // roll surprise (−1)
+});
+function surpriseAwarenessKey(foreknowledge, lineOfSight){
+  return foreknowledge ? (lineOfSight ? 'fore+los' : 'fore') : (lineOfSight ? 'los' : 'none');
+}
+function surpriseStateFor(foreknowledge, lineOfSight){
+  return SURPRISE_AWARENESS_STATES[surpriseAwarenessKey(foreknowledge, lineOfSight)];
+}
+// Evade eligibility for the ADVENTURERS' side (RR: check monsters by swapping sides).
+// None × None = no encounter at all — the RAW basis for "a placed monster doesn't auto-engage".
+function encounterEvadeEligibility(advKey, monKey){
+  if(advKey === 'none' && monKey === 'none') return 'no-encounter';
+  if(advKey === 'none') return 'cannot';                   // unaware adventurers can't evade
+  if(monKey === 'fore+los') return 'cannot';               // the monsters have them cold
+  if(advKey === 'fore+los' && monKey === 'none') return 'always';
+  return 'can';
+}
+// One surprise roll: 1d6 + own bonuses − opponents' stealth penalty; 2− = surprised
+// (vulnerable, no actions in round 1). When several opponents impose different stealth
+// penalties only the SMALLEST applies ("one clumsy oaf ruins the ambush") — callers
+// pass that already-resolved penalty.
+function rollSurpriseThrow(opts){
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  const natural = 1 + Math.floor(r() * 6);
+  const total = natural + (Number(o.mod) || 0);
+  return { natural, mod: Number(o.mod) || 0, total, surprised: total <= 2 };
+}
+
+// ── Evasion (RR pp.284–285) ─────────────────────────────────────────────────
+// Wilderness-only. Eligible per the matrix + not surprised; AUTOMATIC if all monsters
+// are surprised. Party size counts man-equivalents (ENCOUNTER_SIZE_MEN).
+const EVASION_SIZE_BANDS = Object.freeze([
+  Object.freeze({ max: 6,        add: 0, label: '6-'       }),
+  Object.freeze({ max: 14,       add: 2, label: '7 to 14'  }),
+  Object.freeze({ max: 30,       add: 4, label: '15 to 30' }),
+  Object.freeze({ max: 60,       add: 6, label: '31 to 60' }),
+  Object.freeze({ max: Infinity, add: 8, label: '61+'      })
+]);
+// Aerial penalty waived in: forest (any), forested hills, forested mountains, dense
+// scrubland, jungle, or swamp (any) — RR p.284.
+const EVASION_AERIAL_EXEMPT_ROWS = Object.freeze([
+  'forest-deciduous', 'forest-taiga', 'hills-forested', 'mountains-forested',
+  'scrubland-dense', 'jungle', 'swamp-marshy', 'swamp-scrubby', 'swamp-forested'
+]);
+function evasionSizeBand(menCount){
+  const n = Number(menCount) || 1;
+  for(const b of EVASION_SIZE_BANDS){ if(n <= b.max) return b; }
+  return EVASION_SIZE_BANDS[EVASION_SIZE_BANDS.length - 1];
+}
+// Target value for the Evasion proficiency throw: terrain row base (≤6) + the size band.
+function evasionTargetFor(terrainRowOrKey, menCount){
+  const row = encounterRowKey(terrainRowOrKey);
+  if(!row) return null;
+  const band = evasionSizeBand(menCount);
+  return { terrainRow: row, base: ENCOUNTER_TERRAIN_ROWS[row].evasionBase, sizeAdd: band.add,
+           sizeBand: band.label, target: ENCOUNTER_TERRAIN_ROWS[row].evasionBase + band.add };
+}
+// Standard RAW modifiers, for callers' convenience (each ± to the d20 roll):
+//  monsters fly & party doesn't −4 (waived in EVASION_AERIAL_EXEMPT_ROWS; party flies
+//  & monsters don't = auto-evade) · explorer guiding in familiar territory +5 (and his
+//  party can evade even when surprised, if he isn't) · forlorn hope +4 at reduced size
+//  · speed differential ±4 (fastest monster vs slowest adventurer) · sauve qui peut:
+//  split groups each roll on their own size, all failures share one encounter.
+function attemptEvasionThrow(opts){
+  const o = opts || {};
+  if(o.autoSuccess) return { auto: true, success: true, natural: null, total: null, target: o.target || null };
+  const r = o.rng || Math.random;
+  const natural = 1 + Math.floor(r() * 20);
+  const modSum = (Array.isArray(o.modifiers) ? o.modifiers : []).reduce((s, m) => s + (Number(m && m.value) || 0), 0);
+  const total = natural + modSum;
+  const target = Number(o.target) || 0;
+  return { auto: false, natural, modSum, total, target, success: total >= target };
+}
+// Aftermath of a successful evasion (RR p.285): displaced by a fresh distance roll, in a
+// random clock direction; then an immediate Navigation throw at −4 or the group is lost
+// (and KNOWS it — unlike the §27 unknowing travel-stray). The nav throw itself belongs
+// to the caller (the journey owns its Navigation machinery); hex face = ceil(clock/2).
+function rollEvasionAftermath(opts){
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  const distanceFt = rollEncounterDistanceFt(o.distanceClass || o.terrainRow || o.terrainKey, r);
+  const clockDirection = 1 + Math.floor(r() * 12);
+  return { distanceFt: distanceFt, clockDirection: clockDirection,
+           hexFace: Math.ceil(clockDirection / 2), navThrowModifier: -4 };
+}
+
+// ── Reactions (RR pp.285–286) ───────────────────────────────────────────────
+const ENCOUNTER_ATTITUDES = Object.freeze(['hostile', 'unfriendly', 'neutral', 'indifferent', 'friendly']);
+function reactionBandFor(total){
+  if(total <= 2)  return 'hostile';      // attacks
+  if(total <= 5)  return 'unfriendly';   // may attack
+  if(total <= 8)  return 'neutral';      // uncertain
+  if(total <= 11) return 'indifferent';  // uninterested
+  return 'friendly';                     // helpful
+}
+// 2d6 + the party face's CHA modifier + circumstance modifiers (the JJ tone catalogs,
+// E3). Clamps: an UNMODIFIED 2 is never better than Unfriendly; an unmodified 12 never
+// worse than Indifferent. A Friendly monster of fewer HD can be recruited via the
+// Reaction to Hiring table (RR p.162) — the shipped Recruit machinery.
+function rollEncounterReaction(opts){
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  const d1 = 1 + Math.floor(r() * 6), d2 = 1 + Math.floor(r() * 6);
+  const natural = d1 + d2;
+  const chaMod = Number(o.chaMod) || 0;
+  const modSum = (Array.isArray(o.modifiers) ? o.modifiers : []).reduce((s, m) => s + (Number(m && m.value) || 0), 0);
+  const total = natural + chaMod + modSum;
+  let band = reactionBandFor(total);
+  let clamped = null;
+  const order = ENCOUNTER_ATTITUDES;
+  if(natural === 2 && order.indexOf(band) > order.indexOf('unfriendly')){ band = 'unfriendly'; clamped = 'natural-2'; }
+  if(natural === 12 && order.indexOf(band) < order.indexOf('indifferent')){ band = 'indifferent'; clamped = 'natural-12'; }
+  return { natural, chaMod, modSum, total, band, clamped };
+}
+
+// ── Influence + bribes (RR pp.286–287) ──────────────────────────────────────
+// The time ladder binds directly to the #346 activity budget: round/turn = incidental,
+// 1 hour = ancillary, 8 hours = dedicated, 5 work-days = a week of dedicated days.
+const INFLUENCE_ATTEMPT_LADDER = Object.freeze([
+  Object.freeze({ attempt: 1, time: '1 round (1 minute)',   activitySlot: 'incidental', days: 0 }),
+  Object.freeze({ attempt: 2, time: '1 turn (10 minutes)',  activitySlot: 'incidental', days: 0 }),
+  Object.freeze({ attempt: 3, time: '6 turns (1 hour)',     activitySlot: 'ancillary',  days: 0 }),
+  Object.freeze({ attempt: 4, time: '8 hours (1 work-day)', activitySlot: 'dedicated',  days: 1 }),
+  Object.freeze({ attempt: 5, time: '5 work-days (1 week)', activitySlot: 'dedicated',  days: 5 })
+]);
+function influenceAttemptInfo(attemptNumber){
+  const n = Math.max(1, Number(attemptNumber) || 1);
+  return INFLUENCE_ATTEMPT_LADDER[Math.min(n, 5) - 1];
+}
+// The influence shift by roll band: 2 → two steps toward Hostile; 3–5 → one toward
+// Hostile; 6–8 → one toward Neutral; 9–11 → one toward Friendly; 12 → two toward
+// Friendly. Once interacting the party can no longer evade; once combat starts, no
+// influence until weapons are laid down or the creatures roll morale.
+function applyInfluenceShift(currentAttitude, rollBand){
+  const order = ENCOUNTER_ATTITUDES;
+  let idx = order.indexOf(currentAttitude);
+  if(idx < 0) idx = 2; // default neutral
+  let shift = 0;
+  if(rollBand === 'hostile') shift = -2;
+  else if(rollBand === 'unfriendly') shift = -1;
+  else if(rollBand === 'neutral') shift = (idx > 2 ? -1 : (idx < 2 ? 1 : 0));  // one step toward Neutral
+  else if(rollBand === 'indifferent') shift = 1;
+  else if(rollBand === 'friendly') shift = 2;
+  const next = Math.max(0, Math.min(order.length - 1, idx + shift));
+  return { from: order[idx], to: order[next], shift: next - idx };
+}
+// Bribes (RR p.287): a week's / month's / year's pay = +1/+2/+3; with Bribery proficiency
+// the scale cheapens to day/week/month AND a failed bribe carries no backlash (charged
+// only on an unmodified 2). Without it, a bribe that fails to move the target toward
+// friendly shifts it one (additional) step toward Hostile — and an official charges
+// bribery if he ends unfriendly/hostile or on an unmodified 2.
+const BRIBE_TIERS = Object.freeze({
+  standard:   Object.freeze([Object.freeze({ bonus: 1, pay: 'week' }), Object.freeze({ bonus: 2, pay: 'month' }), Object.freeze({ bonus: 3, pay: 'year' })]),
+  proficient: Object.freeze([Object.freeze({ bonus: 1, pay: 'day' }),  Object.freeze({ bonus: 2, pay: 'week' }),  Object.freeze({ bonus: 3, pay: 'month' })])
+});
+function bribeBonusInfo(bonus, proficient){
+  const tiers = proficient ? BRIBE_TIERS.proficient : BRIBE_TIERS.standard;
+  const b = Math.max(1, Math.min(3, Number(bonus) || 1));
+  return Object.assign({ proficient: !!proficient, backlashOnFail: !proficient }, tiers[b - 1]);
+}
+
+// ── The category draw (JJ pp.41–42) + rarity (JJ p.44) — D12's "category now" half ──
+// The wilderness encounter throw: 1d20 on the territory-classification column. The five
+// printed columns are SHARED (e.g. "Civilized, or Borderlands + Road" is one column):
+// travel on a road/navigable river folds one column left; night in Civilized/Borderlands/
+// Outlands shifts one column right; a natural 1 = "column shift, roll again" (one right).
+// Results: encounters are NOT all monsters — civilized / dangerous / valuable / unique
+// terrain are categories of the same throw. The 1d100 identity tables are #141 (D12).
+const ENCOUNTER_CATEGORY_COLUMNS = Object.freeze([
+  Object.freeze({ key: 'civilized-road',  shiftOn1: true,  rows: Object.freeze({ 'no-encounter': [2, 11], 'civilized': [12, 20] }) }),
+  Object.freeze({ key: 'civilized',       shiftOn1: true,  rows: Object.freeze({ 'no-encounter': [2, 10], 'civilized': [11, 17], 'monster': [18, 18], 'dangerous': [19, 19], 'valuable': [20, 20] }) }),
+  Object.freeze({ key: 'borderlands',     shiftOn1: true,  rows: Object.freeze({ 'no-encounter': [2, 8],  'civilized': [9, 13],  'monster': [14, 15], 'dangerous': [16, 17], 'valuable': [18, 19], 'unique': [20, 20] }) }),
+  Object.freeze({ key: 'outlands',        shiftOn1: true,  rows: Object.freeze({ 'no-encounter': [2, 8],  'civilized': [9, 11],  'monster': [12, 15], 'dangerous': [16, 17], 'valuable': [18, 19], 'unique': [20, 20] }) }),
+  Object.freeze({ key: 'unsettled',       shiftOn1: false, rows: Object.freeze({ 'no-encounter': [1, 6],  'monster': [7, 12],   'dangerous': [13, 15], 'valuable': [16, 18], 'unique': [19, 20] }) })
+]);
+const ENCOUNTER_TERRITORY_CLASSES = Object.freeze(['civilized', 'borderlands', 'outlands', 'unsettled']);
+// Column index for (territory class, road, night). Road folds one left; night (in
+// civilized/borderlands/outlands) shifts one right; clamped to the table.
+function encounterCategoryColumnIndex(territoryClass, opts){
+  const o = opts || {};
+  const t = String(territoryClass || 'unsettled').toLowerCase();
+  let idx;
+  if(t === 'civilized')        idx = o.road ? 0 : 1;
+  else if(t === 'borderlands') idx = o.road ? 1 : 2;
+  else if(t === 'outlands')    idx = o.road ? 2 : 3;
+  else                          idx = o.road ? 3 : 4;   // unsettled
+  if(o.night && (t === 'civilized' || t === 'borderlands' || t === 'outlands')) idx += 1;
+  return Math.min(idx, ENCOUNTER_CATEGORY_COLUMNS.length - 1);
+}
+// One wilderness encounter throw → { category, columnKey, rolls[] }. Handles the
+// natural-1 column-shift-and-roll-again chain. Step 7 (JJ p.42): a terrain-encounter
+// category (dangerous/valuable/unique) demotes to no-encounter when the party is
+// resting/stationary or re-traversing a route it has already traversed.
+function rollEncounterCategory(opts){
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  let idx = (typeof o.columnIndex === 'number') ? o.columnIndex
+    : encounterCategoryColumnIndex(o.territoryClass, o);
+  const rolls = [];
+  let category = 'no-encounter';
+  for(let guard = 0; guard < 6; guard++){
+    const col = ENCOUNTER_CATEGORY_COLUMNS[Math.min(idx, ENCOUNTER_CATEGORY_COLUMNS.length - 1)];
+    const die = 1 + Math.floor(r() * 20);
+    rolls.push({ column: col.key, roll: die });
+    if(die === 1 && col.shiftOn1){ idx += 1; continue; }   // column shift, roll again
+    category = 'no-encounter';
+    for(const cat of Object.keys(col.rows)){
+      const range = col.rows[cat];
+      if(die >= range[0] && die <= range[1]){ category = cat; break; }
+    }
+    break;
+  }
+  if((o.resting || o.knownRoute) && (category === 'dangerous' || category === 'valuable' || category === 'unique')){
+    return { category: 'no-encounter', demoted: category, columnKey: ENCOUNTER_CATEGORY_COLUMNS[Math.min(idx, 4)].key, rolls };
+  }
+  return { category, columnKey: ENCOUNTER_CATEGORY_COLUMNS[Math.min(idx, 4)].key, rolls };
+}
+// Monster rarity by territory classification (JJ p.44): 1d20 → common/uncommon/rare/
+// very-rare — the wilder the territory, the rarer the monsters.
+const ENCOUNTER_RARITY_BY_TERRITORY = Object.freeze({
+  'civilized':   Object.freeze([Object.freeze({ max: 14, rarity: 'common' }), Object.freeze({ max: 19, rarity: 'uncommon' }), Object.freeze({ max: 20, rarity: 'rare' })]),
+  'borderlands': Object.freeze([Object.freeze({ max: 12, rarity: 'common' }), Object.freeze({ max: 18, rarity: 'uncommon' }), Object.freeze({ max: 20, rarity: 'rare' })]),
+  'outlands':    Object.freeze([Object.freeze({ max: 10, rarity: 'common' }), Object.freeze({ max: 15, rarity: 'uncommon' }), Object.freeze({ max: 19, rarity: 'rare' }), Object.freeze({ max: 20, rarity: 'very-rare' })]),
+  'unsettled':   Object.freeze([Object.freeze({ max: 8,  rarity: 'common' }), Object.freeze({ max: 14, rarity: 'uncommon' }), Object.freeze({ max: 18, rarity: 'rare' }), Object.freeze({ max: 20, rarity: 'very-rare' })])
+});
+function rollEncounterRarity(territoryClass, rng){
+  const r = rng || Math.random;
+  const bands = ENCOUNTER_RARITY_BY_TERRITORY[String(territoryClass || 'unsettled').toLowerCase()]
+    || ENCOUNTER_RARITY_BY_TERRITORY['unsettled'];
+  const die = 1 + Math.floor(r() * 20);
+  for(const b of bands){ if(die <= b.max) return { roll: die, rarity: b.rarity }; }
+  return { roll: die, rarity: bands[bands.length - 1].rarity };
+}
+
+// ── Frequencies (JJ p.41) ───────────────────────────────────────────────────
+// How often the throw fires, by activity × territory class. Traveling (per hex) and
+// Searching (per hour) are shipped triggers; Resting/Stationary is the rest-night
+// day-tick consumer (E1); Hunting is flagged in the V4 forage verb.
+const ENCOUNTER_FREQUENCY = Object.freeze({
+  'hunting':        Object.freeze({ civilized: 'per-attempt', borderlands: 'per-attempt', outlands: 'per-attempt', unsettled: 'per-attempt' }),
+  'managing-traps': Object.freeze({ civilized: null, borderlands: null, outlands: 'per-6-traps', unsettled: 'per-6-traps' }),
+  'resting-day':    Object.freeze({ civilized: null, borderlands: null, outlands: null, unsettled: 'per-12-hours' }),
+  'resting-night':  Object.freeze({ civilized: 'per-7-nights', borderlands: 'per-3-nights', outlands: 'per-12-hours', unsettled: 'per-12-hours' }),
+  'searching':      Object.freeze({ civilized: 'per-hour', borderlands: 'per-hour', outlands: 'per-hour', unsettled: 'per-hour' }),
+  'traveling':      Object.freeze({ civilized: 'per-hex', borderlands: 'per-hex', outlands: 'per-hex', unsettled: 'per-hex' })
+});
+// Which rest/stationary checks a camped group faces on this world day: unsettled = one
+// per 12 hours day AND night; outlands = nights (per 12h); borderlands = once per 3
+// nights; civilized = once per 7 nights. Cadence keys off the absolute world ordinal
+// (turn×30+day) so "every 3rd night" is deterministic with no extra stored state.
+function restEncounterChecksForDay(territoryClass, worldOrd){
+  const t = String(territoryClass || 'unsettled').toLowerCase();
+  const ord = Number(worldOrd) || 0;
+  if(t === 'unsettled')   return [{ period: 'day' }, { period: 'night' }];
+  if(t === 'outlands')    return [{ period: 'night' }];
+  if(t === 'borderlands') return (ord % 3 === 0) ? [{ period: 'night' }] : [];
+  return (ord % 7 === 0) ? [{ period: 'night' }] : [];   // civilized
+}
+
+// ── Territory classification for a hex ─────────────────────────────────────
+// The hex's domain's effective classification (Civilized/Borderlands/Outlands — GM-
+// stored wins, else suggested), lowercased; a domainless hex is 'unsettled' (JJ p.41).
+// Reads through global.ACKS at call time (effectiveDomainClassification ships from
+// acks-engine.js, which loads after this module).
+function territoryClassForHex(campaign, hex){
+  if(!hex || !hex.domainId) return 'unsettled';
+  const A = global.ACKS || {};
+  const d = (campaign && Array.isArray(campaign.domains)) ? campaign.domains.find(x => x && x.id === hex.domainId) : null;
+  if(!d) return 'unsettled';
+  const cls = (typeof A.effectiveDomainClassification === 'function') ? A.effectiveDomainClassification(d) : (d.classification || '');
+  const t = String(cls || '').toLowerCase();
+  return (t === 'civilized' || t === 'borderlands' || t === 'outlands') ? t : 'outlands';
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -1338,6 +1754,17 @@ Object.assign(ACKS, {
   JOURNEY_FATIGUE_CYCLE_DAYS,
   // #476 Monster Persistence M1 — Lairs per Hex density table (JJ p.69)
   LAIRS_PER_HEX, LAIR_TERRAIN_ALIAS, lairDiceLabel,
+  // #476 Encounter layer E1 — the RAW pre-combat procedure catalogs (RR pp.280–287 + JJ pp.41–44)
+  ENCOUNTER_DISTANCE_CLASSES, ENCOUNTER_TERRAIN_ROWS, encounterRowKey, encounterRowKeyForHex,
+  rollEncounterDistanceFt, VISIBILITY_BASE_FT, ENCOUNTER_SIZE_MEN, formationVisibilityMult,
+  maxVisibilityFt, computeEncounterDistance,
+  SURPRISE_AWARENESS_STATES, surpriseAwarenessKey, surpriseStateFor, encounterEvadeEligibility, rollSurpriseThrow,
+  EVASION_SIZE_BANDS, EVASION_AERIAL_EXEMPT_ROWS, evasionSizeBand, evasionTargetFor, attemptEvasionThrow, rollEvasionAftermath,
+  ENCOUNTER_ATTITUDES, reactionBandFor, rollEncounterReaction,
+  INFLUENCE_ATTEMPT_LADDER, influenceAttemptInfo, applyInfluenceShift, BRIBE_TIERS, bribeBonusInfo,
+  ENCOUNTER_CATEGORY_COLUMNS, ENCOUNTER_TERRITORY_CLASSES, encounterCategoryColumnIndex, rollEncounterCategory,
+  ENCOUNTER_RARITY_BY_TERRITORY, rollEncounterRarity,
+  ENCOUNTER_FREQUENCY, restEncounterChecksForDay, territoryClassForHex,
   // #476 M4 — Wilderness Search target (RR p.276)
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
