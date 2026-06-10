@@ -118,6 +118,15 @@ const EVENT_KINDS = Object.freeze([
   // #476 M4 — the players learn of a lair (search / tracking / GM reveal). The chronicle-visible
   // counterpart of the hex-search record; emitted alongside discoverLair (which owns the state flip).
   'lair-discovered',
+  // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
+  // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
+  // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
+  // entity flip); campaignLogHidden when the outcome is no-encounter.
+  'encounter-resolved',
+  // #476 E1 — one influence attempt on a standing encounter (RR pp.286–287). Record-only + always
+  // campaignLogHidden (table chatter; the resolution event narrates). Carries payload.activityCost
+  // for the #346 day budget on the 3rd+ attempts (1 hour = ancillary, a work-day+ = dedicated).
+  'encounter-influence',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal edict record
   // (grant / demand / revoke / recurring gp flow). Engine-emitted by the monthly turn's
   // auto-roll; record-only (audit). Event Wizard opt-out (the GM authors the OBLIGATION via
@@ -435,6 +444,22 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { lairId: 'string', hexId: 'string' },
     O: { method: 'string', byCharacterId: 'string', lairName: 'string',
          monsterCatalogKey: 'string', narrative: 'string' }
+  },
+  // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
+  // entity flip; the payload carries the whole step walk compactly).
+  'encounter-resolved': {
+    R: { encounterId: 'string', outcome: 'string' },
+    O: { category: 'string', rarity: 'string', trigger: 'string', hexId: 'string',
+         lairId: 'string', monsterCatalogKey: 'string', encounterKind: 'string',
+         distanceFt: 'number', surprise: 'object', evasion: 'object', reaction: 'object',
+         narrative: 'string' }
+  },
+  // #476 E1 — one influence attempt (record-only, always campaignLogHidden; the 3rd+ attempts
+  // carry payload.activityCost for the #346 day budget per the RAW time ladder).
+  'encounter-influence': {
+    R: { encounterId: 'string', attemptNumber: 'number' },
+    O: { actorCharacterId: 'string', roll: 'object', from: 'string', to: 'string',
+         bribe: 'object', timeRequired: 'string', activityCost: 'object', narrative: 'string' }
   },
   // Favors & Duties (#230, F&D-1) — the monthly liege↔vassal edict record (RR pp.345–348).
   // Engine-emitted (record-only); the obligation lives in campaign.favorDutyObligations[].
@@ -3078,6 +3103,302 @@ function trackHomeAttempt(campaign, opts){
   return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: success, lair: lair, event: ev };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// #476 ENCOUNTER LAYER (E1) — the GM-facing step verbs (RR pp.280–287; plan §15).
+// Each verb advances one RAW step on an Encounter entity: it computes through the
+// catalogs' pure resolvers, stamps the entity + its history, and emits the audit
+// events where due (encounter-influence per costed attempt; encounter-resolved as
+// the comprehensive umbrella — Event.subdayContext.encounterId gets its first
+// referent). rng injectable throughout. The E2 resolution surface walks these;
+// until it lands they run headless (tests / console / Inspector).
+// ═══════════════════════════════════════════════════════════════════════════
+
+function _encChaMod(campaign, characterId){
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
+  const score = ch && ch.abilities && ch.abilities.CHA;
+  return (typeof score === 'number' && typeof A.abilityMod === 'function') ? A.abilityMod(score) : 0;
+}
+// The standard related-entities set for an encounter's events.
+function _encRelatedEntities(enc){
+  const out = [{ kind: 'encounter', id: enc.id, role: 'subject' }];
+  ((enc.partySide && enc.partySide.characterIds) || []).forEach(id => out.push({ kind: 'character', id, role: 'subject' }));
+  if(enc.partySide && enc.partySide.partyId)   out.push({ kind: 'party',   id: enc.partySide.partyId,   role: 'subject' });
+  if(enc.partySide && enc.partySide.journeyId) out.push({ kind: 'journey', id: enc.partySide.journeyId, role: 'subject' });
+  if(enc.monsterSide && enc.monsterSide.lairId) out.push({ kind: 'lair', id: enc.monsterSide.lairId, role: 'target' });
+  ((enc.monsterSide && enc.monsterSide.groupIds) || []).forEach(id => out.push({ kind: 'group', id, role: 'target' }));
+  return out;
+}
+function _encMonsterLabel(enc){
+  const A = _gpwACKS();
+  const mk = enc.monsterSide && enc.monsterSide.monsterCatalogKey;
+  return (mk && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(mk))
+    || (enc.category === 'civilized' ? 'the locals' : 'the creatures');
+}
+
+// Step 2 input — the GM asserts each side's foreknowledge + line of sight; the matrix
+// gives evade eligibility, and None × None means NO ENCOUNTER (auto-resolved as such).
+function encounterSetAwareness(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  const o = opts || {};
+  const pKey = A.surpriseAwarenessKey(!!o.partyForeknowledge, !!o.partyLineOfSight);
+  const mKey = A.surpriseAwarenessKey(!!o.monsterForeknowledge, !!o.monsterLineOfSight);
+  enc.surprise = {
+    party:    { awareness: pKey, foreknowledge: !!o.partyForeknowledge,   lineOfSight: !!o.partyLineOfSight,   roll: null, surprised: null },
+    monsters: { awareness: mKey, foreknowledge: !!o.monsterForeknowledge, lineOfSight: !!o.monsterLineOfSight, roll: null, surprised: null },
+    evadeEligibility: A.encounterEvadeEligibility(pKey, mKey),
+    noEncounter: (pKey === 'none' && mKey === 'none')
+  };
+  enc.phase = 'surprise';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'awareness', reason: 'party ' + pKey + ' × monsters ' + mKey + ' → evade: ' + enc.surprise.evadeEligibility });
+  if(enc.surprise.noEncounter){
+    recordEncounterResolved(campaign, enc.id, 'no-encounter', { note: 'Surprise Matrix: neither side aware — no encounter (RR p.281)' });
+    return { ok: true, encounter: enc, surprise: enc.surprise, noEncounter: true };
+  }
+  return { ok: true, encounter: enc, surprise: enc.surprise };
+}
+
+// Step 2 roll — one 1d6 per SIDE (RAW allows rolling by side to speed play; per-creature
+// granularity is the GM's at the table). Surprised on 2− → vulnerable, no round-1 actions.
+// opts: { partyMod?, monsterMod? (own bonuses − opponents' smallest stealth penalty), rng? }.
+function encounterRollSurprise(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.surprise) return { ok: false, error: 'set-awareness-first' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  for(const side of ['party', 'monsters']){
+    const s = enc.surprise[side];
+    const state = A.SURPRISE_AWARENESS_STATES[s.awareness];
+    if(!state.rolls){ s.roll = null; s.surprised = false; continue; }   // fore+los — not surprised
+    const extra = (side === 'party') ? (Number(o.partyMod) || 0) : (Number(o.monsterMod) || 0);
+    const r = A.rollSurpriseThrow({ mod: state.mod + extra, rng });
+    s.roll = r;
+    s.surprised = r.surprised;
+  }
+  // Phase: evasion is on the table when the matrix allows it and the party isn't surprised
+  // (an explorer's party can evade even surprised — the GM forces that via attemptEvasion).
+  const el = enc.surprise.evadeEligibility;
+  enc.phase = ((el === 'can' || el === 'always') && !enc.surprise.party.surprised) ? 'evasion' : 'interaction';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'surprise',
+    reason: 'party ' + (enc.surprise.party.surprised ? 'SURPRISED' : 'ready') + ' · monsters ' + (enc.surprise.monsters.surprised ? 'SURPRISED' : 'ready') });
+  return { ok: true, encounter: enc, surprise: enc.surprise };
+}
+
+// Step 3 — Evasion (wilderness only; RR pp.284–285). Auto-succeeds when the matrix says
+// 'always' or ALL monsters are surprised; otherwise the terrain × party-size throw.
+// Refused once the party is interacting (a reaction roll exists) — RAW. On success the
+// aftermath is rolled (displacement + 1d12 clock direction) and the encounter resolves
+// 'evaded'; the party is lost on a failed Navigation throw at −4 — and KNOWS it (RR
+// p.285; unlike the §27 unknowing travel-stray), so the throw + any re-orientation stay
+// with the GM/journey rather than silently engaging the stray-walk machinery.
+// opts: { modifiers?: [{label, value}], sizeCount?, allowSurprised? (the explorer rule),
+//         autoSuccess?, rng? }.
+function encounterAttemptEvasion(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(enc.reaction) return { ok: false, error: 'already-interacting' };       // RR p.287
+  const o = opts || {};
+  const sur = enc.surprise;
+  const eligibility = (sur && sur.evadeEligibility) || 'can';
+  if(eligibility === 'cannot' || eligibility === 'no-encounter') return { ok: false, error: 'cannot-evade' };
+  if(sur && sur.party && sur.party.surprised && !o.allowSurprised) return { ok: false, error: 'party-surprised' };
+  const rng = o.rng || Math.random;
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const rowKey = (enc.distance && enc.distance.terrainRow)
+    || (hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null);
+  const sizeCount = (o.sizeCount != null) ? o.sizeCount
+    : (enc.partySide && enc.partySide.sizeCount != null) ? enc.partySide.sizeCount
+    : (((enc.partySide && enc.partySide.characterIds) || []).length || 1);
+  const auto = !!o.autoSuccess
+    || eligibility === 'always'
+    || !!(sur && sur.monsters && sur.monsters.surprised);                    // all monsters surprised → automatic
+  const targetInfo = rowKey ? A.evasionTargetFor(rowKey, sizeCount) : null;
+  const throwRes = A.attemptEvasionThrow({
+    autoSuccess: auto,
+    target: targetInfo ? targetInfo.target : 20,
+    modifiers: o.modifiers || [],
+    rng
+  });
+  enc.evasion = {
+    eligibility, sizeCount,
+    target: targetInfo ? targetInfo.target : null,
+    targetInfo: targetInfo,
+    modifiers: (o.modifiers || []).slice(),
+    roll: throwRes,
+    success: throwRes.success,
+    aftermath: null
+  };
+  if(throwRes.success){
+    enc.evasion.aftermath = A.rollEvasionAftermath({ terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open', rng });
+    enc.evasion.aftermath.knownLost = null;   // pending the Navigation throw at −4 (GM/journey resolves; lost = the party KNOWS)
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evaded',
+      reason: 'displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock; Navigation at −4 or lost (knowingly)" });
+    recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded — aftermath displacement rolled' });
+  } else {
+    enc.phase = 'interaction';
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-failed',
+      reason: (throwRes.total != null ? (throwRes.total + ' vs ' + (targetInfo ? targetInfo.target : '?') + '+') : 'failed') + ' — proceed to reactions (a failed evasion is not necessarily a fight)' });
+  }
+  return { ok: true, encounter: enc, evasion: enc.evasion };
+}
+
+// Step 4 — the initial Reaction roll (RR pp.285–286): 2d6 + the face's CHA modifier +
+// circumstance modifiers; natural-2/12 clamps applied by the resolver. Rolled only when
+// the outcome isn't obvious (the GM's call to invoke this at all). Sets reaction.current;
+// further attempts go through encounterAttemptInfluence.
+// opts: { faceCharacterId?, chaMod? (override), modifiers?: [{label, value}], rng? }.
+function encounterRollReaction(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(enc.reaction) return { ok: false, error: 'already-rolled-use-influence' };
+  const o = opts || {};
+  const faceId = o.faceCharacterId || (enc.partySide && enc.partySide.faceCharacterId) || null;
+  const chaMod = (o.chaMod != null) ? Number(o.chaMod) : (faceId ? _encChaMod(campaign, faceId) : 0);
+  const roll = A.rollEncounterReaction({ chaMod, modifiers: o.modifiers || [], rng: o.rng });
+  if(faceId && enc.partySide) enc.partySide.faceCharacterId = faceId;
+  enc.reaction = {
+    current: roll.band,
+    rolls: [{ attempt: 0, kind: 'initial', natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum,
+              total: roll.total, band: roll.band, clamped: roll.clamped,
+              atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null }],
+    intimidationOriginalRoll: null    // E3 (the tone system) — RAW re-uses the ORIGINAL roll vs new allies
+  };
+  enc.phase = 'interaction';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'reaction', reason: roll.total + ' → ' + roll.band + (roll.clamped ? (' (' + roll.clamped + ' clamp)') : '') });
+  return { ok: true, encounter: enc, reaction: enc.reaction, roll };
+}
+
+// Step 5 — an attempt to influence (RR pp.286–287): a fresh reaction roll whose BAND
+// shifts the standing attitude (2 → two steps toward Hostile … 12 → two toward
+// Friendly). The time ladder escalates by attempt — round, turn, hour, work-day, week —
+// and the 3rd+ attempts cost the actor's #346 day budget (ancillary / dedicated),
+// carried on a record-only encounter-influence event. A bribe adds +1..+3 (week/month/
+// year of pay — or day/week/month with Bribery proficiency); a bribe that fails to move
+// the target toward friendly backlashes one step toward Hostile (no backlash when
+// proficient). Once interacting the party can no longer evade.
+// opts: { actorCharacterId?, chaMod?, modifiers?: [{label, value}],
+//         bribe?: { bonus: 1|2|3, proficient?: boolean }, rng? }.
+function encounterAttemptInfluence(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.reaction) return { ok: false, error: 'roll-reaction-first' };
+  const o = opts || {};
+  const attemptNumber = enc.reaction.rolls.filter(r => r && r.kind === 'influence').length + 1;
+  const info = A.influenceAttemptInfo(attemptNumber);
+  const actorId = o.actorCharacterId || (enc.partySide && enc.partySide.faceCharacterId) || null;
+  const chaMod = (o.chaMod != null) ? Number(o.chaMod) : (actorId ? _encChaMod(campaign, actorId) : 0);
+  const mods = (o.modifiers || []).slice();
+  let bribe = null;
+  if(o.bribe && o.bribe.bonus){
+    bribe = A.bribeBonusInfo(o.bribe.bonus, !!o.bribe.proficient);
+    mods.push({ label: 'bribe (' + bribe.pay + "'s pay)", value: bribe.bonus });
+  }
+  const roll = A.rollEncounterReaction({ chaMod, modifiers: mods, rng: o.rng });
+  const from = enc.reaction.current;
+  let shift = A.applyInfluenceShift(from, roll.band);
+  let backlash = false;
+  if(bribe && bribe.backlashOnFail && shift.shift <= 0){
+    // RAW: a failed bribe shifts the target one (additional) step toward Hostile.
+    const order = A.ENCOUNTER_ATTITUDES;
+    const idx = Math.max(0, order.indexOf(shift.to) - 1);
+    shift = { from: shift.from, to: order[idx], shift: idx - order.indexOf(shift.from) };
+    backlash = true;
+  }
+  enc.reaction.current = shift.to;
+  const entry = {
+    attempt: attemptNumber, kind: 'influence', actorCharacterId: actorId,
+    natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum, total: roll.total,
+    band: roll.band, clamped: roll.clamped, from, to: shift.to,
+    bribe: bribe ? { bonus: bribe.bonus, pay: bribe.pay, proficient: bribe.proficient, backlash } : null,
+    timeRequired: info.time, days: info.days,
+    atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null
+  };
+  enc.reaction.rolls.push(entry);
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'influence',
+    reason: 'attempt ' + attemptNumber + ' (' + info.time + '): ' + roll.total + ' → ' + roll.band + ' — ' + from + ' → ' + shift.to + (backlash ? ' (bribe backlash)' : '') });
+  // The audit + budget record (record-only, always campaignLogHidden — the table chatter
+  // isn't a chronicle beat; the resolution event narrates the outcome).
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const ev = newEvent('encounter-influence', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: enc.hexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null, relatedEntities: _encRelatedEntities(enc) },
+    payload: {
+      encounterId: enc.id, attemptNumber, actorCharacterId: actorId,
+      roll: { natural: roll.natural, total: roll.total, band: roll.band, clamped: roll.clamped },
+      from, to: shift.to,
+      bribe: entry.bribe, timeRequired: info.time,
+      activityCost: (info.activitySlot === 'ancillary' || info.activitySlot === 'dedicated')
+        ? { slot: info.activitySlot, units: 1, kind: 'encounter-influence', label: 'Parley — influence reaction', days: info.days || undefined }
+        : null,
+      narrative: 'Influence attempt ' + attemptNumber + ' (' + info.time + '): ' + from + ' → ' + shift.to
+    }
+  });
+  ev.campaignLogHidden = true;
+  ev.subdayContext = { cadence: 'encounter', encounterId: enc.id, roundNumber: null, turnNumber: null, initiativeOrder: null };
+  _logAppliedEvent(campaign, ev, { narrativeSummary: ev.payload.narrative });
+  return { ok: true, encounter: enc, attempt: entry, event: ev };
+}
+
+// Resolution — flip the entity + emit the ONE comprehensive encounter-resolved event
+// (the travel-day idiom: the whole walk in the payload, the context envelope carrying
+// hex + both sides, subdayContext.encounterId stamped). outcome: no-encounter | evaded |
+// parleyed | dispersed | combat ("GM resolves" until #141) | settled-as-lair (E3) |
+// dismissed. A no-encounter resolution is campaignLogHidden (not a chronicle beat).
+function recordEncounterResolved(campaign, encounterId, outcome, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved' && enc.resolvedByEventId) return { ok: true, encounter: enc, event: null, alreadyResolved: true };
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const mLabel = _encMonsterLabel(enc);
+  const out = outcome || 'dismissed';
+  let narrative;
+  if(out === 'no-encounter')        narrative = 'No encounter — neither side became aware of the other.';
+  else if(out === 'evaded')         narrative = 'The party evaded ' + mLabel + '.';
+  else if(out === 'parleyed')       narrative = 'The party parleyed with ' + mLabel + (enc.reaction && enc.reaction.current ? (' — ' + enc.reaction.current) : '') + '.';
+  else if(out === 'dispersed')      narrative = 'The meeting with ' + mLabel + ' broke up without consequence.';
+  else if(out === 'combat')         narrative = 'Combat with ' + mLabel + ' — GM resolves (record the result as an adventure outcome).';
+  else if(out === 'settled-as-lair') narrative = mLabel + ' settled and denned here (lingered — JJ p.103).';
+  else                              narrative = 'Encounter with ' + mLabel + ' dismissed.';
+  if(o.note) narrative += ' ' + o.note;
+  const ev = newEvent('encounter-resolved', {
+    submittedBy: o.submittedBy || 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: enc.hexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null, relatedEntities: _encRelatedEntities(enc) },
+    payload: {
+      encounterId: enc.id, outcome: out, category: enc.category || null, rarity: enc.rarity || null,
+      trigger: enc.trigger || null, hexId: enc.hexId || null,
+      lairId: (enc.monsterSide && enc.monsterSide.lairId) || null,
+      monsterCatalogKey: (enc.monsterSide && enc.monsterSide.monsterCatalogKey) || null,
+      encounterKind: (enc.monsterSide && enc.monsterSide.encounterKind) || null,
+      distanceFt: (enc.distance && enc.distance.distanceFt) || null,
+      surprise: enc.surprise ? { party: enc.surprise.party.surprised, monsters: enc.surprise.monsters.surprised, evadeEligibility: enc.surprise.evadeEligibility } : null,
+      evasion: enc.evasion ? { success: enc.evasion.success, target: enc.evasion.target, aftermath: enc.evasion.aftermath } : null,
+      reaction: enc.reaction ? { current: enc.reaction.current, attempts: enc.reaction.rolls.length } : null,
+      narrative
+    }
+  });
+  if(out === 'no-encounter') ev.campaignLogHidden = true;
+  ev.subdayContext = { cadence: 'encounter', encounterId: enc.id, roundNumber: null, turnNumber: null, initiativeOrder: null };
+  _logAppliedEvent(campaign, ev, { narrativeSummary: narrative });
+  A.resolveEncounter(campaign, enc.id, out, { resolvedByEventId: ev.id, note: o.note });
+  return { ok: true, encounter: enc, event: ev };
+}
+
 const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'engine-standard-turn',  // engine internal flow — emitting raw would create chaos
   'recruit-hireling',      // owned by Recruiting Wizard — skips candidate individuation
@@ -3100,6 +3421,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // discovery flip) and by the discovery flows (lair-discovered pairs with a discoverLair call;
   // raw emit would narrate a discovery the lair state doesn't show).
   'hex-search', 'lair-discovered',
+  // #476 E1 — owned by the encounter step verbs (recordEncounterResolved / encounterAttemptInfluence);
+  // raw emit would narrate a walk the Encounter entity's state doesn't show.
+  'encounter-resolved', 'encounter-influence',
   // Favors & Duties (#230, F&D-1) — emitted by the monthly auto-roll as an audit of the obligation
   // it just created/revoked. The GM authors an obligation via Inspector Create, not this raw event.
   'favor-duty'
@@ -3156,7 +3480,10 @@ Object.assign(ACKS, {
   // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4) + reroll.
   forageActivity, huntActivity, rerollProvisioningActivity,
   // #476 M4 — Wilderness Search + track-home discovery verbs (RR pp.276–277 + p.120; Plan §6).
-  hexSearchActivity, trackHomeAttempt, recordLairDiscovered, rerollHexSearch
+  hexSearchActivity, trackHomeAttempt, recordLairDiscovered, rerollHexSearch,
+  // #476 Encounter layer E1 — the step verbs over the Encounter entity (RR pp.280–287; plan §15).
+  encounterSetAwareness, encounterRollSurprise, encounterAttemptEvasion,
+  encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved
 });
 
 if(typeof module !== 'undefined' && module.exports){
