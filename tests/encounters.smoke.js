@@ -382,6 +382,51 @@ section('the seam — encounterDraw (pool-first D5 → category + gm-pick; #141 
 }
 
 // =============================================================================
+section('priorReactionBetween (D9, E2) — prior attitude DERIVED from resolved meetings');
+{
+  const c = ACKS.blankCampaign({ name: 'memory' });
+  ACKS.migrateCampaign(c);
+  // A resolved parley with lair lai-x by chr-a's party, attitude unfriendly.
+  const e1 = ACKS.createEncounter(c, { id: 'enc-m1', occurredAtTurn: 3, occurredOnDayInMonth: 5,
+    monsterSide: { lairId: 'lai-x', groupIds: ['grp-1'] }, partySide: { partyId: 'pty-1', characterIds: ['chr-a', 'chr-b'] } });
+  e1.reaction = { current: 'unfriendly', rolls: [] };
+  ACKS.resolveEncounter(c, 'enc-m1', 'parleyed', { atTurn: 3, onDayInMonth: 5 });
+  // Same lair, overlapping character in a DIFFERENT party → match (memory follows the people).
+  const e2 = ACKS.createEncounter(c, { id: 'enc-m2', monsterSide: { lairId: 'lai-x' }, partySide: { partyId: 'pty-2', characterIds: ['chr-a', 'chr-c'] } });
+  const p = ACKS.priorReactionBetween(c, e2);
+  ok('lair + character overlap matches across parties', !!p && p.encounterId === 'enc-m1');
+  ok('the prior carries outcome + last attitude + when', !!p && p.outcome === 'parleyed' && p.reaction === 'unfriendly' && p.atTurn === 3 && p.onDayInMonth === 5);
+  ok('accepts an id as well as the entity', (ACKS.priorReactionBetween(c, 'enc-m2') || {}).encounterId === 'enc-m1');
+  // Group overlap with NO lair binding also matches.
+  const e3 = ACKS.createEncounter(c, { id: 'enc-m3', monsterSide: { lairId: null, groupIds: ['grp-1'] }, partySide: { characterIds: ['chr-b'] } });
+  ok('group overlap matches without a lair binding', (ACKS.priorReactionBetween(c, e3) || {}).encounterId === 'enc-m1');
+  // Same party id, disjoint characters → still a party-side match.
+  const e4 = ACKS.createEncounter(c, { id: 'enc-m4', monsterSide: { lairId: 'lai-x' }, partySide: { partyId: 'pty-1', characterIds: ['chr-z'] } });
+  ok('same party id matches with disjoint characters', (ACKS.priorReactionBetween(c, e4) || {}).encounterId === 'enc-m1');
+  // No-matches: a different lair; an unbound fresh monster side; disjoint people.
+  const e5 = ACKS.createEncounter(c, { id: 'enc-m5', monsterSide: { lairId: 'lai-OTHER' }, partySide: { characterIds: ['chr-a'] } });
+  ok('a different lair is a stranger', ACKS.priorReactionBetween(c, e5) === null);
+  const e6 = ACKS.createEncounter(c, { id: 'enc-m6', monsterSide: { source: 'fresh' }, partySide: { characterIds: ['chr-a'] } });
+  ok('an unbound fresh monster side has no identity to remember', ACKS.priorReactionBetween(c, e6) === null);
+  const e7 = ACKS.createEncounter(c, { id: 'enc-m7', monsterSide: { lairId: 'lai-x' }, partySide: { partyId: 'pty-9', characterIds: ['chr-z'] } });
+  ok('disjoint people never met them', ACKS.priorReactionBetween(c, e7) === null);
+  // Exclusions: the subject itself; an ACTIVE prior; a no-encounter non-meeting.
+  ok('the subject itself is excluded', ACKS.priorReactionBetween(c, e1) === null);   // e1 is the only resolved match for its own sides
+  const e8 = ACKS.createEncounter(c, { id: 'enc-m8', occurredAtTurn: 4, monsterSide: { lairId: 'lai-y' }, partySide: { characterIds: ['chr-a'] } });
+  const e9 = ACKS.createEncounter(c, { id: 'enc-m9', monsterSide: { lairId: 'lai-y' }, partySide: { characterIds: ['chr-a'] } });
+  ok('an ACTIVE prior is not yet memory', ACKS.priorReactionBetween(c, e9) === null);
+  ACKS.resolveEncounter(c, 'enc-m8', 'no-encounter', { atTurn: 4 });
+  ok('a no-encounter resolution is a non-meeting (excluded)', ACKS.priorReactionBetween(c, e9) === null);
+  // Latest wins: a second, later resolved meeting with the same sides supersedes.
+  const e10 = ACKS.createEncounter(c, { id: 'enc-m10', occurredAtTurn: 6, occurredOnDayInMonth: 2,
+    monsterSide: { lairId: 'lai-x' }, partySide: { characterIds: ['chr-a'] } });
+  e10.reaction = { current: 'friendly', rolls: [] };
+  ACKS.resolveEncounter(c, 'enc-m10', 'parleyed', { atTurn: 6, onDayInMonth: 2 });
+  const latest = ACKS.priorReactionBetween(c, e2);
+  ok('the latest resolved meeting wins', !!latest && latest.encounterId === 'enc-m10' && latest.reaction === 'friendly');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

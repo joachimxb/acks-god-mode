@@ -3325,6 +3325,43 @@ function encounterDisplayName(campaign, enc){
     : enc.category === 'monster' ? 'monster encounter' : 'encounter');
   return what + (enc.hexId ? ' at ' + enc.hexId : '');
 }
+// priorReactionBetween — D9: prior attitude is DERIVED from encounter history, never
+// stored on Lair/Group. "The same monsters" = the same lair binding OR an overlapping
+// bound Group (a bare catalog key is deliberately NOT identity — any goblin is not THIS
+// goblin band); "the same party" = the same party id OR any overlapping character (so
+// the memory follows the people across re-formed parties). Returns the most recent
+// RESOLVED prior meeting (the subject itself + no-encounter non-meetings excluded)
+// with its last standing attitude — or null when these sides have never met.
+function priorReactionBetween(campaign, encounter){
+  if(!campaign) return null;
+  const enc = (typeof encounter === 'string') ? findEncounter(campaign, encounter) : encounter;
+  if(!enc) return null;
+  const ms0 = enc.monsterSide || {};
+  const myLair = ms0.lairId || null;
+  const myGroups = ms0.groupIds || [];
+  if(!myLair && !myGroups.length) return null;     // unbound fresh monsters — no identity to remember
+  const ps0 = enc.partySide || {};
+  const myParty = ps0.partyId || null;
+  const myChars = ps0.characterIds || [];
+  const when = e => ((e.resolvedAtTurn || e.occurredAtTurn || 0) * 100) + (e.resolvedOnDayInMonth || e.occurredOnDayInMonth || 0);
+  let best = null;
+  for(const e of (campaign.encounters || [])){
+    if(!e || e.id === enc.id || e.status !== 'resolved' || e.outcome === 'no-encounter') continue;
+    const ms = e.monsterSide || {};
+    if(!((myLair && ms.lairId === myLair) || (ms.groupIds || []).some(g => myGroups.includes(g)))) continue;
+    const ps = e.partySide || {};
+    if(!((myParty && ps.partyId === myParty) || (ps.characterIds || []).some(c => myChars.includes(c)))) continue;
+    if(!best || when(e) >= when(best)) best = e;   // latest wins; array order breaks ties
+  }
+  if(!best) return null;
+  return {
+    encounterId: best.id, encounter: best,
+    outcome: best.outcome,
+    reaction: (best.reaction && best.reaction.current) || null,
+    atTurn: best.resolvedAtTurn || best.occurredAtTurn || null,
+    onDayInMonth: best.resolvedOnDayInMonth || best.occurredOnDayInMonth || null
+  };
+}
 
 // --- Creation + resolution (state-only; event emission lives in events.js) ----
 // createEncounter — the bare constructor + collection push + history stamp. Most
@@ -8038,7 +8075,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // #476 M4 — securing consequence (RR p.338): live lairs block settling the hex (DC-0 consumes)
   hexSecuringBlockers,
   // #476 Encounter layer E1 — the Encounter entity + the draw seam (D8–D12, plan §15)
-  findEncounter, encountersAtHex, activeEncounters, encounterDisplayName,
+  findEncounter, encountersAtHex, activeEncounters, encounterDisplayName, priorReactionBetween,
   createEncounter, resolveEncounter, encounterDraw, createEncounterFromDraw,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
