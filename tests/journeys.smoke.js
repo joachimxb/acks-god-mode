@@ -166,10 +166,12 @@ section('Travel pivot — comprehensive per-day event + characterHistory (2026-0
 // the origin), the travellers (relatedEntities role 'traveller') + the journey, and the full day record
 // in the payload. The per-thing signals (lost/hunger/fording/…) become transient (pause + day-log only),
 // folded into the one event. Routine days are campaignLogHidden. ACKS.characterHistory derives per-person.
-const tp = build(); // road ⇒ deterministic routine day (nav skipped on road; encounter chance 0 on road)
+// road ⇒ nav skipped; rng 0.27 ⇒ every encounter d20 reads 6 = No Encounter on the unsettled
+// column (#476 E1 — roads are safer, not encounter-free, so the routine day is forced by die).
+const tp = build();
 ACKS.startJourney(tp.c, tp.j);
 const tpEvLen = tp.c.eventLog.length;
-ACKS.commitDayTick(tp.c, ACKS.proposeDayTick(tp.c, 1, {}), null);
+ACKS.commitDayTick(tp.c, ACKS.proposeDayTick(tp.c, 1, { rng: () => 0.27 }), null);
 const tpDayEvs = tp.c.eventLog.slice(tpEvLen).filter(e => e.event && (e.event.kind === 'journey-day-tick' || e.event.kind === 'journey-arrived'));
 check('exactly ONE comprehensive journey day event emitted per committed day', tpDayEvs.length === 1, 'got ' + tpDayEvs.length);
 const tpEv = tpDayEvs[0].event;
@@ -388,17 +390,32 @@ const mp2 = ACKS.proposeJourneyDay(mu.c, { dayInMonth: 2, rng: () => 0.99 });
 check('a planning journey is skipped by the consumer', mp2.pendingRecords.length === 2);
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('Encounter stub (Step 4)');
+section('Encounter checks (#476 E1 — the RAW category draw, one throw per hex entered)');
 
+// rng()=>0.5 ⇒ every d20 reads 11: unsettled column → MONSTER (7–12, JJ p.42).
 const en = build({ hasRoad: false, terrain: 'forest' });
 en.j.status = 'in-transit'; en.j.currentHexId = 'hex-a';
-const ep = ACKS.proposeJourneyDay(en.c, { dayInMonth: 2, rng: () => 0 }); // rng 0 ⇒ encounter fires
+const ep = ACKS.proposeJourneyDay(en.c, { dayInMonth: 2, rng: () => 0.5 });
 check('encounter check can surface a journey-encounter pauseTrigger', ep.notableEvents.some(e => e.kind === 'journey-encounter' && e.pauseTrigger === 'encounter'));
 check('encounter produces a placeholder encounter record (unresolved)', ep.encounters.length >= 1 && ep.encounters[0].outcome === 'unresolved' && ep.encounters[0].triggeredBy === 'wandering-roll');
-const er = build({ hasRoad: true }); // roads are safe in J1
+check('the record carries the RAW draw (monster in unsettled territory)', ep.encounters[0].category === 'monster' && ep.encounters[0].draw && ep.encounters[0].draw.territoryClass === 'unsettled');
+check('one throw per hex ENTERED (a constant-monster rng yields one record per hex travelled)',
+  ep.encounters.length === ((ep.pendingRecords[0] && ep.pendingRecords[0].dayRecord && ep.pendingRecords[0].dayRecord.hexesTraveled) || 0));
+// rng()=>0 ⇒ d20 natural 1 = column shift + roll again → … → unsettled reads 1 = No Encounter.
+const e0 = build({ hasRoad: false });
+e0.j.status = 'in-transit'; e0.j.currentHexId = 'hex-a';
+check('a natural-1 chain bottoms out at no encounter', ACKS.proposeJourneyDay(e0.c, { dayInMonth: 2, rng: () => 0 }).encounters.length === 0);
+// Roads fold one column LEFT — safer, not safe (reverses the J1 "roads = no encounters" stub):
+// rng()=>0.4 ⇒ d20 reads 9: unsettled → monster (7–12); unsettled + Road → CIVILIZED (9–11).
+const er = build({ hasRoad: true });
 er.j.status = 'in-transit'; er.j.currentHexId = 'hex-a';
-const erp = ACKS.proposeJourneyDay(er.c, { dayInMonth: 2, rng: () => 0 });
-check('roads are safe (no encounter on a road in J1)', erp.encounters.length === 0);
+const erp = ACKS.proposeJourneyDay(er.c, { dayInMonth: 2, rng: () => 0.4 });
+const enr = build({ hasRoad: false });
+enr.j.status = 'in-transit'; enr.j.currentHexId = 'hex-a';
+const enrp = ACKS.proposeJourneyDay(enr.c, { dayInMonth: 2, rng: () => 0.4 });
+check('a road folds the draw one column left (d20 9: road → civilized, trackless → monster)',
+  erp.encounters.length >= 1 && erp.encounters.every(e => e.category === 'civilized')
+  && enrp.encounters.length >= 1 && enrp.encounters.every(e => e.category === 'monster'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('abortJourney (J2) — unlinks + emits journey-aborted + cannot re-tick');

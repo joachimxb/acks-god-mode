@@ -1737,22 +1737,54 @@ function journeyDefaultName(campaign, journey){
   return null;
 }
 
+// ─── #476 E1 — the per-hex travel encounter throw (JJ pp.41–42; replaces the J1 1/6 stub) ─────
+// ONE hex's RAW draw: the 1d20 category throw on the territory-classification column (a road
+// folds one column LEFT — roads are safer, not safe, reversing the J1 "roads = no encounters"
+// stub; travel is the daytime 8h block, so no night shift), then monster identity POOL-FIRST
+// through encounterDraw (existing lair → the MM p.15 lair-vs-wandering split / seeded shells /
+// else GM-pick until #141's identity tables land — D12). Returns null on no-encounter. A meeting
+// category (monster/civilized) returns { encounterRecord, notableEvent } with the full draw +
+// the pre-rolled RAW distance riding the record, so the commit materializes the Encounter entity
+// byte-identically to the reviewed preview (seeded rng). A terrain category (dangerous/valuable/
+// unique) returns a notable WITHOUT an entity — a discovery has no sides; its 1d12 content
+// tables are #141 — and demotes to no-encounter on a known route (JJ p.42 step 7).
 function rollEncounter(campaign, journey, opts){
   opts = opts || {};
   const rng = opts.rng || Math.random;
-  const chance = opts.hasRoad ? 0 : (1 / 6); // ~1-in-6 wilderness; roads safe for J1
-  if(chance <= 0 || rng() >= chance) return null;
-  const hexId = opts.hexId || (journey && (journey.currentHexId || journey.startHexId)) || null;
+  const hexId = (opts.hexId !== undefined) ? opts.hexId : ((journey && (journey.currentHexId || journey.startHexId)) || null);
+  const coord = opts.coord || null;
   const dayIndex = opts.dayIndex || ((journey && journey.currentDayIndex) || 0) + 1;
-  const encId = 'enc-' + Math.floor(rng() * 2176782336).toString(36); // 'enc' is not a registered ID prefix
-  // M3 pool-first (D5): if this hex holds an active lair, the encounter IS that lair (its revealed
-  // contents) — not a generic stub. lairEncounterProposal is pure + consumes rng only on a ≥2-lair
-  // pick, so seeded journey previews stay byte-stable. includeDynamicPool:false here — revealing a
-  // pooled dynamic lair is a GM decision, not an automatic travel surprise.
-  const prop = (campaign && typeof ACKS.lairEncounterProposal === 'function')
-    ? ACKS.lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: false }) : null;
+  if(!campaign || (!hexId && !coord) || typeof ACKS.encounterDraw !== 'function') return null;
+  // Known route: a hex some PRIOR committed day of this journey already traversed —
+  // matched by id when authored, by coord when not.
+  const knownRoute = (opts.knownRoute != null) ? !!opts.knownRoute
+    : !!(journey && Array.isArray(journey.days) && journey.days.some(d => d && Array.isArray(d.hexPath) && d.hexPath.some(h => h
+        && ((hexId && h.hexId === hexId) || (coord && h.q === coord.q && h.r === coord.r)))));
+  // includeDynamicPool stays false on the travel path — revealing a pooled dynamic lair is a
+  // GM decision, not an automatic travel surprise (M3).
+  const draw = ACKS.encounterDraw(campaign, hexId, { road: !!opts.hasRoad, night: false, resting: false, knownRoute, rng });
+  if(!draw || draw.category === 'no-encounter') return null;
+  const jName = (journey && journey.name) || 'Journey';
+  // Terrain categories — a discovery notable, no entity.
+  if(draw.category === 'dangerous' || draw.category === 'valuable' || draw.category === 'unique'){
+    const label = jName + ': ' + draw.category + ' terrain encounter — GM, resolve (the 1d12 terrain tables land with #141)';
+    return { encounterRecord: null, notableEvent: {
+      kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
+      label: label,
+      payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: null,
+                 category: draw.category, rarity: null, lairId: null, seededShellLairIds: null,
+                 encounterKind: null, fragmentCount: null }
+    } };
+  }
+  // Meeting categories (monster / civilized) → the entity proposal. The id is minted from the
+  // SEEDED rng (7-char base36, the registered enc- prefix) so a re-opened preview shows the
+  // same id and the commit creates the entity under it (createEncounter is id-idempotent).
+  const encId = 'enc-' + ('0000000' + Math.floor(rng() * 78364164096).toString(36)).slice(-7);
+  const prop = draw.proposal || null;
   let label, monsters = [], lairId = null, seededShellLairIds = null, encounterKind = null, fragmentCount = null;
-  if(prop && prop.source === 'existing-lair'){
+  if(draw.category === 'civilized'){
+    label = jName + ': civilized encounter — travellers, locals, or a patrol; GM, pick who (the 1d100 table lands with #141)';
+  } else if(prop && prop.source === 'existing-lair'){
     lairId = prop.lairId;
     encounterKind = prop.encounterKind || 'at-lair';
     const mName = (typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'unknown creatures';
@@ -1760,11 +1792,11 @@ function rollEncounter(campaign, journey, opts){
       // M4 (RAW MM p.15): the lair'd hex's monsters met AWAY from home — a fragment, no hoard,
       // the lair itself not located. Tracking can follow them home (§6.2 — the GM affordance).
       fragmentCount = (prop.fragment && prop.fragment.count) || null;
-      label = ((journey && journey.name) || 'Journey') + ': encounter — '
+      label = jName + ': encounter — '
         + (fragmentCount ? fragmentCount + ' ' : 'a band of ') + mName.toLowerCase() + (fragmentCount === 1 ? '' : 's')
         + ' out from an unlocated lair in this hex — GM, resolve (Tracking can follow them home)';
     } else {
-      label = ((journey && journey.name) || 'Journey') + ': encounter — ' + mName + ' lair'
+      label = jName + ': encounter — ' + mName + ' lair'
         + (prop.contents.totalInhabitantCount ? ' (' + prop.contents.totalInhabitantCount + ' inhabitants)' : '')
         + ' — GM, resolve';
       monsters = prop.contents.groupIds.map(id => ({ groupId: id }));
@@ -1773,21 +1805,44 @@ function rollEncounter(campaign, journey, opts){
     // D4→D5: the hex was seeded with undetailed lair shells — the encounter should BE one of them,
     // not a fresh invention. The GM populates a shell (lair detail ✨ / Lair Wizard) and resolves.
     seededShellLairIds = prop.candidates.map(l => l.id);
-    label = ((journey && journey.name) || 'Journey') + ': encounter — this hex holds '
+    label = jName + ': encounter — this hex holds '
       + prop.candidates.length + ' unauthored lair' + (prop.candidates.length === 1 ? '' : 's')
       + ' (seeded) — GM: populate one or resolve generically';
   } else {
-    label = ((journey && journey.name) || 'Journey') + ': encounter check — GM, resolve this encounter (' + (opts.terrain || 'wilderness') + ')';
+    label = jName + ': ' + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster encounter — GM, pick the creature (catalog); the identity tables land with #141';
   }
+  // Pre-roll the RAW distance with the SEEDED rng — the commit copies it verbatim. An
+  // unauthored hex reads the journey's current/start hex ENVIRONMENT for the terrain row
+  // (the §24 sparse-campaign fallback); territory + pool stayed strictly the hex's own.
+  const hex = hexId ? (campaign.hexes || []).find(h => h && h.id === hexId) : null;
+  const envHex = hex || (campaign.hexes || []).find(h => h && h.id === ((journey && (journey.currentHexId || journey.startHexId)) || null)) || null;
+  const rowKey = (envHex && typeof ACKS.encounterRowKeyForHex === 'function') ? ACKS.encounterRowKeyForHex(envHex) : null;
+  const sizeCount = ((journey && journey.participantCharacterIds) || []).length || 1;
+  const monsterCount = fragmentCount || (prop && prop.contents && prop.contents.totalInhabitantCount) || null;
+  const distance = (rowKey && typeof ACKS.computeEncounterDistance === 'function')
+    ? ACKS.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight', sideACount: sizeCount, sideBCount: monsterCount, rng })
+    : null;
   const encounterRecord = {
-    id: encId, dayIndex, hexId, triggeredBy: 'wandering-roll', encounterTableUsed: null,
+    id: encId, dayIndex, hexId, coord: coord || (hex && hex.coord) || null,
+    triggeredBy: 'wandering-roll', encounterTableUsed: draw.columnKey,
+    category: draw.category, rarity: draw.rarity || null,
     monsters: monsters, lairId: lairId, rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
-    partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null
+    partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null,
+    // The compacted draw + distance the commit materializes the entity from (plan §15.2).
+    draw: { hexId: draw.hexId, territoryClass: draw.territoryClass, columnKey: draw.columnKey,
+            category: draw.category, rarity: draw.rarity, identity: draw.identity,
+            proposal: prop ? { source: prop.source, lairId: prop.lairId || null,
+                               encounterKind: prop.encounterKind || null, fragment: prop.fragment || null,
+                               contents: prop.contents || null,
+                               candidateLairIds: prop.candidates ? prop.candidates.map(l => l.id) : null } : null },
+    distance: distance
   };
   const notableEvent = {
     kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
     label: label,
-    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId, lairId: lairId, seededShellLairIds: seededShellLairIds, encounterKind: encounterKind, fragmentCount: fragmentCount }
+    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId,
+               category: draw.category, rarity: draw.rarity || null,
+               lairId: lairId, seededShellLairIds: seededShellLairIds, encounterKind: encounterKind, fragmentCount: fragmentCount }
   };
   return { encounterRecord, notableEvent };
 }
@@ -2379,10 +2434,26 @@ function tickJourneyDay(campaign, journey, ctx){
     fatigueDays += 1; fatigueAccumulated = 1; // ordinary travel = one strenuous day (RR p.279)
   }
 
-  // ── encounter check (§12 — J1 stub). Safe on a day spent entirely on roads; flavour terrain is the
-  // hardest hex actually traversed (§24). ──
-  const enc = rollEncounter(campaign, journey, { rng, terrain: representativeTerrain, hasRoad: dayRoaded, dayIndex: newDayIndex });
-  if(enc){ encounters.push(enc.encounterRecord); notableEvents.push(enc.notableEvent); }
+  // ── encounter checks (#476 E1 — RAW: one throw per hex ENTERED, JJ p.41). Each throw runs on
+  // ITS hex's territory column; a day spent on roads uses the safer +Road column (§24's dayRoaded
+  // — per-hex roadedness isn't retained from the walk, so the day-level flag stands in 🔧); a
+  // hex this journey already traversed demotes terrain finds (JJ p.42 step 7). A day that
+  // entered no hex (rest / blocked at a river / halted) makes no travel throw — the stationary
+  // rest/night checks are the 'encounters' day consumer's (slot 80). ──
+  const _encSeen = {};
+  for(const _ph of hexPath){
+    if(!_ph) continue;
+    // An UNauthored hex (hexId null — the sparse-campaign norm) still gets its RAW throw:
+    // unsettled territory, no pool, the start-hex environment for distance (§24 fallback).
+    const _ekey = _ph.hexId || ('c' + _ph.q + ',' + _ph.r);
+    if(_encSeen[_ekey]) continue;
+    _encSeen[_ekey] = true;
+    const enc = rollEncounter(campaign, journey, { rng, hexId: _ph.hexId || null, coord: { q: _ph.q, r: _ph.r }, hasRoad: dayRoaded, dayIndex: newDayIndex });
+    if(enc){
+      if(enc.encounterRecord) encounters.push(enc.encounterRecord);
+      notableEvents.push(enc.notableEvent);
+    }
+  }
 
   // ── status transition + arrival event. currentHexId now advances hex-by-hex along the route to the
   // authored hex the party is in (it stays put across UNauthored stretches — no hex id to move to). ──
@@ -2529,7 +2600,10 @@ function tickJourneyDay(campaign, journey, ctx){
     survival: survival.ignored ? null : survival,   // Provisioning V2/V3 — per-member absolutes (commit replays via applyJourneyDaySurvival)
     newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null,
     // §27 getting-lost post-state (commitJourneyRecord applies these; reroll-revert restores the pre-state)
-    newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored
+    newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored,
+    // #476 E1 — the day's meeting encounters (full draw + pre-rolled distance); the commit
+    // materializes each as an Encounter entity under its preview-minted id.
+    encounterProposals: encounters
   };
   // Attribute every notable to THIS day. A multi-day advance produces one journey record per day, and the
   // day-tick review surface matches a record's notables by (journeyId, dayIndex) — without a dayIndex on
@@ -2714,6 +2788,25 @@ function commitJourneyRecord(campaign, record){
   if('newRouteAnchorCoord' in record) j.routeAnchorCoord = record.newRouteAnchorCoord || null;
   if('newRouteAnchorHexId' in record) j.routeAnchorHexId = record.newRouteAnchorHexId || null;
   if(record.reanchored){ try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ } }
+  // #476 E1 — materialize the day's meeting encounters as Encounter entities. The draw + the
+  // pre-rolled distance rode the record from the seeded preview, so the entity matches what the
+  // GM reviewed byte-for-byte; createEncounter is id-idempotent, so the propose pass's working-
+  // copy commit and a reroll's re-commit never duplicate.
+  if(Array.isArray(record.encounterProposals) && record.encounterProposals.length
+     && global.ACKS && typeof global.ACKS.createEncounterFromDraw === 'function'){
+    for(const ep of record.encounterProposals){
+      if(!ep || !ep.draw) continue;
+      global.ACKS.createEncounterFromDraw(campaign, ep.draw, {
+        id: ep.id, trigger: 'journey-travel',
+        partySide: { partyId: j.partyId || null, journeyId: j.id,
+                     characterIds: (j.participantCharacterIds || []).slice(),
+                     faceCharacterId: null,
+                     sizeCount: (j.participantCharacterIds || []).length || 1 },
+        distance: ep.distance || null,
+        onDayInMonth: (dr.worldDay && dr.worldDay.dayInMonth) || undefined
+      });
+    }
+  }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: record.newDayIndex, type: (record.newStatus === 'arrived' ? 'arrived' : 'day-tick'), narrative: record.label || ('day ' + record.newDayIndex) });
   // Provisioning V2/V3 — apply the per-member survival absolutes (water/food/conditions/CON loss +
   // changed inventories + camp), replacing the old uniform first-member mirror. Sets hungerDays/
@@ -2788,6 +2881,22 @@ function rerollJourneyDay(campaign, journey, ctx){
     if(ev.kind === 'journey-arrived') return false; // a journey arrives once = its latest day
     return true;
   });
+  // 1b. #476 E1 — drop the reverted day's materialized Encounter entities (+ any encounter-*
+  // events hanging off them): the day never happened. Surgical, like rerollHexSearch's
+  // discovery reversal — a GM who already walked/resolved one of these loses that walk with
+  // the day, which is the point of the reroll.
+  {
+    const _encIds = ((lastDay && lastDay.encounters) || []).map(e => e && e.encounterId).filter(Boolean);
+    if(_encIds.length){
+      if(Array.isArray(campaign.encounters)){
+        campaign.encounters = campaign.encounters.filter(e => !(e && _encIds.indexOf(e.id) >= 0));
+      }
+      campaign.eventLog = (campaign.eventLog || []).filter(entry => {
+        const ev = entry && entry.event;
+        return !(ev && ev.payload && ev.payload.encounterId && _encIds.indexOf(ev.payload.encounterId) >= 0);
+      });
+    }
+  }
   // 2. revert journey + participants to the pre-day snapshot
   j.days.pop();
   j.currentDayIndex = pre.currentDayIndex;
@@ -3940,6 +4049,8 @@ Object.assign(ACKS, {
   hasFreshSource, seedJourneyProvisions, resolveDaySurvival, journeyDaySurvival, applyDaySurvival, applyJourneyDaySurvival, rerollJourneyForage, rerollJourneyNav, reapplyLatestDaySurvival,
   // CoL-1 (Provisioning §16.2) — off-journey survival day-consumer.
   proposeSurvivalDay, commitSurvivalRecord,
+  // #476 E1 — the slot-80 rest/night encounter consumer (JJ p.41).
+  proposeEncounterDay, commitEncounterRecord,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -3953,6 +4064,122 @@ Object.assign(ACKS, {
   HEX_FACE_LABELS,
   HEX_TERRAIN_COLORS, HEX_TERRAIN_ALIASES, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
+
+// ─── #476 E1 — rest/night encounter checks (JJ p.41) — the slot-80 consumer ──────────────────
+// The Calendar §12 collision slot gets its first occupant: STATIONARY field groups (a party
+// camped in the wild, a lone warden, a RESTING journey's party — an in-transit journey's
+// per-hex travel throws already covered its day) face the RAW rest/stationary frequencies:
+// unsettled = one check per 12 hours day AND night; outlands = nights; borderlands = every
+// 3rd night; civilized = every 7th night (cadence keyed off the absolute world ordinal —
+// deterministic, no stored state). Terrain categories demote while resting (JJ p.42 step 7),
+// so a camp check yields a MEETING (monster / civilized) or nothing. Seeded rng off
+// (group, hex, world-day) — the review re-opens byte-stable; the commit materializes the
+// Encounter entity under the preview-minted id. Camps are finally dangerous.
+
+// Stationary field groups by (party, hex) — mirrors the survival consumer's grouping. Settled
+// characters face settlement encounters, not wilderness ones (JJ p.41) — skipped; so is anyone
+// whose in-transit journey already threw for the day.
+function _restEncounterGroups(campaign){
+  const A = _jACKS();
+  const out = {};
+  const inTransit = {};
+  for(const j of (campaign.journeys || [])){
+    if(j && j.status === 'in-transit') (j.participantCharacterIds || []).forEach(id => { inTransit[id] = true; });
+  }
+  for(const ch of (campaign.characters || [])){
+    if(!ch || !ch.currentHexId) continue;
+    if(inTransit[ch.id]) continue;
+    if(typeof A.characterEffectiveRegime === 'function' && A.characterEffectiveRegime(campaign, ch) !== 'field') continue;
+    const key = (ch.partyId || ('solo-' + ch.id)) + '@' + ch.currentHexId;
+    (out[key] = out[key] || { key: key, partyId: ch.partyId || null, hexId: ch.currentHexId, characterIds: [] }).characterIds.push(ch.id);
+  }
+  return Object.keys(out).map(k => out[k]);
+}
+
+// §14 day-handler (slot 80). PURE — proposes rest-encounter records without mutating;
+// commitEncounterRecord materializes a ratified record's Encounter entity.
+function proposeEncounterDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [], encounters = [];
+  if(!campaign) return { pendingRecords, notableEvents, encounters };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(typeof A.encounterDraw !== 'function' || typeof A.restEncounterChecksForDay !== 'function')
+    return { pendingRecords, notableEvents, encounters };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  for(const g of _restEncounterGroups(campaign)){
+    const hex = (campaign.hexes || []).find(h => h && h.id === g.hexId);
+    if(!hex) continue;
+    const territory = (typeof A.territoryClassForHex === 'function') ? A.territoryClassForHex(campaign, hex) : 'unsettled';
+    const checks = A.restEncounterChecksForDay(territory, worldOrd);
+    if(!checks.length) continue;
+    const rng = ctx.rng || _jMulberry32(_jHash32('rest-enc|' + g.key + '|' + worldOrd));
+    for(const chk of checks){
+      const draw = A.encounterDraw(campaign, g.hexId, { resting: true, night: chk.period === 'night', rng: rng });
+      if(!draw || draw.category === 'no-encounter') continue;
+      if(draw.category !== 'monster' && draw.category !== 'civilized') continue;  // resting demotes terrain finds (belt + braces)
+      const encId = 'enc-' + ('0000000' + Math.floor(rng() * 78364164096).toString(36)).slice(-7);
+      const party = g.partyId ? (campaign.parties || []).find(p => p && p.id === g.partyId) : null;
+      const firstCh = (campaign.characters || []).find(c => c && c.id === g.characterIds[0]);
+      const who = (party && party.name) || (firstCh && firstCh.name) || 'A camped group';
+      const prop = draw.proposal || null;
+      let what;
+      if(draw.category === 'civilized') what = 'civilized visitors — GM, pick who (the 1d100 table lands with #141)';
+      else if(prop && prop.source === 'existing-lair'){
+        const mName = (typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'creatures';
+        what = prop.encounterKind === 'wandering-fragment'
+          ? (mName + ' out from their lair — GM, resolve')
+          : (mName + ' — their lair is in this hex; GM, resolve');
+      }
+      else if(prop && prop.source === 'seeded-shell') what = 'something from one of this hex’s unauthored lairs — GM, populate + resolve';
+      else what = 'a ' + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster — GM, pick the creature (catalog)';
+      const label = who + ': ' + (chk.period === 'night' ? 'night' : 'daytime') + ' camp encounter — ' + what;
+      pendingRecords.push({
+        kind: 'rest-encounter', label: label,
+        encounterId: encId, hexId: g.hexId, partyId: g.partyId, characterIds: g.characterIds.slice(),
+        period: chk.period, territoryClass: territory, dayInMonth: dayInMonth,
+        draw: { hexId: draw.hexId, territoryClass: draw.territoryClass, columnKey: draw.columnKey,
+                category: draw.category, rarity: draw.rarity, identity: draw.identity,
+                proposal: prop ? { source: prop.source, lairId: prop.lairId || null,
+                                   encounterKind: prop.encounterKind || null, fragment: prop.fragment || null,
+                                   contents: prop.contents || null,
+                                   candidateLairIds: prop.candidates ? prop.candidates.map(l => l.id) : null } : null },
+        primaryHexId: g.hexId
+      });
+      // The notable pauses the tick (auto-pause-on-encounter) and emits via the gm-narrative
+      // fallback, campaignLogHidden — the entity + its eventual encounter-resolved narrate the
+      // story; this line keeps the Event Log + hex/character histories complete.
+      notableEvents.push({
+        type: 'encounter', pauseTrigger: 'encounter', primaryHexId: g.hexId,
+        campaignLogHidden: true,
+        relatedEntities: g.characterIds.map(id => ({ kind: 'character', id: id, role: 'subject' }))
+          .concat(g.partyId ? [{ kind: 'party', id: g.partyId, role: 'subject' }] : []),
+        label: label,
+        payload: { encounterId: encId, hexId: g.hexId, period: chk.period, category: draw.category, rarity: draw.rarity || null, narrative: label }
+      });
+    }
+  }
+  return { pendingRecords, notableEvents, encounters };
+}
+
+// Apply a ratified rest-encounter record: materialize the Encounter entity (id-idempotent —
+// safe across the propose pass's working-copy commit and the real commit).
+function commitEncounterRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'rest-encounter' || !record.draw) return;
+  const A = _jACKS();
+  if(typeof A.createEncounterFromDraw !== 'function') return;
+  A.createEncounterFromDraw(campaign, record.draw, {
+    id: record.encounterId, trigger: 'rest-night',
+    partySide: { partyId: record.partyId || null, journeyId: null,
+                 characterIds: (record.characterIds || []).slice(),
+                 faceCharacterId: null,
+                 sizeCount: (record.characterIds || []).length || 1 },
+    // 🔧 moon phase is GM detail — a night check defaults to full-moon visibility; the GM
+    // refines light on the entity (E2's surface offers the pick).
+    light: record.period === 'night' ? 'full-moon' : 'daylight',
+    onDayInMonth: record.dayInMonth
+  });
+}
 
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
 // registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
@@ -3977,6 +4204,14 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 45,
     pauseTriggers: [],
     commit: commitRecruitmentRecord
+  });
+  // #476 E1 — the slot-80 collision/encounter consumer: rest/night checks for stationary
+  // field groups (JJ p.41). The Calendar §12 reserved slot's first occupant.
+  ACKS.registerDayConsumer('encounters', {
+    handler: proposeEncounterDay,
+    order: 80,
+    pauseTriggers: ['encounter'],
+    commit: commitEncounterRecord
   });
 }
 

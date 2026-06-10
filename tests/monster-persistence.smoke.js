@@ -460,18 +460,27 @@ section('M3 lairEncounterProposal — pool-first selector (Plan §5.2, D5)');
   ok('includeDynamicPool:false → fresh (reveal is a GM decision)', ACKS.lairEncounterProposal(c2, 'hex-x', { includeDynamicPool: false }).source === 'fresh');
 }
 
-section('M3 journey rollEncounter is pool-aware (D5)');
+// Finite dice tape: yields each value once, then repeats the last (shared by the M3/M4/E1 sections).
+const seq = (...vals) => { let i = 0; return () => (i < vals.length ? vals[i++] : vals[vals.length - 1]); };
+
+section('M3/E1 journey rollEncounter is pool-aware (D5) on the RAW category draw');
 {
   const c = ACKS.blankCampaign({ name: 'enc' });
   c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' }), ACKS.blankHex({ id: 'hex-2', terrain: 'forest' })];
   ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1' });
-  const force = () => 0.0; // 0 < 1/6 → encounter always fires
-  const r1 = ACKS.rollEncounter(c, { id: 'jrn-1', name: 'Caravan', currentHexId: 'hex-1' }, { rng: force, hasRoad: false, hexId: 'hex-1' });
+  // E1 stream: [category d20] → [rarity d20] → [lairPct d100] → [distance dice].
+  // 0.5 → d20 11 = MONSTER on the unsettled column (7–12); 0.0 → d100 1 ≤ 35 → at-lair.
+  const r1 = ACKS.rollEncounter(c, { id: 'jrn-1', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.5, 0.5, 0.0, 0.5), hasRoad: false, hexId: 'hex-1' });
   ok('encounter at a lair hex → notable references the lair (lairId + name)', r1 && r1.notableEvent.payload.lairId && /orc lair/i.test(r1.notableEvent.label));
   ok('encounterRecord carries lairId + the lair groups', r1.encounterRecord.lairId && r1.encounterRecord.monsters.length >= 1);
-  const r2 = ACKS.rollEncounter(c, { id: 'jrn-2', name: 'Caravan', currentHexId: 'hex-2' }, { rng: force, hasRoad: false, hexId: 'hex-2' });
-  ok('encounter at an empty hex → generic stub (no lairId)', r2 && r2.notableEvent.payload.lairId === null && /encounter check/.test(r2.notableEvent.label));
-  ok('roads stay safe (no encounter)', ACKS.rollEncounter(c, { id: 'jrn-3', name: 'Caravan', currentHexId: 'hex-1' }, { rng: force, hasRoad: true, hexId: 'hex-1' }) === null);
+  ok('the record carries the draw + the pre-rolled RAW distance', r1.encounterRecord.category === 'monster' && r1.encounterRecord.draw && r1.encounterRecord.draw.identity === 'pool' && r1.encounterRecord.distance && r1.encounterRecord.distance.distanceFt > 0);
+  const r2 = ACKS.rollEncounter(c, { id: 'jrn-2', name: 'Caravan', currentHexId: 'hex-2' }, { rng: seq(0.5, 0.5, 0.5), hasRoad: false, hexId: 'hex-2' });
+  ok('encounter at an empty hex → GM-pick monster (no lairId)', r2 && r2.notableEvent.payload.lairId === null && /monster encounter/.test(r2.notableEvent.label) && r2.encounterRecord.draw.identity === 'gm-pick');
+  // Roads fold one column LEFT — safer, not safe (the J1 "roads = no encounters" stub is gone).
+  // 0.35 → d20 8: unsettled+Road reads No Encounter (2–8); trackless unsettled reads MONSTER (7–12).
+  ok('a road folds the draw one column left (d20 8: road → nothing, trackless → monster)',
+    ACKS.rollEncounter(c, { id: 'jrn-3', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.35), hasRoad: true, hexId: 'hex-1' }) === null
+    && !!ACKS.rollEncounter(c, { id: 'jrn-4', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.35, 0.5, 0.0, 0.5), hasRoad: false, hexId: 'hex-1' }));
 }
 
 // =============================================================================
@@ -490,7 +499,7 @@ section('Fixes — seeded shells in the pool, group fates, reveal sync, shell na
   const cJ = ACKS.blankCampaign({ name: 'shellenc' });
   cJ.hexes = [ACKS.blankHex({ id: 'hex-t', terrain: 'forest' })];
   ACKS.seedHexLairs(cJ, 'hex-t', { count: 2 });
-  const enc = ACKS.rollEncounter(cJ, { id: 'jrn-s', name: 'Scouts', currentHexId: 'hex-t' }, { rng: () => 0.0, hasRoad: false, hexId: 'hex-t' });
+  const enc = ACKS.rollEncounter(cJ, { id: 'jrn-s', name: 'Scouts', currentHexId: 'hex-t' }, { rng: () => 0.5, hasRoad: false, hexId: 'hex-t' });   // d20 11 → monster (E1 draw)
   ok('journey encounter at a seeded hex names the shells', enc && /unauthored lair/.test(enc.notableEvent.label) && (enc.notableEvent.payload.seededShellLairIds || []).length === 2);
   ok('shell encounter carries no lairId yet (GM picks which shell)', enc.encounterRecord.lairId === null);
 
@@ -538,10 +547,6 @@ section('Fixes — seeded shells in the pool, group fates, reveal sync, shell na
 }
 
 // =============================================================================
-// A sequenced rng for draw-order-sensitive cases: yields the given values in order,
-// then repeats the last one.
-const seq = (...vals) => { let i = 0; return () => (i < vals.length ? vals[i++] : vals[vals.length - 1]); };
-
 section('M4 wildernessSearchTargetForSpeed — the RR p.276 table');
 {
   ok('≤11 mi → 18+', ACKS.wildernessSearchTargetForSpeed(11) === 18 && ACKS.wildernessSearchTargetForSpeed(0) === 18);
@@ -591,7 +596,8 @@ section('M4 lair-vs-wandering — the MM p.15 Lair % split in the proposal');
   ACKS.createLair(c3, { status: 'active', hexId: 'hex-x' });
   ok('no usable pct → at-lair (back-compat)', ACKS.lairEncounterProposal(c3, 'hex-x', { rng: seq(0.99) }).encounterKind === 'at-lair');
   // the journey encounter labels a fragment + carries encounterKind
-  const enc = ACKS.rollEncounter(c, (gen.lair.lairPct = 35, { id: 'jrn-w', name: 'Scouts', currentHexId: 'hex-w' }), { rng: seq(0.0, 0.5, 0.99, 0.5), hasRoad: false, hexId: 'hex-w' });
+  // E1 stream: 0.5 → category d20 11 = monster; 0.5 → rarity; 0.99 → d100 100 > 35 → fragment.
+  const enc = ACKS.rollEncounter(c, (gen.lair.lairPct = 35, { id: 'jrn-w', name: 'Scouts', currentHexId: 'hex-w' }), { rng: seq(0.5, 0.5, 0.99, 0.5), hasRoad: false, hexId: 'hex-w' });
   ok('journey fragment encounter labelled + tagged', enc && enc.notableEvent.payload.encounterKind === 'wandering-fragment' && /out from an unlocated lair/.test(enc.notableEvent.label));
 }
 
@@ -632,8 +638,12 @@ section('M4 hexSearchActivity — the Wilderness Search hour (RR pp.276–277)')
   const r5 = ACKS.hexSearchActivity(c5, { actorCharacterId: ch5.id, rng: seq(0.9, 0.99) });   // 19 ≥ 17 but < 27
   ok('a well-hidden lair (hiddenDC) survives an ordinary success', r5.success && !r5.found);
   // the per-hour encounter check fires pool-first ("stumble onto it by way of a random encounter")
-  const r6 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.0, 0.0) });   // d20 1 (fail), enc hit, d100 1 → at-lair
+  // E1 stream: 0.0 search d20 = 1 (fail); 0.5 category d20 = 11 → MONSTER; pool → the lair (at-lair).
+  const r6 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.5, 0.5) });
   ok('a failed search can still stumble into the lair via the encounter roll', !r6.success && r6.encounter && r6.encounter.lairId === lair.id);
+  ok('a meeting draw materializes an Encounter entity on the spot (trigger hex-search)', !!r6.encounter.encounterId
+    && !!ACKS.findEncounter(c, r6.encounter.encounterId)
+    && ACKS.findEncounter(c, r6.encounter.encounterId).trigger === 'hex-search');
   // Land Surveying assessment (RR p.277)
   const ch6 = ACKS.blankCharacter({ name: 'Surveyor' }); ch6.currentHexId = 'hex-s'; ch6.proficiencies = ['Land Surveying'];
   c.characters.push(ch6);
@@ -688,7 +698,7 @@ section('M4 rerollHexSearch — re-throw the latest search hour (the forage-rero
   ok('the child lair-discovered record is dropped', !c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.parentEventId === r1.event.id));
   ok('the event updates in place (rolled/success/foundLairId)', r1.event.payload.rolled === 1 && r1.event.payload.success === false && r1.event.payload.foundLairId === null);
   // the hour's encounter is HELD across a reroll
-  const r2 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.0, 0.0) });   // fail + encounter hit
+  const r2 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.5, 0.5) });   // fail + a monster draw (E1 stream)
   ok('setup: the hour rolled an encounter', !!r2.encounter);
   const encBefore = JSON.stringify(r2.event.payload.encounter);
   ACKS.rerollHexSearch(c, r2.event.id, { rng: seq(0.5) });

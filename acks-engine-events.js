@@ -2976,8 +2976,7 @@ function rerollHexSearch(campaign, eventId, opts){
 }
 
 // One search-hour (RR pp.276–277). opts: { actorCharacterId, hexId? (default: the actor's),
-// specific? (−4, a particular POI), specificLairId? (only that lair can be found),
-// encounterChance? (default 1/6 — the J1 wilderness stub chance; #141 owns the real tables), rng? }.
+// specific? (−4, a particular POI), specificLairId? (only that lair can be found), rng? }.
 function hexSearchActivity(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
@@ -3003,17 +3002,36 @@ function hexSearchActivity(campaign, opts){
     if(opts.specificLairId) pool = pool.filter(l => l.id === opts.specificLairId);
     if(pool.length) found = pool[Math.floor(rng() * pool.length)];
   }
-  // RAW p.277: searching triggers one random-encounter roll per hour — pool-first, like travel.
-  // (A failed search can still stumble onto the lair through the encounter it provoked.)
+  // RAW p.277 + JJ p.41: searching triggers one encounter THROW per hour — the full category
+  // draw (#476 E1, replacing the J1 1/6 stub; terrain finds apply while searching — only
+  // RESTING demotes them, JJ p.42 step 7). A meeting category (monster / civilized)
+  // materializes an Encounter entity at once — the search is a live GM verb, no propose/
+  // commit dance — and the draw rides the search payload (a failed search can still stumble
+  // onto the lair through the encounter it provoked; the draw is pool-first, D5).
   let encounter = null;
-  const encChance = (opts.encounterChance != null) ? opts.encounterChance : (1 / 6);
-  if(rng() < encChance && typeof A.lairEncounterProposal === 'function'){
-    const prop = A.lairEncounterProposal(campaign, hexId, { rng: rng, includeDynamicPool: false });
-    if(prop) encounter = {
-      source: prop.source, lairId: prop.lairId || null, encounterKind: prop.encounterKind || null,
-      fragmentCount: (prop.fragment && prop.fragment.count) || null,
-      seededShellLairIds: (prop.source === 'seeded-shell') ? prop.candidates.map(l => l.id) : null
-    };
+  if(typeof A.encounterDraw === 'function'){
+    const draw = A.encounterDraw(campaign, hexId, { rng: rng });
+    if(draw && draw.category !== 'no-encounter'){
+      const prop = draw.proposal || null;
+      encounter = {
+        category: draw.category, rarity: draw.rarity || null, columnKey: draw.columnKey,
+        source: (prop && prop.source) || null, lairId: (prop && prop.lairId) || null,
+        encounterKind: (prop && prop.encounterKind) || null,
+        fragmentCount: (prop && prop.fragment && prop.fragment.count) || null,
+        seededShellLairIds: (prop && prop.source === 'seeded-shell') ? prop.candidates.map(l => l.id) : null,
+        encounterId: null
+      };
+      if((draw.category === 'monster' || draw.category === 'civilized') && typeof A.createEncounterFromDraw === 'function'){
+        const entity = A.createEncounterFromDraw(campaign, draw, {
+          trigger: 'hex-search',
+          partySide: { partyId: ch.partyId || null, journeyId: null,
+                       characterIds: (sp.cohort || []).map(c => c && c.id).filter(Boolean),
+                       faceCharacterId: ch.id, sizeCount: (sp.cohort || []).length || 1 },
+          rng: rng
+        });
+        if(entity) encounter.encounterId = entity.id;
+      }
+    }
   }
   // Land Surveying (RR p.277): assess the hex's POI count — 18+, cumulative +4 per successful
   // search conducted here, nat-1 → a false reading the Judge reveals as if true.

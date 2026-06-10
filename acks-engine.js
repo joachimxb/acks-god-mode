@@ -3395,8 +3395,11 @@ function encounterDraw(campaign, hexId, context){
     const rar = A.rollEncounterRarity(territoryClass, rng);
     draw.rarity = rar.rarity; draw.rarityRoll = rar.roll;
     // Pool-first (D5): an existing active lair / seeded shells / the dynamic pool answer
-    // "WHAT is encountered" before any fresh invention.
-    const prop = lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: ctx.includeDynamicPool === true });
+    // "WHAT is encountered" before any fresh invention. An UNauthored hex (hexId null —
+    // a sparse-campaign route step) has no pool: straight to gm-pick. (A null hexId must
+    // NOT reach lairsAtHex — it would match the unplaced dynamic pool's null hexIds.)
+    const prop = hexId ? lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: ctx.includeDynamicPool === true })
+                       : { source: 'fresh', hexId: null };
     draw.proposal = prop;
     draw.identity = (prop && prop.source === 'existing-lair') ? 'pool' : 'gm-pick';
   } else if(cat.category === 'civilized'){
@@ -3449,6 +3452,12 @@ function createEncounterFromDraw(campaign, draw, opts){
   if(o.onDayInMonth !== undefined) createOpts.occurredOnDayInMonth = o.onDayInMonth;
   const enc = createEncounter(campaign, createOpts);
   if(!enc) return null;
+  // A trigger that pre-rolled the distance with its SEEDED rng (the journey preview) hands it
+  // in verbatim — the entity matches the reviewed proposal byte-for-byte.
+  if(o.distance && enc.distance == null){
+    enc.distance = o.distance;
+    enc.history.push({ turn: enc.occurredAtTurn, type: 'distance', reason: (o.distance.distanceFt != null ? o.distance.distanceFt : '?') + " ft (" + (o.distance.terrainRow || 'terrain') + ")" });
+  }
   // Pre-roll the distance when the terrain resolves (RR pp.280–281): identity-independent,
   // so it lands at creation; sides' counts refine the visibility cap when known.
   if(enc.distance == null && typeof A.computeEncounterDistance === 'function'){
@@ -6824,8 +6833,8 @@ function _deepCloneCampaign(c){
 // Reserved §10.2 slots (handlers land with their subsystems): 10 weather · 20 npc-migration
 // · 30 journeys · 40 hijinks · 50 construction · 60 spell-research · 70 calendar-events
 // · 80 collision-sweep · 90 event-emit.
-function tickDayOnce(campaign, dayInMonth){
-  const ctx = dayTickContext(campaign, dayInMonth);
+function tickDayOnce(campaign, dayInMonth, ctxExtra){
+  const ctx = Object.assign(dayTickContext(campaign, dayInMonth), ctxExtra || {});
   const out = { dayInMonth: ctx.dayInMonth, byConsumer: {}, pendingRecords: [], notableEvents: [], encounters: [] };
   for(const c of dayConsumersInOrder()){
     // collision sweep — Calendar §12, lands with Journeys/Monster-Persistence (no-op here).
@@ -6971,7 +6980,9 @@ function proposeDayTick(campaign, days, opts){
   for(let i = 0; i < want; i++){
     if(day >= MONTH_LEN){ proposal.monthEndReached = true; break; }
     const nextDay = day + 1;
-    const tick = tickDayOnce(work, nextDay);
+    // opts.rng threads a deterministic die into every consumer's ctx (tests / scriptable
+    // ticks — the commitTurn options.rng pattern); absent, each consumer seeds its own.
+    const tick = tickDayOnce(work, nextDay, opts.rng ? { rng: opts.rng } : null);
     // Apply this day's records to the working copy so multi-day proposals accumulate.
     tick.pendingRecords.forEach(r => {
       const c = DAY_CONSUMERS[r.consumer];
