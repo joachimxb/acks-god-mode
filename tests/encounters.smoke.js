@@ -303,7 +303,13 @@ section('trigger — journey per-hex draw → commit materializes the entity (by
   const rec = prop.pendingRecords[0];
   ok('the day record carries the encounter proposals (draw + distance)', Array.isArray(rec.encounterProposals) && rec.encounterProposals.length >= 1 && rec.encounterProposals[0].draw && rec.encounterProposals[0].distance);
   const epId = rec.encounterProposals[0].id;
-  ok('the proposal id is a real enc- id', /^enc-[a-z0-9]{7}$/.test(epId));
+  ok('the proposal id is a real enc- id', /^enc-[a-z0-9]{7}/.test(epId));
+  // collision-proof minting: a constant rng mints the same BASE for every hex — the batch map
+  // suffixes each subsequent mint, so two different encounters can never silently merge.
+  ok('a multi-hex day mints DISTINCT proposal ids even on a constant rng', (function(){
+    const ids = rec.encounterProposals.map(p => p.id);
+    return ids.length === new Set(ids).size;
+  })());
   ok('nothing is materialized at propose time', !ACKS.findEncounter(c, epId));
   ACKS.commitJourneyRecord(c, rec);
   const made = ACKS.findEncounter(c, epId);

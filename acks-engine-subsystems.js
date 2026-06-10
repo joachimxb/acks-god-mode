@@ -1737,6 +1737,24 @@ function journeyDefaultName(campaign, journey){
   return null;
 }
 
+// ─── #476 E1 — proposal-id minting (collision-proof) ──────────────────────────────────────────
+// Encounter proposal ids are minted at PROPOSE time from the seeded rng so a re-opened preview
+// shows the same id and the commit's id-idempotent create replays cleanly. But an id-idempotent
+// create silently MERGES two different encounters if two mints ever collide (a constant test rng,
+// or two seeded streams emitting the same draw) — so the mint checks both the campaign's existing
+// entities and the batch's own mints (takenIds, threaded through a day's loop) and appends a
+// deterministic counter suffix until free. Same state → same suffixes → previews stay byte-stable.
+function _mintEncounterProposalId(campaign, rng, takenIds){
+  const base = 'enc-' + ('0000000' + Math.floor((rng || Math.random)() * 78364164096).toString(36)).slice(-7);
+  const A = _jACKS();
+  let id = base, n = 2;
+  while((takenIds && takenIds[id]) || (typeof A.findEncounter === 'function' && A.findEncounter(campaign, id))){
+    id = base + '-' + n; n++;
+  }
+  if(takenIds) takenIds[id] = true;
+  return id;
+}
+
 // ─── #476 E1 — the per-hex travel encounter throw (JJ pp.41–42; replaces the J1 1/6 stub) ─────
 // ONE hex's RAW draw: the 1d20 category throw on the territory-classification column (a road
 // folds one column LEFT — roads are safer, not safe, reversing the J1 "roads = no encounters"
@@ -1779,7 +1797,7 @@ function rollEncounter(campaign, journey, opts){
   // Meeting categories (monster / civilized) → the entity proposal. The id is minted from the
   // SEEDED rng (7-char base36, the registered enc- prefix) so a re-opened preview shows the
   // same id and the commit creates the entity under it (createEncounter is id-idempotent).
-  const encId = 'enc-' + ('0000000' + Math.floor(rng() * 78364164096).toString(36)).slice(-7);
+  const encId = _mintEncounterProposalId(campaign, rng, opts.takenIds);
   const prop = draw.proposal || null;
   let label, monsters = [], lairId = null, seededShellLairIds = null, encounterKind = null, fragmentCount = null;
   if(draw.category === 'civilized'){
@@ -2441,6 +2459,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // entered no hex (rest / blocked at a river / halted) makes no travel throw — the stationary
   // rest/night checks are the 'encounters' day consumer's (slot 80). ──
   const _encSeen = {};
+  const _encTaken = {};   // proposal-id mints shared across the day's hexes (collision-proof)
   for(const _ph of hexPath){
     if(!_ph) continue;
     // An UNauthored hex (hexId null — the sparse-campaign norm) still gets its RAW throw:
@@ -2448,7 +2467,7 @@ function tickJourneyDay(campaign, journey, ctx){
     const _ekey = _ph.hexId || ('c' + _ph.q + ',' + _ph.r);
     if(_encSeen[_ekey]) continue;
     _encSeen[_ekey] = true;
-    const enc = rollEncounter(campaign, journey, { rng, hexId: _ph.hexId || null, coord: { q: _ph.q, r: _ph.r }, hasRoad: dayRoaded, dayIndex: newDayIndex });
+    const enc = rollEncounter(campaign, journey, { rng, hexId: _ph.hexId || null, coord: { q: _ph.q, r: _ph.r }, hasRoad: dayRoaded, dayIndex: newDayIndex, takenIds: _encTaken });
     if(enc){
       if(enc.encounterRecord) encounters.push(enc.encounterRecord);
       notableEvents.push(enc.notableEvent);
@@ -4107,6 +4126,7 @@ function proposeEncounterDay(campaign, ctx){
     return { pendingRecords, notableEvents, encounters };
   const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
   const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const takenIds = {};   // proposal-id mints shared across the day's groups (collision-proof)
   for(const g of _restEncounterGroups(campaign)){
     const hex = (campaign.hexes || []).find(h => h && h.id === g.hexId);
     if(!hex) continue;
@@ -4118,7 +4138,7 @@ function proposeEncounterDay(campaign, ctx){
       const draw = A.encounterDraw(campaign, g.hexId, { resting: true, night: chk.period === 'night', rng: rng });
       if(!draw || draw.category === 'no-encounter') continue;
       if(draw.category !== 'monster' && draw.category !== 'civilized') continue;  // resting demotes terrain finds (belt + braces)
-      const encId = 'enc-' + ('0000000' + Math.floor(rng() * 78364164096).toString(36)).slice(-7);
+      const encId = _mintEncounterProposalId(campaign, rng, takenIds);
       const party = g.partyId ? (campaign.parties || []).find(p => p && p.id === g.partyId) : null;
       const firstCh = (campaign.characters || []).find(c => c && c.id === g.characterIds[0]);
       const who = (party && party.name) || (firstCh && firstCh.name) || 'A camped group';
@@ -4132,7 +4152,7 @@ function proposeEncounterDay(campaign, ctx){
           : (mName + ' — their lair is in this hex; GM, resolve');
       }
       else if(prop && prop.source === 'seeded-shell') what = 'something from one of this hex’s unauthored lairs — GM, populate + resolve';
-      else what = 'a ' + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster — GM, pick the creature (catalog)';
+      else what = (/^[aeiou]/.test(draw.rarity || '') ? 'an ' : 'a ') + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster — GM, pick the creature (catalog)';
       const label = who + ': ' + (chk.period === 'night' ? 'night' : 'daytime') + ' camp encounter — ' + what;
       pendingRecords.push({
         kind: 'rest-encounter', label: label,
