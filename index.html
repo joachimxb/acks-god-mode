@@ -843,7 +843,7 @@ document.addEventListener('alpine:init', () => {
      detail (78) — "→ lair" from here opens the lair as the top peek; the lair detail's own Encounters
      list closes itself before opening this. DOM order (after lair, before search) gives the
      deterministic stacked-Escape order. The Inspector stays the no-frills field editor underneath. -->
-<div x-show="encounterModalId" @keydown.escape.window="if(encounterModalId && !lairDetailId && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeEncounterModal()">
+<div x-show="encounterModalOpen" @keydown.escape.window="if(encounterModalOpen && !lairDetailId && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeEncounterModal()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="encModalEnc()">
       <div>
@@ -9725,8 +9725,12 @@ return {
       inflActorId: firstChar, inflMod: 0, inflBribe: 0
     };
     this.encounterModalId = id;
+    this.encounterModalOpen = true;
   },
-  closeEncounterModal(){ this.encounterModalId = null; },
+  // Close hides via the flag and leaves the id set: the still-mounted subtree keeps a valid
+  // entity to read, so Alpine's teardown never dereferences null (the lair/stash modals'
+  // null-on-close pattern spams expression warnings on every close).
+  closeEncounterModal(){ this.encounterModalOpen = false; },
   encModalEnc(){ return this.encounterModalId ? window.ACKS.findEncounter(this.currentCampaign, this.encounterModalId) : null; },
   encModalPrior(){ const e = this.encModalEnc(); return e ? window.ACKS.priorReactionBetween(this.currentCampaign, e) : null; },
   encPriorText(){
@@ -15046,7 +15050,9 @@ return {
   lairWizardSeed: { hexId:'', count:0 },
   // #476 M7 — World ▸ Lairs view + lair detail panel (Plan §12).
   lairDetailId: null,            // open lair in the detail modal (null = closed)
-  encounterModalId: null,        // open encounter in the resolution modal (#476 E2; null = closed)
+  encounterModalOpen: false,     // the resolution modal's visibility (#476 E2)
+  encounterModalId: null,        // the encounter it shows — kept set on close so the mounted
+                                 // subtree never re-evaluates against null during teardown (no Alpine warnings)
   encModal: {                    // transient step inputs for the resolution modal (reset on open)
     pFore: false, pLos: true, mFore: false, mLos: true, reassert: false,
     pSurpMod: 0, mSurpMod: 0,
