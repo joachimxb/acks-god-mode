@@ -468,6 +468,33 @@
         { name: 'notes',                type: 'longText', group: 'History' },
         { name: 'history',              type: 'history', readonly: true, group: 'History' }
       ]
+    },
+
+    // #476 Encounter layer E1 (D8) — the reified pre-combat interaction (RR pp.280–287;
+    // plan §15.1). The step-state objects (distance / surprise / evasion / reaction /
+    // pursuit) and the two side objects are deep dynamic shapes — omitted per the C.3
+    // freeform-fields convention (raw-JSON edited; the E2 resolution surface owns them).
+    'encounter': {
+      factory: 'blankEncounter',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Draw', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                   type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                 type: 'string', group: 'Identity', default: '', description: 'GM label; display derives from the monster / hex when empty' },
+        { name: 'scale',                type: 'enum', enumValues: ['wilderness','dungeon','sea','settlement','domain'], group: 'Identity', default: 'wilderness', description: 'Only wilderness is live in E1; the rest are reserved scales' },
+        { name: 'trigger',              type: 'enum', enumValues: ['journey-travel','hex-search','rest-night','domain-incursion','gm-authored'], group: 'Identity', default: 'gm-authored' },
+        { name: 'hexId',                type: 'id', idKind: 'hex', group: 'Identity', description: 'Where the meeting happens' },
+        { name: 'category',             type: 'enum', enumValues: ['monster','civilized'], group: 'Draw', description: 'The JJ category-draw result (empty = GM-authored)' },
+        { name: 'rarity',               type: 'enum', enumValues: ['common','uncommon','rare','very-rare'], group: 'Draw', description: 'Monster rarity by territory class (JJ p.44)' },
+        { name: 'status',               type: 'enum', enumValues: ['active','resolved'], group: 'Lifecycle', default: 'active' },
+        { name: 'phase',                type: 'enum', enumValues: ['setup','surprise','evasion','interaction','pursuit'], group: 'Lifecycle', default: 'setup' },
+        { name: 'outcome',              type: 'enum', enumValues: ['no-encounter','evaded','parleyed','dispersed','combat','settled-as-lair','dismissed'], group: 'Lifecycle', description: 'Set when resolved; combat records "GM resolves" until #141' },
+        { name: 'occurredAtTurn',       type: 'number', group: 'Lifecycle' },
+        { name: 'occurredOnDayInMonth', type: 'number', group: 'Lifecycle' },
+        { name: 'resolvedAtTurn',       type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'notes',                type: 'longText', group: 'History' },
+        { name: 'history',              type: 'history', readonly: true, group: 'History' }
+      ]
     }
   };
 

@@ -127,7 +127,9 @@ const ID_PREFIXES = Object.freeze({
   // Phase 2.95 Hirelings (#310) — day-aware recruitment drive (sub-object on the patron, 2026-06-06)
   recruitmentDrive:     'rcd',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
-  favorDutyObligation:  'fdo'
+  favorDutyObligation:  'fdo',
+  // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)
+  encounter:            'enc'
 });
 
 function newId(prefix){
@@ -829,6 +831,8 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!Array.isArray(campaign.favorDutyObligations)) campaign.favorDutyObligations = [];
   // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed entities.
   if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
+  // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions (D8).
+  if(!Array.isArray(campaign.encounters)) campaign.encounters = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -3288,6 +3292,180 @@ function seedHexLairs(campaign, hexId, opts){
 // the RAW lammasu — blocks stays GM judgment: clear it, or mark it cleared/abandoned.)
 function hexSecuringBlockers(campaign, hexId){
   return (lairsAtHex(campaign, hexId) || []).filter(l => l && (l.status === 'active' || l.status === 'unknown'));
+}
+
+// =============================================================================
+// #476 ENCOUNTER LAYER (E1) — the Encounter entity + the draw seam (D8–D12).
+// An encounter is a reified COMMITTED INTERACTION between two sides (Architecture
+// §3.13's third worked application): the multi-day influence ladder, the stored
+// intimidation roll, and the pursuit phase are state with no other home. The RAW
+// catalogs + pure resolvers live in acks-engine-catalogs.js; the GM-facing step
+// verbs (which emit events) in acks-engine-events.js; the triggers (journey hex-
+// entry, search-hour, rest-night) in their owning modules. Resolved encounters
+// persist as world memory (D9 derives prior attitude from them at E2).
+// =============================================================================
+
+// --- Lookups (pure) -----------------------------------------------------------
+function findEncounter(campaign, encounterId){
+  return ((campaign && campaign.encounters) || []).find(e => e && e.id === encounterId) || null;
+}
+function encountersAtHex(campaign, hexId){
+  return ((campaign && campaign.encounters) || []).filter(e => e && e.hexId === hexId);
+}
+function activeEncounters(campaign){
+  return ((campaign && campaign.encounters) || []).filter(e => e && e.status === 'active');
+}
+function encounterDisplayName(campaign, enc){
+  if(!enc) return '';
+  if(enc.name) return enc.name;
+  const mk = enc.monsterSide && enc.monsterSide.monsterCatalogKey;
+  const mName = mk && global.ACKS && typeof global.ACKS.monsterDisplayName === 'function'
+    ? global.ACKS.monsterDisplayName(mk) : (mk || '');
+  const what = mName || (enc.category === 'civilized' ? 'civilized encounter'
+    : enc.category === 'monster' ? 'monster encounter' : 'encounter');
+  return what + (enc.hexId ? ' at ' + enc.hexId : '');
+}
+
+// --- Creation + resolution (state-only; event emission lives in events.js) ----
+// createEncounter — the bare constructor + collection push + history stamp. Most
+// callers want createEncounterFromDraw (below), which fills the sides from a draw.
+function createEncounter(campaign, opts){
+  if(!campaign) return null;
+  const o = opts || {};
+  if(!Array.isArray(campaign.encounters)) campaign.encounters = [];
+  if(o.id){
+    const existing = findEncounter(campaign, o.id);
+    if(existing) return existing;                       // idempotent on an explicit id (commit replays)
+  }
+  const enc = global.ACKS.blankEncounter(Object.assign({
+    occurredAtTurn: campaign.currentTurn || 1,
+    occurredOnDayInMonth: campaign.currentDayInMonth || null
+  }, o));
+  enc.history.push({ turn: enc.occurredAtTurn, type: 'created', reason: o.createReason || enc.trigger || 'gm-authored' });
+  campaign.encounters.push(enc);
+  return enc;
+}
+// resolveEncounter — flip to resolved with an outcome (idempotent). Outcomes:
+// no-encounter | evaded | parleyed | dispersed | combat | settled-as-lair | dismissed.
+// 'combat' records "GM resolves" until #141; 'settled-as-lair' is E3's linger branch.
+function resolveEncounter(campaign, encounterId, outcome, opts){
+  const enc = findEncounter(campaign, encounterId);
+  if(!enc) return null;
+  const o = opts || {};
+  if(enc.status === 'resolved') return enc;             // idempotent
+  enc.status = 'resolved';
+  enc.outcome = outcome || enc.outcome || 'dismissed';
+  enc.resolvedAtTurn = (o.atTurn === undefined) ? (campaign.currentTurn || 1) : o.atTurn;
+  enc.resolvedOnDayInMonth = (o.onDayInMonth === undefined) ? (campaign.currentDayInMonth || null) : o.onDayInMonth;
+  if(o.resolvedByEventId) enc.resolvedByEventId = o.resolvedByEventId;
+  enc.history.push({ turn: enc.resolvedAtTurn, type: 'resolved', reason: enc.outcome, note: o.note || '' });
+  return enc;
+}
+
+// --- The draw seam (§15.2, D12) ------------------------------------------------
+// encounterDraw(campaign, hexId, context) — ONE function, three fills:
+//   (1) the JJ 1d20 CATEGORY draw (rollEncounterCategory — road fold, night shift,
+//       resting/known-route terrain demotion);
+//   (2) monster identity from the POOL (D5: lairEncounterProposal — active lair →
+//       lair-vs-wandering split / seeded shells / dynamic pool) — else 'gm-pick'
+//       (the GM names the creature from the catalog);
+//   (3) #141's 1d100 identity tables, when they land, replace the gm-pick fill —
+//       same signature, no caller changes.
+// context: { road?, night?, resting?, knownRoute?, rng?, includeDynamicPool?,
+//            territoryClass? (override — else derived from the hex's domain) }.
+// PURE except rng consumption — no campaign mutation; triggers materialize entities
+// from the returned draw at their commit point (createEncounterFromDraw).
+function encounterDraw(campaign, hexId, context){
+  const ctx = context || {};
+  const rng = ctx.rng || Math.random;
+  const A = global.ACKS;
+  const hex = Array.isArray(campaign && campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
+  const territoryClass = ctx.territoryClass
+    || (typeof A.territoryClassForHex === 'function' ? A.territoryClassForHex(campaign, hex) : 'unsettled');
+  const cat = A.rollEncounterCategory({
+    territoryClass, road: !!ctx.road, night: !!ctx.night,
+    resting: !!ctx.resting, knownRoute: !!ctx.knownRoute, rng
+  });
+  const draw = {
+    hexId: hexId || null, territoryClass, columnKey: cat.columnKey,
+    category: cat.category, demoted: cat.demoted || null, rolls: cat.rolls,
+    rarity: null, rarityRoll: null, identity: null, proposal: null
+  };
+  if(cat.category === 'monster'){
+    const rar = A.rollEncounterRarity(territoryClass, rng);
+    draw.rarity = rar.rarity; draw.rarityRoll = rar.roll;
+    // Pool-first (D5): an existing active lair / seeded shells / the dynamic pool answer
+    // "WHAT is encountered" before any fresh invention.
+    const prop = lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: ctx.includeDynamicPool === true });
+    draw.proposal = prop;
+    draw.identity = (prop && prop.source === 'existing-lair') ? 'pool' : 'gm-pick';
+  } else if(cat.category === 'civilized'){
+    draw.identity = 'gm-pick';                          // the 1d100 civilized table is #141 (D12)
+  }
+  return draw;
+}
+
+// --- Materialize an Encounter entity from a draw -------------------------------
+// Called at a trigger's COMMIT point (journey day commit / search verb / rest-night
+// consumer commit) — never during a pure propose pass. Only meeting categories
+// (monster / civilized) become entities; terrain discoveries (dangerous / valuable /
+// unique) have no sides and stay day-log notables. opts: { id? (stable preview id),
+// trigger, partySide{}, light?, rng?, atTurn?, onDayInMonth? }.
+function createEncounterFromDraw(campaign, draw, opts){
+  if(!campaign || !draw) return null;
+  if(draw.category !== 'monster' && draw.category !== 'civilized') return null;
+  const o = opts || {};
+  const A = global.ACKS;
+  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null };
+  const prop = draw.proposal;
+  if(prop && prop.source === 'existing-lair'){
+    monsterSide.source = 'existing-lair';
+    monsterSide.lairId = prop.lairId;
+    monsterSide.monsterCatalogKey = (prop.contents && prop.contents.monsterCatalogKey) || '';
+    monsterSide.encounterKind = prop.encounterKind || 'at-lair';
+    if(prop.encounterKind === 'wandering-fragment'){
+      monsterSide.count = (prop.fragment && prop.fragment.count) || null;
+    } else {
+      monsterSide.groupIds = (prop.contents && prop.contents.groupIds) ? prop.contents.groupIds.slice() : [];
+      monsterSide.count = (prop.contents && prop.contents.totalInhabitantCount) || null;
+    }
+  } else if(prop && prop.source === 'seeded-shell'){
+    monsterSide.source = 'seeded-shell';                // GM populates one of the hex's shells
+  } else if(prop && prop.source === 'dynamic-pool'){
+    monsterSide.source = 'dynamic';
+  }
+  const createOpts = {
+    scale: 'wilderness',
+    trigger: o.trigger || 'gm-authored',
+    hexId: draw.hexId || null,
+    category: draw.category,
+    rarity: draw.rarity || null,
+    partySide: o.partySide || {},
+    monsterSide,
+    createReason: o.trigger || 'draw'
+  };
+  if(o.id) createOpts.id = o.id;
+  if(o.atTurn !== undefined) createOpts.occurredAtTurn = o.atTurn;
+  if(o.onDayInMonth !== undefined) createOpts.occurredOnDayInMonth = o.onDayInMonth;
+  const enc = createEncounter(campaign, createOpts);
+  if(!enc) return null;
+  // Pre-roll the distance when the terrain resolves (RR pp.280–281): identity-independent,
+  // so it lands at creation; sides' counts refine the visibility cap when known.
+  if(enc.distance == null && typeof A.computeEncounterDistance === 'function'){
+    const hex = Array.isArray(campaign.hexes) ? campaign.hexes.find(h => h && h.id === enc.hexId) : null;
+    const rowKey = hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null;
+    if(rowKey){
+      enc.distance = A.computeEncounterDistance({
+        terrainRow: rowKey,
+        light: o.light || 'daylight',
+        sideACount: (enc.partySide && enc.partySide.sizeCount) || null,
+        sideBCount: (enc.monsterSide && enc.monsterSide.count) || null,
+        rng: o.rng || Math.random
+      });
+      if(enc.distance) enc.history.push({ turn: enc.occurredAtTurn, type: 'distance', reason: enc.distance.distanceFt + " ft (" + (enc.distance.terrainRow || 'terrain') + ")" });
+    }
+  }
+  return enc;
 }
 
 // =============================================================================
@@ -7848,6 +8026,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   rollLairCount, lairDiceForTerrain, lairDiceForHex, seedHexLairs,
   // #476 M4 — securing consequence (RR p.338): live lairs block settling the hex (DC-0 consumes)
   hexSecuringBlockers,
+  // #476 Encounter layer E1 — the Encounter entity + the draw seam (D8–D12, plan §15)
+  findEncounter, encountersAtHex, activeEncounters, encounterDisplayName,
+  createEncounter, resolveEncounter, encounterDraw, createEncounterFromDraw,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
   createSpecialistContract, endSpecialistContract, activeSpecialistContractFor, specialistContractsByEmployer,

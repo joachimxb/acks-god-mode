@@ -390,6 +390,47 @@ function blankLair(opts={}){
   };
 }
 
+// #476 Encounter layer E1 (D8, 2026-06-10) — the reified pre-combat interaction
+// (RR pp.280–287; survey §19, plan §15.1). An Encounter is a committed interaction
+// between two sides with identity through change: it hosts the step state the RAW
+// procedure accumulates (distance → surprise → evasion → reaction/influence), the
+// stored intimidation roll (RAW re-uses the ORIGINAL roll vs new allies — E3), and
+// the pursuit phase (E3, absorbing M5). Resolved encounters persist as world
+// memory; prior attitude is DERIVED from them (D9), never stored on Lair/Group.
+function blankEncounter(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.encounter),
+    name: opts.name || '',                            // GM label; display derives from monster/hex
+    scale: opts.scale || 'wilderness',                // wilderness|dungeon|sea|settlement|domain (only wilderness live in E1)
+    trigger: opts.trigger || 'gm-authored',           // journey-travel|hex-search|rest-night|domain-incursion|gm-authored
+    status: opts.status || 'active',                  // active|resolved
+    phase: opts.phase || 'setup',                     // setup|surprise|evasion|interaction|pursuit
+    outcome: (opts.outcome === undefined ? null : opts.outcome), // null|no-encounter|evaded|parleyed|dispersed|combat|settled-as-lair|dismissed
+    hexId: opts.hexId || null,
+    category: opts.category || null,                  // monster|civilized (the JJ category draw; null = GM-authored)
+    rarity: opts.rarity || null,                      // common|uncommon|rare|very-rare (monster draws, JJ p.44)
+    occurredAtTurn: opts.occurredAtTurn || 1,
+    occurredOnDayInMonth: (opts.occurredOnDayInMonth === undefined ? null : opts.occurredOnDayInMonth),
+    // Sides. partySide.sizeCount = man-equivalents (mounted/large 2, huge 6, gigantic 24,
+    // colossal 120 — ENCOUNTER_SIZE_MEN); monsterSide mirrors the M3 pool proposal.
+    partySide: Object.assign({ partyId: null, journeyId: null, characterIds: [], faceCharacterId: null, sizeCount: null }, opts.partySide || {}),
+    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null }, opts.monsterSide || {}),
+    // Step state (each null until its step runs; shapes documented in Data_Dictionary §4):
+    distance: opts.distance || null,                  // { rolledFt, capFt, distanceFt, light, detectedBy, terrainRow }
+    surprise: opts.surprise || null,                  // { party:{...}, monsters:{...}, evadeEligibility, noEncounter }
+    evasion: opts.evasion || null,                    // { target, modifiers[], roll, success, aftermath:{...} }
+    reaction: opts.reaction || null,                  // { current, rolls[], intimidationOriginalRoll (E3) }
+    pursuit: opts.pursuit || null,                    // reserved — E3 (absorbs M5; the monster-pursuit rule)
+    resolvedAtTurn: (opts.resolvedAtTurn === undefined ? null : opts.resolvedAtTurn),
+    resolvedOnDayInMonth: (opts.resolvedOnDayInMonth === undefined ? null : opts.resolvedOnDayInMonth),
+    resolvedByEventId: opts.resolvedByEventId || null,
+    survivorsCarriedOver: opts.survivorsCarriedOver || [],  // absorbed from the J1 encounterRecord (§15.1)
+    notes: opts.notes || '',
+    history: opts.history || []
+  };
+}
+
 function blankDungeon(opts={}){
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -1530,7 +1571,7 @@ function blankConstructible(opts={}){
 }
 
 Object.assign(ACKS, {
-  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
+  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
   blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement, blankOutpost,
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation factory

@@ -93,6 +93,14 @@
       find: (c, id) => ((c && c.lairs) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.name) || (obj && obj.monsterCatalogKey) || (obj && obj.id) },
 
+    // #476 Encounter layer E1 (D8) — the reified pre-combat interaction between two sides
+    // (RR pp.280–287). campaign.encounters[]; resolved encounters persist as world memory.
+    { kind: 'encounter', label: 'Encounter', pluralLabel: 'Encounters', icon: '🐉',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.encounters) || [],
+      find: (c, id) => ((c && c.encounters) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.monsterSide && obj.monsterSide.monsterCatalogKey) || (obj && obj.category) || (obj && obj.id) },
+
     // ── WEALTH + INVENTORY ──
     { kind: 'stash', label: 'Stash', pluralLabel: 'Stashes', icon: '💰',
       addressable: true, chronicleable: true,
