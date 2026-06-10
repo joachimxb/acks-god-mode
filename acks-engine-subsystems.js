@@ -2545,7 +2545,11 @@ function tickJourneyDay(campaign, journey, ctx){
     memberSurvival,                                          // Provisioning — compact per-member post-day survival (for the members-table proposed-day preview)
     fatigueAccumulated,
     encounters: encounters.map(e => ({ kind: e.triggeredBy || 'wandering-roll', encounterId: e.id })),
-    notableEvents: notableEvents.map(n => ({ kind: n.kind, type: n.type || null, text: n.label })),  // type routes each to the nav vs forage row in the day log
+    // type routes each notable to the nav vs forage row in the day log; payload is KEPT in the
+    // committed digest — the day-log affordances (E2 ⚔ Resolve via payload.encounterId; M4's
+    // → lair / 🐾 Track home via payload.lairId) read it. Older saves' digests lack it → the
+    // buttons simply hide (graceful), so no migration.
+    notableEvents: notableEvents.map(n => ({ kind: n.kind, type: n.type || null, text: n.label, payload: n.payload || null })),
     status: 'pending'
   };
 

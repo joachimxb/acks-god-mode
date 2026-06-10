@@ -316,6 +316,13 @@ section('trigger — journey per-hex draw → commit materializes the entity (by
   ok('commit materializes the entity under the preview id', !!made && made.trigger === 'journey-travel' && made.category === 'monster');
   ok('the pre-rolled distance lands verbatim', made.distance && made.distance.distanceFt === rec.encounterProposals[0].distance.distanceFt);
   ok('the party side carries the journey + travellers', made.partySide.journeyId === 'jrn-1' && made.partySide.characterIds.indexOf('chr-1') >= 0);
+  // E2: the committed day-record notable digest KEEPS each notable's payload — the day-log
+  // affordances (⚔ Resolve via payload.encounterId; M4's → lair / Track home via payload.lairId)
+  // read it off the committed day. (It was being compacted away to {kind,type,text}.)
+  ok('the committed day notable keeps its payload (encounterId reachable from the day log)', (function(){
+    const dn = (((rec.dayRecord && rec.dayRecord.notableEvents) || rec.notableEvents) || []).filter(n => n && n.type === 'encounter');
+    return dn.length >= 1 && dn.every(n => n.payload && /^enc-/.test(n.payload.encounterId || ''));
+  })());
   ok('re-commit does not duplicate (id-idempotent)', (function(){ const n = c.encounters.length; ACKS.commitJourneyRecord(c, rec); return c.encounters.length === n; })());
   // reroll-revert drops the day's entities
   const nBefore = c.encounters.length;
