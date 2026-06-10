@@ -806,6 +806,21 @@ document.addEventListener('alpine:init', () => {
             <button x-show="lairDetailLair().status !== 'destroyed'" @click="lairMarkDestroyed()" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100 accent-red" title="The structure itself is razed">💥 Destroy</button>
             <button @click="inspectorOpenInspect('lair', lairDetailLair().id); closeLairDetail()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Edit every field via the Inspector">🔍 Open in Inspector</button>
           </div>
+          <!-- Encounters (#476 E2) — this lair's meetings, derived by monsterSide.lairId (D9: prior
+               attitude is world memory read from these, never stored on the lair). Close-then-open:
+               the resolution modal sits BELOW this peek (77 < 78), so swap rather than stack. -->
+          <div x-show="encountersForLair(lairDetailLair().id).length">
+            <h4 class="font-semibold mb-1">Encounters <span class="opacity-60 font-normal" x-text="'· ' + encountersForLair(lairDetailLair().id).length"></span></h4>
+            <ul class="text-xs space-y-0.5 max-h-32 overflow-y-auto">
+              <template x-for="e in encountersForLair(lairDetailLair().id)" :key="'lde-'+e.id">
+                <li class="flex items-center gap-2">
+                  <span class="shrink-0" x-text="e.status === 'active' ? '⚔' : '✓'"></span>
+                  <span class="flex-grow truncate" x-text="encounterRowText(e)"></span>
+                  <button @click="closeLairDetail(); openEncounterModal(e.id)" class="underline shrink-0" x-text="e.status === 'active' ? 'resolve' : 'open'"></button>
+                </li>
+              </template>
+            </ul>
+          </div>
           <!-- History -->
           <div x-show="(lairDetailLair().history || []).length">
             <h4 class="font-semibold mb-1">History</h4>
@@ -816,6 +831,243 @@ document.addEventListener('alpine:init', () => {
             </ul>
           </div>
           <p class="text-xs opacity-50 italic" x-text="'Established turn ' + (lairDetailLair().establishedAtTurn || '?') + ' (' + (lairDetailLair().establishedBy || '?') + ')' + (lairDetailLair().lastVisitedTurn ? ' · last visited turn ' + lairDetailLair().lastVisitedTurn : '')"></p>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Encounter resolution modal (#476 E2) — the step-walking surface over the E1 verbs (RR pp.280–287):
+     awareness/surprise → evasion → reaction → influence → resolution, engine-proposed / GM-ratified.
+     z-77: above its opener surfaces (search/track 75, hex card 50, journey panel) and BELOW the lair
+     detail (78) — "→ lair" from here opens the lair as the top peek; the lair detail's own Encounters
+     list closes itself before opening this. DOM order (after lair, before search) gives the
+     deterministic stacked-Escape order. The Inspector stays the no-frills field editor underneath. -->
+<div x-show="encounterModalId" @keydown.escape.window="if(encounterModalId && !lairDetailId && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeEncounterModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
+    <template x-if="encModalEnc()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg">⚔ <span x-text="encounterLabel(encModalEnc())"></span></h3>
+            <p class="text-sm opacity-70">
+              <span class="capitalize" x-text="(encModalEnc().category || 'GM-authored') + (encModalEnc().rarity ? ' · ' + encModalEnc().rarity : '')"></span>
+              <span class="capitalize" x-text="' · ' + String(encModalEnc().trigger || '').replace(/-/g, ' ')"></span>
+              <template x-if="encModalEnc().hexId"><span> · <button @click="closeEncounterModal(); openHexDetailById(encModalEnc().hexId)" class="underline hover:opacity-80" x-text="encHexLabel(encModalEnc())"></button></span></template>
+              <span x-text="' · turn ' + encModalEnc().occurredAtTurn + (encModalEnc().occurredOnDayInMonth ? ', day ' + encModalEnc().occurredOnDayInMonth : '')"></span>
+            </p>
+            <p class="text-sm mt-1">
+              <span x-show="encModalEnc().status === 'active'" class="px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-200 border border-amber-500 capitalize" x-text="'active · ' + encModalEnc().phase"></span>
+              <span x-show="encModalEnc().status === 'resolved'" class="px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 border border-green-500 capitalize" x-text="'resolved — ' + (encModalEnc().outcome || '')"></span>
+            </p>
+          </div>
+          <button @click="closeEncounterModal()" class="text-2xl leading-none px-2" title="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <!-- Prior meeting (D9) — derived from resolved-encounter history, never stored. -->
+          <template x-if="encModalPrior()">
+            <div class="border border-sky-700/50 rounded p-2 text-sky-900" style="background:#eaf4fb">
+              🧠 <span class="font-semibold">These sides have met before</span> — <span x-text="encPriorText()"></span>
+              <button @click="openEncounterModal(encModalPrior().encounterId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the prior meeting">view</button>
+            </div>
+          </template>
+          <!-- The two sides -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div class="border border-ink/20 rounded p-2">
+              <h4 class="font-semibold">The party</h4>
+              <p x-text="encPartyLabel(encModalEnc())"></p>
+              <p class="opacity-70 text-xs" x-text="((encModalEnc().partySide.sizeCount || (encModalEnc().partySide.characterIds || []).length) || 1) + ' man-equivalents (mounted/large 2 · huge 6 · gigantic 24 · colossal 120)'"></p>
+            </div>
+            <div class="border border-ink/20 rounded p-2">
+              <h4 class="font-semibold">The other side</h4>
+              <p><span x-text="encMonsterText(encModalEnc())"></span>
+                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind !== 'wandering-fragment'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair (a peek above this panel)">→ lair</button>
+                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+              </p>
+              <p class="opacity-70 text-xs capitalize" x-text="[encModalEnc().monsterSide.source, encModalEnc().monsterSide.encounterKind].filter(Boolean).join(' · ').replace(/-/g, ' ')"></p>
+            </div>
+          </div>
+          <!-- 1 · Distance -->
+          <div class="border border-ink/30 rounded p-2">
+            <h4 class="font-semibold mb-1">1 · Encounter distance <span class="opacity-50 font-normal">(RR p.281)</span></h4>
+            <template x-if="encModalEnc().distance">
+              <p><span class="font-mono font-semibold" x-text="encModalEnc().distance.distanceFt + ' ft'"></span>
+                <span class="opacity-70 text-xs" x-text="' — rolled ' + encModalEnc().distance.rolledFt + ' ft · visibility cap ' + encModalEnc().distance.capFt + ' ft (' + encModalEnc().distance.light + ')' + (encModalEnc().distance.detectedBy ? ' · first seen by: ' + encModalEnc().distance.detectedBy : '') + (encModalEnc().distance.terrainRow ? ' · ' + String(encModalEnc().distance.terrainRow).replace(/-/g, ' ') : '')"></span></p>
+            </template>
+            <template x-if="!encModalEnc().distance">
+              <div class="flex items-center gap-2">
+                <span class="italic opacity-60">Not rolled.</span>
+                <button x-show="encModalEnc().status === 'active'" @click="encModalRollDistance()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Roll the terrain's encounter-distance dice, capped at maximum visibility (RR p.281)">🎲 Roll distance</button>
+              </div>
+            </template>
+          </div>
+          <!-- 2 · Awareness & surprise -->
+          <div class="border border-ink/30 rounded p-2">
+            <h4 class="font-semibold mb-1">2 · Awareness &amp; surprise <span class="opacity-50 font-normal">(RR pp.281–284)</span></h4>
+            <template x-if="encModalEnc().status === 'active' && (!encModalEnc().surprise || encModal.reassert)">
+              <div class="space-y-1">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5">
+                  <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.pFore"> party has foreknowledge</label>
+                  <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.mFore"> monsters have foreknowledge</label>
+                  <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.pLos"> party has line of sight</label>
+                  <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.mLos"> monsters have line of sight</label>
+                </div>
+                <p class="opacity-70 text-xs" x-text="encAwarenessPreview()"></p>
+                <button @click="encModalSetAwareness()" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">Set awareness</button>
+              </div>
+            </template>
+            <template x-if="encModalEnc().surprise && !encModal.reassert">
+              <div class="space-y-1">
+                <p><span class="font-mono" x-text="'party ' + encModalEnc().surprise.party.awareness + ' × monsters ' + encModalEnc().surprise.monsters.awareness"></span>
+                  <span class="opacity-70" x-text="' → evasion: ' + encModalEnc().surprise.evadeEligibility"></span>
+                  <button x-show="encModalEnc().status === 'active' && !encSurpriseRolled() && !encModalEnc().reaction" @click="encModal.reassert = true" class="text-xs underline opacity-60 ml-1" title="Change the asserted awareness (resets the pending surprise roll)">↺ re-assert</button>
+                </p>
+                <template x-if="encSurpriseNeedsRoll()">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <label class="flex items-center gap-1 text-xs">party mod <input type="number" x-model.number="encModal.pSurpMod" class="w-14" title="Own bonuses − the opponents' smallest stealth penalty"></label>
+                    <label class="flex items-center gap-1 text-xs">monster mod <input type="number" x-model.number="encModal.mSurpMod" class="w-14"></label>
+                    <button @click="encModalRollSurprise()" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">🎲 Roll surprise (1d6 per side, 2− surprised)</button>
+                  </div>
+                </template>
+                <template x-if="encSurpriseRolled()">
+                  <p>
+                    <span :class="encModalEnc().surprise.party.surprised ? 'text-red-700 font-semibold' : 'text-green-800'" x-text="'party ' + (encModalEnc().surprise.party.roll ? encModalEnc().surprise.party.roll.total + ' → ' : '') + (encModalEnc().surprise.party.surprised ? 'SURPRISED' : 'ready')"></span>
+                    <span> · </span>
+                    <span :class="encModalEnc().surprise.monsters.surprised ? 'text-green-800 font-semibold' : ''" x-text="'monsters ' + (encModalEnc().surprise.monsters.roll ? encModalEnc().surprise.monsters.roll.total + ' → ' : '') + (encModalEnc().surprise.monsters.surprised ? 'SURPRISED' : 'ready')"></span>
+                  </p>
+                </template>
+              </div>
+            </template>
+            <template x-if="!encModalEnc().surprise && encModalEnc().status !== 'active'">
+              <p class="italic opacity-60">— not walked.</p>
+            </template>
+          </div>
+          <!-- 3 · Evasion -->
+          <div class="border border-ink/30 rounded p-2">
+            <h4 class="font-semibold mb-1">3 · Evasion <span class="opacity-50 font-normal">(RR pp.284–285)</span></h4>
+            <template x-if="encModalEnc().evasion">
+              <div class="space-y-1">
+                <p class="font-mono" x-show="encModalEnc().evasion.roll && encModalEnc().evasion.roll.auto"><span class="text-green-800 font-semibold">automatic success</span></p>
+                <p class="font-mono" x-show="encModalEnc().evasion.roll && !encModalEnc().evasion.roll.auto" :class="encModalEnc().evasion.success ? 'text-green-800' : 'text-orange-700'" x-text="'🎲 ' + encModalEnc().evasion.roll.natural + (encModalEnc().evasion.roll.modSum ? (encModalEnc().evasion.roll.modSum > 0 ? ' +' : ' ') + encModalEnc().evasion.roll.modSum : '') + ' = ' + encModalEnc().evasion.roll.total + ' vs ' + encModalEnc().evasion.target + '+ → ' + (encModalEnc().evasion.success ? 'evaded ✓' : 'failed ✗')"></p>
+                <p class="text-green-900" x-show="encModalEnc().evasion.aftermath" x-text="'💨 Displaced ' + (encModalEnc().evasion.aftermath || {}).distanceFt + ' ft toward ' + (encModalEnc().evasion.aftermath || {}).clockDirection + ' o\'clock (hex face ' + (encModalEnc().evasion.aftermath || {}).hexFace + ') · Navigation at −4 or the party is lost — and knows it (RR p.285).'"></p>
+                <p class="text-orange-800" x-show="!encModalEnc().evasion.success">✗ Failed — proceed to reactions (a failed evasion is not necessarily a fight).</p>
+              </div>
+            </template>
+            <template x-if="!encModalEnc().evasion">
+              <div>
+                <template x-if="encEvasionGate().can">
+                  <div class="space-y-1">
+                    <p class="opacity-70 text-xs" x-text="encEvasionPreview()"></p>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      <label class="flex items-center gap-1">size <input type="number" min="1" x-model.number="encModal.evSize" class="w-16" title="Man-equivalents — larger parties are easier to spot (RR p.284)"></label>
+                      <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.evExplorer"> explorer guide +5</label>
+                      <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.evForlorn"> forlorn hope +4</label>
+                      <label class="flex items-center gap-1.5" x-show="!encEvasionAerialExempt()"><input type="checkbox" x-model="encModal.evFly"> monsters fly −4</label>
+                      <label class="flex items-center gap-1">speed ± <input type="number" x-model.number="encModal.evSpeed" class="w-14" title="Speed differential — fastest monster vs slowest adventurer (±4)"></label>
+                      <label class="flex items-center gap-1">GM ± <input type="number" x-model.number="encModal.evGmMod" class="w-14"></label>
+                    </div>
+                    <label x-show="encModalEnc().surprise && encModalEnc().surprise.party.surprised" class="flex items-center gap-1.5 text-xs"><input type="checkbox" x-model="encModal.evAllowSurprised"> an unsurprised explorer guides — the party may evade though surprised</label>
+                    <button @click="encModalAttemptEvasion()" :disabled="encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised" :class="(encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised) ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-100 hover:bg-yellow-200'" class="px-2 py-0.5 border border-ink rounded font-semibold">🏃 Attempt evasion</button>
+                    <span class="text-xs accent-red" x-show="encModalEnc().surprise && encModalEnc().surprise.party.surprised && !encModal.evAllowSurprised">The party is surprised — it cannot evade.</span>
+                  </div>
+                </template>
+                <template x-if="!encEvasionGate().can">
+                  <p class="italic opacity-60" x-text="encEvasionGate().reason"></p>
+                </template>
+              </div>
+            </template>
+          </div>
+          <!-- 4 · Reaction -->
+          <div class="border border-ink/30 rounded p-2">
+            <h4 class="font-semibold mb-1">4 · Reaction <span class="opacity-50 font-normal">(RR pp.285–286)</span></h4>
+            <template x-if="!encModalEnc().reaction && encModalEnc().status === 'active'">
+              <div class="space-y-1">
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                  <label class="flex items-center gap-1">face
+                    <select x-model="encModal.faceId" class="text-xs">
+                      <option value="">— none (flat 2d6) —</option>
+                      <template x-for="cid in (encModalEnc().partySide.characterIds || [])" :key="'encf-' + cid">
+                        <option :value="cid" x-text="encCharName(cid) + ' (CHA ' + encChaModText(cid) + ')'"></option>
+                      </template>
+                    </select>
+                  </label>
+                  <label class="flex items-center gap-1">GM ± <input type="number" x-model.number="encModal.reactMod" class="w-14"></label>
+                  <button @click="encModalRollReaction()" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">🎲 Roll reaction (2d6 + CHA)</button>
+                </div>
+                <p class="opacity-60 text-xs">Roll only when the outcome isn't obvious. A natural 2 is never better than Unfriendly; a natural 12 never worse than Indifferent.</p>
+              </div>
+            </template>
+            <template x-if="!encModalEnc().reaction && encModalEnc().status !== 'active'">
+              <p class="italic opacity-60">— not rolled.</p>
+            </template>
+            <template x-if="encModalEnc().reaction">
+              <div class="space-y-1">
+                <p>Standing attitude: <span class="font-semibold capitalize px-1.5 py-0.5 rounded border" :class="encAttitudeClass(encModalEnc().reaction.current)" x-text="encModalEnc().reaction.current"></span>
+                  <span class="opacity-60 text-xs" x-show="encReactionFriendlyHint()"> · a Friendly creature of fewer HD can be recruited — Reaction to Hiring (RR p.162), the Recruit tab</span></p>
+                <ul class="text-xs space-y-0.5 font-mono">
+                  <template x-for="(r, ri) in encModalEnc().reaction.rolls" :key="'encr-' + ri">
+                    <li x-text="encReactionRollText(r)"></li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+          </div>
+          <!-- 5 · Influence (only once interacting) -->
+          <div class="border border-ink/30 rounded p-2" x-show="encModalEnc().reaction && encModalEnc().status === 'active'">
+            <h4 class="font-semibold mb-1">5 · Influence the reaction <span class="opacity-50 font-normal">(RR pp.286–287)</span></h4>
+            <p class="opacity-70 text-xs" x-text="encInfluenceForecast()"></p>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-1">
+              <label class="flex items-center gap-1">speaker
+                <select x-model="encModal.inflActorId" class="text-xs">
+                  <option value="">— none (flat 2d6) —</option>
+                  <template x-for="cid in (encModalEnc().partySide.characterIds || [])" :key="'enci-' + cid">
+                    <option :value="cid" x-text="encCharName(cid) + ' (CHA ' + encChaModText(cid) + ')'"></option>
+                  </template>
+                </select>
+              </label>
+              <label class="flex items-center gap-1">bribe
+                <select x-model.number="encModal.inflBribe" class="text-xs">
+                  <option :value="0">none</option>
+                  <option :value="1" x-text="'+1 (a ' + encBribePayLabel(1) + '\'s pay)'"></option>
+                  <option :value="2" x-text="'+2 (a ' + encBribePayLabel(2) + '\'s pay)'"></option>
+                  <option :value="3" x-text="'+3 (a ' + encBribePayLabel(3) + '\'s pay)'"></option>
+                </select>
+              </label>
+              <span class="opacity-70" x-show="encModal.inflBribe > 0 && encActorBriberyProficient()">Bribery proficiency — cheaper scale, no backlash</span>
+              <label class="flex items-center gap-1">GM ± <input type="number" x-model.number="encModal.inflMod" class="w-14"></label>
+            </div>
+            <div class="flex items-center gap-2 mt-1.5">
+              <button @click="encModalAttemptInfluence()" :disabled="!encInfluenceFits().fits" :class="encInfluenceFits().fits ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded font-semibold">🗣 Attempt influence</button>
+              <span class="text-xs accent-red" x-show="!encInfluenceFits().fits" x-text="encInfluenceFits().reason"></span>
+            </div>
+            <p class="opacity-60 text-xs mt-1">Each attempt takes longer (round → turn → hour → work-day → week); the 3rd+ costs the speaker's day. A failed bribe backlashes one step toward Hostile (not when proficient). Once interacting, the party can no longer evade.</p>
+          </div>
+          <!-- Resolution -->
+          <div class="flex flex-wrap gap-2 border-t border-ink/20 pt-2" x-show="encModalEnc().status === 'active'">
+            <button @click="encModalResolve('parleyed')" class="px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Part on the standing attitude — it persists as these sides' shared history (a later meeting recalls it)">🤝 Parley &amp; part</button>
+            <button @click="encModalResolve('combat')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="Hand to the table — the GM resolves combat (#141); record the result afterwards as an adventure outcome (a cleared lair flips from there)">⚔ To combat (GM resolves)</button>
+            <button @click="encModalResolve('dispersed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The meeting broke up without consequence">💨 Dispersed</button>
+            <button @click="encModalResolve('dismissed')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Strike it — GM override; it never happened">✕ Dismiss</button>
+          </div>
+          <template x-if="encModalEnc().status === 'resolved'">
+            <div class="border border-green-600/40 rounded p-2" style="background:#eef7ea">
+              <span class="capitalize font-semibold" x-text="encModalEnc().outcome"></span>
+              <span class="opacity-70" x-text="' · turn ' + (encModalEnc().resolvedAtTurn == null ? '?' : encModalEnc().resolvedAtTurn) + (encModalEnc().resolvedOnDayInMonth ? ', day ' + encModalEnc().resolvedOnDayInMonth : '')"></span>
+              <span class="capitalize" x-show="encModalEnc().reaction && encModalEnc().reaction.current" x-text="' · last attitude: ' + ((encModalEnc().reaction || {}).current || '')"></span>
+            </div>
+          </template>
+          <!-- Footer: Inspector + history -->
+          <div class="flex flex-wrap gap-2 border-t border-ink/20 pt-2">
+            <button @click="inspectorOpenInspect('encounter', encModalEnc().id); closeEncounterModal()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Edit every field via the Inspector (the GM override path)">🔍 Open in Inspector</button>
+          </div>
+          <div x-show="(encModalEnc().history || []).length">
+            <h4 class="font-semibold mb-1">History</h4>
+            <ul class="text-xs space-y-0.5 max-h-40 overflow-y-auto">
+              <template x-for="(h, hi) in (encModalEnc().history || []).slice().reverse()" :key="'ench-' + hi">
+                <li><span class="opacity-60" x-text="'turn ' + (h.turn == null ? '—' : h.turn) + ' · '"></span><span class="font-semibold" x-text="h.type"></span><span class="opacity-70" x-text="h.reason && h.reason !== h.type ? (' — ' + h.reason) : ''"></span></li>
+              </template>
+            </ul>
+          </div>
         </div>
       </div>
     </template>
@@ -1402,6 +1654,9 @@ document.addEventListener('alpine:init', () => {
                 <button x-show="res.id && ri === searchHex.results.length - 1" @click="rerollSearchResult(ri)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this search throw (GM) — the hour's encounter + survey results are held; the hour is already spent">⟳ Reroll</button>
               </div>
               <div x-show="res.encounter" class="text-amber-900">⚔ Encounter! <span x-text="res.encounterText"></span>
+                <!-- E2: a search meeting materializes its Encounter entity on the spot — resolve it here
+                     (the modal opens above this panel; close it to drop back into the search). -->
+                <button x-show="res.encounter && res.encounter.encounterId" @click="openEncounterModal(res.encounter.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold ml-1" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(res.encounter.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
                 <button x-show="res.encounter && res.encounter.lairId" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
               </div>
               <div x-show="res.survey" class="opacity-80">📐 Land Surveying: <span x-text="res.surveyText"></span></div>
@@ -4860,6 +5115,9 @@ document.addEventListener('alpine:init', () => {
                 <template x-for="(ee,eei) in journeyDayEncounters(d)" :key="'dle-'+di+'-'+eei">
                   <div class="flex flex-wrap gap-x-2 items-baseline pl-3">
                     <span class="text-red-700">⚔ <span x-text="dayTickNotableText(ee)"></span></span>
+                    <!-- E2: a committed meeting IS an Encounter entity — walk the RAW procedure on it.
+                         A pending/preview day has no entity yet (it materializes at commit) → button hides. -->
+                    <button x-show="ee.payload && ee.payload.encounterId && encounterById(ee.payload.encounterId)" @click="openEncounterModal(ee.payload.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(ee.payload.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
                     <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind !== 'wandering-fragment'" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
                     <!-- A wandering FRAGMENT met away from home: the lair is NOT located — Tracking can follow
                          the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose. -->
@@ -7951,6 +8209,22 @@ document.addEventListener('alpine:init', () => {
         <p class="text-xs accent-red mt-1" x-show="window.ACKS.hexSecuringBlockers(currentCampaign, worldHexEditingHex().id).length" x-text="'⚠ ' + window.ACKS.hexSecuringBlockers(currentCampaign, worldHexEditingHex().id).length + ' lair(s) stand in the way of securing this hex for settlement (RR p.338).'"></p>
       </div>
 
+      <!-- Encounters (#476 E2) — meetings at this hex, ACTIVE first. This is the post-commit
+           handle for a paused Day Clock's camp/travel encounter: commit the day, open the hex,
+           resolve from here. (Resolved ones keep the world's memory — capped at the last 6.) -->
+      <div class="vellum border border-ink/40 rounded p-2" x-show="encountersAtHexId(worldHexEditingHex().id).length">
+        <h4 class="font-semibold text-sm">⚔ Encounters <span class="text-sm opacity-60 font-normal" x-text="'(' + encountersAtHexId(worldHexEditingHex().id).length + ')'"></span></h4>
+        <ul class="text-sm mt-1 space-y-0.5">
+          <template x-for="e in encountersAtHexId(worldHexEditingHex().id)" :key="'hxe-'+e.id">
+            <li class="flex items-center gap-2">
+              <span class="shrink-0" :title="e.status === 'active' ? 'active — needs resolving' : ('resolved — ' + (e.outcome || ''))" x-text="e.status === 'active' ? '⚔' : '✓'"></span>
+              <button class="underline flex-grow truncate text-left" @click="openEncounterModal(e.id)" x-text="encounterLabel(e)"></button>
+              <span class="text-xs opacity-70 shrink-0 capitalize" x-text="e.status === 'active' ? ('active — ' + e.phase) : (e.outcome || 'resolved')"></span>
+            </li>
+          </template>
+        </ul>
+      </div>
+
       <!-- Dungeons — same audited list pattern. -->
       <div class="vellum border border-ink/40 rounded p-2" x-data="{
         showAdd: false,
@@ -9430,6 +9704,255 @@ return {
   // The day's encounter notables (kind journey-encounter) — rendered as their own day-log row with
   // open-the-lair / open-the-hex affordances (the M3 pool-aware encounter's GM surface).
   journeyDayEncounters(d){ return ((d && d.notableEvents) || []).filter(ne => ne && ne.type === 'encounter'); },
+
+  // ── Encounter resolution modal (#476 E2) — the step-walking surface over the E1 verbs.
+  // Each button calls one engine verb (acks-engine-events.js); the modal never mutates the
+  // entity itself except the distance roll (a pure catalog compute + history stamp — there
+  // is no verb for it because the triggers pre-roll it). Inspector = the override path.
+  openEncounterModal(id){
+    const enc = window.ACKS.findEncounter(this.currentCampaign, id);
+    if(!enc){ this.showToast('No encounter entity yet — commit the day first.', 3500); return; }
+    const det = (enc.distance && enc.distance.detectedBy) || 'both';
+    const firstChar = (enc.partySide && (enc.partySide.faceCharacterId || (enc.partySide.characterIds || [])[0])) || '';
+    this.encModal = {
+      pFore: false, mFore: false,
+      pLos: det === 'both' || det === 'party',       // line-of-sight defaults follow who detected whom
+      mLos: det === 'both' || det === 'monsters',
+      reassert: false, pSurpMod: 0, mSurpMod: 0,
+      evSize: (enc.partySide && (enc.partySide.sizeCount || (enc.partySide.characterIds || []).length)) || 1,
+      evExplorer: false, evForlorn: false, evFly: false, evSpeed: 0, evGmMod: 0, evAllowSurprised: false,
+      faceId: firstChar, reactMod: 0,
+      inflActorId: firstChar, inflMod: 0, inflBribe: 0
+    };
+    this.encounterModalId = id;
+  },
+  closeEncounterModal(){ this.encounterModalId = null; },
+  encModalEnc(){ return this.encounterModalId ? window.ACKS.findEncounter(this.currentCampaign, this.encounterModalId) : null; },
+  encModalPrior(){ const e = this.encModalEnc(); return e ? window.ACKS.priorReactionBetween(this.currentCampaign, e) : null; },
+  encPriorText(){
+    const p = this.encModalPrior(); if(!p) return '';
+    return p.outcome + (p.reaction ? ' · last attitude ' + p.reaction : '')
+      + ' · turn ' + (p.atTurn == null ? '?' : p.atTurn) + (p.onDayInMonth ? ', day ' + p.onDayInMonth : '');
+  },
+  encounterLabel(enc){ return window.ACKS.encounterDisplayName(this.currentCampaign, enc); },
+  encounterById(id){ return id ? window.ACKS.findEncounter(this.currentCampaign, id) : null; },
+  encHexLabel(enc){
+    const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === enc.hexId);
+    return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : enc.hexId) : (enc.hexId || '');
+  },
+  encCharName(cid){ const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === cid); return (c && c.name) || cid; },
+  encChaModText(cid){
+    const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === cid);
+    const s = c && c.abilities && c.abilities.CHA;
+    const m = (typeof s === 'number' && window.ACKS.abilityMod) ? window.ACKS.abilityMod(s) : 0;
+    return (m >= 0 ? '+' : '') + m;
+  },
+  encPartyLabel(enc){
+    const ps = (enc && enc.partySide) || {};
+    if(ps.partyId){
+      const p = ((this.currentCampaign && this.currentCampaign.parties) || []).find(x => x && x.id === ps.partyId);
+      if(p && p.name) return p.name + ' — ' + ((ps.characterIds || []).map(id => this.encCharName(id)).join(', ') || '(no members listed)');
+    }
+    const names = (ps.characterIds || []).map(id => this.encCharName(id));
+    return names.length ? names.join(', ') : '(no characters bound — set the face via the Inspector)';
+  },
+  encMonsterText(enc){
+    const ms = (enc && enc.monsterSide) || {};
+    const mName = (ms.monsterCatalogKey && window.ACKS.monsterDisplayName && window.ACKS.monsterDisplayName(ms.monsterCatalogKey)) || ms.monsterCatalogKey || '';
+    const what = mName || (enc.category === 'civilized' ? 'civilized folk (GM identifies)' : enc.category === 'monster' ? 'monsters (GM identifies)' : '(unidentified)');
+    return (ms.count ? ms.count + ' × ' : '') + what;
+  },
+  encAttitudeClass(band){
+    return { hostile: 'border-red-600 bg-red-100 text-red-800', unfriendly: 'border-orange-500 bg-orange-100 text-orange-800',
+             neutral: 'border-ink/40 bg-black/5', indifferent: 'border-sky-600 bg-sky-100 text-sky-900',
+             friendly: 'border-green-600 bg-green-100 text-green-900' }[band] || 'border-ink/40';
+  },
+  encModalRollDistance(){
+    const enc = this.encModalEnc(); if(!enc || enc.status !== 'active' || enc.distance) return;
+    const A = window.ACKS;
+    const hex = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(h => h && h.id === enc.hexId) || null;
+    const rowKey = (hex && typeof A.encounterRowKeyForHex === 'function') ? A.encounterRowKeyForHex(hex) : null;
+    const d = A.computeEncounterDistance({
+      terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open',
+      sideACount: (enc.partySide && (enc.partySide.sizeCount || (enc.partySide.characterIds || []).length)) || 1,
+      sideBCount: (enc.monsterSide && enc.monsterSide.count) || 1
+    });
+    if(!d){ this.showToast('No distance class resolves here — set distance via the Inspector.', 4000); return; }
+    enc.distance = d;
+    enc.history.push({ turn: (this.currentCampaign && this.currentCampaign.currentTurn) || 1, type: 'distance', reason: d.distanceFt + ' ft (rolled ' + d.rolledFt + ', cap ' + d.capFt + ')' });
+    this.markDirty(); this.schedulePersist();
+  },
+  encAwarenessPreview(){
+    const A = window.ACKS;
+    const pKey = A.surpriseAwarenessKey(!!this.encModal.pFore, !!this.encModal.pLos);
+    const mKey = A.surpriseAwarenessKey(!!this.encModal.mFore, !!this.encModal.mLos);
+    const el = A.encounterEvadeEligibility(pKey, mKey);
+    if(el === 'no-encounter') return '⚠ Neither side aware — setting this resolves the encounter as "no encounter" (RR p.281).';
+    const rolls = k => { const s = A.SURPRISE_AWARENESS_STATES[k]; return s.rolls ? ('rolls 1d6' + (s.mod > 0 ? '+1' : s.mod < 0 ? '−1' : '')) : 'not surprised'; };
+    return 'Party ' + pKey + ' (' + rolls(pKey) + ') × monsters ' + mKey + ' (' + rolls(mKey) + ') → evasion: ' + el + '.';
+  },
+  encModalSetAwareness(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterSetAwareness(this.currentCampaign, enc.id, {
+      partyForeknowledge: !!this.encModal.pFore, partyLineOfSight: !!this.encModal.pLos,
+      monsterForeknowledge: !!this.encModal.mFore, monsterLineOfSight: !!this.encModal.mLos
+    });
+    if(!r || !r.ok){ this.showToast('Could not set awareness: ' + ((r && r.error) || '?'), 3500); return; }
+    this.encModal.reassert = false;
+    this.markDirty(); this.schedulePersist();
+    if(r.noEncounter) this.showToast('Neither side became aware — resolved: no encounter (RR p.281).', 4500);
+  },
+  encSurpriseRolled(){ const e = this.encModalEnc(); return !!(e && e.surprise && e.surprise.party && e.surprise.party.surprised !== null); },
+  encSurpriseNeedsRoll(){
+    const e = this.encModalEnc();
+    return !!(e && e.status === 'active' && e.surprise && !e.surprise.noEncounter && e.surprise.party && e.surprise.party.surprised === null);
+  },
+  encModalRollSurprise(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterRollSurprise(this.currentCampaign, enc.id, { partyMod: Number(this.encModal.pSurpMod) || 0, monsterMod: Number(this.encModal.mSurpMod) || 0 });
+    if(!r || !r.ok){ this.showToast('Could not roll surprise: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+  },
+  encEvasionGate(){
+    const e = this.encModalEnc();
+    if(!e || e.evasion) return { can: false, reason: '' };
+    if(e.status !== 'active') return { can: false, reason: '— not attempted.' };
+    if(e.reaction) return { can: false, reason: 'Refused — the party is already interacting (RR p.287).' };
+    if(!e.surprise) return { can: false, reason: 'Set awareness first — evasion eligibility comes from the Surprise Matrix.' };
+    const el = e.surprise.evadeEligibility;
+    if(el === 'no-encounter') return { can: false, reason: 'No encounter.' };
+    if(el === 'cannot') return { can: false, reason: 'Cannot evade — ' + (e.surprise.party.awareness === 'none' ? 'the party is unaware of the monsters.' : 'the monsters have them cold (foreknowledge + line of sight).') };
+    return { can: true, reason: '' };
+  },
+  encEvasionRowKey(){
+    const e = this.encModalEnc(); if(!e) return null;
+    const A = window.ACKS;
+    if(e.distance && e.distance.terrainRow) return e.distance.terrainRow;
+    const hex = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(h => h && h.id === e.hexId) || null;
+    return (hex && typeof A.encounterRowKeyForHex === 'function') ? A.encounterRowKeyForHex(hex) : null;
+  },
+  encEvasionPreview(){
+    const e = this.encModalEnc(); if(!e) return '';
+    if(e.surprise && (e.surprise.evadeEligibility === 'always' || (e.surprise.monsters && e.surprise.monsters.surprised)))
+      return 'Automatic — ' + (e.surprise.monsters && e.surprise.monsters.surprised ? 'all the monsters are surprised.' : 'the party has them cold (foreknowledge + sight vs none).');
+    const rowKey = this.encEvasionRowKey();
+    if(!rowKey) return 'No terrain row resolves here — the GM sets the target (default 20+).';
+    const t = window.ACKS.evasionTargetFor(rowKey, Number(this.encModal.evSize) || 1);
+    return t ? ('Throw ' + t.target + '+ — ' + String(rowKey).replace(/-/g, ' ') + ' base ' + t.base + ' + size ' + t.sizeBand + ' (+' + t.sizeAdd + ').') : 'No terrain row resolves — GM sets the target.';
+  },
+  encEvasionAerialExempt(){
+    const rowKey = this.encEvasionRowKey();
+    return !!(rowKey && (window.ACKS.EVASION_AERIAL_EXEMPT_ROWS || []).includes(rowKey));
+  },
+  encModalAttemptEvasion(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const mods = [];
+    if(this.encModal.evExplorer) mods.push({ label: 'explorer guide (familiar territory)', value: 5 });
+    if(this.encModal.evForlorn) mods.push({ label: 'forlorn hope (reduced size)', value: 4 });
+    if(this.encModal.evFly && !this.encEvasionAerialExempt()) mods.push({ label: 'monsters fly, party does not', value: -4 });
+    if(Number(this.encModal.evSpeed)) mods.push({ label: 'speed differential', value: Number(this.encModal.evSpeed) });
+    if(Number(this.encModal.evGmMod)) mods.push({ label: 'GM', value: Number(this.encModal.evGmMod) });
+    const r = window.ACKS.encounterAttemptEvasion(this.currentCampaign, enc.id, {
+      modifiers: mods, sizeCount: Number(this.encModal.evSize) || undefined, allowSurprised: !!this.encModal.evAllowSurprised
+    });
+    if(!r || !r.ok){
+      const msg = { 'already-interacting': 'Refused — already interacting (RR p.287).', 'cannot-evade': 'The Surprise Matrix says this side cannot evade.', 'party-surprised': 'The party is surprised — only an unsurprised explorer guide lets it evade.' }[r && r.error] || ('Could not attempt: ' + ((r && r.error) || '?'));
+      this.showToast(msg, 4500); return;
+    }
+    this.markDirty(); this.schedulePersist();
+    if(r.evasion && r.evasion.success && r.evasion.aftermath)
+      this.showToast('Evaded — displaced ' + r.evasion.aftermath.distanceFt + ' ft toward ' + r.evasion.aftermath.clockDirection + " o'clock. Navigation at −4 or knowingly lost (RR p.285).", 6000);
+  },
+  encModalRollReaction(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const mods = Number(this.encModal.reactMod) ? [{ label: 'GM', value: Number(this.encModal.reactMod) }] : [];
+    const r = window.ACKS.encounterRollReaction(this.currentCampaign, enc.id, { faceCharacterId: this.encModal.faceId || null, modifiers: mods });
+    if(!r || !r.ok){ this.showToast('Could not roll reaction: ' + ((r && r.error) || '?'), 3500); return; }
+    if(!this.encModal.inflActorId) this.encModal.inflActorId = this.encModal.faceId;
+    this.markDirty(); this.schedulePersist();
+  },
+  encReactionRollText(r){
+    if(!r) return '';
+    if(r.kind === 'initial') return '2d6 ' + r.natural + (r.chaMod ? ((r.chaMod > 0 ? ' +' : ' ') + r.chaMod + ' CHA') : '') + (r.modSum ? ((r.modSum > 0 ? ' +' : ' ') + r.modSum) : '') + ' = ' + r.total + ' → ' + r.band + (r.clamped ? ' (' + r.clamped + ' clamp)' : '');
+    return 'attempt ' + r.attempt + ' (' + r.timeRequired + '): ' + r.total + ' → ' + r.band + ' — ' + r.from + ' → ' + r.to + (r.bribe ? (' · bribe +' + r.bribe.bonus + (r.bribe.backlash ? ' BACKLASH' : '')) : '');
+  },
+  encReactionFriendlyHint(){
+    const e = this.encModalEnc();
+    return !!(e && e.reaction && e.reaction.current === 'friendly' && e.category === 'monster');
+  },
+  encInfluenceNextInfo(){
+    const e = this.encModalEnc(); if(!e || !e.reaction) return null;
+    const n = (e.reaction.rolls || []).filter(r => r && r.kind === 'influence').length + 1;
+    return Object.assign({ attemptNumber: n }, window.ACKS.influenceAttemptInfo(n));
+  },
+  encInfluenceForecast(){
+    const info = this.encInfluenceNextInfo(); if(!info) return '';
+    const cost = info.activitySlot === 'incidental' ? 'incidental — no budget cost'
+      : info.activitySlot === 'ancillary' ? "costs 1 ancillary hour of the speaker's day"
+      : ("costs the speaker's dedicated day" + (info.days > 1 ? ' × ' + info.days : ''));
+    return 'Next: attempt ' + info.attemptNumber + ' — takes ' + info.time + ' · ' + cost + '.';
+  },
+  encInfluenceFits(){
+    const e = this.encModalEnc(); const info = this.encInfluenceNextInfo();
+    if(!e || !info) return { fits: false, reason: '' };
+    if(info.activitySlot === 'incidental') return { fits: true, reason: '' };
+    const actorId = this.encModal.inflActorId || (e.partySide && e.partySide.faceCharacterId) || null;
+    if(!actorId) return { fits: true, reason: '' };          // no bound speaker — nothing to budget
+    const A = window.ACKS;
+    const BUDGET = A.ACTIVITY_BUDGET || { dedicatedPerDay: 1, ancillaryPerDedicatedDay: 4, ancillaryMaxPerDay: 12 };
+    const b = A.characterActivityBudget(this.currentCampaign, actorId);
+    const name = this.encCharName(actorId);
+    if(info.activitySlot === 'dedicated'){
+      if((b.dedicatedUsed || 0) >= (BUDGET.dedicatedPerDay || 1)) return { fits: false, reason: name + ' has no full-day slot left today — this attempt takes ' + info.time + '.' };
+      return { fits: true, reason: '' };
+    }
+    const dedUsed = b.dedicatedUsed || 0, ancUsed = b.ancillaryUsed || 0;
+    const ancCap = (dedUsed >= 1) ? BUDGET.ancillaryPerDedicatedDay : BUDGET.ancillaryMaxPerDay;
+    if(ancUsed + 1 > ancCap) return { fits: false, reason: name + ' has no time left today — ' + ancUsed + ' of ' + ancCap + ' short tasks used' + (dedUsed >= 1 ? ' alongside a full-day task' : '') + '.' };
+    return { fits: true, reason: '' };
+  },
+  encActorBriberyProficient(){
+    const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === this.encModal.inflActorId);
+    return !!(c && (c.proficiencies || []).some(p => /bribery/i.test(String((p && (p.name || p)) || ''))));
+  },
+  encBribePayLabel(bonus){
+    const t = window.ACKS.bribeBonusInfo(bonus, this.encActorBriberyProficient());
+    return t ? t.pay : '';
+  },
+  encModalAttemptInfluence(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const fits = this.encInfluenceFits(); if(!fits.fits){ this.showToast(fits.reason, 4500); return; }
+    const mods = Number(this.encModal.inflMod) ? [{ label: 'GM', value: Number(this.encModal.inflMod) }] : [];
+    const opts = { actorCharacterId: this.encModal.inflActorId || null, modifiers: mods };
+    if(this.encModal.inflBribe) opts.bribe = { bonus: this.encModal.inflBribe, proficient: this.encActorBriberyProficient() };
+    const r = window.ACKS.encounterAttemptInfluence(this.currentCampaign, enc.id, opts);
+    if(!r || !r.ok){ this.showToast('Could not attempt: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Influence: ' + r.attempt.from + ' → ' + r.attempt.to + (r.attempt.bribe && r.attempt.bribe.backlash ? ' (bribe backlash!)' : '') + '.', 4000);
+  },
+  encModalResolve(outcome){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.recordEncounterResolved(this.currentCampaign, enc.id, outcome, {});
+    if(!r || !r.ok){ this.showToast('Could not resolve: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    if(outcome === 'combat') this.showToast('Combat — GM resolves at the table. Record the result afterwards as an adventure outcome (Events ▸ 📨 Emit Event ▸ adventure-result); a cleared lair flips from there.', 8000);
+  },
+  // Deep-link list helpers (E2c): the lair's meetings (world memory, D9) + the hex's.
+  encountersForLair(lairId){
+    return ((this.currentCampaign && this.currentCampaign.encounters) || [])
+      .filter(e => e && e.monsterSide && e.monsterSide.lairId === lairId).slice().reverse();
+  },
+  encountersAtHexId(hexId){
+    const list = window.ACKS.encountersAtHex(this.currentCampaign, hexId) || [];
+    const act = list.filter(e => e && e.status === 'active');
+    const res = list.filter(e => e && e.status !== 'active').slice(-6).reverse();
+    return act.concat(res);
+  },
+  encounterRowText(e){
+    return this.encounterLabel(e)
+      + ' · ' + (e.status === 'active' ? ('active — ' + e.phase) : (e.outcome || 'resolved'))
+      + ' · turn ' + (e.occurredAtTurn == null ? '?' : e.occurredAtTurn) + (e.occurredOnDayInMonth ? '/' + e.occurredOnDayInMonth : '');
+  },
 
   // Friendly description of the wizard situation for the current kind.
   // Used by the Create sub-view stub to tell GMs what's coming.
@@ -14523,6 +15046,14 @@ return {
   lairWizardSeed: { hexId:'', count:0 },
   // #476 M7 — World ▸ Lairs view + lair detail panel (Plan §12).
   lairDetailId: null,            // open lair in the detail modal (null = closed)
+  encounterModalId: null,        // open encounter in the resolution modal (#476 E2; null = closed)
+  encModal: {                    // transient step inputs for the resolution modal (reset on open)
+    pFore: false, pLos: true, mFore: false, mLos: true, reassert: false,
+    pSurpMod: 0, mSurpMod: 0,
+    evSize: 1, evExplorer: false, evForlorn: false, evFly: false, evSpeed: 0, evGmMod: 0, evAllowSurprised: false,
+    faceId: '', reactMod: 0,
+    inflActorId: '', inflMod: 0, inflBribe: 0
+  },
   lairsSearch: '',               // Lairs view text filter (name / monster / hex)
   lairsStatusFilter: 'all',      // Lairs view status filter
   lairDetailPopulateKey: '',     // ✨ populate-from-catalog monster key (shells / empty lairs)
