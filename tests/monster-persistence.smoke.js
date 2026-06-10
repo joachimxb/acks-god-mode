@@ -663,6 +663,41 @@ section('M4 trackHomeAttempt — Tracking follows a fragment home (RR p.120)');
   ok('an unmodified 1 fails the track', r2.ok && !r2.success && r2.rolled === 1);
 }
 
+section('M4 rerollHexSearch — re-throw the latest search hour (the forage-reroll sibling)');
+{
+  const c = ACKS.blankCampaign({ name: 'reroll' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-r', terrain: 'hills' })];
+  const ch = ACKS.blankCharacter({ name: 'Seeker' }); ch.currentHexId = 'hex-r'; c.characters.push(ch);
+  const lair = ACKS.createLair(c, { status: 'active', hexId: 'hex-r', name: 'Lost Den' });
+  // fail → success: the reroll discovers
+  const r1 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.99) });   // nat 1, no encounter
+  ok('setup: the hour failed', r1.ok && !r1.success && !r1.found);
+  const ancBefore = ACKS.characterActivityBudget(c, ch.id).ancillaryUsed;
+  const rr1 = ACKS.rerollHexSearch(c, r1.event.id, { rng: seq(0.9, 0.0) });                 // 19 ≥ 17 → found
+  ok('reroll fail → success discovers the lair', rr1.ok && rr1.success && rr1.found && rr1.found.id === lair.id && lair.knownToPlayers === true);
+  ok('the discovery record appears, parented on the SAME search event', c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.parentEventId === r1.event.id));
+  ok('the reroll spends NO new hour (budget unchanged)', ACKS.characterActivityBudget(c, ch.id).ancillaryUsed === ancBefore);
+  // success → fail: the reroll reverses the discovery surgically
+  const dhLen = lair.discoveryHistory.length, hLen = lair.history.length;
+  const rr2 = ACKS.rerollHexSearch(c, r1.event.id, { rng: seq(0.0) });                      // nat 1 → lost
+  ok('reroll success → fail un-discovers (knownToPlayers back, stamps truncated)', rr2.ok && !rr2.success
+    && lair.knownToPlayers === false && lair.discoveryHistory.length === dhLen - 1 && lair.history.length === hLen - 1);
+  ok('the child lair-discovered record is dropped', !c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.parentEventId === r1.event.id));
+  ok('the event updates in place (rolled/success/foundLairId)', r1.event.payload.rolled === 1 && r1.event.payload.success === false && r1.event.payload.foundLairId === null);
+  // the hour's encounter is HELD across a reroll
+  const r2 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.0, 0.0) });   // fail + encounter hit
+  ok('setup: the hour rolled an encounter', !!r2.encounter);
+  const encBefore = JSON.stringify(r2.event.payload.encounter);
+  ACKS.rerollHexSearch(c, r2.event.id, { rng: seq(0.5) });
+  ok('the encounter outcome is held across the reroll', JSON.stringify(r2.event.payload.encounter) === encBefore);
+  // guards
+  ok('guards: unknown event / track-home not rerollable', ACKS.rerollHexSearch(c, 'evt-none').error === 'event-not-found'
+    && (function(){ ch.proficiencies = ['Tracking'];
+         const den = ACKS.createLair(c, { status: 'active', hexId: 'hex-r', name: 'Other Den' });
+         const t = ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: den.id, rng: seq(0.0) });
+         return ACKS.rerollHexSearch(c, t.event.id).error === 'track-not-rerollable'; })());
+}
+
 // =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);

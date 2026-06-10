@@ -2866,6 +2866,80 @@ function recordLairDiscovered(campaign, lairId, opts){
   return _emitLairDiscovered(campaign, lair, ch || null, opts.method || 'gm-reveal', null);
 }
 
+// Apply a search find: snapshot the lair's pre-discovery state into the search event's payload
+// (so a reroll can reverse JUST this discovery), then discover + emit the chronicle record.
+// hexSearchActivity only finds UNdiscovered lairs, so the pre knownToPlayers is false by construction.
+function _applySearchDiscovery(campaign, ev, ch, lair){
+  const A = _gpwACKS();
+  ev.payload._pre = {
+    lastVisitedTurn: (lair.lastVisitedTurn === undefined) ? null : lair.lastVisitedTurn,
+    discoveryHistoryLen: Array.isArray(lair.discoveryHistory) ? lair.discoveryHistory.length : 0,
+    historyLen: Array.isArray(lair.history) ? lair.history.length : 0
+  };
+  if(typeof A.discoverLair === 'function') A.discoverLair(campaign, lair.id, { by: ch.id, method: ev.payload.method });
+  _emitLairDiscovered(campaign, lair, ch, ev.payload.method, ev);
+}
+// Reverse a search find (reroll lost it): restore the lair from the payload's _pre snapshot and
+// drop the child lair-discovered record — a same-session affordance, like the forage line-tag reverse.
+function _reverseSearchDiscovery(campaign, ev){
+  const A = _gpwACKS();
+  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, ev.payload.foundLairId) : null;
+  if(lair){
+    const pre = ev.payload._pre || {};
+    lair.knownToPlayers = false;
+    lair.lastVisitedTurn = (pre.lastVisitedTurn === undefined) ? null : pre.lastVisitedTurn;
+    if(Array.isArray(lair.discoveryHistory) && pre.discoveryHistoryLen != null) lair.discoveryHistory.length = Math.min(lair.discoveryHistory.length, pre.discoveryHistoryLen);
+    if(Array.isArray(lair.history) && pre.historyLen != null) lair.history.length = Math.min(lair.history.length, pre.historyLen);
+  }
+  if(Array.isArray(campaign.eventLog)){
+    for(let i = campaign.eventLog.length - 1; i >= 0; i--){
+      const w = campaign.eventLog[i];
+      if(w && w.event && w.event.kind === 'lair-discovered' && w.event.parentEventId === ev.id) campaign.eventLog.splice(i, 1);
+    }
+  }
+  delete ev.payload._pre;
+}
+
+// Re-roll a logged search hour (the GM's "that throw was unlucky" redo — the forage-reroll sibling).
+// Re-throws ONLY the search d20 vs the SAME target/bonus/mod; the hour's encounter check + Land
+// Surveying assessment are HELD (separate dice with their own outcomes — same philosophy as the
+// journey day log's split nav/forage rerolls). Flips the discovery if the success state changes:
+// a lost find is reversed surgically (knownToPlayers back, discovery/history stamps truncated, the
+// child lair-discovered record dropped) and a fresh success re-picks from the hex's CURRENT
+// undiscovered pool. Updates the event in place — the hour was already spent, so the #346 budget
+// is unchanged (a reroll works even when the day is full). Track-home attempts are not rerollable.
+function rerollHexSearch(campaign, eventId, opts){
+  opts = opts || {};
+  const wrap = (campaign.eventLog || []).find(e => e && e.event && e.event.id === eventId);
+  if(!wrap) return { ok: false, error: 'event-not-found' };
+  const ev = wrap.event;
+  if(ev.kind !== 'hex-search') return { ok: false, error: 'not-a-search' };
+  if(ev.payload.method === 'track-home') return { ok: false, error: 'track-not-rerollable' };
+  const ch = (campaign.characters || []).find(c => c && c.id === ev.payload.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const rng = opts.rng || Math.random;
+  const target = Number(ev.payload.target) || 18;
+  const bonus = Number(ev.payload.bonus) || 0;
+  const mod = Number(ev.payload.mod) || 0;
+  if(ev.payload.foundLairId) _reverseSearchDiscovery(campaign, ev);   // the old find returns to the pool before the re-pick
+  const rolled = _provD20(rng);
+  const score = rolled + bonus + mod;
+  const success = (rolled !== 1) && (score >= target);
+  let found = null;
+  if(success){
+    let pool = _undiscoveredLairsAt(campaign, ev.payload.hexId).filter(l => score >= target + (Number(l.hiddenDC) || 0));
+    if(ev.payload.specificLairId) pool = pool.filter(l => l.id === ev.payload.specificLairId);
+    if(pool.length) found = pool[Math.floor(rng() * pool.length)];
+  }
+  ev.payload.rolled = rolled;
+  ev.payload.success = success;
+  ev.payload.foundLairId = found ? found.id : null;
+  if(found) _applySearchDiscovery(campaign, ev, ch, found);
+  wrap.result = wrap.result || {};
+  wrap.result.narrativeSummary = (ch.name || 'The party') + ' searches the hex — ' + (found ? ('finds ' + (found.name || 'a lair') + '.') : 'finds nothing.');
+  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: success, found: found || null, event: ev };
+}
+
 // One search-hour (RR pp.276–277). opts: { actorCharacterId, hexId? (default: the actor's),
 // specific? (−4, a particular POI), specificLairId? (only that lair can be found),
 // encounterChance? (default 1/6 — the J1 wilderness stub chance; #141 owns the real tables), rng? }.
@@ -2944,10 +3018,7 @@ function hexSearchActivity(campaign, opts){
   ev.campaignLogHidden = true;   // the Judge's secret roll — audit + budget only; discovery narrates via lair-discovered
   const who = ch.name || 'The party';
   _logAppliedEvent(campaign, ev, { narrativeSummary: who + ' searches the hex — ' + (found ? ('finds ' + (found.name || 'a lair') + '.') : 'finds nothing.') });
-  if(found){
-    if(typeof A.discoverLair === 'function') A.discoverLair(campaign, found.id, { by: ch.id, method: ev.payload.method });
-    _emitLairDiscovered(campaign, found, ch, ev.payload.method, ev);
-  }
+  if(found) _applySearchDiscovery(campaign, ev, ch, found);
   return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: throwSuccess,
            found: found || null, encounter: encounter, survey: survey, speedMilesPerDay: sp.speed, event: ev };
 }
@@ -3075,7 +3146,7 @@ Object.assign(ACKS, {
   // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4) + reroll.
   forageActivity, huntActivity, rerollProvisioningActivity,
   // #476 M4 — Wilderness Search + track-home discovery verbs (RR pp.276–277 + p.120; Plan §6).
-  hexSearchActivity, trackHomeAttempt, recordLairDiscovered
+  hexSearchActivity, trackHomeAttempt, recordLairDiscovered, rerollHexSearch
 });
 
 if(typeof module !== 'undefined' && module.exports){

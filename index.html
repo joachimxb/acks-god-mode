@@ -1392,10 +1392,14 @@ document.addEventListener('alpine:init', () => {
         <div class="space-y-1.5">
           <template x-for="(res, ri) in searchHex.results" :key="ri">
             <div class="text-sm rounded p-2 space-y-0.5" :class="res.found ? 'bg-green-100 border border-green-400' : (res.encounter ? 'bg-amber-100 border border-amber-400' : 'bg-black/5 border border-ink/20')">
-              <div>
+              <div class="flex flex-wrap items-baseline gap-x-1">
                 <span class="font-mono" x-text="'🎲 ' + res.rolled + (res.bonus ? '+' + res.bonus : '') + (res.mod ? res.mod : '') + ' vs ' + res.target + '+'"></span>
                 <span x-text="res.found ? (' → ✓ found: ' + res.foundName) : (res.success ? ' → ✓ throw made — nothing turned up' : ' → ✗ nothing found')"></span>
                 <button x-show="res.foundLairId" @click="openLairDetail(res.foundLairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+                <!-- Only the LATEST hour is rerollable (an earlier find changes what later hours could
+                     find — the journey day-log's latest-day-only convention). Re-throws JUST the search
+                     die; the hour's encounter + survey are held, and no new hour is spent. -->
+                <button x-show="res.id && ri === searchHex.results.length - 1" @click="rerollSearchResult(ri)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Re-roll this search throw (GM) — the hour's encounter + survey results are held; the hour is already spent">⟳ Reroll</button>
               </div>
               <div x-show="res.encounter" class="text-amber-900">⚔ Encounter! <span x-text="res.encounterText"></span>
                 <button x-show="res.encounter && res.encounter.lairId" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
@@ -14033,10 +14037,24 @@ return {
         : 'not enough information yet (throw ' + r.survey.rolled + (r.survey.bonus ? '+' + r.survey.bonus : '') + ' vs 18+)';
     }
     this.searchHex.results.push({
+      id: (r.event && r.event.id) || null,
       rolled: r.rolled, target: r.target, bonus: r.bonus, mod: r.mod, success: r.success,
       found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null,
       encounter: r.encounter || null, encounterText: encounterText, survey: r.survey || null, surveyText: surveyText
     });
+    this.markDirty(); this.schedulePersist();
+  },
+  // Re-roll the latest search hour (the forage-reroll sibling): re-throws just the search die via
+  // rerollHexSearch — discovery flips with the result, the encounter/survey display is held, and
+  // no new hour is charged (so it works even when the actor's day is full).
+  rerollSearchResult(ri){
+    const row = this.searchHex.results[ri]; if(!row || !row.id) return;
+    const r = window.ACKS.rerollHexSearch(this.currentCampaign, row.id);
+    if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || 'unknown error'), 3500); return; }
+    this.searchHex.results.splice(ri, 1, Object.assign({}, row, {
+      rolled: r.rolled, success: r.success,
+      found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null
+    }));
     this.markDirty(); this.schedulePersist();
   },
   openTrackHome(opts){
