@@ -446,6 +446,11 @@ section('V4 — hunt + budget counting + error paths');
   ok('hunt territory Unsettled = +4', r.terrMod === 4);
   ok('hunt success adds 6 day-rations (1 st feeds 6)', rationDays(c.characters[0]) === 6);
   ok('hunt flags wandering-monster risk', r.wanderingMonsterRisk === true);
+  // E7 — the risk is a REAL draw now (RR p.278; the full coverage lives in encounters.smoke.js).
+  // The HI tape rolls 20 on the unsettled category column = a unique terrain find: recorded, no entity.
+  ok('hunt rolls the RR p.278 wandering draw (recorded on the payload)', r.encounter
+    && r.encounter.category === 'unique' && r.encounter.encounterId === null
+    && c.eventLog[c.eventLog.length - 1].event.payload.encounter.category === 'unique');
   ok('hunt event is dedicated', c.eventLog[c.eventLog.length - 1].event.payload.activityCost.slot === 'dedicated');
   // budget counts a forage (ancillary) + a hunt (dedicated) on the same day
   const c2 = provCampaign(); c2.characters = [mkChar('chr-b', 'hex-forest', { inventory: [] })];

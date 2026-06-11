@@ -419,7 +419,7 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { actorCharacterId: 'string', activity: 'string' },
     O: { forageKind: 'string', rolled: 'number', target: 'number', bonus: 'number', terrMod: 'number',
          success: 'boolean', auto: 'boolean', yieldDays: 'number', yieldStone: 'number',
-         wanderingMonsterRisk: 'boolean', hexId: 'string', activityCost: 'object', narrative: 'string' }
+         wanderingMonsterRisk: 'boolean', encounter: 'object', hexId: 'string', activityCost: 'object', narrative: 'string' }
   },
   // CoL-1 (Phase 2.5 Provisioning §16.2) — off-journey survival day record (engine-emitted, record-only).
   'survival-day': {
@@ -2694,7 +2694,17 @@ function _provReverseYield(campaign, ch, ev){
 }
 function _provNarrative(ch, p){
   const who = ch.name || 'A character';
-  if(p.activity === 'hunt') return who + (p.success ? ' hunts and brings down game (6 days’ food).' : ' hunts but finds no game.');
+  if(p.activity === 'hunt'){
+    let s = who + (p.success ? ' hunts and brings down game (6 days’ food).' : ' hunts but finds no game.');
+    // The RR p.278 wandering-monster draw rode the hunt (payload.encounter) — chronicle it.
+    if(p.encounter && p.encounter.encounterId){
+      s += ' The hunt crosses paths with ' + (p.encounter.label || 'a wandering encounter')
+         + (p.encounter.encounterKind === 'at-lair' ? ' at their lair' : '') + '.';
+    } else if(p.encounter && p.encounter.category){
+      s += ' The hunt turns up a ' + p.encounter.category + ' terrain encounter — GM details.';
+    }
+    return s;
+  }
   const k = p.forageKind || 'food';
   if(p.auto) return who + ' tops up at a fresh-water source.';
   if(!p.success) return who + ' forages for ' + k + ' but comes up empty.';
@@ -2773,6 +2783,50 @@ function forageActivity(campaign, opts){
   return { ok: true, success, rolled, target, bonus, terrMod, event: ev };
 }
 
+// RR p.278: "Adventurers who hunt risk encountering wandering monsters, however, with the
+// Judge rolling on his encounter table based on the terrain." One draw per hunt attempt
+// (ENCOUNTER_FREQUENCY 'hunting' = per-attempt in every territory class), the standard
+// TABLE-FIRST chain the travel/rest triggers use (#476 E1/E4) — a hunter prowls the hex's
+// wilds, so terrain finds apply (no resting demotion) and no road column folds. partySide
+// threads the hunter's cohort so a band hunting THEM never answers their own draw (E4m).
+// A meeting (monster/civilized) materializes its Encounter entity at once — the hunt is a
+// live GM verb, like the search-hour. Returns the compact record the payload carries, or
+// null (no-encounter, or no authored hex — an unauthored coord draws nothing, the E6 rule).
+function _huntWanderingDraw(campaign, ch, hex, rng){
+  const A = _gpwACKS();
+  if(!hex || typeof A.encounterDraw !== 'function') return null;
+  const cohort = (typeof A.characterCohort === 'function') ? A.characterCohort(campaign, ch) : [ch];
+  const ids = cohort.map(c => c && c.id).filter(Boolean);
+  const draw = A.encounterDraw(campaign, hex.id, { rng: rng,
+    partySide: { partyId: ch.partyId || null, characterIds: ids } });
+  if(!draw || draw.category === 'no-encounter') return null;
+  const prop = draw.proposal || null;
+  const rec = {
+    category: draw.category, rarity: draw.rarity || null, columnKey: draw.columnKey,
+    source: (prop && prop.source) || null, lairId: (prop && prop.lairId) || null,
+    encounterKind: (prop && prop.encounterKind) || null,
+    encounterId: null, label: ''
+  };
+  if((draw.category === 'monster' || draw.category === 'civilized') && typeof A.createEncounterFromDraw === 'function'){
+    const entity = A.createEncounterFromDraw(campaign, draw, {
+      trigger: 'hunt',
+      partySide: { partyId: ch.partyId || null, journeyId: null,
+                   characterIds: ids, faceCharacterId: ch.id, sizeCount: ids.length || 1 },
+      rng: rng
+    });
+    if(entity){
+      rec.encounterId = entity.id;
+      const ms = entity.monsterSide || {};
+      rec.lairId = ms.lairId || rec.lairId;
+      rec.encounterKind = ms.encounterKind || rec.encounterKind;
+      const name = (ms.monsterCatalogKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(ms.monsterCatalogKey))
+        || ms.label || (draw.category === 'civilized' ? 'civilized folk (GM identifies)' : 'monsters (GM identifies)');
+      rec.label = (ms.count ? ms.count + ' ' : '') + name;
+    }
+  }
+  return rec;
+}
+
 function huntActivity(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
@@ -2786,8 +2840,9 @@ function huntActivity(campaign, opts){
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Outlands') terrMod += 2; else if(territory === 'Unsettled') terrMod += 4;
   const target = 14;
   const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
-  const ev = _provCommit(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, wanderingMonsterRisk: true });
-  return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, event: ev };
+  const encounter = _huntWanderingDraw(campaign, ch, hex, rng);
+  const ev = _provCommit(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, wanderingMonsterRisk: true, encounter: encounter });
+  return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, encounter: encounter, event: ev };
 }
 
 // Re-roll a logged forage/hunt (the GM's "that throw was unlucky" affordance, per Joachim). Re-throws the
@@ -2824,7 +2879,7 @@ function rerollProvisioningActivity(campaign, eventId, opts){
   if(!success){ ev.payload.yieldDays = 0; ev.payload.yieldStone = 0; }
   wrap.result = wrap.result || {};
   wrap.result.narrativeSummary = _provNarrative(ch, ev.payload);
-  return { ok: true, success, rolled, target, bonus, terrMod, event: ev, kind: kind, activity: ev.payload.activity, forageKind: ev.payload.forageKind, wanderingMonsterRisk: ev.payload.wanderingMonsterRisk };
+  return { ok: true, success, rolled, target, bonus, terrMod, event: ev, kind: kind, activity: ev.payload.activity, forageKind: ev.payload.forageKind, wanderingMonsterRisk: ev.payload.wanderingMonsterRisk, encounter: ev.payload.encounter || null };
 }
 
 // ─── #476 M4 — Wilderness Search + track-home (RR pp.276–277 + p.120; Plan §6) ────────────────────

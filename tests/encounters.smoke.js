@@ -2152,6 +2152,97 @@ section('E6 — a homing band abroad: findable (E4m), and a chase sprung from me
 }
 
 // =============================================================================
+section('E7 — the hunt rolls the wandering-monster draw (RR p.278, Joachim 2026-06-11)');
+{
+  // RR p.278: "Adventurers who hunt risk encountering wandering monsters, however, with the
+  // Judge rolling on his encounter table based on the terrain." One TABLE-FIRST draw per
+  // attempt (ENCOUNTER_FREQUENCY 'hunting' = per-attempt in every territory class); a meeting
+  // (monster/civilized) materializes its Encounter entity at once — the hunt is a live GM verb,
+  // like the search-hour. The draw rides the provisioning event's payload; the reroll holds it.
+  const mkHuntWorld = () => {
+    const c = ACKS.blankCampaign({ name: 'hunt' });
+    c.hexes = [{ id: 'hex-h', coord: { q: 0, r: 0 }, terrain: 'forest', domainId: null }];
+    const hunter = ACKS.blankCharacter({ name: 'Hunter' }); hunter.currentHexId = 'hex-h'; hunter.partyId = 'pty-h';
+    const mate = ACKS.blankCharacter({ name: 'Mate' }); mate.currentHexId = 'hex-h'; mate.partyId = 'pty-h';
+    c.characters.push(hunter, mate);
+    return { c, hunter, mate };
+  };
+  const chaseAtHexH = (c, id, quarryCharacterId) => {
+    const e = ACKS.createEncounter(c, { id, trigger: 'rest-night', hexId: 'hex-h', category: 'monster', rarity: 'common',
+      partySide: { partyId: 'pty-h', characterIds: [quarryCharacterId], sizeCount: 1 },
+      monsterSide: { source: 'fresh', monsterCatalogKey: 'common-jackal', count: 5, encounterKind: 'wandering' } });
+    e.phase = 'pursuit';
+    e.pursuit = { status: 'pursuing', pursuerLabel: 'Common Jackal', pursuerMilesPerDay: 24, gapMiles: 1,
+                  lastPartyHexId: 'hex-h', traceConcealed: false, gmMod: 0, startedAtTurn: 1, startedOnDayInMonth: 1,
+                  throws: [{ kind: 'take-up', success: true }] };
+    return e;
+  };
+  // The shared meeting tape (unsettled column, the hex has no domain): hunt d20 20 → success;
+  // category d20 10 → monster; rarity d20 1 → common; identity d100 51 on the forest table
+  // (bare base folds to forest-deciduous) = Common Jackal; lair d100 100 → abroad (wandering).
+  const meetingTape = () => seq(0.99, 0.45, 0.0, 0.50, 0.99, 0.5);
+
+  // ── a quiet day: the unsettled column's 1–6 = No Encounter → null, nothing materialized ──
+  let W = mkHuntWorld();
+  let r = ACKS.huntActivity(W.c, { actorCharacterId: W.hunter.id, rng: seq(0.99, 0.25) });
+  ok('a quiet hunt: throw resolved, encounter null, nothing materialized', r.ok && r.success === true
+    && r.encounter === null && (W.c.encounters || []).length === 0 && r.event.payload.encounter == null);
+
+  // ── a meeting materializes at once ──
+  W = mkHuntWorld();
+  r = ACKS.huntActivity(W.c, { actorCharacterId: W.hunter.id, rng: meetingTape() });
+  const ent = (W.c.encounters || [])[0] || null;
+  ok('a meeting materializes the Encounter entity (trigger hunt, active)', !!ent && ent.trigger === 'hunt' && ent.status === 'active');
+  ok('…the table named the side (common-jackal ×4, wandering, source table)', !!ent
+    && ent.monsterSide.monsterCatalogKey === 'common-jackal' && ent.monsterSide.count === 4
+    && ent.monsterSide.encounterKind === 'wandering' && ent.monsterSide.source === 'table');
+  ok('…partySide = the hunter cohort (party co-members at the hex), face = the hunter', !!ent
+    && ent.partySide.characterIds.length === 2 && ent.partySide.characterIds.indexOf(W.hunter.id) >= 0
+    && ent.partySide.characterIds.indexOf(W.mate.id) >= 0 && ent.partySide.faceCharacterId === W.hunter.id);
+  ok('…the payload carries the compact record (id + label)', r.encounter && r.encounter.encounterId === ent.id
+    && r.encounter.label === '4 Common Jackal' && r.event.payload.encounter.encounterId === ent.id);
+  ok('…the provisioning event is the last log entry + its narrative names the meeting',
+    W.c.eventLog[W.c.eventLog.length - 1].event.id === r.event.id
+    && /crosses paths with 4 Common Jackal/.test(W.c.eventLog[W.c.eventLog.length - 1].result.narrativeSummary));
+
+  // ── the reroll re-throws ONLY the hunting die — the draw is held (the search-reroll philosophy) ──
+  const rr = ACKS.rerollProvisioningActivity(W.c, r.event.id, { rng: () => 0 });
+  ok('reroll holds the encounter: same entity, same record, only the hunt die moved', rr.ok && rr.rolled === 1
+    && rr.success === false && rr.encounter && rr.encounter.encounterId === ent.id
+    && (W.c.encounters || []).length === 1 && r.event.payload.encounter.encounterId === ent.id);
+
+  // ── a terrain category (unsettled 19–20 = unique) records with no entity ──
+  W = mkHuntWorld();
+  r = ACKS.huntActivity(W.c, { actorCharacterId: W.hunter.id, rng: seq(0.99, 0.99) });
+  ok('a terrain find: recorded (category unique), nothing materialized', r.encounter
+    && r.encounter.category === 'unique' && r.encounter.encounterId === null && (W.c.encounters || []).length === 0);
+  ok('…and the narrative says so', /unique terrain encounter/.test(W.c.eventLog[W.c.eventLog.length - 1].result.narrativeSummary));
+
+  // ── E4m: the hunter never draws the band hunting HIM — a third party does ──
+  W = mkHuntWorld();
+  chaseAtHexH(W.c, 'enc-hunt-chase', W.hunter.id);
+  const third = ACKS.blankCharacter({ name: 'Third' }); third.currentHexId = 'hex-h';
+  W.c.characters.push(third);
+  r = ACKS.huntActivity(W.c, { actorCharacterId: third.id, rng: meetingTape() });
+  let side = (W.c.encounters || []).find(e => e.trigger === 'hunt');
+  ok('a third party hunt draws the chasing band AS ITSELF (E4m)', !!side
+    && side.monsterSide.source === 'pursuing-band' && side.monsterSide.pursuitEncounterId === 'enc-hunt-chase'
+    && side.monsterSide.count === 5);
+  W = mkHuntWorld();
+  chaseAtHexH(W.c, 'enc-hunt-chase2', W.hunter.id);
+  r = ACKS.huntActivity(W.c, { actorCharacterId: W.hunter.id, rng: meetingTape() });
+  side = (W.c.encounters || []).find(e => e.trigger === 'hunt');
+  ok('the quarry own hunt falls through to plain wandering (never its pursuer)', !!side
+    && side.monsterSide.source === 'table' && !side.monsterSide.pursuitEncounterId && side.monsterSide.count === 4);
+
+  // ── no authored hex → no draw (the E6 unauthored rule) ──
+  W = mkHuntWorld();
+  W.hunter.currentHexId = null;
+  r = ACKS.huntActivity(W.c, { actorCharacterId: W.hunter.id, rng: seq(0.99) });
+  ok('a hexless hunter rolls no draw (encounter null)', r.ok && r.encounter === null && (W.c.encounters || []).length === 0);
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

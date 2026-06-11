@@ -1903,7 +1903,7 @@ document.addEventListener('alpine:init', () => {
      counterpart to 🛒 Trade, over ACKS.forageActivity / huntActivity. Opens from the character sheet
      (🌿 Forage / 🏹 Hunt) or a hex card. Forage = ancillary, Hunt = dedicated (#346); +4 with Survival;
      terrain/territory modifiers on food + hunt (RR p.278). Layered at z-75 (above the character sheet). -->
-<div x-show="forage.open" @keydown.escape.window="closeForage()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="forage.open" @keydown.escape.window="if(forage.open && !$event.defaultPrevented) closeForage()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -1942,14 +1942,21 @@ document.addEventListener('alpine:init', () => {
       <template x-if="forage.results.length">
         <div class="space-y-1.5">
           <template x-for="(res, ri) in forage.results" :key="res.id || ri">
-            <div class="text-sm rounded p-2 flex items-center justify-between gap-2" :class="(res.success || res.auto) ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
-              <span>
-                <span class="font-semibold" x-text="forageKindLabel(res.kind)"></span>
-                <template x-if="res.auto"><span> — 💧 filled up (free)</span></template>
-                <template x-if="!res.auto"><span x-text="' — ' + (res.success ? '✓' : '✗') + ' rolled ' + res.rolled + (res.bonus ? ('+' + res.bonus) : '') + (res.terrMod ? (res.terrMod > 0 ? ('+' + res.terrMod) : ('' + res.terrMod)) : '') + ' vs ' + res.target + '+ → ' + (res.success ? forageYieldText(res) : 'nothing')"></span></template>
-                <template x-if="!res.auto && res.success && res.kind === 'hunt'"><span class="opacity-80"> · ⚠ wandering-monster risk</span></template>
-              </span>
-              <button x-show="!res.auto" @click="rerollForageResult(ri)" class="shrink-0 text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-roll this throw">⟳ Reroll</button>
+            <div class="text-sm rounded p-2 space-y-0.5" :class="(res.success || res.auto) ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
+              <div class="flex items-center justify-between gap-2">
+                <span>
+                  <span class="font-semibold" x-text="forageKindLabel(res.kind)"></span>
+                  <template x-if="res.auto"><span> — 💧 filled up (free)</span></template>
+                  <template x-if="!res.auto"><span x-text="' — ' + (res.success ? '✓' : '✗') + ' rolled ' + res.rolled + (res.bonus ? ('+' + res.bonus) : '') + (res.terrMod ? (res.terrMod > 0 ? ('+' + res.terrMod) : ('' + res.terrMod)) : '') + ' vs ' + res.target + '+ → ' + (res.success ? forageYieldText(res) : 'nothing')"></span></template>
+                  <template x-if="!res.auto && res.kind === 'hunt' && !res.encounter"><span class="opacity-80"> · no wandering encounter</span></template>
+                </span>
+                <button x-show="!res.auto" @click="rerollForageResult(ri)" class="shrink-0 text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :title="res.kind === 'hunt' ? 'Re-roll the hunting throw — the wandering-monster draw is held' : 'Re-roll this throw'">⟳ Reroll</button>
+              </div>
+              <!-- E7 — the RR p.278 hunt risk is a REAL draw now: a meeting materializes its Encounter
+                   entity on the spot (resolve it here — the panel opens above; close it to drop back). -->
+              <div x-show="res.encounter" class="text-amber-900">⚔ Wandering encounter! <span x-text="forageEncounterText(res)"></span>
+                <button x-show="res.encounter && res.encounter.encounterId" @click="openEncounterModal(res.encounter.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold ml-1" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(res.encounter.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
+              </div>
             </div>
           </template>
         </div>
@@ -15487,7 +15494,7 @@ return {
     if(k === 'firewood') return mk({ target: forest?3:14, bonus: surv?4:0, terrMod:0, costLabel:'ancillary', note:'8 st firewood (~4 hrs of fire).' });
     if(k === 'hunt'){
       const terr = this._forageTerritory(hex); let tm = 0; if(terr==='Civilized') tm-=4; else if(terr==='Outlands') tm+=2; else if(terr==='Unsettled') tm+=4;
-      return mk({ target:14, bonus: this._forageHasProf(/hunting|survival/i)?4:0, terrMod:tm, costLabel:'dedicated', territory:terr, note:'1 st game, feeds 6 (6 days’ food). Risks a wandering-monster roll.' });
+      return mk({ target:14, bonus: this._forageHasProf(/hunting|survival/i)?4:0, terrMod:tm, costLabel:'dedicated', territory:terr, note:'1 st game, feeds 6 (6 days’ food). The Judge rolls the hex’s encounter table (RR p.278).' });
     }
     // food
     const terr = this._forageTerritory(hex); let tm = 0; if(dry) tm-=4; if(terr==='Civilized') tm-=4; else if(terr==='Borderlands') tm-=2;
@@ -15506,7 +15513,15 @@ return {
   _forageResultRow(kind, r){
     return { id: (r.event && r.event.id) || null, kind: kind, auto: !!r.auto, success: !!r.success,
              rolled: r.rolled, target: r.target, bonus: r.bonus || 0, terrMod: r.terrMod || 0,
-             wanderingMonsterRisk: !!r.wanderingMonsterRisk };
+             wanderingMonsterRisk: !!r.wanderingMonsterRisk, encounter: r.encounter || null };
+  },
+  // E7 — the hunt's RR p.278 wandering-monster draw, worded for the result row. A meeting names
+  // the creature (the materialized entity's side); a terrain category is the Judge's find.
+  forageEncounterText(res){
+    const e = res && res.encounter; if(!e) return '';
+    if(e.encounterId) return (e.label || 'a wandering encounter') + (e.encounterKind === 'at-lair' ? ' — at their lair' : '') + ' — GM, resolve';
+    if(e.category === 'monster' || e.category === 'civilized') return 'a wandering encounter — GM, resolve';
+    return 'a ' + e.category + ' terrain encounter — GM details';
   },
   // Re-roll a specific stacked attempt (the GM's "unlucky throw" redo). The engine flips the yield if the
   // success state changed (adds/removes the rations/firewood, or restores water); the row updates in place.
