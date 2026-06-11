@@ -1214,7 +1214,8 @@ document.addEventListener('alpine:init', () => {
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('parleyed')" class="px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Part on the standing attitude — it persists as these sides' shared history (a later meeting recalls it)">🤝 Parley &amp; part</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('combat')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="Hand to the table — the GM resolves combat (#141); record the result afterwards as an adventure outcome (a cleared lair flips from there)">⚔ To combat (GM resolves)</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('dispersed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The meeting broke up without consequence">💨 Dispersed</button>
-            <button x-show="encResolutionVerbsVisible() && encSettleEligible() && !encModal.settle" @click="encModalProposeSettle()" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-100" title="Do they den here? Roll their Lair % — a lingerer settles a new lair at this hex (a second Lair % success = full lair strength), else they migrate onward (JJ p.69 + p.103). Rolls a proposal first — nothing is written until you confirm.">🏚 Settles as lair?</button>
+            <button x-show="encResolutionVerbsVisible() && !encModal.settle" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded" :title="encSettleTitle()">🏚 Settles as lair?</button>
+            <span class="text-xs opacity-60 self-center" x-show="encResolutionVerbsVisible() && !encModal.settle && !encSettleEligible()" x-text="'(' + encSettleReason() + ')'"></span>
             <button @click="encModalResolve('dismissed')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Strike it — GM override; it never happened">✕ Dismiss</button>
           </div>
           <!-- E3a — the settle proposal (linger or migrate, JJ p.103). Transient: ⟳ re-rolls, the
@@ -10301,6 +10302,25 @@ return {
   encSettleEligible(){
     const enc = this.encModalEnc(); if(!enc) return false;
     return !!window.ACKS.encounterSettleEligibility(this.currentCampaign, enc.id).eligible;
+  },
+  // Disable-with-reason (the Trade/Forage/influence idiom) — the offer must be
+  // discoverable: the commonest draw ("monsters — GM identifies", no catalog key)
+  // is exactly the ineligible case, and a hidden button teaches nothing.
+  encSettleReason(){
+    const enc = this.encModalEnc(); if(!enc) return '';
+    const e = window.ACKS.encounterSettleEligibility(this.currentCampaign, enc.id);
+    if(e.eligible) return '';
+    if(e.reason === 'no-catalog-monster') return 'name the monster first — its catalog entry carries the Lair %; set it via 🔍 Open in Inspector';
+    if(e.reason === 'no-lair-pct') return 'this monster has no Lair % in the catalog — author a den via the Lair Wizard instead';
+    if(e.reason === 'already-at-lair') return 'they are already home — this meeting is at their lair';
+    if(e.reason === 'fragment-has-home-lair') return 'this band forays from a home lair — it returns there, it does not found a second den';
+    if(e.reason === 'no-hex') return 'the encounter has no hex to den in';
+    return e.reason;
+  },
+  encSettleTitle(){
+    const r = this.encSettleReason();
+    return r ? ('Unavailable — ' + r)
+      : 'Do they den here? Roll their Lair % — a lingerer settles a new lair at this hex (a second Lair % success = full lair strength), else they migrate onward (JJ p.69 + p.103). Rolls a proposal first — nothing is written until you confirm.';
   },
   encModalProposeSettle(){
     const enc = this.encModalEnc(); if(!enc) return;
