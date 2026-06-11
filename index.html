@@ -934,7 +934,7 @@ document.addEventListener('alpine:init', () => {
      detail (78) — "→ lair" from here opens the lair as the top peek; the lair detail's own Encounters
      list closes itself before opening this. DOM order (after lair, before search) gives the
      deterministic stacked-Escape order. The Inspector stays the no-frills field editor underneath. -->
-<div x-show="encounterModalOpen" @keydown.escape.window="if(encounterModalOpen && !lairDetailId && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeEncounterModal()">
+<div x-show="encounterModalOpen" @keydown.escape.window="if(encounterModalOpen && !lairDetailId && !trackHome.open && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeEncounterModal()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="encModalEnc()">
       <div>
@@ -972,8 +972,14 @@ document.addEventListener('alpine:init', () => {
             <div class="border border-ink/20 rounded p-2">
               <h4 class="font-semibold">The other side</h4>
               <p><span x-text="encMonsterText(encModalEnc())"></span>
-                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind !== 'wandering-fragment'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair (a peek above this panel)">→ lair</button>
-                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+                <button x-show="encModalEnc().monsterSide.lairId && (encModalEnc().monsterSide.encounterKind !== 'wandering-fragment' || lairKnown(encModalEnc().monsterSide.lairId))" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair (a peek above this panel)">→ lair</button>
+                <!-- A wandering FRAGMENT met away from home (the 6a "abroad" verdict): the den is NOT
+                     located — a tracker can follow the spoor back (RR p.120; M4). Lives on the modal so
+                     every fragment meeting carries it, however triggered — journey day, rest-night camp,
+                     search hour (Joachim 2026-06-11). Once discovered, flips to the full → lair above
+                     (trackHomeAttempt refuses 'already-known'). -->
+                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment' && !lairKnown(encModalEnc().monsterSide.lairId)" @click="openTrackHome({ lairId: encModalEnc().monsterSide.lairId, hexId: encModalEnc().hexId, countTracked: encModalEnc().monsterSide.count || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120); opens above this panel">🐾 Track home</button>
+                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment' && !lairKnown(encModalEnc().monsterSide.lairId)" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
               </p>
               <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rerolls on the SAME
                    table; “pick from table” lists the appropriate column (rarity switchable).
@@ -1842,7 +1848,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Search the hex (#476 M4 — RR pp.276–277 "Searching the Wild"). The Judge's secret search-hour:
      one Wilderness Search throw vs the hex's undiscovered lairs + the RAW per-hour encounter check.
      GM-facing — players never see the target or "0 of N found"; results stack like Forage. -->
-<div x-show="searchHex.open" @keydown.escape.window="if(searchHex.open && !$event.defaultPrevented) closeSearchHex()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="searchHex.open" @keydown.escape.window="if(searchHex.open && !trackHome.open && !$event.defaultPrevented) closeSearchHex()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -1884,7 +1890,12 @@ document.addEventListener('alpine:init', () => {
                 <!-- E2: a search meeting materializes its Encounter entity on the spot — resolve it here
                      (the modal opens above this panel; close it to drop back into the search). -->
                 <button x-show="res.encounter && res.encounter.encounterId" @click="openEncounterModal(res.encounter.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold ml-1" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(res.encounter.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
-                <button x-show="res.encounter && res.encounter.lairId" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+                <button x-show="res.encounter && res.encounter.lairId && (res.encounter.encounterKind !== 'wandering-fragment' || lairKnown(res.encounter.lairId))" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+                <!-- A search-hour FRAGMENT met abroad: the meeting gives spoor, not the den — only the
+                     search throw itself (or tracking) discovers it (Joachim 2026-06-11). An at-lair
+                     stumble or an already-discovered den keeps the full → lair above. -->
+                <button x-show="res.encounter && res.encounter.lairId && res.encounter.encounterKind === 'wandering-fragment' && !lairKnown(res.encounter.lairId)" @click="openTrackHome({ lairId: res.encounter.lairId, hexId: searchHex.hexId, countTracked: res.encounter.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120); opens above this panel">🐾 Track home</button>
+                <button x-show="res.encounter && res.encounter.lairId && res.encounter.encounterKind === 'wandering-fragment' && !lairKnown(res.encounter.lairId)" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
               </div>
               <div x-show="res.survey" class="opacity-80">📐 Land Surveying: <span x-text="res.surveyText"></span></div>
             </div>
@@ -1901,8 +1912,10 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Track home (#476 M4 — RR p.120 Tracking). Follow a wandering fragment's spoor to its
-     undiscovered lair: 11+ with the RAW count band + extra Tracking ranks + the GM's situational mod. -->
-<div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented) closeTrackHome()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+     undiscovered lair: 11+ with the RAW count band + extra Tracking ranks + the GM's situational mod.
+     Peek-level z-78 (above the resolution modal 77 + the search modal 75 — both offer 🐾 on fragment
+     sides); their escape handlers skip while it's open, and it preventDefaults its own close. -->
+<div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented){ closeTrackHome(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
@@ -5345,11 +5358,12 @@ document.addEventListener('alpine:init', () => {
                     <!-- E2: a committed meeting IS an Encounter entity — walk the RAW procedure on it.
                          A pending/preview day has no entity yet (it materializes at commit) → button hides. -->
                     <button x-show="ee.payload && ee.payload.encounterId && encounterById(ee.payload.encounterId)" @click="openEncounterModal(ee.payload.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(ee.payload.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
-                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind !== 'wandering-fragment'" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
+                    <button x-show="ee.payload && ee.payload.lairId && (ee.payload.encounterKind !== 'wandering-fragment' || lairKnown(ee.payload.lairId))" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the lair this encounter surfaced — its contents + the resolve actions (discovered / cleared) live there">→ lair</button>
                     <!-- A wandering FRAGMENT met away from home: the lair is NOT located — Tracking can follow
-                         the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose. -->
-                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment'" @click="openTrackHome({ lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120)">🐾 Track home</button>
-                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment'" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+                         the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose;
+                         once the den is discovered both flip to the full → lair above. -->
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openTrackHome({ lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120)">🐾 Track home</button>
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
                     <button x-show="ee.payload && (ee.payload.seededShellLairIds||[]).length && ee.payload.hexId" @click="openHexDetailById(ee.payload.hexId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the hex — its seeded (unauthored) lairs are listed there; populate one from its detail panel">→ hex</button>
                   </div>
                 </template>
@@ -9977,6 +9991,13 @@ return {
   },
   encounterLabel(enc){ return window.ACKS.encounterDisplayName(this.currentCampaign, enc); },
   encounterById(id){ return id ? window.ACKS.findEncounter(this.currentCampaign, id) : null; },
+  // A fragment's home den stays unlocated until discovered — the 🐾/👁 fragment buttons key on
+  // this and flip to the full → lair once knownToPlayers (trackHomeAttempt refuses 'already-known').
+  lairKnown(lairId){
+    if(!lairId || !this.currentCampaign) return false;
+    const l = window.ACKS.findLair(this.currentCampaign, lairId);
+    return !!(l && l.knownToPlayers);
+  },
   encHexLabel(enc){
     const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === enc.hexId);
     return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : enc.hexId) : (enc.hexId || '');
@@ -10417,7 +10438,7 @@ return {
     if(e.reason === 'no-catalog-monster') return 'name the monster first — its catalog entry carries the Lair %; use the other-side card’s pick-from-table, or 🔍 Open in Inspector';
     if(e.reason === 'no-lair-pct') return 'this monster has no Lair % in the catalog — author a den via the Lair Wizard instead';
     if(e.reason === 'already-at-lair') return 'they are already home — this meeting is at their lair';
-    if(e.reason === 'fragment-has-home-lair') return 'this band forays from a home lair — it returns there, it does not found a second den';
+    if(e.reason === 'fragment-has-home-lair') return 'this band forays from a home lair — it returns there, it does not found a second den' + (this.lairKnown(enc.monsterSide && enc.monsterSide.lairId) ? ' (its den is already discovered — → lair on the other-side card)' : ' (🐾 Track home on the other-side card follows the spoor to it)');
     if(e.reason === 'no-hex') return 'the encounter has no hex to den in';
     if(e.reason === 'pursuit-in-progress') return 'they are taking up the chase — resolve the pursuit first';
     if(e.reason === 'settle-already-decided') return 'the linger roll was already made — they moved on';
