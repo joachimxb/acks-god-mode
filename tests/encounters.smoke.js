@@ -757,6 +757,145 @@ section('E3b — encounter tone (JJ pp.84–87, D11): catalogs + derivation + in
 }
 
 // =============================================================================
+section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default OFF)');
+{
+  const build = (ruleOn) => {
+    const c = ACKS.blankCampaign({ name: 'pursuit' });
+    ACKS.migrateCampaign(c);
+    if(ruleOn) c.houseRules['monster-pursuit'] = { enabled: true };
+    c.hexes = [0, 1, 2, 3, 4, 5].map(q => {
+      const h = ACKS.blankHex({ id: 'hex-p' + q, terrain: 'grassland', terrainSubtype: 'steppe' });
+      h.coord = { q: q, r: 0 };
+      return h;
+    });
+    const ch = ACKS.blankCharacter({ name: 'Quarry' });
+    ch.abilities = { STR: 9, INT: 9, WIL: 9, DEX: 9, CON: 9, CHA: 9 };
+    ch.currentHexId = 'hex-p0';
+    c.characters.push(ch);
+    return { c, ch };
+  };
+  const mkEnc = (c, ch, msOver) => {
+    const e = ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: 'hex-p0', category: 'monster',
+      partySide: { characterIds: [ch.id], faceCharacterId: ch.id, sizeCount: 6 },
+      monsterSide: Object.assign({ monsterCatalogKey: 'common-wolf', count: 5 }, msOver || {}) });
+    // The party sees them first (fore+los × none) — the matrix allows evasion; the
+    // monsters roll surprise at −1 (0.9 → natural 6 → ready, so the evasion is thrown).
+    ACKS.encounterSetAwareness(c, e.id, { partyForeknowledge: true, partyLineOfSight: true });
+    ACKS.encounterRollSurprise(c, e.id, { rng: () => 0.9 });
+    return e;
+  };
+
+  // Rule OFF (the default): a successful evasion resolves 'evaded' — shipped behavior.
+  {
+    const { c, ch } = build(false);
+    const e = mkEnc(c, ch);
+    ACKS.encounterAttemptEvasion(c, e.id, { autoSuccess: true, rng: () => 0.5 });
+    ok('rule OFF: evasion resolves evaded (no pursuit state)', e.status === 'resolved' && e.outcome === 'evaded' && !e.pursuit);
+  }
+
+  const { c, ch } = build(true);
+  // Rule ON but the monster cannot track (orc) → still resolves.
+  {
+    const e = mkEnc(c, ch, { monsterCatalogKey: 'orc', count: 4 });
+    ACKS.encounterAttemptEvasion(c, e.id, { autoSuccess: true, rng: () => 0.5 });
+    ok('rule ON, non-tracker: still resolves evaded', e.status === 'resolved' && e.outcome === 'evaded' && !e.pursuit);
+  }
+  // Rule ON + a tracker (wolf — Acute Olfaction) → the encounter HOLDS in the pursuit offer.
+  const eP = mkEnc(c, ch);
+  ACKS.encounterAttemptEvasion(c, eP.id, { autoSuccess: true, rng: () => 0.5 });
+  ok('rule ON, tracker: evasion holds the encounter open — pursuit offered',
+    eP.status === 'active' && eP.phase === 'pursuit' && eP.pursuit && eP.pursuit.status === 'offered');
+  ok('half expedition speed derives from the catalog (wolf 36 mi → 18 mi/day)', eP.pursuit.pursuerMilesPerDay === 18);
+  ok('the aftermath still rolled (the party DID evade)', !!eP.evasion.aftermath);
+
+  // Decline → resolves evaded exactly as the rule-OFF path.
+  {
+    const e2 = mkEnc(c, ch);
+    ACKS.encounterAttemptEvasion(c, e2.id, { autoSuccess: true, rng: () => 0.5 });
+    const r = ACKS.encounterDeclinePursuit(c, e2.id, {});
+    ok('waived: resolves evaded', r.ok === true && e2.status === 'resolved' && e2.outcome === 'evaded');
+  }
+  // The take-up throw (RR p.120): 11+ with the party-size count bands; natural 1 fails.
+  {
+    const eF = mkEnc(c, ch);
+    ACKS.encounterAttemptEvasion(c, eF.id, { autoSuccess: true, rng: () => 0.5 });
+    const rf = ACKS.encounterBeginPursuit(c, eF.id, { rng: () => 0.0 });   // natural 1
+    ok('take-up natural 1 fails → resolved evaded', rf.ok === true && rf.takeUp.natural === 1 && !rf.takeUp.success
+      && eF.status === 'resolved' && eF.outcome === 'evaded');
+  }
+  const rB = ACKS.encounterBeginPursuit(c, eP.id, { rng: () => 0.5 });   // natural 11 + 4 (size 6) = 15
+  ok('take-up succeeds with the count band (11 +4 [party 6] = 15 vs 11+)',
+    rB.ok === true && rB.takeUp.success && rB.takeUp.countBonus === 4
+    && eP.pursuit.status === 'pursuing' && eP.pursuit.lastPartyHexId === 'hex-p0');
+
+  // The daily consumer — a stationary party is caught (gap 1 + 0 − 18 ≤ 0); the fresh
+  // encounter springs at the party's hex with the same sides + a pre-rolled distance.
+  const day1 = ACKS.tickDay ? null : null;   // (the consumer is exercised directly — the orchestrator wraps it)
+  const prop1 = (() => {
+    const ctx = { dayInMonth: 2, rng: seq(0.5, 0.3, 0.5, 0.5, 0.5, 0.5) };   // trail throw 11✓; then mint + distance dice
+    return ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit').handler(c, ctx);
+  })();
+  ok('the pursuit consumer is registered (slot 82)', !!ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit' && x.order === 82));
+  ok('a stationary party is caught', prop1.pendingRecords.length === 1 && prop1.pendingRecords[0].outcome === 'caught'
+    && prop1.pendingRecords[0].gapBefore === 1 && prop1.pendingRecords[0].partyMiles === 0);
+  ok('the catch pauses the tick (encounter pause trigger)', prop1.notableEvents.some(n => n.pauseTrigger === 'encounter'));
+  ok('the fresh meeting pre-rolls its distance with the seeded rng', !!prop1.pendingRecords[0].caughtDistance
+    && prop1.pendingRecords[0].caughtDistance.distanceFt > 0);
+  const rec1 = prop1.pendingRecords[0];
+  ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit').commit(c, rec1);
+  const fresh = (c.encounters || []).find(e => e && e.id === rec1.caughtEncounterId);
+  ok('commit: the fresh encounter materializes at the party\'s hex (trigger pursuit, same sides)',
+    !!fresh && fresh.trigger === 'pursuit' && fresh.hexId === 'hex-p0' && fresh.status === 'active'
+    && fresh.monsterSide.monsterCatalogKey === 'common-wolf' && (fresh.partySide.characterIds || [])[0] === ch.id
+    && fresh.distance && fresh.distance.distanceFt === rec1.caughtDistance.distanceFt);
+  ok('commit: the pursuit encounter resolves evaded with the chase on its record',
+    eP.status === 'resolved' && eP.outcome === 'evaded' && eP.pursuit.throws.some(t => t.kind === 'keep-trail')
+    && eP.history.some(h => h.type === 'pursuit-caught'));
+
+  // A moving party outruns the pursuer: 5 hexes × 6 mi = 30 > 18 → the gap GROWS.
+  {
+    const eT = mkEnc(c, ch);
+    ACKS.encounterAttemptEvasion(c, eT.id, { autoSuccess: true, rng: () => 0.5 });
+    ACKS.encounterBeginPursuit(c, eT.id, { rng: () => 0.5 });
+    ch.currentHexId = 'hex-p5';
+    const prop = ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit').handler(c, { dayInMonth: 3, rng: seq(0.5) });
+    const rec = prop.pendingRecords.find(r => r.encounterId === eT.id);
+    ok('the gap tracks the party\'s hex movement (1 + 30 − 18 = 13 mi)', !!rec && rec.outcome === 'tracking' && rec.partyMiles === 30 && rec.gapAfter === 13);
+    ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit').commit(c, rec);
+    ok('commit updates the chase state', eT.pursuit.gapMiles === 13 && eT.pursuit.lastPartyHexId === 'hex-p5' && eT.status === 'active');
+
+    // A natural 1 on the daily throw loses the trail → resolved evaded at commit.
+    const propLost = ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit').handler(c, { dayInMonth: 4, rng: seq(0.0) });
+    const recLost = propLost.pendingRecords.find(r => r.encounterId === eT.id);
+    ok('natural 1 loses the trail', !!recLost && recLost.outcome === 'lost');
+    ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit').commit(c, recLost);
+    ok('commit: lost resolves evaded', eT.status === 'resolved' && eT.outcome === 'evaded' && eT.history.some(h => h.type === 'pursuit-lost'));
+  }
+  // Passing Without Trace (the GM tick) ends it on the next day.
+  {
+    ch.currentHexId = 'hex-p0';
+    const eC = mkEnc(c, ch);
+    ACKS.encounterAttemptEvasion(c, eC.id, { autoSuccess: true, rng: () => 0.5 });
+    ACKS.encounterBeginPursuit(c, eC.id, { rng: () => 0.5 });
+    eC.pursuit.traceConcealed = true;
+    const prop = ACKS.dayConsumersInOrder().find(x => x.name === 'pursuit').handler(c, { dayInMonth: 5 });
+    const rec = prop.pendingRecords.find(r => r.encounterId === eC.id);
+    ok('a concealed trace is lost without a throw', !!rec && rec.outcome === 'lost' && /concealed/.test(rec.reason || ''));
+    // …and a running pursuit can simply be broken off.
+    const eA = mkEnc(c, ch);
+    ACKS.encounterAttemptEvasion(c, eA.id, { autoSuccess: true, rng: () => 0.5 });
+    ACKS.encounterBeginPursuit(c, eA.id, { rng: () => 0.5 });
+    const rA = ACKS.encounterAbandonPursuit(c, eA.id, { reason: 'the pack gives up' });
+    ok('abandon resolves evaded', rA.ok === true && eA.status === 'resolved' && eA.outcome === 'evaded');
+  }
+  ok('the monster-pursuit rule is registered default-OFF', (() => {
+    const reg = (ACKS.HOUSERULES_REGISTRY || []).find(r => r.id === 'monster-pursuit');
+    const fresh2 = ACKS.blankCampaign({ name: 'x' });
+    return !!reg && !ACKS.isHouseRuleEnabled(fresh2, 'monster-pursuit');
+  })());
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

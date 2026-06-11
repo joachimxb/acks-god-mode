@@ -3276,7 +3276,10 @@ function encounterAttemptEvasion(campaign, encounterId, opts){
     enc.evasion.aftermath.knownLost = null;   // pending the Navigation throw at −4 (GM/journey resolves; lost = the party KNOWS)
     enc.history.push({ turn: campaign.currentTurn || 1, type: 'evaded',
       reason: 'displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock; Navigation at −4 or lost (knowingly)" });
-    recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded — aftermath displacement rolled' });
+    // E3c — a tracking-capable band may pursue ('monster-pursuit' ON): hold the
+    // encounter open for the GM's intent call instead of resolving (RR p.285).
+    if(_encPursuitPossible(campaign, enc)) _encOfferPursuit(campaign, enc);
+    else recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded — aftermath displacement rolled' });
   } else {
     enc.phase = 'interaction';
     enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-failed',
@@ -3506,7 +3509,8 @@ function encounterRerollEvasion(campaign, encounterId, opts){
     enc.evasion.aftermath.knownLost = null;
     enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-reroll',
       reason: 'rerolled → evaded; displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock" });
-    recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded (on the reroll) — aftermath displacement rolled' });
+    if(_encPursuitPossible(campaign, enc)) _encOfferPursuit(campaign, enc);   // E3c — same fork as the original attempt
+    else recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded (on the reroll) — aftermath displacement rolled' });
   } else {
     enc.phase = 'interaction';
     enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-reroll',
@@ -3818,6 +3822,123 @@ function encounterSettleAsLair(campaign, encounterId, opts){
   return Object.assign({ migrated: false, proposal: p, lair }, res);
 }
 
+// ═══ E3c — monster pursuit (absorbs M5; RR p.285 + p.120; 'monster-pursuit', default OFF) ═══
+// "Adventurers who evade might be tracked by some monsters, depending on their
+// abilities and intent" (RR p.285). With the rule ON, a successful evasion against a
+// tracking-capable band (catalog canTrack — Tracking / Acute Olfaction) does NOT
+// resolve: the encounter holds in phase 'pursuit', status 'offered', and the GM
+// adjudicates INTENT — take up the trail (the pursuer's Tracking throw, RR p.120:
+// 11+ with the count bands for the party's numbers, natural 1 fails) or waive
+// (resolves 'evaded' as before). A pursuing band follows at HALF its expedition
+// speed via the daily 'pursuit' day-consumer (slot 82, acks-engine-subsystems.js).
+// Pursuit state lives ON the Encounter (D8 — the M5 fork resolved). Rule OFF =
+// shipped behavior byte-identical (RAW frames pursuit as GM judgment — the
+// automation is the opt-in, §6 polarity).
+
+function _encPursuitPossible(campaign, enc){
+  const A = _gpwACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'monster-pursuit'))) return false;
+  const key = enc && enc.monsterSide && enc.monsterSide.monsterCatalogKey;
+  return !!(key && typeof A.monsterCanTrack === 'function' && A.monsterCanTrack(key));
+}
+
+// Where the pursued party is NOW (party → first located member → the meeting hex).
+function encounterPartyHexId(campaign, enc){
+  const ps = (enc && enc.partySide) || {};
+  if(ps.partyId){
+    const p = ((campaign && campaign.parties) || []).find(x => x && x.id === ps.partyId);
+    if(p && p.currentHexId) return p.currentHexId;
+  }
+  for(const cid of (ps.characterIds || [])){
+    const ch = ((campaign && campaign.characters) || []).find(x => x && x.id === cid);
+    if(ch && ch.currentHexId) return ch.currentHexId;
+  }
+  return (enc && enc.hexId) || null;
+}
+
+// Open the pursuit offer on a successful evasion (called from the evasion verbs).
+function _encOfferPursuit(campaign, enc){
+  const A = _gpwACKS();
+  const entry = (typeof A.findMonster === 'function') ? A.findMonster(enc.monsterSide.monsterCatalogKey) : null;
+  const exp = entry ? parseFloat(String(entry.expeditionSpeed || '')) : NaN;   // "36 miles" → 36
+  enc.phase = 'pursuit';
+  enc.pursuit = {
+    status: 'offered',
+    pursuerLabel: (entry && entry.name) || 'the monsters',
+    pursuerMilesPerDay: isFinite(exp) && exp > 0 ? exp / 2 : 12,   // follow at ½ expedition speed (RR p.120)
+    gapMiles: 1,           // the evasion displacement is yards, not miles — they are right behind
+    lastPartyHexId: null,  // set when the trail is taken up
+    traceConcealed: false, // GM lever — Passing Without Trace defeats scent + spoor
+    gmMod: 0,              // standing modifier on the daily keep-the-trail throws (rain/snow, terrain…)
+    startedAtTurn: null, startedOnDayInMonth: null,
+    throws: []
+  };
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-offered',
+    reason: enc.pursuit.pursuerLabel + ' can track — does it pursue? (monster-pursuit; GM adjudicates intent)' });
+}
+
+// The take-up throw (RR p.120): the pursuer finds the trail at 11+, + the count bands
+// for the party's numbers (the M4 bands), natural 1 auto-fails, ± the GM's modifier.
+// Success → 'pursuing' (the daily consumer takes over); fail → resolves 'evaded'.
+// opts: { mod?, rng? }.
+function encounterBeginPursuit(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.pursuit || enc.pursuit.status !== 'offered') return { ok: false, error: 'no-pursuit-offered' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const n = (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 1;
+  const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
+  const mod = Number(o.mod) || 0;
+  const natural = 1 + Math.floor(rng() * 20);
+  const target = 11;
+  const success = (natural !== 1) && (natural + countBonus + mod >= target);
+  const t = { kind: 'take-up', natural, countBonus, mod, total: natural + countBonus + mod, target, success,
+              atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null };
+  enc.pursuit.throws.push(t);
+  if(success){
+    enc.pursuit.status = 'pursuing';
+    enc.pursuit.startedAtTurn = campaign.currentTurn || 1;
+    enc.pursuit.startedOnDayInMonth = campaign.currentDayInMonth || null;
+    enc.pursuit.lastPartyHexId = encounterPartyHexId(campaign, enc);
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-taken-up',
+      reason: 'take-up ' + t.total + ' vs 11+ — on the trail at ' + enc.pursuit.pursuerMilesPerDay + ' mi/day (half expedition speed), ' + enc.pursuit.gapMiles + ' mi behind' });
+    return { ok: true, encounter: enc, pursuit: enc.pursuit, takeUp: t };
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-failed',
+    reason: 'take-up ' + (natural === 1 ? 'natural 1' : (t.total + ' vs 11+')) + ' — the trail was never found' });
+  const res = recordEncounterResolved(campaign, enc.id, 'evaded', {
+    note: enc.pursuit.pursuerLabel + ' tried to track the party and failed (' + (natural === 1 ? 'natural 1' : t.total + ' vs 11+') + ').'
+  });
+  return Object.assign({ pursuit: enc.pursuit, takeUp: t }, res);
+}
+
+// The GM waives the offer (no intent) — resolves 'evaded' exactly as the rule-OFF path.
+function encounterDeclinePursuit(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.pursuit || enc.pursuit.status !== 'offered') return { ok: false, error: 'no-pursuit-offered' };
+  enc.pursuit.status = null;
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-waived', reason: 'no pursuit — the band lets them go' });
+  return recordEncounterResolved(campaign, enc.id, 'evaded', { note: (opts && opts.note) || 'evaded — no pursuit.' });
+}
+
+// Break off a RUNNING pursuit (GM call, or the trail concealed) — resolves 'evaded'.
+function encounterAbandonPursuit(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.pursuit || enc.pursuit.status !== 'pursuing') return { ok: false, error: 'not-pursuing' };
+  const o = opts || {};
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-abandoned', reason: o.reason || 'the pursuit broke off' });
+  return recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuit broke off' + (o.reason ? ' — ' + o.reason : '') + '.' });
+}
+
 // Resolution — flip the entity + emit the ONE comprehensive encounter-resolved event
 // (the travel-day idiom: the whole walk in the payload, the context envelope carrying
 // hex + both sides, subdayContext.encounterId stamped). outcome: no-encounter | evaded |
@@ -3956,7 +4077,9 @@ Object.assign(ACKS, {
   // E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103)
   encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair,
   // E3b — the tone derivation (JJ pp.84–87, D11): catalog rows pre-asserted from shipped state
-  encounterToneRows
+  encounterToneRows,
+  // E3c — monster pursuit (RR p.285 + p.120; 'monster-pursuit', default OFF; absorbs M5)
+  encounterPartyHexId, encounterBeginPursuit, encounterDeclinePursuit, encounterAbandonPursuit
 });
 
 if(typeof module !== 'undefined' && module.exports){

@@ -4205,6 +4205,145 @@ function commitEncounterRecord(campaign, record){
   });
 }
 
+// ── #476 E3c — the 'pursuit' day-consumer (slot 82, right after encounters) ─────────
+// Each PURSUING encounter ('monster-pursuit' ON; pursuit.status 'pursuing') advances
+// daily: a keep-the-trail Tracking throw (RR p.120 — 11+, the party-size count bands,
+// natural 1 fails, ± the pursuit's standing GM modifier) and a gap update — the
+// party's straight-line hex movement ×6 mi vs the pursuer's half-expedition-speed
+// (🔧 v1: straight-line distance, not the walked path; the trail's water/rain·snow
+// breaks + Passing Without Trace are GM levers — the standing modifier + the
+// trace-concealed tick). Lost → the encounter resolves 'evaded'. Caught (gap ≤ 0) →
+// a FRESH encounter at the party's hex (trigger 'pursuit', distance pre-rolled with
+// the seeded rng so previews are byte-stable); the old one resolves 'evaded' and
+// priorReactionBetween recalls it (D9). The handler is PURE (the day-tick working
+// copy); commitPursuitRecord applies the ratified record.
+function _pursuingEncounters(campaign){
+  return ((campaign && campaign.encounters) || []).filter(e => e && e.status === 'active' && e.pursuit && e.pursuit.status === 'pursuing');
+}
+function proposePursuitDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const takenIds = {};
+  for(const enc of _pursuingEncounters(campaign)){
+    const pur = enc.pursuit;
+    const rng = ctx.rng || _jMulberry32(_jHash32('pursuit|' + enc.id + '|' + worldOrd));
+    if(pur.traceConcealed){
+      const label = pur.pursuerLabel + ' loses the trail — concealed (Passing Without Trace).';
+      pendingRecords.push({ kind: 'pursuit-day', label, encounterId: enc.id, outcome: 'lost',
+        reason: 'trace concealed (Passing Without Trace)', dayInMonth, primaryHexId: enc.hexId });
+      notableEvents.push({ type: 'pursuit-lost', primaryHexId: enc.hexId, campaignLogHidden: true,
+        relatedEntities: ((enc.partySide && enc.partySide.characterIds) || []).map(id => ({ kind: 'character', id, role: 'subject' })),
+        label, payload: { encounterId: enc.id, narrative: label } });
+      continue;
+    }
+    // keep-the-trail (RR p.120): 11+, the party-size count bands, natural 1 fails.
+    const n = (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 1;
+    const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
+    const mod = Number(pur.gmMod) || 0;
+    const natural = 1 + Math.floor(rng() * 20);
+    const total = natural + countBonus + mod;
+    const success = (natural !== 1) && (total >= 11);
+    const newHexId = (typeof A.encounterPartyHexId === 'function') ? A.encounterPartyHexId(campaign, enc) : enc.hexId;
+    const oldHexId = pur.lastPartyHexId || newHexId;
+    const hexes = campaign.hexes || [];
+    const oldHex = hexes.find(h => h && h.id === oldHexId);
+    const newHex = hexes.find(h => h && h.id === newHexId);
+    const partyMiles = (oldHex && newHex && oldHex !== newHex && typeof A.hexAxialDistance === 'function')
+      ? (A.hexAxialDistance(oldHex.coord || oldHex, newHex.coord || newHex) || 0) * 6 : 0;
+    const pursuerMiles = pur.pursuerMilesPerDay || 12;
+    const gapBefore = Number(pur.gapMiles) || 0;
+    const rawGap = gapBefore + partyMiles - pursuerMiles;
+    const caught = success && rawGap <= 0;
+    const gapAfter = Math.max(0, rawGap);
+    const outcome = !success ? 'lost' : (caught ? 'caught' : 'tracking');
+    let caughtEncounterId = null, caughtDistance = null;
+    if(caught){
+      caughtEncounterId = _mintEncounterProposalId(campaign, rng, takenIds);
+      // pre-roll the fresh meeting's distance with the seeded rng (byte-stable previews)
+      const rowKey = newHex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(newHex) : null;
+      if(rowKey && typeof A.computeEncounterDistance === 'function'){
+        caughtDistance = A.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight',
+          sideACount: n, sideBCount: (enc.monsterSide && enc.monsterSide.count) || 1, rng });
+      }
+    }
+    const throwText = (natural === 1 ? 'natural 1' : (total + ' vs 11+'));
+    const label = !success
+      ? (pur.pursuerLabel + ' loses the trail (' + throwText + ').')
+      : caught
+        ? ('🐺 ' + pur.pursuerLabel + ' catches up — a fresh encounter at the party\'s hex!')
+        : (pur.pursuerLabel + ' holds the trail (' + throwText + ') — ' + gapAfter + ' mi behind.');
+    pendingRecords.push({
+      kind: 'pursuit-day', label, encounterId: enc.id, outcome,
+      trailThrow: { natural, countBonus, mod, total, target: 11, success },
+      partyMiles, pursuerMiles, gapBefore, gapAfter, newPartyHexId: newHexId,
+      caughtEncounterId, caughtDistance, dayInMonth, primaryHexId: newHexId
+    });
+    notableEvents.push({
+      type: caught ? 'encounter' : (success ? 'pursuit-day' : 'pursuit-lost'),
+      pauseTrigger: caught ? 'encounter' : undefined,
+      primaryHexId: newHexId, campaignLogHidden: true,
+      relatedEntities: ((enc.partySide && enc.partySide.characterIds) || []).map(id => ({ kind: 'character', id, role: 'subject' }))
+        .concat((enc.partySide && enc.partySide.partyId) ? [{ kind: 'party', id: enc.partySide.partyId, role: 'subject' }] : []),
+      label, payload: { encounterId: enc.id, caughtEncounterId, outcome, narrative: label }
+    });
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitPursuitRecord(campaign, record){
+  const A = _jACKS();
+  const enc = ((campaign && campaign.encounters) || []).find(e => e && e.id === record.encounterId);
+  if(!enc || !enc.pursuit) return;
+  const pur = enc.pursuit;
+  if(record.trailThrow){
+    pur.throws.push(Object.assign({ kind: 'keep-trail', atTurn: campaign.currentTurn || 1, atDay: record.dayInMonth || null }, record.trailThrow));
+  }
+  if(record.outcome === 'lost'){
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-lost',
+      reason: record.reason || ((record.trailThrow && record.trailThrow.natural === 1) ? 'natural 1 — the trail is gone' : 'the trail is gone') });
+    if(typeof A.recordEncounterResolved === 'function')
+      A.recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuit lost the trail' + (record.reason ? ' — ' + record.reason : '') + '.' });
+    return;
+  }
+  pur.gapMiles = record.gapAfter;
+  pur.lastPartyHexId = record.newPartyHexId;
+  if(record.outcome === 'caught'){
+    // The fresh meeting at the party's hex — the same sides. Where the monster side
+    // carries entity refs (a lair-bound fragment, a bound Group), priorReactionBetween
+    // recalls the evaded meeting (D9); a bare fresh side has no identity to match.
+    const fresh = (typeof A.createEncounter === 'function') ? A.createEncounter(campaign, {
+      id: record.caughtEncounterId || undefined,
+      trigger: 'pursuit', hexId: record.newPartyHexId,
+      category: enc.category || 'monster', rarity: enc.rarity || null,
+      partySide: {
+        partyId: (enc.partySide && enc.partySide.partyId) || null,
+        journeyId: (enc.partySide && enc.partySide.journeyId) || null,
+        characterIds: ((enc.partySide && enc.partySide.characterIds) || []).slice(),
+        faceCharacterId: (enc.partySide && enc.partySide.faceCharacterId) || null,
+        sizeCount: (enc.partySide && enc.partySide.sizeCount) || null
+      },
+      monsterSide: Object.assign({}, enc.monsterSide, { groupIds: ((enc.monsterSide && enc.monsterSide.groupIds) || []).slice() }),
+      createReason: 'pursuit-caught-up',
+      occurredOnDayInMonth: record.dayInMonth || null
+    }) : null;
+    if(fresh && record.caughtDistance && fresh.distance == null){
+      fresh.distance = record.caughtDistance;
+      fresh.history.push({ turn: fresh.occurredAtTurn, type: 'distance',
+        reason: (record.caughtDistance.distanceFt != null ? record.caughtDistance.distanceFt : '?') + ' ft (' + (record.caughtDistance.terrainRow || 'terrain') + ')' });
+    }
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-caught',
+      reason: pur.pursuerLabel + ' caught up' + (fresh ? ' — fresh encounter ' + fresh.id : '') });
+    if(typeof A.recordEncounterResolved === 'function')
+      A.recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuer caught up — a fresh encounter springs at the party\'s hex.' });
+    return;
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-day',
+    reason: 'trail held (' + (record.trailThrow ? record.trailThrow.total + ' vs 11+' : '—') + ') — ' + record.gapAfter + ' mi behind (party +' + record.partyMiles + ' / pursuer −' + record.pursuerMiles + ')' });
+}
+
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
 // registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
 // so ACKS.registerDayConsumer is available here. pauseTriggers wire the auto-pause-* rules.
@@ -4236,6 +4375,14 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 80,
     pauseTriggers: ['encounter'],
     commit: commitEncounterRecord
+  });
+  // #476 E3c — monster pursuit (slot 82, behind the default-OFF 'monster-pursuit' rule):
+  // pursuing encounters follow the party's trail daily; a catch-up pauses the tick.
+  ACKS.registerDayConsumer('pursuit', {
+    handler: proposePursuitDay,
+    order: 82,
+    pauseTriggers: ['encounter'],
+    commit: commitPursuitRecord
   });
 }
 

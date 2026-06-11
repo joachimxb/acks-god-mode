@@ -1074,6 +1074,38 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
+          <!-- E3c — pursuit (RR p.285 + p.120; the 'monster-pursuit' rule). Shows whenever the
+               encounter carries pursuit state: offered = the GM's intent call; pursuing = the
+               daily trail (the Day Clock advances it); resolved = the read-only record. -->
+          <div class="border border-orange-700/40 rounded p-2 text-xs space-y-1" style="background:#fdf3e7" x-show="encModalEnc().pursuit">
+            <h4 class="font-semibold text-sm">🐺 Pursuit <span class="opacity-50 font-normal">(RR p.285 + p.120 · monster-pursuit)</span></h4>
+            <template x-if="(encModalEnc().pursuit || {}).status === 'offered'">
+              <div class="space-y-1">
+                <p x-text="(encModalEnc().pursuit.pursuerLabel || 'The monsters') + ' can track — does it pursue? The GM adjudicates intent; taking up the trail is a Tracking throw (11+, easier for a numerous party).'"></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <label class="flex items-center gap-1">GM ± <input type="number" x-model.number="encModal.pursuitMod" class="w-14" title="Throw modifier — terrain, weather, time elapsed…"></label>
+                  <button @click="encModalBeginPursuit()" class="px-2 py-0.5 border border-ink rounded bg-orange-100 hover:bg-orange-200 font-semibold">🎲 Take up the trail</button>
+                  <button @click="encModalDeclinePursuit()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Let them go (resolve evaded)</button>
+                </div>
+              </div>
+            </template>
+            <template x-if="(encModalEnc().pursuit || {}).status === 'pursuing' && encModalEnc().status === 'active'">
+              <div class="space-y-1">
+                <p><span class="font-semibold" x-text="(encModalEnc().pursuit.pursuerLabel || 'The pursuer')"></span>
+                  <span x-text="' is on the trail — ' + encModalEnc().pursuit.gapMiles + ' mi behind at ' + encModalEnc().pursuit.pursuerMilesPerDay + ' mi/day (half expedition speed). The Day Clock advances the chase: a daily keep-the-trail throw; catching up springs a fresh encounter.'"></span></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <label class="flex items-center gap-1">daily throw GM ± <input type="number" :value="encModalEnc().pursuit.gmMod" @change="encModalEnc().pursuit.gmMod = Number($event.target.value) || 0; markDirty(); schedulePersist()" class="w-14" title="Standing modifier on the keep-the-trail throws — rain/snow, hard ground, time lost…"></label>
+                  <label class="flex items-center gap-1.5"><input type="checkbox" :checked="encModalEnc().pursuit.traceConcealed" @change="encModalEnc().pursuit.traceConcealed = $event.target.checked; markDirty(); schedulePersist()" title="Passing Without Trace (or the like) conceals the trail — the next day's step loses it">trail concealed (Passing Without Trace)</label>
+                  <button @click="encModalAbandonPursuit()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">🛑 Break off the pursuit</button>
+                </div>
+              </div>
+            </template>
+            <ul class="font-mono space-y-0.5" x-show="((encModalEnc().pursuit || {}).throws || []).length">
+              <template x-for="(t, ti) in (encModalEnc().pursuit.throws || [])" :key="'purs-' + ti">
+                <li x-text="encPursuitThrowText(t)"></li>
+              </template>
+            </ul>
+          </div>
           <!-- 4 · Reaction (E2j — revealed with evasion once surprise concludes) -->
           <div class="border border-ink/30 rounded p-2" x-show="encStepReactionVisible()">
             <h4 class="font-semibold mb-1">4 · Reaction <span class="opacity-50 font-normal">(RR pp.285–286)</span></h4>
@@ -9885,7 +9917,8 @@ return {
       inflActorId: firstChar, inflMod: 0, inflBribe: 0,
       settle: null, settleDungeon: false,   // E3a — the transient linger-or-migrate proposal (nothing written until confirm)
       tone: (enc.reaction && enc.reaction.tone) || 'diplomatic',   // E3b — the spokesperson's approach (JJ pp.84–87)
-      toneOpen: false, toneRows: []
+      toneOpen: false, toneRows: [],
+      pursuitMod: 0   // E3c — the take-up throw's GM modifier
     };
     this.encounterModalId = id;
     this.encModalToneReset();
@@ -10305,6 +10338,36 @@ return {
     this.showToast(r.migrated
       ? 'They migrate onward — recorded as dispersed (JJ p.103).'
       : ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' settles at ' + this.encHexLabel(enc) + ' — see World ▸ 🏚 Lairs.'), 6000);
+  },
+  // ── E3c — pursuit (the GM's intent call + the running-chase levers; RR p.285 + p.120).
+  encModalBeginPursuit(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterBeginPursuit(this.currentCampaign, enc.id, { mod: Number(this.encModal.pursuitMod) || 0 });
+    if(!r || !r.ok){ this.showToast('Could not take up the trail: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast(r.takeUp && r.takeUp.success
+      ? ('🐺 ' + ((r.pursuit && r.pursuit.pursuerLabel) || 'The pursuer') + ' is on the trail — the Day Clock advances the chase.')
+      : 'The trail was never found — resolved as evaded.', 5000);
+  },
+  encModalDeclinePursuit(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterDeclinePursuit(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){ this.showToast('Could not waive: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+  },
+  encModalAbandonPursuit(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterAbandonPursuit(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){ this.showToast('Could not break off: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+  },
+  encPursuitThrowText(t){
+    if(!t) return '';
+    let s = (t.kind === 'take-up' ? 'take-up' : 'keep trail') + ': 1d20 ' + t.natural;
+    if(t.countBonus) s += ' +' + t.countBonus + ' (party size)';
+    if(t.mod) s += ' ' + (t.mod > 0 ? '+' : '−') + Math.abs(t.mod) + ' (GM)';
+    s += ' = ' + t.total + ' vs 11+ → ' + (t.natural === 1 ? 'natural 1 ✗' : (t.success ? 'holds ✓' : 'lost ✗'));
+    return s;
   },
   // ── World ▸ ⚔ Encounters (E2g) — the active work queue + the separate Past table
   // beneath it (per Joachim 2026-06-10). One search filters both; newest first.
@@ -11604,6 +11667,18 @@ return {
                    label:'soliciting ' + (d.hireTypeLabel || d.hireTypeId || 'hirelings') + ' (week ' + wk + ' of 3)',
                    priority:3});
       }
+    }
+
+    // ── Contributor 8: Pursued (#476 E3c — the §8.9 mandate) ──
+    // A pursuing encounter ('monster-pursuit') stalks this character's side: GM-facing
+    // heads-up on the dashboard + sheet ("🐺 stalked — N mi behind"). The pursuer's own
+    // descriptor waits for lair-leader Characters (v1 generates none).
+    for(const e of (this.currentCampaign?.encounters || [])){
+      if(!e || e.status !== 'active' || !e.pursuit || e.pursuit.status !== 'pursuing') continue;
+      if(!((e.partySide && e.partySide.characterIds) || []).includes(c.id)) continue;
+      acts.push({kind:'pursued:' + e.id, icon:'🐺',
+                 label:'stalked by ' + (e.pursuit.pursuerLabel || 'a pursuer') + ' — ' + e.pursuit.gapMiles + ' mi behind',
+                 priority:2});
     }
 
     // ── Future contributors land here. Each adds zero or more descriptors. ──
