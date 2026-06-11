@@ -3220,7 +3220,8 @@ function beginTracking(campaign, opts){
   const quarry = { coord: { q: meetHex.coord.q, r: meetHex.coord.r }, hexId: enc.hexId,
                    milesPerDay: fullSpeed, plan: 'wanders',
                    destCoord: null, destLairId: null, destSettlementHexId: null,
-                   heading: null, walkDaysLeft: null, halted: false, groupId: null, mileRemainder: 0 };
+                   heading: null, walkDaysLeft: null, lastCoord: null,
+                   halted: false, groupId: null, mileRemainder: 0 };
   // An E4m band bound to a living Group — the world entity moves with the follow.
   const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
   for(const gid of (ms.groupIds || [])){
@@ -3245,15 +3246,14 @@ function beginTracking(campaign, opts){
     if(best){ quarry.plan = 'heads-to-settlement'; quarry.destCoord = { q: best.coord.q, r: best.coord.r }; quarry.destSettlementHexId = best.id; }
   }
   if(quarry.plan === 'wanders'){
-    quarry.heading = Math.floor(rng() * 6);
-    quarry.walkDaysLeft = 1 + Math.floor(rng() * 4);   // 🔧 v1: roams a seeded 1d4 days, then camps
-    quarry.milesPerDay = fullSpeed / 2;                // 🔧 a roaming band meanders at half its speed
+    quarry.milesPerDay = fullSpeed / 2;   // the E6 wander activity — migration is half expedition speed
   }
   if(quarry.destCoord && quarry.destCoord.q === quarry.coord.q && quarry.destCoord.r === quarry.coord.r) quarry.halted = true;
   // Head start: the band has been walking since the meeting (the find already paid the age
   // penalty; 🔧 pre-begin water crossings are folded into the GM's modifiers on the find).
+  // A destination-less quarry wanders (random face per 6-mile step, never directly back).
   for(let d = 0; d < trailAgeDays && !quarry.halted; d++){
-    if(typeof A.trackingQuarryWalkDay === 'function') A.trackingQuarryWalkDay(campaign, quarry);
+    if(typeof A.trackingQuarryWalkDay === 'function') A.trackingQuarryWalkDay(campaign, quarry, rng);
   }
   // ── The pursuit (the E3c chase's mirror — direction 'party') ──
   const pt = ch.partyId ? ((campaign.parties || []).find(p => p && p.id === ch.partyId) || null) : null;
@@ -4436,7 +4436,94 @@ function encounterAbandonPursuit(campaign, encounterId, opts){
   if(!enc.pursuit || enc.pursuit.status !== 'pursuing') return { ok: false, error: 'not-pursuing' };
   const o = opts || {};
   enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-abandoned', reason: o.reason || 'the pursuit broke off' });
-  return recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuit broke off' + (o.reason ? ' — ' + o.reason : '') + '.' });
+  const res = recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuit broke off' + (o.reason ? ' — ' + o.reason : '') + '.' });
+  pursuitAftermath(campaign, enc, {});   // E6 — the hunt over, the band heads home / wanders
+  return res;
+}
+
+// ═══ E6 — the pursuit aftermath: a chase that ends with the band still standing ═══
+// Joachim 2026-06-11: "a pursuing monster/group that loses its trail (or succeeds in
+// catching up and survives) returns home to its lair (if they have one). They essentially
+// plot a journey back to their home lair. If they don't have a home lair, they become
+// migrants and wander." Fired when the chase's trail is lost / broken off, and when the
+// chase's SPRUNG meeting (the catch) resolves with the band surviving — parleyed / evaded /
+// combat / dismissed; 'dispersed' = scattered, no band left to walk anywhere. The band
+// gets a world presence: a living un-housed Group from the chase side is reused (the E4m
+// migrant-chaser), else a transient walk token is minted (count = the side's; it dissolves
+// into the den on arrival — a fragment's hunters never left the den's population). Home =
+// a living, PLACED lair on the side's lairId → wanderState 'heading-home' (full expedition
+// speed, straight line, no stops, no domain disposition — the E6 monster-bands consumer
+// walks it; still E4m-findable, so it can pick up a NEW pursuit en route and re-home
+// after). No home → a wandering migrant (the E6 wander activity). Gated on
+// persistent-wandering-monsters (OFF = bands evaporate — the shipped behavior). A failed
+// TAKE-UP deliberately does NOT fire (the chase never began; the band stands at its
+// meeting hex, where the settle-as-lair offer already governs whether it stays) — that
+// also keeps the E4l take-up reroll's two-way reconcile clean.
+function pursuitAftermath(campaign, encounterOrId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const enc = (typeof encounterOrId === 'string') ? A.findEncounter(campaign, encounterOrId) : encounterOrId;
+  if(!enc || !enc.pursuit || enc.pursuit.direction === 'party') return null;
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'persistent-wandering-monsters'))) return null;
+  const p = enc.pursuit;
+  if(p.aftermath) return null;                     // once per chase
+  const ms = enc.monsterSide || {};
+  // 🔧 v1 position: the chase trails the party's straight line, so the band stands at the
+  // trail's anchor (the catch hands the sprung meeting's hex in).
+  const hexId = o.hexId || p.lastPartyHexId || enc.hexId || null;
+  const hex = hexId ? ((campaign.hexes || []).find(h => h && h.id === hexId) || null) : null;
+  if(!hex || !hex.coord) return null;              // nowhere to stand — the band slips off the map
+  const turn = campaign.currentTurn || 1;
+  const lair = (ms.lairId && typeof A.findLair === 'function') ? A.findLair(campaign, ms.lairId) : null;
+  const home = (lair && (lair.status === 'active' || lair.status === 'unknown') && lair.hexId) ? lair : null;
+  const denHex = home ? ((campaign.hexes || []).find(h => h && h.id === home.hexId) || null) : null;
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  const housed = gid => (campaign.lairs || []).some(l => l && (l.status === 'active' || l.status === 'unknown' || l.status === 'dynamic') && (l.groupIds || []).indexOf(gid) >= 0);
+  let g = null;
+  for(const gid of (ms.groupIds || [])){
+    const cand = (campaign.groups || []).find(x => x && x.id === gid);
+    if(cand && aliveOf(cand) > 0 && !housed(cand.id)){ g = cand; break; }
+  }
+  let minted = false;
+  if(!g){
+    const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+    g = (typeof A.blankGroup === 'function') ? A.blankGroup({
+      name: p.pursuerLabel || ms.label || (entry && entry.name) || 'A wandering band',
+      groupTemplate: { monsterCatalogKey: (entry && entry.key) || ms.monsterCatalogKey || null,
+                       creatureTypes: (entry && entry.creatureTypes) ? entry.creatureTypes.slice() : ['monster'],
+                       hitDice: (entry && entry.hd) || null },
+      count: ms.count || 1,
+      currentHexId: hexId
+    }) : null;
+    if(!g) return null;
+    campaign.groups = campaign.groups || [];
+    campaign.groups.push(g);
+    minted = true;
+  } else {
+    g.currentHexId = hexId;
+  }
+  const prior = g.wanderState || {};
+  g.history = g.history || [];
+  enc.history = enc.history || [];
+  if(home && denHex && denHex.coord){
+    g.wanderState = { coord: { q: hex.coord.q, r: hex.coord.r }, lastCoord: null, mileRemainder: 0,
+                      mode: 'heading-home', destLairId: home.id,
+                      dissolveOnArrival: minted || !!prior.dissolveOnArrival,
+                      lastDomainId: hex.domainId || null, halted: false };
+    p.aftermath = 'heading-home';
+    enc.history.push({ turn, type: 'pursuit-aftermath',
+      reason: 'the band turns for home — ' + (home.name || home.id) + ' (full expedition speed; it will not stop, though it may pick up a new hunt on the way)' });
+    g.history.push({ turn, type: 'homing', reason: 'the hunt over, the band heads home to ' + (home.name || home.id) });
+  } else {
+    g.wanderState = { coord: { q: hex.coord.q, r: hex.coord.r }, lastCoord: null, mileRemainder: 0,
+                      mode: null, destLairId: null, dissolveOnArrival: false,
+                      lastDomainId: hex.domainId || null, halted: false };
+    p.aftermath = 'migrant';
+    enc.history.push({ turn, type: 'pursuit-aftermath',
+      reason: 'no den to return to — the band becomes a migrant and wanders (half speed, never doubling straight back)' });
+    g.history.push({ turn, type: 'wander', reason: 'the hunt over and denless, the band wanders as a migrant' });
+  }
+  return { group: g, minted, mode: p.aftermath };
 }
 
 // Resolution — flip the entity + emit the ONE comprehensive encounter-resolved event
@@ -4508,6 +4595,18 @@ function recordEncounterResolved(campaign, encounterId, outcome, opts){
       src.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-broken',
         reason: 'the quarry was scattered in another meeting — the trail ends' });
       sp.status = 'lost';
+    }
+  }
+  // E6 — the chase's SPRUNG meeting (the catch — trigger 'pursuit') concluded with the
+  // band still standing: the hunters turn for home, or — denless — become wandering
+  // migrants (pursuitAftermath; idempotent, rule-gated). 'dispersed' = scattered (handled
+  // above), and a follow's sprung meeting (the chase link pointing at a direction-'party'
+  // pursuit) is the TRACKERS' catch — the quarry's own model governs it, not this hook.
+  if(out !== 'dispersed' && out !== 'no-encounter' && enc.trigger === 'pursuit'
+     && enc.monsterSide && enc.monsterSide.pursuitEncounterId){
+    const chase = A.findEncounter(campaign, enc.monsterSide.pursuitEncounterId);
+    if(chase && chase.pursuit && chase.pursuit.direction !== 'party'){
+      pursuitAftermath(campaign, chase, { hexId: enc.hexId });
     }
   }
   return { ok: true, encounter: enc, event: ev };
@@ -4607,7 +4706,9 @@ Object.assign(ACKS, {
   // E3b — the tone derivation (JJ pp.84–87, D11): catalog rows pre-asserted from shipped state
   encounterToneRows,
   // E3c — monster pursuit (RR p.285 + p.120; 'monster-pursuit', default OFF; absorbs M5)
-  encounterPartyHexId, encounterBeginPursuit, encounterRerollPursuitTakeUp, encounterDeclinePursuit, encounterAbandonPursuit
+  encounterPartyHexId, encounterBeginPursuit, encounterRerollPursuitTakeUp, encounterDeclinePursuit, encounterAbandonPursuit,
+  // E6 — the pursuit aftermath: a chase over with the band standing → home / migrant
+  pursuitAftermath
 });
 
 if(typeof module !== 'undefined' && module.exports){

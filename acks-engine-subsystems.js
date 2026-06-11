@@ -4163,6 +4163,8 @@ Object.assign(ACKS, {
   proposeEncounterDay, commitEncounterRecord,
   // #476 E3c — the slot-82 pursuit consumer (the day handler + its commit hook).
   proposePursuitDay, commitPursuitRecord, trackingQuarryWalkDay, trackingSpringCatch,
+  // #476 E6 — the slot-84 monster-bands consumer (wander + homing motion).
+  proposeMonsterBandDay, commitMonsterBandRecord,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -4415,7 +4417,7 @@ function proposePursuitDay(campaign, ctx){
         q0.hexId = den.hexId;
       }
     }
-    const walk = trackingQuarryWalkDay(campaign, q0);
+    const walk = trackingQuarryWalkDay(campaign, q0, rng);
     // Loss events (RR p.120): ONE hour of rain/snow destroys the trail; so does the trail
     // entering water. Either forces a fresh find throw ("must search again"). The day's
     // condition comes from the day-tick ctx when the weather layer supplies it (T4); the
@@ -4497,6 +4499,11 @@ function commitPursuitRecord(campaign, record){
       reason: record.reason || ((record.trailThrow && record.trailThrow.natural === 1) ? 'natural 1 — the trail is gone' : 'the trail is gone') });
     if(typeof A.recordEncounterResolved === 'function')
       A.recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuit lost the trail' + (record.reason ? ' — ' + record.reason : '') + '.' });
+    // E6 — the hunt over, the band turns for home (or, denless, becomes a wandering
+    // migrant). 🔧 v1 position: the chase model is straight-line gapMiles behind the
+    // party, so the band stands at the trail's anchor hex when the trail goes cold.
+    if(typeof A.pursuitAftermath === 'function')
+      A.pursuitAftermath(campaign, enc, { hexId: record.newPartyHexId || pur.lastPartyHexId || enc.hexId });
     return;
   }
   pur.gapMiles = record.gapAfter;
@@ -4559,27 +4566,49 @@ function _trackingPartyCoord(campaign, pur){
   const hx2 = (ch && ch.currentHexId) ? ((campaign.hexes || []).find(h => h && h.id === ch.currentHexId) || null) : null;
   return (hx2 && hx2.coord) ? { q: hx2.coord.q, r: hx2.coord.r } : null;
 }
+// E6 — one 6-mile wander step: a random face, never directly back into the hex just left
+// (Joachim 2026-06-11: "The movement is random, but wandering never goes directly back to
+// the hex from where it just came from"). Shared by the quarry walk + the band consumer.
+function _wanderPickStep(cur, last, rng){
+  const opts = [];
+  for(let d = 0; d < 6; d++){
+    const dd = HEX_EDGE_DELTAS[d] || [0, 0];
+    const c = { q: cur.q + dd[0], r: cur.r + dd[1] };
+    if(last && c.q === last.q && c.r === last.r) continue;
+    opts.push(c);
+  }
+  if(!opts.length) return null;
+  return opts[Math.floor((rng || Math.random)() * opts.length)];
+}
 // One day of the quarry's walk (MUTATES the quarry object passed — the propose path clones
 // first; beginTracking uses it directly for the trail-age head start). 🔧 v1: a straight
 // hex-line at 6 mi per hex regardless of terrain (catalog expedition speeds already average
 // a terrain mix); flags — does not resolve — the RAW water loss (a river edge crossed or a
 // water hex entered on the quarry's path; the consumer answers it with the re-find throw).
-function trackingQuarryWalkDay(campaign, quarry){
+// A destination-less quarry WANDERS (E6 — the migration movement): half expedition speed
+// is set at begin; each step picks via _wanderPickStep against quarry.lastCoord. The rng
+// is required for the wander steps (the consumer passes its seeded stream; legacy quarries
+// with a stored straight heading walk it only when no rng is given).
+function trackingQuarryWalkDay(campaign, quarry, rng){
   const A = _jACKS();
   const out = { moved: 0,
                 fromCoord: { q: (quarry.coord && quarry.coord.q) || 0, r: (quarry.coord && quarry.coord.r) || 0 },
-                toCoord: null, waterCrossed: false, camped: false, arrived: false };
+                toCoord: null, path: [], waterCrossed: false, camped: false, arrived: false };
   if(quarry.halted){ out.toCoord = out.fromCoord; return out; }
   const MILES_PER_HEX = 6;
   let budget = (Number(quarry.milesPerDay) || 0) + (Number(quarry.mileRemainder) || 0);
   let cur = { q: out.fromCoord.q, r: out.fromCoord.r };
+  let last = (quarry.lastCoord && typeof quarry.lastCoord.q === 'number') ? { q: quarry.lastCoord.q, r: quarry.lastCoord.r } : null;
   const atDest = c => !!(quarry.destCoord && c.q === quarry.destCoord.q && c.r === quarry.destCoord.r);
   while(budget >= MILES_PER_HEX && !atDest(cur)){
     let next = null;
     if(quarry.destCoord){
       const line = hexLineDraw(cur, quarry.destCoord);
       next = (line.length > 1) ? line[1] : null;
+    } else if(rng){
+      next = _wanderPickStep(cur, last, rng);   // E6 — the wander activity
     } else if(typeof quarry.heading === 'number'){
+      // pre-E6 follows persisted a straight heading — honored only on rng-less calls
       const d = HEX_EDGE_DELTAS[((quarry.heading % 6) + 6) % 6] || [0, 0];
       next = { q: cur.q + d[0], r: cur.r + d[1] };
     }
@@ -4589,10 +4618,12 @@ function trackingQuarryWalkDay(campaign, quarry){
     const side = hexEdgeBetween(cur, next);
     const crossing = riverCrossingForStep(fromHex, toHex, side >= 0 ? side : null);
     if((crossing && crossing.barrier) || (toHex && toHex.terrain === 'water')) out.waterCrossed = true;
-    cur = next; out.moved++; budget -= MILES_PER_HEX;
+    last = cur; cur = next; out.moved++; budget -= MILES_PER_HEX;
+    out.path.push({ q: cur.q, r: cur.r });
   }
   quarry.mileRemainder = atDest(cur) ? 0 : Math.max(0, budget);
   quarry.coord = { q: cur.q, r: cur.r };
+  quarry.lastCoord = last ? { q: last.q, r: last.r } : (quarry.lastCoord || null);
   const hx = A.hexAtCoord(campaign, cur.q, cur.r);
   quarry.hexId = hx ? hx.id : null;
   if(atDest(cur)){ quarry.halted = true; out.arrived = true; }
@@ -4728,6 +4759,245 @@ function _commitTrackingRecord(campaign, record){
       + (record.refind ? ' (trail re-found)' : '') });
 }
 
+// ── #476 E6 — the 'monster-bands' day-consumer (slot 84): autonomous band motion ─────
+// Joachim 2026-06-11: "Monster movement: Wander activity. Monsters utilize this type of
+// movement when they are migrating. Wandering movement is at half-speed. The movement is
+// random, but wandering never goes directly back to the hex from where it just came from.
+// … If monsters wander into a Domain, they basically act like in Vagaries of Incursion
+// (their entry is counted as a positive occurrence of the Daily Domain Encounter
+// Probability). On entry, they roll according to JJ p.103 to determine their disposition.
+// … Monsters on their way home do not stop or change their behaviour even if they run
+// into a domain."
+// Two motions, both read off looseMonsterBands (the ONE roster, so what the dice can find
+// is exactly what moves):
+//   • migrant — WANDERS: half expedition speed, each 6-mile step a random face, never
+//     directly back. Entering a DOMAIN (a border crossing onto a domainId hex) rolls the
+//     JJ p.103 disposition at once — linger (1d100 ≤ Lair %) → the band settles AS a den
+//     at the entry hex (the E3a/E4m adopt mechanics: the den binds THE Group, full
+//     strength gathers it to the rolled lair count, hoard only at full strength); migrate
+//     → it keeps wandering. The entry is recorded as a positive occurrence of the Daily
+//     Domain Encounter Probability — a STUB the Vagaries of Incursion machinery consumes
+//     when it lands with the mass-combat phase (Phase 3 Military).
+//   • homing — a post-chase band returning to its den (pursuitAftermath): FULL expedition
+//     speed, straight line, no stops and NO domain disposition en route (the directive),
+//     dissolving into the den on arrival (a transient walk token — the den's population
+//     never moved out). Still on the looseMonsterBands roster, so a third party can run
+//     into it (E4m) and it can pick up a new pursuit on the way.
+// Group walk state lives on group.wanderState (lazy): { coord, lastCoord, mileRemainder,
+// mode (null = wandering | 'heading-home'), destLairId, dissolveOnArrival, lastDomainId,
+// halted (the GM's parking lever) }. The Group's currentHexId stays the placement truth —
+// a GM move (the hex disagreeing with the walk coord) reseeds the walk there; the coord
+// carries the band across unauthored hexes where currentHexId goes null.
+// Gated on persistent-wandering-monsters (world persistence — default ON; OFF = the
+// static shipped world). Handlers PURE (the day-tick working copy); commit replays the
+// recorded absolutes.
+function _bandExpeditionSpeed(tpl){
+  const A = _jACKS();
+  const entry = (tpl && tpl.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(tpl.monsterCatalogKey) : null;
+  const exp = entry ? parseFloat(String(entry.expeditionSpeed || '')) : NaN;
+  return { entry, fullSpeed: (isFinite(exp) && exp > 0) ? exp : 24 };   // 🔧 an unknown creature walks at the human norm
+}
+function proposeMonsterBandDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'persistent-wandering-monsters'))) return { pendingRecords, notableEvents };
+  if(typeof A.looseMonsterBands !== 'function') return { pendingRecords, notableEvents };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const MILES_PER_HEX = 6;
+  for(const row of A.looseMonsterBands(campaign)){
+    if(row.kind !== 'migrant' && row.kind !== 'homing') continue;
+    const g = (campaign.groups || []).find(x => x && x.id === row.groupId);
+    if(!g) continue;
+    const ws0 = g.wanderState || {};
+    if(ws0.halted) continue;                       // the GM parked the band
+    // Position: the Group's hex is the truth when it disagrees with the walk coord (the
+    // GM moved the band, or this is its first walk); the coord carries it off-map.
+    let coord = (ws0.coord && typeof ws0.coord.q === 'number') ? { q: ws0.coord.q, r: ws0.coord.r } : null;
+    let lastCoord = (ws0.lastCoord && typeof ws0.lastCoord.q === 'number') ? { q: ws0.lastCoord.q, r: ws0.lastCoord.r } : null;
+    const posHex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+    if(posHex && posHex.coord && (!coord || posHex.coord.q !== coord.q || posHex.coord.r !== coord.r)){
+      coord = { q: posHex.coord.q, r: posHex.coord.r };
+      lastCoord = null;
+    }
+    if(!coord) continue;                           // hexless and never walked — nowhere to start
+    const homing = row.kind === 'homing';
+    const speed = _bandExpeditionSpeed(g.groupTemplate);
+    const entry = speed.entry;
+    const rng = ctx.rng || _jMulberry32(_jHash32('monster-band|' + g.id + '|' + worldOrd));
+    const name = row.label || (entry && entry.name) || g.name || 'A band';
+    let destLair = null, destCoord = null;
+    if(homing){
+      destLair = (typeof A.findLair === 'function') ? A.findLair(campaign, ws0.destLairId) : null;
+      const denHex = (destLair && destLair.hexId) ? ((campaign.hexes || []).find(h => h && h.id === destLair.hexId) || null) : null;
+      const denLiving = destLair && (destLair.status === 'active' || destLair.status === 'unknown');
+      if(!denLiving || !denHex || !denHex.coord){
+        // the den died (or lost its place) while they walked — they become migrants and wander
+        const label = '🚶 ' + name + ' finds no den left to return to — it becomes a migrant and wanders.';
+        pendingRecords.push({ kind: 'monster-band-day', label, groupId: g.id, outcome: 'home-lost',
+          path: [], domainEntries: [], settle: null, arrivedHome: null,
+          newWanderState: { coord, lastCoord, mileRemainder: Number(ws0.mileRemainder) || 0, mode: null,
+                            destLairId: null, dissolveOnArrival: false,
+                            lastDomainId: ('lastDomainId' in ws0) ? ws0.lastDomainId : ((posHex && posHex.domainId) || null), halted: false },
+          newHexId: g.currentHexId || null, dayInMonth, primaryHexId: g.currentHexId || null });
+        continue;
+      }
+      destCoord = { q: denHex.coord.q, r: denHex.coord.r };
+    }
+    // ── the day's walk (pre-rolled on the working copy; commit replays the absolutes) ──
+    let budget = (homing ? speed.fullSpeed : (speed.fullSpeed / 2)) + (Number(ws0.mileRemainder) || 0);
+    let cur = coord, last = lastCoord;
+    let curDomain = ('lastDomainId' in ws0) ? (ws0.lastDomainId || null) : (() => {
+      const hx = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, cur.q, cur.r) : null;
+      return (hx && hx.domainId) || null;
+    })();
+    const path = [], domainEntries = [];
+    let arrivedHome = false, settle = null;
+    const atDest = c => !!(destCoord && c.q === destCoord.q && c.r === destCoord.r);
+    if(homing && atDest(cur)) arrivedHome = true;
+    while(budget >= MILES_PER_HEX && !arrivedHome && !settle){
+      let next = null;
+      if(homing){
+        const line = hexLineDraw(cur, destCoord);
+        next = (line.length > 1) ? line[1] : null;
+      } else {
+        next = _wanderPickStep(cur, last, rng);
+      }
+      if(!next) break;
+      last = cur; cur = next; budget -= MILES_PER_HEX;
+      path.push({ q: cur.q, r: cur.r });
+      const hx = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, cur.q, cur.r) : null;
+      const dom = (hx && hx.domainId) || null;
+      if(homing){
+        if(atDest(cur)) arrivedHome = true;        // homers do not stop or change behaviour (E6)
+      } else if(dom && dom !== curDomain){
+        // E6 — wandered INTO a domain (a border crossing): the entry counts as a positive
+        // occurrence of the Daily Domain Encounter Probability (Vagaries of Incursion —
+        // recorded as a STUB for the mass-combat phase to consume), and the band rolls
+        // its JJ p.103 disposition NOW: linger → it settles at the entry hex; migrate →
+        // it keeps wandering.
+        const pct = (entry && typeof entry.lairPct === 'number') ? entry.lairPct : 0;
+        const lingerRoll = 1 + Math.floor(rng() * 100);
+        const lingers = pct > 0 && lingerRoll <= pct;
+        const strengthRoll = 1 + Math.floor(rng() * 100);
+        const fullStrength = lingers && strengthRoll <= pct;
+        const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+        let fullCount = alive;
+        if(fullStrength && entry && entry.numberAppearing){
+          const spec = entry.numberAppearing.lair || entry.numberAppearing.wandering || '1';
+          const rolled = (typeof A._rollDiceStr === 'function') ? A._rollDiceStr(spec, rng) : alive;
+          fullCount = Math.max(alive, rolled);
+        }
+        domainEntries.push({ domainId: dom, hexId: hx ? hx.id : null, occurrence: true,
+                             lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength });
+        if(lingers && hx){
+          settle = { hexId: hx.id, fullStrength, count: fullCount,
+                     monsterCatalogKey: (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || null };
+        }
+      }
+      curDomain = dom;
+    }
+    const endHex = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, cur.q, cur.r) : null;
+    const newWS = { coord: { q: cur.q, r: cur.r }, lastCoord: last ? { q: last.q, r: last.r } : null,
+                    mileRemainder: (arrivedHome || settle) ? 0 : Math.max(0, budget),
+                    mode: homing ? 'heading-home' : null,
+                    destLairId: homing ? (ws0.destLairId || null) : null,
+                    dissolveOnArrival: homing ? !!ws0.dissolveOnArrival : false,
+                    lastDomainId: curDomain, halted: false };
+    let label;
+    if(arrivedHome)            label = '🏠 ' + name + ' reaches its den' + (destLair && destLair.name ? (' — ' + destLair.name) : '') + (ws0.dissolveOnArrival ? '.' : ' and rejoins it.');
+    else if(settle)            label = '🏚 ' + name + ' wanders into a domain and LINGERS (JJ p.103) — it settles as a lair' + (settle.fullStrength ? ' at full strength.' : '.');
+    else if(domainEntries.length) label = '🚶 ' + name + ' wanders into a domain — the day counts as a domain encounter; it migrates onward (' + path.length + ' hexes).';
+    else                       label = (homing ? ('🏠 ' + name + ' presses on toward its den (') : ('🚶 ' + name + ' wanders (')) + path.length + ' hexes today).';
+    pendingRecords.push({ kind: 'monster-band-day', label, groupId: g.id,
+      outcome: arrivedHome ? 'arrived-home' : (settle ? 'settled' : 'moving'),
+      path, domainEntries, settle, arrivedHome: arrivedHome ? { lairId: ws0.destLairId || null } : null,
+      newWanderState: newWS, newHexId: endHex ? endHex.id : null,
+      dayInMonth, primaryHexId: endHex ? endHex.id : null });
+    if(settle || arrivedHome || domainEntries.length){
+      notableEvents.push({ type: settle ? 'band-settled' : (arrivedHome ? 'band-home' : 'band-incursion'),
+        primaryHexId: endHex ? endHex.id : null, campaignLogHidden: true,
+        relatedEntities: [{ kind: 'group', id: g.id, role: 'subject' }],
+        label, payload: { groupId: g.id, narrative: label, domainEntries: domainEntries.slice() } });
+    }
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitMonsterBandRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'monster-band-day') return;
+  const A = _jACKS();
+  const g = (campaign.groups || []).find(x => x && x.id === record.groupId);
+  if(!g) return;
+  const turn = campaign.currentTurn || 1;
+  if(record.newWanderState) g.wanderState = JSON.parse(JSON.stringify(record.newWanderState));
+  g.currentHexId = record.newHexId || null;
+  g.history = g.history || [];
+  if(record.outcome === 'home-lost'){
+    g.history.push({ turn, type: 'wander', reason: 'no den left to return to — the band wanders as a migrant' });
+    return;
+  }
+  // The Vagaries occurrence stub — recorded on the Group; the Daily Domain Encounter
+  // Probability machinery consumes these when Vagaries of Incursion lands (Phase 3 Military).
+  for(const de of (record.domainEntries || [])){
+    const dom = (campaign.domains || []).find(d => d && d.id === de.domainId);
+    g.history.push({ turn, type: 'incursion',
+      reason: 'wandered into ' + ((dom && dom.name) || 'a domain') + ' — counts as the day’s domain encounter occurrence (Vagaries of Incursion, Phase 3 Military); disposition ' + (de.lingers ? 'lingers' : 'migrates') + ' (' + de.lingerRoll + ' vs Lair ' + de.lairPct + '%)' });
+  }
+  // Linger → the band settles AS a den at the entry hex (JJ p.103; the E4m adopt — the
+  // den binds THE Group, no second population; full strength gathers it to the lair count).
+  if(record.settle && record.settle.hexId){
+    const s = record.settle;
+    const entry = (s.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(s.monsterCatalogKey) : null;
+    const lair = (typeof A.createLair === 'function') ? A.createLair(campaign, {
+      hexId: s.hexId, monsterCatalogKey: (entry && entry.key) || s.monsterCatalogKey || '',
+      status: 'active', establishedBy: 'wander-settle', establishedAtTurn: turn,
+      knownToPlayers: false, name: ((entry && entry.name) || g.name || 'Monster') + ' lair'
+    }) : null;
+    if(lair){
+      if(lair.lairPct == null && entry) lair.lairPct = entry.lairPct;
+      lair.treasureType = s.fullStrength ? ((entry && entry.treasureType) || '') : '';
+      lair.groupIds = [g.id];
+      const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+      if(s.fullStrength && s.count > alive) g.count = (g.count || 0) + (s.count - alive);
+      lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+      lair.history = lair.history || [];
+      lair.history.push({ turn, type: 'settled',
+        reason: 'a wandering band lingered on entering the domain (JJ p.103) — ' + (s.fullStrength ? ('full lair strength (' + s.count + ')') : 'wandering numbers (no hoard yet)') });
+      g.currentHexId = s.hexId;
+      g.wanderState = null;                        // housed — no longer migrating
+      g.history.push({ turn, type: 'settled', reason: 'lingered and denned — ' + (lair.name || lair.id) });
+    }
+    return;
+  }
+  // Arrived home — the transient walk token dissolves into the den (the population never
+  // moved out for the hunt); a real Group the GM sent home is adopted back in instead.
+  if(record.arrivedHome){
+    const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, record.arrivedHome.lairId) : null;
+    if(lair && (lair.status === 'active' || lair.status === 'unknown' || lair.status === 'dynamic')){
+      lair.history = lair.history || [];
+      if(g.wanderState && g.wanderState.dissolveOnArrival){
+        lair.history.push({ turn, type: 'returned', reason: 'the hunting band returned to the den (its population already counts them)' });
+        campaign.groups = (campaign.groups || []).filter(x => !(x && x.id === g.id));
+      } else {
+        if((lair.groupIds || []).indexOf(g.id) < 0) lair.groupIds = (lair.groupIds || []).concat([g.id]);
+        lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+        lair.history.push({ turn, type: 'returned', reason: (g.name || 'a band') + ' returned and rejoined the den' });
+        g.currentHexId = lair.hexId || record.newHexId || null;
+        g.wanderState = null;
+        g.history.push({ turn, type: 'returned', reason: 'reached the den — home' });
+      }
+    } else {
+      // the den vanished between propose and commit — wander on as a migrant
+      if(g.wanderState){ g.wanderState.mode = null; g.wanderState.destLairId = null; g.wanderState.dissolveOnArrival = false; }
+      g.history.push({ turn, type: 'wander', reason: 'the den was gone — the band wanders as a migrant' });
+    }
+    return;
+  }
+  // routine motion — the Group moved; the day record carried the path (no history spam)
+}
+
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
 // registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
 // so ACKS.registerDayConsumer is available here. pauseTriggers wire the auto-pause-* rules.
@@ -4769,6 +5039,15 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 82,
     pauseTriggers: ['encounter', 'navigation-fail'],
     commit: commitPursuitRecord
+  });
+  // #476 E6 — autonomous band motion (slot 84): wandering migrants + homing post-chase
+  // bands. No pause triggers — the world moves on its own; settles + domain incursions
+  // surface as notables in the review.
+  ACKS.registerDayConsumer('monster-bands', {
+    handler: proposeMonsterBandDay,
+    order: 84,
+    pauseTriggers: [],
+    commit: commitMonsterBandRecord
   });
 }
 

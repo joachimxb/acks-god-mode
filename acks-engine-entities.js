@@ -1380,6 +1380,12 @@ function blankGroup(opts={}){
     currentHexId: opts.currentHexId || null,
     currentDomainId: opts.currentDomainId || null,
     commanderCharacterId: opts.commanderCharacterId || null,  // Optional named commander
+    // #476 E6 — autonomous band motion (the monster-bands day consumer; lazy on old
+    // saves). null = the defaults govern: an un-housed living band WANDERS (migration
+    // movement — half expedition speed, random steps, never directly back). Shape:
+    // { coord, lastCoord, mileRemainder, mode (null = wandering | 'heading-home'),
+    //   destLairId, dissolveOnArrival, lastDomainId, halted (the GM's parking lever) }.
+    wanderState: opts.wanderState || null,
     // Per-group history (combat actions, recruitment, attrition)
     history: opts.history || [],
     notes: opts.notes || ''

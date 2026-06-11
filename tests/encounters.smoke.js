@@ -1298,9 +1298,10 @@ section('E5 — beginTracking: the find opens a FOLLOW (RR p.120 in full; replac
   ok('a successful find opens the follow (direction party, status tracking)', r.ok && r.success
     && parley.pursuit && parley.pursuit.direction === 'party' && parley.pursuit.status === 'tracking'
     && (c.lairs || []).length === lairsBefore);   // the den is found by ARRIVING, never by the throw
-  ok('…a den-less band roams: seeded heading + 1d4 walk days at HALF its speed', parley.pursuit.quarry.plan === 'wanders'
-    && typeof parley.pursuit.quarry.heading === 'number'
-    && parley.pursuit.quarry.walkDaysLeft >= 1 && parley.pursuit.quarry.walkDaysLeft <= 4);
+  ok('…a den-less band WANDERS (the E6 migration movement): half its speed, no fixed heading, no camp countdown',
+    parley.pursuit.quarry.plan === 'wanders'
+    && parley.pursuit.quarry.heading === null && parley.pursuit.quarry.walkDaysLeft === null
+    && parley.pursuit.quarry.milesPerDay === 12);   // orc 24 mi expedition → wanders at 12
   ok('…the trackers\' journey starts at once, paced at half (RR p.120)', r.journeyAction === 'started'
     && r.journey && r.journey.status === 'in-transit' && r.journey.pace === 'half-speed'
     && parley.pursuit.journeyId === r.journey.id);
@@ -1856,6 +1857,298 @@ section('E5 — the follow day by day: the quarry walks, loss events break the t
       && (e.history || []).some(h => h && h.type === 'tracking-abandoned'));
     ok('E: an abandoned follow frees the meeting for a fresh find', ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-quit', countTracked: 5, rng: seq(0.999, 0.2, 0.5) }).success === true);
   }
+}
+
+// =============================================================================
+section('E6 — the wander activity: migrants move on the Day Clock (half speed, random, never directly back)');
+{
+  // A 8×3 field; q≥5 is a domain. The wolf Group is a free migrant (no lair).
+  const mkWorld = () => {
+    const c = ACKS.blankCampaign({ name: 'E6 wander' });
+    c.houseRules = {};
+    for(let q = 0; q < 8; q++) for(let r = 0; r < 3; r++)
+      c.hexes.push(Object.assign(ACKS.blankHex({}), { id: 'hex-' + q + '-' + r, coord: { q, r }, terrain: 'grassland' }, q >= 5 ? { domainId: 'dom-east' } : null));
+    c.domains = [{ id: 'dom-east', name: 'Eastmarch' }];
+    return c;
+  };
+  let c = mkWorld();
+  const g = ACKS.blankGroup({ name: 'The Grey Pack',
+    groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' },
+    count: 6, currentHexId: 'hex-1-1' });
+  c.groups.push(g);
+  ok('blankGroup carries the lazy wanderState seam (null = the defaults govern)', 'wanderState' in g && g.wanderState === null);
+
+  let res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 2 });
+  let rec = res.pendingRecords[0];
+  ok('a placed migrant wanders: one record, half expedition speed (wolf 36 → 18 mi = 3 hexes)',
+    res.pendingRecords.length === 1 && rec.groupId === g.id && rec.outcome === 'moving' && rec.path.length === 3);
+  const res2 = ACKS.proposeMonsterBandDay(c, { dayInMonth: 2 });
+  ok('the preview is byte-stable (seeded per band + world day — re-opening reproduces it)',
+    JSON.stringify(res2.pendingRecords[0].newWanderState) === JSON.stringify(rec.newWanderState));
+  ACKS.commitMonsterBandRecord(c, rec);
+  ok('commit moves the Group + persists the walk state (coord, lastCoord, remainder)',
+    g.currentHexId === rec.newHexId && g.wanderState && g.wanderState.coord
+    && g.wanderState.coord.q === rec.newWanderState.coord.q && g.wanderState.lastCoord !== null);
+
+  // never directly back — within a day AND across the day boundary (lastCoord persists)
+  let backtracked = false;
+  for(let d = 3; d < 16; d++){
+    const rr = ACKS.proposeMonsterBandDay(c, { dayInMonth: ((d - 1) % 28) + 1 });
+    const r1 = rr.pendingRecords.find(x => x.groupId === g.id);
+    if(!r1) break;
+    const pts = [{ q: g.wanderState.coord.q, r: g.wanderState.coord.r }].concat(r1.path);
+    if(g.wanderState.lastCoord && pts.length > 1
+       && pts[1].q === g.wanderState.lastCoord.q && pts[1].r === g.wanderState.lastCoord.r) backtracked = true;
+    for(let i = 2; i < pts.length; i++) if(pts[i].q === pts[i - 2].q && pts[i].r === pts[i - 2].r) backtracked = true;
+    ACKS.commitMonsterBandRecord(c, r1);
+    if(r1.outcome !== 'moving') break;
+  }
+  ok('the wander never steps directly back into the hex it just left (across days too)', backtracked === false);
+
+  // the GM's parking lever + the GM-move reseed
+  g.wanderState.halted = true;
+  ok('wanderState.halted parks the band (no record)', ACKS.proposeMonsterBandDay(c, { dayInMonth: 20 }).pendingRecords.length === 0);
+  g.wanderState.halted = false;
+  g.currentHexId = 'hex-0-0';   // the GM moved the band — the hex is the placement truth
+  res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 21 });
+  rec = res.pendingRecords[0];
+  ok('a GM move reseeds the walk from the new hex (lastCoord cleared)',
+    rec && rec.newWanderState && (Math.abs(rec.path[0].q - 0) + Math.abs(rec.path[0].r - 0)) <= 2);
+
+  // exclusions: housed, chase-side, rule OFF
+  c = mkWorld();
+  const den = ACKS.createLair(c, { hexId: 'hex-0-0', monsterCatalogKey: 'common-wolf', status: 'active', name: 'Den' });
+  const housed = ACKS.blankGroup({ groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 4, currentHexId: 'hex-0-0' });
+  c.groups.push(housed); den.groupIds = [housed.id];
+  const chaser = ACKS.blankGroup({ groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 4, currentHexId: 'hex-1-1' });
+  c.groups.push(chaser);
+  const chaseE = ACKS.createEncounter(c, { trigger: 'journey', hexId: 'hex-1-1', category: 'monster',
+    partySide: { characterIds: [], sizeCount: 2 },
+    monsterSide: { monsterCatalogKey: 'common-wolf', count: 4, groupIds: [chaser.id], lairId: null } });
+  chaseE.pursuit = { direction: 'monsters', status: 'pursuing', pursuerLabel: 'wolves', pursuerMilesPerDay: 18, gapMiles: 6, lastPartyHexId: 'hex-2-1', gmMod: 0, throws: [] };
+  chaseE.phase = 'pursuit';
+  res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 2 });
+  ok('housed populations + chase-side bands do not wander (the lair / the chase owns them)',
+    res.pendingRecords.length === 0);
+  c.houseRules['persistent-wandering-monsters'] = { enabled: false };
+  const free = ACKS.blankGroup({ groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 4, currentHexId: 'hex-1-0' });
+  c.groups.push(free);
+  ok('rule OFF: nothing moves (the static shipped world)', ACKS.proposeMonsterBandDay(c, { dayInMonth: 2 }).pendingRecords.length === 0);
+}
+
+section('E6 — wandering into a domain: the entry counts + the JJ p.103 disposition (linger settles, migrate moves on)');
+{
+  const mkWorld = () => {
+    const c = ACKS.blankCampaign({ name: 'E6 incursion' });
+    c.houseRules = {};
+    for(let q = 0; q < 8; q++) for(let r = 0; r < 3; r++)
+      c.hexes.push(Object.assign(ACKS.blankHex({}), { id: 'hex-' + q + '-' + r, coord: { q, r }, terrain: 'grassland' }, q >= 3 ? { domainId: 'dom-east' } : null));
+    c.domains = [{ id: 'dom-east', name: 'Eastmarch' }];
+    return c;
+  };
+  // forced rng: step e-ward into the domain; linger 1d100 low → LINGERS; strength low → FULL; lair dice high
+  let c = mkWorld();
+  let g = ACKS.blankGroup({ name: 'Wolves', groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 4, currentHexId: 'hex-2-1' });
+  c.groups.push(g);
+  let res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 2, rng: seq(0.0, 0.001, 0.001, 0.9, 0.9, 0.9) });
+  let rec = res.pendingRecords[0];
+  ok('the border crossing is recorded as a positive Daily-Domain-Encounter occurrence (the Vagaries stub)',
+    rec.domainEntries.length === 1 && rec.domainEntries[0].occurrence === true
+    && rec.domainEntries[0].domainId === 'dom-east' && rec.domainEntries[0].lairPct === 10);
+  ok('…and the JJ p.103 disposition rolled AT the entry: linger + full strength, the walk stops there',
+    rec.outcome === 'settled' && rec.settle && rec.settle.fullStrength === true
+    && rec.settle.hexId === rec.domainEntries[0].hexId && rec.settle.count === 18);   // 3d6 at 0.9 ⇒ 18
+  ACKS.commitMonsterBandRecord(c, rec);
+  const lair = c.lairs[0];
+  ok('the settle ADOPTS the Group (no second population): the den binds it, full strength gathers it',
+    !!lair && lair.establishedBy === 'wander-settle' && lair.status === 'active' && lair.knownToPlayers === false
+    && (lair.groupIds || []).join(',') === g.id && g.count === 18 && g.currentHexId === lair.hexId
+    && g.wanderState === null);
+  ok('…wolves hoard nothing — the Treasure Type follows the catalog even at full strength',
+    lair.treasureType === '');
+  ok('a settled band leaves the loose roster (housed)', ACKS.looseMonsterBands(c).length === 0);
+
+  // migrate: linger roll HIGH → keeps wandering; the occurrence is still recorded
+  c = mkWorld();
+  g = ACKS.blankGroup({ name: 'Wolves', groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 4, currentHexId: 'hex-2-1' });
+  c.groups.push(g);
+  res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 2, rng: seq(0.0, 0.999, 0.5, 0.0, 0.0, 0.0) });
+  rec = res.pendingRecords[0];
+  ok('migrate: the disposition fails the linger → the band keeps wandering (the entry still counts)',
+    rec.outcome === 'moving' && rec.domainEntries.length >= 1 && rec.domainEntries[0].lingers === false && !rec.settle);
+  ACKS.commitMonsterBandRecord(c, rec);
+  ok('…the occurrence lands in the Group\'s history (the trace Vagaries will consume — Phase 3 Military)',
+    (g.history || []).some(h => h && h.type === 'incursion' && /domain encounter occurrence/.test(h.reason)));
+  ok('…and no den was founded', c.lairs.length === 0);
+
+  // within-domain steps do NOT re-roll (one disposition per border crossing): the band is
+  // now INSIDE dom-east (lastDomainId carries it) — force the next day east, deeper in.
+  res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 3, rng: seq(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) });
+  rec = res.pendingRecords[0];
+  ok('steps WITHIN the same domain roll no new disposition (entry = the border crossing)',
+    !!rec && (rec.domainEntries || []).length === 0 && rec.outcome === 'moving');
+}
+
+section('E6 — the pursuit aftermath: a chase over with the band standing → home, or a wandering migrant');
+{
+  const mkWorld = () => {
+    const c = ACKS.blankCampaign({ name: 'E6 aftermath' });
+    c.houseRules = {};
+    for(let q = 0; q < 9; q++) for(let r = 0; r < 3; r++)
+      c.hexes.push(Object.assign(ACKS.blankHex({}), { id: 'hex-' + q + '-' + r, coord: { q, r }, terrain: 'grassland' }, (q >= 2 && q <= 4) ? { domainId: 'dom-mid' } : null));
+    c.domains = [{ id: 'dom-mid', name: 'Midmark' }];
+    return c;
+  };
+  const mkChase = (c, over) => {
+    const e = ACKS.createEncounter(c, Object.assign({
+      trigger: 'journey', hexId: 'hex-6-1', category: 'monster',
+      partySide: { characterIds: [], sizeCount: 2 },
+      monsterSide: Object.assign({ monsterCatalogKey: 'common-wolf', label: 'Common Wolf', count: 5, groupIds: [], lairId: null }, (over && over.monsterSide) || {})
+    }, (over && over.enc) || {}));
+    e.pursuit = { direction: 'monsters', status: 'pursuing', pursuerLabel: '5 Common Wolf',
+                  pursuerMilesPerDay: 18, gapMiles: 6, lastPartyHexId: 'hex-7-1', gmMod: 0, throws: [] };
+    return e;
+  };
+
+  // 1) the trail LOST (the daily consumer's commit) → a denless band becomes a wandering migrant
+  let c = mkWorld();
+  let e = mkChase(c);
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: e.id, outcome: 'lost',
+    trailThrow: { natural: 1, countBonus: 2, mod: 0, total: 3, target: 11, success: false },
+    newPartyHexId: 'hex-7-1', dayInMonth: 3 });
+  ok('a lost chase mints the band as a wandering migrant at the trail\'s end', e.status === 'resolved'
+    && e.pursuit.aftermath === 'migrant' && c.groups.length === 1
+    && c.groups[0].currentHexId === 'hex-7-1' && c.groups[0].wanderState && c.groups[0].wanderState.mode === null);
+  ok('…it rows as a migrant and wanders on the next Day Clock tick', (function(){
+    const rows = ACKS.looseMonsterBands(c);
+    const day = ACKS.proposeMonsterBandDay(c, { dayInMonth: 4 });
+    return rows.length === 1 && rows[0].kind === 'migrant' && day.pendingRecords.length === 1 && day.pendingRecords[0].outcome === 'moving';
+  })());
+  ok('…the aftermath fires once (idempotent)', ACKS.pursuitAftermath(c, e, {}) === null && c.groups.length === 1);
+
+  // 2) the band has a living placed den → it HEADS HOME (full speed, straight, no stops),
+  //    crossing a domain with NO disposition, and dissolves into the den on arrival
+  c = mkWorld();
+  const den = ACKS.createLair(c, { hexId: 'hex-0-1', monsterCatalogKey: 'common-wolf', status: 'active', name: 'The Old Den', knownToPlayers: false });
+  e = mkChase(c, { monsterSide: { lairId: den.id, encounterKind: 'wandering-fragment', count: 3 } });
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: e.id, outcome: 'lost',
+    trailThrow: { natural: 1, countBonus: 2, mod: 0, total: 3, target: 11, success: false },
+    newPartyHexId: 'hex-7-1', dayInMonth: 3 });
+  const tok = c.groups[0];
+  ok('a denned band turns for home: a transient walk token, full expedition speed, dissolve-on-arrival',
+    e.pursuit.aftermath === 'heading-home' && tok && tok.wanderState.mode === 'heading-home'
+    && tok.wanderState.destLairId === den.id && tok.wanderState.dissolveOnArrival === true);
+  ok('…it rows as 🏠 homing (kind + den ref carried)', (function(){
+    const rows = ACKS.looseMonsterBands(c);
+    return rows.length === 1 && rows[0].kind === 'homing' && rows[0].lairId === den.id;
+  })());
+  let homeDays = 0, sawDomainEntry = false, arrived = false;
+  while(homeDays < 5 && c.groups.some(x => x.id === tok.id)){
+    const rr = ACKS.proposeMonsterBandDay(c, { dayInMonth: 4 + homeDays });
+    const r1 = rr.pendingRecords.find(x => x.groupId === tok.id);
+    if(!r1) break;
+    if((r1.domainEntries || []).length) sawDomainEntry = true;
+    ACKS.commitMonsterBandRecord(c, r1);
+    homeDays++;
+    if(r1.outcome === 'arrived-home') arrived = true;
+  }
+  ok('…it walks the straight line home in 2 days (7 hexes at 36 mi/day) and the token dissolves',
+    arrived && homeDays === 2 && !c.groups.some(x => x.id === tok.id));
+  ok('…NO domain disposition en route (homers do not stop or change behaviour)', sawDomainEntry === false);
+  ok('…the den remembers the return', (den.history || []).some(h => h && h.type === 'returned'));
+
+  // 3) the CAUGHT path: the sprung meeting (trigger pursuit) resolving parleyed fires it;
+  //    dispersed = scattered, nothing
+  c = mkWorld();
+  e = mkChase(c);
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: e.id, outcome: 'caught',
+    trailThrow: { natural: 15, countBonus: 2, mod: 0, total: 17, target: 11, success: true },
+    partyMiles: 0, pursuerMiles: 18, gapBefore: 6, gapAfter: 0, newPartyHexId: 'hex-7-1', dayInMonth: 3 });
+  const sprung = (c.encounters || []).find(x => x.trigger === 'pursuit' && x.monsterSide && x.monsterSide.pursuitEncounterId === e.id);
+  ok('the catch springs the meeting; the chase has NO aftermath until that meeting concludes',
+    !!sprung && !e.pursuit.aftermath && c.groups.length === 0);
+  ACKS.recordEncounterResolved(c, sprung.id, 'parleyed', {});
+  ok('the sprung meeting parleyed → the band survives → it walks off as a migrant (denless)',
+    e.pursuit.aftermath === 'migrant' && c.groups.length === 1 && c.groups[0].currentHexId === sprung.hexId);
+  c = mkWorld();
+  e = mkChase(c);
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: e.id, outcome: 'caught',
+    trailThrow: { natural: 15, countBonus: 2, mod: 0, total: 17, target: 11, success: true },
+    partyMiles: 0, pursuerMiles: 18, gapBefore: 6, gapAfter: 0, newPartyHexId: 'hex-7-1', dayInMonth: 3 });
+  const sprung2 = (c.encounters || []).find(x => x.trigger === 'pursuit');
+  ACKS.recordEncounterResolved(c, sprung2.id, 'dispersed', {});
+  ok('dispersed = scattered: NO aftermath, no band persists', !e.pursuit.aftermath && c.groups.length === 0);
+
+  // 4) abandoning a running chase fires it; a failed TAKE-UP does not (the chase never began)
+  c = mkWorld();
+  e = mkChase(c);
+  ACKS.encounterAbandonPursuit(c, e.id, { reason: 'dusk' });
+  ok('a broken-off chase sends the band home / wandering too', e.pursuit.aftermath === 'migrant' && c.groups.length === 1);
+  c = mkWorld();
+  c.houseRules['monster-pursuit'] = { enabled: true };
+  e = mkChase(c); e.pursuit.status = 'offered'; e.pursuit.gapMiles = 0;
+  ACKS.encounterBeginPursuit(c, e.id, { rng: () => 0 });   // natural 1 — the trail was never found
+  ok('a failed take-up does NOT fire (the band stands at its meeting — the settle offer governs it)',
+    e.status === 'resolved' && !e.pursuit.aftermath && c.groups.length === 0);
+
+  // 5) the E4m migrant-chaser: its OWN Group is reused (no mint) and wanders again
+  c = mkWorld();
+  const roam = ACKS.blankGroup({ name: 'The Grey Pack', groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 5, currentHexId: 'hex-6-1' });
+  c.groups.push(roam);
+  e = mkChase(c, { monsterSide: { groupIds: [roam.id] } });
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: e.id, outcome: 'lost',
+    trailThrow: { natural: 1, countBonus: 2, mod: 0, total: 3, target: 11, success: false },
+    newPartyHexId: 'hex-7-1', dayInMonth: 3 });
+  ok('a chasing migrant Group is REUSED (no second band): it stands at the trail end and wanders',
+    c.groups.length === 1 && roam.currentHexId === 'hex-7-1' && roam.wanderState && roam.wanderState.mode === null);
+
+  // 6) rule OFF = the shipped behavior, byte-identical (no group, no aftermath)
+  c = mkWorld();
+  c.houseRules['persistent-wandering-monsters'] = { enabled: false };
+  e = mkChase(c);
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: e.id, outcome: 'lost',
+    trailThrow: { natural: 1, countBonus: 2, mod: 0, total: 3, target: 11, success: false },
+    newPartyHexId: 'hex-7-1', dayInMonth: 3 });
+  ok('rule OFF: the band evaporates exactly as before (no group, no aftermath mark)',
+    !e.pursuit.aftermath && c.groups.length === 0 && e.status === 'resolved');
+}
+
+section('E6 — a homing band abroad: findable (E4m), and a chase sprung from meeting it re-homes after');
+{
+  const c = ACKS.blankCampaign({ name: 'E6 rehome' });
+  c.houseRules = {};
+  for(let q = 0; q < 9; q++) for(let r = 0; r < 3; r++)
+    c.hexes.push(Object.assign(ACKS.blankHex({}), { id: 'hex-' + q + '-' + r, coord: { q, r }, terrain: 'grassland' }));
+  const den = ACKS.createLair(c, { hexId: 'hex-0-1', monsterCatalogKey: 'common-wolf', status: 'active', name: 'The Old Den', knownToPlayers: false });
+  // a homing token mid-walk at hex-5-1
+  const tok = ACKS.blankGroup({ name: '3 Common Wolf', groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 3, currentHexId: 'hex-5-1' });
+  tok.wanderState = { coord: { q: 5, r: 1 }, lastCoord: null, mileRemainder: 0, mode: 'heading-home',
+                      destLairId: den.id, dissolveOnArrival: true, lastDomainId: null, halted: false };
+  c.groups.push(tok);
+  // a third party's wandering draw at its hex binds it AS ITSELF, the den ref carried
+  const ident = { key: 'common-wolf', label: 'Wolf, Common', natural: 50 };
+  const binding = ACKS.bindEncounterIdentity(c, 'hex-5-1', ident, { rng: seq(0.99, 0.5), partySide: { partyId: null, characterIds: [] } });
+  ok('the abroad verdict binds the homing band first (mode loose-band, kind homing)',
+    binding.mode === 'loose-band' && binding.bandKind === 'homing' && binding.groupId === tok.id);
+  const side = { groupIds: [], lairId: null };
+  ACKS._applyIdentityBinding ? ACKS._applyIdentityBinding(c, side, ident, binding, { hexId: 'hex-5-1' }) : null;
+  ok('…the bound side carries source homing-band + the DEN ref (so a new chase re-homes)',
+    side.source === 'homing-band' && side.lairId === den.id && (side.groupIds || []).join(',') === tok.id && side.count === 3);
+  // a chase sprung from THAT meeting ends → the band re-homes (the directive's "return home after that pursuit")
+  const meet = ACKS.createEncounter(c, { trigger: 'journey', hexId: 'hex-5-1', category: 'monster',
+    partySide: { characterIds: [], sizeCount: 2 }, monsterSide: side });
+  meet.pursuit = { direction: 'monsters', status: 'pursuing', pursuerLabel: '3 Common Wolf',
+                   pursuerMilesPerDay: 18, gapMiles: 6, lastPartyHexId: 'hex-6-1', gmMod: 0, throws: [] };
+  meet.phase = 'pursuit';
+  ok('…while it chases, the wander consumer leaves it alone (the chase owns its motion)',
+    ACKS.proposeMonsterBandDay(c, { dayInMonth: 2 }).pendingRecords.length === 0);
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: meet.id, outcome: 'lost',
+    trailThrow: { natural: 1, countBonus: 2, mod: 0, total: 3, target: 11, success: false },
+    newPartyHexId: 'hex-6-1', dayInMonth: 3 });
+  ok('the new hunt over, the band turns for home AGAIN (reused, dissolve preserved)',
+    meet.pursuit.aftermath === 'heading-home' && c.groups.length === 1
+    && tok.wanderState.mode === 'heading-home' && tok.wanderState.destLairId === den.id
+    && tok.wanderState.dissolveOnArrival === true && tok.currentHexId === 'hex-6-1');
 }
 
 // =============================================================================

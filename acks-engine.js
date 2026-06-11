@@ -3495,6 +3495,22 @@ function looseMonsterBands(campaign){
     if(alive <= 0) continue;
     const tpl = g.groupTemplate || {};
     const entry = (tpl.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(tpl.monsterCatalogKey) : null;
+    const ws = g.wanderState || null;
+    // E6 — a post-chase band walking back to its den (pursuitAftermath set the state):
+    // its own roster kind, carrying the den ref so a chase sprung from MEETING it re-homes.
+    if(ws && ws.mode === 'heading-home' && ws.destLairId){
+      rows.push({
+        kind: 'homing', groupId: g.id,
+        monsterKey: entry ? entry.key : ((tpl.monsterCatalogKey) || null),
+        label: g.name || (entry && entry.name) || '',
+        count: alive,
+        hexId: g.currentHexId || null,
+        groupIds: [g.id],
+        lairId: ws.destLairId,
+        destLairId: ws.destLairId
+      });
+      continue;
+    }
     rows.push({
       kind: 'migrant', groupId: g.id,
       monsterKey: entry ? entry.key : ((tpl.monsterCatalogKey) || null),
@@ -3503,7 +3519,8 @@ function looseMonsterBands(campaign){
       hexId: g.currentHexId || null,
       groupIds: [g.id],
       lairId: null,
-      deadHomeLairId: deadHome[g.id] || null
+      deadHomeLairId: deadHome[g.id] || null,
+      halted: !!(ws && ws.halted)                  // E6 — the GM's parking lever (else it wanders)
     });
   }
   return rows;
@@ -3789,6 +3806,20 @@ function _applyIdentityBinding(campaign, side, identity, binding, opts){
         side.groupIds = qg ? [qg] : (tms.groupIds || []).slice();
         side.encounterKind = 'wandering';
         side.count = (b.count != null) ? b.count : (tms.count != null ? tms.count : null);
+        bound = true;
+      }
+    } else if(b.bandKind === 'homing' && b.groupId){
+      // E6 — a post-chase band walking home: met as itself, the side keeping the DEN ref —
+      // so a chase sprung from this meeting re-homes after it (the directive's "pick up a
+      // new pursuit … and return home after that pursuit").
+      const g = (campaign.groups || []).find(x => x && x.id === b.groupId);
+      const alive = g ? ((typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0))) : 0;
+      if(g && alive > 0){
+        side.source = 'homing-band';
+        side.lairId = (g.wanderState && g.wanderState.destLairId) || b.lairId || null;
+        side.groupIds = [g.id];
+        side.encounterKind = 'wandering';
+        side.count = alive;
         bound = true;
       }
     }

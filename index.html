@@ -277,6 +277,8 @@ document.addEventListener('alpine:init', () => {
               <!-- E2g — a pending encounter is still a proposal (no entity yet); committing creates
                    each as a resolvable Encounter. Tell the GM where the work queue is. -->
               <div x-show="grp.consumer === 'encounters'" class="text-xs opacity-60 italic">Committing the day creates each as a resolvable Encounter — handle them in World ▸ ⚔ Encounters (reject = it never happened).</div>
+              <!-- E6 — autonomous band motion: wandering migrants + bands walking home. -->
+              <div x-show="grp.consumer === 'monster-bands'" class="text-xs opacity-60 italic">The world's loose bands on the move (World ▸ 🐉 Monsters ▸ Groups) — reject a line and that band stays put today.</div>
               <template x-for="(r, ri) in grp.records" :key="grp.consumer + '-' + ri">
                 <div class="border-b border-dashed border-gray-300">
                   <div class="flex items-center justify-between gap-2 py-0.5" :class="r.rejected ? 'opacity-40 line-through' : ''">
@@ -737,7 +739,7 @@ document.addEventListener('alpine:init', () => {
   <div class="vellum border border-ink rounded p-4 mt-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
       <h3 class="font-bold text-lg">🐾 Groups <span class="text-sm opacity-70 font-normal" x-text="'· ' + monsterLooseBandRows().length + ' abroad'"></span></h3>
-      <span class="text-sm opacity-70">migrant + pursuing + tracked bands — monsters not settled in a lair</span>
+      <span class="text-sm opacity-70">migrant + pursuing + tracked + homeward bands — monsters not settled in a lair</span>
     </div>
     <template x-if="monsterLooseBandRows().length === 0">
       <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
@@ -768,7 +770,7 @@ document.addEventListener('alpine:init', () => {
         </tbody>
       </table>
     </template>
-    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter. A band settling down again becomes a lair above.</p>
+    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter; 🏠 homeward bands are hunters walking back to their den after a chase. Migrants <strong>wander</strong> with the Day Clock (half speed, random, never doubling straight back — ⚙ Persistent wandering monsters); one that wanders into a domain rolls its JJ p.103 disposition and may settle as a lair above.</p>
   </div>
 </div>
 
@@ -10065,9 +10067,31 @@ return {
           encounterId: b.encounterId, groupId: null
         };
       }
+      if(b.kind === 'homing'){
+        // E6 — a post-chase band walking home to its den (the monster-bands consumer
+        // moves it; it dissolves into the den on arrival).
+        const den = (typeof A.findLair === 'function') ? A.findLair(c, b.destLairId) : null;
+        const gh = ((c.groups || []).find(x => x && x.id === b.groupId)) || {};
+        return {
+          key: 'homing-' + b.groupId, icon: '🏠',
+          band: gh.name || b.label || monster || '—',
+          monster: monster || b.label || '—',
+          count: b.count,
+          hexId: hex ? hex.id : null,
+          where: where || 'on the road home',
+          statusLabel: 'heading home',
+          statusText: '🏠 heading home to ' + ((den && den.name) || 'its den') + ' — it will not stop on the way',
+          encounterId: null, groupId: b.groupId
+        };
+      }
       const home = b.deadHomeLairId ? ((typeof A.findLair === 'function') ? A.findLair(c, b.deadHomeLairId) : null) : null;
       const g = ((c.groups || []).find(x => x && x.id === b.groupId)) || {};
       const tpl = g.groupTemplate || {};
+      // E6 — a placed migrant WANDERS on the Day Clock (half speed, never doubling back)
+      // unless the GM parked it (wanderState.halted) or the persistence rule is off. A band
+      // strayed onto an unauthored coord keeps walking (the walk coord carries it off-map).
+      const ruleOn = (typeof A.isHouseRuleEnabled === 'function') && A.isHouseRuleEnabled(c, 'persistent-wandering-monsters');
+      const moving = ruleOn && !b.halted && (hex || !!(g.wanderState && g.wanderState.coord));
       return {
         key: 'group-' + b.groupId, icon: '🚶',
         band: g.name || '(unnamed band)',
@@ -10075,8 +10099,9 @@ return {
         count: b.count,
         hexId: hex ? hex.id : null,
         where: where || 'wandering — no fixed hex',
-        statusLabel: 'migrant',
-        statusText: home ? ('migrant — out of ' + (home.name || 'a lost lair') + ' (' + home.status + ')') : 'migrant',
+        statusLabel: b.halted ? 'migrant · halted' : 'migrant',
+        statusText: (home ? ('migrant — out of ' + (home.name || 'a lost lair') + ' (' + home.status + ')') : 'migrant')
+          + (moving ? ' · 🚶 wandering with the Day Clock' : (b.halted ? ' · halted by the GM' : '')),
         encounterId: null, groupId: b.groupId
       };
     });
