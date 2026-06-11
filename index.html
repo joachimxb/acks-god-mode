@@ -1028,30 +1028,13 @@ document.addEventListener('alpine:init', () => {
               <h4 class="font-semibold">The other side</h4>
               <p><span x-text="encMonsterText(encModalEnc())"></span>
                 <button x-show="encModalEnc().monsterSide.lairId && (lairKnown(encModalEnc().monsterSide.lairId) || encModalEnc().monsterSide.encounterKind === 'at-lair')" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair (a peek above this panel)">→ lair</button>
-                <!-- A side bound to an UNLOCATED den (and not met AT it): a tracker can follow the
-                     spoor back (RR p.120; M4). Covers a wandering FRAGMENT out from its den AND a
-                     band that SETTLED after the party evaded (E3a links lairId, kind stays
-                     'wandering' — the gap Joachim hit 2026-06-11: confirming "Den here" used to
-                     hide every track path while the settle text promised one). Lives on the modal
-                     so every such meeting carries it, however triggered — journey day, rest-night
-                     camp, search hour. Once discovered, flips to the full → lair above
-                     (trackHomeAttempt refuses 'already-known'); an at-lair meeting was AT the den,
-                     so it keeps → lair regardless. -->
-                <button x-show="encModalEnc().monsterSide.lairId && !lairKnown(encModalEnc().monsterSide.lairId) && encModalEnc().monsterSide.encounterKind !== 'at-lair'" @click="openTrackHome({ lairId: encModalEnc().monsterSide.lairId, hexId: encModalEnc().hexId, countTracked: encModalEnc().monsterSide.count || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Follow the band's spoor home to its lair — Tracking 11+ (RR p.120); opens above this panel">🐾 Track home</button>
+                <!-- The side card keeps the INFO links only: → lair once the den is located (or
+                     the meeting was AT it), the de-emphasized 👁 GM peek while it isn't. The 🐾
+                     ACTION moved to the resolved banner with the other outcome buttons (E4k —
+                     Joachim 2026-06-11: "put the track home button into the section towards the
+                     end, where the other buttons would be"); tracking needs the band to have
+                     parted, so it is a post-resolution offer (encBannerTrackTarget). -->
                 <button x-show="encModalEnc().monsterSide.lairId && !lairKnown(encModalEnc().monsterSide.lairId) && encModalEnc().monsterSide.encounterKind !== 'at-lair'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
-                <!-- E4i (Joachim 2026-06-11: "you should be able to track someone you parleyed and
-                     parted with") — a PARTED band with NO den entity yet (the common wandering
-                     case: the Lair % said abroad but no matching den exists): once the meeting is
-                     resolved (parleyed / evaded / dispersed / combat), a tracker can follow the
-                     band home and a success FOUNDS their den at this hex (MM p.15 — the hoard
-                     stays at the lair). Civilized folk go home to dwellings, never dens (the E4
-                     rule); an unidentified side needs the monster named first (disable-w/-reason). -->
-                <button x-show="encModalEnc().status === 'resolved' && ['parleyed','evaded','dispersed','combat'].includes(encModalEnc().outcome) && !encModalEnc().monsterSide.lairId && encModalEnc().category !== 'civilized'"
-                        :disabled="!encTrackPartedReady()"
-                        @click="openTrackHome({ encounterId: encModalEnc().id, hexId: encModalEnc().hexId, countTracked: encModalEnc().monsterSide.count || 0 })"
-                        :class="encTrackPartedReady() ? 'border-ink hover:bg-yellow-100' : 'border-ink/30 opacity-50 cursor-not-allowed'"
-                        class="text-xs px-1.5 border rounded ml-1"
-                        :title="encTrackPartedReady() ? 'They have parted — follow the band home (Tracking 11+, RR p.120); a success founds their den at this hex' : 'name the monster first — set it via pick from table or 🔍 Open in Inspector'">🐾 Track home</button>
               </p>
               <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rerolls on the SAME
                    table; “pick from table” lists the appropriate column (rarity switchable).
@@ -1359,6 +1342,16 @@ document.addEventListener('alpine:init', () => {
                    UNKNOWN to the players (they ran; find it via search / track-home). -->
               <button x-show="encSettleOfferOnResolved() && !encModal.settle" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="text-xs px-1.5 border border-ink rounded ml-1" :title="encSettleTitle()">🏚 Settles as lair?</button>
               <span class="text-xs opacity-60" x-show="encSettleOfferOnResolved() && !encModal.settle && !encSettleEligible()" x-text="'(' + encSettleReason() + ')'"></span>
+              <!-- E4k (Joachim 2026-06-11): 🐾 lives HERE, with the other outcome buttons — not on
+                   the side card. A concluded real meeting tracks the band to its unlocated den
+                   (fragment / settled-behind-the-fled-party), or — no den entity at all — founds
+                   one at this hex on a success (E4i); the unidentified case is disabled-with-reason. -->
+              <button x-show="encBannerTrackTarget()"
+                      :disabled="!!(encBannerTrackTarget() || {}).encounterId && !encTrackPartedReady()"
+                      @click="openTrackHome(encBannerTrackTarget())"
+                      :class="(!(encBannerTrackTarget() || {}).encounterId || encTrackPartedReady()) ? 'border-ink hover:bg-yellow-100' : 'border-ink/30 opacity-50 cursor-not-allowed'"
+                      class="text-xs px-1.5 border rounded ml-1"
+                      :title="(!(encBannerTrackTarget() || {}).encounterId || encTrackPartedReady()) ? 'Follow the band’s spoor home — Tracking 11+ (RR p.120); a den not yet on the map is founded at this hex on a success' : 'name the monster first — set it via pick from table or 🔍 Open in Inspector'">🐾 Track home</button>
             </div>
           </template>
           <!-- Footer: Inspector + history -->
@@ -15428,6 +15421,24 @@ return {
       found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null
     }));
     this.markDirty(); this.schedulePersist();
+  },
+  // E4k (Joachim 2026-06-11: the 🐾 belongs in the end section, with the other outcome
+  // buttons) — the resolved banner's unified track target. A concluded REAL meeting
+  // (parleyed / evaded / dispersed / combat — the band has parted, so there is a trail)
+  // offers the track: toward the side's UNLOCATED den (a fragment out from it, or a band
+  // that settled behind the fled party), or — with no den entity at all — the parted-band
+  // founding (E4i; the unidentified case shows disabled-with-reason via encTrackPartedReady).
+  // Null = no offer: no meeting, civilized folk, the den already known, or met AT the den.
+  encBannerTrackTarget(){
+    const enc = this.encModalEnc(); if(!enc || enc.status !== 'resolved') return null;
+    if(['parleyed','evaded','dispersed','combat'].indexOf(enc.outcome) < 0) return null;
+    const ms = enc.monsterSide || {};
+    if(ms.lairId){
+      if(this.lairKnown(ms.lairId) || ms.encounterKind === 'at-lair') return null;
+      return { lairId: ms.lairId, hexId: enc.hexId, countTracked: ms.count || 0 };
+    }
+    if(enc.category === 'civilized') return null;
+    return { encounterId: enc.id, hexId: enc.hexId, countTracked: ms.count || 0 };
   },
   // E4i — the parted-band track (no den entity yet) is ready once the side names a catalog
   // monster (the den is generated from its entry) and the meeting has a hex to found it in.
