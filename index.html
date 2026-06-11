@@ -1332,7 +1332,7 @@ document.addEventListener('alpine:init', () => {
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('parleyed')" class="px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Part on the standing attitude — it persists as these sides' shared history (a later meeting recalls it)">🤝 Parley &amp; part</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('combat')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="Hand to the table — the GM resolves combat (#141); record the result afterwards as an adventure outcome (a cleared lair flips from there)">⚔ To combat (GM resolves)</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('dispersed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The meeting broke up without consequence">💨 Dispersed</button>
-            <button x-show="encResolutionVerbsVisible() && !encModal.settle" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded" :title="encSettleTitle()">🏚 Settles as lair?</button>
+            <button x-show="encResolutionVerbsVisible() && !encModal.settle && encSettleRuleOn()" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded" :title="encSettleTitle()">🏚 Settles as lair?</button>
             <span class="text-xs opacity-60 self-center" x-show="encResolutionVerbsVisible() && !encModal.settle && !encSettleEligible()" x-text="'(' + encSettleReason() + ')'"></span>
             <button @click="encModalResolve('dismissed')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Strike it — GM override; it never happened">✕ Dismiss</button>
           </div>
@@ -10619,6 +10619,9 @@ return {
   // ── E3a — settle-as-lair (the linger-or-migrate proposal panel; JJ p.69 + p.103).
   // The verb rolls a PROPOSAL (transient encModal.settle — nothing written); ⟳ re-rolls;
   // the dungeon ×2 tick recomputes vs the held naturals; confirm materializes.
+  // ⚙️ The whole branch is the persistent-wandering-monsters rule (default ON) — OFF ⇒
+  // the offer is HIDDEN, not disabled (principle 8); the engine verbs refuse 'rule-off'.
+  encSettleRuleOn(){ return this.isHouseRuleEnabled('persistent-wandering-monsters'); },
   encSettleEligible(){
     const enc = this.encModalEnc(); if(!enc) return false;
     return !!window.ACKS.encounterSettleEligibility(this.currentCampaign, enc.id).eligible;
@@ -10630,6 +10633,7 @@ return {
     const enc = this.encModalEnc(); if(!enc) return '';
     const e = window.ACKS.encounterSettleEligibility(this.currentCampaign, enc.id);
     if(e.eligible) return '';
+    if(e.reason === 'rule-off') return 'the Persistent wandering monsters house rule is off (⚙ House Rules ▸ ⚔ Encounters)';
     if(e.reason === 'no-catalog-monster') return 'name the monster first — its catalog entry carries the Lair %; use the other-side card’s pick-from-table, or 🔍 Open in Inspector';
     if(e.reason === 'no-lair-pct') return 'this monster has no Lair % in the catalog — author a den via the Lair Wizard instead';
     if(e.reason === 'already-at-lair') return 'they are already home — this meeting is at their lair';
@@ -10643,6 +10647,7 @@ return {
   // The resolved-EVADED offer (the banner button): one linger roll per meeting —
   // hidden once decided (settled → the → lair link; migrated → the settle-check stamp).
   encSettleOfferOnResolved(){
+    if(!this.encSettleRuleOn()) return false;   // rule off ⇒ hidden, not disabled
     const e = this.encModalEnc();
     return !!(e && e.status === 'resolved' && e.outcome === 'evaded'
       && !(e.monsterSide && e.monsterSide.lairId)

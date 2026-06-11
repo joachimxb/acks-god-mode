@@ -3877,6 +3877,13 @@ function encounterToneRows(campaign, encounterId, tone, opts){
 
 function encounterSettleEligibility(campaign, encounterId){
   const A = _gpwACKS();
+  // ⚙️ The whole settle branch is the persistent-wandering-monsters house rule (default
+  // ON): JJ p.103 prints the linger roll for DOMAIN encounters (Vagaries of Incursion);
+  // applying it to random wilderness encounters is the extension, hence the toggle.
+  // OFF ⇒ the offer hides AND the verbs refuse (principle 8 — non-functional + hidden);
+  // propose and confirm both route through this eligibility, so one gate covers all three.
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'persistent-wandering-monsters')))
+    return { eligible: false, reason: 'rule-off' };
   const enc = A.findEncounter(campaign, encounterId);
   if(!enc) return { eligible: false, reason: 'unknown-encounter' };
   // A resolved meeting can still take the linger roll on the EVADED path (per Joachim,

@@ -813,12 +813,13 @@ section('E3b — encounter tone (JJ pp.84–87, D11): catalogs + derivation + in
 }
 
 // =============================================================================
-section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default OFF)');
+section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default ON — explicit untick wins)');
 {
   const build = (ruleOn) => {
     const c = ACKS.blankCampaign({ name: 'pursuit' });
     ACKS.migrateCampaign(c);
-    if(ruleOn) c.houseRules['monster-pursuit'] = { enabled: true };
+    // Default ON since the HR-Enc move (2026-06-11) — the OFF path needs an explicit untick.
+    c.houseRules['monster-pursuit'] = { enabled: !!ruleOn };
     c.hexes = [0, 1, 2, 3, 4, 5].map(q => {
       const h = ACKS.blankHex({ id: 'hex-p' + q, terrain: 'grassland', terrainSubtype: 'steppe' });
       h.coord = { q: q, r: 0 };
@@ -841,7 +842,7 @@ section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default OFF
     return e;
   };
 
-  // Rule OFF (the default): a successful evasion resolves 'evaded' — shipped behavior.
+  // Rule explicitly OFF (the GM untick): a successful evasion resolves 'evaded' at once.
   {
     const { c, ch } = build(false);
     const e = mkEnc(c, ch);
@@ -947,11 +948,44 @@ section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default OFF
     const rA = ACKS.encounterAbandonPursuit(c, eA.id, { reason: 'the pack gives up' });
     ok('abandon resolves evaded', rA.ok === true && eA.status === 'resolved' && eA.outcome === 'evaded');
   }
-  ok('the monster-pursuit rule is registered default-OFF', (() => {
+  ok('the monster-pursuit rule is registered default-ON (absent ⇒ enabled; HR-Enc 2026-06-11)', (() => {
     const reg = (ACKS.HOUSERULES_REGISTRY || []).find(r => r.id === 'monster-pursuit');
     const fresh2 = ACKS.blankCampaign({ name: 'x' });
-    return !!reg && !ACKS.isHouseRuleEnabled(fresh2, 'monster-pursuit');
+    return !!reg && reg.default === true && ACKS.isHouseRuleEnabled(fresh2, 'monster-pursuit');
   })());
+}
+
+// =============================================================================
+section('HR-Enc — the ⚔ Encounters house-rule tab (Joachim 2026-06-11)');
+{
+  // The category exists and both rules live in it, default ON.
+  ok('HOUSERULE_CATEGORIES carries the encounters tab', (ACKS.HOUSERULE_CATEGORIES || []).some(cat => cat.id === 'encounters'));
+  const pwm = (ACKS.HOUSERULES_REGISTRY || []).find(r => r.id === 'persistent-wandering-monsters');
+  const mp  = (ACKS.HOUSERULES_REGISTRY || []).find(r => r.id === 'monster-pursuit');
+  ok('persistent-wandering-monsters: category encounters, default ON', !!pwm && pwm.category === 'encounters' && pwm.default === true);
+  ok('its description leads with the placed-entities sentence',
+    !!pwm && /^Wandering-encounter survivors become placed entities on the world map\./.test(pwm.description));
+  ok('monster-pursuit: category encounters, default ON', !!mp && mp.category === 'encounters' && mp.default === true);
+
+  // E3a gates behind persistent-wandering-monsters: explicit OFF ⇒ the offer + verbs refuse.
+  const c = ACKS.blankCampaign({ name: 'hr-enc' });
+  ACKS.migrateCampaign(c);
+  c.hexes = [ACKS.blankHex({ id: 'hex-hr', terrain: 'hills', terrainSubtype: 'rocky' })];
+  const face = ACKS.blankCharacter({ name: 'Scout' }); face.abilities = { STR: 9, INT: 9, WIL: 9, DEX: 9, CON: 9, CHA: 9 };
+  c.characters.push(face);
+  const e = ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: 'hex-hr', category: 'monster',
+    partySide: { characterIds: [face.id], faceCharacterId: face.id, sizeCount: 1 },
+    monsterSide: { monsterCatalogKey: 'orc', count: 4 } });
+  ok('rule absent ⇒ ON (registry fallback) — the settle offer stands', ACKS.encounterSettleEligibility(c, e.id).eligible === true);
+  c.houseRules['persistent-wandering-monsters'] = { enabled: false };
+  ok('explicit OFF: eligibility refuses rule-off', ACKS.encounterSettleEligibility(c, e.id).reason === 'rule-off');
+  const pOff = ACKS.encounterProposeSettle(c, e.id, { rng: seq(0.10) });
+  ok('explicit OFF: propose refuses rule-off', !!pOff && pOff.ok === false && pOff.error === 'rule-off');
+  const rOff = ACKS.encounterSettleAsLair(c, e.id, { proposal: { ok: true, lingers: true } });
+  ok('explicit OFF: confirm refuses rule-off (no lair written)', !!rOff && rOff.ok === false && rOff.error === 'rule-off' && (c.lairs || []).length === 0);
+  // Re-tick ⇒ the offer is live again (the gate is read live, no stored consequence).
+  c.houseRules['persistent-wandering-monsters'] = { enabled: true };
+  ok('re-ticked: eligible again', ACKS.encounterSettleEligibility(c, e.id).eligible === true);
 }
 
 // =============================================================================
