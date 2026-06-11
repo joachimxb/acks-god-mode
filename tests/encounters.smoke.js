@@ -1136,6 +1136,83 @@ section('E4 journey day revert — a den minted by the reverted day is unwound')
 }
 
 // =============================================================================
+section('E4i — track a parted band home: a success FOUNDS its den (Joachim 2026-06-11)');
+{
+  const c = ACKS.blankCampaign({ name: 'parted' });
+  c.hexes = [{ id: 'hex-p', coord: { q: 0, r: 0 }, terrain: 'hills', domainId: null }];
+  const tracker = ACKS.blankCharacter({ name: 'Hode' });
+  tracker.currentHexId = 'hex-p'; tracker.proficiencies = ['Tracking'];
+  const idler = ACKS.blankCharacter({ name: 'Unskilled' }); idler.currentHexId = 'hex-p';
+  c.characters.push(tracker, idler);
+  const mk = (over) => ACKS.createEncounter(c, Object.assign({
+    trigger: 'rest-night', hexId: 'hex-p', category: 'monster', rarity: 'common',
+    partySide: { characterIds: [tracker.id], sizeCount: 2 },
+    monsterSide: { source: 'fresh', monsterCatalogKey: 'orc', count: 5, encounterKind: 'wandering' }
+  }, over || {}));
+
+  // ── the gates ──
+  mk({ id: 'enc-p-active' });
+  let r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-active' });
+  ok('an un-resolved meeting refuses — they have not parted', !r.ok && r.error === 'encounter-still-active');
+  const dis = mk({ id: 'enc-p-dismissed' }); dis.status = 'resolved'; dis.outcome = 'dismissed';
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-dismissed' });
+  ok('a dismissed/no-encounter meeting refuses — no trail', !r.ok && r.error === 'no-meeting');
+  const civ = mk({ id: 'enc-p-civ', category: 'civilized', monsterSide: { source: 'fresh', monsterCatalogKey: 'merchant', count: 3, encounterKind: 'wandering' } });
+  civ.status = 'resolved'; civ.outcome = 'parleyed';
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-civ' });
+  ok('civilized folk refuse — dwellings, not dens (the E4 rule)', !r.ok && r.error === 'civilized-folk');
+  const nameless = mk({ id: 'enc-p-nameless', monsterSide: { source: 'fresh', monsterCatalogKey: '', label: 'Dragon, Blue', count: 1, encounterKind: 'wandering' } });
+  nameless.status = 'resolved'; nameless.outcome = 'parleyed';
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-nameless' });
+  ok('an unidentified side refuses — name the monster first', !r.ok && r.error === 'no-catalog-monster');
+  const parley = mk({ id: 'enc-p-parley' }); parley.status = 'resolved'; parley.outcome = 'parleyed';
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: idler.id, encounterId: 'enc-p-parley' });
+  ok('a tracker-less actor still refuses (no Tracking)', !r.ok && r.error === 'no-tracking');
+
+  // ── a failed throw founds nothing ──
+  const lairsBefore = (c.lairs || []).length;
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley', countTracked: 5, rng: () => 0 });   // natural 1
+  ok('a failed track returns ok + no success', r.ok && !r.success && !r.founded);
+  ok('…and founds NOTHING — no den, side still den-less', (c.lairs || []).length === lairsBefore && !parley.monsterSide.lairId);
+
+  // ── the success: the den is FOUNDED at the meeting hex ──
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley', countTracked: 5, rng: () => 0.999 });
+  ok('a successful track founds the den', r.ok && r.success && r.founded === true && !!r.lair);
+  const den = r.lair;
+  ok('…at the meeting hex, from the catalog, by track-home', den.hexId === 'hex-p' && den.monsterCatalogKey === 'orc' && den.establishedBy === 'encounter-track-home');
+  ok('…discovered (the track IS the discovery, method tracking)', den.knownToPlayers === true
+    && (den.discoveryHistory || []).some(d => d && d.method === 'tracking' && d.by === tracker.id));
+  ok('…with a bound population ≥ the tracked band + the Treasure Type recorded', ACKS.lairInhabitantCount(c, den) >= 5 && typeof den.treasureType === 'string' && den.treasureType.length > 0);
+  ok('…linked back onto the meeting (D9 chains future meetings)', parley.monsterSide.lairId === den.id
+    && (parley.history || []).some(h => h && h.type === 'tracked-home'));
+  const evp = r.event && r.event.payload;
+  ok('…the hex-search event records the founding', !!evp && evp.method === 'track-home' && evp.foundedLair === true
+    && evp.trackedEncounterId === 'enc-p-parley' && evp.foundLairId === den.id
+    && evp.activityCost && evp.activityCost.kind === 'track');
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley' });
+  ok('tracking the same meeting again refuses — the den is known', !r.ok && r.error === 'already-known');
+  const again = mk({ id: 'enc-p-again', monsterSide: { source: 'existing-lair', lairId: den.id, monsterCatalogKey: 'orc', count: 3, encounterKind: 'at-lair' } });
+  const prior = ACKS.priorReactionBetween(c, again);
+  ok('a later meeting with the founded den recalls the parley (D9)', !!prior && prior.encounterId === 'enc-p-parley' && prior.outcome === 'parleyed');
+
+  // ── the population floor: the den holds at least the band you followed ──
+  const big = mk({ id: 'enc-p-big', hexId: 'hex-p', monsterSide: { source: 'fresh', monsterCatalogKey: 'orc', count: 999, encounterKind: 'wandering' } });
+  big.status = 'resolved'; big.outcome = 'evaded';
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-big', countTracked: 999, rng: () => 0.999 });
+  ok('the founded den is floored at the tracked band (999)', r.ok && r.success && ACKS.lairInhabitantCount(c, r.lair) === 999);
+
+  // ── an encounterId whose side HAS an unlocated den resolves to the fragment path ──
+  const hidden = ACKS.createLair(c, { hexId: 'hex-p', monsterCatalogKey: 'orc', status: 'active', name: 'The Hidden Warren' });
+  hidden.knownToPlayers = false;
+  const frag = mk({ id: 'enc-p-frag', monsterSide: { source: 'existing-lair', lairId: hidden.id, monsterCatalogKey: 'orc', count: 2, encounterKind: 'wandering-fragment' } });
+  const lairsBeforeFrag = (c.lairs || []).length;
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-frag', countTracked: 2, rng: () => 0.999 });
+  ok('a fragment via encounterId discovers ITS den — founds nothing new', r.ok && r.success && r.founded === false
+    && r.lair && r.lair.id === hidden.id && hidden.knownToPlayers === true && (c.lairs || []).length === lairsBeforeFrag
+    && frag.status === 'active');   // the fragment path needs no resolution — the den exists regardless
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

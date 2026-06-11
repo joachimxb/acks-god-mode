@@ -1023,6 +1023,19 @@ document.addEventListener('alpine:init', () => {
                      (trackHomeAttempt refuses 'already-known'). -->
                 <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment' && !lairKnown(encModalEnc().monsterSide.lairId)" @click="openTrackHome({ lairId: encModalEnc().monsterSide.lairId, hexId: encModalEnc().hexId, countTracked: encModalEnc().monsterSide.count || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120); opens above this panel">🐾 Track home</button>
                 <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment' && !lairKnown(encModalEnc().monsterSide.lairId)" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+                <!-- E4i (Joachim 2026-06-11: "you should be able to track someone you parleyed and
+                     parted with") — a PARTED band with NO den entity yet (the common wandering
+                     case: the Lair % said abroad but no matching den exists): once the meeting is
+                     resolved (parleyed / evaded / dispersed / combat), a tracker can follow the
+                     band home and a success FOUNDS their den at this hex (MM p.15 — the hoard
+                     stays at the lair). Civilized folk go home to dwellings, never dens (the E4
+                     rule); an unidentified side needs the monster named first (disable-w/-reason). -->
+                <button x-show="encModalEnc().status === 'resolved' && ['parleyed','evaded','dispersed','combat'].includes(encModalEnc().outcome) && !encModalEnc().monsterSide.lairId && encModalEnc().category !== 'civilized'"
+                        :disabled="!encTrackPartedReady()"
+                        @click="openTrackHome({ encounterId: encModalEnc().id, hexId: encModalEnc().hexId, countTracked: encModalEnc().monsterSide.count || 0 })"
+                        :class="encTrackPartedReady() ? 'border-ink hover:bg-yellow-100' : 'border-ink/30 opacity-50 cursor-not-allowed'"
+                        class="text-xs px-1.5 border rounded ml-1"
+                        :title="encTrackPartedReady() ? 'They have parted — follow the band home (Tracking 11+, RR p.120); a success founds their den at this hex' : 'name the monster first — set it via pick from table or 🔍 Open in Inspector'">🐾 Track home</button>
               </p>
               <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rerolls on the SAME
                    table; “pick from table” lists the appropriate column (rarity switchable).
@@ -1963,7 +1976,7 @@ document.addEventListener('alpine:init', () => {
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
         <h3 class="font-bold text-lg">🐾 Track them home</h3>
-        <p class="text-sm opacity-70">Find the fragment's spoor (Tracking 11+, RR p.120) and follow it at half speed to the lair. Lost at water or after an hour of rain/snow — the situational modifier is the Judge's.</p>
+        <p class="text-sm opacity-70">Find the band's spoor (Tracking 11+, RR p.120) and follow it at half speed to the lair. Lost at water or after an hour of rain/snow — the situational modifier is the Judge's. Tracking a parted band whose den is unmapped founds it at the meeting hex on a success.</p>
       </div>
       <button @click="closeTrackHome()" class="text-2xl leading-none px-2" title="Close">×</button>
     </div>
@@ -15378,10 +15391,18 @@ return {
     }));
     this.markDirty(); this.schedulePersist();
   },
+  // E4i — the parted-band track (no den entity yet) is ready once the side names a catalog
+  // monster (the den is generated from its entry) and the meeting has a hex to found it in.
+  encTrackPartedReady(){
+    const enc = this.encModalEnc(); if(!enc || !enc.hexId) return false;
+    const key = (enc.monsterSide || {}).monsterCatalogKey;
+    return !!(key && typeof window.ACKS.findMonster === 'function' && window.ACKS.findMonster(key));
+  },
   openTrackHome(opts){
     opts = opts || {};
     const t = this.trackHome;
-    t.open = true; t.lairId = opts.lairId || null; t.hexId = opts.hexId || null;
+    t.open = true; t.lairId = opts.lairId || null; t.encounterId = opts.encounterId || null;
+    t.hexId = opts.hexId || null;
     t.countTracked = opts.countTracked || 0; t.mod = 0; t.result = null;
     t.actorId = null;
     const trackers = this.trackHomeTrackers(); if(trackers[0]) t.actorId = trackers[0].id;
@@ -15396,15 +15417,19 @@ return {
   runTrackHome(){
     const t = this.trackHome;
     const r = window.ACKS.trackHomeAttempt(this.currentCampaign, {
-      actorCharacterId: t.actorId, lairId: t.lairId, countTracked: t.countTracked || 0, mod: t.mod || 0
+      actorCharacterId: t.actorId, lairId: t.encounterId ? undefined : t.lairId, encounterId: t.encounterId || undefined,
+      countTracked: t.countTracked || 0, mod: t.mod || 0
     });
     if(!r || !r.ok){
-      const msg = ({ 'no-tracking':'That character has no Tracking proficiency.', 'already-known':'That lair is already discovered.', 'unknown-lair':'No lair to track to.', 'unknown-actor':'Pick a tracker first.' })[r && r.error] || 'Could not track.';
-      this.showToast(msg, 4000); return;
+      const msg = ({ 'no-tracking':'That character has no Tracking proficiency.', 'already-known':'That lair is already discovered.', 'unknown-lair':'No lair to track to.', 'unknown-actor':'Pick a tracker first.',
+                     'unknown-encounter':'No encounter to track from.', 'encounter-still-active':'The meeting is still under way — resolve it first; they have not parted.', 'no-meeting':'No meeting happened — there is no trail to follow.',
+                     'civilized-folk':'Civilized folk go home to their dwellings, not dens — no lair to track to.', 'no-catalog-monster':'Name the monster first — its catalog entry generates the den.', 'no-hex':'The meeting has no hex — nowhere to found the den.' })[r && r.error] || 'Could not track.';
+      this.showToast(msg, 4500); return;
     }
     t.result = { rolled: r.rolled, bonus: r.bonus, mod: r.mod, success: r.success };
+    if(r.success && r.lair) t.lairId = r.lair.id;   // E4i — a founded den feeds the result row's → lair link
     this.markDirty(); this.schedulePersist();
-    if(r.success) this.showToast('The spoor leads home — ' + ((r.lair && r.lair.name) || 'the lair') + ' discovered.', 4500);
+    if(r.success) this.showToast((r.founded ? 'The spoor leads home — ' + ((r.lair && r.lair.name) || 'their den') + ' found and marked on the hex.' : 'The spoor leads home — ' + ((r.lair && r.lair.name) || 'the lair') + ' discovered.'), 4500);
   },
 
   // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
@@ -15804,7 +15829,7 @@ return {
   lairDetailRevealHexId: '',     // reveal-a-dynamic-lair hex pick
   // #476 M4 — Search-the-hex (RR pp.276–277) + track-home (RR p.120) modals.
   searchHex: { open:false, actorId:null, hexId:null, specific:false, results:[] },
-  trackHome: { open:false, actorId:null, lairId:null, hexId:null, countTracked:0, mod:0, result:null },
+  trackHome: { open:false, actorId:null, lairId:null, encounterId:null, hexId:null, countTracked:0, mod:0, result:null },
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,

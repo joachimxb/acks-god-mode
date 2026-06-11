@@ -3077,18 +3077,49 @@ function hexSearchActivity(campaign, opts){
            found: found || null, encounter: encounter, survey: survey, speedMilesPerDay: sp.speed, event: ev };
 }
 
-// Track a wandering fragment home to its lair (RR p.120 Tracking; Plan §6.2 — RAW-core, default-on).
-// opts: { actorCharacterId, lairId, countTracked? (the fragment size → the RAW +2/+4/+6/+8 band),
-// mod? (the GM's situational composite: ground / age / weather / light), rng? }. The tracker must
-// have the Tracking proficiency; extra ranks add +4 each to THIS throw (not the lair search).
+// Track a band home to its lair (RR p.120 Tracking; Plan §6.2 — RAW-core, default-on).
+// opts: { actorCharacterId, lairId? OR encounterId?, countTracked? (the band size → the RAW
+// +2/+4/+6/+8 band), mod? (the GM's situational composite: ground / age / weather / light), rng? }.
+// Two targets — opts.lairId follows a FRAGMENT home to its existing unlocated den; opts.encounterId
+// (E4i, Joachim 2026-06-11: "you should be able to track someone you parleyed and parted with")
+// follows a PARTED band whose den has no entity yet: a resolved meeting (parleyed / evaded /
+// dispersed / combat) with a den-less monster side — a success FOUNDS the den at the meeting hex
+// (the catalog lair roll, population floored at the tracked band, Treasure Type recorded — MM p.15:
+// a wandering band is a fragment of its lair population and the hoard stays at the lair;
+// establishedBy 'encounter-track-home', discoverLair stamps method 'tracking', monsterSide.lairId
+// linked so future meetings recall this one [D9]). A failed throw founds nothing. 🔧 v1: the den
+// lands in the meeting hex (D2 hex-local — re-home it via the Inspector/map if the fiction says
+// otherwise); civilized folk are refused (they go home to dwellings, never dens — the E4 rule).
+// An encounterId whose side already HAS an unlocated den resolves to the fragment path. The
+// tracker must have the Tracking proficiency; extra ranks add +4 each to THIS throw.
 function trackHomeAttempt(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
   const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
   if(!ch) return { ok: false, error: 'unknown-actor' };
-  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, opts.lairId) : null;
-  if(!lair) return { ok: false, error: 'unknown-lair' };
-  if(lair.knownToPlayers) return { ok: false, error: 'already-known' };
+  let lair = null, enc = null;
+  if(opts.encounterId){
+    enc = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, opts.encounterId) : null;
+    if(!enc) return { ok: false, error: 'unknown-encounter' };
+    const ms = enc.monsterSide || {};
+    if(ms.lairId){
+      lair = (typeof A.findLair === 'function') ? A.findLair(campaign, ms.lairId) : null;
+      if(lair && lair.knownToPlayers) return { ok: false, error: 'already-known' };
+    }
+    if(!lair){
+      // The den-founding path: only a concluded, real meeting leaves a trail worth following.
+      if(enc.status !== 'resolved') return { ok: false, error: 'encounter-still-active' };
+      if(enc.outcome === 'no-encounter' || enc.outcome === 'dismissed') return { ok: false, error: 'no-meeting' };
+      if(enc.category === 'civilized') return { ok: false, error: 'civilized-folk' };
+      if(!enc.hexId) return { ok: false, error: 'no-hex' };
+      const entry = (typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+      if(!entry) return { ok: false, error: 'no-catalog-monster' };
+    }
+  } else {
+    lair = (typeof A.findLair === 'function') ? A.findLair(campaign, opts.lairId) : null;
+    if(!lair) return { ok: false, error: 'unknown-lair' };
+    if(lair.knownToPlayers) return { ok: false, error: 'already-known' };
+  }
   const ranks = ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))).length;
   if(ranks < 1) return { ok: false, error: 'no-tracking' };
   const rng = opts.rng || Math.random;
@@ -3099,27 +3130,49 @@ function trackHomeAttempt(campaign, opts){
   const target = 11;
   const rolled = _provD20(rng);
   const success = (rolled !== 1) && (rolled + bonus + mod >= target);
-  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, lair.hexId) : null;
+  let founded = false;
+  if(success && !lair && enc){
+    // Found the parted band's den at the meeting hex (created unknown; discoverLair below stamps it).
+    const gen = (typeof A.generateLair === 'function')
+      ? A.generateLair(campaign, { hexId: enc.hexId, monsterCatalogKey: (enc.monsterSide || {}).monsterCatalogKey,
+                                   establishedBy: 'encounter-track-home', atTurn: campaign.currentTurn || 1 }, rng)
+      : null;
+    if(gen && gen.lair){
+      lair = gen.lair; founded = true;
+      const band = Number(opts.countTracked) || ((enc.monsterSide || {}).count || 0);
+      if(gen.group && (gen.group.count || 0) < band){
+        gen.group.count = band;   // the den holds at least the band you followed home
+        lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : lair.totalInhabitantCount;
+      }
+      enc.monsterSide.lairId = lair.id;
+      enc.history = enc.history || [];
+      enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracked-home',
+        reason: (ch.name || 'A tracker') + ' followed the parted band home — ' + (lair.name || 'their den') + ' founded at the meeting hex' });
+    }
+  }
+  const hexId = (lair && lair.hexId) || (enc && enc.hexId) || null;
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, hexId) : null;
   const ev = newEvent('hex-search', {
     submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
-    context: { primaryHexId: lair.hexId || null, involvedHexIds: [], settlementId: null,
+    context: { primaryHexId: hexId, involvedHexIds: [], settlementId: null,
                domainId: (hex && hex.domainId) || null,
                relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
     payload: {
-      actorCharacterId: ch.id, hexId: lair.hexId || null, method: 'track-home',
+      actorCharacterId: ch.id, hexId: hexId, method: 'track-home',
       rolled: rolled, target: target, bonus: bonus, mod: mod, success: success,
-      trackedLairId: lair.id, foundLairId: success ? lair.id : null,
+      trackedLairId: lair ? lair.id : null, trackedEncounterId: enc ? enc.id : null,
+      foundLairId: (success && lair) ? lair.id : null, foundedLair: founded,
       activityCost: { slot: 'ancillary', units: 1, kind: 'track', label: 'Track a trail' }
     }
   });
   ev.campaignLogHidden = true;
   const who = ch.name || 'The tracker';
-  _logAppliedEvent(campaign, ev, { narrativeSummary: who + (success ? ' finds the spoor and follows it home.' : ' finds no usable trail (no retry here for an hour — RR p.120).') });
-  if(success){
+  _logAppliedEvent(campaign, ev, { narrativeSummary: who + (success ? (' finds the spoor and follows it home' + (founded ? ' — the den is found' : '') + '.') : ' finds no usable trail (no retry here for an hour — RR p.120).') });
+  if(success && lair){
     if(typeof A.discoverLair === 'function') A.discoverLair(campaign, lair.id, { by: ch.id, method: 'tracking' });
     _emitLairDiscovered(campaign, lair, ch, 'track-home', ev);
   }
-  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: success, lair: lair, event: ev };
+  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: success, lair: lair, founded: founded, event: ev };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
