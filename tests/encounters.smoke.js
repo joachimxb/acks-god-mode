@@ -2521,6 +2521,238 @@ section('E9 — an E6 wander-entry never lingers at a full hex (the entry still 
 }
 
 // =============================================================================
+section('E10 — domain-morale banditry (RR pp.350–351): the monthly materialization');
+{
+  const rule = (ACKS.HOUSERULES_REGISTRY || []).find(r => r && r.id === 'domain-morale-banditry');
+  ok('domain-morale-banditry registered (category encounters, default ON, RR pp.350–351 cited)',
+    !!rule && rule.category === 'encounters' && rule.default === true && /350/.test(rule.source || ''));
+  ok('the event kind domain-banditry is known + Event-Wizard opted out',
+    ACKS.isEventKindKnown('domain-banditry') && !ACKS.wizardEmittableKinds().includes('domain-banditry'));
+  ok('blankGroup emits banditryDomainId (lazy null)', ACKS.blankGroup().banditryDomainId === null);
+
+  const mkB = () => {
+    const c = ACKS.blankCampaign({ name: 'E10 banditry' });
+    ACKS.migrateCampaign(c);
+    c.domains = [{ id: 'dom-b', name: 'Marchland',
+      demographics: { peasantFamilies: 1000, morale: 0 },
+      expenses: { tithePaid: true, liturgyPerFamily: 1 }, taxPolicy: {} }];
+    c.hexes = [];
+    const hx = (id, q, r, dom) => c.hexes.push(Object.assign(ACKS.blankHex({ id }), { coord: { q, r }, terrain: 'grassland', domainId: dom || null }));
+    hx('hx-a', 0, 0, 'dom-b'); hx('hx-b', 1, 0, 'dom-b'); hx('hx-c', 0, 1, 'dom-b'); hx('hx-d', 1, 1, 'dom-b');
+    hx('hx-w1', 2, 0); hx('hx-w2', -1, 0); hx('hx-w3', 0, -1); hx('hx-w4', 2, 1); hx('hx-w5', 0, 2);
+    hx('hx-w6', 1, -1); hx('hx-w7', -1, 1); hx('hx-w8', -1, 2); hx('hx-w9', 1, 2); hx('hx-w10', 2, -1);
+    c.currentTurn = 5;
+    return c;
+  };
+  const sumOf = (c) => ACKS.banditryBandsForDomain(c, 'dom-b').reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+  const banditryEvents = (c) => (c.eventLog || []).filter(e => e && e.event && e.event.kind === 'domain-banditry');
+
+  // Healthy domain — nothing happens.
+  let c = mkB();
+  let r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('rule resolves ON via the registry default (nothing stored)', r.ruleOn === true);
+  ok('a healthy domain (morale 0) raises nothing — no bands, no counter, no events',
+    ACKS.banditryBandsForDomain(c, 'dom-b').length === 0 && (c.domains[0].banditryOccupationMonths || 0) === 0 && banditryEvents(c).length === 0);
+
+  // The RAW counts (RR p.350).
+  c.domains[0].demographics.morale = -2;
+  ok('banditCount: −2 → 1 per 5 families (1000 → 200)', ACKS.banditCount(c.domains[0]) === 200);
+  c.domains[0].demographics.morale = -3;
+  ok('banditCount: −3 → 1 per 2 (500)', ACKS.banditCount(c.domains[0]) === 500);
+  c.domains[0].demographics.morale = -4;
+  ok('banditCount: −4 → every able-bodied man (1000)', ACKS.banditCount(c.domains[0]) === 1000);
+
+  // Month 1 — the rise.
+  c.domains[0].demographics.morale = -2;
+  r = ACKS.processBanditryForTurn(c, { rng: seq(0.3, 0.7, 0.1, 0.9) });
+  let bands = ACKS.banditryBandsForDomain(c, 'dom-b');
+  ok('Turbulent rise: 🔧 one band per domain hex (4), summing to the RAW 200',
+    bands.length === 4 && sumOf(c) === 200 && bands.every(g => g.count === 50));
+  ok('each band is placed on one of the domain’s own hexes, marked + named + historied',
+    bands.every(g => g.banditryDomainId === 'dom-b'
+      && c.hexes.some(h => h.id === g.currentHexId && h.domainId === 'dom-b')
+      && /Bandits of Marchland/.test(g.name)
+      && (g.history || []).some(h => h.type === 'banditry')));
+  ok('the rise is recorded: one domain-banditry event (action rise) naming the muster', (() => {
+    const evs = banditryEvents(c);
+    return evs.length === 1 && evs[0].event.payload.action === 'rise' && evs[0].event.payload.target === 200
+      && /turned bandit/.test(evs[0].result.narrativeSummary) && (evs[0].event.context || {}).domainId === 'dom-b';
+  })());
+  ok('the enemy-army occupation counter starts (month 1)', c.domains[0].banditryOccupationMonths === 1);
+
+  // Month 2 — unchanged plague: no new event, the counter builds.
+  r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('a no-change plague month records nothing but the occupation builds (month 2)',
+    banditryEvents(c).length === 1 && c.domains[0].banditryOccupationMonths === 2 && sumOf(c) === 200);
+
+  // Month 3 — morale worsens: the SAME band set swells.
+  const idsBefore = bands.map(g => g.id).sort().join(',');
+  c.domains[0].demographics.morale = -3;
+  r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  bands = ACKS.banditryBandsForDomain(c, 'dom-b');
+  ok('Defiant swell: the same 4 bands resize to 500 (no new groups)',
+    bands.map(g => g.id).sort().join(',') === idsBefore && sumOf(c) === 500
+    && banditryEvents(c).some(e => e.event.payload.action === 'swell'));
+
+  // Month 4 — casualties settle as population loss (RR p.351).
+  bands[0].casualties = 30;
+  r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('killed bandits are the domain’s own men: 30 casualties → 970 families, casualties zeroed',
+    c.domains[0].demographics.peasantFamilies === 970
+    && ACKS.banditryBandsForDomain(c, 'dom-b').every(g => (g.casualties || 0) === 0));
+  ok('…and the target re-derives off the post-settlement books (floor(970/2) = 485)',
+    sumOf(c) === 485 && banditryEvents(c).some(e => e.event.payload.killed === 30 && /loses 30 families/.test(e.result.narrativeSummary)));
+
+  // A wholly-wiped band is gone; the muster re-covers the target without it.
+  bands = ACKS.banditryBandsForDomain(c, 'dom-b');
+  const wipedId = bands[1].id;
+  bands[1].casualties = bands[1].count;
+  r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('a wholly-wiped band disbands (its dead reduce the population); the survivors re-cover the target', (() => {
+    const now = ACKS.banditryBandsForDomain(c, 'dom-b');
+    return !now.some(g => g.id === wipedId) && now.length === 3 && sumOf(c) === ACKS.banditCount(c.domains[0]);
+  })());
+
+  // The occupation morale modifier (RR p.349 "0, then −1 per month" — RR p.351 ties it to bandits).
+  ok('moraleModifiersFor reads the occupation: month 1 shows the row at 0; month N at −(N−1)', (() => {
+    const d2 = { id: 'dom-occ', name: 'Occland', banditryOccupationMonths: 1,
+      demographics: { peasantFamilies: 100, morale: -2 }, expenses: { tithePaid: true, liturgyPerFamily: 1 }, taxPolicy: {} };
+    const cc = mkB(); cc.domains.push(d2);
+    const row1 = ACKS.moraleModifiersFor(cc, d2).find(m => /occupation/.test(m.label));
+    d2.banditryOccupationMonths = 4;
+    const row4 = ACKS.moraleModifiersFor(cc, d2).find(m => /occupation/.test(m.label));
+    d2.banditryOccupationMonths = 0;
+    const row0 = ACKS.moraleModifiersFor(cc, d2).find(m => /occupation/.test(m.label));
+    return !!row1 && row1.value === 0 && !!row4 && row4.value === -3 && !row0;
+  })());
+
+  // Recovery — the men return to their fields WITHOUT population loss.
+  const famBefore = c.domains[0].demographics.peasantFamilies;
+  c.domains[0].demographics.morale = -1;
+  r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('morale at −1 disbands every band — population untouched, the occupation counter resets',
+    ACKS.banditryBandsForDomain(c, 'dom-b').length === 0
+    && c.domains[0].demographics.peasantFamilies === famBefore
+    && c.domains[0].banditryOccupationMonths === 0
+    && banditryEvents(c).some(e => e.event.payload.action === 'disbanded' && /return to their fields/.test(e.result.narrativeSummary)));
+
+  // Rule OFF — no muster; already-risen bands stay as world entities (the founded-dens precedent).
+  c = mkB();
+  c.domains[0].demographics.morale = -3;
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('(pre) the plague is live', ACKS.banditryBandsForDomain(c, 'dom-b').length > 0);
+  c.houseRules['domain-morale-banditry'] = { enabled: false };
+  const frozen = ACKS.banditryBandsForDomain(c, 'dom-b').length;
+  c.domains[0].demographics.morale = -1;   // would disband if the rule ran
+  r = ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('an explicit untick stops the reconcile — existing bands freeze in place (no disband, no muster)',
+    r.ruleOn === false && ACKS.banditryBandsForDomain(c, 'dom-b').length === frozen);
+  ok('…and the occupation row hides while the rule is off (principle 8)', (() => {
+    c.domains[0].banditryOccupationMonths = 3;
+    const row = ACKS.moraleModifiersFor(c, c.domains[0]).find(m => /occupation/.test(m.label));
+    delete c.houseRules['domain-morale-banditry'];
+    const rowOn = ACKS.moraleModifiersFor(c, c.domains[0]).find(m => /occupation/.test(m.label));
+    return !row && !!rowOn && rowOn.value === -2;
+  })());
+}
+
+// =============================================================================
+section('E10 — banditry bands in the world: the fenced wander + the encounter layer');
+{
+  const mkB = () => {
+    const c = ACKS.blankCampaign({ name: 'E10 world' });
+    ACKS.migrateCampaign(c);
+    c.domains = [{ id: 'dom-b', name: 'Marchland',
+      demographics: { peasantFamilies: 1000, morale: -2 },
+      expenses: { tithePaid: true, liturgyPerFamily: 1 }, taxPolicy: {} }];
+    c.hexes = [];
+    const hx = (id, q, r, dom) => c.hexes.push(Object.assign(ACKS.blankHex({ id }), { coord: { q, r }, terrain: 'grassland', domainId: dom || null }));
+    hx('hx-a', 0, 0, 'dom-b'); hx('hx-b', 1, 0, 'dom-b'); hx('hx-c', 0, 1, 'dom-b'); hx('hx-d', 1, 1, 'dom-b');
+    hx('hx-w1', 2, 0); hx('hx-w2', -1, 0); hx('hx-w3', 0, -1); hx('hx-w4', 2, 1); hx('hx-w5', 0, 2);
+    hx('hx-w6', 1, -1); hx('hx-w7', -1, 1); hx('hx-w8', -1, 2); hx('hx-w9', 1, 2); hx('hx-w10', 2, -1);
+    c.currentTurn = 5;
+    ACKS.processBanditryForTurn(c, { rng: seq(0.3, 0.7, 0.1, 0.9) });
+    return c;
+  };
+
+  let c = mkB();
+  const rows = ACKS.looseMonsterBands(c).filter(b => b.kind === 'banditry');
+  ok('banditry bands row on the loose roster as their own kind, carrying the domain',
+    rows.length === 4 && rows.every(b => b.banditryDomainId === 'dom-b' && b.banditryDomainName === 'Marchland' && b.count === 50 && b.monsterKey === 'bandit'));
+
+  // The 6a abroad verdict binds the band as itself (E4m extended).
+  const bandHex = rows[0].hexId;
+  const banditIdent = { key: 'bandit', label: 'Man, Bandit' };
+  let b = ACKS.bindEncounterIdentity(c, bandHex, banditIdent, { category: 'monster', rng: seq(0.99, 0.0), partySide: { characterIds: ['chr-x'] } });
+  ok('an abroad bandit draw at the band’s hex binds the banditry band', b.mode === 'loose-band' && b.bandKind === 'banditry' && b.count === 50);
+  const side = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null };
+  ACKS._applyIdentityBinding(c, side, banditIdent, b, { hexId: bandHex });
+  ok('the side carries source banditry-band + the plagued domain + the Group, nothing minted',
+    side.source === 'banditry-band' && side.banditryDomainId === 'dom-b'
+    && side.groupIds.length === 1 && side.count === 50 && side.minted === null && side.lairId === null);
+  const draw = { hexId: bandHex, territoryClass: 'borderlands', columnKey: 'borderlands', category: 'monster', rarity: 'common',
+                 identity: 'table', identityRoll: banditIdent, binding: b, proposal: null };
+  const met = ACKS.createEncounterFromDraw(c, draw, { trigger: 'journey-travel', partySide: { characterIds: ['chr-x'], sizeCount: 1 } });
+  ok('createEncounterFromDraw rides the banditry verdict verbatim', !!met && met.monsterSide.source === 'banditry-band' && met.monsterSide.banditryDomainId === 'dom-b');
+  ok('the settle offer refuses a banditry band — the men melt back to their fields, they never den',
+    ACKS.encounterSettleEligibility(c, met.id).reason === 'banditry-band');
+  ok('…and the group-pointer alone refuses too (an Inspector-authored side without the source tag)', (() => {
+    const g = ACKS.banditryBandsForDomain(c, 'dom-b')[0];
+    c.encounters.push(ACKS.blankEncounter({ id: 'enc-raw-side', hexId: bandHex, status: 'active',
+      monsterSide: { monsterCatalogKey: 'bandit', label: 'Bandits', count: 10, encounterKind: 'wandering', groupIds: [g.id] } }));
+    return ACKS.encounterSettleEligibility(c, 'enc-raw-side').reason === 'banditry-band';
+  })());
+
+  // The fenced wander: many proposed days, every walked coord stays on the domain's hexes,
+  // and a banditry band never takes the domain-entry disposition (it IS the domain's own).
+  c = mkB();
+  const inDomain = co => c.hexes.some(h => h.coord.q === co.q && h.coord.r === co.r && h.domainId === 'dom-b');
+  let allFenced = true, anyMoved = false, anyEntries = false;
+  for(let day = 2; day <= 7; day++){
+    const res = ACKS.proposeMonsterBandDay(c, { dayInMonth: day, rng: seq(0.13, 0.61, 0.37, 0.83, 0.29, 0.71) });
+    const recs = res.pendingRecords.filter(x => /Bandits of Marchland/.test(x.label || ''));
+    if(recs.length !== 4) allFenced = false;
+    for(const rec of recs){
+      if((rec.path || []).length) anyMoved = true;
+      if(!(rec.path || []).every(inDomain)) allFenced = false;
+      if((rec.domainEntries || []).length) anyEntries = true;
+      ACKS.commitMonsterBandRecord(c, rec);
+    }
+  }
+  ok('six committed wander days: every step lands on the domain’s own hexes (the fence)', allFenced && anyMoved);
+  ok('…no domain-entry disposition ever fires (no linger roll, no Vagaries occurrence, nothing settles)',
+    !anyEntries && (c.lairs || []).length === 0 && ACKS.banditryBandsForDomain(c, 'dom-b').every(g => !g.wanderState || g.wanderState.mode === null));
+  ok('the day label flies the colours', (() => {
+    const res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 9, rng: seq(0.4) });
+    const rec = res.pendingRecords.find(x => /Bandits of Marchland/.test(x.label || ''));
+    return !!rec && /🏴/.test(rec.label) && /raids within Marchland|holds its ground in Marchland/.test(rec.label);
+  })());
+
+  // A one-hex domain: the fence allows no step — the band holds its ground (no crash).
+  ok('a one-hex domain’s band holds its ground (the fence beats the walk)', (() => {
+    const c1 = ACKS.blankCampaign({ name: 'E10 one-hex' });
+    ACKS.migrateCampaign(c1);
+    c1.domains = [{ id: 'dom-1', name: 'Spur', demographics: { peasantFamilies: 100, morale: -2 }, expenses: { tithePaid: true, liturgyPerFamily: 1 }, taxPolicy: {} }];
+    c1.hexes = [Object.assign(ACKS.blankHex({ id: 'hx-only' }), { coord: { q: 0, r: 0 }, terrain: 'grassland', domainId: 'dom-1' })];
+    c1.currentTurn = 3;
+    ACKS.processBanditryForTurn(c1, { rng: seq(0.5) });
+    const res = ACKS.proposeMonsterBandDay(c1, { dayInMonth: 2, rng: seq(0.4) });
+    const rec = res.pendingRecords.find(x => /Bandits of Spur/.test(x.label || ''));
+    if(!rec || !/holds its ground/.test(rec.label) || (rec.path || []).length !== 0) return false;
+    ACKS.commitMonsterBandRecord(c1, rec);
+    return ACKS.banditryBandsForDomain(c1, 'dom-1')[0].currentHexId === 'hx-only';
+  })());
+
+  // The persistence gate: pwm OFF parks all band motion (banditry included) — the static world.
+  ok('persistent-wandering-monsters off ⇒ no band motion proposes (banditry included)', (() => {
+    c.houseRules['persistent-wandering-monsters'] = { enabled: false };
+    const res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 10, rng: seq(0.4) });
+    delete c.houseRules['persistent-wandering-monsters'];
+    return res.pendingRecords.length === 0;
+  })());
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

@@ -770,7 +770,7 @@ document.addEventListener('alpine:init', () => {
         </tbody>
       </table>
     </template>
-    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter; 🏠 homeward bands are hunters walking back to their den after a chase. Migrants <strong>wander</strong> with the Day Clock (half speed, random, never doubling straight back — ⚙ Persistent wandering monsters); one that wanders into a domain rolls its JJ p.103 disposition and may settle as a lair above.</p>
+    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter; 🏠 homeward bands are hunters walking back to their den after a chase; 🏴 banditry bands are a low-morale domain's own men (RR pp.350–351 — ⚙ Domain banditry; raised and disbanded by the monthly turn, raiding within their domain). Migrants <strong>wander</strong> with the Day Clock (half speed, random, never doubling straight back — ⚙ Persistent wandering monsters); one that wanders into a domain rolls its JJ p.103 disposition and may settle as a lair above.</p>
   </div>
 </div>
 
@@ -2756,9 +2756,20 @@ document.addEventListener('alpine:init', () => {
               <span class="opacity-80" x-text="moraleEffectSummary(selectedDomain.demographics.morale)"></span>
             </div>
 
-            <div x-show="banditCount(selectedDomain) > 0" class="mt-3 p-2 rounded border-2" style="background:#f5e2e2; border-color:#7a1f1f">
+            <div x-show="banditCount(selectedDomain) > 0 || banditryBands(selectedDomain).length > 0" class="mt-3 p-2 rounded border-2" style="background:#f5e2e2; border-color:#7a1f1f">
               <p class="text-sm font-bold accent-red">⚔ Bandits in the domain: <span x-text="banditCount(selectedDomain).toLocaleString()"></span></p>
-              <p class="text-sm mt-1">Per ACKS RR p.350: at morale -4, one able-bodied man per family becomes a bandit; at -3, one per two families; at -2, one per five. Bandits count as an enemy army and reduce income (already factored into the morale-driven income adjustment). Raise morale to disperse them, or hunt them down with the garrison — defeating bandits raises morale by 1.</p>
+              <p class="text-sm mt-1">Per ACKS RR p.350: at morale -4, one able-bodied man per family becomes a bandit; at -3, one per two families; at -2, one per five. Bandits count as an enemy army and reduce income (already factored into the morale-driven income adjustment). Raise morale to disperse them, or hunt them down with the garrison — defeating bandits raises morale by 1 (the population falls by the bandits killed, RR p.351).</p>
+              <!-- #476 E10 — the materialized banditry bands (the domain-morale-banditry rule, default ON) -->
+              <p class="text-sm mt-1 font-semibold" x-show="banditryBands(selectedDomain).length > 0">
+                🏴 <span x-text="banditryBands(selectedDomain).length"></span> band<span x-show="banditryBands(selectedDomain).length !== 1">s</span> raid the domain
+                (<span x-text="banditryBands(selectedDomain).reduce((s,g) => s + Math.max(0,(g.count||0)-(g.casualties||0)), 0).toLocaleString()"></span> raiders) —
+                <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
+              </p>
+              <p class="text-xs mt-1 opacity-90" x-show="(selectedDomain.banditryOccupationMonths || 0) >= 1 && isHouseRuleEnabled('domain-morale-banditry')"
+                 x-text="'⚠ Enemy-army occupation, month ' + (selectedDomain.banditryOccupationMonths || 0)
+                   + ((selectedDomain.banditryOccupationMonths || 0) >= 2 ? (' — −' + ((selectedDomain.banditryOccupationMonths || 0) - 1) + ' on the next morale roll') : ' — the penalty builds from next month')
+                   + ' (RR p.349 + p.351)'"></p>
+              <p class="text-xs mt-1 opacity-80" x-show="banditCount(selectedDomain) > 0 && banditryBands(selectedDomain).length === 0 && isHouseRuleEnabled('domain-morale-banditry')">🏴 They take the field at the next monthly turn — the bands materialize in the world when the month advances.</p>
             </div>
           </div>
 
@@ -10124,6 +10135,27 @@ return {
           encounterId: b.encounterId, groupId: null
         };
       }
+      if(b.kind === 'banditry'){
+        // E10 — a domain's own morale-banditry (RR pp.350–351): raids within its domain
+        // on the Day Clock; the monthly turn reconciles it; it disbands when morale recovers.
+        const gb = ((c.groups || []).find(x => x && x.id === b.groupId)) || {};
+        const dn = b.banditryDomainName || 'its domain';
+        const ruleOn = (typeof A.isHouseRuleEnabled === 'function') && A.isHouseRuleEnabled(c, 'persistent-wandering-monsters');
+        const moving = ruleOn && !b.halted && (!!hex || !!(gb.wanderState && gb.wanderState.coord));
+        return {
+          key: 'banditry-' + b.groupId, icon: '🏴',
+          band: gb.name || b.label || 'Bandits',
+          monster: monster || b.label || 'Bandit',
+          count: b.count,
+          hexId: hex ? hex.id : null,
+          where: where || ('in ' + dn),
+          statusLabel: 'banditry',
+          statusText: '🏴 ' + dn + '’s own men turned bandit (domain morale, RR pp.350–351) — '
+            + (moving ? 'raiding within the domain with the Day Clock' : 'raiding within the domain')
+            + '; they disband when morale recovers to −1',
+          encounterId: null, groupId: b.groupId
+        };
+      }
       if(b.kind === 'homing'){
         // E6 — a post-chase band walking home to its den (the monster-bands consumer
         // moves it; it dissolves into the den on arrival).
@@ -10393,6 +10425,7 @@ return {
     else if(b.inLair) verdict = (e.category === 'civilized') ? 'at their dwelling (no den entity)' : 'in their lair (unauthored hex — no den minted)';
     else if(b.mode === 'loose-band' && ms.source === 'pursuing-band') verdict = 'abroad — a known band, met mid-hunt (the band line below)';
     else if(b.mode === 'loose-band' && ms.source === 'migrant-band') verdict = 'abroad — a known roaming band (the band line below)';
+    else if(b.mode === 'loose-band' && ms.source === 'banditry-band') verdict = 'abroad — the domain’s own bandits (the band line below)';
     else verdict = 'a wandering band';
     return roll ? (roll + ' → ' + verdict) : verdict;
   },
@@ -10415,6 +10448,12 @@ return {
     }
     if(!ms.lairId && (ms.groupIds || []).length){
       const g = ((this.currentCampaign && this.currentCampaign.groups) || []).find(x => x && x.id === ms.groupIds[0]);
+      // E10 — a morale-banditry band: name whose men these are (RR pp.350–351).
+      if(g && (g.banditryDomainId || ms.source === 'banditry-band')){
+        const dom = ((this.currentCampaign && this.currentCampaign.domains) || []).find(d => d && d.id === (g.banditryDomainId || ms.banditryDomainId));
+        return { encounterId: null, groupId: g.id, live: false,
+                 text: '🏴 these are ' + ((dom && dom.name) || 'a domain') + '’s own men turned bandit (domain morale, RR pp.350–351) — the band raids within the domain until morale recovers (🐉 Monsters tab)' };
+      }
       if(g) return { encounterId: null, groupId: g.id, live: false,
                      text: '🚶 this is the roaming band “' + (g.name || 'unnamed') + '” — it persists in the world (🐉 Monsters tab)' };
     }
@@ -10829,6 +10868,7 @@ return {
         : 'the hex already holds its maximum lairs (' + c.count + ' of ' + c.max + ' — ' + c.territoryClass + ', JJ p.69): too crowded — the band moves on; clear or remove a den to make room';
     }
     if(e.reason === 'pursuit-in-progress') return 'they are taking up the chase — resolve the pursuit first';
+    if(e.reason === 'banditry-band') return 'these are the domain’s own men turned bandit (RR pp.350–351) — they melt back to their fields when morale recovers; they do not found a lair';
     if(e.reason === 'band-mid-hunt') return 'the band is mid-hunt — it presses on after its quarry (see its ⚔ chase on the band line); the offer stands again once that chase ends';
     if(e.reason === 'settle-already-decided') return 'the linger roll was already made — they moved on';
     return e.reason;
@@ -18252,6 +18292,11 @@ return {
   urbanCapacity(d){return window.ACKS.urbanCapacity(d);},
 
   banditCount(d){return window.ACKS.banditCount(d);},
+  // #476 E10 — the materialized morale-banditry bands of a domain (RR pp.350–351).
+  banditryBands(d){
+    if(!d || !this.currentCampaign || typeof window.ACKS.banditryBandsForDomain !== 'function') return [];
+    return window.ACKS.banditryBandsForDomain(this.currentCampaign, d.id);
+  },
 
   // RR p.340 — classification is a GM judgment. Stored domain.classification wins; the
   // families/morale/hexes heuristic is only a suggestion. Both lifted to the engine

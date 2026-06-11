@@ -272,6 +272,7 @@
         { name: 'currentHexId',    type: 'id', idKind: 'hex', group: 'Location' },
         { name: 'currentDomainId', type: 'id', idKind: 'domain', group: 'Location' },
         { name: 'commanderCharacterId', type: 'id', idKind: 'character', group: 'Location', description: 'Optional named commander' },
+        { name: 'banditryDomainId', type: 'id', idKind: 'domain', group: 'Classification', description: 'E10 — set = this band is that domain’s own morale-banditry (RR pp.350–351): fenced to the domain, reconciled monthly, disbands when morale recovers' },
         { name: 'notes',       type: 'longText', group: 'History' },
         { name: 'history',     type: 'history', readonly: true, group: 'History' }
       ]

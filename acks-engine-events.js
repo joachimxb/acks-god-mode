@@ -118,6 +118,11 @@ const EVENT_KINDS = Object.freeze([
   // #476 M4 — the players learn of a lair (search / tracking / GM reveal). The chronicle-visible
   // counterpart of the hex-search record; emitted alongside discoverLair (which owns the state flip).
   'lair-discovered',
+  // #476 E10 (2026-06-12) — domain-morale banditry (RR pp.350–351): the monthly reconcile's record.
+  // Emitted by processBanditryForTurn when something CHANGED (bands rose / swelled / waned /
+  // disbanded, or casualties settled as population loss); a no-change plague month emits nothing.
+  // Record-only (the processor already applied the world changes); chronicle-visible.
+  'domain-banditry',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -444,6 +449,14 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { lairId: 'string', hexId: 'string' },
     O: { method: 'string', byCharacterId: 'string', lairName: 'string',
          monsterCatalogKey: 'string', narrative: 'string' }
+  },
+  // #476 E10 — the domain-morale banditry reconcile (RR pp.350–351; engine-emitted, record-only).
+  // action: 'rise' | 'swell' | 'wane' | 'disbanded' (plus killed > 0 when casualties settled as
+  // population loss). bands = the live band roster after the reconcile [{groupId,count,hexId}].
+  'domain-banditry': {
+    R: { domainId: 'string' },
+    O: { action: 'string', morale: 'number', target: 'number', killed: 'number',
+         familiesLost: 'number', occupationMonths: 'number', bands: 'object', narrative: 'string' }
   },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
@@ -1912,6 +1925,13 @@ function applyEvent_survivalAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'survival day' } };
 }
 registerEventHandler('survival-day', applyEvent_survivalAudit);
+// #476 E10 — the domain-banditry reconcile shares the audit posture: processBanditryForTurn
+// already moved the bands + population; this handler only keeps the event well-formed on replay.
+function applyEvent_domainBanditryAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'domain banditry' } };
+}
+registerEventHandler('domain-banditry', applyEvent_domainBanditryAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -4272,6 +4292,12 @@ function encounterSettleEligibility(campaign, encounterId){
     if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
       return { eligible: false, reason: 'band-mid-hunt' };
   }
+  // E10 — a morale-banditry band never dens: these are the domain's own disaffected men
+  // (RR pp.350–351) — they melt back to their fields when morale recovers; they do not
+  // found a monster lair.
+  if(ms.source === 'banditry-band'
+     || (ms.groupIds || []).some(gid => { const g = ((campaign && campaign.groups) || []).find(x => x && x.id === gid); return !!(g && g.banditryDomainId); }))
+    return { eligible: false, reason: 'banditry-band' };
   if(ms.lairId) return { eligible: false, reason: (ms.encounterKind === 'wandering-fragment') ? 'fragment-has-home-lair' : 'already-at-lair' };
   if(!enc.hexId) return { eligible: false, reason: 'no-hex' };
   // E9 — the JJ p.69 maximum-lairs cap: a band never settles a hex past its cap ("it is
@@ -4831,7 +4857,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'encounter-resolved', 'encounter-influence',
   // Favors & Duties (#230, F&D-1) — emitted by the monthly auto-roll as an audit of the obligation
   // it just created/revoked. The GM authors an obligation via Inspector Create, not this raw event.
-  'favor-duty'
+  'favor-duty',
+  // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
+  // population; raw emit would narrate a change the world state doesn't show).
+  'domain-banditry'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

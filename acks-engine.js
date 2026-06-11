@@ -3534,6 +3534,26 @@ function looseMonsterBands(campaign){
     const tpl = g.groupTemplate || {};
     const entry = (tpl.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(tpl.monsterCatalogKey) : null;
     const ws = g.wanderState || null;
+    // E10 — a morale-banditry band (RR pp.350–351): the domain's OWN disaffected men,
+    // raiding within their domain. Its own roster kind — the band consumer fences its
+    // wander to the domain, it never dens or heads home, and the 6a abroad verdict binds
+    // it as 'banditry-band'. Takes precedence over any (defensive) homing state.
+    if(g.banditryDomainId){
+      const dom = (campaign.domains || []).find(d => d && d.id === g.banditryDomainId);
+      rows.push({
+        kind: 'banditry', groupId: g.id,
+        monsterKey: entry ? entry.key : ((tpl.monsterCatalogKey) || null),
+        label: g.name || (entry && entry.name) || '',
+        count: alive,
+        hexId: g.currentHexId || null,
+        groupIds: [g.id],
+        lairId: null,
+        banditryDomainId: g.banditryDomainId,
+        banditryDomainName: (dom && dom.name) || null,
+        halted: !!(ws && ws.halted)
+      });
+      continue;
+    }
     // E6 — a post-chase band walking back to its den (pursuitAftermath set the state):
     // its own roster kind, carrying the den ref so a chase sprung from MEETING it re-homes.
     if(ws && ws.mode === 'heading-home' && ws.destLairId){
@@ -3855,6 +3875,21 @@ function _applyIdentityBinding(campaign, side, identity, binding, opts){
       if(g && alive > 0){
         side.source = 'homing-band';
         side.lairId = (g.wanderState && g.wanderState.destLairId) || b.lairId || null;
+        side.groupIds = [g.id];
+        side.encounterKind = 'wandering';
+        side.count = alive;
+        bound = true;
+      }
+    } else if(b.bandKind === 'banditry' && b.groupId){
+      // E10 — a morale-banditry band (RR pp.350–351): met as itself, the side carrying the
+      // plagued domain so the panel names whose men these are. No den ref — it never lairs;
+      // the settle offer refuses 'banditry-band'.
+      const g = (campaign.groups || []).find(x => x && x.id === b.groupId);
+      const alive = g ? ((typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0))) : 0;
+      if(g && alive > 0){
+        side.source = 'banditry-band';
+        side.banditryDomainId = g.banditryDomainId || null;
+        side.lairId = null;
         side.groupIds = [g.id];
         side.encounterKind = 'wandering';
         side.count = alive;
@@ -7129,6 +7164,23 @@ function commitTurn(campaign, proposal, options){
       favorDutyResult = processFavorsAndDutiesForTurn(campaign, { rng }) || favorDutyResult;
       (favorDutyResult.logEntries || []).forEach(l => logEntries.push(l));
     } catch(e){ /* never let Favors & Duties fail the monthly commit */ }
+  }
+
+  // === DOMAIN BANDITRY (RR pp.350–351 — #476 E10) ===
+  // Morale at −2 or worse turns the domain's own men bandit. The processor (subsystems
+  // module) settles last month's casualties as population loss, reconciles the placed
+  // banditry bands to the RAW banditCount (rising / swelling / waning / disbanding), and
+  // advances the enemy-army occupation counter the morale roll reads (RR p.349 + p.351).
+  // Runs AFTER the per-domain morale + population resolution (it reads moraleAfter) and is
+  // gated on committed > 0 + the domain-morale-banditry rule (default ON) inside the helper.
+  let banditryResult = { ruleOn: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processBanditryForTurn === 'function'){
+        banditryResult = global.ACKS.processBanditryForTurn(campaign, { rng }) || banditryResult;
+        (banditryResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let banditry fail the monthly commit */ }
   }
 
   // === RUMOR AUTO-EMIT ===

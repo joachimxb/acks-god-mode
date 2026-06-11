@@ -4171,6 +4171,8 @@ Object.assign(ACKS, {
   proposePursuitDay, commitPursuitRecord, trackingQuarryWalkDay, trackingSpringCatch,
   // #476 E6 — the slot-84 monster-bands consumer (wander + homing motion).
   proposeMonsterBandDay, commitMonsterBandRecord,
+  // #476 E10 — domain-morale banditry (RR pp.350–351): the monthly reconcile + lookup.
+  banditryBandsForDomain, processBanditryForTurn,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -4575,14 +4577,23 @@ function _trackingPartyCoord(campaign, pur){
 // E6 — one 6-mile wander step: a random face, never directly back into the hex just left
 // (Joachim 2026-06-11: "The movement is random, but wandering never goes directly back to
 // the hex from where it just came from"). Shared by the quarry walk + the band consumer.
-function _wanderPickStep(cur, last, rng){
-  const opts = [];
-  for(let d = 0; d < 6; d++){
-    const dd = HEX_EDGE_DELTAS[d] || [0, 0];
-    const c = { q: cur.q + dd[0], r: cur.r + dd[1] };
-    if(last && c.q === last.q && c.r === last.r) continue;
-    opts.push(c);
-  }
+function _wanderPickStep(cur, last, rng, allow){
+  const pick = (excludeBack) => {
+    const opts = [];
+    for(let d = 0; d < 6; d++){
+      const dd = HEX_EDGE_DELTAS[d] || [0, 0];
+      const c = { q: cur.q + dd[0], r: cur.r + dd[1] };
+      if(excludeBack && last && c.q === last.q && c.r === last.r) continue;
+      if(allow && !allow(c)) continue;
+      opts.push(c);
+    }
+    return opts;
+  };
+  let opts = pick(true);
+  // E10 — a FENCED walk (a banditry band raids within its domain) may find only the
+  // back-face left (a dead-end spur): doubling back beats leaving the domain. Unfenced
+  // walks never retry — a hex always has 5 non-back faces, so the rng stream is unchanged.
+  if(!opts.length && allow) opts = pick(false);
   if(!opts.length) return null;
   return opts[Math.floor((rng || Math.random)() * opts.length)];
 }
@@ -4606,13 +4617,18 @@ function trackingQuarryWalkDay(campaign, quarry, rng){
   let cur = { q: out.fromCoord.q, r: out.fromCoord.r };
   let last = (quarry.lastCoord && typeof quarry.lastCoord.q === 'number') ? { q: quarry.lastCoord.q, r: quarry.lastCoord.r } : null;
   const atDest = c => !!(quarry.destCoord && c.q === quarry.destCoord.q && c.r === quarry.destCoord.r);
+  // E10 — a tracked morale-banditry band keeps to its domain (the fenced wander).
+  const qGroup = quarry.groupId ? (((campaign && campaign.groups) || []).find(x => x && x.id === quarry.groupId) || null) : null;
+  const qFence = (qGroup && qGroup.banditryDomainId)
+    ? (c => { const hx = A.hexAtCoord(campaign, c.q, c.r); return !!(hx && hx.domainId === qGroup.banditryDomainId); })
+    : null;
   while(budget >= MILES_PER_HEX && !atDest(cur)){
     let next = null;
     if(quarry.destCoord){
       const line = hexLineDraw(cur, quarry.destCoord);
       next = (line.length > 1) ? line[1] : null;
     } else if(rng){
-      next = _wanderPickStep(cur, last, rng);   // E6 — the wander activity
+      next = _wanderPickStep(cur, last, rng, qFence);   // E6 — the wander activity (E10 — fenced for banditry)
     } else if(typeof quarry.heading === 'number'){
       // pre-E6 follows persisted a straight heading — honored only on rng-less calls
       const d = HEX_EDGE_DELTAS[((quarry.heading % 6) + 6) % 6] || [0, 0];
@@ -4814,7 +4830,7 @@ function proposeMonsterBandDay(campaign, ctx){
   const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
   const MILES_PER_HEX = 6;
   for(const row of A.looseMonsterBands(campaign)){
-    if(row.kind !== 'migrant' && row.kind !== 'homing') continue;
+    if(row.kind !== 'migrant' && row.kind !== 'homing' && row.kind !== 'banditry') continue;
     const g = (campaign.groups || []).find(x => x && x.id === row.groupId);
     if(!g) continue;
     const ws0 = g.wanderState || {};
@@ -4830,6 +4846,14 @@ function proposeMonsterBandDay(campaign, ctx){
     }
     if(!coord) continue;                           // hexless and never walked — nowhere to start
     const homing = row.kind === 'homing';
+    // E10 — a morale-banditry band raids WITHIN its domain: the wander is fenced (a step
+    // must land on one of the domain's hexes; only the back-face beats leaving), and the
+    // domain-entry disposition below never applies (these are the domain's own men, not
+    // an incursion — they neither linger-as-a-lair nor count as a Vagaries occurrence).
+    const banditry = row.kind === 'banditry';
+    const fence = banditry
+      ? (c => { const hx = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, c.q, c.r) : null; return !!(hx && hx.domainId === row.banditryDomainId); })
+      : null;
     const speed = _bandExpeditionSpeed(g.groupTemplate);
     const entry = speed.entry;
     const rng = ctx.rng || _jMulberry32(_jHash32('monster-band|' + g.id + '|' + worldOrd));
@@ -4869,7 +4893,7 @@ function proposeMonsterBandDay(campaign, ctx){
         const line = hexLineDraw(cur, destCoord);
         next = (line.length > 1) ? line[1] : null;
       } else {
-        next = _wanderPickStep(cur, last, rng);
+        next = _wanderPickStep(cur, last, rng, fence);
       }
       if(!next) break;
       last = cur; cur = next; budget -= MILES_PER_HEX;
@@ -4878,7 +4902,7 @@ function proposeMonsterBandDay(campaign, ctx){
       const dom = (hx && hx.domainId) || null;
       if(homing){
         if(atDest(cur)) arrivedHome = true;        // homers do not stop or change behaviour (E6)
-      } else if(dom && dom !== curDomain){
+      } else if(!banditry && dom && dom !== curDomain){
         // E6 — wandered INTO a domain (a border crossing): the entry counts as a positive
         // occurrence of the Daily Domain Encounter Probability (Vagaries of Incursion —
         // recorded as a STUB for the mass-combat phase to consume), and the band rolls
@@ -4923,6 +4947,9 @@ function proposeMonsterBandDay(campaign, ctx){
     else if(domainEntries.length) label = '🚶 ' + name + ' wanders into a domain — the day counts as a domain encounter; '
       + (domainEntries.some(de => de.hexFull) ? 'the hex is at its lair cap (JJ p.69), too crowded to den — it moves on' : 'it migrates onward')
       + ' (' + path.length + ' hexes).';
+    else if(banditry)          label = path.length
+      ? ('🏴 ' + name + ' raids within ' + (row.banditryDomainName || 'its domain') + ' (' + path.length + ' hexes today).')
+      : ('🏴 ' + name + ' holds its ground in ' + (row.banditryDomainName || 'its domain') + '.');
     else                       label = (homing ? ('🏠 ' + name + ' presses on toward its den (') : ('🚶 ' + name + ' wanders (')) + path.length + ' hexes today).';
     pendingRecords.push({ kind: 'monster-band-day', label, groupId: g.id,
       outcome: arrivedHome ? 'arrived-home' : (settle ? 'settled' : 'moving'),
@@ -5020,6 +5047,156 @@ function commitMonsterBandRecord(campaign, record){
     return;
   }
   // routine motion — the Group moved; the day record carried the path (no history spam)
+}
+
+// ── #476 E10 — domain-morale banditry (RR pp.350–351): the monthly materialization ──────
+// "Domains with current morale scores of -2 or less will be plagued by bandits." The RAW
+// counts are already derived (banditCount, the economy module: −2 → 1 bandit per 5 peasant
+// families, −3 → 1 per 2, −4 → every able-bodied man); the income loss is already wired
+// (INCOME_FACTOR_BY_MORALE) and the extra family flight too (rollMoraleExtra). E10 puts the
+// bandits IN THE WORLD: placed Groups (banditryDomainId) raiding within their domain —
+// fenced wander on the Day Clock, found by the wandering draw (E4m, source 'banditry-band'),
+// meetable / attackable / trackable like any band. Reconciled every monthly turn:
+//   • casualties settle FIRST — killed bandits are the domain's own men: the population
+//     falls by the number killed (RR p.351 "killing 100 bandits reduces the population by
+//     100 families"); freeing prisoners instead is the GM's call (restore families by hand).
+//   • the target re-derives off the post-settlement morale + families; bands rise, swell,
+//     wane, or disband to match — morale recovering to −1 or better disbands them WITHOUT
+//     population loss (RR p.351 "reduce the number of bandits to zero without diminishing
+//     the population" — the men return to their fields).
+//   • bandits count as an ENEMY ARMY (RR p.351): while they plague the domain the occupation
+//     penalty builds on the morale roll — 0 the first month, then −1 per month, cumulative
+//     (RR p.349) — moraleModifiersFor reads it off d.banditryOccupationMonths (lazy field).
+// NOT here (Phase 3 Military §4.2.1): the army-scale battle (+1 morale on defeating the
+// bandit army, prisoner release) and the cumulative-% NPC bandit-leader challenger.
+// 🔧 The band split is presentation (RAW musters the bandits as one army): one band per
+// domain hex, at most 6, sized evenly — the scale a travelling party actually meets.
+// Gated on the 'domain-morale-banditry' rule (default ON); OFF = no reconcile runs (any
+// already-risen bands stay as world entities — the founded-dens precedent, HR-Enc).
+function banditryBandsForDomain(campaign, domainId){
+  return ((campaign && campaign.groups) || []).filter(g => g && g.banditryDomainId === domainId);
+}
+function _banditryEmitEvent(campaign, d, payload, narrative){
+  const A = _jACKS();
+  if(typeof A.newEvent !== 'function') return null;
+  const ev = A.newEvent('domain-banditry', {
+    submittedBy: 'engine', targetTurn: campaign.currentTurn || 1, cadence: 'monthly-turn',
+    payload: Object.assign({ domainId: d.id, narrative }, payload || {})
+  });
+  if(typeof A.setEventContext === 'function'){
+    const firstHex = (campaign.hexes || []).find(h => h && h.domainId === d.id) || null;
+    A.setEventContext(ev, {
+      primaryHexId: firstHex ? firstHex.id : null,
+      domainId: d.id,
+      relatedEntities: [{ kind: 'domain', id: d.id, role: 'subject' }]
+        .concat(((payload && payload.bands) || []).map(b => ({ kind: 'group', id: b.groupId, role: 'subject' })))
+    });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = campaign.currentTurn || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+function processBanditryForTurn(campaign, options){
+  const A = _jACKS();
+  const o = options || {};
+  const rng = o.rng || Math.random;
+  const out = { ruleOn: false, domains: [], logEntries: [] };
+  if(!campaign) return out;
+  out.ruleOn = !!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'domain-morale-banditry'));
+  if(!out.ruleOn) return out;
+  const turn = campaign.currentTurn || 1;
+  campaign.groups = campaign.groups || [];
+  const NAMES = A.MORALE_LEVEL_NAMES || {};
+  for(const d of (campaign.domains || [])){
+    if(!d || !d.demographics) continue;
+    let bands = banditryBandsForDomain(campaign, d.id);
+    // 1) Casualty settlement — killed bandits are the domain's own men (RR p.351).
+    let killed = 0;
+    for(const g of bands){
+      const c = Math.max(0, g.casualties || 0);
+      if(c > 0){
+        killed += Math.min(c, Math.max(0, g.count || 0));
+        g.count = Math.max(0, (g.count || 0) - c);
+        g.casualties = 0;
+      }
+    }
+    if(killed > 0) d.demographics.peasantFamilies = Math.max(0, (d.demographics.peasantFamilies || 0) - killed);
+    // A wholly-wiped band is gone (the same disaffection raises NEW bands below if morale
+    // still warrants them — RR p.351's Anárion example: defeat them, morale unchanged, a
+    // fresh muster the next month).
+    const wiped = new Set(bands.filter(g => (g.count || 0) <= 0).map(g => g.id));
+    if(wiped.size) campaign.groups = campaign.groups.filter(g => !(g && wiped.has(g.id)));
+    bands = bands.filter(g => !wiped.has(g.id));
+    // 2) The RAW target off the post-settlement morale + families.
+    const target = (typeof A.banditCount === 'function') ? A.banditCount(d) : 0;
+    const aliveNow = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+    const morale = (d.demographics.morale != null) ? d.demographics.morale : 0;
+    const moraleName = NAMES[String(morale)] || ('morale ' + morale);
+    let action = null;
+    if(target <= 0 && bands.length){
+      // Morale recovered (or no families remain) — the men return to their fields,
+      // WITHOUT population loss (RR p.351).
+      const ids = new Set(bands.map(g => g.id));
+      campaign.groups = campaign.groups.filter(g => !(g && ids.has(g.id)));
+      action = 'disbanded';
+    } else if(target > 0 && !bands.length){
+      // Rise — 🔧 one band per domain hex, at most 6, sized evenly (rng-placed).
+      const spots = (campaign.hexes || []).filter(h => h && h.domainId === d.id);
+      for(let i = spots.length - 1; i > 0; i--){ const j = Math.floor(rng() * (i + 1)); const t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
+      const nBands = Math.max(1, Math.min(6, spots.length || 1, target));
+      const base = Math.floor(target / nBands), rem = target % nBands;
+      for(let i = 0; i < nBands; i++){
+        const g = (typeof A.blankGroup === 'function') ? A.blankGroup({
+          name: 'Bandits of ' + (d.name || d.id) + (nBands > 1 ? ' · band ' + (i + 1) : ''),
+          groupTemplate: { monsterCatalogKey: 'bandit', creatureTypes: ['humanoid'], hitDice: '1' },
+          count: base + (i < rem ? 1 : 0),
+          currentHexId: spots.length ? spots[i % spots.length].id : null,
+          currentDomainId: d.id
+        }) : null;
+        if(!g) break;
+        g.banditryDomainId = d.id;
+        g.history.push({ turn, type: 'banditry',
+          reason: 'risen from ' + (d.name || 'the domain') + '’s disaffected families (morale ' + moraleName + ', RR pp.350–351)' });
+        campaign.groups.push(g);
+        bands.push(g);
+      }
+      action = 'rise';
+    } else if(target > 0 && bands.length && aliveNow !== target){
+      // Resize the existing set evenly (positions + histories kept); a share of 0 disbands
+      // that band (the target shrank below the band count).
+      const base = Math.floor(target / bands.length), rem = target % bands.length;
+      bands.forEach((g, i) => { g.count = base + (i < rem ? 1 : 0); g.casualties = 0; });
+      const empty = new Set(bands.filter(g => (g.count || 0) <= 0).map(g => g.id));
+      if(empty.size){
+        campaign.groups = campaign.groups.filter(g => !(g && empty.has(g.id)));
+        bands = bands.filter(g => !empty.has(g.id));
+      }
+      action = (target > aliveNow) ? 'swell' : 'wane';
+    }
+    // 3) The enemy-army occupation counter (RR p.349 + p.351; moraleModifiersFor reads it).
+    d.banditryOccupationMonths = (target > 0) ? ((d.banditryOccupationMonths || 0) + 1) : 0;
+    // 4) Record what changed (a no-change plague month records nothing).
+    if(killed > 0 || wiped.size > 0 || action){
+      const parts = [];
+      if(killed > 0) parts.push(killed.toLocaleString() + ' bandits were killed — ' + (d.name || 'the domain') + ' loses ' + killed.toLocaleString() + ' families (RR p.351)');
+      if(action === 'rise') parts.push('⚔ Banditry plagues ' + (d.name || 'the domain') + ' — ' + target.toLocaleString() + ' of its men have turned bandit (' + moraleName + ', RR pp.350–351); ' + bands.length + ' band' + (bands.length === 1 ? '' : 's') + ' now raid the domain');
+      else if(action === 'swell') parts.push('⚔ Banditry in ' + (d.name || 'the domain') + ' swells to ' + target.toLocaleString() + ' raiders (' + moraleName + ')');
+      else if(action === 'wane') parts.push('Banditry in ' + (d.name || 'the domain') + ' wanes to ' + target.toLocaleString() + ' raiders');
+      else if(action === 'disbanded') parts.push('\u{1F3F3} The bandits of ' + (d.name || 'the domain') + ' lay down their arms and return to their fields — morale has recovered');
+      const narrative = parts.join('. ') + '.';
+      const bandRoster = bands.map(g => ({ groupId: g.id, count: g.count || 0, hexId: g.currentHexId || null }));
+      _banditryEmitEvent(campaign, d, {
+        action: action || 'casualties-settled', morale, target, killed,
+        familiesLost: killed, occupationMonths: d.banditryOccupationMonths || 0, bands: bandRoster
+      }, narrative);
+      out.logEntries.push(narrative);
+      out.domains.push({ domainId: d.id, action: action || 'casualties-settled', target, killed, bands: bandRoster });
+    }
+  }
+  return out;
 }
 
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).

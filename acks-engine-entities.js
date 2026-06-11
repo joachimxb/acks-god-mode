@@ -1380,6 +1380,11 @@ function blankGroup(opts={}){
     currentHexId: opts.currentHexId || null,
     currentDomainId: opts.currentDomainId || null,
     commanderCharacterId: opts.commanderCharacterId || null,  // Optional named commander
+    // #476 E10 — domain-morale banditry (RR pp.350–351; lazy on old saves). Set = this band
+    // is the domain's OWN disaffected men: its wander is fenced to that domain, it never dens
+    // or heads home, and the monthly turn reconciles it to banditCount (dissolving it when
+    // morale recovers to −1 or better — the men return to their fields).
+    banditryDomainId: opts.banditryDomainId || null,
     // #476 E6 — autonomous band motion (the monster-bands day consumer; lazy on old
     // saves). null = the defaults govern: an un-housed living band WANDERS (migration
     // movement — half expedition speed, random steps, never directly back). Shape:
