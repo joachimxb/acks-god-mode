@@ -1101,7 +1101,7 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
             <ul class="font-mono space-y-0.5" x-show="((encModalEnc().pursuit || {}).throws || []).length">
-              <template x-for="(t, ti) in (encModalEnc().pursuit.throws || [])" :key="'purs-' + ti">
+              <template x-for="(t, ti) in ((encModalEnc().pursuit || {}).throws || [])" :key="'purs-' + ti">
                 <li x-text="encPursuitThrowText(t)"></li>
               </template>
             </ul>
