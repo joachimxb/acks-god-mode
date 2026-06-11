@@ -975,6 +975,37 @@ document.addEventListener('alpine:init', () => {
                 <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind !== 'wandering-fragment'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair (a peek above this panel)">→ lair</button>
                 <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
               </p>
+              <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rerolls on the SAME
+                   table; “pick from table” lists the appropriate column (rarity switchable).
+                   Both lock once surprise is rolled — the side IS who you met. -->
+              <template x-if="encModalEnc().monsterSide.identity">
+                <div class="text-xs mt-1 space-y-0.5">
+                  <p class="opacity-80">
+                    <span x-text="encIdentityText()"></span>
+                    <button x-show="encIdentityRerollable()" @click="encModalRerollIdentity()" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Reroll 1d100 on the same table (re-rollable until surprise is rolled)">⟳</button>
+                    <button x-show="encIdentityRerollable() && !encModal.identityPick" @click="encModal.identityPick = true; encModal.identityPickRarity = encModalEnc().rarity || (encModalEnc().monsterSide.identity.rarity || 'common'); encModal.identityPickValue = ''" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Choose the creature from the appropriate table instead of rolling">pick from table</button>
+                  </p>
+                  <p class="opacity-70" x-text="encBindingText()"></p>
+                  <div x-show="encModal.identityPick" class="border border-amber-700/50 rounded p-1.5 mt-1 space-y-1" style="background:#fdf6e3">
+                    <div class="flex items-center gap-1 flex-wrap">
+                      <template x-if="encModalEnc().category === 'monster'">
+                        <select x-model="encModal.identityPickRarity" @change="encModal.identityPickValue = ''" class="border border-ink rounded px-1 py-0.5 text-xs">
+                          <option value="common">common</option><option value="uncommon">uncommon</option>
+                          <option value="rare">rare</option><option value="very-rare">very rare</option>
+                        </select>
+                      </template>
+                      <select x-model="encModal.identityPickValue" class="border border-ink rounded px-1 py-0.5 text-xs flex-1 min-w-0">
+                        <option value="">— pick from the table —</option>
+                        <template x-for="(en, i) in encIdentityPickEntries()" :key="i">
+                          <option :value="String(i)" :selected="encModal.identityPickValue === String(i)" x-text="(en.lo === en.hi ? en.lo : en.lo + '–' + en.hi) + ' · ' + en.label"></option>
+                        </template>
+                      </select>
+                      <button @click="encModalApplyIdentityPick()" :disabled="encModal.identityPickValue === ''" :class="encModal.identityPickValue === '' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-100'" class="px-1.5 border border-ink rounded">apply</button>
+                      <button @click="encModal.identityPick = false" class="px-1.5 border border-ink rounded hover:bg-yellow-100">×</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
               <p class="opacity-70 text-xs capitalize" x-text="[encModalEnc().monsterSide.source, encModalEnc().monsterSide.encounterKind].filter(Boolean).join(' · ').replace(/-/g, ' ')"></p>
             </div>
           </div>
@@ -9926,7 +9957,8 @@ return {
       settle: null, settleDungeon: false,   // E3a — the transient linger-or-migrate proposal (nothing written until confirm)
       tone: (enc.reaction && enc.reaction.tone) || 'diplomatic',   // E3b — the spokesperson's approach (JJ pp.84–87)
       toneOpen: false, toneRows: [],
-      pursuitMod: 0   // E3c — the take-up throw's GM modifier
+      pursuitMod: 0,  // E3c — the take-up throw's GM modifier
+      identityPick: false, identityPickRarity: 'common', identityPickValue: ''   // E4 — the choose-from-table panel
     };
     this.encounterModalId = id;
     this.encModalToneReset();
@@ -9967,9 +9999,74 @@ return {
   },
   encMonsterText(enc){
     const ms = (enc && enc.monsterSide) || {};
-    const mName = (ms.monsterCatalogKey && window.ACKS.monsterDisplayName && window.ACKS.monsterDisplayName(ms.monsterCatalogKey)) || ms.monsterCatalogKey || '';
+    const mName = (ms.monsterCatalogKey && window.ACKS.monsterDisplayName && window.ACKS.monsterDisplayName(ms.monsterCatalogKey)) || ms.monsterCatalogKey
+      || ms.label || '';   // E4: a null-key table identity (Dragon, Genie…) displays its printed label
     const what = mName || (enc.category === 'civilized' ? 'civilized folk (GM identifies)' : enc.category === 'monster' ? 'monsters (GM identifies)' : '(unidentified)');
     return (ms.count ? ms.count + ' × ' : '') + what;
+  },
+  // ── E4 — the table identity line + the 6a binding verdict + ⟳/pick affordances ──
+  encIdentityText(){
+    const e = this.encModalEnc(); const id = e && e.monsterSide && e.monsterSide.identity;
+    if(!id) return '';
+    const A = window.ACKS;
+    const tName = id.tableKey ? ((A.ENCOUNTER_MONSTER_TABLES[id.tableKey] || {}).name || id.tableKey)
+                : (id.columnKey ? 'Civilized — ' + (((A.ENCOUNTER_CIVILIZED_TABLE || {}).columns || {})[id.columnKey] || {}).name : 'table');
+    if(id.gmChosen) return 'GM pick from ' + tName + (id.rarity ? ' · ' + id.rarity : '') + (id.page ? ' (JJ p.' + id.page + ')' : '');
+    return 'rolled ' + id.natural + ' on ' + tName + (id.rarity ? ' · ' + id.rarity : '') + (id.page ? ' (JJ p.' + id.page + ')' : '');
+  },
+  encBindingText(){
+    const e = this.encModalEnc(); const ms = e && e.monsterSide; const b = ms && ms.binding;
+    if(!b) return '';
+    const pct = (b.lairPct != null) ? b.lairPct + '%' : '?';
+    const roll = (b.lairRoll != null) ? ('Lair: d100 ' + b.lairRoll + (b.inLair ? ' ≤ ' : ' > ') + pct) : (b.lairPct === 0 ? 'never lairs' : '');
+    const minted = ms.minted && ms.minted.mode;
+    let verdict;
+    if(b.mode === 'existing-lair' || (b.inLair && ms.lairId && !minted)) verdict = 'in their lair — the known den here';
+    else if(b.mode === 'fragment') verdict = 'abroad — a fragment of the den in this hex (no hoard with them)';
+    else if(minted === 'populate-shell') verdict = 'in their lair — detailed one of this hex’s seeded lairs';
+    else if(minted === 'reveal-dynamic') verdict = 'in their lair — revealed the pooled lair here';
+    else if(minted === 'fresh-lair') verdict = 'in their lair — a new den in this hex';
+    else if(b.inLair) verdict = (e.category === 'civilized') ? 'at their dwelling (no den entity)' : 'in their lair (unauthored hex — no den minted)';
+    else verdict = 'a wandering band';
+    return roll ? (roll + ' → ' + verdict) : verdict;
+  },
+  encIdentityRerollable(){
+    const e = this.encModalEnc();
+    return !!(e && e.status === 'active' && e.monsterSide && e.monsterSide.identity && !this.encSurpriseRolled() && !e.evasion && !e.reaction);
+  },
+  encModalRerollIdentity(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterRerollIdentity(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){
+      this.showToast({ 'walk-past-identity': 'The walk is past identity — surprise has been rolled.',
+                       'no-table-identity': 'No table identity to reroll — name the side via the Inspector.' }[r && r.error] || 'Could not reroll.');
+      return;
+    }
+    this.markDirty(); this.persistSession();
+    this.showToast('⟳ ' + (r.identity.label || r.identity.key) + ' (1d100 ' + r.identity.natural + ')');
+  },
+  encIdentityPickEntries(){
+    const e = this.encModalEnc(); const id = e && e.monsterSide && e.monsterSide.identity;
+    const A = window.ACKS;
+    if(!id) return [];
+    if(id.columnKey){
+      const col = (A.ENCOUNTER_CIVILIZED_TABLE.columns || {})[id.columnKey];
+      return col ? col.rows : [];
+    }
+    const t = A.ENCOUNTER_MONSTER_TABLES[id.tableKey];
+    const col = t && t.columns[this.encModal.identityPickRarity || 'common'];
+    return col || [];
+  },
+  encModalApplyIdentityPick(){
+    const enc = this.encModalEnc(); if(!enc || this.encModal.identityPickValue === '') return;
+    const entry = this.encIdentityPickEntries()[Number(this.encModal.identityPickValue)];
+    if(!entry) return;
+    const r = window.ACKS.encounterChooseIdentity(this.currentCampaign, enc.id, {
+      label: entry.label, key: entry.key, rarity: (enc.category === 'monster') ? this.encModal.identityPickRarity : undefined });
+    if(!r || !r.ok){ this.showToast('Could not apply the pick.'); return; }
+    this.encModal.identityPick = false; this.encModal.identityPickValue = '';
+    this.markDirty(); this.persistSession();
+    this.showToast('✓ ' + (entry.label || entry.key));
   },
   encAttitudeClass(band){
     return { hostile: 'border-red-600 bg-red-100 text-red-800', unfriendly: 'border-orange-500 bg-orange-100 text-orange-800',
@@ -10317,7 +10414,7 @@ return {
     const enc = this.encModalEnc(); if(!enc) return '';
     const e = window.ACKS.encounterSettleEligibility(this.currentCampaign, enc.id);
     if(e.eligible) return '';
-    if(e.reason === 'no-catalog-monster') return 'name the monster first — its catalog entry carries the Lair %; set it via 🔍 Open in Inspector';
+    if(e.reason === 'no-catalog-monster') return 'name the monster first — its catalog entry carries the Lair %; use the other-side card’s pick-from-table, or 🔍 Open in Inspector';
     if(e.reason === 'no-lair-pct') return 'this monster has no Lair % in the catalog — author a den via the Lair Wizard instead';
     if(e.reason === 'already-at-lair') return 'they are already home — this meeting is at their lair';
     if(e.reason === 'fragment-has-home-lair') return 'this band forays from a home lair — it returns there, it does not found a second den';

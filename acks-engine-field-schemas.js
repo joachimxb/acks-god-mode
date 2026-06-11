@@ -486,6 +486,15 @@
         { name: 'hexId',                type: 'id', idKind: 'hex', group: 'Identity', description: 'Where the meeting happens' },
         { name: 'category',             type: 'enum', enumValues: ['monster','civilized'], group: 'Draw', description: 'The JJ category-draw result (empty = GM-authored)' },
         { name: 'rarity',               type: 'enum', enumValues: ['common','uncommon','rare','very-rare'], group: 'Draw', description: 'Monster rarity by territory class (JJ p.44)' },
+        // E4 — the non-party side is GM-editable here (the admin path beneath the modal's
+        // ⟳/pick-from-table affordances). identity/binding/minted stay engine-written.
+        { name: 'monsterSide',          type: 'object', group: 'Draw', description: 'The non-party side — who they are, how many, the den they bind to', fields: [
+          { name: 'monsterCatalogKey',  type: 'string', description: 'MONSTER_CATALOG key (the E4 identity tables set it; blank = GM-detailed via label)' },
+          { name: 'label',              type: 'string', description: 'The printed table cell, verbatim — the display name when no catalog key' },
+          { name: 'count',              type: 'number', description: 'Number encountered' },
+          { name: 'encounterKind',      type: 'enum', enumValues: ['at-lair','wandering-fragment','wandering'], description: 'at-lair = met at the den; fragment = a band out from a local den; wandering = unbound' },
+          { name: 'lairId',             type: 'id', idKind: 'lair', description: 'The den this side belongs to (when bound)' }
+        ] },
         { name: 'status',               type: 'enum', enumValues: ['active','resolved'], group: 'Lifecycle', default: 'active' },
         { name: 'phase',                type: 'enum', enumValues: ['setup','surprise','evasion','interaction','pursuit'], group: 'Lifecycle', default: 'setup' },
         { name: 'outcome',              type: 'enum', enumValues: ['no-encounter','evaded','parleyed','dispersed','combat','settled-as-lair','dismissed'], group: 'Lifecycle', description: 'Set when resolved; combat records "GM resolves" until #141' },
