@@ -418,8 +418,10 @@ function blankEncounter(opts={}){
     // identity (the 1d100 table roll: {natural, label, key, tableKey|columnKey, rarity, page,
     // gmChosen?}), binding ({mode, inLair, lairRoll, lairPct} — the JJ p.43 step 6a verdict),
     // minted (the unwind receipt when materializing detailed/revealed/created a lair).
+    // E4m adds pursuitEncounterId — the chase encounter this band IS, when a third party
+    // meets a band that is mid-hunt (dispersing the meeting ends the chase; D9 recalls).
     partySide: Object.assign({ partyId: null, journeyId: null, characterIds: [], faceCharacterId: null, sizeCount: null }, opts.partySide || {}),
-    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null }, opts.monsterSide || {}),
+    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null }, opts.monsterSide || {}),
     // Step state (each null until its step runs; shapes documented in Data_Dictionary §4):
     distance: opts.distance || null,                  // { rolledFt, capFt, distanceFt, light, detectedBy, terrainRow }
     surprise: opts.surprise || null,                  // { party:{...}, monsters:{...}, evadeEligibility, noEncounter }

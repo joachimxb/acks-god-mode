@@ -3339,7 +3339,11 @@ function priorReactionBetween(campaign, encounter){
   const ms0 = enc.monsterSide || {};
   const myLair = ms0.lairId || null;
   const myGroups = ms0.groupIds || [];
-  if(!myLair && !myGroups.length) return null;     // unbound fresh monsters — no identity to remember
+  // E4m — a side bound to a pursuing band carries the chase encounter's id: the chase
+  // itself IS a prior meeting with that band (the sprung caught-encounter recalls the
+  // evade it sprang from), and two meetings referencing the same chase are the same band.
+  const myPursuit = ms0.pursuitEncounterId || null;
+  if(!myLair && !myGroups.length && !myPursuit) return null;     // unbound fresh monsters — no identity to remember
   const ps0 = enc.partySide || {};
   const myParty = ps0.partyId || null;
   const myChars = ps0.characterIds || [];
@@ -3348,7 +3352,8 @@ function priorReactionBetween(campaign, encounter){
   for(const e of (campaign.encounters || [])){
     if(!e || e.id === enc.id || e.status !== 'resolved' || e.outcome === 'no-encounter') continue;
     const ms = e.monsterSide || {};
-    if(!((myLair && ms.lairId === myLair) || (ms.groupIds || []).some(g => myGroups.includes(g)))) continue;
+    if(!((myLair && ms.lairId === myLair) || (ms.groupIds || []).some(g => myGroups.includes(g))
+         || (myPursuit && (e.id === myPursuit || ms.pursuitEncounterId === myPursuit)))) continue;
     const ps = e.partySide || {};
     if(!((myParty && ps.partyId === myParty) || (ps.characterIds || []).some(c => myChars.includes(c)))) continue;
     if(!best || when(e) >= when(best)) best = e;   // latest wins; array order breaks ties
@@ -3415,6 +3420,70 @@ function _drawIdentityForHex(campaign, hexId, ctx, category, rarity, rng){
   return A.rollEncounterIdentity({ terrainKey: tKey, hasRiver: hasRiver, category: category, rarity: rarity, rng: rng });
 }
 
+// E4m — the world's loose monster bands (derived, never stored): the bands ABROAD that a
+// wandering draw can meet — the pool-first principle extended off the lair map (Joachim
+// 2026-06-11: "a wandering group that is pursuing someone should be eligible to be found
+// by a third party on the same hex — the mechanic like a pre-existing lair being found").
+// Two kinds:
+//   • pursuer — an active chase (phase 'pursuit', offered|pursuing): the band IS the chase
+//     encounter's monster side, placed at the trail's anchor hex (🔧 v1 — the chase model is
+//     straight-line; the band itself trails by gapMiles within the hex's reach).
+//   • migrant — a living Group housed by no living lair (an abandoned den's survivors, or a
+//     free-authored band) standing at its currentHexId. A group bound to an active chase
+//     reads as the pursuer row, never twice.
+// The ONE derivation both consumers read: the 6a binding (who answers a wandering verdict)
+// and the 🐉 Monsters Groups table (what roams the world). Rows carry monsterKey (catalog-
+// resolved so aliases fold), the living count, the hex, and the refs the binding records.
+function looseMonsterBands(campaign){
+  const A = global.ACKS;
+  const rows = [];
+  if(!campaign) return rows;
+  const LIVING = { active: 1, unknown: 1, dynamic: 1 };
+  const settled = new Set(), deadHome = {};
+  for(const l of (campaign.lairs || [])){
+    if(!l) continue;
+    for(const gid of (l.groupIds || [])){ if(LIVING[l.status]) settled.add(gid); else if(!(gid in deadHome)) deadHome[gid] = l.id; }
+  }
+  const chasing = new Set();
+  for(const e of (campaign.encounters || [])){
+    const p = e && e.pursuit;
+    if(!e || e.status !== 'active' || e.phase !== 'pursuit' || !p || (p.status !== 'offered' && p.status !== 'pursuing')) continue;
+    const ms = e.monsterSide || {};
+    for(const gid of (ms.groupIds || [])) chasing.add(gid);
+    const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+    rows.push({
+      kind: 'pursuer', encounterId: e.id,
+      monsterKey: entry ? entry.key : ((ms.monsterCatalogKey) || null),
+      label: p.pursuerLabel || ms.label || (entry && entry.name) || '',
+      count: (ms.count != null) ? ms.count : null,
+      hexId: p.lastPartyHexId || e.hexId || null,
+      groupIds: (ms.groupIds || []).slice(),
+      lairId: ms.lairId || null,
+      pursuitStatus: p.status, gapMiles: (p.gapMiles == null ? null : p.gapMiles),
+      quarry: { partyId: (e.partySide && e.partySide.partyId) || null,
+                characterIds: ((e.partySide && e.partySide.characterIds) || []).slice() }
+    });
+  }
+  for(const g of (campaign.groups || [])){
+    if(!g || settled.has(g.id) || chasing.has(g.id)) continue;
+    const alive = (typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+    if(alive <= 0) continue;
+    const tpl = g.groupTemplate || {};
+    const entry = (tpl.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(tpl.monsterCatalogKey) : null;
+    rows.push({
+      kind: 'migrant', groupId: g.id,
+      monsterKey: entry ? entry.key : ((tpl.monsterCatalogKey) || null),
+      label: g.name || (entry && entry.name) || '',
+      count: alive,
+      hexId: g.currentHexId || null,
+      groupIds: [g.id],
+      lairId: null,
+      deadHomeLairId: deadHome[g.id] || null
+    });
+  }
+  return rows;
+}
+
 // RAW JJ p.43 step 6a: once the table names the creature, roll against its MM Lair
 // characteristic to decide whether the meeting is AT its lair or with creatures abroad —
 // then bind the verdict to the world. An existing active den of that monster answers
@@ -3423,10 +3492,14 @@ function _drawIdentityForHex(campaign, hexId, ctx, category, rarity, rng){
 // key-matched pooled dynamic lair (RAW's own parenthetical: "a dynamic lair can be used
 // if one is available"), or — monster category only — MINTS a fresh den (the Judge's
 // improvised lair, automated; 🔧 civilized folk "at home" with no den entity just count
-// at lair size). A wandering result where a den of that monster exists is a FRAGMENT of
-// it (MM p.15 — capped at the living population, no hoard, the lair unlocated).
+// at lair size). A wandering result binds FIRST to a LOOSE BAND of that monster at the
+// hex (E4m — a pursuing band or migrant Group is a definite entity; it beats the conjured
+// fragment; the chase whose own quarry is drawing is excluded — meeting your pursuer is
+// the chase's catch, not the table's), then where a den of that monster exists it is a
+// FRAGMENT of it (MM p.15 — capped at the living population, no hoard, the lair unlocated).
 // PURE — counts + picks pre-rolled into the returned intent; mutation happens at
-// createEncounterFromDraw (the trigger's commit point).
+// createEncounterFromDraw (the trigger's commit point). opts.partySide {partyId,
+// characterIds} = the drawing group (the quarry exclusion).
 function bindEncounterIdentity(campaign, hexId, identity, opts){
   const o = opts || {};
   const r = o.rng || Math.random;
@@ -3461,6 +3534,27 @@ function bindEncounterIdentity(campaign, hexId, identity, opts){
       return { mode: 'fresh-lair', inLair: true, lairRoll, lairPct: pct, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
     return { mode: 'wandering', inLair: true, lairRoll, lairPct: pct, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
   }
+  // E4m — a loose band of this monster standing at the hex answers the abroad verdict
+  // first: the band met IS the known band (pursuer or migrant), not a conjured one.
+  if(hexId){
+    const me = (o.partySide || {});
+    const myChars = me.characterIds || [];
+    const bands = looseMonsterBands(campaign).filter(band => {
+      if(band.hexId !== hexId || !band.monsterKey || band.monsterKey !== entry.key) return false;
+      if(band.kind === 'pursuer'){
+        const q = band.quarry || {};
+        if(me.partyId && q.partyId && me.partyId === q.partyId) return false;
+        if((q.characterIds || []).some(id => myChars.includes(id))) return false;
+      }
+      return true;
+    });
+    if(bands.length){
+      const band = pick(bands);
+      return { mode: 'loose-band', inLair: false, lairRoll, lairPct: pct,
+               bandKind: band.kind, encounterId: band.encounterId || null, groupId: band.groupId || null,
+               lairId: band.lairId || null, count: (band.count != null) ? band.count : Math.max(1, _rollDiceStr(wanderSpec, r)) };
+    }
+  }
   if(densHere.length){
     const lair = pick(densHere);
     const alive = lairInhabitantCount(campaign, lair);
@@ -3482,7 +3576,8 @@ function bindEncounterIdentity(campaign, hexId, identity, opts){
 //     lairEncounterProposal unchanged.
 // Water / unknown terrain (no table) falls back to the pre-E4 pool-then-gm-pick fill.
 // context: { road?, night?, resting?, knownRoute?, rng?, lairFirst?, includeDynamicPool?,
-//            territoryClass?, terrainKey?, hasRiver? (sparse-route environment overrides) }.
+//            territoryClass?, terrainKey?, hasRiver? (sparse-route environment overrides),
+//            partySide? {partyId, characterIds} (the drawing group — E4m quarry exclusion) }.
 // PURE except rng consumption — no campaign mutation; triggers materialize entities
 // from the returned draw at their commit point (createEncounterFromDraw).
 function encounterDraw(campaign, hexId, context){
@@ -3516,14 +3611,14 @@ function encounterDraw(campaign, hexId, context){
       const ident = _drawIdentityForHex(campaign, hexId, ctx, 'monster', rar.rarity, rng);
       if(ident){
         draw.identityRoll = ident; draw.identity = 'table';
-        draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'monster', rng });
+        draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'monster', rng, partySide: ctx.partySide });
       } else poolFill();
     }
   } else if(cat.category === 'civilized'){
     const ident = _drawIdentityForHex(campaign, hexId, ctx, 'civilized', null, rng);
     if(ident){
       draw.identityRoll = ident; draw.identity = 'table';
-      draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'civilized', rng });
+      draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'civilized', rng, partySide: ctx.partySide });
     } else draw.identity = 'gm-pick';
   }
   return draw;
@@ -3547,6 +3642,7 @@ function _applyIdentityBinding(campaign, side, identity, binding, opts){
   side.label = (identity && identity.label) || '';
   side.source = 'table';
   side.minted = null;
+  side.pursuitEncounterId = null;   // E4m — a rebind away from a pursuing band drops the chase link
   const b = binding || { mode: 'wandering', count: null };
   const bindToLair = (lair, kind, count) => {
     side.lairId = lair.id;
@@ -3601,6 +3697,39 @@ function _applyIdentityBinding(campaign, side, identity, binding, opts){
     } else freshMint();
   } else if(b.mode === 'fresh-lair'){
     freshMint();
+  } else if(b.mode === 'loose-band'){
+    // E4m — the band met IS a known loose band: a pursuing band (the chase encounter's
+    // monster side, linked via pursuitEncounterId so D9 recalls it and the chase can
+    // reconcile on resolution) or a migrant Group. Nothing is minted — the identity
+    // reroll re-binds freely, no unwind receipt. A stale ref (the GM resolved the chase
+    // or the group died between propose and commit) degrades to a plain wandering band.
+    let bound = false;
+    if(b.bandKind === 'pursuer' && b.encounterId){
+      const chase = findEncounter(campaign, b.encounterId);
+      const pp = chase && chase.pursuit;
+      if(chase && chase.status === 'active' && chase.monsterSide && pp && (pp.status === 'offered' || pp.status === 'pursuing')){
+        const cms = chase.monsterSide;
+        side.source = 'pursuing-band';
+        side.pursuitEncounterId = chase.id;
+        side.lairId = cms.lairId || null;          // a fragment-that-pursues keeps its den ref
+        side.groupIds = (cms.groupIds || []).slice();
+        side.encounterKind = 'wandering';
+        side.count = (cms.count != null) ? cms.count : (b.count == null ? null : b.count);
+        bound = true;
+      }
+    } else if(b.bandKind === 'migrant' && b.groupId){
+      const g = (campaign.groups || []).find(x => x && x.id === b.groupId);
+      const alive = g ? ((typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0))) : 0;
+      if(g && alive > 0){
+        side.source = 'migrant-band';
+        side.lairId = null;
+        side.groupIds = [g.id];
+        side.encounterKind = 'wandering';
+        side.count = alive;
+        bound = true;
+      }
+    }
+    if(!bound) wanderingFallback();
   } else {
     wanderingFallback();
     if(b.inLair) side.encounterKind = 'wandering';   // civilized "at home" — no den entity (🔧), count at lair size
@@ -8278,7 +8407,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // #476 Encounter layer E1 — the Encounter entity + the draw seam (D8–D12, plan §15)
   findEncounter, encountersAtHex, activeEncounters, encounterDisplayName, priorReactionBetween,
   createEncounter, resolveEncounter, encounterDraw, createEncounterFromDraw,
-  bindEncounterIdentity, _applyIdentityBinding, _unwindEncounterMinting,
+  bindEncounterIdentity, _applyIdentityBinding, _unwindEncounterMinting, looseMonsterBands,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
   createSpecialistContract, endSpecialistContract, activeSpecialistContractFor, specialistContractsByEmployer,

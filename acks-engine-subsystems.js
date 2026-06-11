@@ -1755,6 +1755,25 @@ function _mintEncounterProposalId(campaign, rng, takenIds){
   return id;
 }
 
+// E4m — name a loose-band verdict for the GM review ("who answers the draw"): the chase's
+// quarry, or the migrant group's name. GM-facing — the characters just meet a band.
+function _looseBandMetText(campaign, bind){
+  const A = _jACKS();
+  if(bind && bind.bandKind === 'pursuer' && bind.encounterId){
+    const chase = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, bind.encounterId) : null;
+    const ps = (chase && chase.partySide) || {};
+    const party = ps.partyId ? ((campaign.parties || []).find(p => p && p.id === ps.partyId)) : null;
+    const ch = ((ps.characterIds || []).length) ? ((campaign.characters || []).find(c => c && c.id === ps.characterIds[0])) : null;
+    const quarry = (party && party.name) || (ch && ch.name) || 'another party';
+    return 'the band hunting ' + quarry + ' crosses your path';
+  }
+  if(bind && bind.bandKind === 'migrant' && bind.groupId){
+    const g = (campaign.groups || []).find(x => x && x.id === bind.groupId);
+    return 'the roaming band' + (g && g.name ? ' “' + g.name + '”' : '') + ' is met here';
+  }
+  return 'a known band abroad here';
+}
+
 // ─── #476 E1 — the per-hex travel encounter throw (JJ pp.41–42; replaces the J1 1/6 stub) ─────
 // ONE hex's RAW draw: the 1d20 category throw on the territory-classification column (a road
 // folds one column LEFT — roads are safer, not safe, reversing the J1 "roads = no encounters"
@@ -1789,7 +1808,11 @@ function rollEncounter(campaign, journey, opts){
   const draw = ACKS.encounterDraw(campaign, hexId, {
     road: !!opts.hasRoad, night: false, resting: false, knownRoute, rng,
     terrainKey: (!hex && envHex && typeof ACKS.terrainKey === 'function') ? ACKS.terrainKey(envHex) : undefined,
-    hasRiver: (!hex && envHex) ? !!(Array.isArray(envHex.riverSides) && envHex.riverSides.length) : undefined
+    hasRiver: (!hex && envHex) ? !!(Array.isArray(envHex.riverSides) && envHex.riverSides.length) : undefined,
+    // E4m — the drawing group: a loose band abroad here can answer the wandering verdict,
+    // but never a chase's own quarry (meeting your pursuer is the chase's catch).
+    partySide: { partyId: (journey && journey.partyId) || null,
+                 characterIds: ((journey && journey.participantCharacterIds) || []).slice() }
   });
   if(!draw || draw.category === 'no-encounter') return null;
   const jName = (journey && journey.name) || 'Journey';
@@ -1839,6 +1862,12 @@ function rollEncounter(campaign, journey, opts){
     } else if(bind && bind.mode === 'fresh-lair'){
       encounterKind = 'at-lair';
       label = head + mName + ' in their lair (' + (n || '?') + ') — a new den in this hex at commit — GM, resolve';
+    } else if(bind && bind.mode === 'loose-band'){
+      // E4m — a known band abroad answers: name it so the GM ratifies knowing who.
+      encounterKind = 'wandering';
+      lairId = bind.lairId || null;
+      label = head + (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's')
+        + ' — ' + _looseBandMetText(campaign, bind) + ' — GM, resolve';
     } else {
       encounterKind = 'wandering';
       const where = (bind && bind.inLair)
@@ -4129,6 +4158,8 @@ Object.assign(ACKS, {
   proposeSurvivalDay, commitSurvivalRecord,
   // #476 E1 — the slot-80 rest/night encounter consumer (JJ p.41).
   proposeEncounterDay, commitEncounterRecord,
+  // #476 E3c — the slot-82 pursuit consumer (the day handler + its commit hook).
+  proposePursuitDay, commitPursuitRecord,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -4194,7 +4225,8 @@ function proposeEncounterDay(campaign, ctx){
     if(!checks.length) continue;
     const rng = ctx.rng || _jMulberry32(_jHash32('rest-enc|' + g.key + '|' + worldOrd));
     for(const chk of checks){
-      const draw = A.encounterDraw(campaign, g.hexId, { resting: true, night: chk.period === 'night', rng: rng });
+      const draw = A.encounterDraw(campaign, g.hexId, { resting: true, night: chk.period === 'night', rng: rng,
+        partySide: { partyId: g.partyId || null, characterIds: g.characterIds.slice() } });   // E4m — quarry exclusion
       if(!draw || draw.category === 'no-encounter') continue;
       if(draw.category !== 'monster' && draw.category !== 'civilized') continue;  // resting demotes terrain finds (belt + braces)
       const encId = _mintEncounterProposalId(campaign, rng, takenIds);
@@ -4213,6 +4245,8 @@ function proposeEncounterDay(campaign, ctx){
         else if(bind && bind.mode === 'fragment') what = (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's') + ' out from their lair here — GM, resolve';
         else if(bind && (bind.mode === 'populate-shell' || bind.mode === 'fresh-lair' || bind.mode === 'reveal-dynamic'))
           what = mName + ' in their lair — the den materializes here at commit; GM, resolve';
+        else if(bind && bind.mode === 'loose-band')
+          what = (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's') + ' — ' + _looseBandMetText(campaign, bind) + ' — GM, resolve';
         else what = (n ? n + ' ' : '') + mName + (bind && bind.inLair ? ' at their dwelling' : ' (wandering)') + ' — GM, resolve';
       }
       else if(draw.category === 'civilized') what = 'civilized visitors — GM, pick who';
@@ -4379,9 +4413,10 @@ function commitPursuitRecord(campaign, record){
   pur.gapMiles = record.gapAfter;
   pur.lastPartyHexId = record.newPartyHexId;
   if(record.outcome === 'caught'){
-    // The fresh meeting at the party's hex — the same sides. Where the monster side
-    // carries entity refs (a lair-bound fragment, a bound Group), priorReactionBetween
-    // recalls the evaded meeting (D9); a bare fresh side has no identity to match.
+    // The fresh meeting at the party's hex — the same sides. The monster side carries
+    // pursuitEncounterId = the chase it sprang from (E4m), so priorReactionBetween
+    // recalls the evaded meeting (D9) even for a den-less, group-less band — and any
+    // lair/Group refs ride along as before.
     const fresh = (typeof A.createEncounter === 'function') ? A.createEncounter(campaign, {
       id: record.caughtEncounterId || undefined,
       trigger: 'pursuit', hexId: record.newPartyHexId,
@@ -4393,7 +4428,7 @@ function commitPursuitRecord(campaign, record){
         faceCharacterId: (enc.partySide && enc.partySide.faceCharacterId) || null,
         sizeCount: (enc.partySide && enc.partySide.sizeCount) || null
       },
-      monsterSide: Object.assign({}, enc.monsterSide, { groupIds: ((enc.monsterSide && enc.monsterSide.groupIds) || []).slice() }),
+      monsterSide: Object.assign({}, enc.monsterSide, { groupIds: ((enc.monsterSide && enc.monsterSide.groupIds) || []).slice(), pursuitEncounterId: enc.id }),
       createReason: 'pursuit-caught-up',
       occurredOnDayInMonth: record.dayInMonth || null
     }) : null;

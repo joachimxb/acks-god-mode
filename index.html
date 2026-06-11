@@ -1036,6 +1036,16 @@ document.addEventListener('alpine:init', () => {
                      parted, so it is a post-resolution offer (encBannerTrackTarget). -->
                 <button x-show="encModalEnc().monsterSide.lairId && !lairKnown(encModalEnc().monsterSide.lairId) && encModalEnc().monsterSide.encounterKind !== 'at-lair'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
               </p>
+              <!-- E4m — the band met is a KNOWN loose band (a pursuing band / a migrant Group):
+                   say who, deep-link it (⚔ switches this panel to the chase; 🔍 inspects the
+                   Group). GM-facing — the characters just meet a band. -->
+              <template x-if="encBandLink()">
+                <p class="text-xs mt-1 opacity-80">
+                  <span x-text="encBandLink().text"></span>
+                  <button x-show="encBandLink().encounterId" @click="openEncounterModal(encBandLink().encounterId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the chase this band is running (switches this panel)">⚔ chase</button>
+                  <button x-show="encBandLink().groupId" @click="inspectorOpen('group', encBandLink().groupId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Inspect the band's Group entity">🔍 band</button>
+                </p>
+              </template>
               <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rerolls on the SAME
                    table; “pick from table” lists the appropriate column (rarity switchable).
                    Both lock once surprise is rolled — the side IS who you met. -->
@@ -1205,6 +1215,14 @@ document.addEventListener('alpine:init', () => {
                 </li>
               </template>
             </ul>
+            <!-- E4m — meetings where a THIRD party ran into this hunting band (the wandering
+                 draw bound to it): the entanglement the GM working the chase should see.
+                 Scattering such a meeting (💨 dispersed) ends this chase. -->
+            <template x-for="m in encPursuitMetBy()" :key="'metby-' + m.id">
+              <p class="opacity-80">⚔ <span x-text="m.label + ' ran into this band — ' + (m.status === 'resolved' ? (m.outcome || 'resolved') : 'meeting under way')"></span>
+                <button @click="openEncounterModal(m.id)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open that meeting (switches this panel)">view</button>
+              </p>
+            </template>
           </div>
           <!-- 4 · Reaction (E2j — revealed with evasion once surprise concludes) -->
           <div class="border border-ink/30 rounded p-2" x-show="encStepReactionVisible()">
@@ -1358,7 +1376,7 @@ document.addEventListener('alpine:init', () => {
                       @click="openTrackHome(encBannerTrackTarget())"
                       :class="(!(encBannerTrackTarget() || {}).encounterId || encTrackPartedReady()) ? 'border-ink hover:bg-yellow-100' : 'border-ink/30 opacity-50 cursor-not-allowed'"
                       class="text-xs px-1.5 border rounded ml-1"
-                      :title="(!(encBannerTrackTarget() || {}).encounterId || encTrackPartedReady()) ? 'Follow the band’s spoor home — Tracking 11+ (RR p.120); a den not yet on the map is founded at this hex on a success' : 'name the monster first — set it via pick from table or 🔍 Open in Inspector'">🐾 Track home</button>
+                      :title="(!(encBannerTrackTarget() || {}).encounterId || encTrackPartedReady()) ? 'Follow the band’s spoor home — Tracking 11+ (RR p.120); a den not yet on the map is founded at this hex on a success' : ('Unavailable — ' + encTrackPartedReason())">🐾 Track home</button>
             </div>
           </template>
           <!-- Footer: Inspector + history -->
@@ -9946,61 +9964,47 @@ return {
   // 'offered'). Derived per render, never stored. Fragments never appear (no Group is minted);
   // a pursuing band's own Group (if any) folds into its chase row, not a second migrant row.
   monsterLooseBandRows(){
+    // E4m — the eligibility CORE moved into the engine (ACKS.looseMonsterBands): the SAME
+    // derivation now answers the wandering draw (a band the table rolls is met where this
+    // table says it stands) and fills this view; only the display formatting lives here.
     const c = this.currentCampaign; if(!c) return [];
     const A = window.ACKS;
-    const rows = [];
-    const LIVING = { active: 1, unknown: 1, dynamic: 1 };
-    const settled = new Set();          // groupIds housed by a LIVING lair → not loose
-    const deadHome = {};                // groupId → the dead lair it fled (provenance)
-    for(const l of (c.lairs || [])){
-      if(!l) continue;
-      for(const gid of (l.groupIds || [])){ if(LIVING[l.status]) settled.add(gid); else if(!(gid in deadHome)) deadHome[gid] = l; }
-    }
-    // Pursuers first — a chasing band reads as the chase, not a plain migrant.
-    const chasing = new Set();
-    for(const enc of (A.activeEncounters(c) || [])){
-      const p = enc && enc.pursuit;
-      if(!p || enc.phase !== 'pursuit' || (p.status !== 'offered' && p.status !== 'pursuing')) continue;
-      const ms = enc.monsterSide || {};
-      for(const gid of (ms.groupIds || [])) chasing.add(gid);
-      const monster = (ms.monsterCatalogKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(ms.monsterCatalogKey)) || ms.label || '—';
-      const hexId = p.lastPartyHexId || enc.hexId || null;
-      const hex = hexId ? ((c.hexes || []).find(h => h && h.id === hexId) || null) : null;
-      rows.push({
-        key: 'pursuit-' + enc.id, icon: '🐺',
-        band: p.pursuerLabel || monster,
-        monster: monster,
-        count: (ms.count != null) ? ms.count : null,
-        hexId: hex ? hex.id : null,
-        where: hex ? ((typeof A.hexName === 'function' && A.hexName(hex)) || hex.id) : 'on the trail',
-        statusLabel: (p.status === 'pursuing') ? 'pursuing' : 'pursuit offered',
-        statusText: (p.status === 'pursuing')
-          ? ('🐺 pursuing ' + (this.encPartyLabel ? this.encPartyLabel(enc) : 'a party') + ' — ' + (Math.round((p.gapMiles || 0) * 10) / 10) + ' mi behind')
-          : 'pursuit offered — decide in the encounter',
-        encounterId: enc.id, groupId: null
-      });
-    }
-    // Migrants: living groups not settled at a living lair (and not already a chase row).
-    for(const g of (c.groups || [])){
-      if(!g || settled.has(g.id) || chasing.has(g.id)) continue;
-      const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
-      if(alive <= 0) continue;
-      const home = deadHome[g.id] || null;
-      const hex = g.currentHexId ? ((c.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+    if(typeof A.looseMonsterBands !== 'function') return [];
+    return A.looseMonsterBands(c).map(b => {
+      const hex = b.hexId ? ((c.hexes || []).find(h => h && h.id === b.hexId) || null) : null;
+      const where = hex ? ((typeof A.hexName === 'function' && A.hexName(hex)) || hex.id) : null;
+      const monster = (b.monsterKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(b.monsterKey)) || b.monsterKey || null;
+      if(b.kind === 'pursuer'){
+        const enc = (typeof A.findEncounter === 'function') ? A.findEncounter(c, b.encounterId) : null;
+        return {
+          key: 'pursuit-' + b.encounterId, icon: '🐺',
+          band: b.label || monster || '—',
+          monster: monster || b.label || '—',
+          count: b.count,
+          hexId: hex ? hex.id : null,
+          where: where || 'on the trail',
+          statusLabel: (b.pursuitStatus === 'pursuing') ? 'pursuing' : 'pursuit offered',
+          statusText: (b.pursuitStatus === 'pursuing')
+            ? ('🐺 pursuing ' + ((enc && this.encPartyLabel) ? this.encPartyLabel(enc) : 'a party') + ' — ' + (Math.round((b.gapMiles || 0) * 10) / 10) + ' mi behind')
+            : 'pursuit offered — decide in the encounter',
+          encounterId: b.encounterId, groupId: null
+        };
+      }
+      const home = b.deadHomeLairId ? ((typeof A.findLair === 'function') ? A.findLair(c, b.deadHomeLairId) : null) : null;
+      const g = ((c.groups || []).find(x => x && x.id === b.groupId)) || {};
       const tpl = g.groupTemplate || {};
-      rows.push({
-        key: 'group-' + g.id, icon: '🚶',
+      return {
+        key: 'group-' + b.groupId, icon: '🚶',
         band: g.name || '(unnamed band)',
-        monster: (tpl.monsterCatalogKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(tpl.monsterCatalogKey)) || tpl.monsterCatalogKey || (tpl.creatureTypes || []).join(', ') || '—',
-        count: alive,
+        monster: monster || (tpl.creatureTypes || []).join(', ') || '—',
+        count: b.count,
         hexId: hex ? hex.id : null,
-        where: hex ? ((typeof A.hexName === 'function' && A.hexName(hex)) || hex.id) : 'wandering — no fixed hex',
+        where: where || 'wandering — no fixed hex',
         statusLabel: 'migrant',
         statusText: home ? ('migrant — out of ' + (home.name || 'a lost lair') + ' (' + home.status + ')') : 'migrant',
-        encounterId: null, groupId: g.id
-      });
-    }
-    return rows;
+        encounterId: null, groupId: b.groupId
+      };
+    });
   },
   openLairDetail(id){ this.lairDetailId = id; this.lairDetailPopulateKey = ''; this.lairDetailRevealHexId = ''; },
   closeLairDetail(){ this.lairDetailId = null; },
@@ -10205,8 +10209,42 @@ return {
     else if(minted === 'reveal-dynamic') verdict = 'in their lair — revealed the pooled lair here';
     else if(minted === 'fresh-lair') verdict = 'in their lair — a new den in this hex';
     else if(b.inLair) verdict = (e.category === 'civilized') ? 'at their dwelling (no den entity)' : 'in their lair (unauthored hex — no den minted)';
+    else if(b.mode === 'loose-band' && ms.source === 'pursuing-band') verdict = 'abroad — a known band, met mid-hunt (the band line below)';
+    else if(b.mode === 'loose-band' && ms.source === 'migrant-band') verdict = 'abroad — a known roaming band (the band line below)';
     else verdict = 'a wandering band';
     return roll ? (roll + ' → ' + verdict) : verdict;
+  },
+  // ── E4m — the band met is a KNOWN band (a pursuing band / a migrant Group): name it +
+  // deep-link it. Derived live — a chase that has since ended reads as history.
+  encBandLink(){
+    const enc = this.encModalEnc(); if(!enc) return null;
+    const ms = enc.monsterSide || {};
+    if(ms.pursuitEncounterId){
+      const chase = window.ACKS.findEncounter(this.currentCampaign, ms.pursuitEncounterId);
+      const live = !!(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'));
+      const ps = (chase && chase.partySide) || {};
+      const party = ps.partyId ? ((this.currentCampaign.parties || []).find(p => p && p.id === ps.partyId)) : null;
+      const ch = ((ps.characterIds || []).length) ? ((this.currentCampaign.characters || []).find(c => c && c.id === ps.characterIds[0])) : null;
+      const quarry = (party && party.name) || (ch && ch.name) || 'another party';
+      const gap = (chase && chase.pursuit && chase.pursuit.gapMiles != null) ? (Math.round(chase.pursuit.gapMiles * 10) / 10) : null;
+      return { encounterId: ms.pursuitEncounterId, groupId: null, live,
+               text: live ? ('🐺 this is the band hunting ' + quarry + (gap != null ? ' — ' + gap + ' mi behind its quarry' : '') + '; scattering it (💨 dispersed) ends that chase')
+                          : ('🐺 the band that hunted ' + quarry + ' (chase since ended)') };
+    }
+    if(!ms.lairId && (ms.groupIds || []).length){
+      const g = ((this.currentCampaign && this.currentCampaign.groups) || []).find(x => x && x.id === ms.groupIds[0]);
+      if(g) return { encounterId: null, groupId: g.id, live: false,
+                     text: '🚶 this is the roaming band “' + (g.name || 'unnamed') + '” — it persists in the world (🐉 Monsters tab)' };
+    }
+    return null;
+  },
+  // E4m — meetings where a third party ran into THIS chase's hunting band (derived:
+  // their monsterSide.pursuitEncounterId points here). Shown in the pursuit panel.
+  encPursuitMetBy(){
+    const enc = this.encModalEnc(); if(!enc || !enc.pursuit) return [];
+    return ((this.currentCampaign && this.currentCampaign.encounters) || [])
+      .filter(e => e && e.monsterSide && e.monsterSide.pursuitEncounterId === enc.id)
+      .map(e => ({ id: e.id, label: this.encPartyLabel(e), status: e.status, outcome: e.outcome }));
   },
   encIdentityRerollable(){
     const e = this.encModalEnc();
@@ -10598,6 +10636,7 @@ return {
     if(e.reason === 'fragment-has-home-lair') return 'this band forays from a home lair — it returns there, it does not found a second den' + (this.lairKnown(enc.monsterSide && enc.monsterSide.lairId) ? ' (its den is already discovered — → lair on the other-side card)' : ' (🐾 Track home on the other-side card follows the spoor to it)');
     if(e.reason === 'no-hex') return 'the encounter has no hex to den in';
     if(e.reason === 'pursuit-in-progress') return 'they are taking up the chase — resolve the pursuit first';
+    if(e.reason === 'band-mid-hunt') return 'the band is mid-hunt — it presses on after its quarry (see its ⚔ chase on the band line); the offer stands again once that chase ends';
     if(e.reason === 'settle-already-decided') return 'the linger roll was already made — they moved on';
     return e.reason;
   },
@@ -15470,11 +15509,25 @@ return {
   },
   // E4i — the parted-band track (no den entity yet) is ready once the side names a catalog
   // monster (the den is generated from its entry) and the meeting has a hex to found it in.
-  encTrackPartedReady(){
-    const enc = this.encModalEnc(); if(!enc || !enc.hexId) return false;
-    const key = (enc.monsterSide || {}).monsterCatalogKey;
-    return !!(key && typeof window.ACKS.findMonster === 'function' && window.ACKS.findMonster(key));
+  // E4m adds the band gates: a band mid-hunt presses on after its quarry (no den-trail here),
+  // and a migrant Group roams homeless — both disable-with-reason, mirroring the engine.
+  encTrackPartedReason(){
+    const enc = this.encModalEnc(); if(!enc) return 'no encounter';
+    const ms = enc.monsterSide || {};
+    const key = ms.monsterCatalogKey;
+    if(!enc.hexId || !(key && typeof window.ACKS.findMonster === 'function' && window.ACKS.findMonster(key)))
+      return 'name the monster first — set it via pick from table or 🔍 Open in Inspector';
+    if(ms.pursuitEncounterId){
+      const chase = window.ACKS.findEncounter(this.currentCampaign, ms.pursuitEncounterId);
+      if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
+        return 'the band is mid-hunt — it presses on after its quarry, not home (see its ⚔ chase on the band line)';
+    }
+    const aliveOf = g => window.ACKS.groupActiveCount ? window.ACKS.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+    if(!ms.lairId && (ms.groupIds || []).some(gid => { const g = ((this.currentCampaign && this.currentCampaign.groups) || []).find(x => x && x.id === gid); return g && aliveOf(g) > 0; }))
+      return 'the band roams homeless — it persists on the 🐉 Monsters tab; follow it there, or parley and watch it settle';
+    return '';
   },
+  encTrackPartedReady(){ return this.encTrackPartedReason() === ''; },
   openTrackHome(opts){
     opts = opts || {};
     const t = this.trackHome;
@@ -15500,7 +15553,8 @@ return {
     if(!r || !r.ok){
       const msg = ({ 'no-tracking':'That character has no Tracking proficiency.', 'already-known':'That lair is already discovered.', 'unknown-lair':'No lair to track to.', 'unknown-actor':'Pick a tracker first.',
                      'unknown-encounter':'No encounter to track from.', 'encounter-still-active':'The meeting is still under way — resolve it first; they have not parted.', 'no-meeting':'No meeting happened — there is no trail to follow.',
-                     'civilized-folk':'Civilized folk go home to their dwellings, not dens — no lair to track to.', 'no-catalog-monster':'Name the monster first — its catalog entry generates the den.', 'no-hex':'The meeting has no hex — nowhere to found the den.' })[r && r.error] || 'Could not track.';
+                     'civilized-folk':'Civilized folk go home to their dwellings, not dens — no lair to track to.', 'no-catalog-monster':'Name the monster first — its catalog entry generates the den.', 'no-hex':'The meeting has no hex — nowhere to found the den.',
+                     'band-mid-hunt':'The band is mid-hunt — it presses on after its quarry, not home (see its chase).', 'band-roams':'The band roams homeless — it persists on the 🐉 Monsters tab; follow it there, or parley and watch it settle.' })[r && r.error] || 'Could not track.';
       this.showToast(msg, 4500); return;
     }
     t.result = { rolled: r.rolled, bonus: r.bonus, mod: r.mod, success: r.success };

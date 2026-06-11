@@ -3114,6 +3114,18 @@ function trackHomeAttempt(campaign, opts){
       if(!enc.hexId) return { ok: false, error: 'no-hex' };
       const entry = (typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
       if(!entry) return { ok: false, error: 'no-catalog-monster' };
+      // E4m — a den-less band that is SOMEONE ELSE'S band has no den here to found:
+      // a band mid-hunt presses on after its quarry (the gate lifts when that chase
+      // ends), and a migrant Group roams homeless (it persists in the world — follow
+      // it on the 🐉 Monsters tab, or parley and watch it settle).
+      if(ms.pursuitEncounterId){
+        const chase = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, ms.pursuitEncounterId) : null;
+        if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
+          return { ok: false, error: 'band-mid-hunt' };
+      }
+      const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+      if((ms.groupIds || []).some(gid => { const g = (campaign.groups || []).find(x => x && x.id === gid); return g && aliveOf(g) > 0; }))
+        return { ok: false, error: 'band-roams' };
     }
   } else {
     lair = (typeof A.findLair === 'function') ? A.findLair(campaign, opts.lairId) : null;
@@ -3878,6 +3890,14 @@ function encounterSettleEligibility(campaign, encounterId){
   if(enc.pursuit && (enc.pursuit.status === 'offered' || enc.pursuit.status === 'pursuing'))
     return { eligible: false, reason: 'pursuit-in-progress' };
   const ms = enc.monsterSide || {};
+  // E4m — a band met mid-hunt (the side IS another chase's pursuing band) does not den:
+  // it presses on after its quarry. The gate is live-derived — once that chase ends
+  // (lost / abandoned / caught / scattered), the settle offer stands again.
+  if(ms.pursuitEncounterId){
+    const chase = A.findEncounter(campaign, ms.pursuitEncounterId);
+    if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
+      return { eligible: false, reason: 'band-mid-hunt' };
+  }
   if(ms.lairId) return { eligible: false, reason: (ms.encounterKind === 'wandering-fragment') ? 'fragment-has-home-lair' : 'already-at-lair' };
   if(!enc.hexId) return { eligible: false, reason: 'no-hex' };
   const entry = (typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
@@ -3998,19 +4018,48 @@ function encounterSettleAsLair(campaign, encounterId, opts){
     });
     return Object.assign({ migrated: true, proposal: p, lair: null }, res);
   }
-  const gen = A.generateLair(campaign, {
-    hexId: enc.hexId, monsterCatalogKey: entry.key, count: p.count,
-    establishedBy: 'encounter-settle', knownToPlayers: !afterEvasion, atTurn: turn,
-    name: o.name
-  }, o.rng || Math.random);
-  const lair = gen && gen.lair;
-  if(!lair) return { ok: false, error: 'lair-create-failed' };
-  if(!p.fullStrength) lair.treasureType = '';   // wandering-size settlers bring no hoard yet
+  // E4m — when the band met IS a persistent Group (a migrant — the Groups-table footer's
+  // promise: "a band settling down again becomes a lair"), the den ADOPTS it; minting a
+  // second generateLair population would double-count the band. Full strength = the den
+  // GATHERS to the rolled lair-size count (the group grows; casualties stand). A side
+  // with no live group settles via generateLair exactly as before.
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  const msGroups = (enc.monsterSide.groupIds || [])
+    .map(gid => (campaign.groups || []).find(g => g && g.id === gid))
+    .filter(g => g && aliveOf(g) > 0);
+  let lair = null, gen = null;
+  if(msGroups.length){
+    lair = A.createLair(campaign, {
+      hexId: enc.hexId, monsterCatalogKey: entry.key, status: 'active',
+      establishedBy: 'encounter-settle', establishedAtTurn: turn,
+      knownToPlayers: !afterEvasion, name: o.name || (entry.name + ' lair')
+    });
+    if(!lair) return { ok: false, error: 'lair-create-failed' };
+    if(lair.lairPct == null) lair.lairPct = entry.lairPct;
+    lair.treasureType = p.fullStrength ? (entry.treasureType || '') : '';
+    lair.groupIds = msGroups.map(g => g.id);
+    for(const g of msGroups) g.currentHexId = enc.hexId;
+    if(p.fullStrength){
+      const alive = msGroups.reduce((s, g) => s + aliveOf(g), 0);
+      if(p.count > alive) msGroups[0].count = (msGroups[0].count || 0) + (p.count - alive);
+    }
+    lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+  } else {
+    gen = A.generateLair(campaign, {
+      hexId: enc.hexId, monsterCatalogKey: entry.key, count: p.count,
+      establishedBy: 'encounter-settle', knownToPlayers: !afterEvasion, atTurn: turn,
+      name: o.name
+    }, o.rng || Math.random);
+    lair = gen && gen.lair;
+    if(!lair) return { ok: false, error: 'lair-create-failed' };
+    if(!p.fullStrength) lair.treasureType = '';   // wandering-size settlers bring no hoard yet
+  }
   lair.history.push({ turn, type: 'settled',
     reason: 'lingered after an encounter — ' + (p.fullStrength ? 'full lair strength (' + p.count + ')' : 'wandering numbers (' + p.count + ', no hoard yet)')
+      + (msGroups.length ? '; the met band settles as the den’s population' : '')
       + (afterEvasion ? '; the party had evaded — the den is unknown to the players' : '') });
   enc.monsterSide.lairId = lair.id;
-  const newGroupId = gen.group ? gen.group.id : ((lair.groupIds && lair.groupIds.length) ? lair.groupIds[lair.groupIds.length - 1] : null);
+  const newGroupId = gen && gen.group ? gen.group.id : ((!msGroups.length && lair.groupIds && lair.groupIds.length) ? lair.groupIds[lair.groupIds.length - 1] : null);
   if(newGroupId && !(enc.monsterSide.groupIds || []).includes(newGroupId)){
     enc.monsterSide.groupIds = (enc.monsterSide.groupIds || []).concat([newGroupId]);
   }
@@ -4247,6 +4296,25 @@ function recordEncounterResolved(campaign, encounterId, outcome, opts){
   ev.subdayContext = { cadence: 'encounter', encounterId: enc.id, roundNumber: null, turnNumber: null, initiativeOrder: null };
   _logAppliedEvent(campaign, ev, { narrativeSummary: narrative });
   A.resolveEncounter(campaign, enc.id, out, { resolvedByEventId: ev.id, note: o.note });
+  // E4m — scattering a band that was mid-hunt ends its chase: when this meeting's monster
+  // side IS a pursuing band (pursuitEncounterId), 'dispersed' is the one outcome whose
+  // engine meaning is "the band breaks up / moves on" — the quarry's chase resolves
+  // 'evaded' behind it. Parley/evade leave the hunt running (the band presses on).
+  if(out === 'dispersed' && enc.monsterSide && enc.monsterSide.pursuitEncounterId){
+    const chase = A.findEncounter(campaign, enc.monsterSide.pursuitEncounterId);
+    if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing')){
+      const ps = enc.partySide || {};
+      const party = ps.partyId ? ((campaign.parties || []).find(p => p && p.id === ps.partyId)) : null;
+      const firstCh = ((ps.characterIds || []).length) ? ((campaign.characters || []).find(c => c && c.id === ps.characterIds[0])) : null;
+      const who = (party && party.name) || (firstCh && firstCh.name) || 'another party';
+      chase.history = chase.history || [];
+      chase.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-broken',
+        reason: 'the band was scattered in a meeting with ' + who + ' — the hunt ends' });
+      recordEncounterResolved(campaign, chase.id, 'evaded', {
+        note: 'The pursuing band was scattered by ' + who + ' — the hunt ends.'
+      });
+    }
+  }
   return { ok: true, encounter: enc, event: ev };
 }
 

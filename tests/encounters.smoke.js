@@ -1346,6 +1346,189 @@ section('E4l — the pursuit take-up ⟳: reroll with two-way state reconcile (J
 }
 
 // =============================================================================
+section('E4m — loose bands abroad answer the wandering draw (Joachim 2026-06-11)');
+{
+  const c = ACKS.blankCampaign({ name: 'loose' });
+  c.hexes = [{ id: 'hex-w', coord: { q: 0, r: 0 }, terrain: 'hills', domainId: null },
+             { id: 'hex-x', coord: { q: 3, r: 0 }, terrain: 'hills', domainId: null }];
+  const quarry = ACKS.blankCharacter({ name: 'Pellam' }); quarry.currentHexId = 'hex-w'; quarry.partyId = 'pty-q';
+  const third  = ACKS.blankCharacter({ name: 'Third' });  third.currentHexId = 'hex-w';
+  c.characters.push(quarry, third);
+  const wolfIdent = { natural: 30, label: 'Wolf, Common', key: 'common-wolf', tableKey: 'hills-any', columnKey: null, rarity: 'common', page: 55 };
+  const orcIdent  = { natural: 13, label: 'Orc',          key: 'orc',         tableKey: 'hills-any', columnKey: null, rarity: 'common', page: 55 };
+  const mkChase = (id, over) => {
+    const e = ACKS.createEncounter(c, Object.assign({ id, trigger: 'rest-night', hexId: 'hex-w', category: 'monster', rarity: 'common',
+      partySide: { partyId: 'pty-q', characterIds: [quarry.id], sizeCount: 1 },
+      monsterSide: { source: 'fresh', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering' } }, over || {}));
+    e.phase = 'pursuit';
+    e.pursuit = { status: 'pursuing', pursuerLabel: 'Common Wolf', pursuerMilesPerDay: 18, gapMiles: 1,
+                  lastPartyHexId: 'hex-w', traceConcealed: false, gmMod: 0, startedAtTurn: 1, startedOnDayInMonth: 1, throws: [{ kind: 'take-up', success: true }] };
+    return e;
+  };
+
+  // ── looseMonsterBands — the ONE derivation (binding + the 🐉 Monsters Groups table) ──
+  ok('looseMonsterBands is exported', typeof ACKS.looseMonsterBands === 'function');
+  const chase = mkChase('enc-w-chase');
+  let bands = ACKS.looseMonsterBands(c);
+  ok('a pursuing chase rows as a pursuer band at the trail hex', bands.length === 1 && bands[0].kind === 'pursuer'
+    && bands[0].encounterId === 'enc-w-chase' && bands[0].monsterKey === 'common-wolf' && bands[0].count === 5
+    && bands[0].hexId === 'hex-w' && bands[0].quarry.partyId === 'pty-q' && bands[0].quarry.characterIds[0] === quarry.id);
+  const mig = ACKS.blankGroup({ name: 'The Scattered Fangs', groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['beast'], hitDice: '2' },
+    count: 4, casualties: 1, currentHexId: 'hex-w' });
+  c.groups.push(mig);
+  const housedG = ACKS.blankGroup({ name: 'Housed', groupTemplate: { monsterCatalogKey: 'orc' }, count: 6, casualties: 0, currentHexId: 'hex-w' });
+  c.groups.push(housedG);
+  const den0 = ACKS.createLair(c, { hexId: 'hex-w', monsterCatalogKey: 'orc', status: 'active', name: 'Housing den' });
+  den0.groupIds = [housedG.id];
+  const fledG = ACKS.blankGroup({ name: 'Out of the warren', groupTemplate: { monsterCatalogKey: 'orc' }, count: 3, casualties: 0, currentHexId: 'hex-x' });
+  c.groups.push(fledG);
+  const deadDen = ACKS.createLair(c, { hexId: 'hex-x', monsterCatalogKey: 'orc', status: 'active', name: 'The fallen warren' });
+  deadDen.groupIds = [fledG.id];
+  ACKS.abandonLair(c, deadDen.id, { reason: 'test' });
+  const deadG = ACKS.blankGroup({ name: 'All dead', groupTemplate: { monsterCatalogKey: 'orc' }, count: 2, casualties: 2, currentHexId: 'hex-w' });
+  c.groups.push(deadG);
+  bands = ACKS.looseMonsterBands(c);
+  ok('migrants row (living, un-housed); housed + dead bands do not', bands.length === 3
+    && bands.some(b => b.kind === 'migrant' && b.groupId === mig.id && b.count === 3 && b.hexId === 'hex-w')
+    && !bands.some(b => b.groupId === housedG.id) && !bands.some(b => b.groupId === deadG.id));
+  ok('a group out of a dead den rows with its provenance', bands.some(b => b.kind === 'migrant' && b.groupId === fledG.id && b.deadHomeLairId === deadDen.id));
+
+  // ── the binding: a matching loose band answers the abroad verdict ──
+  const ps3 = { characterIds: [third.id] };
+  let b = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.0), partySide: ps3 });
+  ok('abroad + a matching band at the hex → mode loose-band', b.mode === 'loose-band' && b.inLair === false);
+  ok('…the pick is deterministic on the seeded rng (pursuer first in the roster)', b.bandKind === 'pursuer' && b.encounterId === 'enc-w-chase' && b.count === 5);
+  const b2 = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.0), partySide: ps3 });
+  const snapshot = JSON.stringify(c);
+  ok('…pure + byte-stable (same rng → identical verdict, campaign untouched)', JSON.stringify(b) === JSON.stringify(b2) && JSON.stringify(c) === snapshot);
+  b = ACKS.bindEncounterIdentity(c, 'hex-w', orcIdent, { category: 'monster', rng: seq(0.99, 0.5), partySide: ps3 });
+  ok('key match required — an orc draw skips the wolf band (falls to the orc den\'s fragment)', b.mode === 'fragment' && b.lairId === den0.id);
+  b = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.0), partySide: { characterIds: [quarry.id] } });
+  ok('the quarry never randomly meets its own pursuer (character overlap) — the migrant answers instead', b.mode === 'loose-band' && b.bandKind === 'migrant' && b.groupId === mig.id);
+  mig.currentHexId = 'hex-x';   // move the migrant away — only the chase band remains at hex-w
+  b = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.5), partySide: { characterIds: [quarry.id] } });
+  ok('…and with no other band it falls through to plain wandering', b.mode === 'wandering');
+  b = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.5), partySide: { partyId: 'pty-q', characterIds: [] } });
+  ok('…the party-id overlap excludes likewise', b.mode === 'wandering');
+  mig.currentHexId = 'hex-w';   // back for the rest
+  // band beats fragment: a wolf DEN here too — the definite band still answers abroad
+  const wolfDen = ACKS.generateLair(c, { hexId: 'hex-w', monsterCatalogKey: 'common-wolf' }, seq(0.5));
+  b = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.0), partySide: ps3 });
+  ok('a loose band beats the den-fragment on the abroad verdict', b.mode === 'loose-band');
+  ACKS.clearLair(c, wolfDen.lair.id, { reason: 'test' });
+
+  // ── materialization: the side carries the band refs; nothing is minted ──
+  const mkSide = () => ({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null });
+  let side = mkSide();
+  b = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.0), partySide: ps3 });
+  ACKS._applyIdentityBinding(c, side, wolfIdent, b, { hexId: 'hex-w' });
+  ok('a pursuer binding: source pursuing-band + the chase link, wandering kind, no mint', side.source === 'pursuing-band'
+    && side.pursuitEncounterId === 'enc-w-chase' && side.encounterKind === 'wandering' && side.count === 5 && side.minted === null);
+  const draw = { hexId: 'hex-w', territoryClass: 'unsettled', columnKey: 'unsettled', category: 'monster', rarity: 'common',
+                 identity: 'table', identityRoll: wolfIdent, binding: b, proposal: null };
+  const met = ACKS.createEncounterFromDraw(c, draw, { trigger: 'journey-travel', partySide: { characterIds: [third.id], sizeCount: 1 } });
+  ok('createEncounterFromDraw rides the verdict verbatim (the journey/rest commit shape)', !!met
+    && met.monsterSide.source === 'pursuing-band' && met.monsterSide.pursuitEncounterId === 'enc-w-chase' && met.monsterSide.count === 5);
+  side = mkSide();
+  const bMig = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.0), partySide: { characterIds: [quarry.id] } });
+  ACKS._applyIdentityBinding(c, side, wolfIdent, bMig, { hexId: 'hex-w' });
+  ok('a migrant binding: source migrant-band + the Group, the living count', side.source === 'migrant-band'
+    && JSON.stringify(side.groupIds) === JSON.stringify([mig.id]) && side.count === 3 && side.pursuitEncounterId === null);
+  ACKS._applyIdentityBinding(c, side, orcIdent, { mode: 'wandering', inLair: false, count: 2 }, { hexId: 'hex-w' });
+  ok('a rebind away from a band drops its refs (pursuitEncounterId + groupIds cleared)', side.pursuitEncounterId === null
+    && side.groupIds.length === 0 && side.source === 'table');
+  // a stale ref degrades: resolve the chase, then apply its pre-rolled verdict
+  const staleChase = mkChase('enc-w-stale');
+  const bStale = ACKS.bindEncounterIdentity(c, 'hex-w', wolfIdent, { category: 'monster', rng: seq(0.99, 0.999), partySide: ps3 });
+  ACKS.recordEncounterResolved(c, 'enc-w-stale', 'evaded', { note: 'GM closed it between propose and commit' });
+  side = mkSide();
+  const bForStale = (bStale.encounterId === 'enc-w-stale') ? bStale
+    : { mode: 'loose-band', inLair: false, lairRoll: 99, lairPct: 25, bandKind: 'pursuer', encounterId: 'enc-w-stale', groupId: null, lairId: null, count: 5 };
+  ACKS._applyIdentityBinding(c, side, wolfIdent, bForStale, { hexId: 'hex-w' });
+  ok('a chase resolved between propose and commit degrades to plain wandering', side.source === 'table'
+    && side.pursuitEncounterId === null && side.encounterKind === 'wandering');
+
+  // ── D9 — the chase link IS identity ──
+  ACKS.recordEncounterResolved(c, met.id, 'parleyed', { note: 'words on the trail' });
+  const met2 = ACKS.createEncounterFromDraw(c, draw, { id: 'enc-w-met2', trigger: 'rest-night', partySide: { characterIds: [third.id], sizeCount: 1 } });
+  const prior = ACKS.priorReactionBetween(c, met2);
+  ok('a re-meeting with the same hunting band recalls the parley (D9 via the chase link)', !!prior && prior.encounterId === met.id && prior.outcome === 'parleyed');
+
+  // ── the sprung caught-encounter carries the chase link (and recalls the evade) ──
+  const chase2 = mkChase('enc-w-chase2');
+  ACKS.commitPursuitRecord(c, { kind: 'pursuit-day', encounterId: 'enc-w-chase2', outcome: 'caught',
+    trailThrow: { natural: 15, countBonus: 0, mod: 0, total: 15, target: 11, success: true },
+    partyMiles: 0, pursuerMiles: 18, gapBefore: 1, gapAfter: 0, newPartyHexId: 'hex-w',
+    caughtEncounterId: 'enc-w-sprung', caughtDistance: null, dayInMonth: 2, primaryHexId: 'hex-w' });
+  const sprung = ACKS.findEncounter(c, 'enc-w-sprung');
+  ok('the sprung encounter stamps pursuitEncounterId = the chase it sprang from', !!sprung
+    && sprung.monsterSide.pursuitEncounterId === 'enc-w-chase2' && chase2.status === 'resolved' && chase2.outcome === 'evaded');
+  const priorSprung = ACKS.priorReactionBetween(c, sprung);
+  ok('…so the quarry recalls the evade it sprang from (a den-less, group-less band)', !!priorSprung && priorSprung.encounterId === 'enc-w-chase2' && priorSprung.outcome === 'evaded');
+
+  // ── dispersed ends the chase; parley leaves the hunt running ──
+  const chase3 = mkChase('enc-w-chase3');
+  const meetA = ACKS.createEncounter(c, { id: 'enc-w-meetA', trigger: 'rest-night', hexId: 'hex-w', category: 'monster',
+    partySide: { characterIds: [third.id], sizeCount: 1 },
+    monsterSide: { source: 'pursuing-band', pursuitEncounterId: 'enc-w-chase3', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering' } });
+  ACKS.recordEncounterResolved(c, 'enc-w-meetA', 'parleyed', {});
+  ok('parleying with the hunters leaves the chase running', chase3.status === 'active' && chase3.pursuit.status === 'pursuing');
+  const meetB = ACKS.createEncounter(c, { id: 'enc-w-meetB', trigger: 'rest-night', hexId: 'hex-w', category: 'monster',
+    partySide: { characterIds: [third.id], sizeCount: 1 },
+    monsterSide: { source: 'pursuing-band', pursuitEncounterId: 'enc-w-chase3', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering' } });
+  ACKS.recordEncounterResolved(c, 'enc-w-meetB', 'dispersed', {});
+  ok('scattering the hunters (dispersed) ends the chase — the quarry\'s evade resolves', chase3.status === 'resolved'
+    && chase3.outcome === 'evaded' && (chase3.history || []).some(h => h && h.type === 'pursuit-broken'));
+
+  // ── settle gates: mid-hunt refuses; the gate lifts when the chase ends ──
+  const chase4 = mkChase('enc-w-chase4');
+  const meetC = ACKS.createEncounter(c, { id: 'enc-w-meetC', trigger: 'rest-night', hexId: 'hex-w', category: 'monster',
+    partySide: { characterIds: [third.id], sizeCount: 1 },
+    monsterSide: { source: 'pursuing-band', pursuitEncounterId: 'enc-w-chase4', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering' } });
+  let elig = ACKS.encounterSettleEligibility(c, 'enc-w-meetC');
+  ok('a band mid-hunt does not den — settle refuses with band-mid-hunt', !elig.eligible && elig.reason === 'band-mid-hunt');
+  ACKS.encounterAbandonPursuit(c, 'enc-w-chase4');
+  elig = ACKS.encounterSettleEligibility(c, 'enc-w-meetC');
+  ok('…and the offer stands again once that chase ends', elig.eligible === true);
+
+  // ── settle ADOPTS a migrant band (no second population) ──
+  const meetM = ACKS.createEncounter(c, { id: 'enc-w-meetM', trigger: 'rest-night', hexId: 'hex-w', category: 'monster',
+    partySide: { characterIds: [third.id], sizeCount: 1 },
+    monsterSide: { source: 'migrant-band', groupIds: [mig.id], monsterCatalogKey: 'common-wolf', count: 3, encounterKind: 'wandering' } });
+  const groupsBefore = c.groups.length;
+  const aliveBefore = ACKS.groupActiveCount(mig);
+  const sr = ACKS.encounterSettleAsLair(c, 'enc-w-meetM', { rng: seq(0.01, 0.01, 0.5, 0.5) });   // lingers + full strength
+  ok('a migrant-bound settle adopts the band — no new Group is minted', sr.ok && !sr.migrated && !!sr.lair
+    && c.groups.length === groupsBefore && JSON.stringify(sr.lair.groupIds) === JSON.stringify([mig.id]));
+  ok('…the den holds the band (grown to full strength when the second roll says so)', mig.currentHexId === 'hex-w'
+    && ACKS.lairInhabitantCount(c, sr.lair) === Math.max(aliveBefore, sr.proposal.count)
+    && sr.lair.treasureType === (sr.proposal.fullStrength ? ((ACKS.findMonster('common-wolf') || {}).treasureType || '') : ''));
+  ok('…and the band leaves the loose roster (settled again — the Groups-table promise)', !ACKS.looseMonsterBands(c).some(x => x.groupId === mig.id));
+
+  // ── track-home gates: mid-hunt + roaming bands refuse with their reasons ──
+  const tracker = ACKS.blankCharacter({ name: 'Hode' }); tracker.currentHexId = 'hex-w'; tracker.proficiencies = ['Tracking'];
+  c.characters.push(tracker);
+  const chase5 = mkChase('enc-w-chase5');
+  const meetH = ACKS.createEncounter(c, { id: 'enc-w-meetH', trigger: 'rest-night', hexId: 'hex-w', category: 'monster',
+    partySide: { characterIds: [third.id], sizeCount: 1 },
+    monsterSide: { source: 'pursuing-band', pursuitEncounterId: 'enc-w-chase5', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering' } });
+  ACKS.recordEncounterResolved(c, 'enc-w-meetH', 'parleyed', {});
+  let r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetH', countTracked: 5, rng: () => 0.999 });
+  ok('tracking a band mid-hunt refuses — it presses on, not home', !r.ok && r.error === 'band-mid-hunt');
+  ACKS.encounterAbandonPursuit(c, 'enc-w-chase5');
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetH', countTracked: 5, rng: () => 0.999 });
+  ok('…once that chase ends, the parted band founds its den as usual (E4i)', r.ok && r.success && r.founded === true && !!r.lair);
+  const roam = ACKS.blankGroup({ name: 'Roamers', groupTemplate: { monsterCatalogKey: 'orc' }, count: 4, casualties: 0, currentHexId: 'hex-w' });
+  c.groups.push(roam);
+  const meetR = ACKS.createEncounter(c, { id: 'enc-w-meetR', trigger: 'rest-night', hexId: 'hex-w', category: 'monster',
+    partySide: { characterIds: [third.id], sizeCount: 1 },
+    monsterSide: { source: 'migrant-band', groupIds: [roam.id], monsterCatalogKey: 'orc', count: 4, encounterKind: 'wandering' } });
+  ACKS.recordEncounterResolved(c, 'enc-w-meetR', 'parleyed', {});
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetR', countTracked: 4, rng: () => 0.999 });
+  ok('tracking a roaming Group refuses — it lives nowhere (follow it on 🐉 Monsters)', !r.ok && r.error === 'band-roams');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
