@@ -1146,13 +1146,34 @@ document.addEventListener('alpine:init', () => {
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('parleyed')" class="px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Part on the standing attitude — it persists as these sides' shared history (a later meeting recalls it)">🤝 Parley &amp; part</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('combat')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="Hand to the table — the GM resolves combat (#141); record the result afterwards as an adventure outcome (a cleared lair flips from there)">⚔ To combat (GM resolves)</button>
             <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('dispersed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The meeting broke up without consequence">💨 Dispersed</button>
+            <button x-show="encResolutionVerbsVisible() && encSettleEligible() && !encModal.settle" @click="encModalProposeSettle()" class="px-2 py-0.5 border border-ink rounded hover:bg-amber-100" title="Do they den here? Roll their Lair % — a lingerer settles a new lair at this hex (a second Lair % success = full lair strength), else they migrate onward (JJ p.69 + p.103). Rolls a proposal first — nothing is written until you confirm.">🏚 Settles as lair?</button>
             <button @click="encModalResolve('dismissed')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Strike it — GM override; it never happened">✕ Dismiss</button>
+          </div>
+          <!-- E3a — the settle proposal (linger or migrate, JJ p.103). Transient: ⟳ re-rolls, the
+               dungeon tick recomputes vs the held naturals (the E2h idiom), confirm materializes. -->
+          <div class="border border-amber-700/40 rounded p-2 space-y-1 text-xs" style="background:#f7f1df" x-show="encModalEnc().status === 'active' && encModal.settle">
+            <div class="flex items-center justify-between">
+              <h4 class="font-semibold text-sm">🏚 Settles as lair? <span class="font-normal opacity-60">(linger or migrate — JJ p.103)</span></h4>
+              <button @click="encModal.settle = null" class="px-1.5 border border-ink rounded hover:bg-red-50" title="Cancel — leave the encounter open (nothing was written)">×</button>
+            </div>
+            <label class="flex items-center gap-1">
+              <input type="checkbox" x-model="encModal.settleDungeon" @change="encModalSettleRecompute()">
+              treasure beckons in an un/partly-occupied dungeon here — linger chance ×2 (GM-asserted)
+            </label>
+            <div class="font-mono" x-text="encSettleLingerText()"></div>
+            <div class="font-mono" x-show="encModal.settle && encModal.settle.lingers" x-text="encSettleStrengthText()"></div>
+            <div x-text="encSettleOutcomeText()"></div>
+            <div class="flex items-center gap-2 mt-1">
+              <button @click="encModalProposeSettle()" class="px-1.5 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-roll the settle dice (still only a proposal)">⟳</button>
+              <button @click="encModalConfirmSettle()" class="px-2 py-0.5 border border-ink rounded font-semibold" :class="encModal.settle && encModal.settle.lingers ? 'bg-green-100 hover:bg-green-200' : 'bg-yellow-100 hover:bg-yellow-200'" x-text="encModal.settle && encModal.settle.lingers ? '✓ Den here (create the lair)' : '✓ Record migration (dispersed)'"></button>
+            </div>
           </div>
           <template x-if="encModalEnc().status === 'resolved'">
             <div class="border border-green-600/40 rounded p-2" style="background:#eef7ea">
               <span class="capitalize font-semibold" x-text="encModalEnc().outcome"></span>
               <span class="opacity-70" x-text="' · turn ' + (encModalEnc().resolvedAtTurn == null ? '?' : encModalEnc().resolvedAtTurn) + (encModalEnc().resolvedOnDayInMonth ? ', day ' + encModalEnc().resolvedOnDayInMonth : '')"></span>
               <span class="capitalize" x-show="encModalEnc().reaction && encModalEnc().reaction.current" x-text="' · last attitude: ' + ((encModalEnc().reaction || {}).current || '')"></span>
+              <button x-show="encModalEnc().outcome === 'settled-as-lair' && encModalEnc().monsterSide && encModalEnc().monsterSide.lairId" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair they settled (a peek above this panel)">→ lair</button>
             </div>
           </template>
           <!-- Footer: Inspector + history -->
@@ -9825,7 +9846,8 @@ return {
       evSize: (enc.partySide && (enc.partySide.sizeCount || (enc.partySide.characterIds || []).length)) || 1,
       evExplorer: false, evForlorn: false, evFly: false, evSpeed: 0, evGmMod: 0, evAllowSurprised: false,
       faceId: firstChar, reactMod: 0,
-      inflActorId: firstChar, inflMod: 0, inflBribe: 0
+      inflActorId: firstChar, inflMod: 0, inflBribe: 0,
+      settle: null, settleDungeon: false   // E3a — the transient linger-or-migrate proposal (nothing written until confirm)
     };
     this.encounterModalId = id;
     this.encounterModalOpen = true;
@@ -10159,6 +10181,50 @@ return {
     if(!r || !r.ok){ this.showToast('Could not resolve: ' + ((r && r.error) || '?'), 3500); return; }
     this.markDirty(); this.schedulePersist();
     if(outcome === 'combat') this.showToast('Combat — GM resolves at the table. Record the result afterwards as an adventure outcome (Events ▸ 📨 Emit Event ▸ adventure-result); a cleared lair flips from there.', 8000);
+  },
+  // ── E3a — settle-as-lair (the linger-or-migrate proposal panel; JJ p.69 + p.103).
+  // The verb rolls a PROPOSAL (transient encModal.settle — nothing written); ⟳ re-rolls;
+  // the dungeon ×2 tick recomputes vs the held naturals; confirm materializes.
+  encSettleEligible(){
+    const enc = this.encModalEnc(); if(!enc) return false;
+    return !!window.ACKS.encounterSettleEligibility(this.currentCampaign, enc.id).eligible;
+  },
+  encModalProposeSettle(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const p = window.ACKS.encounterProposeSettle(this.currentCampaign, enc.id, { dungeonBeckons: this.encModal.settleDungeon });
+    if(!p || !p.ok){ this.showToast('Cannot roll settle: ' + ((p && p.error) || '?'), 3500); return; }
+    this.encModal.settle = p;
+  },
+  encModalSettleRecompute(){
+    if(!this.encModal.settle) return;
+    this.encModal.settle = window.ACKS.settleProposalOutcome(this.encModal.settle, this.encModal.settleDungeon);
+  },
+  encSettleLingerText(){
+    const p = this.encModal.settle; if(!p) return '';
+    return 'linger: 1d100 ' + p.lingerNatural + ' vs Lair ' + p.effectivePct + '%'
+      + (p.dungeonBeckons ? ' (' + p.lairPct + '% ×2 dungeon)' : '')
+      + ' → ' + (p.lingers ? 'lingers ✓' : 'migrates ✗');
+  },
+  encSettleStrengthText(){
+    const p = this.encModal.settle; if(!p || !p.lingers) return '';
+    return 'strength: 1d100 ' + p.strengthNatural + ' vs Lair ' + p.lairPct + '% → ' + (p.fullStrength ? 'full lair strength ✓' : 'wandering numbers ✗');
+  },
+  encSettleOutcomeText(){
+    const p = this.encModal.settle; if(!p) return '';
+    if(!p.lingers) return 'The ' + (p.monsterName || 'monsters') + ' migrate onward — confirming records the meeting as dispersed.';
+    return p.fullStrength
+      ? ('Settles at FULL lair strength — ' + p.fullCount + ' ' + (p.monsterName || '') + ' den at this hex, hoard letter recorded (contents are the GM\'s).')
+      : ('Settles at wandering strength — ' + p.wanderingCount + ' ' + (p.monsterName || '') + ' den at this hex with no hoard yet.');
+  },
+  encModalConfirmSettle(){
+    const enc = this.encModalEnc(); if(!enc || !this.encModal.settle) return;
+    const r = window.ACKS.encounterSettleAsLair(this.currentCampaign, enc.id, { proposal: this.encModal.settle });
+    if(!r || !r.ok){ this.showToast('Could not settle: ' + ((r && r.error) || '?'), 3500); return; }
+    this.encModal.settle = null;
+    this.markDirty(); this.schedulePersist();
+    this.showToast(r.migrated
+      ? 'They migrate onward — recorded as dispersed (JJ p.103).'
+      : ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' settles at ' + this.encHexLabel(enc) + ' — see World ▸ 🏚 Lairs.'), 6000);
   },
   // ── World ▸ ⚔ Encounters (E2g) — the active work queue + the separate Past table
   // beneath it (per Joachim 2026-06-10). One search filters both; newest first.

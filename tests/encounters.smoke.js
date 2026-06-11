@@ -570,6 +570,94 @@ section('E2i — the Hidden assert (RR pp.283–284): −2 on opponents + the LO
 }
 
 // =============================================================================
+section('E3a — settle-as-lair (linger or migrate, JJ p.69 + p.103)');
+{
+  const c = ACKS.blankCampaign({ name: 'settle' });
+  ACKS.migrateCampaign(c);
+  c.hexes = [ACKS.blankHex({ id: 'hex-s', terrain: 'hills', terrainSubtype: 'rocky' })];
+  const face = ACKS.blankCharacter({ name: 'Scout' }); face.abilities = { STR: 9, INT: 9, WIL: 9, DEX: 9, CON: 9, CHA: 9 };
+  c.characters.push(face);
+  const mk = (msOver) => ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: 'hex-s', category: 'monster',
+    partySide: { characterIds: [face.id], faceCharacterId: face.id, sizeCount: 1 },
+    monsterSide: Object.assign({ monsterCatalogKey: 'orc', count: 4 }, msOver || {}) });
+
+  // Eligibility: only an UN-lair-bound monster side with a catalog Lair % can settle.
+  const eAt = mk({ lairId: 'lai-x', encounterKind: 'at-lair' });
+  ok('at-lair side is home — not eligible', ACKS.encounterSettleEligibility(c, eAt.id).reason === 'already-at-lair');
+  const eFr = mk({ lairId: 'lai-x', encounterKind: 'wandering-fragment' });
+  ok('a fragment forays FROM a home lair — not eligible', ACKS.encounterSettleEligibility(c, eFr.id).reason === 'fragment-has-home-lair');
+  const eNo = mk({ monsterCatalogKey: '' });
+  ok('no catalog monster → no Lair % source', ACKS.encounterSettleEligibility(c, eNo.id).reason === 'no-catalog-monster');
+  const eOk = mk();
+  ok('a fresh wandering band is eligible', ACKS.encounterSettleEligibility(c, eOk.id).eligible === true);
+
+  // Migrate: linger d100 over the Lair % → they move on; confirm resolves DISPERSED.
+  // (orc Lair 35%: rng 0.80 → natural 81 > 35.)
+  const p1 = ACKS.encounterProposeSettle(c, eOk.id, { rng: seq(0.80, 0.00, 0.50) });
+  ok('proposal is pure (encounter untouched)', eOk.status === 'active' && (c.lairs || []).length === 0);
+  ok('81 vs 35% → migrates', p1.ok === true && p1.lingerNatural === 81 && p1.effectivePct === 35 && p1.lingers === false && p1.count === null);
+  const r1 = ACKS.encounterSettleAsLair(c, eOk.id, { proposal: p1 });
+  ok('migration confirms as dispersed (no lair)', r1.ok === true && r1.migrated === true && r1.lair === null
+    && eOk.status === 'resolved' && eOk.outcome === 'dispersed' && (c.lairs || []).length === 0);
+  ok('the settle-check is stamped on the encounter', eOk.history.some(h => h.type === 'settle-check' && /migrates/.test(h.reason)));
+
+  // Linger at FULL lair strength: both d100s under 35% → the lair dice (orc 1d10) size the
+  // den and the hoard letter (G) is recorded. rng: 0.20→21 ✓ · 0.30→31 ✓ · 0.90→d10=10.
+  const eFull = mk();
+  const p2 = ACKS.encounterProposeSettle(c, eFull.id, { rng: seq(0.20, 0.30, 0.90) });
+  ok('21 ≤ 35 lingers · 31 ≤ 35 full strength · 1d10 → 10', p2.lingers === true && p2.fullStrength === true && p2.fullCount === 10 && p2.count === 10);
+  const r2 = ACKS.encounterSettleAsLair(c, eFull.id, { proposal: p2, rng: seq(0.5) });
+  const lair2 = r2.lair;
+  ok('a lair materializes at the hex (active, known — the party met them)', r2.ok === true && lair2 && lair2.hexId === 'hex-s'
+    && lair2.status === 'active' && lair2.knownToPlayers === true && lair2.establishedBy === 'encounter-settle');
+  ok('full strength records the hoard letter (orc G)', lair2.treasureType === 'G');
+  const g2 = (c.groups || []).find(g => g && (lair2.groupIds || []).includes(g.id));
+  ok('a Group of the full-strength count binds to the lair', !!g2 && g2.count === 10 && g2.currentHexId === 'hex-s');
+  ok("the encounter resolves 'settled-as-lair' and links the den (D9 chains future meetings)",
+    eFull.status === 'resolved' && eFull.outcome === 'settled-as-lair' && eFull.monsterSide.lairId === lair2.id
+    && (eFull.monsterSide.groupIds || []).includes(g2.id));
+  ok('the resolution event carries the lair', (() => {
+    const w = (c.eventLog || []).filter(en => en && en.event && en.event.kind === 'encounter-resolved'
+      && en.event.payload && en.event.payload.encounterId === eFull.id).pop();
+    return !!w && w.event.payload.outcome === 'settled-as-lair' && w.event.payload.lairId === lair2.id;
+  })());
+
+  // A later meeting with the settled den recalls this one (priorReactionBetween, D9).
+  const eNext = mk({ lairId: lair2.id, encounterKind: 'at-lair', groupIds: [g2.id] });
+  const prior = ACKS.priorReactionBetween(c, eNext.id);
+  ok('the settled encounter IS the den\'s prior meeting', !!prior && prior.encounterId === eFull.id && prior.outcome === 'settled-as-lair');
+
+  // Linger at WANDERING numbers: second d100 over the plain 35% → the band met (count 4)
+  // settles as-is with NO hoard yet (MM p.15 — treasure stays at a lair; this band had none).
+  const eWan = mk();
+  const p3 = ACKS.encounterProposeSettle(c, eWan.id, { rng: seq(0.20, 0.50, 0.90) });
+  ok('21 ≤ 35 lingers · 51 > 35 wandering numbers — the met band settles as-is', p3.lingers === true && p3.fullStrength === false && p3.count === 4);
+  const r3 = ACKS.encounterSettleAsLair(c, eWan.id, { proposal: p3 });
+  ok('wandering-strength settlers bring no hoard', r3.ok === true && r3.lair.treasureType === '' && eWan.outcome === 'settled-as-lair');
+  const g3 = (c.groups || []).find(g => g && (r3.lair.groupIds || []).includes(g.id));
+  ok('the Group settles at the met count', !!g3 && g3.count === 4);
+
+  // The dungeon ×2 tick recomputes vs the HELD naturals (the E2h idiom — no re-throw);
+  // the second roll stays vs the PLAIN Lair % (JJ p.103 "again against its Lair characteristic").
+  const eDun = mk();
+  const p4 = ACKS.encounterProposeSettle(c, eDun.id, { rng: seq(0.40, 0.50, 0.90) });   // 41 > 35 → migrates
+  ok('41 vs 35% migrates…', p4.lingers === false);
+  const p4b = ACKS.settleProposalOutcome(p4, true);
+  ok('…but the dungeon ×2 tick flips it on the held natural (41 ≤ 70)', p4b.effectivePct === 70 && p4b.lingerNatural === 41 && p4b.lingers === true);
+  ok('the strength roll stays vs the PLAIN Lair % (51 > 35 → wandering even with the dungeon)', p4b.fullStrength === false && p4b.count === 4);
+  ok('the effective % caps at 100', ACKS.settleProposalOutcome({ lairPct: 60, lingerNatural: 99, strengthNatural: 1, fullCount: 5, wanderingCount: 2 }, true).effectivePct === 100);
+
+  // A count-less side rolls the wandering dice for its settle size (2d6: 0.5,0.5 → 4+4 = 8).
+  const eCl = mk({ count: null });
+  const p5 = ACKS.encounterProposeSettle(c, eCl.id, { rng: seq(0.20, 0.50, 0.90, 0.50, 0.50) });
+  ok('a count-less band rolls its wandering dice (2d6 → 8)', p5.wanderingCount === 8 && p5.count === 8);
+
+  // Gates: a resolved encounter neither proposes nor settles.
+  ok('resolved → no propose', ACKS.encounterProposeSettle(c, eFull.id, {}).error === 'already-resolved');
+  ok('resolved → no settle', ACKS.encounterSettleAsLair(c, eFull.id, {}).error === 'already-resolved');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

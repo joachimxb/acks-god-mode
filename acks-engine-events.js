@@ -3585,6 +3585,120 @@ function encounterRerollInfluence(campaign, encounterId, opts){
   return { ok: true, encounter: enc, attempt: last, event: wrap ? wrap.event : null };
 }
 
+// ═══ E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103) ═════
+// Encounter → creation: wandering monsters met in the wild may LINGER (chance = the
+// monster's Lair %, DOUBLED when treasure beckons in an un/partly-occupied dungeon —
+// a GM-asserted tick v1, dungeons aren't live entities) and den at the hex, else
+// they MIGRATE onward. A lingerer rolls PLAIN Lair % again: second success = it
+// settles at FULL wilderness-lair strength (hoard letter recorded; contents stay the
+// treasure wave), else at its wandering numbers (no hoard yet — MM p.15, treasure
+// stays at a lair, and this band had none). Eligibility: an active encounter whose
+// monster side is NOT lair-bound (an at-lair side is home; a wandering-fragment
+// forays FROM a home lair — it returns, it does not found a second den) with a
+// catalog-resolvable monster (the Lair % source). Propose-ratify: the proposal is
+// PURE (rng-injectable; the NATURALS are rolled once and held so the dungeon ×2
+// tick recomputes without re-throwing — the E2h idiom; ⟳ re-proposes); the confirm
+// verb materializes and links monsterSide.lairId so priorReactionBetween (D9)
+// chains future meetings with the den back to this one.
+
+function encounterSettleEligibility(campaign, encounterId){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { eligible: false, reason: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { eligible: false, reason: 'already-resolved' };
+  const ms = enc.monsterSide || {};
+  if(ms.lairId) return { eligible: false, reason: (ms.encounterKind === 'wandering-fragment') ? 'fragment-has-home-lair' : 'already-at-lair' };
+  if(!enc.hexId) return { eligible: false, reason: 'no-hex' };
+  const entry = (typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+  if(!entry) return { eligible: false, reason: 'no-catalog-monster' };
+  if(typeof entry.lairPct !== 'number' || !(entry.lairPct > 0)) return { eligible: false, reason: 'no-lair-pct' };
+  return { eligible: true, encounter: enc, entry };
+}
+
+// Derive the outcome from a proposal's held naturals (pure; lets the dungeon ×2 tick
+// flip linger/migrate without re-throwing). Second roll is vs PLAIN Lair % (JJ p.103
+// "roll 1d100 again against its Lair characteristic" — the doubling is linger-only).
+function settleProposalOutcome(proposal, dungeonBeckons){
+  const p = Object.assign({}, proposal);
+  if(dungeonBeckons !== undefined) p.dungeonBeckons = !!dungeonBeckons;
+  p.effectivePct = Math.min(100, p.lairPct * (p.dungeonBeckons ? 2 : 1));
+  p.lingers = p.lingerNatural <= p.effectivePct;
+  p.fullStrength = p.lingers && (p.strengthNatural <= p.lairPct);
+  p.count = p.lingers ? (p.fullStrength ? p.fullCount : p.wanderingCount) : null;
+  return p;
+}
+
+// PURE proposal — rolls the naturals once (linger d100, strength d100, both count
+// rolls); no campaign mutation. opts: { dungeonBeckons?, rng? }.
+function encounterProposeSettle(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const elig = encounterSettleEligibility(campaign, encounterId);
+  if(!elig.eligible) return { ok: false, error: elig.reason };
+  const enc = elig.encounter, entry = elig.entry;
+  const rng = o.rng || Math.random;
+  const lairSpec = (entry.numberAppearing && entry.numberAppearing.lair) || null;
+  const wanderSpec = (entry.numberAppearing && entry.numberAppearing.wandering) || null;
+  const msCount = (enc.monsterSide && enc.monsterSide.count != null) ? enc.monsterSide.count : null;
+  return settleProposalOutcome({
+    ok: true, encounterId: enc.id, monsterCatalogKey: entry.key, monsterName: entry.name,
+    lairPct: entry.lairPct, dungeonBeckons: !!o.dungeonBeckons,
+    lingerNatural: 1 + Math.floor(rng() * 100),
+    strengthNatural: 1 + Math.floor(rng() * 100),
+    fullCount: Math.max(1, A._rollDiceStr((lairSpec || wanderSpec || '1'), rng)),
+    // the band met IS the wandering group — its size settles as-is (else roll the wandering dice)
+    wanderingCount: (msCount != null) ? Math.max(1, msCount) : Math.max(1, A._rollDiceStr((wanderSpec || '1'), rng))
+  });
+}
+
+// Materialize the GM-confirmed proposal. Lingers → a Lair at the hex (active; known —
+// the party met the band that denned) + a bound Group via generateLair, the hoard
+// letter only at full strength; the encounter resolves 'settled-as-lair' with
+// monsterSide.lairId linked. Migrates → resolves 'dispersed' with the migration note.
+// opts: { proposal? (else proposes internally), dungeonBeckons?, note?, rng? }.
+function encounterSettleAsLair(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const elig = encounterSettleEligibility(campaign, encounterId);
+  if(!elig.eligible) return { ok: false, error: elig.reason };
+  const enc = elig.encounter, entry = elig.entry;
+  const p = o.proposal ? settleProposalOutcome(o.proposal, o.proposal.dungeonBeckons) : encounterProposeSettle(campaign, encounterId, o);
+  if(!p.ok) return p;
+  const turn = campaign.currentTurn || 1;
+  if(!p.lingers){
+    enc.history.push({ turn, type: 'settle-check',
+      reason: 'Lair % ' + p.lingerNatural + ' vs ' + p.effectivePct + (p.dungeonBeckons ? ' (×2 dungeon)' : '') + ' — migrates onward' });
+    const res = recordEncounterResolved(campaign, enc.id, 'dispersed', {
+      note: 'Rolled vs Lair % (' + p.lingerNatural + ' vs ' + p.effectivePct + '%) — the ' + (entry.name || 'monsters') + ' migrate onward (JJ p.103).'
+    });
+    return Object.assign({ migrated: true, proposal: p, lair: null }, res);
+  }
+  const gen = A.generateLair(campaign, {
+    hexId: enc.hexId, monsterCatalogKey: entry.key, count: p.count,
+    establishedBy: 'encounter-settle', knownToPlayers: true, atTurn: turn,
+    name: o.name
+  }, o.rng || Math.random);
+  const lair = gen && gen.lair;
+  if(!lair) return { ok: false, error: 'lair-create-failed' };
+  if(!p.fullStrength) lair.treasureType = '';   // wandering-size settlers bring no hoard yet
+  lair.history.push({ turn, type: 'settled',
+    reason: 'lingered after an encounter — ' + (p.fullStrength ? 'full lair strength (' + p.count + ')' : 'wandering numbers (' + p.count + ', no hoard yet)') });
+  enc.monsterSide.lairId = lair.id;
+  const newGroupId = gen.group ? gen.group.id : ((lair.groupIds && lair.groupIds.length) ? lair.groupIds[lair.groupIds.length - 1] : null);
+  if(newGroupId && !(enc.monsterSide.groupIds || []).includes(newGroupId)){
+    enc.monsterSide.groupIds = (enc.monsterSide.groupIds || []).concat([newGroupId]);
+  }
+  if(enc.monsterSide.count == null) enc.monsterSide.count = p.count;
+  enc.history.push({ turn, type: 'settle-check',
+    reason: 'Lair % ' + p.lingerNatural + ' vs ' + p.effectivePct + (p.dungeonBeckons ? ' (×2 dungeon)' : '') + ' — lingers; strength ' + p.strengthNatural + ' vs ' + p.lairPct + ' — ' + (p.fullStrength ? 'full lair strength' : 'wandering numbers') });
+  const res = recordEncounterResolved(campaign, enc.id, 'settled-as-lair', {
+    note: p.fullStrength
+      ? ('Settled at full lair strength — ' + p.count + ' (hoard type ' + (lair.treasureType || '—') + ' recorded).' + (o.note ? ' ' + o.note : ''))
+      : ('Settled at wandering strength — ' + p.count + ' (no hoard yet).' + (o.note ? ' ' + o.note : ''))
+  });
+  return Object.assign({ migrated: false, proposal: p, lair }, res);
+}
+
 // Resolution — flip the entity + emit the ONE comprehensive encounter-resolved event
 // (the travel-day idiom: the whole walk in the payload, the context envelope carrying
 // hex + both sides, subdayContext.encounterId stamped). outcome: no-encounter | evaded |
@@ -3719,7 +3833,9 @@ Object.assign(ACKS, {
   encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved,
   // E2h — the distance verb + the per-step rerolls (every roll re-rollable at its frontier)
   encounterRollDistance, encounterRerollSurprise, encounterRerollEvasion,
-  encounterRerollReaction, encounterRerollInfluence
+  encounterRerollReaction, encounterRerollInfluence,
+  // E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103)
+  encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair
 });
 
 if(typeof module !== 'undefined' && module.exports){
