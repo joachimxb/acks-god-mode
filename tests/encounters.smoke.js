@@ -955,6 +955,187 @@ section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default OFF
 }
 
 // =============================================================================
+section('E4 identity tables — integrity (every column covers 01–100; every key resolves)');
+{
+  const RARITIES = ['common', 'uncommon', 'rare', 'very-rare'];
+  const MT = ACKS.ENCOUNTER_MONSTER_TABLES, CT = ACKS.ENCOUNTER_CIVILIZED_TABLE;
+  ok('18 monster tables + 8 civilized columns ship', Object.keys(MT).length === 18 && Object.keys(CT.columns).length === 8);
+  let badCover = 0, badKey = 0, nullLabels = new Set();
+  const walk = (cells) => {
+    let prev = 0;
+    for(const c of cells){
+      if(c.lo !== prev + 1) badCover++;
+      prev = c.hi;
+      if(c.key && !ACKS.findMonster(c.key)) badKey++;
+      if(!c.key) nullLabels.add(c.label.replace(/\s*\([^)]*\)\s*/g, '').trim());
+    }
+    if(prev !== 100) badCover++;
+  };
+  for(const tk of Object.keys(MT)) for(const r of RARITIES) walk(MT[tk].columns[r]);
+  for(const ck of Object.keys(CT.columns)) walk(CT.columns[ck].rows);
+  ok('all 80 columns cover 01–100 contiguously (no gaps, no overlaps)', badCover === 0);
+  ok('every keyed cell resolves in the MONSTER_CATALOG', badKey === 0);
+  ok('null-key cells are exactly the excluded variable monsters (Dragon/Genie/Elemental/Sphinx/Mustard Mold)',
+    [...nullLabels].every(l => /^(Dragon,|Genie|Sphinx|Elemental,|Mold, Mustard)/.test(l)));
+  // row-exact spot cells, hand-verified against the printed JJ pages (incl. the two rows the
+  // markdown conversion LOST — the PDF positional extraction is the source of truth)
+  const at = (tk, r, n) => MT[tk].columns[r].find(c => n >= c.lo && n <= c.hi);
+  ok('Barrens (Rocky/Sandy) common 01 = Baboon, Rock', at('barrens-rocky-sandy', 'common', 1).label === 'Baboon, Rock');
+  ok('Desert uncommon 99–100 = Wight (the row the MD lost)', at('desert-any', 'uncommon', 99).label === 'Wight');
+  ok('Desert rare 99–100 = Yali', at('desert-any', 'rare', 99).label === 'Yali');
+  ok('Hills common 13–14 = Beastman, Orc → orc', at('hills-any', 'common', 13).key === 'orc');
+  ok('the civilized swamp column 31–35 = Man, Bandit → bandit', (function(){
+    const cell = CT.columns['swamp'].rows.find(c => 33 >= c.lo && 33 <= c.hi);
+    return cell.label === 'Man, Bandit' && cell.key === 'bandit';
+  })());
+  // the regional cosmetic notes drive the aliases (printed mappings, not invention)
+  ok('the zebra is a light horse (savanna note)', (function(){
+    const cell = MT['grassland-savannah'].columns['common'].find(c => /Zebra/.test(c.label));
+    return cell && cell.key === 'light-horse';
+  })());
+  // the terrain resolvers fold like the rest of the encounter layer
+  ok('bare bases default to the common variant; rivers override', ACKS.encounterMonsterTableKeyFor('mountains', false) === 'mountains-forested-rocky'
+    && ACKS.encounterMonsterTableKeyFor('forest-taiga', true) === 'river-temperate'
+    && ACKS.encounterMonsterTableKeyFor('jungle', true) === 'river-desert-jungle'
+    && ACKS.encounterMonsterTableKeyFor('water', false) === null);
+  ok('barrens-tundra civilized column maps to taiga (🔧 no printed column)', ACKS.encounterCivilizedColumnKeyFor('barrens-tundra', false) === 'taiga');
+}
+
+section('E4 catalog growth — the Men/herd/missed entries the tables roll');
+{
+  const want = ['nomad', 'patroller', 'raider', 'large-herd-animal', 'huge-herd-animal', 'baleygr',
+                'child-of-nasga', 'doppelganger', 'giant-carnivorous-fly', 'galdrtre',
+                'giant-constricting-viper-snake', 'centaur', 'haugbui'];
+  ok('all 13 new/rescued entries are in the catalog with usable mechanics', want.every(k => {
+    const m = ACKS.findMonster(k);
+    return m && typeof m.lairPct === 'number' && m.xp != null && m.numberAppearing && m.numberAppearing.wandering !== undefined;
+  }));
+  const brig = ACKS.findMonster('brigand');
+  ok('brigand repaired (MM p.218: HD 1, leather kit — the shipped "By"/60 were column slides)', brig.hd === '1' && brig.ac === 2);
+  ok('haugbui lairs always (MM: Lair "Always")', ACKS.findMonster('haugbui').lairPct === 100);
+}
+
+section('E4 binding materialization — shells detailed, pooled lairs revealed, dens minted (+ unwind)');
+{
+  const mkSide = () => ({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null });
+  const orcIdent = { natural: 13, label: 'Beastman, Orc', key: 'orc', tableKey: 'hills-any', columnKey: null, rarity: 'common', page: 53 };
+  // (a) populate-shell: the in-lair roll DETAILS one of the hex's seeded shells
+  const c = ACKS.blankCampaign({ name: 'mat' });
+  ACKS.migrateCampaign(c);
+  c.hexes = [ACKS.blankHex({ id: 'hx', terrain: 'hills' })];
+  const shell = ACKS.createLair(c, { hexId: 'hx', status: 'unknown', establishedBy: 'hex-seeding' });
+  let b = ACKS.bindEncounterIdentity(c, 'hx', orcIdent, { category: 'monster', rng: () => 0.10 });   // d100 11 ≤ 35 → in-lair
+  ok('in-lair + a shell → populate-shell with a pre-rolled lair count', b.mode === 'populate-shell' && b.shellLairId === shell.id && b.count >= 1);
+  let side = mkSide();
+  ACKS._applyIdentityBinding(c, side, orcIdent, b, { hexId: 'hx', atTurn: 3 });
+  ok('the shell becomes the active, KNOWN orc den, bound to the encounter', shell.status === 'active' && shell.monsterCatalogKey === 'orc'
+    && shell.knownToPlayers === true && side.lairId === shell.id && side.encounterKind === 'at-lair' && side.minted.mode === 'populate-shell');
+  ACKS._unwindEncounterMinting(c, side.minted);
+  ok('unwind restores the shell exactly (status, key, groups)', shell.status === 'unknown' && shell.monsterCatalogKey === '' && shell.groupIds.length === 0
+    && (c.groups || []).length === 0);
+  // (b) reveal-dynamic: the key-matched pooled lair places into the hex (RAW's parenthetical)
+  c.lairs = []; c.groups = [];
+  const dyn = ACKS.generateLair(c, { monsterCatalogKey: 'orc' }, () => 0.5);   // unplaced → stays dynamic? (fresh path creates active) — pin it
+  dyn.lair.status = 'dynamic'; dyn.lair.hexId = null; dyn.group.currentHexId = null;
+  b = ACKS.bindEncounterIdentity(c, 'hx', orcIdent, { category: 'monster', rng: () => 0.10 });
+  ok('in-lair + a key-matched pooled lair → reveal-dynamic', b.mode === 'reveal-dynamic' && b.lairId === dyn.lair.id);
+  side = mkSide();
+  ACKS._applyIdentityBinding(c, side, orcIdent, b, { hexId: 'hx', atTurn: 3 });
+  ok('the pooled lair reveals into the hex with its population', dyn.lair.status === 'active' && dyn.lair.hexId === 'hx' && dyn.group.currentHexId === 'hx');
+  ACKS._unwindEncounterMinting(c, side.minted);
+  ok('unwind returns it to the pool, population un-placed', dyn.lair.status === 'dynamic' && dyn.lair.hexId === null && dyn.group.currentHexId === null);
+  // (c) fresh mint + unwind
+  c.lairs = []; c.groups = [];
+  b = ACKS.bindEncounterIdentity(c, 'hx', orcIdent, { category: 'monster', rng: () => 0.10 });
+  ok('in-lair + nothing to match → fresh-lair', b.mode === 'fresh-lair');
+  side = mkSide();
+  ACKS._applyIdentityBinding(c, side, orcIdent, b, { hexId: 'hx', atTurn: 3 });
+  ok('a new den is minted (establishedBy encounter-in-lair)', c.lairs.length === 1 && c.lairs[0].establishedBy === 'encounter-in-lair' && side.minted.mode === 'fresh-lair');
+  ACKS._unwindEncounterMinting(c, side.minted);
+  ok('unwind removes the den + its group', c.lairs.length === 0 && c.groups.length === 0);
+  // (d) civilized folk never mint dens
+  const civIdent = { natural: 20, label: 'Man, Bandit', key: 'bandit', tableKey: null, columnKey: 'hills-mountains', rarity: null, page: 43 };
+  b = ACKS.bindEncounterIdentity(c, 'hx', civIdent, { category: 'civilized', rng: () => 0.10 });   // 11 ≤ 25 → in-lair, no den
+  side = mkSide();
+  ACKS._applyIdentityBinding(c, side, civIdent, b, { hexId: 'hx' });
+  ok('civilized in-lair with no den → no mint (at their dwelling, lair-size count)', b.inLair === true && side.encounterKind === 'wandering' && c.lairs.length === 0 && side.minted === null);
+  // (e) a null-key identity (Dragon, Genie…) → label-only wandering side, GM details
+  const nullIdent = { natural: 50, label: 'Dragon, Red', key: null, tableKey: 'barrens-rocky-sandy', columnKey: null, rarity: 'very-rare', page: 45 };
+  b = ACKS.bindEncounterIdentity(c, 'hx', nullIdent, { category: 'monster', rng: () => 0.10 });
+  side = mkSide();
+  ACKS._applyIdentityBinding(c, side, nullIdent, b, { hexId: 'hx' });
+  ok('a null-key identity keeps the printed label, mints nothing', side.label === 'Dragon, Red' && side.monsterCatalogKey === '' && side.encounterKind === 'wandering' && c.lairs.length === 0);
+}
+
+section('E4 identity ⟳ + choose-from-table — same table, gated until the walk passes, mints unwound');
+{
+  const c = ACKS.blankCampaign({ name: 'verbs' });
+  ACKS.migrateCampaign(c);
+  c.currentTurn = 2;
+  c.hexes = [ACKS.blankHex({ id: 'hx', terrain: 'hills' })];
+  const mk = (rngVals) => {
+    const draw = ACKS.encounterDraw(c, 'hx', { rng: seq(...rngVals) });
+    return ACKS.createEncounterFromDraw(c, draw, { trigger: 'rest-night', partySide: { characterIds: [], sizeCount: 3 } });
+  };
+  // a wandering table encounter (hills uncommon @1; lair% fails)
+  const e1 = mk([0.5, 0.5, 0.0, 0.99, 0.5]);
+  ok('the entity carries the table identity', e1.monsterSide.identity && e1.monsterSide.identity.tableKey === 'hills-any' && e1.monsterSide.source === 'table');
+  const before = e1.monsterSide.identity.label;
+  const rr = ACKS.encounterRerollIdentity(c, e1.id, { rng: seq(0.40, 0.99, 0.5) });   // d100 41 on the same column
+  ok('⟳ rerolls 1d100 on the SAME table + rarity', rr.ok === true && rr.identity.tableKey === 'hills-any'
+    && rr.identity.natural === 41 && e1.monsterSide.identity.label !== undefined);
+  ok('the reroll is stamped on the history', e1.history.some(h => h.type === 'identity-reroll'));
+  // rarity switch on the reroll is allowed (a table pick, recorded)
+  const rr2 = ACKS.encounterRerollIdentity(c, e1.id, { rarity: 'very-rare', rng: seq(0.10, 0.99, 0.5) });
+  ok('a rarity switch rerolls that column', rr2.ok === true && rr2.identity.rarity === 'very-rare' && e1.rarity === 'very-rare');
+  // choose-from-table: pick a null-key cell — the GM details the specifics
+  const ch = ACKS.encounterChooseIdentity(c, e1.id, { label: 'Dragon, Red', key: null, rng: () => 0.99 });
+  ok('choose applies the picked cell (label kept, no key, gmChosen)', ch.ok === true && e1.monsterSide.label === 'Dragon, Red'
+    && e1.monsterSide.monsterCatalogKey === '' && e1.monsterSide.identity.gmChosen === true);
+  ok('the choice is stamped on the history', e1.history.some(h => h.type === 'identity-chosen'));
+  // a reroll whose prior identity MINTED a den unwinds it first
+  c.lairs = []; c.groups = [];
+  const e2 = mk([0.5, 0.0, 0.125, 0.0, 0.5]);   // orc (hills common 13) in-lair → fresh mint
+  ok('the in-lair commit minted a den', c.lairs.length === 1 && e2.monsterSide.minted && e2.monsterSide.minted.mode === 'fresh-lair');
+  const rr3 = ACKS.encounterRerollIdentity(c, e2.id, { rng: seq(0.0, 0.99, 0.5) });   // a new monster, wandering
+  ok('the reroll unwound the discarded den', rr3.ok === true && c.lairs.length === 0 && e2.monsterSide.minted === null);
+  // gates
+  ACKS.encounterSetAwareness(c, e2.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true, monsterLineOfSight: true });
+  ACKS.encounterRollSurprise(c, e2.id, { rng: () => 0.5 });
+  ok('once surprise concludes, identity is locked', ACKS.encounterRerollIdentity(c, e2.id, { rng: () => 0.5 }).error === 'walk-past-identity');
+  const eGm = ACKS.createEncounter(c, { hexId: 'hx', category: 'monster' });
+  ok('a gm-authored encounter (no table identity) refuses with a reason', ACKS.encounterRerollIdentity(c, eGm.id, { rng: () => 0.5 }).error === 'no-table-identity');
+}
+
+section('E4 journey day revert — a den minted by the reverted day is unwound');
+{
+  const c = ACKS.blankCampaign({ name: 'revert' });
+  ACKS.migrateCampaign(c);
+  c.currentTurn = 1; c.currentDayInMonth = 1; c.calendar = { year: 1, month: 1, day: 1 };
+  // adjacent grassland hexes: day 1 ENTERS hex-b (authored). At constant 0.5 the draw rolls
+  // farmland-prairie uncommon @51 = Halfling (lair% 90) IN-LAIR → a fresh den mints at commit.
+  c.hexes = [ACKS.blankHex({ id: 'hex-a', coord: { q: 0, r: 0 }, terrain: 'grassland' }),
+             ACKS.blankHex({ id: 'hex-b', coord: { q: 1, r: 0 }, terrain: 'grassland' })];
+  c.characters = [ACKS.blankCharacter({ id: 'chr-1', name: 'Scout' })];
+  const j = ACKS.blankJourney({ id: 'jrn-m', name: 'Mint run', participantCharacterIds: ['chr-1'], startHexId: 'hex-a', destinationHexId: 'hex-b',
+    supplies: { rations: 12, waterRations: 12, animalFeed: 0, animalWater: 0, shipStores: 0 } });
+  c.journeys = [j];
+  c.houseRules = { 'auto-pause-on-encounter': false, 'auto-pause-on-navigation-fail': false, 'auto-pause-on-supplies-low': false };
+  ACKS.startJourney(c, j);
+  const prop = ACKS.proposeJourneyDay(c, { dayInMonth: 2, rng: () => 0.5 });
+  const rec = prop.pendingRecords[0];
+  ok('the proposed day carries the halfling in-lair binding', rec.encounterProposals.length >= 1
+    && rec.encounterProposals[0].draw.identityRoll.key === 'halfling' && rec.encounterProposals[0].draw.binding.mode === 'fresh-lair');
+  ACKS.commitJourneyRecord(c, rec);
+  const made = ACKS.findEncounter(c, rec.encounterProposals[0].id);
+  ok('commit minted the den at the entered hex', !!made && made.monsterSide.minted && made.monsterSide.minted.mode === 'fresh-lair'
+    && (c.lairs || []).some(l => l.hexId === 'hex-b' && l.monsterCatalogKey === 'halfling' && l.establishedBy === 'encounter-in-lair'));
+  ACKS.rerollJourneyDay(c, j, { rng: () => 0.27 });   // re-run the day at a no-encounter die (d20 6)
+  ok('the day revert removed the minted den + its group', !(c.lairs || []).some(l => l.monsterCatalogKey === 'halfling')
+    && !(c.groups || []).some(g => g && g.currentHexId === 'hex-b'));
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

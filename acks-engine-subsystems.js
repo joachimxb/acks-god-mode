@@ -1841,8 +1841,11 @@ function rollEncounter(campaign, journey, opts){
       label = head + mName + ' in their lair (' + (n || '?') + ') — a new den in this hex at commit — GM, resolve';
     } else {
       encounterKind = 'wandering';
+      const where = (bind && bind.inLair)
+        ? (draw.category === 'civilized' ? ' at their dwelling' : ' in their lair (unauthored hex — no den is minted)')
+        : ' (wandering)';
       label = head + (n ? n + ' ' : '') + (n === 1 ? mName : mName + (draw.category === 'civilized' ? '' : 's')).replace(/ss$/, 's')
-        + (bind && bind.inLair ? ' at their dwelling' : ' (wandering)') + ' — GM, resolve';
+        + where + ' — GM, resolve';
     }
   } else if(draw.category === 'civilized'){
     label = jName + ': civilized encounter — travellers, locals, or a patrol; GM, pick who';
