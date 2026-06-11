@@ -982,7 +982,8 @@ document.addEventListener('alpine:init', () => {
             <h4 class="font-semibold mb-1">1 · Encounter distance <span class="opacity-50 font-normal">(RR p.281)</span></h4>
             <template x-if="encModalEnc().distance">
               <p><span class="font-mono font-semibold" x-text="encModalEnc().distance.distanceFt + ' ft'"></span>
-                <span class="opacity-70 text-xs" x-text="' — rolled ' + encModalEnc().distance.rolledFt + ' ft · visibility cap ' + encModalEnc().distance.capFt + ' ft (' + encModalEnc().distance.light + ')' + (encModalEnc().distance.detectedBy ? ' · first seen by: ' + encModalEnc().distance.detectedBy : '') + (encModalEnc().distance.terrainRow ? ' · ' + String(encModalEnc().distance.terrainRow).replace(/-/g, ' ') : '')"></span></p>
+                <span class="opacity-70 text-xs" x-text="' — ' + (encDistanceDiceText() ? encDistanceDiceText() + ' rolled ' : 'rolled ') + encModalEnc().distance.rolledFt + ' ft · visibility cap ' + encModalEnc().distance.capFt + ' ft (' + encModalEnc().distance.light + ')' + (encModalEnc().distance.detectedBy ? ' · first seen by: ' + encModalEnc().distance.detectedBy : '') + (encModalEnc().distance.terrainRow ? ' · ' + String(encModalEnc().distance.terrainRow).replace(/-/g, ' ') : '')"></span>
+                <button x-show="encDistanceRerollable()" @click="encModalRollDistance()" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Reroll the distance dice (re-rollable until surprise is rolled)">⟳ reroll</button></p>
             </template>
             <template x-if="!encModalEnc().distance">
               <div class="flex items-center gap-2">
@@ -1020,11 +1021,12 @@ document.addEventListener('alpine:init', () => {
                   </div>
                 </template>
                 <template x-if="encSurpriseRolled()">
-                  <p>
-                    <span :class="encModalEnc().surprise.party.surprised ? 'text-red-700 font-semibold' : 'text-green-800'" x-text="'party ' + (encModalEnc().surprise.party.roll ? encModalEnc().surprise.party.roll.total + ' → ' : '') + (encModalEnc().surprise.party.surprised ? 'SURPRISED' : 'ready')"></span>
-                    <span> · </span>
-                    <span :class="encModalEnc().surprise.monsters.surprised ? 'text-green-800 font-semibold' : ''" x-text="'monsters ' + (encModalEnc().surprise.monsters.roll ? encModalEnc().surprise.monsters.roll.total + ' → ' : '') + (encModalEnc().surprise.monsters.surprised ? 'SURPRISED' : 'ready')"></span>
-                  </p>
+                  <div class="font-mono text-xs space-y-0.5">
+                    <p :class="encModalEnc().surprise.party.surprised ? 'text-red-700 font-semibold' : 'text-green-800'" x-text="encSurpriseSideText('party')"></p>
+                    <p :class="encModalEnc().surprise.monsters.surprised ? 'text-green-800 font-semibold' : ''" x-text="encSurpriseSideText('monsters')">
+                    </p>
+                    <button x-show="encSurpriseRerollable()" @click="encModalRerollSurprise()" class="px-1.5 border border-ink rounded hover:bg-yellow-100 font-sans" title="Re-throw both sides' surprise dice (same awareness + modifiers; re-rollable until evasion or a reaction roll)">⟳ reroll surprise</button>
+                  </div>
                 </template>
               </div>
             </template>
@@ -1038,7 +1040,10 @@ document.addEventListener('alpine:init', () => {
             <template x-if="encModalEnc().evasion">
               <div class="space-y-1">
                 <p class="font-mono" x-show="encModalEnc().evasion.roll && encModalEnc().evasion.roll.auto"><span class="text-green-800 font-semibold">automatic success</span></p>
-                <p class="font-mono" x-show="encModalEnc().evasion.roll && !encModalEnc().evasion.roll.auto" :class="encModalEnc().evasion.success ? 'text-green-800' : 'text-orange-700'" x-text="'🎲 ' + encModalEnc().evasion.roll.natural + (encModalEnc().evasion.roll.modSum ? (encModalEnc().evasion.roll.modSum > 0 ? ' +' : ' ') + encModalEnc().evasion.roll.modSum : '') + ' = ' + encModalEnc().evasion.roll.total + ' vs ' + encModalEnc().evasion.target + '+ → ' + (encModalEnc().evasion.success ? 'evaded ✓' : 'failed ✗')"></p>
+                <p class="font-mono text-xs" x-show="encModalEnc().evasion.roll && !encModalEnc().evasion.roll.auto" :class="encModalEnc().evasion.success ? 'text-green-800' : 'text-orange-700'">
+                  <span x-text="'🎲 ' + encEvasionRollText()"></span>
+                  <button x-show="encEvasionRerollable()" @click="encModalRerollEvasion()" class="px-1.5 border border-ink rounded hover:bg-yellow-100 font-sans text-orange-900" title="Re-throw the evasion d20 (same target + modifiers; a success resolves the encounter as evaded; re-rollable until a reaction roll)">⟳ reroll</button>
+                </p>
                 <p class="text-green-900" x-show="encModalEnc().evasion.aftermath" x-text="'💨 Displaced ' + (encModalEnc().evasion.aftermath || {}).distanceFt + ' ft toward ' + (encModalEnc().evasion.aftermath || {}).clockDirection + ' o\'clock (hex face ' + (encModalEnc().evasion.aftermath || {}).hexFace + ') · Navigation at −4 or the party is lost — and knows it (RR p.285).'"></p>
                 <p class="text-orange-800" x-show="!encModalEnc().evasion.success">✗ Failed — proceed to reactions (a failed evasion is not necessarily a fight).</p>
               </div>
@@ -1096,7 +1101,9 @@ document.addEventListener('alpine:init', () => {
                   <span class="opacity-60 text-xs" x-show="encReactionFriendlyHint()"> · a Friendly creature of fewer HD can be recruited — Reaction to Hiring (RR p.162), the Recruit tab</span></p>
                 <ul class="text-xs space-y-0.5 font-mono">
                   <template x-for="(r, ri) in encModalEnc().reaction.rolls" :key="'encr-' + ri">
-                    <li x-text="encReactionRollText(r)"></li>
+                    <li><span x-text="encReactionRollText(r)"></span>
+                      <button x-show="encReactionRowRerollable(ri)" @click="encModalRerollLastRoll()" class="px-1.5 border border-ink rounded hover:bg-yellow-100 font-sans ml-1" :title="r.kind === 'influence' ? 'Re-throw this attempt\'s 2d6 (same speaker, modifiers + bribe; the shift recomputes from the same starting attitude; no second budget charge)' : 'Re-throw the initial 2d6 (same face CHA + modifiers; re-rollable until the first influence attempt)'">⟳ reroll</button>
+                    </li>
                   </template>
                 </ul>
               </div>
@@ -9797,8 +9804,8 @@ return {
 
   // ── Encounter resolution modal (#476 E2) — the step-walking surface over the E1 verbs.
   // Each button calls one engine verb (acks-engine-events.js); the modal never mutates the
-  // entity itself except the distance roll (a pure catalog compute + history stamp — there
-  // is no verb for it because the triggers pre-roll it). Inspector = the override path.
+  // entity itself — every step (incl. the distance roll, E2h) goes through the engine
+  // verbs, and every roll is re-rollable at its frontier. Inspector = the override path.
   openEncounterModal(id){
     const enc = window.ACKS.findEncounter(this.currentCampaign, id);
     if(!enc){ this.showToast('No encounter entity yet — commit the day first.', 3500); return; }
@@ -9861,20 +9868,95 @@ return {
              neutral: 'border-ink/40 bg-black/5', indifferent: 'border-sky-600 bg-sky-100 text-sky-900',
              friendly: 'border-green-600 bg-green-100 text-green-900' }[band] || 'border-ink/40';
   },
+  // Roll + reroll the distance via the engine verb (E2h — locked once the walk is past it).
   encModalRollDistance(){
-    const enc = this.encModalEnc(); if(!enc || enc.status !== 'active' || enc.distance) return;
-    const A = window.ACKS;
-    const hex = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(h => h && h.id === enc.hexId) || null;
-    const rowKey = (hex && typeof A.encounterRowKeyForHex === 'function') ? A.encounterRowKeyForHex(hex) : null;
-    const d = A.computeEncounterDistance({
-      terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open',
-      sideACount: (enc.partySide && (enc.partySide.sizeCount || (enc.partySide.characterIds || []).length)) || 1,
-      sideBCount: (enc.monsterSide && enc.monsterSide.count) || 1
-    });
-    if(!d){ this.showToast('No distance class resolves here — set distance via the Inspector.', 4000); return; }
-    enc.distance = d;
-    enc.history.push({ turn: (this.currentCampaign && this.currentCampaign.currentTurn) || 1, type: 'distance', reason: d.distanceFt + ' ft (rolled ' + d.rolledFt + ', cap ' + d.capFt + ')' });
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterRollDistance(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){
+      const msg = { 'no-distance-class': 'No distance class resolves here — set distance via the Inspector.',
+                    'walk-past-distance': 'The walk is past distance — surprise has already been rolled.' }[r && r.error]
+        || ('Could not roll: ' + ((r && r.error) || '?'));
+      this.showToast(msg, 4000); return;
+    }
     this.markDirty(); this.schedulePersist();
+  },
+  // ── E2h reroll gates (the latest-step rule: a roll is re-rollable while it's still the
+  // frontier — before a later step has consumed it; earlier-state surgery = the Inspector).
+  encDistanceRerollable(){
+    const e = this.encModalEnc();
+    return !!(e && e.status === 'active' && e.distance && !this.encSurpriseRolled() && !e.evasion && !e.reaction);
+  },
+  encSurpriseRerollable(){
+    const e = this.encModalEnc();
+    return !!(e && e.status === 'active' && this.encSurpriseRolled() && !e.evasion && !e.reaction
+      && (e.surprise.party.roll || e.surprise.monsters.roll));   // both fore+los → no die to re-throw
+  },
+  encEvasionRerollable(){
+    const e = this.encModalEnc();
+    return !!(e && e.status === 'active' && e.evasion && !e.evasion.success && !e.reaction);
+  },
+  encReactionRowRerollable(ri){
+    const e = this.encModalEnc();
+    if(!e || e.status !== 'active' || !e.reaction) return false;
+    return ri === (e.reaction.rolls || []).length - 1;   // only the latest roll (initial or influence)
+  },
+  encModalRerollSurprise(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterRerollSurprise(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+  },
+  encModalRerollEvasion(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterRerollEvasion(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    if(r.evasion && r.evasion.success && r.evasion.aftermath)
+      this.showToast('Evaded on the reroll — displaced ' + r.evasion.aftermath.distanceFt + ' ft toward ' + r.evasion.aftermath.clockDirection + " o'clock. Navigation at −4 or knowingly lost (RR p.285).", 6000);
+  },
+  // One ⟳ on the latest reaction-list row — the initial roll re-throws via rerollReaction,
+  // an influence attempt via rerollInfluence (same params, the event patched in place).
+  encModalRerollLastRoll(){
+    const enc = this.encModalEnc(); if(!enc || !enc.reaction) return;
+    const rolls = enc.reaction.rolls || [];
+    const last = rolls[rolls.length - 1]; if(!last) return;
+    const r = (last.kind === 'influence')
+      ? window.ACKS.encounterRerollInfluence(this.currentCampaign, enc.id, {})
+      : window.ACKS.encounterRerollReaction(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    if(last.kind === 'influence' && r.attempt)
+      this.showToast('Rerolled: ' + r.attempt.from + ' → ' + r.attempt.to + (r.attempt.bribe && r.attempt.bribe.backlash ? ' (bribe backlash!)' : '') + '.', 4000);
+  },
+  // ── E2h itemized math (every roll + every modifier visible to the GM).
+  encDistanceDiceText(){
+    const e = this.encModalEnc(); const A = window.ACKS;
+    const row = e && e.distance && e.distance.terrainRow;
+    const cls = row && A.ENCOUNTER_TERRAIN_ROWS && A.ENCOUNTER_TERRAIN_ROWS[row] && A.ENCOUNTER_DISTANCE_CLASSES
+      ? A.ENCOUNTER_DISTANCE_CLASSES[A.ENCOUNTER_TERRAIN_ROWS[row].distance] : null;
+    return cls ? cls.label : '';
+  },
+  encSurpriseSideText(side){
+    const e = this.encModalEnc(); if(!e || !e.surprise) return '';
+    const s = e.surprise[side]; if(!s) return '';
+    const who = side === 'party' ? 'party' : 'monsters';
+    if(!s.roll) return who + ' — not surprised (foreknowledge + line of sight: no roll)';
+    const state = (window.ACKS.SURPRISE_AWARENESS_STATES || {})[s.awareness] || { mod: 0 };
+    const extra = (Number(s.roll.mod) || 0) - (state.mod || 0);
+    let txt = who + ' 1d6 ' + s.roll.natural;
+    if(state.mod) txt += ' ' + (state.mod > 0 ? '+' : '−') + Math.abs(state.mod) + ' (' + s.awareness + ')';
+    if(extra) txt += ' ' + (extra > 0 ? '+' : '−') + Math.abs(extra) + ' (GM)';
+    txt += ' = ' + s.roll.total + ' · surprised on 2− → ' + (s.surprised ? 'SURPRISED' : 'ready');
+    return txt;
+  },
+  encEvasionRollText(){
+    const e = this.encModalEnc(); if(!e || !e.evasion || !e.evasion.roll || e.evasion.roll.auto) return '';
+    const r = e.evasion.roll;
+    const mods = (e.evasion.modifiers || []).map(m => (m.value > 0 ? '+' : '−') + Math.abs(m.value) + ' ' + m.label).join(' · ');
+    const ti = e.evasion.targetInfo;
+    const tgt = ((e.evasion.target != null) ? e.evasion.target : '?') + '+'
+      + (ti ? ' (' + String(ti.terrainRow).replace(/-/g, ' ') + ' base ' + ti.base + ' + size ' + ti.sizeBand + ' +' + ti.sizeAdd + ')' : '');
+    return '1d20 ' + r.natural + (mods ? ' · ' + mods : '') + ' = ' + r.total + ' vs ' + tgt + ' → ' + (e.evasion.success ? 'evaded ✓' : 'failed ✗');
   },
   encAwarenessPreview(){
     const A = window.ACKS;
@@ -9965,10 +10047,19 @@ return {
     if(!this.encModal.inflActorId) this.encModal.inflActorId = this.encModal.faceId;
     this.markDirty(); this.schedulePersist();
   },
+  // Itemized roll math (E2h): 2d6 + CHA + each named modifier = total → band (clamp noted).
   encReactionRollText(r){
     if(!r) return '';
-    if(r.kind === 'initial') return '2d6 ' + r.natural + (r.chaMod ? ((r.chaMod > 0 ? ' +' : ' ') + r.chaMod + ' CHA') : '') + (r.modSum ? ((r.modSum > 0 ? ' +' : ' ') + r.modSum) : '') + ' = ' + r.total + ' → ' + r.band + (r.clamped ? ' (' + r.clamped + ' clamp)' : '');
-    return 'attempt ' + r.attempt + ' (' + r.timeRequired + '): ' + r.total + ' → ' + r.band + ' — ' + r.from + ' → ' + r.to + (r.bribe ? (' · bribe +' + r.bribe.bonus + (r.bribe.backlash ? ' BACKLASH' : '')) : '');
+    let dice = '2d6 ' + r.natural;
+    if(r.chaMod) dice += ' ' + (r.chaMod > 0 ? '+' : '−') + Math.abs(r.chaMod) + ' CHA';
+    const mods = Array.isArray(r.modifiers) ? r.modifiers : null;
+    if(mods && mods.length) dice += ' ' + mods.map(m => (m.value > 0 ? '+' : '−') + Math.abs(m.value) + ' ' + m.label).join(' · ');
+    else if(r.modSum) dice += ' ' + (r.modSum > 0 ? '+' : '−') + Math.abs(r.modSum) + ' mods';
+    dice += ' = ' + r.total + ' → ' + r.band + (r.clamped ? ' (' + r.clamped + ' clamp)' : '');
+    if(r.kind === 'initial') return dice;
+    return 'attempt ' + r.attempt + ' (' + r.timeRequired + '): ' + dice + ' — ' + r.from + ' → ' + r.to
+      + ((r.bribe && !(mods && mods.length)) ? (' · bribe +' + r.bribe.bonus) : '')
+      + ((r.bribe && r.bribe.backlash) ? ' · bribe BACKLASH' : '');
   },
   encReactionFriendlyHint(){
     const e = this.encModalEnc();
