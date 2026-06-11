@@ -727,6 +727,49 @@ document.addEventListener('alpine:init', () => {
     </template>
     <p class="text-sm opacity-60 mt-3 italic">First-class placed lairs in <code>campaign.lairs[]</code> (RAW core, #476). <em>Unauthored</em> = a seeded shell awaiting contents (populate it from the lair's detail panel); <em>dynamic pool</em> = authored but unplaced (JJ p.195), revealed into a hex on demand. 🙈 = the players haven't discovered it.</p>
   </div>
+
+  <!-- #476 E4h (Joachim 2026-06-11) — the world's LOOSE monster bands, beneath the lairs:
+       migrants (living Groups not settled in a living lair — an abandoned lair's survivors, a
+       free-authored population) and pursuers (E3c chases in flight, incl. the undecided offer —
+       the state lives on the Encounter, D8). Settled populations show through their lair's row
+       above; fragments are transient (no Group is minted) and never appear. Derived per render
+       via monsterLooseBandRows() — nothing is stored here. -->
+  <div class="vellum border border-ink rounded p-4 mt-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🐾 Groups <span class="text-sm opacity-70 font-normal" x-text="'· ' + monsterLooseBandRows().length + ' abroad'"></span></h3>
+      <span class="text-sm opacity-70">migrant + pursuing bands — monsters not settled in a lair</span>
+    </div>
+    <template x-if="monsterLooseBandRows().length === 0">
+      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), or a pack takes up a fleeing party's trail (⚙ Monster pursuit).</p>
+    </template>
+    <template x-if="monsterLooseBandRows().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th></th><th>Band</th><th>Monster</th><th class="text-right">Count</th><th>Where</th><th>Status</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="row in monsterLooseBandRows()" :key="row.key">
+            <tr>
+              <td x-text="row.icon" :title="row.statusLabel"></td>
+              <td class="font-semibold" x-text="row.band"></td>
+              <td x-text="row.monster"></td>
+              <td class="text-right font-mono" x-text="row.count != null ? row.count : '—'"></td>
+              <td>
+                <template x-if="row.hexId"><button @click="openHexDetailById(row.hexId)" class="underline" x-text="row.where"></button></template>
+                <template x-if="!row.hexId"><span class="opacity-60 italic" x-text="row.where"></span></template>
+              </td>
+              <td x-text="row.statusText"></td>
+              <td class="text-right whitespace-nowrap">
+                <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" title="Open the chase's encounter — the pursuit panel lives there">⚔ chase</button></template>
+                <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open this band in the 🔍 Inspector">🔍 inspect</button></template>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit), read from their encounter. A band settling down again becomes a lair above.</p>
+  </div>
 </div>
 
 <!-- ═══════════ WORLD ▸ ENCOUNTERS (#476 E2) — the active-encounter work queue ═══════════
@@ -9867,6 +9910,69 @@ return {
       return hay.indexOf(q) >= 0;
     });
   },
+  // #476 E4h — the loose-band rows under World ▸ 🐉 Monsters (Joachim 2026-06-11): every monster
+  // band NOT settled in a living lair. Migrants = living Groups whose home lair is gone
+  // (abandoned/cleared/destroyed — abandonLair departs them alive) or who never had one;
+  // pursuers = E3c chases in flight (the state lives ON the Encounter, D8 — incl. the undecided
+  // 'offered'). Derived per render, never stored. Fragments never appear (no Group is minted);
+  // a pursuing band's own Group (if any) folds into its chase row, not a second migrant row.
+  monsterLooseBandRows(){
+    const c = this.currentCampaign; if(!c) return [];
+    const A = window.ACKS;
+    const rows = [];
+    const LIVING = { active: 1, unknown: 1, dynamic: 1 };
+    const settled = new Set();          // groupIds housed by a LIVING lair → not loose
+    const deadHome = {};                // groupId → the dead lair it fled (provenance)
+    for(const l of (c.lairs || [])){
+      if(!l) continue;
+      for(const gid of (l.groupIds || [])){ if(LIVING[l.status]) settled.add(gid); else if(!(gid in deadHome)) deadHome[gid] = l; }
+    }
+    // Pursuers first — a chasing band reads as the chase, not a plain migrant.
+    const chasing = new Set();
+    for(const enc of (A.activeEncounters(c) || [])){
+      const p = enc && enc.pursuit;
+      if(!p || enc.phase !== 'pursuit' || (p.status !== 'offered' && p.status !== 'pursuing')) continue;
+      const ms = enc.monsterSide || {};
+      for(const gid of (ms.groupIds || [])) chasing.add(gid);
+      const monster = (ms.monsterCatalogKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(ms.monsterCatalogKey)) || ms.label || '—';
+      const hexId = p.lastPartyHexId || enc.hexId || null;
+      const hex = hexId ? ((c.hexes || []).find(h => h && h.id === hexId) || null) : null;
+      rows.push({
+        key: 'pursuit-' + enc.id, icon: '🐺',
+        band: p.pursuerLabel || monster,
+        monster: monster,
+        count: (ms.count != null) ? ms.count : null,
+        hexId: hex ? hex.id : null,
+        where: hex ? ((typeof A.hexName === 'function' && A.hexName(hex)) || hex.id) : 'on the trail',
+        statusLabel: (p.status === 'pursuing') ? 'pursuing' : 'pursuit offered',
+        statusText: (p.status === 'pursuing')
+          ? ('🐺 pursuing ' + (this.encPartyLabel ? this.encPartyLabel(enc) : 'a party') + ' — ' + (Math.round((p.gapMiles || 0) * 10) / 10) + ' mi behind')
+          : 'pursuit offered — decide in the encounter',
+        encounterId: enc.id, groupId: null
+      });
+    }
+    // Migrants: living groups not settled at a living lair (and not already a chase row).
+    for(const g of (c.groups || [])){
+      if(!g || settled.has(g.id) || chasing.has(g.id)) continue;
+      const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+      if(alive <= 0) continue;
+      const home = deadHome[g.id] || null;
+      const hex = g.currentHexId ? ((c.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+      const tpl = g.groupTemplate || {};
+      rows.push({
+        key: 'group-' + g.id, icon: '🚶',
+        band: g.name || '(unnamed band)',
+        monster: (tpl.monsterCatalogKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(tpl.monsterCatalogKey)) || tpl.monsterCatalogKey || (tpl.creatureTypes || []).join(', ') || '—',
+        count: alive,
+        hexId: hex ? hex.id : null,
+        where: hex ? ((typeof A.hexName === 'function' && A.hexName(hex)) || hex.id) : 'wandering — no fixed hex',
+        statusLabel: 'migrant',
+        statusText: home ? ('migrant — out of ' + (home.name || 'a lost lair') + ' (' + home.status + ')') : 'migrant',
+        encounterId: null, groupId: g.id
+      });
+    }
+    return rows;
+  },
   openLairDetail(id){ this.lairDetailId = id; this.lairDetailPopulateKey = ''; this.lairDetailRevealHexId = ''; },
   closeLairDetail(){ this.lairDetailId = null; },
   lairDetailLair(){ return this.lairDetailId ? (window.ACKS.findLair(this.currentCampaign, this.lairDetailId) || null) : null; },
@@ -10504,7 +10610,7 @@ return {
       ? (r.settledAfterEvasion ? 'They moved on — the meeting stays evaded (JJ p.103).' : 'They migrate onward — recorded as dispersed (JJ p.103).')
       : (r.settledAfterEvasion
         ? ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' dens at ' + this.encHexLabel(enc) + ' behind the fled party — unknown to the players (search / track-home finds it).')
-        : ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' settles at ' + this.encHexLabel(enc) + ' — see World ▸ 🏚 Lairs.')), 7000);
+        : ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' settles at ' + this.encHexLabel(enc) + ' — see World ▸ 🐉 Monsters.')), 7000);
   },
   // ── E3c — pursuit (the GM's intent call + the running-chase levers; RR p.285 + p.120).
   encModalBeginPursuit(){
@@ -11268,8 +11374,12 @@ return {
     }
     // Stash subsystem is always-on core (inventory-stash-system rule removed v0.17.0).
     tabs.push({ id:'stashes', label:'🪙 Stashes', count: (this.currentCampaign && this.currentCampaign.stashes ? this.currentCampaign.stashes.length : 0) || null });
-    // #476 M7 — first-class lairs (campaign.lairs[]; RAW core, always on).
-    tabs.push({ id:'lairs', label:'🏚 Lairs', count: (this.currentCampaign && this.currentCampaign.lairs ? this.currentCampaign.lairs.length : 0) || null });
+    // #476 M7 — first-class lairs (campaign.lairs[]; RAW core, always on). Renamed Lairs →
+    // Monsters at E4h (Joachim 2026-06-11): the tab now also lists the LOOSE bands (migrant +
+    // pursuing groups) beneath the lairs, so it covers the world's monsters generally. The
+    // internal sub-view id stays 'lairs' (session-restore + deep-links unchanged); the count
+    // = recorded lairs + bands abroad.
+    tabs.push({ id:'lairs', label:'🐉 Monsters', count: ((this.currentCampaign && this.currentCampaign.lairs ? this.currentCampaign.lairs.length : 0) + this.monsterLooseBandRows().length) || null });
     // #476 E2 — encounters (campaign.encounters[]). The badge counts ACTIVE ones — the
     // "needs the GM" signal (resolved encounters stay browsable inside the view).
     tabs.push({ id:'encounters', label:'⚔ Encounters', count: (window.ACKS.activeEncounters(this.currentCampaign) || []).length || null });
