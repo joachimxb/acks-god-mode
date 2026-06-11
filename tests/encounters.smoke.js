@@ -1210,6 +1210,20 @@ section('E4i — track a parted band home: a success FOUNDS its den (Joachim 202
   ok('a fragment via encounterId discovers ITS den — founds nothing new', r.ok && r.success && r.founded === false
     && r.lair && r.lair.id === hidden.id && hidden.knownToPlayers === true && (c.lairs || []).length === lairsBeforeFrag
     && frag.status === 'active');   // the fragment path needs no resolution — the den exists regardless
+
+  // ── Joachim's flow (2026-06-11): "Den here" on an EVADED meeting first, THEN track. The settle
+  //    links lairId but the kind stays 'wandering' — tracking via encounterId must still discover
+  //    the (players-unknown) den rather than founding a second one. ──
+  const sett = mk({ id: 'enc-p-settled', monsterSide: { source: 'fresh', monsterCatalogKey: 'orc', count: 6, encounterKind: 'wandering' } });
+  sett.status = 'resolved'; sett.outcome = 'evaded';
+  const sr = ACKS.encounterSettleAsLair(c, 'enc-p-settled', { rng: seq(0.01, 0.01) });   // lingers + full strength
+  ok('settle-on-evaded founds an UNKNOWN den; the side keeps kind wandering', sr.ok && !sr.migrated && !!sr.lair
+    && sr.lair.knownToPlayers === false && sett.monsterSide.lairId === sr.lair.id
+    && sett.monsterSide.encounterKind === 'wandering' && sett.outcome === 'evaded');
+  const lairsBeforeSettled = (c.lairs || []).length;
+  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-settled', countTracked: 6, rng: () => 0.999 });
+  ok('…and tracking the parted band discovers THAT den — no second den founded', r.ok && r.success && r.founded === false
+    && r.lair && r.lair.id === sr.lair.id && sr.lair.knownToPlayers === true && (c.lairs || []).length === lairsBeforeSettled);
 }
 
 // =============================================================================

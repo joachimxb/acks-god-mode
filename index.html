@@ -1015,14 +1015,18 @@ document.addEventListener('alpine:init', () => {
             <div class="border border-ink/20 rounded p-2">
               <h4 class="font-semibold">The other side</h4>
               <p><span x-text="encMonsterText(encModalEnc())"></span>
-                <button x-show="encModalEnc().monsterSide.lairId && (encModalEnc().monsterSide.encounterKind !== 'wandering-fragment' || lairKnown(encModalEnc().monsterSide.lairId))" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair (a peek above this panel)">→ lair</button>
-                <!-- A wandering FRAGMENT met away from home (the 6a "abroad" verdict): the den is NOT
-                     located — a tracker can follow the spoor back (RR p.120; M4). Lives on the modal so
-                     every fragment meeting carries it, however triggered — journey day, rest-night camp,
-                     search hour (Joachim 2026-06-11). Once discovered, flips to the full → lair above
-                     (trackHomeAttempt refuses 'already-known'). -->
-                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment' && !lairKnown(encModalEnc().monsterSide.lairId)" @click="openTrackHome({ lairId: encModalEnc().monsterSide.lairId, hexId: encModalEnc().hexId, countTracked: encModalEnc().monsterSide.count || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120); opens above this panel">🐾 Track home</button>
-                <button x-show="encModalEnc().monsterSide.lairId && encModalEnc().monsterSide.encounterKind === 'wandering-fragment' && !lairKnown(encModalEnc().monsterSide.lairId)" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
+                <button x-show="encModalEnc().monsterSide.lairId && (lairKnown(encModalEnc().monsterSide.lairId) || encModalEnc().monsterSide.encounterKind === 'at-lair')" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair (a peek above this panel)">→ lair</button>
+                <!-- A side bound to an UNLOCATED den (and not met AT it): a tracker can follow the
+                     spoor back (RR p.120; M4). Covers a wandering FRAGMENT out from its den AND a
+                     band that SETTLED after the party evaded (E3a links lairId, kind stays
+                     'wandering' — the gap Joachim hit 2026-06-11: confirming "Den here" used to
+                     hide every track path while the settle text promised one). Lives on the modal
+                     so every such meeting carries it, however triggered — journey day, rest-night
+                     camp, search hour. Once discovered, flips to the full → lair above
+                     (trackHomeAttempt refuses 'already-known'); an at-lair meeting was AT the den,
+                     so it keeps → lair regardless. -->
+                <button x-show="encModalEnc().monsterSide.lairId && !lairKnown(encModalEnc().monsterSide.lairId) && encModalEnc().monsterSide.encounterKind !== 'at-lair'" @click="openTrackHome({ lairId: encModalEnc().monsterSide.lairId, hexId: encModalEnc().hexId, countTracked: encModalEnc().monsterSide.count || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Follow the band's spoor home to its lair — Tracking 11+ (RR p.120); opens above this panel">🐾 Track home</button>
+                <button x-show="encModalEnc().monsterSide.lairId && !lairKnown(encModalEnc().monsterSide.lairId) && encModalEnc().monsterSide.encounterKind !== 'at-lair'" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
                 <!-- E4i (Joachim 2026-06-11: "you should be able to track someone you parleyed and
                      parted with") — a PARTED band with NO den entity yet (the common wandering
                      case: the Lair % said abroad but no matching den exists): once the meeting is
