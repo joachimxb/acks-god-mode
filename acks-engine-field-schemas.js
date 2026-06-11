@@ -482,7 +482,7 @@
         { name: 'id',                   type: 'string', readonly: true, group: 'Identity' },
         { name: 'name',                 type: 'string', group: 'Identity', default: '', description: 'GM label; display derives from the monster / hex when empty' },
         { name: 'scale',                type: 'enum', enumValues: ['wilderness','dungeon','sea','settlement','domain'], group: 'Identity', default: 'wilderness', description: 'Only wilderness is live in E1; the rest are reserved scales' },
-        { name: 'trigger',              type: 'enum', enumValues: ['journey-travel','hex-search','rest-night','domain-incursion','gm-authored'], group: 'Identity', default: 'gm-authored' },
+        { name: 'trigger',              type: 'enum', enumValues: ['journey-travel','hex-search','rest-night','domain-incursion','gm-authored','pursuit','lair-assault'], group: 'Identity', default: 'gm-authored' },
         { name: 'hexId',                type: 'id', idKind: 'hex', group: 'Identity', description: 'Where the meeting happens' },
         { name: 'category',             type: 'enum', enumValues: ['monster','civilized'], group: 'Draw', description: 'The JJ category-draw result (empty = GM-authored)' },
         { name: 'rarity',               type: 'enum', enumValues: ['common','uncommon','rare','very-rare'], group: 'Draw', description: 'Monster rarity by territory class (JJ p.44)' },

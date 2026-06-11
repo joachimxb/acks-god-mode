@@ -934,6 +934,18 @@ document.addEventListener('alpine:init', () => {
           </div>
           <!-- Lifecycle actions -->
           <div class="flex flex-wrap gap-2 border-t border-ink/20 pt-2">
+            <!-- ⚔ Attack (E4j — Joachim 2026-06-11): the assault entry point. Creates the
+                 lair-assault Encounter (the den's living population at-lair vs everyone standing
+                 at the hex) and opens the resolution panel on it (close-then-open — the panel
+                 sits below this peek). Resolution stays the GM's: walk distance/surprise, demand
+                 surrender, or ⚔ to-combat + an adventure-result (cleared flips the lair).
+                 Disable-with-reason: unknown den / nobody at the hex / an assault already open. -->
+            <button x-show="lairDetailLair().status === 'active'"
+                    :disabled="!lairAttackReady().ok"
+                    @click="lairAttack()"
+                    :class="lairAttackReady().ok ? 'border-red-700/60 text-red-800 hover:bg-red-50 font-semibold' : 'border-ink/30 opacity-50 cursor-not-allowed'"
+                    class="px-2 py-0.5 border rounded"
+                    :title="lairAttackReady().ok ? 'March on the den — opens the encounter panel (distance, surprise, parley or combat); resolution stays the GM’s' : lairAttackReady().reason">⚔ Attack</button>
             <button x-show="!lairDetailLair().knownToPlayers && lairDetailLair().status !== 'dynamic'" @click="lairMarkDiscovered()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The players learn of this lair (GM reveal — searches & tracking also discover)">👁 Mark discovered</button>
             <button x-show="lairDetailLair().status === 'active' || lairDetailLair().status === 'unknown'" @click="lairMarkCleared()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Inhabitants slain/driven off; the structure remains (RR — it can repopulate later)">⚔ Mark cleared</button>
             <button x-show="lairDetailLair().status === 'active'" @click="lairMarkAbandoned()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The inhabitants leave alive of their own accord">🍂 Abandon</button>
@@ -10035,6 +10047,28 @@ return {
     if(window.ACKS.recordLairDiscovered) window.ACKS.recordLairDiscovered(this.currentCampaign, l.id, { method: 'gm-reveal' });   // the chronicle-visible record (M4)
     this.markDirty(); this.schedulePersist();
     if(this.showToast) this.showToast('Marked discovered — the players now know of ' + (l.name || 'this lair') + '.');
+  },
+  // ⚔ E4j — the lair-assault entry (Joachim 2026-06-11: a known lair should be attackable;
+  // resolution stays the GM's). The ready-check mirrors the engine gates so the button
+  // explains itself (the disable-with-reason idiom).
+  lairAttackReady(){
+    const l = this.lairDetailLair(); if(!l) return { ok: false, reason: '' };
+    if(!l.knownToPlayers) return { ok: false, reason: 'the players have not found this lair — let a search or a tracker find it, or 👁 Mark discovered' };
+    if(!l.hexId) return { ok: false, reason: 'the lair is not placed in a hex' };
+    const open = (this.currentCampaign?.encounters || []).find(e => e && e.status === 'active' && e.trigger === 'lair-assault' && e.monsterSide && e.monsterSide.lairId === l.id);
+    if(open) return { ok: false, reason: 'an assault on this den is already under way — resolve it (World ▸ ⚔ Encounters)' };
+    const here = (this.currentCampaign?.characters || []).filter(ch => ch && ch.currentHexId === l.hexId);
+    if(!here.length) return { ok: false, reason: 'no character stands at this hex — travel there first' };
+    return { ok: true, reason: '' };
+  },
+  lairAttack(){
+    const l = this.lairDetailLair(); if(!l) return;
+    const r = window.ACKS.beginLairAssault(this.currentCampaign, l.id);
+    if(!r || !r.ok){ this.showToast('Could not begin the assault: ' + ((r && r.error) || 'unknown error'), 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.closeLairDetail();                  // the resolution panel sits below this peek — close-then-open
+    this.openEncounterModal(r.encounter.id);
+    this.showToast('⚔ The party moves on ' + (l.name || 'the den') + ' — walk the encounter, or go straight to combat.', 5000);
   },
   lairMarkCleared(){
     const l = this.lairDetailLair(); if(!l) return;

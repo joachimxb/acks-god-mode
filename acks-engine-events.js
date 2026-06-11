@@ -3932,6 +3932,51 @@ function encounterProposeSettle(campaign, encounterId, opts){
 // track-home machinery's natural prey) and no second resolution event (the entity
 // histories carry it — the createLair/Wizard precedent); migrates → just the
 // settle-check stamp. monsterSide.lairId links either way, so a later meeting at
+// ⚔ Begin a lair assault (E4j — Joachim 2026-06-11: "a lair that is known to the party should
+// be able to be attacked; at the moment that is a GM-resolved thing, but the button should
+// exist"). Creates a first-class Encounter at the den — trigger 'lair-assault', the monster
+// side bound at-lair (the living population + its Groups), the party side = every active
+// character standing at the lair's hex (their shared party when they have one) — and hands it
+// to the step-walking panel: roll the distance and surprise (a den can be caught off guard),
+// demand surrender via reaction/influence, or ⚔ to-combat and record the outcome as an
+// adventure-result (a cleared result flips the lair — the shipped M0 chain). Resolution stays
+// the GM's; this verb only OPENS the meeting. Gates: the lair must be active + placed + KNOWN
+// to the players (the party can't march on a den it hasn't found — discover it via search,
+// tracking, or Mark discovered); someone must stand at the hex; one open assault per den.
+// opts: { id? (idempotent create), characterIds? (override the at-hex roster) }.
+function beginLairAssault(campaign, lairId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, lairId) : null;
+  if(!lair) return { ok: false, error: 'unknown-lair' };
+  if(lair.status !== 'active') return { ok: false, error: 'lair-not-active' };
+  if(!lair.hexId) return { ok: false, error: 'no-hex' };
+  if(!lair.knownToPlayers) return { ok: false, error: 'not-known-to-players' };
+  const open = (campaign.encounters || []).find(e => e && e.status === 'active' && e.trigger === 'lair-assault'
+    && e.monsterSide && e.monsterSide.lairId === lair.id);
+  if(open) return { ok: false, error: 'assault-in-progress', encounter: open };
+  const chars = o.characterIds
+    ? (campaign.characters || []).filter(ch => ch && o.characterIds.indexOf(ch.id) >= 0)
+    : (campaign.characters || []).filter(ch => ch && ch.currentHexId === lair.hexId
+        && (typeof A.isActive !== 'function' || A.isActive(ch)));
+  if(!chars.length) return { ok: false, error: 'no-attackers' };
+  const partyIds = Array.from(new Set(chars.map(ch => ch.partyId).filter(Boolean)));
+  const count = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+  const enc = A.createEncounter(campaign, {
+    id: o.id, trigger: 'lair-assault', hexId: lair.hexId, category: 'monster',
+    occurredAtTurn: campaign.currentTurn || 1, occurredOnDayInMonth: campaign.currentDayInMonth || null,
+    partySide: { partyId: (partyIds.length === 1) ? partyIds[0] : null,
+                 characterIds: chars.map(ch => ch.id), sizeCount: chars.length },
+    monsterSide: { source: 'existing-lair', lairId: lair.id, monsterCatalogKey: lair.monsterCatalogKey || '',
+                   count: (count || null), encounterKind: 'at-lair', groupIds: (lair.groupIds || []).slice(),
+                   label: lair.name || '' }
+  });
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'assault-begun',
+    reason: 'the party moves on ' + (lair.name || 'the den') + ' — ' + chars.length + ' attacker(s)' });
+  return { ok: true, encounter: enc, lair: lair };
+}
+
 // the den recalls this one (D9: "met before — evaded").
 // opts: { proposal? (else proposes internally), dungeonBeckons?, note?, rng? }.
 function encounterSettleAsLair(campaign, encounterId, opts){
@@ -4235,7 +4280,7 @@ Object.assign(ACKS, {
   encounterRerollSurprise, encounterRerollEvasion,
   encounterRerollReaction, encounterRerollInfluence,
   // E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103)
-  encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair,
+  encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair, beginLairAssault,
   // E3b — the tone derivation (JJ pp.84–87, D11): catalog rows pre-asserted from shipped state
   encounterToneRows,
   // E3c — monster pursuit (RR p.285 + p.120; 'monster-pursuit', default OFF; absorbs M5)

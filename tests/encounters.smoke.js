@@ -1227,6 +1227,58 @@ section('E4i — track a parted band home: a success FOUNDS its den (Joachim 202
 }
 
 // =============================================================================
+section('E4j — ⚔ Attack a known lair: beginLairAssault opens the meeting (Joachim 2026-06-11)');
+{
+  const c = ACKS.blankCampaign({ name: 'assault' });
+  c.hexes = [{ id: 'hex-a', coord: { q: 0, r: 0 }, terrain: 'hills', domainId: null }];
+  const a1 = ACKS.blankCharacter({ name: 'Vald' });  a1.currentHexId = 'hex-a'; a1.partyId = 'pty-raiders';
+  const a2 = ACKS.blankCharacter({ name: 'Imre' });  a2.currentHexId = 'hex-a'; a2.partyId = 'pty-raiders';
+  const far = ACKS.blankCharacter({ name: 'Far' });  far.currentHexId = 'hex-elsewhere';
+  c.characters.push(a1, a2, far);
+  const gen = ACKS.generateLair(c, { hexId: 'hex-a', monsterCatalogKey: 'orc' }, () => 0.5);
+  const den = gen.lair;
+  const living = ACKS.lairInhabitantCount(c, den);
+
+  // ── the gates ──
+  let r = ACKS.beginLairAssault(c, 'lai-nope');
+  ok('unknown lair refuses', !r.ok && r.error === 'unknown-lair');
+  r = ACKS.beginLairAssault(c, den.id);
+  ok('an UNDISCOVERED den refuses — the party cannot march on what it has not found', !r.ok && r.error === 'not-known-to-players');
+  den.knownToPlayers = true;
+  const ghost = ACKS.createLair(c, { hexId: 'hex-a', monsterCatalogKey: 'orc', status: 'active', name: 'Old warren' });
+  ghost.knownToPlayers = true;
+  ACKS.clearLair(c, ghost.id, { reason: 'test' });
+  r = ACKS.beginLairAssault(c, ghost.id);
+  ok('a cleared lair refuses — nothing lives there', !r.ok && r.error === 'lair-not-active');
+  a1.currentHexId = 'hex-elsewhere'; a2.currentHexId = 'hex-elsewhere';
+  r = ACKS.beginLairAssault(c, den.id);
+  ok('nobody at the hex refuses — travel there first', !r.ok && r.error === 'no-attackers');
+  a1.currentHexId = 'hex-a'; a2.currentHexId = 'hex-a';
+
+  // ── the assault opens as a first-class Encounter ──
+  r = ACKS.beginLairAssault(c, den.id, { id: 'enc-assault-1' });
+  ok('the assault opens', r.ok && !!r.encounter && r.encounter.id === 'enc-assault-1');
+  const enc = r.encounter;
+  ok('…trigger lair-assault, at the den’s hex, monster category', enc.trigger === 'lair-assault' && enc.hexId === 'hex-a' && enc.category === 'monster' && enc.status === 'active');
+  ok('…the den’s side bound at-lair: lairId + key + the living count + its groups', enc.monsterSide.lairId === den.id
+    && enc.monsterSide.monsterCatalogKey === 'orc' && enc.monsterSide.encounterKind === 'at-lair'
+    && enc.monsterSide.count === living && JSON.stringify(enc.monsterSide.groupIds) === JSON.stringify(den.groupIds));
+  ok('…the party side = everyone standing at the hex (their shared party kept)', JSON.stringify((enc.partySide.characterIds || []).slice().sort()) === JSON.stringify([a1.id, a2.id].sort())
+    && enc.partySide.partyId === 'pty-raiders' && enc.partySide.sizeCount === 2);
+  ok('…stamped on the encounter history', (enc.history || []).some(h => h && h.type === 'assault-begun'));
+  ok('…and it shows in the den’s encounter list (monsterSide.lairId)', (c.encounters || []).filter(e => e && e.monsterSide && e.monsterSide.lairId === den.id).some(e => e.id === 'enc-assault-1'));
+
+  // ── one open assault per den; resolving frees the gate + D9 remembers ──
+  r = ACKS.beginLairAssault(c, den.id);
+  ok('a second assault refuses while one is open', !r.ok && r.error === 'assault-in-progress' && r.encounter && r.encounter.id === 'enc-assault-1');
+  ACKS.recordEncounterResolved(c, 'enc-assault-1', 'combat', { note: 'steel in the warren — GM resolves' });
+  r = ACKS.beginLairAssault(c, den.id, { id: 'enc-assault-2' });
+  ok('after resolution a new assault can open', r.ok && r.encounter.id === 'enc-assault-2');
+  const prior = ACKS.priorReactionBetween(c, r.encounter);
+  ok('…and D9 recalls the first assault (met before — combat)', !!prior && prior.encounterId === 'enc-assault-1' && prior.outcome === 'combat');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
