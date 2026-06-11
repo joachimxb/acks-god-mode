@@ -3728,7 +3728,16 @@ function encounterSettleEligibility(campaign, encounterId){
   const A = _gpwACKS();
   const enc = A.findEncounter(campaign, encounterId);
   if(!enc) return { eligible: false, reason: 'unknown-encounter' };
-  if(enc.status === 'resolved') return { eligible: false, reason: 'already-resolved' };
+  // A resolved meeting can still take the linger roll on the EVADED path (per Joachim,
+  // 2026-06-11): the party fled — the band remains in the area and may den behind them.
+  // Any other resolution closes the offer; one settle-check decides it (no re-rolling
+  // the world's answer); a pending pursuit decision comes first (settle ⊥ chase).
+  if(enc.status === 'resolved'){
+    if(enc.outcome !== 'evaded') return { eligible: false, reason: 'already-resolved' };
+    if((enc.history || []).some(h => h && h.type === 'settle-check')) return { eligible: false, reason: 'settle-already-decided' };
+  }
+  if(enc.pursuit && (enc.pursuit.status === 'offered' || enc.pursuit.status === 'pursuing'))
+    return { eligible: false, reason: 'pursuit-in-progress' };
   const ms = enc.monsterSide || {};
   if(ms.lairId) return { eligible: false, reason: (ms.encounterKind === 'wandering-fragment') ? 'fragment-has-home-lair' : 'already-at-lair' };
   if(!enc.hexId) return { eligible: false, reason: 'no-hex' };
@@ -3774,10 +3783,17 @@ function encounterProposeSettle(campaign, encounterId, opts){
   });
 }
 
-// Materialize the GM-confirmed proposal. Lingers → a Lair at the hex (active; known —
-// the party met the band that denned) + a bound Group via generateLair, the hoard
-// letter only at full strength; the encounter resolves 'settled-as-lair' with
-// monsterSide.lairId linked. Migrates → resolves 'dispersed' with the migration note.
+// Materialize the GM-confirmed proposal. On an ACTIVE meeting: lingers → a Lair at
+// the hex (active; KNOWN — the party met the band that denned) + a bound Group via
+// generateLair, the hoard letter only at full strength; the encounter resolves
+// 'settled-as-lair' with monsterSide.lairId linked; migrates → resolves 'dispersed'.
+// On a resolved-EVADED meeting (per Joachim, 2026-06-11) the outcome stands — the
+// meeting truthfully ended with the party fleeing: lingers → the same den, but
+// UNKNOWN to the players (they ran; the band dens unobserved — the M4 search /
+// track-home machinery's natural prey) and no second resolution event (the entity
+// histories carry it — the createLair/Wizard precedent); migrates → just the
+// settle-check stamp. monsterSide.lairId links either way, so a later meeting at
+// the den recalls this one (D9: "met before — evaded").
 // opts: { proposal? (else proposes internally), dungeonBeckons?, note?, rng? }.
 function encounterSettleAsLair(campaign, encounterId, opts){
   const A = _gpwACKS();
@@ -3785,12 +3801,14 @@ function encounterSettleAsLair(campaign, encounterId, opts){
   const elig = encounterSettleEligibility(campaign, encounterId);
   if(!elig.eligible) return { ok: false, error: elig.reason };
   const enc = elig.encounter, entry = elig.entry;
+  const afterEvasion = enc.status === 'resolved';   // eligibility guarantees outcome 'evaded'
   const p = o.proposal ? settleProposalOutcome(o.proposal, o.proposal.dungeonBeckons) : encounterProposeSettle(campaign, encounterId, o);
   if(!p.ok) return p;
   const turn = campaign.currentTurn || 1;
   if(!p.lingers){
     enc.history.push({ turn, type: 'settle-check',
       reason: 'Lair % ' + p.lingerNatural + ' vs ' + p.effectivePct + (p.dungeonBeckons ? ' (×2 dungeon)' : '') + ' — migrates onward' });
+    if(afterEvasion) return { ok: true, migrated: true, proposal: p, lair: null, encounter: enc, settledAfterEvasion: true, event: null };
     const res = recordEncounterResolved(campaign, enc.id, 'dispersed', {
       note: 'Rolled vs Lair % (' + p.lingerNatural + ' vs ' + p.effectivePct + '%) — the ' + (entry.name || 'monsters') + ' migrate onward (JJ p.103).'
     });
@@ -3798,14 +3816,15 @@ function encounterSettleAsLair(campaign, encounterId, opts){
   }
   const gen = A.generateLair(campaign, {
     hexId: enc.hexId, monsterCatalogKey: entry.key, count: p.count,
-    establishedBy: 'encounter-settle', knownToPlayers: true, atTurn: turn,
+    establishedBy: 'encounter-settle', knownToPlayers: !afterEvasion, atTurn: turn,
     name: o.name
   }, o.rng || Math.random);
   const lair = gen && gen.lair;
   if(!lair) return { ok: false, error: 'lair-create-failed' };
   if(!p.fullStrength) lair.treasureType = '';   // wandering-size settlers bring no hoard yet
   lair.history.push({ turn, type: 'settled',
-    reason: 'lingered after an encounter — ' + (p.fullStrength ? 'full lair strength (' + p.count + ')' : 'wandering numbers (' + p.count + ', no hoard yet)') });
+    reason: 'lingered after an encounter — ' + (p.fullStrength ? 'full lair strength (' + p.count + ')' : 'wandering numbers (' + p.count + ', no hoard yet)')
+      + (afterEvasion ? '; the party had evaded — the den is unknown to the players' : '') });
   enc.monsterSide.lairId = lair.id;
   const newGroupId = gen.group ? gen.group.id : ((lair.groupIds && lair.groupIds.length) ? lair.groupIds[lair.groupIds.length - 1] : null);
   if(newGroupId && !(enc.monsterSide.groupIds || []).includes(newGroupId)){
@@ -3814,6 +3833,7 @@ function encounterSettleAsLair(campaign, encounterId, opts){
   if(enc.monsterSide.count == null) enc.monsterSide.count = p.count;
   enc.history.push({ turn, type: 'settle-check',
     reason: 'Lair % ' + p.lingerNatural + ' vs ' + p.effectivePct + (p.dungeonBeckons ? ' (×2 dungeon)' : '') + ' — lingers; strength ' + p.strengthNatural + ' vs ' + p.lairPct + ' — ' + (p.fullStrength ? 'full lair strength' : 'wandering numbers') });
+  if(afterEvasion) return { ok: true, migrated: false, proposal: p, lair, encounter: enc, settledAfterEvasion: true, event: null };
   const res = recordEncounterResolved(campaign, enc.id, 'settled-as-lair', {
     note: p.fullStrength
       ? ('Settled at full lair strength — ' + p.count + ' (hoard type ' + (lair.treasureType || '—') + ' recorded).' + (o.note ? ' ' + o.note : ''))

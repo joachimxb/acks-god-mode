@@ -1219,8 +1219,9 @@ document.addEventListener('alpine:init', () => {
             <button @click="encModalResolve('dismissed')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Strike it — GM override; it never happened">✕ Dismiss</button>
           </div>
           <!-- E3a — the settle proposal (linger or migrate, JJ p.103). Transient: ⟳ re-rolls, the
-               dungeon tick recomputes vs the held naturals (the E2h idiom), confirm materializes. -->
-          <div class="border border-amber-700/40 rounded p-2 space-y-1 text-xs" style="background:#f7f1df" x-show="encModalEnc().status === 'active' && encModal.settle">
+               dungeon tick recomputes vs the held naturals (the E2h idiom), confirm materializes.
+               Also serves the resolved-EVADED offer (the banner button below) — hence no active gate. -->
+          <div class="border border-amber-700/40 rounded p-2 space-y-1 text-xs" style="background:#f7f1df" x-show="encModal.settle">
             <div class="flex items-center justify-between">
               <h4 class="font-semibold text-sm">🏚 Settles as lair? <span class="font-normal opacity-60">(linger or migrate — JJ p.103)</span></h4>
               <button @click="encModal.settle = null" class="px-1.5 border border-ink rounded hover:bg-red-50" title="Cancel — leave the encounter open (nothing was written)">×</button>
@@ -1234,7 +1235,7 @@ document.addEventListener('alpine:init', () => {
             <div x-text="encSettleOutcomeText()"></div>
             <div class="flex items-center gap-2 mt-1">
               <button @click="encModalProposeSettle()" class="px-1.5 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-roll the settle dice (still only a proposal)">⟳</button>
-              <button @click="encModalConfirmSettle()" class="px-2 py-0.5 border border-ink rounded font-semibold" :class="encModal.settle && encModal.settle.lingers ? 'bg-green-100 hover:bg-green-200' : 'bg-yellow-100 hover:bg-yellow-200'" x-text="encModal.settle && encModal.settle.lingers ? '✓ Den here (create the lair)' : '✓ Record migration (dispersed)'"></button>
+              <button @click="encModalConfirmSettle()" class="px-2 py-0.5 border border-ink rounded font-semibold" :class="encModal.settle && encModal.settle.lingers ? 'bg-green-100 hover:bg-green-200' : 'bg-yellow-100 hover:bg-yellow-200'" x-text="encSettleConfirmLabel()"></button>
             </div>
           </div>
           <template x-if="encModalEnc().status === 'resolved'">
@@ -1242,7 +1243,12 @@ document.addEventListener('alpine:init', () => {
               <span class="capitalize font-semibold" x-text="encModalEnc().outcome"></span>
               <span class="opacity-70" x-text="' · turn ' + (encModalEnc().resolvedAtTurn == null ? '?' : encModalEnc().resolvedAtTurn) + (encModalEnc().resolvedOnDayInMonth ? ', day ' + encModalEnc().resolvedOnDayInMonth : '')"></span>
               <span class="capitalize" x-show="encModalEnc().reaction && encModalEnc().reaction.current" x-text="' · last attitude: ' + encAttitudeText(encModalEnc().reaction)"></span>
-              <button x-show="encModalEnc().outcome === 'settled-as-lair' && encModalEnc().monsterSide && encModalEnc().monsterSide.lairId" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair they settled (a peek above this panel)">→ lair</button>
+              <button x-show="(encModalEnc().outcome === 'settled-as-lair' || encModalEnc().outcome === 'evaded') && encModalEnc().monsterSide && encModalEnc().monsterSide.lairId" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair they settled (a peek above this panel)">→ lair</button>
+              <!-- E3a, the evaded path (per Joachim 2026-06-11): the party fled — the band may
+                   still den behind them. One linger roll decides it; a den founded here starts
+                   UNKNOWN to the players (they ran; find it via search / track-home). -->
+              <button x-show="encSettleOfferOnResolved() && !encModal.settle" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="text-xs px-1.5 border border-ink rounded ml-1" :title="encSettleTitle()">🏚 Settles as lair?</button>
+              <span class="text-xs opacity-60" x-show="encSettleOfferOnResolved() && !encModal.settle && !encSettleEligible()" x-text="'(' + encSettleReason() + ')'"></span>
             </div>
           </template>
           <!-- Footer: Inspector + history -->
@@ -10315,7 +10321,17 @@ return {
     if(e.reason === 'already-at-lair') return 'they are already home — this meeting is at their lair';
     if(e.reason === 'fragment-has-home-lair') return 'this band forays from a home lair — it returns there, it does not found a second den';
     if(e.reason === 'no-hex') return 'the encounter has no hex to den in';
+    if(e.reason === 'pursuit-in-progress') return 'they are taking up the chase — resolve the pursuit first';
+    if(e.reason === 'settle-already-decided') return 'the linger roll was already made — they moved on';
     return e.reason;
+  },
+  // The resolved-EVADED offer (the banner button): one linger roll per meeting —
+  // hidden once decided (settled → the → lair link; migrated → the settle-check stamp).
+  encSettleOfferOnResolved(){
+    const e = this.encModalEnc();
+    return !!(e && e.status === 'resolved' && e.outcome === 'evaded'
+      && !(e.monsterSide && e.monsterSide.lairId)
+      && !(e.history || []).some(h => h && h.type === 'settle-check'));
   },
   encSettleTitle(){
     const r = this.encSettleReason();
@@ -10342,12 +10358,22 @@ return {
     const p = this.encModal.settle; if(!p || !p.lingers) return '';
     return 'strength: 1d100 ' + p.strengthNatural + ' vs Lair ' + p.lairPct + '% → ' + (p.fullStrength ? 'full lair strength ✓' : 'wandering numbers ✗');
   },
+  encSettleConfirmLabel(){
+    const p = this.encModal.settle; if(!p) return '';
+    if(p.lingers) return '✓ Den here (create the lair)';
+    const enc = this.encModalEnc();
+    return (enc && enc.status === 'resolved') ? '✓ They moved on (record it)' : '✓ Record migration (dispersed)';
+  },
   encSettleOutcomeText(){
     const p = this.encModal.settle; if(!p) return '';
-    if(!p.lingers) return 'The ' + (p.monsterName || 'monsters') + ' migrate onward — confirming records the meeting as dispersed.';
-    return p.fullStrength
+    const enc = this.encModalEnc();
+    const evaded = !!(enc && enc.status === 'resolved');   // the evaded path — the outcome stands
+    if(!p.lingers) return 'The ' + (p.monsterName || 'monsters') + ' migrate onward — '
+      + (evaded ? 'confirming records that they moved on (the meeting stays evaded).' : 'confirming records the meeting as dispersed.');
+    const den = p.fullStrength
       ? ('Settles at FULL lair strength — ' + p.fullCount + ' ' + (p.monsterName || '') + ' den at this hex, hoard letter recorded (contents are the GM\'s).')
       : ('Settles at wandering strength — ' + p.wanderingCount + ' ' + (p.monsterName || '') + ' den at this hex with no hoard yet.');
+    return den + (evaded ? ' The party fled — the den starts UNKNOWN to the players (find it via search or track-home).' : '');
   },
   encModalConfirmSettle(){
     const enc = this.encModalEnc(); if(!enc || !this.encModal.settle) return;
@@ -10356,8 +10382,10 @@ return {
     this.encModal.settle = null;
     this.markDirty(); this.schedulePersist();
     this.showToast(r.migrated
-      ? 'They migrate onward — recorded as dispersed (JJ p.103).'
-      : ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' settles at ' + this.encHexLabel(enc) + ' — see World ▸ 🏚 Lairs.'), 6000);
+      ? (r.settledAfterEvasion ? 'They moved on — the meeting stays evaded (JJ p.103).' : 'They migrate onward — recorded as dispersed (JJ p.103).')
+      : (r.settledAfterEvasion
+        ? ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' dens at ' + this.encHexLabel(enc) + ' behind the fled party — unknown to the players (search / track-home finds it).')
+        : ('🏚 ' + ((r.lair && r.lair.name) || 'A lair') + ' settles at ' + this.encHexLabel(enc) + ' — see World ▸ 🏚 Lairs.')), 7000);
   },
   // ── E3c — pursuit (the GM's intent call + the running-chase levers; RR p.285 + p.120).
   encModalBeginPursuit(){

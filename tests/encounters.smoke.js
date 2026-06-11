@@ -652,9 +652,46 @@ section('E3a — settle-as-lair (linger or migrate, JJ p.69 + p.103)');
   const p5 = ACKS.encounterProposeSettle(c, eCl.id, { rng: seq(0.20, 0.50, 0.90, 0.50, 0.50) });
   ok('a count-less band rolls its wandering dice (2d6 → 8)', p5.wanderingCount === 8 && p5.count === 8);
 
-  // Gates: a resolved encounter neither proposes nor settles.
-  ok('resolved → no propose', ACKS.encounterProposeSettle(c, eFull.id, {}).error === 'already-resolved');
-  ok('resolved → no settle', ACKS.encounterSettleAsLair(c, eFull.id, {}).error === 'already-resolved');
+  // Gates: a non-evaded resolution closes the offer.
+  ok('resolved (settled) → no propose', ACKS.encounterProposeSettle(c, eFull.id, {}).error === 'already-resolved');
+  ok('resolved (settled) → no settle', ACKS.encounterSettleAsLair(c, eFull.id, {}).error === 'already-resolved');
+
+  // ── The EVADED path (per Joachim, 2026-06-11): the party fled — the band may still
+  // den behind them. The meeting's outcome STANDS (evaded — that is what happened);
+  // a den founded here starts UNKNOWN to the players (they ran; the M4 search /
+  // track-home machinery finds it); one settle-check decides it, never re-rolled.
+  const mkEvaded = () => {
+    const e = mk();
+    ACKS.encounterSetAwareness(c, e.id, { partyForeknowledge: true, partyLineOfSight: true });
+    ACKS.encounterRollSurprise(c, e.id, { rng: () => 0.9 });
+    ACKS.encounterAttemptEvasion(c, e.id, { autoSuccess: true, rng: () => 0.5 });
+    return e;
+  };
+  const evtsFor = (id) => (c.eventLog || []).filter(en => en && en.event && en.event.kind === 'encounter-resolved'
+    && en.event.payload && en.event.payload.encounterId === id).length;
+
+  const eEv = mkEvaded();
+  ok('an evaded meeting still offers settle', eEv.status === 'resolved' && eEv.outcome === 'evaded'
+    && ACKS.encounterSettleEligibility(c, eEv.id).eligible === true);
+  const pEv = ACKS.encounterProposeSettle(c, eEv.id, { rng: seq(0.20, 0.50, 0.90) });   // lingers, wandering 4
+  const rEv = ACKS.encounterSettleAsLair(c, eEv.id, { proposal: pEv });
+  ok('dens behind the fled party — flagged settledAfterEvasion', rEv.ok === true && rEv.settledAfterEvasion === true && !!rEv.lair);
+  ok('the meeting outcome STANDS (evaded, not re-resolved)', eEv.status === 'resolved' && eEv.outcome === 'evaded');
+  ok('the den starts UNKNOWN to the players (they ran)', rEv.lair.knownToPlayers === false);
+  ok('linked for D9 — the den recalls the evaded meeting', eEv.monsterSide.lairId === rEv.lair.id);
+  ok('no second resolution event (entity histories carry it)', evtsFor(eEv.id) === 1 && rEv.event === null);
+  ok('the offer is consumed once settled', !ACKS.encounterSettleEligibility(c, eEv.id).eligible);
+
+  const eMg = mkEvaded();
+  const pMg = ACKS.encounterProposeSettle(c, eMg.id, { rng: seq(0.80, 0.50, 0.90) });   // 81 > 35 → migrates
+  const lairsBeforeMg = (c.lairs || []).length;
+  const rMg = ACKS.encounterSettleAsLair(c, eMg.id, { proposal: pMg });
+  ok('migrate on the evaded path: stamped, no lair, the meeting stays evaded',
+    rMg.ok === true && rMg.migrated === true && rMg.settledAfterEvasion === true
+    && (c.lairs || []).length === lairsBeforeMg && eMg.outcome === 'evaded'
+    && eMg.history.some(h => h.type === 'settle-check' && /migrates/.test(h.reason)));
+  ok('one linger roll per meeting — no re-rolling the world\'s answer',
+    ACKS.encounterSettleEligibility(c, eMg.id).reason === 'settle-already-decided');
 }
 
 // =============================================================================
@@ -807,6 +844,8 @@ section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default OFF
     eP.status === 'active' && eP.phase === 'pursuit' && eP.pursuit && eP.pursuit.status === 'offered');
   ok('half expedition speed derives from the catalog (wolf 36 mi → 18 mi/day)', eP.pursuit.pursuerMilesPerDay === 18);
   ok('the aftermath still rolled (the party DID evade)', !!eP.evasion.aftermath);
+  ok('settle waits on the pursuit decision (settle ⊥ chase)',
+    ACKS.encounterSettleEligibility(c, eP.id).reason === 'pursuit-in-progress');
 
   // Decline → resolves evaded exactly as the rule-OFF path.
   {
@@ -814,6 +853,7 @@ section('E3c — monster pursuit (RR p.285 + p.120; monster-pursuit, default OFF
     ACKS.encounterAttemptEvasion(c, e2.id, { autoSuccess: true, rng: () => 0.5 });
     const r = ACKS.encounterDeclinePursuit(c, e2.id, {});
     ok('waived: resolves evaded', r.ok === true && e2.status === 'resolved' && e2.outcome === 'evaded');
+    ok('a declined pursuit opens the evaded settle offer', ACKS.encounterSettleEligibility(c, e2.id).eligible === true);
   }
   // The take-up throw (RR p.120): 11+ with the party-size count bands; natural 1 fails.
   {
