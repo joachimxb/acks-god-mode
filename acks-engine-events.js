@@ -3297,20 +3297,28 @@ function encounterRollReaction(campaign, encounterId, opts){
   if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
   if(enc.reaction) return { ok: false, error: 'already-rolled-use-influence' };
   const o = opts || {};
+  // E3b — the tone (JJ pp.84–87): the spokesperson's approach; defaults diplomatic.
+  const tone = (o.tone && A.ENCOUNTER_TONES && A.ENCOUNTER_TONES[o.tone]) ? o.tone : 'diplomatic';
   const faceId = o.faceCharacterId || (enc.partySide && enc.partySide.faceCharacterId) || null;
   const chaMod = (o.chaMod != null) ? Number(o.chaMod) : (faceId ? _encChaMod(campaign, faceId) : 0);
   const roll = A.rollEncounterReaction({ chaMod, modifiers: o.modifiers || [], rng: o.rng });
   if(faceId && enc.partySide) enc.partySide.faceCharacterId = faceId;
   enc.reaction = {
     current: roll.band,
-    rolls: [{ attempt: 0, kind: 'initial', natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum,
+    tone,
+    rolls: [{ attempt: 0, kind: 'initial', tone, natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum,
               modifiers: (o.modifiers || []).slice(),   // itemized — every modifier visible + reusable on a reroll
               total: roll.total, band: roll.band, clamped: roll.clamped,
               atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null }],
-    intimidationOriginalRoll: null    // E3 (the tone system) — RAW re-uses the ORIGINAL roll vs new allies
+    // Intimidation's gains are temporary, and a meeting with NEW ALLIES of the
+    // intimidated creature re-uses the ORIGINAL roll (JJ p.86) — so it is stored.
+    intimidationOriginalRoll: (tone === 'intimidating')
+      ? { attempt: 0, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 }
+      : null
   };
   enc.phase = 'interaction';
-  enc.history.push({ turn: campaign.currentTurn || 1, type: 'reaction', reason: roll.total + ' → ' + roll.band + (roll.clamped ? (' (' + roll.clamped + ' clamp)') : '') });
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'reaction',
+    reason: roll.total + ' → ' + (A.toneBandLabel ? A.toneBandLabel(tone, roll.band) : roll.band) + (tone !== 'diplomatic' ? (' (' + tone + ')') : '') + (roll.clamped ? (' (' + roll.clamped + ' clamp)') : '') });
   return { ok: true, encounter: enc, reaction: enc.reaction, roll };
 }
 
@@ -3333,6 +3341,8 @@ function encounterAttemptInfluence(campaign, encounterId, opts){
   const o = opts || {};
   const attemptNumber = enc.reaction.rolls.filter(r => r && r.kind === 'influence').length + 1;
   const info = A.influenceAttemptInfo(attemptNumber);
+  // E3b — the tone may switch between attempts (the speaker's approach); defaults to standing.
+  const tone = (o.tone && A.ENCOUNTER_TONES && A.ENCOUNTER_TONES[o.tone]) ? o.tone : ((enc.reaction && enc.reaction.tone) || 'diplomatic');
   const actorId = o.actorCharacterId || (enc.partySide && enc.partySide.faceCharacterId) || null;
   const chaMod = (o.chaMod != null) ? Number(o.chaMod) : (actorId ? _encChaMod(campaign, actorId) : 0);
   const mods = (o.modifiers || []).slice();
@@ -3353,8 +3363,9 @@ function encounterAttemptInfluence(campaign, encounterId, opts){
     backlash = true;
   }
   enc.reaction.current = shift.to;
+  enc.reaction.tone = tone;
   const entry = {
-    attempt: attemptNumber, kind: 'influence', actorCharacterId: actorId,
+    attempt: attemptNumber, kind: 'influence', tone, actorCharacterId: actorId,
     natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum, total: roll.total,
     modifiers: mods.slice(),   // itemized (incl. the bribe line) — visible + reusable on a reroll
     band: roll.band, clamped: roll.clamped, from, to: shift.to,
@@ -3363,8 +3374,12 @@ function encounterAttemptInfluence(campaign, encounterId, opts){
     atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null
   };
   enc.reaction.rolls.push(entry);
+  // The FIRST intimidating roll of the walk is the stored original (JJ p.86).
+  if(tone === 'intimidating' && !enc.reaction.intimidationOriginalRoll){
+    enc.reaction.intimidationOriginalRoll = { attempt: attemptNumber, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 };
+  }
   enc.history.push({ turn: campaign.currentTurn || 1, type: 'influence',
-    reason: 'attempt ' + attemptNumber + ' (' + info.time + '): ' + roll.total + ' → ' + roll.band + ' — ' + from + ' → ' + shift.to + (backlash ? ' (bribe backlash)' : '') });
+    reason: 'attempt ' + attemptNumber + ' (' + info.time + (tone !== 'diplomatic' ? (', ' + tone) : '') + '): ' + roll.total + ' → ' + (A.toneBandLabel ? A.toneBandLabel(tone, roll.band) : roll.band) + ' — ' + from + ' → ' + shift.to + (backlash ? ' (bribe backlash)' : '') });
   // The audit + budget record (record-only, always campaignLogHidden — the table chatter
   // isn't a chronicle beat; the resolution event narrates the outcome).
   const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
@@ -3521,6 +3536,10 @@ function encounterRerollReaction(campaign, encounterId, opts){
     atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null
   });
   enc.reaction.current = roll.band;
+  // E3b — an intimidating initial roll IS the stored original; the re-throw replaces it.
+  if((prev.tone || enc.reaction.tone) === 'intimidating'){
+    enc.reaction.intimidationOriginalRoll = { attempt: 0, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 };
+  }
   enc.history.push({ turn: campaign.currentTurn || 1, type: 'reaction-reroll',
     reason: roll.total + ' → ' + roll.band + (roll.clamped ? (' (' + roll.clamped + ' clamp)') : '') });
   return { ok: true, encounter: enc, reaction: enc.reaction, roll };
@@ -3565,6 +3584,10 @@ function encounterRerollInfluence(campaign, encounterId, opts){
     total: roll.total, band: roll.band, clamped: roll.clamped, to: shift.to,
     bribe: last.bribe ? Object.assign({}, last.bribe, { backlash }) : null
   });
+  // E3b — if this attempt is the stored original intimidation roll, the re-throw replaces it.
+  if(last.tone === 'intimidating' && enc.reaction.intimidationOriginalRoll && enc.reaction.intimidationOriginalRoll.attempt === last.attempt){
+    enc.reaction.intimidationOriginalRoll = { attempt: last.attempt, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 };
+  }
   enc.history.push({ turn: campaign.currentTurn || 1, type: 'influence-reroll',
     reason: 'attempt ' + last.attempt + ' rerolled: ' + roll.total + ' → ' + roll.band + ' — ' + from + ' → ' + shift.to + (backlash ? ' (bribe backlash)' : '') });
   // Patch the attempt's audit event in place (found by the stamped eventId; legacy
@@ -3583,6 +3606,102 @@ function encounterRerollInfluence(campaign, encounterId, opts){
     if(wrap.result) wrap.result.narrativeSummary = ev.payload.narrative;
   }
   return { ok: true, encounter: enc, attempt: last, event: wrap ? wrap.event : null };
+}
+
+// ═══ E3b — encounter tone (JJ pp.84–87, D11) ══════════════════════════════════════
+// Walk the tone's modifier catalog (ENCOUNTER_TONES) and compute which rows the
+// engine can pre-assert from shipped state: alignment (face vs catalog monster),
+// lair-binding (at-lair = the party trespasses / the target is home), side counts →
+// outnumbering (a lair-bound target's count already includes its lair-mates — the
+// JJ p.86 footnote), catalog Morale, HD/level gap (3+), the face's proficiencies,
+// and the standing relationship (the CURRENT attitude once interacting, else the
+// prior meeting via priorReactionBetween — D9). Returns [{...row, auto, on, value}]:
+// auto rows arrive ticked with their computed value; everything else unticked at
+// its printed default. The GM overrides freely; ticked rows compose into the roll's
+// modifiers[] (the E2h itemization carries them through display + rerolls).
+function encounterToneRows(campaign, encounterId, tone, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  const toneDef = A.ENCOUNTER_TONES && A.ENCOUNTER_TONES[tone];
+  if(!enc || !toneDef) return [];
+  const o = opts || {};
+  const faceId = o.faceCharacterId || (enc.partySide && enc.partySide.faceCharacterId)
+    || ((enc.partySide && enc.partySide.characterIds) || [])[0] || null;
+  const face = faceId ? (((campaign && campaign.characters) || []).find(c => c && c.id === faceId) || null) : null;
+  const entry = (typeof A.findMonster === 'function') ? A.findMonster(enc.monsterSide && enc.monsterSide.monsterCatalogKey) : null;
+
+  const al = v => (v == null ? '' : String(v).trim().charAt(0).toUpperCase());   // 'Lawful'/'L' → 'L'
+  const fa = al(face && face.alignment), ma = al(entry && entry.alignment);
+  let alignKey = null;
+  if(fa && ma){
+    if(fa === 'L' && (ma === 'L' || ma === 'N')) alignKey = 'align-ll';
+    else if(fa === 'L' && ma === 'C') alignKey = 'align-lc';
+    else if(fa === 'C' && (ma === 'L' || ma === 'N')) alignKey = 'align-cl';
+  }
+
+  const atLair = !!(enc.monsterSide && enc.monsterSide.encounterKind === 'at-lair');
+
+  const pCount = (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 0;
+  const mCount = (enc.monsterSide && enc.monsterSide.count) || 0;
+  let outKey = null;
+  if(pCount > 0 && mCount > 0){
+    if(pCount >= mCount * 3) outKey = 'out-31';
+    else if(pCount * 2 >= mCount * 3) outKey = 'out-32';
+    else if(pCount > mCount) outKey = 'out-1';
+    else if(mCount >= pCount * 3) outKey = 'outd-31';
+    else if(mCount * 2 >= pCount * 3) outKey = 'outd-32';
+    else if(mCount > pCount) outKey = 'outd-1';
+  }
+
+  const hdOf = h => { const m = String(h == null ? '' : h).match(/^(\d+(?:\.\d+)?)/); return m ? Number(m[1]) : null; };
+  const fLvl = face ? (Number(face.level) || 0) : null;
+  const mHd = entry ? hdOf(entry.hd) : null;
+  let gapKey = null;
+  if(face && fLvl != null && mHd != null){
+    if(fLvl - mHd >= 3) gapKey = 'up';
+    else if(mHd - fLvl >= 3) gapKey = 'down';
+  }
+
+  const profs = face ? [].concat(face.proficiencies || [], face.classPowers || [])
+    .map(p => String((p && p.name) || p || '').toLowerCase()) : [];
+  const hasProf = name => profs.some(p => p.indexOf(name.toLowerCase()) >= 0);
+
+  let rel = (enc.reaction && enc.reaction.current) || null;
+  if(!rel && typeof A.priorReactionBetween === 'function'){
+    const prior = A.priorReactionBetween(campaign, enc.id);
+    rel = (prior && prior.reaction) || null;
+  }
+
+  return toneDef.rows.map(row => {
+    const r = { key: row.key, group: row.group, label: row.label, value: row.value,
+                variable: !!row.variable, derive: row.derive || null, note: row.note || '', auto: false, on: false };
+    switch(row.derive){
+      case 'alignment':   if(alignKey === row.key){ r.auto = true; r.on = true; } break;
+      case 'lair-target': if(atLair){ r.auto = true; r.on = true; } break;
+      case 'morale':      if(entry && typeof entry.morale === 'number'){ r.auto = true; r.on = entry.morale !== 0; r.value = -entry.morale; } break;
+      case 'outnumber':   if(row.key === outKey){ r.auto = true; r.on = true; } break;
+      case 'hd-gap':      if((row.key === 'hd-up' && gapKey === 'up') || (row.key === 'hd-down' && gapKey === 'down')){ r.auto = true; r.on = true; } break;
+      case 'level-gap':   if((row.key === 'level-up' && gapKey === 'up') || (row.key === 'level-down' && gapKey === 'down')){ r.auto = true; r.on = true; } break;
+      case 'relationship': {
+        if(!rel) break;
+        const want = row.key.replace(/^rel-/, '');
+        // 'intimidated' is the canonical indifferent band worn by the intimidating tone
+        if(want === 'intimidated' ? (rel === 'indifferent') : (rel === want)){ r.auto = true; r.on = true; }
+        break;
+      }
+      case 'prof-intimidation-gated':
+        // RAW gate: the proficiency counts only with legal authority over, or numbers on,
+        // the target — the numbers half derives; authority stays the GM's tick.
+        if(hasProf('Intimidation')){ r.auto = true; r.on = !!(outKey && outKey.indexOf('out-') === 0); }
+        break;
+      case 'prof-performance-art':
+        if((hasProf('Seduction') || hasProf('Mystic Aura')) && (hasProf('Performance') || hasProf('Art'))){ r.auto = true; r.on = true; }
+        break;
+      default:
+        if(row.derive && row.derive.indexOf('prof:') === 0 && hasProf(row.derive.slice(5))){ r.auto = true; r.on = true; }
+    }
+    return r;
+  });
 }
 
 // ═══ E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103) ═════
@@ -3835,7 +3954,9 @@ Object.assign(ACKS, {
   encounterRollDistance, encounterRerollSurprise, encounterRerollEvasion,
   encounterRerollReaction, encounterRerollInfluence,
   // E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103)
-  encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair
+  encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair,
+  // E3b — the tone derivation (JJ pp.84–87, D11): catalog rows pre-asserted from shipped state
+  encounterToneRows
 });
 
 if(typeof module !== 'undefined' && module.exports){

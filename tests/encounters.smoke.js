@@ -658,6 +658,105 @@ section('E3a — settle-as-lair (linger or migrate, JJ p.69 + p.103)');
 }
 
 // =============================================================================
+section('E3b — encounter tone (JJ pp.84–87, D11): catalogs + derivation + intimidation');
+{
+  const T = ACKS.ENCOUNTER_TONES;
+  ok('three tones ship', !!(T && T.diplomatic && T.intimidating && T.seductive));
+  ok('row counts match the printed tables (20 / 28 / 22)',
+    T.diplomatic.rows.length === 20 && T.intimidating.rows.length === 28 && T.seductive.rows.length === 22);
+  ok('no CHA or bribe rows — they ride the roll\'s own terms',
+    ['diplomatic', 'intimidating', 'seductive'].every(k => T[k].rows.every(r => !/charisma|bribe/i.test(r.label))));
+  ok('toneBandLabel: intimidation wears intimidated/overawed',
+    ACKS.toneBandLabel('intimidating', 'indifferent') === 'intimidated' && ACKS.toneBandLabel('intimidating', 'friendly') === 'overawed'
+    && ACKS.toneBandLabel('intimidating', 'neutral') === 'neutral' && ACKS.toneBandLabel('diplomatic', 'indifferent') === 'indifferent');
+
+  const c = ACKS.blankCampaign({ name: 'tone' });
+  ACKS.migrateCampaign(c);
+  c.hexes = [ACKS.blankHex({ id: 'hex-t', terrain: 'hills', terrainSubtype: 'rocky' })];
+  const face = ACKS.blankCharacter({ name: 'Envoy' });
+  face.abilities = { STR: 9, INT: 9, WIL: 9, DEX: 9, CON: 9, CHA: 9 };
+  face.alignment = 'L'; face.proficiencies = ['Diplomacy', 'Intimidation'];
+  c.characters.push(face);
+  const mk = (msOver) => ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: 'hex-t', category: 'monster',
+    partySide: { characterIds: [face.id], faceCharacterId: face.id, sizeCount: 6 },
+    monsterSide: Object.assign({ monsterCatalogKey: 'orc', count: 4 }, msOver || {}) });
+
+  // Derivation — diplomatic: a Lawful face vs the Chaotic orc, at the orcs' lair.
+  const eD = mk({ lairId: 'lai-t', encounterKind: 'at-lair' });
+  const rowsD = ACKS.encounterToneRows(c, eD.id, 'diplomatic');
+  const find = (rows, k) => rows.find(r => r.key === k);
+  ok('alignment derives (Lawful vs Chaotic → −1 on, the other two off)',
+    find(rowsD, 'align-lc').auto && find(rowsD, 'align-lc').on && !find(rowsD, 'align-ll').on && !find(rowsD, 'align-cl').on);
+  ok('at-lair derives trespassing −1', find(rowsD, 'lair-tres').auto && find(rowsD, 'lair-tres').on);
+  ok('Diplomacy proficiency derives +1', find(rowsD, 'prof-diplomacy').auto && find(rowsD, 'prof-diplomacy').on);
+  ok('Mystic Aura not held → off', !find(rowsD, 'prof-mystic').on);
+  ok('first meeting → no relationship row asserts', ['rel-hostile', 'rel-unfriendly', 'rel-indifferent', 'rel-friendly'].every(k => !find(rowsD, k).on));
+  ok('GM rows stay unticked at their printed defaults', !find(rowsD, 'threat-witnessed').on && find(rowsD, 'threat-witnessed').value === -2);
+
+  // Derivation — intimidating: the party (6) vs the band — 6:4 is exactly 3:2 (+2),
+  // 6:5 the plain +1; orc Morale 0; the Intimidation proficiency gate (authority OR
+  // numbers) derives via the numbers.
+  const rowsI = ACKS.encounterToneRows(c, eD.id, 'intimidating');
+  ok('outnumbering derives (6 vs 4 = exactly 3:2 → the +2 row alone)', find(rowsI, 'out-32').on && !find(rowsI, 'out-1').on && !find(rowsI, 'out-31').on && !find(rowsI, 'outd-1').on);
+  ok('6 vs 5 derives the plain +1 row', (() => {
+    const e5 = mk({ count: 5 });
+    const rows = ACKS.encounterToneRows(c, e5.id, 'intimidating');
+    return find(rows, 'out-1').on && !find(rows, 'out-32').on;
+  })());
+  ok('target in own lair derives −1 (intimidating)', find(rowsI, 'lair-target').on);
+  ok('Morale derives −score (orc 0 → value 0, off)', find(rowsI, 'morale').auto && find(rowsI, 'morale').value === 0 && !find(rowsI, 'morale').on);
+  ok('Intimidation proficiency gated on numbers — derives ON while outnumbering', find(rowsI, 'prof-intimidation').on);
+  ok('3:1 derives the +5 row alone', (() => {
+    const big = mk({ count: 2 });   // 6 vs 2 = 3:1
+    const rows = ACKS.encounterToneRows(c, big.id, 'intimidating');
+    return find(rows, 'out-31').on && !find(rows, 'out-32').on && !find(rows, 'out-1').on;
+  })());
+
+  // Tone stamping: an intimidating initial roll stores the ORIGINAL roll (JJ p.86 —
+  // new allies of the intimidated re-use it); the reroll-at-the-frontier replaces it.
+  const eI = mk();
+  ACKS.encounterSetAwareness(c, eI.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true, monsterLineOfSight: true });
+  ACKS.encounterRollSurprise(c, eI.id, { rng: () => 0.9 });
+  ACKS.encounterRollReaction(c, eI.id, { tone: 'intimidating', rng: () => 0.99 });   // 6+6 = 12 → friendly
+  ok('tone stamped on the reaction + the roll', eI.reaction.tone === 'intimidating' && eI.reaction.rolls[0].tone === 'intimidating');
+  ok('natural 12 under intimidation = overawed (canonical band stays friendly)',
+    eI.reaction.current === 'friendly' && ACKS.toneBandLabel(eI.reaction.tone, eI.reaction.current) === 'overawed');
+  ok('the original intimidation roll is stored', eI.reaction.intimidationOriginalRoll
+    && eI.reaction.intimidationOriginalRoll.attempt === 0 && eI.reaction.intimidationOriginalRoll.total === 12);
+  ACKS.encounterRerollReaction(c, eI.id, { rng: () => 0.0 });   // 1+1 = 2 → hostile
+  ok('the frontier reroll replaces the stored original', eI.reaction.intimidationOriginalRoll.total === 2 && eI.reaction.current === 'hostile');
+
+  // The tone may switch per attempt; the first INTIMIDATING roll of the walk is the original.
+  const eS = mk();
+  ACKS.encounterSetAwareness(c, eS.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true, monsterLineOfSight: true });
+  ACKS.encounterRollSurprise(c, eS.id, { rng: () => 0.9 });
+  ACKS.encounterRollReaction(c, eS.id, { tone: 'diplomatic', rng: () => 0.5 });
+  ok('a diplomatic walk stores no intimidation roll', eS.reaction.intimidationOriginalRoll === null);
+  ACKS.encounterAttemptInfluence(c, eS.id, { tone: 'intimidating', rng: () => 0.99 });
+  ok('the first intimidating attempt becomes the stored original (attempt 1)',
+    eS.reaction.tone === 'intimidating' && eS.reaction.intimidationOriginalRoll && eS.reaction.intimidationOriginalRoll.attempt === 1);
+  const origT = eS.reaction.intimidationOriginalRoll.total;
+  ACKS.encounterRerollInfluence(c, eS.id, { rng: () => 0.0 });
+  ok('rerolling that attempt updates the stored original', eS.reaction.intimidationOriginalRoll.total !== origT && eS.reaction.intimidationOriginalRoll.attempt === 1);
+
+  // Relationship derivation follows the walk: the CURRENT attitude once interacting,
+  // the PRIOR meeting (D9) on a fresh encounter with the same sides.
+  const eR = mk({ lairId: 'lai-rel', encounterKind: 'at-lair' });
+  ACKS.encounterSetAwareness(c, eR.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true, monsterLineOfSight: true });
+  ACKS.encounterRollSurprise(c, eR.id, { rng: () => 0.9 });
+  ACKS.encounterRollReaction(c, eR.id, { tone: 'diplomatic', rng: () => 0.99 });   // 12 → friendly
+  const rowsMid = ACKS.encounterToneRows(c, eR.id, 'diplomatic');
+  ok('mid-walk the standing attitude asserts its relationship row', find(rowsMid, 'rel-friendly').on && !find(rowsMid, 'rel-indifferent').on);
+  ACKS.recordEncounterResolved(c, eR.id, 'parleyed', {});
+  const eR2 = mk({ lairId: 'lai-rel', encounterKind: 'at-lair' });
+  const rowsNext = ACKS.encounterToneRows(c, eR2.id, 'diplomatic');
+  ok('a fresh meeting derives the relationship from the PRIOR encounter (D9)', find(rowsNext, 'rel-friendly').on);
+  const rowsNextI = ACKS.encounterToneRows(c, eR2.id, 'intimidating');
+  ok('the intimidating catalog maps a friendly memory to no row (RAW prints none)',
+    ['rel-hostile', 'rel-unfriendly', 'rel-intimidated'].every(k => !find(rowsNextI, k).on));
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

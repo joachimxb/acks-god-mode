@@ -800,7 +800,7 @@ document.addEventListener('alpine:init', () => {
                   <td class="font-mono" x-text="'t' + (e.resolvedAtTurn == null ? (e.occurredAtTurn == null ? '?' : e.occurredAtTurn) : e.resolvedAtTurn) + (e.resolvedOnDayInMonth ? ' d' + e.resolvedOnDayInMonth : (e.occurredOnDayInMonth ? ' d' + e.occurredOnDayInMonth : ''))"></td>
                   <td class="capitalize opacity-80" x-text="e.outcome || 'resolved'"></td>
                   <td>
-                    <template x-if="e.reaction && e.reaction.current"><span class="capitalize px-1.5 py-0.5 rounded border text-xs" :class="encAttitudeClass(e.reaction.current)" x-text="e.reaction.current"></span></template>
+                    <template x-if="e.reaction && e.reaction.current"><span class="capitalize px-1.5 py-0.5 rounded border text-xs" :class="encAttitudeClass(e.reaction.current)" x-text="encAttitudeText(e.reaction)"></span></template>
                     <template x-if="!(e.reaction && e.reaction.current)"><span class="opacity-50">—</span></template>
                   </td>
                   <td class="text-right"><button @click="openEncounterModal(e.id)" class="underline opacity-80">open</button></td>
@@ -1077,6 +1077,40 @@ document.addEventListener('alpine:init', () => {
           <!-- 4 · Reaction (E2j — revealed with evasion once surprise concludes) -->
           <div class="border border-ink/30 rounded p-2" x-show="encStepReactionVisible()">
             <h4 class="font-semibold mb-1">4 · Reaction <span class="opacity-50 font-normal">(RR pp.285–286)</span></h4>
+            <!-- E3b — tone + situational modifiers (JJ pp.84–87, D11). ONE panel serving the
+                 initial roll AND every influence attempt below: the ticked rows feed both.
+                 Auto rows derive from shipped state (alignment / lair / counts / Morale /
+                 HD gap / proficiencies / standing relationship); the GM overrides freely. -->
+            <div class="mb-1.5 text-xs space-y-1" x-show="encModalEnc().status === 'active'">
+              <div class="flex flex-wrap items-center gap-2">
+                <label class="flex items-center gap-1">tone
+                  <select x-model="encModal.tone" @change="encModalToneReset()" class="text-xs">
+                    <option value="diplomatic">Diplomatic</option>
+                    <option value="intimidating">Intimidating</option>
+                    <option value="seductive">Seductive</option>
+                  </select>
+                </label>
+                <span class="opacity-60" x-text="encToneDef() ? encToneDef().blurb : ''"></span>
+              </div>
+              <p class="text-orange-800" x-show="encModalEnc().surprise && encModalEnc().surprise.party && encModalEnc().surprise.party.surprised && !encModalEnc().reaction">Party surprised — the Judge picks the tone: diplomatic or intimidating, whichever is worse (JJ p.84).</p>
+              <div class="flex items-center gap-2">
+                <button @click="encModal.toneOpen = !encModal.toneOpen" class="underline opacity-80" x-text="(encModal.toneOpen ? '▾' : '▸') + ' situational modifiers — ' + encToneActiveCount() + ' active, ' + encToneModText() + ' (' + (encToneDef() ? encToneDef().cite : '') + ')'"></button>
+                <button x-show="encModal.toneOpen" @click="encModalToneRederive()" class="px-1.5 border border-ink rounded hover:bg-yellow-100" title="Refresh the auto-derived rows (speaker, standing attitude, counts) — your manual ticks and values are kept">⟲ re-derive</button>
+              </div>
+              <div x-show="encModal.toneOpen" class="border border-ink/20 rounded p-1.5 max-h-52 overflow-y-auto">
+                <template x-for="(row, ri) in encModal.toneRows" :key="'tone-' + row.key">
+                  <div>
+                    <div class="uppercase opacity-50 mt-1" style="font-size:0.65rem" x-show="ri === 0 || encModal.toneRows[ri-1].group !== row.group" x-text="row.group"></div>
+                    <div class="flex items-center gap-1.5">
+                      <input type="checkbox" x-model="row.on">
+                      <input x-show="row.variable" type="number" x-model.number="row.value" class="w-12 text-xs" :title="'GM-set amount (the printed default seeds it)'">
+                      <span x-show="!row.variable" class="font-mono w-7 text-right shrink-0" x-text="(row.value > 0 ? '+' : '') + row.value"></span>
+                      <span :class="row.auto ? 'text-green-900' : ''" x-text="row.label + (row.auto ? ' · auto' : '')" :title="row.note || ''"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
             <template x-if="!encModalEnc().reaction && encModalEnc().status === 'active'">
               <div class="space-y-1">
                 <div class="flex flex-wrap items-center gap-2 text-xs">
@@ -1099,8 +1133,10 @@ document.addEventListener('alpine:init', () => {
             </template>
             <template x-if="encModalEnc().reaction">
               <div class="space-y-1">
-                <p>Standing attitude: <span class="font-semibold capitalize px-1.5 py-0.5 rounded border" :class="encAttitudeClass(encModalEnc().reaction.current)" x-text="encModalEnc().reaction.current"></span>
+                <p>Standing attitude: <span class="font-semibold capitalize px-1.5 py-0.5 rounded border" :class="encAttitudeClass(encModalEnc().reaction.current)" x-text="encAttitudeText(encModalEnc().reaction)"></span>
+                  <span class="opacity-60 text-xs" x-show="encModalEnc().reaction.tone && encModalEnc().reaction.tone !== 'diplomatic'" x-text="' · ' + encModalEnc().reaction.tone + ' tone'"></span>
                   <span class="opacity-60 text-xs" x-show="encReactionFriendlyHint()"> · a Friendly creature of fewer HD can be recruited — Reaction to Hiring (RR p.162), the Recruit tab</span></p>
+                <p class="text-xs opacity-70" x-show="encModalEnc().reaction.tone === 'intimidating'">⚠ Intimidation is temporary (JJ p.86): re-roll when conditions materially change, and a meeting with NEW allies of the intimidated re-uses the original roll<span x-show="encModalEnc().reaction.intimidationOriginalRoll" x-text="' — stored: ' + ((encModalEnc().reaction.intimidationOriginalRoll || {}).total) + ' → ' + encToneBand((encModalEnc().reaction.intimidationOriginalRoll || {}).band)"></span>. If combat starts: intimidated → faltering, overawed → frightened.</p>
                 <ul class="text-xs space-y-0.5 font-mono">
                   <template x-for="(r, ri) in encModalEnc().reaction.rolls" :key="'encr-' + ri">
                     <li><span x-text="encReactionRollText(r)"></span>
@@ -1172,7 +1208,7 @@ document.addEventListener('alpine:init', () => {
             <div class="border border-green-600/40 rounded p-2" style="background:#eef7ea">
               <span class="capitalize font-semibold" x-text="encModalEnc().outcome"></span>
               <span class="opacity-70" x-text="' · turn ' + (encModalEnc().resolvedAtTurn == null ? '?' : encModalEnc().resolvedAtTurn) + (encModalEnc().resolvedOnDayInMonth ? ', day ' + encModalEnc().resolvedOnDayInMonth : '')"></span>
-              <span class="capitalize" x-show="encModalEnc().reaction && encModalEnc().reaction.current" x-text="' · last attitude: ' + ((encModalEnc().reaction || {}).current || '')"></span>
+              <span class="capitalize" x-show="encModalEnc().reaction && encModalEnc().reaction.current" x-text="' · last attitude: ' + encAttitudeText(encModalEnc().reaction)"></span>
               <button x-show="encModalEnc().outcome === 'settled-as-lair' && encModalEnc().monsterSide && encModalEnc().monsterSide.lairId" @click="openLairDetail(encModalEnc().monsterSide.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the lair they settled (a peek above this panel)">→ lair</button>
             </div>
           </template>
@@ -9847,9 +9883,12 @@ return {
       evExplorer: false, evForlorn: false, evFly: false, evSpeed: 0, evGmMod: 0, evAllowSurprised: false,
       faceId: firstChar, reactMod: 0,
       inflActorId: firstChar, inflMod: 0, inflBribe: 0,
-      settle: null, settleDungeon: false   // E3a — the transient linger-or-migrate proposal (nothing written until confirm)
+      settle: null, settleDungeon: false,   // E3a — the transient linger-or-migrate proposal (nothing written until confirm)
+      tone: (enc.reaction && enc.reaction.tone) || 'diplomatic',   // E3b — the spokesperson's approach (JJ pp.84–87)
+      toneOpen: false, toneRows: []
     };
     this.encounterModalId = id;
+    this.encModalToneReset();
     this.encounterModalOpen = true;
   },
   // Close hides via the flag and leaves the id set: the still-mounted subtree keeps a valid
@@ -9973,6 +10012,7 @@ return {
       ? window.ACKS.encounterRerollInfluence(this.currentCampaign, enc.id, {})
       : window.ACKS.encounterRerollReaction(this.currentCampaign, enc.id, {});
     if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || '?'), 3500); return; }
+    this.encModalToneRederive();   // the standing attitude may have moved — the relationship rows follow
     this.markDirty(); this.schedulePersist();
     if(last.kind === 'influence' && r.attempt)
       this.showToast('Rerolled: ' + r.attempt.from + ' → ' + r.attempt.to + (r.attempt.bribe && r.attempt.bribe.backlash ? ' (bribe backlash!)' : '') + '.', 4000);
@@ -10099,25 +10139,63 @@ return {
     if(r.evasion && r.evasion.success && r.evasion.aftermath)
       this.showToast('Evaded — displaced ' + r.evasion.aftermath.distanceFt + ' ft toward ' + r.evasion.aftermath.clockDirection + " o'clock. Navigation at −4 or knowingly lost (RR p.285).", 6000);
   },
+  // ── E3b — tone + situational modifiers (JJ pp.84–87, D11). encModal.toneRows is the
+  // working checklist: built by encModalToneReset (tone switch / open), refreshed by
+  // encModalToneRederive (auto rows re-derive — speaker, standing attitude, counts —
+  // while the GM's manual ticks + values are kept). Ticked rows feed BOTH the initial
+  // reaction roll and every influence attempt as itemized modifiers (the E2h plumbing).
+  encToneDef(){ return (window.ACKS.ENCOUNTER_TONES || {})[this.encModal.tone] || null; },
+  encToneBand(band){ return window.ACKS.toneBandLabel ? window.ACKS.toneBandLabel(this.encModal.tone, band) : band; },
+  encAttitudeText(reaction){
+    if(!reaction || !reaction.current) return '';
+    return window.ACKS.toneBandLabel ? window.ACKS.toneBandLabel(reaction.tone, reaction.current) : reaction.current;
+  },
+  _encToneActorId(){
+    const e = this.encModalEnc();
+    return (e && e.reaction) ? (this.encModal.inflActorId || null) : (this.encModal.faceId || null);
+  },
+  encModalToneReset(){
+    const enc = this.encModalEnc(); if(!enc){ this.encModal.toneRows = []; return; }
+    this.encModal.toneRows = window.ACKS.encounterToneRows(this.currentCampaign, enc.id, this.encModal.tone, { faceCharacterId: this._encToneActorId() }) || [];
+  },
+  encModalToneRederive(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const fresh = window.ACKS.encounterToneRows(this.currentCampaign, enc.id, this.encModal.tone, { faceCharacterId: this._encToneActorId() }) || [];
+    const old = {}; (this.encModal.toneRows || []).forEach(r => { old[r.key] = r; });
+    fresh.forEach(r => { const o = old[r.key]; if(o && !o.auto && !r.auto){ r.on = o.on; r.value = o.value; } });
+    this.encModal.toneRows = fresh;
+  },
+  encToneActiveCount(){ return (this.encModal.toneRows || []).filter(r => r && r.on).length; },
+  encToneModSum(){ return (this.encModal.toneRows || []).reduce((s, r) => s + ((r && r.on) ? (Number(r.value) || 0) : 0), 0); },
+  encToneModText(){ const s = this.encToneModSum(); return (s >= 0 ? '+' : '−') + Math.abs(s); },
+  encToneModifiers(){
+    return (this.encModal.toneRows || []).filter(r => r && r.on && Number(r.value))
+      .map(r => ({ label: r.label, value: Number(r.value) }));
+  },
   encModalRollReaction(){
     const enc = this.encModalEnc(); if(!enc) return;
-    const mods = Number(this.encModal.reactMod) ? [{ label: 'GM', value: Number(this.encModal.reactMod) }] : [];
-    const r = window.ACKS.encounterRollReaction(this.currentCampaign, enc.id, { faceCharacterId: this.encModal.faceId || null, modifiers: mods });
+    const mods = this.encToneModifiers();
+    if(Number(this.encModal.reactMod)) mods.push({ label: 'GM', value: Number(this.encModal.reactMod) });
+    const r = window.ACKS.encounterRollReaction(this.currentCampaign, enc.id, { faceCharacterId: this.encModal.faceId || null, modifiers: mods, tone: this.encModal.tone });
     if(!r || !r.ok){ this.showToast('Could not roll reaction: ' + ((r && r.error) || '?'), 3500); return; }
     if(!this.encModal.inflActorId) this.encModal.inflActorId = this.encModal.faceId;
+    this.encModalToneRederive();   // the standing attitude just changed — the relationship rows follow
     this.markDirty(); this.schedulePersist();
   },
   // Itemized roll math (E2h): 2d6 + CHA + each named modifier = total → band (clamp noted).
+  // E3b: the band wears its tone's label (intimidated/overawed) + non-diplomatic rolls name the tone.
   encReactionRollText(r){
     if(!r) return '';
+    const bandText = window.ACKS.toneBandLabel ? window.ACKS.toneBandLabel(r.tone, r.band) : r.band;
     let dice = '2d6 ' + r.natural;
     if(r.chaMod) dice += ' ' + (r.chaMod > 0 ? '+' : '−') + Math.abs(r.chaMod) + ' CHA';
     const mods = Array.isArray(r.modifiers) ? r.modifiers : null;
     if(mods && mods.length) dice += ' ' + mods.map(m => (m.value > 0 ? '+' : '−') + Math.abs(m.value) + ' ' + m.label).join(' · ');
     else if(r.modSum) dice += ' ' + (r.modSum > 0 ? '+' : '−') + Math.abs(r.modSum) + ' mods';
-    dice += ' = ' + r.total + ' → ' + r.band + (r.clamped ? ' (' + r.clamped + ' clamp)' : '');
-    if(r.kind === 'initial') return dice;
-    return 'attempt ' + r.attempt + ' (' + r.timeRequired + '): ' + dice + ' — ' + r.from + ' → ' + r.to
+    dice += ' = ' + r.total + ' → ' + bandText + (r.clamped ? ' (' + r.clamped + ' clamp)' : '');
+    const toneTag = (r.tone && r.tone !== 'diplomatic') ? (', ' + r.tone) : '';
+    if(r.kind === 'initial') return dice + (toneTag ? ' (' + r.tone + ')' : '');
+    return 'attempt ' + r.attempt + ' (' + r.timeRequired + toneTag + '): ' + dice + ' — ' + r.from + ' → ' + r.to
       + ((r.bribe && !(mods && mods.length)) ? (' · bribe +' + r.bribe.bonus) : '')
       + ((r.bribe && r.bribe.backlash) ? ' · bribe BACKLASH' : '');
   },
@@ -10167,11 +10245,13 @@ return {
   encModalAttemptInfluence(){
     const enc = this.encModalEnc(); if(!enc) return;
     const fits = this.encInfluenceFits(); if(!fits.fits){ this.showToast(fits.reason, 4500); return; }
-    const mods = Number(this.encModal.inflMod) ? [{ label: 'GM', value: Number(this.encModal.inflMod) }] : [];
-    const opts = { actorCharacterId: this.encModal.inflActorId || null, modifiers: mods };
+    const mods = this.encToneModifiers();
+    if(Number(this.encModal.inflMod)) mods.push({ label: 'GM', value: Number(this.encModal.inflMod) });
+    const opts = { actorCharacterId: this.encModal.inflActorId || null, modifiers: mods, tone: this.encModal.tone };
     if(this.encModal.inflBribe) opts.bribe = { bonus: this.encModal.inflBribe, proficient: this.encActorBriberyProficient() };
     const r = window.ACKS.encounterAttemptInfluence(this.currentCampaign, enc.id, opts);
     if(!r || !r.ok){ this.showToast('Could not attempt: ' + ((r && r.error) || '?'), 3500); return; }
+    this.encModalToneRederive();   // the standing attitude shifted — the relationship rows follow
     this.markDirty(); this.schedulePersist();
     this.showToast('Influence: ' + r.attempt.from + ' → ' + r.attempt.to + (r.attempt.bribe && r.attempt.bribe.backlash ? ' (bribe backlash!)' : '') + '.', 4000);
   },

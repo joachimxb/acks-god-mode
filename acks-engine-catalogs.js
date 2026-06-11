@@ -1633,6 +1633,125 @@ function bribeBonusInfo(bonus, proficient){
   return Object.assign({ proficient: !!proficient, backlashOnFail: !proficient }, tiers[b - 1]);
 }
 
+// ── Encounter tone (JJ pp.84–87; #476 E3b, D11) ──────────────────────────────────
+// Every reaction/influence roll takes a TONE — diplomatic / intimidating / seductive
+// (party surprised → the Judge picks diplomatic or intimidating, whichever is worse;
+// else the spokesperson's approach sets it). Each tone carries its own situational
+// modifier catalog, shipped as STRUCTURED DATA (Joachim's D11 call): rows the GM
+// ticks, each one itemized into the roll's modifiers[] (the E2h plumbing). Two
+// printed rows are deliberately ABSENT — the face's CHA ("Character has Charisma
+// Modifier") rides the roll's own chaMod term, and the diplomatic bribe row rides
+// the influence step's bribe mechanism — including either here would double-count.
+// Row shape: { key, group, label, value, variable? ("+1 or more" / per-unit rows —
+// the GM enters the amount, `value` seeds it), derive? (a derivation key
+// encounterToneRows computes from shipped state — alignment / lair / morale /
+// outnumber / hd-gap / level-gap / prof:<Name> / prof-intimidation-gated /
+// prof-performance-art / relationship), note? }. "Owes favors" is GM-asserted, NOT
+// derived from F&D obligations (the formal favor's effect is already complete in
+// the favor/duty balance → loyalty; JJ's row is the generic untracked social ledger).
+const ENCOUNTER_TONES = Object.freeze({
+  diplomatic: Object.freeze({
+    key: 'diplomatic', label: 'Diplomatic', cite: 'JJ p.85',
+    blurb: 'A non-threatening appeal to the target’s self-interest.',
+    rows: Object.freeze([
+      Object.freeze({ key: 'align-ll', group: 'Alignment', label: 'Believed Lawful; target Lawful or Neutral', value: 1, derive: 'alignment' }),
+      Object.freeze({ key: 'align-lc', group: 'Alignment', label: 'Believed Lawful; target Chaotic', value: -1, derive: 'alignment' }),
+      Object.freeze({ key: 'align-cl', group: 'Alignment', label: 'Believed Chaotic; target Lawful or Neutral', value: -1, derive: 'alignment' }),
+      Object.freeze({ key: 'lair-tres', group: 'Location', label: 'Trespassing in the target’s lair', value: -1, derive: 'lair-target' }),
+      Object.freeze({ key: 'lair-own', group: 'Location', label: 'In own lair', value: 1 }),
+      Object.freeze({ key: 'auth-over', group: 'Authority', label: 'Legal authority over the target (lord, guard…)', value: 1, variable: true }),
+      Object.freeze({ key: 'owes-them', group: 'Authority', label: 'Owes the target favors (−1 per unrequited)', value: -1, variable: true, note: 'the untracked social ledger — GM’s call (a formal F&D favor already acts via the favor/duty balance)' }),
+      Object.freeze({ key: 'auth-target', group: 'Authority', label: 'Target has authority over the character', value: -1, variable: true }),
+      Object.freeze({ key: 'owed-by', group: 'Authority', label: 'Target owes the character favors (+1 per unrequited)', value: 1, variable: true }),
+      Object.freeze({ key: 'prof-diplomacy', group: 'Proficiencies', label: 'Diplomacy proficiency', value: 1, derive: 'prof:Diplomacy' }),
+      Object.freeze({ key: 'prof-mystic', group: 'Proficiencies', label: 'Mystic Aura proficiency', value: 1, derive: 'prof:Mystic Aura' }),
+      Object.freeze({ key: 'will', group: 'Proficiencies', label: 'Target’s Will modifier (apply −Will)', value: -1, variable: true }),
+      Object.freeze({ key: 'threat-brandish', group: 'Threat', label: 'Brandishing a weapon', value: -1 }),
+      Object.freeze({ key: 'threat-believed', group: 'Threat', label: 'Target believes the character harmed friends', value: -1 }),
+      Object.freeze({ key: 'threat-witnessed', group: 'Threat', label: 'Target witnessed / has evidence of harm to friends', value: -2 }),
+      Object.freeze({ key: 'threat-personal', group: 'Threat', label: 'Target personally harmed by the character (−5 or more)', value: -5, variable: true }),
+      Object.freeze({ key: 'rel-hostile', group: 'Relationship', label: 'Target already Hostile', value: -2, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-unfriendly', group: 'Relationship', label: 'Target already Unfriendly', value: -1, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-indifferent', group: 'Relationship', label: 'Target already Indifferent', value: 1, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-friendly', group: 'Relationship', label: 'Target already Friendly', value: 2, derive: 'relationship' })
+    ])
+  }),
+  intimidating: Object.freeze({
+    key: 'intimidating', label: 'Intimidating', cite: 'JJ p.86',
+    blurb: 'A threat of harm unless the target complies. Gains are TEMPORARY — re-roll when conditions materially change; new allies of the intimidated re-use the ORIGINAL roll.',
+    rows: Object.freeze([
+      Object.freeze({ key: 'out-1', group: 'Character', label: 'Party outnumbers the target(s)', value: 1, derive: 'outnumber' }),
+      Object.freeze({ key: 'out-32', group: 'Character', label: 'Outnumbers by 3:2 or more', value: 2, derive: 'outnumber' }),
+      Object.freeze({ key: 'out-31', group: 'Character', label: 'Outnumbers by 3:1 or more', value: 5, derive: 'outnumber' }),
+      Object.freeze({ key: 'lair-own', group: 'Character', label: 'In own lair', value: 1 }),
+      Object.freeze({ key: 'brandish', group: 'Character', label: 'Brandishing a weapon', value: 1 }),
+      Object.freeze({ key: 'brandish-magic', group: 'Character', label: 'Brandishing magic items', value: 1 }),
+      Object.freeze({ key: 'disadvantage', group: 'Character', label: 'Target at disadvantage (blackmail, tied up…)', value: 1, variable: true }),
+      Object.freeze({ key: 'auth-over', group: 'Character', label: 'Legal authority over the target', value: 1, variable: true }),
+      Object.freeze({ key: 'hd-up', group: 'Character', label: 'Significantly higher level than the target (3+ HD)', value: 1, variable: true, derive: 'hd-gap' }),
+      Object.freeze({ key: 'morale', group: 'Target', label: 'Target’s −Morale score', value: 0, variable: true, derive: 'morale' }),
+      Object.freeze({ key: 'will', group: 'Target', label: 'Target’s Will modifier (apply −Will)', value: -1, variable: true }),
+      Object.freeze({ key: 'witnessed-kill', group: 'Target', label: 'Target witnessed the character kill/torture its associates', value: 1 }),
+      Object.freeze({ key: 'lair-target', group: 'Target', label: 'Target in own lair', value: -1, derive: 'lair-target' }),
+      Object.freeze({ key: 'armed', group: 'Target', label: 'Target is armed', value: -1 }),
+      Object.freeze({ key: 'spells-items', group: 'Target', label: 'Target has spells or magic items available', value: -1 }),
+      Object.freeze({ key: 'outd-1', group: 'Target', label: 'Target + friends outnumber the party', value: -1, derive: 'outnumber', note: 'a target in its lair counts the lair-mates as friends' }),
+      Object.freeze({ key: 'outd-32', group: 'Target', label: 'Outnumbered 3:2 or more', value: -2, derive: 'outnumber' }),
+      Object.freeze({ key: 'outd-31', group: 'Target', label: 'Outnumbered 3:1 or more', value: -5, derive: 'outnumber' }),
+      Object.freeze({ key: 'target-disadv', group: 'Target', label: 'Target has the character at disadvantage (trump card, helpless)', value: -1, variable: true }),
+      Object.freeze({ key: 'auth-target', group: 'Target', label: 'Target has legal authority over the character', value: -1, variable: true }),
+      Object.freeze({ key: 'hd-down', group: 'Target', label: 'Target significantly higher level (3+ HD)', value: -1, variable: true, derive: 'hd-gap' }),
+      Object.freeze({ key: 'loss-face', group: 'Target', label: 'Target would lose face if it submits', value: -1, variable: true }),
+      Object.freeze({ key: 'dark-lord', group: 'Target', label: 'Target believes submission means worse punishment (“the Dark Lord will do far worse”)', value: -5, variable: true }),
+      Object.freeze({ key: 'prof-intimidation', group: 'Proficiencies', label: 'Intimidation proficiency (needs authority over, or outnumbering, the target)', value: 1, derive: 'prof-intimidation-gated' }),
+      Object.freeze({ key: 'prof-mystic', group: 'Proficiencies', label: 'Mystic Aura proficiency', value: 1, derive: 'prof:Mystic Aura' }),
+      Object.freeze({ key: 'rel-hostile', group: 'Relationship', label: 'Target already Hostile', value: -2, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-unfriendly', group: 'Relationship', label: 'Target already Unfriendly', value: -1, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-intimidated', group: 'Relationship', label: 'Target already Intimidated', value: 1, derive: 'relationship' })
+    ])
+  }),
+  seductive: Object.freeze({
+    key: 'seductive', label: 'Seductive', cite: 'JJ pp.86–87',
+    blurb: 'An appeal to the target’s prurient interest — only where passionate relations are conceivable.',
+    rows: Object.freeze([
+      Object.freeze({ key: 'age-younger-youth', group: 'Age', label: 'Younger age category; target attracted to youthful mates (+1/category)', value: 1, variable: true }),
+      Object.freeze({ key: 'age-younger-mature', group: 'Age', label: 'Younger age category; target attracted to mature mates (−1/category)', value: -1, variable: true }),
+      Object.freeze({ key: 'age-older-mature', group: 'Age', label: 'Older age category; target attracted to mature mates (+1/category)', value: 1, variable: true }),
+      Object.freeze({ key: 'age-older-youth', group: 'Age', label: 'Older age category; target attracted to youthful mates (−1/category)', value: -1, variable: true }),
+      Object.freeze({ key: 'status', group: 'Status', label: 'Higher social status (+1 per noble rank or equivalent)', value: 1, variable: true }),
+      Object.freeze({ key: 'level-up', group: 'Status', label: 'Significantly higher level (3+ levels)', value: 1, derive: 'level-gap' }),
+      Object.freeze({ key: 'level-down', group: 'Status', label: 'Significantly lower level (3+ levels)', value: -1, derive: 'level-gap' }),
+      Object.freeze({ key: 'appeal-plus', group: 'Appeal', label: 'Particularly appealing to the target', value: 1, variable: true }),
+      Object.freeze({ key: 'appeal-minus', group: 'Appeal', label: 'Particularly unappealing to the target', value: -1, variable: true }),
+      Object.freeze({ key: 'privacy-alone', group: 'Privacy', label: 'Alone with the target', value: 1 }),
+      Object.freeze({ key: 'privacy-friends', group: 'Privacy', label: 'In front of the target’s friends', value: -1 }),
+      Object.freeze({ key: 'prof-mystic', group: 'Proficiencies', label: 'Mystic Aura proficiency', value: 1, derive: 'prof:Mystic Aura' }),
+      Object.freeze({ key: 'prof-seduction', group: 'Proficiencies', label: 'Seduction proficiency', value: 1, derive: 'prof:Seduction' }),
+      Object.freeze({ key: 'prof-performance', group: 'Proficiencies', label: 'Seduction/Mystic Aura + demonstrates Performance or Art', value: 1, derive: 'prof-performance-art' }),
+      Object.freeze({ key: 'will', group: 'Proficiencies', label: 'Target’s Will modifier (apply −Will)', value: -1, variable: true }),
+      Object.freeze({ key: 'rel-hostile', group: 'Relationship', label: 'Target already Hostile', value: -2, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-unfriendly', group: 'Relationship', label: 'Target already Unfriendly', value: -1, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-indifferent', group: 'Relationship', label: 'Target already Indifferent', value: 1, derive: 'relationship' }),
+      Object.freeze({ key: 'rel-friendly', group: 'Relationship', label: 'Target already Friendly', value: 2, derive: 'relationship' }),
+      Object.freeze({ key: 'advantage-friends', group: 'Relationship', label: 'Took advantage of the target’s friends in the past', value: -1 }),
+      Object.freeze({ key: 'advantage-target', group: 'Relationship', label: 'Took advantage of the target in the past', value: -2 }),
+      Object.freeze({ key: 'personal-risk', group: 'Relationship', label: 'Liaison puts the target at personal risk (−2 or more)', value: -2, variable: true })
+    ])
+  })
+});
+// Intimidation cannot achieve genuine indifference/friendship — those bands become
+// INTIMIDATED (escapes if possible; acts indifferent while trapped) and OVERAWED
+// (acts friendly). The stored band stays canonical (the attitude ladder + the shift
+// machinery are unchanged); only the LABEL differs by tone. If combat starts anyway,
+// intimidated → faltering, overawed → frightened (combat conditions — #141's side).
+function toneBandLabel(tone, band){
+  if(tone === 'intimidating'){
+    if(band === 'indifferent') return 'intimidated';
+    if(band === 'friendly') return 'overawed';
+  }
+  return band;
+}
+
 // ── The category draw (JJ pp.41–42) + rarity (JJ p.44) — D12's "category now" half ──
 // The wilderness encounter throw: 1d20 on the territory-classification column. The five
 // printed columns are SHARED (e.g. "Civilized, or Borderlands + Road" is one column):
@@ -1771,6 +1890,7 @@ Object.assign(ACKS, {
   EVASION_SIZE_BANDS, EVASION_AERIAL_EXEMPT_ROWS, evasionSizeBand, evasionTargetFor, attemptEvasionThrow, rollEvasionAftermath,
   ENCOUNTER_ATTITUDES, reactionBandFor, rollEncounterReaction,
   INFLUENCE_ATTEMPT_LADDER, influenceAttemptInfo, applyInfluenceShift, BRIBE_TIERS, bribeBonusInfo,
+  ENCOUNTER_TONES, toneBandLabel,
   ENCOUNTER_CATEGORY_COLUMNS, ENCOUNTER_TERRITORY_CLASSES, encounterCategoryColumnIndex, rollEncounterCategory,
   ENCOUNTER_RARITY_BY_TERRITORY, rollEncounterRarity,
   ENCOUNTER_FREQUENCY, restEncounterChecksForDay, territoryClassForHex,
