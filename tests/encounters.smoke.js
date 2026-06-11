@@ -395,7 +395,8 @@ section('the seam — encounterDraw (E4 table-first, JJ p.43; the pool binds by 
   const d2 = ACKS.encounterDraw(c2, 'hex-e', { rng: seq(0.5, 0.0, 0.0, 0.99, 0.5) });   // forest common 1-2 = Bat, Common; lair% 100 > 35 → wandering
   ok('an empty hex rolls a named monster (wandering band)', d2.identity === 'table'
     && d2.identityRoll.key === 'common-bat' && d2.binding.mode === 'wandering' && d2.binding.count >= 1);
-  // (e) lairFirst (the RR p.276 search-hour) keeps the pool-first fill
+  // (e) lairFirst (the RR p.276 search-hour) keeps the pool-first PRECEDENCE — an
+  //     existing den answers before any table (the empty-hex fallback is E4n, below)
   const dS = ACKS.encounterDraw(c, 'hex-l', { rng: seq(0.5, 0.5, 0.0), lairFirst: true });
   ok('lairFirst (the search path) stays pool-identified', dS.identity === 'pool' && dS.proposal.source === 'existing-lair');
   // (f) a null hexId with no terrain context falls to gm-pick fresh (never the unplaced pool)
@@ -405,6 +406,86 @@ section('the seam — encounterDraw (E4 table-first, JJ p.43; the pool binds by 
   // (g) a sparse-route step WITH the env terrain override rolls the table (the §24 fallback)
   const d4 = ACKS.encounterDraw(c2, null, { territoryClass: 'unsettled', terrainKey: 'forest', hasRiver: false, rng: seq(0.5, 0.0, 0.0, 0.99, 0.5) });
   ok('a sparse-route step with the env override rolls its table', d4.identity === 'table' && d4.identityRoll.tableKey === 'forest-deciduous');
+}
+
+// =============================================================================
+section('E4n — a search-hour meeting with nothing to stumble onto rolls the tables (Joachim 2026-06-11)');
+{
+  // (a) an EMPTY authored hex: lairFirst falls through to the same table + 6a chain
+  //     as travel/rest — [cat 11 monster] [rarity 1 common] (pool: fresh) [d100 13 → orc] [lair% 100 → abroad] [count]
+  const c = ACKS.blankCampaign({ name: 'searchdraw' });
+  ACKS.migrateCampaign(c);
+  c.hexes = [ACKS.blankHex({ id: 'hex-em', terrain: 'hills' })];
+  const d = ACKS.encounterDraw(c, 'hex-em', { rng: seq(0.5, 0.0, 0.125, 0.99, 0.5), lairFirst: true });
+  ok('an empty hex: the search draw rolls the identity table', d.identity === 'table'
+    && d.identityRoll && d.identityRoll.tableKey === 'hills-any' && d.identityRoll.key === 'orc'
+    && d.binding && d.binding.mode === 'wandering' && d.proposal === null);
+  // (b) seeded shells still answer FIRST (RR p.276 — the party stumbled onto the hex's lairs)
+  const cS = ACKS.blankCampaign({ name: 'shells' });
+  ACKS.migrateCampaign(cS);
+  cS.hexes = [ACKS.blankHex({ id: 'hex-sh', terrain: 'hills' })];
+  ACKS.createLair(cS, { hexId: 'hex-sh', status: 'unknown' });
+  const dSh = ACKS.encounterDraw(cS, 'hex-sh', { rng: seq(0.5, 0.0, 0.5), lairFirst: true });
+  ok('seeded shells keep precedence (no table override)', dSh.identity === 'gm-pick' && dSh.proposal && dSh.proposal.source === 'seeded-shell');
+  // (c) unmappable terrain (water) keeps the documented gm-pick fallback
+  const cW = ACKS.blankCampaign({ name: 'water' });
+  ACKS.migrateCampaign(cW);
+  cW.hexes = [ACKS.blankHex({ id: 'hex-wa', terrain: 'water' })];
+  const dW = ACKS.encounterDraw(cW, 'hex-wa', { rng: seq(0.5, 0.0, 0.5), lairFirst: true, territoryClass: 'unsettled' });
+  ok('unmappable terrain stays gm-pick', dW.identity === 'gm-pick' && dW.proposal && dW.proposal.source === 'fresh');
+
+  // ── the verbs derive the hex's table for an identity-LESS side (the screenshot case) ──
+  const scout = ACKS.blankCharacter({ name: 'Searcher' }); scout.currentHexId = 'hex-em';
+  c.characters.push(scout);
+  const mkBare = (over) => ACKS.createEncounter(c, Object.assign({ trigger: 'hex-search', hexId: 'hex-em', category: 'monster', rarity: 'rare',
+    partySide: { characterIds: [scout.id], faceCharacterId: scout.id, sizeCount: 1 },
+    monsterSide: { source: 'fresh', encounterKind: 'wandering' } }, over || {}));
+  const eNo = mkBare();
+  ok('encounterDerivedTablePrior derives the hex table + the encounter rarity', (() => {
+    const p = ACKS.encounterDerivedTablePrior(c, eNo.id);
+    return !!p && p.tableKey === 'hills-any' && p.columnKey === null && p.rarity === 'rare';
+  })());
+  // ⟳ on the identity-less side = the FIRST roll, on the derived table (rarity overridable)
+  const rr = ACKS.encounterRerollIdentity(c, eNo.id, { rarity: 'common', rng: seq(0.125, 0.99, 0.5) });
+  ok('the ⟳ verb rolls the derived table (orc named, side bound)', rr.ok === true
+    && eNo.monsterSide.identity && eNo.monsterSide.identity.natural === 13 && eNo.monsterSide.identity.tableKey === 'hills-any'
+    && eNo.monsterSide.monsterCatalogKey === 'orc' && eNo.monsterSide.encounterKind === 'wandering');
+  // pick-from-table likewise
+  const ePick = mkBare();
+  const pk = ACKS.encounterChooseIdentity(c, ePick.id, { label: 'Orc', key: 'orc', rarity: 'common', rng: seq(0.99, 0.5) });
+  ok('the pick verb applies on the derived table', pk.ok === true && ePick.monsterSide.identity.gmChosen === true
+    && ePick.monsterSide.identity.tableKey === 'hills-any' && ePick.monsterSide.monsterCatalogKey === 'orc');
+  // no hex (or unmappable) → the old refusal stands
+  const eNoHex = ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: null, category: 'monster',
+    partySide: { characterIds: [scout.id], sizeCount: 1 }, monsterSide: { source: 'fresh' } });
+  ok('a placeless encounter still refuses no-table-identity', ACKS.encounterRerollIdentity(c, eNoHex.id, {}).error === 'no-table-identity');
+
+  // ── E4m on a REBIND — an identity ⟳ never binds the quarry to its own pursuer ──
+  const cQ = ACKS.blankCampaign({ name: 'rebind' });
+  ACKS.migrateCampaign(cQ);
+  cQ.houseRules['monster-pursuit'] = { enabled: true };
+  cQ.hexes = [{ id: 'hex-q', coord: { q: 0, r: 0 }, terrain: 'hills', domainId: null }];
+  const q = ACKS.blankCharacter({ name: 'Quarry' }); q.currentHexId = 'hex-q';
+  const t3 = ACKS.blankCharacter({ name: 'Third' }); t3.currentHexId = 'hex-q';
+  cQ.characters.push(q, t3);
+  const chase = ACKS.createEncounter(cQ, { id: 'enc-q-chase', trigger: 'rest-night', hexId: 'hex-q', category: 'monster', rarity: 'common',
+    partySide: { characterIds: [q.id], sizeCount: 1 },
+    monsterSide: { source: 'fresh', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering' } });
+  chase.phase = 'pursuit';
+  chase.pursuit = { status: 'pursuing', pursuerLabel: 'Common Wolf', pursuerMilesPerDay: 18, gapMiles: 1,
+                    lastPartyHexId: 'hex-q', traceConcealed: false, gmMod: 0, startedAtTurn: 1, startedOnDayInMonth: 1, throws: [{ kind: 'take-up', success: true }] };
+  const mkMeet = (who) => ACKS.createEncounter(cQ, { trigger: 'gm-authored', hexId: 'hex-q', category: 'monster', rarity: 'common',
+    partySide: { characterIds: [who.id], faceCharacterId: who.id, sizeCount: 1 },
+    monsterSide: { source: 'fresh', encounterKind: 'wandering' } });
+  // wolf = hills-any common 95–98 → natural 96 (rng 0.955); lair% 0.99 → abroad
+  const eQ = mkMeet(q);
+  const rQ = ACKS.encounterRerollIdentity(cQ, eQ.id, { rng: seq(0.955, 0.99, 0.5) });
+  ok('the quarry\'s own reroll never binds its pursuer (falls to wandering)', rQ.ok === true
+    && eQ.monsterSide.identity.key === 'common-wolf' && !eQ.monsterSide.pursuitEncounterId && eQ.monsterSide.encounterKind === 'wandering');
+  const eT = mkMeet(t3);
+  const rT = ACKS.encounterRerollIdentity(cQ, eT.id, { rng: seq(0.955, 0.99, 0.5) });
+  ok('a third party\'s identical reroll DOES bind the hunting band', rT.ok === true
+    && eT.monsterSide.pursuitEncounterId === 'enc-q-chase' && eT.monsterSide.source === 'pursuing-band' && eT.monsterSide.count === 5);
 }
 
 // =============================================================================
@@ -1137,8 +1218,14 @@ section('E4 identity ⟳ + choose-from-table — same table, gated until the wal
   ACKS.encounterSetAwareness(c, e2.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true, monsterLineOfSight: true });
   ACKS.encounterRollSurprise(c, e2.id, { rng: () => 0.5 });
   ok('once surprise concludes, identity is locked', ACKS.encounterRerollIdentity(c, e2.id, { rng: () => 0.5 }).error === 'walk-past-identity');
+  // E4n (2026-06-11) — an identity-less side at a mappable hex no longer refuses: the
+  // verb derives the hex's own table and the ⟳ is the FIRST roll on it.
   const eGm = ACKS.createEncounter(c, { hexId: 'hx', category: 'monster' });
-  ok('a gm-authored encounter (no table identity) refuses with a reason', ACKS.encounterRerollIdentity(c, eGm.id, { rng: () => 0.5 }).error === 'no-table-identity');
+  const rGm = ACKS.encounterRerollIdentity(c, eGm.id, { rng: seq(0.40, 0.99, 0.5) });
+  ok('a gm-authored identity-less encounter rolls the HEX-derived table (E4n)', rGm.ok === true
+    && eGm.monsterSide.identity && eGm.monsterSide.identity.tableKey === 'hills-any' && eGm.monsterSide.identity.natural === 41);
+  const eOff = ACKS.createEncounter(c, { hexId: null, category: 'monster' });
+  ok('…while a placeless one still refuses with a reason', ACKS.encounterRerollIdentity(c, eOff.id, { rng: () => 0.5 }).error === 'no-table-identity');
 }
 
 section('E4 journey day revert — a den minted by the reverted day is unwound');

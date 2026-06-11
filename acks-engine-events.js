@@ -3006,12 +3006,16 @@ function hexSearchActivity(campaign, opts){
   // draw (#476 E1, replacing the J1 1/6 stub; terrain finds apply while searching — only
   // RESTING demotes them, JJ p.42 step 7). A meeting category (monster / civilized)
   // materializes an Encounter entity at once — the search is a live GM verb, no propose/
-  // commit dance — and the draw rides the search payload. The search draw stays
-  // LAIR-FIRST (RR p.276: an encounter while searching means the party has "stumbled
-  // onto" the hex's lairs) — deliberately NOT the E4 table-first travel procedure.
+  // commit dance — and the draw rides the search payload. The search draw keeps
+  // LAIR-FIRST PRECEDENCE (RR p.276: an encounter while searching means the party has
+  // "stumbled onto" the hex's lairs) — but a hex with nothing to stumble onto falls
+  // through to the same JJ identity tables as the travel/rest draws (E4n): a search-hour
+  // wandering encounter is an ordinary wandering encounter. partySide threads the
+  // searchers so a band hunting THEM never answers their own draw (E4m).
   let encounter = null;
   if(typeof A.encounterDraw === 'function'){
-    const draw = A.encounterDraw(campaign, hexId, { rng: rng, lairFirst: true });
+    const draw = A.encounterDraw(campaign, hexId, { rng: rng, lairFirst: true,
+      partySide: { partyId: ch.partyId || null, characterIds: (sp.cohort || []).map(c => c && c.id).filter(Boolean) } });
     if(draw && draw.category !== 'no-encounter'){
       const prop = draw.proposal || null;
       encounter = {
@@ -3527,14 +3531,45 @@ function encounterRollDistance(campaign, encounterId, opts){
 // a den from a discarded roll. Re-rolls happen ON the stored table (identity.tableKey /
 // columnKey) — robust for sparse-route encounters whose hex was never authored.
 
+// E4n — the table an identity-LESS side would roll/pick on, derived from the
+// encounter's own hex (monster: tableKey × the encounter's rarity; civilized: the
+// hex's column). Serves the pre-E4n search fill, gm-authored meetings, and legacy
+// saves — the verbs + the panel affordances both read it (one derivation). Returns
+// { tableKey, columnKey, rarity, page } or null (no hex / unmappable terrain).
+function encounterDerivedTablePrior(campaign, encounterOrId){
+  const A = _gpwACKS();
+  const enc = (typeof encounterOrId === 'string') ? A.findEncounter(campaign, encounterOrId) : encounterOrId;
+  if(!enc || !enc.hexId) return null;
+  const hex = Array.isArray(campaign && campaign.hexes) ? campaign.hexes.find(h => h && h.id === enc.hexId) : null;
+  if(!hex || typeof A.terrainKey !== 'function') return null;
+  const tKey = A.terrainKey(hex);
+  if(!tKey) return null;
+  const hasRiver = !!(Array.isArray(hex.riverSides) && hex.riverSides.length);
+  if(enc.category === 'civilized'){
+    const ck = (typeof A.encounterCivilizedColumnKeyFor === 'function') ? A.encounterCivilizedColumnKeyFor(tKey, hasRiver) : null;
+    return ck ? { tableKey: null, columnKey: ck, rarity: null, page: (A.ENCOUNTER_CIVILIZED_TABLE && A.ENCOUNTER_CIVILIZED_TABLE.page) || 43 } : null;
+  }
+  if(enc.category !== 'monster') return null;
+  const tk = (typeof A.encounterMonsterTableKeyFor === 'function') ? A.encounterMonsterTableKeyFor(tKey, hasRiver) : null;
+  const t = tk && A.ENCOUNTER_MONSTER_TABLES && A.ENCOUNTER_MONSTER_TABLES[tk];
+  return t ? { tableKey: tk, columnKey: null, rarity: enc.rarity || 'common', page: t.page } : null;
+}
+
 function _encIdentityGate(campaign, encounterId){
   const A = _gpwACKS();
   const enc = A.findEncounter(campaign, encounterId);
   if(!enc) return { error: 'unknown-encounter' };
   if(enc.status === 'resolved') return { error: 'already-resolved' };
   if(_encSurpriseConcluded(enc) || enc.evasion || enc.reaction) return { error: 'walk-past-identity' };
-  if(!enc.monsterSide || !enc.monsterSide.identity) return { error: 'no-table-identity' };
-  return { enc };
+  if(!enc.monsterSide) return { error: 'no-table-identity' };
+  // E4n — no stored identity yet: derive the hex's own table so the GM can roll/pick
+  // on it anyway (the ⟳ is then the FIRST roll, not a reroll).
+  if(!enc.monsterSide.identity){
+    const derived = encounterDerivedTablePrior(campaign, enc);
+    if(!derived) return { error: 'no-table-identity' };
+    return { enc, prior: derived };
+  }
+  return { enc, prior: enc.monsterSide.identity };
 }
 
 // Roll 1d100 on the encounter's OWN table (monster: tableKey × rarity; civilized: columnKey).
@@ -3559,7 +3594,11 @@ function _encApplyNewIdentity(campaign, enc, identity, opts){
   const r = o.rng || Math.random;
   if(enc.monsterSide.minted && typeof A._unwindEncounterMinting === 'function')
     A._unwindEncounterMinting(campaign, enc.monsterSide.minted);
-  const binding = A.bindEncounterIdentity(campaign, enc.hexId || null, identity, { category: enc.category || 'monster', rng: r });
+  // E4m quarry exclusion on a REBIND too — the encounter's own party threads through,
+  // so a reroll/pick never binds a side to the very chase hunting these characters.
+  const ps = enc.partySide || {};
+  const binding = A.bindEncounterIdentity(campaign, enc.hexId || null, identity, { category: enc.category || 'monster', rng: r,
+    partySide: { partyId: ps.partyId || null, characterIds: (ps.characterIds || []).slice() } });
   A._applyIdentityBinding(campaign, enc.monsterSide, identity, binding, { hexId: enc.hexId || null, atTurn: campaign.currentTurn || 1, rng: r });
   if(o.rarity && enc.category === 'monster') enc.rarity = o.rarity;
   return binding;
@@ -3574,7 +3613,7 @@ function encounterRerollIdentity(campaign, encounterId, opts){
   const A = _gpwACKS();
   const o = opts || {};
   const rng = o.rng || Math.random;
-  const prior = enc.monsterSide.identity;
+  const prior = g.prior;   // the stored identity, or the hex-derived table for an identity-less side (E4n)
   const rarity = (enc.category === 'monster') ? (o.rarity || enc.rarity || prior.rarity || 'common') : null;
   const identity = _rollOnStoredTable(A, prior, rarity, rng);
   if(!identity) return { ok: false, error: 'no-table' };
@@ -3592,7 +3631,7 @@ function encounterChooseIdentity(campaign, encounterId, opts){
   const enc = g.enc;
   const o = opts || {};
   if(!o.label && !o.key) return { ok: false, error: 'no-pick' };
-  const prior = enc.monsterSide.identity;
+  const prior = g.prior;   // stored, or hex-derived for an identity-less side (E4n)
   const rarity = (enc.category === 'monster') ? (o.rarity || enc.rarity || prior.rarity || 'common') : null;
   const identity = { natural: null, gmChosen: true, label: o.label || '', key: (o.key === undefined ? null : o.key),
                      tableKey: prior.tableKey || null, columnKey: prior.columnKey || null,
@@ -4411,7 +4450,7 @@ Object.assign(ACKS, {
   encounterSetAwareness, encounterRollSurprise, encounterAttemptEvasion,
   encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved,
   // E2h — the distance verb + the per-step rerolls (every roll re-rollable at its frontier)
-  encounterRollDistance, encounterRerollIdentity, encounterChooseIdentity,
+  encounterRollDistance, encounterRerollIdentity, encounterChooseIdentity, encounterDerivedTablePrior,
   encounterRerollSurprise, encounterRerollEvasion,
   encounterRerollReaction, encounterRerollInfluence,
   // E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103)

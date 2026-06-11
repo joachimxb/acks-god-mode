@@ -1046,15 +1046,18 @@ document.addEventListener('alpine:init', () => {
                   <button x-show="encBandLink().groupId" @click="inspectorOpen('group', encBandLink().groupId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Inspect the band's Group entity">🔍 band</button>
                 </p>
               </template>
-              <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rerolls on the SAME
-                   table; “pick from table” lists the appropriate column (rarity switchable).
-                   Both lock once surprise is rolled — the side IS who you met. -->
-              <template x-if="encModalEnc().monsterSide.identity">
+              <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rolls/rerolls on the
+                   hex's OWN table; “pick from table” lists the appropriate column (rarity
+                   switchable). Both lock once surprise is rolled — the side IS who you met.
+                   E4n — an identity-LESS side (a pre-E4n search fill, a gm-authored meeting)
+                   shows the block too while actionable: the hex's table derives, the ⟳ is the
+                   FIRST roll, and the picker names the creature by hand. -->
+              <template x-if="encModalEnc().monsterSide.identity || encIdentityRerollable()">
                 <div class="text-xs mt-1 space-y-0.5">
                   <p class="opacity-80">
                     <span x-text="encIdentityText()"></span>
-                    <button x-show="encIdentityRerollable()" @click="encModalRerollIdentity()" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Reroll 1d100 on the same table (re-rollable until surprise is rolled)">⟳</button>
-                    <button x-show="encIdentityRerollable() && !encModal.identityPick" @click="encModal.identityPick = true; encModal.identityPickRarity = encModalEnc().rarity || (encModalEnc().monsterSide.identity.rarity || 'common'); encModal.identityPickValue = ''" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Choose the creature from the appropriate table instead of rolling">pick from table</button>
+                    <button x-show="encIdentityRerollable()" @click="encModalRerollIdentity()" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Roll 1d100 on the appropriate table for this hex (re-rollable until surprise is rolled)">⟳</button>
+                    <button x-show="encIdentityRerollable() && !encModal.identityPick" @click="encModal.identityPick = true; encModal.identityPickRarity = encModalEnc().rarity || ((encIdentityTableInfo() || {}).rarity || 'common'); encModal.identityPickValue = ''" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Choose the creature from the appropriate table instead of rolling">pick from table</button>
                   </p>
                   <p class="opacity-70" x-text="encBindingText()"></p>
                   <div x-show="encModal.identityPick" class="border border-amber-700/50 rounded p-1.5 mt-1 space-y-1" style="background:#fdf6e3">
@@ -10187,14 +10190,29 @@ return {
     return (ms.count ? ms.count + ' × ' : '') + what;
   },
   // ── E4 — the table identity line + the 6a binding verdict + ⟳/pick affordances ──
+  // E4n — the table this side rolls/picks on: the stored identity, or (identity-less —
+  // a pre-E4n search fill, a gm-authored meeting, a legacy save) the hex's own table
+  // derived by the engine (the same derivation the verbs use).
+  encIdentityTableInfo(){
+    const e = this.encModalEnc(); if(!e || !e.monsterSide) return null;
+    if(e.monsterSide.identity) return e.monsterSide.identity;
+    return window.ACKS.encounterDerivedTablePrior(this.currentCampaign, e) || null;
+  },
+  _encTableName(id){
+    const A = window.ACKS;
+    return id.tableKey ? ((A.ENCOUNTER_MONSTER_TABLES[id.tableKey] || {}).name || id.tableKey)
+         : (id.columnKey ? 'Civilized — ' + ((((A.ENCOUNTER_CIVILIZED_TABLE || {}).columns || {})[id.columnKey] || {}).name || id.columnKey) : 'table');
+  },
   encIdentityText(){
     const e = this.encModalEnc(); const id = e && e.monsterSide && e.monsterSide.identity;
-    if(!id) return '';
-    const A = window.ACKS;
-    const tName = id.tableKey ? ((A.ENCOUNTER_MONSTER_TABLES[id.tableKey] || {}).name || id.tableKey)
-                : (id.columnKey ? 'Civilized — ' + (((A.ENCOUNTER_CIVILIZED_TABLE || {}).columns || {})[id.columnKey] || {}).name : 'table');
-    if(id.gmChosen) return 'GM pick from ' + tName + (id.rarity ? ' · ' + id.rarity : '') + (id.page ? ' (JJ p.' + id.page + ')' : '');
-    return 'rolled ' + id.natural + ' on ' + tName + (id.rarity ? ' · ' + id.rarity : '') + (id.page ? ' (JJ p.' + id.page + ')' : '');
+    if(!id){
+      // E4n — unrolled but rollable: name the table that applies so the ⟳/pick teach.
+      const info = this.encIdentityTableInfo();
+      if(!info) return '';
+      return 'unrolled — ' + this._encTableName(info) + (info.rarity ? ' · ' + info.rarity : '') + (info.page ? ' (JJ p.' + info.page + ')' : '') + ' applies here';
+    }
+    if(id.gmChosen) return 'GM pick from ' + this._encTableName(id) + (id.rarity ? ' · ' + id.rarity : '') + (id.page ? ' (JJ p.' + id.page + ')' : '');
+    return 'rolled ' + id.natural + ' on ' + this._encTableName(id) + (id.rarity ? ' · ' + id.rarity : '') + (id.page ? ' (JJ p.' + id.page + ')' : '');
   },
   encBindingText(){
     const e = this.encModalEnc(); const ms = e && e.monsterSide; const b = ms && ms.binding;
@@ -10248,7 +10266,8 @@ return {
   },
   encIdentityRerollable(){
     const e = this.encModalEnc();
-    return !!(e && e.status === 'active' && e.monsterSide && e.monsterSide.identity && !this.encSurpriseRolled() && !e.evasion && !e.reaction);
+    // E4n — an identity-less side with a derivable hex table can roll/pick too.
+    return !!(e && e.status === 'active' && e.monsterSide && this.encIdentityTableInfo() && !this.encSurpriseRolled() && !e.evasion && !e.reaction);
   },
   encModalRerollIdentity(){
     const enc = this.encModalEnc(); if(!enc) return;
@@ -10262,9 +10281,9 @@ return {
     this.showToast('⟳ ' + (r.identity.label || r.identity.key) + ' (1d100 ' + r.identity.natural + ')');
   },
   encIdentityPickEntries(){
-    const e = this.encModalEnc(); const id = e && e.monsterSide && e.monsterSide.identity;
+    const e = this.encModalEnc(); const id = this.encIdentityTableInfo();   // stored, or hex-derived (E4n)
     const A = window.ACKS;
-    if(!id) return [];
+    if(!e || !id) return [];
     if(id.columnKey){
       const col = (A.ENCOUNTER_CIVILIZED_TABLE.columns || {})[id.columnKey];
       return col ? col.rows : [];

@@ -3606,7 +3606,22 @@ function encounterDraw(campaign, hexId, context){
   if(cat.category === 'monster'){
     const rar = A.rollEncounterRarity(territoryClass, rng);
     draw.rarity = rar.rarity; draw.rarityRoll = rar.roll;
-    if(ctx.lairFirst){ poolFill(); }
+    if(ctx.lairFirst){
+      poolFill();
+      // E4n — the hex held nothing to stumble onto (no active den, no seeded shell,
+      // no pool candidate): the search-hour's meeting is an ordinary wandering
+      // encounter, so the JJ tables name it exactly as the travel/rest draws do.
+      // Lair-first PRECEDENCE stands (RR p.276) — only the empty-pool fallback
+      // upgrades from the pre-E4 "GM identifies" fill.
+      if(draw.proposal && draw.proposal.source === 'fresh'){
+        const ident = _drawIdentityForHex(campaign, hexId, ctx, 'monster', rar.rarity, rng);
+        if(ident){
+          draw.proposal = null;
+          draw.identityRoll = ident; draw.identity = 'table';
+          draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'monster', rng, partySide: ctx.partySide });
+        }
+      }
+    }
     else {
       const ident = _drawIdentityForHex(campaign, hexId, ctx, 'monster', rar.rarity, rng);
       if(ident){
