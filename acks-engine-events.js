@@ -3011,6 +3011,29 @@ function rerollHexSearch(campaign, eventId, opts){
   const target = Number(ev.payload.target) || 18;
   const bonus = Number(ev.payload.bonus) || 0;
   const mod = Number(ev.payload.mod) || 0;
+  // E8 — a landmark-search hour (RR p.285): re-throw the d20 and flip the JOURNEY's lost
+  // state with the success (no lair pool here). Defensive — the flip applies only when the
+  // journey still holds the expected state (a same-session affordance, like the lair reverse).
+  if(ev.payload.method === 'landmark-search'){
+    const lRolled = _provD20(rng);
+    const lScore = lRolled + bonus + mod;
+    const lSuccess = (lRolled !== 1) && (lScore >= target);
+    const lj = (campaign.journeys || []).find(x => x && x.id === ev.payload.landmarkJourneyId) || null;
+    if(lj){
+      if(lSuccess && !ev.payload.landmarkFound && lj.status === 'lost'){
+        lj.status = 'in-transit'; lj.lostEncounterId = null;
+      } else if(!lSuccess && ev.payload.landmarkFound && lj.status === 'in-transit'){
+        lj.status = 'lost'; lj.lostEncounterId = ev.payload.lostEncounterId || null;
+      }
+    }
+    ev.payload.rolled = lRolled;
+    ev.payload.success = lSuccess;
+    ev.payload.landmarkFound = lSuccess;
+    wrap.result = wrap.result || {};
+    wrap.result.narrativeSummary = (ch.name || 'The party') + ' searches for the party’s last landmark — ' + (lSuccess ? 'finds it; bearings recovered.' : 'no luck yet.');
+    return { ok: true, rolled: lRolled, target: target, bonus: bonus, mod: mod, success: lSuccess,
+             found: null, landmarkFound: lSuccess, event: ev };
+  }
   if(ev.payload.foundLairId) _reverseSearchDiscovery(campaign, ev);   // the old find returns to the pool before the re-pick
   const rolled = _provD20(rng);
   const score = rolled + bonus + mod;
@@ -3031,7 +3054,10 @@ function rerollHexSearch(campaign, eventId, opts){
 }
 
 // One search-hour (RR pp.276–277). opts: { actorCharacterId, hexId? (default: the actor's),
-// specific? (−4, a particular POI), specificLairId? (only that lair can be found), rng? }.
+// specific? (−4, a particular POI), specificLairId? (only that lair can be found),
+// landmarkJourneyId? (E8 — the RR p.285 last-known-landmark search: the recovery for a
+// knowingly-lost journey; always a SPECIFIC point of interest [−4], finds the landmark
+// instead of a lair — success flips the journey back to in-transit), rng? }.
 function hexSearchActivity(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
@@ -3041,21 +3067,38 @@ function hexSearchActivity(campaign, opts){
   if(!hexId) return { ok: false, error: 'no-hex' };
   const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, hexId) : null;
   const rng = opts.rng || Math.random;
+  const landmarkJourney = opts.landmarkJourneyId
+    ? (((campaign.journeys || []).find(j => j && j.id === opts.landmarkJourneyId)) || null) : null;
+  if(opts.landmarkJourneyId && !landmarkJourney) return { ok: false, error: 'unknown-journey' };
   const sp = _searchExpeditionSpeed(campaign, ch, hex);
   const target = (typeof A.wildernessSearchTargetForSpeed === 'function') ? A.wildernessSearchTargetForSpeed(sp.speed) : 18;
   const bonus = _cohortHasProf(sp.cohort, /tracking/i) ? 4 : 0;   // any member with Tracking → +4 (extra ranks do NOT add here — RR p.120)
-  const mod = opts.specific ? -4 : 0;
+  const mod = (opts.specific || landmarkJourney) ? -4 : 0;        // the landmark IS a specific point of interest (RR p.285 ¶3)
   const rolled = _provD20(rng);
   const score = rolled + bonus + mod;
   const throwSuccess = (rolled !== 1) && (score >= target);        // unmodified 1 always fails (ACKS-general)
   // What a successful throw finds: an undiscovered lair whose hiddenDC the score also clears
   // (hiddenDC raises that one lair's bar — well-hidden). The Judge picks among qualifiers (RR
-  // p.276 "the Judge will decide which one"); v1 picks randomly.
+  // p.276 "the Judge will decide which one"); v1 picks randomly. In landmark mode the hour
+  // seeks the LANDMARK, not a lair — success recovers the journey's bearings instead.
   let found = null;
-  if(throwSuccess){
+  if(throwSuccess && !landmarkJourney){
     let pool = _undiscoveredLairsAt(campaign, hexId).filter(l => score >= target + (Number(l.hiddenDC) || 0));
     if(opts.specificLairId) pool = pool.filter(l => l.id === opts.specificLairId);
     if(pool.length) found = pool[Math.floor(rng() * pool.length)];
+  }
+  // E8 — the landmark recovery (RR p.285): finding the last known landmark re-orients the
+  // party; the lost journey resumes. The prior lostEncounterId is stashed on the payload so
+  // the reroll's success→fail flip can re-lose it surgically (same-session affordance).
+  let landmarkFound = false;
+  const priorLostEncounterId = (landmarkJourney && landmarkJourney.lostEncounterId) || null;
+  if(landmarkJourney && throwSuccess){
+    landmarkFound = true;
+    if(landmarkJourney.status === 'lost') landmarkJourney.status = 'in-transit';
+    landmarkJourney.lostEncounterId = null;
+    (landmarkJourney.history = landmarkJourney.history || []).push({
+      turn: campaign.currentTurn || null, dayIndex: landmarkJourney.currentDayIndex || 0, type: 'recovered',
+      narrative: (ch.name || 'The party') + ' found the last known landmark — bearings recovered; the journey resumes (RR p.285).' });
   }
   // RAW p.277 + JJ p.41: searching triggers one encounter THROW per hour — the full category
   // draw (#476 E1, replacing the J1 1/6 stub; terrain finds apply while searching — only
@@ -3094,9 +3137,10 @@ function hexSearchActivity(campaign, opts){
     }
   }
   // Land Surveying (RR p.277): assess the hex's POI count — 18+, cumulative +4 per successful
-  // search conducted here, nat-1 → a false reading the Judge reveals as if true.
+  // search conducted here, nat-1 → a false reading the Judge reveals as if true. Skipped in
+  // landmark mode (the hour is spent on the landmark, not surveying the hex).
   let survey = null;
-  if(_cohortHasProf(sp.cohort, /land.?surveying/i)){
+  if(!landmarkJourney && _cohortHasProf(sp.cohort, /land.?surveying/i)){
     const prior = (campaign.eventLog || []).filter(e => e && e.event && e.event.kind === 'hex-search'
       && e.event.payload && e.event.payload.hexId === hexId && e.event.payload.success
       && e.event.payload.method !== 'track-home').length;
@@ -3119,21 +3163,30 @@ function hexSearchActivity(campaign, opts){
                domainId: (hex && hex.domainId) || null,
                relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
     payload: {
-      actorCharacterId: ch.id, hexId: hexId, method: opts.specific ? 'search-specific' : 'search',
+      actorCharacterId: ch.id, hexId: hexId,
+      method: landmarkJourney ? 'landmark-search' : (opts.specific ? 'search-specific' : 'search'),
       rolled: rolled, target: target, bonus: bonus, mod: mod, success: throwSuccess,
       foundLairId: found ? found.id : null,
       speedMilesPerDay: Math.round(sp.speed * 10) / 10,
       specificLairId: opts.specificLairId || null,
+      landmarkJourneyId: landmarkJourney ? landmarkJourney.id : null,
+      landmarkFound: landmarkJourney ? landmarkFound : null,
+      lostEncounterId: priorLostEncounterId,
       encounter: encounter, survey: survey,
-      activityCost: { slot: 'ancillary', units: 1, kind: 'search-hex', label: 'Search the hex' }
+      activityCost: { slot: 'ancillary', units: 1, kind: 'search-hex',
+                      label: landmarkJourney ? 'Search for the landmark' : 'Search the hex' }
     }
   });
   ev.campaignLogHidden = true;   // the Judge's secret roll — audit + budget only; discovery narrates via lair-discovered
   const who = ch.name || 'The party';
-  _logAppliedEvent(campaign, ev, { narrativeSummary: who + ' searches the hex — ' + (found ? ('finds ' + (found.name || 'a lair') + '.') : 'finds nothing.') });
+  const summary = landmarkJourney
+    ? (who + ' searches for the party’s last landmark — ' + (landmarkFound ? 'finds it; bearings recovered.' : 'no luck yet.'))
+    : (who + ' searches the hex — ' + (found ? ('finds ' + (found.name || 'a lair') + '.') : 'finds nothing.'));
+  _logAppliedEvent(campaign, ev, { narrativeSummary: summary });
   if(found) _applySearchDiscovery(campaign, ev, ch, found);
   return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: throwSuccess,
-           found: found || null, encounter: encounter, survey: survey, speedMilesPerDay: sp.speed, event: ev };
+           found: found || null, landmarkFound: landmarkJourney ? landmarkFound : null,
+           encounter: encounter, survey: survey, speedMilesPerDay: sp.speed, event: ev };
 }
 
 // ── #476 E5 — universal tracking (RR p.120 in FULL; Joachim 2026-06-11: "allow all creatures
@@ -3491,13 +3544,92 @@ function encounterRollSurprise(campaign, encounterId, opts){
   return { ok: true, encounter: enc, surprise: enc.surprise };
 }
 
+// E8 — the party's active journey, resolved from the encounter's party side: the stamped
+// journeyId first (the journey trigger sets it), else any underway journey sharing the
+// party or a participant (a resting journey's camp meeting carries no journeyId). Only
+// in-transit/resting RECEIVE the known-lost carry (a planning/arrived/aborted journey has
+// no travel state to lose; an already-'lost' one is already carried).
+function _encActiveJourneyForPartySide(campaign, enc){
+  const js = (campaign && campaign.journeys) || [];
+  const ps = (enc && enc.partySide) || {};
+  const live = (j) => j && (j.status === 'in-transit' || j.status === 'resting');
+  if(ps.journeyId){
+    const j = js.find(x => x && x.id === ps.journeyId);
+    if(live(j)) return j;
+  }
+  const ids = ps.characterIds || [];
+  return js.find(j => live(j) && (
+    (ps.partyId && j.partyId && j.partyId === ps.partyId) ||
+    (j.participantCharacterIds || []).some(id => ids.indexOf(id) >= 0)
+  )) || null;
+}
+
+// E8 — RR p.285: "Once the party comes to a halt, it must IMMEDIATELY make a Navigation
+// throw at −4 to see if it has gotten lost… If the throw fails, the party or group is
+// lost and knows it." Rolled here (itemized, the E2h convention: the hex's terrain nav
+// target, the party's collective +4/+8 Navigation/Pathfinding bonus — RR p.275 — and the
+// −4; natural 1 fails) so the aftermath carries the verdict — and CARRIED to the party's
+// active journey: `status = 'lost'` (the registered journey status nothing set until now)
+// + `lostEncounterId`. A 'lost' journey HOLDS — the day consumer ticks only in-transit;
+// the party knows it's lost, so it does NOT stray-walk like the §27 unknowing travel-lost
+// — and its members count as a stationary field group (off-journey survival + the
+// rest-night camp checks pick them up; lost camps stay dangerous). Recovery = the RAW
+// landmark search (hexSearchActivity landmark mode — RR p.285 ¶3), a GM re-route, or an
+// Inspector edit. No journey → the verdict stays on the encounter (a camped party's
+// "lost" has no travel state to mark).
+function _evasionNavAndCarry(campaign, enc, rng){
+  const A = _gpwACKS();
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const terrain = (hex && hex.terrain) || '';
+  const target = (A.JOURNEY_NAV_THROWS && A.JOURNEY_NAV_THROWS[terrain] != null) ? A.JOURNEY_NAV_THROWS[terrain] : 6;
+  const ids = (enc.partySide && enc.partySide.characterIds) || [];
+  let hasNav = false, hasPath = false;
+  const scan = (entry) => {
+    const name = (typeof entry === 'string') ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || '');
+    if(/\bnavigation\b/i.test(name)) hasNav = true;
+    if(/\bpathfinding\b/i.test(name)) hasPath = true;
+  };
+  for(const c of (campaign.characters || [])){
+    if(!c || ids.indexOf(c.id) < 0) continue;
+    for(const p of (c.proficiencies || [])) scan(p);
+    for(const cp of (c.classPowers || [])) scan(cp);
+  }
+  const bonus = (hasNav && hasPath) ? 8 : (hasNav || hasPath) ? 4 : 0;
+  const mods = [];
+  if(bonus) mods.push({ source: 'party-proficiency', value: bonus });
+  mods.push({ source: 'evasion-displaced', value: -4 });
+  const natural = 1 + Math.floor(rng() * 20);
+  const total = mods.reduce((s, m) => s + m.value, natural);
+  const nav = { natural: natural, target: target, modifiers: mods, total: total,
+                success: (natural !== 1) && (total >= target) };
+  enc.evasion.aftermath.navThrow = nav;
+  enc.evasion.aftermath.knownLost = !nav.success;
+  enc.evasion.aftermath.journeyId = null;
+  if(!nav.success){
+    const j = _encActiveJourneyForPartySide(campaign, enc);
+    if(j){
+      j.status = 'lost';
+      j.lostEncounterId = enc.id;
+      enc.evasion.aftermath.journeyId = j.id;
+      (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'lost',
+        narrative: 'Evaded an encounter — displaced ' + (enc.evasion.aftermath.distanceFt != null ? enc.evasion.aftermath.distanceFt : '?')
+          + ' ft toward ' + (enc.evasion.aftermath.clockDirection != null ? (enc.evasion.aftermath.clockDirection + " o'clock") : '?')
+          + ', then failed the Navigation throw at −4 (' + natural + (bonus ? ('+' + bonus) : '') + '−4 = ' + total + ' vs ' + target
+          + '+). The party is lost — and knows it. The journey holds until it finds its last landmark (RR p.285).' });
+    }
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-navigation',
+    reason: 'nav ' + natural + (bonus ? ('+' + bonus) : '') + '−4 = ' + total + ' vs ' + target + '+ → '
+      + (nav.success ? 'bearings kept' : ('LOST — and knows it' + (enc.evasion.aftermath.journeyId ? ' (the journey holds)' : ''))) });
+  return nav;
+}
+
 // Step 3 — Evasion (wilderness only; RR pp.284–285). Auto-succeeds when the matrix says
 // 'always' or ALL monsters are surprised; otherwise the terrain × party-size throw.
 // Refused once the party is interacting (a reaction roll exists) — RAW. On success the
-// aftermath is rolled (displacement + 1d12 clock direction) and the encounter resolves
-// 'evaded'; the party is lost on a failed Navigation throw at −4 — and KNOWS it (RR
-// p.285; unlike the §27 unknowing travel-stray), so the throw + any re-orientation stay
-// with the GM/journey rather than silently engaging the stray-walk machinery.
+// aftermath is rolled (displacement + 1d12 clock direction), the RR p.285 Navigation
+// throw at −4 resolves on the spot (_evasionNavAndCarry — a failure marks the party
+// LOST, knowingly, and holds its active journey), and the encounter resolves 'evaded'.
 // opts: { modifiers?: [{label, value}], sizeCount?, allowSurprised? (the explorer rule),
 //         autoSuccess?, rng? }.
 function encounterAttemptEvasion(campaign, encounterId, opts){
@@ -3539,9 +3671,9 @@ function encounterAttemptEvasion(campaign, encounterId, opts){
   };
   if(throwRes.success){
     enc.evasion.aftermath = A.rollEvasionAftermath({ terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open', rng });
-    enc.evasion.aftermath.knownLost = null;   // pending the Navigation throw at −4 (GM/journey resolves; lost = the party KNOWS)
     enc.history.push({ turn: campaign.currentTurn || 1, type: 'evaded',
-      reason: 'displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock; Navigation at −4 or lost (knowingly)" });
+      reason: 'displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock" });
+    _evasionNavAndCarry(campaign, enc, rng);   // RR p.285 — the immediate Navigation throw at −4 + the journey carry (E8)
     // E3c — a tracking-capable band may pursue ('monster-pursuit' ON): hold the
     // encounter open for the GM's intent call instead of resolving (RR p.285).
     if(_encPursuitPossible(campaign, enc)) _encOfferPursuit(campaign, enc);
@@ -3892,9 +4024,9 @@ function encounterRerollEvasion(campaign, encounterId, opts){
     const rowKey = (enc.distance && enc.distance.terrainRow)
       || (hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null);
     enc.evasion.aftermath = A.rollEvasionAftermath({ terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open', rng });
-    enc.evasion.aftermath.knownLost = null;
     enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-reroll',
       reason: 'rerolled → evaded; displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock" });
+    _evasionNavAndCarry(campaign, enc, rng);   // RR p.285 — same as the original attempt (E8)
     if(_encPursuitPossible(campaign, enc)) _encOfferPursuit(campaign, enc);   // E3c — same fork as the original attempt
     else recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded (on the reroll) — aftermath displacement rolled' });
   } else {

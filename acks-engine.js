@@ -7336,7 +7336,9 @@ function dayTickActivityInFlight(campaign){
   if((campaign.currentDayInMonth || 1) > 1) return true;
   if(Array.isArray(campaign.projects) && campaign.projects.some(p => p && p.lifecycleState === 'under-construction')) return true;
   // Phase 2.5 Journeys (#475) — an in-transit journey is day-aware activity in flight.
-  if(Array.isArray(campaign.journeys) && campaign.journeys.some(j => j && (j.status === 'in-transit' || j.status === 'resting'))) return true;
+  // E8 — a KNOWINGLY-lost journey too: the world keeps ticking over the held party
+  // (its camp checks + survival run on the Day Clock while it searches for the landmark).
+  if(Array.isArray(campaign.journeys) && campaign.journeys.some(j => j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost'))) return true;
   // A funded-but-not-yet-projected agricultural improvement also counts as in flight: the panel
   // writes hex.improvementBudgetGp directly, and the Project is materialized just before the tick.
   const budgeted = (arr) => Array.isArray(arr) && arr.some(h => h && (h.improvementBudgetGp || 0) > 0);
@@ -8068,6 +8070,12 @@ function characterActivityBudget(campaign, charId, opts){
     if(j.status === 'resting'){
       const cc = costFor('rest');
       activities.push({ kind:'rest', label: cc.label, cost: cc.cost, strenuous: !!cc.strenuous, sourceKind:'journey', sourceId: j.id, dedicatedUnits:1, ancillaryUnits:0 });
+      continue;
+    }
+    if(j.status === 'lost'){
+      // E8 (RR p.285) — a KNOWINGLY-lost journey holds its position: no travel is spent, the
+      // day is free for the landmark search (itself 1 ancillary when taken). Shown, not charged.
+      activities.push({ kind:'travel', label:'Travel · lost — holding position', cost:'incidental', strenuous:false, sourceKind:'journey', sourceId: j.id, dedicatedUnits:0, ancillaryUnits:0 });
       continue;
     }
     // Effective pace = the GM's pace capped by the activity budget — but NOT when reading "other

@@ -1154,7 +1154,15 @@ document.addEventListener('alpine:init', () => {
                   <span x-text="'🎲 ' + encEvasionRollText()"></span>
                   <button x-show="encEvasionRerollable()" @click="encModalRerollEvasion()" class="px-1.5 border border-ink rounded hover:bg-yellow-100 font-sans text-orange-900" title="Re-throw the evasion d20 (same target + modifiers; a success resolves the encounter as evaded; re-rollable until a reaction roll)">⟳ reroll</button>
                 </p>
-                <p class="text-green-900" x-show="encModalEnc().evasion.aftermath" x-text="'💨 Displaced ' + (encModalEnc().evasion.aftermath || {}).distanceFt + ' ft toward ' + (encModalEnc().evasion.aftermath || {}).clockDirection + ' o\'clock (hex face ' + (encModalEnc().evasion.aftermath || {}).hexFace + ') · Navigation at −4 or the party is lost — and knows it (RR p.285).'"></p>
+                <!-- E8 — the RR p.285 aftermath: displacement + the IMMEDIATE Navigation throw at −4,
+                     rolled by the engine and CARRIED to the party's journey on a failure (it holds,
+                     knowingly lost, until the landmark search / a re-route recovers it). -->
+                <p class="text-green-900" x-show="encModalEnc().evasion.aftermath">
+                  <span x-text="'💨 Displaced ' + (encModalEnc().evasion.aftermath || {}).distanceFt + ' ft toward ' + (encModalEnc().evasion.aftermath || {}).clockDirection + ' o\'clock (hex face ' + (encModalEnc().evasion.aftermath || {}).hexFace + ') · '"></span>
+                  <span x-show="(encModalEnc().evasion.aftermath || {}).navThrow" :class="(encModalEnc().evasion.aftermath || {}).knownLost ? 'text-red-800 font-semibold' : ''" x-text="encAftermathNavText(encModalEnc().evasion.aftermath)"></span>
+                  <button x-show="(encModalEnc().evasion.aftermath || {}).journeyId" @click="const jid = encModalEnc().evasion.aftermath.journeyId; closeEncounterModal(); journeyOpenDetail(jid)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="The held journey — search for the landmark from its panel">🧭 journey</button>
+                  <span x-show="!(encModalEnc().evasion.aftermath || {}).navThrow" x-text="'Navigation at −4 or the party is lost — and knows it (RR p.285).'"></span>
+                </p>
                 <p class="text-orange-800" x-show="!encModalEnc().evasion.success">✗ Failed — proceed to reactions (a failed evasion is not necessarily a fight).</p>
               </div>
             </template>
@@ -1989,10 +1997,17 @@ document.addEventListener('alpine:init', () => {
           <template x-for="c in searchHexCharacters()" :key="c.id"><option :value="c.id" :selected="searchHex.actorId===c.id" x-text="(c.name||'(unnamed)')"></option></template>
         </select>
       </label>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="searchHex.specific"> Searching for a <em>specific</em> point of interest (−4)</label>
+      <!-- E8 (RR p.285) — the landmark mode: the recovery for a knowingly-lost journey. Always a
+           specific POI (−4 baked in below); success flips the journey back to in-transit. -->
+      <template x-if="searchHex.landmarkJourneyId">
+        <div class="text-xs px-2 py-1.5 border border-red-700/40 rounded" style="background:#fdecec">
+          🧭 <span class="font-semibold">Searching for the party's last known landmark</span> (RR p.285 — a specific point of interest, −4). Finding it recovers the lost journey's bearings; the hour still triggers an encounter throw.
+        </div>
+      </template>
+      <label class="flex items-center gap-2 text-sm" x-show="!searchHex.landmarkJourneyId"><input type="checkbox" x-model="searchHex.specific"> Searching for a <em>specific</em> point of interest (−4)</label>
       <template x-if="searchActor() && searchForecast()">
         <div class="text-sm border border-ink/20 rounded p-3 bg-black/5 space-y-1">
-          <div>Throw: <span class="font-mono" x-text="'1d20' + (searchForecast().bonus ? ' +' + searchForecast().bonus + ' Tracking' : '') + (searchHex.specific ? ' −4 specific' : '') + ' vs ' + searchForecast().target + '+'"></span></div>
+          <div>Throw: <span class="font-mono" x-text="'1d20' + (searchForecast().bonus ? ' +' + searchForecast().bonus + ' Tracking' : '') + ((searchHex.specific || searchHex.landmarkJourneyId) ? ' −4 specific' : '') + ' vs ' + searchForecast().target + '+'"></span></div>
           <div class="opacity-70" x-text="'Expedition speed ' + searchForecast().speed + ' mi/day (slowest of the party, × terrain) sets the target — fast parties cover more ground.'"></div>
           <div class="opacity-70">Cost: <span class="font-semibold">ancillary</span> activity (#346) · ⚠ each hour risks an encounter</div>
           <div class="opacity-70" x-text="searchBudgetLine()"></div>
@@ -2001,10 +2016,10 @@ document.addEventListener('alpine:init', () => {
       <template x-if="searchHex.results.length">
         <div class="space-y-1.5">
           <template x-for="(res, ri) in searchHex.results" :key="ri">
-            <div class="text-sm rounded p-2 space-y-0.5" :class="res.found ? 'bg-green-100 border border-green-400' : (res.encounter ? 'bg-amber-100 border border-amber-400' : 'bg-black/5 border border-ink/20')">
+            <div class="text-sm rounded p-2 space-y-0.5" :class="(res.found || res.landmarkFound) ? 'bg-green-100 border border-green-400' : (res.encounter ? 'bg-amber-100 border border-amber-400' : 'bg-black/5 border border-ink/20')">
               <div class="flex flex-wrap items-baseline gap-x-1">
                 <span class="font-mono" x-text="'🎲 ' + res.rolled + (res.bonus ? '+' + res.bonus : '') + (res.mod ? res.mod : '') + ' vs ' + res.target + '+'"></span>
-                <span x-text="res.found ? (' → ✓ found: ' + res.foundName) : (res.success ? ' → ✓ throw made — nothing turned up' : ' → ✗ nothing found')"></span>
+                <span x-text="res.landmark ? (res.landmarkFound ? ' → ✓ the landmark is found — bearings recovered; the journey resumes' : ' → ✗ the landmark eludes them — still lost') : (res.found ? (' → ✓ found: ' + res.foundName) : (res.success ? ' → ✓ throw made — nothing turned up' : ' → ✗ nothing found'))"></span>
                 <button x-show="res.foundLairId" @click="openLairDetail(res.foundLairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
                 <!-- Only the LATEST hour is rerollable (an earlier find changes what later hours could
                      find — the journey day-log's latest-day-only convention). Re-throws JUST the search
@@ -5312,6 +5327,21 @@ document.addEventListener('alpine:init', () => {
             <span>🐾 <span class="font-semibold" x-text="'Tracking ' + (window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).pursuit.quarryLabel || 'a quarry')"></span>
               — the destination follows the trail head each day; pace is capped at half expedition speed (RR p.120).</span>
             <button @click="openEncounterModal(window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).encounterId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the tracked meeting — the 🐾 panel holds the trail controls (rain washed it out, give up the trail)">⚔ the trail</button>
+          </div>
+        </template>
+
+        <!-- E8 (RR p.285) — the party evaded an encounter and failed its Navigation throw at −4:
+             LOST, and it KNOWS it (unlike the §27 secret travel-stray). The journey holds — no
+             travel days — until the last known landmark is found (the Wilderness Search below,
+             1 ancillary, encounter check included), the route is re-drawn, or the GM clears it. -->
+        <template x-if="journeyDetail().status === 'lost'">
+          <div class="text-xs px-2 py-1.5 border border-red-700/50 rounded space-y-1" style="background:#fdecec">
+            <div>⚠ <span class="font-semibold text-red-900">The party is LOST — and knows it</span> (it evaded an encounter and failed its Navigation throw at −4, RR p.285). The journey holds its position until it finds its last known landmark.</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button @click="openSearchHex({ hexId: journeyDetail().currentHexId, landmarkJourneyId: journeyDetail().id })" class="px-1.5 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The RAW recovery (RR p.285): a Wilderness Search hour for the last known landmark — one ancillary; the hour triggers its own encounter throw">🔍 Search for the landmark</button>
+              <button x-show="journeyDetail().lostEncounterId" @click="openEncounterModal(journeyDetail().lostEncounterId)" class="px-1.5 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The meeting the party fled — the aftermath line carries the failed Navigation throw">⚔ the encounter</button>
+              <span class="opacity-70">Re-drawing the route (✎ on the map) also re-orients them.</span>
+            </div>
           </div>
         </template>
 
@@ -10285,6 +10315,16 @@ return {
     }
     const names = (ps.characterIds || []).map(id => this.encCharName(id));
     return names.length ? names.join(', ') : '(no characters bound — set the face via the Inspector)';
+  },
+  // E8 — the RR p.285 evasion-aftermath Navigation throw (at −4), worded with its full
+  // arithmetic (the E2h convention). Old saves' aftermaths carry no navThrow → the static
+  // pending-GM line renders instead.
+  encAftermathNavText(a){
+    const n = a && a.navThrow; if(!n) return '';
+    const mods = (n.modifiers || []).map(m => (m.value >= 0 ? '+' : '') + m.value + ' (' + (m.source === 'party-proficiency' ? 'party' : (m.source === 'evasion-displaced' ? 'displaced' : m.source)) + ')').join(' ');
+    const math = '🧭 Navigation 1d20 ' + n.natural + (mods ? (' ' + mods) : '') + ' = ' + n.total + ' vs ' + n.target + '+';
+    if(a.knownLost) return math + ' → ✗ LOST — and knows it (RR p.285)' + (a.journeyId ? ' — the journey holds' : '');
+    return math + ' → ✓ bearings kept (RR p.285)';
   },
   encMonsterText(enc){
     const ms = (enc && enc.monsterSide) || {};
@@ -15567,11 +15607,21 @@ return {
   },
 
   // ── #476 M4 — Search-the-hex + track-home (thin UI over ACKS.hexSearchActivity / trackHomeAttempt) ──
+  // E8: opts.landmarkJourneyId switches the modal to the RR p.285 LANDMARK search — the recovery
+  // for a knowingly-lost journey (always a specific POI, −4; success resumes the journey).
   openSearchHex(opts){
     opts = opts || {};
     const s = this.searchHex;
     s.open = true; s.hexId = opts.hexId || null; s.specific = false; s.results = [];
+    s.landmarkJourneyId = opts.landmarkJourneyId || null;
     s.actorId = opts.actorCharacterId || null;
+    if(!s.actorId && s.landmarkJourneyId){
+      // default to a journey participant standing at the search hex
+      const j = (this.currentCampaign?.journeys||[]).find(x => x && x.id === s.landmarkJourneyId);
+      const ids = (j && j.participantCharacterIds) || [];
+      const at = (this.currentCampaign?.characters||[]).find(c => c && ids.indexOf(c.id) >= 0 && (!s.hexId || c.currentHexId === s.hexId));
+      if(at) s.actorId = at.id;
+    }
     if(!s.actorId && s.hexId){ const at = this.searchHexCharacters(); if(at[0]) s.actorId = at[0].id; }
   },
   closeSearchHex(){ this.searchHex.open = false; },
@@ -15616,9 +15666,11 @@ return {
   runSearchHour(){
     const c = this.searchActor(); if(!c){ this.showToast('Pick a character first.', 3500); return; }
     const r = window.ACKS.hexSearchActivity(this.currentCampaign, {
-      actorCharacterId: c.id, hexId: this.searchHex.hexId || c.currentHexId || null, specific: !!this.searchHex.specific
+      actorCharacterId: c.id, hexId: this.searchHex.hexId || c.currentHexId || null, specific: !!this.searchHex.specific,
+      landmarkJourneyId: this.searchHex.landmarkJourneyId || null
     });
     if(!r || !r.ok){ this.showToast('Could not search: ' + ((r && r.error) || 'unknown error'), 4000); return; }
+    if(r.landmarkFound) this.showToast('🧭 The landmark is found — bearings recovered; the journey resumes.', 4500);
     let encounterText = '';
     if(r.encounter){
       const A = window.ACKS;
@@ -15643,6 +15695,7 @@ return {
       id: (r.event && r.event.id) || null,
       rolled: r.rolled, target: r.target, bonus: r.bonus, mod: r.mod, success: r.success,
       found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null,
+      landmark: !!this.searchHex.landmarkJourneyId, landmarkFound: !!r.landmarkFound,
       encounter: r.encounter || null, encounterText: encounterText, survey: r.survey || null, surveyText: surveyText
     });
     this.markDirty(); this.schedulePersist();
@@ -15656,7 +15709,8 @@ return {
     if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || 'unknown error'), 3500); return; }
     this.searchHex.results.splice(ri, 1, Object.assign({}, row, {
       rolled: r.rolled, success: r.success,
-      found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null
+      found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null,
+      landmarkFound: row.landmark ? !!r.landmarkFound : row.landmarkFound
     }));
     this.markDirty(); this.schedulePersist();
   },
@@ -16164,7 +16218,7 @@ return {
   lairDetailPopulateKey: '',     // ✨ populate-from-catalog monster key (shells / empty lairs)
   lairDetailRevealHexId: '',     // reveal-a-dynamic-lair hex pick
   // #476 M4 — Search-the-hex (RR pp.276–277) + track-home (RR p.120) modals.
-  searchHex: { open:false, actorId:null, hexId:null, specific:false, results:[] },
+  searchHex: { open:false, actorId:null, hexId:null, specific:false, landmarkJourneyId:null, results:[] },
   trackHome: { open:false, actorId:null, lairId:null, encounterId:null, hexId:null, countTracked:0, mod:0, groundMod:0, rainHours:0, dimLight:false, result:null },
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.

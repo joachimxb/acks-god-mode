@@ -3436,6 +3436,8 @@ function reRouteJourney(campaign, journey, opts){
   j.isLost = false;                        // a fresh heading re-orients a lost party
   j.strayHeading = null;                   // §27 — drop the stray heading; the GM has re-oriented them
   j.routeAnchorCoord = null;               // §27 — re-anchor by the (authored) current hex, not a strayed coord
+  if(j.status === 'lost') j.status = 'in-transit';   // E8 — a re-route re-orients a KNOWINGLY-lost party too (RR p.285)
+  j.lostEncounterId = null;
   try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
   const dist = computeJourneyDistance(campaign, j);
   j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.remaining / 4)) : 0;
@@ -3948,8 +3950,12 @@ function _survivalDayGroups(campaign){
   // in his realm are exempt, party-sharing or not. Field characters everywhere else always consume.
   const regimeOf = A.characterEffectiveRegime || A.characterProvisioningRegime;
   const onJourney = {};
+  // E8 — a KNOWINGLY-lost journey (status 'lost', RR p.285) is deliberately NOT excluded: it
+  // holds its position (the journeys consumer ticks only in-transit), so its members are a
+  // stationary field group — this consumer owns their food/water while they search for the
+  // landmark, and the rest-night camp checks face them too (lost camps stay dangerous).
   (campaign.journeys || []).forEach(j => {
-    if(j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost')){
+    if(j && (j.status === 'in-transit' || j.status === 'resting')){
       (j.participantCharacterIds || []).forEach(id => { onJourney[id] = 1; });
     }
   });

@@ -1431,6 +1431,11 @@ function blankJourney(opts={}){
     // straying — it takes precedence over routeAnchorHexId so the route resolves from where the party
     // physically is, even in trackless wilderness. null = anchor by hex id (the normal case).
     routeAnchorCoord: opts.routeAnchorCoord || null,
+    // E8 (RR p.285): the encounter whose evaded-then-failed Navigation throw (at −4) put this
+    // journey at status 'lost' — KNOWINGLY lost, unlike the §27 unknowing stray (isLost). The
+    // journey HOLDS until the landmark search recovers it, a re-route re-orients it, or the GM
+    // clears it. null = not knowingly lost. (Read defensively — pre-E8 saves lack the field.)
+    lostEncounterId: opts.lostEncounterId || null,
     coveredBaseline: opts.coveredBaseline || 0,
     currentHexId: opts.currentHexId || null,            // the hex the party is in now (advances hex-by-hex along the route — §24)
     currentDayIndex: opts.currentDayIndex || 0,         // 0..N days into the journey

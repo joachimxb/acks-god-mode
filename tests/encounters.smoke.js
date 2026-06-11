@@ -2243,6 +2243,152 @@ section('E7 — the hunt rolls the wandering-monster draw (RR p.278, Joachim 202
 }
 
 // =============================================================================
+section('E8 — the evasion aftermath carries to the journey (RR p.285, Joachim 2026-06-11)');
+{
+  // RR p.285: "Once the party comes to a halt, it must IMMEDIATELY make a Navigation throw
+  // at −4… If the throw fails, the party or group is lost and knows it." The throw is rolled
+  // at the evasion (itemized) and CARRIED: the party's active journey goes to status 'lost'
+  // (KNOWINGLY — it HOLDS, unlike the §27 unknowing stray) until the RAW landmark search
+  // (a Wilderness Searching throw "as if it were a point of interest"), a re-route, or the
+  // GM recovers it. The forest navigation target is 8+ (JOURNEY_NAV_THROWS).
+  const mkEvadeWorld = (withJourney) => {
+    const c = ACKS.blankCampaign({ name: 'evade' });
+    c.hexes = [{ id: 'hex-e', coord: { q: 0, r: 0 }, terrain: 'forest', domainId: null },
+               { id: 'hex-f', coord: { q: 3, r: 0 }, terrain: 'forest', domainId: null }];
+    const trav = ACKS.blankCharacter({ name: 'Traveller' }); trav.currentHexId = 'hex-e';
+    c.characters.push(trav);
+    let j = null;
+    if(withJourney){
+      j = ACKS.blankJourney({ id: 'jrn-e8', name: 'The trek', status: 'in-transit',
+        participantCharacterIds: [trav.id], startHexId: 'hex-e', destinationHexId: 'hex-f', currentHexId: 'hex-e' });
+      c.journeys.push(j);
+    }
+    const enc = ACKS.createEncounter(c, { id: 'enc-e8', trigger: 'journey-travel', hexId: 'hex-e', category: 'monster', rarity: 'common',
+      partySide: { journeyId: j ? j.id : null, partyId: null, characterIds: [trav.id], faceCharacterId: trav.id, sizeCount: 1 },
+      monsterSide: { source: 'fresh', monsterCatalogKey: 'common-wolf', count: 3, encounterKind: 'wandering' } });
+    enc.surprise = { party: { surprised: false }, monsters: { surprised: true }, evadeEligibility: 'can' };
+    return { c, trav, j, enc };
+  };
+
+  // ── the throw rides the aftermath: success keeps the bearings (constant 0.7 → nav d20 15, 15−4=11 ≥ 8) ──
+  let W = mkEvadeWorld(true);
+  let r = ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.7 });
+  let a = W.enc.evasion.aftermath;
+  ok('evaded: the RR p.285 nav throw rides the aftermath, itemized', r.ok && W.enc.evasion.success
+    && a.navThrow && a.navThrow.natural === 15 && a.navThrow.target === 8
+    && a.navThrow.modifiers.some(m => m.source === 'evasion-displaced' && m.value === -4) && a.navThrow.total === 11);
+  ok('…success → bearings kept: knownLost false, the journey untouched', a.knownLost === false
+    && a.journeyId === null && W.j.status === 'in-transit' && !W.j.lostEncounterId);
+
+  // ── failure carries: status lost + lostEncounterId + journey history (constant 0.10 → nav 3−4=−1) ──
+  W = mkEvadeWorld(true);
+  r = ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.10 });
+  a = W.enc.evasion.aftermath;
+  ok('failure → LOST and knows it, carried to the journey', a.knownLost === true && a.journeyId === 'jrn-e8'
+    && W.j.status === 'lost' && W.j.lostEncounterId === 'enc-e8');
+  ok('…the journey history records the displacement + the failed throw', (W.j.history || []).some(h =>
+    h.type === 'lost' && /knows it/.test(h.narrative) && /Navigation throw at −4/.test(h.narrative)));
+  ok('…and the encounter history stamps the verdict', (W.enc.history || []).some(h =>
+    h.type === 'evasion-navigation' && /LOST/.test(h.reason)));
+
+  // ── the party's nav proficiency counts (+4 Navigation: nav d20 3 +4 −4 = 3 < 8 still lost; 0.35 → 8 +4 −4 = 8 ✓) ──
+  W = mkEvadeWorld(true);
+  W.trav.proficiencies = ['Navigation'];
+  r = ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.35 });
+  a = W.enc.evasion.aftermath;
+  ok('the party +4 Navigation bonus itemizes and clears the throw (8+4−4 = 8 vs 8+)', a.navThrow
+    && a.navThrow.natural === 8 && a.navThrow.modifiers.some(m => m.source === 'party-proficiency' && m.value === 4)
+    && a.navThrow.total === 8 && a.knownLost === false);
+
+  // ── natural 1 always fails (constant 0 → d20 1, even with +8) ──
+  W = mkEvadeWorld(true);
+  W.trav.proficiencies = ['Navigation']; W.trav.classPowers = ['Pathfinding'];
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0 });
+  a = W.enc.evasion.aftermath;
+  ok('natural 1 auto-fails the nav throw (+8 notwithstanding)', a.navThrow.natural === 1 && a.knownLost === true && W.j.status === 'lost');
+
+  // ── the overlap fallback: no journeyId on the partySide, the journey found via the participant ──
+  W = mkEvadeWorld(true);
+  W.enc.partySide.journeyId = null;
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.10 });
+  ok('no stamped journeyId → the carry resolves the journey via the participant overlap',
+    W.j.status === 'lost' && W.enc.evasion.aftermath.journeyId === 'jrn-e8');
+
+  // ── no journey → the verdict stays on the encounter (panel-only) ──
+  W = mkEvadeWorld(false);
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.10 });
+  a = W.enc.evasion.aftermath;
+  ok('a journeyless party: knownLost recorded, nothing to carry', a.knownLost === true && a.journeyId === null);
+
+  // ── the reroll path (a FAILED evasion rerolled into success rolls the same aftermath + carry) ──
+  W = mkEvadeWorld(true);
+  W.enc.surprise.monsters.surprised = false;                       // no auto-success → the throw can fail
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0 });   // evasion fails (natural 1)
+  ok('the failed evasion did not roll an aftermath', !W.enc.evasion.success && !W.enc.evasion.aftermath);
+  ACKS.encounterRerollEvasion(W.c, 'enc-e8', { rng: () => 0.10 }); // succeeds the evasion (vs the forest party-size target), nav 3−4 fails
+  a = W.enc.evasion.aftermath;
+  ok('the evasion ⟳ rolls the aftermath + the nav throw + the carry, same as the original',
+    W.enc.evasion.success && a && a.navThrow && a.knownLost === true && W.j.status === 'lost');
+
+  // ── the held journey: no travel days; its members are a stationary field group ──
+  W = mkEvadeWorld(true);
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.10 });
+  ACKS.resolveEncounter(W.c, 'enc-e8', 'evaded');                  // close the meeting so no pause noise
+  W.trav.waterDaysCarried = 0;                                     // thirsty → the survival consumer records
+  const sd = ACKS.proposeSurvivalDay(W.c, {});
+  ok('a lost journey member is a stationary FIELD group (the survival consumer owns him)',
+    (sd.pendingRecords || []).some(rec => (rec.memberIds || []).indexOf(W.trav.id) >= 0));
+  W.j.status = 'in-transit';
+  ok('…while in-transit the journey path owns him (excluded here)',
+    !(ACKS.proposeSurvivalDay(W.c, {}).pendingRecords || []).some(rec => (rec.memberIds || []).indexOf(W.trav.id) >= 0));
+  W.j.status = 'lost';
+  const jd = ACKS.proposeJourneyDay(W.c, { dayInMonth: 2 });
+  ok('…and the journeys consumer leaves the held journey alone (no travel day)',
+    !((jd && jd.pendingRecords) || []).some(rec => rec.journeyId === 'jrn-e8' || (rec.payload && rec.payload.journeyId === 'jrn-e8')));
+  const bud = ACKS.characterActivityBudget(W.c, W.trav.id);
+  ok('…the day budget shows the hold and charges nothing', bud.dedicatedUsed === 0 && bud.ancillaryUsed === 0
+    && (bud.incidental || []).some(x => x.sourceKind === 'journey' && /lost — holding position/.test(x.label)));
+
+  // ── the landmark search (RR p.285 ¶3): a specific-POI Wilderness Search; success recovers ──
+  W = mkEvadeWorld(true);
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.10 });
+  W.trav.proficiencies = ['Tracking'];                              // +4 on the search throw
+  const den = ACKS.createLair(W.c, { hexId: 'hex-e', monsterCatalogKey: 'orc', status: 'active', name: 'Hidden den' });
+  den.knownToPlayers = false;
+  let ls = ACKS.hexSearchActivity(W.c, { actorCharacterId: W.trav.id, landmarkJourneyId: 'jrn-e8', rng: seq(0.25, 0.5) });
+  ok('a failed landmark hour leaves the party lost (d20 6 +4 −4 = 6)', ls.ok && ls.success === false
+    && ls.landmarkFound === false && W.j.status === 'lost' && ls.event.payload.method === 'landmark-search');
+  ls = ACKS.hexSearchActivity(W.c, { actorCharacterId: W.trav.id, landmarkJourneyId: 'jrn-e8', rng: seq(0.99, 0.5) });
+  ok('a successful landmark hour recovers the journey (the −4 specific applies; no lair is found)',
+    ls.success === true && ls.landmarkFound === true && ls.found === null && ls.event.payload.mod === -4
+    && W.j.status === 'in-transit' && W.j.lostEncounterId === null);
+  ok('…the journey history records the recovery', (W.j.history || []).some(h => h.type === 'recovered'));
+  ok('…the hour charged 1 ancillary (the search-hour cost)', ls.event.payload.activityCost
+    && ls.event.payload.activityCost.slot === 'ancillary' && ls.event.payload.activityCost.units === 1);
+  // the reroll flips both ways, surgically
+  let rr = ACKS.rerollHexSearch(W.c, ls.event.id, { rng: () => 0 });
+  ok('reroll success→fail re-loses the journey (the original encounter restored)', rr.ok && rr.success === false
+    && W.j.status === 'lost' && W.j.lostEncounterId === 'enc-e8');
+  rr = ACKS.rerollHexSearch(W.c, ls.event.id, { rng: () => 0.99 });
+  ok('reroll fail→success recovers it again', rr.success === true && rr.landmarkFound === true
+    && W.j.status === 'in-transit' && W.j.lostEncounterId === null);
+
+  // ── a re-route also re-orients a knowingly-lost party (the GM's "we push on" lever) ──
+  W = mkEvadeWorld(true);
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.10 });
+  ok('(pre) the journey is lost', W.j.status === 'lost');
+  ACKS.reRouteJourney(W.c, 'jrn-e8', { destinationHexId: 'hex-f' });
+  ok('reRouteJourney clears the known-lost state', W.j.status === 'in-transit' && W.j.lostEncounterId === null);
+
+  // ── E3c interplay: a canTrack band's pursuit fork AND the nav throw both apply ──
+  W = mkEvadeWorld(true);
+  W.enc.monsterSide.monsterCatalogKey = 'common-wolf';             // canTrack
+  ACKS.encounterAttemptEvasion(W.c, 'enc-e8', { rng: () => 0.10 });
+  ok('pursuit offered AND the nav verdict rolled on the same success', W.enc.phase === 'pursuit'
+    && W.enc.pursuit && W.enc.evasion.aftermath.navThrow && W.j.status === 'lost');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
