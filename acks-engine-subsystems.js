@@ -1778,9 +1778,19 @@ function rollEncounter(campaign, journey, opts){
   const knownRoute = (opts.knownRoute != null) ? !!opts.knownRoute
     : !!(journey && Array.isArray(journey.days) && journey.days.some(d => d && Array.isArray(d.hexPath) && d.hexPath.some(h => h
         && ((hexId && h.hexId === hexId) || (coord && h.q === coord.q && h.r === coord.r)))));
-  // includeDynamicPool stays false on the travel path — revealing a pooled dynamic lair is a
-  // GM decision, not an automatic travel surprise (M3).
-  const draw = ACKS.encounterDraw(campaign, hexId, { road: !!opts.hasRoad, night: false, resting: false, knownRoute, rng });
+  // The hex (or, for an unauthored sparse-route step, the journey's current/start hex
+  // ENVIRONMENT — the §24 fallback) keys both the identity table and the distance row.
+  const hex = hexId ? (campaign.hexes || []).find(h => h && h.id === hexId) : null;
+  const envHex = hex || (campaign.hexes || []).find(h => h && h.id === ((journey && (journey.currentHexId || journey.startHexId)) || null)) || null;
+  // E4: identity rolls on the JJ tables inside the draw (table-first — RAW JJ p.43; the
+  // hex's lairs MATCH the rolled monster via the 6a Lair % binding rather than overriding
+  // the table). A pooled dynamic lair is revealed only when the table rolls ITS monster
+  // in-lair (RAW's parenthetical) — the old blanket includeDynamicPool stays off.
+  const draw = ACKS.encounterDraw(campaign, hexId, {
+    road: !!opts.hasRoad, night: false, resting: false, knownRoute, rng,
+    terrainKey: (!hex && envHex && typeof ACKS.terrainKey === 'function') ? ACKS.terrainKey(envHex) : undefined,
+    hasRiver: (!hex && envHex) ? !!(Array.isArray(envHex.riverSides) && envHex.riverSides.length) : undefined
+  });
   if(!draw || draw.category === 'no-encounter') return null;
   const jName = (journey && journey.name) || 'Journey';
   // Terrain categories — a discovery notable, no entity.
@@ -1799,9 +1809,43 @@ function rollEncounter(campaign, journey, opts){
   // same id and the commit creates the entity under it (createEncounter is id-idempotent).
   const encId = _mintEncounterProposalId(campaign, rng, opts.takenIds);
   const prop = draw.proposal || null;
+  const ir = draw.identityRoll || null, bind = draw.binding || null;
   let label, monsters = [], lairId = null, seededShellLairIds = null, encounterKind = null, fragmentCount = null;
-  if(draw.category === 'civilized'){
-    label = jName + ': civilized encounter — travellers, locals, or a patrol; GM, pick who (the 1d100 table lands with #141)';
+  if(ir){
+    // E4 — the table named the creature; the label states the 6a verdict so the GM
+    // ratifies knowing exactly what the commit will do to the world.
+    const mName = (ir.key && typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(ir.key)) || ir.label || 'creatures';
+    const head = jName + ': ' + (draw.category === 'civilized' ? 'civilized encounter — ' : 'encounter — ');
+    const n = bind && bind.count;
+    if(!ir.key){
+      label = head + ir.label + ' (rolled ' + ir.natural + ' on the ' + (draw.category === 'civilized' ? 'civilized' : (draw.rarity || '')) + ' table — GM details the specifics) — GM, resolve';
+      encounterKind = 'wandering';
+    } else if(bind && bind.mode === 'existing-lair'){
+      lairId = bind.lairId; encounterKind = 'at-lair';
+      const den = (typeof ACKS.findLair === 'function') ? ACKS.findLair(campaign, bind.lairId) : null;
+      if(den) monsters = (den.groupIds || []).map(id => ({ groupId: id }));
+      label = head + mName + ' in their lair here' + (n ? ' (' + n + ' inhabitants)' : '') + ' — GM, resolve';
+    } else if(bind && bind.mode === 'fragment'){
+      lairId = bind.lairId; encounterKind = 'wandering-fragment'; fragmentCount = n || null;
+      label = head + (n ? n + ' ' : 'a band of ') + mName.toLowerCase() + (n === 1 ? '' : 's')
+        + ' out from their lair in this hex — GM, resolve (Tracking can follow them home)';
+    } else if(bind && bind.mode === 'populate-shell'){
+      encounterKind = 'at-lair';
+      label = head + mName + ' in their lair (' + (n || '?') + ') — details one of this hex’s seeded lairs at commit — GM, resolve';
+    } else if(bind && bind.mode === 'reveal-dynamic'){
+      encounterKind = 'at-lair';
+      const dl = (typeof ACKS.findLair === 'function') ? ACKS.findLair(campaign, bind.lairId) : null;
+      label = head + mName + ' in their lair — reveals the pooled “' + ((dl && dl.name) || 'dynamic lair') + '” here at commit — GM, resolve';
+    } else if(bind && bind.mode === 'fresh-lair'){
+      encounterKind = 'at-lair';
+      label = head + mName + ' in their lair (' + (n || '?') + ') — a new den in this hex at commit — GM, resolve';
+    } else {
+      encounterKind = 'wandering';
+      label = head + (n ? n + ' ' : '') + (n === 1 ? mName : mName + (draw.category === 'civilized' ? '' : 's')).replace(/ss$/, 's')
+        + (bind && bind.inLair ? ' at their dwelling' : ' (wandering)') + ' — GM, resolve';
+    }
+  } else if(draw.category === 'civilized'){
+    label = jName + ': civilized encounter — travellers, locals, or a patrol; GM, pick who';
   } else if(prop && prop.source === 'existing-lair'){
     lairId = prop.lairId;
     encounterKind = prop.encounterKind || 'at-lair';
@@ -1827,16 +1871,13 @@ function rollEncounter(campaign, journey, opts){
       + prop.candidates.length + ' unauthored lair' + (prop.candidates.length === 1 ? '' : 's')
       + ' (seeded) — GM: populate one or resolve generically';
   } else {
-    label = jName + ': ' + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster encounter — GM, pick the creature (catalog); the identity tables land with #141';
+    label = jName + ': ' + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster encounter — GM, pick the creature (catalog)';
   }
-  // Pre-roll the RAW distance with the SEEDED rng — the commit copies it verbatim. An
-  // unauthored hex reads the journey's current/start hex ENVIRONMENT for the terrain row
-  // (the §24 sparse-campaign fallback); territory + pool stayed strictly the hex's own.
-  const hex = hexId ? (campaign.hexes || []).find(h => h && h.id === hexId) : null;
-  const envHex = hex || (campaign.hexes || []).find(h => h && h.id === ((journey && (journey.currentHexId || journey.startHexId)) || null)) || null;
+  // Pre-roll the RAW distance with the SEEDED rng — the commit copies it verbatim. The
+  // env hex (computed above) keys the terrain row for unauthored sparse-route steps.
   const rowKey = (envHex && typeof ACKS.encounterRowKeyForHex === 'function') ? ACKS.encounterRowKeyForHex(envHex) : null;
   const sizeCount = ((journey && journey.participantCharacterIds) || []).length || 1;
-  const monsterCount = fragmentCount || (prop && prop.contents && prop.contents.totalInhabitantCount) || null;
+  const monsterCount = (bind && bind.count) || fragmentCount || (prop && prop.contents && prop.contents.totalInhabitantCount) || null;
   const distance = (rowKey && typeof ACKS.computeEncounterDistance === 'function')
     ? ACKS.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight', sideACount: sizeCount, sideBCount: monsterCount, rng })
     : null;
@@ -1847,8 +1888,11 @@ function rollEncounter(campaign, journey, opts){
     monsters: monsters, lairId: lairId, rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
     partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null,
     // The compacted draw + distance the commit materializes the entity from (plan §15.2).
+    // E4: identityRoll + binding ride verbatim — the commit applies the RECORDED verdict
+    // (no re-roll), so the materialized entity matches the reviewed preview byte-for-byte.
     draw: { hexId: draw.hexId, territoryClass: draw.territoryClass, columnKey: draw.columnKey,
             category: draw.category, rarity: draw.rarity, identity: draw.identity,
+            identityRoll: ir, binding: bind,
             proposal: prop ? { source: prop.source, lairId: prop.lairId || null,
                                encounterKind: prop.encounterKind || null, fragment: prop.fragment || null,
                                contents: prop.contents || null,
@@ -1860,6 +1904,8 @@ function rollEncounter(campaign, journey, opts){
     label: label,
     payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId,
                category: draw.category, rarity: draw.rarity || null,
+               identityLabel: ir ? ir.label : null, monsterKey: ir ? (ir.key || null) : null,
+               bindingMode: bind ? bind.mode : null,
                lairId: lairId, seededShellLairIds: seededShellLairIds, encounterKind: encounterKind, fragmentCount: fragmentCount }
   };
   return { encounterRecord, notableEvent };
@@ -2907,11 +2953,17 @@ function rerollJourneyDay(campaign, journey, ctx){
   // 1b. #476 E1 — drop the reverted day's materialized Encounter entities (+ any encounter-*
   // events hanging off them): the day never happened. Surgical, like rerollHexSearch's
   // discovery reversal — a GM who already walked/resolved one of these loses that walk with
-  // the day, which is the point of the reroll.
+  // the day, which is the point of the reroll. E4: an encounter whose 6a binding MINTED a
+  // lair (detailed a shell / revealed a pooled lair / created a fresh den) unwinds that
+  // first — the world keeps no den from a day that never happened.
   {
     const _encIds = ((lastDay && lastDay.encounters) || []).map(e => e && e.encounterId).filter(Boolean);
     if(_encIds.length){
       if(Array.isArray(campaign.encounters)){
+        for(const e of campaign.encounters){
+          if(e && _encIds.indexOf(e.id) >= 0 && e.monsterSide && e.monsterSide.minted && typeof A._unwindEncounterMinting === 'function')
+            A._unwindEncounterMinting(campaign, e.monsterSide.minted);
+        }
         campaign.encounters = campaign.encounters.filter(e => !(e && _encIds.indexOf(e.id) >= 0));
       }
       campaign.eventLog = (campaign.eventLog || []).filter(entry => {
@@ -4147,8 +4199,20 @@ function proposeEncounterDay(campaign, ctx){
       const firstCh = (campaign.characters || []).find(c => c && c.id === g.characterIds[0]);
       const who = (party && party.name) || (firstCh && firstCh.name) || 'A camped group';
       const prop = draw.proposal || null;
+      const ir = draw.identityRoll || null, bind = draw.binding || null;
       let what;
-      if(draw.category === 'civilized') what = 'civilized visitors — GM, pick who (the 1d100 table lands with #141)';
+      if(ir){
+        // E4 — the table named them; say what the commit will do (ratify-informed).
+        const mName = (ir.key && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(ir.key)) || ir.label || 'creatures';
+        const n = bind && bind.count;
+        if(!ir.key) what = ir.label + ' (rolled ' + ir.natural + ' — GM details the specifics) — GM, resolve';
+        else if(bind && bind.mode === 'existing-lair') what = mName + ' — their lair is in this hex; GM, resolve';
+        else if(bind && bind.mode === 'fragment') what = (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's') + ' out from their lair here — GM, resolve';
+        else if(bind && (bind.mode === 'populate-shell' || bind.mode === 'fresh-lair' || bind.mode === 'reveal-dynamic'))
+          what = mName + ' in their lair — the den materializes here at commit; GM, resolve';
+        else what = (n ? n + ' ' : '') + mName + (bind && bind.inLair ? ' at their dwelling' : ' (wandering)') + ' — GM, resolve';
+      }
+      else if(draw.category === 'civilized') what = 'civilized visitors — GM, pick who';
       else if(prop && prop.source === 'existing-lair'){
         const mName = (typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'creatures';
         what = prop.encounterKind === 'wandering-fragment'
@@ -4164,6 +4228,7 @@ function proposeEncounterDay(campaign, ctx){
         period: chk.period, territoryClass: territory, dayInMonth: dayInMonth,
         draw: { hexId: draw.hexId, territoryClass: draw.territoryClass, columnKey: draw.columnKey,
                 category: draw.category, rarity: draw.rarity, identity: draw.identity,
+                identityRoll: ir, binding: bind,
                 proposal: prop ? { source: prop.source, lairId: prop.lairId || null,
                                    encounterKind: prop.encounterKind || null, fragment: prop.fragment || null,
                                    contents: prop.contents || null,

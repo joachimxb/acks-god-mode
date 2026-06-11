@@ -3006,11 +3006,12 @@ function hexSearchActivity(campaign, opts){
   // draw (#476 E1, replacing the J1 1/6 stub; terrain finds apply while searching — only
   // RESTING demotes them, JJ p.42 step 7). A meeting category (monster / civilized)
   // materializes an Encounter entity at once — the search is a live GM verb, no propose/
-  // commit dance — and the draw rides the search payload (a failed search can still stumble
-  // onto the lair through the encounter it provoked; the draw is pool-first, D5).
+  // commit dance — and the draw rides the search payload. The search draw stays
+  // LAIR-FIRST (RR p.276: an encounter while searching means the party has "stumbled
+  // onto" the hex's lairs) — deliberately NOT the E4 table-first travel procedure.
   let encounter = null;
   if(typeof A.encounterDraw === 'function'){
-    const draw = A.encounterDraw(campaign, hexId, { rng: rng });
+    const draw = A.encounterDraw(campaign, hexId, { rng: rng, lairFirst: true });
     if(draw && draw.category !== 'no-encounter'){
       const prop = draw.proposal || null;
       encounter = {
@@ -3450,6 +3451,91 @@ function encounterRollDistance(campaign, encounterId, opts){
   enc.history.push({ turn: campaign.currentTurn || 1, type: reroll ? 'distance-reroll' : 'distance',
     reason: d.distanceFt + ' ft (rolled ' + d.rolledFt + ', cap ' + d.capFt + ')' });
   return { ok: true, encounter: enc, distance: d, reroll };
+}
+
+// ─── E4 — identity ⟳ + choose-from-table (Joachim: "the GM should be given a chance
+// to (a) reroll and (b) choose from the appropriate table"). Both gate like distance —
+// while active with the walk not yet past it (once surprise concludes, the side IS who
+// you met). Both unwind any minted lair first (_unwindEncounterMinting — a detailed
+// shell reverts, a revealed pooled lair returns to the pool, a fresh den is removed),
+// then re-bind the new identity through the same 6a machinery, so the world never keeps
+// a den from a discarded roll. Re-rolls happen ON the stored table (identity.tableKey /
+// columnKey) — robust for sparse-route encounters whose hex was never authored.
+
+function _encIdentityGate(campaign, encounterId){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { error: 'already-resolved' };
+  if(_encSurpriseConcluded(enc) || enc.evasion || enc.reaction) return { error: 'walk-past-identity' };
+  if(!enc.monsterSide || !enc.monsterSide.identity) return { error: 'no-table-identity' };
+  return { enc };
+}
+
+// Roll 1d100 on the encounter's OWN table (monster: tableKey × rarity; civilized: columnKey).
+function _rollOnStoredTable(A, identity, rarity, rng){
+  const natural = 1 + Math.floor(rng() * 100);
+  if(identity.columnKey){
+    const col = A.ENCOUNTER_CIVILIZED_TABLE && A.ENCOUNTER_CIVILIZED_TABLE.columns[identity.columnKey];
+    const cell = col && col.rows.find(c => natural >= c.lo && natural <= c.hi);
+    return cell ? { natural, label: cell.label, key: cell.key, tableKey: null, columnKey: identity.columnKey,
+                    rarity: null, page: (A.ENCOUNTER_CIVILIZED_TABLE && A.ENCOUNTER_CIVILIZED_TABLE.page) || 43 } : null;
+  }
+  const t = A.ENCOUNTER_MONSTER_TABLES && A.ENCOUNTER_MONSTER_TABLES[identity.tableKey];
+  const col = t && t.columns[rarity || identity.rarity || 'common'];
+  const cell = col && col.find(c => natural >= c.lo && natural <= c.hi);
+  return cell ? { natural, label: cell.label, key: cell.key, tableKey: identity.tableKey, columnKey: null,
+                  rarity: rarity || identity.rarity || 'common', page: t.page } : null;
+}
+
+function _encApplyNewIdentity(campaign, enc, identity, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  if(enc.monsterSide.minted && typeof A._unwindEncounterMinting === 'function')
+    A._unwindEncounterMinting(campaign, enc.monsterSide.minted);
+  const binding = A.bindEncounterIdentity(campaign, enc.hexId || null, identity, { category: enc.category || 'monster', rng: r });
+  A._applyIdentityBinding(campaign, enc.monsterSide, identity, binding, { hexId: enc.hexId || null, atTurn: campaign.currentTurn || 1, rng: r });
+  if(o.rarity && enc.category === 'monster') enc.rarity = o.rarity;
+  return binding;
+}
+
+// ⟳ Identity — re-roll the 1d100 on the same table (a new rarity column may be passed:
+// the GM dialing the encounter up/down stays a table pick, recorded). opts: { rarity?, rng? }.
+function encounterRerollIdentity(campaign, encounterId, opts){
+  const g = _encIdentityGate(campaign, encounterId);
+  if(g.error) return { ok: false, error: g.error };
+  const enc = g.enc;
+  const A = _gpwACKS();
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const prior = enc.monsterSide.identity;
+  const rarity = (enc.category === 'monster') ? (o.rarity || enc.rarity || prior.rarity || 'common') : null;
+  const identity = _rollOnStoredTable(A, prior, rarity, rng);
+  if(!identity) return { ok: false, error: 'no-table' };
+  const binding = _encApplyNewIdentity(campaign, enc, identity, { rng, rarity });
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'identity-reroll',
+    reason: (identity.label || '?') + ' (1d100 ' + identity.natural + (rarity ? ' · ' + rarity : '') + ')' });
+  return { ok: true, encounter: enc, identity, binding };
+}
+
+// GM pick from the appropriate table (the E4c picker hands in the chosen cell).
+// opts: { label, key (null = a catalog-excluded creature the GM details), rarity?, rng? }.
+function encounterChooseIdentity(campaign, encounterId, opts){
+  const g = _encIdentityGate(campaign, encounterId);
+  if(g.error) return { ok: false, error: g.error };
+  const enc = g.enc;
+  const o = opts || {};
+  if(!o.label && !o.key) return { ok: false, error: 'no-pick' };
+  const prior = enc.monsterSide.identity;
+  const rarity = (enc.category === 'monster') ? (o.rarity || enc.rarity || prior.rarity || 'common') : null;
+  const identity = { natural: null, gmChosen: true, label: o.label || '', key: (o.key === undefined ? null : o.key),
+                     tableKey: prior.tableKey || null, columnKey: prior.columnKey || null,
+                     rarity: rarity, page: prior.page || null };
+  const binding = _encApplyNewIdentity(campaign, enc, identity, { rng: o.rng, rarity });
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'identity-chosen',
+    reason: (identity.label || identity.key || '?') + ' (GM pick from the table)' });
+  return { ok: true, encounter: enc, identity, binding };
 }
 
 // ⟳ Surprise — re-throw the side dice at the frontier (no evasion attempt, no reaction).
@@ -4092,7 +4178,8 @@ Object.assign(ACKS, {
   encounterSetAwareness, encounterRollSurprise, encounterAttemptEvasion,
   encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved,
   // E2h — the distance verb + the per-step rerolls (every roll re-rollable at its frontier)
-  encounterRollDistance, encounterRerollSurprise, encounterRerollEvasion,
+  encounterRollDistance, encounterRerollIdentity, encounterChooseIdentity,
+  encounterRerollSurprise, encounterRerollEvasion,
   encounterRerollReaction, encounterRerollInfluence,
   // E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103)
   encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair,

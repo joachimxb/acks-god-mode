@@ -3399,17 +3399,90 @@ function resolveEncounter(campaign, encounterId, outcome, opts){
   return enc;
 }
 
-// --- The draw seam (§15.2, D12) ------------------------------------------------
-// encounterDraw(campaign, hexId, context) — ONE function, three fills:
-//   (1) the JJ 1d20 CATEGORY draw (rollEncounterCategory — road fold, night shift,
-//       resting/known-route terrain demotion);
-//   (2) monster identity from the POOL (D5: lairEncounterProposal — active lair →
-//       lair-vs-wandering split / seeded shells / dynamic pool) — else 'gm-pick'
-//       (the GM names the creature from the catalog);
-//   (3) #141's 1d100 identity tables, when they land, replace the gm-pick fill —
-//       same signature, no caller changes.
-// context: { road?, night?, resting?, knownRoute?, rng?, includeDynamicPool?,
-//            territoryClass? (override — else derived from the hex's domain) }.
+// --- The identity roll + the RAW 6a lair binding (E4, revising D12) -------------
+
+// Resolve a hex (or a sparse-route override) to the identity-table inputs and roll the
+// JJ 1d100. Returns the identity {natural, label, key, tableKey|columnKey, rarity, page}
+// or null when no table maps (water, unknown terrain, tables module absent).
+function _drawIdentityForHex(campaign, hexId, ctx, category, rarity, rng){
+  const A = global.ACKS;
+  if(typeof A.rollEncounterIdentity !== 'function') return null;
+  const hex = hexId && Array.isArray(campaign && campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
+  const tKey = ctx.terrainKey || (hex && typeof A.terrainKey === 'function' ? A.terrainKey(hex) : null);
+  if(!tKey) return null;
+  const hasRiver = (ctx.hasRiver !== undefined) ? !!ctx.hasRiver
+    : !!(hex && Array.isArray(hex.riverSides) && hex.riverSides.length);
+  return A.rollEncounterIdentity({ terrainKey: tKey, hasRiver: hasRiver, category: category, rarity: rarity, rng: rng });
+}
+
+// RAW JJ p.43 step 6a: once the table names the creature, roll against its MM Lair
+// characteristic to decide whether the meeting is AT its lair or with creatures abroad —
+// then bind the verdict to the world. An existing active den of that monster answers
+// (the world remembers — D5 as written: "an existing lair populates a lair encounter");
+// otherwise an in-lair result DETAILS one of the hex's seeded shells, or REVEALS a
+// key-matched pooled dynamic lair (RAW's own parenthetical: "a dynamic lair can be used
+// if one is available"), or — monster category only — MINTS a fresh den (the Judge's
+// improvised lair, automated; 🔧 civilized folk "at home" with no den entity just count
+// at lair size). A wandering result where a den of that monster exists is a FRAGMENT of
+// it (MM p.15 — capped at the living population, no hoard, the lair unlocated).
+// PURE — counts + picks pre-rolled into the returned intent; mutation happens at
+// createEncounterFromDraw (the trigger's commit point).
+function bindEncounterIdentity(campaign, hexId, identity, opts){
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  const A = global.ACKS;
+  const entry = (identity && identity.key && typeof A.findMonster === 'function') ? A.findMonster(identity.key) : null;
+  if(!entry) return { mode: 'wandering', inLair: false, lairRoll: null, lairPct: null, count: null };
+  const pct = (typeof entry.lairPct === 'number') ? entry.lairPct : 0;
+  const lairRoll = 1 + Math.floor(r() * 100);
+  const inLair = pct > 0 && lairRoll <= pct;
+  const atHex = hexId ? (lairsAtHex(campaign, hexId) || []) : [];
+  const sameMonster = l => l && ((A.findMonster(l.monsterCatalogKey) || {}).key === entry.key);
+  const densHere = atHex.filter(l => l && l.status === 'active' && sameMonster(l));
+  const pick = list => list.length === 1 ? list[0] : list[Math.floor(r() * list.length)];
+  const wanderSpec = (entry.numberAppearing && entry.numberAppearing.wandering) || '1';
+  const lairSpec = (entry.numberAppearing && (entry.numberAppearing.lair || entry.numberAppearing.wandering)) || '1';
+  if(inLair){
+    if(densHere.length){
+      const lair = pick(densHere);
+      return { mode: 'existing-lair', inLair: true, lairRoll, lairPct: pct, lairId: lair.id, count: lairInhabitantCount(campaign, lair) || null };
+    }
+    const shells = atHex.filter(l => l && l.status === 'unknown');
+    if(shells.length && hexId){
+      const shell = pick(shells);
+      return { mode: 'populate-shell', inLair: true, lairRoll, lairPct: pct, shellLairId: shell.id, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
+    }
+    const dyn = (Array.isArray(campaign && campaign.lairs) ? campaign.lairs : []).filter(l => l && l.status === 'dynamic' && !l.hexId && sameMonster(l));
+    if(dyn.length){
+      const lair = pick(dyn);
+      return { mode: 'reveal-dynamic', inLair: true, lairRoll, lairPct: pct, lairId: lair.id, count: lairInhabitantCount(campaign, lair) || null };
+    }
+    if((o.category || 'monster') === 'monster' && hexId)
+      return { mode: 'fresh-lair', inLair: true, lairRoll, lairPct: pct, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
+    return { mode: 'wandering', inLair: true, lairRoll, lairPct: pct, count: Math.max(1, _rollDiceStr(lairSpec, r)) };
+  }
+  if(densHere.length){
+    const lair = pick(densHere);
+    const alive = lairInhabitantCount(campaign, lair);
+    let count = Math.max(1, _rollDiceStr(wanderSpec, r));
+    if(alive > 0) count = Math.max(1, Math.min(count, alive));
+    return { mode: 'fragment', inLair: false, lairRoll, lairPct: pct, lairId: lair.id, count };
+  }
+  return { mode: 'wandering', inLair: false, lairRoll: pct > 0 ? lairRoll : null, lairPct: pct, count: Math.max(1, _rollDiceStr(wanderSpec, r)) };
+}
+
+// --- The draw seam (§15.2; E4 lands the 1d100 identity tables, revising D12) ----
+// encounterDraw(campaign, hexId, context) — ONE function, two identity regimes:
+//   • TABLE-FIRST (the default — RAW JJ p.43 steps 4–6a, the travel + rest-night
+//     procedure): the 1d20 category draw → monster rarity → the 1d100 identity table
+//     for the hex's terrain → the Lair % binding (bindEncounterIdentity above). The
+//     hex's lairs participate by MATCHING the rolled monster, not by overriding it.
+//   • LAIR-FIRST (context.lairFirst — the RR p.276 search-hour: "stumbled onto one
+//     of the lairs in the hex"): the M3 pool answers before any table —
+//     lairEncounterProposal unchanged.
+// Water / unknown terrain (no table) falls back to the pre-E4 pool-then-gm-pick fill.
+// context: { road?, night?, resting?, knownRoute?, rng?, lairFirst?, includeDynamicPool?,
+//            territoryClass?, terrainKey?, hasRiver? (sparse-route environment overrides) }.
 // PURE except rng consumption — no campaign mutation; triggers materialize entities
 // from the returned draw at their commit point (createEncounterFromDraw).
 function encounterDraw(campaign, hexId, context){
@@ -3426,23 +3499,145 @@ function encounterDraw(campaign, hexId, context){
   const draw = {
     hexId: hexId || null, territoryClass, columnKey: cat.columnKey,
     category: cat.category, demoted: cat.demoted || null, rolls: cat.rolls,
-    rarity: null, rarityRoll: null, identity: null, proposal: null
+    rarity: null, rarityRoll: null, identity: null, identityRoll: null, binding: null, proposal: null
   };
-  if(cat.category === 'monster'){
-    const rar = A.rollEncounterRarity(territoryClass, rng);
-    draw.rarity = rar.rarity; draw.rarityRoll = rar.roll;
-    // Pool-first (D5): an existing active lair / seeded shells / the dynamic pool answer
-    // "WHAT is encountered" before any fresh invention. An UNauthored hex (hexId null —
-    // a sparse-campaign route step) has no pool: straight to gm-pick. (A null hexId must
-    // NOT reach lairsAtHex — it would match the unplaced dynamic pool's null hexIds.)
+  // The pre-E4 pool-then-gm-pick fill — kept for the search path + unmappable terrain.
+  const poolFill = () => {
     const prop = hexId ? lairEncounterProposal(campaign, hexId, { rng, includeDynamicPool: ctx.includeDynamicPool === true })
                        : { source: 'fresh', hexId: null };
     draw.proposal = prop;
     draw.identity = (prop && prop.source === 'existing-lair') ? 'pool' : 'gm-pick';
+  };
+  if(cat.category === 'monster'){
+    const rar = A.rollEncounterRarity(territoryClass, rng);
+    draw.rarity = rar.rarity; draw.rarityRoll = rar.roll;
+    if(ctx.lairFirst){ poolFill(); }
+    else {
+      const ident = _drawIdentityForHex(campaign, hexId, ctx, 'monster', rar.rarity, rng);
+      if(ident){
+        draw.identityRoll = ident; draw.identity = 'table';
+        draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'monster', rng });
+      } else poolFill();
+    }
   } else if(cat.category === 'civilized'){
-    draw.identity = 'gm-pick';                          // the 1d100 civilized table is #141 (D12)
+    const ident = _drawIdentityForHex(campaign, hexId, ctx, 'civilized', null, rng);
+    if(ident){
+      draw.identityRoll = ident; draw.identity = 'table';
+      draw.binding = bindEncounterIdentity(campaign, hexId, ident, { category: 'civilized', rng });
+    } else draw.identity = 'gm-pick';
   }
   return draw;
+}
+
+// --- Apply a 6a binding to a monster side (shared: creation + identity reroll) ---
+// MUTATES the campaign for the lair-touching modes: populate-shell details a seeded
+// shell (generateLair on it), reveal-dynamic places a pooled lair (RAW's parenthetical),
+// fresh-lair mints the Judge's improvised den. Each stamps side.minted — the unwind
+// receipt _unwindEncounterMinting reverses (day revert / identity reroll). The party
+// meets an in-lair creature AT the den (RR 6c: the distance is to the lair), so a
+// detailed/revealed/minted den lands knownToPlayers:true. A shell or pooled lair that
+// changed since the preview (GM touched it) degrades to a fresh mint.
+function _applyIdentityBinding(campaign, side, identity, binding, opts){
+  const o = opts || {};
+  const A = global.ACKS;
+  const turn = (o.atTurn === undefined) ? ((campaign && campaign.currentTurn) || 1) : o.atTurn;
+  side.identity = Object.assign({}, identity);
+  side.binding = binding ? { mode: binding.mode, inLair: !!binding.inLair, lairRoll: (binding.lairRoll === undefined ? null : binding.lairRoll), lairPct: (binding.lairPct === undefined ? null : binding.lairPct) } : null;
+  side.monsterCatalogKey = (identity && identity.key) || '';
+  side.label = (identity && identity.label) || '';
+  side.source = 'table';
+  side.minted = null;
+  const b = binding || { mode: 'wandering', count: null };
+  const bindToLair = (lair, kind, count) => {
+    side.lairId = lair.id;
+    side.encounterKind = kind;
+    side.groupIds = (lair.groupIds || []).slice();
+    side.count = (count != null) ? count : (lairInhabitantCount(campaign, lair) || null);
+  };
+  const wanderingFallback = () => { side.lairId = null; side.groupIds = []; side.encounterKind = 'wandering'; side.count = (b.count == null ? null : b.count); };
+  const freshMint = () => {
+    if(!identity || !identity.key || !o.hexId){ wanderingFallback(); return; }
+    const gen = generateLair(campaign, { hexId: o.hexId, monsterCatalogKey: identity.key, count: b.count,
+                                         establishedBy: 'encounter-in-lair', knownToPlayers: true, atTurn: turn }, o.rng);
+    if(gen && gen.lair){
+      bindToLair(gen.lair, 'at-lair', b.count);
+      side.minted = { mode: 'fresh-lair', lairId: gen.lair.id, groupId: gen.group ? gen.group.id : null };
+    } else wanderingFallback();
+  };
+  if(b.mode === 'existing-lair' || b.mode === 'fragment'){
+    const lair = findLair(campaign, b.lairId);
+    if(lair){
+      side.source = 'existing-lair';
+      if(b.mode === 'fragment'){ side.lairId = lair.id; side.encounterKind = 'wandering-fragment'; side.count = b.count; }
+      else bindToLair(lair, 'at-lair', b.count);
+    } else wanderingFallback();
+  } else if(b.mode === 'populate-shell'){
+    const shell = findLair(campaign, b.shellLairId);
+    if(shell && shell.status === 'unknown' && identity && identity.key){
+      const prior = { status: shell.status, monsterCatalogKey: shell.monsterCatalogKey || '', treasureType: shell.treasureType || '',
+                      name: shell.name || '', lairPct: (shell.lairPct === undefined ? null : shell.lairPct),
+                      knownToPlayers: !!shell.knownToPlayers, groupIds: (shell.groupIds || []).slice(), historyLen: (shell.history || []).length };
+      const gen = generateLair(campaign, { lairId: shell.id, monsterCatalogKey: identity.key, count: b.count,
+                                           knownToPlayers: true, atTurn: turn }, o.rng);
+      if(gen && gen.lair){
+        bindToLair(gen.lair, 'at-lair', b.count);
+        side.minted = { mode: 'populate-shell', lairId: gen.lair.id, groupId: gen.group ? gen.group.id : null, priorLair: prior };
+      } else wanderingFallback();
+    } else freshMint();
+  } else if(b.mode === 'reveal-dynamic'){
+    const lair = findLair(campaign, b.lairId);
+    if(lair && lair.status === 'dynamic' && o.hexId){
+      const priorGroups = _lairBoundGroups(campaign, lair).map(g => ({ groupId: g.id, hexId: g.currentHexId || null }));
+      const priorLeaders = (lair.leaderCharacterIds || []).map(cid => {
+        const ch = (campaign.characters || []).find(c => c && c.id === cid);
+        return { characterId: cid, hexId: ch ? (ch.currentHexId || null) : null };
+      });
+      const prior = { establishedBy: lair.establishedBy || null, establishedAtTurn: lair.establishedAtTurn || null,
+                      knownToPlayers: !!lair.knownToPlayers, historyLen: (lair.history || []).length,
+                      groups: priorGroups, leaders: priorLeaders };
+      revealDynamicLair(campaign, lair.id, o.hexId, { knownToPlayers: true, atTurn: turn, reason: 'encounter-in-lair' });
+      bindToLair(lair, 'at-lair', b.count);
+      side.minted = { mode: 'reveal-dynamic', lairId: lair.id, prior: prior };
+    } else freshMint();
+  } else if(b.mode === 'fresh-lair'){
+    freshMint();
+  } else {
+    wanderingFallback();
+    if(b.inLair) side.encounterKind = 'wandering';   // civilized "at home" — no den entity (🔧), count at lair size
+  }
+  return side;
+}
+
+// Reverse what _applyIdentityBinding minted — the journey-day revert + the identity
+// reroll/choose verbs. Surgical: a fresh den (+ its group) is removed; a detailed shell
+// reverts to its pre-populate snapshot (created group dropped); a revealed pooled lair
+// returns to the pool with its population un-placed.
+function _unwindEncounterMinting(campaign, minted){
+  if(!campaign || !minted) return;
+  const lair = findLair(campaign, minted.lairId);
+  if(minted.mode === 'fresh-lair'){
+    if(Array.isArray(campaign.lairs)) campaign.lairs = campaign.lairs.filter(l => !(l && l.id === minted.lairId));
+    if(minted.groupId && Array.isArray(campaign.groups)) campaign.groups = campaign.groups.filter(g => !(g && g.id === minted.groupId));
+    return;
+  }
+  if(minted.mode === 'populate-shell' && lair && minted.priorLair){
+    const p = minted.priorLair;
+    const createdGroups = (lair.groupIds || []).filter(id => (p.groupIds || []).indexOf(id) < 0);
+    lair.status = p.status; lair.monsterCatalogKey = p.monsterCatalogKey; lair.treasureType = p.treasureType;
+    lair.name = p.name; lair.lairPct = p.lairPct; lair.knownToPlayers = p.knownToPlayers;
+    lair.groupIds = (p.groupIds || []).slice();
+    if(createdGroups.length && Array.isArray(campaign.groups)) campaign.groups = campaign.groups.filter(g => !(g && createdGroups.indexOf(g.id) >= 0));
+    if(Array.isArray(lair.history) && typeof p.historyLen === 'number') lair.history.length = Math.min(lair.history.length, p.historyLen);
+    return;
+  }
+  if(minted.mode === 'reveal-dynamic' && lair && minted.prior){
+    const p = minted.prior;
+    lair.status = 'dynamic'; lair.hexId = null;
+    lair.establishedBy = p.establishedBy; lair.establishedAtTurn = p.establishedAtTurn; lair.knownToPlayers = p.knownToPlayers;
+    for(const gp of (p.groups || [])){ const g = (campaign.groups || []).find(x => x && x.id === gp.groupId); if(g) g.currentHexId = gp.hexId; }
+    for(const lp of (p.leaders || [])){ const ch = (campaign.characters || []).find(c => c && c.id === lp.characterId); if(ch) ch.currentHexId = lp.hexId; }
+    if(Array.isArray(lair.history) && typeof p.historyLen === 'number') lair.history.length = Math.min(lair.history.length, p.historyLen);
+  }
 }
 
 // --- Materialize an Encounter entity from a draw -------------------------------
@@ -3456,9 +3651,15 @@ function createEncounterFromDraw(campaign, draw, opts){
   if(draw.category !== 'monster' && draw.category !== 'civilized') return null;
   const o = opts || {};
   const A = global.ACKS;
-  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null };
+  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null };
   const prop = draw.proposal;
-  if(prop && prop.source === 'existing-lair'){
+  if(draw.identityRoll){
+    // E4 — the table named the creature; the 6a binding rides the draw verbatim
+    // (counts + picks pre-rolled with the trigger's seeded rng — preview byte-stable).
+    _applyIdentityBinding(campaign, monsterSide, draw.identityRoll, draw.binding, {
+      hexId: draw.hexId || null, atTurn: o.atTurn, rng: o.rng
+    });
+  } else if(prop && prop.source === 'existing-lair'){
     monsterSide.source = 'existing-lair';
     monsterSide.lairId = prop.lairId;
     monsterSide.monsterCatalogKey = (prop.contents && prop.contents.monsterCatalogKey) || '';
@@ -8077,6 +8278,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // #476 Encounter layer E1 — the Encounter entity + the draw seam (D8–D12, plan §15)
   findEncounter, encountersAtHex, activeEncounters, encounterDisplayName, priorReactionBetween,
   createEncounter, resolveEncounter, encounterDraw, createEncounterFromDraw,
+  bindEncounterIdentity, _applyIdentityBinding, _unwindEncounterMinting,
   // #443 — Wave A relation setters + active-relation lookups (Architecture.md §3.5, 2026-05-29)
   createHenchmanship, endHenchmanship, activeHenchmanshipFor, henchmanshipsByPatron,
   createSpecialistContract, endSpecialistContract, activeSpecialistContractFor, specialistContractsByEmployer,

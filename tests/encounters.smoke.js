@@ -369,23 +369,42 @@ section('trigger — the rest/night consumer (slot 80; JJ p.41 frequencies)');
   ok('an in-transit traveller is excluded from the rest checks', ACKS.proposeDayTick(c3, 1, { rng: () => 0.5 }).pendingRecords.filter(r => r.kind === 'rest-encounter').length === 0);
 }
 
-section('the seam — encounterDraw (pool-first D5 → category + gm-pick; #141 fills later)');
+section('the seam — encounterDraw (E4 table-first, JJ p.43; the pool binds by MATCH; search stays lair-first)');
 {
   const c = ACKS.blankCampaign({ name: 'seam' });
   ACKS.migrateCampaign(c);
   c.hexes = [ACKS.blankHex({ id: 'hex-l', terrain: 'hills' })];
   ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-l' });
-  const d = ACKS.encounterDraw(c, 'hex-l', { rng: seq(0.5, 0.5, 0.0) });   // monster; d100 1 → at-lair
-  ok('a monster draw at a lair hex is pool-identified', d.category === 'monster' && d.identity === 'pool' && d.proposal.source === 'existing-lair');
+  // (a) the travel draw rolls the JJ identity table — the den no longer overrides it
+  //     [cat d20 11 → monster] [rarity d20 11 → uncommon] [identity d100 1] [lair%] [count…]
+  const d = ACKS.encounterDraw(c, 'hex-l', { rng: seq(0.5, 0.5, 0.0, 0.99, 0.5) });
+  ok('a monster draw rolls the terrain identity table (table-first)', d.category === 'monster' && d.identity === 'table'
+    && d.identityRoll && d.identityRoll.tableKey === 'hills-any' && d.identityRoll.rarity === 'uncommon');
+  // (b) the table rolling THE den's monster IN-LAIR → the existing den answers (D5 by match)
+  //     orc sits at hills-any COMMON 13-14: [cat 11] [rarity d20 1 → common] [d100 13 → orc] [lair% 1 ≤ 35 → in-lair]
+  const dOrc = ACKS.encounterDraw(c, 'hex-l', { rng: seq(0.5, 0.0, 0.125, 0.0) });
+  ok("the den's monster rolled in-lair → the existing den answers", dOrc.identityRoll.key === 'orc'
+    && dOrc.binding && dOrc.binding.mode === 'existing-lair' && dOrc.binding.inLair === true);
+  // (c) the den's monster rolled ABROAD → a fragment of it (MM p.15)
+  const dFrag = ACKS.encounterDraw(c, 'hex-l', { rng: seq(0.5, 0.0, 0.125, 0.99, 0.5) });
+  ok("the den's monster rolled abroad → a fragment of the den", dFrag.binding.mode === 'fragment' && !!dFrag.binding.lairId && dFrag.binding.count >= 1);
+  // (d) an empty hex rolls a NAMED monster from its terrain table
   const c2 = ACKS.blankCampaign({ name: 'fresh' });
   ACKS.migrateCampaign(c2);
   c2.hexes = [ACKS.blankHex({ id: 'hex-e', terrain: 'forest' })];
-  const d2 = ACKS.encounterDraw(c2, 'hex-e', { rng: () => 0.5 });
-  ok('an empty hex falls to gm-pick (identity tables are #141)', d2.category === 'monster' && d2.identity === 'gm-pick' && d2.proposal.source === 'fresh');
-  // a null hexId (an unauthored sparse-route step) must NOT read the dynamic pool
+  const d2 = ACKS.encounterDraw(c2, 'hex-e', { rng: seq(0.5, 0.0, 0.0, 0.99, 0.5) });   // forest common 1-2 = Bat, Common; lair% 100 > 35 → wandering
+  ok('an empty hex rolls a named monster (wandering band)', d2.identity === 'table'
+    && d2.identityRoll.key === 'common-bat' && d2.binding.mode === 'wandering' && d2.binding.count >= 1);
+  // (e) lairFirst (the RR p.276 search-hour) keeps the pool-first fill
+  const dS = ACKS.encounterDraw(c, 'hex-l', { rng: seq(0.5, 0.5, 0.0), lairFirst: true });
+  ok('lairFirst (the search path) stays pool-identified', dS.identity === 'pool' && dS.proposal.source === 'existing-lair');
+  // (f) a null hexId with no terrain context falls to gm-pick fresh (never the unplaced pool)
   ACKS.createLair(c2, { status: 'dynamic', hexId: null, monsterCatalogKey: 'ogre' });
   const d3 = ACKS.encounterDraw(c2, null, { territoryClass: 'unsettled', rng: () => 0.5 });
-  ok('a null hexId draws fresh (never the unplaced dynamic pool)', d3.category === 'monster' && d3.proposal.source === 'fresh');
+  ok('a null hexId with no terrain context draws gm-pick fresh', d3.category === 'monster' && d3.identity === 'gm-pick' && d3.proposal.source === 'fresh');
+  // (g) a sparse-route step WITH the env terrain override rolls the table (the §24 fallback)
+  const d4 = ACKS.encounterDraw(c2, null, { territoryClass: 'unsettled', terrainKey: 'forest', hasRiver: false, rng: seq(0.5, 0.0, 0.0, 0.99, 0.5) });
+  ok('a sparse-route step with the env override rolls its table', d4.identity === 'table' && d4.identityRoll.tableKey === 'forest-deciduous');
 }
 
 // =============================================================================

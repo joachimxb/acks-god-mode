@@ -413,9 +413,13 @@ function blankEncounter(opts={}){
     occurredAtTurn: opts.occurredAtTurn || 1,
     occurredOnDayInMonth: (opts.occurredOnDayInMonth === undefined ? null : opts.occurredOnDayInMonth),
     // Sides. partySide.sizeCount = man-equivalents (mounted/large 2, huge 6, gigantic 24,
-    // colossal 120 — ENCOUNTER_SIZE_MEN); monsterSide mirrors the M3 pool proposal.
+    // colossal 120 — ENCOUNTER_SIZE_MEN); monsterSide mirrors the M3 pool proposal. E4 adds:
+    // label (the printed table cell, verbatim — the display name when the catalog has no key),
+    // identity (the 1d100 table roll: {natural, label, key, tableKey|columnKey, rarity, page,
+    // gmChosen?}), binding ({mode, inLair, lairRoll, lairPct} — the JJ p.43 step 6a verdict),
+    // minted (the unwind receipt when materializing detailed/revealed/created a lair).
     partySide: Object.assign({ partyId: null, journeyId: null, characterIds: [], faceCharacterId: null, sizeCount: null }, opts.partySide || {}),
-    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null }, opts.monsterSide || {}),
+    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null }, opts.monsterSide || {}),
     // Step state (each null until its step runs; shapes documented in Data_Dictionary §4):
     distance: opts.distance || null,                  // { rolledFt, capFt, distanceFt, light, detectedBy, terrainRow }
     surprise: opts.surprise || null,                  // { party:{...}, monsters:{...}, evadeEligibility, noEncounter }

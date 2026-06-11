@@ -463,19 +463,24 @@ section('M3 lairEncounterProposal — pool-first selector (Plan §5.2, D5)');
 // Finite dice tape: yields each value once, then repeats the last (shared by the M3/M4/E1 sections).
 const seq = (...vals) => { let i = 0; return () => (i < vals.length ? vals[i++] : vals[vals.length - 1]); };
 
-section('M3/E1 journey rollEncounter is pool-aware (D5) on the RAW category draw');
+section('E4 journey rollEncounter — table-first (JJ p.43); the den binds by MATCH, not override');
 {
   const c = ACKS.blankCampaign({ name: 'enc' });
   c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' }), ACKS.blankHex({ id: 'hex-2', terrain: 'forest' })];
   ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1' });
-  // E1 stream: [category d20] → [rarity d20] → [lairPct d100] → [distance dice].
-  // 0.5 → d20 11 = MONSTER on the unsettled column (7–12); 0.0 → d100 1 ≤ 35 → at-lair.
-  const r1 = ACKS.rollEncounter(c, { id: 'jrn-1', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.5, 0.5, 0.0, 0.5), hasRoad: false, hexId: 'hex-1' });
-  ok('encounter at a lair hex → notable references the lair (lairId + name)', r1 && r1.notableEvent.payload.lairId && /orc lair/i.test(r1.notableEvent.label));
-  ok('encounterRecord carries lairId + the lair groups', r1.encounterRecord.lairId && r1.encounterRecord.monsters.length >= 1);
-  ok('the record carries the draw + the pre-rolled RAW distance', r1.encounterRecord.category === 'monster' && r1.encounterRecord.draw && r1.encounterRecord.draw.identity === 'pool' && r1.encounterRecord.distance && r1.encounterRecord.distance.distanceFt > 0);
-  const r2 = ACKS.rollEncounter(c, { id: 'jrn-2', name: 'Caravan', currentHexId: 'hex-2' }, { rng: seq(0.5, 0.5, 0.5), hasRoad: false, hexId: 'hex-2' });
-  ok('encounter at an empty hex → GM-pick monster (no lairId)', r2 && r2.notableEvent.payload.lairId === null && /monster encounter/.test(r2.notableEvent.label) && r2.encounterRecord.draw.identity === 'gm-pick');
+  // E4 stream: [category d20] → [rarity d20] → [identity d100] → [lair% d100] → [count] → [distance].
+  // orc sits at hills-any COMMON 13-14: cat 11 → monster; rarity 1 → common; d100 13 → orc; lair% 1 ≤ 35 → in-lair → the den.
+  const r1 = ACKS.rollEncounter(c, { id: 'jrn-1', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.5, 0.0, 0.125, 0.0, 0.5), hasRoad: false, hexId: 'hex-1' });
+  ok("the table rolls the den's monster in-lair → notable references the den", r1 && r1.notableEvent.payload.lairId && /in their lair here/i.test(r1.notableEvent.label));
+  ok('encounterRecord carries lairId + the den groups + the binding', r1.encounterRecord.lairId && r1.encounterRecord.monsters.length >= 1
+    && r1.encounterRecord.draw.binding && r1.encounterRecord.draw.binding.mode === 'existing-lair');
+  ok('the record carries the table identity + the pre-rolled RAW distance', r1.encounterRecord.category === 'monster'
+    && r1.encounterRecord.draw.identity === 'table' && r1.encounterRecord.draw.identityRoll.key === 'orc'
+    && r1.encounterRecord.distance && r1.encounterRecord.distance.distanceFt > 0);
+  // an empty forest hex rolls a NAMED monster (forest common 1-2 = Bat, Common; lair% 100 → wandering)
+  const r2 = ACKS.rollEncounter(c, { id: 'jrn-2', name: 'Caravan', currentHexId: 'hex-2' }, { rng: seq(0.5, 0.0, 0.0, 0.99, 0.5), hasRoad: false, hexId: 'hex-2' });
+  ok('encounter at an empty hex → a named table monster (no lairId)', r2 && r2.notableEvent.payload.lairId === null
+    && r2.notableEvent.payload.monsterKey === 'common-bat' && r2.encounterRecord.draw.identity === 'table');
   // Roads fold one column LEFT — safer, not safe (the J1 "roads = no encounters" stub is gone).
   // 0.35 → d20 8: unsettled+Road reads No Encounter (2–8); trackless unsettled reads MONSTER (7–12).
   ok('a road folds the draw one column left (d20 8: road → nothing, trackless → monster)',
@@ -495,13 +500,17 @@ section('Fixes — seeded shells in the pool, group fates, reveal sync, shell na
   ok('includeSeededShells:false → falls through to fresh', ACKS.lairEncounterProposal(c, 'hex-s', { includeSeededShells: false, includeDynamicPool: false }).source === 'fresh');
   ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-s' });
   ok('an active lair outranks the shells', ACKS.lairEncounterProposal(c, 'hex-s').source === 'existing-lair');
-  // the journey encounter surfaces the shells (not a generic stub)
+  // E4: a seeded hex's shells are consumed by IN-LAIR table results — the rolled monster
+  // DETAILS one of the shells at commit (populate-shell), keeping the hex's rolled lair
+  // count honest instead of minting a fresh den beside empty shells.
   const cJ = ACKS.blankCampaign({ name: 'shellenc' });
   cJ.hexes = [ACKS.blankHex({ id: 'hex-t', terrain: 'forest' })];
   ACKS.seedHexLairs(cJ, 'hex-t', { count: 2 });
-  const enc = ACKS.rollEncounter(cJ, { id: 'jrn-s', name: 'Scouts', currentHexId: 'hex-t' }, { rng: () => 0.5, hasRoad: false, hexId: 'hex-t' });   // d20 11 → monster (E1 draw)
-  ok('journey encounter at a seeded hex names the shells', enc && /unauthored lair/.test(enc.notableEvent.label) && (enc.notableEvent.payload.seededShellLairIds || []).length === 2);
-  ok('shell encounter carries no lairId yet (GM picks which shell)', enc.encounterRecord.lairId === null);
+  // [cat 11 → monster] [rarity 1 → common] [d100 1 → Bat, Common (lairPct 35)] [lair% 1 → in-lair] [count] …
+  const enc = ACKS.rollEncounter(cJ, { id: 'jrn-s', name: 'Scouts', currentHexId: 'hex-t' }, { rng: seq(0.5, 0.0, 0.0, 0.0, 0.5), hasRoad: false, hexId: 'hex-t' });
+  ok('an in-lair roll at a seeded hex → details one of the shells at commit', enc
+    && enc.encounterRecord.draw.binding.mode === 'populate-shell' && /seeded lairs at commit/.test(enc.notableEvent.label));
+  ok('shell encounter carries no lairId yet (it materializes at commit)', enc.encounterRecord.lairId === null);
 
   // (2) clearLair wipes bound Groups so groupsAtHex agrees with the status
   const c2 = ACKS.blankCampaign({ name: 'clearfate' });
@@ -595,10 +604,10 @@ section('M4 lair-vs-wandering — the MM p.15 Lair % split in the proposal');
   c3.hexes = [ACKS.blankHex({ id: 'hex-x', terrain: 'hills' })];
   ACKS.createLair(c3, { status: 'active', hexId: 'hex-x' });
   ok('no usable pct → at-lair (back-compat)', ACKS.lairEncounterProposal(c3, 'hex-x', { rng: seq(0.99) }).encounterKind === 'at-lair');
-  // the journey encounter labels a fragment + carries encounterKind
-  // E1 stream: 0.5 → category d20 11 = monster; 0.5 → rarity; 0.99 → d100 100 > 35 → fragment.
-  const enc = ACKS.rollEncounter(c, (gen.lair.lairPct = 35, { id: 'jrn-w', name: 'Scouts', currentHexId: 'hex-w' }), { rng: seq(0.5, 0.5, 0.99, 0.5), hasRoad: false, hexId: 'hex-w' });
-  ok('journey fragment encounter labelled + tagged', enc && enc.notableEvent.payload.encounterKind === 'wandering-fragment' && /out from an unlocated lair/.test(enc.notableEvent.label));
+  // the journey encounter labels a fragment + carries encounterKind (E4: the table rolls
+  // the den's monster — orc at hills-any common 13-14 — abroad → a fragment of the den)
+  const enc = ACKS.rollEncounter(c, (gen.lair.lairPct = 35, { id: 'jrn-w', name: 'Scouts', currentHexId: 'hex-w' }), { rng: seq(0.5, 0.0, 0.125, 0.99, 0.05, 0.5), hasRoad: false, hexId: 'hex-w' });
+  ok('journey fragment encounter labelled + tagged', enc && enc.notableEvent.payload.encounterKind === 'wandering-fragment' && /out from their lair/.test(enc.notableEvent.label));
 }
 
 section('M4 hexSearchActivity — the Wilderness Search hour (RR pp.276–277)');
