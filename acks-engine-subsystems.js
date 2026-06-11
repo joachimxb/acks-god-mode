@@ -4883,11 +4883,15 @@ function proposeMonsterBandDay(campaign, ctx){
         // occurrence of the Daily Domain Encounter Probability (Vagaries of Incursion —
         // recorded as a STUB for the mass-combat phase to consume), and the band rolls
         // its JJ p.103 disposition NOW: linger → it settles at the entry hex; migrate →
-        // it keeps wandering.
+        // it keeps wandering. E9 — a hex already at its JJ p.69 lair cap never takes the
+        // linger roll ("it is simply too crowded for them"): the entry still counts as
+        // the day's occurrence, but the band moves on to another hex.
+        const capHere = (hx && typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, hx.id) : null;
+        const hexFull = !!(capHere && capHere.full);
         const pct = (entry && typeof entry.lairPct === 'number') ? entry.lairPct : 0;
-        const lingerRoll = 1 + Math.floor(rng() * 100);
-        const lingers = pct > 0 && lingerRoll <= pct;
-        const strengthRoll = 1 + Math.floor(rng() * 100);
+        const lingerRoll = hexFull ? null : (1 + Math.floor(rng() * 100));
+        const lingers = !hexFull && pct > 0 && lingerRoll <= pct;
+        const strengthRoll = hexFull ? null : (1 + Math.floor(rng() * 100));
         const fullStrength = lingers && strengthRoll <= pct;
         const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
         let fullCount = alive;
@@ -4897,7 +4901,8 @@ function proposeMonsterBandDay(campaign, ctx){
           fullCount = Math.max(alive, rolled);
         }
         domainEntries.push({ domainId: dom, hexId: hx ? hx.id : null, occurrence: true,
-                             lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength });
+                             lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength,
+                             hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null });
         if(lingers && hx){
           settle = { hexId: hx.id, fullStrength, count: fullCount,
                      monsterCatalogKey: (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || null };
@@ -4915,7 +4920,9 @@ function proposeMonsterBandDay(campaign, ctx){
     let label;
     if(arrivedHome)            label = '🏠 ' + name + ' reaches its den' + (destLair && destLair.name ? (' — ' + destLair.name) : '') + (ws0.dissolveOnArrival ? '.' : ' and rejoins it.');
     else if(settle)            label = '🏚 ' + name + ' wanders into a domain and LINGERS (JJ p.103) — it settles as a lair' + (settle.fullStrength ? ' at full strength.' : '.');
-    else if(domainEntries.length) label = '🚶 ' + name + ' wanders into a domain — the day counts as a domain encounter; it migrates onward (' + path.length + ' hexes).';
+    else if(domainEntries.length) label = '🚶 ' + name + ' wanders into a domain — the day counts as a domain encounter; '
+      + (domainEntries.some(de => de.hexFull) ? 'the hex is at its lair cap (JJ p.69), too crowded to den — it moves on' : 'it migrates onward')
+      + ' (' + path.length + ' hexes).';
     else                       label = (homing ? ('🏠 ' + name + ' presses on toward its den (') : ('🚶 ' + name + ' wanders (')) + path.length + ' hexes today).';
     pendingRecords.push({ kind: 'monster-band-day', label, groupId: g.id,
       outcome: arrivedHome ? 'arrived-home' : (settle ? 'settled' : 'moving'),
@@ -4949,11 +4956,22 @@ function commitMonsterBandRecord(campaign, record){
   for(const de of (record.domainEntries || [])){
     const dom = (campaign.domains || []).find(d => d && d.id === de.domainId);
     g.history.push({ turn, type: 'incursion',
-      reason: 'wandered into ' + ((dom && dom.name) || 'a domain') + ' — counts as the day’s domain encounter occurrence (Vagaries of Incursion, Phase 3 Military); disposition ' + (de.lingers ? 'lingers' : 'migrates') + ' (' + de.lingerRoll + ' vs Lair ' + de.lairPct + '%)' });
+      reason: 'wandered into ' + ((dom && dom.name) || 'a domain') + ' — counts as the day’s domain encounter occurrence (Vagaries of Incursion, Phase 3 Military); disposition '
+        + (de.hexFull
+            ? ('migrates — the hex is at its lair cap (' + (de.lairCap ? (de.lairCap.count + ' of ' + de.lairCap.max) : 'full') + ', JJ p.69), too crowded to den')
+            : ((de.lingers ? 'lingers' : 'migrates') + ' (' + de.lingerRoll + ' vs Lair ' + de.lairPct + '%)')) });
   }
   // Linger → the band settles AS a den at the entry hex (JJ p.103; the E4m adopt — the
   // den binds THE Group, no second population; full strength gathers it to the lair count).
   if(record.settle && record.settle.hexId){
+    // E9 — re-check the JJ p.69 cap at commit (another band may have denned this hex the
+    // same day, or the GM authored a lair since the propose pass): full ⇒ the band moves on.
+    const capNow = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, record.settle.hexId) : null;
+    if(capNow && capNow.full){
+      g.history.push({ turn, type: 'wander',
+        reason: 'the hex filled to its lair cap (' + capNow.count + ' of ' + capNow.max + ', JJ p.69) before the band could den — it moves on' });
+      return;
+    }
     const s = record.settle;
     const entry = (s.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(s.monsterCatalogKey) : null;
     const lair = (typeof A.createLair === 'function') ? A.createLair(campaign, {

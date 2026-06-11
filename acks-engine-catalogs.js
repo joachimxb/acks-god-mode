@@ -1176,6 +1176,13 @@ function lairDiceLabel(spec){
   else if(spec.mod < 0) s += '−' + Math.abs(spec.mod);  // U+2212, matches the survey table
   return s;
 }
+// E9 — MAXIMUM lairs per hex by territory class (JJ p.69): "For civilized territory, the
+// maximum number of lairs is 33% the amount in unsettled territory; for borderlands, 50%;
+// and for outlands, 66%." The unsettled amount reads as the terrain's lair-dice MAXIMUM
+// ("the maximum number of lairs that theoretically could be present" — deterministic, not
+// a roll), so a domainless hex's own ceiling is that max (100%). hexLairCapacity
+// (acks-engine.js) composes this with the hex's dice + its living-lair count.
+const LAIR_CAP_PCT_BY_TERRITORY = Object.freeze({ civilized: 0.33, borderlands: 0.50, outlands: 0.66, unsettled: 1.0 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Terrain model (Phase_2.5_Terrain_Model_Plan.md) — the four-VALUE taxonomy.
@@ -1883,8 +1890,8 @@ Object.assign(ACKS, {
   JOURNEY_NAV_THROWS, JOURNEY_WEATHER_SPEED, JOURNEY_TEMPERATURE_SPEED, JOURNEY_GROUND_SPEED, JOURNEY_PACE_SPEED,
   JOURNEY_RATION_PER_PERSON_DAY, JOURNEY_WATER_PER_PERSON_DAY, JOURNEY_SUPPLY_LOW_DAYS,
   JOURNEY_FATIGUE_CYCLE_DAYS,
-  // #476 Monster Persistence M1 — Lairs per Hex density table (JJ p.69)
-  LAIRS_PER_HEX, LAIR_TERRAIN_ALIAS, lairDiceLabel,
+  // #476 Monster Persistence M1 — Lairs per Hex density table (JJ p.69) + the E9 territory cap
+  LAIRS_PER_HEX, LAIR_TERRAIN_ALIAS, lairDiceLabel, LAIR_CAP_PCT_BY_TERRITORY,
   // #476 Encounter layer E1 — the RAW pre-combat procedure catalogs (RR pp.280–287 + JJ pp.41–44)
   ENCOUNTER_DISTANCE_CLASSES, ENCOUNTER_TERRAIN_ROWS, encounterRowKey, encounterRowKeyForHex,
   rollEncounterDistanceFt, VISIBILITY_BASE_FT, ENCOUNTER_SIZE_MEN, formationVisibilityMult,

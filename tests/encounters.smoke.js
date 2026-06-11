@@ -2389,6 +2389,138 @@ section('E8 — the evasion aftermath carries to the journey (RR p.285, Joachim 
 }
 
 // =============================================================================
+section('E9 — maximum lairs per hex (JJ p.69): the capacity read');
+{
+  ok('LAIR_CAP_PCT_BY_TERRITORY registered (civilized 33% / borderlands 50% / outlands 66% / unsettled 100%)', (() => {
+    const P = ACKS.LAIR_CAP_PCT_BY_TERRITORY;
+    return !!P && P.civilized === 0.33 && P.borderlands === 0.50 && P.outlands === 0.66 && P.unsettled === 1.0;
+  })());
+  ok('lairDiceMax: 1d4+1 → 5 · 2d8 → 16 · 1d3−1 → 2 · zero/none → 0',
+    ACKS.lairDiceMax({ n: 1, d: 4, mod: 1 }) === 5 && ACKS.lairDiceMax({ n: 2, d: 8, mod: 0 }) === 16
+    && ACKS.lairDiceMax({ n: 1, d: 3, mod: -1 }) === 2 && ACKS.lairDiceMax({ n: 0, d: 0, mod: 0 }) === 0
+    && ACKS.lairDiceMax(null) === 0);
+
+  const c = ACKS.blankCampaign({ name: 'E9 cap' });
+  ACKS.migrateCampaign(c);
+  c.domains = [{ id: 'dom-c', name: 'Capland', classification: 'Civilized' }];
+  c.hexes = [
+    Object.assign(ACKS.blankHex({ id: 'hx-grass' }),  { coord: { q: 0, r: 0 }, terrain: 'grassland', domainId: 'dom-c' }),
+    Object.assign(ACKS.blankHex({ id: 'hx-mtn' }),    { coord: { q: 1, r: 0 }, terrain: 'mountains', terrainSubtype: 'rocky' }),
+    Object.assign(ACKS.blankHex({ id: 'hx-jungle' }), { coord: { q: 2, r: 0 }, terrain: 'jungle' }),
+    Object.assign(ACKS.blankHex({ id: 'hx-water' }),  { coord: { q: 3, r: 0 }, terrain: 'water' }),
+    Object.assign(ACKS.blankHex({ id: 'hx-weird' }),  { coord: { q: 4, r: 0 }, terrain: 'crystal-wastes' })
+  ];
+  const cap = id => ACKS.hexLairCapacity(c, id);
+  ok('civilized grassland: 33% of the 1d3 max 3 reads 1 (🔧 nearest — the printed ⅓ intent, never floor’s 0)', (() => {
+    const x = cap('hx-grass'); return !!x && x.max === 1 && x.territoryClass === 'civilized' && x.diceMax === 3 && !x.full;
+  })());
+  ok('unsettled territory’s ceiling is the dice max itself (mountains-rocky 1d4+1 → 5)', (() => {
+    const x = cap('hx-mtn'); return !!x && x.max === 5 && x.territoryClass === 'unsettled' && x.pct === 1;
+  })());
+  ok('borderlands halve it (round .5 up: 5 → 3)', (() => {
+    c.domains[0].classification = 'Borderlands'; c.hexes[1].domainId = 'dom-c';
+    const x = cap('hx-mtn'); c.hexes[1].domainId = null; c.domains[0].classification = 'Civilized';
+    return !!x && x.max === 3 && x.territoryClass === 'borderlands';
+  })());
+  ok('outlands jungle: 66% of the 2d8 max 16 → 11', (() => {
+    c.domains[0].classification = 'Outlands'; c.hexes[2].domainId = 'dom-c';
+    const x = cap('hx-jungle'); c.hexes[2].domainId = null; c.domains[0].classification = 'Civilized';
+    return !!x && x.max === 11;
+  })());
+  ok('water: zero dice → max 0, full at once (v1 — no land lairs in open ocean)', (() => {
+    const x = cap('hx-water'); return !!x && x.max === 0 && x.full === true;
+  })());
+  ok('unknown terrain → null (no cap defined — nothing gates)', cap('hx-weird') === null);
+
+  // The count is LIVING dens only (active + unknown shells); cleared / abandoned structures
+  // are vacant real estate and never crowd a hex.
+  ACKS.createLair(c, { hexId: 'hx-mtn', status: 'active', name: 'A' });
+  ACKS.createLair(c, { hexId: 'hx-mtn', status: 'unknown', name: 'B' });
+  const dead = ACKS.createLair(c, { hexId: 'hx-mtn', status: 'active', name: 'C' });
+  ACKS.clearLair(c, dead.id);
+  const gone = ACKS.createLair(c, { hexId: 'hx-mtn', status: 'active', name: 'D' });
+  ACKS.abandonLair(c, gone.id);
+  ok('living dens count (active + unknown); cleared + abandoned do not', (() => {
+    const x = cap('hx-mtn'); return !!x && x.count === 2 && x.max === 5 && !x.full;
+  })());
+}
+
+section('E9 — settling monsters respect the cap: E3a refuses hex-full; vacancy re-opens it; the Judge stays exempt');
+{
+  const c = ACKS.blankCampaign({ name: 'E9 settle gate' });
+  ACKS.migrateCampaign(c);
+  c.domains = [{ id: 'dom-c', name: 'Capland', classification: 'Civilized' }];
+  c.hexes = [Object.assign(ACKS.blankHex({ id: 'hx-full' }), { coord: { q: 0, r: 0 }, terrain: 'grassland', domainId: 'dom-c' })];  // civ grassland: max 1
+  const blocker = ACKS.createLair(c, { hexId: 'hx-full', status: 'active', name: 'The One Den' });
+  const face = ACKS.blankCharacter({ name: 'Scout' }); face.abilities = { STR: 9, INT: 9, WIL: 9, DEX: 9, CON: 9, CHA: 9 };
+  c.characters.push(face);
+  const e = ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: 'hx-full', category: 'monster',
+    partySide: { characterIds: [face.id], faceCharacterId: face.id, sizeCount: 1 },
+    monsterSide: { monsterCatalogKey: 'orc', count: 4 } });
+  const elig = ACKS.encounterSettleEligibility(c, e.id);
+  ok('the settle offer refuses hex-full and carries the numbers', elig.eligible === false && elig.reason === 'hex-full'
+    && !!elig.capacity && elig.capacity.count === 1 && elig.capacity.max === 1 && elig.capacity.territoryClass === 'civilized');
+  ok('propose + confirm both refuse through the same gate',
+    ACKS.encounterProposeSettle(c, e.id, { rng: seq(0.1) }).error === 'hex-full'
+    && ACKS.encounterSettleAsLair(c, e.id, {}).error === 'hex-full');
+  ACKS.clearLair(c, blocker.id);
+  ok('clearing the blocking den re-opens the offer (vacant real estate)', ACKS.encounterSettleEligibility(c, e.id).eligible === true);
+  // The boundary: the cap governs the world’s own SETTLEMENT — discovery + GM authoring stay
+  // ungated (a generated/authored den reveals or decrees what the Judge says is there).
+  ACKS.createLair(c, { hexId: 'hx-full', status: 'active', name: 'Refill' });          // back to full (1 of 1)
+  const gmLair = ACKS.createLair(c, { hexId: 'hx-full', status: 'active', name: 'Decreed past the cap' });
+  const gen = ACKS.generateLair(c, { hexId: 'hx-full', monsterCatalogKey: 'orc' }, seq(0.5));
+  ok('createLair + generateLair stay sovereign past the cap (authoring/discovery, not settlement)',
+    !!gmLair && !!gen && ACKS.hexLairCapacity(c, 'hx-full').count >= 3);
+}
+
+section('E9 — an E6 wander-entry never lingers at a full hex (the entry still counts; the band moves on)');
+{
+  const mkWorld = () => {
+    const c = ACKS.blankCampaign({ name: 'E9 incursion cap' });
+    c.houseRules = {};
+    for(let q = 0; q < 8; q++) for(let r = 0; r < 3; r++)
+      c.hexes.push(Object.assign(ACKS.blankHex({}), { id: 'hex-' + q + '-' + r, coord: { q, r }, terrain: 'grassland' }, q >= 3 ? { domainId: 'dom-east' } : null));
+    c.domains = [{ id: 'dom-east', name: 'Eastmarch', classification: 'Civilized' }];   // civ grassland: cap 1/hex
+    return c;
+  };
+  // Fill the whole border column so whichever hex the band crosses into is at its cap.
+  let c = mkWorld();
+  ['hex-3-0', 'hex-3-1', 'hex-3-2'].forEach(id => ACKS.createLair(c, { hexId: id, status: 'active', name: 'Den ' + id }));
+  let g = ACKS.blankGroup({ name: 'Wolves', groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 4, currentHexId: 'hex-2-1' });
+  c.groups.push(g);
+  // The same forced tape that LINGERED in the E6 test — at a full hex the linger roll is never taken.
+  let res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 2, rng: seq(0.0, 0.001, 0.001, 0.9, 0.9, 0.9) });
+  let rec = res.pendingRecords[0];
+  ok('the entry still counts as the day’s occurrence, but NO linger roll is taken (too crowded)',
+    !!rec && rec.domainEntries.length >= 1 && rec.domainEntries[0].occurrence === true
+    && rec.domainEntries[0].hexFull === true && rec.domainEntries[0].lingerRoll === null
+    && rec.domainEntries[0].lingers === false && !!rec.domainEntries[0].lairCap && rec.domainEntries[0].lairCap.max === 1);
+  ok('the band moves on instead of settling', rec.outcome === 'moving' && !rec.settle);
+  ok('the day label names the crowding', /lair cap/.test(rec.label));
+  const lairsBefore = c.lairs.length;
+  ACKS.commitMonsterBandRecord(c, rec);
+  ok('commit: no den founded; the band keeps wandering', c.lairs.length === lairsBefore && g.wanderState !== null);
+  ok('the Group history names the cap on the incursion line',
+    (g.history || []).some(h => h && h.type === 'incursion' && /lair cap/.test(h.reason)));
+
+  // The commit re-check: a ratified settle whose hex FILLED between propose and commit (a second
+  // band denned it the same day, or the GM authored one) skips — the band moves on.
+  c = mkWorld();
+  g = ACKS.blankGroup({ name: 'Wolves', groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' }, count: 4, currentHexId: 'hex-2-1' });
+  c.groups.push(g);
+  res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 2, rng: seq(0.0, 0.001, 0.001, 0.9, 0.9, 0.9) });
+  rec = res.pendingRecords[0];
+  ok('(pre) the tape lingers when the hex has room', !!rec && rec.outcome === 'settled' && !!rec.settle);
+  ACKS.createLair(c, { hexId: rec.settle.hexId, status: 'active', name: 'Beat them to it' });   // fills it (1 of 1)
+  const lairsB4 = c.lairs.length;
+  ACKS.commitMonsterBandRecord(c, rec);
+  ok('commit re-checks the cap: the den is NOT founded — the band moves on', c.lairs.length === lairsB4
+    && (g.history || []).some(h => h && h.type === 'wander' && /lair cap/.test(h.reason))
+    && g.wanderState !== null);
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

@@ -449,8 +449,8 @@ document.addEventListener('alpine:init', () => {
                 </template>
               </td>
               <td class="text-base">
-                <template x-if="(entry.hex.lairs||[]).length>0">
-                  <span title="Lairs">⚔ <span x-text="entry.hex.lairs.length"></span></span>
+                <template x-if="lairsAtHexId(entry.hex.id).length>0">
+                  <span :title="'Lairs' + (hexLairCapText(entry.hex.id) ? ' — ' + hexLairCapText(entry.hex.id) : '')">⚔ <span x-text="lairsAtHexId(entry.hex.id).length"></span></span>
                 </template>
                 <template x-if="(entry.hex.dungeons||[]).length>0">
                   <span title="Dungeons" class="ml-2">🏛 <span x-text="entry.hex.dungeons.length"></span></span>
@@ -458,7 +458,7 @@ document.addEventListener('alpine:init', () => {
                 <template x-if="(entry.hex.pointsOfInterest||[]).length>0">
                   <span title="Points of interest" class="ml-2">⛯ <span x-text="entry.hex.pointsOfInterest.length"></span></span>
                 </template>
-                <template x-if="((entry.hex.lairs||[]).length+(entry.hex.dungeons||[]).length+(entry.hex.pointsOfInterest||[]).length)===0">
+                <template x-if="(lairsAtHexId(entry.hex.id).length+(entry.hex.dungeons||[]).length+(entry.hex.pointsOfInterest||[]).length)===0">
                   <span class="opacity-50">—</span>
                 </template>
               </td>
@@ -1597,7 +1597,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- #476 M1 — Lair Wizard (Inspector Create > Lair). Manual, catalog-free authoring (§12.5):
      'author' = one detailed lair (place on a hex, or hold unplaced in the dynamic pool); 'seed' =
-     roll the RAW Lairs-per-Hex count (JJ p.71) for an unsettled hex into empty status:'unknown'
+     roll the RAW Lairs-per-Hex count (JJ p.69) for an unsettled hex into empty status:'unknown'
      shells. GLOBAL modal (launched from the Inspector Create tab) — rendered regardless of the
      active tab, like the other modals here; the bare Inspector schemaForm edit is the admin path. -->
 <!-- Escape stacking: every stacked modal's escape handler acts only while ITS layer is open and marks
@@ -1658,7 +1658,7 @@ document.addEventListener('alpine:init', () => {
 
     <!-- SEED mode -->
     <div x-show="lairWizardMode==='seed'" class="space-y-3">
-      <p class="text-sm opacity-70">Roll the RAW wilderness lair density for an <strong>unsettled</strong> hex (JJ p.71, <em>Lairs per Hex</em>) — it creates that many empty, undetailed lair shells you flesh out later. Hexes inside a domain seed none (securing a hex clears its lairs).</p>
+      <p class="text-sm opacity-70">Roll the RAW wilderness lair density for an <strong>unsettled</strong> hex (JJ p.69, <em>Lairs per Hex</em>) — it creates that many empty, undetailed lair shells you flesh out later. Hexes inside a domain seed none (securing a hex clears its lairs).</p>
       <label class="text-sm block">Hex<select x-model="lairWizardSeed.hexId" @change="lairWizardSeed.count = 0" class="w-full border border-ink rounded px-2 py-1">
         <option value="">— pick a hex —</option>
         <template x-for="h in lairWizardHexOptions()" :key="h.id"><option :value="h.id" x-text="h.label"></option></template>
@@ -1669,6 +1669,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="!lairWizardSeedIsDomain()">
             <div class="space-y-2">
               <div class="opacity-80">Terrain: <span class="font-semibold" x-text="lairWizardSeedDiceLabel()"></span></div>
+              <div class="text-xs opacity-70" x-show="lairWizardSeedCapText()" x-text="lairWizardSeedCapText()"></div>
               <template x-if="lairWizardSeedDice()">
                 <div class="flex items-center gap-2">
                   <button @click="lairWizardRollSeed()" class="px-2 py-1 border border-ink rounded hover:bg-yellow-100">🎲 Roll count</button>
@@ -1963,7 +1964,7 @@ document.addEventListener('alpine:init', () => {
               <!-- E7 — the RR p.278 hunt risk is a REAL draw now: a meeting materializes its Encounter
                    entity on the spot (resolve it here — the panel opens above; close it to drop back). -->
               <div x-show="res.encounter" class="text-amber-900">⚔ Wandering encounter! <span x-text="forageEncounterText(res)"></span>
-                <button x-show="res.encounter && res.encounter.encounterId" @click="openEncounterModal(res.encounter.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold ml-1" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(res.encounter.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
+                <button x-show="res.encounter && res.encounter.encounterId" @click="openEncounterModal(res.encounter.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold ml-1" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById((res.encounter || {}).encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
               </div>
             </div>
           </template>
@@ -2029,7 +2030,7 @@ document.addEventListener('alpine:init', () => {
               <div x-show="res.encounter" class="text-amber-900">⚔ Encounter! <span x-text="res.encounterText"></span>
                 <!-- E2: a search meeting materializes its Encounter entity on the spot — resolve it here
                      (the modal opens above this panel; close it to drop back into the search). -->
-                <button x-show="res.encounter && res.encounter.encounterId" @click="openEncounterModal(res.encounter.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold ml-1" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById(res.encounter.encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
+                <button x-show="res.encounter && res.encounter.encounterId" @click="openEncounterModal(res.encounter.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold ml-1" title="Walk the RAW encounter procedure — distance, surprise, evasion, reaction, parley (RR pp.280–287)" x-text="(encounterById((res.encounter || {}).encounterId) || {}).status === 'active' ? '⚔ Resolve' : '⚔ Encounter'"></button>
                 <button x-show="res.encounter && res.encounter.lairId && (res.encounter.encounterKind !== 'wandering-fragment' || lairKnown(res.encounter.lairId))" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
                 <!-- A search-hour FRAGMENT met abroad: the meeting gives spoor, not the den — only the
                      search throw itself (or tracking) discovers it (Joachim 2026-06-11). An at-lair
@@ -8636,6 +8637,8 @@ document.addEventListener('alpine:init', () => {
           </template>
         </ul>
         <p class="text-xs accent-red mt-1" x-show="window.ACKS.hexSecuringBlockers(currentCampaign, worldHexEditingHex().id).length" x-text="'⚠ ' + window.ACKS.hexSecuringBlockers(currentCampaign, worldHexEditingHex().id).length + ' lair(s) stand in the way of securing this hex for settlement (RR p.338).'"></p>
+        <!-- E9 — the JJ p.69 territory cap: settling monsters never den past it (too crowded — they move on). -->
+        <p class="text-xs mt-1" :class="(hexLairCap((worldHexEditingHex() || {}).id) || {}).full ? 'accent-red' : 'opacity-70'" x-show="worldHexEditingHex() && hexLairCapText(worldHexEditingHex().id)" x-text="worldHexEditingHex() ? hexLairCapText(worldHexEditingHex().id) : ''"></p>
       </div>
 
       <!-- Encounters (#476 E2) — meetings at this hex, ACTIVE first. This is the post-commit
@@ -9899,7 +9902,7 @@ return {
 
   // ── #476 M1 — Lair Wizard (Inspector Create > Lair; §12.5) ──────────────────
   // The manual, catalog-free authoring front-end. Two modes: 'author' (one detailed lair → place on
-  // a hex, or hold in the dynamic pool) and 'seed' (roll the RAW Lairs-per-Hex count, JJ p.71, for an
+  // a hex, or hold in the dynamic pool) and 'seed' (roll the RAW Lairs-per-Hex count, JJ p.69, for an
   // unsettled hex → empty status:'unknown' shells). The bare Inspector schemaForm edit sits under it
   // (Browse → Inspect → Edit) as the no-frills admin path. Population/treasure generation is M2/M3.
   openLairWizard(mode){
@@ -9934,6 +9937,10 @@ return {
   lairWizardRollSeed(){
     const dice = this.lairWizardSeedDice();
     this.lairWizardSeed.count = dice ? window.ACKS.rollLairCount(dice.spec) : 0;
+  },
+  // E9 — the picked hex's JJ p.69 cap, shown as seeding guidance (the GM may exceed it — authoring is sovereign).
+  lairWizardSeedCapText(){
+    return this.lairWizardSeed.hexId ? this.hexLairCapText(this.lairWizardSeed.hexId) : '';
   },
   // M2 — Generate-from-catalog (Plan §12.5): the Monster field is a catalog datalist OR free text.
   // When the typed/picked key resolves in the MONSTER_CATALOG, the wizard shows its mechanical stats
@@ -10024,6 +10031,19 @@ return {
   // the Lair Wizard. The Inspector stays the no-frills field editor underneath (Open in Inspector).
   allLairs(){ return (this.currentCampaign && this.currentCampaign.lairs) || []; },
   lairsAtHexId(hexId){ return window.ACKS.lairsAtHex(this.currentCampaign, hexId) || []; },
+  // E9 — the JJ p.69 maximum-lairs cap for a hex (null = no cap defined for its terrain).
+  hexLairCap(hexId){
+    return (typeof window.ACKS.hexLairCapacity === 'function') ? window.ACKS.hexLairCapacity(this.currentCampaign, hexId) : null;
+  },
+  hexLairCapText(hexId){
+    const c = this.hexLairCap(hexId);
+    if(!c) return '';
+    if(c.max <= 0 && c.diceMax === 0) return '🌊 Open water — no land lairs (v1).';
+    return '🏚 Maximum lairs here: ' + c.max + ' (' + c.territoryClass
+      + (c.pct < 1 ? (' · ' + Math.round(c.pct * 100) + '% of the unsettled ' + c.diceStr + ' max ' + c.diceMax) : (' · ' + c.diceStr + ' max'))
+      + ' — JJ p.69) · ' + c.count + ' living'
+      + (c.full ? ' — FULL: settling monsters move on.' : '.');
+  },
   lairMonsterLabel(l){
     if(!l) return '—';
     const n = (typeof window.ACKS.monsterDisplayName === 'function') ? window.ACKS.monsterDisplayName(l.monsterCatalogKey) : null;
@@ -10802,6 +10822,12 @@ return {
     if(e.reason === 'already-at-lair') return 'they are already home — this meeting is at their lair';
     if(e.reason === 'fragment-has-home-lair') return 'this band forays from a home lair — it returns there, it does not found a second den' + (this.lairKnown(enc.monsterSide && enc.monsterSide.lairId) ? ' (its den is already discovered — → lair on the other-side card)' : ' (🐾 Track home on the other-side card follows the spoor to it)');
     if(e.reason === 'no-hex') return 'the encounter has no hex to den in';
+    if(e.reason === 'hex-full'){
+      const c = e.capacity || {};
+      return (c.diceMax === 0)
+        ? 'open water holds no land lairs (v1) — the band moves on'
+        : 'the hex already holds its maximum lairs (' + c.count + ' of ' + c.max + ' — ' + c.territoryClass + ', JJ p.69): too crowded — the band moves on; clear or remove a den to make room';
+    }
     if(e.reason === 'pursuit-in-progress') return 'they are taking up the chase — resolve the pursuit first';
     if(e.reason === 'band-mid-hunt') return 'the band is mid-hunt — it presses on after its quarry (see its ⚔ chase on the band line); the offer stands again once that chase ends';
     if(e.reason === 'settle-already-decided') return 'the linger roll was already made — they moved on';

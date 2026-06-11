@@ -4274,6 +4274,11 @@ function encounterSettleEligibility(campaign, encounterId){
   }
   if(ms.lairId) return { eligible: false, reason: (ms.encounterKind === 'wandering-fragment') ? 'fragment-has-home-lair' : 'already-at-lair' };
   if(!enc.hexId) return { eligible: false, reason: 'no-hex' };
+  // E9 — the JJ p.69 maximum-lairs cap: a band never settles a hex past its cap ("it is
+  // simply too crowded for them") — it moves on instead. Living dens count; clearing or
+  // removing one re-opens the offer. GM authoring stays exempt (the Lair Wizard / Inspector).
+  const cap = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, enc.hexId) : null;
+  if(cap && cap.full) return { eligible: false, reason: 'hex-full', capacity: cap };
   const entry = (typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
   if(!entry) return { eligible: false, reason: 'no-catalog-monster' };
   if(typeof entry.lairPct !== 'number' || !(entry.lairPct > 0)) return { eligible: false, reason: 'no-lair-pct' };

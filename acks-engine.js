@@ -3294,6 +3294,44 @@ function hexSecuringBlockers(campaign, hexId){
   return (lairsAtHex(campaign, hexId) || []).filter(l => l && (l.status === 'active' || l.status === 'unknown'));
 }
 
+// --- E9 maximum lairs per hex (JJ p.69) ---------------------------------------
+// "The maximum number of lairs that theoretically could be present": civilized 33% /
+// borderlands 50% / outlands 66% of the unsettled amount; a domainless hex's ceiling is
+// the amount itself. The unsettled amount = the terrain's lair-dice MAXIMUM (deterministic
+// — a cap can't be a die roll); 🔧 rounding = NEAREST (the printed 33%/66% are ⅓/⅔ —
+// civilized grassland 3 × 33% must read 1, not floor's 0). SETTLING monsters respect the
+// cap ("it is simply too crowded for them" — they move to another hex): the E3a settle
+// offer refuses `hex-full` and an E6 wander-entry never lingers at a full hex. The count
+// is LIVING dens (active + unknown shells; cleared / abandoned / destroyed structures are
+// vacant real estate, an unplaced dynamic lair sits in no hex). DISCOVERY stays ungated
+// (an E4 in-lair verdict / a tracked band's founded den reveal what was already there),
+// and GM authoring (Lair Wizard / createLair / Inspector / forced seeding) stays sovereign
+// — the cap governs the world's own settlement, not the Judge. Returns null when no lair
+// dice resolve (unknown terrain — no cap defined, nothing gates); water's zero dice read
+// max 0 (v1: no land lairs in open ocean).
+
+// The maximum of a lair-count dice spec {n,d,mod}, clamped ≥0: 1d4+1 → 5, 2d8 → 16, 1d3−1 → 2.
+function lairDiceMax(spec){
+  if(!spec || !spec.d || !spec.n) return 0;
+  return Math.max(0, (spec.n * spec.d) + (spec.mod || 0));
+}
+
+function hexLairCapacity(campaign, hexId){
+  if(!campaign) return null;
+  const hex = Array.isArray(campaign.hexes) ? campaign.hexes.find(h => h && h.id === hexId) : null;
+  if(!hex) return null;
+  const dice = lairDiceForHex(hex) || lairDiceForTerrain(hex.terrain);
+  if(!dice) return null;                               // unknown terrain — no cap defined
+  const A = global.ACKS || {};
+  const territoryClass = (typeof A.territoryClassForHex === 'function') ? A.territoryClassForHex(campaign, hex) : 'unsettled';
+  const PCT = A.LAIR_CAP_PCT_BY_TERRITORY || {};
+  const pct = (typeof PCT[territoryClass] === 'number') ? PCT[territoryClass] : 1.0;
+  const diceMax = lairDiceMax(dice.spec);
+  const max = Math.round(diceMax * pct);
+  const count = (lairsAtHex(campaign, hexId) || []).filter(l => l && (l.status === 'active' || l.status === 'unknown')).length;
+  return { count, max, full: count >= max, territoryClass, pct, diceStr: dice.label, diceMax, terrainKey: dice.key };
+}
+
 // =============================================================================
 // #476 ENCOUNTER LAYER (E1) — the Encounter entity + the draw seam (D8–D12).
 // An encounter is a reified COMMITTED INTERACTION between two sides (Architecture
@@ -8525,7 +8563,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
   createLair, clearLair, discoverLair, abandonLair, destroyLair, revealDynamicLair,
   generateLair, _rollDiceStr, lairEncounterProposal,
-  rollLairCount, lairDiceForTerrain, lairDiceForHex, seedHexLairs,
+  rollLairCount, lairDiceForTerrain, lairDiceForHex, seedHexLairs, lairDiceMax, hexLairCapacity,
   // #476 M4 — securing consequence (RR p.338): live lairs block settling the hex (DC-0 consumes)
   hexSecuringBlockers,
   // #476 Encounter layer E1 — the Encounter entity + the draw seam (D8–D12, plan §15)
