@@ -110,9 +110,9 @@ const EVENT_KINDS = Object.freeze([
   // by the 'survival' day-consumer (the field/settled counterpart of journey-day-tick); record-only,
   // campaignLogHidden on a recovery-only day, surfaced when a condition is active. Event Wizard opt-out.
   'survival-day',
-  // #476 M4 (2026-06-10) — a Wilderness Search hour (RR pp.276–277) or a track-home attempt
-  // (RR p.122). Emitted by hexSearchActivity/trackHomeAttempt (record-only; the verb already rolled
-  // + applied discovery). Carries payload.activityCost (one ancillary) for the #346 day budget.
+  // #476 M4/E5 (2026-06-10/11) — a Wilderness Search hour (RR pp.276–277) or a search for
+  // tracks (RR p.120). Emitted by hexSearchActivity/beginTracking (record-only; the verb already
+  // rolled + applied). Carries payload.activityCost (one ancillary) for the #346 day budget.
   // ALWAYS campaignLogHidden — the audit + budget record; discovery is narrated by lair-discovered.
   'hex-search',
   // #476 M4 — the players learn of a lair (search / tracking / GM reveal). The chronicle-visible
@@ -2830,8 +2830,8 @@ function rerollProvisioningActivity(campaign, eventId, opts){
 // ─── #476 M4 — Wilderness Search + track-home (RR pp.276–277 + p.120; Plan §6) ────────────────────
 // hexSearchActivity = ONE search-hour: the party's Wilderness Search throw against the hex's
 // undiscovered lairs, the RAW per-hour encounter check, and (when a cohort member knows Land
-// Surveying) the POI-count assessment. trackHomeAttempt = the RAW Tracking throw (RR p.120) that
-// follows a wandering fragment home to its undiscovered lair. Both are GM-facing verbs — the Judge
+// Surveying) the POI-count assessment. beginTracking (E5, further below) = the RAW Tracking find
+// throw (RR p.120) that opens a multi-day follow. Both are GM-facing verbs — the Judge
 // rolls secretly; failure reveals nothing (RR p.276) — and both log a record-only, ALWAYS-
 // campaignLogHidden 'hex-search' event carrying payload.activityCost (one ancillary; RR p.276
 // names the search-hour an ancillary activity) so the #346 day budget counts it. A discovery
@@ -2949,7 +2949,7 @@ function rerollHexSearch(campaign, eventId, opts){
   if(!wrap) return { ok: false, error: 'event-not-found' };
   const ev = wrap.event;
   if(ev.kind !== 'hex-search') return { ok: false, error: 'not-a-search' };
-  if(ev.payload.method === 'track-home') return { ok: false, error: 'track-not-rerollable' };
+  if(ev.payload.method === 'track-home' || ev.payload.method === 'begin-tracking') return { ok: false, error: 'track-not-rerollable' };
   const ch = (campaign.characters || []).find(c => c && c.id === ev.payload.actorCharacterId);
   if(!ch) return { ok: false, error: 'unknown-actor' };
   const rng = opts.rng || Math.random;
@@ -3081,114 +3081,255 @@ function hexSearchActivity(campaign, opts){
            found: found || null, encounter: encounter, survey: survey, speedMilesPerDay: sp.speed, event: ev };
 }
 
-// Track a band home to its lair (RR p.120 Tracking; Plan §6.2 — RAW-core, default-on).
-// opts: { actorCharacterId, lairId? OR encounterId?, countTracked? (the band size → the RAW
-// +2/+4/+6/+8 band), mod? (the GM's situational composite: ground / age / weather / light), rng? }.
-// Two targets — opts.lairId follows a FRAGMENT home to its existing unlocated den; opts.encounterId
-// (E4i, Joachim 2026-06-11: "you should be able to track someone you parleyed and parted with")
-// follows a PARTED band whose den has no entity yet: a resolved meeting (parleyed / evaded /
-// dispersed / combat) with a den-less monster side — a success FOUNDS the den at the meeting hex
-// (the catalog lair roll, population floored at the tracked band, Treasure Type recorded — MM p.15:
-// a wandering band is a fragment of its lair population and the hoard stays at the lair;
-// establishedBy 'encounter-track-home', discoverLair stamps method 'tracking', monsterSide.lairId
-// linked so future meetings recall this one [D9]). A failed throw founds nothing. 🔧 v1: the den
-// lands in the meeting hex (D2 hex-local — re-home it via the Inspector/map if the fiction says
-// otherwise); civilized folk are refused (they go home to dwellings, never dens — the E4 rule).
-// An encounterId whose side already HAS an unlocated den resolves to the fragment path. The
-// tracker must have the Tracking proficiency; extra ranks add +4 each to THIS throw.
-function trackHomeAttempt(campaign, opts){
+// ── #476 E5 — universal tracking (RR p.120 in FULL; Joachim 2026-06-11: "allow all creatures
+// who are met (and the encounter is evaded or passed) to be tracked, even if they don't have
+// a lair… They are followed until caught or the trail is lost"). The RAW split: FINDING
+// tracks is the throw — Tracking proficiency 11+ after one turn's search, modified by the
+// band's numbers (+2 at 2–4 / +4 at 5–8 / +6 at 9–16 / +8 at 17+), the ground (+4 soft/muddy
+// / −8 hard/rocky), the trail's age (−1 per 12 hours of good weather since it was made),
+// rain/snow (−4 per hour since it was made) and dim light (−4); extra Tracking ranks add +4
+// each. FOLLOWING needs NO throw — the party moves at HALF expedition speed along the
+// quarry's path — and the trail breaks only on events: it enters water, or an hour of
+// rain/snow falls; then the tracker must SEARCH AGAIN (a fresh find throw). So a track is a
+// multi-day FOLLOW, not a one-throw discovery: beginTracking rolls the find and opens a
+// pursuit with direction 'party' on the resolved meeting — the E3c monster-chase's mirror,
+// the same enc.pursuit field, the same slot-82 day consumer, inspected on the same panel —
+// and steers the trackers' Journey after it (one is started, or the active one re-routed;
+// pace capped at half-speed by journeyMaxPace; no Navigation throw while the spoor leads).
+// The quarry WALKS the map (🔧 v1 world-model: a band with a den heads home at full
+// expedition speed and waits there; a den-less or migrant band roams at HALF expedition
+// speed on a seeded heading for a seeded 1d4 days, then camps; civilized folk head for the
+// nearest settlement — dwellings, never dens; a tracked migrant Group's currentHexId moves
+// with the follow). CAUGHT — the trackers reach the quarry — springs a FRESH encounter at
+// its hex (trigger 'pursuit', createReason 'tracking-caught-up', monsterSide.
+// pursuitEncounterId → D9 recalls the original meeting); a quarry caught AT its den is an
+// at-lair meeting against the whole den, and the arrival IS the discovery (discoverLair
+// method 'tracking'). This REPLACES the E4i/M4 one-throw trackHomeAttempt — the same-hex
+// cases (a settled-after-evasion band, a den in the meeting hex) still resolve at once,
+// because the quarry is already halted where the trackers stand.
+
+// The RR p.120 find-the-tracks throw, itemized (the E2h convention). opts: { ranks (≥1),
+// countTracked, groundMod (+4 soft/muddy | 0 | −8 hard/rocky), trailAgeDays (−2 per full day
+// — RAW's −1 per 12 hours of good weather), rainHours (−4 each), dimLight (−4), gmMod, rng }.
+// Natural 1 auto-fails (the house convention on these throws). Shared by beginTracking and
+// the slot-82 consumer's re-find after a loss event (rain/snow, the trail entering water).
+function trackingFindThrow(opts){
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const ranks = Math.max(1, Number(o.ranks) || 1);
+  const n = Number(o.countTracked) || 0;
+  const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
+  const mods = [];
+  if(countBonus)          mods.push({ source: 'count-band',  value: countBonus });
+  if(ranks > 1)           mods.push({ source: 'extra-ranks', value: (ranks - 1) * 4 });
+  if(Number(o.groundMod)) mods.push({ source: 'ground',      value: Number(o.groundMod) });
+  const ageDays = Math.max(0, Number(o.trailAgeDays) || 0);
+  if(ageDays)             mods.push({ source: 'trail-age',   value: -2 * ageDays });
+  const rainH = Math.max(0, Number(o.rainHours) || 0);
+  if(rainH)               mods.push({ source: 'rain-snow',   value: -4 * rainH });
+  if(o.dimLight)          mods.push({ source: 'dim-light',   value: -4 });
+  if(Number(o.gmMod))     mods.push({ source: 'gm',          value: Number(o.gmMod) });
+  const natural = _provD20(rng);
+  const total = mods.reduce((s, m) => s + m.value, natural);
+  const target = 11;
+  return { natural: natural, target: target, modifiers: mods, total: total,
+           success: (natural !== 1) && (total >= target) };
+}
+
+// Begin a follow. opts: { encounterId? OR lairId? (a fragment row's den — resolved to its
+// latest concluded meeting), actorCharacterId (the tracker — Tracking proficiency, standing
+// at the trail's start = the meeting hex), countTracked?, groundMod?, rainHoursSince?,
+// dimLight?, gmMod?, rng? }. The find throw is rolled; on success the pursuit opens, the
+// journey is steered, and a quarry already halted where the trackers stand is caught at once.
+function beginTracking(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
   const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
   if(!ch) return { ok: false, error: 'unknown-actor' };
-  let lair = null, enc = null;
+  // Resolve the meeting whose parting left the trail.
+  let enc = null;
   if(opts.encounterId){
     enc = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, opts.encounterId) : null;
     if(!enc) return { ok: false, error: 'unknown-encounter' };
-    const ms = enc.monsterSide || {};
-    if(ms.lairId){
-      lair = (typeof A.findLair === 'function') ? A.findLair(campaign, ms.lairId) : null;
-      if(lair && lair.knownToPlayers) return { ok: false, error: 'already-known' };
-    }
-    if(!lair){
-      // The den-founding path: only a concluded, real meeting leaves a trail worth following.
-      if(enc.status !== 'resolved') return { ok: false, error: 'encounter-still-active' };
-      if(enc.outcome === 'no-encounter' || enc.outcome === 'dismissed') return { ok: false, error: 'no-meeting' };
-      if(enc.category === 'civilized') return { ok: false, error: 'civilized-folk' };
-      if(!enc.hexId) return { ok: false, error: 'no-hex' };
-      const entry = (typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
-      if(!entry) return { ok: false, error: 'no-catalog-monster' };
-      // E4m — a den-less band that is SOMEONE ELSE'S band has no den here to found:
-      // a band mid-hunt presses on after its quarry (the gate lifts when that chase
-      // ends), and a migrant Group roams homeless (it persists in the world — follow
-      // it on the 🐉 Monsters tab, or parley and watch it settle).
-      if(ms.pursuitEncounterId){
-        const chase = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, ms.pursuitEncounterId) : null;
-        if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
-          return { ok: false, error: 'band-mid-hunt' };
-      }
-      const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
-      if((ms.groupIds || []).some(gid => { const g = (campaign.groups || []).find(x => x && x.id === gid); return g && aliveOf(g) > 0; }))
-        return { ok: false, error: 'band-roams' };
-    }
-  } else {
-    lair = (typeof A.findLair === 'function') ? A.findLair(campaign, opts.lairId) : null;
-    if(!lair) return { ok: false, error: 'unknown-lair' };
-    if(lair.knownToPlayers) return { ok: false, error: 'already-known' };
+  } else if(opts.lairId){
+    const list = (campaign.encounters || []).filter(e => e && e.status === 'resolved' && e.monsterSide && e.monsterSide.lairId === opts.lairId);
+    enc = list.length ? list[list.length - 1] : null;
+    if(!enc) return { ok: false, error: 'no-encounter' };
+  } else return { ok: false, error: 'no-target' };
+  const ms = enc.monsterSide || {};
+  // Only a CONCLUDED, real meeting leaves a trail (the band must have parted — E4k gate).
+  if(enc.status !== 'resolved') return { ok: false, error: 'encounter-still-active' };
+  if(enc.outcome === 'no-encounter' || enc.outcome === 'dismissed') return { ok: false, error: 'no-meeting' };
+  if(!enc.hexId) return { ok: false, error: 'no-hex' };
+  // A band mid-hunt presses on after its quarry — meet it through its chase (E4m), don't
+  // double-model its motion. The gate lifts when that chase ends.
+  if(ms.pursuitEncounterId){
+    const chase = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, ms.pursuitEncounterId) : null;
+    if(chase && chase.status === 'active' && chase.pursuit && chase.pursuit.direction !== 'party' && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
+      return { ok: false, error: 'band-mid-hunt' };
   }
+  // A den already discovered = you know where they live; the → lair link replaces the trail.
+  let homeLair = null;
+  if(ms.lairId){
+    homeLair = (typeof A.findLair === 'function') ? A.findLair(campaign, ms.lairId) : null;
+    if(homeLair && homeLair.knownToPlayers) return { ok: false, error: 'already-known' };
+  }
+  if(enc.pursuit && enc.pursuit.direction === 'party' && enc.pursuit.status === 'tracking')
+    return { ok: false, error: 'already-tracking' };
+  // The tracker: Tracking proficiency (RR p.120 — the throw IS a Tracking throw), standing
+  // where the trail starts. A party that moved on must return to the meeting hex first.
   const ranks = ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))).length;
   if(ranks < 1) return { ok: false, error: 'no-tracking' };
+  if(ch.currentHexId !== enc.hexId) return { ok: false, error: 'not-at-trail-hex' };
+  const meetHex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  if(!meetHex || !meetHex.coord) return { ok: false, error: 'no-hex' };
+  // The trail's age: full days since the meeting concluded (−1 per 12 h of good weather);
+  // rain hours + ground + light are the GM's (the modal suggests ground from the hex).
+  const nowOrd = ((campaign.currentTurn || 1) * 30) + (campaign.currentDayInMonth || 1);
+  const resOrd = ((enc.resolvedAtTurn || campaign.currentTurn || 1) * 30) + (enc.resolvedOnDayInMonth || campaign.currentDayInMonth || 1);
+  const trailAgeDays = Math.max(0, nowOrd - resOrd);
   const rng = opts.rng || Math.random;
-  const n = Number(opts.countTracked) || 0;
-  const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
-  const bonus = (ranks - 1) * 4 + countBonus;
-  const mod = Number(opts.mod) || 0;
-  const target = 11;
-  const rolled = _provD20(rng);
-  const success = (rolled !== 1) && (rolled + bonus + mod >= target);
-  let founded = false;
-  if(success && !lair && enc){
-    // Found the parted band's den at the meeting hex (created unknown; discoverLair below stamps it).
-    const gen = (typeof A.generateLair === 'function')
-      ? A.generateLair(campaign, { hexId: enc.hexId, monsterCatalogKey: (enc.monsterSide || {}).monsterCatalogKey,
-                                   establishedBy: 'encounter-track-home', atTurn: campaign.currentTurn || 1 }, rng)
-      : null;
-    if(gen && gen.lair){
-      lair = gen.lair; founded = true;
-      const band = Number(opts.countTracked) || ((enc.monsterSide || {}).count || 0);
-      if(gen.group && (gen.group.count || 0) < band){
-        gen.group.count = band;   // the den holds at least the band you followed home
-        lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : lair.totalInhabitantCount;
-      }
-      enc.monsterSide.lairId = lair.id;
-      enc.history = enc.history || [];
-      enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracked-home',
-        reason: (ch.name || 'A tracker') + ' followed the parted band home — ' + (lair.name || 'their den') + ' founded at the meeting hex' });
-    }
-  }
-  const hexId = (lair && lair.hexId) || (enc && enc.hexId) || null;
-  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, hexId) : null;
+  const countTracked = (opts.countTracked != null && opts.countTracked !== '') ? Number(opts.countTracked) : (ms.count || 0);
+  const t = trackingFindThrow({ ranks: ranks, countTracked: countTracked, groundMod: opts.groundMod,
+                                trailAgeDays: trailAgeDays, rainHours: opts.rainHoursSince,
+                                dimLight: opts.dimLight, gmMod: opts.gmMod, rng: rng });
+  // The audit record (success or fail) — the Judge's secret search, one search-hour (#346).
   const ev = newEvent('hex-search', {
     submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
-    context: { primaryHexId: hexId, involvedHexIds: [], settlementId: null,
-               domainId: (hex && hex.domainId) || null,
+    context: { primaryHexId: enc.hexId, involvedHexIds: [], settlementId: null,
+               domainId: (meetHex && meetHex.domainId) || null,
                relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
     payload: {
-      actorCharacterId: ch.id, hexId: hexId, method: 'track-home',
-      rolled: rolled, target: target, bonus: bonus, mod: mod, success: success,
-      trackedLairId: lair ? lair.id : null, trackedEncounterId: enc ? enc.id : null,
-      foundLairId: (success && lair) ? lair.id : null, foundedLair: founded,
-      activityCost: { slot: 'ancillary', units: 1, kind: 'track', label: 'Track a trail' }
+      actorCharacterId: ch.id, hexId: enc.hexId, method: 'begin-tracking',
+      rolled: t.natural, target: t.target, modifiers: t.modifiers, total: t.total, success: t.success,
+      trackedEncounterId: enc.id, trailAgeDays: trailAgeDays, countTracked: countTracked,
+      activityCost: { slot: 'ancillary', units: 1, kind: 'track', label: 'Search for tracks' }
     }
   });
   ev.campaignLogHidden = true;
+  const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+  const label = ms.label || (entry && entry.name) || (enc.category === 'civilized' ? 'the locals' : 'the creatures');
   const who = ch.name || 'The tracker';
-  _logAppliedEvent(campaign, ev, { narrativeSummary: who + (success ? (' finds the spoor and follows it home' + (founded ? ' — the den is found' : '') + '.') : ' finds no usable trail (no retry here for an hour — RR p.120).') });
-  if(success && lair){
-    if(typeof A.discoverLair === 'function') A.discoverLair(campaign, lair.id, { by: ch.id, method: 'tracking' });
-    _emitLairDiscovered(campaign, lair, ch, 'track-home', ev);
+  _logAppliedEvent(campaign, ev, { narrativeSummary: who + (t.success
+    ? (' finds the trail of ' + label + ' — the follow begins (half expedition speed, RR p.120).')
+    : (' finds no usable trail of ' + label + ' (no retry here for an hour — RR p.120).')) });
+  if(!t.success) return { ok: true, success: false, find: t, encounter: enc, event: ev };
+  // ── The quarry (🔧 v1 world-model) ──
+  const exp = entry ? parseFloat(String(entry.expeditionSpeed || '')) : NaN;
+  const fullSpeed = (isFinite(exp) && exp > 0) ? exp : 24;   // 🔧 an unknown creature walks at the human norm
+  const quarry = { coord: { q: meetHex.coord.q, r: meetHex.coord.r }, hexId: enc.hexId,
+                   milesPerDay: fullSpeed, plan: 'wanders',
+                   destCoord: null, destLairId: null, destSettlementHexId: null,
+                   heading: null, walkDaysLeft: null, halted: false, groupId: null, mileRemainder: 0 };
+  // An E4m band bound to a living Group — the world entity moves with the follow.
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  for(const gid of (ms.groupIds || [])){
+    const g = (campaign.groups || []).find(x => x && x.id === gid);
+    if(g && aliveOf(g) > 0){ quarry.groupId = g.id; break; }
   }
-  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: success, lair: lair, founded: founded, event: ev };
+  if(homeLair && homeLair.hexId){
+    const denHex = (typeof A.findHex === 'function') ? A.findHex(campaign, homeLair.hexId) : null;
+    if(denHex && denHex.coord){
+      quarry.plan = 'heads-home';
+      quarry.destCoord = { q: denHex.coord.q, r: denHex.coord.r };
+      quarry.destLairId = homeLair.id;
+    }
+  } else if(enc.category === 'civilized'){
+    // Folk head for the nearest settlement (dwellings, never dens — the E4 rule).
+    let best = null, bestD = Infinity;
+    for(const h of (campaign.hexes || [])){
+      if(!h || !h.coord || !h.settlement) continue;
+      const d = (typeof A.hexAxialDistance === 'function') ? A.hexAxialDistance(meetHex.coord, h.coord) : Infinity;
+      if(d < bestD){ best = h; bestD = d; }
+    }
+    if(best){ quarry.plan = 'heads-to-settlement'; quarry.destCoord = { q: best.coord.q, r: best.coord.r }; quarry.destSettlementHexId = best.id; }
+  }
+  if(quarry.plan === 'wanders'){
+    quarry.heading = Math.floor(rng() * 6);
+    quarry.walkDaysLeft = 1 + Math.floor(rng() * 4);   // 🔧 v1: roams a seeded 1d4 days, then camps
+    quarry.milesPerDay = fullSpeed / 2;                // 🔧 a roaming band meanders at half its speed
+  }
+  if(quarry.destCoord && quarry.destCoord.q === quarry.coord.q && quarry.destCoord.r === quarry.coord.r) quarry.halted = true;
+  // Head start: the band has been walking since the meeting (the find already paid the age
+  // penalty; 🔧 pre-begin water crossings are folded into the GM's modifiers on the find).
+  for(let d = 0; d < trailAgeDays && !quarry.halted; d++){
+    if(typeof A.trackingQuarryWalkDay === 'function') A.trackingQuarryWalkDay(campaign, quarry);
+  }
+  // ── The pursuit (the E3c chase's mirror — direction 'party') ──
+  const pt = ch.partyId ? ((campaign.parties || []).find(p => p && p.id === ch.partyId) || null) : null;
+  enc.history = enc.history || [];
+  if(enc.pursuit && enc.pursuit.status){
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-superseded',
+      reason: 'a prior pursuit record (' + (enc.pursuit.direction === 'party' ? 'a follow, ' : 'a chase, ') + enc.pursuit.status + ') gives way to the new follow' });
+  }
+  enc.pursuit = {
+    direction: 'party',
+    status: 'tracking',
+    quarryLabel: label,
+    trackerCharacterId: ch.id, trackerName: ch.name || '', trackerRanks: ranks,
+    trackerPartyId: pt ? pt.id : null, journeyId: null,
+    countTracked: countTracked,
+    quarry: quarry,
+    weatherLostPending: false,   // GM lever until the weather layer (T4): "rain/snow ≥1 h fell today"
+    gmMod: 0,
+    startedAtTurn: campaign.currentTurn || 1, startedOnDayInMonth: campaign.currentDayInMonth || null,
+    throws: [Object.assign({ kind: 'find', atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null }, t)]
+  };
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-started',
+    reason: who + ' finds the trail of ' + label + ' (find ' + (t.natural === 1 ? 'natural 1' : (t.total + ' vs 11+')) + ') — the party takes up the follow at half expedition speed (RR p.120)' });
+  // Already standing where the quarry is halted (a settled-after-evasion band, a den in this
+  // hex) → caught at once: the one-throw resolution preserved for the same-hex cases.
+  if(quarry.halted && quarry.coord.q === meetHex.coord.q && quarry.coord.r === meetHex.coord.r){
+    const caught = (typeof A.trackingSpringCatch === 'function') ? A.trackingSpringCatch(campaign, enc, { rng: rng }) : null;
+    return { ok: true, success: true, find: t, pursuit: enc.pursuit, encounter: enc,
+             journeyAction: 'none', journey: null, caughtNow: caught, event: ev };
+  }
+  // ── Steer the journey (Joachim: "begins to track changes the destination of their journey
+  // — or effectively starts a journey if they are not already on one") ──
+  const qHex = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, quarry.coord.q, quarry.coord.r) : null;
+  const targetHexId = (qHex && qHex.id) || enc.hexId;
+  let journeyAction = 'none', journey = null;
+  const activeJourneyId = ch.currentJourneyId || (pt && pt.activeJourneyId) || null;
+  const aj = activeJourneyId ? ((campaign.journeys || []).find(x => x && x.id === activeJourneyId) || null) : null;
+  if(aj && ['in-transit', 'resting', 'lost', 'planning'].indexOf(aj.status) >= 0){
+    if(typeof A.reRouteJourney === 'function') A.reRouteJourney(campaign, aj, { destinationHexId: targetHexId });
+    enc.pursuit.journeyId = aj.id; journeyAction = 'rerouted'; journey = aj;
+  } else {
+    const participantIds = pt
+      ? (campaign.characters || []).filter(c => c && c.partyId === pt.id).map(c => c.id)
+      : [ch.id];
+    if(participantIds.indexOf(ch.id) < 0) participantIds.push(ch.id);
+    const j = (typeof A.blankJourney === 'function') ? A.blankJourney({
+      name: ((typeof A.journeyDefaultName === 'function') ? A.journeyDefaultName(campaign, { partyId: pt ? pt.id : null, participantCharacterIds: participantIds }) : '') || ('Tracking ' + label),
+      participantCharacterIds: participantIds, partyId: pt ? pt.id : null,
+      startHexId: enc.hexId, destinationHexId: targetHexId,
+      mode: 'foot', pace: 'half-speed'
+    }) : null;
+    if(j){
+      campaign.journeys = campaign.journeys || [];
+      campaign.journeys.push(j);
+      if(typeof A.startJourney === 'function') A.startJourney(campaign, j);
+      enc.pursuit.journeyId = j.id; journeyAction = 'started'; journey = j;
+    }
+  }
+  return { ok: true, success: true, find: t, pursuit: enc.pursuit, encounter: enc,
+           journeyAction: journeyAction, journey: journey, caughtNow: null, event: ev };
+}
+
+// Give up an active follow (GM call). The meeting is already resolved, so nothing
+// re-resolves — the follow just ends; the steering journey keeps its last destination
+// (Stop Journey is the GM's if the party should halt where it stands).
+function encounterAbandonTracking(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(!enc.pursuit || enc.pursuit.direction !== 'party' || enc.pursuit.status !== 'tracking') return { ok: false, error: 'not-tracking' };
+  const o = opts || {};
+  enc.pursuit.status = 'abandoned';
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-abandoned',
+    reason: o.reason || 'the trackers gave up the trail' });
+  return { ok: true, encounter: enc, pursuit: enc.pursuit };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4346,19 +4487,27 @@ function recordEncounterResolved(campaign, encounterId, outcome, opts){
   // side IS a pursuing band (pursuitEncounterId), 'dispersed' is the one outcome whose
   // engine meaning is "the band breaks up / moves on" — the quarry's chase resolves
   // 'evaded' behind it. Parley/evade leave the hunt running (the band presses on).
+  // E5 — the same for a band being TRACKED: scattered, there is no band left on the trail,
+  // so the follow ends (its host meeting is already resolved — only the pursuit flips).
   if(out === 'dispersed' && enc.monsterSide && enc.monsterSide.pursuitEncounterId){
-    const chase = A.findEncounter(campaign, enc.monsterSide.pursuitEncounterId);
-    if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing')){
+    const src = A.findEncounter(campaign, enc.monsterSide.pursuitEncounterId);
+    const sp = src && src.pursuit;
+    if(src && src.status === 'active' && sp && sp.direction !== 'party' && (sp.status === 'offered' || sp.status === 'pursuing')){
       const ps = enc.partySide || {};
       const party = ps.partyId ? ((campaign.parties || []).find(p => p && p.id === ps.partyId)) : null;
       const firstCh = ((ps.characterIds || []).length) ? ((campaign.characters || []).find(c => c && c.id === ps.characterIds[0])) : null;
       const who = (party && party.name) || (firstCh && firstCh.name) || 'another party';
-      chase.history = chase.history || [];
-      chase.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-broken',
+      src.history = src.history || [];
+      src.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-broken',
         reason: 'the band was scattered in a meeting with ' + who + ' — the hunt ends' });
-      recordEncounterResolved(campaign, chase.id, 'evaded', {
+      recordEncounterResolved(campaign, src.id, 'evaded', {
         note: 'The pursuing band was scattered by ' + who + ' — the hunt ends.'
       });
+    } else if(src && sp && sp.direction === 'party' && sp.status === 'tracking'){
+      src.history = src.history || [];
+      src.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-broken',
+        reason: 'the quarry was scattered in another meeting — the trail ends' });
+      sp.status = 'lost';
     }
   }
   return { ok: true, encounter: enc, event: ev };
@@ -4382,7 +4531,7 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'provisioning-activity',
   // CoL-1 — owned by the 'survival' day-consumer (a record of the day's resolution, not a GM verb).
   'survival-day',
-  // #476 M4 — owned by hexSearchActivity / trackHomeAttempt (raw emit would skip the throw +
+  // #476 M4/E5 — owned by hexSearchActivity / beginTracking (raw emit would skip the throw +
   // discovery flip) and by the discovery flows (lair-discovered pairs with a discoverLair call;
   // raw emit would narrate a discovery the lair state doesn't show).
   'hex-search', 'lair-discovered',
@@ -4445,7 +4594,7 @@ Object.assign(ACKS, {
   // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4) + reroll.
   forageActivity, huntActivity, rerollProvisioningActivity,
   // #476 M4 — Wilderness Search + track-home discovery verbs (RR pp.276–277 + p.120; Plan §6).
-  hexSearchActivity, trackHomeAttempt, recordLairDiscovered, rerollHexSearch,
+  hexSearchActivity, trackingFindThrow, beginTracking, encounterAbandonTracking, recordLairDiscovered, rerollHexSearch,
   // #476 Encounter layer E1 — the step verbs over the Encounter entity (RR pp.280–287; plan §15).
   encounterSetAwareness, encounterRollSurprise, encounterAttemptEvasion,
   encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved,

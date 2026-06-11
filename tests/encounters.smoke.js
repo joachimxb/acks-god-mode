@@ -1257,14 +1257,15 @@ section('E4 journey day revert — a den minted by the reverted day is unwound')
 }
 
 // =============================================================================
-section('E4i — track a parted band home: a success FOUNDS its den (Joachim 2026-06-11)');
+section('E5 — beginTracking: the find opens a FOLLOW (RR p.120 in full; replaces E4i\'s one-throw founding)');
 {
   const c = ACKS.blankCampaign({ name: 'parted' });
   c.hexes = [{ id: 'hex-p', coord: { q: 0, r: 0 }, terrain: 'hills', domainId: null }];
   const tracker = ACKS.blankCharacter({ name: 'Hode' });
   tracker.currentHexId = 'hex-p'; tracker.proficiencies = ['Tracking'];
   const idler = ACKS.blankCharacter({ name: 'Unskilled' }); idler.currentHexId = 'hex-p';
-  c.characters.push(tracker, idler);
+  const away = ACKS.blankCharacter({ name: 'Faraway' }); away.currentHexId = 'hex-elsewhere'; away.proficiencies = ['Tracking'];
+  c.characters.push(tracker, idler, away);
   const mk = (over) => ACKS.createEncounter(c, Object.assign({
     trigger: 'rest-night', hexId: 'hex-p', category: 'monster', rarity: 'common',
     partySide: { characterIds: [tracker.id], sizeCount: 2 },
@@ -1273,68 +1274,84 @@ section('E4i — track a parted band home: a success FOUNDS its den (Joachim 202
 
   // ── the gates ──
   mk({ id: 'enc-p-active' });
-  let r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-active' });
+  let r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-active' });
   ok('an un-resolved meeting refuses — they have not parted', !r.ok && r.error === 'encounter-still-active');
   const dis = mk({ id: 'enc-p-dismissed' }); dis.status = 'resolved'; dis.outcome = 'dismissed';
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-dismissed' });
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-dismissed' });
   ok('a dismissed/no-encounter meeting refuses — no trail', !r.ok && r.error === 'no-meeting');
+  const parley = mk({ id: 'enc-p-parley' }); parley.status = 'resolved'; parley.outcome = 'parleyed';
+  r = ACKS.beginTracking(c, { actorCharacterId: idler.id, encounterId: 'enc-p-parley' });
+  ok('a tracker-less actor refuses (no Tracking — RR p.120 is a Tracking throw)', !r.ok && r.error === 'no-tracking');
+  r = ACKS.beginTracking(c, { actorCharacterId: away.id, encounterId: 'enc-p-parley' });
+  ok('a tracker elsewhere refuses — the trail starts at the meeting hex', !r.ok && r.error === 'not-at-trail-hex');
+
+  // ── a failed find opens nothing ──
+  const lairsBefore = (c.lairs || []).length;
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley', countTracked: 5, rng: () => 0 });   // natural 1
+  ok('a failed find returns ok + no success — no follow opens, nothing founded', r.ok && !r.success && !parley.pursuit
+    && (c.lairs || []).length === lairsBefore && !parley.monsterSide.lairId);
+  ok('…and the audit event records the failed search-hour', r.event && r.event.payload.method === 'begin-tracking'
+    && r.event.payload.success === false && r.event.payload.activityCost && r.event.payload.activityCost.kind === 'track');
+
+  // ── the success: a FOLLOW opens — the band is followed, no den is conjured ──
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley', countTracked: 5, rng: seq(0.999, 0.2, 0.5) });
+  ok('a successful find opens the follow (direction party, status tracking)', r.ok && r.success
+    && parley.pursuit && parley.pursuit.direction === 'party' && parley.pursuit.status === 'tracking'
+    && (c.lairs || []).length === lairsBefore);   // the den is found by ARRIVING, never by the throw
+  ok('…a den-less band roams: seeded heading + 1d4 walk days at HALF its speed', parley.pursuit.quarry.plan === 'wanders'
+    && typeof parley.pursuit.quarry.heading === 'number'
+    && parley.pursuit.quarry.walkDaysLeft >= 1 && parley.pursuit.quarry.walkDaysLeft <= 4);
+  ok('…the trackers\' journey starts at once, paced at half (RR p.120)', r.journeyAction === 'started'
+    && r.journey && r.journey.status === 'in-transit' && r.journey.pace === 'half-speed'
+    && parley.pursuit.journeyId === r.journey.id);
+  ok('…and the pace cap holds whatever the GM sets (journeyMaxPace binding)', (function(){
+    const cap = ACKS.journeyMaxPace(c, r.journey);
+    return cap.maxPace === 'half-speed' && cap.binding && cap.binding.reason === 'tracking';
+  })());
+  const evp = r.event && r.event.payload;
+  ok('…the hex-search event records the find', !!evp && evp.method === 'begin-tracking' && evp.success === true
+    && evp.trackedEncounterId === 'enc-p-parley' && evp.activityCost && evp.activityCost.kind === 'track');
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley' });
+  ok('one live follow per meeting (already-tracking)', !r.ok && r.error === 'already-tracking');
+
+  // ── civilized folk + label-only sides track too (Joachim: "all creatures who are met") ──
   const civ = mk({ id: 'enc-p-civ', category: 'civilized', monsterSide: { source: 'fresh', monsterCatalogKey: 'merchant', count: 3, encounterKind: 'wandering' } });
   civ.status = 'resolved'; civ.outcome = 'parleyed';
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-civ' });
-  ok('civilized folk refuse — dwellings, not dens (the E4 rule)', !r.ok && r.error === 'civilized-folk');
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-civ', countTracked: 3, rng: seq(0.999, 0.2, 0.5) });
+  ok('civilized folk are trackable — toward a dwelling, never a den (no settlement here → they roam)', r.ok && r.success
+    && civ.pursuit.quarry.plan === 'wanders' && civ.pursuit.quarry.destLairId === null);
   const nameless = mk({ id: 'enc-p-nameless', monsterSide: { source: 'fresh', monsterCatalogKey: '', label: 'Dragon, Blue', count: 1, encounterKind: 'wandering' } });
   nameless.status = 'resolved'; nameless.outcome = 'parleyed';
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-nameless' });
-  ok('an unidentified side refuses — name the monster first', !r.ok && r.error === 'no-catalog-monster');
-  const parley = mk({ id: 'enc-p-parley' }); parley.status = 'resolved'; parley.outcome = 'parleyed';
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: idler.id, encounterId: 'enc-p-parley' });
-  ok('a tracker-less actor still refuses (no Tracking)', !r.ok && r.error === 'no-tracking');
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-nameless', countTracked: 1, rng: seq(0.999, 0.2, 0.5) });
+  ok('an unidentified/label-only side tracks at the fallback walking rate (24 🔧, halved roaming)', r.ok && r.success
+    && nameless.pursuit.quarry.plan === 'wanders' && nameless.pursuit.quarry.milesPerDay === 12);
 
-  // ── a failed throw founds nothing ──
-  const lairsBefore = (c.lairs || []).length;
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley', countTracked: 5, rng: () => 0 });   // natural 1
-  ok('a failed track returns ok + no success', r.ok && !r.success && !r.founded);
-  ok('…and founds NOTHING — no den, side still den-less', (c.lairs || []).length === lairsBefore && !parley.monsterSide.lairId);
-
-  // ── the success: the den is FOUNDED at the meeting hex ──
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley', countTracked: 5, rng: () => 0.999 });
-  ok('a successful track founds the den', r.ok && r.success && r.founded === true && !!r.lair);
-  const den = r.lair;
-  ok('…at the meeting hex, from the catalog, by track-home', den.hexId === 'hex-p' && den.monsterCatalogKey === 'orc' && den.establishedBy === 'encounter-track-home');
-  ok('…discovered (the track IS the discovery, method tracking)', den.knownToPlayers === true
-    && (den.discoveryHistory || []).some(d => d && d.method === 'tracking' && d.by === tracker.id));
-  ok('…with a bound population ≥ the tracked band + the Treasure Type recorded', ACKS.lairInhabitantCount(c, den) >= 5 && typeof den.treasureType === 'string' && den.treasureType.length > 0);
-  ok('…linked back onto the meeting (D9 chains future meetings)', parley.monsterSide.lairId === den.id
-    && (parley.history || []).some(h => h && h.type === 'tracked-home'));
-  const evp = r.event && r.event.payload;
-  ok('…the hex-search event records the founding', !!evp && evp.method === 'track-home' && evp.foundedLair === true
-    && evp.trackedEncounterId === 'enc-p-parley' && evp.foundLairId === den.id
-    && evp.activityCost && evp.activityCost.kind === 'track');
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-parley' });
-  ok('tracking the same meeting again refuses — the den is known', !r.ok && r.error === 'already-known');
-  const again = mk({ id: 'enc-p-again', monsterSide: { source: 'existing-lair', lairId: den.id, monsterCatalogKey: 'orc', count: 3, encounterKind: 'at-lair' } });
-  const prior = ACKS.priorReactionBetween(c, again);
-  ok('a later meeting with the founded den recalls the parley (D9)', !!prior && prior.encounterId === 'enc-p-parley' && prior.outcome === 'parleyed');
-
-  // ── the population floor: the den holds at least the band you followed ──
-  const big = mk({ id: 'enc-p-big', hexId: 'hex-p', monsterSide: { source: 'fresh', monsterCatalogKey: 'orc', count: 999, encounterKind: 'wandering' } });
-  big.status = 'resolved'; big.outcome = 'evaded';
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-big', countTracked: 999, rng: () => 0.999 });
-  ok('the founded den is floored at the tracked band (999)', r.ok && r.success && ACKS.lairInhabitantCount(c, r.lair) === 999);
-
-  // ── an encounterId whose side HAS an unlocated den resolves to the fragment path ──
+  // ── a fragment whose den is THIS hex: the quarry is already home — caught at once ──
   const hidden = ACKS.createLair(c, { hexId: 'hex-p', monsterCatalogKey: 'orc', status: 'active', name: 'The Hidden Warren' });
   hidden.knownToPlayers = false;
   const frag = mk({ id: 'enc-p-frag', monsterSide: { source: 'existing-lair', lairId: hidden.id, monsterCatalogKey: 'orc', count: 2, encounterKind: 'wandering-fragment' } });
+  frag.status = 'resolved'; frag.outcome = 'evaded';
   const lairsBeforeFrag = (c.lairs || []).length;
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-frag', countTracked: 2, rng: () => 0.999 });
-  ok('a fragment via encounterId discovers ITS den — founds nothing new', r.ok && r.success && r.founded === false
-    && r.lair && r.lair.id === hidden.id && hidden.knownToPlayers === true && (c.lairs || []).length === lairsBeforeFrag
-    && frag.status === 'active');   // the fragment path needs no resolution — the den exists regardless
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-frag', countTracked: 2, rng: () => 0.999 });
+  ok('a same-hex den is caught at once — the arrival IS the discovery, nothing new founded', r.ok && r.success
+    && !!(r.caughtNow && r.caughtNow.denCatch) && r.caughtNow.lair.id === hidden.id
+    && hidden.knownToPlayers === true && (hidden.discoveryHistory || []).some(d => d && d.method === 'tracking' && d.by === tracker.id)
+    && (c.lairs || []).length === lairsBeforeFrag && r.journeyAction === 'none');
+  ok('…the catch is an at-lair meeting against the den, D9-linked (an unpopulated shell falls back to the band)', r.caughtNow.encounter
+    && r.caughtNow.encounter.monsterSide.encounterKind === 'at-lair'
+    && r.caughtNow.encounter.monsterSide.lairId === hidden.id
+    && r.caughtNow.encounter.monsterSide.pursuitEncounterId === 'enc-p-frag'
+    && r.caughtNow.encounter.monsterSide.count === (ACKS.lairInhabitantCount(c, hidden) || 2));
+  ok('…and D9 recalls the evaded meeting from the sprung catch', (function(){
+    const prior = ACKS.priorReactionBetween(c, r.caughtNow.encounter);
+    return !!prior && prior.encounterId === 'enc-p-frag' && prior.outcome === 'evaded';
+  })());
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-frag' });
+  ok('tracking the same meeting again refuses — the den is known', !r.ok && r.error === 'already-known');
 
   // ── Joachim's flow (2026-06-11): "Den here" on an EVADED meeting first, THEN track. The settle
-  //    links lairId but the kind stays 'wandering' — tracking via encounterId must still discover
-  //    the (players-unknown) den rather than founding a second one. ──
+  //    links lairId (players-unknown); the band sits at its den in this hex — caught at once,
+  //    discovering THAT den, never founding a second one. ──
   const sett = mk({ id: 'enc-p-settled', monsterSide: { source: 'fresh', monsterCatalogKey: 'orc', count: 6, encounterKind: 'wandering' } });
   sett.status = 'resolved'; sett.outcome = 'evaded';
   const sr = ACKS.encounterSettleAsLair(c, 'enc-p-settled', { rng: seq(0.01, 0.01) });   // lingers + full strength
@@ -1342,9 +1359,18 @@ section('E4i — track a parted band home: a success FOUNDS its den (Joachim 202
     && sr.lair.knownToPlayers === false && sett.monsterSide.lairId === sr.lair.id
     && sett.monsterSide.encounterKind === 'wandering' && sett.outcome === 'evaded');
   const lairsBeforeSettled = (c.lairs || []).length;
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-settled', countTracked: 6, rng: () => 0.999 });
-  ok('…and tracking the parted band discovers THAT den — no second den founded', r.ok && r.success && r.founded === false
-    && r.lair && r.lair.id === sr.lair.id && sr.lair.knownToPlayers === true && (c.lairs || []).length === lairsBeforeSettled);
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-settled', countTracked: 6, rng: () => 0.999 });
+  ok('…and tracking the parted band catches it AT that den — no second den founded', r.ok && r.success
+    && !!(r.caughtNow && r.caughtNow.denCatch) && r.caughtNow.lair.id === sr.lair.id
+    && sr.lair.knownToPlayers === true && (c.lairs || []).length === lairsBeforeSettled);
+
+  // ── the trail ages: −1 per 12 h of good weather (−2 per full day) on the find ──
+  const old = mk({ id: 'enc-p-old' });
+  ACKS.resolveEncounter(c, old.id, 'parleyed', {});
+  c.currentDayInMonth = (c.currentDayInMonth || 1) + 2;   // two days pass before anyone searches
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-p-old', countTracked: 5, rng: seq(0.999, 0.2, 0.5) });
+  ok('a two-day-old trail finds at −4 (trail-age, itemized)', r.ok
+    && r.find.modifiers.some(m => m.source === 'trail-age' && m.value === -4));
 }
 
 // =============================================================================
@@ -1626,7 +1652,9 @@ section('E4m — loose bands abroad answer the wandering draw (Joachim 2026-06-1
     && sr.lair.treasureType === (sr.proposal.fullStrength ? ((ACKS.findMonster('common-wolf') || {}).treasureType || '') : ''));
   ok('…and the band leaves the loose roster (settled again — the Groups-table promise)', !ACKS.looseMonsterBands(c).some(x => x.groupId === mig.id));
 
-  // ── track-home gates: mid-hunt + roaming bands refuse with their reasons ──
+  // ── tracking gates (E5): mid-hunt refuses; once the chase ends, the follow opens; and a
+  //    roaming migrant Group is trackable too (Joachim: "they are migrating, whatever the
+  //    circumstances") — the Group itself becomes the followed quarry ──
   const tracker = ACKS.blankCharacter({ name: 'Hode' }); tracker.currentHexId = 'hex-w'; tracker.proficiencies = ['Tracking'];
   c.characters.push(tracker);
   const chase5 = mkChase('enc-w-chase5');
@@ -1634,19 +1662,200 @@ section('E4m — loose bands abroad answer the wandering draw (Joachim 2026-06-1
     partySide: { characterIds: [third.id], sizeCount: 1 },
     monsterSide: { source: 'pursuing-band', pursuitEncounterId: 'enc-w-chase5', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering' } });
   ACKS.recordEncounterResolved(c, 'enc-w-meetH', 'parleyed', {});
-  let r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetH', countTracked: 5, rng: () => 0.999 });
-  ok('tracking a band mid-hunt refuses — it presses on, not home', !r.ok && r.error === 'band-mid-hunt');
+  let r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetH', countTracked: 5, rng: () => 0.999 });
+  ok('tracking a band mid-hunt refuses — its motion belongs to the chase', !r.ok && r.error === 'band-mid-hunt');
   ACKS.encounterAbandonPursuit(c, 'enc-w-chase5');
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetH', countTracked: 5, rng: () => 0.999 });
-  ok('…once that chase ends, the parted band founds its den as usual (E4i)', r.ok && r.success && r.founded === true && !!r.lair);
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetH', countTracked: 5, rng: seq(0.999, 0.2, 0.5) });
+  ok('…once that chase ends, the follow opens (E5 — no instant founding)', r.ok && r.success
+    && meetH.pursuit && meetH.pursuit.direction === 'party' && meetH.pursuit.status === 'tracking'
+    && r.journeyAction === 'started');
   const roam = ACKS.blankGroup({ name: 'Roamers', groupTemplate: { monsterCatalogKey: 'orc' }, count: 4, casualties: 0, currentHexId: 'hex-w' });
   c.groups.push(roam);
   const meetR = ACKS.createEncounter(c, { id: 'enc-w-meetR', trigger: 'rest-night', hexId: 'hex-w', category: 'monster',
     partySide: { characterIds: [third.id], sizeCount: 1 },
     monsterSide: { source: 'migrant-band', groupIds: [roam.id], monsterCatalogKey: 'orc', count: 4, encounterKind: 'wandering' } });
   ACKS.recordEncounterResolved(c, 'enc-w-meetR', 'parleyed', {});
-  r = ACKS.trackHomeAttempt(c, { actorCharacterId: tracker.id, encounterId: 'enc-w-meetR', countTracked: 4, rng: () => 0.999 });
-  ok('tracking a roaming Group refuses — it lives nowhere (follow it on 🐉 Monsters)', !r.ok && r.error === 'band-roams');
+  // the tracker is mid-follow from meetH — use a second tracker for the migrant
+  const tracker2 = ACKS.blankCharacter({ name: 'Sif' }); tracker2.currentHexId = 'hex-w'; tracker2.proficiencies = ['Tracking'];
+  c.characters.push(tracker2);
+  r = ACKS.beginTracking(c, { actorCharacterId: tracker2.id, encounterId: 'enc-w-meetR', countTracked: 4, rng: seq(0.999, 0.2, 0.5) });
+  ok('a roaming migrant Group is trackable — the Group itself is the quarry', r.ok && r.success
+    && meetR.pursuit && meetR.pursuit.quarry.groupId === roam.id && meetR.pursuit.quarry.plan === 'wanders');
+  ok('…and the tracked Group leaves the migrant roster, listed as a tracked band instead', (function(){
+    const rows = ACKS.looseMonsterBands(c);
+    return !rows.some(x => x.kind === 'migrant' && x.groupId === roam.id)
+      && rows.some(x => x.kind === 'tracked' && x.encounterId === 'enc-w-meetR' && (x.groupIds || []).indexOf(roam.id) >= 0);
+  })());
+}
+
+// =============================================================================
+section('E5 — the follow day by day: the quarry walks, loss events break the trail, the catch springs the meeting');
+{
+  const mkWorld = () => {
+    const c = ACKS.blankCampaign({ name: 'follow' });
+    c.currentTurn = 5; c.currentDayInMonth = 10;
+    const mh = (id, q, r, extra) => Object.assign(ACKS.blankHex({ id, coord: { q, r }, terrain: 'hills' }), extra || {});
+    c.hexes = [mh('fx-a', 0, 0), mh('fx-b', 1, 0), mh('fx-c', 2, 0), mh('fx-d', 3, 0), mh('fx-e', 4, 0), mh('fx-f', 5, 0), mh('fx-g', 6, 0)];
+    const t = ACKS.blankCharacter({ name: 'Tess' }); t.currentHexId = 'fx-a'; t.proficiencies = ['Tracking'];
+    c.characters = [t];
+    return { c, t };
+  };
+  const mkMeet = (c, t, over) => {
+    const e = ACKS.createEncounter(c, Object.assign({
+      trigger: 'journey', hexId: 'fx-a', category: 'monster', rarity: 'common',
+      partySide: { characterIds: [t.id], sizeCount: 1 },
+      monsterSide: { source: 'fresh', monsterCatalogKey: 'common-wolf', label: 'Common Wolf', count: 5, encounterKind: 'wandering', lairId: null, groupIds: [] }
+    }, over || {}));
+    ACKS.resolveEncounter(c, e.id, (over && over._outcome) || 'parleyed', {});
+    return e;
+  };
+
+  // ── A: a fragment heads home (full speed) — the journey is steered quietly; the party
+  //      arrives; the catch is an at-lair meeting and the arrival discovers the den ──
+  {
+    const { c, t } = mkWorld();
+    const gen = ACKS.generateLair(c, { hexId: 'fx-d', monsterCatalogKey: 'common-wolf' }, () => 0.5);
+    const den = gen.lair; den.knownToPlayers = false;
+    const e = mkMeet(c, t, { id: 'enc-f-home', _outcome: 'evaded',
+      monsterSide: { source: 'existing-lair', monsterCatalogKey: 'common-wolf', label: 'Common Wolf', count: 4, encounterKind: 'wandering-fragment', lairId: den.id, groupIds: [] } });
+    const r = ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-home', countTracked: 4, rng: seq(0.7, 0.5) });
+    ok('A: the banded fragment heads home at FULL expedition speed', r.ok && r.success
+      && e.pursuit.quarry.plan === 'heads-home' && e.pursuit.quarry.destLairId === den.id
+      && e.pursuit.quarry.milesPerDay === 36);
+    const evtsBefore = (c.eventLog || []).filter(x => x.event.kind === 'journey-rerouted').length;
+    let out = ACKS.proposePursuitDay(c, { dayInMonth: 11, rng: () => 0.5 });
+    const rec1 = out.pendingRecords.find(x => x.kind === 'tracking-day');
+    ok('A: day 1 — the wolves reach their den (3 hexes at 36 mi) and go to ground', !!rec1 && rec1.outcome === 'tracking'
+      && rec1.newQuarry.halted === true && rec1.newQuarry.hexId === 'fx-d' && rec1.quarryWalk.arrived === true);
+    ACKS.commitPursuitRecord(c, rec1);
+    ok('A: the journey is steered to the trail head QUIETLY (no journey-rerouted spam)', r.journey.destinationHexId === 'fx-d'
+      && (c.eventLog || []).filter(x => x.event.kind === 'journey-rerouted').length === evtsBefore);
+    // the party closes over the following days — stand them at the den hex
+    r.journey.currentHexId = 'fx-d';
+    out = ACKS.proposePursuitDay(c, { dayInMonth: 12, rng: () => 0.5 });
+    const rec2 = out.pendingRecords.find(x => x.kind === 'tracking-day');
+    ok('A: day 2 — caught, with the meeting pre-minted + the distance pre-rolled', !!rec2 && rec2.outcome === 'caught'
+      && !!rec2.caughtEncounterId && !!rec2.caughtDistance);
+    ok('A: the caught day pauses the tick (encounter trigger)', out.notableEvents.some(n => n.pauseTrigger === 'encounter' && n.payload && n.payload.encounterId === 'enc-f-home'));
+    ACKS.commitPursuitRecord(c, rec2);
+    const fresh = ACKS.findEncounter(c, rec2.caughtEncounterId);
+    ok('A: the catch is an at-lair meeting against the den\'s living population', !!fresh
+      && fresh.trigger === 'pursuit' && fresh.hexId === 'fx-d'
+      && fresh.monsterSide.encounterKind === 'at-lair' && fresh.monsterSide.lairId === den.id
+      && fresh.monsterSide.count === ACKS.lairInhabitantCount(c, den)
+      && fresh.distance && fresh.distance.distanceFt === rec2.caughtDistance.distanceFt);
+    ok('A: the arrival IS the discovery (method tracking) + the follow closes caught', den.knownToPlayers === true
+      && (den.discoveryHistory || []).some(d => d && d.method === 'tracking')
+      && e.pursuit.status === 'caught'
+      && (c.eventLog || []).some(x => x.event.kind === 'lair-discovered' && x.event.payload.lairId === den.id));
+    ok('A: D9 recalls the evaded meeting from the sprung catch', (function(){
+      const p = ACKS.priorReactionBetween(c, fresh);
+      return !!p && p.encounterId === 'enc-f-home' && p.outcome === 'evaded';
+    })());
+  }
+
+  // ── B: rain/snow — ONE hour destroys the trail; the re-find answers it (RR p.120) ──
+  {
+    const { c, t } = mkWorld();
+    const e = mkMeet(c, t, { id: 'enc-f-rain' });
+    ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-rain', countTracked: 5, rng: seq(0.7, 0.2, 0.5) });
+    e.pursuit.weatherLostPending = true;                      // the GM lever: rain fell for an hour today
+    let out = ACKS.proposePursuitDay(c, { dayInMonth: 11, rng: () => 0.95 });   // re-find 20 − 4 rain + 4 count = 20 ≥ 11
+    let rec = out.pendingRecords.find(x => x.kind === 'tracking-day');
+    ok('B: a rain day forces a re-find — success keeps the follow alive', !!rec && rec.outcome === 'tracking'
+      && rec.refind && rec.refind.success === true
+      && rec.refind.modifiers.some(m => m.source === 'rain-snow' && m.value === -4));
+    ACKS.commitPursuitRecord(c, rec);
+    ok('B: the re-find is recorded on the pursuit + the lever is consumed', e.pursuit.status === 'tracking'
+      && e.pursuit.throws.some(x => x.kind === 're-find' && x.cause === 'rain')
+      && e.pursuit.weatherLostPending === false);
+    e.pursuit.weatherLostPending = true;                      // it rains again — and the search fails
+    out = ACKS.proposePursuitDay(c, { dayInMonth: 12, rng: () => 0 });   // natural 1
+    rec = out.pendingRecords.find(x => x.kind === 'tracking-day');
+    ok('B: a failed re-find LOSES the trail — the follow ends, the tick pauses (navigation-fail)', !!rec && rec.outcome === 'lost'
+      && out.notableEvents.some(n => n.pauseTrigger === 'navigation-fail'));
+    ACKS.commitPursuitRecord(c, rec);
+    ok('B: lost is terminal — and beginTracking may search again from the meeting', e.pursuit.status === 'lost'
+      && (e.history || []).some(h => h && h.type === 'tracking-lost')
+      && ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-rain', countTracked: 5, rng: seq(0.999, 0.2, 0.5) }).success === true);
+  }
+
+  // ── C: the trail enters water — lost at the bank unless re-found (RR p.120) ──
+  {
+    const { c, t } = mkWorld();
+    // a water hex on the quarry's path: the wolves head for a den beyond the river
+    c.hexes[2].terrain = 'water';   // fx-c
+    const gen = ACKS.generateLair(c, { hexId: 'fx-f', monsterCatalogKey: 'common-wolf' }, () => 0.5);
+    gen.lair.knownToPlayers = false;
+    const e = mkMeet(c, t, { id: 'enc-f-water', _outcome: 'evaded',
+      monsterSide: { source: 'existing-lair', monsterCatalogKey: 'common-wolf', label: 'Common Wolf', count: 4, encounterKind: 'wandering-fragment', lairId: gen.lair.id, groupIds: [] } });
+    ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-water', countTracked: 4, rng: seq(0.7, 0.5) });
+    const out = ACKS.proposePursuitDay(c, { dayInMonth: 11, rng: () => 0 });   // re-find natural 1 → lost
+    const rec = out.pendingRecords.find(x => x.kind === 'tracking-day');
+    ok('C: the quarry crossing water breaks the trail — the failed re-find loses it', !!rec
+      && rec.quarryWalk.waterCrossed === true && rec.lossCause === 'water' && rec.outcome === 'lost');
+    ACKS.commitPursuitRecord(c, rec);
+    ok('C: …and the follow ends at the bank', e.pursuit.status === 'lost');
+  }
+
+  // ── D: a tracked migrant Group MOVES with the follow; third parties can meet it; a
+  //      'dispersed' on that meeting ends the follow (the trail has no band left on it) ──
+  {
+    const { c, t } = mkWorld();
+    const roam = ACKS.blankGroup({ name: 'Grey Drift', groupTemplate: { monsterCatalogKey: 'common-wolf' }, count: 5, casualties: 0, currentHexId: 'fx-a' });
+    c.groups.push(roam);
+    const e = mkMeet(c, t, { id: 'enc-f-mig',
+      monsterSide: { source: 'migrant-band', monsterCatalogKey: 'common-wolf', label: 'Common Wolf', count: 5, encounterKind: 'wandering', lairId: null, groupIds: [roam.id] } });
+    ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-mig', countTracked: 5, rng: seq(0.7, 0.0, 0.9) });   // heading 0, 4 walk days
+    ok('D: the Group itself is the quarry', e.pursuit.quarry.groupId === roam.id);
+    const out = ACKS.proposePursuitDay(c, { dayInMonth: 11, rng: () => 0.5 });
+    const rec = out.pendingRecords.find(x => x.kind === 'tracking-day');
+    ACKS.commitPursuitRecord(c, rec);
+    ok('D: the committed day moves the Group with the quarry (world stays consistent)',
+      e.pursuit.quarry.hexId === roam.currentHexId || (e.pursuit.quarry.hexId === null && roam.currentHexId === 'fx-a'));
+    // a third party at the quarry's hex draws — the tracked band answers; its own trackers never do
+    if(e.pursuit.quarry.hexId){
+      const third = ACKS.blankCharacter({ name: 'Else' }); third.currentHexId = e.pursuit.quarry.hexId; c.characters.push(third);
+      const ident = { key: 'common-wolf', label: 'Wolf, Common' };
+      const bThird = ACKS.bindEncounterIdentity(c, e.pursuit.quarry.hexId, ident, { category: 'monster', rng: seq(0.99, 0.5), partySide: { partyId: null, characterIds: [third.id] } });
+      ok('D: a third party\'s abroad verdict binds the TRACKED band', bThird.mode === 'loose-band' && bThird.bandKind === 'tracked' && bThird.encounterId === 'enc-f-mig');
+      const bSelf = ACKS.bindEncounterIdentity(c, e.pursuit.quarry.hexId, ident, { category: 'monster', rng: seq(0.99, 0.5), partySide: { partyId: null, characterIds: [t.id] } });
+      ok('D: the trackers themselves never meet their quarry through the table (the catch owns it)', !(bSelf.mode === 'loose-band' && bSelf.bandKind === 'tracked'));
+      // the bound side carries the link — and scattering the band ends the follow
+      const side = { source: null, pursuitEncounterId: null, lairId: null, groupIds: [], encounterKind: null, count: null, minted: null };
+      ACKS._applyIdentityBinding(c, side, ident, bThird, { hexId: e.pursuit.quarry.hexId });
+      ok('D: the bound side carries source tracked-band + the follow link', side.source === 'tracked-band'
+        && side.pursuitEncounterId === 'enc-f-mig' && JSON.stringify(side.groupIds) === JSON.stringify([roam.id]));
+      const meet3 = ACKS.createEncounter(c, { id: 'enc-f-third', trigger: 'rest-night', hexId: e.pursuit.quarry.hexId, category: 'monster',
+        partySide: { characterIds: [third.id], sizeCount: 1 },
+        monsterSide: { source: 'tracked-band', pursuitEncounterId: 'enc-f-mig', monsterCatalogKey: 'common-wolf', count: 5, encounterKind: 'wandering', groupIds: [roam.id] } });
+      ACKS.recordEncounterResolved(c, 'enc-f-third', 'dispersed', {});
+      ok('D: scattering the tracked band ends the follow — no band left on the trail', e.pursuit.status === 'lost'
+        && (e.history || []).some(h => h && h.type === 'tracking-broken'));
+    }
+  }
+
+  // ── E: giving up + the RAW reliefs while following ──
+  {
+    const { c, t } = mkWorld();
+    const e = mkMeet(c, t, { id: 'enc-f-quit' });
+    const r = ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-quit', countTracked: 5, rng: seq(0.7, 0.2, 0.5) });
+    // following the spoor: NO Navigation throw (RR p.120 — following needs no throw)
+    const tick = ACKS.tickJourneyDay(c, r.journey, { rng: () => 0.0 });   // a die that would FAIL navigation
+    ok('E: a following party makes no Navigation throw — the spoor leads (RR p.120)',
+      tick.record.dayRecord.navigation == null && tick.record.newIsLost === false);
+    ok('E: journeyEffectivePace caps the GM\'s pace at half while following', (function(){
+      r.journey.pace = 'forced-march';
+      const p = ACKS.journeyEffectivePace(c, r.journey);
+      r.journey.pace = 'half-speed';
+      return p === 'half-speed';
+    })());
+    const q = ACKS.encounterAbandonTracking(c, 'enc-f-quit', { reason: 'night falls' });
+    ok('E: giving up ends the follow (abandoned) — the meeting stays resolved as it was', q.ok
+      && e.pursuit.status === 'abandoned' && e.status === 'resolved' && e.outcome === 'parleyed'
+      && (e.history || []).some(h => h && h.type === 'tracking-abandoned'));
+    ok('E: an abandoned follow frees the meeting for a fresh find', ACKS.beginTracking(c, { actorCharacterId: t.id, encounterId: 'enc-f-quit', countTracked: 5, rng: seq(0.999, 0.2, 0.5) }).success === true);
+  }
 }
 
 // =============================================================================

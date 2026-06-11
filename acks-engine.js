@@ -3447,7 +3447,7 @@ function looseMonsterBands(campaign){
   const chasing = new Set();
   for(const e of (campaign.encounters || [])){
     const p = e && e.pursuit;
-    if(!e || e.status !== 'active' || e.phase !== 'pursuit' || !p || (p.status !== 'offered' && p.status !== 'pursuing')) continue;
+    if(!e || e.status !== 'active' || e.phase !== 'pursuit' || !p || p.direction === 'party' || (p.status !== 'offered' && p.status !== 'pursuing')) continue;
     const ms = e.monsterSide || {};
     for(const gid of (ms.groupIds || [])) chasing.add(gid);
     const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
@@ -3464,8 +3464,33 @@ function looseMonsterBands(campaign){
                 characterIds: ((e.partySide && e.partySide.characterIds) || []).slice() }
     });
   }
+  // E5 — a band being TRACKED is abroad too: a definite entity at its trail-head hex, met
+  // as itself by anyone else's wandering draw (its own trackers excluded — the catch owns
+  // that meeting). A tracked migrant Group reads as the tracked row, never twice.
+  const tracked = new Set();
+  for(const e of (campaign.encounters || [])){
+    const p = e && e.pursuit;
+    if(!e || !p || p.direction !== 'party' || p.status !== 'tracking') continue;
+    const ms = e.monsterSide || {};
+    const q = p.quarry || {};
+    if(q.groupId) tracked.add(q.groupId);
+    const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+    rows.push({
+      kind: 'tracked', encounterId: e.id,
+      monsterKey: entry ? entry.key : ((ms.monsterCatalogKey) || null),
+      label: p.quarryLabel || ms.label || (entry && entry.name) || '',
+      count: (p.countTracked != null && p.countTracked !== 0) ? p.countTracked : ((ms.count != null) ? ms.count : null),
+      hexId: q.hexId || null,
+      groupIds: q.groupId ? [q.groupId] : (ms.groupIds || []).slice(),
+      lairId: ms.lairId || null,
+      quarryCoord: q.coord ? { q: q.coord.q, r: q.coord.r } : null,
+      halted: !!q.halted,
+      trackedBy: { characterId: p.trackerCharacterId || null, partyId: p.trackerPartyId || null,
+                   name: p.trackerName || '', journeyId: p.journeyId || null }
+    });
+  }
   for(const g of (campaign.groups || [])){
-    if(!g || settled.has(g.id) || chasing.has(g.id)) continue;
+    if(!g || settled.has(g.id) || chasing.has(g.id) || tracked.has(g.id)) continue;
     const alive = (typeof groupActiveCount === 'function') ? groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
     if(alive <= 0) continue;
     const tpl = g.groupTemplate || {};
@@ -3545,6 +3570,12 @@ function bindEncounterIdentity(campaign, hexId, identity, opts){
         const q = band.quarry || {};
         if(me.partyId && q.partyId && me.partyId === q.partyId) return false;
         if((q.characterIds || []).some(id => myChars.includes(id))) return false;
+      }
+      if(band.kind === 'tracked'){
+        // E5 — the trackers never meet their own quarry through the table (the catch owns it).
+        const tb = band.trackedBy || {};
+        if(me.partyId && tb.partyId && me.partyId === tb.partyId) return false;
+        if(tb.characterId && myChars.includes(tb.characterId)) return false;
       }
       return true;
     });
@@ -3741,6 +3772,23 @@ function _applyIdentityBinding(campaign, side, identity, binding, opts){
         side.groupIds = [g.id];
         side.encounterKind = 'wandering';
         side.count = alive;
+        bound = true;
+      }
+    } else if(b.bandKind === 'tracked' && b.encounterId){
+      // E5 — the band met IS the quarry of someone else's follow: the tracked meeting's
+      // monster side, linked via pursuitEncounterId so D9 recalls it (and a 'dispersed'
+      // here ends the follow — the trail has no band left on it).
+      const trk = findEncounter(campaign, b.encounterId);
+      const tp = trk && trk.pursuit;
+      if(trk && trk.monsterSide && tp && tp.direction === 'party' && tp.status === 'tracking'){
+        const tms = trk.monsterSide;
+        const qg = (tp.quarry && tp.quarry.groupId) || null;
+        side.source = 'tracked-band';
+        side.pursuitEncounterId = trk.id;
+        side.lairId = tms.lairId || null;          // a banded fragment keeps its den ref
+        side.groupIds = qg ? [qg] : (tms.groupIds || []).slice();
+        side.encounterKind = 'wandering';
+        side.count = (b.count != null) ? b.count : (tms.count != null ? tms.count : null);
         bound = true;
       }
     }
@@ -8172,6 +8220,20 @@ function _maxPaceForLoad(otherDed, otherAnc, BUDGET){
   }
   return 'halted';
 }
+// #476 E5 — the live follow steering this journey, if any (DERIVED — the pursuit lives on
+// the tracked encounter, the journey carries no mirror field): the encounter whose
+// direction-'party' pursuit is 'tracking' and names this journey. Read by journeyMaxPace
+// (the RR p.120 half-speed cap), tickJourneyDay (no Navigation throw while the spoor
+// leads) and the journey-panel strip. Returns { encounterId, pursuit } or null.
+function journeyTrackingPursuit(campaign, journeyId){
+  if(!campaign || !journeyId) return null;
+  for(const e of (campaign.encounters || [])){
+    const p = e && e.pursuit;
+    if(p && p.direction === 'party' && p.status === 'tracking' && p.journeyId === journeyId)
+      return { encounterId: e.id, pursuit: p };
+  }
+  return null;
+}
 // The fastest pace the WHOLE party can sustain = the slowest individual cap across its character
 // travellers (mercenaries have no budget). Returns { maxPace, binding } where binding names the
 // constraining traveller + why (for the UI's "pace restricted because…" text). Reads each traveller's
@@ -8193,6 +8255,14 @@ function journeyMaxPace(campaign, journey, opts){
       maxRank = PACE_RANK[cap];
       binding = { characterId: cid, name: ch.name || cid, maxPace: cap, otherDedicated: b.dedicatedUsed, otherAncillary: b.ancillaryUsed };
     }
+  }
+  // E5 — a party following tracks moves at HALF expedition speed (RR p.120), whatever the
+  // budget would allow: an active follow on this journey caps the pace at half-speed.
+  const tracking = journeyTrackingPursuit(campaign, journey && journey.id);
+  if(tracking && PACE_RANK['half-speed'] < maxRank){
+    maxRank = PACE_RANK['half-speed'];
+    binding = { characterId: null, name: 'tracking ' + ((tracking.pursuit && tracking.pursuit.quarryLabel) || 'a quarry') + ' (RR p.120)',
+                maxPace: 'half-speed', reason: 'tracking', otherDedicated: 0, otherAncillary: 0 };
   }
   return { maxPace: RANK_PACE[maxRank], binding };
 }
@@ -8301,7 +8371,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Phase 2.95 Activity Budget (#346 / AB-1) — derived per-character daily activity budget.
   characterActivityBudget, activityRejectAffordance,
   // Travel pace ↔ budget: the day's activities cap the achievable pace (Joachim 2026-06-05).
-  journeyMaxPace, journeyEffectivePace,
+  journeyMaxPace, journeyEffectivePace, journeyTrackingPursuit,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,

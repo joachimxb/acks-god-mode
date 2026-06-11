@@ -664,25 +664,40 @@ section('M4 hexSearchActivity — the Wilderness Search hour (RR pp.276–277)')
     && ACKS.hexSearchActivity(c, { actorCharacterId: (c.characters.push(ACKS.blankCharacter({ name: 'Nowhere' })), c.characters[c.characters.length-1].id) }).ok === false);
 }
 
-section('M4 trackHomeAttempt — Tracking follows a fragment home (RR p.120)');
+section('E5 beginTracking — the find throw opens a follow (RR p.120; replaces trackHomeAttempt)');
 {
   const c = ACKS.blankCampaign({ name: 'track' });
-  c.hexes = [ACKS.blankHex({ id: 'hex-t', terrain: 'forest' })];
+  c.hexes = [ACKS.blankHex({ id: 'hex-t', coord: { q: 0, r: 0 }, terrain: 'forest' })];
   const gen = ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-t' });
   gen.lair.knownToPlayers = false;
   const ch = ACKS.blankCharacter({ name: 'Hound' }); ch.currentHexId = 'hex-t'; c.characters.push(ch);
-  ok('no Tracking → refused', ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen.lair.id }).error === 'no-tracking');
-  ch.proficiencies = ['Tracking', 'Tracking'];   // 2 ranks → +4 to the track throw
-  const r = ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen.lair.id, countTracked: 6, rng: seq(0.45) });   // d20 10 +4 ranks +4 count = 18 ≥ 11
-  ok('ranks (+4/extra) + count-tracked band (+4 at 5–8) apply', r.ok && r.bonus === 8 && r.success);
-  ok('success discovers the lair (method tracking) + emits lair-discovered', gen.lair.knownToPlayers === true
+  // a fragment meeting at the den's own hex — evaded; the band's trail leads home (same hex)
+  const enc = ACKS.createEncounter(c, { id: 'enc-mp-t1', trigger: 'journey', hexId: 'hex-t', category: 'monster', rarity: 'common',
+    partySide: { characterIds: [ch.id], sizeCount: 1 },
+    monsterSide: { monsterCatalogKey: 'orc', label: 'Orc', count: 6, encounterKind: 'wandering-fragment', lairId: gen.lair.id, groupIds: [] } });
+  ACKS.resolveEncounter(c, enc.id, 'evaded', {});
+  ok('no Tracking → refused', ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc.id }).error === 'no-tracking');
+  ch.proficiencies = ['Tracking', 'Tracking'];   // 2 ranks → +4 to the find throw
+  const r = ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc.id, countTracked: 6, rng: seq(0.45) });   // d20 10 +4 ranks +4 count = 18 ≥ 11
+  const modSum = r.ok && r.find ? r.find.modifiers.reduce((s, m) => s + m.value, 0) : null;
+  ok('ranks (+4/extra) + count band (+4 at 5–8) itemize on the find', r.ok && r.success && modSum === 8
+    && r.find.modifiers.some(m => m.source === 'extra-ranks' && m.value === 4)
+    && r.find.modifiers.some(m => m.source === 'count-band' && m.value === 4));
+  ok('a den in the meeting hex is caught at once — the arrival IS the discovery', !!(r.caughtNow && r.caughtNow.denCatch)
+    && gen.lair.knownToPlayers === true
     && gen.lair.discoveryHistory.some(d => d.method === 'tracking')
     && c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.payload.method === 'track-home'));
-  ok('an already-known lair → refused', ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen.lair.id }).error === 'already-known');
-  // nat-1 fails regardless of bonuses
-  const gen2 = ACKS.generateLair(c, { monsterCatalogKey: 'goblin', hexId: 'hex-t' });
-  const r2 = ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: gen2.lair.id, countTracked: 20, rng: seq(0.0) });
-  ok('an unmodified 1 fails the track', r2.ok && !r2.success && r2.rolled === 1);
+  ok('the catch is an at-lair meeting against the den, D9-linked', !!(r.caughtNow && r.caughtNow.encounter)
+    && r.caughtNow.encounter.monsterSide.encounterKind === 'at-lair'
+    && r.caughtNow.encounter.monsterSide.pursuitEncounterId === enc.id);
+  ok('a known den → refused', ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc.id }).error === 'already-known');
+  // nat-1 fails regardless of bonuses — and no follow opens
+  const enc2 = ACKS.createEncounter(c, { id: 'enc-mp-t2', trigger: 'journey', hexId: 'hex-t', category: 'monster', rarity: 'common',
+    partySide: { characterIds: [ch.id], sizeCount: 1 },
+    monsterSide: { monsterCatalogKey: 'goblin', label: 'Goblin', count: 20, encounterKind: 'wandering', lairId: null, groupIds: [] } });
+  ACKS.resolveEncounter(c, enc2.id, 'parleyed', {});
+  const r2 = ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc2.id, countTracked: 20, rng: seq(0.0) });
+  ok('an unmodified 1 fails the find (no follow opens)', r2.ok && !r2.success && r2.find.natural === 1 && !enc2.pursuit);
 }
 
 section('M4 rerollHexSearch — re-throw the latest search hour (the forage-reroll sibling)');
@@ -713,10 +728,13 @@ section('M4 rerollHexSearch — re-throw the latest search hour (the forage-rero
   ACKS.rerollHexSearch(c, r2.event.id, { rng: seq(0.5) });
   ok('the encounter outcome is held across the reroll', JSON.stringify(r2.event.payload.encounter) === encBefore);
   // guards
-  ok('guards: unknown event / track-home not rerollable', ACKS.rerollHexSearch(c, 'evt-none').error === 'event-not-found'
+  ok('guards: unknown event / a begin-tracking record not rerollable', ACKS.rerollHexSearch(c, 'evt-none').error === 'event-not-found'
     && (function(){ ch.proficiencies = ['Tracking'];
-         const den = ACKS.createLair(c, { status: 'active', hexId: 'hex-r', name: 'Other Den' });
-         const t = ACKS.trackHomeAttempt(c, { actorCharacterId: ch.id, lairId: den.id, rng: seq(0.0) });
+         const e9 = ACKS.createEncounter(c, { id: 'enc-mp-rr', trigger: 'journey', hexId: 'hex-r', category: 'monster', rarity: 'common',
+           partySide: { characterIds: [ch.id], sizeCount: 1 },
+           monsterSide: { monsterCatalogKey: 'common-wolf', label: 'Common Wolf', count: 3, encounterKind: 'wandering', lairId: null, groupIds: [] } });
+         ACKS.resolveEncounter(c, e9.id, 'evaded', {});
+         const t = ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: e9.id, countTracked: 3, rng: seq(0.0) });
          return ACKS.rerollHexSearch(c, t.event.id).error === 'track-not-rerollable'; })());
 }
 

@@ -737,10 +737,10 @@ document.addEventListener('alpine:init', () => {
   <div class="vellum border border-ink rounded p-4 mt-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
       <h3 class="font-bold text-lg">🐾 Groups <span class="text-sm opacity-70 font-normal" x-text="'· ' + monsterLooseBandRows().length + ' abroad'"></span></h3>
-      <span class="text-sm opacity-70">migrant + pursuing bands — monsters not settled in a lair</span>
+      <span class="text-sm opacity-70">migrant + pursuing + tracked bands — monsters not settled in a lair</span>
     </div>
     <template x-if="monsterLooseBandRows().length === 0">
-      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), or a pack takes up a fleeing party's trail (⚙ Monster pursuit).</p>
+      <p class="text-sm italic opacity-60 py-4 text-center">No bands abroad — every monster population is settled in its lair. Bands appear here when a population abandons its lair (migrants), a pack takes up a fleeing party's trail (⚙ Monster pursuit), or a party follows one's tracks (🐾).</p>
     </template>
     <template x-if="monsterLooseBandRows().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -760,7 +760,7 @@ document.addEventListener('alpine:init', () => {
               </td>
               <td x-text="row.statusText"></td>
               <td class="text-right whitespace-nowrap">
-                <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" title="Open the chase's encounter — the pursuit panel lives there">⚔ chase</button></template>
+                <template x-if="row.encounterId"><button @click="openEncounterModal(row.encounterId)" class="text-xs px-1.5 border border-red-700/60 text-red-800 rounded hover:bg-red-50 font-semibold" :title="row.key.indexOf('tracked-') === 0 ? 'Open the tracked meeting — the 🐾 follow panel lives there' : 'Open the chase\'s encounter — the pursuit panel lives there'" x-text="row.key.indexOf('tracked-') === 0 ? '🐾 the trail' : '⚔ chase'"></button></template>
                 <template x-if="row.groupId"><button @click="inspectorOpen('group', row.groupId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open this band in the 🔍 Inspector">🔍 inspect</button></template>
               </td>
             </tr>
@@ -768,7 +768,7 @@ document.addEventListener('alpine:init', () => {
         </tbody>
       </table>
     </template>
-    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit), read from their encounter. A band settling down again becomes a lair above.</p>
+    <p class="text-sm opacity-60 mt-3 italic">A derived view — migrants are living <code>campaign.groups[]</code> whose lair is gone (or who never had one); pursuers are active chases (⚙ Monster pursuit) and tracked bands are live follows (🐾, RR p.120), each read from its encounter. A band settling down again becomes a lair above.</p>
   </div>
 </div>
 
@@ -1180,11 +1180,13 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
-          <!-- E3c — pursuit (RR p.285 + p.120; the 'monster-pursuit' rule). Shows whenever the
-               encounter carries pursuit state: offered = the GM's intent call; pursuing = the
-               daily trail (the Day Clock advances it); resolved = the read-only record. -->
+          <!-- E3c + E5 — pursuit, both directions (RR p.285 + p.120). Shows whenever the
+               encounter carries pursuit state. Monster chase (direction 'monsters'):
+               offered = the GM's intent call; pursuing = the daily trail. Party follow
+               (E5, direction 'party'): tracking = the quarry walked daily by the Day
+               Clock; caught/lost/abandoned = the read-only record. -->
           <div class="border border-orange-700/40 rounded p-2 text-xs space-y-1" style="background:#fdf3e7" x-show="encModalEnc().pursuit">
-            <h4 class="font-semibold text-sm">🐺 Pursuit <span class="opacity-50 font-normal">(RR p.285 + p.120 · monster-pursuit)</span></h4>
+            <h4 class="font-semibold text-sm" x-text="((encModalEnc().pursuit || {}).direction === 'party') ? '🐾 Tracking (RR p.120)' : '🐺 Pursuit (RR p.285 + p.120 · monster-pursuit)'"></h4>
             <template x-if="(encModalEnc().pursuit || {}).status === 'offered'">
               <div class="space-y-1">
                 <p x-text="(encModalEnc().pursuit.pursuerLabel || 'The monsters') + ' can track — does it pursue? The GM adjudicates intent; taking up the trail is a Tracking throw (11+, easier for a numerous party).'"></p>
@@ -1205,6 +1207,26 @@ document.addEventListener('alpine:init', () => {
                   <button @click="encModalAbandonPursuit()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">🛑 Break off the pursuit</button>
                 </div>
               </div>
+            </template>
+            <!-- E5 — the live FOLLOW (the party tracks the band; the Day Clock walks both) -->
+            <template x-if="(encModalEnc().pursuit || {}).direction === 'party' && (encModalEnc().pursuit || {}).status === 'tracking'">
+              <div class="space-y-1">
+                <p><span class="font-semibold" x-text="(encModalEnc().pursuit.trackerName || 'The trackers')"></span>
+                  <span x-text="' follow the trail of ' + (encModalEnc().pursuit.quarryLabel || 'the band') + ' — ' + encTrackingStatusText() + ' The Day Clock advances the follow: following needs no throw (RR p.120); the trail breaks only if it enters water or an hour of rain/snow falls.'"></span></p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <label class="flex items-center gap-1.5"><input type="checkbox" :checked="encModalEnc().pursuit.weatherLostPending" @change="encModalEnc().pursuit.weatherLostPending = $event.target.checked; markDirty(); schedulePersist()" title="RR p.120 — one hour of rain/snow destroys the trail. Tick this when it rained or snowed today: the next day's step loses the trail and rolls a fresh find (−4 per hour of rain). One-shot — it clears after that day. (The weather layer will set this automatically when it lands.)">🌧 rain/snow fell today (≥1 h) — the trail washes out</label>
+                  <label class="flex items-center gap-1">re-find GM ± <input type="number" :value="encModalEnc().pursuit.gmMod" @change="encModalEnc().pursuit.gmMod = Number($event.target.value) || 0; markDirty(); schedulePersist()" class="w-14" title="Standing modifier on re-find throws after a loss event — ground, light, the trail's age…"></label>
+                  <button x-show="encModalEnc().pursuit.journeyId" @click="const jid = encModalEnc().pursuit.journeyId; closeEncounterModal(); journeyOpenDetail(jid)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Open the journey this follow is steering">🧭 journey</button>
+                  <button @click="encModalAbandonTracking()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Give up the trail — the follow ends; the journey keeps its last destination (Stop Journey if the party should halt)">🛑 Give up the trail</button>
+                </div>
+              </div>
+            </template>
+            <template x-if="(encModalEnc().pursuit || {}).direction === 'party' && ['caught','lost','abandoned'].indexOf((encModalEnc().pursuit || {}).status) >= 0">
+              <p class="opacity-80" x-text="(encModalEnc().pursuit.status === 'caught')
+                ? ('🐾 the follow CAUGHT ' + (encModalEnc().pursuit.quarryLabel || 'the band') + ' — the fresh meeting is in World ▸ ⚔ Encounters')
+                : (encModalEnc().pursuit.status === 'lost')
+                  ? ('🐾 the trail of ' + (encModalEnc().pursuit.quarryLabel || 'the band') + ' was lost — search again from the spoor (the banner 🐾) if the party returns')
+                  : ('🐾 the trackers gave up the trail of ' + (encModalEnc().pursuit.quarryLabel || 'the band'))"></p>
             </template>
             <ul class="font-mono space-y-0.5" x-show="((encModalEnc().pursuit || {}).throws || []).length">
               <!-- E4l (Joachim 2026-06-11): the take-up throw carries a ⟳ while it is still the
@@ -1370,16 +1392,17 @@ document.addEventListener('alpine:init', () => {
                    UNKNOWN to the players (they ran; find it via search / track-home). -->
               <button x-show="encSettleOfferOnResolved() && !encModal.settle" @click="encModalProposeSettle()" :disabled="!encSettleEligible()" :class="encSettleEligible() ? 'hover:bg-amber-100' : 'opacity-50 cursor-not-allowed'" class="text-xs px-1.5 border border-ink rounded ml-1" :title="encSettleTitle()">🏚 Settles as lair?</button>
               <span class="text-xs opacity-60" x-show="encSettleOfferOnResolved() && !encModal.settle && !encSettleEligible()" x-text="'(' + encSettleReason() + ')'"></span>
-              <!-- E4k (Joachim 2026-06-11): 🐾 lives HERE, with the other outcome buttons — not on
-                   the side card. A concluded real meeting tracks the band to its unlocated den
-                   (fragment / settled-behind-the-fled-party), or — no den entity at all — founds
-                   one at this hex on a success (E4i); the unidentified case is disabled-with-reason. -->
+              <!-- E4k/E5 (Joachim 2026-06-11): 🐾 lives HERE, with the other outcome buttons.
+                   A concluded real meeting can be TRACKED (E5 — any creature, with or without
+                   a den): the find throw (RR p.120) opens a multi-day follow steering the
+                   trackers' journey; a quarry already gone to ground in this hex is caught at
+                   once. A band mid-hunt is disabled-with-reason (its motion is its chase's). -->
               <button x-show="encBannerTrackTarget()"
-                      :disabled="!!(encBannerTrackTarget() || {}).encounterId && !encTrackPartedReady()"
+                      :disabled="!encTrackPartedReady()"
                       @click="openTrackHome(encBannerTrackTarget())"
-                      :class="(!(encBannerTrackTarget() || {}).encounterId || encTrackPartedReady()) ? 'border-ink hover:bg-yellow-100' : 'border-ink/30 opacity-50 cursor-not-allowed'"
+                      :class="encTrackPartedReady() ? 'border-ink hover:bg-yellow-100' : 'border-ink/30 opacity-50 cursor-not-allowed'"
                       class="text-xs px-1.5 border rounded ml-1"
-                      :title="(!(encBannerTrackTarget() || {}).encounterId || encTrackPartedReady()) ? 'Follow the band’s spoor home — Tracking 11+ (RR p.120); a den not yet on the map is founded at this hex on a success' : ('Unavailable — ' + encTrackPartedReason())">🐾 Track home</button>
+                      :title="encTrackPartedReady() ? 'Track them — find the trail (Tracking 11+, RR p.120) and follow at half expedition speed until caught or the trail is lost; the journey is steered after them' : ('Unavailable — ' + encTrackPartedReason())">🐾 Track them</button>
             </div>
           </template>
           <!-- Footer: Inspector + history -->
@@ -1987,7 +2010,7 @@ document.addEventListener('alpine:init', () => {
                 <!-- A search-hour FRAGMENT met abroad: the meeting gives spoor, not the den — only the
                      search throw itself (or tracking) discovers it (Joachim 2026-06-11). An at-lair
                      stumble or an already-discovered den keeps the full → lair above. -->
-                <button x-show="res.encounter && res.encounter.lairId && res.encounter.encounterKind === 'wandering-fragment' && !lairKnown(res.encounter.lairId)" @click="openTrackHome({ lairId: res.encounter.lairId, hexId: searchHex.hexId, countTracked: res.encounter.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120); opens above this panel">🐾 Track home</button>
+                <button x-show="res.encounter && res.encounter.lairId && res.encounter.encounterKind === 'wandering-fragment' && !lairKnown(res.encounter.lairId)" @click="openTrackHome({ encounterId: res.encounter.encounterId || null, lairId: res.encounter.lairId, hexId: searchHex.hexId, countTracked: res.encounter.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Track the fragment — find the trail (Tracking 11+, RR p.120) and follow it home; opens above this panel">🐾 Track</button>
                 <button x-show="res.encounter && res.encounter.lairId && res.encounter.encounterKind === 'wandering-fragment' && !lairKnown(res.encounter.lairId)" @click="openLairDetail(res.encounter.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60 ml-1" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
               </div>
               <div x-show="res.survey" class="opacity-80">📐 Land Surveying: <span x-text="res.surveyText"></span></div>
@@ -2004,36 +2027,58 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- Track home (#476 M4 — RR p.120 Tracking). Follow a wandering fragment's spoor to its
-     undiscovered lair: 11+ with the RAW count band + extra Tracking ranks + the GM's situational mod.
-     Peek-level z-78 (above the resolution modal 77 + the search modal 75 — both offer 🐾 on fragment
-     sides); their escape handlers skip while it's open, and it preventDefaults its own close. -->
+<!-- Track (#476 E5 — RR p.120 in full). The FIND throw opens a multi-day FOLLOW: the
+     trackers' journey is steered after the quarry at half expedition speed (following needs
+     no throw); the trail breaks only when it enters water or an hour of rain/snow falls.
+     A quarry already gone to ground in this hex is caught at once. Peek-level z-78 (above
+     the resolution modal 77 + the search modal 75 — both offer 🐾); their escape handlers
+     skip while it's open, and it preventDefaults its own close. -->
 <div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented){ closeTrackHome(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
-        <h3 class="font-bold text-lg">🐾 Track them home</h3>
-        <p class="text-sm opacity-70">Find the band's spoor (Tracking 11+, RR p.120) and follow it at half speed to the lair. Lost at water or after an hour of rain/snow — the situational modifier is the Judge's. Tracking a parted band whose den is unmapped founds it at the meeting hex on a success.</p>
+        <h3 class="font-bold text-lg">🐾 Track them</h3>
+        <p class="text-sm opacity-70">Find the trail (Tracking 11+, RR p.120 — one turn's search; no retry for an hour on a miss), then FOLLOW: the party's journey is steered after the band at half expedition speed, day by day, until caught or the trail is lost (it enters water, or an hour of rain/snow falls). Following itself needs no throw.</p>
       </div>
       <button @click="closeTrackHome()" class="text-2xl leading-none px-2" title="Close">×</button>
     </div>
     <div class="p-4 space-y-3 text-sm">
-      <label class="block">Tracker <span class="opacity-60">(needs the Tracking proficiency)</span><br>
+      <label class="block">Tracker <span class="opacity-60">(needs the Tracking proficiency; extra ranks +4 each)</span><br>
         <select @change="trackHome.actorId=$event.target.value" class="text-sm w-full">
           <option value="" :selected="!trackHome.actorId">— pick a tracker at this hex —</option>
           <template x-for="c in trackHomeTrackers()" :key="c.id"><option :value="c.id" :selected="trackHome.actorId===c.id" x-text="(c.name||'(unnamed)')"></option></template>
         </select>
       </label>
-      <template x-if="trackHomeTrackers().length === 0"><p class="accent-red text-xs">No character at this hex has the Tracking proficiency — only a tracker can follow spoor (RR p.120).</p></template>
-      <div class="flex gap-3 flex-wrap">
+      <template x-if="trackHomeTrackers().length === 0"><p class="accent-red text-xs">No character at this hex has the Tracking proficiency — only a tracker can find a trail (RR p.120).</p></template>
+      <div class="flex gap-3 flex-wrap items-end">
         <label>Creatures tracked <input type="number" min="0" x-model.number="trackHome.countTracked" class="w-20"> <span class="opacity-60 text-xs">(+2 at 2–4 · +4 at 5–8 · +6 at 9–16 · +8 at 17+)</span></label>
-        <label>Judge's modifier <input type="number" x-model.number="trackHome.mod" class="w-20"> <span class="opacity-60 text-xs">(ground / trail age / weather / light)</span></label>
       </div>
+      <div class="flex gap-3 flex-wrap items-end">
+        <label>Ground
+          <select x-model.number="trackHome.groundMod" class="text-sm">
+            <option :value="4">soft / muddy (+4)</option>
+            <option :value="0">firm (±0)</option>
+            <option :value="-8">hard / rocky (−8)</option>
+          </select>
+        </label>
+        <label title="−4 per hour of rain/snow since the trail was made (RR p.120)">Rain/snow hours <input type="number" min="0" x-model.number="trackHome.rainHours" class="w-16"></label>
+        <label class="flex items-center gap-1.5" title="Torch, moonlight… (−4)"><input type="checkbox" x-model="trackHome.dimLight">dim light</label>
+        <label>Judge's ± <input type="number" x-model.number="trackHome.mod" class="w-16"></label>
+      </div>
+      <p class="text-xs opacity-60" x-show="trackHome.encounterId" x-text="'Trail age: ' + trackHomeAgeDays() + ' day' + (trackHomeAgeDays() === 1 ? '' : 's') + ' since the meeting (−2 each — RR p.120: −1 per 12 h of good weather). The band has been moving since.'"></p>
       <template x-if="trackHome.result">
-        <div class="rounded p-2" :class="trackHome.result.success ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
-          <span class="font-mono" x-text="'🎲 ' + trackHome.result.rolled + (trackHome.result.bonus ? '+' + trackHome.result.bonus : '') + (trackHome.result.mod ? (trackHome.result.mod > 0 ? '+' + trackHome.result.mod : trackHome.result.mod) : '') + ' vs 11+'"></span>
-          <span x-text="trackHome.result.success ? ' → ✓ the spoor leads home — lair discovered!' : ' → ✗ no usable trail (no retry here for an hour)'"></span>
-          <button x-show="trackHome.result.success" @click="openLairDetail(trackHome.lairId); closeTrackHome()" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+        <div class="rounded p-2 space-y-1" :class="trackHome.result.success ? 'bg-green-100 border border-green-400' : 'bg-red-100 border border-red-400'">
+          <div class="font-mono text-xs" x-text="encPursuitThrowText(Object.assign({ kind: 'find' }, trackHome.result.find))"></div>
+          <div x-show="trackHome.result.success && trackHome.result.caughtNow">
+            <span x-text="trackHome.result.caughtLairId ? '✓ the spoor leads straight to their den — discovered, and the meeting is upon you.' : '✓ the band is right here — a new meeting springs.'"></span>
+            <button x-show="trackHome.result.caughtLairId" @click="openLairDetail(trackHome.result.caughtLairId); closeTrackHome()" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">→ lair</button>
+            <button x-show="trackHome.result.caughtEncounterId" @click="const eid = trackHome.result.caughtEncounterId; closeTrackHome(); openEncounterModal(eid)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">⚔ the meeting</button>
+          </div>
+          <div x-show="trackHome.result.success && !trackHome.result.caughtNow">
+            <span x-text="'✓ the trail is found — the follow begins at half expedition speed' + (trackHome.result.journeyAction === 'started' ? ' (a journey sets out after them)' : trackHome.result.journeyAction === 'rerouted' ? ' (the journey is re-routed after them)' : '') + '. The Day Clock walks both sides.'"></span>
+            <button x-show="trackHome.result.journeyId" @click="const jid = trackHome.result.journeyId; closeTrackHome(); if(encounterModalOpen) closeEncounterModal(); journeyOpenDetail(jid)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1">🧭 journey</button>
+          </div>
+          <span x-show="!trackHome.result.success" x-text="'✗ no usable trail (no retry here for an hour — RR p.120)'"></span>
         </div>
       </template>
       <div class="flex justify-end items-center gap-2 pt-1">
@@ -5250,6 +5295,17 @@ document.addEventListener('alpine:init', () => {
         <!-- distance: total + remaining miles (6-mile hexes) -->
         <div class="text-sm" x-text="(() => { const m = journeyMiles(journeyDetail()); return m ? ('Distance: ' + m.totalMiles.toLocaleString() + ' mi total · ' + m.remainingMiles.toLocaleString() + ' mi left · ' + m.coveredHexes + '/' + m.totalHexes + ' hexes') : ''; })()"></div>
 
+        <!-- E5 — this journey is steered by a live FOLLOW: the destination tracks the quarry
+             daily; the pace is capped at half (RR p.120). The 🐾 panel on the meeting owns
+             the trail controls (rain lever, give up). -->
+        <template x-if="window.ACKS.journeyTrackingPursuit && window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id)">
+          <div class="text-xs px-2 py-1.5 border border-orange-700/40 rounded flex flex-wrap items-center gap-2" style="background:#fdf3e7">
+            <span>🐾 <span class="font-semibold" x-text="'Tracking ' + (window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).pursuit.quarryLabel || 'a quarry')"></span>
+              — the destination follows the trail head each day; pace is capped at half expedition speed (RR p.120).</span>
+            <button @click="openEncounterModal(window.ACKS.journeyTrackingPursuit(currentCampaign, journeyDetail().id).encounterId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the tracked meeting — the 🐾 panel holds the trail controls (rain washed it out, give up the trail)">⚔ the trail</button>
+          </div>
+        </template>
+
         <!-- Members table (mirrors the Parties panel): each traveller + the mercenaries (RR p.166)
              that travel with them. Room for more per-character columns later. -->
         <div x-show="journeyDetail().participantCharacterIds.length">
@@ -5455,7 +5511,7 @@ document.addEventListener('alpine:init', () => {
                     <!-- A wandering FRAGMENT met away from home: the lair is NOT located — Tracking can follow
                          the spoor back (RR p.120; M4). The GM-only lair peek stays one step away on purpose;
                          once the den is discovered both flip to the full → lair above. -->
-                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openTrackHome({ lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Follow the fragment's spoor home to its lair — Tracking 11+ (RR p.120)">🐾 Track home</button>
+                    <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openTrackHome({ encounterId: ee.payload.encounterId || null, lairId: ee.payload.lairId, hexId: ee.payload.hexId, countTracked: ee.payload.fragmentCount || 0 })" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Track the fragment — find the trail (Tracking 11+, RR p.120) and follow it home">🐾 Track</button>
                     <button x-show="ee.payload && ee.payload.lairId && ee.payload.encounterKind === 'wandering-fragment' && !lairKnown(ee.payload.lairId)" @click="openLairDetail(ee.payload.lairId)" class="text-xs px-1.5 border border-ink/40 rounded hover:bg-yellow-100 opacity-60" title="GM peek: the (unlocated) lair these creatures came from">👁 GM</button>
                     <button x-show="ee.payload && (ee.payload.seededShellLairIds||[]).length && ee.payload.hexId" @click="openHexDetailById(ee.payload.hexId)" class="text-xs px-1.5 border border-ink rounded hover:bg-yellow-100" title="Open the hex — its seeded (unauthored) lairs are listed there; populate one from its detail panel">→ hex</button>
                   </div>
@@ -9993,6 +10049,22 @@ return {
           encounterId: b.encounterId, groupId: null
         };
       }
+      if(b.kind === 'tracked'){
+        // E5 — a band someone is FOLLOWING: a definite entity at its trail-head hex.
+        const tb = b.trackedBy || {};
+        const trackerName = tb.name || ((c.characters || []).find(x => x && x.id === tb.characterId) || {}).name || 'a tracker';
+        return {
+          key: 'tracked-' + b.encounterId, icon: '🐾',
+          band: b.label || monster || '—',
+          monster: monster || b.label || '—',
+          count: b.count,
+          hexId: hex ? hex.id : null,
+          where: where || (b.quarryCoord ? ('coord ' + b.quarryCoord.q + ',' + b.quarryCoord.r + ' (unmapped)') : 'on the move'),
+          statusLabel: b.halted ? 'tracked · gone to ground' : 'tracked',
+          statusText: '🐾 tracked by ' + trackerName + (b.halted ? ' — it has gone to ground' : ' — on the move'),
+          encounterId: b.encounterId, groupId: null
+        };
+      }
       const home = b.deadHomeLairId ? ((typeof A.findLair === 'function') ? A.findLair(c, b.deadHomeLairId) : null) : null;
       const g = ((c.groups || []).find(x => x && x.id === b.groupId)) || {};
       const tpl = g.groupTemplate || {};
@@ -10748,8 +10820,45 @@ return {
     if(!r || !r.ok){ this.showToast('Could not break off: ' + ((r && r.error) || '?'), 3500); return; }
     this.markDirty(); this.schedulePersist();
   },
+  // E5 — the follow's controls + status line (the party-direction pursuit panel).
+  encModalAbandonTracking(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterAbandonTracking(this.currentCampaign, enc.id, {});
+    if(!r || !r.ok){ this.showToast('Could not give up the trail: ' + ((r && r.error) || '?'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('🐾 The trackers give up the trail. The journey keeps its last destination — Stop Journey if they should halt.', 4500);
+  },
+  encTrackingStatusText(){
+    const enc = this.encModalEnc(); const pur = enc && enc.pursuit;
+    if(!pur || pur.direction !== 'party') return '';
+    const A = window.ACKS;
+    const q = pur.quarry || {};
+    let where = '';
+    const j = pur.journeyId ? ((this.currentCampaign?.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+    const pHexId = (j && (j.currentHexId || j.startHexId)) || null;
+    const pHex = pHexId ? ((this.currentCampaign?.hexes || []).find(h => h && h.id === pHexId) || null) : null;
+    if(pHex && pHex.coord && q.coord && typeof A.hexAxialDistance === 'function'){
+      where = (A.hexAxialDistance(pHex.coord, q.coord) * 6) + ' mi ahead';
+    }
+    const plan = q.halted
+      ? (q.destLairId ? 'it has gone to ground at its den' : 'it has camped')
+      : (q.plan === 'heads-home' ? 'it is heading home'
+        : q.plan === 'heads-to-settlement' ? 'it is making for a settlement'
+        : 'it roams' + (q.walkDaysLeft != null ? ' (camps within ' + q.walkDaysLeft + ' day' + (q.walkDaysLeft === 1 ? '' : 's') + ')' : ''));
+    return plan + (where ? (', ' + where) : '') + ' — the party follows at half expedition speed.';
+  },
   encPursuitThrowText(t){
     if(!t) return '';
+    // E5 — the find / re-find throws carry itemized modifiers (the E2h convention).
+    if(t.kind === 'find' || t.kind === 're-find'){
+      let s = (t.kind === 'find' ? 'find the trail' : ('re-find (' + (t.cause === 'rain' ? 'rain/snow' : t.cause === 'water' ? 'entered water' : 'lost') + ')')) + ': 1d20 ' + t.natural;
+      const NAMES = { 'count-band': 'their numbers', 'extra-ranks': 'Tracking ranks', 'ground': 'ground', 'trail-age': 'trail age', 'rain-snow': 'rain/snow', 'dim-light': 'dim light', 'gm': 'GM' };
+      for(const m of (t.modifiers || [])){
+        s += ' ' + (m.value > 0 ? '+' : '−') + Math.abs(m.value) + ' (' + (NAMES[m.source] || m.source) + ')';
+      }
+      s += ' = ' + t.total + ' vs 11+ → ' + (t.natural === 1 ? 'natural 1 ✗' : (t.success ? 'found ✓' : 'no trail ✗'));
+      return s;
+    }
     let s = (t.kind === 'take-up' ? 'take-up' : 'keep trail') + ': 1d20 ' + t.natural;
     if(t.countBonus) s += ' +' + t.countBonus + ' (party size)';
     if(t.mod) s += ' ' + (t.mod > 0 ? '+' : '−') + Math.abs(t.mod) + ' (GM)';
@@ -12072,6 +12181,21 @@ return {
                  priority:2});
     }
 
+    // ── Contributor 9: Tracking (#476 E5 — the §8.9 mandate) ──
+    // A live follow this character is part of (the tracker, or a traveller on the
+    // steering journey): "🐾 tracking ‹band›". The journey's travel cost already meters
+    // the day (#346 — pace capped at half, RR p.120).
+    for(const e of (this.currentCampaign?.encounters || [])){
+      const p = e && e.pursuit;
+      if(!p || p.direction !== 'party' || p.status !== 'tracking') continue;
+      const j = p.journeyId ? ((this.currentCampaign?.journeys || []).find(x => x && x.id === p.journeyId) || null) : null;
+      const onIt = (p.trackerCharacterId === c.id) || (j && (j.participantCharacterIds || []).includes(c.id));
+      if(!onIt) continue;
+      acts.push({kind:'tracking:' + e.id, icon:'🐾',
+                 label:'tracking ' + (p.quarryLabel || 'a quarry') + ((p.quarry && p.quarry.halted) ? ' (it has gone to ground)' : ''),
+                 priority:2});
+    }
+
     // ── Future contributors land here. Each adds zero or more descriptors. ──
 
     return acts.sort((a,b) => a.priority - b.priority || a.kind.localeCompare(b.kind));
@@ -12764,6 +12888,10 @@ return {
     if(!info || info.maxPace === 'forced-march' || !info.binding) return '';   // uncapped → no text
     const b = info.binding, name = b.name || 'A traveller';
     const label = { 'halted':'Halted', 'half-speed':'Half speed', 'normal':'Normal' }[info.maxPace] || info.maxPace;
+    if(b.reason === 'tracking'){
+      // E5 — a party following tracks moves at half expedition speed (RR p.120).
+      return '🐾 Pace limited to Half speed — the party is following tracks (RR p.120). Give up the trail (the meeting\'s 🐾 panel) to march faster.';
+    }
     if(info.maxPace === 'halted'){
       return '⚠ ' + name + '’s day is already full — the party can’t travel today (0 mi). Free some of their activities (e.g. in Current Activities) to move.';
     }
@@ -15513,42 +15641,30 @@ return {
     this.markDirty(); this.schedulePersist();
     if(r.changed) this.showToast(r.takeUp.success ? '🐺 The trail is found — the chase is on (the evade is un-resolved).' : 'The trail is lost — resolved evaded.', 4500);
   },
-  // E4k (Joachim 2026-06-11: the 🐾 belongs in the end section, with the other outcome
-  // buttons) — the resolved banner's unified track target. A concluded REAL meeting
-  // (parleyed / evaded / dispersed / combat — the band has parted, so there is a trail)
-  // offers the track: toward the side's UNLOCATED den (a fragment out from it, or a band
-  // that settled behind the fled party), or — with no den entity at all — the parted-band
-  // founding (E4i; the unidentified case shows disabled-with-reason via encTrackPartedReady).
-  // Null = no offer: no meeting, civilized folk, the den already known, or met AT the den.
+  // E4k/E5 (Joachim 2026-06-11) — the resolved banner's track target. A concluded REAL
+  // meeting (parleyed / evaded / dispersed / combat — the band has parted, so there is a
+  // trail) offers the FOLLOW (E5 — any creature: den-ful, den-less, migrant, civilized,
+  // even unidentified). Null = no offer: no meeting, the den already known, met AT the
+  // den, or a follow already live/caught on this meeting (the pursuit panel owns it then).
   encBannerTrackTarget(){
     const enc = this.encModalEnc(); if(!enc || enc.status !== 'resolved') return null;
     if(['parleyed','evaded','dispersed','combat'].indexOf(enc.outcome) < 0) return null;
     const ms = enc.monsterSide || {};
-    if(ms.lairId){
-      if(this.lairKnown(ms.lairId) || ms.encounterKind === 'at-lair') return null;
-      return { lairId: ms.lairId, hexId: enc.hexId, countTracked: ms.count || 0 };
-    }
-    if(enc.category === 'civilized') return null;
+    if(ms.lairId && (this.lairKnown(ms.lairId) || ms.encounterKind === 'at-lair')) return null;
+    if(enc.pursuit && enc.pursuit.direction === 'party' && (enc.pursuit.status === 'tracking' || enc.pursuit.status === 'caught')) return null;
+    if(!enc.hexId) return null;
     return { encounterId: enc.id, hexId: enc.hexId, countTracked: ms.count || 0 };
   },
-  // E4i — the parted-band track (no den entity yet) is ready once the side names a catalog
-  // monster (the den is generated from its entry) and the meeting has a hex to found it in.
-  // E4m adds the band gates: a band mid-hunt presses on after its quarry (no den-trail here),
-  // and a migrant Group roams homeless — both disable-with-reason, mirroring the engine.
+  // E5 — the one disable-with-reason left on the banner 🐾: a band mid-hunt presses on
+  // after its quarry, so its motion belongs to the chase (meet it there — E4m).
   encTrackPartedReason(){
     const enc = this.encModalEnc(); if(!enc) return 'no encounter';
     const ms = enc.monsterSide || {};
-    const key = ms.monsterCatalogKey;
-    if(!enc.hexId || !(key && typeof window.ACKS.findMonster === 'function' && window.ACKS.findMonster(key)))
-      return 'name the monster first — set it via pick from table or 🔍 Open in Inspector';
     if(ms.pursuitEncounterId){
       const chase = window.ACKS.findEncounter(this.currentCampaign, ms.pursuitEncounterId);
-      if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
-        return 'the band is mid-hunt — it presses on after its quarry, not home (see its ⚔ chase on the band line)';
+      if(chase && chase.status === 'active' && chase.pursuit && chase.pursuit.direction !== 'party' && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
+        return 'the band is mid-hunt — it presses on after its quarry (see its ⚔ chase on the band line)';
     }
-    const aliveOf = g => window.ACKS.groupActiveCount ? window.ACKS.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
-    if(!ms.lairId && (ms.groupIds || []).some(gid => { const g = ((this.currentCampaign && this.currentCampaign.groups) || []).find(x => x && x.id === gid); return g && aliveOf(g) > 0; }))
-      return 'the band roams homeless — it persists on the 🐉 Monsters tab; follow it there, or parley and watch it settle';
     return '';
   },
   encTrackPartedReady(){ return this.encTrackPartedReason() === ''; },
@@ -15558,6 +15674,12 @@ return {
     t.open = true; t.lairId = opts.lairId || null; t.encounterId = opts.encounterId || null;
     t.hexId = opts.hexId || null;
     t.countTracked = opts.countTracked || 0; t.mod = 0; t.result = null;
+    // E5 — the RR p.120 find modifiers (ground auto-suggested from the hex; the rest GM)
+    t.rainHours = 0; t.dimLight = false;
+    const hex = t.hexId ? ((this.currentCampaign?.hexes || []).find(h => h && h.id === t.hexId) || null) : null;
+    const gc = (hex && hex.groundCondition) || 'clear';
+    const terr = (hex && hex.terrain) || '';
+    t.groundMod = (gc === 'mud' || gc === 'snow') ? 4 : (/mountain|barrens/i.test(terr) && (hex && hex.terrainSubtype) !== 'forested') ? -8 : 0;
     t.actorId = null;
     const trackers = this.trackHomeTrackers(); if(trackers[0]) t.actorId = trackers[0].id;
   },
@@ -15568,23 +15690,42 @@ return {
       && (!hid || c.currentHexId === hid)
       && (c.proficiencies||[]).some(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || '')));
   },
+  // E5 — the trail's age in days (−2 each on the find), derived from the meeting's resolution stamp.
+  trackHomeAgeDays(){
+    const t = this.trackHome; const c = this.currentCampaign;
+    const enc = (t.encounterId && c) ? window.ACKS.findEncounter(c, t.encounterId) : null;
+    if(!enc || enc.status !== 'resolved') return 0;
+    const nowOrd = ((c.currentTurn || 1) * 30) + (c.currentDayInMonth || 1);
+    const resOrd = ((enc.resolvedAtTurn || c.currentTurn || 1) * 30) + (enc.resolvedOnDayInMonth || c.currentDayInMonth || 1);
+    return Math.max(0, nowOrd - resOrd);
+  },
   runTrackHome(){
     const t = this.trackHome;
-    const r = window.ACKS.trackHomeAttempt(this.currentCampaign, {
-      actorCharacterId: t.actorId, lairId: t.encounterId ? undefined : t.lairId, encounterId: t.encounterId || undefined,
-      countTracked: t.countTracked || 0, mod: t.mod || 0
+    const r = window.ACKS.beginTracking(this.currentCampaign, {
+      actorCharacterId: t.actorId, encounterId: t.encounterId || undefined, lairId: t.encounterId ? undefined : (t.lairId || undefined),
+      countTracked: t.countTracked || 0, groundMod: t.groundMod || 0, rainHoursSince: t.rainHours || 0,
+      dimLight: !!t.dimLight, gmMod: t.mod || 0
     });
     if(!r || !r.ok){
-      const msg = ({ 'no-tracking':'That character has no Tracking proficiency.', 'already-known':'That lair is already discovered.', 'unknown-lair':'No lair to track to.', 'unknown-actor':'Pick a tracker first.',
-                     'unknown-encounter':'No encounter to track from.', 'encounter-still-active':'The meeting is still under way — resolve it first; they have not parted.', 'no-meeting':'No meeting happened — there is no trail to follow.',
-                     'civilized-folk':'Civilized folk go home to their dwellings, not dens — no lair to track to.', 'no-catalog-monster':'Name the monster first — its catalog entry generates the den.', 'no-hex':'The meeting has no hex — nowhere to found the den.',
-                     'band-mid-hunt':'The band is mid-hunt — it presses on after its quarry, not home (see its chase).', 'band-roams':'The band roams homeless — it persists on the 🐉 Monsters tab; follow it there, or parley and watch it settle.' })[r && r.error] || 'Could not track.';
+      const msg = ({ 'no-tracking':'That character has no Tracking proficiency.', 'already-known':'That band\'s den is already discovered — use its → lair link.', 'unknown-actor':'Pick a tracker first.',
+                     'unknown-encounter':'No meeting to track from.', 'no-encounter':'No concluded meeting with that band to track from.', 'no-target':'Nothing to track.',
+                     'encounter-still-active':'The meeting is still under way — resolve it first; they have not parted.', 'no-meeting':'No meeting happened — there is no trail to follow.',
+                     'no-hex':'The meeting has no hex — nowhere to pick up the trail.', 'not-at-trail-hex':'The tracker must stand at the meeting hex — the trail starts there.',
+                     'already-tracking':'A follow is already under way from this meeting — see the 🐾 panel.',
+                     'band-mid-hunt':'The band is mid-hunt — its motion belongs to the chase (meet it there).' })[r && r.error] || 'Could not track.';
       this.showToast(msg, 4500); return;
     }
-    t.result = { rolled: r.rolled, bonus: r.bonus, mod: r.mod, success: r.success };
-    if(r.success && r.lair) t.lairId = r.lair.id;   // E4i — a founded den feeds the result row's → lair link
+    t.result = { find: r.find, success: r.success,
+                 caughtNow: r.caughtNow || null, journeyAction: r.journeyAction || 'none',
+                 journeyId: (r.journey && r.journey.id) || null,
+                 caughtLairId: (r.caughtNow && r.caughtNow.lair && r.caughtNow.lair.id) || null,
+                 caughtEncounterId: (r.caughtNow && r.caughtNow.encounter && r.caughtNow.encounter.id) || null };
     this.markDirty(); this.schedulePersist();
-    if(r.success) this.showToast((r.founded ? 'The spoor leads home — ' + ((r.lair && r.lair.name) || 'their den') + ' found and marked on the hex.' : 'The spoor leads home — ' + ((r.lair && r.lair.name) || 'the lair') + ' discovered.'), 4500);
+    if(r.success && r.caughtNow) this.showToast(r.caughtNow.denCatch
+      ? ('🐾 The spoor leads straight to ' + ((r.caughtNow.lair && r.caughtNow.lair.name) || 'their den') + ' — discovered, and the meeting is upon you.')
+      : '🐾 The trail is fresh — the band is right here. A new meeting springs.', 5000);
+    else if(r.success) this.showToast('🐾 The trail is found — the follow begins at half expedition speed' +
+      (r.journeyAction === 'started' ? ' (a journey sets out after them).' : r.journeyAction === 'rerouted' ? ' (the journey is re-routed after them).' : '.'), 5000);
   },
 
   // Mercantile Network (RR p.43) is a Venturer class power — the "visited before" +1-class bonus is
@@ -15984,7 +16125,7 @@ return {
   lairDetailRevealHexId: '',     // reveal-a-dynamic-lair hex pick
   // #476 M4 — Search-the-hex (RR pp.276–277) + track-home (RR p.120) modals.
   searchHex: { open:false, actorId:null, hexId:null, specific:false, results:[] },
-  trackHome: { open:false, actorId:null, lairId:null, encounterId:null, hexId:null, countTracked:0, mod:0, result:null },
+  trackHome: { open:false, actorId:null, lairId:null, encounterId:null, hexId:null, countTracked:0, mod:0, groundMod:0, rainHours:0, dimLight:false, result:null },
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,

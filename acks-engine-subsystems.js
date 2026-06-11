@@ -2356,11 +2356,14 @@ function tickJourneyDay(campaign, journey, ctx){
   // ── navigation (§7 / RR p.275): one Navigation throw per travel day. Skipped only when NOT lost and
   // following a road/trail (those routes are safe); a LOST party always throws — that's its chance to
   // re-orient. +4 for the Navigation proficiency OR the Pathfinding class power, +8 for both; an
-  // unmodified natural 1 always fails. The Judge throws secretly on the party's behalf. ──
+  // unmodified natural 1 always fails. The Judge throws secretly on the party's behalf.
+  // E5 — a party FOLLOWING TRACKS makes no Navigation throw either (RR p.120: following the
+  // spoor needs no throw — the trail leads); a party already lost still throws to recover. ──
+  const followingTrail = !!((typeof A.journeyTrackingPursuit === 'function') && A.journeyTrackingPursuit(campaign, journey.id));
   let navRecord = null;
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
-  if(!restDay && !halted && dist.remaining > 0 && (isLost || !onRoadOrTrail)){
+  if(!restDay && !halted && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
     // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
     const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
     const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
@@ -4159,7 +4162,7 @@ Object.assign(ACKS, {
   // #476 E1 — the slot-80 rest/night encounter consumer (JJ p.41).
   proposeEncounterDay, commitEncounterRecord,
   // #476 E3c — the slot-82 pursuit consumer (the day handler + its commit hook).
-  proposePursuitDay, commitPursuitRecord,
+  proposePursuitDay, commitPursuitRecord, trackingQuarryWalkDay, trackingSpringCatch,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -4393,9 +4396,95 @@ function proposePursuitDay(campaign, ctx){
       label, payload: { encounterId: enc.id, caughtEncounterId, outcome, narrative: label }
     });
   }
+  // ── E5 — the follows (direction 'party'): the quarry walks its plan, the RAW loss events
+  // break the trail, the catch springs the meeting. Computed from start-of-day state (the
+  // E3c lag convention); _commitTrackingRecord applies the recorded absolutes. ──
+  for(const enc of _trackingEncounters(campaign)){
+    const pur = enc.pursuit;
+    const rng = ctx.rng || _jMulberry32(_jHash32('tracking|' + enc.id + '|' + worldOrd));
+    const A2 = _jACKS();
+    const q0 = JSON.parse(JSON.stringify(pur.quarry || {}));
+    // A quarry whose Group settled into a living den mid-follow is home — the world's truth wins.
+    if(q0.groupId){
+      const den = (campaign.lairs || []).find(l => l && (l.status === 'active' || l.status === 'unknown') && (l.groupIds || []).indexOf(q0.groupId) >= 0);
+      const dh = (den && den.hexId) ? ((campaign.hexes || []).find(h => h && h.id === den.hexId) || null) : null;
+      if(den && dh && dh.coord){
+        q0.halted = true; q0.destLairId = den.id;
+        q0.destCoord = { q: dh.coord.q, r: dh.coord.r };
+        q0.coord = { q: dh.coord.q, r: dh.coord.r };
+        q0.hexId = den.hexId;
+      }
+    }
+    const walk = trackingQuarryWalkDay(campaign, q0);
+    // Loss events (RR p.120): ONE hour of rain/snow destroys the trail; so does the trail
+    // entering water. Either forces a fresh find throw ("must search again"). The day's
+    // condition comes from the day-tick ctx when the weather layer supplies it (T4); the
+    // GM's weatherLostPending lever asserts the rain/snow day until then.
+    const cond = (ctx.weather && ctx.weather.condition) || null;
+    const rainDay = pur.weatherLostPending === true || cond === 'rainy' || cond === 'snowy' || cond === 'stormy';
+    let refind = null, lossCause = null, outcome = 'tracking';
+    if(rainDay || walk.waterCrossed){
+      lossCause = rainDay ? 'rain' : 'water';
+      refind = (typeof A2.trackingFindThrow === 'function')
+        ? A2.trackingFindThrow({ ranks: pur.trackerRanks, countTracked: pur.countTracked,
+                                 rainHours: rainDay ? 1 : 0, gmMod: pur.gmMod, rng: rng })
+        : { natural: 20, target: 11, modifiers: [], total: 20, success: true };
+      if(!refind.success) outcome = 'lost';
+    }
+    // Caught — the trackers stand where the quarry now is.
+    const partyCoord = _trackingPartyCoord(campaign, pur);
+    const gapHexes = (partyCoord && q0.coord && typeof A2.hexAxialDistance === 'function') ? A2.hexAxialDistance(partyCoord, q0.coord) : null;
+    const gapMiles = (gapHexes == null) ? null : gapHexes * 6;
+    if(outcome === 'tracking' && gapHexes === 0) outcome = 'caught';
+    let caughtEncounterId = null, caughtDistance = null;
+    if(outcome === 'caught'){
+      caughtEncounterId = _mintEncounterProposalId(campaign, rng, takenIds);
+      const qHex = q0.hexId ? (campaign.hexes || []).find(h => h && h.id === q0.hexId) : null;
+      const rowKey = qHex && typeof A2.encounterRowKeyForHex === 'function' ? A2.encounterRowKeyForHex(qHex) : null;
+      const denCatch = !!(q0.destLairId && q0.halted && q0.destCoord && q0.coord && q0.coord.q === q0.destCoord.q && q0.coord.r === q0.destCoord.r);
+      let sideB = pur.countTracked || 1;
+      if(denCatch){
+        const den = (typeof A2.findLair === 'function') ? A2.findLair(campaign, q0.destLairId) : null;
+        if(den && typeof A2.lairInhabitantCount === 'function') sideB = A2.lairInhabitantCount(campaign, den) || sideB;
+      }
+      const jt = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+      const nTrackers = (jt && (jt.participantCharacterIds || []).length) || 1;
+      if(rowKey && typeof A2.computeEncounterDistance === 'function'){
+        caughtDistance = A2.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight', sideACount: nTrackers, sideBCount: sideB, rng: rng });
+      }
+    }
+    const tn = pur.trackerName || 'The trackers';
+    const ql = pur.quarryLabel || 'the band';
+    const refindText = refind ? ((lossCause === 'rain' ? 'rain/snow washed the trail' : 'the trail entered water')
+      + ' — re-find ' + (refind.natural === 1 ? 'natural 1' : (refind.total + ' vs 11+')) + (refind.success ? ' ✓' : ' ✗')) : null;
+    const label = outcome === 'lost'
+      ? ('🐾 ' + tn + ' loses the trail of ' + ql + ' — ' + refindText + '.')
+      : outcome === 'caught'
+        ? ('🐾 ' + tn + ' — caught up with ' + ql + ': a fresh encounter at its hex!')
+        : ('🐾 on the trail of ' + ql + (refindText ? (' (' + refindText + ')') : '')
+           + (walk.camped ? ' — the band camps' : (walk.arrived ? ' — the band has gone to ground' : ''))
+           + ((gapMiles != null) ? (' — ' + gapMiles + ' mi behind.') : '.'));
+    pendingRecords.push({
+      kind: 'tracking-day', label, encounterId: enc.id, outcome,
+      refind, lossCause,
+      newQuarry: q0, quarryWalk: { moved: walk.moved, camped: walk.camped, arrived: walk.arrived, waterCrossed: walk.waterCrossed },
+      gapMiles, newDestinationHexId: (outcome === 'tracking' && q0.hexId) ? q0.hexId : null,
+      caughtEncounterId, caughtDistance, dayInMonth, primaryHexId: q0.hexId || enc.hexId || null
+    });
+    const j2 = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+    notableEvents.push({
+      type: outcome === 'caught' ? 'encounter' : (outcome === 'lost' ? 'tracking-lost' : 'tracking-day'),
+      pauseTrigger: outcome === 'caught' ? 'encounter' : (outcome === 'lost' ? 'navigation-fail' : undefined),
+      primaryHexId: q0.hexId || enc.hexId || null, campaignLogHidden: true,
+      relatedEntities: ((j2 && j2.participantCharacterIds) || [pur.trackerCharacterId]).filter(Boolean).map(id => ({ kind: 'character', id, role: 'subject' }))
+        .concat(pur.trackerPartyId ? [{ kind: 'party', id: pur.trackerPartyId, role: 'subject' }] : []),
+      label, payload: { encounterId: enc.id, caughtEncounterId, outcome, narrative: label }
+    });
+  }
   return { pendingRecords, notableEvents };
 }
 function commitPursuitRecord(campaign, record){
+  if(record && record.kind === 'tracking-day') return _commitTrackingRecord(campaign, record);   // E5 — the follow's day
   const A = _jACKS();
   const enc = ((campaign && campaign.encounters) || []).find(e => e && e.id === record.encounterId);
   if(!enc || !enc.pursuit) return;
@@ -4447,6 +4536,198 @@ function commitPursuitRecord(campaign, record){
     reason: 'trail held (' + (record.trailThrow ? record.trailThrow.total + ' vs 11+' : '—') + ') — ' + record.gapAfter + ' mi behind (party +' + record.partyMiles + ' / pursuer −' + record.pursuerMiles + ')' });
 }
 
+// ── #476 E5 — the party-direction follow (the same slot-82 consumer; pursuit.direction
+// 'party' — the E3c chase's mirror). One day of a follow: the quarry walks its plan, the
+// RAW loss events break the trail (RR p.120 — ONE hour of rain/snow, or the trail entering
+// water; either forces a fresh find throw, "must search again"), FOLLOWING itself needs no
+// throw, and a catch — the trackers standing where the quarry is — springs a fresh meeting
+// at its hex. Handlers are PURE; commit applies the recorded absolutes. ──
+function _trackingEncounters(campaign){
+  return ((campaign && campaign.encounters) || []).filter(e => e && e.pursuit && e.pursuit.direction === 'party' && e.pursuit.status === 'tracking');
+}
+// Where the trackers ARE (their journey's physical position — the §27 stray anchor when
+// off-route, else the current/start hex; a journeyless tracker reads from the character).
+function _trackingPartyCoord(campaign, pur){
+  const j = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+  if(j){
+    if(j.routeAnchorCoord && typeof j.routeAnchorCoord.q === 'number') return { q: j.routeAnchorCoord.q, r: j.routeAnchorCoord.r };
+    const hid = j.currentHexId || j.startHexId || null;
+    const hx = hid ? ((campaign.hexes || []).find(h => h && h.id === hid) || null) : null;
+    if(hx && hx.coord) return { q: hx.coord.q, r: hx.coord.r };
+  }
+  const ch = (campaign.characters || []).find(x => x && x.id === pur.trackerCharacterId);
+  const hx2 = (ch && ch.currentHexId) ? ((campaign.hexes || []).find(h => h && h.id === ch.currentHexId) || null) : null;
+  return (hx2 && hx2.coord) ? { q: hx2.coord.q, r: hx2.coord.r } : null;
+}
+// One day of the quarry's walk (MUTATES the quarry object passed — the propose path clones
+// first; beginTracking uses it directly for the trail-age head start). 🔧 v1: a straight
+// hex-line at 6 mi per hex regardless of terrain (catalog expedition speeds already average
+// a terrain mix); flags — does not resolve — the RAW water loss (a river edge crossed or a
+// water hex entered on the quarry's path; the consumer answers it with the re-find throw).
+function trackingQuarryWalkDay(campaign, quarry){
+  const A = _jACKS();
+  const out = { moved: 0,
+                fromCoord: { q: (quarry.coord && quarry.coord.q) || 0, r: (quarry.coord && quarry.coord.r) || 0 },
+                toCoord: null, waterCrossed: false, camped: false, arrived: false };
+  if(quarry.halted){ out.toCoord = out.fromCoord; return out; }
+  const MILES_PER_HEX = 6;
+  let budget = (Number(quarry.milesPerDay) || 0) + (Number(quarry.mileRemainder) || 0);
+  let cur = { q: out.fromCoord.q, r: out.fromCoord.r };
+  const atDest = c => !!(quarry.destCoord && c.q === quarry.destCoord.q && c.r === quarry.destCoord.r);
+  while(budget >= MILES_PER_HEX && !atDest(cur)){
+    let next = null;
+    if(quarry.destCoord){
+      const line = hexLineDraw(cur, quarry.destCoord);
+      next = (line.length > 1) ? line[1] : null;
+    } else if(typeof quarry.heading === 'number'){
+      const d = HEX_EDGE_DELTAS[((quarry.heading % 6) + 6) % 6] || [0, 0];
+      next = { q: cur.q + d[0], r: cur.r + d[1] };
+    }
+    if(!next) break;
+    const fromHex = A.hexAtCoord(campaign, cur.q, cur.r);
+    const toHex = A.hexAtCoord(campaign, next.q, next.r);
+    const side = hexEdgeBetween(cur, next);
+    const crossing = riverCrossingForStep(fromHex, toHex, side >= 0 ? side : null);
+    if((crossing && crossing.barrier) || (toHex && toHex.terrain === 'water')) out.waterCrossed = true;
+    cur = next; out.moved++; budget -= MILES_PER_HEX;
+  }
+  quarry.mileRemainder = atDest(cur) ? 0 : Math.max(0, budget);
+  quarry.coord = { q: cur.q, r: cur.r };
+  const hx = A.hexAtCoord(campaign, cur.q, cur.r);
+  quarry.hexId = hx ? hx.id : null;
+  if(atDest(cur)){ quarry.halted = true; out.arrived = true; }
+  if(!quarry.halted && quarry.walkDaysLeft != null){
+    quarry.walkDaysLeft = Math.max(0, quarry.walkDaysLeft - 1);
+    if(quarry.walkDaysLeft === 0){ quarry.halted = true; out.camped = true; }
+  }
+  out.toCoord = { q: cur.q, r: cur.r };
+  return out;
+}
+// Steer the follow's journey to the trail head WITHOUT the journey-rerouted ceremony (the
+// daily pursuit notable narrates the day; a journey-rerouted event per day would spam the
+// log). The reRouteJourney core minus the event/history — and minus the lost-state reset:
+// the trail steering must not silently re-orient a party that is genuinely lost.
+function _quietRetargetJourney(campaign, j, destHexId){
+  if(!j || !destHexId || j.destinationHexId === destHexId) return;
+  if(j.status === 'arrived') j.status = 'in-transit';   // the quarry moved on — the follow resumes
+  j.destinationHexId = destHexId;
+  const totalCovered = (j.days || []).reduce((s, d) => s + ((d && d.hexesTraveled) || 0), 0);
+  if((j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost') && totalCovered > 0 && j.currentHexId){
+    j.routeAnchorHexId = j.currentHexId;   // the route continues from where the party is
+    j.coveredBaseline = totalCovered;
+  }
+  try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
+  const dist = computeJourneyDistance(campaign, j);
+  j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.remaining / 4)) : 0;
+}
+// The shared catch — beginTracking's same-hex immediate case + the consumer's commit.
+// Springs the fresh meeting at the quarry's hex (trigger 'pursuit', createReason
+// 'tracking-caught-up', monsterSide.pursuitEncounterId → D9 recalls the tracked meeting);
+// a quarry caught AT its den is an at-lair meeting against the den's living population,
+// and the arrival IS the discovery (discoverLair method 'tracking' + the chronicle
+// record). opts: { caughtEncounterId?, caughtDistance?, dayInMonth?, rng? }.
+function trackingSpringCatch(campaign, enc, opts){
+  const A = _jACKS();
+  const o = opts || {};
+  const pur = enc.pursuit || {};
+  const q = pur.quarry || {};
+  const ms = enc.monsterSide || {};
+  const rng = o.rng || Math.random;
+  let lair = null, denCatch = false;
+  if(q.destLairId && q.halted && q.destCoord && q.coord && q.coord.q === q.destCoord.q && q.coord.r === q.destCoord.r){
+    lair = (typeof A.findLair === 'function') ? A.findLair(campaign, q.destLairId) : null;
+    if(lair) denCatch = true;
+  }
+  if(denCatch && lair && !lair.knownToPlayers){
+    if(typeof A.discoverLair === 'function') A.discoverLair(campaign, lair.id, { by: pur.trackerCharacterId || null, method: 'tracking' });
+    if(typeof A.recordLairDiscovered === 'function') A.recordLairDiscovered(campaign, lair.id, { byCharacterId: pur.trackerCharacterId || null, method: 'track-home' });
+  }
+  const j = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+  const trackerIds = (j && (j.participantCharacterIds || []).length) ? j.participantCharacterIds.slice() : [pur.trackerCharacterId].filter(Boolean);
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  const grp = q.groupId ? ((campaign.groups || []).find(x => x && x.id === q.groupId) || null) : null;
+  const count = denCatch
+    ? ((lair && typeof A.lairInhabitantCount === 'function') ? (A.lairInhabitantCount(campaign, lair) || ms.count || null) : (ms.count || null))
+    : (grp ? aliveOf(grp) : ((pur.countTracked || ms.count) || null));
+  // Distance pre-rolled by the consumer (byte-stable previews); the immediate path rolls here.
+  let distance = o.caughtDistance || null;
+  if(!distance && q.hexId){
+    const qHex = (campaign.hexes || []).find(h => h && h.id === q.hexId) || null;
+    const rowKey = (qHex && typeof A.encounterRowKeyForHex === 'function') ? A.encounterRowKeyForHex(qHex) : null;
+    if(rowKey && typeof A.computeEncounterDistance === 'function'){
+      distance = A.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight',
+        sideACount: trackerIds.length || 1, sideBCount: count || 1, rng });
+    }
+  }
+  const fresh = (typeof A.createEncounter === 'function') ? A.createEncounter(campaign, {
+    id: o.caughtEncounterId || undefined,
+    trigger: 'pursuit', hexId: q.hexId || null,
+    category: enc.category || 'monster', rarity: enc.rarity || null,
+    partySide: { partyId: pur.trackerPartyId || null, journeyId: pur.journeyId || null,
+                 characterIds: trackerIds, faceCharacterId: null, sizeCount: trackerIds.length || 1 },
+    monsterSide: Object.assign({}, ms, {
+      groupIds: grp ? [grp.id] : ((ms.groupIds || []).slice()),
+      pursuitEncounterId: enc.id,
+      encounterKind: denCatch ? 'at-lair' : 'wandering',
+      lairId: denCatch ? lair.id : (ms.lairId || null),
+      count: count
+    }),
+    createReason: 'tracking-caught-up',
+    occurredOnDayInMonth: (o.dayInMonth != null) ? o.dayInMonth : (campaign.currentDayInMonth || null)
+  }) : null;
+  if(fresh && distance && fresh.distance == null){
+    fresh.distance = distance;
+    fresh.history.push({ turn: fresh.occurredAtTurn, type: 'distance',
+      reason: (distance.distanceFt != null ? distance.distanceFt : '?') + ' ft (' + (distance.terrainRow || 'terrain') + ')' });
+  }
+  pur.status = 'caught';
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-caught',
+    reason: 'the trackers caught up with ' + (pur.quarryLabel || 'the band')
+      + (denCatch ? (' at its lair — ' + ((lair && lair.name) || 'the den') + ' discovered') : '')
+      + (fresh ? (' — fresh encounter ' + fresh.id) : '') });
+  return { encounter: fresh, denCatch: denCatch, lair: lair || null };
+}
+// Commit half of a follow's day (dispatched from commitPursuitRecord on kind 'tracking-day').
+function _commitTrackingRecord(campaign, record){
+  const enc = ((campaign && campaign.encounters) || []).find(e => e && e.id === record.encounterId);
+  if(!enc || !enc.pursuit || enc.pursuit.direction !== 'party') return;
+  const pur = enc.pursuit;
+  if(record.refind){
+    pur.throws.push(Object.assign({ kind: 're-find', cause: record.lossCause || null,
+      atTurn: campaign.currentTurn || 1, atDay: record.dayInMonth || null }, record.refind));
+  }
+  pur.weatherLostPending = false;   // the GM's rain lever is one-shot — consumed by this day
+  if(record.newQuarry) pur.quarry = JSON.parse(JSON.stringify(record.newQuarry));
+  const q = pur.quarry || {};
+  // A tracked migrant Group moves with the follow (the world stays consistent — E4m).
+  if(q.groupId && q.hexId){
+    const g = (campaign.groups || []).find(x => x && x.id === q.groupId);
+    if(g) g.currentHexId = q.hexId;
+  }
+  enc.history = enc.history || [];
+  if(record.outcome === 'lost'){
+    pur.status = 'lost';
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-lost',
+      reason: (record.lossCause === 'rain' ? 'an hour of rain/snow washed out the trail (RR p.120)' : 'the trail entered water (RR p.120)')
+        + ' — the re-find failed; the follow ends' });
+    return;
+  }
+  if(record.newDestinationHexId && pur.journeyId){
+    const j = (campaign.journeys || []).find(x => x && x.id === pur.journeyId);
+    if(j) _quietRetargetJourney(campaign, j, record.newDestinationHexId);
+  }
+  if(record.outcome === 'caught'){
+    trackingSpringCatch(campaign, enc, { caughtEncounterId: record.caughtEncounterId,
+      caughtDistance: record.caughtDistance, dayInMonth: record.dayInMonth });
+    return;
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-day',
+    reason: 'on the trail' + ((record.gapMiles != null) ? (' — ' + record.gapMiles + ' mi behind') : '')
+      + (record.quarryWalk && record.quarryWalk.camped ? ' (the band camps)' : '')
+      + (record.refind ? ' (trail re-found)' : '') });
+}
+
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
 // registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
 // so ACKS.registerDayConsumer is available here. pauseTriggers wire the auto-pause-* rules.
@@ -4479,12 +4760,14 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     pauseTriggers: ['encounter'],
     commit: commitEncounterRecord
   });
-  // #476 E3c — monster pursuit (slot 82, behind the default-OFF 'monster-pursuit' rule):
-  // pursuing encounters follow the party's trail daily; a catch-up pauses the tick.
+  // #476 E3c + E5 — pursuit, both directions (slot 82): monster chases follow the party's
+  // trail daily (the 'monster-pursuit' rule gates the OFFER); party follows track their
+  // quarry (E5 — RAW-core, no rule). A catch-up pauses the tick; a lost trail pauses as a
+  // navigation-fail.
   ACKS.registerDayConsumer('pursuit', {
     handler: proposePursuitDay,
     order: 82,
-    pauseTriggers: ['encounter'],
+    pauseTriggers: ['encounter', 'navigation-fail'],
     commit: commitPursuitRecord
   });
 }
