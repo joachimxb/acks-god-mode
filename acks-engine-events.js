@@ -4119,6 +4119,66 @@ function encounterBeginPursuit(campaign, encounterId, opts){
   return Object.assign({ pursuit: enc.pursuit, takeUp: t }, res);
 }
 
+// ⟳ Reroll the pursuit take-up throw (E4l — Joachim 2026-06-11: "Pursuit needs a reroll";
+// the E2h latest-step rule). Re-throws JUST the 1d20 — the count band + the GM modifier are
+// HELD from the recorded throw — and reconciles the state both ways: a failed take-up that
+// becomes a success UN-resolVES the encounter (the 'evaded' resolution event is dropped from
+// the eventLog — the world keeps no resolution from a discarded die) and the chase starts;
+// a success that becomes a failure resolves 'evaded' exactly as the original failure path.
+// Latest-step gated: once a daily keep-the-trail throw exists the chase has moved on; a band
+// that already made its settle choice stays settled (the linger roll is never re-opened by a
+// chase die); and a chase that ended any other way (declined / abandoned / caught) stays ended.
+function encounterRerollPursuitTakeUp(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  const p = enc.pursuit;
+  const throws = (p && p.throws) || [];
+  if(throws.some(x => x && x.kind === 'keep-trail')) return { ok: false, error: 'chase-under-way' };
+  const t = throws.length ? throws[throws.length - 1] : null;
+  if(!t || t.kind !== 'take-up') return { ok: false, error: 'no-take-up' };
+  if((enc.history || []).some(h => h && h.type === 'settle-check')) return { ok: false, error: 'settle-decided' };
+  const wasSuccess = !!t.success;
+  // A resolved encounter is reversible ONLY when the failed take-up itself resolved it.
+  if(enc.status === 'resolved' && (wasSuccess || enc.outcome !== 'evaded')) return { ok: false, error: 'chase-ended' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const natural = 1 + Math.floor(rng() * 20);
+  const target = t.target || 11;
+  const success = (natural !== 1) && (natural + (t.countBonus || 0) + (t.mod || 0) >= target);
+  t.natural = natural; t.total = natural + (t.countBonus || 0) + (t.mod || 0); t.success = success;
+  t.rerolled = (t.rerolled || 0) + 1;
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-takeup-reroll',
+    reason: 'rerolled → take-up ' + (natural === 1 ? 'natural 1' : (t.total + ' vs ' + target + '+')) + ' — ' + (success ? 'on the trail' : 'the trail was never found') });
+  if(success === wasSuccess) return { ok: true, encounter: enc, pursuit: p, takeUp: t, changed: false };
+  if(success){
+    // failure → success: un-resolve (the discarded die's resolution never happened) + start the chase.
+    if(enc.resolvedByEventId && Array.isArray(campaign.eventLog)){
+      const evId = enc.resolvedByEventId;
+      campaign.eventLog = campaign.eventLog.filter(en => !(en && en.event && en.event.id === evId));
+    }
+    enc.status = 'active'; enc.outcome = null;
+    enc.resolvedAtTurn = null; enc.resolvedOnDayInMonth = null; enc.resolvedByEventId = null;
+    p.status = 'pursuing';
+    p.startedAtTurn = campaign.currentTurn || 1;
+    p.startedOnDayInMonth = campaign.currentDayInMonth || null;
+    p.lastPartyHexId = encounterPartyHexId(campaign, enc);
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-taken-up',
+      reason: 'take-up ' + t.total + ' vs ' + target + '+ — on the trail at ' + p.pursuerMilesPerDay + ' mi/day (half expedition speed), ' + p.gapMiles + ' mi behind' });
+    return { ok: true, encounter: enc, pursuit: p, takeUp: t, changed: true };
+  }
+  // success → failure: un-start + resolve 'evaded' exactly as the original failure path.
+  p.status = 'offered';
+  p.startedAtTurn = null; p.startedOnDayInMonth = null; p.lastPartyHexId = null;
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-failed',
+    reason: 'take-up ' + (natural === 1 ? 'natural 1' : (t.total + ' vs ' + target + '+')) + ' — the trail was never found' });
+  const res = recordEncounterResolved(campaign, enc.id, 'evaded', {
+    note: p.pursuerLabel + ' tried to track the party and failed (' + (natural === 1 ? 'natural 1' : t.total + ' vs ' + target + '+') + ').'
+  });
+  return Object.assign({ pursuit: p, takeUp: t, changed: true }, res);
+}
+
 // The GM waives the offer (no intent) — resolves 'evaded' exactly as the rule-OFF path.
 function encounterDeclinePursuit(campaign, encounterId, opts){
   const A = _gpwACKS();
@@ -4284,7 +4344,7 @@ Object.assign(ACKS, {
   // E3b — the tone derivation (JJ pp.84–87, D11): catalog rows pre-asserted from shipped state
   encounterToneRows,
   // E3c — monster pursuit (RR p.285 + p.120; 'monster-pursuit', default OFF; absorbs M5)
-  encounterPartyHexId, encounterBeginPursuit, encounterDeclinePursuit, encounterAbandonPursuit
+  encounterPartyHexId, encounterBeginPursuit, encounterRerollPursuitTakeUp, encounterDeclinePursuit, encounterAbandonPursuit
 });
 
 if(typeof module !== 'undefined' && module.exports){

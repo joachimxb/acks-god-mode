@@ -1194,8 +1194,15 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
             <ul class="font-mono space-y-0.5" x-show="((encModalEnc().pursuit || {}).throws || []).length">
+              <!-- E4l (Joachim 2026-06-11): the take-up throw carries a ⟳ while it is still the
+                   live step (no daily keep-the-trail throw yet; a settle decision or an
+                   otherwise-ended chase retires it). The reroll holds the count band + GM
+                   modifier and reconciles both ways — a failure that becomes a success
+                   UN-resolves the evade and starts the chase; the reverse ends it. -->
               <template x-for="(t, ti) in ((encModalEnc().pursuit || {}).throws || [])" :key="'purs-' + ti">
-                <li x-text="encPursuitThrowText(t)"></li>
+                <li class="flex items-baseline gap-1.5"><span x-text="encPursuitThrowText(t)"></span>
+                  <button x-show="ti === (((encModalEnc().pursuit || {}).throws || []).length - 1) && t.kind === 'take-up' && encPursuitTakeUpRerollable()" @click="encModalRerollTakeUp()" class="px-1.5 border border-ink rounded hover:bg-yellow-100" title="Reroll the take-up 1d20 (GM) — the count band + modifier are held; a success starts the chase (un-resolving the evade), a failure ends it">⟳</button>
+                </li>
               </template>
             </ul>
           </div>
@@ -15421,6 +15428,27 @@ return {
       found: !!r.found, foundName: r.found ? (r.found.name || 'a lair') : '', foundLairId: r.found ? r.found.id : null
     }));
     this.markDirty(); this.schedulePersist();
+  },
+  // E4l — the pursuit take-up ⟳ (mirrors the engine gates so the button only shows when the
+  // verb would act): the latest throw must BE the take-up (no daily keep-the-trail yet), a
+  // settle decision retires it, and a resolved encounter is reversible only when the failed
+  // take-up itself resolved it.
+  encPursuitTakeUpRerollable(){
+    const enc = this.encModalEnc(); if(!enc || !enc.pursuit) return false;
+    const throws = (enc.pursuit.throws || []);
+    const t = throws.length ? throws[throws.length - 1] : null;
+    if(!t || t.kind !== 'take-up') return false;
+    if(throws.some(x => x && x.kind === 'keep-trail')) return false;
+    if((enc.history || []).some(h => h && h.type === 'settle-check')) return false;
+    if(enc.status === 'resolved' && (t.success || enc.outcome !== 'evaded')) return false;
+    return true;
+  },
+  encModalRerollTakeUp(){
+    const enc = this.encModalEnc(); if(!enc) return;
+    const r = window.ACKS.encounterRerollPursuitTakeUp(this.currentCampaign, enc.id);
+    if(!r || !r.ok){ this.showToast('Could not reroll: ' + ((r && r.error) || 'unknown error'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    if(r.changed) this.showToast(r.takeUp.success ? '🐺 The trail is found — the chase is on (the evade is un-resolved).' : 'The trail is lost — resolved evaded.', 4500);
   },
   // E4k (Joachim 2026-06-11: the 🐾 belongs in the end section, with the other outcome
   // buttons) — the resolved banner's unified track target. A concluded REAL meeting

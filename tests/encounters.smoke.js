@@ -1279,6 +1279,73 @@ section('E4j — ⚔ Attack a known lair: beginLairAssault opens the meeting (Jo
 }
 
 // =============================================================================
+section('E4l — the pursuit take-up ⟳: reroll with two-way state reconcile (Joachim 2026-06-11)');
+{
+  const c = ACKS.blankCampaign({ name: 'takeup' });
+  c.hexes = [{ id: 'hex-t', coord: { q: 0, r: 0 }, terrain: 'hills', domainId: null }];
+  const ch = ACKS.blankCharacter({ name: 'Quarry' }); ch.currentHexId = 'hex-t';
+  c.characters.push(ch);
+  const mkChase = (id) => {
+    const e = ACKS.createEncounter(c, { id, trigger: 'rest-night', hexId: 'hex-t', category: 'monster', rarity: 'common',
+      partySide: { characterIds: [ch.id], sizeCount: 1 },
+      monsterSide: { source: 'fresh', monsterCatalogKey: 'common-wolf', count: 4, encounterKind: 'wandering' } });
+    e.phase = 'pursuit';
+    e.pursuit = { status: 'offered', pursuerLabel: 'Common Wolf', pursuerMilesPerDay: 18, gapMiles: 1,
+                  lastPartyHexId: null, traceConcealed: false, gmMod: 0, startedAtTurn: null, startedOnDayInMonth: null, throws: [] };
+    return e;
+  };
+
+  // The failed take-up (nat 2, size 1 → band 0) resolves evaded with its event — Joachim's screenshot.
+  const e1 = mkChase('enc-t1');
+  let r = ACKS.encounterBeginPursuit(c, 'enc-t1', { rng: () => 0.05 });
+  const evId = e1.resolvedByEventId;
+  ok('the failed take-up resolves evaded with its event', e1.status === 'resolved' && e1.outcome === 'evaded'
+    && !!evId && (c.eventLog || []).some(en => en && en.event && en.event.id === evId));
+  // ⟳ → success: un-resolved, the event GONE, the chase starts.
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-t1', { rng: () => 0.999 });
+  ok('fail→success un-resolves and starts the chase', r.ok && r.changed === true && e1.status === 'active' && e1.outcome === null
+    && e1.resolvedByEventId === null && e1.pursuit.status === 'pursuing'
+    && e1.pursuit.startedAtTurn != null && e1.pursuit.lastPartyHexId === 'hex-t');
+  ok('…the discarded resolution event is dropped from the eventLog', !(c.eventLog || []).some(en => en && en.event && en.event.id === evId));
+  ok('…the throw rerolled in place (nat 20, success, rerolled 1)', e1.pursuit.throws.length === 1
+    && e1.pursuit.throws[0].natural === 20 && e1.pursuit.throws[0].success === true && e1.pursuit.throws[0].rerolled === 1);
+  ok('…history carries the reroll + the taken-up line', (e1.history || []).some(h => h && h.type === 'pursuit-takeup-reroll')
+    && (e1.history || []).some(h => h && h.type === 'pursuit-taken-up'));
+  // ⟳ again → failure: back to resolved evaded with a FRESH event; the pursuit un-started.
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-t1', { rng: () => 0 });
+  ok('success→fail resolves evaded again (a fresh event)', r.ok && r.changed === true && e1.status === 'resolved' && e1.outcome === 'evaded'
+    && !!e1.resolvedByEventId && e1.resolvedByEventId !== evId
+    && e1.pursuit.status === 'offered' && e1.pursuit.startedAtTurn === null && e1.pursuit.lastPartyHexId === null);
+  // A same-outcome reroll changes only the die.
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-t1', { rng: () => 0.1 });
+  ok('a same-outcome reroll changes nothing but the die', r.ok && r.changed === false && e1.status === 'resolved' && e1.outcome === 'evaded');
+
+  // Held modifiers: a band of 17+ men (+8) at GM −3 — the reroll holds both.
+  const e2 = mkChase('enc-t2'); e2.partySide.sizeCount = 20;
+  ACKS.encounterBeginPursuit(c, 'enc-t2', { mod: -3, rng: () => 0 });        // nat 1 auto-fails
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-t2', { rng: () => 0.3 });    // nat 7 → 7+8−3 = 12 ≥ 11
+  ok('the count band + GM modifier are held on the reroll', r.ok && r.takeUp.countBonus === 8 && r.takeUp.mod === -3
+    && r.takeUp.total === 12 && r.takeUp.success === true && e2.pursuit.status === 'pursuing');
+
+  // ── the gates ──
+  e2.pursuit.throws.push({ kind: 'keep-trail', success: true });
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-t2');
+  ok('a daily keep-the-trail throw retires the ⟳ (chase under way)', !r.ok && r.error === 'chase-under-way');
+  const e3 = mkChase('enc-t3');
+  ACKS.encounterBeginPursuit(c, 'enc-t3', { rng: () => 0.05 });
+  e3.history.push({ turn: 5, type: 'settle-check', reason: 'lingered' });
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-t3');
+  ok('a settle decision retires the ⟳ (the linger roll is never re-opened)', !r.ok && r.error === 'settle-decided');
+  const e4 = mkChase('enc-t4');
+  ACKS.encounterBeginPursuit(c, 'enc-t4', { rng: () => 0.999 });             // success → pursuing
+  ACKS.encounterAbandonPursuit(c, 'enc-t4');                                 // the GM breaks off → evaded
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-t4');
+  ok('an abandoned chase stays ended (the success was not the resolver)', !r.ok && r.error === 'chase-ended');
+  r = ACKS.encounterRerollPursuitTakeUp(c, 'enc-nope');
+  ok('unknown encounter refuses', !r.ok && r.error === 'unknown-encounter');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
