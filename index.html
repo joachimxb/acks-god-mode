@@ -992,8 +992,8 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
-          <!-- 2 · Awareness & surprise -->
-          <div class="border border-ink/30 rounded p-2">
+          <!-- 2 · Awareness & surprise (E2j — revealed once the distance is rolled) -->
+          <div class="border border-ink/30 rounded p-2" x-show="encStepAwarenessVisible()">
             <h4 class="font-semibold mb-1">2 · Awareness &amp; surprise <span class="opacity-50 font-normal">(RR pp.281–284)</span></h4>
             <template x-if="encModalEnc().status === 'active' && (!encModalEnc().surprise || encModal.reassert)">
               <div class="space-y-1">
@@ -1036,8 +1036,8 @@ document.addEventListener('alpine:init', () => {
               <p class="italic opacity-60">— not walked.</p>
             </template>
           </div>
-          <!-- 3 · Evasion -->
-          <div class="border border-ink/30 rounded p-2">
+          <!-- 3 · Evasion (E2j — the post-surprise fork: evade OR interact, shown together) -->
+          <div class="border border-ink/30 rounded p-2" x-show="encStepEvasionVisible()">
             <h4 class="font-semibold mb-1">3 · Evasion <span class="opacity-50 font-normal">(RR pp.284–285)</span></h4>
             <template x-if="encModalEnc().evasion">
               <div class="space-y-1">
@@ -1074,8 +1074,8 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
-          <!-- 4 · Reaction -->
-          <div class="border border-ink/30 rounded p-2">
+          <!-- 4 · Reaction (E2j — revealed with evasion once surprise concludes) -->
+          <div class="border border-ink/30 rounded p-2" x-show="encStepReactionVisible()">
             <h4 class="font-semibold mb-1">4 · Reaction <span class="opacity-50 font-normal">(RR pp.285–286)</span></h4>
             <template x-if="!encModalEnc().reaction && encModalEnc().status === 'active'">
               <div class="space-y-1">
@@ -1141,11 +1141,11 @@ document.addEventListener('alpine:init', () => {
             </div>
             <p class="opacity-60 text-xs mt-1">Each attempt takes longer (round → turn → hour → work-day → week); the 3rd+ costs the speaker's day. A failed bribe backlashes one step toward Hostile (not when proficient). Once interacting, the party can no longer evade.</p>
           </div>
-          <!-- Resolution -->
+          <!-- Resolution (E2j — the outcome verbs wait on surprise concluding; Dismiss = the GM strike-it override, always available) -->
           <div class="flex flex-wrap gap-2 border-t border-ink/20 pt-2" x-show="encModalEnc().status === 'active'">
-            <button @click="encModalResolve('parleyed')" class="px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Part on the standing attitude — it persists as these sides' shared history (a later meeting recalls it)">🤝 Parley &amp; part</button>
-            <button @click="encModalResolve('combat')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="Hand to the table — the GM resolves combat (#141); record the result afterwards as an adventure outcome (a cleared lair flips from there)">⚔ To combat (GM resolves)</button>
-            <button @click="encModalResolve('dispersed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The meeting broke up without consequence">💨 Dispersed</button>
+            <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('parleyed')" class="px-2 py-0.5 border border-ink rounded hover:bg-green-100" title="Part on the standing attitude — it persists as these sides' shared history (a later meeting recalls it)">🤝 Parley &amp; part</button>
+            <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('combat')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-100" title="Hand to the table — the GM resolves combat (#141); record the result afterwards as an adventure outcome (a cleared lair flips from there)">⚔ To combat (GM resolves)</button>
+            <button x-show="encResolutionVerbsVisible()" @click="encModalResolve('dispersed')" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="The meeting broke up without consequence">💨 Dispersed</button>
             <button @click="encModalResolve('dismissed')" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Strike it — GM override; it never happened">✕ Dismiss</button>
           </div>
           <template x-if="encModalEnc().status === 'resolved'">
@@ -9885,6 +9885,27 @@ return {
       this.showToast(msg, 4000); return;
     }
     this.markDirty(); this.schedulePersist();
+  },
+  // ── E2j progressive disclosure — later phases stay hidden until the earlier steps
+  // resolve (per Joachim): awareness waits on the distance roll; evasion + reaction (the
+  // RAW fork — evade OR interact) wait on surprise concluding; influence is reaction-gated;
+  // the resolution verbs wait on surprise too (✕ Dismiss stays — the GM strike-it override).
+  // A RESOLVED encounter shows exactly the steps that were walked (data => visible).
+  encStepAwarenessVisible(){
+    const e = this.encModalEnc(); if(!e) return false;
+    return !!(e.surprise || (e.status === 'active' && e.distance));
+  },
+  encStepEvasionVisible(){
+    const e = this.encModalEnc(); if(!e) return false;
+    return !!(e.evasion || (e.status === 'active' && this.encSurpriseRolled()));
+  },
+  encStepReactionVisible(){
+    const e = this.encModalEnc(); if(!e) return false;
+    return !!(e.reaction || (e.status === 'active' && this.encSurpriseRolled()));
+  },
+  encResolutionVerbsVisible(){
+    const e = this.encModalEnc(); if(!e) return false;
+    return e.status === 'active' && this.encSurpriseRolled();
   },
   // ── E2h reroll gates (the latest-step rule: a roll is re-rollable while it's still the
   // frontier — before a later step has consumed it; earlier-state surgery = the Inspector).
