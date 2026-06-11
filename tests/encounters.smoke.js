@@ -434,6 +434,90 @@ section('priorReactionBetween (D9, E2) — prior attitude DERIVED from resolved 
 }
 
 // =============================================================================
+section('E2h — rerolls (every roll re-rollable at its frontier) + itemized records');
+{
+  const c = ACKS.blankCampaign({ name: 'rr' });
+  ACKS.migrateCampaign(c);
+  c.hexes = [ACKS.blankHex({ id: 'hex-r', terrain: 'grassland', terrainSubtype: 'steppe' })];
+  const face = ACKS.blankCharacter({ name: 'Face' }); face.abilities = { STR: 9, INT: 9, WIL: 9, DEX: 9, CON: 9, CHA: 16 };
+  c.characters.push(face);
+  const mk = () => ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: 'hex-r', category: 'monster',
+    partySide: { characterIds: [face.id], faceCharacterId: face.id, sizeCount: 5 },
+    monsterSide: { monsterCatalogKey: 'orc', count: 6 } });
+
+  // ── distance: roll + reroll via the verb; locked once the walk is past it
+  const e1 = mk();
+  const d1 = ACKS.encounterRollDistance(c, e1.id, { rng: () => 0.5 });
+  ok('distance verb rolls + stores + stamps history', d1.ok && !d1.reroll && e1.distance && e1.distance.rolledFt > 0 && e1.history.some(h => h.type === 'distance'));
+  const rolled1 = e1.distance.rolledFt;
+  const d2 = ACKS.encounterRollDistance(c, e1.id, { rng: () => 0.9 });
+  ok('distance reroll replaces the roll', d2.ok && d2.reroll === true && e1.distance.rolledFt !== rolled1 && e1.history.some(h => h.type === 'distance-reroll'));
+  ACKS.encounterSetAwareness(c, e1.id, { partyForeknowledge: true, partyLineOfSight: false });   // party fore × monsters none → 'can'
+  ok('distance still re-rollable after awareness, before the surprise roll', ACKS.encounterRollDistance(c, e1.id, { rng: () => 0.5 }).ok === true);
+  ACKS.encounterRollSurprise(c, e1.id, { partyMod: 2, rng: () => 0.9 });
+  ok('distance locked once surprise has been rolled', ACKS.encounterRollDistance(c, e1.id, {}).error === 'walk-past-distance');
+
+  // ── surprise reroll: same awareness, the GM extra recovered from the prior roll
+  ok('setup: party rolled at +1 (fore) +2 (GM) = mod 3', e1.surprise.party.roll && e1.surprise.party.roll.mod === 3);
+  const sBefore = e1.surprise.party.awareness + 'x' + e1.surprise.monsters.awareness;
+  const sr = ACKS.encounterRerollSurprise(c, e1.id, { rng: () => 0.0 });
+  ok('surprise reroll re-throws both sides', sr.ok && e1.surprise.party.roll.natural === 1 && e1.surprise.monsters.roll.natural === 1);
+  ok('awareness held + the GM extra recovered (mod still 3)', (e1.surprise.party.awareness + 'x' + e1.surprise.monsters.awareness) === sBefore && e1.surprise.party.roll.mod === 3);
+  ok('outcomes + phase recompute (monsters 1−1=0 → SURPRISED)', e1.surprise.monsters.surprised === true && e1.history.some(h => h.type === 'surprise-reroll'));
+  const sr2 = ACKS.encounterRerollSurprise(c, e1.id, { rng: () => 0.9 });
+  ok('a further reroll restores ready (frontier stays open)', sr2.ok && e1.surprise.monsters.surprised === false && e1.surprise.party.surprised === false);
+  const eG = mk();
+  ok('surprise reroll refused before the roll', ACKS.encounterRerollSurprise(c, eG.id, {}).error === 'not-rolled');
+
+  // ── evasion reroll: failed-only, same target + modifiers; a success resolves
+  const ev1 = ACKS.encounterAttemptEvasion(c, e1.id, { modifiers: [{ label: 'explorer guide', value: 5 }], rng: () => 0.2 });   // d20 5 +5 = 10 vs 16+ → failed
+  ok('setup: evasion failed at 10 vs 16+', ev1.ok && !ev1.evasion.success && ev1.evasion.target === 16);
+  ok('surprise locked once evasion is attempted', ACKS.encounterRerollSurprise(c, e1.id, {}).error === 'walk-past-surprise');
+  const evr = ACKS.encounterRerollEvasion(c, e1.id, { rng: () => 0.4 });   // d20 9 +5 = 14 — still failed
+  ok('evasion reroll re-throws with the same target + modifiers', evr.ok && e1.evasion.roll.natural === 9 && e1.evasion.roll.modSum === 5 && e1.evasion.roll.total === 14 && !e1.evasion.success && e1.evasion.target === 16);
+  ok('history records the still-failed reroll', e1.history.some(h => h.type === 'evasion-reroll' && /still failed/.test(h.reason)));
+  const evr2 = ACKS.encounterRerollEvasion(c, e1.id, { rng: () => 0.9 });   // d20 19 +5 = 24 → evaded
+  ok('a successful reroll resolves the encounter as evaded (aftermath rolled)', evr2.ok && e1.status === 'resolved' && e1.outcome === 'evaded' && e1.evasion.aftermath && e1.evasion.aftermath.distanceFt > 0);
+  ok('a resolved encounter refuses further rerolls', ACKS.encounterRerollEvasion(c, e1.id, {}).error === 'already-resolved');
+
+  // ── reaction reroll: replaces the initial roll (CHA + modifiers held); locked by influence
+  const e2 = mk();
+  ACKS.encounterSetAwareness(c, e2.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true, monsterLineOfSight: true });
+  ACKS.encounterRollSurprise(c, e2.id, {});
+  ok('evasion reroll refused with nothing attempted', ACKS.encounterRerollEvasion(c, e2.id, {}).error === 'not-attempted');
+  ACKS.encounterRollReaction(c, e2.id, { modifiers: [{ label: 'GM', value: 1 }], rng: () => 0.5 });   // 2d6 8 +2 CHA +1 = 11 → indifferent
+  ok('the initial reaction entry stores the itemized modifiers', Array.isArray(e2.reaction.rolls[0].modifiers) && e2.reaction.rolls[0].modifiers[0].label === 'GM');
+  const rr = ACKS.encounterRerollReaction(c, e2.id, { rng: () => 0.0 });   // 2d6 nat 2 +2 +1 = 5 → unfriendly
+  ok('reaction reroll replaces the initial roll (same CHA + modifiers)', rr.ok && e2.reaction.rolls.length === 1 && e2.reaction.rolls[0].natural === 2 && e2.reaction.rolls[0].chaMod === 2 && e2.reaction.rolls[0].modSum === 1);
+  ok('the standing attitude recomputes', e2.reaction.current === 'unfriendly' && e2.history.some(h => h.type === 'reaction-reroll'));
+  ok('influence reroll refused with no attempt yet', ACKS.encounterRerollInfluence(c, e2.id, {}).error === 'no-influence-attempt');
+
+  // ── influence reroll: the same starting attitude, the audit event PATCHED in place
+  ACKS.encounterAttemptInfluence(c, e2.id, { rng: () => 0.5 });            // a1: 10 → indifferent band → neutral
+  ACKS.encounterAttemptInfluence(c, e2.id, { rng: () => 0.5 });            // a2: → indifferent
+  const i3 = ACKS.encounterAttemptInfluence(c, e2.id, { rng: () => 0.9 }); // a3 (ancillary): 14 → friendly
+  ok('setup: 3 attempts, the 3rd charged ancillary', i3.ok && i3.event.payload.activityCost && i3.event.payload.activityCost.slot === 'ancillary' && e2.reaction.current === 'friendly');
+  ok('reaction reroll refused once influence has begun', ACKS.encounterRerollReaction(c, e2.id, {}).error === 'walk-past-reaction');
+  ok('influence entries store modifiers + the eventId backlink', Array.isArray(i3.attempt.modifiers) && i3.attempt.eventId === i3.event.id);
+  const logLen = c.eventLog.length;
+  const from3 = e2.reaction.rolls[3].from;   // 'indifferent'
+  const ir = ACKS.encounterRerollInfluence(c, e2.id, { rng: () => 0.0 });  // 2d6 nat 2 +2 = 4 → unfriendly band → −1
+  ok('influence reroll re-throws from the SAME starting attitude', ir.ok && ir.attempt.from === from3 && ir.attempt.natural === 2 && ir.attempt.to === 'neutral' && e2.reaction.current === 'neutral');
+  ok('no new event — the attempt count and log length hold', c.eventLog.length === logLen && e2.reaction.rolls.length === 4);
+  const patched = c.eventLog.find(w => w.event && w.event.id === ir.attempt.eventId);
+  ok('the audit event is patched in place', !!patched && patched.event.payload.roll.natural === 2 && patched.event.payload.to === 'neutral' && /rerolled/.test(patched.event.payload.narrative));
+  ok('the #346 charge rides the patched event untouched', patched.event.payload.activityCost && patched.event.payload.activityCost.slot === 'ancillary');
+
+  // ── bribe backlash recomputes on the reroll
+  const e3 = mk();
+  ACKS.encounterRollReaction(c, e3.id, { chaMod: 0, rng: () => 0.5 });     // 8 → neutral
+  const ib = ACKS.encounterAttemptInfluence(c, e3.id, { chaMod: 0, rng: () => 0.9, bribe: { bonus: 1 } });   // nat 12 +1 = 13 → friendly (no backlash)
+  ok('setup: the bribed attempt succeeded (no backlash)', ib.ok && ib.attempt.bribe.backlash === false && e3.reaction.current === 'friendly');
+  const ibr = ACKS.encounterRerollInfluence(c, e3.id, { rng: () => 0.4 }); // 2d6 6 +1 bribe = 7 → neutral band → shift 0 → backlash
+  ok('the reroll recomputes the bribe backlash', ibr.ok && ibr.attempt.bribe.backlash === true && ibr.attempt.to === 'unfriendly' && e3.reaction.current === 'unfriendly');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

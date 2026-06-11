@@ -3287,6 +3287,7 @@ function encounterRollReaction(campaign, encounterId, opts){
   enc.reaction = {
     current: roll.band,
     rolls: [{ attempt: 0, kind: 'initial', natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum,
+              modifiers: (o.modifiers || []).slice(),   // itemized — every modifier visible + reusable on a reroll
               total: roll.total, band: roll.band, clamped: roll.clamped,
               atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null }],
     intimidationOriginalRoll: null    // E3 (the tone system) — RAW re-uses the ORIGINAL roll vs new allies
@@ -3338,6 +3339,7 @@ function encounterAttemptInfluence(campaign, encounterId, opts){
   const entry = {
     attempt: attemptNumber, kind: 'influence', actorCharacterId: actorId,
     natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum, total: roll.total,
+    modifiers: mods.slice(),   // itemized (incl. the bribe line) — visible + reusable on a reroll
     band: roll.band, clamped: roll.clamped, from, to: shift.to,
     bribe: bribe ? { bonus: bribe.bonus, pay: bribe.pay, proficient: bribe.proficient, backlash } : null,
     timeRequired: info.time, days: info.days,
@@ -3367,7 +3369,202 @@ function encounterAttemptInfluence(campaign, encounterId, opts){
   ev.campaignLogHidden = true;
   ev.subdayContext = { cadence: 'encounter', encounterId: enc.id, roundNumber: null, turnNumber: null, initiativeOrder: null };
   _logAppliedEvent(campaign, ev, { narrativeSummary: ev.payload.narrative });
+  entry.eventId = ev.id;   // the reroll patches this event in place (the budget charge rides it)
   return { ok: true, encounter: enc, attempt: entry, event: ev };
+}
+
+// ═══ E2h — rerolls (every roll in the walk re-rollable at its frontier) ═══════
+// The project's reroll idiom (journey day log / search modal): re-throw the ONE die,
+// hold everything else, update dependent state surgically, stamp history. A step is
+// re-rollable while it is still the FRONTIER — before a later step has consumed it
+// (distance until surprise concludes; surprise until evasion/reaction; a FAILED
+// evasion until reaction; the initial reaction until the first influence attempt;
+// always the latest influence attempt). Earlier-state surgery = the Inspector.
+
+// Surprise has concluded once the roll verb has run (it sets surprised on both sides;
+// a fore+los side concludes with no die). Mirrors the UI's encSurpriseRolled().
+function _encSurpriseConcluded(enc){
+  const sur = enc && enc.surprise;
+  return !!(sur && sur.party && sur.party.surprised !== null);
+}
+
+// Step 1 (roll + reroll) — the encounter-distance roll (RR p.281): terrain dice capped
+// at maximum visibility. The triggers pre-roll it; this verb serves gm-authored
+// encounters AND the GM's reroll. Locked once the walk is past it (surprise concluded
+// or evasion/reaction exist — the distance frames those steps). opts: { light?, rng? }.
+function encounterRollDistance(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(_encSurpriseConcluded(enc) || enc.evasion || enc.reaction) return { ok: false, error: 'walk-past-distance' };
+  const o = opts || {};
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const rowKey = (enc.distance && enc.distance.terrainRow)
+    || (hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null);
+  const d = A.computeEncounterDistance({
+    terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open',
+    light: o.light || (enc.distance && enc.distance.light) || undefined,
+    sideACount: (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 1,
+    sideBCount: (enc.monsterSide && enc.monsterSide.count) || 1,
+    rng: o.rng
+  });
+  if(!d) return { ok: false, error: 'no-distance-class' };
+  const reroll = !!enc.distance;
+  enc.distance = d;
+  enc.history.push({ turn: campaign.currentTurn || 1, type: reroll ? 'distance-reroll' : 'distance',
+    reason: d.distanceFt + ' ft (rolled ' + d.rolledFt + ', cap ' + d.capFt + ')' });
+  return { ok: true, encounter: enc, distance: d, reroll };
+}
+
+// ⟳ Surprise — re-throw the side dice at the frontier (no evasion attempt, no reaction).
+// Same awareness; the GM extras default to those baked into the prior rolls (recovered
+// as roll.mod − the awareness-state mod). opts: { partyMod?, monsterMod?, rng? }.
+function encounterRerollSurprise(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!_encSurpriseConcluded(enc)) return { ok: false, error: 'not-rolled' };
+  if(enc.evasion || enc.reaction) return { ok: false, error: 'walk-past-surprise' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  for(const side of ['party', 'monsters']){
+    const s = enc.surprise[side];
+    const state = A.SURPRISE_AWARENESS_STATES[s.awareness];
+    if(!state.rolls){ s.roll = null; s.surprised = false; continue; }
+    const passed = (side === 'party') ? o.partyMod : o.monsterMod;
+    const extra = (passed != null) ? (Number(passed) || 0)
+      : (s.roll ? (Number(s.roll.mod) || 0) - state.mod : 0);
+    const r = A.rollSurpriseThrow({ mod: state.mod + extra, rng });
+    s.roll = r; s.surprised = r.surprised;
+  }
+  const el = enc.surprise.evadeEligibility;
+  enc.phase = ((el === 'can' || el === 'always') && !enc.surprise.party.surprised) ? 'evasion' : 'interaction';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'surprise-reroll',
+    reason: 'party ' + (enc.surprise.party.surprised ? 'SURPRISED' : 'ready') + ' · monsters ' + (enc.surprise.monsters.surprised ? 'SURPRISED' : 'ready') });
+  return { ok: true, encounter: enc, surprise: enc.surprise };
+}
+
+// ⟳ Evasion — re-throw a FAILED evasion at the frontier (no reaction yet): the same
+// target + the recorded modifiers. A success on the re-throw resolves 'evaded' exactly
+// as the original attempt would have (aftermath + the resolution event). opts: { rng? }.
+function encounterRerollEvasion(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.evasion) return { ok: false, error: 'not-attempted' };
+  if(enc.evasion.success) return { ok: false, error: 'already-evaded' };
+  if(enc.reaction) return { ok: false, error: 'walk-past-evasion' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const throwRes = A.attemptEvasionThrow({
+    target: (enc.evasion.target != null) ? enc.evasion.target : 20,
+    modifiers: enc.evasion.modifiers || [], rng
+  });
+  enc.evasion.roll = throwRes;
+  enc.evasion.success = throwRes.success;
+  if(throwRes.success){
+    const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+    const rowKey = (enc.distance && enc.distance.terrainRow)
+      || (hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null);
+    enc.evasion.aftermath = A.rollEvasionAftermath({ terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open', rng });
+    enc.evasion.aftermath.knownLost = null;
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-reroll',
+      reason: 'rerolled → evaded; displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock" });
+    recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded (on the reroll) — aftermath displacement rolled' });
+  } else {
+    enc.phase = 'interaction';
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-reroll',
+      reason: throwRes.total + ' vs ' + ((enc.evasion.target != null) ? enc.evasion.target : '?') + '+ — still failed' });
+  }
+  return { ok: true, encounter: enc, evasion: enc.evasion };
+}
+
+// ⟳ Reaction — re-throw the INITIAL 2d6 at the frontier (no influence attempts yet):
+// the same face CHA + the recorded modifiers; the standing attitude recomputes.
+// opts: { rng? }.
+function encounterRerollReaction(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.reaction || !(enc.reaction.rolls || []).length) return { ok: false, error: 'not-rolled' };
+  if(enc.reaction.rolls.some(r => r && r.kind === 'influence')) return { ok: false, error: 'walk-past-reaction' };
+  const o = opts || {};
+  const prev = enc.reaction.rolls[0];
+  const mods = Array.isArray(prev.modifiers) ? prev.modifiers
+    : (prev.modSum ? [{ label: 'modifiers', value: prev.modSum }] : []);
+  const roll = A.rollEncounterReaction({ chaMod: prev.chaMod || 0, modifiers: mods, rng: o.rng });
+  enc.reaction.rolls[0] = Object.assign({}, prev, {
+    natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum, modifiers: mods.slice(),
+    total: roll.total, band: roll.band, clamped: roll.clamped,
+    atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null
+  });
+  enc.reaction.current = roll.band;
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'reaction-reroll',
+    reason: roll.total + ' → ' + roll.band + (roll.clamped ? (' (' + roll.clamped + ' clamp)') : '') });
+  return { ok: true, encounter: enc, reaction: enc.reaction, roll };
+}
+
+// ⟳ Influence — re-throw the LATEST attempt: the same speaker / modifiers / bribe, the
+// shift recomputed from the same starting attitude; the attempt's encounter-influence
+// event is PATCHED in place (same attempt number, same time, same budget charge — a
+// reroll is not a second parley hour). opts: { rng? }.
+function encounterRerollInfluence(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  const rolls = (enc.reaction && enc.reaction.rolls) || [];
+  const last = rolls[rolls.length - 1];
+  if(!last || last.kind !== 'influence') return { ok: false, error: 'no-influence-attempt' };
+  const o = opts || {};
+  const mods = Array.isArray(last.modifiers) ? last.modifiers
+    : (function(){   // legacy entry — reconstruct (the bribe was folded into modSum)
+        const bribeBonus = (last.bribe && last.bribe.bonus) || 0;
+        const rest = (last.modSum || 0) - bribeBonus;
+        const out = [];
+        if(rest) out.push({ label: 'modifiers', value: rest });
+        if(bribeBonus) out.push({ label: 'bribe (' + ((last.bribe && last.bribe.pay) || '?') + "'s pay)", value: bribeBonus });
+        return out;
+      })();
+  const roll = A.rollEncounterReaction({ chaMod: last.chaMod || 0, modifiers: mods, rng: o.rng });
+  const from = last.from;
+  let shift = A.applyInfluenceShift(from, roll.band);
+  let backlash = false;
+  const bribeInfo = last.bribe ? A.bribeBonusInfo(last.bribe.bonus, !!last.bribe.proficient) : null;
+  if(bribeInfo && bribeInfo.backlashOnFail && shift.shift <= 0){
+    const order = A.ENCOUNTER_ATTITUDES;
+    const idx = Math.max(0, order.indexOf(shift.to) - 1);
+    shift = { from: shift.from, to: order[idx], shift: idx - order.indexOf(shift.from) };
+    backlash = true;
+  }
+  enc.reaction.current = shift.to;
+  Object.assign(last, {
+    natural: roll.natural, modSum: roll.modSum, modifiers: mods.slice(),
+    total: roll.total, band: roll.band, clamped: roll.clamped, to: shift.to,
+    bribe: last.bribe ? Object.assign({}, last.bribe, { backlash }) : null
+  });
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'influence-reroll',
+    reason: 'attempt ' + last.attempt + ' rerolled: ' + roll.total + ' → ' + roll.band + ' — ' + from + ' → ' + shift.to + (backlash ? ' (bribe backlash)' : '') });
+  // Patch the attempt's audit event in place (found by the stamped eventId; legacy
+  // fallback by encounterId + attemptNumber). The activityCost stays untouched.
+  const wrappers = campaign.eventLog || [];
+  const wrap = (last.eventId && wrappers.find(en => en && en.event && en.event.id === last.eventId))
+    || wrappers.filter(en => en && en.event && en.event.kind === 'encounter-influence'
+        && en.event.payload && en.event.payload.encounterId === enc.id
+        && en.event.payload.attemptNumber === last.attempt).pop();
+  if(wrap){
+    const ev = wrap.event;
+    ev.payload.roll = { natural: roll.natural, total: roll.total, band: roll.band, clamped: roll.clamped };
+    ev.payload.to = shift.to;
+    ev.payload.bribe = last.bribe;
+    ev.payload.narrative = 'Influence attempt ' + last.attempt + ' (' + last.timeRequired + ', rerolled): ' + from + ' → ' + shift.to;
+    if(wrap.result) wrap.result.narrativeSummary = ev.payload.narrative;
+  }
+  return { ok: true, encounter: enc, attempt: last, event: wrap ? wrap.event : null };
 }
 
 // Resolution — flip the entity + emit the ONE comprehensive encounter-resolved event
@@ -3501,7 +3698,10 @@ Object.assign(ACKS, {
   hexSearchActivity, trackHomeAttempt, recordLairDiscovered, rerollHexSearch,
   // #476 Encounter layer E1 — the step verbs over the Encounter entity (RR pp.280–287; plan §15).
   encounterSetAwareness, encounterRollSurprise, encounterAttemptEvasion,
-  encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved
+  encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved,
+  // E2h — the distance verb + the per-step rerolls (every roll re-rollable at its frontier)
+  encounterRollDistance, encounterRerollSurprise, encounterRerollEvasion,
+  encounterRerollReaction, encounterRerollInfluence
 });
 
 if(typeof module !== 'undefined' && module.exports){
