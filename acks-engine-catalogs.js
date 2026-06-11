@@ -1487,6 +1487,11 @@ function encounterEvadeEligibility(advKey, monKey){
 // (vulnerable, no actions in round 1). When several opponents impose different stealth
 // penalties only the SMALLEST applies ("one clumsy oaf ruins the ambush") — callers
 // pass that already-resolved penalty.
+// A side asserted HIDDEN (RR pp.283–284) imposes this on the opponents' rolls — and no
+// creature can claim line of sight on a creature hidden from it (the awareness clamp).
+// The Hiding proficiency THROW is not rolled here (GM-asserted; per-creature class
+// stealth like Natural Stealth stays a GM modifier).
+const SURPRISE_HIDDEN_PENALTY = -2;
 function rollSurpriseThrow(opts){
   const o = opts || {};
   const r = o.rng || Math.random;
@@ -1762,7 +1767,7 @@ Object.assign(ACKS, {
   ENCOUNTER_DISTANCE_CLASSES, ENCOUNTER_TERRAIN_ROWS, encounterRowKey, encounterRowKeyForHex,
   rollEncounterDistanceFt, VISIBILITY_BASE_FT, ENCOUNTER_SIZE_MEN, formationVisibilityMult,
   maxVisibilityFt, computeEncounterDistance,
-  SURPRISE_AWARENESS_STATES, surpriseAwarenessKey, surpriseStateFor, encounterEvadeEligibility, rollSurpriseThrow,
+  SURPRISE_AWARENESS_STATES, surpriseAwarenessKey, surpriseStateFor, encounterEvadeEligibility, rollSurpriseThrow, SURPRISE_HIDDEN_PENALTY,
   EVASION_SIZE_BANDS, EVASION_AERIAL_EXEMPT_ROWS, evasionSizeBand, evasionTargetFor, attemptEvasionThrow, rollEvasionAftermath,
   ENCOUNTER_ATTITUDES, reactionBandFor, rollEncounterReaction,
   INFLUENCE_ATTEMPT_LADDER, influenceAttemptInfo, applyInfluenceShift, BRIBE_TIERS, bribeBonusInfo,

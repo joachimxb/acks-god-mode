@@ -518,6 +518,58 @@ section('E2h — rerolls (every roll re-rollable at its frontier) + itemized rec
 }
 
 // =============================================================================
+section('E2i — the Hidden assert (RR pp.283–284): −2 on opponents + the LOS clamp');
+{
+  const c = ACKS.blankCampaign({ name: 'hid' });
+  ACKS.migrateCampaign(c);
+  c.hexes = [ACKS.blankHex({ id: 'hex-h', terrain: 'grassland', terrainSubtype: 'steppe' })];
+  const face = ACKS.blankCharacter({ name: 'Thief' }); face.abilities = { STR: 9, INT: 9, WIL: 9, DEX: 9, CON: 9, CHA: 9 };
+  c.characters.push(face);
+  const mk = () => ACKS.createEncounter(c, { trigger: 'gm-authored', hexId: 'hex-h', category: 'monster',
+    partySide: { characterIds: [face.id], faceCharacterId: face.id, sizeCount: 1 },
+    monsterSide: { monsterCatalogKey: 'orc', count: 4 } });
+  ok('SURPRISE_HIDDEN_PENALTY exported as −2', ACKS.SURPRISE_HIDDEN_PENALTY === -2);
+
+  // The RR p.284 worked example: a hidden thief (fore+los) ambushes orcs (none) —
+  // the orcs roll at −1 (none) −2 (hidden): surprised on a natural 5 (5−3=2), ready on a 6.
+  const eT = mk();
+  ACKS.encounterSetAwareness(c, eT.id, { partyForeknowledge: true, partyLineOfSight: true, partyHidden: true });
+  ok('hidden stored on the asserting side only', eT.surprise.party.hidden === true && eT.surprise.monsters.hidden === false);
+  ok('the hidden side keeps its own awareness (fore+los)', eT.surprise.party.awareness === 'fore+los');
+  ok('the awareness history names the hidden side', eT.history.some(h => h.type === 'awareness' && /party hidden/.test(h.reason)));
+  ACKS.encounterRollSurprise(c, eT.id, { rng: () => 0.7 });   // natural 5
+  ok('RR p.284: the orcs roll at −1 (none) −2 (hidden) — natural 5 → 2 → SURPRISED',
+    eT.surprise.monsters.roll.natural === 5 && eT.surprise.monsters.roll.mod === -3 && eT.surprise.monsters.roll.total === 2 && eT.surprise.monsters.surprised === true);
+  ACKS.encounterRerollSurprise(c, eT.id, { rng: () => 0.9 });   // natural 6
+  ok('the reroll keeps the hidden −2 (natural 6 → 3 → ready)',
+    eT.surprise.monsters.roll.mod === -3 && eT.surprise.monsters.roll.total === 3 && eT.surprise.monsters.surprised === false);
+
+  // Monsters hidden: the party's ASSERTED line of sight is clamped (no LOS on a hidden
+  // creature — RR p.284) and its roll takes the −2 alongside its own GM extra.
+  const eM = mk();
+  ACKS.encounterSetAwareness(c, eM.id, { partyForeknowledge: true, partyLineOfSight: true,
+    monsterForeknowledge: true, monsterLineOfSight: true, monsterHidden: true });
+  ok('the party cannot claim LOS on hidden monsters (fore+los asserted → fore)', eM.surprise.party.lineOfSight === false && eM.surprise.party.awareness === 'fore');
+  ok('evade eligibility recomputes through the clamp (fore × fore+los → cannot)', eM.surprise.evadeEligibility === 'cannot');
+  ACKS.encounterRollSurprise(c, eM.id, { partyMod: 1, rng: () => 0.5 });   // natural 4
+  ok('party rolls at +1 (fore) −2 (hidden) +1 (GM) = mod 0', eM.surprise.party.roll.mod === 0 && eM.surprise.party.roll.total === 4 && eM.surprise.party.surprised === false);
+  ok('the hidden side itself does not roll (fore+los)', eM.surprise.monsters.roll === null && eM.surprise.monsters.surprised === false);
+  ACKS.encounterRerollSurprise(c, eM.id, { rng: () => 0.0 });   // natural 1
+  ok('the reroll recovers the GM extra net of the hidden −2 (mod still 0)', eM.surprise.party.roll.mod === 0 && eM.surprise.party.roll.natural === 1 && eM.surprise.party.surprised === true);
+
+  // Mutual hiding with no foreknowledge → both sides clamp to none → no encounter.
+  const eB = mk();
+  const awB = ACKS.encounterSetAwareness(c, eB.id, { partyLineOfSight: true, monsterLineOfSight: true, partyHidden: true, monsterHidden: true });
+  ok('mutually hidden strangers pass unaware — no encounter (RR p.281)', awB.noEncounter === true && eB.status === 'resolved' && eB.outcome === 'no-encounter');
+
+  // Re-asserting without hidden restores the asserted LOS.
+  const eR = mk();
+  ACKS.encounterSetAwareness(c, eR.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true, monsterHidden: true });
+  ACKS.encounterSetAwareness(c, eR.id, { partyForeknowledge: true, partyLineOfSight: true, monsterForeknowledge: true });
+  ok('re-assert clears hidden + restores the clamped LOS', eR.surprise.monsters.hidden === false && eR.surprise.party.lineOfSight === true && eR.surprise.party.awareness === 'fore+los');
+}
+
+// =============================================================================
 console.log('\n— Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);

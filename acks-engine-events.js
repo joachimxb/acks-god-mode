@@ -3137,6 +3137,13 @@ function _encChaMod(campaign, characterId){
   const score = ch && ch.abilities && ch.abilities.CHA;
   return (typeof score === 'number' && typeof A.abilityMod === 'function') ? A.abilityMod(score) : 0;
 }
+// RR pp.283–284 — the opponents of a side asserted HIDDEN roll surprise at
+// SURPRISE_HIDDEN_PENALTY (applied automatically; own bonuses stay GM extras).
+function _encOppHiddenPenalty(sur, side){
+  const A = _gpwACKS();
+  const opp = side === 'party' ? 'monsters' : 'party';
+  return (sur && sur[opp] && sur[opp].hidden) ? ((A.SURPRISE_HIDDEN_PENALTY != null) ? A.SURPRISE_HIDDEN_PENALTY : -2) : 0;
+}
 // The standard related-entities set for an encounter's events.
 function _encRelatedEntities(enc){
   const out = [{ kind: 'encounter', id: enc.id, role: 'subject' }];
@@ -3154,24 +3161,33 @@ function _encMonsterLabel(enc){
     || (enc.category === 'civilized' ? 'the locals' : 'the creatures');
 }
 
-// Step 2 input — the GM asserts each side's foreknowledge + line of sight; the matrix
-// gives evade eligibility, and None × None means NO ENCOUNTER (auto-resolved as such).
+// Step 2 input — the GM asserts each side's foreknowledge + line of sight (and, RR
+// pp.283–284, whether a side is HIDDEN — a GM assertion, no Hiding throw rolled: the
+// opponents take SURPRISE_HIDDEN_PENALTY on their rolls AND cannot claim line of sight
+// on the hidden side, so the asserted LOS is clamped here). The matrix gives evade
+// eligibility, and None × None means NO ENCOUNTER (auto-resolved as such).
 function encounterSetAwareness(campaign, encounterId, opts){
   const A = _gpwACKS();
   const enc = A.findEncounter(campaign, encounterId);
   if(!enc) return { ok: false, error: 'unknown-encounter' };
   if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
   const o = opts || {};
-  const pKey = A.surpriseAwarenessKey(!!o.partyForeknowledge, !!o.partyLineOfSight);
-  const mKey = A.surpriseAwarenessKey(!!o.monsterForeknowledge, !!o.monsterLineOfSight);
+  const pHidden = !!o.partyHidden, mHidden = !!o.monsterHidden;
+  const pLos = !!o.partyLineOfSight && !mHidden;    // no LOS on a hidden creature (RR p.284)
+  const mLos = !!o.monsterLineOfSight && !pHidden;
+  const pKey = A.surpriseAwarenessKey(!!o.partyForeknowledge, pLos);
+  const mKey = A.surpriseAwarenessKey(!!o.monsterForeknowledge, mLos);
   enc.surprise = {
-    party:    { awareness: pKey, foreknowledge: !!o.partyForeknowledge,   lineOfSight: !!o.partyLineOfSight,   roll: null, surprised: null },
-    monsters: { awareness: mKey, foreknowledge: !!o.monsterForeknowledge, lineOfSight: !!o.monsterLineOfSight, roll: null, surprised: null },
+    party:    { awareness: pKey, foreknowledge: !!o.partyForeknowledge,   lineOfSight: pLos, hidden: pHidden, roll: null, surprised: null },
+    monsters: { awareness: mKey, foreknowledge: !!o.monsterForeknowledge, lineOfSight: mLos, hidden: mHidden, roll: null, surprised: null },
     evadeEligibility: A.encounterEvadeEligibility(pKey, mKey),
     noEncounter: (pKey === 'none' && mKey === 'none')
   };
   enc.phase = 'surprise';
-  enc.history.push({ turn: campaign.currentTurn || 1, type: 'awareness', reason: 'party ' + pKey + ' × monsters ' + mKey + ' → evade: ' + enc.surprise.evadeEligibility });
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'awareness',
+    reason: 'party ' + pKey + ' × monsters ' + mKey
+      + (pHidden ? ' · party hidden' : '') + (mHidden ? ' · monsters hidden' : '')
+      + ' → evade: ' + enc.surprise.evadeEligibility });
   if(enc.surprise.noEncounter){
     recordEncounterResolved(campaign, enc.id, 'no-encounter', { note: 'Surprise Matrix: neither side aware — no encounter (RR p.281)' });
     return { ok: true, encounter: enc, surprise: enc.surprise, noEncounter: true };
@@ -3194,8 +3210,9 @@ function encounterRollSurprise(campaign, encounterId, opts){
     const s = enc.surprise[side];
     const state = A.SURPRISE_AWARENESS_STATES[s.awareness];
     if(!state.rolls){ s.roll = null; s.surprised = false; continue; }   // fore+los — not surprised
+    const hiddenPen = _encOppHiddenPenalty(enc.surprise, side);         // opponents hidden → −2 (RR pp.283–284)
     const extra = (side === 'party') ? (Number(o.partyMod) || 0) : (Number(o.monsterMod) || 0);
-    const r = A.rollSurpriseThrow({ mod: state.mod + extra, rng });
+    const r = A.rollSurpriseThrow({ mod: state.mod + hiddenPen + extra, rng });
     s.roll = r;
     s.surprised = r.surprised;
   }
@@ -3433,10 +3450,11 @@ function encounterRerollSurprise(campaign, encounterId, opts){
     const s = enc.surprise[side];
     const state = A.SURPRISE_AWARENESS_STATES[s.awareness];
     if(!state.rolls){ s.roll = null; s.surprised = false; continue; }
+    const hiddenPen = _encOppHiddenPenalty(enc.surprise, side);
     const passed = (side === 'party') ? o.partyMod : o.monsterMod;
     const extra = (passed != null) ? (Number(passed) || 0)
-      : (s.roll ? (Number(s.roll.mod) || 0) - state.mod : 0);
-    const r = A.rollSurpriseThrow({ mod: state.mod + extra, rng });
+      : (s.roll ? (Number(s.roll.mod) || 0) - state.mod - hiddenPen : 0);   // recover the GM extra net of the hidden −2
+    const r = A.rollSurpriseThrow({ mod: state.mod + hiddenPen + extra, rng });
     s.roll = r; s.surprised = r.surprised;
   }
   const el = enc.surprise.evadeEligibility;

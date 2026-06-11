@@ -1000,8 +1000,10 @@ document.addEventListener('alpine:init', () => {
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5">
                   <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.pFore"> party has foreknowledge</label>
                   <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.mFore"> monsters have foreknowledge</label>
-                  <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.pLos"> party has line of sight</label>
-                  <label class="flex items-center gap-1.5"><input type="checkbox" x-model="encModal.mLos"> monsters have line of sight</label>
+                  <label class="flex items-center gap-1.5" :class="encModal.mHidden ? 'opacity-50' : ''" title="No creature can claim line of sight on a hidden opponent (RR p.284) — disabled while the monsters are hidden"><input type="checkbox" x-model="encModal.pLos" :disabled="encModal.mHidden"> party has line of sight</label>
+                  <label class="flex items-center gap-1.5" :class="encModal.pHidden ? 'opacity-50' : ''" title="No creature can claim line of sight on a hidden opponent (RR p.284) — disabled while the party is hidden"><input type="checkbox" x-model="encModal.mLos" :disabled="encModal.pHidden"> monsters have line of sight</label>
+                  <label class="flex items-center gap-1.5" title="GM asserts the RAW hidden condition — no Hiding throw is rolled here (RR pp.283–284): the monsters take −2 on their surprise rolls and cannot claim line of sight on the party. For hiding-but-not-hidden (a failed throw), apply just the −2 via the monster GM modifier instead."><input type="checkbox" x-model="encModal.pHidden" @change="if(encModal.pHidden) encModal.mLos = false"> party is hidden</label>
+                  <label class="flex items-center gap-1.5" title="GM asserts the RAW hidden condition — no Hiding throw is rolled here (RR pp.283–284): the party takes −2 on its surprise rolls and cannot claim line of sight on the monsters. For hiding-but-not-hidden (a failed throw), apply just the −2 via the party GM modifier instead."><input type="checkbox" x-model="encModal.mHidden" @change="if(encModal.mHidden) encModal.pLos = false"> monsters are hidden</label>
                 </div>
                 <p class="opacity-70 text-xs" x-text="encAwarenessPreview()"></p>
                 <button @click="encModalSetAwareness()" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">Set awareness</button>
@@ -1009,14 +1011,14 @@ document.addEventListener('alpine:init', () => {
             </template>
             <template x-if="encModalEnc().surprise && !encModal.reassert">
               <div class="space-y-1">
-                <p><span class="font-mono" x-text="'party ' + encModalEnc().surprise.party.awareness + ' × monsters ' + encModalEnc().surprise.monsters.awareness"></span>
+                <p><span class="font-mono" x-text="'party ' + encModalEnc().surprise.party.awareness + ' × monsters ' + encModalEnc().surprise.monsters.awareness + (encModalEnc().surprise.party.hidden ? ' · party hidden' : '') + (encModalEnc().surprise.monsters.hidden ? ' · monsters hidden' : '')"></span>
                   <span class="opacity-70" x-text="' → evasion: ' + encModalEnc().surprise.evadeEligibility"></span>
                   <button x-show="encModalEnc().status === 'active' && !encSurpriseRolled() && !encModalEnc().reaction" @click="encModal.reassert = true" class="text-xs underline opacity-60 ml-1" title="Change the asserted awareness (resets the pending surprise roll)">↺ re-assert</button>
                 </p>
                 <template x-if="encSurpriseNeedsRoll()">
                   <div class="flex flex-wrap items-center gap-2">
-                    <label class="flex items-center gap-1 text-xs">party mod <input type="number" x-model.number="encModal.pSurpMod" class="w-14" title="Own bonuses − the opponents' smallest stealth penalty"></label>
-                    <label class="flex items-center gap-1 text-xs">monster mod <input type="number" x-model.number="encModal.mSurpMod" class="w-14"></label>
+                    <label class="flex items-center gap-1 text-xs">party mod <input type="number" x-model.number="encModal.pSurpMod" class="w-14" title="Own bonuses (e.g. Alertness +1) ± circumstance, and any per-creature stealth penalty (Natural Stealth, sneaking, a failed Hiding throw). The hidden −2 is applied automatically."></label>
+                    <label class="flex items-center gap-1 text-xs">monster mod <input type="number" x-model.number="encModal.mSurpMod" class="w-14" title="Own bonuses ± circumstance — the hidden −2 is applied automatically."></label>
                     <button @click="encModalRollSurprise()" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold">🎲 Roll surprise (1d6 per side, 2− surprised)</button>
                   </div>
                 </template>
@@ -9811,10 +9813,14 @@ return {
     if(!enc){ this.showToast('No encounter entity yet — commit the day first.', 3500); return; }
     const det = (enc.distance && enc.distance.detectedBy) || 'both';
     const firstChar = (enc.partySide && (enc.partySide.faceCharacterId || (enc.partySide.characterIds || [])[0])) || '';
+    const sur = enc.surprise || null;                // re-opening seeds the asserts from stored state
     this.encModal = {
-      pFore: false, mFore: false,
-      pLos: det === 'both' || det === 'party',       // line-of-sight defaults follow who detected whom
-      mLos: det === 'both' || det === 'monsters',
+      pFore: sur ? !!sur.party.foreknowledge : false,
+      mFore: sur ? !!sur.monsters.foreknowledge : false,
+      pLos: sur ? !!sur.party.lineOfSight : (det === 'both' || det === 'party'),   // line-of-sight defaults follow who detected whom
+      mLos: sur ? !!sur.monsters.lineOfSight : (det === 'both' || det === 'monsters'),
+      pHidden: sur ? !!sur.party.hidden : false,     // E2i — GM-asserted hidden (RR pp.283–284)
+      mHidden: sur ? !!sur.monsters.hidden : false,
       reassert: false, pSurpMod: 0, mSurpMod: 0,
       evSize: (enc.partySide && (enc.partySide.sizeCount || (enc.partySide.characterIds || []).length)) || 1,
       evExplorer: false, evForlorn: false, evFly: false, evSpeed: 0, evGmMod: 0, evAllowSurprised: false,
@@ -9941,10 +9947,14 @@ return {
     const s = e.surprise[side]; if(!s) return '';
     const who = side === 'party' ? 'party' : 'monsters';
     if(!s.roll) return who + ' — not surprised (foreknowledge + line of sight: no roll)';
-    const state = (window.ACKS.SURPRISE_AWARENESS_STATES || {})[s.awareness] || { mod: 0 };
-    const extra = (Number(s.roll.mod) || 0) - (state.mod || 0);
+    const A = window.ACKS;
+    const state = (A.SURPRISE_AWARENESS_STATES || {})[s.awareness] || { mod: 0 };
+    const opp = side === 'party' ? 'monsters' : 'party';
+    const hiddenPen = (e.surprise[opp] && e.surprise[opp].hidden) ? ((A.SURPRISE_HIDDEN_PENALTY != null) ? A.SURPRISE_HIDDEN_PENALTY : -2) : 0;
+    const extra = (Number(s.roll.mod) || 0) - (state.mod || 0) - hiddenPen;
     let txt = who + ' 1d6 ' + s.roll.natural;
     if(state.mod) txt += ' ' + (state.mod > 0 ? '+' : '−') + Math.abs(state.mod) + ' (' + s.awareness + ')';
+    if(hiddenPen) txt += ' ' + (hiddenPen > 0 ? '+' : '−') + Math.abs(hiddenPen) + ' (' + opp + ' hidden)';
     if(extra) txt += ' ' + (extra > 0 ? '+' : '−') + Math.abs(extra) + ' (GM)';
     txt += ' = ' + s.roll.total + ' · surprised on 2− → ' + (s.surprised ? 'SURPRISED' : 'ready');
     return txt;
@@ -9960,18 +9970,25 @@ return {
   },
   encAwarenessPreview(){
     const A = window.ACKS;
-    const pKey = A.surpriseAwarenessKey(!!this.encModal.pFore, !!this.encModal.pLos);
-    const mKey = A.surpriseAwarenessKey(!!this.encModal.mFore, !!this.encModal.mLos);
+    // A hidden side denies the opponent line of sight (RR p.284) — preview with the clamp applied.
+    const pLos = !!this.encModal.pLos && !this.encModal.mHidden;
+    const mLos = !!this.encModal.mLos && !this.encModal.pHidden;
+    const pKey = A.surpriseAwarenessKey(!!this.encModal.pFore, pLos);
+    const mKey = A.surpriseAwarenessKey(!!this.encModal.mFore, mLos);
     const el = A.encounterEvadeEligibility(pKey, mKey);
     if(el === 'no-encounter') return '⚠ Neither side aware — setting this resolves the encounter as "no encounter" (RR p.281).';
-    const rolls = k => { const s = A.SURPRISE_AWARENESS_STATES[k]; return s.rolls ? ('rolls 1d6' + (s.mod > 0 ? '+1' : s.mod < 0 ? '−1' : '')) : 'not surprised'; };
-    return 'Party ' + pKey + ' (' + rolls(pKey) + ') × monsters ' + mKey + ' (' + rolls(mKey) + ') → evasion: ' + el + '.';
+    const rolls = (k, oppHidden) => {
+      const s = A.SURPRISE_AWARENESS_STATES[k];
+      return s.rolls ? ('rolls 1d6' + (s.mod > 0 ? '+1' : s.mod < 0 ? '−1' : '') + (oppHidden ? ' −2 hidden' : '')) : 'not surprised';
+    };
+    return 'Party ' + pKey + ' (' + rolls(pKey, !!this.encModal.mHidden) + ') × monsters ' + mKey + ' (' + rolls(mKey, !!this.encModal.pHidden) + ') → evasion: ' + el + '.';
   },
   encModalSetAwareness(){
     const enc = this.encModalEnc(); if(!enc) return;
     const r = window.ACKS.encounterSetAwareness(this.currentCampaign, enc.id, {
       partyForeknowledge: !!this.encModal.pFore, partyLineOfSight: !!this.encModal.pLos,
-      monsterForeknowledge: !!this.encModal.mFore, monsterLineOfSight: !!this.encModal.mLos
+      monsterForeknowledge: !!this.encModal.mFore, monsterLineOfSight: !!this.encModal.mLos,
+      partyHidden: !!this.encModal.pHidden, monsterHidden: !!this.encModal.mHidden
     });
     if(!r || !r.ok){ this.showToast('Could not set awareness: ' + ((r && r.error) || '?'), 3500); return; }
     this.encModal.reassert = false;
