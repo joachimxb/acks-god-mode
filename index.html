@@ -7,19 +7,19 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-05-28-g"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-12-b"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-05-28-g"></script>
-<script src="acks-engine-entities.js?v=2026-05-28-g"></script>
-<script src="acks-engine-economy.js?v=2026-06-06-a"></script>
+<script src="acks-engine.js?v=2026-06-12-b"></script>
+<script src="acks-engine-entities.js?v=2026-06-12-b"></script>
+<script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-05-31-a"></script>
-<script src="acks-engine-field-schemas.js?v=2026-05-31-a"></script>
-<script src="acks-engine-events.js?v=2026-05-28-g"></script>
+<script src="acks-engine-field-schemas.js?v=2026-06-12-b"></script>
+<script src="acks-engine-events.js?v=2026-06-12-b"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-05-28-g"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-12-b"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -284,6 +284,9 @@ document.addEventListener('alpine:init', () => {
               <div x-show="grp.consumer === 'monster-bands'" class="text-xs opacity-60 italic">The world's loose bands on the move (World ▸ 🐉 Monsters ▸ Groups) — reject a line and that band stays put today.</div>
               <!-- W2 — the Vagaries of Incursion: each line is a domain encounter (JJ pp.100–106). -->
               <div x-show="grp.consumer === 'incursions'" class="text-xs opacity-60 italic">Domain encounters (Vagaries of Incursion, JJ p.101) — committing materializes each band in the world (World ▸ 🐉 Monsters); reject a line and it never happened.</div>
+              <!-- W4 — the campaign cycle (RR p.447): initiative + recon per army, contacts → battles,
+                   invasions, occupation flips, pillage completions. -->
+              <div x-show="grp.consumer === 'military'" class="text-xs opacity-60 italic">The campaign cycle (RR p.447) — committing stores the intelligence, creates any battle (World ▸ 🎌 Battles), and applies invasion/occupation/pillage results; reject a line and it never happened.</div>
               <template x-for="(r, ri) in grp.records" :key="grp.consumer + '-' + ri">
                 <div class="border-b border-dashed border-gray-300">
                   <div class="flex items-center justify-between gap-2 py-0.5" :class="r.rejected ? 'opacity-40 line-through' : ''">
@@ -325,6 +328,34 @@ document.addEventListener('alpine:init', () => {
                       <template x-for="(vl, vli) in (r.brComparison.verdictLines || [])" :key="grp.consumer + '-' + ri + '-vl-' + vli">
                         <div class="text-xs text-red-700 leading-snug" x-text="'• ' + vl"></div>
                       </template>
+                    </div>
+                  </template>
+                  <!-- W4 ARMY-CONTACT records: both contact recon throws, the derived awareness,
+                       and the strategic situation the stances make. x-if — other kinds lack these. -->
+                  <template x-if="r.kind === 'army-contact' && !r.rejected">
+                    <div class="ml-3 pb-1 space-y-0.5">
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🕵 contact recon — acting 2d6 ' + r.reconActing.roll + ' → ' + r.reconActing.total + ' (' + r.reconActing.resultLabel + ') · other 2d6 ' + r.reconOther.roll + ' → ' + r.reconOther.total + ' (' + r.reconOther.resultLabel + ')'"></div>
+                      <div class="text-xs opacity-80 leading-snug" x-text="'⚔ awareness ' + r.awareness + ' · ' + r.actingStance + ' vs ' + r.otherStance + ' → ' + r.situationLabel + (r.battle ? ' — committing creates the battle (World ▸ 🎌 Battles)' : ' — no battle; the armies pass')"></div>
+                    </div>
+                  </template>
+                  <!-- W4 DOMAIN-INVASION records: the immediate morale roll's arithmetic (RR p.458). -->
+                  <template x-if="r.kind === 'domain-invasion' && !r.rejected">
+                    <div class="ml-3 pb-1">
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🎲 immediate morale roll: 2d6 ' + r.morale.roll + (r.morale.modSum ? ((r.morale.modSum > 0 ? ' +' : ' ') + r.morale.modSum + ' (mods)') : '') + ' = ' + r.morale.adjusted + ' → morale ' + r.morale.before + ' → ' + r.morale.after"></div>
+                    </div>
+                  </template>
+                  <!-- W4 ARMY-DAY records: the day's reconnaissance throws, itemized. -->
+                  <template x-if="r.kind === 'army-day' && !r.rejected && (r.recons || []).length">
+                    <div class="ml-3 pb-1 space-y-0.5">
+                      <template x-for="(rc, rci) in r.recons" :key="grp.consumer + '-' + ri + '-rc-' + rci">
+                        <div class="text-xs opacity-80 leading-snug" x-text="'🕵 vs ' + rc.opposingName + ': 2d6 ' + rc.recon.roll + ((rc.recon.mods || []).length ? (' ' + rc.recon.mods.map(m => (m.value > 0 ? '+' : '') + m.value + ' (' + m.label + ')').join(' ')) : '') + ' = ' + rc.recon.total + ' → ' + rc.recon.resultLabel + (rc.report && rc.report.prisoner ? ' · a ' + rc.report.prisoner.grade + ' prisoner taken' : '')"></div>
+                      </template>
+                    </div>
+                  </template>
+                  <!-- W4 PILLAGE-COMPLETE records: the rolled Results of Pillaging (RR p.458). -->
+                  <template x-if="r.kind === 'pillage-complete' && !r.rejected">
+                    <div class="ml-3 pb-1">
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🔥 ' + r.results.gold.toLocaleString() + 'gp plundered · ' + r.results.supplies.toLocaleString() + 'gp supplies · ' + r.results.prisoners + ' prisoners · ' + r.results.familiesLost + ' families lost' + (r.results.destroyed ? ' · the domain is DESTROYED' : (r.morale ? ' · morale ' + r.morale.before + ' → ' + r.morale.after + ' (−4 roll)' : ''))"></div>
                     </div>
                   </template>
                   <!-- SURVIVAL records (CoL-1): a per-member detail row — name + conditions (hunger/thirst
@@ -1007,6 +1038,164 @@ document.addEventListener('alpine:init', () => {
       </div>
     </template>
     <p class="text-sm opacity-60 mt-3 italic">The RR battle engine (pp.461–472): ~10-minute battle turns of missile and melee per zone, morale collapse at the break point, then pursuit, casualties, spoils, and XP. Heroes join as heroic units or zoom in through heroic forays — the foray fight itself is yours to run at the table.</p>
+  </div>
+</div>
+
+<!-- ═══ World ▸ 🎖 Armies (Phase 3 Military W4 — RR pp.447–460) ═══════════════
+     The campaign layer's home: every mustered army, its march (on the journey
+     engine), stance, reconnaissance intelligence, and the invasion → occupation →
+     conquest → pillage verbs. The slot-88 military day consumer runs the campaign
+     cycle on the Day Clock; this view is where the GM steers it. -->
+<div x-show="currentView === 'world' && worldSubView === 'armies'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🎖 Armies <span class="text-sm opacity-70 font-normal" x-text="'· ' + armiesRows().length + ' mustered'"></span></h3>
+      <p class="text-xs opacity-60">Raise an army via 🔍 Inspector ▸ ✨ Create ▸ 🎖 Army, then station units to it from a garrison.</p>
+    </div>
+    <template x-if="armiesRows().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No armies mustered. Create one in the Inspector (✨ Create ▸ Army), station garrison units to it, and it takes the field here — marching on the Day Clock, scouting its rivals, and forcing battles where columns collide.</p>
+    </template>
+    <template x-if="armiesRows().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th></th><th>Army</th><th>Leader</th><th>Troops</th><th>BR</th><th>Location</th><th>Stance</th><th>Speed</th><th>State</th></tr></thead>
+        <tbody>
+          <template x-for="row in armiesRows()" :key="row.army.id">
+            <tr :class="armiesSelectedId === row.army.id ? 'bg-yellow-50' : ''">
+              <td x-text="row.icon"></td>
+              <td><button @click="armiesSelectedId = (armiesSelectedId === row.army.id ? null : row.army.id); armyMarchDest=''" class="underline font-semibold text-left" x-text="row.army.name || row.army.id"></button></td>
+              <td><button x-show="row.army.leaderCharacterId" @click="openCharacterEditor(row.army.leaderCharacterId)" class="underline" x-text="row.leaderName"></button><span x-show="!row.army.leaderCharacterId" class="opacity-60">—</span></td>
+              <td class="font-mono" x-text="row.troops"></td>
+              <td class="font-mono" x-text="row.br"></td>
+              <td x-text="row.location"></td>
+              <td class="capitalize" x-text="row.army.strategicStance || 'defensive'"></td>
+              <td class="font-mono" x-text="row.speed + ' mi/day'"></td>
+              <td><span x-text="row.state"></span><span x-show="row.fatigued" class="accent-red font-semibold" title="Marched more than 4 of the last 7 days, or no rest after a forced march (RR pp.448–449)"> · FATIGUED</span></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+
+    <!-- the selected army's campaign card -->
+    <template x-if="armySelected()">
+      <div class="mt-3 border-2 rounded p-3 text-sm" style="background:#f3ead8; border-color:#5a4632">
+        <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
+          <p class="font-bold">🎖 <span x-text="armySelected().name || armySelected().id"></span>
+            <span class="font-normal opacity-70" x-text="' · ' + armySelRow().troops + ' troops · BR ' + armySelRow().br + ' · ' + armySelRow().speed + ' mi/day (' + (armySelProfile().slowestUnitName || 'no units') + (armySelProfile().largeMultiplier < 1 ? (' · ' + armySelProfile().largeLabel) : '') + (armySelProfile().warMachineCap ? ' · war machines cap ' + armySelProfile().warMachineCap : '') + ')'"></span></p>
+          <p class="text-xs opacity-70">
+            <span x-show="armySelected().lastInitiative != null" x-text="'initiative ' + armySelected().lastInitiative + ' · '"></span>
+            <span x-show="armySelFatigue().fatigued" class="accent-red font-semibold" x-text="'⚠ FATIGUED — ' + armySelFatigue().reasons.join('; ')"></span>
+            <span x-show="!armySelFatigue().fatigued">rested</span>
+          </p>
+        </div>
+
+        <!-- march -->
+        <div class="border-t border-ink/20 pt-2 mt-1">
+          <template x-if="armySelJourney() && armySelJourney().status === 'in-transit'">
+            <p>🧭 <span class="font-semibold">On the march</span> — day <span x-text="armySelJourney().currentDayIndex"></span> toward <span x-text="hexLabelById(armySelJourney().destinationHexId)"></span>, <span class="capitalize" x-text="armySelJourney().pace"></span> pace
+              · <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the journey</button>
+              · <button @click="armyMarchStop()" class="underline accent-red">🛑 halt</button></p>
+          </template>
+          <template x-if="!(armySelJourney() && armySelJourney().status === 'in-transit')">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-semibold">🧭 March to</span>
+              <select x-model="armyMarchDest" class="text-sm">
+                <option value="">— pick a destination hex —</option>
+                <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'amd-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
+              </select>
+              <select x-model="armyMarchPace" class="text-sm">
+                <option value="normal">Normal</option>
+                <option value="forced-march">Forced march (+50%, rest after or fatigued)</option>
+                <option value="half-speed">Half speed</option>
+              </select>
+              <button @click="armyMarchGo()" class="px-2 py-0.5 rounded border border-ink font-semibold" :disabled="!armyMarchDest">⚔ March</button>
+              <span x-show="armySelected().pillage" class="text-xs accent-red">— pillaging; the army cannot move (RR p.459)</span>
+            </div>
+          </template>
+        </div>
+
+        <!-- stance + war machines -->
+        <div class="border-t border-ink/20 pt-2 mt-2 flex flex-wrap gap-4 items-baseline">
+          <label>Stance (RR p.448)
+            <select :value="armySelected().strategicStance || 'defensive'" @change="armySetStance($event.target.value)" class="text-sm ml-1">
+              <option value="offensive">Offensive — seeks battle</option>
+              <option value="defensive">Defensive — fights if offered</option>
+              <option value="evasive">Evasive — avoids battle</option>
+            </select></label>
+          <label>War machines (RR p.449)
+            <select :value="armySelected().warMachines ? (armySelected().warMachines.assembled ? 'assembled' : 'disassembled') : 'none'" @change="armySetWarMachines($event.target.value)" class="text-sm ml-1">
+              <option value="none">none</option>
+              <option value="disassembled">hauled disassembled (cap 12 mi/day)</option>
+              <option value="assembled">hauled assembled (cap 6 mi/day)</option>
+            </select></label>
+          <span x-show="(armySelected().prisoners || 0) > 0">⛓ <span x-text="armySelected().prisoners"></span> prisoners
+            · <button @click="armyRansomGo()" class="underline">💰 ransom (40gp a head)</button></span>
+        </div>
+
+        <!-- reconnaissance intelligence -->
+        <div class="border-t border-ink/20 pt-2 mt-2">
+          <p class="font-semibold text-xs uppercase tracking-wide opacity-70 mb-1">🕵 Intelligence (RR pp.452–457)</p>
+          <template x-if="armyIntelRows().length === 0">
+            <p class="text-xs italic opacity-60">No reconnaissance reports yet — they arrive on the Day Clock whenever an opposing army stands in range.</p>
+          </template>
+          <template x-for="ir in armyIntelRows()" :key="'ir-' + ir.index">
+            <div class="text-xs border-b border-dashed border-ink/20 py-1">
+              <p><span class="font-semibold" x-text="ir.opposingName"></span>
+                <span x-text="' — ' + ir.report.resultLabel + ' (2d6 ' + ir.report.roll + ' → ' + ir.report.total + ')' + (ir.ageDays > 0 ? ' · ' + ir.ageDays + ' day' + (ir.ageDays === 1 ? '' : 's') + ' old' : ' · today')"></span>
+                <span x-show="ir.report.falseIntel" class="accent-red font-bold" title="Catastrophe — present it to the players as a marginal success; the details are wrong (RR p.455)"> · FALSE INTEL (GM)</span></p>
+              <p class="opacity-80" x-show="ir.report.revealed" x-text="armyIntelSummary(ir.report)"></p>
+              <p x-show="ir.report.prisoner">⛓ <span class="font-semibold" x-text="(ir.report.prisoner ? ir.report.prisoner.grade : '') + ' prisoner'"></span>
+                <span x-text="' — ' + (ir.report.prisoner ? ir.report.prisoner.revealedPieceIdxs.length + ' of ' + ir.report.prisoner.pieces.length : '') + ' pieces revealed'"></span>
+                · <button @click="armyInterrogate(ir.index)" class="underline">🗣 interrogate (2d6 + CHA ± GM)</button></p>
+              <template x-for="(pc, pci) in armyRevealedPieces(ir.report)" :key="'pc-' + ir.index + '-' + pci">
+                <p class="ml-3 opacity-80">• <span x-text="pc"></span></p>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- the warfare verbs — the domain the army stands in -->
+        <template x-if="armyWarfare()">
+          <div class="border-t border-ink/20 pt-2 mt-2">
+            <p class="font-semibold text-xs uppercase tracking-wide opacity-70 mb-1">⚑ The ground it stands on (RR pp.458–459)</p>
+            <p class="text-xs">
+              <span class="font-semibold" x-text="armyWarfare().domain.name || armyWarfare().domain.id"></span>
+              <span x-show="armyWarfare().friendly" class="opacity-70"> — friendly ground.</span>
+              <span x-show="!armyWarfare().friendly && !armyWarfare().conquered" class="accent-red font-semibold" x-text="' — ' + (armyWarfare().invaded ? 'INVADED' : 'unfriendly ground (entering = invasion)')"></span>
+              <span x-show="armyWarfare().conquered" class="font-semibold"> — conquered; the leader rules it.</span>
+            </p>
+            <p class="text-xs opacity-80" x-show="!armyWarfare().friendly && armyWarfare().occupation && armyWarfare().occupation.peasantFamilies > 0"
+               x-text="'Occupation math: ' + armyWarfare().occupation.occupyingWages.toLocaleString() + 'gp of occupying wages − ' + armyWarfare().occupation.defendingWages.toLocaleString() + 'gp defending = ' + armyWarfare().occupation.netPerFamily.toFixed(1) + 'gp/family vs the ' + armyWarfare().occupation.threshold + 'gp garrison cost → ' + (armyWarfare().occupation.occupied ? 'OCCUPIED' : 'not occupied')"></p>
+            <p class="text-xs" x-show="armyWarfare().occupiedByLeader">
+              🏴 <span class="font-semibold">Occupied</span> since turn <span x-text="armyWarfare().domain.occupiedBy ? armyWarfare().domain.occupiedBy.sinceTurn : ''"></span> — conquest completes it:
+              <button @click="armyConquerDirect()" class="underline font-semibold" :disabled="!armyWarfare().conquestOk" :title="armyWarfare().conquestReason || ''">⚑ rule it directly</button>
+              · <button @click="armyConquerVassal()" class="underline font-semibold" :disabled="!armyWarfare().conquestOk" :title="armyWarfare().conquestReason || ''">⚑ grant to a vassal…</button>
+              <span x-show="!armyWarfare().conquestOk" class="accent-red" x-text="' — ' + (armyWarfare().conquestReason || '')"></span>
+            </p>
+            <p class="text-xs" x-show="armyWarfare().garrisonUnits > 0 && !armyWarfare().friendly">
+              🛡 The garrison holds (<span x-text="armyWarfare().garrisonUnits"></span> units) —
+              <button @click="armyBattleGarrison()" class="underline accent-red font-semibold">🎌 battle the garrison</button>
+              <span class="opacity-60">(a garrisoned stronghold blocks conquest until it falls; sieges land at W6)</span>
+            </p>
+            <template x-if="armyWarfare().conquered && !armySelected().pillage">
+              <p class="text-xs">
+                🔥 Plunder the prize:
+                <button @click="armyPillageGo(false)" class="underline font-semibold">pillage</button>
+                · <button @click="armyPillageGo(true)" class="underline accent-red font-semibold">salt the earth (×4 time — the domain is destroyed)</button>
+                <span class="opacity-60" x-text="' — needs ' + armyWarfare().pillageReq.troops.toLocaleString() + ' troops for full yield (' + armyWarfare().pillageReq.timeLabel + '); a smaller force takes its proportion'"></span>
+              </p>
+            </template>
+            <template x-if="armySelected().pillage">
+              <p class="text-xs accent-red font-semibold">🔥 <span x-text="(armySelected().pillage.saltTheEarth ? 'Salting the earth of ' : 'Pillaging ') + (armyWarfare().domain.name || 'the domain')"></span>
+                — day <span x-text="armyPillageElapsed()"></span> of <span x-text="armySelected().pillage.daysRequired"></span> (the Day Clock completes it)
+                · <button @click="armyPillageCutShort()" class="underline">⏹ cut it short (proportional yield)</button></p>
+            </template>
+          </div>
+        </template>
+        <p class="text-xs opacity-60 mt-2 italic">The Day Clock runs the campaign cycle (RR p.447): initiative and reconnaissance each day opposing armies stand in range, contact where columns collide (the battle proposes itself), invasion morale rolls, occupation flips, pillage progress. Standing GM levers — magic, spies, stratagems, allies, permitted ground — live on the army in the 🔍 Inspector.</p>
+      </div>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic" x-show="!armySelected()">Armies march on the travel engine — slowest unit's pace, terrain and roads per hex, the RR p.449 weather table — and the campaign cycle runs on the Day Clock. Click an army to steer it.</p>
   </div>
 </div>
 
@@ -3222,6 +3411,13 @@ document.addEventListener('alpine:init', () => {
               </template>
               <p class="text-xs mt-1 opacity-80" x-show="isHouseRuleEnabled('vagaries-of-incursion') && incursionBands(selectedDomain).length === 0">No incursion bands stand in the domain.</p>
               <p class="text-xs mt-1 opacity-90 accent-red" x-show="selectedDomain.incursionXenophobiaPending && isHouseRuleEnabled('vagaries-of-incursion')">⚠ Peasant unease — monsters crossed the domain unchallenged: −1 on the next domain morale roll (JJ p.103).</p>
+              <!-- W4 — military occupation (RR p.458): the domain panel wears the state; the
+                   verbs live on the occupier's army card (World ▸ 🎖 Armies). -->
+              <template x-if="selectedDomain.occupiedBy">
+                <p class="text-sm mt-1 font-semibold accent-red">🏴 OCCUPIED
+                  <span x-text="' by ' + (((currentCampaign && currentCampaign.characters) || []).find(c => c && c.id === selectedDomain.occupiedBy.leaderCharacterId) || {name:'an invader'}).name + ' since turn ' + selectedDomain.occupiedBy.sinceTurn + ' — the peasants’ revenues flow to the occupier; morale runs under his authority at ' + selectedDomain.occupiedBy.moralePenalty + ' until conquest (RR p.458). Steer it from World ▸ 🎖 Armies.'"></span></p>
+              </template>
+              <p class="text-xs mt-1 opacity-90 accent-red" x-show="(selectedDomain.postOccupationPenaltyMonths || 0) > 0" x-text="'⚠ Recovering from ' + selectedDomain.postOccupationPenaltyMonths + ' month' + (selectedDomain.postOccupationPenaltyMonths === 1 ? '' : 's') + ' of occupation — −' + selectedDomain.postOccupationPenaltyMonths + ' on the next domain morale roll (RR p.458).'"></p>
             </div>
           </div>
 
@@ -12197,6 +12393,220 @@ return {
   // The list of World sub-tabs. Order (#225, 2026-06-02): Map, Domains, Hexes, then Rumors.
   // Map + Domains were promoted from top-level tabs into World sub-views. Rumors only appears
   // when rumors-manual is on. (Hexes uses ⬡ since Map now owns the 🗺 glyph.)
+  // ═══ Phase 3 Military W4 — World ▸ 🎖 Armies (the campaign layer) ═══════════
+  // The view is a read surface over the maneuvers engine (acks-engine-maneuvers.js);
+  // every write goes through an engine verb or commitStatEdit (gm-fiat). The Day
+  // Clock's slot-88 military consumer does the campaign cycle itself.
+  armiesRows(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const A = window.ACKS;
+    return (camp.armies || []).filter(Boolean).map(a => {
+      const troops = A.armyTroopCount(camp, a);
+      const prof = A.armyMarchProfile(camp, a);
+      const j = a.journeyId ? A.findJourney(camp, a.journeyId) : null;
+      const marching = j && j.status === 'in-transit';
+      const hex = (camp.hexes || []).find(h => h && h.id === a.currentHexId) || null;
+      const leader = (camp.characters || []).find(c => c && c.id === a.leaderCharacterId) || null;
+      return {
+        army: a, troops,
+        br: A.armyBattleRating(camp, a),
+        leaderName: leader ? leader.name : '—',
+        location: hex ? (A.hexName ? A.hexName(hex) : hex.id) : '—',
+        speed: prof.milesPerDay,
+        icon: a.pillage ? '🔥' : (marching ? '🧭' : (troops > 0 ? '🎖' : '🏚')),
+        state: a.pillage ? 'pillaging' : (marching ? ('marching → ' + this.hexLabelById(j.destinationHexId)) : (troops > 0 ? 'in the field' : 'no troops')),
+        fatigued: A.armyFatigued(camp, a).fatigued
+      };
+    });
+  },
+  armySelected(){
+    const camp = this.currentCampaign; if(!camp || !this.armiesSelectedId) return null;
+    return (camp.armies || []).find(a => a && a.id === this.armiesSelectedId) || null;
+  },
+  armySelRow(){
+    const a = this.armySelected(); if(!a) return { troops: 0, br: 0, speed: 0 };
+    const camp = this.currentCampaign, A = window.ACKS;
+    return { troops: A.armyTroopCount(camp, a), br: A.armyBattleRating(camp, a), speed: A.armyMarchProfile(camp, a).milesPerDay };
+  },
+  armySelProfile(){
+    const a = this.armySelected(); if(!a) return {};
+    return window.ACKS.armyMarchProfile(this.currentCampaign, a);
+  },
+  armySelFatigue(){
+    const a = this.armySelected(); if(!a) return { fatigued: false, reasons: [] };
+    return window.ACKS.armyFatigued(this.currentCampaign, a);
+  },
+  armySelJourney(){
+    const a = this.armySelected(); if(!a || !a.journeyId) return null;
+    return window.ACKS.findJourney(this.currentCampaign, a.journeyId);
+  },
+  hexLabelById(hexId){
+    const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === hexId);
+    return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (hexId || '—');
+  },
+  armyMarchGo(){
+    const a = this.armySelected(); if(!a || !this.armyMarchDest) return;
+    const r = window.ACKS.startArmyMarch(this.currentCampaign, a.id, { destinationHexId: this.armyMarchDest, pace: this.armyMarchPace });
+    if(!r.ok){
+      const why = { 'no-units': 'the army has no troops', 'pillaging': 'the army is pillaging and cannot move (RR p.459)', 'already-marching': 'it is already on the march', 'no-position': 'the army has no current hex (set one in the Inspector)', 'no-destination': 'pick a destination' }[r.reason] || r.reason;
+      this.showToast('🎖 Cannot march — ' + why + '.');
+      return;
+    }
+    this.armyMarchDest = '';
+    this.showToast('🧭 ' + (a.name || 'The army') + ' sets out — the Day Clock marches it (+1 day).');
+    this.persistSession && this.persistSession();
+  },
+  armyMarchStop(){
+    const a = this.armySelected(); if(!a) return;
+    window.ACKS.stopArmyMarch(this.currentCampaign, a.id, 'halted by the GM');
+    this.showToast('🛑 ' + (a.name || 'The army') + ' halts where it stands.');
+    this.persistSession && this.persistSession();
+  },
+  armySetStance(v){
+    const a = this.armySelected(); if(!a || a.strategicStance === v) return;
+    this.commitStatEdit({ entityType: 'army', entityId: a.id, entity: a, fieldPath: 'strategicStance', label: 'Strategic stance', oldValue: a.strategicStance || 'defensive', newValue: v, suppressFromCampaignLog: true });
+  },
+  armySetWarMachines(mode){
+    const a = this.armySelected(); if(!a) return;
+    const oldV = a.warMachines || null;
+    let newV = null;
+    if(mode === 'assembled' || mode === 'disassembled'){
+      const n = (oldV && oldV.count) || 1;
+      newV = { count: n, assembled: mode === 'assembled' };
+    }
+    this.commitStatEdit({ entityType: 'army', entityId: a.id, entity: a, fieldPath: 'warMachines', label: 'War machines', oldValue: oldV, newValue: newV, suppressFromCampaignLog: true });
+  },
+  armyIntelRows(){
+    const a = this.armySelected(); if(!a) return [];
+    const camp = this.currentCampaign;
+    const reports = (a.intelReports || []);
+    // newest first; the latest per opposing army leads, older reports collapse away
+    const out = [], seen = {};
+    for(let i = reports.length - 1; i >= 0; i--){
+      const rep = reports[i]; if(!rep) continue;
+      const hasPrisoner = rep.prisoner && rep.prisoner.revealedPieceIdxs.length < rep.prisoner.pieces.length;
+      if(seen[rep.opposingArmyId] && !hasPrisoner) continue;   // older + nothing left to interrogate
+      seen[rep.opposingArmyId] = true;
+      const opp = (camp.armies || []).find(x => x && x.id === rep.opposingArmyId) || null;
+      out.push({
+        index: i, report: rep,
+        opposingName: opp ? (opp.name || opp.id) : (rep.opposingArmyId || 'an army'),
+        ageDays: Math.max(0, (window.ACKS.worldOrd(camp) - (rep.atOrd || 0)))
+      });
+      if(out.length >= 8) break;
+    }
+    return out;
+  },
+  armyIntelSummary(rep){
+    const r = rep && rep.revealed; if(!r) return '';
+    const bits = ['location: ' + r.locationPrecision + (r.locationHexId ? (' (' + this.hexLabelById(r.locationHexId) + ')') : '')];
+    if(r.sizeBand) bits.push(r.sizeBand);
+    if(r.direction) bits.push('marching ' + r.direction);
+    if(r.divisions != null) bits.push(r.divisions + ' division' + (r.divisions === 1 ? '' : 's'));
+    if(r.unitsPerDivision) bits.push('units/division: ' + r.unitsPerDivision.join('/') + (r.unitScale ? (' (' + r.unitScale + '-scale)') : ''));
+    if(r.unitTypes) bits.push('types: ' + r.unitTypes.join(', '));
+    if(r.unitStrengths) bits.push('strengths: ' + r.unitStrengths.map(u => u.name + ' ' + u.troops).join(', '));
+    return bits.join(' · ');
+  },
+  armyRevealedPieces(rep){
+    if(!rep || !rep.prisoner) return [];
+    return rep.prisoner.revealedPieceIdxs.map(i => { const p = rep.prisoner.pieces[i]; return p ? p.text : null; }).filter(Boolean);
+  },
+  armyInterrogate(reportIndex){
+    const a = this.armySelected(); if(!a) return;
+    const gmRaw = prompt('Interrogation (RR p.457): 2d6 + the interrogator’s CHA. GM modifier for proficiencies / bribes (e.g. +3 for a month’s pay)?', '0');
+    if(gmRaw === null) return;
+    const out = window.ACKS.interrogatePrisoner(this.currentCampaign, {
+      armyId: a.id, reportIndex, interrogatorCharacterId: a.leaderCharacterId || null, gmMod: parseInt(gmRaw, 10) || 0
+    });
+    if(!out.ok){ this.showToast('🗣 No prisoner to interrogate.'); return; }
+    if(out.result === 'false') this.showToast('🗣 Rolled ' + out.total + ' → FALSE information — invent a plausible lie for the players (RR p.457).');
+    else if(out.revealedPieces.length === 0) this.showToast('🗣 Rolled ' + out.total + ' → ' + out.resultLabel + ' — the prisoner gives nothing new.');
+    else this.showToast('🗣 Rolled ' + out.total + ' → ' + out.resultLabel + ': ' + out.revealedPieces.length + ' piece' + (out.revealedPieces.length === 1 ? '' : 's') + ' revealed below.');
+    this.persistSession && this.persistSession();
+  },
+  armyWarfare(){
+    const a = this.armySelected(); if(!a || !a.currentHexId) return null;
+    const camp = this.currentCampaign, A = window.ACKS;
+    const hex = (camp.hexes || []).find(h => h && h.id === a.currentHexId);
+    if(!hex || !hex.domainId) return null;
+    const domain = (this.domains || []).find(d => d && d.id === hex.domainId);
+    if(!domain) return null;
+    const friendly = A.domainFriendlyToArmy(camp, domain, a);
+    const conquered = !!(a.leaderCharacterId && domain.rulerCharacterId === a.leaderCharacterId && !domain.occupiedBy);
+    const occupation = friendly ? null : A.domainOccupationStatus(camp, domain);
+    const elig = (domain.occupiedBy && a.leaderCharacterId) ? A.conquestEligibility(camp, domain.id, a.leaderCharacterId) : { ok: false, reason: null };
+    const reasonText = { 'defenders-hold-strongholds': 'defenders still hold the strongholds — break the garrison first', 'occupied-by-another': 'another leader holds the occupation', 'not-occupied': 'occupy it first (the wages math, RR p.458)' }[elig.reason] || null;
+    return {
+      domain, friendly, conquered,
+      invaded: !!((a.invasions || {})[domain.id]),
+      occupation,
+      occupiedByLeader: !!(domain.occupiedBy && domain.occupiedBy.leaderCharacterId === a.leaderCharacterId),
+      conquestOk: elig.ok, conquestReason: reasonText,
+      garrisonUnits: A.unitsStationedAt(camp, { kind: 'domain-garrison', id: domain.id }).filter(u => u && Math.max(0, (u.count || 0) - (u.casualties || 0)) > 0).length,
+      pillageReq: A.pillageRequirementRow(A.totalFamilies(domain))
+    };
+  },
+  armyConquerDirect(){
+    const a = this.armySelected(); const w = this.armyWarfare(); if(!a || !w) return;
+    if(!confirm('Conquer ' + (w.domain.name || 'the domain') + ' and rule it directly? The old fealty is severed; the conqueror becomes its ruler (RR p.458).')) return;
+    const r = window.ACKS.conquerDomain(this.currentCampaign, w.domain.id, { leaderCharacterId: a.leaderCharacterId, mode: 'rule-directly', armyId: a.id });
+    this.showToast(r.ok ? ('⚑ ' + (w.domain.name || 'The domain') + ' is conquered — its ruler now ' + (this.currentCampaign.characters.find(c => c.id === r.newRulerId) || {}).name + '.') : ('⚑ Conquest refused — ' + r.reason));
+    if(r.ok && this.persistSession) this.persistSession();
+  },
+  armyConquerVassal(){
+    const a = this.armySelected(); const w = this.armyWarfare(); if(!a || !w) return;
+    const candidates = (this.currentCampaign.characters || []).filter(c => c && c.id !== a.leaderCharacterId && (window.ACKS.isActive ? window.ACKS.isActive(c) : true));
+    const list = candidates.slice(0, 30).map((c, i) => (i + 1) + ') ' + c.name).join('\n');
+    const pick = prompt('Grant ' + (w.domain.name || 'the domain') + ' to which vassal? (RR p.458)\n' + list, '1');
+    if(pick === null) return;
+    const ch = candidates[(parseInt(pick, 10) || 0) - 1];
+    if(!ch){ this.showToast('⚑ No such candidate.'); return; }
+    const r = window.ACKS.conquerDomain(this.currentCampaign, w.domain.id, { leaderCharacterId: a.leaderCharacterId, mode: 'grant-to-vassal', newRulerCharacterId: ch.id, armyId: a.id });
+    this.showToast(r.ok ? ('⚑ ' + (w.domain.name || 'The domain') + ' granted to ' + ch.name + ' as a vassal of the conqueror.') : ('⚑ Conquest refused — ' + r.reason));
+    if(r.ok && this.persistSession) this.persistSession();
+  },
+  armyPillageGo(salt){
+    const a = this.armySelected(); const w = this.armyWarfare(); if(!a || !w) return;
+    if(!confirm((salt ? 'SALT THE EARTH of ' : 'Pillage ') + (w.domain.name || 'the domain') + '? ' + (salt ? 'Four times the time; the domain is destroyed when it ends (RR p.459).' : 'The Day Clock completes it (' + w.pillageReq.timeLabel + ').'))) return;
+    const r = window.ACKS.beginPillage(this.currentCampaign, { armyId: a.id, domainId: w.domain.id, saltTheEarth: !!salt });
+    if(!r.ok){
+      const why = { 'not-conquered': 'conquer the domain first (an unconquered domain is merely looted — W5)', 'not-in-domain': 'the army must stand in the domain', 'already-pillaging': 'it is already pillaging', 'still-marching': 'halt the march first', 'nothing-left': 'nothing remains to take' }[r.reason] || r.reason;
+      this.showToast('🔥 Cannot pillage — ' + why + '.');
+      return;
+    }
+    this.showToast('🔥 The ' + (salt ? 'destruction' : 'pillage') + ' begins — ' + r.pillage.daysRequired + ' day' + (r.pillage.daysRequired === 1 ? '' : 's') + ' on the Day Clock.');
+    this.persistSession && this.persistSession();
+  },
+  armyPillageElapsed(){
+    const a = this.armySelected(); if(!a || !a.pillage) return 0;
+    return Math.min(a.pillage.daysRequired, Math.max(1, window.ACKS.worldOrd(this.currentCampaign) - a.pillage.startedOrd + 1));
+  },
+  armyPillageCutShort(){
+    const a = this.armySelected(); if(!a || !a.pillage) return;
+    const elapsed = this.armyPillageElapsed();
+    if(!confirm('Cut the pillage short after ' + elapsed + ' of ' + a.pillage.daysRequired + ' days? The yield scales to the time spent (RR p.459).')) return;
+    const r = window.ACKS.resolvePillage(this.currentCampaign, a.id, { timeRatio: elapsed / a.pillage.daysRequired });
+    if(r.ok) this.showToast('🔥 ' + r.results.gold.toLocaleString() + 'gp plundered, ' + r.results.prisoners + ' prisoners, ' + r.results.familiesLost + ' families lost.');
+    this.persistSession && this.persistSession();
+  },
+  armyRansomGo(){
+    const a = this.armySelected(); if(!a || !(a.prisoners > 0)) return;
+    const raw = prompt('Ransom how many of the ' + a.prisoners + ' prisoners at 40gp a head (RR p.458)?', String(a.prisoners));
+    if(raw === null) return;
+    const r = window.ACKS.ransomPrisoners(this.currentCampaign, { armyId: a.id, count: parseInt(raw, 10) || 0 });
+    this.showToast(r.ok ? ('💰 ' + r.count + ' prisoners ransomed for ' + r.gp.toLocaleString() + 'gp (spoils XP to the leader).') : '💰 No prisoners ransomed.');
+    if(r.ok && this.persistSession) this.persistSession();
+  },
+  armyBattleGarrison(){
+    const a = this.armySelected(); const w = this.armyWarfare(); if(!a || !w) return;
+    this.openBattleWizard({
+      hexId: a.currentHexId || '',
+      sourceA: 'army:' + a.id, sourceB: 'garrison:' + w.domain.id,
+      stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual'
+    });
+  },
+
   // ═══ Phase 3 Military W3 — World ▸ 🎌 Battles + the battle panel ═══════════
   // The panel is the step-walking surface over acks-engine-battles.js (the encounter-panel
   // pattern at army scale): setup (zones, commanders, missile/loose ticks — DIRECT working-
@@ -12429,6 +12839,9 @@ return {
     // #476 E2 — encounters (campaign.encounters[]). The badge counts ACTIVE ones — the
     // "needs the GM" signal (resolved encounters stay browsable inside the view).
     tabs.push({ id:'encounters', label:'⚔ Encounters', count: (window.ACKS.activeEncounters(this.currentCampaign) || []).length || null });
+    // Phase 3 Military W4 — armies (campaign.armies[]). The badge counts the armies with
+    // troops in the field; the view is the campaign layer's steering surface.
+    tabs.push({ id:'armies', label:'🎖 Armies', count: ((this.currentCampaign && this.currentCampaign.armies) || []).filter(a => a && window.ACKS.armyTroopCount && window.ACKS.armyTroopCount(this.currentCampaign, a) > 0).length || null });
     // Phase 3 Military W3 — battles (campaign.battles[]). The badge counts the ones still
     // in motion (setup / fighting / ended-awaiting-aftermath); resolved battles stay browsable.
     tabs.push({ id:'battles', label:'🎌 Battles', count: (window.ACKS.activeBattles(this.currentCampaign) || []).length || null });
@@ -17014,6 +17427,10 @@ return {
   battleWizard: null,            // the new-battle launcher's working object (null = closed)
   battleForayDraft: null,        // the declare-a-foray form (null = closed)
   battleForayOutcome: {},        // per-foray outcome inputs, keyed by foray id
+  // Phase 3 Military W4 — World ▸ 🎖 Armies (RR pp.447–460): the campaign card's state.
+  armiesSelectedId: null,
+  armyMarchDest: '',
+  armyMarchPace: 'normal',
   battleHeroDraft: null,         // the add-hero-unit form (null = closed)
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
