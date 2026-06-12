@@ -931,6 +931,16 @@ document.addEventListener('alpine:init', () => {
       <template x-if="battleWizard">
         <div>
           <p class="font-bold text-sm mb-2">⚔ Set up a battle</p>
+          <!-- Quick-pick the foe standing on the SAME hex (sets Side B) — populated when a hex is
+               chosen, e.g. launched from the Army view's 🎌 Start a battle. -->
+          <template x-if="battleWizard.hexId && battleTargetsAtHex(battleWizard.hexId, _battleSourceArmyId(battleWizard.sourceA)).length">
+            <div class="mb-2 text-sm flex flex-wrap items-center gap-2">
+              <span class="opacity-70 text-xs">Forces at <span class="font-semibold" x-text="battleHexNameFor(battleWizard.hexId)"></span> — pick a foe (Side B):</span>
+              <template x-for="o in battleTargetsAtHex(battleWizard.hexId, _battleSourceArmyId(battleWizard.sourceA))" :key="'tq-'+o.key">
+                <button @click="battleWizard.sourceB = o.key" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100" :class="battleWizard.sourceB===o.key ? 'bg-yellow-200 font-semibold' : ''" x-text="o.label"></button>
+              </template>
+            </div>
+          </template>
           <div class="grid md:grid-cols-2 gap-3 text-sm">
             <div class="space-y-1">
               <label class="block"><span class="font-semibold">Side A</span>
@@ -7172,6 +7182,7 @@ document.addEventListener('alpine:init', () => {
               <span x-show="armySelFatigue().fatigued" class="accent-red font-semibold" x-text="'⚠ FATIGUED — ' + armySelFatigue().reasons.join('; ')"></span>
               <span x-show="!armySelFatigue().fatigued">rested</span>
             </p>
+            <button @click="armyStartBattle()" class="text-xs underline accent-red font-semibold" title="Set up a battle with this army — pick a foe standing on the same hex (RR pp.461–462)">🎌 Start a battle</button>
             <button @click="armyDisband()" class="text-xs underline accent-red" title="Disband this army — its units return to the unstationed pool">🗑 Disband</button>
           </div>
         </div>
@@ -13086,6 +13097,17 @@ return {
       stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual'
     });
   },
+  // Start a battle from the Army view: side A = this army, hex = where it stands, and the
+  // launcher leads with whatever forces stand on the SAME hex as the foe to pick.
+  armyStartBattle(){
+    const a = this.armySelected(); if(!a) return;
+    const hexId = a.currentHexId || '';
+    const targets = this.battleTargetsAtHex(hexId, a.id);
+    const prefill = { hexId, sourceA: 'army:' + a.id, stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual', scale: 'company', asymmetry: false };   // the army starts the fight → the aggressor seeks battle (the GM can change stances in the launcher)
+    if(targets.length === 1){ prefill.sourceB = targets[0].key; if(String(targets[0].key).startsWith('group:')) prefill.asymmetry = true; }   // a lone band foe → asymmetry on (RR p.464)
+    this.openBattleWizard(prefill);
+    if(targets.length === 0 && hexId){ const h = (this.currentCampaign.hexes||[]).find(x => x && x.id === hexId); this.showToast('No other force stands at ' + (window.ACKS.hexName ? window.ACKS.hexName(h||{id:hexId}) : hexId) + ' — pick a target in the launcher, or march the army to the enemy first.'); }
+  },
 
   // ═══ Phase 3 Military W3 — World ▸ 🎌 Battles + the battle panel ═══════════
   // The panel is the step-walking surface over acks-engine-battles.js (the encounter-panel
@@ -13150,6 +13172,27 @@ return {
     }
     return out;
   },
+  // The battle sources PRESENT at a hex — for the army-view "Start a battle" target picker:
+  // other armies standing here, the holding domain's garrison, and any monster / incursion
+  // bands here. Same {key,label} shape as battleSourceOptions (a hex-scoped subset).
+  battleTargetsAtHex(hexId, excludeArmyId){
+    const camp = this.currentCampaign; if(!camp || !hexId) return [];
+    const A = window.ACKS; const out = [];
+    const armiesHere = A.armiesAtHex ? A.armiesAtHex(camp, hexId) : (camp.armies || []).filter(x => x && x.currentHexId === hexId);
+    for(const a of armiesHere){ if(a.id === excludeArmyId) continue; out.push({ key: 'army:' + a.id, label: '🎖 ' + (a.name || a.id) + ' (' + A.armyUnits(camp, a).length + ' units)' }); }
+    const hex = (camp.hexes || []).find(h => h && h.id === hexId);
+    const domId = hex && hex.domainId;
+    if(domId){
+      const dom = (this.domains || []).find(d => d && d.id === domId) || (camp.domains || []).find(d => d && d.id === domId);
+      const n = A.unitsStationedAt(camp, { kind: 'domain-garrison', id: domId }).length;
+      if(n > 0) out.push({ key: 'garrison:' + domId, label: '🛡 ' + ((dom && dom.name) || domId) + ' garrison (' + n + ' units)' });
+    }
+    const bandsHere = A.groupsAtHex ? A.groupsAtHex(camp, hexId) : (camp.groups || []).filter(x => x && x.currentHexId === hexId);
+    for(const g of bandsHere){ const active = Math.max(0, (g.count || 0) - (g.casualties || 0)); if(active > 0) out.push({ key: 'group:' + g.id, label: '🐉 ' + (g.name || (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || g.id) + ' (' + active + ')' }); }
+    return out;
+  },
+  _battleSourceArmyId(key){ return (key && String(key).startsWith('army:')) ? String(key).split(':')[1] : null; },
+  battleHexNameFor(hexId){ const h = hexId && (this.currentCampaign?.hexes || []).find(x => x && x.id === hexId); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (hexId || 'the field'); },
   openBattleWizard(prefill){
     const p = prefill || {};
     this.battleWizard = {
