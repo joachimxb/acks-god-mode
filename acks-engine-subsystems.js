@@ -144,6 +144,126 @@ function advanceCalendarOneDay(campaign){
   return d;
 }
 
+// ─── Review-tab calendar cursors + dated event reads (2026-06-13) ────────────
+// The Review ▸ Pending Events tables page through the calendar (◀ today ▶). These
+// are pure derived reads — nothing here mutates the campaign. Turn numbers and the
+// calendar advance in lockstep (commitTurn does both), so a month offset of -1 is
+// both "last calendar month" and "turn − 1"; the cursors carry the pair.
+
+// The current calendar position shifted by `monthOffset` whole months.
+// → { year, month, turn, label } on the fixed 12-month / 30-day-per-month clock.
+function calendarShiftMonths(campaign, monthOffset){
+  const cal = (campaign && campaign.calendar) || {};
+  const off = monthOffset || 0;
+  const baseY = cal.year || 1, baseM = cal.month || 1;
+  const total = (baseY * 12 + (baseM - 1)) + off;     // months since year 0
+  const year = Math.floor(total / 12);
+  const month = (total % 12 + 12) % 12 + 1;
+  const turn = ((campaign && campaign.currentTurn) || 1) + off;
+  return { year, month, turn, label: monthName(campaign, month) + ', Year ' + year };
+}
+
+// The current calendar position shifted by `dayOffset` days (30-day months).
+// → { year, month, day, turn, label, isToday }.
+function calendarDayShift(campaign, dayOffset){
+  const dim = (campaign && campaign.currentDayInMonth) || 1;
+  const total = dim + (dayOffset || 0);               // 1-based day within the current month
+  const monthShift = Math.floor((total - 1) / 30);
+  const day = ((total - 1) % 30 + 30) % 30 + 1;
+  const m = calendarShiftMonths(campaign, monthShift);
+  return {
+    year: m.year, month: m.month, day, turn: m.turn,
+    // "Day 12 of Mosadios, Year 2" — reads right for named AND generic ("Month 3") calendars.
+    label: 'Day ' + day + ' of ' + monthName(campaign, m.month) + ', Year ' + m.year,
+    isToday: (dayOffset || 0) === 0
+  };
+}
+
+// An event's day stamp, when it carries one: appliedAtDay (the #346 errand stamp set at
+// apply time) or gameTimeAt.day (the day-tick emissions). Null = month-grained.
+function _eventDayStamp(ev){
+  if(!ev) return null;
+  if(ev.appliedAtDay != null) return ev.appliedAtDay;
+  if(ev.gameTimeAt && ev.gameTimeAt.day != null) return ev.gameTimeAt.day;
+  return null;
+}
+
+// Uniform row shape for the Review ▸ Pending Events tables. `entryOrEv` is either a
+// pendingEvents[] event (isPending) or an eventLog[] wrapper {event, result, appliedAtTurn}.
+function _reviewEventRow(entryOrEv, isPending){
+  const ev = isPending ? entryOrEv : ((entryOrEv && entryOrEv.event) || entryOrEv);
+  const res = isPending ? null : (entryOrEv && entryOrEv.result) || null;
+  return {
+    isPending: !!isPending,
+    id: ev.id,
+    kind: ev.kind,
+    status: isPending ? 'pending' : (ev.status || 'applied'),
+    submittedBy: ev.submittedBy || '',
+    summary: (res && res.narrativeSummary) || '',
+    targetTurn: ev.targetTurn != null ? ev.targetTurn : null,
+    day: _eventDayStamp(ev),
+    campaignLogHidden: !isPending && !!(entryOrEv && entryOrEv.campaignLogHidden),
+    event: ev
+  };
+}
+
+// Every DAY-dated event on one calendar day — committed log entries plus any
+// future-dated pending events. `info` is a calendarDayShift() cursor. Month-grained
+// events (no day stamp) belong to monthlyEventsForReview below.
+function eventsOnCalendarDay(campaign, info){
+  if(!campaign || !info) return [];
+  const rows = [];
+  (campaign.eventLog || []).forEach(entry => {
+    const ev = (entry && entry.event) || entry;
+    if(!ev) return;
+    const evDay = _eventDayStamp(ev);
+    if(evDay == null) return;
+    const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+    const gta = ev.gameTimeAt;
+    // A full game-date stamp matches on (year, month, day); a bare day stamp on (turn, day).
+    const matches = (gta && gta.day != null)
+      ? (gta.year === info.year && gta.month === info.month && gta.day === info.day)
+      : (evTurn === info.turn && evDay === info.day);
+    if(matches) rows.push(_reviewEventRow(entry, false));
+  });
+  (campaign.pendingEvents || []).forEach(ev => {
+    if(!ev || ev.status !== 'pending') return;
+    const evDay = _eventDayStamp(ev);
+    if(evDay == null) return;
+    const gta = ev.gameTimeAt;
+    const matches = (gta && gta.day != null)
+      ? (gta.year === info.year && gta.month === info.month && gta.day === info.day)
+      : ((ev.targetTurn || 0) === info.turn && evDay === info.day);
+    if(matches) rows.push(_reviewEventRow(ev, true));
+  });
+  return rows;
+}
+
+// Every MONTH-grained event for one month: the pending queue targeting that turn
+// (overdue items surface on the CURRENT month — they're due now) + the turn's applied
+// log entries. Pending rows lead. `info` is a calendarShiftMonths() cursor.
+function monthlyEventsForReview(campaign, info){
+  if(!campaign || !info) return [];
+  const currentTurn = (campaign.currentTurn || 1);
+  const pending = [], logged = [];
+  (campaign.pendingEvents || []).forEach(ev => {
+    if(!ev || ev.status !== 'pending') return;
+    if(_eventDayStamp(ev) != null) return;            // the daily table's business
+    const t = ev.targetTurn || 0;
+    const onItsMonth = (t === info.turn);
+    const dueNow = (info.turn === currentTurn && t <= currentTurn);
+    if(onItsMonth || dueNow) pending.push(_reviewEventRow(ev, true));
+  });
+  (campaign.eventLog || []).forEach(entry => {
+    const ev = (entry && entry.event) || entry;
+    if(!ev) return;
+    if(_eventDayStamp(ev) != null) return;
+    const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+    if(evTurn === info.turn) logged.push(_reviewEventRow(entry, false));
+  });
+  return pending.concat(logged);
+}
+
 // =============================================================================
 // 9.54 HIRELINGS & LOYALTY (Phase 2.95)
 // =============================================================================
@@ -4286,7 +4406,10 @@ function commitSurvivalRecord(campaign, record){
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
-  CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
+  CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay,
+  // Review tab (2026-06-13) — calendar cursors + dated event reads for Pending Events.
+  calendarShiftMonths, calendarDayShift, eventsOnCalendarDay, monthlyEventsForReview,
+  rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
   tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, advanceJourneyOneDay, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName, journeyBaseSpeedMilesPerDay,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).

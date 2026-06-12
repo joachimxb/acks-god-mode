@@ -8595,6 +8595,27 @@ function dayTickActivityInFlight(campaign){
   return false;
 }
 
+// What HOLDS the world clock (Review tab, 2026-06-13): sub-day-scale situations that need
+// the GM resolved before another day passes — active Encounters (the RAW pre-combat walk)
+// and Battles still in motion (setup / fighting / awaiting aftermath; ~10-minute battle
+// turns). The advance buttons grey while any exist. Month-grained obligations (the
+// pendingEvents queue — player plans, scheduled loyalty checks) deliberately do NOT hold
+// the day clock: they ride until the month commit, where the turn resolution forces a
+// decision per event (eventsTargetingTurn). Pure derived read.
+function dailyAdvanceBlockers(campaign){
+  if(!campaign) return [];
+  const out = [];
+  (activeEncounters(campaign) || []).forEach(e => {
+    out.push({ kind: 'encounter', id: e.id, label: encounterDisplayName(campaign, e) });
+  });
+  // activeBattles lives in acks-engine-battles.js (loads after this module) — call-time lookup.
+  const battlesFn = global.ACKS && typeof global.ACKS.activeBattles === 'function' ? global.ACKS.activeBattles : null;
+  ((battlesFn ? battlesFn(campaign) : []) || []).forEach(b => {
+    out.push({ kind: 'battle', id: b.id, label: (b.name || b.id) + (b.status === 'ended' ? ' — awaiting aftermath' : '') });
+  });
+  return out;
+}
+
 // PROPOSE half of the day-tick commit pipeline (Calendar §10). Advances up to `days`
 // days on a deep-cloned working copy so the real campaign is untouched, accumulating
 // pending records for GM review. Stops early (paused) when a consumer surfaces a
@@ -9663,6 +9684,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
   dayTickContext, isDayTickRuleOn, dayTickPauseReasons, dayTickActivityInFlight,
+  dailyAdvanceBlockers,
   proposeDayTick, commitDayTick, runDayTickToMonthEnd, emitDayTickEvents,
   proposeConstructionDay, commitConstructionRecord,
   // Construction-specific helpers
