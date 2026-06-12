@@ -3091,12 +3091,17 @@ function qualifiesAsLieutenant(character, scale, opts){ return qualifiesAsOffice
 
 // ─── Army derived reads ───
 
+function _findCharacterById(campaign, characterId){
+  if(!campaign || !Array.isArray(campaign.characters) || !characterId) return null;
+  return campaign.characters.find(c => c && c.id === characterId) || null;
+}
+
 // RR pp.462–463 — army BR: Σ unit BRs, rounded down; the leader's strategic ability
 // adds +0.5 per unit at SA ≥ +3 and +1.0 per unit at SA ≥ +5.
 function armyBattleRating(campaign, army){
   const units = armyUnits(campaign, army);
   let br = units.reduce((s, u) => s + unitBattleRating(campaign, u), 0);
-  const leader = army && army.leaderCharacterId ? findCharacter(campaign, army.leaderCharacterId) : null;
+  const leader = army && army.leaderCharacterId ? _findCharacterById(campaign, army.leaderCharacterId) : null;
   if(leader){
     const sa = strategicAbility(leader);
     if(sa >= 5) br += units.length * 1.0;
@@ -3115,7 +3120,7 @@ function armyWeeklySupplyCost(campaign, army){
 
 // RR p.435 — max divisions = the leader's leadership ability.
 function armyMaxDivisions(campaign, army){
-  const leader = army && army.leaderCharacterId ? findCharacter(campaign, army.leaderCharacterId) : null;
+  const leader = army && army.leaderCharacterId ? _findCharacterById(campaign, army.leaderCharacterId) : null;
   return leader ? leadershipAbility(leader) : 0;
 }
 
@@ -3125,7 +3130,7 @@ function validateArmyOrganization(campaign, army){
   const findings = [];
   if(!army) return findings;
   const units = armyUnits(campaign, army);
-  const leader = army.leaderCharacterId ? findCharacter(campaign, army.leaderCharacterId) : null;
+  const leader = army.leaderCharacterId ? _findCharacterById(campaign, army.leaderCharacterId) : null;
   if(!leader) findings.push({ code: 'no-leader', text: 'Army has no leader' });
   if(units.length < 3) findings.push({ code: 'under-3-units', text: 'An army must have at least 3 units (RR p.435) — has ' + units.length });
   const divisions = Array.isArray(army.divisions) ? army.divisions : [];
@@ -3147,7 +3152,7 @@ function validateArmyOrganization(campaign, army){
         findings.push({ code: 'division-unit-not-stationed', text: (u.displayName || uid) + ' is in ' + (dv.name || 'a division') + ' but not stationed to this army' });
       }
     }
-    const cmdr = dv.commanderCharacterId ? findCharacter(campaign, dv.commanderCharacterId) : null;
+    const cmdr = dv.commanderCharacterId ? _findCharacterById(campaign, dv.commanderCharacterId) : null;
     if(!cmdr) findings.push({ code: 'division-no-commander', text: (dv.name || 'Division') + ' has no commander (RR p.435)' });
     else {
       const q = qualifiesAsCommander(cmdr, scale);

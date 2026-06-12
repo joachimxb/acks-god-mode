@@ -682,7 +682,7 @@
       "scale": "company",
       "armySizeMin": 601,
       "armySizeMax": 3000,
-      "multiplier": null,
+      "multiplier": 1,
       "troopsPerUnitInfantry": 120,
       "troopsPerUnitCavalry": 60,
       "commanderQual": {
@@ -699,7 +699,7 @@
       "scale": "battalion",
       "armySizeMin": 3001,
       "armySizeMax": 12000,
-      "multiplier": null,
+      "multiplier": 4,
       "troopsPerUnitInfantry": 480,
       "troopsPerUnitCavalry": 240,
       "commanderQual": {
@@ -716,7 +716,7 @@
       "scale": "brigade",
       "armySizeMin": 12001,
       "armySizeMax": null,
-      "multiplier": null,
+      "multiplier": 16,
       "troopsPerUnitInfantry": 1920,
       "troopsPerUnitCavalry": 960,
       "commanderQual": {
