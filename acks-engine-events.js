@@ -130,6 +130,17 @@ const EVENT_KINDS = Object.freeze([
   // hex + the domain + the materialized Group. Record-only (the incursion day consumer's
   // commit already placed the band); chronicle-visible.
   'domain-incursion',
+  // Phase 3 Military W3 (2026-06-12) — the battle engine (RR pp.461–472). All three are
+  // record-only audits emitted by acks-engine-battles.js, stamping subdayContext =
+  // {cadence:'battle-turn', battleId, turnNumber} (the reserved field's second referent).
+  // battle-started: the engagement is joined (beginBattle); chronicle-visible.
+  'battle-started',
+  // battle-turn: one ~10-minute battle turn's digest (the lines ride the payload).
+  // Always campaignLogHidden — the audit trail; battle-resolved narrates.
+  'battle-turn',
+  // battle-resolved: the ONE comprehensive outcome record (applyBattleAftermath) —
+  // winner, casualties, spoils, XP; chronicle-visible.
+  'battle-resolved',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -475,6 +486,22 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { groupId: 'string', hexId: 'string', chance: 'object', identity: 'object',
          count: 'number', disposition: 'string', fullStrength: 'boolean', treasureType: 'string',
          reaction: 'object', recon: 'object', brComparison: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W3 — the battle engine audits (RR pp.461–472). Emitted by
+  // acks-engine-battles.js; the entity (campaign.battles[]) is the working state.
+  'battle-started': {
+    R: { battleId: 'string' },
+    O: { hexId: 'string', name: 'string', situation: 'string', scale: 'string',
+         sideA: 'object', sideB: 'object', narrative: 'string' }
+  },
+  'battle-turn': {
+    R: { battleId: 'string', turnNumber: 'number' },
+    O: { lines: 'object', narrative: 'string' }
+  },
+  'battle-resolved': {
+    R: { battleId: 'string' },
+    O: { winner: 'string', endedBy: 'string', turns: 'number', spoilsGp: 'number',
+         prisoners: 'number', casualties: 'object', xp: 'object', narrative: 'string' }
   },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
@@ -1958,6 +1985,16 @@ function applyEvent_domainIncursionAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || 'domain encounter (Vagaries of Incursion)' } };
 }
 registerEventHandler('domain-incursion', applyEvent_domainIncursionAudit);
+// Phase 3 Military W3 — the battle audits share the posture: acks-engine-battles.js
+// owns the world state (the Battle entity + the aftermath's casualty/XP writes); these
+// handlers only keep the events well-formed on replay.
+function applyEvent_battleAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'battle record' } };
+}
+registerEventHandler('battle-started', applyEvent_battleAudit);
+registerEventHandler('battle-turn', applyEvent_battleAudit);
+registerEventHandler('battle-resolved', applyEvent_battleAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -4907,7 +4944,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'domain-banditry',
   // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
   // the band; raw emit would narrate an arrival the world doesn't show).
-  'domain-incursion'
+  'domain-incursion',
+  // Phase 3 Military W3 — owned by the battle engine (beginBattle / runBattleTurn /
+  // applyBattleAftermath emit these; raw emit would narrate a fight the entity doesn't hold).
+  'battle-started', 'battle-turn', 'battle-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

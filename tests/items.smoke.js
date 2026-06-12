@@ -20,7 +20,7 @@ const DIR = path.join(__dirname, '..');
   'acks-engine-economy.js',
   'acks-engine-entity-registry.js',
   'acks-engine-field-schemas.js',
-  'acks-engine-events.js',
+  'acks-engine-events.js', 'acks-engine-battles.js',
   'acks-engine-subsystems.js',
 ].forEach(f => require(path.join(DIR, f)));
 const ACKS = global.ACKS;

@@ -278,6 +278,33 @@
       ]
     },
 
+    // Phase 3 Military W3 (2026-06-12) — Battle (RR pp.461–472). The Battles view +
+    // the battle panel are the working surface; the Inspector covers the scalar state
+    // (sides/forays/turnLog/aftermath are deep working records — Raw-JSON surgery).
+    'battle': {
+      factory: 'blankBattle',
+      groups: ['Identity', 'Situation', 'Options', 'State', 'History'],
+      fields: [
+        { name: 'id',            type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',          type: 'string', required: true, group: 'Identity' },
+        { name: 'hexId',         type: 'id', idKind: 'hex', group: 'Identity', description: 'Where the armies met — the terrain row drives foray distances + reinforcement throws' },
+        { name: 'scale',         type: 'enum', enumValues: ['platoon','company','battalion','brigade'], group: 'Identity', default: 'company', description: 'RR p.437 — unit BRs express at this scale' },
+        { name: 'awareness',     type: 'enum', enumValues: ['mutual','mutual-unawareness','unilateral-a','unilateral-b'], group: 'Situation', description: 'The reconnaissance state (RR p.461) — with the stances, it fixes the strategic situation' },
+        { name: 'situation',     type: 'enum', enumValues: ['pitched-battle','meeting-engagement','rear-guard-action','skirmish','ambush','envelopment','deep-envelopment','rear-guard-envelopment'], group: 'Situation' },
+        { name: 'attackerSide',  type: 'enum', enumValues: ['a','b'], group: 'Situation' },
+        { name: 'surprisedSide', type: 'enum', enumValues: ['a','b'], group: 'Situation', description: 'The surprised army (no attack throws turn 1; enemies +2) — blank when neither' },
+        { name: 'options',       type: 'object', group: 'Options', fields: [
+          { name: 'armySizeAsymmetry',   type: 'boolean', description: 'RR p.464 optional rule — a smaller attacker fights before the defender finishes deploying (recommended ON for monster fights)' },
+          { name: 'advantageousTerrain', type: 'enum', enumValues: ['a','b'], description: 'Which side holds the hill/ridgeline — attackers against it take −2' },
+          { name: 'cannotRetreat',       type: 'enum', enumValues: ['a','b','both'], description: 'Surrounded/trapped — +2 on that side\'s morale rolls' }
+        ] },
+        { name: 'status',        type: 'enum', enumValues: ['setup','fighting','ended','resolved'], readonly: true, group: 'State' },
+        { name: 'turnNumber',    type: 'number', readonly: true, group: 'State', description: 'Battle turns fought (~10 minutes each)' },
+        { name: 'notes',         type: 'string', group: 'History' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
     // Favors & Duties (#230, F&D-1 — 2026-06-08) — relation entity (RR pp.345–348).
     // Inspector-creatable: pick the liege + vassal domain + edict kind; the monthly turn
     // auto-rolls these by default (favor-duty-auto-roll). Every field is a blankFavorDutyObligation

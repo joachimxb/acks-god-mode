@@ -1,8 +1,7 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces.
-// Regenerated 2026-06-12 — Phase 3 Military W1: nested garrison units lifted to the
-// first-class campaign.units[] collection (reference-unified mirrors; military fields
-// lazy-defaulted) + the empty armies[] collection. Content unchanged otherwise.
+// Regenerated 2026-06-12 — Phase 3 Military W3: the empty battles[] collection
+// (the RR pp.461–472 battle engine's engagement records). Content unchanged otherwise.
 // migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
 global.ACKS_DEMO_TEMPLATE = {
@@ -5255,6 +5254,7 @@ global.ACKS_DEMO_TEMPLATE = {
       }
     }
   ],
-  "armies": []
+  "armies": [],
+  "battles": []
 };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

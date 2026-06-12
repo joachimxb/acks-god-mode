@@ -134,7 +134,10 @@ const ID_PREFIXES = Object.freeze({
   // NB lifted legacy garrison units KEEP their 'gar-' ids (id stability); 'unit-' is
   // the prefix for units created after the lift.
   unit:                 'unit',
-  army:                 'army'
+  army:                 'army',
+  // Phase 3 Military W3 (2026-06-12) — Battle (the RR pp.461–472 engagement record:
+  // sides + zones + the turn log + aftermath; resolved by acks-engine-battles.js).
+  battle:               'btl'
 });
 
 function newId(prefix){
@@ -852,6 +855,8 @@ function lazyDefaultV1ScopeReservations(campaign){
   // arrays stay reference-unified mirrors) + Armies.
   if(!Array.isArray(campaign.units)) campaign.units = [];
   if(!Array.isArray(campaign.armies)) campaign.armies = [];
+  // Phase 3 Military W3 (2026-06-12) — Battles (RR pp.461–472 engagement records).
+  if(!Array.isArray(campaign.battles)) campaign.battles = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){

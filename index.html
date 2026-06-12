@@ -17,6 +17,7 @@
 <script src="acks-engine-entity-registry.js?v=2026-05-31-a"></script>
 <script src="acks-engine-field-schemas.js?v=2026-05-31-a"></script>
 <script src="acks-engine-events.js?v=2026-05-28-g"></script>
+<script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-05-28-g"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -17840,7 +17841,9 @@ return {
       // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions
       'encounters',
       // Phase 3 Military W1 (2026-06-12) — first-class Units + Armies
-      'units', 'armies'
+      'units', 'armies',
+      // Phase 3 Military W3 (2026-06-12) — Battle engagement records
+      'battles'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 

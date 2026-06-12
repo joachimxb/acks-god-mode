@@ -547,6 +547,61 @@ function blankArmy(opts={}){
   };
 }
 
+// Phase 3 Military W3 (2026-06-12) — the Battle entity (RR pp.461–472): one engagement
+// between two sides, from setup through the 10-phase battle turns to the aftermath.
+// Sides hold battle-unit working records (snapshots pointing back at world Units/Groups/
+// heroes — world casualties land only when the aftermath is APPLIED). Resolution verbs
+// live in acks-engine-battles.js. campaign.battles[] is lazy-defaulted on load.
+function blankBattleSide(opts={}){
+  return {
+    label: opts.label || '',
+    kind: opts.kind || 'adhoc',                 // army | garrison | groups | adhoc
+    armyId: opts.armyId || null,
+    domainId: opts.domainId || null,            // garrison sides — whose garrison
+    groupIds: opts.groupIds || [],
+    stance: opts.stance || 'defensive',         // offensive | defensive | evasive (RR p.448)
+    leaderCharacterId: opts.leaderCharacterId || null,
+    commanders: opts.commanders || [],          // [{characterId, zones: ['left'|'center'|'right']}]
+    units: opts.units || [],                    // battle-unit records (see acks-engine-battles.js)
+    deployRestriction: opts.deployRestriction || 'all',   // all | vanguard | rear-guard (the situation's role)
+    zonesDenied: opts.zonesDenied || [],        // zones the surprised side cannot deploy into (RR p.463)
+    startingUnitCount: opts.startingUnitCount || 0,       // stamped at beginBattle
+    breakPoint: opts.breakPoint || 0,           // ⅓ starting units, rounded up (RR p.467)
+    startingBr: opts.startingBr || 0,           // Σ roster BR at begin (the troop-XP ratio reads it)
+    withdrawn: opts.withdrawn || false,         // voluntarily withdrew (phase 10)
+    gmAttackMod: opts.gmAttackMod || 0          // standing GM attack-throw modifier (conditions, stratagems)
+  };
+}
+function blankBattle(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.battle),
+    name: opts.name || '',
+    hexId: opts.hexId || null,
+    scale: opts.scale || 'company',             // platoon | company | battalion | brigade (RR p.437)
+    status: opts.status || 'setup',             // setup | fighting | ended | resolved
+    awareness: opts.awareness || 'mutual',      // mutual | mutual-unawareness | unilateral-a | unilateral-b
+    situation: opts.situation || 'pitched-battle',        // STRATEGIC_SITUATIONS key
+    attackerSide: opts.attackerSide || 'a',
+    surprisedSide: opts.surprisedSide || null,  // null | 'a' | 'b'
+    options: opts.options || {
+      armySizeAsymmetry: false,                 // RR p.464 optional rule (recommended ON for monster fights)
+      advantageousTerrain: null,                // null | 'a' | 'b' — which side holds the hill/ridgeline (−2 vs it)
+      cannotRetreat: null                       // null | 'a' | 'b' | 'both' — +2 morale (surrounded/trapped)
+    },
+    turnNumber: opts.turnNumber || 0,
+    sides: opts.sides || { a: blankBattleSide(), b: blankBattleSide() },
+    forays: opts.forays || [],                  // heroic foray records (declare → resolve → applied by the turn)
+    turnLog: opts.turnLog || [],                // one record per battle turn (lines + the _pre revert snapshot)
+    result: opts.result || null,                // {winner, loser, endedBy, endedAtTurn} once ended
+    aftermath: opts.aftermath || null,          // the computed proposal; applied:true once world-writes land
+    createdAtTurn: opts.createdAtTurn || 1,
+    createdOnDay: opts.createdOnDay || 1,
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
 function blankSpecialist(opts={}){
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -1679,6 +1734,8 @@ Object.assign(ACKS, {
   blankGroup,
   // Phase 3 Military W1 (2026-06-12) — Unit (Group's military sibling) + Army factories
   blankUnit, blankArmy,
+  // Phase 3 Military W3 (2026-06-12) — Battle entity + side factories (RR pp.461–472)
+  blankBattle, blankBattleSide,
   // Phase 2.5 Journeys (#475) — Journey entity factory (J1)
   blankJourney,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)

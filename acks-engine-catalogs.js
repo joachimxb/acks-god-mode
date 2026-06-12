@@ -1958,6 +1958,235 @@ function reconRollBand(total){
   return RECON_ROLL_BANDS[RECON_ROLL_BANDS.length - 1];
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 Military W3 — the battle engine catalogs (RR pp.461–470).
+// The resolution machinery lives in acks-engine-battles.js; these are the
+// printed tables it reads. Mechanical facts only, page-cited (CLAUDE §13.6).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Strategic stances (RR p.448) — the maneuvers-layer enum the awareness matrices key on.
+const STRATEGIC_STANCES = Object.freeze(['offensive', 'defensive', 'evasive']);
+
+// The strategic situations (RR pp.461–462). Deployment + surprise are resolved per
+// PAIRING by resolveStrategicSituation (the offensive/evading ROLE decides who fields
+// vanguard/rear-guard divisions; the unaware side is the surprised one).
+const STRATEGIC_SITUATIONS = Object.freeze({
+  'no-battle':              Object.freeze({ key: 'no-battle',              label: 'No Battle',              battle: false }),
+  'pitched-battle':         Object.freeze({ key: 'pitched-battle',         label: 'Pitched Battle',         battle: true }),
+  'meeting-engagement':     Object.freeze({ key: 'meeting-engagement',     label: 'Meeting Engagement',     battle: true }),
+  'rear-guard-action':      Object.freeze({ key: 'rear-guard-action',      label: 'Rear Guard Action',      battle: true, evading: true }),
+  'skirmish':               Object.freeze({ key: 'skirmish',               label: 'Skirmish',               battle: true, evading: true }),
+  'ambush':                 Object.freeze({ key: 'ambush',                 label: 'Ambush',                 battle: true }),
+  'envelopment':            Object.freeze({ key: 'envelopment',            label: 'Envelopment',            battle: true }),
+  'deep-envelopment':       Object.freeze({ key: 'deep-envelopment',       label: 'Deep Envelopment',       battle: true }),
+  'rear-guard-envelopment': Object.freeze({ key: 'rear-guard-envelopment', label: 'Rear Guard Envelopment', battle: true, evading: true })
+});
+
+// The three State of Awareness tables (RR pp.461–462), stance × stance → situation.
+// For the unilateral table, the FIRST index is the aware army's stance.
+const _AWARENESS_MATRIX_MUTUAL = Object.freeze({
+  offensive: Object.freeze({ offensive: 'pitched-battle',    defensive: 'pitched-battle', evasive: 'rear-guard-action' }),
+  defensive: Object.freeze({ offensive: 'pitched-battle',    defensive: 'no-battle',      evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'rear-guard-action', defensive: 'no-battle',      evasive: 'no-battle' })
+});
+const _AWARENESS_MATRIX_UNAWARE = Object.freeze({
+  offensive: Object.freeze({ offensive: 'meeting-engagement', defensive: 'meeting-engagement', evasive: 'skirmish' }),
+  defensive: Object.freeze({ offensive: 'meeting-engagement', defensive: 'no-battle',          evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'skirmish',           defensive: 'no-battle',          evasive: 'no-battle' })
+});
+const _AWARENESS_MATRIX_UNILATERAL = Object.freeze({
+  offensive: Object.freeze({ offensive: 'deep-envelopment', defensive: 'envelopment', evasive: 'rear-guard-envelopment' }),
+  defensive: Object.freeze({ offensive: 'ambush',           defensive: 'no-battle',   evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'no-battle',        defensive: 'no-battle',   evasive: 'no-battle' })
+});
+
+// awareness: 'mutual' | 'mutual-unawareness' | 'unilateral-a' | 'unilateral-b' (the
+// suffix names the AWARE side). Returns { situation, label, battle, surprisedSide,
+// deploy: {a,b: 'all'|'vanguard'|'rear-guard'}, zonesDenied: {a,b: []}, attackerDefault }.
+// attackerDefault per RR p.463: a surprised army defends (the ambusher "always counts as
+// an attacking army"); else the offensive side attacks; both-offensive = GM's call
+// (the army that arrived first chooses; simultaneous → the smaller chooses).
+function resolveStrategicSituation(awareness, stanceA, stanceB){
+  const aw = String(awareness || 'mutual').toLowerCase();
+  const sA = STRATEGIC_STANCES.indexOf(stanceA) >= 0 ? stanceA : 'defensive';
+  const sB = STRATEGIC_STANCES.indexOf(stanceB) >= 0 ? stanceB : 'defensive';
+  let key, surprised = null;
+  if(aw === 'unilateral-a'){
+    key = _AWARENESS_MATRIX_UNILATERAL[sA][sB];
+    if(STRATEGIC_SITUATIONS[key].battle) surprised = 'b';
+  } else if(aw === 'unilateral-b'){
+    key = _AWARENESS_MATRIX_UNILATERAL[sB][sA];
+    if(STRATEGIC_SITUATIONS[key].battle) surprised = 'a';
+  } else if(aw === 'mutual-unawareness'){
+    key = _AWARENESS_MATRIX_UNAWARE[sA][sB];
+  } else {
+    key = _AWARENESS_MATRIX_MUTUAL[sA][sB];
+  }
+  const sit = STRATEGIC_SITUATIONS[key];
+  const out = { situation: key, label: sit.label, battle: !!sit.battle, surprisedSide: surprised,
+                deploy: { a: 'all', b: 'all' }, zonesDenied: { a: [], b: [] }, attackerDefault: null };
+  if(!sit.battle) return out;
+  const offensiveSide = (sA === 'offensive' && sB !== 'offensive') ? 'a'
+                      : (sB === 'offensive' && sA !== 'offensive') ? 'b' : null;
+  const evasiveSide = sA === 'evasive' ? 'a' : (sB === 'evasive' ? 'b' : null);
+  switch(key){
+    case 'meeting-engagement':
+      out.deploy = { a: 'vanguard', b: 'vanguard' }; break;
+    case 'rear-guard-action':
+      if(evasiveSide) out.deploy[evasiveSide] = 'rear-guard'; break;
+    case 'skirmish':
+      if(offensiveSide) out.deploy[offensiveSide] = 'vanguard';
+      if(evasiveSide) out.deploy[evasiveSide] = 'rear-guard'; break;
+    case 'rear-guard-envelopment':
+      if(surprised){ out.deploy[surprised] = 'rear-guard'; out.zonesDenied[surprised] = ['right']; } break;
+    case 'envelopment':
+      if(surprised){ out.zonesDenied[surprised] = ['right']; } break;
+    case 'deep-envelopment':
+      if(surprised){ out.zonesDenied[surprised] = ['left', 'right']; } break;
+  }
+  if(surprised) out.attackerDefault = surprised === 'a' ? 'b' : 'a';
+  else if(offensiveSide) out.attackerDefault = offensiveSide;
+  return out;
+}
+
+// The battle turn's attack throws (RR p.464): missile phases target 17+, melee 16+.
+const BATTLE_ATTACK_TARGETS = Object.freeze({ missile: 17, melee: 16 });
+// Reference rows (RR p.464). The engine applies broken/surprised/terrain automatically;
+// "personally leading" is the per-zone GM lever (one unit's worth in RAW — see W3 notes).
+const BATTLE_ATTACK_MODIFIERS = Object.freeze([
+  Object.freeze({ key: 'leading',   label: 'Commander or Lieutenant personally leading unit', value: 1 }),
+  Object.freeze({ key: 'broken',    label: 'Unit facing broken zone', value: 2 }),
+  Object.freeze({ key: 'surprised', label: 'Opposing army surprised (first battle turn only)', value: 2 }),
+  Object.freeze({ key: 'terrain',   label: 'Opposing army occupies advantageous terrain (hill, ridgeline)', value: -2 })
+]);
+
+// Unit Morale (RR pp.467–468) — 2d6 + unit morale ± modifiers. Distinct from the
+// RR p.430 Unit LOYALTY bands (W1) — this is the in-battle morale phase.
+const UNIT_MORALE_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'rout',       label: 'Rout',       effect: 'routs off the battlefield (counts as destroyed)' }),
+  Object.freeze({ max: 5,    key: 'flee',       label: 'Flee',       effect: 'retreats disordered to the reserve; counts as routed if never rallied' }),
+  Object.freeze({ max: 8,    key: 'waver',      label: 'Waver',      effect: 'BR halved when attacking until regrouped' }),
+  Object.freeze({ max: 11,   key: 'stand-firm', label: 'Stand Firm', effect: 'no effect' }),
+  Object.freeze({ max: null, key: 'rally',      label: 'Rally',      effect: '+½ BR attacking next turn; wavering/disordered end' })
+]);
+function unitMoraleBand(total){
+  for(const b of UNIT_MORALE_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return UNIT_MORALE_BANDS[UNIT_MORALE_BANDS.length - 1];
+}
+// Reference rows (RR p.468) — the engine derives all of these live.
+const BATTLE_MORALE_MODIFIERS = Object.freeze([
+  Object.freeze({ key: 'leader-present',  scope: 'army', label: 'Army leader present on battlefield', value: '+½ morale modifier (round up)' }),
+  Object.freeze({ key: 'lost-half',       scope: 'army', label: 'Army has lost ½ or more of its starting units, but less than ⅔', value: -2 }),
+  Object.freeze({ key: 'lost-two-thirds', scope: 'army', label: 'Army has lost ⅔ or more of its starting units', value: -5 }),
+  Object.freeze({ key: 'destroyed-more',  scope: 'army', label: 'Army has destroyed more units than opposing army', value: 2 }),
+  Object.freeze({ key: 'lost-more',       scope: 'army', label: 'Army has lost more units than opposing army', value: -2 }),
+  Object.freeze({ key: 'cannot-retreat',  scope: 'army', label: 'Army cannot retreat (surrounded, trapped)', value: 2 }),
+  Object.freeze({ key: 'officer-attached', scope: 'unit', label: 'Officer attached to unit', value: '+ morale modifier' }),
+  Object.freeze({ key: 'shaken',          scope: 'unit', label: 'Unit is wavering or disordered', value: -2 }),
+  Object.freeze({ key: 'adjacent-broken', scope: 'unit', label: 'Unit is adjacent to a broken zone', value: -2 })
+]);
+
+// Pursuit throws (RR pp.469–470): one throw per eligible pursuing unit; +4 when all the
+// defeated army's cavalry/flyers were destroyed or routed; cumulative −1 per battle turn
+// against a defeated EVADING army; a natural 20 always eliminates a unit.
+const PURSUIT_THROWS = Object.freeze([
+  Object.freeze({ key: 'light-cavalry-or-flyer', label: 'Light Cavalry or Flyer', target: 11 }),
+  Object.freeze({ key: 'other-cavalry',          label: 'Other Cavalry',          target: 14 }),
+  Object.freeze({ key: 'light-infantry',         label: 'Light Infantry',         target: 14 }),
+  Object.freeze({ key: 'other-infantry',         label: 'Other Infantry',         target: 18 })
+]);
+
+// Battlefield Encounter Distance (RR p.466) — foray engagement ranges, keyed on the SAME
+// terrain sub-type rows the wilderness encounter tables use (encounterRowKey resolves a
+// hex). The (2d6+1) adds BEFORE the ×15' multiplier. 🔧 swamp-forested is not printed —
+// folded to the scrubby-swamp row (denser cover cannot open the range).
+const _BFD_DICE = Object.freeze({
+  m420: Object.freeze({ n: 4, d: 6, plus: 0, multFt: 30, avgFt: 420, label: "4d6 × 30'" }),
+  m480: Object.freeze({ n: 5, d: 6, plus: 0, multFt: 30, avgFt: 480, label: "5d6 × 30'" }),
+  m157: Object.freeze({ n: 3, d: 6, plus: 0, multFt: 15, avgFt: 157, label: "3d6 × 15'" }),
+  m70:  Object.freeze({ n: 5, d: 8, plus: 0, multFt: 3,  avgFt: 70,  label: "5d8 × 3'"  }),
+  e120: Object.freeze({ n: 2, d: 6, plus: 1, multFt: 15, avgFt: 120, label: "2d6+1 × 15'" }),
+  e38:  Object.freeze({ n: 5, d: 4, plus: 0, multFt: 3,  avgFt: 38,  label: "5d4 × 3'"  })
+});
+const BATTLEFIELD_ENCOUNTER_DISTANCE = Object.freeze({
+  'barrens':            Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'desert-rocky':       Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'desert-sandy':       Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'forest-taiga':       Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'forest-deciduous':   Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'grassland-other':    Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'grassland-steppe':   Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'hills-forested':     Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'hills-rocky':        Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'jungle':             Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.e38  }),
+  'mountains-forested': Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'mountains-rocky':    Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'scrubland-sparse':   Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'scrubland-dense':    Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'swamp-marshy':       Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'swamp-scrubby':      Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'swamp-forested':     Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  })
+});
+function battlefieldEncounterSpec(rowOrTerrainKey, phaseKind){
+  const row = BATTLEFIELD_ENCOUNTER_DISTANCE[rowOrTerrainKey] ? rowOrTerrainKey : encounterRowKey(rowOrTerrainKey);
+  const e = row ? BATTLEFIELD_ENCOUNTER_DISTANCE[row] : null;
+  if(!e) return null;
+  return phaseKind === 'melee' ? e.melee : e.missile;
+}
+function rollBattlefieldDistanceFt(rowOrTerrainKey, phaseKind, rng){
+  const spec = battlefieldEncounterSpec(rowOrTerrainKey, phaseKind);
+  if(!spec) return null;
+  const r = rng || Math.random;
+  let t = spec.plus || 0;
+  for(let i = 0; i < spec.n; i++) t += 1 + Math.floor(r() * spec.d);
+  return t * spec.multFt;
+}
+
+// Heroic foray stakes (RR p.466) — 0–3 BR per hero, with the printed flavor ladder.
+const FORAY_STAKES = Object.freeze([
+  Object.freeze({ br: 0,   label: 'Entering the foray' }),
+  Object.freeze({ br: 0.5, label: 'Leading from the front' }),
+  Object.freeze({ br: 1,   label: 'Heroically charging into battle' }),
+  Object.freeze({ br: 1.5, label: 'Attacking in front of the vanguard' }),
+  Object.freeze({ br: 2,   label: 'Cutting a swath of glory' }),
+  Object.freeze({ br: 2.5, label: 'Carving his name into the epics' }),
+  Object.freeze({ br: 3,   label: 'Seeking glorious death!' })
+]);
+
+// Hero qualification (RR p.466): any PC; monster 9+ HD; NPC 6th+; a qualifying hero's
+// henchman 4th+. Thresholds shift −2 at platoon scale, +2 battalion, +4 brigade.
+const HERO_QUALIFICATION = Object.freeze({
+  monsterHd: 9, npcLevel: 6, henchmanLevel: 4,
+  scaleShift: Object.freeze({ platoon: -2, company: 0, battalion: 2, brigade: 4 })
+});
+
+// Reinforcement deployment throw (RR p.465, phase 9): d20 + the leader's strategic
+// ability. 🔧 water/unmapped terrain defaults to the middle target (GM overridable).
+function reinforcementThrowTarget(terrainKeyOrBase){
+  const b = terrainBase(terrainKeyOrBase) || String(terrainKeyOrBase || '').toLowerCase();
+  if(b === 'grassland' || b === 'scrubland') return 4;
+  if(b === 'barrens' || b === 'desert' || b === 'hills') return 12;
+  if(b === 'forest' || b === 'jungle' || b === 'mountains' || b === 'swamp') return 16;
+  return 12;
+}
+
+// Officer casualties (RR p.470) — the battle chapter's outcome BANDS. The Mortal Wounds
+// d20 table itself belongs to the Combat layer (#141): the GM rolls it at the table
+// (victor net 0 = +3 proficiency −3 treatment; defeated net −4 = +1/−5) and enters the
+// band; the tool applies the battle-side effects. Surviving bands roll 1d6 toward the
+// permanent-wound column — reported for the GM, not auto-applied (the wound table is #141).
+const OFFICER_CASUALTY_MODS = Object.freeze({
+  victor:   Object.freeze({ proficiency: 3, treatment: -3, net: 0 }),
+  defeated: Object.freeze({ proficiency: 1, treatment: -5, net: -4 })
+});
+const OFFICER_CASUALTY_OUTCOMES = Object.freeze([
+  Object.freeze({ key: 'instantly-killed',   label: 'Instantly Killed',            dies: 'always',      woundRoll: false }),
+  Object.freeze({ key: 'mortally-wounded',   label: 'Mortally Wounded',            dies: 'always',      woundRoll: false }),
+  Object.freeze({ key: 'grievously-wounded', label: 'Grievously Wounded',          dies: 'if-defeated', woundRoll: true }),
+  Object.freeze({ key: 'critically-wounded', label: 'Critically Wounded or Shocked', dies: 'never', capturedIfDefeated: true,  woundRoll: true }),
+  Object.freeze({ key: 'knocked-out',        label: 'Knocked Out or Just Dazed',     dies: 'never', escapedIfDefeated: true,   woundRoll: true })
+]);
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -1991,6 +2220,13 @@ Object.assign(ACKS, {
   INCURSION_DAILY_PCT, incursionDailyPct, BORDER_CONFIGURATIONS, DANGEROUS_BORDERS_TERRITORY,
   effectiveTerritoryWithBorders, DOMAIN_REACTION_BANDS, domainEncounterReactionBand,
   RECON_ROLL_BANDS, reconRollBand,
+  // Phase 3 Military W3 — the battle engine catalogs (RR pp.461–470)
+  STRATEGIC_STANCES, STRATEGIC_SITUATIONS, resolveStrategicSituation,
+  BATTLE_ATTACK_TARGETS, BATTLE_ATTACK_MODIFIERS,
+  UNIT_MORALE_BANDS, unitMoraleBand, BATTLE_MORALE_MODIFIERS,
+  PURSUIT_THROWS, BATTLEFIELD_ENCOUNTER_DISTANCE, battlefieldEncounterSpec, rollBattlefieldDistanceFt,
+  FORAY_STAKES, HERO_QUALIFICATION, reinforcementThrowTarget,
+  OFFICER_CASUALTY_MODS, OFFICER_CASUALTY_OUTCOMES,
   // #476 M4 — Wilderness Search target (RR p.276)
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)

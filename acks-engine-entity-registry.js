@@ -239,6 +239,13 @@
       find: (c, id) => ((c && c.armies) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
 
+    // Phase 3 Military W3 (2026-06-12) — Battle (the RR pp.461–472 engagement record).
+    { kind: 'battle', label: 'Battle', pluralLabel: 'Battles', icon: '🎌',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.battles) || [],
+      find: (c, id) => ((c && c.battles) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
+
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',
       addressable: true, chronicleable: true,
