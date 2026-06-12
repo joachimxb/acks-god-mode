@@ -1091,8 +1091,8 @@ document.addEventListener('alpine:init', () => {
 
         <!-- march -->
         <div class="border-t border-ink/20 pt-2 mt-1">
-          <template x-if="armySelJourney() && armySelJourney().status === 'in-transit'">
-            <p>🧭 <span class="font-semibold">On the march</span> — day <span x-text="armySelJourney().currentDayIndex"></span> toward <span x-text="hexLabelById(armySelJourney().destinationHexId)"></span>, <span class="capitalize" x-text="armySelJourney().pace"></span> pace
+          <template x-if="armyMarchingLine()">
+            <p>🧭 <span class="font-semibold">On the march</span> — <span x-text="armyMarchingLine()"></span>
               · <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the journey</button>
               · <button @click="armyMarchStop()" class="underline accent-red">🛑 halt</button></p>
           </template>
@@ -1164,8 +1164,9 @@ document.addEventListener('alpine:init', () => {
               <span x-show="!armyWarfare().friendly && !armyWarfare().conquered" class="accent-red font-semibold" x-text="' — ' + (armyWarfare().invaded ? 'INVADED' : 'unfriendly ground (entering = invasion)')"></span>
               <span x-show="armyWarfare().conquered" class="font-semibold"> — conquered; the leader rules it.</span>
             </p>
-            <p class="text-xs opacity-80" x-show="!armyWarfare().friendly && armyWarfare().occupation && armyWarfare().occupation.peasantFamilies > 0"
-               x-text="'Occupation math: ' + armyWarfare().occupation.occupyingWages.toLocaleString() + 'gp of occupying wages − ' + armyWarfare().occupation.defendingWages.toLocaleString() + 'gp defending = ' + armyWarfare().occupation.netPerFamily.toFixed(1) + 'gp/family vs the ' + armyWarfare().occupation.threshold + 'gp garrison cost → ' + (armyWarfare().occupation.occupied ? 'OCCUPIED' : 'not occupied')"></p>
+            <!-- null-safe via the helper (the in-card convention): x-show hides but never
+                 unmounts, so the expression must not dereference a friendly-ground null. -->
+            <p class="text-xs opacity-80" x-show="armyOccupationMathLine()" x-text="armyOccupationMathLine()"></p>
             <p class="text-xs" x-show="armyWarfare().occupiedByLeader">
               🏴 <span class="font-semibold">Occupied</span> since turn <span x-text="armyWarfare().domain.occupiedBy ? armyWarfare().domain.occupiedBy.sinceTurn : ''"></span> — conquest completes it:
               <button @click="armyConquerDirect()" class="underline font-semibold" :disabled="!armyWarfare().conquestOk" :title="armyWarfare().conquestReason || ''">⚑ rule it directly</button>
@@ -1185,9 +1186,8 @@ document.addEventListener('alpine:init', () => {
                 <span class="opacity-60" x-text="' — needs ' + armyWarfare().pillageReq.troops.toLocaleString() + ' troops for full yield (' + armyWarfare().pillageReq.timeLabel + '); a smaller force takes its proportion'"></span>
               </p>
             </template>
-            <template x-if="armySelected().pillage">
-              <p class="text-xs accent-red font-semibold">🔥 <span x-text="(armySelected().pillage.saltTheEarth ? 'Salting the earth of ' : 'Pillaging ') + (armyWarfare().domain.name || 'the domain')"></span>
-                — day <span x-text="armyPillageElapsed()"></span> of <span x-text="armySelected().pillage.daysRequired"></span> (the Day Clock completes it)
+            <template x-if="armyPillageLine()">
+              <p class="text-xs accent-red font-semibold">🔥 <span x-text="armyPillageLine()"></span>
                 · <button @click="armyPillageCutShort()" class="underline">⏹ cut it short (proportional yield)</button></p>
             </template>
           </div>
@@ -12546,6 +12546,24 @@ return {
       garrisonUnits: A.unitsStationedAt(camp, { kind: 'domain-garrison', id: domain.id }).filter(u => u && Math.max(0, (u.count || 0) - (u.casualties || 0)) > 0).length,
       pillageReq: A.pillageRequirementRow(A.totalFamilies(domain))
     };
+  },
+  armyOccupationMathLine(){
+    const w = this.armyWarfare();
+    const o = w && !w.friendly && w.occupation;
+    if(!o || !(o.peasantFamilies > 0)) return '';
+    return 'Occupation math: ' + o.occupyingWages.toLocaleString() + 'gp of occupying wages − ' + o.defendingWages.toLocaleString() + 'gp defending = ' + o.netPerFamily.toFixed(1) + 'gp/family vs the ' + o.threshold + 'gp garrison cost → ' + (o.occupied ? 'OCCUPIED' : 'not occupied') + ' (RR p.458)';
+  },
+  // Null-safe display lines for the two <template x-if> blocks whose inner bindings
+  // could deref a null during Alpine's x-if teardown (the W3 pursuit-panel lesson).
+  armyMarchingLine(){
+    const j = this.armySelJourney();
+    if(!j || j.status !== 'in-transit') return '';
+    return 'day ' + (j.currentDayIndex || 0) + ' toward ' + this.hexLabelById(j.destinationHexId) + ', ' + (j.pace || 'normal') + ' pace';
+  },
+  armyPillageLine(){
+    const a = this.armySelected(); const w = this.armyWarfare();
+    if(!a || !a.pillage) return '';
+    return (a.pillage.saltTheEarth ? 'Salting the earth of ' : 'Pillaging ') + ((w && w.domain.name) || 'the domain') + ' — day ' + this.armyPillageElapsed() + ' of ' + a.pillage.daysRequired + ' (the Day Clock completes it)';
   },
   armyConquerDirect(){
     const a = this.armySelected(); const w = this.armyWarfare(); if(!a || !w) return;
