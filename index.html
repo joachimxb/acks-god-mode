@@ -1041,196 +1041,10 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
-<!-- ═══ World ▸ 🎖 Armies (Phase 3 Military W4 — RR pp.447–460) ═══════════════
-     The campaign layer's home: every mustered army, its march (on the journey
-     engine), stance, reconnaissance intelligence, and the invasion → occupation →
-     conquest → pillage verbs. The slot-88 military day consumer runs the campaign
-     cycle on the Day Clock; this view is where the GM steers it. -->
-<div x-show="currentView === 'world' && worldSubView === 'armies'" class="p-4" x-cloak>
-  <div class="vellum border border-ink rounded p-4">
-    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
-      <h3 class="font-bold text-lg">🎖 Armies <span class="text-sm opacity-70 font-normal" x-text="'· ' + armiesRows().length + ' mustered'"></span></h3>
-      <button @click="openMusterArmy()" class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400" title="Raise a new army — pick a commander and station units (RR pp.435–437)">🎖 Muster a new army</button>
-    </div>
-    <template x-if="armiesRows().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No armies mustered. <button @click="openMusterArmy()" class="underline font-semibold">Muster one</button> — pick a commander and station his troops, and it takes the field here: marching on the Day Clock, scouting its rivals, and forcing battles where columns collide. (A character can also raise an army from his own sheet, and a ruler from his domain's Military tab.)</p>
-    </template>
-    <template x-if="armiesRows().length > 0">
-      <table class="bookkeeping text-sm w-full">
-        <thead><tr><th></th><th>Army</th><th>Leader</th><th>Troops</th><th>BR</th><th>Location</th><th>Stance</th><th>Speed</th><th>State</th></tr></thead>
-        <tbody>
-          <template x-for="row in armiesRows()" :key="row.army.id">
-            <tr :class="armiesSelectedId === row.army.id ? 'bg-yellow-50' : ''">
-              <td x-text="row.icon"></td>
-              <td><button @click="armiesSelectedId = (armiesSelectedId === row.army.id ? null : row.army.id); armyMarchDest=''" class="underline font-semibold text-left" x-text="row.army.name || row.army.id"></button></td>
-              <td><button x-show="row.army.leaderCharacterId" @click="openCharacterEditor(row.army.leaderCharacterId)" class="underline" x-text="row.leaderName"></button><span x-show="!row.army.leaderCharacterId" class="opacity-60">—</span></td>
-              <td class="font-mono" x-text="row.troops"></td>
-              <td class="font-mono" x-text="row.br"></td>
-              <td x-text="row.location"></td>
-              <td class="capitalize" x-text="row.army.strategicStance || 'defensive'"></td>
-              <td class="font-mono" x-text="row.speed + ' mi/day'"></td>
-              <td><span x-text="row.state"></span><span x-show="row.fatigued" class="accent-red font-semibold" title="Marched more than 4 of the last 7 days, or no rest after a forced march (RR pp.448–449)"> · FATIGUED</span></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </template>
-
-    <!-- the selected army's campaign card -->
-    <template x-if="armySelected()">
-      <div class="mt-3 border-2 rounded p-3 text-sm" style="background:#f3ead8; border-color:#5a4632">
-        <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
-          <p class="font-bold">🎖 <span x-text="armySelected().name || armySelected().id"></span>
-            <span class="font-normal opacity-70" x-text="' · ' + armySelRow().troops + ' troops · BR ' + armySelRow().br + ' · ' + armySelRow().speed + ' mi/day (' + (armySelProfile().slowestUnitName || 'no units') + (armySelProfile().largeMultiplier < 1 ? (' · ' + armySelProfile().largeLabel) : '') + (armySelProfile().warMachineCap ? ' · war machines cap ' + armySelProfile().warMachineCap : '') + ')'"></span></p>
-          <div class="flex items-baseline gap-3">
-            <p class="text-xs opacity-70">
-              <span x-show="armySelected().lastInitiative != null" x-text="'initiative ' + armySelected().lastInitiative + ' · '"></span>
-              <span x-show="armySelFatigue().fatigued" class="accent-red font-semibold" x-text="'⚠ FATIGUED — ' + armySelFatigue().reasons.join('; ')"></span>
-              <span x-show="!armySelFatigue().fatigued">rested</span>
-            </p>
-            <button @click="armyDisband()" class="text-xs underline accent-red" title="Disband this army — its units return to the unstationed pool">🗑 Disband</button>
-          </div>
-        </div>
-        <!-- advisory organization findings (RR pp.434–437; GM-overridable) -->
-        <template x-if="armyOrgFindings().length > 0">
-          <div class="text-xs text-amber-700 mb-1">
-            <template x-for="f in armyOrgFindings()" :key="f"><span class="block">⚠ <span x-text="f"></span></span></template>
-          </div>
-        </template>
-
-        <!-- march -->
-        <div class="border-t border-ink/20 pt-2 mt-1">
-          <template x-if="armyMarchingLine()">
-            <p>🧭 <span class="font-semibold">On the march</span> — <span x-text="armyMarchingLine()"></span>
-              · <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the journey</button>
-              · <button @click="armyMarchStop()" class="underline accent-red">🛑 halt</button></p>
-          </template>
-          <template x-if="!(armySelJourney() && armySelJourney().status === 'in-transit')">
-            <div class="flex flex-wrap items-baseline gap-2">
-              <span class="font-semibold">🧭 March to</span>
-              <select x-model="armyMarchDest" class="text-sm">
-                <option value="">— pick a destination hex —</option>
-                <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'amd-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
-              </select>
-              <select x-model="armyMarchPace" class="text-sm">
-                <option value="normal">Normal</option>
-                <option value="forced-march">Forced march (+50%, rest after or fatigued)</option>
-                <option value="half-speed">Half speed</option>
-              </select>
-              <button @click="armyMarchGo()" class="px-2 py-0.5 rounded border border-ink font-semibold" :disabled="!armyMarchDest">⚔ March</button>
-              <span x-show="armySelected().pillage" class="text-xs accent-red">— pillaging; the army cannot move (RR p.459)</span>
-            </div>
-          </template>
-        </div>
-
-        <!-- stance + war machines -->
-        <div class="border-t border-ink/20 pt-2 mt-2 flex flex-wrap gap-4 items-baseline">
-          <label>Stance (RR p.448)
-            <select :value="armySelected().strategicStance || 'defensive'" @change="armySetStance($event.target.value)" class="text-sm ml-1">
-              <option value="offensive">Offensive — seeks battle</option>
-              <option value="defensive">Defensive — fights if offered</option>
-              <option value="evasive">Evasive — avoids battle</option>
-            </select></label>
-          <label>War machines (RR p.449)
-            <select :value="armySelected().warMachines ? (armySelected().warMachines.assembled ? 'assembled' : 'disassembled') : 'none'" @change="armySetWarMachines($event.target.value)" class="text-sm ml-1">
-              <option value="none">none</option>
-              <option value="disassembled">hauled disassembled (cap 12 mi/day)</option>
-              <option value="assembled">hauled assembled (cap 6 mi/day)</option>
-            </select></label>
-          <span x-show="(armySelected().prisoners || 0) > 0">⛓ <span x-text="armySelected().prisoners"></span> prisoners
-            · <button @click="armyRansomGo()" class="underline">💰 ransom (40gp a head)</button></span>
-        </div>
-
-        <!-- reinforcements marching in (call-up) -->
-        <div class="border-t border-ink/20 pt-2 mt-2">
-          <div class="flex items-baseline justify-between">
-            <p class="font-semibold text-xs uppercase tracking-wide opacity-70">🚶 Reinforcements <span class="font-normal normal-case opacity-70" x-show="armyIncomingRows().length" x-text="'· ' + armyIncomingRows().length + ' marching in'"></span></p>
-            <button @click="armyCallUpOpen = !armyCallUpOpen" class="text-xs underline" x-text="armyCallUpOpen ? 'close' : '＋ Call up units'"></button>
-          </div>
-          <template x-for="row in armyIncomingRows()" :key="'inc-' + row.unit.id">
-            <p class="text-xs text-sky-700 py-0.5">🚶 <span class="font-semibold" x-text="row.unit.displayName || row.unit.unitTypeKey || 'unit'"></span>
-              <span x-text="'· ' + Math.max(0,(row.unit.count||0)-(row.unit.casualties||0)) + ' troops · from ' + hexLabelById(row.fromHexId)"></span>
-              <span x-text="row.hexesRemaining != null ? (' · ' + row.hexesRemaining + ' hex / ' + row.milesRemaining + ' mi / ~' + row.daysRemaining + ' day' + (row.daysRemaining===1?'':'s') + ' off') : ' · en route'"></span></p>
-          </template>
-          <!-- the inline call-up picker -->
-          <div x-show="armyCallUpOpen" class="mt-1 border border-ink/20 rounded max-h-40 overflow-y-auto">
-            <template x-if="armyCallUpCandidates().length === 0"><p class="text-xs italic opacity-60 p-2">No free units to call up.</p></template>
-            <template x-for="cu in armyCallUpCandidates()" :key="'cu-' + cu.unit.id">
-              <div class="flex items-center gap-2 px-2 py-1 text-xs border-b border-ink/10">
-                <span class="flex-1" x-text="(cu.unit.displayName || cu.unit.unitTypeKey || 'unit') + ' · ' + Math.max(0,(cu.unit.count||0)-(cu.unit.casualties||0)) + ' troops · ' + cu.home"></span>
-                <span class="opacity-60" x-text="cu.atMuster ? 'here' : (cu.days != null ? ('~' + cu.days + 'd') : 'afar')"></span>
-                <button @click="armyCallUp(cu.unit.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" x-text="cu.atMuster ? 'Join' : 'Call up'"></button>
-              </div>
-            </template>
-          </div>
-        </div>
-
-        <!-- reconnaissance intelligence -->
-        <div class="border-t border-ink/20 pt-2 mt-2">
-          <p class="font-semibold text-xs uppercase tracking-wide opacity-70 mb-1">🕵 Intelligence (RR pp.452–457)</p>
-          <template x-if="armyIntelRows().length === 0">
-            <p class="text-xs italic opacity-60">No reconnaissance reports yet — they arrive on the Day Clock whenever an opposing army stands in range.</p>
-          </template>
-          <template x-for="ir in armyIntelRows()" :key="'ir-' + ir.index">
-            <div class="text-xs border-b border-dashed border-ink/20 py-1">
-              <p><span class="font-semibold" x-text="ir.opposingName"></span>
-                <span x-text="' — ' + ir.report.resultLabel + ' (2d6 ' + ir.report.roll + ' → ' + ir.report.total + ')' + (ir.ageDays > 0 ? ' · ' + ir.ageDays + ' day' + (ir.ageDays === 1 ? '' : 's') + ' old' : ' · today')"></span>
-                <span x-show="ir.report.falseIntel" class="accent-red font-bold" title="Catastrophe — present it to the players as a marginal success; the details are wrong (RR p.455)"> · FALSE INTEL (GM)</span></p>
-              <p class="opacity-80" x-show="ir.report.revealed" x-text="armyIntelSummary(ir.report)"></p>
-              <p x-show="ir.report.prisoner">⛓ <span class="font-semibold" x-text="(ir.report.prisoner ? ir.report.prisoner.grade : '') + ' prisoner'"></span>
-                <span x-text="' — ' + (ir.report.prisoner ? ir.report.prisoner.revealedPieceIdxs.length + ' of ' + ir.report.prisoner.pieces.length : '') + ' pieces revealed'"></span>
-                · <button @click="armyInterrogate(ir.index)" class="underline">🗣 interrogate (2d6 + CHA ± GM)</button></p>
-              <template x-for="(pc, pci) in armyRevealedPieces(ir.report)" :key="'pc-' + ir.index + '-' + pci">
-                <p class="ml-3 opacity-80">• <span x-text="pc"></span></p>
-              </template>
-            </div>
-          </template>
-        </div>
-
-        <!-- the warfare verbs — the domain the army stands in -->
-        <template x-if="armyWarfare()">
-          <div class="border-t border-ink/20 pt-2 mt-2">
-            <p class="font-semibold text-xs uppercase tracking-wide opacity-70 mb-1">⚑ The ground it stands on (RR pp.458–459)</p>
-            <p class="text-xs">
-              <span class="font-semibold" x-text="armyWarfare().domain.name || armyWarfare().domain.id"></span>
-              <span x-show="armyWarfare().friendly" class="opacity-70"> — friendly ground.</span>
-              <span x-show="!armyWarfare().friendly && !armyWarfare().conquered" class="accent-red font-semibold" x-text="' — ' + (armyWarfare().invaded ? 'INVADED' : 'unfriendly ground (entering = invasion)')"></span>
-              <span x-show="armyWarfare().conquered" class="font-semibold"> — conquered; the leader rules it.</span>
-            </p>
-            <!-- null-safe via the helper (the in-card convention): x-show hides but never
-                 unmounts, so the expression must not dereference a friendly-ground null. -->
-            <p class="text-xs opacity-80" x-show="armyOccupationMathLine()" x-text="armyOccupationMathLine()"></p>
-            <p class="text-xs" x-show="armyWarfare().occupiedByLeader">
-              🏴 <span class="font-semibold">Occupied</span> since turn <span x-text="armyWarfare().domain.occupiedBy ? armyWarfare().domain.occupiedBy.sinceTurn : ''"></span> — conquest completes it:
-              <button @click="armyConquerDirect()" class="underline font-semibold" :disabled="!armyWarfare().conquestOk" :title="armyWarfare().conquestReason || ''">⚑ rule it directly</button>
-              · <button @click="armyConquerVassal()" class="underline font-semibold" :disabled="!armyWarfare().conquestOk" :title="armyWarfare().conquestReason || ''">⚑ grant to a vassal…</button>
-              <span x-show="!armyWarfare().conquestOk" class="accent-red" x-text="' — ' + (armyWarfare().conquestReason || '')"></span>
-            </p>
-            <p class="text-xs" x-show="armyWarfare().garrisonUnits > 0 && !armyWarfare().friendly">
-              🛡 The garrison holds (<span x-text="armyWarfare().garrisonUnits"></span> units) —
-              <button @click="armyBattleGarrison()" class="underline accent-red font-semibold">🎌 battle the garrison</button>
-              <span class="opacity-60">(a garrisoned stronghold blocks conquest until it falls; sieges land at W6)</span>
-            </p>
-            <template x-if="armyWarfare().conquered && !armySelected().pillage">
-              <p class="text-xs">
-                🔥 Plunder the prize:
-                <button @click="armyPillageGo(false)" class="underline font-semibold">pillage</button>
-                · <button @click="armyPillageGo(true)" class="underline accent-red font-semibold">salt the earth (×4 time — the domain is destroyed)</button>
-                <span class="opacity-60" x-text="' — needs ' + armyWarfare().pillageReq.troops.toLocaleString() + ' troops for full yield (' + armyWarfare().pillageReq.timeLabel + '); a smaller force takes its proportion'"></span>
-              </p>
-            </template>
-            <template x-if="armyPillageLine()">
-              <p class="text-xs accent-red font-semibold">🔥 <span x-text="armyPillageLine()"></span>
-                · <button @click="armyPillageCutShort()" class="underline">⏹ cut it short (proportional yield)</button></p>
-            </template>
-          </div>
-        </template>
-        <p class="text-xs opacity-60 mt-2 italic">The Day Clock runs the campaign cycle (RR p.447): initiative and reconnaissance each day opposing armies stand in range, contact where columns collide (the battle proposes itself), invasion morale rolls, occupation flips, pillage progress. Standing GM levers — magic, spies, stratagems, allies, permitted ground — live on the army in the 🔍 Inspector.</p>
-      </div>
-    </template>
-    <p class="text-sm opacity-60 mt-3 italic" x-show="!armySelected()">Armies march on the travel engine — slowest unit's pace, terrain and roads per hex, the RR p.449 weather table — and the campaign cycle runs on the Day Clock. Click an army to steer it.</p>
-  </div>
-</div>
+<!-- ═══ World ▸ 🎖 Armies — SUPERSEDED 2026-06-12 by the merged Characters ▸ Parties
+     view (§12 Group model). Armies now live in that view's Armies table + detail card,
+     alongside parties and loose units. This block is removed; the detail markup was
+     relocated into the parties view, and the World tab + deep-links route there. ═══ -->
 
 <!-- ═══ The battle panel (W3) — the step-walking surface over acks-engine-battles.js.
      z-76: below the encounter modal (77) / lair peek (78). Visibility-flag close (the E2
@@ -3521,7 +3335,7 @@ document.addEventListener('alpine:init', () => {
                    verbs live on the occupier's army card (World ▸ 🎖 Armies). -->
               <template x-if="selectedDomain.occupiedBy">
                 <p class="text-sm mt-1 font-semibold accent-red">🏴 OCCUPIED
-                  <span x-text="' by ' + (((currentCampaign && currentCampaign.characters) || []).find(c => c && c.id === selectedDomain.occupiedBy.leaderCharacterId) || {name:'an invader'}).name + ' since turn ' + selectedDomain.occupiedBy.sinceTurn + ' — the peasants’ revenues flow to the occupier; morale runs under his authority at ' + selectedDomain.occupiedBy.moralePenalty + ' until conquest (RR p.458). Steer it from World ▸ 🎖 Armies.'"></span></p>
+                  <span x-text="' by ' + (((currentCampaign && currentCampaign.characters) || []).find(c => c && c.id === selectedDomain.occupiedBy.leaderCharacterId) || {name:'an invader'}).name + ' since turn ' + selectedDomain.occupiedBy.sinceTurn + ' — the peasants’ revenues flow to the occupier; morale runs under his authority at ' + selectedDomain.occupiedBy.moralePenalty + ' until conquest (RR p.458). Steer it from Characters ▸ Parties (the Armies table).'"></span></p>
               </template>
               <p class="text-xs mt-1 opacity-90 accent-red" x-show="(selectedDomain.postOccupationPenaltyMonths || 0) > 0" x-text="'⚠ Recovering from ' + selectedDomain.postOccupationPenaltyMonths + ' month' + (selectedDomain.postOccupationPenaltyMonths === 1 ? '' : 's') + ' of occupation — −' + selectedDomain.postOccupationPenaltyMonths + ' on the next domain morale roll (RR p.458).'"></p>
             </div>
@@ -6994,34 +6808,124 @@ document.addEventListener('alpine:init', () => {
     </div>
 
     <!-- ───── Sub-tab: PARTIES (Phase 2.6.5 placeholder) ───── -->
-    <div x-show="charactersSubView==='parties'" class="vellum border border-ink rounded p-4">
-      <div class="flex justify-between items-baseline mb-3">
-        <h3 class="font-bold text-lg">🧭 Parties <span class="text-sm opacity-70 font-normal" x-text="'· ' + (currentCampaign?.parties?.length || 0) + ' part' + ((currentCampaign?.parties?.length || 0) === 1 ? 'y' : 'ies')"></span></h3>
-        <button @click="newPartyPickerOpen = !newPartyPickerOpen; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">+ New party</button>
-      </div>
-      <!-- Founder picker: a party is started by one character; others join from the same hex. -->
-      <template x-if="newPartyPickerOpen">
-        <div class="border border-ink rounded p-3 mb-3 bg-yellow-50 flex flex-wrap items-end gap-2">
-          <label class="text-sm">Start a party with
-            <select x-model="newPartyFounderId" class="block mt-0.5">
-              <option value="">— pick a character —</option>
-              <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
-                <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1) + (ch.currentHexId ? (' · ' + journeyHexLabel(ch.currentHexId)) : ' · no hex')"></option>
-              </template>
-            </select>
-          </label>
-          <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">Create party</button>
-          <button @click="newPartyPickerOpen=false; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
-          <span class="text-xs opacity-60 w-full">The party is named after its founder and placed at their hex. Add others from the same hex below; or <strong>Send on journey</strong> to put the whole party on the road.</span>
-          <p class="text-xs italic opacity-60 w-full" x-show="charactersNotInAnyParty().length === 0">Everyone is already in a party — free a character first (remove them from their party).</p>
+    <div x-show="charactersSubView==='parties'" class="p-4" x-cloak>
+
+      <!-- §12 Group model (Architecture.md §12) — the merged view: parties, armies, and
+           loose units as three clickable-row tables. Clicking a row opens that group's
+           detail below (the armies table is the model). A party can be mustered into an
+           army from its detail; a unit marching to a muster point shows as its own row
+           until it joins, then only under the army. -->
+
+      <!-- ── PARTIES ────────────────────────────────────────────────────────── -->
+      <div class="vellum border border-ink rounded p-4 mb-3">
+        <div class="flex justify-between items-baseline mb-2">
+          <h3 class="font-bold text-lg">🧭 Parties <span class="text-sm opacity-70 font-normal" x-text="'· ' + (currentCampaign?.parties?.length || 0) + ' part' + ((currentCampaign?.parties?.length || 0) === 1 ? 'y' : 'ies')"></span></h3>
+          <button @click="newPartyPickerOpen = !newPartyPickerOpen; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-yellow-100">+ New party</button>
         </div>
-      </template>
-      <template x-if="(currentCampaign?.parties?.length || 0) === 0">
-        <p class="text-sm italic opacity-60 py-6 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex. You can then add anyone in the same hex as members, or <strong>Send on journey</strong> to put the whole party on the road. A character belongs to at most one party at a time.</p>
-      </template>
-      <template x-if="(currentCampaign?.parties?.length || 0) > 0">
-        <div class="space-y-3">
-          <template x-for="pt in (currentCampaign?.parties || [])" :key="pt.id">
+        <!-- Founder picker: a party is started by one character; others join from the same hex. -->
+        <template x-if="newPartyPickerOpen">
+          <div class="border border-ink rounded p-3 mb-3 bg-yellow-50 flex flex-wrap items-end gap-2">
+            <label class="text-sm">Start a party with
+              <select x-model="newPartyFounderId" class="block mt-0.5">
+                <option value="">— pick a character —</option>
+                <template x-for="ch in charactersNotInAnyParty()" :key="ch.id">
+                  <option :value="ch.id" x-text="ch.name + ' · ' + (ch.class||'?') + ' L' + (ch.level||1) + (ch.currentHexId ? (' · ' + journeyHexLabel(ch.currentHexId)) : ' · no hex')"></option>
+                </template>
+              </select>
+            </label>
+            <button @click="createPartyWithFounder()" :disabled="!newPartyFounderId" :class="newPartyFounderId ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">Create party</button>
+            <button @click="newPartyPickerOpen=false; newPartyFounderId=''" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+            <span class="text-xs opacity-60 w-full">The party is named after its founder and placed at their hex. Add others from the same hex below; or <strong>Send on journey</strong> to put the whole party on the road.</span>
+            <p class="text-xs italic opacity-60 w-full" x-show="charactersNotInAnyParty().length === 0">Everyone is already in a party — free a character first (remove them from their party).</p>
+          </div>
+        </template>
+        <template x-if="(currentCampaign?.parties?.length || 0) === 0">
+          <p class="text-sm italic opacity-60 py-4 text-center">No parties yet. Use <strong>+ New party</strong> to start one with a founding character — it's named after them and placed at their hex.</p>
+        </template>
+        <template x-if="(currentCampaign?.parties?.length || 0) > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th></th><th>Party</th><th>Leader</th><th>Members</th><th>Total</th><th>Location</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="r in partyRows()" :key="r.id">
+                <tr :class="(groupSelKind==='party' && partySelectedId===r.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('party', r.id)">
+                  <td x-text="r.icon"></td>
+                  <td><button class="underline font-semibold text-left" x-text="r.name"></button></td>
+                  <td><span x-show="r.leaderName" x-text="r.leaderName"></span><span x-show="!r.leaderName" class="opacity-50">—</span></td>
+                  <td class="font-mono" x-text="r.memberCount"></td>
+                  <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
+                  <td x-text="r.hexLabel"></td>
+                  <td><span x-show="r.onTheMove" class="text-xs text-sky-700" title="On a journey">⛺ travelling</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- ── ARMIES (relocated from World ▸ 🎖 Armies — §12) ─────────────────── -->
+      <div class="vellum border border-ink rounded p-4 mb-3">
+        <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+          <h3 class="font-bold text-lg">🎖 Armies <span class="text-sm opacity-70 font-normal" x-text="'· ' + armiesRows().length + ' mustered'"></span></h3>
+          <button @click="openMusterArmy()" class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400" title="Raise a new army — pick a commander and station units (RR pp.435–437)">🎖 Muster a new army</button>
+        </div>
+        <template x-if="armiesRows().length === 0">
+          <p class="text-sm italic opacity-60 py-4 text-center">No armies mustered. <button @click="openMusterArmy()" class="underline font-semibold">Muster one</button> — or turn a party into an army with the 🎖 Muster button on its detail. (A character can also raise one from his sheet, a ruler from his domain's Military tab.)</p>
+        </template>
+        <template x-if="armiesRows().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th></th><th>Army</th><th>Leader</th><th>Troops</th><th>BR</th><th>Location</th><th>Stance</th><th>Speed</th><th>State</th></tr></thead>
+            <tbody>
+              <template x-for="row in armiesRows()" :key="row.army.id">
+                <tr :class="(groupSelKind==='army' && armiesSelectedId === row.army.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('army', row.army.id)">
+                  <td x-text="row.icon"></td>
+                  <td><button class="underline font-semibold text-left" x-text="row.army.name || row.army.id"></button></td>
+                  <td><span x-show="row.army.leaderCharacterId" x-text="row.leaderName"></span><span x-show="!row.army.leaderCharacterId" class="opacity-60">—</span></td>
+                  <td class="font-mono" x-text="row.troops"></td>
+                  <td class="font-mono" x-text="row.br"></td>
+                  <td x-text="row.location"></td>
+                  <td class="capitalize" x-text="row.army.strategicStance || 'defensive'"></td>
+                  <td class="font-mono" x-text="row.speed + ' mi/day'"></td>
+                  <td><span x-text="row.state"></span><span x-show="row.fatigued" class="accent-red font-semibold" title="Marched more than 4 of the last 7 days, or no rest after a forced march (RR pp.448–449)"> · FATIGUED</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- ── UNITS (loose — not absorbed into an army; §12.5) ────────────────── -->
+      <div class="vellum border border-ink rounded p-4 mb-3">
+        <div class="flex justify-between items-baseline mb-2">
+          <h3 class="font-bold text-lg">🪖 Units <span class="text-sm opacity-70 font-normal" x-text="'· ' + unitRows().length + ' free'"></span></h3>
+          <span class="text-xs opacity-60">garrisons · mercenary companies · troops marching to muster</span>
+        </div>
+        <template x-if="unitRows().length === 0">
+          <p class="text-sm italic opacity-60 py-4 text-center">No free units. A unit in an army shows under that army; recruit or station troops to see them here.</p>
+        </template>
+        <template x-if="unitRows().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th></th><th>Unit</th><th>Type</th><th>Soldiers</th><th>Stationed</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="r in unitRows()" :key="r.id">
+                <tr :class="(groupSelKind==='unit' && unitSelectedId===r.id) ? 'bg-yellow-50' : ''" class="cursor-pointer hover:bg-yellow-50/60" @click="selectGroup('unit', r.id)">
+                  <td x-text="r.icon"></td>
+                  <td><button class="underline font-semibold text-left" x-text="r.name"></button></td>
+                  <td class="text-xs" x-text="r.entity.unitTypeKey || '—'"></td>
+                  <td class="font-mono" x-text="r.headcount.toLocaleString()"></td>
+                  <td class="text-xs" x-text="unitStationLabel(r.entity)"></td>
+                  <td><span x-show="r.entity.rallyingToArmyId" class="text-xs text-sky-700" title="Marching to a muster point">🚶 marching</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- ── DETAIL panel — the clicked group ───────────────────────────────── -->
+      <div id="group-detail">
+        <!-- PARTY detail (the full party card, now driven by the selection) -->
+        <div x-show="groupSelKind==='party' && selectedParty()" class="space-y-3">
+          <template x-for="pt in selectedPartyList()" :key="pt.id">
             <div :id="'party-card-'+pt.id" class="border border-ink rounded p-3" style="transition:box-shadow .3s">
               <div class="flex justify-between items-center gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
@@ -7036,6 +6940,8 @@ document.addEventListener('alpine:init', () => {
                   <span class="text-sm opacity-70" x-text="partyMemberCount(pt) + ' member' + (partyMemberCount(pt) === 1 ? '' : 's')"></span>
                   <button x-show="pt.activeJourneyId && journeyById(pt.activeJourneyId)" @click="journeyOpenDetail(pt.activeJourneyId)" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200" title="This party is on a journey — open it">⛺ on journey</button>
                   <button x-show="!pt.activeJourneyId" @click="startJourneyDeepLink({ partyId: pt.id })" class="text-sm px-2 py-0.5 border border-ink rounded bg-sky-200 hover:bg-sky-300" title="Start a journey with this whole party">🧭 Send on journey</button>
+                  <!-- §12 — turn this party into an army (RR pp.435–437) -->
+                  <button @click="musterPartyToArmy(pt)" :disabled="partyMemberCount(pt) === 0" :class="partyMemberCount(pt) === 0 ? 'opacity-50 cursor-not-allowed' : 'bg-amber-200 hover:bg-amber-300'" class="text-sm px-2 py-0.5 border border-ink rounded" title="Muster this party into an army — its members become officers, their mercenary units the army's first units, and the party is dissolved">🎖 Muster army</button>
                   <button @click="removeParty(pt.id)" class="text-sm accent-red px-2 py-0.5 border border-ink rounded hover:bg-red-50">× delete</button>
                 </div>
               </div>
@@ -7214,7 +7120,215 @@ document.addEventListener('alpine:init', () => {
             </div>
           </template>
         </div>
-      </template>
+
+        <!-- ARMY detail — relocated from the old World ▸ 🎖 Armies view (§12 Group model).
+             Same campaign card + methods; gated on the army being the selected group. -->
+        <template x-if="groupSelKind==='army' && armySelected()">
+      <div class="mt-3 border-2 rounded p-3 text-sm" style="background:#f3ead8; border-color:#5a4632">
+        <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
+          <p class="font-bold">🎖 <span x-text="armySelected().name || armySelected().id"></span>
+            <span class="font-normal opacity-70" x-text="' · ' + armySelRow().troops + ' troops · BR ' + armySelRow().br + ' · ' + armySelRow().speed + ' mi/day (' + (armySelProfile().slowestUnitName || 'no units') + (armySelProfile().largeMultiplier < 1 ? (' · ' + armySelProfile().largeLabel) : '') + (armySelProfile().warMachineCap ? ' · war machines cap ' + armySelProfile().warMachineCap : '') + ')'"></span></p>
+          <div class="flex items-baseline gap-3">
+            <p class="text-xs opacity-70">
+              <span x-show="armySelected().lastInitiative != null" x-text="'initiative ' + armySelected().lastInitiative + ' · '"></span>
+              <span x-show="armySelFatigue().fatigued" class="accent-red font-semibold" x-text="'⚠ FATIGUED — ' + armySelFatigue().reasons.join('; ')"></span>
+              <span x-show="!armySelFatigue().fatigued">rested</span>
+            </p>
+            <button @click="armyDisband()" class="text-xs underline accent-red" title="Disband this army — its units return to the unstationed pool">🗑 Disband</button>
+          </div>
+        </div>
+        <!-- advisory organization findings (RR pp.434–437; GM-overridable) -->
+        <template x-if="armyOrgFindings().length > 0">
+          <div class="text-xs text-amber-700 mb-1">
+            <template x-for="f in armyOrgFindings()" :key="f"><span class="block">⚠ <span x-text="f"></span></span></template>
+          </div>
+        </template>
+
+        <!-- the army's officers (the individuated channel) — shown exactly like a party's members -->
+        <template x-if="groupMembersOf(armySelected()).length > 0">
+          <div class="border-t border-ink/20 pt-2 mt-1">
+            <div class="text-xs uppercase tracking-wide opacity-70 mb-1">Officers</div>
+            <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+              <template x-for="ch in groupMembersOf(armySelected())" :key="'ao-'+ch.id">
+                <span class="text-sm"><button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" x-text="ch.name || '(unnamed)'"></button><span class="text-xs opacity-60" x-text="' · ' + (ch.class || '?') + ' L' + (ch.level || 1)"></span><span x-show="armySelected().leaderCharacterId===ch.id" title="Commander"> ★</span></span>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- the units travelling with the army (the counted channel) + encumbrance + supply -->
+        <div class="border-t border-ink/20 pt-2 mt-2">
+          <div class="text-xs uppercase tracking-wide opacity-70 mb-1">🪖 Units in the field <span class="normal-case opacity-60" x-text="'· supplies (RR p.450) — ' + (armySelected().supplySimplified !== false ? 'Simplified' : 'full lines')"></span></div>
+          <template x-if="armyUnitRows(armySelected()).length === 0"><p class="text-xs italic opacity-60">No units stationed. Call some up below, or muster again.</p></template>
+          <table class="text-sm w-full max-w-3xl" x-show="armyUnitRows(armySelected()).length > 0">
+            <thead><tr class="text-left text-xs opacity-60 border-b border-ink/30"><th class="font-normal py-0.5 pr-4">Unit</th><th class="font-normal py-0.5 pr-4">Soldiers</th><th class="font-normal py-0.5 pr-4">BR</th><th class="font-normal py-0.5 pr-4">Encumbrance</th><th class="font-normal py-0.5">Supply</th></tr></thead>
+            <tbody>
+              <template x-for="ur in armyUnitRows(armySelected())" :key="'aur-'+ur.unit.id">
+                <tr class="border-b border-dashed border-gray-200">
+                  <td class="py-1 pr-4" x-text="ur.unit.displayName || ur.unit.unitTypeKey || 'unit'"></td>
+                  <td class="py-1 pr-4 font-mono" x-text="ur.soldiers.toLocaleString()"></td>
+                  <td class="py-1 pr-4 font-mono" x-text="ur.br"></td>
+                  <td class="py-1 pr-4 text-xs" :style="'color:'+ur.encColor" x-text="ur.encLabel"></td>
+                  <td class="py-1 text-xs" x-text="ur.unit.supplyState || 'supplied'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- march -->
+        <div class="border-t border-ink/20 pt-2 mt-2">
+          <template x-if="armyMarchingLine()">
+            <p>🧭 <span class="font-semibold">On the march</span> — <span x-text="armyMarchingLine()"></span>
+              · <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the journey</button>
+              · <button @click="armyMarchStop()" class="underline accent-red">🛑 halt</button></p>
+          </template>
+          <template x-if="!(armySelJourney() && armySelJourney().status === 'in-transit')">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-semibold">🚶 Send on a march to</span>
+              <span x-show="armyMarchDest" class="text-sm" x-text="'→ ' + (window.ACKS.hexName ? window.ACKS.hexName((currentCampaign.hexes||[]).find(h=>h&&h.id===armyMarchDest)||{id:armyMarchDest}) : armyMarchDest)"></span>
+              <select x-model="armyMarchDest" class="text-sm">
+                <option value="">— pick a destination hex —</option>
+                <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'amd-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
+              </select>
+              <button @click="armyMarchPickDest()" class="text-xs underline" title="Pick the destination on the map">🗺 choose from map</button>
+              <select x-model="armyMarchPace" class="text-sm">
+                <option value="normal">Normal</option>
+                <option value="forced-march">Forced march (+50%, rest after or fatigued)</option>
+                <option value="half-speed">Half speed</option>
+              </select>
+              <button @click="armyMarchGo()" class="px-2 py-0.5 rounded border border-ink font-semibold" :disabled="!armyMarchDest">⚔ March</button>
+              <span x-show="armySelected().pillage" class="text-xs accent-red">— pillaging; the army cannot move (RR p.459)</span>
+            </div>
+          </template>
+        </div>
+
+        <!-- stance + war machines -->
+        <div class="border-t border-ink/20 pt-2 mt-2 flex flex-wrap gap-4 items-baseline">
+          <label>Stance (RR p.448)
+            <select :value="armySelected().strategicStance || 'defensive'" @change="armySetStance($event.target.value)" class="text-sm ml-1">
+              <option value="offensive">Offensive — seeks battle</option>
+              <option value="defensive">Defensive — fights if offered</option>
+              <option value="evasive">Evasive — avoids battle</option>
+            </select></label>
+          <label>War machines (RR p.449)
+            <select :value="armySelected().warMachines ? (armySelected().warMachines.assembled ? 'assembled' : 'disassembled') : 'none'" @change="armySetWarMachines($event.target.value)" class="text-sm ml-1">
+              <option value="none">none</option>
+              <option value="disassembled">hauled disassembled (cap 12 mi/day)</option>
+              <option value="assembled">hauled assembled (cap 6 mi/day)</option>
+            </select></label>
+          <span x-show="(armySelected().prisoners || 0) > 0">⛓ <span x-text="armySelected().prisoners"></span> prisoners
+            · <button @click="armyRansomGo()" class="underline">💰 ransom (40gp a head)</button></span>
+        </div>
+
+        <!-- reinforcements marching in (call-up) -->
+        <div class="border-t border-ink/20 pt-2 mt-2">
+          <div class="flex items-baseline justify-between">
+            <p class="font-semibold text-xs uppercase tracking-wide opacity-70">🚶 Reinforcements <span class="font-normal normal-case opacity-70" x-show="armyIncomingRows().length" x-text="'· ' + armyIncomingRows().length + ' marching in'"></span></p>
+            <button @click="armyCallUpOpen = !armyCallUpOpen" class="text-xs underline" x-text="armyCallUpOpen ? 'close' : '＋ Call up units'"></button>
+          </div>
+          <template x-for="row in armyIncomingRows()" :key="'inc-' + row.unit.id">
+            <p class="text-xs text-sky-700 py-0.5">🚶 <span class="font-semibold" x-text="row.unit.displayName || row.unit.unitTypeKey || 'unit'"></span>
+              <span x-text="'· ' + Math.max(0,(row.unit.count||0)-(row.unit.casualties||0)) + ' troops · from ' + hexLabelById(row.fromHexId)"></span>
+              <span x-text="row.hexesRemaining != null ? (' · ' + row.hexesRemaining + ' hex / ' + row.milesRemaining + ' mi / ~' + row.daysRemaining + ' day' + (row.daysRemaining===1?'':'s') + ' off') : ' · en route'"></span></p>
+          </template>
+          <!-- the inline call-up picker -->
+          <div x-show="armyCallUpOpen" class="mt-1 border border-ink/20 rounded max-h-40 overflow-y-auto">
+            <template x-if="armyCallUpCandidates().length === 0"><p class="text-xs italic opacity-60 p-2">No free units to call up.</p></template>
+            <template x-for="cu in armyCallUpCandidates()" :key="'cu-' + cu.unit.id">
+              <div class="flex items-center gap-2 px-2 py-1 text-xs border-b border-ink/10">
+                <span class="flex-1" x-text="(cu.unit.displayName || cu.unit.unitTypeKey || 'unit') + ' · ' + Math.max(0,(cu.unit.count||0)-(cu.unit.casualties||0)) + ' troops · ' + cu.home"></span>
+                <span class="opacity-60" x-text="cu.atMuster ? 'here' : (cu.days != null ? ('~' + cu.days + 'd') : 'afar')"></span>
+                <button @click="armyCallUp(cu.unit.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" x-text="cu.atMuster ? 'Join' : 'Call up'"></button>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- reconnaissance intelligence -->
+        <div class="border-t border-ink/20 pt-2 mt-2">
+          <p class="font-semibold text-xs uppercase tracking-wide opacity-70 mb-1">🕵 Intelligence (RR pp.452–457)</p>
+          <template x-if="armyIntelRows().length === 0">
+            <p class="text-xs italic opacity-60">No reconnaissance reports yet — they arrive on the Day Clock whenever an opposing army stands in range.</p>
+          </template>
+          <template x-for="ir in armyIntelRows()" :key="'ir-' + ir.index">
+            <div class="text-xs border-b border-dashed border-ink/20 py-1">
+              <p><span class="font-semibold" x-text="ir.opposingName"></span>
+                <span x-text="' — ' + ir.report.resultLabel + ' (2d6 ' + ir.report.roll + ' → ' + ir.report.total + ')' + (ir.ageDays > 0 ? ' · ' + ir.ageDays + ' day' + (ir.ageDays === 1 ? '' : 's') + ' old' : ' · today')"></span>
+                <span x-show="ir.report.falseIntel" class="accent-red font-bold" title="Catastrophe — present it to the players as a marginal success; the details are wrong (RR p.455)"> · FALSE INTEL (GM)</span></p>
+              <p class="opacity-80" x-show="ir.report.revealed" x-text="armyIntelSummary(ir.report)"></p>
+              <p x-show="ir.report.prisoner">⛓ <span class="font-semibold" x-text="(ir.report.prisoner ? ir.report.prisoner.grade : '') + ' prisoner'"></span>
+                <span x-text="' — ' + (ir.report.prisoner ? ir.report.prisoner.revealedPieceIdxs.length + ' of ' + ir.report.prisoner.pieces.length : '') + ' pieces revealed'"></span>
+                · <button @click="armyInterrogate(ir.index)" class="underline">🗣 interrogate (2d6 + CHA ± GM)</button></p>
+              <template x-for="(pc, pci) in armyRevealedPieces(ir.report)" :key="'pc-' + ir.index + '-' + pci">
+                <p class="ml-3 opacity-80">• <span x-text="pc"></span></p>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- the warfare verbs — the domain the army stands in -->
+        <template x-if="armyWarfare()">
+          <div class="border-t border-ink/20 pt-2 mt-2">
+            <p class="font-semibold text-xs uppercase tracking-wide opacity-70 mb-1">⚑ The ground it stands on (RR pp.458–459)</p>
+            <p class="text-xs">
+              <span class="font-semibold" x-text="armyWarfare().domain.name || armyWarfare().domain.id"></span>
+              <span x-show="armyWarfare().friendly" class="opacity-70"> — friendly ground.</span>
+              <span x-show="!armyWarfare().friendly && !armyWarfare().conquered" class="accent-red font-semibold" x-text="' — ' + (armyWarfare().invaded ? 'INVADED' : 'unfriendly ground (entering = invasion)')"></span>
+              <span x-show="armyWarfare().conquered" class="font-semibold"> — conquered; the leader rules it.</span>
+            </p>
+            <!-- null-safe via the helper (the in-card convention): x-show hides but never
+                 unmounts, so the expression must not dereference a friendly-ground null. -->
+            <p class="text-xs opacity-80" x-show="armyOccupationMathLine()" x-text="armyOccupationMathLine()"></p>
+            <p class="text-xs" x-show="armyWarfare().occupiedByLeader">
+              🏴 <span class="font-semibold">Occupied</span> since turn <span x-text="armyWarfare().domain.occupiedBy ? armyWarfare().domain.occupiedBy.sinceTurn : ''"></span> — conquest completes it:
+              <button @click="armyConquerDirect()" class="underline font-semibold" :disabled="!armyWarfare().conquestOk" :title="armyWarfare().conquestReason || ''">⚑ rule it directly</button>
+              · <button @click="armyConquerVassal()" class="underline font-semibold" :disabled="!armyWarfare().conquestOk" :title="armyWarfare().conquestReason || ''">⚑ grant to a vassal…</button>
+              <span x-show="!armyWarfare().conquestOk" class="accent-red" x-text="' — ' + (armyWarfare().conquestReason || '')"></span>
+            </p>
+            <p class="text-xs" x-show="armyWarfare().garrisonUnits > 0 && !armyWarfare().friendly">
+              🛡 The garrison holds (<span x-text="armyWarfare().garrisonUnits"></span> units) —
+              <button @click="armyBattleGarrison()" class="underline accent-red font-semibold">🎌 battle the garrison</button>
+              <span class="opacity-60">(a garrisoned stronghold blocks conquest until it falls; sieges land at W6)</span>
+            </p>
+            <template x-if="armyWarfare().conquered && !armySelected().pillage">
+              <p class="text-xs">
+                🔥 Plunder the prize:
+                <button @click="armyPillageGo(false)" class="underline font-semibold">pillage</button>
+                · <button @click="armyPillageGo(true)" class="underline accent-red font-semibold">salt the earth (×4 time — the domain is destroyed)</button>
+                <span class="opacity-60" x-text="' — needs ' + armyWarfare().pillageReq.troops.toLocaleString() + ' troops for full yield (' + armyWarfare().pillageReq.timeLabel + '); a smaller force takes its proportion'"></span>
+              </p>
+            </template>
+            <template x-if="armyPillageLine()">
+              <p class="text-xs accent-red font-semibold">🔥 <span x-text="armyPillageLine()"></span>
+                · <button @click="armyPillageCutShort()" class="underline">⏹ cut it short (proportional yield)</button></p>
+            </template>
+          </div>
+        </template>
+        <p class="text-xs opacity-60 mt-2 italic">The Day Clock runs the campaign cycle (RR p.447): initiative and reconnaissance each day opposing armies stand in range, contact where columns collide (the battle proposes itself), invasion morale rolls, occupation flips, pillage progress. Standing GM levers — magic, spies, stratagems, allies, permitted ground — live on the army in the 🔍 Inspector.</p>
+      </div>
+        </template>
+
+        <!-- UNIT detail (a loose / garrison / mercenary-company / rallying unit) -->
+        <template x-for="u in selectedUnitList()" :key="'udet-'+u.id">
+          <div class="mt-3 border-2 rounded p-3 text-sm" style="background:#f3ead8; border-color:#5a4632">
+            <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
+              <p class="font-bold">🪖 <span x-text="u.displayName || u.unitTypeKey || 'Unit'"></span>
+                <span class="font-normal opacity-70" x-text="' · ' + Math.max(0,(u.count||0)-(u.casualties||0)).toLocaleString() + ' soldiers' + (u.unitTypeKey ? (' · ' + u.unitTypeKey) : '') + (u.race && u.race !== 'man' ? (' · ' + u.race) : '') + (u.veteran ? ' · veteran' : '')"></span></p>
+              <button x-show="u.commanderCharacterId || u.lieutenantCharacterId" @click="openCharacterEditor(u.commanderCharacterId || u.lieutenantCharacterId)" class="text-xs underline">officer ›</button>
+            </div>
+            <p class="text-xs"><span class="opacity-70">Stationed:</span> <span x-text="unitStationLabel(u)"></span></p>
+            <p class="text-xs" x-show="u.rallyingToArmyId"><span class="text-sky-700 font-semibold">🚶 Marching to its muster point</span> — <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the march</button></p>
+            <p class="text-xs mt-1"><span class="opacity-70">Wage:</span> <span class="font-mono" x-text="(window.ACKS.unitWageMonthly ? Math.round(window.ACKS.unitWageMonthly(currentCampaign, u)).toLocaleString() : (u.monthlyWage||0)) + ' gp/mo'"></span>
+              · <span class="opacity-70">BR:</span> <span class="font-mono" x-text="window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(currentCampaign, u) : '—'"></span>
+              · <span class="opacity-70">Supply:</span> <span x-text="u.supplyState || 'supplied'"></span></p>
+            <p class="text-xs opacity-60 mt-1 italic">Station this unit to an army by mustering, or call it up from an army's detail (＋ Call up units). Detailed edits live in the domain's Military tab and the 🔍 Inspector.</p>
+          </div>
+        </template>
+
+        <!-- nothing selected -->
+        <p x-show="!groupSelKind" class="text-sm opacity-60 italic mt-2 px-1">Select a party, army, or unit above to see its details and actions.</p>
+      </div>
     </div>
 
     <!-- ───── Action Wizard convention (Wave A.7 — 2026-05-30) ─────
@@ -12648,8 +12762,8 @@ return {
     });
     this.markDirty(); this.schedulePersist();
     this.musterArmyOpen = false;
-    // jump to the Armies view focused on the new army
-    this.currentView = 'world'; this.worldSubView = 'armies'; this.armiesSelectedId = army.id; this.armyMarchDest = '';
+    // jump to the merged Parties view focused on the new army (§12 Group model)
+    this.currentView = 'characters'; this.charactersSubView = 'parties'; this.selectGroup('army', army.id);
     const troops = (window.ACKS.armyTroopCount ? window.ACKS.armyTroopCount(this.currentCampaign, army) : 0);
     if(this.showToast) this.showToast('🎖 ' + (army.name || 'Army') + ' mustered — ' + troops.toLocaleString() + ' troops' + (callUp.length ? (', ' + callUp.length + ' marching in') : '') + '. Steer it here.');
   },
@@ -13167,9 +13281,8 @@ return {
     // #476 E2 — encounters (campaign.encounters[]). The badge counts ACTIVE ones — the
     // "needs the GM" signal (resolved encounters stay browsable inside the view).
     tabs.push({ id:'encounters', label:'⚔ Encounters', count: (window.ACKS.activeEncounters(this.currentCampaign) || []).length || null });
-    // Phase 3 Military W4 — armies (campaign.armies[]). The badge counts the armies with
-    // troops in the field; the view is the campaign layer's steering surface.
-    tabs.push({ id:'armies', label:'🎖 Armies', count: ((this.currentCampaign && this.currentCampaign.armies) || []).filter(a => a && window.ACKS.armyTroopCount && window.ACKS.armyTroopCount(this.currentCampaign, a) > 0).length || null });
+    // Phase 3 Military W4 — armies moved into the merged Characters ▸ Parties view (§12
+    // Group model): parties, armies, and loose units live together there. No World tab.
     // Phase 3 Military W3 — battles (campaign.battles[]). The badge counts the ones still
     // in motion (setup / fighting / ended-awaiting-aftermath); resolved battles stay browsable.
     tabs.push({ id:'battles', label:'🎌 Battles', count: (window.ACKS.activeBattles(this.currentCampaign) || []).length || null });
@@ -13334,6 +13447,10 @@ return {
   venturesSubView:'active', // 'active' | 'history' | 'venturers' | 'passive' | 'reference'
   // Phase 2.6 — UI state for the Characters view
   charactersSubView:'roster', // 'roster' | 'parties'
+  // §12 Group model — the merged "Parties" view selection (one detail open at a time).
+  groupSelKind: null,        // null | 'party' | 'army' | 'unit'
+  partySelectedId: null,
+  unitSelectedId: null,
   // Party creation (redesigned 2026-06-02): a party is started by a founding character
   // and named after them; others join from the same hex. character.partyId stays the
   // single source of membership truth.
@@ -16199,14 +16316,90 @@ return {
     this.closeCharacterEditor();
     this.openPartyView(ch.partyId);
   },
-  // Jump to Characters › Parties and scroll the party's card into view with a brief highlight.
+  // Jump to Characters › Parties, select the party, and scroll its detail into view.
   openPartyView(partyId){
     this.currentView = 'characters';
     this.charactersSubView = 'parties';
+    if(partyId) this.selectGroup('party', partyId);
     setTimeout(() => {
       const el = partyId && document.getElementById('party-card-' + partyId);
       if(el){ el.scrollIntoView({ behavior:'smooth', block:'center' }); el.style.boxShadow = '0 0 0 3px #facc15'; setTimeout(() => { el.style.boxShadow = ''; }, 1800); }
     }, 80);
+  },
+
+  // ── §12 Group model — the merged "Parties" view (Parties / Armies / Units) ──
+  // One detail open at a time; selecting clears the other kinds' selections.
+  selectGroup(kind, id){
+    this.groupSelKind = kind;
+    if(kind === 'party'){ this.partySelectedId = id; }
+    else if(kind === 'army'){ this.armiesSelectedId = id; this.armyMarchDest = ''; }
+    else if(kind === 'unit'){ this.unitSelectedId = id; }
+    this.$nextTick(() => { const el = document.getElementById('group-detail'); if(el) el.scrollIntoView({ behavior:'smooth', block:'nearest' }); });
+  },
+  selectedParty(){ return (this.groupSelKind === 'party' && this.partySelectedId) ? ((this.currentCampaign?.parties||[]).find(p => p && p.id === this.partySelectedId) || null) : null; },
+  selectedPartyList(){ const p = this.selectedParty(); return p ? [p] : []; },
+  selectedUnit(){ return (this.groupSelKind === 'unit' && this.unitSelectedId && this.currentCampaign) ? (window.ACKS.findUnit(this.currentCampaign, this.unitSelectedId) || null) : null; },
+  selectedUnitList(){ const u = this.selectedUnit(); return u ? [u] : []; },
+  // The shared row descriptor (engine groupRow) + a hex label + the raw entity, for the tables.
+  _groupRow(e){ const c = this.currentCampaign; const r = window.ACKS.groupRow(c, e); r.entity = e; r.hexLabel = r.hexId ? this.journeyHexLabel(r.hexId) : '—'; return r; },
+  partyRows(){ const c = this.currentCampaign; if(!c) return []; return (c.parties||[]).filter(p => p && p.status !== 'disbanded').map(p => this._groupRow(p)); },
+  unitRows(){ const c = this.currentCampaign; if(!c) return []; return (window.ACKS.looseUnits(c) || []).map(u => this._groupRow(u)); },
+  // A loose unit's station label: marching to an army, a domain garrison, a company, a hex.
+  unitStationLabel(u){
+    if(!u) return '—';
+    if(u.rallyingToArmyId){ const a = window.ACKS.findArmy(this.currentCampaign, u.rallyingToArmyId); return '🚶 marching to ' + (a ? (a.name || 'an army') : 'an army'); }
+    const st = u.stationedAt;
+    if(!st) return 'unassigned';
+    if(st.kind === 'domain-garrison'){ const d = (this.currentCampaign?.domains||[]).find(x => x && x.id === st.id); return 'garrison · ' + (d ? (d.name || d.id) : st.id); }
+    if(st.kind === 'character'){ const c = (this.currentCampaign?.characters||[]).find(x => x && x.id === st.id); return 'company · ' + (c ? (c.name || c.id) : st.id); }
+    if(st.kind === 'hex') return 'at ' + this.journeyHexLabel(st.id);
+    if(st.kind === 'army') return 'in an army';
+    return st.kind;
+  },
+  // An army's individuated members (officers) — reuses the engine accessor so an army
+  // shows its people exactly like a party shows its members.
+  groupMembersOf(g){ return g ? (window.ACKS.groupMembers(this.currentCampaign, g) || []) : []; },
+  // An army's units with per-unit soldiers / BR / load-pace ("encumbrance") / supply. The
+  // slowest unit (the army's pace bottleneck — its "encumbrance") is highlighted.
+  armyUnitRows(army){
+    if(!army || !this.currentCampaign) return [];
+    const c = this.currentCampaign;
+    const rows = (window.ACKS.armyUnits(c, army) || []).map(u => {
+      const soldiers = Math.max(0, (u.count||0) - (u.casualties||0));
+      const br = window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(c, u) : 0;
+      const tr = window.ACKS.unitTroopRow ? window.ACKS.unitTroopRow(u) : null;
+      const mpd = window.ACKS.unitMarchMilesPerDay ? window.ACKS.unitMarchMilesPerDay(u) : null;
+      const encLabel = (tr && tr.category ? (tr.category + ' · ') : '') + (mpd != null ? (mpd + ' mi/day') : '—');
+      return { unit: u, soldiers, br, mpd, encLabel, encColor: '#5a4632' };
+    });
+    const speeds = rows.map(r => r.mpd).filter(s => s != null);
+    const minSpeed = speeds.length ? Math.min.apply(null, speeds) : null;
+    if(minSpeed != null && rows.length > 1) rows.forEach(r => { if(r.mpd === minSpeed) r.encColor = '#b45309'; });
+    return rows;
+  },
+  // March destination picker — choose the hex on the map, then return to the army detail.
+  armyMarchPickDest(){
+    const army = this.armySelected && this.armySelected();
+    if(!army) return;
+    const armyId = army.id;
+    this.mapBeginSelect((hexId) => {
+      this.armyMarchDest = hexId || '';
+      this.currentView = 'characters'; this.charactersSubView = 'parties';
+      this.selectGroup('army', armyId);
+    }, 'Click the destination hex for the march, then ✓ confirm.');
+  },
+  // §12.6 — turn a party into an army (the in-fiction transformation). Members become the
+  // army's officers, their mercenary units its first units; the party is consumed.
+  musterPartyToArmy(pt){
+    if(!pt) return;
+    if(!(pt.memberCharacterIds||[]).length){ this.showToast('That party has no members to muster.', 3000); return; }
+    if(!confirm('Muster the party “' + (pt.name||'party') + '” into an army?\n\nIts members become the army\'s officers, their mercenary units its first units, and the party is dissolved (its camp goes to the leader).')) return;
+    const army = window.ACKS.musterArmyFromParty(this.currentCampaign, pt.id);
+    if(!army){ this.showToast('Could not muster the party.', 3000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.selectGroup('army', army.id);
+    const troops = window.ACKS.groupHeadcount(this.currentCampaign, army);
+    this.showToast('🎖 ' + (army.name || 'Army') + ' mustered from the party' + (troops ? (' — ' + troops.toLocaleString() + ' troops') : '') + '.');
   },
   openJourneyForCharacter(ch){
     if(!ch || !ch.currentJourneyId) return;
