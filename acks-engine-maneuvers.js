@@ -180,13 +180,14 @@
     const last7 = marched.filter(o => o > ord - 7 && o <= ord);
     if(last7.length > 4) reasons.push('marched ' + last7.length + ' of the last 7 days (rest 3 in 7, RR p.448)');
     // Forced march: must rest the day after, or fatigued until a rest day happens.
+    // Only fully ELAPSED days count as rest — the day being evaluated is still in
+    // progress (the army is fatigued on its rest day, recovered the day after).
     const forced = (army && army.forcedMarchOrds) || [];
     for(const f of forced){
       if(f >= ord) continue;
       if(marched.indexOf(f + 1) >= 0){
-        // didn't rest the day after — fatigued until the first non-marched day after f+1
         let rested = false;
-        for(let o = f + 2; o <= ord; o++){ if(marched.indexOf(o) < 0){ rested = true; break; } }
+        for(let o = f + 2; o <= ord - 1; o++){ if(marched.indexOf(o) < 0){ rested = true; break; } }
         if(!rested){ reasons.push('no rest day since the forced march (RR p.449)'); break; }
       }
     }
