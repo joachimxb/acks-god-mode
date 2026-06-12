@@ -5883,6 +5883,7 @@ document.addEventListener('alpine:init', () => {
               · <span class="font-semibold" :class="journeyDetail().isLost ? 'text-red-700' : (journeyDetail().status==='arrived' ? 'text-green-800' : '')" x-text="journeyStatusLabel(journeyDetail())"></span>
             </p>
             <p class="text-sm mt-1" x-show="journeyDetail().participantCharacterIds.length"><span class="opacity-60">Travellers:</span> <span x-text="journeyHeadcountLabel(journeyDetail())"></span></p>
+            <p class="text-sm mt-1" x-show="journeyGroupKind(journeyDetail())==='army' || journeyGroupKind(journeyDetail())==='unit'"><span class="opacity-60" x-text="(journeyGroupKind(journeyDetail())==='army' ? 'Army:' : 'Unit:')"></span> <span class="font-semibold" x-text="journeyGroupEntity(journeyDetail()) ? (window.ACKS.groupDisplayName(journeyGroupEntity(journeyDetail()))||'') : ''"></span> <span class="opacity-70" x-text="journeyGroupEntity(journeyDetail()) ? ('· ' + window.ACKS.groupHeadcount(currentCampaign, journeyGroupEntity(journeyDetail())).toLocaleString() + (journeyGroupKind(journeyDetail())==='army' ? ' troops' : ' soldiers')) : ''"></span></p>
           </div>
           <div class="flex items-center gap-2">
             <button @click="journeyViewOnMap(journeyDetail().id)" class="text-xs px-2 py-1 border border-ink rounded hover:bg-sky-100" title="See this journey on the map — and change its destination or waypoints there">🗺 View on map</button>
@@ -5985,9 +5986,37 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
+        <!-- §12 Group model — an ARMY's march shows its UNITS (the things travelling) + its
+             officers as the army's "members"; a rallying UNIT shows itself. (A party's character
+             members are above; this is the same interface with the army differences factored in.) -->
+        <template x-if="journeyGroupKind(journeyDetail())==='army'">
+          <div x-data="{ get army(){ return journeyGroupEntity(journeyDetail()); } }">
+            <template x-if="army && groupMembersOf(army).length > 0">
+              <div class="text-sm mb-1"><span class="uppercase tracking-wide opacity-70">Officers</span><template x-for="ch in groupMembersOf(army)" :key="'jao-'+ch.id"><span class="ml-2"><button @click="openCharacterEditor(ch)" class="underline hover:opacity-80" x-text="ch.name||'(unnamed)'"></button><span class="text-xs opacity-60" x-text="' · '+(ch.class||'?')+' L'+(ch.level||1)"></span><span x-show="army.leaderCharacterId===ch.id" title="Commander"> ★</span></span></template></div>
+            </template>
+            <div class="text-sm uppercase tracking-wide opacity-70 mb-1">🪖 Units on the march</div>
+            <table class="text-sm w-full max-w-2xl" x-show="army && armyUnitRows(army).length">
+              <thead><tr class="text-left text-xs opacity-60 border-b border-ink/30"><th class="font-normal py-0.5 pr-4">Unit</th><th class="font-normal py-0.5 pr-4">Soldiers</th><th class="font-normal py-0.5 pr-4">BR</th><th class="font-normal py-0.5 pr-4" title="The unit's load class + its daily march pace; the slowest unit sets the army's speed">Pace</th><th class="font-normal py-0.5">Supply</th></tr></thead>
+              <tbody>
+                <template x-for="ur in armyUnitRows(army)" :key="'jau-'+ur.unit.id">
+                  <tr class="border-b border-dashed border-gray-200"><td class="py-1 pr-4" x-text="ur.unit.displayName||ur.unit.unitTypeKey||'unit'"></td><td class="py-1 pr-4 font-mono" x-text="ur.soldiers.toLocaleString()"></td><td class="py-1 pr-4 font-mono" x-text="ur.br"></td><td class="py-1 pr-4 text-xs" :style="'color:'+ur.encColor" x-text="ur.encLabel"></td><td class="py-1 text-xs" x-text="ur.unit.supplyState||'supplied'"></td></tr>
+                </template>
+              </tbody>
+            </table>
+            <p class="text-xs italic opacity-60" x-show="army && !armyUnitRows(army).length">No units with this army.</p>
+            <div class="text-sm mt-1" x-show="army"><span class="font-semibold">Total: <span x-text="window.ACKS.groupHeadcount(currentCampaign, army).toLocaleString()"></span> troops</span></div>
+          </div>
+        </template>
+        <template x-if="journeyGroupKind(journeyDetail())==='unit'">
+          <div class="text-sm" x-data="{ get u(){ return journeyGroupEntity(journeyDetail()); } }" x-show="u">
+            <span class="uppercase tracking-wide opacity-70">Unit on the march</span>
+            <div class="mt-1"><span class="font-semibold" x-text="u ? (u.displayName||u.unitTypeKey||'Unit') : ''"></span><span class="opacity-70" x-text="u ? (' · ' + Math.max(0,(u.count||0)-(u.casualties||0)).toLocaleString() + ' soldiers · ' + unitStationLabel(u)) : ''"></span></div>
+          </div>
+        </template>
+
         <!-- supplies tracker + status conditions — Provisioning V5: totals are now TIGHT inventory
              (members' carried rations + water + the party camp), not the retired abstract counter. -->
-        <div class="border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown()">
+        <div class="border border-dashed border-ink rounded p-2 text-sm" x-show="rationsShown() && journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit'">
           <!-- CoL-1 lifestyle banner: in a settlement / stronghold / a realm ruled by a traveller (or a
                companion), no rations or water are spent — the party lives off the lifestyle (RR p.278). -->
           <template x-if="journeyProvisioningInfo(journeyDetail()).onLifestyle">
@@ -6020,6 +6049,15 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
+        <!-- §12 — armies & units draw SUPPLIES (RR p.450), not personal rations/water. -->
+        <template x-if="journeyGroupKind(journeyDetail())==='army' || journeyGroupKind(journeyDetail())==='unit'">
+          <div class="border border-dashed border-ink rounded p-2 text-sm" x-data="{ get g(){ return journeyGroupEntity(journeyDetail()); } }">
+            <span title="An army or marching unit draws supplies, not the party's personal rations and water (RR p.450)">📦 <span class="font-semibold">Supplies:</span> <span x-text="journeyGroupKind(journeyDetail())==='army' ? (g && g.supplySimplified!==false ? 'Simplified (RR p.452)' : 'full supply lines') : (g ? (g.supplyState||'supplied') : '')"></span></span>
+            <span class="ml-4 opacity-60 text-xs" x-show="journeyGroupKind(journeyDetail())==='unit'">A reinforcement marching to its muster point — it draws supplies on the army's account.</span>
+            <span class="ml-4 opacity-60 text-xs" x-show="journeyGroupKind(journeyDetail())==='army'">No personal rations or water — a marching column lives off supplies, not a party-camp larder.</span>
+          </div>
+        </template>
+
         <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
              side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
              override (no value/event); off shows nothing beside the tick. The value is set/edited via the
@@ -6034,8 +6072,8 @@ document.addEventListener('alpine:init', () => {
           <div class="flex flex-wrap gap-x-4 gap-y-1 items-center text-sm mb-2">
             <span class="opacity-70 text-xs">Current speed</span>
             <span class="font-mono" :class="journeyHasSpeedOverride(journeyDetail()) ? 'opacity-40' : ''"
-                  title="The party travels at its slowest member's encumbrance rate (RR pp.83–84): 24 / 18 / 12 / 6 mi/day for unencumbered / lightly / heavily / severely loaded. Pace, weather and terrain then modify it."
-                  x-text="journeyCurrentSpeed(journeyDetail()) + ' mi/day' + (journeyCurrentSpeed(journeyDetail())===0 ? ' — a member is overloaded' : '')"></span>
+                  :title="'The group travels at ' + journeySpeedBasisLabel(journeyDetail()) + ' (RR pp.83–84 / p.448 for an army). Pace, weather and terrain then modify it.'"
+                  x-text="journeyCurrentSpeed(journeyDetail()) + ' mi/day' + (journeyCurrentSpeed(journeyDetail())===0 ? ' — overloaded' : '')"></span>
             <label class="flex items-center gap-1.5 cursor-pointer select-none ml-1" title="Override the party's current speed — set an exact base miles/day for this leg (pace, weather & per-hex terrain still apply on top)">
               <input type="checkbox" :checked="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed" @change="toggleJourneySpeedOverride(journeyDetail(), $event.target.checked)">
               <span class="text-xs">Override</span>
@@ -6073,7 +6111,7 @@ document.addEventListener('alpine:init', () => {
               </select>
             </div>
           </div>
-          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)">Current speed = the slowest member's encumbrance rate; pace multiplies it for the next day ticked.</span>
+          <span class="text-xs opacity-50" x-show="!(journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed)" x-text="'Current speed = ' + journeySpeedBasisLabel(journeyDetail()) + '; pace multiplies it for the next day ticked.'"></span>
           <!-- Pace cap (Joachim 2026-06-05): when a traveller's other activities (e.g. administering a domain)
                leave no room for full-speed travel, the faster paces are disabled + this names why. -->
           <span class="text-xs text-amber-800 font-semibold block" x-show="journeyPaceCapText(journeyDetail())" x-text="journeyPaceCapText(journeyDetail())"></span>
@@ -16401,6 +16439,11 @@ return {
     const troops = window.ACKS.groupHeadcount(this.currentCampaign, army);
     this.showToast('🎖 ' + (army.name || 'Army') + ' mustered from the party' + (troops ? (' — ' + troops.toLocaleString() + ' troops') : '') + '.');
   },
+  // §12 — the group (party/army/unit) that owns a journey, so the Journey Detail panel can
+  // render group-aware (an army's march shows its units + supplies, not party rations).
+  journeyGroupEntity(j){ return j && this.currentCampaign ? window.ACKS.groupForJourney(this.currentCampaign, j) : null; },
+  journeyGroupKind(j){ const e = this.journeyGroupEntity(j); return e ? window.ACKS.groupKindOf(e) : null; },
+  journeySpeedBasisLabel(j){ const k = this.journeyGroupKind(j); return k==='army' ? "the slowest unit's march pace" : k==='unit' ? "the unit's march pace" : "the slowest member's encumbrance rate"; },
   openJourneyForCharacter(ch){
     if(!ch || !ch.currentJourneyId) return;
     this.closeCharacterEditor();

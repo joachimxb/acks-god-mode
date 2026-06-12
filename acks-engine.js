@@ -3776,6 +3776,20 @@ function worldGroups(campaign, opts={}){
   return out;
 }
 
+// The group (party / army / unit) that OWNS a journey — the inverse of groupJourney.
+// A journey carries exactly one owner discriminator (armyId | unitId | partyId); a lone
+// traveller (participantCharacterIds, no group) returns null. Lets the Journey Detail
+// panel render group-aware (an army's march shows its units + supplies, not rations).
+function groupForJourney(campaign, journeyOrId){
+  if(!campaign) return null;
+  const j = (typeof journeyOrId === 'string') ? (campaign.journeys || []).find(x => x && x.id === journeyOrId) : journeyOrId;
+  if(!j) return null;
+  if(j.armyId) return findArmy(campaign, j.armyId);
+  if(j.unitId) return findUnit(campaign, j.unitId);
+  if(j.partyId) return (campaign.parties || []).find(p => p && p.id === j.partyId) || null;
+  return null;
+}
+
 // Muster an army FROM an existing party (§12.6 — the party→army transformation). The
 // party's members become the army's individuated roster (its leader → the commander),
 // each member's mercenary-company units → the army's first units, and the party is
@@ -9769,7 +9783,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
   groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
   groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,
-  groupIsAutonomous, groupLifecycleState, groupRow, looseUnits, worldGroups, musterArmyFromParty,
+  groupIsAutonomous, groupLifecycleState, groupRow, looseUnits, worldGroups, groupForJourney, musterArmyFromParty,
   // Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106)
   domainTerritoryHexCount, domainBorderConfiguration, domainEffectiveTerritory,
   domainIncursionClassification, domainDailyEncounterChance,

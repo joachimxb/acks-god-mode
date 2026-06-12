@@ -140,6 +140,19 @@ ok('worldGroups: 1 party + 1 army + 2 loose units (no nested unit)', wg.length =
 ok('worldGroups kinds filter', ACKS.worldGroups(camp, { kinds: ['army'] }).length === 1);
 ok('worldGroups includeNested adds the army unit', ACKS.worldGroups(camp, { kinds: ['unit'], includeNested: true }).length === 3);
 
+section('groupForJourney — the inverse (a journey’s owning group)');
+camp.journeys = [
+  { id: 'jrn-army', armyId: 'army-1' },
+  { id: 'jrn-unit', unitId: 'unit-gar' },
+  { id: 'jrn-party', partyId: 'par-1' },
+  { id: 'jrn-solo', participantCharacterIds: ['chr-leader'] }
+];
+ok('army journey → the army', ACKS.groupForJourney(camp, camp.journeys[0]) === army);
+ok('unit journey → the unit (by id)', ACKS.groupForJourney(camp, 'jrn-unit') === unitGar);
+ok('party journey → the party', ACKS.groupForJourney(camp, camp.journeys[2]) === party);
+ok('lone-traveller journey → null', ACKS.groupForJourney(camp, camp.journeys[3]) === null);
+ok('unknown journey id → null', ACKS.groupForJourney(camp, 'jrn-nope') === null);
+
 section('groupRow — the shared table descriptor');
 const prow = ACKS.groupRow(camp, party), arow = ACKS.groupRow(camp, army);
 ok('party row', prow.kind === 'party' && prow.name === 'Aldric’s Band' && prow.leaderName === 'Aldric' && prow.headcount === 42 && prow.hexId === 'hex-a' && prow.memberCount === 2);
