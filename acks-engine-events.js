@@ -123,6 +123,13 @@ const EVENT_KINDS = Object.freeze([
   // disbanded, or casualties settled as population loss); a no-change plague month emits nothing.
   // Record-only (the processor already applied the world changes); chronicle-visible.
   'domain-banditry',
+  // Phase 3 Military W2 (2026-06-12) — one Vagaries of Incursion domain encounter (JJ
+  // pp.100–106): the daily probability struck, monsters arrived. The payload carries the
+  // whole verdict bundle (probability + identity + linger/migrate + the domain reaction +
+  // recon-lite + the platoon-scale BR comparison); the context envelope carries the entry
+  // hex + the domain + the materialized Group. Record-only (the incursion day consumer's
+  // commit already placed the band); chronicle-visible.
+  'domain-incursion',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -457,6 +464,17 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { domainId: 'string' },
     O: { action: 'string', morale: 'number', target: 'number', killed: 'number',
          familiesLost: 'number', occupationMonths: 'number', bands: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W2 — the Vagaries of Incursion domain encounter (JJ pp.100–106).
+  // groupId = the materialized band; chance/roll = the daily probability; identity =
+  // {label,key,rarity}; disposition = lingering|migrating (+ fullStrength/treasureType);
+  // reaction = {roll,total,attitude,mods}; recon = {ruler:{...},monsters:{...}};
+  // brComparison = {monsterBr,garrisonBr,verdict}.
+  'domain-incursion': {
+    R: { domainId: 'string' },
+    O: { groupId: 'string', hexId: 'string', chance: 'object', identity: 'object',
+         count: 'number', disposition: 'string', fullStrength: 'boolean', treasureType: 'string',
+         reaction: 'object', recon: 'object', brComparison: 'object', narrative: 'string' }
   },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
@@ -1932,6 +1950,14 @@ function applyEvent_domainBanditryAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || 'domain banditry' } };
 }
 registerEventHandler('domain-banditry', applyEvent_domainBanditryAudit);
+// Phase 3 Military W2 — the domain-incursion record shares the audit posture: the
+// incursion day consumer's commit already materialized the band; this handler only
+// keeps the event well-formed on replay.
+function applyEvent_domainIncursionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'domain encounter (Vagaries of Incursion)' } };
+}
+registerEventHandler('domain-incursion', applyEvent_domainIncursionAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -4243,7 +4269,25 @@ function encounterToneRows(campaign, encounterId, tone, opts){
         if(row.derive && row.derive.indexOf('prof:') === 0 && hasProf(row.derive.slice(5))){ r.auto = true; r.on = true; }
     }
     return r;
-  });
+  }).concat((() => {
+    // Phase 3 Military W2 — JJ p.104: a band that arrived as a DOMAIN ENCOUNTER carries
+    // its attitude toward the domain into individual meetings with adventurers (−2
+    // hostile / −1 unfriendly / +1 mercantilist / +2 friendly; neutral adds nothing).
+    // Auto-derived from the bound Group's incursion verdict; a reaction-roll circumstance,
+    // so it surfaces under every tone.
+    const incGrp = ((enc.monsterSide && enc.monsterSide.groupIds) || [])
+      .map(gid => (((campaign && campaign.groups) || []).find(g => g && g.id === gid)) || null)
+      .find(g => g && g.incursion && g.incursion.attitude);
+    if(!incGrp) return [];
+    const att = String(incGrp.incursion.attitude);
+    const val = att === 'hostile' ? -2 : att === 'unfriendly' ? -1 : att === 'mercantilist' ? 1 : att === 'friendly' ? 2 : 0;
+    if(!val) return [];
+    const dom = ((campaign && campaign.domains) || []).find(d => d && d.id === incGrp.incursion.domainId) || null;
+    return [{ key: 'incursion-attitude', group: 'Relationship',
+      label: 'The band is ' + att + ' toward ' + ((dom && dom.name) || 'the domain') + ' — a domain-encounter arrival (JJ p.104)',
+      value: val, variable: false, derive: 'incursion-attitude',
+      note: 'the domain-encounter attitude carries into individual meetings', auto: true, on: true }];
+  })());
 }
 
 // ═══ E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103) ═════
@@ -4860,7 +4904,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'favor-duty',
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
-  'domain-banditry'
+  'domain-banditry',
+  // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
+  // the band; raw emit would narrate an arrival the world doesn't show).
+  'domain-incursion'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

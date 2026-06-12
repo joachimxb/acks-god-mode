@@ -458,6 +458,13 @@ function moraleModifiersFor(campaign, d){
     mods.push({ label: 'Bandits plague the domain — enemy-army occupation, month ' + occMonths + ' (RR p.349 + p.351)',
                 value: -Math.max(0, occMonths - 1) });
   }
+  // Phase 3 Military W2 — JJ p.103: a NEUTRAL domain-encounter band the ruler did not
+  // deploy the garrison against costs −1 on the NEXT domain morale roll (peasant
+  // xenophobia). One-shot: the incursion consumer sets the flag, commitTurn consumes it
+  // after the roll. Rule-gated so an unticked rule leaves no live penalty (principle 8).
+  if(d.incursionXenophobiaPending && isHouseRuleEnabled(campaign, 'vagaries-of-incursion')){
+    mods.push({ label: 'Monsters crossed the domain unchallenged — peasant unease (JJ p.103)', value: -1 });
+  }
   // RR p.351 — administered this month → +1 (only one applies even if several are ticked).
   const adminList = magistrateAdminCandidates(campaign, d);
   if(adminList.length > 0){

@@ -4237,7 +4237,11 @@ function looseMonsterBands(campaign){
       groupIds: [g.id],
       lairId: null,
       deadHomeLairId: deadHome[g.id] || null,
-      halted: !!(ws && ws.halted)                  // E6 — the GM's parking lever (else it wanders)
+      halted: !!(ws && ws.halted),                 // E6 — the GM's parking lever (else it wanders)
+      // W2 — a band that arrived as a DOMAIN ENCOUNTER carries its verdict (the Groups
+      // table + the 6a binding label name the incursion; the band wanders/holds the same).
+      incursion: g.incursion ? { domainId: g.incursion.domainId, attitude: g.incursion.attitude,
+                                 disposition: g.incursion.disposition, rulerAware: g.incursion.rulerAware !== false } : null
     });
   }
   return rows;
@@ -7840,6 +7844,12 @@ function commitTurn(campaign, proposal, options){
         (banditryResult.logEntries || []).forEach(l => logEntries.push(l));
       }
     } catch(e){ /* never let banditry fail the monthly commit */ }
+    // Phase 3 Military W2 — the JJ p.103 peasant-unease flag is ONE-SHOT: it just fed
+    // this month's morale roll (the moraleModifiersFor row), so consume it. Clearing a
+    // stale flag is harmless + self-healing, so this runs unconditionally of the rule.
+    try {
+      (campaign.domains || []).forEach(d => { if(d && d.incursionXenophobiaPending) d.incursionXenophobiaPending = false; });
+    } catch(e){ /* never let the flag clear fail the monthly commit */ }
   }
 
   // === RUMOR AUTO-EMIT ===

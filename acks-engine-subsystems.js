@@ -4166,6 +4166,9 @@ Object.assign(ACKS, {
   proposePursuitDay, commitPursuitRecord, trackingQuarryWalkDay, trackingSpringCatch,
   // #476 E6 — the slot-84 monster-bands consumer (wander + homing motion).
   proposeMonsterBandDay, commitMonsterBandRecord,
+  // Phase 3 Military W2 — the slot-86 incursions consumer (the Vagaries of Incursion,
+  // JJ pp.100–106) + the domain-panel lookup.
+  proposeIncursionDay, commitIncursionRecord, incursionBandsForDomain,
   // #476 E10 — domain-morale banditry (RR pp.350–351): the monthly reconcile + lookup.
   banditryBandsForDomain, processBanditryForTurn,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
@@ -4922,6 +4925,10 @@ function proposeMonsterBandDay(campaign, ctx){
         domainEntries.push({ domainId: dom, hexId: hx ? hx.id : null, occurrence: true,
                              lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength,
                              hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null });
+        // W2 interlock — the physical border crossing IS this domain's positive occurrence
+        // today: the incursion consumer (slot 86, same tick) reads the stash off the shared
+        // day ctx and skips its probability roll (JJ p.103 / E6 — never double-roll).
+        if(ctx) (ctx._wanderEntryDomainIds = ctx._wanderEntryDomainIds || []).push(dom);
         if(lingers && hx){
           settle = { hexId: hx.id, fullStrength, count: fullCount,
                      monsterCatalogKey: (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || null };
@@ -5042,6 +5049,360 @@ function commitMonsterBandRecord(campaign, record){
     return;
   }
   // routine motion — the Group moved; the day record carried the path (no history spam)
+}
+
+// ── Phase 3 Military W2 — the 'incursions' day consumer (slot 86): the Vagaries of ──────
+// Incursion (JJ pp.100–106). Gated on the 'vagaries-of-incursion' rule (default OFF —
+// JJ p.100 calls the chapter "strictly optional"; the bundled demo enables it). Every
+// world day each domain rolls its Daily Domain Encounter Probability (effective
+// territory per dangerous borders, JJ p.102; an insufficient garrison/stronghold reads
+// one classification worse). A day on which a physical wandering band crossed the
+// domain's border (the monster-bands consumer, slot 84) already HAS its occurrence —
+// the ctx stash interlock skips the roll. A positive day builds the whole RAW chain as
+// ONE record: entry hex (🔧 v1: a seeded pick among the domain's exposed border hexes —
+// RAW says judge from the geography; re-place the band via the Inspector) → rarity
+// (JJ p.72, on the effective classification) → the 1d100 identity on the entry hex's
+// terrain table → linger/migrate vs Lair % + the number encountered (JJ p.103; treasure
+// only at full lair strength or a mercantilist arrival) → the Domain Encounter Reaction
+// 2d6 (current morale + the alignment circumstance, doubled when the band's BR tops the
+// garrison's; animal/vermin/ooze/construct intelligence caps at Neutral — 🔧 the elven-
+// fastness exception stays the GM's edit) → recon-lite for BOTH sides (RR p.452 — an
+// oblivious ruler may not know the monsters came) → the platoon-scale BR comparison +
+// the JJ p.104 verdict lines. COMMIT materializes the band as a Group with the verdict
+// on group.incursion: a migrating band wanders on via the E6 machinery from tomorrow; a
+// lingering band holds (wanderState.halted) as the standing threat the BR comparison
+// priced; a lingering NEUTRAL band settles as a den at once (JJ p.103 "attempt to find
+// a place to settle"), respecting the E9 hex cap. The comprehensive 'domain-incursion'
+// event rides the notable (record-only; chronicle-visible).
+function _incursionSizeMod(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  if(n <= 600) return -2;
+  if(n <= 3000) return -1;
+  if(n <= 12000) return 0;
+  if(n <= 36000) return 1;
+  if(n <= 72000) return 2;
+  return 3;
+}
+function _incursionProximityMod(distHexes){
+  if(distHexes == null) return 0;
+  if(distHexes <= 0) return 2;                       // same 6-mile hex
+  if(distHexes === 1) return 1;                      // adjacent 6-mile hexes
+  if(distHexes <= 3) return 0;                       // ~the same 24-mile hex
+  return -Math.ceil((distHexes - 3) / 4);            // −1 per 24-mile hex beyond
+}
+// RR p.452 terrain row (keyed on the shipped base + sub-type): open ground +1 to
+// observe an army in it, concealing terrain −1, everything else 0.
+function _incursionTerrainConcealMod(hex){
+  if(!hex) return 0;
+  const A = _jACKS();
+  const base = (typeof A.terrainBase === 'function') ? A.terrainBase(hex.terrain) : String(hex.terrain || '');
+  const sub = String(hex.terrainSubtype || '').toLowerCase();
+  if(base === 'barrens' || base === 'desert' || base === 'grassland') return 1;
+  if(base === 'scrubland') return (sub === 'high' || sub === 'dense') ? -1 : 1;
+  if(base === 'forest') return (sub === 'taiga') ? -1 : 0;
+  if(base === 'hills') return (sub === 'rocky') ? -1 : 0;
+  if(base === 'swamp') return (sub === 'marshy') ? -1 : 0;
+  return 0;
+}
+// RR p.452 recon-lite for a domain encounter (JJ p.103): one 2d6 per side with the
+// derivable modifier subset (opposing size · proximity · regional familiarity · terrain
+// concealment · garrison cavalry scouting · the JJ Aerial tag). The W4 full recon adds
+// SA, magic, spies, screens, stratagems, prisoners. The garrison observes from the
+// stronghold hex (the hex with the largest settlement, else the domain's first — JJ
+// p.103 "assume the garrison is in the domain's stronghold").
+function _incursionReconLite(campaign, d, entryHex, entry, count, rng){
+  const A = _jACKS();
+  const domHexes = ((campaign && campaign.hexes) || []).filter(h => h && h.domainId === d.id);
+  let strongholdHex = null, best = -1;
+  for(const h of domHexes){
+    const fam = (h.settlement && (h.settlement.families || 0)) || 0;
+    if(fam > best){ best = fam; strongholdHex = h; }
+  }
+  const dist = (strongholdHex && strongholdHex.coord && entryHex && entryHex.coord && typeof A.hexAxialDistance === 'function')
+    ? A.hexAxialDistance(strongholdHex.coord, entryHex.coord) : null;
+  let cav = 0;
+  for(const u of ((d.garrison && d.garrison.units) || [])){
+    if(!u) continue;
+    const row = (typeof A.findTroopType === 'function')
+      ? A.findTroopType(u.unitTypeKey, { race: u.race || 'man', veteran: !!u.veteran, loadout: u.loadout || null }) : null;
+    if(row && row.category === 'cavalry') cav++;
+  }
+  const cavMod = cav >= 101 ? 3 : cav >= 21 ? 2 : cav >= 6 ? 1 : 0;
+  const mc = (entry && typeof A.massCombatRow === 'function') ? A.massCombatRow(entry.key) : null;
+  const aerial = !!(mc && Array.isArray(mc.tags) && mc.tags.indexOf('aerial') >= 0);
+  const roll2d6 = () => (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+  const mkSide = mods => {
+    const applied = mods.filter(m => m.value !== 0);
+    const roll = roll2d6();
+    const total = roll + applied.reduce((s, m) => s + m.value, 0);
+    const band = (typeof A.reconRollBand === 'function') ? A.reconRollBand(total) : { key: 'failure', label: 'Failure' };
+    return { roll, total, result: band.key, resultLabel: band.label, mods: applied };
+  };
+  const ruler = mkSide([
+    { label: 'a band of ' + (count != null ? count : '?'), value: _incursionSizeMod(count || 1) },
+    { label: 'proximity (' + (dist != null ? dist + ' hexes' : 'unknown') + ')', value: _incursionProximityMod(dist) },
+    { label: 'more familiar with the region', value: 1 },
+    { label: 'their terrain', value: _incursionTerrainConcealMod(entryHex) },
+    { label: 'garrison cavalry scouting (' + cav + ' units)', value: cavMod }
+  ]);
+  const monsters = mkSide([
+    { label: 'garrison of ' + ((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(d) : '?'), value: _incursionSizeMod((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(d) : 0) },
+    { label: 'proximity (' + (dist != null ? dist + ' hexes' : 'unknown') + ')', value: _incursionProximityMod(dist) },
+    { label: 'less familiar with the region', value: -1 },
+    { label: 'observing from the air', value: aerial ? 2 : 0 },
+    { label: 'the stronghold’s terrain', value: _incursionTerrainConcealMod(strongholdHex) }
+  ]);
+  const aware = k => (k === 'marginal' || k === 'success' || k === 'major');
+  return { ruler, monsters, rulerAware: aware(ruler.result), monstersIntel: aware(monsters.result) };
+}
+// The JJ p.104 mass-combat trigger lines — GM guidance recorded with the verdict (the
+// battles themselves are W3/W6; deployment is the GM's call, so both branches print).
+function _incursionVerdictLines(attitude, monsterBr, garrisonBr, intel, sapient, lingering){
+  const lines = [];
+  const priced = (monsterBr != null && garrisonBr != null);
+  if(attitude === 'hostile'){
+    lines.push('garrison deployed → pitched battle — hostile monsters always fight (JJ p.104)');
+    if(priced){
+      if(monsterBr > 2 * garrisonBr && intel && sapient)
+        lines.push('garrison in the stronghold → they ASSAULT it (BR ' + monsterBr + ' > 2× garrison ' + garrisonBr + ', with the intelligence and means)');
+      else if(monsterBr > 2 * garrisonBr)
+        lines.push('garrison in the stronghold → they pillage the domain (BR tops 2× the garrison but ' + (sapient ? 'their reconnaissance failed' : 'they lack the wits to assault') + ')');
+      else
+        lines.push('garrison in the stronghold → they pillage the domain (BR ' + monsterBr + ' ≤ 2× garrison ' + garrisonBr + ')');
+    } else lines.push('garrison in the stronghold → pillage vs assault is the Judge’s call (no priced BR)');
+  } else if(attitude === 'unfriendly'){
+    if(priced){
+      if(monsterBr >= garrisonBr) lines.push('garrison deployed → they FIGHT (BR ' + monsterBr + ' ≥ garrison ' + garrisonBr + ')');
+      else lines.push('garrison deployed → they are DRIVEN OFF (BR ' + monsterBr + ' < garrison ' + garrisonBr + ')');
+    } else lines.push('garrison deployed → fight vs driven-off is the Judge’s call (no priced BR)');
+    lines.push('left alone → they loot supplies, then ' + (lingering ? 'keep at it until driven off' : 'depart'));
+  } else if(attitude === 'neutral'){
+    lines.push('garrison deployed → they turn UNFRIENDLY (JJ p.104)');
+    lines.push('left alone → ' + (lingering ? 'they look for a place to settle' : 'they exit peacefully within 1d4 weeks') + ' — and the peasants grumble (−1 on the next domain morale roll)');
+  } else if(attitude === 'mercantilist'){
+    lines.push('they head for the settlement to trade (treasure as merchandise — M&M); garrison deployed → they turn UNFRIENDLY');
+  } else if(attitude === 'friendly'){
+    lines.push('they offer their help (mercenary or henchman offers at +2); garrison deployed → they turn UNFRIENDLY');
+  }
+  return lines;
+}
+function proposeIncursionDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'vagaries-of-incursion'))) return { pendingRecords, notableEvents };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const entered = ctx._wanderEntryDomainIds || [];
+  for(const d of (campaign.domains || [])){
+    if(!d) continue;
+    if(entered.indexOf(d.id) >= 0) continue;           // the physical entry IS today's occurrence
+    const chance = (typeof A.domainDailyEncounterChance === 'function') ? A.domainDailyEncounterChance(campaign, d) : null;
+    if(!chance || !(chance.pct > 0)) continue;
+    const rng = ctx.rng || _jMulberry32(_jHash32('incursion|' + d.id + '|' + worldOrd));
+    const roll = Math.round(rng() * 1000) / 10;        // 0.0–99.9 at the table's half-percent grain
+    if(roll >= chance.pct) continue;                   // quiet day — no record (no spam)
+    // ── an incursion! the entry hex: a seeded pick among the exposed border hexes ──
+    const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === d.id && h.coord);
+    let candidates = [];
+    if(domHexes.length){
+      const byCoord = new Map();
+      for(const h of (campaign.hexes || [])){ if(h && h.coord) byCoord.set(h.coord.q + ',' + h.coord.r, h); }
+      const deltas = (typeof A.hexNeighborDeltas === 'function') ? A.hexNeighborDeltas() : [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+      candidates = domHexes.filter(h => deltas.some(dl => {
+        const n = byCoord.get((h.coord.q + dl[0]) + ',' + (h.coord.r + dl[1])) || null;
+        if(!n) return true;                            // unauthored = the open wilds
+        if(n.domainId) return false;
+        const base = (typeof A.terrainBase === 'function') ? A.terrainBase(n.terrain) : n.terrain;
+        return base !== 'water';                       // unsettled land
+      }));
+      if(!candidates.length) candidates = domHexes;
+    }
+    const entryHex = candidates.length ? candidates[Math.floor(rng() * candidates.length)] : null;
+    // ── identity: rarity (JJ p.72, the effective classification) → the terrain table ──
+    const rar = (typeof A.rollEncounterRarity === 'function') ? A.rollEncounterRarity(chance.effective, rng) : { roll: null, rarity: 'common' };
+    let identity = null;
+    if(entryHex && typeof A.rollEncounterIdentity === 'function' && typeof A.terrainKey === 'function'){
+      const tKey = A.terrainKey(entryHex);
+      if(tKey) identity = A.rollEncounterIdentity({
+        terrainKey: tKey, hasRiver: !!(Array.isArray(entryHex.riverSides) && entryHex.riverSides.length),
+        category: 'monster', rarity: rar.rarity, rng
+      });
+    }
+    const entry = (identity && identity.key && typeof A.findMonster === 'function') ? A.findMonster(identity.key) : null;
+    const idLabel = (entry && entry.name) || (identity && identity.label) || 'monsters (GM identifies)';
+    // ── linger or migrate (JJ p.103) + the number encountered ──
+    const lairPct = (entry && typeof entry.lairPct === 'number') ? entry.lairPct : 0;
+    const lingerRoll = 1 + Math.floor(rng() * 100);
+    const lingering = lairPct > 0 && lingerRoll <= lairPct;
+    const strengthRoll = lingering ? (1 + Math.floor(rng() * 100)) : null;
+    const fullStrength = !!(lingering && strengthRoll <= lairPct);
+    let count = null, countSpec = null;
+    if(entry && entry.numberAppearing){
+      countSpec = fullStrength ? (entry.numberAppearing.lair || entry.numberAppearing.wandering)
+                               : (entry.numberAppearing.wandering || entry.numberAppearing.lair);
+      if(countSpec && typeof A._rollDiceStr === 'function') count = Math.max(1, A._rollDiceStr(countSpec, rng) || 1);
+    }
+    // ── the platoon-scale BR comparison (JJ p.105) ──
+    const garrisonBr = (typeof A.domainGarrisonPlatoonBr === 'function') ? A.domainGarrisonPlatoonBr(campaign, d) : 0;
+    const monsterBr = (entry && typeof entry.battleRating === 'number' && count)
+      ? ((typeof A.monsterPlatoonBr === 'function') ? A.monsterPlatoonBr(entry.battleRating, count) : null) : null;
+    // ── the Domain Encounter Reaction (JJ p.103): 2d6 + morale + alignment ──
+    const mods = [];
+    const morale = (d.demographics && typeof d.demographics.morale === 'number') ? d.demographics.morale : 0;
+    if(morale !== 0) mods.push({ label: 'domain morale score', value: morale });
+    const rulerCh = (typeof A.rulerCharacter === 'function') ? A.rulerCharacter(campaign, d) : null;
+    const dAl = String((rulerCh && rulerCh.alignment) || '').charAt(0).toUpperCase();
+    const mAl = String((entry && entry.alignment) || '').charAt(0).toUpperCase();
+    const brTops = (monsterBr != null) && (monsterBr > garrisonBr);
+    if(dAl && mAl){
+      if(dAl === 'L' && mAl === 'L') mods.push({ label: 'lawful domain, lawful monsters', value: 2 });
+      else if((dAl === 'L' || dAl === 'N') && mAl === 'C')
+        mods.push({ label: 'lawful/neutral domain, chaotic monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+      else if(dAl === 'C' && mAl === 'L')
+        mods.push({ label: 'chaotic domain, lawful monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+    }
+    const reactionRoll = (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+    const reactionTotal = reactionRoll + mods.reduce((s, m) => s + m.value, 0);
+    let band = (typeof A.domainEncounterReactionBand === 'function') ? A.domainEncounterReactionBand(reactionTotal) : { key: 'neutral', label: 'Neutral' };
+    const types = (entry && entry.creatureTypes) || [];
+    const mindCapped = types.some(t => t === 'animal' || t === 'vermin' || t === 'ooze' || t === 'construct');
+    let attitudeCapped = false;
+    if(mindCapped && (band.key === 'mercantilist' || band.key === 'friendly')){
+      const neutral = ((A.DOMAIN_REACTION_BANDS || []).find(b => b.key === 'neutral')) || { key: 'neutral', label: 'Neutral — exploratory' };
+      band = neutral; attitudeCapped = true;
+    }
+    const sapient = !mindCapped;
+    const treasureType = (fullStrength || band.key === 'mercantilist') ? ((entry && entry.treasureType) || '') : '';
+    // ── recon-lite (RR p.452) + the verdict ──
+    const recon = _incursionReconLite(campaign, d, entryHex, entry, count, rng);
+    const verdictLines = _incursionVerdictLines(band.key, monsterBr, garrisonBr, recon.monstersIntel, sapient, lingering);
+    // ── the pre-minted Group id (the E1 collision-proof preview idiom: the work-copy
+    // commit and the real commit must create the SAME band) ──
+    const groupId = 'grp-' + Math.floor(rng() * Math.pow(36, 7)).toString(36).padStart(7, '0');
+    const label = '⚔ ' + (d.name || 'Domain') + ': domain encounter — '
+      + (count != null ? count + ' × ' : '') + idLabel
+      + ' (' + rar.rarity + ', ' + (lingering ? 'LINGERING' : 'migrating') + ') · ' + band.label
+      + (recon.rulerAware ? '' : ' · the ruler is UNAWARE');
+    pendingRecords.push({
+      kind: 'incursion', label, groupId,
+      domainId: d.id, hexId: entryHex ? entryHex.id : null,
+      chance: { pct: chance.pct, roll, actualHexes: chance.actualHexes, effectiveHexes: chance.effectiveHexes,
+                configuration: chance.configuration, base: chance.base, classification: chance.effective, demoted: chance.demoted },
+      identity: { label: idLabel, key: (identity && identity.key) || null,
+                  natural: identity ? identity.natural : null, tableKey: identity ? identity.tableKey : null,
+                  rarity: rar.rarity, rarityRoll: rar.roll },
+      lairPct, lingerRoll, lingering, strengthRoll, fullStrength, count, countSpec, treasureType,
+      reaction: { roll: reactionRoll, mods, total: reactionTotal, attitude: band.key, attitudeLabel: band.label, capped: attitudeCapped },
+      recon, brComparison: { monsterBr, garrisonBr, verdictLines },
+      dayInMonth, primaryHexId: entryHex ? entryHex.id : null
+    });
+    notableEvents.push({
+      type: 'incursion', pauseTrigger: 'encounter', kind: 'domain-incursion',
+      primaryHexId: entryHex ? entryHex.id : null, domainId: d.id,
+      relatedEntities: [{ kind: 'domain', id: d.id, role: 'target' }, { kind: 'group', id: groupId, role: 'subject' }],
+      label,
+      payload: { domainId: d.id, groupId, hexId: entryHex ? entryHex.id : null,
+                 chance: { pct: chance.pct, roll }, identity: { label: idLabel, key: (identity && identity.key) || null, rarity: rar.rarity },
+                 count, disposition: lingering ? 'lingering' : 'migrating', fullStrength, treasureType,
+                 reaction: { roll: reactionRoll, total: reactionTotal, attitude: band.key, mods },
+                 recon: { rulerAware: recon.rulerAware, monstersIntel: recon.monstersIntel,
+                          ruler: { roll: recon.ruler.roll, total: recon.ruler.total, result: recon.ruler.result },
+                          monsters: { roll: recon.monsters.roll, total: recon.monsters.total, result: recon.monsters.result } },
+                 brComparison: { monsterBr, garrisonBr, verdictLines }, narrative: label }
+    });
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitIncursionRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'incursion') return;
+  const A = _jACKS();
+  const d = (campaign.domains || []).find(x => x && x.id === record.domainId);
+  if(!d) return;
+  const turn = campaign.currentTurn || 1;
+  if(!Array.isArray(campaign.groups)) campaign.groups = [];
+  if(campaign.groups.some(g => g && g.id === record.groupId)) return;   // defensive — already committed
+  const entry = (record.identity && record.identity.key && typeof A.findMonster === 'function') ? A.findMonster(record.identity.key) : null;
+  const att = (record.reaction && record.reaction.attitude) || 'neutral';
+  const g = (typeof A.blankGroup === 'function') ? A.blankGroup({
+    id: record.groupId,
+    name: (entry && entry.name) || (record.identity && record.identity.label) || 'Arriving monsters',
+    groupTemplate: { monsterCatalogKey: (entry && entry.key) || null,
+                     creatureTypes: (entry && Array.isArray(entry.creatureTypes)) ? entry.creatureTypes.slice() : ['humanoid'],
+                     hitDice: (entry && entry.hd) || null },
+    count: record.count || 0,
+    currentHexId: record.hexId || null,
+    currentDomainId: record.domainId,
+    lifecycleState: 'wild'
+  }) : null;
+  if(!g) return;
+  g.incursion = {
+    domainId: record.domainId, attitude: att,
+    disposition: record.lingering ? 'lingering' : 'migrating',
+    fullStrength: !!record.fullStrength, treasureType: record.treasureType || '',
+    rulerAware: !!(record.recon && record.recon.rulerAware),
+    monstersIntel: !!(record.recon && record.recon.monstersIntel),
+    arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null
+  };
+  g.history = g.history || [];
+  g.history.push({ turn, type: 'incursion',
+    reason: 'arrived as a domain encounter at ' + (d.name || 'a domain') + ' (Vagaries of Incursion, JJ p.101) — '
+      + ((record.reaction && record.reaction.attitudeLabel) || att) + ', ' + (record.lingering ? 'lingering' : 'migrating')
+      + (record.recon && record.recon.rulerAware === false ? '; the ruler is unaware' : '') });
+  // a lingering band holds where it arrived (the standing threat the verdict priced);
+  // a migrating band's wanderState stays null — the E6 machinery walks it from tomorrow.
+  if(record.lingering){
+    g.wanderState = { coord: null, lastCoord: null, mileRemainder: 0, mode: null,
+                      destLairId: null, dissolveOnArrival: false, lastDomainId: record.domainId, halted: true };
+  }
+  campaign.groups.push(g);
+  // a lingering NEUTRAL band looks for a place to settle at once (JJ p.103); the E9 hex
+  // cap can refuse it ("simply too crowded" — it holds as a loose band instead).
+  if(record.lingering && att === 'neutral' && record.hexId){
+    const capNow = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, record.hexId) : null;
+    if(capNow && capNow.full){
+      g.history.push({ turn, type: 'wander',
+        reason: 'sought to settle but the hex is at its lair cap (' + capNow.count + ' of ' + capNow.max + ', JJ p.69) — the band holds as a loose camp' });
+    } else {
+      const lair = (typeof A.createLair === 'function') ? A.createLair(campaign, {
+        hexId: record.hexId, monsterCatalogKey: (entry && entry.key) || '',
+        status: 'active', establishedBy: 'incursion-settle', establishedAtTurn: turn,
+        knownToPlayers: false, name: ((entry && entry.name) || g.name || 'Monster') + ' lair'
+      }) : null;
+      if(lair){
+        if(lair.lairPct == null && entry) lair.lairPct = entry.lairPct;
+        lair.treasureType = record.fullStrength ? ((entry && entry.treasureType) || '') : '';
+        lair.groupIds = [g.id];
+        lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+        lair.history = lair.history || [];
+        lair.history.push({ turn, type: 'settled',
+          reason: 'a domain-encounter arrival lingered and settled (JJ p.103) — '
+            + (record.fullStrength ? ('full lair strength (' + (record.count || '?') + ')') : 'wandering numbers (no hoard yet)') });
+        g.wanderState = null;                          // housed
+        g.history.push({ turn, type: 'settled', reason: 'lingered and denned — ' + (lair.name || lair.id) });
+      }
+    }
+  }
+  // JJ p.103 — peasants distrust a NEUTRAL band the garrison is not deployed against:
+  // −1 on the NEXT domain morale roll. One-shot; the monthly turn consumes the flag
+  // (clear it by hand if the garrison was in fact deployed — deployment is W4 state).
+  if(att === 'neutral') d.incursionXenophobiaPending = true;
+}
+// The UI read: the live incursion bands standing in a domain (alive + still on the
+// domain's ground; a settled band keeps showing through its den's hex).
+function incursionBandsForDomain(campaign, domainId){
+  const A = _jACKS();
+  const out = [];
+  for(const g of ((campaign && campaign.groups) || [])){
+    if(!g || !g.incursion || g.incursion.domainId !== domainId) continue;
+    const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+    if(alive <= 0) continue;
+    const hex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+    if(!hex || hex.domainId !== domainId) continue;    // wandered off (or off the map) — no longer this domain's problem
+    out.push(g);
+  }
+  return out;
 }
 
 // ── #476 E10 — domain-morale banditry (RR pp.350–351): the monthly materialization ──────
@@ -5244,6 +5605,16 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 84,
     pauseTriggers: [],
     commit: commitMonsterBandRecord
+  });
+  // Phase 3 Military W2 — the Vagaries of Incursion (slot 86): the daily domain-
+  // encounter probability + materialization (JJ pp.100–106), behind the
+  // vagaries-of-incursion rule. Runs AFTER monster-bands so a physical border
+  // crossing (the E6 occurrence) suppresses the day's roll — never double-roll.
+  ACKS.registerDayConsumer('incursions', {
+    handler: proposeIncursionDay,
+    order: 86,
+    pauseTriggers: ['encounter'],
+    commit: commitIncursionRecord
   });
 }
 
