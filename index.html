@@ -944,10 +944,16 @@ document.addEventListener('alpine:init', () => {
           <div class="grid md:grid-cols-2 gap-3 text-sm">
             <div class="space-y-1">
               <label class="block"><span class="font-semibold">Side A</span>
-                <select x-model="battleWizard.sourceA" class="w-full text-sm">
-                  <option value="">— pick an army / garrison / band —</option>
-                  <template x-for="o in battleSourceOptions()" :key="'a-' + o.key"><option :value="o.key" x-text="o.label"></option></template>
-                </select></label>
+                <!-- Scoped (launched from a force at a hex): Side A is the launching force, fixed. -->
+                <template x-if="battleWizard.scoped">
+                  <div class="w-full text-sm font-semibold px-2 py-1 rounded bg-white/50 border border-ink/30" x-text="battleSideLabel(battleWizard.sourceA)"></div>
+                </template>
+                <template x-if="!battleWizard.scoped">
+                  <select x-model="battleWizard.sourceA" class="w-full text-sm">
+                    <option value="">— pick an army / garrison / band —</option>
+                    <template x-for="o in battleSourceOptions()" :key="'a-' + o.key"><option :value="o.key" x-text="o.label"></option></template>
+                  </select>
+                </template></label>
               <label class="block">Stance
                 <select x-model="battleWizard.stanceA" class="w-full text-sm">
                   <option value="offensive">Offensive</option><option value="defensive">Defensive</option><option value="evasive">Evasive</option>
@@ -955,10 +961,19 @@ document.addEventListener('alpine:init', () => {
             </div>
             <div class="space-y-1">
               <label class="block"><span class="font-semibold">Side B</span>
-                <select x-model="battleWizard.sourceB" class="w-full text-sm">
-                  <option value="">— pick an army / garrison / band —</option>
-                  <template x-for="o in battleSourceOptions()" :key="'b-' + o.key"><option :value="o.key" x-text="o.label"></option></template>
-                </select></label>
+                <!-- Scoped: Side B is restricted to the forces standing on this hex. -->
+                <template x-if="battleWizard.scoped">
+                  <select x-model="battleWizard.sourceB" class="w-full text-sm">
+                    <option value="">— pick a foe at this hex —</option>
+                    <template x-for="o in battleTargetsAtHex(battleWizard.hexId, _battleSourceArmyId(battleWizard.sourceA))" :key="'bs-' + o.key"><option :value="o.key" :selected="battleWizard.sourceB === o.key" x-text="o.label"></option></template>
+                  </select>
+                </template>
+                <template x-if="!battleWizard.scoped">
+                  <select x-model="battleWizard.sourceB" class="w-full text-sm">
+                    <option value="">— pick an army / garrison / band —</option>
+                    <template x-for="o in battleSourceOptions()" :key="'b-' + o.key"><option :value="o.key" x-text="o.label"></option></template>
+                  </select>
+                </template></label>
               <label class="block">Stance
                 <select x-model="battleWizard.stanceB" class="w-full text-sm">
                   <option value="offensive">Offensive</option><option value="defensive">Defensive</option><option value="evasive">Evasive</option>
@@ -974,10 +989,16 @@ document.addEventListener('alpine:init', () => {
                 <option value="unilateral-b">Only B is aware</option>
               </select></label>
             <label class="block">Hex
-              <select x-model="battleWizard.hexId" class="w-full text-sm">
-                <option value="">— unmapped field —</option>
-                <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'bwh-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
-              </select></label>
+              <!-- Scoped: the hex is fixed to where the launching force stands. -->
+              <template x-if="battleWizard.scoped">
+                <div class="w-full text-sm px-2 py-1 rounded bg-white/50 border border-ink/30" x-text="battleHexNameFor(battleWizard.hexId)"></div>
+              </template>
+              <template x-if="!battleWizard.scoped">
+                <select x-model="battleWizard.hexId" class="w-full text-sm">
+                  <option value="">— unmapped field —</option>
+                  <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'bwh-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
+                </select>
+              </template></label>
             <label class="block">Scale (RR p.437)
               <select x-model="battleWizard.scale" class="w-full text-sm">
                 <option value="platoon">Platoon (×¼)</option><option value="company">Company</option>
@@ -3336,7 +3357,7 @@ document.addEventListener('alpine:init', () => {
                         stanceA: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'defensive' : 'offensive',
                         stanceB: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'offensive' : 'defensive',
                         awareness: (g.incursion && g.incursion.rulerAware === false) ? 'unilateral-b' : 'mutual',
-                        scale: 'platoon', asymmetry: true })" class="underline accent-red">🎌 battle</button>
+                        scale: 'platoon', asymmetry: true, scoped: true })" class="underline accent-red">🎌 battle</button>
                 </p>
               </template>
               <p class="text-xs mt-1 opacity-80" x-show="isHouseRuleEnabled('vagaries-of-incursion') && incursionBands(selectedDomain).length === 0">No incursion bands stand in the domain.</p>
@@ -13094,7 +13115,7 @@ return {
     this.openBattleWizard({
       hexId: a.currentHexId || '',
       sourceA: 'army:' + a.id, sourceB: 'garrison:' + w.domain.id,
-      stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual'
+      stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual', scoped: true
     });
   },
   // Start a battle from the Army view: side A = this army, hex = where it stands, and the
@@ -13103,7 +13124,7 @@ return {
     const a = this.armySelected(); if(!a) return;
     const hexId = a.currentHexId || '';
     const targets = this.battleTargetsAtHex(hexId, a.id);
-    const prefill = { hexId, sourceA: 'army:' + a.id, stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual', scale: 'company', asymmetry: false };   // the army starts the fight → the aggressor seeks battle (the GM can change stances in the launcher)
+    const prefill = { hexId, sourceA: 'army:' + a.id, stanceA: 'offensive', stanceB: 'defensive', awareness: 'mutual', scale: 'company', asymmetry: false, scoped: true };   // the army starts the fight → the aggressor seeks battle (the GM can change stances in the launcher); scoped: Side A + hex fixed, Side B = foes at this hex
     if(targets.length === 1){ prefill.sourceB = targets[0].key; if(String(targets[0].key).startsWith('group:')) prefill.asymmetry = true; }   // a lone band foe → asymmetry on (RR p.464)
     this.openBattleWizard(prefill);
     if(targets.length === 0 && hexId){ const h = (this.currentCampaign.hexes||[]).find(x => x && x.id === hexId); this.showToast('No other force stands at ' + (window.ACKS.hexName ? window.ACKS.hexName(h||{id:hexId}) : hexId) + ' — pick a target in the launcher, or march the army to the enemy first.'); }
@@ -13193,6 +13214,16 @@ return {
   },
   _battleSourceArmyId(key){ return (key && String(key).startsWith('army:')) ? String(key).split(':')[1] : null; },
   battleHexNameFor(hexId){ const h = hexId && (this.currentCampaign?.hexes || []).find(x => x && x.id === hexId); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (hexId || 'the field'); },
+  // The fixed display label for a side source key (army:/garrison:/group:) — used by the
+  // scoped launcher to show Side A as auto-populated text instead of a dropdown.
+  battleSideLabel(key){
+    if(!key) return '—'; const camp = this.currentCampaign; if(!camp) return key; const A = window.ACKS;
+    const i = String(key).indexOf(':'); const kind = String(key).slice(0, i); const id = String(key).slice(i + 1);
+    if(kind === 'army'){ const a = (camp.armies || []).find(x => x && x.id === id); return '🎖 ' + ((a && a.name) || id) + (a ? ' (' + A.armyUnits(camp, a).length + ' units)' : ''); }
+    if(kind === 'garrison'){ const d = (this.domains || []).find(x => x && x.id === id) || (camp.domains || []).find(x => x && x.id === id); const n = A.unitsStationedAt(camp, { kind: 'domain-garrison', id }).length; return '🛡 ' + ((d && d.name) || id) + ' garrison (' + n + ' units)'; }
+    if(kind === 'group'){ const g = (camp.groups || []).find(x => x && x.id === id); const active = g ? Math.max(0, (g.count || 0) - (g.casualties || 0)) : 0; return '🐉 ' + ((g && g.name) || (g && g.groupTemplate && g.groupTemplate.monsterCatalogKey) || id) + ' (' + active + ')'; }
+    return key;
+  },
   openBattleWizard(prefill){
     const p = prefill || {};
     this.battleWizard = {
@@ -13202,7 +13233,8 @@ return {
       awareness: p.awareness || 'mutual',
       scale: p.scale || 'company',
       asymmetry: p.asymmetry != null ? p.asymmetry : false,
-      advantageousTerrain: ''
+      advantageousTerrain: '',
+      scoped: !!p.scoped   // scoped = launched from a force at a hex: Side A + hex are fixed, Side B is hex-scoped
     };
     this.currentView = 'world'; this.worldSubView = 'battles';
   },
