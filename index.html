@@ -11327,12 +11327,16 @@ return {
         label: 'Unit #' + (i + 1) + ' BR/soldier (auto-updated for new type)'
       });
     }
-    // 4. Cascade displayName ONLY if it still matches the old type's label (i.e. wasn't customized).
+    // 4. Cascade displayName ONLY if it still matches the old type's label (i.e. wasn't
+    //    customized). A default name can be the market label ("Light Infantry") or the
+    //    TROOP_CATALOG row label blankUnit assigns ("Light Infantry A") — accept either.
     const A = window.ACKS;
     const cat = (A && A.HIRELING_MERCENARIES) || [];
     const oldLabel = (cat.find(r => r.id === oldTypeId) || {}).label;
-    const newLabel = (cat.find(r => r.id === newTypeId) || {}).label;
-    if(oldLabel && newLabel && (u.displayName || '').trim() === oldLabel){
+    const newLabel = ((newDefaults && newDefaults.label) || (cat.find(r => r.id === newTypeId) || {}).label);
+    const cur = (u.displayName || '').trim();
+    const wasDefaultName = cur === oldLabel || (oldDefaults && cur === oldDefaults.label);
+    if(wasDefaultName && newLabel){
       this.commitStatEdit({
         entityType: 'garrison-unit', entityId: u.id, entity: u,
         fieldPath: 'displayName', oldValue: u.displayName, newValue: newLabel,
