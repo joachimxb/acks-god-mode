@@ -337,19 +337,18 @@ function applyEvent_recruitHireling(campaign, event){
         unit = patron.mercenaryCompany.units.find(u => u.unitTypeKey === p.hireTypeId);
       }
       if(!unit){
-        unit = {
-          schemaVersion: 2,
-          id: newId('gar'),
-          name: '',
+        // W1: create through blankUnit (TROOP_CATALOG wage/BR defaults — closes the old
+        // "pending Phase 3 DaW" zero-wage placeholders; race defaults 'man' — the settlement's
+        // prevailing race lands with realm recruitment, W7) + stationUnit (first-class
+        // campaign.units[] membership alongside the mercenary-company mirror).
+        unit = global.ACKS.blankUnit({
+          displayName: unitDisplayName,
           unitTypeKey: p.hireTypeId,
           count: 0,
-          monthlyWage: 0,           // race-keyed; pending Phase 3 DaW wage table
-          brPerSoldier: 0,          // pending
-          stationedAtHexId: patron.currentHexId || null,
-          commanderCharacterId: null,
-          recruitedAt: p.settlementId || null
-        };
-        patron.mercenaryCompany.units.push(unit);
+          stationedAtHexId: patron.currentHexId || null
+        });
+        unit.recruitedAt = p.settlementId || null;
+        global.ACKS.stationUnit(campaign, unit, { kind: 'character', id: patron.id });
       }
       unit.count = Number(unit.count || 0) + addCount;
       if(p.commandUnitId === unit.id && Array.isArray(p.candidateIds) && p.candidateIds[0]){
@@ -372,18 +371,14 @@ function applyEvent_recruitHireling(campaign, event){
         unit = ruledDomain.garrison.units.find(u => u.unitTypeKey === p.hireTypeId);
       }
       if(!unit){
-        unit = {
-          schemaVersion: 2,
-          id: newId('gar'),
-          name: '',
+        // W1: blankUnit (catalog wage/BR) + stationUnit (campaign.units[] + the garrison mirror).
+        unit = global.ACKS.blankUnit({
+          displayName: unitDisplayName,
           unitTypeKey: p.hireTypeId,
           count: 0,
-          monthlyWage: 0,           // race-keyed; pending
-          brPerSoldier: 0,          // pending
-          stationedAtHexId: patron.currentHexId || null,
-          commanderCharacterId: null
-        };
-        ruledDomain.garrison.units.push(unit);
+          stationedAtHexId: patron.currentHexId || null
+        });
+        global.ACKS.stationUnit(campaign, unit, { kind: 'domain-garrison', id: ruledDomain.id });
       }
       unit.count = Number(unit.count || 0) + addCount;
       if(p.commandUnitId === unit.id && Array.isArray(p.candidateIds) && p.candidateIds[0]){

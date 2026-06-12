@@ -11287,34 +11287,21 @@ return {
       return (b.appliedAt||'').localeCompare(a.appliedAt||'');
     });
   },
-  // ─── #550 Garrison-unit Type cascade: wage + BR auto-update from Auran defaults (2026-05-30) ───
-  // Maps HIRELING_MERCENARIES catalog id → Auran-standard monthly wage + BR-per-soldier.
-  // Values match the demo template; GMs can edit individual cells after the cascade.
-  // Sourced from ACKS RR p.166–167 (typical Auran race) — race-specific wages are pending Phase 3 DaW.
-  MERCENARY_UNIT_DEFAULTS: {
-    'light-infantry':      { wage: 6,   br: 0.034 },
-    'heavy-infantry':      { wage: 12,  br: 0.083 },
-    'slinger':             { wage: 6,   br: 0.034 },
-    'bowman':              { wage: 9,   br: 0.063 },
-    'bowmen':              { wage: 9,   br: 0.063 },  // legacy demo alias
-    'crossbowman':         { wage: 12,  br: 0.063 },
-    'composite-bow':       { wage: 25,  br: 0.090 },
-    'light-cavalry':       { wage: 25,  br: 0.117 },
-    'mounted-crossbowman': { wage: 30,  br: 0.117 },
-    'horse-archers':       { wage: 30,  br: 0.150 },
-    'medium-cavalry':      { wage: 50,  br: 0.150 },
-    'heavy-cavalry':       { wage: 75,  br: 0.225 },
-    'cataphract-cavalry':  { wage: 100, br: 0.300 },
-    'camel-archers':       { wage: 30,  br: 0.150 },
-    'camel-lancers':       { wage: 50,  br: 0.150 },
-    'war-elephants':       { wage: 500, br: 1.500 },
-    'beast-riders':        { wage: 100, br: 0.300 }
+  // ─── #550 Garrison-unit Type cascade: wage + BR auto-update (2026-05-30; W1 2026-06-12:
+  //      the interim hardcoded MERCENARY_UNIT_DEFAULTS map is retired — defaults now read
+  //      TROOP_CATALOG (RR pp.438–441), race/veteran-aware via the unit's own fields) ───
+  mercenaryUnitDefaults(typeId, unit){
+    const A = window.ACKS;
+    const row = (A && A.findTroopType)
+      ? A.findTroopType(typeId, { race: (unit && unit.race) || 'man', veteran: !!(unit && unit.veteran), loadout: (unit && unit.loadout) || null })
+      : null;
+    return row ? { wage: row.wageGpMonth, br: row.brPerCreature, label: row.label } : null;
   },
   onGarrisonUnitTypeChange(u, i, newTypeId){
     if(!u || !newTypeId || newTypeId === u.unitTypeKey) return;
     const oldTypeId = u.unitTypeKey;
-    const oldDefaults = this.MERCENARY_UNIT_DEFAULTS[oldTypeId];
-    const newDefaults = this.MERCENARY_UNIT_DEFAULTS[newTypeId];
+    const oldDefaults = this.mercenaryUnitDefaults(oldTypeId, u);
+    const newDefaults = this.mercenaryUnitDefaults(newTypeId, u);
     // 1. Commit Type — always logged.
     this.commitStatEdit({
       entityType: 'garrison-unit', entityId: u.id, entity: u,
@@ -11354,15 +11341,14 @@ return {
     }
   },
 
-  // ─── #549 Add garrison unit with audit event (2026-05-30) ───
+  // ─── #549 Add garrison unit with audit event (2026-05-30; W1: catalog defaults +
+  //      first-class membership via stationUnit — campaign.units[] + the garrison mirror) ───
   addGarrisonUnit(domain){
     if(!domain) return;
     const A = window.ACKS;
-    if(!A || !A.blankGarrisonUnit){ alert('Engine not loaded'); return; }
-    const u = A.blankGarrisonUnit({ displayName: 'Light Infantry', count: 0, monthlyWage: 6, brPerSoldier: 0.034 });
-    if(!domain.garrison) domain.garrison = {};
-    if(!Array.isArray(domain.garrison.units)) domain.garrison.units = [];
-    domain.garrison.units.push(u);
+    if(!A || !A.blankUnit){ alert('Engine not loaded'); return; }
+    const u = A.blankUnit({ unitTypeKey: 'light-infantry', count: 0 });
+    A.stationUnit(this.currentCampaign, u, { kind: 'domain-garrison', id: domain.id });
     // Audit event — manually build + push as APPLIED so it lands in the log without going
     // through the pending queue (this is administrative GM action, applied immediately).
     try {
@@ -11410,17 +11396,18 @@ return {
     if(ans == null) return;
     const n = Math.floor(Number(ans));
     if(!Number.isFinite(n) || n < 1 || n >= cur){ alert('Invalid split count.'); return; }
-    if(!window.ACKS || !window.ACKS.blankGarrisonUnit){ alert('Engine not loaded'); return; }
-    const newUnit = window.ACKS.blankGarrisonUnit({
+    if(!window.ACKS || !window.ACKS.blankUnit){ alert('Engine not loaded'); return; }
+    const newUnit = window.ACKS.blankUnit({
       displayName: unit.displayName,
       unitTypeKey: unit.unitTypeKey,
+      race: unit.race, loadout: unit.loadout, veteran: unit.veteran, source: unit.source,
       count: n,
       monthlyWage: unit.monthlyWage,
       brPerSoldier: unit.brPerSoldier,
       stationedAtHexId: unit.stationedAtHexId
     });
     unit.count = cur - n;
-    domain.garrison.units.push(newUnit);
+    window.ACKS.stationUnit(this.currentCampaign, newUnit, { kind: 'domain-garrison', id: domain.id });
     this.showToast && this.showToast('Split: ' + n + ' soldiers into new unit (' + (unit.displayName || unit.unitTypeKey) + ')', 3500);
   },
   mergeGarrisonUnit(domain, unit){
@@ -11445,8 +11432,9 @@ return {
       target = sibs[idx];
     }
     target.count = Number(target.count || 0) + Number(unit.count || 0);
-    const removeIdx = domain.garrison.units.indexOf(unit);
-    if(removeIdx >= 0) domain.garrison.units.splice(removeIdx, 1);
+    // Remove the merged-away unit from BOTH homes (campaign.units[] + the garrison mirror).
+    if(window.ACKS && window.ACKS.disbandUnit) window.ACKS.disbandUnit(this.currentCampaign, unit);
+    else { const removeIdx = domain.garrison.units.indexOf(unit); if(removeIdx >= 0) domain.garrison.units.splice(removeIdx, 1); }
     this.showToast && this.showToast('Merged into ' + (target.displayName || target.unitTypeKey) + ' (now ' + target.count + ' soldiers)', 3500);
   },
 
@@ -12333,6 +12321,38 @@ return {
       acts.push({kind:'tracking:' + e.id, icon:'🐾',
                  label:'tracking ' + (p.quarryLabel || 'a quarry') + ((p.quarry && p.quarry.halted) ? ' (it has gone to ground)' : ''),
                  priority:2});
+    }
+
+    // ── Contributor 10: Military command (Phase 3 Military W1 — the §8.9 mandate) ──
+    // Army leadership / division command / adjutancy / unit lieutenancy surface as
+    // standing engagements (like role posts). On-campaign marching descriptors arrive
+    // with W4 (armies move as journeys, so Contributor 4 will cover the march itself).
+    for(const a of (this.currentCampaign?.armies || [])){
+      if(!a) continue;
+      const link = {entity:'army', id:a.id};
+      if(a.leaderCharacterId === c.id){
+        acts.push({kind:'army-leader:' + a.id, icon:'⚔', label:'commands ' + (a.name || 'an army'),
+                   priority:2, deepLinkTo:link});
+      }
+      for(const dv of (a.divisions || [])){
+        if(!dv) continue;
+        if(dv.commanderCharacterId === c.id && a.leaderCharacterId !== c.id){
+          acts.push({kind:'division-commander:' + a.id + ':' + (dv.name || ''), icon:'⚔',
+                     label:'commands ' + (dv.name || 'a division') + ' of ' + (a.name || 'an army'),
+                     priority:2, deepLinkTo:link});
+        }
+        if(dv.adjutantCharacterId === c.id){
+          acts.push({kind:'division-adjutant:' + a.id + ':' + (dv.name || ''), icon:'⚔',
+                     label:'adjutant of ' + (dv.name || 'a division') + ' (' + (a.name || 'army') + ')',
+                     priority:2, deepLinkTo:link});
+        }
+      }
+    }
+    for(const u of (this.currentCampaign?.units || [])){
+      if(!u || u.lieutenantCharacterId !== c.id) continue;
+      acts.push({kind:'unit-lieutenant:' + u.id, icon:'🪖',
+                 label:'lieutenant of ' + (u.displayName || u.unitTypeKey || 'a unit'),
+                 priority:2, deepLinkTo:{entity:'unit', id:u.id}});
     }
 
     // ── Future contributors land here. Each adds zero or more descriptors. ──
@@ -17751,7 +17771,9 @@ return {
       // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed entities
       'lairs',
       // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions
-      'encounters'
+      'encounters',
+      // Phase 3 Military W1 (2026-06-12) — first-class Units + Armies
+      'units', 'armies'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -17827,6 +17849,12 @@ return {
     }
     if(!this.selectedDomainId && this.domains.length) this.selectedDomainId = this.domains[0].id;
 
+    // Phase 3 Military W1 — an imported domain arrives with its nested garrison units AND
+    // the same units arrive first-class via the 'units' collection (different parsed objects,
+    // same ids). Re-unify immediately so both homes share one object (the load-time lift
+    // would otherwise only heal this on the next reload).
+    try { window.ACKS.migrateGarrisonUnitsToUnits(camp); } catch(e){ console.warn('unit re-unification after import failed', e); }
+
     // Build toast summary — only mention collections that actually had imports
     const PLURALIZE = {
       domains:'domain', characters:'character', parties:'party',
@@ -17839,7 +17867,8 @@ return {
       journeys:'journey', outposts:'outpost', dungeons:'dungeon',
       congregations:'congregation', divineFavors:'divine favor',
       attunements:'attunement', settlementVisits:'settlement visit',
-      oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry'
+      oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry',
+      units:'unit', armies:'army'
     };
     const parts = [];
     for(const [key, n] of Object.entries(counts)){

@@ -205,6 +205,79 @@
       ]
     },
 
+    // Phase 3 Military W1 (2026-06-12) — Unit: the Group's military sibling kind.
+    // Every field is a blankUnit key (global schema⊆factory invariant). Lifted legacy
+    // garrison units share this exact shape (the lift lazy-defaults the military fields).
+    'unit': {
+      factory: 'blankUnit',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Troops', 'Economics', 'Stationing', 'Condition', 'History'],
+      fields: [
+        { name: 'id',            type: 'string', readonly: true, group: 'Identity' },
+        { name: 'displayName',   type: 'string', required: true, group: 'Identity', description: 'Unit name (e.g. "1st Saltspur Heavy Foot")' },
+        { name: 'unitTypeKey',   type: 'string', required: true, group: 'Identity', description: "TROOP_CATALOG troop type ('heavy-infantry', 'horse-archers', …; RR pp.438–441)" },
+        { name: 'race',          type: 'enum', enumValues: ['man','dwarf','elf','kobold','goblin','orc','hobgoblin','gnoll','lizardman','bugbear','ogre'], group: 'Identity', default: 'man' },
+        { name: 'loadout',       type: 'string', group: 'Identity', description: 'Equipment variant letter (A/B/C…) where the catalog lists several; blank = default' },
+        { name: 'veteran',       type: 'boolean', group: 'Troops', description: '+1 morale, veteran wage; ≤25% of human mercenaries (RR p.430)' },
+        { name: 'elite',         type: 'boolean', group: 'Troops', description: 'RR p.434 — wage surcharge + battle attack bonus (behind the elite-troops rule)' },
+        { name: 'count',         type: 'number', min: 0, group: 'Troops', description: 'Roster strength (RR p.435: ≤120 man-sized / 60 large per company unit)' },
+        { name: 'casualties',    type: 'number', min: 0, group: 'Troops', description: 'Losses — active strength = count − casualties' },
+        { name: 'scale',         type: 'enum', enumValues: ['platoon','company','battalion','brigade'], group: 'Troops', default: 'company', description: 'Unit scale (RR p.437 — by army size)' },
+        { name: 'source',        type: 'enum', enumValues: ['mercenary','conscript','militia','clanhold','follower','vassal','slave'], group: 'Troops', description: 'Troop source (RR pp.427–434) — drives wage/loyalty semantics' },
+        { name: 'monthlyWage',   type: 'gp', group: 'Economics', description: 'Per-soldier monthly wage — a stored override; 0/blank = read the catalog' },
+        { name: 'brPerSoldier',  type: 'number', group: 'Economics', description: 'Per-creature battle rating override; 0/blank = read the catalog (RR p.462)' },
+        { name: 'stationedAt',   type: 'object', group: 'Stationing', description: 'Assignment: domain-garrison | character (mercenary company) | army | hex | constructible', fields: [
+          { name: 'kind', type: 'enum', enumValues: ['domain-garrison','character','army','hex','constructible'] },
+          { name: 'id',   type: 'string', description: 'The station entity id (kind-dependent)' }
+        ] },
+        { name: 'stationedAtHexId', type: 'id', idKind: 'hex', group: 'Stationing', description: 'Geographic hint (legacy field; the map reads it)' },
+        { name: 'commanderCharacterId',  type: 'id', idKind: 'character', group: 'Stationing' },
+        { name: 'lieutenantCharacterId', type: 'id', idKind: 'character', group: 'Stationing', description: 'Unit lieutenant (RR p.435; his morale modifier applies in battle)' },
+        { name: 'loyalty',       type: 'number', group: 'Condition', description: 'Unit loyalty score (RR p.429 — officers −2 base; ± employer CHA)' },
+        { name: 'moraleAdjustment', type: 'number', group: 'Condition', description: 'One-time levy ±1 (domain morale, RR pp.431–433) + GM adjustments, atop the catalog base' },
+        { name: 'supplyState',   type: 'enum', enumValues: ['supplied','underfed','starving','dehydrated'], group: 'Condition', default: 'supplied', description: 'RR p.452 out-of-supply ladder' },
+        { name: 'calamities',    type: 'array', group: 'Condition', description: 'Unit-loyalty-roll triggers (RR p.430)', itemSchema: { fields: [
+          { name: 'kind', type: 'enum', enumValues: ['routed','casualties-25','unsupplied-week','unpaid-month','militia-season-campaigning','carnivore-atrocity','other'] },
+          { name: 'atDay', type: 'number' },
+          { name: 'note', type: 'string' }
+        ] } },
+        { name: 'trainingState', type: 'object', group: 'Condition', description: 'Conscript/militia training in progress (RR p.431; W7 runs it) — null when not training', fields: [
+          { name: 'targetTroopType', type: 'string' },
+          { name: 'startedAtDay',    type: 'number' },
+          { name: 'completesAtDay',  type: 'number' }
+        ] },
+        { name: 'notes',         type: 'string', group: 'History' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // Phase 3 Military W1 — Army (embedded divisions; Architecture §3.1).
+    'army': {
+      factory: 'blankArmy',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Command', 'Campaign', 'Supply', 'History'],
+      fields: [
+        { name: 'id',                type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',              type: 'string', required: true, group: 'Identity' },
+        { name: 'leaderCharacterId', type: 'id', idKind: 'character', group: 'Command', description: 'The army leader — his leadership ability caps divisions (RR p.435)' },
+        { name: 'divisions',         type: 'array', group: 'Command', description: 'Embedded divisions — each needs a qualified commander (RR pp.435–437)', itemSchema: { fields: [
+          { name: 'name',                 type: 'string' },
+          { name: 'commanderCharacterId', type: 'id', idKind: 'character' },
+          { name: 'adjutantCharacterId',  type: 'id', idKind: 'character', description: 'Optional — lends SA−1, costs the commander −1 morale modifier (RR p.436)' },
+          { name: 'unitIds',              type: 'idArray', idKind: 'unit' },
+          { name: 'role',                 type: 'enum', enumValues: ['vanguard','main','rear-guard'], description: '¼–⅓ vanguard + ¼–⅓ rear guard at stance (RR p.448)' }
+        ] } },
+        { name: 'strategicStance',   type: 'enum', enumValues: ['offensive','defensive','evasive'], group: 'Campaign', default: 'defensive', description: 'RR p.448 — set freely each initiative' },
+        { name: 'currentHexId',      type: 'id', idKind: 'hex', group: 'Campaign' },
+        { name: 'journeyId',         type: 'id', idKind: 'journey', group: 'Campaign', description: 'Armies march as journeys (W4); null = in garrison' },
+        { name: 'lastInitiative',    type: 'number', group: 'Campaign', description: '1d6 + strategic ability (RR p.447)' },
+        { name: 'supplyBaseIds',     type: 'idArray', idKind: 'settlement', group: 'Supply', description: 'Supply bases (RR p.450) — settlements; stronghold/border-fort constructible ids also valid by hand' },
+        { name: 'supplySimplified',  type: 'boolean', group: 'Supply', default: true, description: 'RR p.452 Supply Simplified — the default automation mode; untick for full line computation (W5)' },
+        { name: 'notes',             type: 'string', group: 'History' },
+        { name: 'history',           type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
     // Favors & Duties (#230, F&D-1 — 2026-06-08) — relation entity (RR pp.345–348).
     // Inspector-creatable: pick the liege + vassal domain + edict kind; the monthly turn
     // auto-rolls these by default (favor-duty-auto-roll). Every field is a blankFavorDutyObligation

@@ -3215,6 +3215,30 @@ function stationUnit(campaign, unitOrId, stationedAt){
   return unit;
 }
 
+// Remove a unit from the world: campaign.units[] + every nested mirror (the merge /
+// disband destructor — the counterpart of stationUnit). Returns the removed unit or null.
+function disbandUnit(campaign, unitOrId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return null;
+  if(Array.isArray(campaign.units)){
+    const i = campaign.units.findIndex(u => u && u.id === unit.id);
+    if(i >= 0) campaign.units.splice(i, 1);
+  }
+  for(const d of (campaign.domains || [])){
+    const arr = d && d.garrison && d.garrison.units;
+    if(!Array.isArray(arr)) continue;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0) arr.splice(i, 1);
+  }
+  for(const c of (campaign.characters || [])){
+    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+    if(!Array.isArray(arr)) continue;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0) arr.splice(i, 1);
+  }
+  return unit;
+}
+
 // Lazy-default the W1 military fields on a legacy garrison-unit object (additive; never
 // clobbers existing values — idempotent).
 function _lazyDefaultUnitFields(u){
@@ -9107,7 +9131,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
-  validateArmyOrganization, stationUnit, migrateGarrisonUnitsToUnits,
+  validateArmyOrganization, stationUnit, disbandUnit, migrateGarrisonUnitsToUnits,
   // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
