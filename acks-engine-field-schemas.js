@@ -272,6 +272,7 @@
         { name: 'currentHexId',    type: 'id', idKind: 'hex', group: 'Location' },
         { name: 'currentDomainId', type: 'id', idKind: 'domain', group: 'Location' },
         { name: 'commanderCharacterId', type: 'id', idKind: 'character', group: 'Location', description: 'Optional named commander' },
+        { name: 'banditryDomainId', type: 'id', idKind: 'domain', group: 'Classification', description: 'E10 — set = this band is that domain’s own morale-banditry (RR pp.350–351): fenced to the domain, reconciled monthly, disbands when morale recovers' },
         { name: 'notes',       type: 'longText', group: 'History' },
         { name: 'history',     type: 'history', readonly: true, group: 'History' }
       ]
@@ -465,6 +466,43 @@
         { name: 'lastVisitedTurn',      type: 'number', group: 'Lifecycle' },
         { name: 'clearedAtTurn',        type: 'number', group: 'Lifecycle' },
         { name: 'repopulationChance',   type: 'number', group: 'Lifecycle', description: 'Reserved — lair-repopulation (M10+)' },
+        { name: 'notes',                type: 'longText', group: 'History' },
+        { name: 'history',              type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // #476 Encounter layer E1 (D8) — the reified pre-combat interaction (RR pp.280–287;
+    // plan §15.1). The step-state objects (distance / surprise / evasion / reaction /
+    // pursuit) and the two side objects are deep dynamic shapes — omitted per the C.3
+    // freeform-fields convention (raw-JSON edited; the E2 resolution surface owns them).
+    'encounter': {
+      factory: 'blankEncounter',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Draw', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                   type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                 type: 'string', group: 'Identity', default: '', description: 'GM label; display derives from the monster / hex when empty' },
+        { name: 'scale',                type: 'enum', enumValues: ['wilderness','dungeon','sea','settlement','domain'], group: 'Identity', default: 'wilderness', description: 'Only wilderness is live in E1; the rest are reserved scales' },
+        { name: 'trigger',              type: 'enum', enumValues: ['journey-travel','hex-search','rest-night','hunt','domain-incursion','gm-authored','pursuit','lair-assault'], group: 'Identity', default: 'gm-authored' },
+        { name: 'hexId',                type: 'id', idKind: 'hex', group: 'Identity', description: 'Where the meeting happens' },
+        { name: 'category',             type: 'enum', enumValues: ['monster','civilized'], group: 'Draw', description: 'The JJ category-draw result (empty = GM-authored)' },
+        { name: 'rarity',               type: 'enum', enumValues: ['common','uncommon','rare','very-rare'], group: 'Draw', description: 'Monster rarity by territory class (JJ p.44)' },
+        // E4 — the non-party side is GM-editable here (the admin path beneath the modal's
+        // ⟳/pick-from-table affordances). identity/binding/minted stay engine-written.
+        { name: 'monsterSide',          type: 'object', group: 'Draw', description: 'The non-party side — who they are, how many, the den they bind to', fields: [
+          { name: 'monsterCatalogKey',  type: 'string', description: 'MONSTER_CATALOG key (the E4 identity tables set it; blank = GM-detailed via label)' },
+          { name: 'label',              type: 'string', description: 'The printed table cell, verbatim — the display name when no catalog key' },
+          { name: 'count',              type: 'number', description: 'Number encountered' },
+          { name: 'encounterKind',      type: 'enum', enumValues: ['at-lair','wandering-fragment','wandering'], description: 'at-lair = met at the den; fragment = a band out from a local den; wandering = unbound' },
+          { name: 'lairId',             type: 'id', idKind: 'lair', description: 'The den this side belongs to (when bound)' },
+          { name: 'pursuitEncounterId', type: 'id', idKind: 'encounter', description: 'E4m — the chase this band IS (a pursuing band met by a third party); dispersing the meeting ends the chase' }
+        ] },
+        { name: 'status',               type: 'enum', enumValues: ['active','resolved'], group: 'Lifecycle', default: 'active' },
+        { name: 'phase',                type: 'enum', enumValues: ['setup','surprise','evasion','interaction','pursuit'], group: 'Lifecycle', default: 'setup' },
+        { name: 'outcome',              type: 'enum', enumValues: ['no-encounter','evaded','parleyed','dispersed','combat','settled-as-lair','dismissed'], group: 'Lifecycle', description: 'Set when resolved; combat records "GM resolves" until #141' },
+        { name: 'occurredAtTurn',       type: 'number', group: 'Lifecycle' },
+        { name: 'occurredOnDayInMonth', type: 'number', group: 'Lifecycle' },
+        { name: 'resolvedAtTurn',       type: 'number', readonly: true, group: 'Lifecycle' },
         { name: 'notes',                type: 'longText', group: 'History' },
         { name: 'history',              type: 'history', readonly: true, group: 'History' }
       ]

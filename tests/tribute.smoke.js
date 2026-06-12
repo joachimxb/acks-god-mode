@@ -6,6 +6,8 @@
 const path = require('path');
 global.window = global;
 require(path.join(__dirname, '..', 'acks-engine-catalogs.js'));
+require(path.join(__dirname, '..', 'acks-engine-monsters.js'));
+require(path.join(__dirname, '..', 'acks-engine-encounter-tables.js'));
 require(path.join(__dirname, '..', 'acks-engine.js'));
 require(path.join(__dirname, '..', 'acks-engine-entities.js'));
 require(path.join(__dirname, '..', 'acks-engine-economy.js'));

@@ -16,7 +16,7 @@
 const path = require('path');
 const DIR = path.join(__dirname, '..');
 [
-  'acks-engine-catalogs.js', 'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
   'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-subsystems.js',
 ].forEach(f => require(path.join(DIR, f)));
 const ACKS = global.ACKS;
@@ -274,17 +274,20 @@ section('M1 revealDynamicLair — dynamic pool → placed active');
 section('M1 LAIRS_PER_HEX table — RAW values (JJ p.69)');
 {
   const T = ACKS.LAIRS_PER_HEX;
-  ok('20 keys (10 base + finer sub-keys)', Object.keys(T).length === 20);
+  ok('23 keys (10 base + RAW + axis sub-keys)', Object.keys(T).length === 23);
   const eq = (k, n, d, m) => T[k] && T[k].n === n && T[k].d === d && T[k].mod === m;
   ok('forest 2d4', eq('forest', 2, 4, 0));
   ok('jungle 2d8', eq('jungle', 2, 8, 0));
   ok('swamp 2d4+1', eq('swamp', 2, 4, 1));
   ok('barrens 1d4', eq('barrens', 1, 4, 0));
   ok('grassland-steppe 1d3−1', eq('grassland-steppe', 1, 3, -1));
+  ok('grassland-savanna 1d3 (🔧 no RAW row — farm/prairie density)', eq('grassland-savanna', 1, 3, 0));
   ok('hills-forested 2d4 vs hills(rocky) 1d4', eq('hills-forested', 2, 4, 0) && eq('hills', 1, 4, 0));
   ok('mountains default rocky/snowy 1d4+1', eq('mountains', 1, 4, 1) && eq('mountains-forested', 2, 4, 0));
+  ok('mountains-snowy shares the rocky/snowy row (RAW) 1d4+1', eq('mountains-snowy', 1, 4, 1));
+  ok('mountains-volcanic 1d4+1 (🔧 no RAW row — matched to rocky/snowy)', eq('mountains-volcanic', 1, 4, 1));
   ok('desert default sandy 1d4 vs rocky 1d2', eq('desert', 1, 4, 0) && eq('desert-rocky', 1, 2, 0));
-  ok('scrubland default low 1d2 vs dense 2d4', eq('scrubland', 1, 2, 0) && eq('scrubland-dense', 2, 4, 0));
+  ok('scrubland default sparse 1d2 vs dense 2d4', eq('scrubland', 1, 2, 0) && eq('scrubland-sparse', 1, 2, 0) && eq('scrubland-dense', 2, 4, 0));
   ok('water 0 (no land lairs)', eq('water', 0, 0, 0));
   ok('lairDiceLabel formats', ACKS.lairDiceLabel(T.forest) === '2d4' && ACKS.lairDiceLabel(T['grassland-steppe']) === '1d3−1' && ACKS.lairDiceLabel(T.mountains) === '1d4+1' && ACKS.lairDiceLabel(T.water) === '—');
 }
@@ -323,7 +326,7 @@ section('M1 seedHexLairs — D4 opt-in seeding (unsettled hexes only)');
   c.hexes = [
     ACKS.blankHex({ id: 'hex-wild', terrain: 'forest' }),                  // unsettled (no domainId)
     Object.assign(ACKS.blankHex({ id: 'hex-dom', terrain: 'forest' }), { domainId: 'dom-1' }), // settled (domainId is backfilled by liftToTopLevelCollections in-app)
-    ACKS.blankHex({ id: 'hex-odd', terrain: 'tundra' }),                    // unknown terrain
+    ACKS.blankHex({ id: 'hex-odd', terrain: 'voidlands' }),                 // genuinely-unknown terrain (NB 'tundra' now resolves → barrens via the terrain model, T1)
     ACKS.blankHex({ id: 'hex-sea', terrain: 'water' }),                     // open water → 0
   ];
   // count override → exact N empty shells
@@ -345,6 +348,394 @@ section('M1 seedHexLairs — D4 opt-in seeding (unsettled hexes only)');
   const c2 = ACKS.blankCampaign({ name: 'seed2' });
   c2.hexes = [ ACKS.blankHex({ id: 'hex-f', terrain: 'forest' }) ];
   ok('rng path seeds the rolled count (forest 2d4, min-rng = 2)', ACKS.seedHexLairs(c2, 'hex-f', { rng: () => 0.0 }).length === 2);
+}
+
+// =============================================================================
+section('M2 MONSTER_CATALOG — module loaded + shape');
+{
+  const cat = ACKS.MONSTER_CATALOG;
+  ok('MONSTER_CATALOG is a non-trivial array', Array.isArray(cat) && cat.length >= 200, 'len=' + (cat && cat.length));
+  const RAW_TYPES = ['animal', 'beastman', 'construct', 'enchanted-creature', 'giant', 'humanoid', 'incarnation', 'monstrosity', 'ooze', 'plant', 'undead', 'vermin'];
+  ok('every entry has a non-empty key + name', cat.every(m => m.key && m.name));
+  ok('keys are unique', new Set(cat.map(m => m.key)).size === cat.length);
+  ok('every entry cites an MM page (number)', cat.every(m => typeof m.page === 'number' && m.page >= 9));
+  ok('every entry has ≥1 creatureType, all from the 12 RAW types', cat.every(m => m.creatureTypes.length && m.creatureTypes.every(t => RAW_TYPES.includes(t))));
+  ok('every entry has hd (string) + ac (number)', cat.every(m => typeof m.hd === 'string' && m.hd && typeof m.ac === 'number'));
+  ok('lairPct is 0..100 on every entry', cat.every(m => typeof m.lairPct === 'number' && m.lairPct >= 0 && m.lairPct <= 100));
+  ok('alignment is Lawful/Neutral/Chaotic on every entry', cat.every(m => /^(Lawful|Neutral|Chaotic)(\/(Lawful|Neutral|Chaotic))*$/.test(m.alignment)));
+  ok('xp is a number on every entry', cat.every(m => typeof m.xp === 'number'));
+  ok('numberAppearing has wandering+lair dice strings', cat.every(m => m.numberAppearing && typeof m.numberAppearing.wandering === 'string'));
+  ok('canTrack is boolean; ≥1 tracker exists', cat.every(m => typeof m.canTrack === 'boolean') && cat.some(m => m.canTrack));
+}
+
+section('M2 catalog lookups');
+{
+  ok('findMonster(orc) → Orc (HD 1, lair 35%, TT G, Chaotic)', (() => { const m = ACKS.findMonster('orc'); return m && m.name === 'Orc' && m.hd === '1' && m.lairPct === 35 && m.treasureType === 'G' && m.alignment === 'Chaotic'; })());
+  ok('findMonster is case-insensitive', ACKS.findMonster('ORC') && ACKS.findMonster('ORC').key === 'orc');
+  ok('findMonster(unknown) → null', ACKS.findMonster('definitely-not-a-monster') === null);
+  ok('findMonster(null) → null', ACKS.findMonster(null) === null);
+  ok('alias giant-spider → giant-crab-spider', ACKS.findMonster('giant-spider') && ACKS.findMonster('giant-spider').key === 'giant-crab-spider');
+  ok('alias lizardfolk → lizardman', ACKS.findMonster('lizardfolk') && ACKS.findMonster('lizardfolk').key === 'lizardman');
+  ok('monstersByType(beastman) non-empty + all are beastmen', (() => { const ms = ACKS.monstersByType('beastman'); return ms.length >= 4 && ms.every(m => m.creatureTypes.includes('beastman')); })());
+  ok('isCatalogMonster(orc)=true / (xyzzy)=false', ACKS.isCatalogMonster('orc') === true && ACKS.isCatalogMonster('xyzzy') === false);
+  ok('monsterCanTrack(dire-wolf)=true', ACKS.monsterCanTrack('dire-wolf') === true);
+  ok('monsterDisplayName resolves key + falls back', ACKS.monsterDisplayName('orc') === 'Orc' && ACKS.monsterDisplayName('xyzzy') === 'xyzzy');
+}
+
+section('M2 demo monster keys resolve');
+{
+  // The demo + Frontier Barony templates reference these keys; M3 generation needs them resolvable.
+  for (const k of ['dire-wolf', 'lizardman', 'giant-spider', 'goblin']) {
+    ok('demo key resolves: ' + k, !!ACKS.findMonster(k), 'findMonster returned null');
+  }
+  ok('lizardman fixup applied (TT J, Chaotic)', (() => { const m = ACKS.findMonster('lizardman'); return m && m.treasureType === 'J' && m.alignment === 'Chaotic'; })());
+}
+
+// =============================================================================
+section('M3 _rollDiceStr — XdY±Z roller');
+{
+  ok('plain integer', ACKS._rollDiceStr('3') === 3 && ACKS._rollDiceStr('1') === 1);
+  ok('XdY in range (1d10 over 200 rolls)', (() => { for (let i = 0; i < 200; i++) { const v = ACKS._rollDiceStr('1d10'); if (v < 1 || v > 10) return false; } return true; })());
+  ok('NdY+M honoured (2d4+1 ∈ [3,9])', (() => { for (let i = 0; i < 200; i++) { const v = ACKS._rollDiceStr('2d4+1'); if (v < 3 || v > 9) return false; } return true; })());
+  ok('seeded determinism', (() => { const mk = () => { let s = 7; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }; return ACKS._rollDiceStr('3d6', mk()) === ACKS._rollDiceStr('3d6', mk()); })());
+  ok('garbage → 0', ACKS._rollDiceStr('') === 0 && ACKS._rollDiceStr(null) === 0);
+}
+
+section('M3 generateLair — catalog-gated generation (Plan §5.3)');
+{
+  const c = ACKS.blankCampaign({ name: 'gen' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' })];
+  const res = ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1', establishedBy: 'dynamic-reveal' });
+  ok('returns {lair, group, entry, count}', res && res.lair && res.group && res.entry && res.count >= 1);
+  ok('lair lands in campaign.lairs, status active, on the hex', c.lairs.length === 1 && res.lair.status === 'active' && res.lair.hexId === 'hex-1');
+  ok('lair records catalog identity (key/lairPct/TT from catalog)', res.lair.monsterCatalogKey === 'orc' && res.lair.lairPct === 35 && res.lair.treasureType === 'G');
+  ok('a Group is created in campaign.groups + bound to the lair', c.groups.length === 1 && res.lair.groupIds.length === 1 && res.lair.groupIds[0] === res.group.id);
+  ok('Group template carries catalog stats', res.group.groupTemplate.monsterCatalogKey === 'orc' && res.group.groupTemplate.hitDice === '1' && res.group.groupTemplate.creatureTypes.includes('beastman'));
+  ok('Group count = rolled population (≥1) at the lair hex; wild/independent', res.group.count >= 1 && res.group.currentHexId === 'hex-1' && res.group.lifecycleState === 'wild');
+  ok('totalInhabitantCount derived', res.lair.totalInhabitantCount === ACKS.lairInhabitantCount(c, res.lair));
+  ok('history stamps a generated entry', res.lair.history.some(h => h.type === 'generated'));
+  ok('count override honoured', ACKS.generateLair(c, { monsterCatalogKey: 'goblin', hexId: 'hex-1', count: 7 }).group.count === 7);
+
+  // populate an existing 'unknown' seeded shell
+  const shell = ACKS.createLair(c, { hexId: 'hex-1', status: 'unknown', establishedBy: 'hex-seeding' });
+  const r2 = ACKS.generateLair(c, { lairId: shell.id, monsterCatalogKey: 'kobold' });
+  ok('populate existing shell → same lair, now active + populated', r2.lair.id === shell.id && r2.lair.status === 'active' && r2.lair.monsterCatalogKey === 'kobold' && r2.group && r2.lair.groupIds.length >= 1);
+
+  // reveal-then-generate a dynamic pool lair
+  const dyn = ACKS.createLair(c, { status: 'dynamic', hexId: null, monsterCatalogKey: 'gnoll' });
+  ACKS.revealDynamicLair(c, dyn.id, 'hex-1');
+  const r3 = ACKS.generateLair(c, { lairId: dyn.id, monsterCatalogKey: 'gnoll' });
+  ok('reveal+generate a dynamic lair populates it', r3.lair.status === 'active' && r3.lair.hexId === 'hex-1' && r3.group && r3.group.groupTemplate.monsterCatalogKey === 'gnoll');
+
+  // alias key resolves through generation
+  const r4 = ACKS.generateLair(c, { monsterCatalogKey: 'giant-spider', hexId: 'hex-1' });
+  ok('alias key generates (giant-spider → giant-crab-spider)', r4.group && r4.lair.monsterCatalogKey === 'giant-crab-spider');
+
+  // unknown key → bare lair shell, no group
+  const r5 = ACKS.generateLair(c, { monsterCatalogKey: 'no-such-monster', hexId: 'hex-1' });
+  ok('unknown key → lair shell returned, no group/entry', r5.lair && r5.entry === null && r5.group === null && r5.count === 0);
+}
+
+// =============================================================================
+section('M3 lairEncounterProposal — pool-first selector (Plan §5.2, D5)');
+{
+  const c = ACKS.blankCampaign({ name: 'pool' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' }), ACKS.blankHex({ id: 'hex-2', terrain: 'forest' })];
+  ok('empty hex → source fresh', ACKS.lairEncounterProposal(c, 'hex-1').source === 'fresh');
+  ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1' });
+  const p = ACKS.lairEncounterProposal(c, 'hex-1');
+  ok('hex with an active lair → existing-lair + contents (D5)', p.source === 'existing-lair' && p.lairId && p.contents.monsterCatalogKey === 'orc' && p.contents.totalInhabitantCount >= 1);
+  // a cleared lair must NOT be selected (only active)
+  ACKS.clearLair(c, p.lairId);
+  ok('cleared lair → falls through to fresh', ACKS.lairEncounterProposal(c, 'hex-1').source === 'fresh');
+  // ≥2 active lairs at one hex → picks one (pure, rng-driven)
+  ACKS.generateLair(c, { monsterCatalogKey: 'goblin', hexId: 'hex-2' });
+  ACKS.generateLair(c, { monsterCatalogKey: 'kobold', hexId: 'hex-2' });
+  const multi = ACKS.lairEncounterProposal(c, 'hex-2', { rng: () => 0.9 });
+  ok('≥2 active lairs → picks one existing-lair', multi.source === 'existing-lair' && ACKS.lairsAtHex(c, 'hex-2').filter(l => l.status === 'active').length === 2);
+  // dynamic pool
+  const c2 = ACKS.blankCampaign({ name: 'dyn' });
+  ACKS.createLair(c2, { status: 'dynamic', hexId: null, monsterCatalogKey: 'ogre' });
+  ok('no hex lair but a pooled dynamic lair → dynamic-pool candidates', ACKS.lairEncounterProposal(c2, 'hex-x').source === 'dynamic-pool' && ACKS.lairEncounterProposal(c2, 'hex-x').candidates.length === 1);
+  ok('includeDynamicPool:false → fresh (reveal is a GM decision)', ACKS.lairEncounterProposal(c2, 'hex-x', { includeDynamicPool: false }).source === 'fresh');
+}
+
+// Finite dice tape: yields each value once, then repeats the last (shared by the M3/M4/E1 sections).
+const seq = (...vals) => { let i = 0; return () => (i < vals.length ? vals[i++] : vals[vals.length - 1]); };
+
+section('E4 journey rollEncounter — table-first (JJ p.43); the den binds by MATCH, not override');
+{
+  const c = ACKS.blankCampaign({ name: 'enc' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-1', terrain: 'hills' }), ACKS.blankHex({ id: 'hex-2', terrain: 'forest' })];
+  ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-1' });
+  // E4 stream: [category d20] → [rarity d20] → [identity d100] → [lair% d100] → [count] → [distance].
+  // orc sits at hills-any COMMON 13-14: cat 11 → monster; rarity 1 → common; d100 13 → orc; lair% 1 ≤ 35 → in-lair → the den.
+  const r1 = ACKS.rollEncounter(c, { id: 'jrn-1', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.5, 0.0, 0.125, 0.0, 0.5), hasRoad: false, hexId: 'hex-1' });
+  ok("the table rolls the den's monster in-lair → notable references the den", r1 && r1.notableEvent.payload.lairId && /in their lair here/i.test(r1.notableEvent.label));
+  ok('encounterRecord carries lairId + the den groups + the binding', r1.encounterRecord.lairId && r1.encounterRecord.monsters.length >= 1
+    && r1.encounterRecord.draw.binding && r1.encounterRecord.draw.binding.mode === 'existing-lair');
+  ok('the record carries the table identity + the pre-rolled RAW distance', r1.encounterRecord.category === 'monster'
+    && r1.encounterRecord.draw.identity === 'table' && r1.encounterRecord.draw.identityRoll.key === 'orc'
+    && r1.encounterRecord.distance && r1.encounterRecord.distance.distanceFt > 0);
+  // an empty forest hex rolls a NAMED monster (forest common 1-2 = Bat, Common; lair% 100 → wandering)
+  const r2 = ACKS.rollEncounter(c, { id: 'jrn-2', name: 'Caravan', currentHexId: 'hex-2' }, { rng: seq(0.5, 0.0, 0.0, 0.99, 0.5), hasRoad: false, hexId: 'hex-2' });
+  ok('encounter at an empty hex → a named table monster (no lairId)', r2 && r2.notableEvent.payload.lairId === null
+    && r2.notableEvent.payload.monsterKey === 'common-bat' && r2.encounterRecord.draw.identity === 'table');
+  // Roads fold one column LEFT — safer, not safe (the J1 "roads = no encounters" stub is gone).
+  // 0.35 → d20 8: unsettled+Road reads No Encounter (2–8); trackless unsettled reads MONSTER (7–12).
+  ok('a road folds the draw one column left (d20 8: road → nothing, trackless → monster)',
+    ACKS.rollEncounter(c, { id: 'jrn-3', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.35), hasRoad: true, hexId: 'hex-1' }) === null
+    && !!ACKS.rollEncounter(c, { id: 'jrn-4', name: 'Caravan', currentHexId: 'hex-1' }, { rng: seq(0.35, 0.5, 0.0, 0.5), hasRoad: false, hexId: 'hex-1' }));
+}
+
+// =============================================================================
+section('Fixes — seeded shells in the pool, group fates, reveal sync, shell naming');
+{
+  // (1) seeded 'unknown' shells AT the hex surface as populate candidates (D4→D5, Plan §4/§5.2.3)
+  const c = ACKS.blankCampaign({ name: 'shellpool' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-s', terrain: 'mountains' })];
+  ACKS.seedHexLairs(c, 'hex-s', { count: 3 });
+  const p = ACKS.lairEncounterProposal(c, 'hex-s');
+  ok('hex with only seeded shells → seeded-shell candidates', p.source === 'seeded-shell' && p.candidates.length === 3);
+  ok('includeSeededShells:false → falls through to fresh', ACKS.lairEncounterProposal(c, 'hex-s', { includeSeededShells: false, includeDynamicPool: false }).source === 'fresh');
+  ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-s' });
+  ok('an active lair outranks the shells', ACKS.lairEncounterProposal(c, 'hex-s').source === 'existing-lair');
+  // E4: a seeded hex's shells are consumed by IN-LAIR table results — the rolled monster
+  // DETAILS one of the shells at commit (populate-shell), keeping the hex's rolled lair
+  // count honest instead of minting a fresh den beside empty shells.
+  const cJ = ACKS.blankCampaign({ name: 'shellenc' });
+  cJ.hexes = [ACKS.blankHex({ id: 'hex-t', terrain: 'forest' })];
+  ACKS.seedHexLairs(cJ, 'hex-t', { count: 2 });
+  // [cat 11 → monster] [rarity 1 → common] [d100 1 → Bat, Common (lairPct 35)] [lair% 1 → in-lair] [count] …
+  const enc = ACKS.rollEncounter(cJ, { id: 'jrn-s', name: 'Scouts', currentHexId: 'hex-t' }, { rng: seq(0.5, 0.0, 0.0, 0.0, 0.5), hasRoad: false, hexId: 'hex-t' });
+  ok('an in-lair roll at a seeded hex → details one of the shells at commit', enc
+    && enc.encounterRecord.draw.binding.mode === 'populate-shell' && /seeded lairs at commit/.test(enc.notableEvent.label));
+  ok('shell encounter carries no lairId yet (it materializes at commit)', enc.encounterRecord.lairId === null);
+
+  // (2) clearLair wipes bound Groups so groupsAtHex agrees with the status
+  const c2 = ACKS.blankCampaign({ name: 'clearfate' });
+  c2.hexes = [ACKS.blankHex({ id: 'hex-c', terrain: 'hills' })];
+  const gen = ACKS.generateLair(c2, { monsterCatalogKey: 'orc', hexId: 'hex-c' });
+  ACKS.clearLair(c2, gen.lair.id);
+  ok('clearLair → bound group takes full casualties', ACKS.groupActiveCount(gen.group) === 0);
+  ok('clearLair → lairInhabitantCount agrees (0)', ACKS.lairInhabitantCount(c2, gen.lair) === 0 && gen.lair.totalInhabitantCount === 0);
+  const gen2 = ACKS.generateLair(c2, { monsterCatalogKey: 'goblin', hexId: 'hex-c' });
+  ACKS.clearLair(c2, gen2.lair.id, { leaveGroups: true });
+  ok('clearLair leaveGroups:true → group untouched (GM narrates survivors)', ACKS.groupActiveCount(gen2.group) > 0);
+
+  // (2b) destroyLair on a live lair wipes; abandonLair departs alive (hexless, counts kept)
+  const c3 = ACKS.blankCampaign({ name: 'fates' });
+  c3.hexes = [ACKS.blankHex({ id: 'hex-f', terrain: 'forest' })];
+  const g3 = ACKS.generateLair(c3, { monsterCatalogKey: 'kobold', hexId: 'hex-f' });
+  ACKS.destroyLair(c3, g3.lair.id);
+  ok('destroyLair on an active lair → group perishes', ACKS.groupActiveCount(g3.group) === 0);
+  const g4 = ACKS.generateLair(c3, { monsterCatalogKey: 'orc', hexId: 'hex-f' });
+  ACKS.abandonLair(c3, g4.lair.id);
+  ok('abandonLair → group departs alive (currentHexId null, count kept)', g4.group.currentHexId === null && ACKS.groupActiveCount(g4.group) > 0);
+
+  // (3) a populated dynamic lair STAYS pooled until reveal; reveal binds the population to the hex
+  const c4 = ACKS.blankCampaign({ name: 'revealsync' });
+  c4.hexes = [ACKS.blankHex({ id: 'hex-r', terrain: 'hills' })];
+  const dyn = ACKS.createLair(c4, { status: 'dynamic', hexId: null });
+  const gend = ACKS.generateLair(c4, { lairId: dyn.id, monsterCatalogKey: 'ogre' });
+  ok('populate a dynamic lair → stays dynamic + unplaced (pre-rolled drop-in)', dyn.status === 'dynamic' && dyn.hexId === null && gend.group.currentHexId === null);
+  ok('a populated dynamic lair is still a dynamic-pool candidate', ACKS.lairEncounterProposal(c4, 'hex-r').source === 'dynamic-pool');
+  ACKS.revealDynamicLair(c4, dyn.id, 'hex-r');
+  ok('revealDynamicLair binds the bound group to the hex', gend.group.currentHexId === 'hex-r' && dyn.status === 'active');
+  ok('after reveal the hex pool serves the lair', ACKS.lairEncounterProposal(c4, 'hex-r').source === 'existing-lair');
+
+  // (4) a populated seeded shell gets the fresh-path default name; a GM-set name is never clobbered
+  const c5 = ACKS.blankCampaign({ name: 'shellname' });
+  c5.hexes = [ACKS.blankHex({ id: 'hex-n', terrain: 'hills' })];
+  const shells = ACKS.seedHexLairs(c5, 'hex-n', { count: 2 });
+  ACKS.generateLair(c5, { lairId: shells[0].id, monsterCatalogKey: 'orc' });
+  ok('populated shell gets a default name', shells[0].name === 'Orc lair');
+  shells[1].name = 'The Howling Caves';
+  ACKS.generateLair(c5, { lairId: shells[1].id, monsterCatalogKey: 'common-wolf' });
+  ok('a GM-set shell name is preserved', shells[1].name === 'The Howling Caves');
+}
+
+// =============================================================================
+section('M4 wildernessSearchTargetForSpeed — the RR p.276 table');
+{
+  ok('≤11 mi → 18+', ACKS.wildernessSearchTargetForSpeed(11) === 18 && ACKS.wildernessSearchTargetForSpeed(0) === 18);
+  ok('12–23 mi → 17+', ACKS.wildernessSearchTargetForSpeed(12) === 17 && ACKS.wildernessSearchTargetForSpeed(23) === 17);
+  ok('32 mi → 16+ (the RAW worked example)', ACKS.wildernessSearchTargetForSpeed(32) === 16);
+  ok('180–191 mi → 3+', ACKS.wildernessSearchTargetForSpeed(180) === 3 && ACKS.wildernessSearchTargetForSpeed(191) === 3);
+  ok('≥192 mi → 2+ (floor)', ACKS.wildernessSearchTargetForSpeed(192) === 2 && ACKS.wildernessSearchTargetForSpeed(500) === 2);
+}
+
+section('M4 hexSecuringBlockers — live lairs block securing (RR p.338)');
+{
+  const c = ACKS.blankCampaign({ name: 'secure' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-b', terrain: 'hills' })];
+  const a = ACKS.createLair(c, { status: 'active', hexId: 'hex-b' });
+  const u = ACKS.createLair(c, { status: 'unknown', hexId: 'hex-b' });
+  ACKS.createLair(c, { status: 'dynamic', hexId: null });
+  ok('active + unknown block', ACKS.hexSecuringBlockers(c, 'hex-b').length === 2);
+  ACKS.clearLair(c, a.id);
+  ok('a cleared lair stops blocking', ACKS.hexSecuringBlockers(c, 'hex-b').length === 1);
+  ACKS.destroyLair(c, u.id);
+  ok('a destroyed shell stops blocking', ACKS.hexSecuringBlockers(c, 'hex-b').length === 0);
+}
+
+section('M4 lair-vs-wandering — the MM p.15 Lair % split in the proposal');
+{
+  const c = ACKS.blankCampaign({ name: 'split' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-w', terrain: 'hills' })];
+  const gen = ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-w' });   // lairPct 35 from the catalog
+  // one lair → first rng draw is the d100. 0.0 → 1 ≤ 35 → at-lair.
+  const atHome = ACKS.lairEncounterProposal(c, 'hex-w', { rng: seq(0.0) });
+  ok('d100 ≤ lairPct → at-lair', atHome.encounterKind === 'at-lair' && atHome.fragment === null);
+  // 0.99 → 100 > 35 → wandering fragment, count capped at the living population.
+  const frag = ACKS.lairEncounterProposal(c, 'hex-w', { rng: seq(0.99, 0.99) });
+  ok('d100 > lairPct → wandering-fragment with a count', frag.encounterKind === 'wandering-fragment' && frag.fragment && frag.fragment.count >= 1);
+  ok('fragment never outnumbers the lair\'s living population', frag.fragment.count <= ACKS.lairInhabitantCount(c, gen.lair));
+  // a GM lairPct:100 pin → always at home
+  gen.lair.lairPct = 100;
+  ok('lairPct 100 → always at-lair', ACKS.lairEncounterProposal(c, 'hex-w', { rng: seq(0.99) }).encounterKind === 'at-lair');
+  // a bare GM-authored lair with a catalog monster falls back to the CATALOG's pct
+  const c2 = ACKS.blankCampaign({ name: 'fallback' });
+  c2.hexes = [ACKS.blankHex({ id: 'hex-f', terrain: 'hills' })];
+  ACKS.createLair(c2, { status: 'active', hexId: 'hex-f', monsterCatalogKey: 'orc' });   // no lairPct on the lair
+  ok('lairPct falls back to the catalog (fragment possible)', ACKS.lairEncounterProposal(c2, 'hex-f', { rng: seq(0.99, 0.5) }).encounterKind === 'wandering-fragment');
+  // no catalog key + no pct → the pre-M4 behaviour (at-lair)
+  const c3 = ACKS.blankCampaign({ name: 'bare' });
+  c3.hexes = [ACKS.blankHex({ id: 'hex-x', terrain: 'hills' })];
+  ACKS.createLair(c3, { status: 'active', hexId: 'hex-x' });
+  ok('no usable pct → at-lair (back-compat)', ACKS.lairEncounterProposal(c3, 'hex-x', { rng: seq(0.99) }).encounterKind === 'at-lair');
+  // the journey encounter labels a fragment + carries encounterKind (E4: the table rolls
+  // the den's monster — orc at hills-any common 13-14 — abroad → a fragment of the den)
+  const enc = ACKS.rollEncounter(c, (gen.lair.lairPct = 35, { id: 'jrn-w', name: 'Scouts', currentHexId: 'hex-w' }), { rng: seq(0.5, 0.0, 0.125, 0.99, 0.05, 0.5), hasRoad: false, hexId: 'hex-w' });
+  ok('journey fragment encounter labelled + tagged', enc && enc.notableEvent.payload.encounterKind === 'wandering-fragment' && /out from their lair/.test(enc.notableEvent.label));
+}
+
+section('M4 hexSearchActivity — the Wilderness Search hour (RR pp.276–277)');
+{
+  const c = ACKS.blankCampaign({ name: 'search' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-s', terrain: 'hills' })];
+  const ch = ACKS.blankCharacter({ name: 'Scout' }); ch.currentHexId = 'hex-s';
+  c.characters.push(ch);
+  const lair = ACKS.createLair(c, { status: 'active', hexId: 'hex-s', name: 'Hidden Den' });
+  // unencumbered 24 mi × hills 2/3 = 16 mi → target 17 (RR table)
+  const r1 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.9, 0.0, 0.99) });   // d20 19 ≥ 17 → found
+  ok('successful throw finds the undiscovered lair', r1.ok && r1.success && r1.found && r1.found.id === lair.id);
+  ok('target derives from expedition speed × terrain (16 mi → 17+)', r1.target === 17 && Math.round(r1.speedMilesPerDay) === 16);
+  ok('discovery flips knownToPlayers + stamps discoveryHistory', lair.knownToPlayers === true && lair.discoveryHistory.length === 1 && lair.discoveryHistory[0].method === 'search');
+  const log = c.eventLog.map(e => e.event);
+  ok('hex-search event logged, campaignLogHidden, with the ancillary cost tag', log.some(e => e.kind === 'hex-search' && e.campaignLogHidden === true && e.payload.activityCost && e.payload.activityCost.kind === 'search-hex'));
+  ok('lair-discovered event logged (chronicle-visible, parented on the search)', log.some(e => e.kind === 'lair-discovered' && !e.campaignLogHidden && e.payload.lairId === lair.id && e.parentEventId));
+  ok('the #346 budget counts the search hour as 1 ancillary', (function(){
+    const b = ACKS.characterActivityBudget(c, ch.id);
+    return b && b.ancillary.some(a => /Search/.test(a.label || '')) && b.ancillaryUsed >= 1;
+  })());
+  // a second search finds nothing (everything known) but the throw still records
+  const r2 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.9, 0.99) });
+  ok('nothing left to find → success without a find', r2.success && !r2.found);
+  // nat-1 always fails — even vs a trivial target
+  const r3 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.99) });
+  ok('an unmodified 1 always fails', !r3.success && r3.rolled === 1);
+  // Tracking on a cohort member → +4 (RR p.276); specific POI → −4
+  ch.proficiencies = ['Tracking'];
+  const r4 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, specific: true, rng: seq(0.9, 0.99) });
+  ok('+4 Tracking / −4 specific are applied', r4.bonus === 4 && r4.mod === -4);
+  // hiddenDC raises that lair\'s bar only
+  const c5 = ACKS.blankCampaign({ name: 'hidden' });
+  c5.hexes = [ACKS.blankHex({ id: 'hex-h', terrain: 'hills' })];
+  const ch5 = ACKS.blankCharacter({ name: 'Seeker' }); ch5.currentHexId = 'hex-h'; c5.characters.push(ch5);
+  ACKS.createLair(c5, { status: 'unknown', hexId: 'hex-h', hiddenDC: 10 });
+  const r5 = ACKS.hexSearchActivity(c5, { actorCharacterId: ch5.id, rng: seq(0.9, 0.99) });   // 19 ≥ 17 but < 27
+  ok('a well-hidden lair (hiddenDC) survives an ordinary success', r5.success && !r5.found);
+  // the per-hour encounter check fires pool-first ("stumble onto it by way of a random encounter")
+  // E1 stream: 0.0 search d20 = 1 (fail); 0.5 category d20 = 11 → MONSTER; pool → the lair (at-lair).
+  const r6 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.5, 0.5) });
+  ok('a failed search can still stumble into the lair via the encounter roll', !r6.success && r6.encounter && r6.encounter.lairId === lair.id);
+  ok('a meeting draw materializes an Encounter entity on the spot (trigger hex-search)', !!r6.encounter.encounterId
+    && !!ACKS.findEncounter(c, r6.encounter.encounterId)
+    && ACKS.findEncounter(c, r6.encounter.encounterId).trigger === 'hex-search');
+  // Land Surveying assessment (RR p.277)
+  const ch6 = ACKS.blankCharacter({ name: 'Surveyor' }); ch6.currentHexId = 'hex-s'; ch6.proficiencies = ['Land Surveying'];
+  c.characters.push(ch6);
+  const r7 = ACKS.hexSearchActivity(c, { actorCharacterId: ch6.id, rng: seq(0.9, 0.99, 0.95) });   // d20 19 (no find left), no enc, survey 20 ≥ 18
+  ok('Land Surveying assesses the true POI count', r7.survey && r7.survey.assessed && !r7.survey.falseReading && r7.survey.count === 1);
+  const r8 = ACKS.hexSearchActivity(c, { actorCharacterId: ch6.id, rng: seq(0.9, 0.99, 0.0, 0.9, 0.9) });   // survey nat-1 → false reading
+  ok('a survey nat-1 yields a false reading', r8.survey && r8.survey.falseReading && r8.survey.count !== 1);
+  ok('guards: unknown actor / no hex', ACKS.hexSearchActivity(c, { actorCharacterId: 'chr-none' }).ok === false
+    && ACKS.hexSearchActivity(c, { actorCharacterId: (c.characters.push(ACKS.blankCharacter({ name: 'Nowhere' })), c.characters[c.characters.length-1].id) }).ok === false);
+}
+
+section('E5 beginTracking — the find throw opens a follow (RR p.120; replaces trackHomeAttempt)');
+{
+  const c = ACKS.blankCampaign({ name: 'track' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-t', coord: { q: 0, r: 0 }, terrain: 'forest' })];
+  const gen = ACKS.generateLair(c, { monsterCatalogKey: 'orc', hexId: 'hex-t' });
+  gen.lair.knownToPlayers = false;
+  const ch = ACKS.blankCharacter({ name: 'Hound' }); ch.currentHexId = 'hex-t'; c.characters.push(ch);
+  // a fragment meeting at the den's own hex — evaded; the band's trail leads home (same hex)
+  const enc = ACKS.createEncounter(c, { id: 'enc-mp-t1', trigger: 'journey', hexId: 'hex-t', category: 'monster', rarity: 'common',
+    partySide: { characterIds: [ch.id], sizeCount: 1 },
+    monsterSide: { monsterCatalogKey: 'orc', label: 'Orc', count: 6, encounterKind: 'wandering-fragment', lairId: gen.lair.id, groupIds: [] } });
+  ACKS.resolveEncounter(c, enc.id, 'evaded', {});
+  ok('no Tracking → refused', ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc.id }).error === 'no-tracking');
+  ch.proficiencies = ['Tracking', 'Tracking'];   // 2 ranks → +4 to the find throw
+  const r = ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc.id, countTracked: 6, rng: seq(0.45) });   // d20 10 +4 ranks +4 count = 18 ≥ 11
+  const modSum = r.ok && r.find ? r.find.modifiers.reduce((s, m) => s + m.value, 0) : null;
+  ok('ranks (+4/extra) + count band (+4 at 5–8) itemize on the find', r.ok && r.success && modSum === 8
+    && r.find.modifiers.some(m => m.source === 'extra-ranks' && m.value === 4)
+    && r.find.modifiers.some(m => m.source === 'count-band' && m.value === 4));
+  ok('a den in the meeting hex is caught at once — the arrival IS the discovery', !!(r.caughtNow && r.caughtNow.denCatch)
+    && gen.lair.knownToPlayers === true
+    && gen.lair.discoveryHistory.some(d => d.method === 'tracking')
+    && c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.payload.method === 'track-home'));
+  ok('the catch is an at-lair meeting against the den, D9-linked', !!(r.caughtNow && r.caughtNow.encounter)
+    && r.caughtNow.encounter.monsterSide.encounterKind === 'at-lair'
+    && r.caughtNow.encounter.monsterSide.pursuitEncounterId === enc.id);
+  ok('a known den → refused', ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc.id }).error === 'already-known');
+  // nat-1 fails regardless of bonuses — and no follow opens
+  const enc2 = ACKS.createEncounter(c, { id: 'enc-mp-t2', trigger: 'journey', hexId: 'hex-t', category: 'monster', rarity: 'common',
+    partySide: { characterIds: [ch.id], sizeCount: 1 },
+    monsterSide: { monsterCatalogKey: 'goblin', label: 'Goblin', count: 20, encounterKind: 'wandering', lairId: null, groupIds: [] } });
+  ACKS.resolveEncounter(c, enc2.id, 'parleyed', {});
+  const r2 = ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: enc2.id, countTracked: 20, rng: seq(0.0) });
+  ok('an unmodified 1 fails the find (no follow opens)', r2.ok && !r2.success && r2.find.natural === 1 && !enc2.pursuit);
+}
+
+section('M4 rerollHexSearch — re-throw the latest search hour (the forage-reroll sibling)');
+{
+  const c = ACKS.blankCampaign({ name: 'reroll' });
+  c.hexes = [ACKS.blankHex({ id: 'hex-r', terrain: 'hills' })];
+  const ch = ACKS.blankCharacter({ name: 'Seeker' }); ch.currentHexId = 'hex-r'; c.characters.push(ch);
+  const lair = ACKS.createLair(c, { status: 'active', hexId: 'hex-r', name: 'Lost Den' });
+  // fail → success: the reroll discovers
+  const r1 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.99) });   // nat 1, no encounter
+  ok('setup: the hour failed', r1.ok && !r1.success && !r1.found);
+  const ancBefore = ACKS.characterActivityBudget(c, ch.id).ancillaryUsed;
+  const rr1 = ACKS.rerollHexSearch(c, r1.event.id, { rng: seq(0.9, 0.0) });                 // 19 ≥ 17 → found
+  ok('reroll fail → success discovers the lair', rr1.ok && rr1.success && rr1.found && rr1.found.id === lair.id && lair.knownToPlayers === true);
+  ok('the discovery record appears, parented on the SAME search event', c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.parentEventId === r1.event.id));
+  ok('the reroll spends NO new hour (budget unchanged)', ACKS.characterActivityBudget(c, ch.id).ancillaryUsed === ancBefore);
+  // success → fail: the reroll reverses the discovery surgically
+  const dhLen = lair.discoveryHistory.length, hLen = lair.history.length;
+  const rr2 = ACKS.rerollHexSearch(c, r1.event.id, { rng: seq(0.0) });                      // nat 1 → lost
+  ok('reroll success → fail un-discovers (knownToPlayers back, stamps truncated)', rr2.ok && !rr2.success
+    && lair.knownToPlayers === false && lair.discoveryHistory.length === dhLen - 1 && lair.history.length === hLen - 1);
+  ok('the child lair-discovered record is dropped', !c.eventLog.some(e => e.event.kind === 'lair-discovered' && e.event.parentEventId === r1.event.id));
+  ok('the event updates in place (rolled/success/foundLairId)', r1.event.payload.rolled === 1 && r1.event.payload.success === false && r1.event.payload.foundLairId === null);
+  // the hour's encounter is HELD across a reroll
+  const r2 = ACKS.hexSearchActivity(c, { actorCharacterId: ch.id, rng: seq(0.0, 0.5, 0.5) });   // fail + a monster draw (E1 stream)
+  ok('setup: the hour rolled an encounter', !!r2.encounter);
+  const encBefore = JSON.stringify(r2.event.payload.encounter);
+  ACKS.rerollHexSearch(c, r2.event.id, { rng: seq(0.5) });
+  ok('the encounter outcome is held across the reroll', JSON.stringify(r2.event.payload.encounter) === encBefore);
+  // guards
+  ok('guards: unknown event / a begin-tracking record not rerollable', ACKS.rerollHexSearch(c, 'evt-none').error === 'event-not-found'
+    && (function(){ ch.proficiencies = ['Tracking'];
+         const e9 = ACKS.createEncounter(c, { id: 'enc-mp-rr', trigger: 'journey', hexId: 'hex-r', category: 'monster', rarity: 'common',
+           partySide: { characterIds: [ch.id], sizeCount: 1 },
+           monsterSide: { monsterCatalogKey: 'common-wolf', label: 'Common Wolf', count: 3, encounterKind: 'wandering', lairId: null, groupIds: [] } });
+         ACKS.resolveEncounter(c, e9.id, 'evaded', {});
+         const t = ACKS.beginTracking(c, { actorCharacterId: ch.id, encounterId: e9.id, countTracked: 3, rng: seq(0.0) });
+         return ACKS.rerollHexSearch(c, t.event.id).error === 'track-not-rerollable'; })());
 }
 
 // =============================================================================

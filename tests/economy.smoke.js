@@ -23,7 +23,7 @@ const path = require('path');
 // Load all engine modules in order; each accumulates onto global.ACKS. acks-engine-economy.js
 // captures its constants from catalogs/engine/entities at load, so it loads after those three.
 [
-  'acks-engine-catalogs.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',

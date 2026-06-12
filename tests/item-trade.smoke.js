@@ -14,7 +14,7 @@
 const path = require('path');
 
 const DIR = path.join(__dirname, '..');
-['acks-engine-catalogs.js', 'acks-engine.js'].forEach(f => require(path.join(DIR, f)));
+['acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine.js'].forEach(f => require(path.join(DIR, f)));
 const ACKS = global.ACKS;
 
 // ─── tiny assertion harness ───

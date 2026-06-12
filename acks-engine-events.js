@@ -110,6 +110,28 @@ const EVENT_KINDS = Object.freeze([
   // by the 'survival' day-consumer (the field/settled counterpart of journey-day-tick); record-only,
   // campaignLogHidden on a recovery-only day, surfaced when a condition is active. Event Wizard opt-out.
   'survival-day',
+  // #476 M4/E5 (2026-06-10/11) — a Wilderness Search hour (RR pp.276–277) or a search for
+  // tracks (RR p.120). Emitted by hexSearchActivity/beginTracking (record-only; the verb already
+  // rolled + applied). Carries payload.activityCost (one ancillary) for the #346 day budget.
+  // ALWAYS campaignLogHidden — the audit + budget record; discovery is narrated by lair-discovered.
+  'hex-search',
+  // #476 M4 — the players learn of a lair (search / tracking / GM reveal). The chronicle-visible
+  // counterpart of the hex-search record; emitted alongside discoverLair (which owns the state flip).
+  'lair-discovered',
+  // #476 E10 (2026-06-12) — domain-morale banditry (RR pp.350–351): the monthly reconcile's record.
+  // Emitted by processBanditryForTurn when something CHANGED (bands rose / swelled / waned /
+  // disbanded, or casualties settled as population loss); a no-change plague month emits nothing.
+  // Record-only (the processor already applied the world changes); chronicle-visible.
+  'domain-banditry',
+  // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
+  // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
+  // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
+  // entity flip); campaignLogHidden when the outcome is no-encounter.
+  'encounter-resolved',
+  // #476 E1 — one influence attempt on a standing encounter (RR pp.286–287). Record-only + always
+  // campaignLogHidden (table chatter; the resolution event narrates). Carries payload.activityCost
+  // for the #346 day budget on the 3rd+ attempts (1 hour = ancillary, a work-day+ = dedicated).
+  'encounter-influence',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal edict record
   // (grant / demand / revoke / recurring gp flow). Engine-emitted by the monthly turn's
   // auto-roll; record-only (audit). Event Wizard opt-out (the GM authors the OBLIGATION via
@@ -402,7 +424,7 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { actorCharacterId: 'string', activity: 'string' },
     O: { forageKind: 'string', rolled: 'number', target: 'number', bonus: 'number', terrMod: 'number',
          success: 'boolean', auto: 'boolean', yieldDays: 'number', yieldStone: 'number',
-         wanderingMonsterRisk: 'boolean', hexId: 'string', activityCost: 'object', narrative: 'string' }
+         wanderingMonsterRisk: 'boolean', encounter: 'object', hexId: 'string', activityCost: 'object', narrative: 'string' }
   },
   // CoL-1 (Phase 2.5 Provisioning §16.2) — off-journey survival day record (engine-emitted, record-only).
   'survival-day': {
@@ -410,6 +432,47 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { survivalDay: 'boolean', partyId: 'string', hexId: 'string', settled: 'boolean',
          anyHungry: 'boolean', anyThirsty: 'boolean', anyCritical: 'boolean',
          members: 'object', narrative: 'string' }
+  },
+  // #476 M4 — a Wilderness Search hour (RR pp.276–277) / track-home attempt (RR p.122). method =
+  // 'search'|'search-specific'|'track-home'. Record-only + always campaignLogHidden (the GM's
+  // secret roll — RR p.276); a discovery is narrated by the paired lair-discovered event.
+  'hex-search': {
+    R: { actorCharacterId: 'string', hexId: 'string', method: 'string' },
+    O: { rolled: 'number', target: 'number', bonus: 'number', mod: 'number', success: 'boolean',
+         foundLairId: 'string', speedMilesPerDay: 'number', specificLairId: 'string',
+         encounter: 'object', survey: 'object', trackedLairId: 'string',
+         activityCost: 'object', narrative: 'string' }
+  },
+  // #476 M4 — the players learn of a lair (the chronicle-visible discovery record; discoverLair
+  // owns the knownToPlayers flip + the lair's own history stamp).
+  'lair-discovered': {
+    R: { lairId: 'string', hexId: 'string' },
+    O: { method: 'string', byCharacterId: 'string', lairName: 'string',
+         monsterCatalogKey: 'string', narrative: 'string' }
+  },
+  // #476 E10 — the domain-morale banditry reconcile (RR pp.350–351; engine-emitted, record-only).
+  // action: 'rise' | 'swell' | 'wane' | 'disbanded' (plus killed > 0 when casualties settled as
+  // population loss). bands = the live band roster after the reconcile [{groupId,count,hexId}].
+  'domain-banditry': {
+    R: { domainId: 'string' },
+    O: { action: 'string', morale: 'number', target: 'number', killed: 'number',
+         familiesLost: 'number', occupationMonths: 'number', bands: 'object', narrative: 'string' }
+  },
+  // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
+  // entity flip; the payload carries the whole step walk compactly).
+  'encounter-resolved': {
+    R: { encounterId: 'string', outcome: 'string' },
+    O: { category: 'string', rarity: 'string', trigger: 'string', hexId: 'string',
+         lairId: 'string', monsterCatalogKey: 'string', encounterKind: 'string',
+         distanceFt: 'number', surprise: 'object', evasion: 'object', reaction: 'object',
+         narrative: 'string' }
+  },
+  // #476 E1 — one influence attempt (record-only, always campaignLogHidden; the 3rd+ attempts
+  // carry payload.activityCost for the #346 day budget per the RAW time ladder).
+  'encounter-influence': {
+    R: { encounterId: 'string', attemptNumber: 'number' },
+    O: { actorCharacterId: 'string', roll: 'object', from: 'string', to: 'string',
+         bribe: 'object', timeRequired: 'string', activityCost: 'object', narrative: 'string' }
   },
   // Favors & Duties (#230, F&D-1) — the monthly liege↔vassal edict record (RR pp.345–348).
   // Engine-emitted (record-only); the obligation lives in campaign.favorDutyObligations[].
@@ -1862,6 +1925,13 @@ function applyEvent_survivalAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'survival day' } };
 }
 registerEventHandler('survival-day', applyEvent_survivalAudit);
+// #476 E10 — the domain-banditry reconcile shares the audit posture: processBanditryForTurn
+// already moved the bands + population; this handler only keeps the event well-formed on replay.
+function applyEvent_domainBanditryAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'domain banditry' } };
+}
+registerEventHandler('domain-banditry', applyEvent_domainBanditryAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -2644,7 +2714,17 @@ function _provReverseYield(campaign, ch, ev){
 }
 function _provNarrative(ch, p){
   const who = ch.name || 'A character';
-  if(p.activity === 'hunt') return who + (p.success ? ' hunts and brings down game (6 days’ food).' : ' hunts but finds no game.');
+  if(p.activity === 'hunt'){
+    let s = who + (p.success ? ' hunts and brings down game (6 days’ food).' : ' hunts but finds no game.');
+    // The RR p.278 wandering-monster draw rode the hunt (payload.encounter) — chronicle it.
+    if(p.encounter && p.encounter.encounterId){
+      s += ' The hunt crosses paths with ' + (p.encounter.label || 'a wandering encounter')
+         + (p.encounter.encounterKind === 'at-lair' ? ' at their lair' : '') + '.';
+    } else if(p.encounter && p.encounter.category){
+      s += ' The hunt turns up a ' + p.encounter.category + ' terrain encounter — GM details.';
+    }
+    return s;
+  }
   const k = p.forageKind || 'food';
   if(p.auto) return who + ' tops up at a fresh-water source.';
   if(!p.success) return who + ' forages for ' + k + ' but comes up empty.';
@@ -2723,6 +2803,50 @@ function forageActivity(campaign, opts){
   return { ok: true, success, rolled, target, bonus, terrMod, event: ev };
 }
 
+// RR p.278: "Adventurers who hunt risk encountering wandering monsters, however, with the
+// Judge rolling on his encounter table based on the terrain." One draw per hunt attempt
+// (ENCOUNTER_FREQUENCY 'hunting' = per-attempt in every territory class), the standard
+// TABLE-FIRST chain the travel/rest triggers use (#476 E1/E4) — a hunter prowls the hex's
+// wilds, so terrain finds apply (no resting demotion) and no road column folds. partySide
+// threads the hunter's cohort so a band hunting THEM never answers their own draw (E4m).
+// A meeting (monster/civilized) materializes its Encounter entity at once — the hunt is a
+// live GM verb, like the search-hour. Returns the compact record the payload carries, or
+// null (no-encounter, or no authored hex — an unauthored coord draws nothing, the E6 rule).
+function _huntWanderingDraw(campaign, ch, hex, rng){
+  const A = _gpwACKS();
+  if(!hex || typeof A.encounterDraw !== 'function') return null;
+  const cohort = (typeof A.characterCohort === 'function') ? A.characterCohort(campaign, ch) : [ch];
+  const ids = cohort.map(c => c && c.id).filter(Boolean);
+  const draw = A.encounterDraw(campaign, hex.id, { rng: rng,
+    partySide: { partyId: ch.partyId || null, characterIds: ids } });
+  if(!draw || draw.category === 'no-encounter') return null;
+  const prop = draw.proposal || null;
+  const rec = {
+    category: draw.category, rarity: draw.rarity || null, columnKey: draw.columnKey,
+    source: (prop && prop.source) || null, lairId: (prop && prop.lairId) || null,
+    encounterKind: (prop && prop.encounterKind) || null,
+    encounterId: null, label: ''
+  };
+  if((draw.category === 'monster' || draw.category === 'civilized') && typeof A.createEncounterFromDraw === 'function'){
+    const entity = A.createEncounterFromDraw(campaign, draw, {
+      trigger: 'hunt',
+      partySide: { partyId: ch.partyId || null, journeyId: null,
+                   characterIds: ids, faceCharacterId: ch.id, sizeCount: ids.length || 1 },
+      rng: rng
+    });
+    if(entity){
+      rec.encounterId = entity.id;
+      const ms = entity.monsterSide || {};
+      rec.lairId = ms.lairId || rec.lairId;
+      rec.encounterKind = ms.encounterKind || rec.encounterKind;
+      const name = (ms.monsterCatalogKey && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(ms.monsterCatalogKey))
+        || ms.label || (draw.category === 'civilized' ? 'civilized folk (GM identifies)' : 'monsters (GM identifies)');
+      rec.label = (ms.count ? ms.count + ' ' : '') + name;
+    }
+  }
+  return rec;
+}
+
 function huntActivity(campaign, opts){
   opts = opts || {};
   const A = _gpwACKS();
@@ -2736,8 +2860,9 @@ function huntActivity(campaign, opts){
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Outlands') terrMod += 2; else if(territory === 'Unsettled') terrMod += 4;
   const target = 14;
   const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
-  const ev = _provCommit(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, wanderingMonsterRisk: true });
-  return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, event: ev };
+  const encounter = _huntWanderingDraw(campaign, ch, hex, rng);
+  const ev = _provCommit(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, wanderingMonsterRisk: true, encounter: encounter });
+  return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, encounter: encounter, event: ev };
 }
 
 // Re-roll a logged forage/hunt (the GM's "that throw was unlucky" affordance, per Joachim). Re-throws the
@@ -2774,7 +2899,1935 @@ function rerollProvisioningActivity(campaign, eventId, opts){
   if(!success){ ev.payload.yieldDays = 0; ev.payload.yieldStone = 0; }
   wrap.result = wrap.result || {};
   wrap.result.narrativeSummary = _provNarrative(ch, ev.payload);
-  return { ok: true, success, rolled, target, bonus, terrMod, event: ev, kind: kind, activity: ev.payload.activity, forageKind: ev.payload.forageKind, wanderingMonsterRisk: ev.payload.wanderingMonsterRisk };
+  return { ok: true, success, rolled, target, bonus, terrMod, event: ev, kind: kind, activity: ev.payload.activity, forageKind: ev.payload.forageKind, wanderingMonsterRisk: ev.payload.wanderingMonsterRisk, encounter: ev.payload.encounter || null };
+}
+
+// ─── #476 M4 — Wilderness Search + track-home (RR pp.276–277 + p.120; Plan §6) ────────────────────
+// hexSearchActivity = ONE search-hour: the party's Wilderness Search throw against the hex's
+// undiscovered lairs, the RAW per-hour encounter check, and (when a cohort member knows Land
+// Surveying) the POI-count assessment. beginTracking (E5, further below) = the RAW Tracking find
+// throw (RR p.120) that opens a multi-day follow. Both are GM-facing verbs — the Judge
+// rolls secretly; failure reveals nothing (RR p.276) — and both log a record-only, ALWAYS-
+// campaignLogHidden 'hex-search' event carrying payload.activityCost (one ancillary; RR p.276
+// names the search-hour an ancillary activity) so the #346 day budget counts it. A discovery
+// additionally emits the chronicle-visible 'lair-discovered' event (discoverLair owns the flip).
+
+// The party's expedition speed for the search target: the actor's cohort (party / journey
+// co-members at the hex — characterCohort), slowest member's encumbrance mi/day, × the hex's
+// terrain multiplier (the same factor travel uses; RAW's worked example: hills ×2/3, 48 → 32 mi).
+function _searchExpeditionSpeed(campaign, ch, hex){
+  const A = _gpwACKS();
+  const cohort = (typeof A.characterCohort === 'function') ? A.characterCohort(campaign, ch) : [ch];
+  let slowest = Infinity;
+  for(const m of cohort){
+    const mpd = (typeof A.carryEncumbranceInfo === 'function') ? A.carryEncumbranceInfo(m).band.milesPerDay : 24;
+    if(typeof mpd === 'number' && mpd < slowest) slowest = mpd;
+  }
+  if(slowest === Infinity) slowest = 24;
+  // Raw key first (JOURNEY_TERRAIN_SPEED carries finer-than-base keys like 'swamp-forested'),
+  // then terrain's base normalizer so alias terrains (tundra→barrens, forested→forest) pace right.
+  let tMult = 1;
+  if(hex && A.JOURNEY_TERRAIN_SPEED){
+    const raw = String(hex.terrain || '').toLowerCase().trim();
+    if(A.JOURNEY_TERRAIN_SPEED[raw] != null) tMult = A.JOURNEY_TERRAIN_SPEED[raw];
+    else {
+      const base = (typeof A.terrainBase === 'function') ? A.terrainBase(raw) : '';
+      if(base && A.JOURNEY_TERRAIN_SPEED[base] != null) tMult = A.JOURNEY_TERRAIN_SPEED[base];
+    }
+  }
+  return { speed: slowest * tMult, cohort: cohort };
+}
+function _cohortHasProf(cohort, re){ return (cohort || []).some(m => _provHasProf(m, re)); }
+// Undiscovered POIs at the hex: every placed lair the players haven't found — live or not (a
+// cleared ruin is still a point of interest); the unplaced dynamic pool is in no hex.
+function _undiscoveredLairsAt(campaign, hexId){
+  const A = _gpwACKS();
+  return (A.lairsAtHex(campaign, hexId) || []).filter(l => l && !l.knownToPlayers && l.status !== 'dynamic');
+}
+// Emit the chronicle-visible discovery record (paired with a discoverLair call the caller made).
+function _emitLairDiscovered(campaign, lair, ch, method, parentEv){
+  const A = _gpwACKS();
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, lair.hexId) : null;
+  const ev = newEvent('lair-discovered', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    parentEventId: parentEv ? parentEv.id : null,
+    context: { primaryHexId: lair.hexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null,
+               relatedEntities: [
+                 ch ? { kind: 'character', id: ch.id, role: 'subject' } : null,
+                 { kind: 'lair', id: lair.id, role: 'target' }
+               ].filter(Boolean) },
+    payload: { lairId: lair.id, hexId: lair.hexId || null, method: method || 'gm-reveal',
+               byCharacterId: ch ? ch.id : null, lairName: lair.name || '',
+               monsterCatalogKey: lair.monsterCatalogKey || '' }
+  });
+  const who = (ch && ch.name) || 'The party';
+  const what = lair.name || ((typeof A.monsterDisplayName === 'function') && A.monsterDisplayName(lair.monsterCatalogKey)) || 'a lair';
+  const how = method === 'track-home' ? 'tracks the creatures home to' : (method === 'gm-reveal' ? 'learns of' : 'discovers');
+  return _logAppliedEvent(campaign, ev, { narrativeSummary: who + ' ' + how + ' ' + what + '.' });
+}
+// The M7 "Mark discovered" button's record half (the UI calls discoverLair first): GM reveal.
+function recordLairDiscovered(campaign, lairId, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, lairId) : null;
+  if(!lair) return null;
+  const ch = opts.byCharacterId ? (campaign.characters || []).find(c => c && c.id === opts.byCharacterId) : null;
+  return _emitLairDiscovered(campaign, lair, ch || null, opts.method || 'gm-reveal', null);
+}
+
+// Apply a search find: snapshot the lair's pre-discovery state into the search event's payload
+// (so a reroll can reverse JUST this discovery), then discover + emit the chronicle record.
+// hexSearchActivity only finds UNdiscovered lairs, so the pre knownToPlayers is false by construction.
+function _applySearchDiscovery(campaign, ev, ch, lair){
+  const A = _gpwACKS();
+  ev.payload._pre = {
+    lastVisitedTurn: (lair.lastVisitedTurn === undefined) ? null : lair.lastVisitedTurn,
+    discoveryHistoryLen: Array.isArray(lair.discoveryHistory) ? lair.discoveryHistory.length : 0,
+    historyLen: Array.isArray(lair.history) ? lair.history.length : 0
+  };
+  if(typeof A.discoverLair === 'function') A.discoverLair(campaign, lair.id, { by: ch.id, method: ev.payload.method });
+  _emitLairDiscovered(campaign, lair, ch, ev.payload.method, ev);
+}
+// Reverse a search find (reroll lost it): restore the lair from the payload's _pre snapshot and
+// drop the child lair-discovered record — a same-session affordance, like the forage line-tag reverse.
+function _reverseSearchDiscovery(campaign, ev){
+  const A = _gpwACKS();
+  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, ev.payload.foundLairId) : null;
+  if(lair){
+    const pre = ev.payload._pre || {};
+    lair.knownToPlayers = false;
+    lair.lastVisitedTurn = (pre.lastVisitedTurn === undefined) ? null : pre.lastVisitedTurn;
+    if(Array.isArray(lair.discoveryHistory) && pre.discoveryHistoryLen != null) lair.discoveryHistory.length = Math.min(lair.discoveryHistory.length, pre.discoveryHistoryLen);
+    if(Array.isArray(lair.history) && pre.historyLen != null) lair.history.length = Math.min(lair.history.length, pre.historyLen);
+  }
+  if(Array.isArray(campaign.eventLog)){
+    for(let i = campaign.eventLog.length - 1; i >= 0; i--){
+      const w = campaign.eventLog[i];
+      if(w && w.event && w.event.kind === 'lair-discovered' && w.event.parentEventId === ev.id) campaign.eventLog.splice(i, 1);
+    }
+  }
+  delete ev.payload._pre;
+}
+
+// Re-roll a logged search hour (the GM's "that throw was unlucky" redo — the forage-reroll sibling).
+// Re-throws ONLY the search d20 vs the SAME target/bonus/mod; the hour's encounter check + Land
+// Surveying assessment are HELD (separate dice with their own outcomes — same philosophy as the
+// journey day log's split nav/forage rerolls). Flips the discovery if the success state changes:
+// a lost find is reversed surgically (knownToPlayers back, discovery/history stamps truncated, the
+// child lair-discovered record dropped) and a fresh success re-picks from the hex's CURRENT
+// undiscovered pool. Updates the event in place — the hour was already spent, so the #346 budget
+// is unchanged (a reroll works even when the day is full). Track-home attempts are not rerollable.
+function rerollHexSearch(campaign, eventId, opts){
+  opts = opts || {};
+  const wrap = (campaign.eventLog || []).find(e => e && e.event && e.event.id === eventId);
+  if(!wrap) return { ok: false, error: 'event-not-found' };
+  const ev = wrap.event;
+  if(ev.kind !== 'hex-search') return { ok: false, error: 'not-a-search' };
+  if(ev.payload.method === 'track-home' || ev.payload.method === 'begin-tracking') return { ok: false, error: 'track-not-rerollable' };
+  const ch = (campaign.characters || []).find(c => c && c.id === ev.payload.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const rng = opts.rng || Math.random;
+  const target = Number(ev.payload.target) || 18;
+  const bonus = Number(ev.payload.bonus) || 0;
+  const mod = Number(ev.payload.mod) || 0;
+  // E8 — a landmark-search hour (RR p.285): re-throw the d20 and flip the JOURNEY's lost
+  // state with the success (no lair pool here). Defensive — the flip applies only when the
+  // journey still holds the expected state (a same-session affordance, like the lair reverse).
+  if(ev.payload.method === 'landmark-search'){
+    const lRolled = _provD20(rng);
+    const lScore = lRolled + bonus + mod;
+    const lSuccess = (lRolled !== 1) && (lScore >= target);
+    const lj = (campaign.journeys || []).find(x => x && x.id === ev.payload.landmarkJourneyId) || null;
+    if(lj){
+      if(lSuccess && !ev.payload.landmarkFound && lj.status === 'lost'){
+        lj.status = 'in-transit'; lj.lostEncounterId = null;
+      } else if(!lSuccess && ev.payload.landmarkFound && lj.status === 'in-transit'){
+        lj.status = 'lost'; lj.lostEncounterId = ev.payload.lostEncounterId || null;
+      }
+    }
+    ev.payload.rolled = lRolled;
+    ev.payload.success = lSuccess;
+    ev.payload.landmarkFound = lSuccess;
+    wrap.result = wrap.result || {};
+    wrap.result.narrativeSummary = (ch.name || 'The party') + ' searches for the party’s last landmark — ' + (lSuccess ? 'finds it; bearings recovered.' : 'no luck yet.');
+    return { ok: true, rolled: lRolled, target: target, bonus: bonus, mod: mod, success: lSuccess,
+             found: null, landmarkFound: lSuccess, event: ev };
+  }
+  if(ev.payload.foundLairId) _reverseSearchDiscovery(campaign, ev);   // the old find returns to the pool before the re-pick
+  const rolled = _provD20(rng);
+  const score = rolled + bonus + mod;
+  const success = (rolled !== 1) && (score >= target);
+  let found = null;
+  if(success){
+    let pool = _undiscoveredLairsAt(campaign, ev.payload.hexId).filter(l => score >= target + (Number(l.hiddenDC) || 0));
+    if(ev.payload.specificLairId) pool = pool.filter(l => l.id === ev.payload.specificLairId);
+    if(pool.length) found = pool[Math.floor(rng() * pool.length)];
+  }
+  ev.payload.rolled = rolled;
+  ev.payload.success = success;
+  ev.payload.foundLairId = found ? found.id : null;
+  if(found) _applySearchDiscovery(campaign, ev, ch, found);
+  wrap.result = wrap.result || {};
+  wrap.result.narrativeSummary = (ch.name || 'The party') + ' searches the hex — ' + (found ? ('finds ' + (found.name || 'a lair') + '.') : 'finds nothing.');
+  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: success, found: found || null, event: ev };
+}
+
+// One search-hour (RR pp.276–277). opts: { actorCharacterId, hexId? (default: the actor's),
+// specific? (−4, a particular POI), specificLairId? (only that lair can be found),
+// landmarkJourneyId? (E8 — the RR p.285 last-known-landmark search: the recovery for a
+// knowingly-lost journey; always a SPECIFIC point of interest [−4], finds the landmark
+// instead of a lair — success flips the journey back to in-transit), rng? }.
+function hexSearchActivity(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  const hexId = opts.hexId || ch.currentHexId || null;
+  if(!hexId) return { ok: false, error: 'no-hex' };
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, hexId) : null;
+  const rng = opts.rng || Math.random;
+  const landmarkJourney = opts.landmarkJourneyId
+    ? (((campaign.journeys || []).find(j => j && j.id === opts.landmarkJourneyId)) || null) : null;
+  if(opts.landmarkJourneyId && !landmarkJourney) return { ok: false, error: 'unknown-journey' };
+  const sp = _searchExpeditionSpeed(campaign, ch, hex);
+  const target = (typeof A.wildernessSearchTargetForSpeed === 'function') ? A.wildernessSearchTargetForSpeed(sp.speed) : 18;
+  const bonus = _cohortHasProf(sp.cohort, /tracking/i) ? 4 : 0;   // any member with Tracking → +4 (extra ranks do NOT add here — RR p.120)
+  const mod = (opts.specific || landmarkJourney) ? -4 : 0;        // the landmark IS a specific point of interest (RR p.285 ¶3)
+  const rolled = _provD20(rng);
+  const score = rolled + bonus + mod;
+  const throwSuccess = (rolled !== 1) && (score >= target);        // unmodified 1 always fails (ACKS-general)
+  // What a successful throw finds: an undiscovered lair whose hiddenDC the score also clears
+  // (hiddenDC raises that one lair's bar — well-hidden). The Judge picks among qualifiers (RR
+  // p.276 "the Judge will decide which one"); v1 picks randomly. In landmark mode the hour
+  // seeks the LANDMARK, not a lair — success recovers the journey's bearings instead.
+  let found = null;
+  if(throwSuccess && !landmarkJourney){
+    let pool = _undiscoveredLairsAt(campaign, hexId).filter(l => score >= target + (Number(l.hiddenDC) || 0));
+    if(opts.specificLairId) pool = pool.filter(l => l.id === opts.specificLairId);
+    if(pool.length) found = pool[Math.floor(rng() * pool.length)];
+  }
+  // E8 — the landmark recovery (RR p.285): finding the last known landmark re-orients the
+  // party; the lost journey resumes. The prior lostEncounterId is stashed on the payload so
+  // the reroll's success→fail flip can re-lose it surgically (same-session affordance).
+  let landmarkFound = false;
+  const priorLostEncounterId = (landmarkJourney && landmarkJourney.lostEncounterId) || null;
+  if(landmarkJourney && throwSuccess){
+    landmarkFound = true;
+    if(landmarkJourney.status === 'lost') landmarkJourney.status = 'in-transit';
+    landmarkJourney.lostEncounterId = null;
+    (landmarkJourney.history = landmarkJourney.history || []).push({
+      turn: campaign.currentTurn || null, dayIndex: landmarkJourney.currentDayIndex || 0, type: 'recovered',
+      narrative: (ch.name || 'The party') + ' found the last known landmark — bearings recovered; the journey resumes (RR p.285).' });
+  }
+  // RAW p.277 + JJ p.41: searching triggers one encounter THROW per hour — the full category
+  // draw (#476 E1, replacing the J1 1/6 stub; terrain finds apply while searching — only
+  // RESTING demotes them, JJ p.42 step 7). A meeting category (monster / civilized)
+  // materializes an Encounter entity at once — the search is a live GM verb, no propose/
+  // commit dance — and the draw rides the search payload. The search draw keeps
+  // LAIR-FIRST PRECEDENCE (RR p.276: an encounter while searching means the party has
+  // "stumbled onto" the hex's lairs) — but a hex with nothing to stumble onto falls
+  // through to the same JJ identity tables as the travel/rest draws (E4n): a search-hour
+  // wandering encounter is an ordinary wandering encounter. partySide threads the
+  // searchers so a band hunting THEM never answers their own draw (E4m).
+  let encounter = null;
+  if(typeof A.encounterDraw === 'function'){
+    const draw = A.encounterDraw(campaign, hexId, { rng: rng, lairFirst: true,
+      partySide: { partyId: ch.partyId || null, characterIds: (sp.cohort || []).map(c => c && c.id).filter(Boolean) } });
+    if(draw && draw.category !== 'no-encounter'){
+      const prop = draw.proposal || null;
+      encounter = {
+        category: draw.category, rarity: draw.rarity || null, columnKey: draw.columnKey,
+        source: (prop && prop.source) || null, lairId: (prop && prop.lairId) || null,
+        encounterKind: (prop && prop.encounterKind) || null,
+        fragmentCount: (prop && prop.fragment && prop.fragment.count) || null,
+        seededShellLairIds: (prop && prop.source === 'seeded-shell') ? prop.candidates.map(l => l.id) : null,
+        encounterId: null
+      };
+      if((draw.category === 'monster' || draw.category === 'civilized') && typeof A.createEncounterFromDraw === 'function'){
+        const entity = A.createEncounterFromDraw(campaign, draw, {
+          trigger: 'hex-search',
+          partySide: { partyId: ch.partyId || null, journeyId: null,
+                       characterIds: (sp.cohort || []).map(c => c && c.id).filter(Boolean),
+                       faceCharacterId: ch.id, sizeCount: (sp.cohort || []).length || 1 },
+          rng: rng
+        });
+        if(entity) encounter.encounterId = entity.id;
+      }
+    }
+  }
+  // Land Surveying (RR p.277): assess the hex's POI count — 18+, cumulative +4 per successful
+  // search conducted here, nat-1 → a false reading the Judge reveals as if true. Skipped in
+  // landmark mode (the hour is spent on the landmark, not surveying the hex).
+  let survey = null;
+  if(!landmarkJourney && _cohortHasProf(sp.cohort, /land.?surveying/i)){
+    const prior = (campaign.eventLog || []).filter(e => e && e.event && e.event.kind === 'hex-search'
+      && e.event.payload && e.event.payload.hexId === hexId && e.event.payload.success
+      && e.event.payload.method !== 'track-home').length;
+    const sRoll = _provD20(rng);
+    const sBonus = prior * 4;
+    const trueCount = ((typeof A.lairsAtHex === 'function') ? (A.lairsAtHex(campaign, hexId) || []) : []).filter(l => l && l.status !== 'dynamic').length;
+    if(sRoll === 1){
+      let fake = trueCount + ((rng() < 0.5 ? 1 : -1) * (1 + Math.floor(rng() * 3)));
+      if(fake < 0 || fake === trueCount) fake = trueCount + 1;
+      survey = { assessed: true, falseReading: true, count: fake, rolled: sRoll, target: 18, bonus: sBonus };
+    } else if(sRoll + sBonus >= 18){
+      survey = { assessed: true, falseReading: false, count: trueCount, rolled: sRoll, target: 18, bonus: sBonus };
+    } else {
+      survey = { assessed: false, rolled: sRoll, target: 18, bonus: sBonus };
+    }
+  }
+  const ev = newEvent('hex-search', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: hexId, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null,
+               relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
+    payload: {
+      actorCharacterId: ch.id, hexId: hexId,
+      method: landmarkJourney ? 'landmark-search' : (opts.specific ? 'search-specific' : 'search'),
+      rolled: rolled, target: target, bonus: bonus, mod: mod, success: throwSuccess,
+      foundLairId: found ? found.id : null,
+      speedMilesPerDay: Math.round(sp.speed * 10) / 10,
+      specificLairId: opts.specificLairId || null,
+      landmarkJourneyId: landmarkJourney ? landmarkJourney.id : null,
+      landmarkFound: landmarkJourney ? landmarkFound : null,
+      lostEncounterId: priorLostEncounterId,
+      encounter: encounter, survey: survey,
+      activityCost: { slot: 'ancillary', units: 1, kind: 'search-hex',
+                      label: landmarkJourney ? 'Search for the landmark' : 'Search the hex' }
+    }
+  });
+  ev.campaignLogHidden = true;   // the Judge's secret roll — audit + budget only; discovery narrates via lair-discovered
+  const who = ch.name || 'The party';
+  const summary = landmarkJourney
+    ? (who + ' searches for the party’s last landmark — ' + (landmarkFound ? 'finds it; bearings recovered.' : 'no luck yet.'))
+    : (who + ' searches the hex — ' + (found ? ('finds ' + (found.name || 'a lair') + '.') : 'finds nothing.'));
+  _logAppliedEvent(campaign, ev, { narrativeSummary: summary });
+  if(found) _applySearchDiscovery(campaign, ev, ch, found);
+  return { ok: true, rolled: rolled, target: target, bonus: bonus, mod: mod, success: throwSuccess,
+           found: found || null, landmarkFound: landmarkJourney ? landmarkFound : null,
+           encounter: encounter, survey: survey, speedMilesPerDay: sp.speed, event: ev };
+}
+
+// ── #476 E5 — universal tracking (RR p.120 in FULL; Joachim 2026-06-11: "allow all creatures
+// who are met (and the encounter is evaded or passed) to be tracked, even if they don't have
+// a lair… They are followed until caught or the trail is lost"). The RAW split: FINDING
+// tracks is the throw — Tracking proficiency 11+ after one turn's search, modified by the
+// band's numbers (+2 at 2–4 / +4 at 5–8 / +6 at 9–16 / +8 at 17+), the ground (+4 soft/muddy
+// / −8 hard/rocky), the trail's age (−1 per 12 hours of good weather since it was made),
+// rain/snow (−4 per hour since it was made) and dim light (−4); extra Tracking ranks add +4
+// each. FOLLOWING needs NO throw — the party moves at HALF expedition speed along the
+// quarry's path — and the trail breaks only on events: it enters water, or an hour of
+// rain/snow falls; then the tracker must SEARCH AGAIN (a fresh find throw). So a track is a
+// multi-day FOLLOW, not a one-throw discovery: beginTracking rolls the find and opens a
+// pursuit with direction 'party' on the resolved meeting — the E3c monster-chase's mirror,
+// the same enc.pursuit field, the same slot-82 day consumer, inspected on the same panel —
+// and steers the trackers' Journey after it (one is started, or the active one re-routed;
+// pace capped at half-speed by journeyMaxPace; no Navigation throw while the spoor leads).
+// The quarry WALKS the map (🔧 v1 world-model: a band with a den heads home at full
+// expedition speed and waits there; a den-less or migrant band roams at HALF expedition
+// speed on a seeded heading for a seeded 1d4 days, then camps; civilized folk head for the
+// nearest settlement — dwellings, never dens; a tracked migrant Group's currentHexId moves
+// with the follow). CAUGHT — the trackers reach the quarry — springs a FRESH encounter at
+// its hex (trigger 'pursuit', createReason 'tracking-caught-up', monsterSide.
+// pursuitEncounterId → D9 recalls the original meeting); a quarry caught AT its den is an
+// at-lair meeting against the whole den, and the arrival IS the discovery (discoverLair
+// method 'tracking'). This REPLACES the E4i/M4 one-throw trackHomeAttempt — the same-hex
+// cases (a settled-after-evasion band, a den in the meeting hex) still resolve at once,
+// because the quarry is already halted where the trackers stand.
+
+// The RR p.120 find-the-tracks throw, itemized (the E2h convention). opts: { ranks (≥1),
+// countTracked, groundMod (+4 soft/muddy | 0 | −8 hard/rocky), trailAgeDays (−2 per full day
+// — RAW's −1 per 12 hours of good weather), rainHours (−4 each), dimLight (−4), gmMod, rng }.
+// Natural 1 auto-fails (the house convention on these throws). Shared by beginTracking and
+// the slot-82 consumer's re-find after a loss event (rain/snow, the trail entering water).
+function trackingFindThrow(opts){
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const ranks = Math.max(1, Number(o.ranks) || 1);
+  const n = Number(o.countTracked) || 0;
+  const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
+  const mods = [];
+  if(countBonus)          mods.push({ source: 'count-band',  value: countBonus });
+  if(ranks > 1)           mods.push({ source: 'extra-ranks', value: (ranks - 1) * 4 });
+  if(Number(o.groundMod)) mods.push({ source: 'ground',      value: Number(o.groundMod) });
+  const ageDays = Math.max(0, Number(o.trailAgeDays) || 0);
+  if(ageDays)             mods.push({ source: 'trail-age',   value: -2 * ageDays });
+  const rainH = Math.max(0, Number(o.rainHours) || 0);
+  if(rainH)               mods.push({ source: 'rain-snow',   value: -4 * rainH });
+  if(o.dimLight)          mods.push({ source: 'dim-light',   value: -4 });
+  if(Number(o.gmMod))     mods.push({ source: 'gm',          value: Number(o.gmMod) });
+  const natural = _provD20(rng);
+  const total = mods.reduce((s, m) => s + m.value, natural);
+  const target = 11;
+  return { natural: natural, target: target, modifiers: mods, total: total,
+           success: (natural !== 1) && (total >= target) };
+}
+
+// Begin a follow. opts: { encounterId? OR lairId? (a fragment row's den — resolved to its
+// latest concluded meeting), actorCharacterId (the tracker — Tracking proficiency, standing
+// at the trail's start = the meeting hex), countTracked?, groundMod?, rainHoursSince?,
+// dimLight?, gmMod?, rng? }. The find throw is rolled; on success the pursuit opens, the
+// journey is steered, and a quarry already halted where the trackers stand is caught at once.
+function beginTracking(campaign, opts){
+  opts = opts || {};
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === opts.actorCharacterId);
+  if(!ch) return { ok: false, error: 'unknown-actor' };
+  // Resolve the meeting whose parting left the trail.
+  let enc = null;
+  if(opts.encounterId){
+    enc = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, opts.encounterId) : null;
+    if(!enc) return { ok: false, error: 'unknown-encounter' };
+  } else if(opts.lairId){
+    const list = (campaign.encounters || []).filter(e => e && e.status === 'resolved' && e.monsterSide && e.monsterSide.lairId === opts.lairId);
+    enc = list.length ? list[list.length - 1] : null;
+    if(!enc) return { ok: false, error: 'no-encounter' };
+  } else return { ok: false, error: 'no-target' };
+  const ms = enc.monsterSide || {};
+  // Only a CONCLUDED, real meeting leaves a trail (the band must have parted — E4k gate).
+  if(enc.status !== 'resolved') return { ok: false, error: 'encounter-still-active' };
+  if(enc.outcome === 'no-encounter' || enc.outcome === 'dismissed') return { ok: false, error: 'no-meeting' };
+  if(!enc.hexId) return { ok: false, error: 'no-hex' };
+  // A band mid-hunt presses on after its quarry — meet it through its chase (E4m), don't
+  // double-model its motion. The gate lifts when that chase ends.
+  if(ms.pursuitEncounterId){
+    const chase = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, ms.pursuitEncounterId) : null;
+    if(chase && chase.status === 'active' && chase.pursuit && chase.pursuit.direction !== 'party' && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
+      return { ok: false, error: 'band-mid-hunt' };
+  }
+  // A den already discovered = you know where they live; the → lair link replaces the trail.
+  let homeLair = null;
+  if(ms.lairId){
+    homeLair = (typeof A.findLair === 'function') ? A.findLair(campaign, ms.lairId) : null;
+    if(homeLair && homeLair.knownToPlayers) return { ok: false, error: 'already-known' };
+  }
+  if(enc.pursuit && enc.pursuit.direction === 'party' && enc.pursuit.status === 'tracking')
+    return { ok: false, error: 'already-tracking' };
+  // The tracker: Tracking proficiency (RR p.120 — the throw IS a Tracking throw), standing
+  // where the trail starts. A party that moved on must return to the meeting hex first.
+  const ranks = ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))).length;
+  if(ranks < 1) return { ok: false, error: 'no-tracking' };
+  if(ch.currentHexId !== enc.hexId) return { ok: false, error: 'not-at-trail-hex' };
+  const meetHex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  if(!meetHex || !meetHex.coord) return { ok: false, error: 'no-hex' };
+  // The trail's age: full days since the meeting concluded (−1 per 12 h of good weather);
+  // rain hours + ground + light are the GM's (the modal suggests ground from the hex).
+  const nowOrd = ((campaign.currentTurn || 1) * 30) + (campaign.currentDayInMonth || 1);
+  const resOrd = ((enc.resolvedAtTurn || campaign.currentTurn || 1) * 30) + (enc.resolvedOnDayInMonth || campaign.currentDayInMonth || 1);
+  const trailAgeDays = Math.max(0, nowOrd - resOrd);
+  const rng = opts.rng || Math.random;
+  const countTracked = (opts.countTracked != null && opts.countTracked !== '') ? Number(opts.countTracked) : (ms.count || 0);
+  const t = trackingFindThrow({ ranks: ranks, countTracked: countTracked, groundMod: opts.groundMod,
+                                trailAgeDays: trailAgeDays, rainHours: opts.rainHoursSince,
+                                dimLight: opts.dimLight, gmMod: opts.gmMod, rng: rng });
+  // The audit record (success or fail) — the Judge's secret search, one search-hour (#346).
+  const ev = newEvent('hex-search', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: enc.hexId, involvedHexIds: [], settlementId: null,
+               domainId: (meetHex && meetHex.domainId) || null,
+               relatedEntities: [{ kind: 'character', id: ch.id, role: 'subject' }] },
+    payload: {
+      actorCharacterId: ch.id, hexId: enc.hexId, method: 'begin-tracking',
+      rolled: t.natural, target: t.target, modifiers: t.modifiers, total: t.total, success: t.success,
+      trackedEncounterId: enc.id, trailAgeDays: trailAgeDays, countTracked: countTracked,
+      activityCost: { slot: 'ancillary', units: 1, kind: 'track', label: 'Search for tracks' }
+    }
+  });
+  ev.campaignLogHidden = true;
+  const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+  const label = ms.label || (entry && entry.name) || (enc.category === 'civilized' ? 'the locals' : 'the creatures');
+  const who = ch.name || 'The tracker';
+  _logAppliedEvent(campaign, ev, { narrativeSummary: who + (t.success
+    ? (' finds the trail of ' + label + ' — the follow begins (half expedition speed, RR p.120).')
+    : (' finds no usable trail of ' + label + ' (no retry here for an hour — RR p.120).')) });
+  if(!t.success) return { ok: true, success: false, find: t, encounter: enc, event: ev };
+  // ── The quarry (🔧 v1 world-model) ──
+  const exp = entry ? parseFloat(String(entry.expeditionSpeed || '')) : NaN;
+  const fullSpeed = (isFinite(exp) && exp > 0) ? exp : 24;   // 🔧 an unknown creature walks at the human norm
+  const quarry = { coord: { q: meetHex.coord.q, r: meetHex.coord.r }, hexId: enc.hexId,
+                   milesPerDay: fullSpeed, plan: 'wanders',
+                   destCoord: null, destLairId: null, destSettlementHexId: null,
+                   heading: null, walkDaysLeft: null, lastCoord: null,
+                   halted: false, groupId: null, mileRemainder: 0 };
+  // An E4m band bound to a living Group — the world entity moves with the follow.
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  for(const gid of (ms.groupIds || [])){
+    const g = (campaign.groups || []).find(x => x && x.id === gid);
+    if(g && aliveOf(g) > 0){ quarry.groupId = g.id; break; }
+  }
+  if(homeLair && homeLair.hexId){
+    const denHex = (typeof A.findHex === 'function') ? A.findHex(campaign, homeLair.hexId) : null;
+    if(denHex && denHex.coord){
+      quarry.plan = 'heads-home';
+      quarry.destCoord = { q: denHex.coord.q, r: denHex.coord.r };
+      quarry.destLairId = homeLair.id;
+    }
+  } else if(enc.category === 'civilized'){
+    // Folk head for the nearest settlement (dwellings, never dens — the E4 rule).
+    let best = null, bestD = Infinity;
+    for(const h of (campaign.hexes || [])){
+      if(!h || !h.coord || !h.settlement) continue;
+      const d = (typeof A.hexAxialDistance === 'function') ? A.hexAxialDistance(meetHex.coord, h.coord) : Infinity;
+      if(d < bestD){ best = h; bestD = d; }
+    }
+    if(best){ quarry.plan = 'heads-to-settlement'; quarry.destCoord = { q: best.coord.q, r: best.coord.r }; quarry.destSettlementHexId = best.id; }
+  }
+  if(quarry.plan === 'wanders'){
+    quarry.milesPerDay = fullSpeed / 2;   // the E6 wander activity — migration is half expedition speed
+  }
+  if(quarry.destCoord && quarry.destCoord.q === quarry.coord.q && quarry.destCoord.r === quarry.coord.r) quarry.halted = true;
+  // Head start: the band has been walking since the meeting (the find already paid the age
+  // penalty; 🔧 pre-begin water crossings are folded into the GM's modifiers on the find).
+  // A destination-less quarry wanders (random face per 6-mile step, never directly back).
+  for(let d = 0; d < trailAgeDays && !quarry.halted; d++){
+    if(typeof A.trackingQuarryWalkDay === 'function') A.trackingQuarryWalkDay(campaign, quarry, rng);
+  }
+  // ── The pursuit (the E3c chase's mirror — direction 'party') ──
+  const pt = ch.partyId ? ((campaign.parties || []).find(p => p && p.id === ch.partyId) || null) : null;
+  enc.history = enc.history || [];
+  if(enc.pursuit && enc.pursuit.status){
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-superseded',
+      reason: 'a prior pursuit record (' + (enc.pursuit.direction === 'party' ? 'a follow, ' : 'a chase, ') + enc.pursuit.status + ') gives way to the new follow' });
+  }
+  enc.pursuit = {
+    direction: 'party',
+    status: 'tracking',
+    quarryLabel: label,
+    trackerCharacterId: ch.id, trackerName: ch.name || '', trackerRanks: ranks,
+    trackerPartyId: pt ? pt.id : null, journeyId: null,
+    countTracked: countTracked,
+    quarry: quarry,
+    weatherLostPending: false,   // GM lever until the weather layer (T4): "rain/snow ≥1 h fell today"
+    gmMod: 0,
+    startedAtTurn: campaign.currentTurn || 1, startedOnDayInMonth: campaign.currentDayInMonth || null,
+    throws: [Object.assign({ kind: 'find', atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null }, t)]
+  };
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-started',
+    reason: who + ' finds the trail of ' + label + ' (find ' + (t.natural === 1 ? 'natural 1' : (t.total + ' vs 11+')) + ') — the party takes up the follow at half expedition speed (RR p.120)' });
+  // Already standing where the quarry is halted (a settled-after-evasion band, a den in this
+  // hex) → caught at once: the one-throw resolution preserved for the same-hex cases.
+  if(quarry.halted && quarry.coord.q === meetHex.coord.q && quarry.coord.r === meetHex.coord.r){
+    const caught = (typeof A.trackingSpringCatch === 'function') ? A.trackingSpringCatch(campaign, enc, { rng: rng }) : null;
+    return { ok: true, success: true, find: t, pursuit: enc.pursuit, encounter: enc,
+             journeyAction: 'none', journey: null, caughtNow: caught, event: ev };
+  }
+  // ── Steer the journey (Joachim: "begins to track changes the destination of their journey
+  // — or effectively starts a journey if they are not already on one") ──
+  const qHex = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, quarry.coord.q, quarry.coord.r) : null;
+  const targetHexId = (qHex && qHex.id) || enc.hexId;
+  let journeyAction = 'none', journey = null;
+  const activeJourneyId = ch.currentJourneyId || (pt && pt.activeJourneyId) || null;
+  const aj = activeJourneyId ? ((campaign.journeys || []).find(x => x && x.id === activeJourneyId) || null) : null;
+  if(aj && ['in-transit', 'resting', 'lost', 'planning'].indexOf(aj.status) >= 0){
+    if(typeof A.reRouteJourney === 'function') A.reRouteJourney(campaign, aj, { destinationHexId: targetHexId });
+    enc.pursuit.journeyId = aj.id; journeyAction = 'rerouted'; journey = aj;
+  } else {
+    const participantIds = pt
+      ? (campaign.characters || []).filter(c => c && c.partyId === pt.id).map(c => c.id)
+      : [ch.id];
+    if(participantIds.indexOf(ch.id) < 0) participantIds.push(ch.id);
+    const j = (typeof A.blankJourney === 'function') ? A.blankJourney({
+      name: ((typeof A.journeyDefaultName === 'function') ? A.journeyDefaultName(campaign, { partyId: pt ? pt.id : null, participantCharacterIds: participantIds }) : '') || ('Tracking ' + label),
+      participantCharacterIds: participantIds, partyId: pt ? pt.id : null,
+      startHexId: enc.hexId, destinationHexId: targetHexId,
+      mode: 'foot', pace: 'half-speed'
+    }) : null;
+    if(j){
+      campaign.journeys = campaign.journeys || [];
+      campaign.journeys.push(j);
+      if(typeof A.startJourney === 'function') A.startJourney(campaign, j);
+      enc.pursuit.journeyId = j.id; journeyAction = 'started'; journey = j;
+    }
+  }
+  return { ok: true, success: true, find: t, pursuit: enc.pursuit, encounter: enc,
+           journeyAction: journeyAction, journey: journey, caughtNow: null, event: ev };
+}
+
+// Give up an active follow (GM call). The meeting is already resolved, so nothing
+// re-resolves — the follow just ends; the steering journey keeps its last destination
+// (Stop Journey is the GM's if the party should halt where it stands).
+function encounterAbandonTracking(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(!enc.pursuit || enc.pursuit.direction !== 'party' || enc.pursuit.status !== 'tracking') return { ok: false, error: 'not-tracking' };
+  const o = opts || {};
+  enc.pursuit.status = 'abandoned';
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-abandoned',
+    reason: o.reason || 'the trackers gave up the trail' });
+  return { ok: true, encounter: enc, pursuit: enc.pursuit };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #476 ENCOUNTER LAYER (E1) — the GM-facing step verbs (RR pp.280–287; plan §15).
+// Each verb advances one RAW step on an Encounter entity: it computes through the
+// catalogs' pure resolvers, stamps the entity + its history, and emits the audit
+// events where due (encounter-influence per costed attempt; encounter-resolved as
+// the comprehensive umbrella — Event.subdayContext.encounterId gets its first
+// referent). rng injectable throughout. The E2 resolution surface walks these;
+// until it lands they run headless (tests / console / Inspector).
+// ═══════════════════════════════════════════════════════════════════════════
+
+function _encChaMod(campaign, characterId){
+  const A = _gpwACKS();
+  const ch = (campaign.characters || []).find(c => c && c.id === characterId);
+  const score = ch && ch.abilities && ch.abilities.CHA;
+  return (typeof score === 'number' && typeof A.abilityMod === 'function') ? A.abilityMod(score) : 0;
+}
+// RR pp.283–284 — the opponents of a side asserted HIDDEN roll surprise at
+// SURPRISE_HIDDEN_PENALTY (applied automatically; own bonuses stay GM extras).
+function _encOppHiddenPenalty(sur, side){
+  const A = _gpwACKS();
+  const opp = side === 'party' ? 'monsters' : 'party';
+  return (sur && sur[opp] && sur[opp].hidden) ? ((A.SURPRISE_HIDDEN_PENALTY != null) ? A.SURPRISE_HIDDEN_PENALTY : -2) : 0;
+}
+// The standard related-entities set for an encounter's events.
+function _encRelatedEntities(enc){
+  const out = [{ kind: 'encounter', id: enc.id, role: 'subject' }];
+  ((enc.partySide && enc.partySide.characterIds) || []).forEach(id => out.push({ kind: 'character', id, role: 'subject' }));
+  if(enc.partySide && enc.partySide.partyId)   out.push({ kind: 'party',   id: enc.partySide.partyId,   role: 'subject' });
+  if(enc.partySide && enc.partySide.journeyId) out.push({ kind: 'journey', id: enc.partySide.journeyId, role: 'subject' });
+  if(enc.monsterSide && enc.monsterSide.lairId) out.push({ kind: 'lair', id: enc.monsterSide.lairId, role: 'target' });
+  ((enc.monsterSide && enc.monsterSide.groupIds) || []).forEach(id => out.push({ kind: 'group', id, role: 'target' }));
+  return out;
+}
+function _encMonsterLabel(enc){
+  const A = _gpwACKS();
+  const mk = enc.monsterSide && enc.monsterSide.monsterCatalogKey;
+  return (mk && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(mk))
+    || (enc.category === 'civilized' ? 'the locals' : 'the creatures');
+}
+
+// Step 2 input — the GM asserts each side's foreknowledge + line of sight (and, RR
+// pp.283–284, whether a side is HIDDEN — a GM assertion, no Hiding throw rolled: the
+// opponents take SURPRISE_HIDDEN_PENALTY on their rolls AND cannot claim line of sight
+// on the hidden side, so the asserted LOS is clamped here). The matrix gives evade
+// eligibility, and None × None means NO ENCOUNTER (auto-resolved as such).
+function encounterSetAwareness(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  const o = opts || {};
+  const pHidden = !!o.partyHidden, mHidden = !!o.monsterHidden;
+  const pLos = !!o.partyLineOfSight && !mHidden;    // no LOS on a hidden creature (RR p.284)
+  const mLos = !!o.monsterLineOfSight && !pHidden;
+  const pKey = A.surpriseAwarenessKey(!!o.partyForeknowledge, pLos);
+  const mKey = A.surpriseAwarenessKey(!!o.monsterForeknowledge, mLos);
+  enc.surprise = {
+    party:    { awareness: pKey, foreknowledge: !!o.partyForeknowledge,   lineOfSight: pLos, hidden: pHidden, roll: null, surprised: null },
+    monsters: { awareness: mKey, foreknowledge: !!o.monsterForeknowledge, lineOfSight: mLos, hidden: mHidden, roll: null, surprised: null },
+    evadeEligibility: A.encounterEvadeEligibility(pKey, mKey),
+    noEncounter: (pKey === 'none' && mKey === 'none')
+  };
+  enc.phase = 'surprise';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'awareness',
+    reason: 'party ' + pKey + ' × monsters ' + mKey
+      + (pHidden ? ' · party hidden' : '') + (mHidden ? ' · monsters hidden' : '')
+      + ' → evade: ' + enc.surprise.evadeEligibility });
+  if(enc.surprise.noEncounter){
+    recordEncounterResolved(campaign, enc.id, 'no-encounter', { note: 'Surprise Matrix: neither side aware — no encounter (RR p.281)' });
+    return { ok: true, encounter: enc, surprise: enc.surprise, noEncounter: true };
+  }
+  return { ok: true, encounter: enc, surprise: enc.surprise };
+}
+
+// Step 2 roll — one 1d6 per SIDE (RAW allows rolling by side to speed play; per-creature
+// granularity is the GM's at the table). Surprised on 2− → vulnerable, no round-1 actions.
+// opts: { partyMod?, monsterMod? (own bonuses − opponents' smallest stealth penalty), rng? }.
+function encounterRollSurprise(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.surprise) return { ok: false, error: 'set-awareness-first' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  for(const side of ['party', 'monsters']){
+    const s = enc.surprise[side];
+    const state = A.SURPRISE_AWARENESS_STATES[s.awareness];
+    if(!state.rolls){ s.roll = null; s.surprised = false; continue; }   // fore+los — not surprised
+    const hiddenPen = _encOppHiddenPenalty(enc.surprise, side);         // opponents hidden → −2 (RR pp.283–284)
+    const extra = (side === 'party') ? (Number(o.partyMod) || 0) : (Number(o.monsterMod) || 0);
+    const r = A.rollSurpriseThrow({ mod: state.mod + hiddenPen + extra, rng });
+    s.roll = r;
+    s.surprised = r.surprised;
+  }
+  // Phase: evasion is on the table when the matrix allows it and the party isn't surprised
+  // (an explorer's party can evade even surprised — the GM forces that via attemptEvasion).
+  const el = enc.surprise.evadeEligibility;
+  enc.phase = ((el === 'can' || el === 'always') && !enc.surprise.party.surprised) ? 'evasion' : 'interaction';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'surprise',
+    reason: 'party ' + (enc.surprise.party.surprised ? 'SURPRISED' : 'ready') + ' · monsters ' + (enc.surprise.monsters.surprised ? 'SURPRISED' : 'ready') });
+  return { ok: true, encounter: enc, surprise: enc.surprise };
+}
+
+// E8 — the party's active journey, resolved from the encounter's party side: the stamped
+// journeyId first (the journey trigger sets it), else any underway journey sharing the
+// party or a participant (a resting journey's camp meeting carries no journeyId). Only
+// in-transit/resting RECEIVE the known-lost carry (a planning/arrived/aborted journey has
+// no travel state to lose; an already-'lost' one is already carried).
+function _encActiveJourneyForPartySide(campaign, enc){
+  const js = (campaign && campaign.journeys) || [];
+  const ps = (enc && enc.partySide) || {};
+  const live = (j) => j && (j.status === 'in-transit' || j.status === 'resting');
+  if(ps.journeyId){
+    const j = js.find(x => x && x.id === ps.journeyId);
+    if(live(j)) return j;
+  }
+  const ids = ps.characterIds || [];
+  return js.find(j => live(j) && (
+    (ps.partyId && j.partyId && j.partyId === ps.partyId) ||
+    (j.participantCharacterIds || []).some(id => ids.indexOf(id) >= 0)
+  )) || null;
+}
+
+// E8 — RR p.285: "Once the party comes to a halt, it must IMMEDIATELY make a Navigation
+// throw at −4 to see if it has gotten lost… If the throw fails, the party or group is
+// lost and knows it." Rolled here (itemized, the E2h convention: the hex's terrain nav
+// target, the party's collective +4/+8 Navigation/Pathfinding bonus — RR p.275 — and the
+// −4; natural 1 fails) so the aftermath carries the verdict — and CARRIED to the party's
+// active journey: `status = 'lost'` (the registered journey status nothing set until now)
+// + `lostEncounterId`. A 'lost' journey HOLDS — the day consumer ticks only in-transit;
+// the party knows it's lost, so it does NOT stray-walk like the §27 unknowing travel-lost
+// — and its members count as a stationary field group (off-journey survival + the
+// rest-night camp checks pick them up; lost camps stay dangerous). Recovery = the RAW
+// landmark search (hexSearchActivity landmark mode — RR p.285 ¶3), a GM re-route, or an
+// Inspector edit. No journey → the verdict stays on the encounter (a camped party's
+// "lost" has no travel state to mark).
+function _evasionNavAndCarry(campaign, enc, rng){
+  const A = _gpwACKS();
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const terrain = (hex && hex.terrain) || '';
+  const target = (A.JOURNEY_NAV_THROWS && A.JOURNEY_NAV_THROWS[terrain] != null) ? A.JOURNEY_NAV_THROWS[terrain] : 6;
+  const ids = (enc.partySide && enc.partySide.characterIds) || [];
+  let hasNav = false, hasPath = false;
+  const scan = (entry) => {
+    const name = (typeof entry === 'string') ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || '');
+    if(/\bnavigation\b/i.test(name)) hasNav = true;
+    if(/\bpathfinding\b/i.test(name)) hasPath = true;
+  };
+  for(const c of (campaign.characters || [])){
+    if(!c || ids.indexOf(c.id) < 0) continue;
+    for(const p of (c.proficiencies || [])) scan(p);
+    for(const cp of (c.classPowers || [])) scan(cp);
+  }
+  const bonus = (hasNav && hasPath) ? 8 : (hasNav || hasPath) ? 4 : 0;
+  const mods = [];
+  if(bonus) mods.push({ source: 'party-proficiency', value: bonus });
+  mods.push({ source: 'evasion-displaced', value: -4 });
+  const natural = 1 + Math.floor(rng() * 20);
+  const total = mods.reduce((s, m) => s + m.value, natural);
+  const nav = { natural: natural, target: target, modifiers: mods, total: total,
+                success: (natural !== 1) && (total >= target) };
+  enc.evasion.aftermath.navThrow = nav;
+  enc.evasion.aftermath.knownLost = !nav.success;
+  enc.evasion.aftermath.journeyId = null;
+  if(!nav.success){
+    const j = _encActiveJourneyForPartySide(campaign, enc);
+    if(j){
+      j.status = 'lost';
+      j.lostEncounterId = enc.id;
+      enc.evasion.aftermath.journeyId = j.id;
+      (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: j.currentDayIndex || 0, type: 'lost',
+        narrative: 'Evaded an encounter — displaced ' + (enc.evasion.aftermath.distanceFt != null ? enc.evasion.aftermath.distanceFt : '?')
+          + ' ft toward ' + (enc.evasion.aftermath.clockDirection != null ? (enc.evasion.aftermath.clockDirection + " o'clock") : '?')
+          + ', then failed the Navigation throw at −4 (' + natural + (bonus ? ('+' + bonus) : '') + '−4 = ' + total + ' vs ' + target
+          + '+). The party is lost — and knows it. The journey holds until it finds its last landmark (RR p.285).' });
+    }
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-navigation',
+    reason: 'nav ' + natural + (bonus ? ('+' + bonus) : '') + '−4 = ' + total + ' vs ' + target + '+ → '
+      + (nav.success ? 'bearings kept' : ('LOST — and knows it' + (enc.evasion.aftermath.journeyId ? ' (the journey holds)' : ''))) });
+  return nav;
+}
+
+// Step 3 — Evasion (wilderness only; RR pp.284–285). Auto-succeeds when the matrix says
+// 'always' or ALL monsters are surprised; otherwise the terrain × party-size throw.
+// Refused once the party is interacting (a reaction roll exists) — RAW. On success the
+// aftermath is rolled (displacement + 1d12 clock direction), the RR p.285 Navigation
+// throw at −4 resolves on the spot (_evasionNavAndCarry — a failure marks the party
+// LOST, knowingly, and holds its active journey), and the encounter resolves 'evaded'.
+// opts: { modifiers?: [{label, value}], sizeCount?, allowSurprised? (the explorer rule),
+//         autoSuccess?, rng? }.
+function encounterAttemptEvasion(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(enc.reaction) return { ok: false, error: 'already-interacting' };       // RR p.287
+  const o = opts || {};
+  const sur = enc.surprise;
+  const eligibility = (sur && sur.evadeEligibility) || 'can';
+  if(eligibility === 'cannot' || eligibility === 'no-encounter') return { ok: false, error: 'cannot-evade' };
+  if(sur && sur.party && sur.party.surprised && !o.allowSurprised) return { ok: false, error: 'party-surprised' };
+  const rng = o.rng || Math.random;
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const rowKey = (enc.distance && enc.distance.terrainRow)
+    || (hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null);
+  const sizeCount = (o.sizeCount != null) ? o.sizeCount
+    : (enc.partySide && enc.partySide.sizeCount != null) ? enc.partySide.sizeCount
+    : (((enc.partySide && enc.partySide.characterIds) || []).length || 1);
+  const auto = !!o.autoSuccess
+    || eligibility === 'always'
+    || !!(sur && sur.monsters && sur.monsters.surprised);                    // all monsters surprised → automatic
+  const targetInfo = rowKey ? A.evasionTargetFor(rowKey, sizeCount) : null;
+  const throwRes = A.attemptEvasionThrow({
+    autoSuccess: auto,
+    target: targetInfo ? targetInfo.target : 20,
+    modifiers: o.modifiers || [],
+    rng
+  });
+  enc.evasion = {
+    eligibility, sizeCount,
+    target: targetInfo ? targetInfo.target : null,
+    targetInfo: targetInfo,
+    modifiers: (o.modifiers || []).slice(),
+    roll: throwRes,
+    success: throwRes.success,
+    aftermath: null
+  };
+  if(throwRes.success){
+    enc.evasion.aftermath = A.rollEvasionAftermath({ terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open', rng });
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evaded',
+      reason: 'displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock" });
+    _evasionNavAndCarry(campaign, enc, rng);   // RR p.285 — the immediate Navigation throw at −4 + the journey carry (E8)
+    // E3c — a tracking-capable band may pursue ('monster-pursuit' ON): hold the
+    // encounter open for the GM's intent call instead of resolving (RR p.285).
+    if(_encPursuitPossible(campaign, enc)) _encOfferPursuit(campaign, enc);
+    else recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded — aftermath displacement rolled' });
+  } else {
+    enc.phase = 'interaction';
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-failed',
+      reason: (throwRes.total != null ? (throwRes.total + ' vs ' + (targetInfo ? targetInfo.target : '?') + '+') : 'failed') + ' — proceed to reactions (a failed evasion is not necessarily a fight)' });
+  }
+  return { ok: true, encounter: enc, evasion: enc.evasion };
+}
+
+// Step 4 — the initial Reaction roll (RR pp.285–286): 2d6 + the face's CHA modifier +
+// circumstance modifiers; natural-2/12 clamps applied by the resolver. Rolled only when
+// the outcome isn't obvious (the GM's call to invoke this at all). Sets reaction.current;
+// further attempts go through encounterAttemptInfluence.
+// opts: { faceCharacterId?, chaMod? (override), modifiers?: [{label, value}], rng? }.
+function encounterRollReaction(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(enc.reaction) return { ok: false, error: 'already-rolled-use-influence' };
+  const o = opts || {};
+  // E3b — the tone (JJ pp.84–87): the spokesperson's approach; defaults diplomatic.
+  const tone = (o.tone && A.ENCOUNTER_TONES && A.ENCOUNTER_TONES[o.tone]) ? o.tone : 'diplomatic';
+  const faceId = o.faceCharacterId || (enc.partySide && enc.partySide.faceCharacterId) || null;
+  const chaMod = (o.chaMod != null) ? Number(o.chaMod) : (faceId ? _encChaMod(campaign, faceId) : 0);
+  const roll = A.rollEncounterReaction({ chaMod, modifiers: o.modifiers || [], rng: o.rng });
+  if(faceId && enc.partySide) enc.partySide.faceCharacterId = faceId;
+  enc.reaction = {
+    current: roll.band,
+    tone,
+    rolls: [{ attempt: 0, kind: 'initial', tone, natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum,
+              modifiers: (o.modifiers || []).slice(),   // itemized — every modifier visible + reusable on a reroll
+              total: roll.total, band: roll.band, clamped: roll.clamped,
+              atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null }],
+    // Intimidation's gains are temporary, and a meeting with NEW ALLIES of the
+    // intimidated creature re-uses the ORIGINAL roll (JJ p.86) — so it is stored.
+    intimidationOriginalRoll: (tone === 'intimidating')
+      ? { attempt: 0, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 }
+      : null
+  };
+  enc.phase = 'interaction';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'reaction',
+    reason: roll.total + ' → ' + (A.toneBandLabel ? A.toneBandLabel(tone, roll.band) : roll.band) + (tone !== 'diplomatic' ? (' (' + tone + ')') : '') + (roll.clamped ? (' (' + roll.clamped + ' clamp)') : '') });
+  return { ok: true, encounter: enc, reaction: enc.reaction, roll };
+}
+
+// Step 5 — an attempt to influence (RR pp.286–287): a fresh reaction roll whose BAND
+// shifts the standing attitude (2 → two steps toward Hostile … 12 → two toward
+// Friendly). The time ladder escalates by attempt — round, turn, hour, work-day, week —
+// and the 3rd+ attempts cost the actor's #346 day budget (ancillary / dedicated),
+// carried on a record-only encounter-influence event. A bribe adds +1..+3 (week/month/
+// year of pay — or day/week/month with Bribery proficiency); a bribe that fails to move
+// the target toward friendly backlashes one step toward Hostile (no backlash when
+// proficient). Once interacting the party can no longer evade.
+// opts: { actorCharacterId?, chaMod?, modifiers?: [{label, value}],
+//         bribe?: { bonus: 1|2|3, proficient?: boolean }, rng? }.
+function encounterAttemptInfluence(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.reaction) return { ok: false, error: 'roll-reaction-first' };
+  const o = opts || {};
+  const attemptNumber = enc.reaction.rolls.filter(r => r && r.kind === 'influence').length + 1;
+  const info = A.influenceAttemptInfo(attemptNumber);
+  // E3b — the tone may switch between attempts (the speaker's approach); defaults to standing.
+  const tone = (o.tone && A.ENCOUNTER_TONES && A.ENCOUNTER_TONES[o.tone]) ? o.tone : ((enc.reaction && enc.reaction.tone) || 'diplomatic');
+  const actorId = o.actorCharacterId || (enc.partySide && enc.partySide.faceCharacterId) || null;
+  const chaMod = (o.chaMod != null) ? Number(o.chaMod) : (actorId ? _encChaMod(campaign, actorId) : 0);
+  const mods = (o.modifiers || []).slice();
+  let bribe = null;
+  if(o.bribe && o.bribe.bonus){
+    bribe = A.bribeBonusInfo(o.bribe.bonus, !!o.bribe.proficient);
+    mods.push({ label: 'bribe (' + bribe.pay + "'s pay)", value: bribe.bonus });
+  }
+  const roll = A.rollEncounterReaction({ chaMod, modifiers: mods, rng: o.rng });
+  const from = enc.reaction.current;
+  let shift = A.applyInfluenceShift(from, roll.band);
+  let backlash = false;
+  if(bribe && bribe.backlashOnFail && shift.shift <= 0){
+    // RAW: a failed bribe shifts the target one (additional) step toward Hostile.
+    const order = A.ENCOUNTER_ATTITUDES;
+    const idx = Math.max(0, order.indexOf(shift.to) - 1);
+    shift = { from: shift.from, to: order[idx], shift: idx - order.indexOf(shift.from) };
+    backlash = true;
+  }
+  enc.reaction.current = shift.to;
+  enc.reaction.tone = tone;
+  const entry = {
+    attempt: attemptNumber, kind: 'influence', tone, actorCharacterId: actorId,
+    natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum, total: roll.total,
+    modifiers: mods.slice(),   // itemized (incl. the bribe line) — visible + reusable on a reroll
+    band: roll.band, clamped: roll.clamped, from, to: shift.to,
+    bribe: bribe ? { bonus: bribe.bonus, pay: bribe.pay, proficient: bribe.proficient, backlash } : null,
+    timeRequired: info.time, days: info.days,
+    atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null
+  };
+  enc.reaction.rolls.push(entry);
+  // The FIRST intimidating roll of the walk is the stored original (JJ p.86).
+  if(tone === 'intimidating' && !enc.reaction.intimidationOriginalRoll){
+    enc.reaction.intimidationOriginalRoll = { attempt: attemptNumber, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 };
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'influence',
+    reason: 'attempt ' + attemptNumber + ' (' + info.time + (tone !== 'diplomatic' ? (', ' + tone) : '') + '): ' + roll.total + ' → ' + (A.toneBandLabel ? A.toneBandLabel(tone, roll.band) : roll.band) + ' — ' + from + ' → ' + shift.to + (backlash ? ' (bribe backlash)' : '') });
+  // The audit + budget record (record-only, always campaignLogHidden — the table chatter
+  // isn't a chronicle beat; the resolution event narrates the outcome).
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const ev = newEvent('encounter-influence', {
+    submittedBy: 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: enc.hexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null, relatedEntities: _encRelatedEntities(enc) },
+    payload: {
+      encounterId: enc.id, attemptNumber, actorCharacterId: actorId,
+      roll: { natural: roll.natural, total: roll.total, band: roll.band, clamped: roll.clamped },
+      from, to: shift.to,
+      bribe: entry.bribe, timeRequired: info.time,
+      activityCost: (info.activitySlot === 'ancillary' || info.activitySlot === 'dedicated')
+        ? { slot: info.activitySlot, units: 1, kind: 'encounter-influence', label: 'Parley — influence reaction', days: info.days || undefined }
+        : null,
+      narrative: 'Influence attempt ' + attemptNumber + ' (' + info.time + '): ' + from + ' → ' + shift.to
+    }
+  });
+  ev.campaignLogHidden = true;
+  ev.subdayContext = { cadence: 'encounter', encounterId: enc.id, roundNumber: null, turnNumber: null, initiativeOrder: null };
+  _logAppliedEvent(campaign, ev, { narrativeSummary: ev.payload.narrative });
+  entry.eventId = ev.id;   // the reroll patches this event in place (the budget charge rides it)
+  return { ok: true, encounter: enc, attempt: entry, event: ev };
+}
+
+// ═══ E2h — rerolls (every roll in the walk re-rollable at its frontier) ═══════
+// The project's reroll idiom (journey day log / search modal): re-throw the ONE die,
+// hold everything else, update dependent state surgically, stamp history. A step is
+// re-rollable while it is still the FRONTIER — before a later step has consumed it
+// (distance until surprise concludes; surprise until evasion/reaction; a FAILED
+// evasion until reaction; the initial reaction until the first influence attempt;
+// always the latest influence attempt). Earlier-state surgery = the Inspector.
+
+// Surprise has concluded once the roll verb has run (it sets surprised on both sides;
+// a fore+los side concludes with no die). Mirrors the UI's encSurpriseRolled().
+function _encSurpriseConcluded(enc){
+  const sur = enc && enc.surprise;
+  return !!(sur && sur.party && sur.party.surprised !== null);
+}
+
+// Step 1 (roll + reroll) — the encounter-distance roll (RR p.281): terrain dice capped
+// at maximum visibility. The triggers pre-roll it; this verb serves gm-authored
+// encounters AND the GM's reroll. Locked once the walk is past it (surprise concluded
+// or evasion/reaction exist — the distance frames those steps). opts: { light?, rng? }.
+function encounterRollDistance(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(_encSurpriseConcluded(enc) || enc.evasion || enc.reaction) return { ok: false, error: 'walk-past-distance' };
+  const o = opts || {};
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const rowKey = (enc.distance && enc.distance.terrainRow)
+    || (hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null);
+  const d = A.computeEncounterDistance({
+    terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open',
+    light: o.light || (enc.distance && enc.distance.light) || undefined,
+    sideACount: (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 1,
+    sideBCount: (enc.monsterSide && enc.monsterSide.count) || 1,
+    rng: o.rng
+  });
+  if(!d) return { ok: false, error: 'no-distance-class' };
+  const reroll = !!enc.distance;
+  enc.distance = d;
+  enc.history.push({ turn: campaign.currentTurn || 1, type: reroll ? 'distance-reroll' : 'distance',
+    reason: d.distanceFt + ' ft (rolled ' + d.rolledFt + ', cap ' + d.capFt + ')' });
+  return { ok: true, encounter: enc, distance: d, reroll };
+}
+
+// ─── E4 — identity ⟳ + choose-from-table (Joachim: "the GM should be given a chance
+// to (a) reroll and (b) choose from the appropriate table"). Both gate like distance —
+// while active with the walk not yet past it (once surprise concludes, the side IS who
+// you met). Both unwind any minted lair first (_unwindEncounterMinting — a detailed
+// shell reverts, a revealed pooled lair returns to the pool, a fresh den is removed),
+// then re-bind the new identity through the same 6a machinery, so the world never keeps
+// a den from a discarded roll. Re-rolls happen ON the stored table (identity.tableKey /
+// columnKey) — robust for sparse-route encounters whose hex was never authored.
+
+// E4n — the table an identity-LESS side would roll/pick on, derived from the
+// encounter's own hex (monster: tableKey × the encounter's rarity; civilized: the
+// hex's column). Serves the pre-E4n search fill, gm-authored meetings, and legacy
+// saves — the verbs + the panel affordances both read it (one derivation). Returns
+// { tableKey, columnKey, rarity, page } or null (no hex / unmappable terrain).
+function encounterDerivedTablePrior(campaign, encounterOrId){
+  const A = _gpwACKS();
+  const enc = (typeof encounterOrId === 'string') ? A.findEncounter(campaign, encounterOrId) : encounterOrId;
+  if(!enc || !enc.hexId) return null;
+  const hex = Array.isArray(campaign && campaign.hexes) ? campaign.hexes.find(h => h && h.id === enc.hexId) : null;
+  if(!hex || typeof A.terrainKey !== 'function') return null;
+  const tKey = A.terrainKey(hex);
+  if(!tKey) return null;
+  const hasRiver = !!(Array.isArray(hex.riverSides) && hex.riverSides.length);
+  if(enc.category === 'civilized'){
+    const ck = (typeof A.encounterCivilizedColumnKeyFor === 'function') ? A.encounterCivilizedColumnKeyFor(tKey, hasRiver) : null;
+    return ck ? { tableKey: null, columnKey: ck, rarity: null, page: (A.ENCOUNTER_CIVILIZED_TABLE && A.ENCOUNTER_CIVILIZED_TABLE.page) || 43 } : null;
+  }
+  if(enc.category !== 'monster') return null;
+  const tk = (typeof A.encounterMonsterTableKeyFor === 'function') ? A.encounterMonsterTableKeyFor(tKey, hasRiver) : null;
+  const t = tk && A.ENCOUNTER_MONSTER_TABLES && A.ENCOUNTER_MONSTER_TABLES[tk];
+  return t ? { tableKey: tk, columnKey: null, rarity: enc.rarity || 'common', page: t.page } : null;
+}
+
+function _encIdentityGate(campaign, encounterId){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { error: 'already-resolved' };
+  if(_encSurpriseConcluded(enc) || enc.evasion || enc.reaction) return { error: 'walk-past-identity' };
+  if(!enc.monsterSide) return { error: 'no-table-identity' };
+  // E4n — no stored identity yet: derive the hex's own table so the GM can roll/pick
+  // on it anyway (the ⟳ is then the FIRST roll, not a reroll).
+  if(!enc.monsterSide.identity){
+    const derived = encounterDerivedTablePrior(campaign, enc);
+    if(!derived) return { error: 'no-table-identity' };
+    return { enc, prior: derived };
+  }
+  return { enc, prior: enc.monsterSide.identity };
+}
+
+// Roll 1d100 on the encounter's OWN table (monster: tableKey × rarity; civilized: columnKey).
+function _rollOnStoredTable(A, identity, rarity, rng){
+  const natural = 1 + Math.floor(rng() * 100);
+  if(identity.columnKey){
+    const col = A.ENCOUNTER_CIVILIZED_TABLE && A.ENCOUNTER_CIVILIZED_TABLE.columns[identity.columnKey];
+    const cell = col && col.rows.find(c => natural >= c.lo && natural <= c.hi);
+    return cell ? { natural, label: cell.label, key: cell.key, tableKey: null, columnKey: identity.columnKey,
+                    rarity: null, page: (A.ENCOUNTER_CIVILIZED_TABLE && A.ENCOUNTER_CIVILIZED_TABLE.page) || 43 } : null;
+  }
+  const t = A.ENCOUNTER_MONSTER_TABLES && A.ENCOUNTER_MONSTER_TABLES[identity.tableKey];
+  const col = t && t.columns[rarity || identity.rarity || 'common'];
+  const cell = col && col.find(c => natural >= c.lo && natural <= c.hi);
+  return cell ? { natural, label: cell.label, key: cell.key, tableKey: identity.tableKey, columnKey: null,
+                  rarity: rarity || identity.rarity || 'common', page: t.page } : null;
+}
+
+function _encApplyNewIdentity(campaign, enc, identity, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const r = o.rng || Math.random;
+  if(enc.monsterSide.minted && typeof A._unwindEncounterMinting === 'function')
+    A._unwindEncounterMinting(campaign, enc.monsterSide.minted);
+  // E4m quarry exclusion on a REBIND too — the encounter's own party threads through,
+  // so a reroll/pick never binds a side to the very chase hunting these characters.
+  const ps = enc.partySide || {};
+  const binding = A.bindEncounterIdentity(campaign, enc.hexId || null, identity, { category: enc.category || 'monster', rng: r,
+    partySide: { partyId: ps.partyId || null, characterIds: (ps.characterIds || []).slice() } });
+  A._applyIdentityBinding(campaign, enc.monsterSide, identity, binding, { hexId: enc.hexId || null, atTurn: campaign.currentTurn || 1, rng: r });
+  if(o.rarity && enc.category === 'monster') enc.rarity = o.rarity;
+  return binding;
+}
+
+// ⟳ Identity — re-roll the 1d100 on the same table (a new rarity column may be passed:
+// the GM dialing the encounter up/down stays a table pick, recorded). opts: { rarity?, rng? }.
+function encounterRerollIdentity(campaign, encounterId, opts){
+  const g = _encIdentityGate(campaign, encounterId);
+  if(g.error) return { ok: false, error: g.error };
+  const enc = g.enc;
+  const A = _gpwACKS();
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const prior = g.prior;   // the stored identity, or the hex-derived table for an identity-less side (E4n)
+  const rarity = (enc.category === 'monster') ? (o.rarity || enc.rarity || prior.rarity || 'common') : null;
+  const identity = _rollOnStoredTable(A, prior, rarity, rng);
+  if(!identity) return { ok: false, error: 'no-table' };
+  const binding = _encApplyNewIdentity(campaign, enc, identity, { rng, rarity });
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'identity-reroll',
+    reason: (identity.label || '?') + ' (1d100 ' + identity.natural + (rarity ? ' · ' + rarity : '') + ')' });
+  return { ok: true, encounter: enc, identity, binding };
+}
+
+// GM pick from the appropriate table (the E4c picker hands in the chosen cell).
+// opts: { label, key (null = a catalog-excluded creature the GM details), rarity?, rng? }.
+function encounterChooseIdentity(campaign, encounterId, opts){
+  const g = _encIdentityGate(campaign, encounterId);
+  if(g.error) return { ok: false, error: g.error };
+  const enc = g.enc;
+  const o = opts || {};
+  if(!o.label && !o.key) return { ok: false, error: 'no-pick' };
+  const prior = g.prior;   // stored, or hex-derived for an identity-less side (E4n)
+  const rarity = (enc.category === 'monster') ? (o.rarity || enc.rarity || prior.rarity || 'common') : null;
+  const identity = { natural: null, gmChosen: true, label: o.label || '', key: (o.key === undefined ? null : o.key),
+                     tableKey: prior.tableKey || null, columnKey: prior.columnKey || null,
+                     rarity: rarity, page: prior.page || null };
+  const binding = _encApplyNewIdentity(campaign, enc, identity, { rng: o.rng, rarity });
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'identity-chosen',
+    reason: (identity.label || identity.key || '?') + ' (GM pick from the table)' });
+  return { ok: true, encounter: enc, identity, binding };
+}
+
+// ⟳ Surprise — re-throw the side dice at the frontier (no evasion attempt, no reaction).
+// Same awareness; the GM extras default to those baked into the prior rolls (recovered
+// as roll.mod − the awareness-state mod). opts: { partyMod?, monsterMod?, rng? }.
+function encounterRerollSurprise(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!_encSurpriseConcluded(enc)) return { ok: false, error: 'not-rolled' };
+  if(enc.evasion || enc.reaction) return { ok: false, error: 'walk-past-surprise' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  for(const side of ['party', 'monsters']){
+    const s = enc.surprise[side];
+    const state = A.SURPRISE_AWARENESS_STATES[s.awareness];
+    if(!state.rolls){ s.roll = null; s.surprised = false; continue; }
+    const hiddenPen = _encOppHiddenPenalty(enc.surprise, side);
+    const passed = (side === 'party') ? o.partyMod : o.monsterMod;
+    const extra = (passed != null) ? (Number(passed) || 0)
+      : (s.roll ? (Number(s.roll.mod) || 0) - state.mod - hiddenPen : 0);   // recover the GM extra net of the hidden −2
+    const r = A.rollSurpriseThrow({ mod: state.mod + hiddenPen + extra, rng });
+    s.roll = r; s.surprised = r.surprised;
+  }
+  const el = enc.surprise.evadeEligibility;
+  enc.phase = ((el === 'can' || el === 'always') && !enc.surprise.party.surprised) ? 'evasion' : 'interaction';
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'surprise-reroll',
+    reason: 'party ' + (enc.surprise.party.surprised ? 'SURPRISED' : 'ready') + ' · monsters ' + (enc.surprise.monsters.surprised ? 'SURPRISED' : 'ready') });
+  return { ok: true, encounter: enc, surprise: enc.surprise };
+}
+
+// ⟳ Evasion — re-throw a FAILED evasion at the frontier (no reaction yet): the same
+// target + the recorded modifiers. A success on the re-throw resolves 'evaded' exactly
+// as the original attempt would have (aftermath + the resolution event). opts: { rng? }.
+function encounterRerollEvasion(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.evasion) return { ok: false, error: 'not-attempted' };
+  if(enc.evasion.success) return { ok: false, error: 'already-evaded' };
+  if(enc.reaction) return { ok: false, error: 'walk-past-evasion' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const throwRes = A.attemptEvasionThrow({
+    target: (enc.evasion.target != null) ? enc.evasion.target : 20,
+    modifiers: enc.evasion.modifiers || [], rng
+  });
+  enc.evasion.roll = throwRes;
+  enc.evasion.success = throwRes.success;
+  if(throwRes.success){
+    const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+    const rowKey = (enc.distance && enc.distance.terrainRow)
+      || (hex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(hex) : null);
+    enc.evasion.aftermath = A.rollEvasionAftermath({ terrainRow: rowKey || undefined, distanceClass: rowKey ? undefined : 'open', rng });
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-reroll',
+      reason: 'rerolled → evaded; displaced ' + enc.evasion.aftermath.distanceFt + " ft toward " + enc.evasion.aftermath.clockDirection + " o'clock" });
+    _evasionNavAndCarry(campaign, enc, rng);   // RR p.285 — same as the original attempt (E8)
+    if(_encPursuitPossible(campaign, enc)) _encOfferPursuit(campaign, enc);   // E3c — same fork as the original attempt
+    else recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'evaded (on the reroll) — aftermath displacement rolled' });
+  } else {
+    enc.phase = 'interaction';
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'evasion-reroll',
+      reason: throwRes.total + ' vs ' + ((enc.evasion.target != null) ? enc.evasion.target : '?') + '+ — still failed' });
+  }
+  return { ok: true, encounter: enc, evasion: enc.evasion };
+}
+
+// ⟳ Reaction — re-throw the INITIAL 2d6 at the frontier (no influence attempts yet):
+// the same face CHA + the recorded modifiers; the standing attitude recomputes.
+// opts: { rng? }.
+function encounterRerollReaction(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.reaction || !(enc.reaction.rolls || []).length) return { ok: false, error: 'not-rolled' };
+  if(enc.reaction.rolls.some(r => r && r.kind === 'influence')) return { ok: false, error: 'walk-past-reaction' };
+  const o = opts || {};
+  const prev = enc.reaction.rolls[0];
+  const mods = Array.isArray(prev.modifiers) ? prev.modifiers
+    : (prev.modSum ? [{ label: 'modifiers', value: prev.modSum }] : []);
+  const roll = A.rollEncounterReaction({ chaMod: prev.chaMod || 0, modifiers: mods, rng: o.rng });
+  enc.reaction.rolls[0] = Object.assign({}, prev, {
+    natural: roll.natural, chaMod: roll.chaMod, modSum: roll.modSum, modifiers: mods.slice(),
+    total: roll.total, band: roll.band, clamped: roll.clamped,
+    atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null
+  });
+  enc.reaction.current = roll.band;
+  // E3b — an intimidating initial roll IS the stored original; the re-throw replaces it.
+  if((prev.tone || enc.reaction.tone) === 'intimidating'){
+    enc.reaction.intimidationOriginalRoll = { attempt: 0, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 };
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'reaction-reroll',
+    reason: roll.total + ' → ' + roll.band + (roll.clamped ? (' (' + roll.clamped + ' clamp)') : '') });
+  return { ok: true, encounter: enc, reaction: enc.reaction, roll };
+}
+
+// ⟳ Influence — re-throw the LATEST attempt: the same speaker / modifiers / bribe, the
+// shift recomputed from the same starting attitude; the attempt's encounter-influence
+// event is PATCHED in place (same attempt number, same time, same budget charge — a
+// reroll is not a second parley hour). opts: { rng? }.
+function encounterRerollInfluence(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  const rolls = (enc.reaction && enc.reaction.rolls) || [];
+  const last = rolls[rolls.length - 1];
+  if(!last || last.kind !== 'influence') return { ok: false, error: 'no-influence-attempt' };
+  const o = opts || {};
+  const mods = Array.isArray(last.modifiers) ? last.modifiers
+    : (function(){   // legacy entry — reconstruct (the bribe was folded into modSum)
+        const bribeBonus = (last.bribe && last.bribe.bonus) || 0;
+        const rest = (last.modSum || 0) - bribeBonus;
+        const out = [];
+        if(rest) out.push({ label: 'modifiers', value: rest });
+        if(bribeBonus) out.push({ label: 'bribe (' + ((last.bribe && last.bribe.pay) || '?') + "'s pay)", value: bribeBonus });
+        return out;
+      })();
+  const roll = A.rollEncounterReaction({ chaMod: last.chaMod || 0, modifiers: mods, rng: o.rng });
+  const from = last.from;
+  let shift = A.applyInfluenceShift(from, roll.band);
+  let backlash = false;
+  const bribeInfo = last.bribe ? A.bribeBonusInfo(last.bribe.bonus, !!last.bribe.proficient) : null;
+  if(bribeInfo && bribeInfo.backlashOnFail && shift.shift <= 0){
+    const order = A.ENCOUNTER_ATTITUDES;
+    const idx = Math.max(0, order.indexOf(shift.to) - 1);
+    shift = { from: shift.from, to: order[idx], shift: idx - order.indexOf(shift.from) };
+    backlash = true;
+  }
+  enc.reaction.current = shift.to;
+  Object.assign(last, {
+    natural: roll.natural, modSum: roll.modSum, modifiers: mods.slice(),
+    total: roll.total, band: roll.band, clamped: roll.clamped, to: shift.to,
+    bribe: last.bribe ? Object.assign({}, last.bribe, { backlash }) : null
+  });
+  // E3b — if this attempt is the stored original intimidation roll, the re-throw replaces it.
+  if(last.tone === 'intimidating' && enc.reaction.intimidationOriginalRoll && enc.reaction.intimidationOriginalRoll.attempt === last.attempt){
+    enc.reaction.intimidationOriginalRoll = { attempt: last.attempt, natural: roll.natural, total: roll.total, band: roll.band, atTurn: campaign.currentTurn || 1 };
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'influence-reroll',
+    reason: 'attempt ' + last.attempt + ' rerolled: ' + roll.total + ' → ' + roll.band + ' — ' + from + ' → ' + shift.to + (backlash ? ' (bribe backlash)' : '') });
+  // Patch the attempt's audit event in place (found by the stamped eventId; legacy
+  // fallback by encounterId + attemptNumber). The activityCost stays untouched.
+  const wrappers = campaign.eventLog || [];
+  const wrap = (last.eventId && wrappers.find(en => en && en.event && en.event.id === last.eventId))
+    || wrappers.filter(en => en && en.event && en.event.kind === 'encounter-influence'
+        && en.event.payload && en.event.payload.encounterId === enc.id
+        && en.event.payload.attemptNumber === last.attempt).pop();
+  if(wrap){
+    const ev = wrap.event;
+    ev.payload.roll = { natural: roll.natural, total: roll.total, band: roll.band, clamped: roll.clamped };
+    ev.payload.to = shift.to;
+    ev.payload.bribe = last.bribe;
+    ev.payload.narrative = 'Influence attempt ' + last.attempt + ' (' + last.timeRequired + ', rerolled): ' + from + ' → ' + shift.to;
+    if(wrap.result) wrap.result.narrativeSummary = ev.payload.narrative;
+  }
+  return { ok: true, encounter: enc, attempt: last, event: wrap ? wrap.event : null };
+}
+
+// ═══ E3b — encounter tone (JJ pp.84–87, D11) ══════════════════════════════════════
+// Walk the tone's modifier catalog (ENCOUNTER_TONES) and compute which rows the
+// engine can pre-assert from shipped state: alignment (face vs catalog monster),
+// lair-binding (at-lair = the party trespasses / the target is home), side counts →
+// outnumbering (a lair-bound target's count already includes its lair-mates — the
+// JJ p.86 footnote), catalog Morale, HD/level gap (3+), the face's proficiencies,
+// and the standing relationship (the CURRENT attitude once interacting, else the
+// prior meeting via priorReactionBetween — D9). Returns [{...row, auto, on, value}]:
+// auto rows arrive ticked with their computed value; everything else unticked at
+// its printed default. The GM overrides freely; ticked rows compose into the roll's
+// modifiers[] (the E2h itemization carries them through display + rerolls).
+function encounterToneRows(campaign, encounterId, tone, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  const toneDef = A.ENCOUNTER_TONES && A.ENCOUNTER_TONES[tone];
+  if(!enc || !toneDef) return [];
+  const o = opts || {};
+  const faceId = o.faceCharacterId || (enc.partySide && enc.partySide.faceCharacterId)
+    || ((enc.partySide && enc.partySide.characterIds) || [])[0] || null;
+  const face = faceId ? (((campaign && campaign.characters) || []).find(c => c && c.id === faceId) || null) : null;
+  const entry = (typeof A.findMonster === 'function') ? A.findMonster(enc.monsterSide && enc.monsterSide.monsterCatalogKey) : null;
+
+  const al = v => (v == null ? '' : String(v).trim().charAt(0).toUpperCase());   // 'Lawful'/'L' → 'L'
+  const fa = al(face && face.alignment), ma = al(entry && entry.alignment);
+  let alignKey = null;
+  if(fa && ma){
+    if(fa === 'L' && (ma === 'L' || ma === 'N')) alignKey = 'align-ll';
+    else if(fa === 'L' && ma === 'C') alignKey = 'align-lc';
+    else if(fa === 'C' && (ma === 'L' || ma === 'N')) alignKey = 'align-cl';
+  }
+
+  const atLair = !!(enc.monsterSide && enc.monsterSide.encounterKind === 'at-lair');
+
+  const pCount = (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 0;
+  const mCount = (enc.monsterSide && enc.monsterSide.count) || 0;
+  let outKey = null;
+  if(pCount > 0 && mCount > 0){
+    if(pCount >= mCount * 3) outKey = 'out-31';
+    else if(pCount * 2 >= mCount * 3) outKey = 'out-32';
+    else if(pCount > mCount) outKey = 'out-1';
+    else if(mCount >= pCount * 3) outKey = 'outd-31';
+    else if(mCount * 2 >= pCount * 3) outKey = 'outd-32';
+    else if(mCount > pCount) outKey = 'outd-1';
+  }
+
+  const hdOf = h => { const m = String(h == null ? '' : h).match(/^(\d+(?:\.\d+)?)/); return m ? Number(m[1]) : null; };
+  const fLvl = face ? (Number(face.level) || 0) : null;
+  const mHd = entry ? hdOf(entry.hd) : null;
+  let gapKey = null;
+  if(face && fLvl != null && mHd != null){
+    if(fLvl - mHd >= 3) gapKey = 'up';
+    else if(mHd - fLvl >= 3) gapKey = 'down';
+  }
+
+  const profs = face ? [].concat(face.proficiencies || [], face.classPowers || [])
+    .map(p => String((p && p.name) || p || '').toLowerCase()) : [];
+  const hasProf = name => profs.some(p => p.indexOf(name.toLowerCase()) >= 0);
+
+  let rel = (enc.reaction && enc.reaction.current) || null;
+  if(!rel && typeof A.priorReactionBetween === 'function'){
+    const prior = A.priorReactionBetween(campaign, enc.id);
+    rel = (prior && prior.reaction) || null;
+  }
+
+  return toneDef.rows.map(row => {
+    const r = { key: row.key, group: row.group, label: row.label, value: row.value,
+                variable: !!row.variable, derive: row.derive || null, note: row.note || '', auto: false, on: false };
+    switch(row.derive){
+      case 'alignment':   if(alignKey === row.key){ r.auto = true; r.on = true; } break;
+      case 'lair-target': if(atLair){ r.auto = true; r.on = true; } break;
+      case 'morale':      if(entry && typeof entry.morale === 'number'){ r.auto = true; r.on = entry.morale !== 0; r.value = -entry.morale; } break;
+      case 'outnumber':   if(row.key === outKey){ r.auto = true; r.on = true; } break;
+      case 'hd-gap':      if((row.key === 'hd-up' && gapKey === 'up') || (row.key === 'hd-down' && gapKey === 'down')){ r.auto = true; r.on = true; } break;
+      case 'level-gap':   if((row.key === 'level-up' && gapKey === 'up') || (row.key === 'level-down' && gapKey === 'down')){ r.auto = true; r.on = true; } break;
+      case 'relationship': {
+        if(!rel) break;
+        const want = row.key.replace(/^rel-/, '');
+        // 'intimidated' is the canonical indifferent band worn by the intimidating tone
+        if(want === 'intimidated' ? (rel === 'indifferent') : (rel === want)){ r.auto = true; r.on = true; }
+        break;
+      }
+      case 'prof-intimidation-gated':
+        // RAW gate: the proficiency counts only with legal authority over, or numbers on,
+        // the target — the numbers half derives; authority stays the GM's tick.
+        if(hasProf('Intimidation')){ r.auto = true; r.on = !!(outKey && outKey.indexOf('out-') === 0); }
+        break;
+      case 'prof-performance-art':
+        if((hasProf('Seduction') || hasProf('Mystic Aura')) && (hasProf('Performance') || hasProf('Art'))){ r.auto = true; r.on = true; }
+        break;
+      default:
+        if(row.derive && row.derive.indexOf('prof:') === 0 && hasProf(row.derive.slice(5))){ r.auto = true; r.on = true; }
+    }
+    return r;
+  });
+}
+
+// ═══ E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103) ═════
+// Encounter → creation: wandering monsters met in the wild may LINGER (chance = the
+// monster's Lair %, DOUBLED when treasure beckons in an un/partly-occupied dungeon —
+// a GM-asserted tick v1, dungeons aren't live entities) and den at the hex, else
+// they MIGRATE onward. A lingerer rolls PLAIN Lair % again: second success = it
+// settles at FULL wilderness-lair strength (hoard letter recorded; contents stay the
+// treasure wave), else at its wandering numbers (no hoard yet — MM p.15, treasure
+// stays at a lair, and this band had none). Eligibility: an active encounter whose
+// monster side is NOT lair-bound (an at-lair side is home; a wandering-fragment
+// forays FROM a home lair — it returns, it does not found a second den) with a
+// catalog-resolvable monster (the Lair % source). Propose-ratify: the proposal is
+// PURE (rng-injectable; the NATURALS are rolled once and held so the dungeon ×2
+// tick recomputes without re-throwing — the E2h idiom; ⟳ re-proposes); the confirm
+// verb materializes and links monsterSide.lairId so priorReactionBetween (D9)
+// chains future meetings with the den back to this one.
+
+function encounterSettleEligibility(campaign, encounterId){
+  const A = _gpwACKS();
+  // ⚙️ The whole settle branch is the persistent-wandering-monsters house rule (default
+  // ON): JJ p.103 prints the linger roll for DOMAIN encounters (Vagaries of Incursion);
+  // applying it to random wilderness encounters is the extension, hence the toggle.
+  // OFF ⇒ the offer hides AND the verbs refuse (principle 8 — non-functional + hidden);
+  // propose and confirm both route through this eligibility, so one gate covers all three.
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'persistent-wandering-monsters')))
+    return { eligible: false, reason: 'rule-off' };
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { eligible: false, reason: 'unknown-encounter' };
+  // A resolved meeting can still take the linger roll on the EVADED path (per Joachim,
+  // 2026-06-11): the party fled — the band remains in the area and may den behind them.
+  // Any other resolution closes the offer; one settle-check decides it (no re-rolling
+  // the world's answer); a pending pursuit decision comes first (settle ⊥ chase).
+  if(enc.status === 'resolved'){
+    if(enc.outcome !== 'evaded') return { eligible: false, reason: 'already-resolved' };
+    if((enc.history || []).some(h => h && h.type === 'settle-check')) return { eligible: false, reason: 'settle-already-decided' };
+  }
+  if(enc.pursuit && (enc.pursuit.status === 'offered' || enc.pursuit.status === 'pursuing'))
+    return { eligible: false, reason: 'pursuit-in-progress' };
+  const ms = enc.monsterSide || {};
+  // E4m — a band met mid-hunt (the side IS another chase's pursuing band) does not den:
+  // it presses on after its quarry. The gate is live-derived — once that chase ends
+  // (lost / abandoned / caught / scattered), the settle offer stands again.
+  if(ms.pursuitEncounterId){
+    const chase = A.findEncounter(campaign, ms.pursuitEncounterId);
+    if(chase && chase.status === 'active' && chase.pursuit && (chase.pursuit.status === 'offered' || chase.pursuit.status === 'pursuing'))
+      return { eligible: false, reason: 'band-mid-hunt' };
+  }
+  // E10 — a morale-banditry band never dens: these are the domain's own disaffected men
+  // (RR pp.350–351) — they melt back to their fields when morale recovers; they do not
+  // found a monster lair.
+  if(ms.source === 'banditry-band'
+     || (ms.groupIds || []).some(gid => { const g = ((campaign && campaign.groups) || []).find(x => x && x.id === gid); return !!(g && g.banditryDomainId); }))
+    return { eligible: false, reason: 'banditry-band' };
+  if(ms.lairId) return { eligible: false, reason: (ms.encounterKind === 'wandering-fragment') ? 'fragment-has-home-lair' : 'already-at-lair' };
+  if(!enc.hexId) return { eligible: false, reason: 'no-hex' };
+  // E9 — the JJ p.69 maximum-lairs cap: a band never settles a hex past its cap ("it is
+  // simply too crowded for them") — it moves on instead. Living dens count; clearing or
+  // removing one re-opens the offer. GM authoring stays exempt (the Lair Wizard / Inspector).
+  const cap = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, enc.hexId) : null;
+  if(cap && cap.full) return { eligible: false, reason: 'hex-full', capacity: cap };
+  const entry = (typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+  if(!entry) return { eligible: false, reason: 'no-catalog-monster' };
+  if(typeof entry.lairPct !== 'number' || !(entry.lairPct > 0)) return { eligible: false, reason: 'no-lair-pct' };
+  return { eligible: true, encounter: enc, entry };
+}
+
+// Derive the outcome from a proposal's held naturals (pure; lets the dungeon ×2 tick
+// flip linger/migrate without re-throwing). Second roll is vs PLAIN Lair % (JJ p.103
+// "roll 1d100 again against its Lair characteristic" — the doubling is linger-only).
+function settleProposalOutcome(proposal, dungeonBeckons){
+  const p = Object.assign({}, proposal);
+  if(dungeonBeckons !== undefined) p.dungeonBeckons = !!dungeonBeckons;
+  p.effectivePct = Math.min(100, p.lairPct * (p.dungeonBeckons ? 2 : 1));
+  p.lingers = p.lingerNatural <= p.effectivePct;
+  p.fullStrength = p.lingers && (p.strengthNatural <= p.lairPct);
+  p.count = p.lingers ? (p.fullStrength ? p.fullCount : p.wanderingCount) : null;
+  return p;
+}
+
+// PURE proposal — rolls the naturals once (linger d100, strength d100, both count
+// rolls); no campaign mutation. opts: { dungeonBeckons?, rng? }.
+function encounterProposeSettle(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const elig = encounterSettleEligibility(campaign, encounterId);
+  if(!elig.eligible) return { ok: false, error: elig.reason };
+  const enc = elig.encounter, entry = elig.entry;
+  const rng = o.rng || Math.random;
+  const lairSpec = (entry.numberAppearing && entry.numberAppearing.lair) || null;
+  const wanderSpec = (entry.numberAppearing && entry.numberAppearing.wandering) || null;
+  const msCount = (enc.monsterSide && enc.monsterSide.count != null) ? enc.monsterSide.count : null;
+  return settleProposalOutcome({
+    ok: true, encounterId: enc.id, monsterCatalogKey: entry.key, monsterName: entry.name,
+    lairPct: entry.lairPct, dungeonBeckons: !!o.dungeonBeckons,
+    lingerNatural: 1 + Math.floor(rng() * 100),
+    strengthNatural: 1 + Math.floor(rng() * 100),
+    fullCount: Math.max(1, A._rollDiceStr((lairSpec || wanderSpec || '1'), rng)),
+    // the band met IS the wandering group — its size settles as-is (else roll the wandering dice)
+    wanderingCount: (msCount != null) ? Math.max(1, msCount) : Math.max(1, A._rollDiceStr((wanderSpec || '1'), rng))
+  });
+}
+
+// Materialize the GM-confirmed proposal. On an ACTIVE meeting: lingers → a Lair at
+// the hex (active; KNOWN — the party met the band that denned) + a bound Group via
+// generateLair, the hoard letter only at full strength; the encounter resolves
+// 'settled-as-lair' with monsterSide.lairId linked; migrates → resolves 'dispersed'.
+// On a resolved-EVADED meeting (per Joachim, 2026-06-11) the outcome stands — the
+// meeting truthfully ended with the party fleeing: lingers → the same den, but
+// UNKNOWN to the players (they ran; the band dens unobserved — the M4 search /
+// track-home machinery's natural prey) and no second resolution event (the entity
+// histories carry it — the createLair/Wizard precedent); migrates → just the
+// settle-check stamp. monsterSide.lairId links either way, so a later meeting at
+// ⚔ Begin a lair assault (E4j — Joachim 2026-06-11: "a lair that is known to the party should
+// be able to be attacked; at the moment that is a GM-resolved thing, but the button should
+// exist"). Creates a first-class Encounter at the den — trigger 'lair-assault', the monster
+// side bound at-lair (the living population + its Groups), the party side = every active
+// character standing at the lair's hex (their shared party when they have one) — and hands it
+// to the step-walking panel: roll the distance and surprise (a den can be caught off guard),
+// demand surrender via reaction/influence, or ⚔ to-combat and record the outcome as an
+// adventure-result (a cleared result flips the lair — the shipped M0 chain). Resolution stays
+// the GM's; this verb only OPENS the meeting. Gates: the lair must be active + placed + KNOWN
+// to the players (the party can't march on a den it hasn't found — discover it via search,
+// tracking, or Mark discovered); someone must stand at the hex; one open assault per den.
+// opts: { id? (idempotent create), characterIds? (override the at-hex roster) }.
+function beginLairAssault(campaign, lairId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, lairId) : null;
+  if(!lair) return { ok: false, error: 'unknown-lair' };
+  if(lair.status !== 'active') return { ok: false, error: 'lair-not-active' };
+  if(!lair.hexId) return { ok: false, error: 'no-hex' };
+  if(!lair.knownToPlayers) return { ok: false, error: 'not-known-to-players' };
+  const open = (campaign.encounters || []).find(e => e && e.status === 'active' && e.trigger === 'lair-assault'
+    && e.monsterSide && e.monsterSide.lairId === lair.id);
+  if(open) return { ok: false, error: 'assault-in-progress', encounter: open };
+  const chars = o.characterIds
+    ? (campaign.characters || []).filter(ch => ch && o.characterIds.indexOf(ch.id) >= 0)
+    : (campaign.characters || []).filter(ch => ch && ch.currentHexId === lair.hexId
+        && (typeof A.isActive !== 'function' || A.isActive(ch)));
+  if(!chars.length) return { ok: false, error: 'no-attackers' };
+  const partyIds = Array.from(new Set(chars.map(ch => ch.partyId).filter(Boolean)));
+  const count = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+  const enc = A.createEncounter(campaign, {
+    id: o.id, trigger: 'lair-assault', hexId: lair.hexId, category: 'monster',
+    occurredAtTurn: campaign.currentTurn || 1, occurredOnDayInMonth: campaign.currentDayInMonth || null,
+    partySide: { partyId: (partyIds.length === 1) ? partyIds[0] : null,
+                 characterIds: chars.map(ch => ch.id), sizeCount: chars.length },
+    monsterSide: { source: 'existing-lair', lairId: lair.id, monsterCatalogKey: lair.monsterCatalogKey || '',
+                   count: (count || null), encounterKind: 'at-lair', groupIds: (lair.groupIds || []).slice(),
+                   label: lair.name || '' }
+  });
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'assault-begun',
+    reason: 'the party moves on ' + (lair.name || 'the den') + ' — ' + chars.length + ' attacker(s)' });
+  return { ok: true, encounter: enc, lair: lair };
+}
+
+// the den recalls this one (D9: "met before — evaded").
+// opts: { proposal? (else proposes internally), dungeonBeckons?, note?, rng? }.
+function encounterSettleAsLair(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const elig = encounterSettleEligibility(campaign, encounterId);
+  if(!elig.eligible) return { ok: false, error: elig.reason };
+  const enc = elig.encounter, entry = elig.entry;
+  const afterEvasion = enc.status === 'resolved';   // eligibility guarantees outcome 'evaded'
+  const p = o.proposal ? settleProposalOutcome(o.proposal, o.proposal.dungeonBeckons) : encounterProposeSettle(campaign, encounterId, o);
+  if(!p.ok) return p;
+  const turn = campaign.currentTurn || 1;
+  if(!p.lingers){
+    enc.history.push({ turn, type: 'settle-check',
+      reason: 'Lair % ' + p.lingerNatural + ' vs ' + p.effectivePct + (p.dungeonBeckons ? ' (×2 dungeon)' : '') + ' — migrates onward' });
+    if(afterEvasion) return { ok: true, migrated: true, proposal: p, lair: null, encounter: enc, settledAfterEvasion: true, event: null };
+    const res = recordEncounterResolved(campaign, enc.id, 'dispersed', {
+      note: 'Rolled vs Lair % (' + p.lingerNatural + ' vs ' + p.effectivePct + '%) — the ' + (entry.name || 'monsters') + ' migrate onward (JJ p.103).'
+    });
+    return Object.assign({ migrated: true, proposal: p, lair: null }, res);
+  }
+  // E4m — when the band met IS a persistent Group (a migrant — the Groups-table footer's
+  // promise: "a band settling down again becomes a lair"), the den ADOPTS it; minting a
+  // second generateLair population would double-count the band. Full strength = the den
+  // GATHERS to the rolled lair-size count (the group grows; casualties stand). A side
+  // with no live group settles via generateLair exactly as before.
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  const msGroups = (enc.monsterSide.groupIds || [])
+    .map(gid => (campaign.groups || []).find(g => g && g.id === gid))
+    .filter(g => g && aliveOf(g) > 0);
+  let lair = null, gen = null;
+  if(msGroups.length){
+    lair = A.createLair(campaign, {
+      hexId: enc.hexId, monsterCatalogKey: entry.key, status: 'active',
+      establishedBy: 'encounter-settle', establishedAtTurn: turn,
+      knownToPlayers: !afterEvasion, name: o.name || (entry.name + ' lair')
+    });
+    if(!lair) return { ok: false, error: 'lair-create-failed' };
+    if(lair.lairPct == null) lair.lairPct = entry.lairPct;
+    lair.treasureType = p.fullStrength ? (entry.treasureType || '') : '';
+    lair.groupIds = msGroups.map(g => g.id);
+    for(const g of msGroups) g.currentHexId = enc.hexId;
+    if(p.fullStrength){
+      const alive = msGroups.reduce((s, g) => s + aliveOf(g), 0);
+      if(p.count > alive) msGroups[0].count = (msGroups[0].count || 0) + (p.count - alive);
+    }
+    lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+  } else {
+    gen = A.generateLair(campaign, {
+      hexId: enc.hexId, monsterCatalogKey: entry.key, count: p.count,
+      establishedBy: 'encounter-settle', knownToPlayers: !afterEvasion, atTurn: turn,
+      name: o.name
+    }, o.rng || Math.random);
+    lair = gen && gen.lair;
+    if(!lair) return { ok: false, error: 'lair-create-failed' };
+    if(!p.fullStrength) lair.treasureType = '';   // wandering-size settlers bring no hoard yet
+  }
+  lair.history.push({ turn, type: 'settled',
+    reason: 'lingered after an encounter — ' + (p.fullStrength ? 'full lair strength (' + p.count + ')' : 'wandering numbers (' + p.count + ', no hoard yet)')
+      + (msGroups.length ? '; the met band settles as the den’s population' : '')
+      + (afterEvasion ? '; the party had evaded — the den is unknown to the players' : '') });
+  enc.monsterSide.lairId = lair.id;
+  const newGroupId = gen && gen.group ? gen.group.id : ((!msGroups.length && lair.groupIds && lair.groupIds.length) ? lair.groupIds[lair.groupIds.length - 1] : null);
+  if(newGroupId && !(enc.monsterSide.groupIds || []).includes(newGroupId)){
+    enc.monsterSide.groupIds = (enc.monsterSide.groupIds || []).concat([newGroupId]);
+  }
+  if(enc.monsterSide.count == null) enc.monsterSide.count = p.count;
+  enc.history.push({ turn, type: 'settle-check',
+    reason: 'Lair % ' + p.lingerNatural + ' vs ' + p.effectivePct + (p.dungeonBeckons ? ' (×2 dungeon)' : '') + ' — lingers; strength ' + p.strengthNatural + ' vs ' + p.lairPct + ' — ' + (p.fullStrength ? 'full lair strength' : 'wandering numbers') });
+  if(afterEvasion) return { ok: true, migrated: false, proposal: p, lair, encounter: enc, settledAfterEvasion: true, event: null };
+  const res = recordEncounterResolved(campaign, enc.id, 'settled-as-lair', {
+    note: p.fullStrength
+      ? ('Settled at full lair strength — ' + p.count + ' (hoard type ' + (lair.treasureType || '—') + ' recorded).' + (o.note ? ' ' + o.note : ''))
+      : ('Settled at wandering strength — ' + p.count + ' (no hoard yet).' + (o.note ? ' ' + o.note : ''))
+  });
+  return Object.assign({ migrated: false, proposal: p, lair }, res);
+}
+
+// ═══ E3c — monster pursuit (absorbs M5; RR p.285 + p.120; 'monster-pursuit', default OFF) ═══
+// "Adventurers who evade might be tracked by some monsters, depending on their
+// abilities and intent" (RR p.285). With the rule ON, a successful evasion against a
+// tracking-capable band (catalog canTrack — Tracking / Acute Olfaction) does NOT
+// resolve: the encounter holds in phase 'pursuit', status 'offered', and the GM
+// adjudicates INTENT — take up the trail (the pursuer's Tracking throw, RR p.120:
+// 11+ with the count bands for the party's numbers, natural 1 fails) or waive
+// (resolves 'evaded' as before). A pursuing band follows at HALF its expedition
+// speed via the daily 'pursuit' day-consumer (slot 82, acks-engine-subsystems.js).
+// Pursuit state lives ON the Encounter (D8 — the M5 fork resolved). Rule OFF =
+// shipped behavior byte-identical (RAW frames pursuit as GM judgment — the
+// automation is the opt-in, §6 polarity).
+
+function _encPursuitPossible(campaign, enc){
+  const A = _gpwACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'monster-pursuit'))) return false;
+  const key = enc && enc.monsterSide && enc.monsterSide.monsterCatalogKey;
+  return !!(key && typeof A.monsterCanTrack === 'function' && A.monsterCanTrack(key));
+}
+
+// Where the pursued party is NOW (party → first located member → the meeting hex).
+function encounterPartyHexId(campaign, enc){
+  const ps = (enc && enc.partySide) || {};
+  if(ps.partyId){
+    const p = ((campaign && campaign.parties) || []).find(x => x && x.id === ps.partyId);
+    if(p && p.currentHexId) return p.currentHexId;
+  }
+  for(const cid of (ps.characterIds || [])){
+    const ch = ((campaign && campaign.characters) || []).find(x => x && x.id === cid);
+    if(ch && ch.currentHexId) return ch.currentHexId;
+  }
+  return (enc && enc.hexId) || null;
+}
+
+// Open the pursuit offer on a successful evasion (called from the evasion verbs).
+function _encOfferPursuit(campaign, enc){
+  const A = _gpwACKS();
+  const entry = (typeof A.findMonster === 'function') ? A.findMonster(enc.monsterSide.monsterCatalogKey) : null;
+  const exp = entry ? parseFloat(String(entry.expeditionSpeed || '')) : NaN;   // "36 miles" → 36
+  enc.phase = 'pursuit';
+  enc.pursuit = {
+    status: 'offered',
+    pursuerLabel: (entry && entry.name) || 'the monsters',
+    pursuerMilesPerDay: isFinite(exp) && exp > 0 ? exp / 2 : 12,   // follow at ½ expedition speed (RR p.120)
+    gapMiles: 1,           // the evasion displacement is yards, not miles — they are right behind
+    lastPartyHexId: null,  // set when the trail is taken up
+    traceConcealed: false, // GM lever — Passing Without Trace defeats scent + spoor
+    gmMod: 0,              // standing modifier on the daily keep-the-trail throws (rain/snow, terrain…)
+    startedAtTurn: null, startedOnDayInMonth: null,
+    throws: []
+  };
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-offered',
+    reason: enc.pursuit.pursuerLabel + ' can track — does it pursue? (monster-pursuit; GM adjudicates intent)' });
+}
+
+// The take-up throw (RR p.120): the pursuer finds the trail at 11+, + the count bands
+// for the party's numbers (the M4 bands), natural 1 auto-fails, ± the GM's modifier.
+// Success → 'pursuing' (the daily consumer takes over); fail → resolves 'evaded'.
+// opts: { mod?, rng? }.
+function encounterBeginPursuit(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.pursuit || enc.pursuit.status !== 'offered') return { ok: false, error: 'no-pursuit-offered' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const n = (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 1;
+  const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
+  const mod = Number(o.mod) || 0;
+  const natural = 1 + Math.floor(rng() * 20);
+  const target = 11;
+  const success = (natural !== 1) && (natural + countBonus + mod >= target);
+  const t = { kind: 'take-up', natural, countBonus, mod, total: natural + countBonus + mod, target, success,
+              atTurn: campaign.currentTurn || 1, atDay: campaign.currentDayInMonth || null };
+  enc.pursuit.throws.push(t);
+  if(success){
+    enc.pursuit.status = 'pursuing';
+    enc.pursuit.startedAtTurn = campaign.currentTurn || 1;
+    enc.pursuit.startedOnDayInMonth = campaign.currentDayInMonth || null;
+    enc.pursuit.lastPartyHexId = encounterPartyHexId(campaign, enc);
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-taken-up',
+      reason: 'take-up ' + t.total + ' vs 11+ — on the trail at ' + enc.pursuit.pursuerMilesPerDay + ' mi/day (half expedition speed), ' + enc.pursuit.gapMiles + ' mi behind' });
+    return { ok: true, encounter: enc, pursuit: enc.pursuit, takeUp: t };
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-failed',
+    reason: 'take-up ' + (natural === 1 ? 'natural 1' : (t.total + ' vs 11+')) + ' — the trail was never found' });
+  const res = recordEncounterResolved(campaign, enc.id, 'evaded', {
+    note: enc.pursuit.pursuerLabel + ' tried to track the party and failed (' + (natural === 1 ? 'natural 1' : t.total + ' vs 11+') + ').'
+  });
+  return Object.assign({ pursuit: enc.pursuit, takeUp: t }, res);
+}
+
+// ⟳ Reroll the pursuit take-up throw (E4l — Joachim 2026-06-11: "Pursuit needs a reroll";
+// the E2h latest-step rule). Re-throws JUST the 1d20 — the count band + the GM modifier are
+// HELD from the recorded throw — and reconciles the state both ways: a failed take-up that
+// becomes a success UN-resolVES the encounter (the 'evaded' resolution event is dropped from
+// the eventLog — the world keeps no resolution from a discarded die) and the chase starts;
+// a success that becomes a failure resolves 'evaded' exactly as the original failure path.
+// Latest-step gated: once a daily keep-the-trail throw exists the chase has moved on; a band
+// that already made its settle choice stays settled (the linger roll is never re-opened by a
+// chase die); and a chase that ended any other way (declined / abandoned / caught) stays ended.
+function encounterRerollPursuitTakeUp(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  const p = enc.pursuit;
+  const throws = (p && p.throws) || [];
+  if(throws.some(x => x && x.kind === 'keep-trail')) return { ok: false, error: 'chase-under-way' };
+  const t = throws.length ? throws[throws.length - 1] : null;
+  if(!t || t.kind !== 'take-up') return { ok: false, error: 'no-take-up' };
+  if((enc.history || []).some(h => h && h.type === 'settle-check')) return { ok: false, error: 'settle-decided' };
+  const wasSuccess = !!t.success;
+  // A resolved encounter is reversible ONLY when the failed take-up itself resolved it.
+  if(enc.status === 'resolved' && (wasSuccess || enc.outcome !== 'evaded')) return { ok: false, error: 'chase-ended' };
+  const o = opts || {};
+  const rng = o.rng || Math.random;
+  const natural = 1 + Math.floor(rng() * 20);
+  const target = t.target || 11;
+  const success = (natural !== 1) && (natural + (t.countBonus || 0) + (t.mod || 0) >= target);
+  t.natural = natural; t.total = natural + (t.countBonus || 0) + (t.mod || 0); t.success = success;
+  t.rerolled = (t.rerolled || 0) + 1;
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-takeup-reroll',
+    reason: 'rerolled → take-up ' + (natural === 1 ? 'natural 1' : (t.total + ' vs ' + target + '+')) + ' — ' + (success ? 'on the trail' : 'the trail was never found') });
+  if(success === wasSuccess) return { ok: true, encounter: enc, pursuit: p, takeUp: t, changed: false };
+  if(success){
+    // failure → success: un-resolve (the discarded die's resolution never happened) + start the chase.
+    if(enc.resolvedByEventId && Array.isArray(campaign.eventLog)){
+      const evId = enc.resolvedByEventId;
+      campaign.eventLog = campaign.eventLog.filter(en => !(en && en.event && en.event.id === evId));
+    }
+    enc.status = 'active'; enc.outcome = null;
+    enc.resolvedAtTurn = null; enc.resolvedOnDayInMonth = null; enc.resolvedByEventId = null;
+    p.status = 'pursuing';
+    p.startedAtTurn = campaign.currentTurn || 1;
+    p.startedOnDayInMonth = campaign.currentDayInMonth || null;
+    p.lastPartyHexId = encounterPartyHexId(campaign, enc);
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-taken-up',
+      reason: 'take-up ' + t.total + ' vs ' + target + '+ — on the trail at ' + p.pursuerMilesPerDay + ' mi/day (half expedition speed), ' + p.gapMiles + ' mi behind' });
+    return { ok: true, encounter: enc, pursuit: p, takeUp: t, changed: true };
+  }
+  // success → failure: un-start + resolve 'evaded' exactly as the original failure path.
+  p.status = 'offered';
+  p.startedAtTurn = null; p.startedOnDayInMonth = null; p.lastPartyHexId = null;
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-failed',
+    reason: 'take-up ' + (natural === 1 ? 'natural 1' : (t.total + ' vs ' + target + '+')) + ' — the trail was never found' });
+  const res = recordEncounterResolved(campaign, enc.id, 'evaded', {
+    note: p.pursuerLabel + ' tried to track the party and failed (' + (natural === 1 ? 'natural 1' : t.total + ' vs ' + target + '+') + ').'
+  });
+  return Object.assign({ pursuit: p, takeUp: t, changed: true }, res);
+}
+
+// The GM waives the offer (no intent) — resolves 'evaded' exactly as the rule-OFF path.
+function encounterDeclinePursuit(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.pursuit || enc.pursuit.status !== 'offered') return { ok: false, error: 'no-pursuit-offered' };
+  enc.pursuit.status = null;
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-waived', reason: 'no pursuit — the band lets them go' });
+  return recordEncounterResolved(campaign, enc.id, 'evaded', { note: (opts && opts.note) || 'evaded — no pursuit.' });
+}
+
+// Break off a RUNNING pursuit (GM call, or the trail concealed) — resolves 'evaded'.
+function encounterAbandonPursuit(campaign, encounterId, opts){
+  const A = _gpwACKS();
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved') return { ok: false, error: 'already-resolved' };
+  if(!enc.pursuit || enc.pursuit.status !== 'pursuing') return { ok: false, error: 'not-pursuing' };
+  const o = opts || {};
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-abandoned', reason: o.reason || 'the pursuit broke off' });
+  const res = recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuit broke off' + (o.reason ? ' — ' + o.reason : '') + '.' });
+  pursuitAftermath(campaign, enc, {});   // E6 — the hunt over, the band heads home / wanders
+  return res;
+}
+
+// ═══ E6 — the pursuit aftermath: a chase that ends with the band still standing ═══
+// Joachim 2026-06-11: "a pursuing monster/group that loses its trail (or succeeds in
+// catching up and survives) returns home to its lair (if they have one). They essentially
+// plot a journey back to their home lair. If they don't have a home lair, they become
+// migrants and wander." Fired when the chase's trail is lost / broken off, and when the
+// chase's SPRUNG meeting (the catch) resolves with the band surviving — parleyed / evaded /
+// combat / dismissed; 'dispersed' = scattered, no band left to walk anywhere. The band
+// gets a world presence: a living un-housed Group from the chase side is reused (the E4m
+// migrant-chaser), else a transient walk token is minted (count = the side's; it dissolves
+// into the den on arrival — a fragment's hunters never left the den's population). Home =
+// a living, PLACED lair on the side's lairId → wanderState 'heading-home' (full expedition
+// speed, straight line, no stops, no domain disposition — the E6 monster-bands consumer
+// walks it; still E4m-findable, so it can pick up a NEW pursuit en route and re-home
+// after). No home → a wandering migrant (the E6 wander activity). Gated on
+// persistent-wandering-monsters (OFF = bands evaporate — the shipped behavior). A failed
+// TAKE-UP deliberately does NOT fire (the chase never began; the band stands at its
+// meeting hex, where the settle-as-lair offer already governs whether it stays) — that
+// also keeps the E4l take-up reroll's two-way reconcile clean.
+function pursuitAftermath(campaign, encounterOrId, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const enc = (typeof encounterOrId === 'string') ? A.findEncounter(campaign, encounterOrId) : encounterOrId;
+  if(!enc || !enc.pursuit || enc.pursuit.direction === 'party') return null;
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'persistent-wandering-monsters'))) return null;
+  const p = enc.pursuit;
+  if(p.aftermath) return null;                     // once per chase
+  const ms = enc.monsterSide || {};
+  // 🔧 v1 position: the chase trails the party's straight line, so the band stands at the
+  // trail's anchor (the catch hands the sprung meeting's hex in).
+  const hexId = o.hexId || p.lastPartyHexId || enc.hexId || null;
+  const hex = hexId ? ((campaign.hexes || []).find(h => h && h.id === hexId) || null) : null;
+  if(!hex || !hex.coord) return null;              // nowhere to stand — the band slips off the map
+  const turn = campaign.currentTurn || 1;
+  const lair = (ms.lairId && typeof A.findLair === 'function') ? A.findLair(campaign, ms.lairId) : null;
+  const home = (lair && (lair.status === 'active' || lair.status === 'unknown') && lair.hexId) ? lair : null;
+  const denHex = home ? ((campaign.hexes || []).find(h => h && h.id === home.hexId) || null) : null;
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  const housed = gid => (campaign.lairs || []).some(l => l && (l.status === 'active' || l.status === 'unknown' || l.status === 'dynamic') && (l.groupIds || []).indexOf(gid) >= 0);
+  let g = null;
+  for(const gid of (ms.groupIds || [])){
+    const cand = (campaign.groups || []).find(x => x && x.id === gid);
+    if(cand && aliveOf(cand) > 0 && !housed(cand.id)){ g = cand; break; }
+  }
+  let minted = false;
+  if(!g){
+    const entry = (ms.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(ms.monsterCatalogKey) : null;
+    g = (typeof A.blankGroup === 'function') ? A.blankGroup({
+      name: p.pursuerLabel || ms.label || (entry && entry.name) || 'A wandering band',
+      groupTemplate: { monsterCatalogKey: (entry && entry.key) || ms.monsterCatalogKey || null,
+                       creatureTypes: (entry && entry.creatureTypes) ? entry.creatureTypes.slice() : ['monster'],
+                       hitDice: (entry && entry.hd) || null },
+      count: ms.count || 1,
+      currentHexId: hexId
+    }) : null;
+    if(!g) return null;
+    campaign.groups = campaign.groups || [];
+    campaign.groups.push(g);
+    minted = true;
+  } else {
+    g.currentHexId = hexId;
+  }
+  const prior = g.wanderState || {};
+  g.history = g.history || [];
+  enc.history = enc.history || [];
+  if(home && denHex && denHex.coord){
+    g.wanderState = { coord: { q: hex.coord.q, r: hex.coord.r }, lastCoord: null, mileRemainder: 0,
+                      mode: 'heading-home', destLairId: home.id,
+                      dissolveOnArrival: minted || !!prior.dissolveOnArrival,
+                      lastDomainId: hex.domainId || null, halted: false };
+    p.aftermath = 'heading-home';
+    enc.history.push({ turn, type: 'pursuit-aftermath',
+      reason: 'the band turns for home — ' + (home.name || home.id) + ' (full expedition speed; it will not stop, though it may pick up a new hunt on the way)' });
+    g.history.push({ turn, type: 'homing', reason: 'the hunt over, the band heads home to ' + (home.name || home.id) });
+  } else {
+    g.wanderState = { coord: { q: hex.coord.q, r: hex.coord.r }, lastCoord: null, mileRemainder: 0,
+                      mode: null, destLairId: null, dissolveOnArrival: false,
+                      lastDomainId: hex.domainId || null, halted: false };
+    p.aftermath = 'migrant';
+    enc.history.push({ turn, type: 'pursuit-aftermath',
+      reason: 'no den to return to — the band becomes a migrant and wanders (half speed, never doubling straight back)' });
+    g.history.push({ turn, type: 'wander', reason: 'the hunt over and denless, the band wanders as a migrant' });
+  }
+  return { group: g, minted, mode: p.aftermath };
+}
+
+// Resolution — flip the entity + emit the ONE comprehensive encounter-resolved event
+// (the travel-day idiom: the whole walk in the payload, the context envelope carrying
+// hex + both sides, subdayContext.encounterId stamped). outcome: no-encounter | evaded |
+// parleyed | dispersed | combat ("GM resolves" until #141) | settled-as-lair (E3) |
+// dismissed. A no-encounter resolution is campaignLogHidden (not a chronicle beat).
+function recordEncounterResolved(campaign, encounterId, outcome, opts){
+  const A = _gpwACKS();
+  const o = opts || {};
+  const enc = A.findEncounter(campaign, encounterId);
+  if(!enc) return { ok: false, error: 'unknown-encounter' };
+  if(enc.status === 'resolved' && enc.resolvedByEventId) return { ok: true, encounter: enc, event: null, alreadyResolved: true };
+  const hex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
+  const mLabel = _encMonsterLabel(enc);
+  const out = outcome || 'dismissed';
+  let narrative;
+  if(out === 'no-encounter')        narrative = 'No encounter — neither side became aware of the other.';
+  else if(out === 'evaded')         narrative = 'The party evaded ' + mLabel + '.';
+  else if(out === 'parleyed')       narrative = 'The party parleyed with ' + mLabel + (enc.reaction && enc.reaction.current ? (' — ' + enc.reaction.current) : '') + '.';
+  else if(out === 'dispersed')      narrative = 'The meeting with ' + mLabel + ' broke up without consequence.';
+  else if(out === 'combat')         narrative = 'Combat with ' + mLabel + ' — GM resolves (record the result as an adventure outcome).';
+  else if(out === 'settled-as-lair') narrative = mLabel + ' settled and denned here (lingered — JJ p.103).';
+  else                              narrative = 'Encounter with ' + mLabel + ' dismissed.';
+  if(o.note) narrative += ' ' + o.note;
+  const ev = newEvent('encounter-resolved', {
+    submittedBy: o.submittedBy || 'gm', status: EVENT_STATUS.PENDING, targetTurn: campaign.currentTurn || 1,
+    context: { primaryHexId: enc.hexId || null, involvedHexIds: [], settlementId: null,
+               domainId: (hex && hex.domainId) || null, relatedEntities: _encRelatedEntities(enc) },
+    payload: {
+      encounterId: enc.id, outcome: out, category: enc.category || null, rarity: enc.rarity || null,
+      trigger: enc.trigger || null, hexId: enc.hexId || null,
+      lairId: (enc.monsterSide && enc.monsterSide.lairId) || null,
+      monsterCatalogKey: (enc.monsterSide && enc.monsterSide.monsterCatalogKey) || null,
+      encounterKind: (enc.monsterSide && enc.monsterSide.encounterKind) || null,
+      distanceFt: (enc.distance && enc.distance.distanceFt) || null,
+      surprise: enc.surprise ? { party: enc.surprise.party.surprised, monsters: enc.surprise.monsters.surprised, evadeEligibility: enc.surprise.evadeEligibility } : null,
+      evasion: enc.evasion ? { success: enc.evasion.success, target: enc.evasion.target, aftermath: enc.evasion.aftermath } : null,
+      reaction: enc.reaction ? { current: enc.reaction.current, attempts: enc.reaction.rolls.length } : null,
+      narrative
+    }
+  });
+  if(out === 'no-encounter') ev.campaignLogHidden = true;
+  ev.subdayContext = { cadence: 'encounter', encounterId: enc.id, roundNumber: null, turnNumber: null, initiativeOrder: null };
+  _logAppliedEvent(campaign, ev, { narrativeSummary: narrative });
+  A.resolveEncounter(campaign, enc.id, out, { resolvedByEventId: ev.id, note: o.note });
+  // E4m — scattering a band that was mid-hunt ends its chase: when this meeting's monster
+  // side IS a pursuing band (pursuitEncounterId), 'dispersed' is the one outcome whose
+  // engine meaning is "the band breaks up / moves on" — the quarry's chase resolves
+  // 'evaded' behind it. Parley/evade leave the hunt running (the band presses on).
+  // E5 — the same for a band being TRACKED: scattered, there is no band left on the trail,
+  // so the follow ends (its host meeting is already resolved — only the pursuit flips).
+  if(out === 'dispersed' && enc.monsterSide && enc.monsterSide.pursuitEncounterId){
+    const src = A.findEncounter(campaign, enc.monsterSide.pursuitEncounterId);
+    const sp = src && src.pursuit;
+    if(src && src.status === 'active' && sp && sp.direction !== 'party' && (sp.status === 'offered' || sp.status === 'pursuing')){
+      const ps = enc.partySide || {};
+      const party = ps.partyId ? ((campaign.parties || []).find(p => p && p.id === ps.partyId)) : null;
+      const firstCh = ((ps.characterIds || []).length) ? ((campaign.characters || []).find(c => c && c.id === ps.characterIds[0])) : null;
+      const who = (party && party.name) || (firstCh && firstCh.name) || 'another party';
+      src.history = src.history || [];
+      src.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-broken',
+        reason: 'the band was scattered in a meeting with ' + who + ' — the hunt ends' });
+      recordEncounterResolved(campaign, src.id, 'evaded', {
+        note: 'The pursuing band was scattered by ' + who + ' — the hunt ends.'
+      });
+    } else if(src && sp && sp.direction === 'party' && sp.status === 'tracking'){
+      src.history = src.history || [];
+      src.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-broken',
+        reason: 'the quarry was scattered in another meeting — the trail ends' });
+      sp.status = 'lost';
+    }
+  }
+  // E6 — the chase's SPRUNG meeting (the catch — trigger 'pursuit') concluded with the
+  // band still standing: the hunters turn for home, or — denless — become wandering
+  // migrants (pursuitAftermath; idempotent, rule-gated). 'dispersed' = scattered (handled
+  // above), and a follow's sprung meeting (the chase link pointing at a direction-'party'
+  // pursuit) is the TRACKERS' catch — the quarry's own model governs it, not this hook.
+  if(out !== 'dispersed' && out !== 'no-encounter' && enc.trigger === 'pursuit'
+     && enc.monsterSide && enc.monsterSide.pursuitEncounterId){
+    const chase = A.findEncounter(campaign, enc.monsterSide.pursuitEncounterId);
+    if(chase && chase.pursuit && chase.pursuit.direction !== 'party'){
+      pursuitAftermath(campaign, chase, { hexId: enc.hexId });
+    }
+  }
+  return { ok: true, encounter: enc, event: ev };
 }
 
 const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
@@ -2795,9 +4848,19 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'provisioning-activity',
   // CoL-1 — owned by the 'survival' day-consumer (a record of the day's resolution, not a GM verb).
   'survival-day',
+  // #476 M4/E5 — owned by hexSearchActivity / beginTracking (raw emit would skip the throw +
+  // discovery flip) and by the discovery flows (lair-discovered pairs with a discoverLair call;
+  // raw emit would narrate a discovery the lair state doesn't show).
+  'hex-search', 'lair-discovered',
+  // #476 E1 — owned by the encounter step verbs (recordEncounterResolved / encounterAttemptInfluence);
+  // raw emit would narrate a walk the Encounter entity's state doesn't show.
+  'encounter-resolved', 'encounter-influence',
   // Favors & Duties (#230, F&D-1) — emitted by the monthly auto-roll as an audit of the obligation
   // it just created/revoked. The GM authors an obligation via Inspector Create, not this raw event.
-  'favor-duty'
+  'favor-duty',
+  // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
+  // population; raw emit would narrate a change the world state doesn't show).
+  'domain-banditry'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
@@ -2849,7 +4912,24 @@ Object.assign(ACKS, {
   // compensating counter-trade that voids the original (dropping it from the budget + ceiling).
   reverseMarketTransaction,
   // Phase 2.5 Provisioning V4 — the general Forage / Hunt activity verbs (RR p.278 §1.4) + reroll.
-  forageActivity, huntActivity, rerollProvisioningActivity
+  forageActivity, huntActivity, rerollProvisioningActivity,
+  // #476 M4 — Wilderness Search + track-home discovery verbs (RR pp.276–277 + p.120; Plan §6).
+  hexSearchActivity, trackingFindThrow, beginTracking, encounterAbandonTracking, recordLairDiscovered, rerollHexSearch,
+  // #476 Encounter layer E1 — the step verbs over the Encounter entity (RR pp.280–287; plan §15).
+  encounterSetAwareness, encounterRollSurprise, encounterAttemptEvasion,
+  encounterRollReaction, encounterAttemptInfluence, recordEncounterResolved,
+  // E2h — the distance verb + the per-step rerolls (every roll re-rollable at its frontier)
+  encounterRollDistance, encounterRerollIdentity, encounterChooseIdentity, encounterDerivedTablePrior,
+  encounterRerollSurprise, encounterRerollEvasion,
+  encounterRerollReaction, encounterRerollInfluence,
+  // E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103)
+  encounterSettleEligibility, encounterProposeSettle, settleProposalOutcome, encounterSettleAsLair, beginLairAssault,
+  // E3b — the tone derivation (JJ pp.84–87, D11): catalog rows pre-asserted from shipped state
+  encounterToneRows,
+  // E3c — monster pursuit (RR p.285 + p.120; 'monster-pursuit', default OFF; absorbs M5)
+  encounterPartyHexId, encounterBeginPursuit, encounterRerollPursuitTakeUp, encounterDeclinePursuit, encounterAbandonPursuit,
+  // E6 — the pursuit aftermath: a chase over with the band standing → home / migrant
+  pursuitAftermath
 });
 
 if(typeof module !== 'undefined' && module.exports){

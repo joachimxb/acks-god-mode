@@ -4632,6 +4632,7 @@
   ],
   "constructibles": [],
   "favorDutyObligations": [],
+  "encounters": [],
   "stashes": [
     {
       "schemaVersion": 2,
