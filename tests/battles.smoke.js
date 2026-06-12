@@ -319,6 +319,26 @@ section('The battle turn — surprise, hits, loose withdrawal, morale, reinforce
   ok('revert drops the battle-turn event', c.eventLog.filter(e => e.event.kind === 'battle-turn').length === evCount - 1);
 }
 {
+  // Elite troops (RR p.434, behind elite-troops): the elite share of a zone's throws
+  // attacks at +1. Forced d20 = 15 vs melee 16+: a regular unit misses everything;
+  // flagged elite WITH the rule on, every throw hits (15 + 1 = 16).
+  const { c, b } = mkGarrisonVsWolves();
+  ACKS.beginBattle(c, b.id);
+  const hi = b.sides.a.units.find(u => u.sourceId === 'unit-hi');
+  b.sides.a.units.forEach(u => { u.zone = u === hi ? 'right' : 'reserve'; });
+  b.sides.b.units.forEach(u => { u.zone = 'left'; });
+  c.houseRules = c.houseRules || {};
+  c.houseRules['elite-troops'] = { enabled: false };
+  ACKS.runBattleTurn(c, b.id, { rng: seq([d20v(15)]) });
+  ok('rule OFF: d20 15 vs 16+ — the regular HI scores no hits', !b.turnLog[0].lines.some(l => /garrison: 8 throw/.test(l) && /→ [1-9]/.test(l)));
+  ACKS.revertBattleTurn(c, b.id);   // revert swaps in the _pre clone — re-find the unit
+  b.sides.a.units.find(u => u.sourceId === 'unit-hi').elite = true;
+  c.houseRules['elite-troops'] = { enabled: true };
+  ACKS.runBattleTurn(c, b.id, { rng: seq([d20v(15)]) });
+  const eliteLine = b.turnLog[0].lines.find(l => /elite at \+1/.test(l));
+  ok('rule ON + elite: the throws carry "(8 elite at +1)" and all 8 hit', !!eliteLine && /8 elite at \+1/.test(eliteLine) && /→ 8 hit/.test(eliteLine), eliteLine);
+}
+{
   // Withdrawal ends the battle; the withdrawer is the defeated side. Fled-unrallied → routed.
   const { c, b } = mkGarrisonVsWolves();
   ACKS.beginBattle(c, b.id);

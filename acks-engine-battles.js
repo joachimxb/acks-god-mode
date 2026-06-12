@@ -130,6 +130,7 @@
       br: _halfBr(companyBr * battleScaleUpFactor(scale)),
       morale: typeof Ax.unitMoraleScore === 'function' ? (Ax.unitMoraleScore(campaign, unit) || 0) : 0,
       missile: ml.missile, loose: ml.loose,
+      elite: !!unit.elite,                       // RR p.434 — +1 attack throws behind the elite-troops rule
       category: (row && row.category) || 'infantry',
       typeKey: unit.unitTypeKey || null,
       zone: 'undeployed', status: 'active',
@@ -173,6 +174,7 @@
         creatures: c, br,
         morale: (m && typeof m.morale === 'number') ? m.morale : 0,
         missile: false, loose: false,           // 🔧 the JJ tables carry no missile flag — GM tick
+        elite: false,
         category: aerial ? 'flyer' : 'monster',
         typeKey: key || null,
         zone: 'undeployed', status: 'active',
@@ -260,7 +262,7 @@
       divisionRole: null, divisionCommanderCharacterId: null,
       creatures: 1, br,
       morale: typeof Ax.officerMoraleModifier === 'function' ? (Ax.officerMoraleModifier(ch) || 0) : 0,
-      missile: !!o.missile, loose: false,
+      missile: !!o.missile, loose: false, elite: false,
       category: 'hero', typeKey: null,
       zone: o.zone || 'reserve', status: 'active',
       disordered: false, wavering: false, ralliedForTurn: null,
@@ -513,8 +515,10 @@
 
   // ── the battle turn (RR pp.464–465) ─────────────────────────────────────────
   const _ZONE_PAIRS = [ { a: 'right', b: 'left' }, { a: 'center', b: 'center' }, { a: 'left', b: 'right' } ];
+  // Returns {total, elite} — the zone's attacking BR pool for the phase, with the elite
+  // units' share broken out (RR p.434: elite troops attack at +1, behind `elite-troops`).
   function _attackPoolBr(side, zone, phaseKind, turnNumber){
-    let s = 0;
+    let s = 0, e = 0;
     for(const u of side.units){
       if(u.status !== 'active' || u.zone !== zone) continue;
       if(phaseKind === 'missile' ? !u.missile : u.missile) continue;
@@ -522,8 +526,9 @@
       if(u.wavering) br = br / 2;
       else if(u.ralliedForTurn === turnNumber) br = br * 1.5;
       s += br;
+      if(u.elite) e += br;
     }
-    return s;
+    return { total: s, elite: e };
   }
   // Removal allocator for hits (RR p.464): the leader removes units totaling ≥ the hits.
   // Auto policy 🔧: loose units first (they withdraw disordered at ½ BR instead of dying
@@ -665,18 +670,25 @@
           if(surprisedKey && surprisedKey !== sk) mod += 2;
           const at = battle.options && battle.options.advantageousTerrain;
           if(at && at !== sk) mod -= 2;
-          const throws = Math.floor(pool);
+          const throws = Math.floor(pool.total);
+          // RR p.434 — the elite share of the throws attacks at +1 (behind elite-troops)
+          const eliteOn = typeof Ax.isHouseRuleEnabled === 'function' && Ax.isHouseRuleEnabled(campaign, 'elite-troops');
+          const eliteThrows = eliteOn ? Math.min(throws, Math.floor(pool.elite)) : 0;
           let hits = 0;
-          for(let i = 0; i < throws; i++){ if(_d20(rng) + mod >= target) hits++; }
-          return { throws, hits, mod, pool };
+          for(let i = 0; i < throws; i++){
+            const m = i < eliteThrows ? mod + 1 : mod;
+            if(_d20(rng) + m >= target) hits++;
+          }
+          return { throws, hits, mod, eliteThrows, pool: pool.total };
         };
         const ra = sideThrow('a'), rb = sideThrow('b');
         if(ra.throws || rb.throws || frs.length){
           phaseLines.unshift('  ' + phaseLabel + ':');
+          const throwLine = (side, r) => '    ' + side.label + ': ' + r.throws + ' throw(s) @ ' + target + '+' + (r.mod ? (r.mod > 0 ? ' +' : ' ') + r.mod : '') + (r.eliteThrows ? ' (' + r.eliteThrows + ' elite at +1)' : '') + ' → ' + r.hits + ' hit(s)';
           if(ra.surprised) phaseLines.push('    ' + battle.sides.a.label + ' is surprised — no attack throws this turn');
-          else if(ra.throws) phaseLines.push('    ' + battle.sides.a.label + ': ' + ra.throws + ' throw(s) @ ' + target + '+' + (ra.mod ? (ra.mod > 0 ? ' +' : ' ') + ra.mod : '') + ' → ' + ra.hits + ' hit(s)');
+          else if(ra.throws) phaseLines.push(throwLine(battle.sides.a, ra));
           if(rb.surprised) phaseLines.push('    ' + battle.sides.b.label + ' is surprised — no attack throws this turn');
-          else if(rb.throws) phaseLines.push('    ' + battle.sides.b.label + ': ' + rb.throws + ' throw(s) @ ' + target + '+' + (rb.mod ? (rb.mod > 0 ? ' +' : ' ') + rb.mod : '') + ' → ' + rb.hits + ' hit(s)');
+          else if(rb.throws) phaseLines.push(throwLine(battle.sides.b, rb));
           // (d) casualties simultaneously; hits vs a BROKEN zone spill to adjacent zones
           const applyAgainst = (defKey, hits, zoneBroken) => {
             if(hits <= 0) return;
