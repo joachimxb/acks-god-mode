@@ -7190,7 +7190,13 @@ function proposeMonthlyTurn(campaign, options){
         domainId: d.id,
         domainName: d.name,
         classification: effectiveDomainClassification(d),
-        ruler: global.ACKS.effectiveRuler(campaign, d),
+        // W4 — RR p.458: while OCCUPIED the monthly morale machinery runs under the
+        // OCCUPIER's personal authority (the base morale recomputes from him); the
+        // moraleModifiersFor occupation-penalty row rides on top. Unoccupied domains
+        // (the universal case) read effectiveRuler exactly as before.
+        ruler: (d.occupiedBy && d.occupiedBy.leaderCharacterId && global.ACKS.occupierRulerSummary)
+          ? global.ACKS.occupierRulerSummary(campaign, d)
+          : global.ACKS.effectiveRuler(campaign, d),
         tithePaid: d.expenses.tithePaid !== false,
         tributePaid: d.expenses.tributePaid !== false,
         administersThisMonth: !!d.administersThisMonth,
@@ -7371,8 +7377,32 @@ function commitTurn(campaign, proposal, options){
       morale: d.demographics.morale,
       treasuryGp: d.treasury.gp
     };
-    _applyDomainTreasuryDelta(campaign, d, net, { reason:'monthly-net-income', label:'monthly net income' });
-    if(net) _turnWealthChildren.push({ amount: net, bucket:'monthly-net-income', reason:'monthly net income' });
+    // W4 — RR p.458: while OCCUPIED (not conquered) the peasants and their revenues are
+    // the occupier's; the urban families stay the owner's until conquest. A positive
+    // month splits by the peasant-attributable share of gross income (peasantIncomeShare);
+    // a negative month stays the owner's burden (the occupier does not subsidize 🔧).
+    let _ownerNet = net;
+    if(d.occupiedBy && d.occupiedBy.leaderCharacterId && net > 0 && global.ACKS.peasantIncomeShare){
+      const _occShare = global.ACKS.peasantIncomeShare(campaign, d);
+      const _occupierGp = Math.max(0, Math.round(net * _occShare));
+      if(_occupierGp > 0){
+        _ownerNet = net - _occupierGp;
+        const _occupier = (campaign.characters || []).find(c => c && c.id === d.occupiedBy.leaderCharacterId);
+        if(_occupier){
+          const _occDom = (campaign.domains || []).find(x => x && x.rulerCharacterId === _occupier.id) || null;
+          const _handle = (_occupier.payKeepFromTreasury !== false && _occDom)
+            ? { kind: 'treasury', id: _occDom.id } : { kind: 'character-gp', id: _occupier.id };
+          const _spec = { amount: _occupierGp, source: { kind: 'external', label: 'occupation of ' + (d.name || 'a domain') },
+                          destination: _handle, reason: 'Occupation revenue from ' + (d.name || 'a domain'), bucket: 'occupation-revenue' };
+          try {
+            if(global.ACKS.applyWealthTransfer) global.ACKS.applyWealthTransfer(campaign, _spec);
+            if(global.ACKS.recordWealthTransfer) global.ACKS.recordWealthTransfer(campaign, _spec, { submittedBy: 'engine', campaignLogHidden: true });
+          } catch(e){ /* the turn still settles; the event log just misses the transfer record */ }
+        }
+      }
+    }
+    _applyDomainTreasuryDelta(campaign, d, _ownerNet, { reason:'monthly-net-income', label:'monthly net income' });
+    if(_ownerNet) _turnWealthChildren.push({ amount: _ownerNet, bucket:'monthly-net-income', reason:'monthly net income' });
     d.demographics.morale = moraleAfter;
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
     setPeasantPopulation(d, (d.demographics.peasantFamilies || 0) + popDelta);
@@ -7748,8 +7778,10 @@ function commitTurn(campaign, proposal, options){
       }
     } catch(e){ /* swallow per original */ }
 
-    // Award XP to ruler (RR p.423; henchman rulers get half).
-    const xpEarned = global.ACKS.domainXpFromNet(campaign, d, net - totalInvestmentSpent - totalAgriculturalSpent);
+    // Award XP to ruler (RR p.423; henchman rulers get half). While occupied, the
+    // owner's XP basis is the net HE actually kept (_ownerNet — the occupier's share
+    // earned the occupier gp, not the deposed lord XP).
+    const xpEarned = global.ACKS.domainXpFromNet(campaign, d, _ownerNet - totalInvestmentSpent - totalAgriculturalSpent);
     let rulerXpAwarded = 0;
     if(xpEarned && xpEarned > 0){
       const rulerCh = global.ACKS.rulerCharacter(campaign, d);
@@ -7758,7 +7790,7 @@ function commitTurn(campaign, proposal, options){
         rulerXpAwarded = Math.round(xpEarned * henchPenalty);
         rulerCh.xp = (rulerCh.xp || 0) + rulerXpAwarded;
         addCharacterHistory(campaign, rulerCh, 'xp',
-          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + (net - totalInvestmentSpent - totalAgriculturalSpent).toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp' + (henchPenalty < 1 ? ', henchman ½' : '') + ')',
+          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + (_ownerNet - totalInvestmentSpent - totalAgriculturalSpent).toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp' + (henchPenalty < 1 ? ', henchman ½' : '') + ')',
           { xp: rulerXpAwarded, source: 'domain', domainId: d.id }
         );
       }
@@ -7862,6 +7894,11 @@ function commitTurn(campaign, proposal, options){
     // stale flag is harmless + self-healing, so this runs unconditionally of the rule.
     try {
       (campaign.domains || []).forEach(d => { if(d && d.incursionXenophobiaPending) d.incursionXenophobiaPending = false; });
+    } catch(e){ /* never let the flag clear fail the monthly commit */ }
+    // W4 — RR p.458: the post-occupation −1/month penalty is likewise ONE-SHOT (the
+    // owner's NEXT morale roll). It just fed this month's roll — consume it.
+    try {
+      (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
     } catch(e){ /* never let the flag clear fail the monthly commit */ }
   }
 

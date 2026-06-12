@@ -273,6 +273,12 @@
         { name: 'lastInitiative',    type: 'number', group: 'Campaign', description: '1d6 + strategic ability (RR p.447)' },
         { name: 'supplyBaseIds',     type: 'idArray', idKind: 'settlement', group: 'Supply', description: 'Supply bases (RR p.450) — settlements; stronghold/border-fort constructible ids also valid by hand' },
         { name: 'supplySimplified',  type: 'boolean', group: 'Supply', default: true, description: 'RR p.452 Supply Simplified — the default automation mode; untick for full line computation (W5)' },
+        // W4 maneuvers (RR pp.447–460) — the GM-editable campaign state
+        { name: 'reconModifier',       type: 'number', group: 'Campaign', default: 0, description: 'Standing GM modifier on this army’s reconnaissance rolls — magic, spies, stratagems (RR pp.453–455)' },
+        { name: 'concealmentModifier', type: 'number', group: 'Campaign', default: 0, description: 'Standing GM modifier on rolls made AGAINST this army — camouflage magic, screens, deception (RR p.455)' },
+        { name: 'alliedLeaderCharacterIds', type: 'idArray', idKind: 'character', group: 'Campaign', description: 'GM-marked allied leaders beyond the realm chain — their armies and domains read as friendly' },
+        { name: 'permittedDomainIds',  type: 'idArray', idKind: 'domain', group: 'Campaign', description: 'Domains this army may enter uninvited — no invasion (RR p.458)' },
+        { name: 'prisoners',           type: 'number', group: 'Campaign', default: 0, description: 'Held prisoners — ransom 40gp a head or keep as Construction labor (RR p.458)' },
         { name: 'notes',             type: 'string', group: 'History' },
         { name: 'history',           type: 'history', readonly: true, group: 'History' }
       ]
@@ -508,6 +514,7 @@
         { name: 'speedOverrideMilesPerDay', type: 'number', min: 0, group: 'Identity', description: '§26 GM speed override — miles/day for the leg, bypassing pace/weather/temperature (per-hex terrain still applies). 0 or blank ⇒ pace governs' },
         { name: 'partyId', type: 'id', idKind: 'party', group: 'Participants', description: 'Optional convenience pointer — participantCharacterIds is the source of truth' },
         { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
+        { name: 'armyId', type: 'id', idKind: 'army', group: 'Participants', description: 'W4 — an ARMY’s march: the army governs speed/weather; no nav throw, no encounter draws, no survival (RR p.448)' },
         { name: 'startHexId',       type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'destinationHexId', type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'currentHexId',     type: 'id', idKind: 'hex', group: 'Route', description: 'Advances to the destination on arrival (per-hex stepping is a later slice)' },

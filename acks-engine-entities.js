@@ -542,6 +542,18 @@ function blankArmy(opts={}){
     supplyBaseIds: opts.supplyBaseIds || [],                // settlements / strongholds / border forts (RR p.450)
     supplySimplified: opts.supplySimplified != null ? opts.supplySimplified : true,  // RR p.452 default mode
     lastInitiative: opts.lastInitiative != null ? opts.lastInitiative : null,
+    // ── W4 maneuvers (RR pp.447–460) — all lazy (older saves read defensively) ──
+    marchedOrds: opts.marchedOrds || [],                    // world ordinals marched (last 14) — the 3-of-7 rest rule (RR p.448)
+    forcedMarchOrds: opts.forcedMarchOrds || [],            // the forced-march subset (rest the day after or fatigued, RR p.449)
+    warMachines: opts.warMachines || null,                  // null | {count, assembled} — caps speed 6/12 mi/day (RR p.449)
+    intelReports: opts.intelReports || [],                  // reconnaissance reports incl. held prisoners (RR pp.452–457)
+    reconModifier: opts.reconModifier != null ? opts.reconModifier : 0,        // standing GM mod on ITS rolls (magic/spies/stratagems)
+    concealmentModifier: opts.concealmentModifier != null ? opts.concealmentModifier : 0,  // standing GM mod on rolls AGAINST it
+    alliedLeaderCharacterIds: opts.alliedLeaderCharacterIds || [],   // GM-marked allies beyond the realm chain
+    permittedDomainIds: opts.permittedDomainIds || [],      // domains whose ground this army may enter uninvited (no invasion)
+    invasions: opts.invasions || {},                        // {domainId: worldOrd} — the once-per-domain invasion stamp (RR p.458)
+    pillage: opts.pillage || null,                          // {domainId, startedOrd, daysRequired, saltTheEarth, unitsProportion} | null
+    prisoners: opts.prisoners != null ? opts.prisoners : 0, // held prisoners (ransom 40gp/head or Construction labor, RR p.458)
     history: opts.history || [],
     notes: opts.notes || ''
   };
@@ -1546,6 +1558,11 @@ function blankJourney(opts={}){
     participantCharacterIds: opts.participantCharacterIds || [],
     packAnimalIds: opts.packAnimalIds || [],
     shipId: opts.shipId || null,                        // voyage modes only (reserved)
+    // W4 — an ARMY's march (RR p.448: armies move on the standard expedition rules).
+    // When set, the army governs the journey: its slowest-unit speed × the large-army
+    // multiplier × war-machine cap, the ARMY weather table, no navigation throw, no
+    // per-hex encounter draws, no character survival (army supply is W5). Lazy field.
+    armyId: opts.armyId || null,
     // Origin / destination / route
     startedAtTurn: opts.startedAtTurn || null,
     startedAtDayInMonth: opts.startedAtDayInMonth || null,

@@ -254,21 +254,25 @@
   }
 
   // ── reconnaissance (RR pp.452–457) ──────────────────────────────────────────
-  function _armyHexCoord(campaign, army){
-    const h = _hex(campaign, army && army.currentHexId);
+  // Position reads accept per-call hex overrides (opts.obsHexId / opts.oppHexId) so
+  // the day consumer can evaluate POST-march positions from the shared day stash
+  // before the journey records commit.
+  function _armyHexCoord(campaign, army, hexIdOverride){
+    const h = _hex(campaign, hexIdOverride || (army && army.currentHexId));
     return (h && h.coord) ? h.coord : null;
   }
-  function armyHexDistance(campaign, armyA, armyB){
+  function armyHexDistance(campaign, armyA, armyB, opts){
     const Ax = A();
-    const a = _armyHexCoord(campaign, armyA), b = _armyHexCoord(campaign, armyB);
+    const a = _armyHexCoord(campaign, armyA, opts && opts.obsHexId);
+    const b = _armyHexCoord(campaign, armyB, opts && opts.oppHexId);
     if(!a || !b || typeof Ax.hexAxialDistance !== 'function') return null;
     return Ax.hexAxialDistance(a, b);
   }
   // In reconnaissance range? (RR p.452 — by the OPPOSING army's size, in 24-mile
   // hexes; 🔧 quantized 1 twenty-four-mile hex = 4 six-mile hexes.)
-  function armyInReconRange(campaign, observer, opposing){
+  function armyInReconRange(campaign, observer, opposing, opts){
     const Ax = A();
-    const dist = armyHexDistance(campaign, observer, opposing);
+    const dist = armyHexDistance(campaign, observer, opposing, opts);
     if(dist == null) return false;
     return dist <= Ax.reconRange24(armyTroopCount(campaign, opposing)) * 4;
   }
@@ -280,7 +284,7 @@
   function armyReconRoll(campaign, observer, opposing, opts){
     const Ax = A();
     const rng = (opts && opts.rng) || Math.random;
-    const dist = armyHexDistance(campaign, observer, opposing);
+    const dist = armyHexDistance(campaign, observer, opposing, opts);
     const oppTroops = armyTroopCount(campaign, opposing);
     const mods = [];
     mods.push({ label: 'opposing army of ' + oppTroops + ' (' + Ax.armySizeBandLabel(oppTroops) + ')', value: Ax.reconSizeMod(oppTroops) });
@@ -305,7 +309,7 @@
       else if(oppCav > obsCav) mods.push({ label: 'fewer cavalry overall', value: -1 });
     }
     // terrain — the OPPOSING army's hex (RR p.453)
-    const oppHex = _hex(campaign, opposing && opposing.currentHexId);
+    const oppHex = _hex(campaign, (opts && opts.oppHexId) || (opposing && opposing.currentHexId));
     if(oppHex){
       const tk = (typeof Ax.terrainKey === 'function') ? Ax.terrainKey(oppHex) : (oppHex.terrain || '');
       const tv = Ax.reconTerrainMod(tk);
@@ -368,7 +372,7 @@
     if(spec.reveals.indexOf('divisions') >= 0) revealed.divisions = ((opposing && opposing.divisions) || []).length;
     if(spec.reveals.indexOf('units-per-division') >= 0){
       revealed.unitsPerDivision = ((opposing && opposing.divisions) || []).map(dv => ((dv && dv.unitIds) || []).length);
-      revealed.unitScale = _armyDominantScale(campaign, opposing);
+      revealed.unitScale = armyDominantScale(campaign, opposing);
     }
     if(spec.reveals.indexOf('unit-types') >= 0){
       revealed.unitTypes = A().armyUnits(campaign, opposing).map(u => u.displayName || u.unitTypeKey);
@@ -420,7 +424,7 @@
     if(dq < 0) return 'west';
     return dr < 0 ? 'north' : 'south';
   }
-  function _armyDominantScale(campaign, army){
+  function armyDominantScale(campaign, army){
     const counts = {};
     for(const u of A().armyUnits(campaign, army)){ counts[u.scale || 'company'] = (counts[u.scale || 'company'] || 0) + 1; }
     let best = 'company', bestN = -1;
@@ -524,6 +528,26 @@
     return { ok: true };
   }
 
+  // Emit a domain-warfare audit event directly (the GM-verb path — conquest, a
+  // cut-short pillage; the day consumer's records flow through the day-tick notable
+  // channel instead). The startJourney emission pattern.
+  function _emitWarfareEvent(campaign, payload, context, narrative){
+    try {
+      const Ax = A();
+      campaign.eventLog = campaign.eventLog || [];
+      const cal = campaign.calendar || {};
+      const ev = Ax.newEvent('domain-warfare', {
+        submittedBy: 'engine', status: (Ax.EVENT_STATUS && Ax.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
+        targetTurn: campaign.currentTurn || 1,
+        gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
+        context: Object.assign({ primaryHexId: null, involvedHexIds: [], settlementId: null, domainId: null, relatedEntities: [] }, context || {}),
+        payload: Object.assign({}, payload, { narrative })
+      });
+      ev.appliedAtTurn = campaign.currentTurn || 1;
+      campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative }, appliedAtTurn: campaign.currentTurn || 1, appliedAt: new Date().toISOString() });
+    } catch(e){ /* never let event emission block the verb */ }
+  }
+
   // ── invasion & the immediate morale roll (RR p.458) ────────────────────────
   // Pure compute: the immediate domain morale roll an invasion or a pillage forces.
   // Reuses the monthly machinery (moraleModifiersFor + moraleChangeFromRoll) so the
@@ -577,16 +601,18 @@
   // The printed math: occupying troops' wages/month − the defending garrison's
   // wages/month, ÷ peasant families, vs the domain's garrison cost (2–4gp/family).
   // Marcus/Sarotem worked example: (6,000 − 1,200) / 500 = 9.6 > 2 → occupied.
-  function domainOccupationStatus(campaign, domain){
+  function domainOccupationStatus(campaign, domain, opts){
     const Ax = A();
     if(!campaign || !domain) return { occupied: false };
+    const overrides = (opts && opts.armyHexOverrides) || null;
+    const posOf = ar => (overrides && overrides[ar.id]) || ar.currentHexId;
     const domHexIds = {};
     for(const h of (campaign.hexes || [])){ if(h && h.domainId === domain.id) domHexIds[h.id] = true; }
     // occupying troops: every unfriendly army positioned in the domain (the largest
     // contributor's leader is the occupier; multi-leader invasions are 🔧 keyed to him)
     let occupyingWages = 0, occupierLeaderId = null, occupierBest = -1, occupierArmyIds = [];
     for(const ar of (campaign.armies || [])){
-      if(!ar || !ar.currentHexId || !domHexIds[ar.currentHexId]) continue;
+      if(!ar || !posOf(ar) || !domHexIds[posOf(ar)]) continue;
       if(domainFriendlyToArmy(campaign, domain, ar)) continue;
       const w = (typeof Ax.armyWageMonthly === 'function') ? Ax.armyWageMonthly(campaign, ar) : 0;
       occupyingWages += w;
@@ -596,7 +622,7 @@
     // defenders: the domain's own garrison spend + friendly armies present
     let defendingWages = (typeof Ax.garrisonCost === 'function') ? Ax.garrisonCost(domain) : 0;
     for(const ar of (campaign.armies || [])){
-      if(!ar || !ar.currentHexId || !domHexIds[ar.currentHexId]) continue;
+      if(!ar || !posOf(ar) || !domHexIds[posOf(ar)]) continue;
       if(!domainFriendlyToArmy(campaign, domain, ar)) continue;
       defendingWages += (typeof Ax.armyWageMonthly === 'function') ? Ax.armyWageMonthly(campaign, ar) : 0;
     }
@@ -704,6 +730,20 @@
     // new ruler at the next monthly roll (base morale recomputes from his authority).
     domain.occupiedBy = null;
     domain.postOccupationPenaltyMonths = 0;
+    const newRuler = _char(campaign, newRulerId);
+    const narrative = (domain.name || 'The domain') + ' is CONQUERED — ' +
+      (mode === 'grant-to-vassal'
+        ? ('granted to ' + ((newRuler && newRuler.name) || 'a vassal') + ' as a vassal of the conqueror')
+        : ('the conqueror ' + ((newRuler && newRuler.name) || '') + ' rules it directly').trim()) + ' (RR p.458).';
+    _emitWarfareEvent(campaign,
+      { action: 'conquered', domainId: domain.id, mode, newRulerCharacterId: newRulerId, armyId: (opts && opts.armyId) || null },
+      { domainId: domain.id, relatedEntities: [
+          { kind: 'domain', id: domain.id, role: 'target' },
+          leaderId ? { kind: 'character', id: leaderId, role: 'commander' } : null,
+          newRulerId && newRulerId !== leaderId ? { kind: 'character', id: newRulerId, role: 'beneficiary' } : null,
+          oldRulerId ? { kind: 'character', id: oldRulerId, role: 'victim' } : null
+        ].filter(Boolean) },
+      narrative);
     return { ok: true, mode, oldRulerId, newRulerId };
   }
 
@@ -891,6 +931,18 @@
     });
     applyPillageResults(campaign, army, domain, results, moraleResult);
     army.pillage = null;
+    const narrative = (army.name || 'The army') + (p.saltTheEarth ? ' salted the earth of ' : ' pillaged ') +
+      (domain.name || 'the domain') + ': ' + results.gold.toLocaleString() + 'gp plundered, ' +
+      results.supplies.toLocaleString() + 'gp of supplies, ' + results.prisoners + ' prisoners; ' +
+      results.familiesLost + ' families lost' + (results.destroyed ? ' — the domain is destroyed' : '') + ' (RR pp.458–459).';
+    _emitWarfareEvent(campaign,
+      { action: 'pillaged', armyId: army.id, domainId: domain.id, saltTheEarth: !!p.saltTheEarth,
+        results: { gold: results.gold, supplies: results.supplies, prisoners: results.prisoners, familiesLost: results.familiesLost, destroyed: results.destroyed, proportion: results.proportion } },
+      { primaryHexId: army.currentHexId || null, domainId: domain.id, relatedEntities: [
+          { kind: 'army', id: army.id, role: 'subject' }, { kind: 'domain', id: domain.id, role: 'victim' },
+          army.leaderCharacterId ? { kind: 'character', id: army.leaderCharacterId, role: 'commander' } : null
+        ].filter(Boolean) },
+      narrative);
     return { ok: true, results, moraleResult, domain };
   }
   // Ransom held prisoners at the printed 40gp a head (RR p.458) — gp + spoils XP to
@@ -925,6 +977,26 @@
   // While occupied (not yet conquered) the occupier controls the PEASANTS and their
   // revenues; the urban families stay the owner's. The monthly turn splits the
   // domain's net by the peasant-attributable share of gross income.
+  // The monthly morale machinery runs under the OCCUPIER's personal authority while
+  // the domain is occupied (RR p.458: "a new base morale score based on the occupier's
+  // personal authority, alignment, garrison, etc."). Same summary shape effectiveRuler
+  // returns; falls back to effectiveRuler when the occupier can't be resolved.
+  function occupierRulerSummary(campaign, d){
+    const Ax = A();
+    const occ = d && d.occupiedBy;
+    const ch = occ ? _char(campaign, occ.leaderCharacterId) : null;
+    if(!ch) return (typeof Ax.effectiveRuler === 'function') ? Ax.effectiveRuler(campaign, d) : {};
+    const domainIncomeVal = (typeof Ax.domainIncome === 'function') ? Ax.domainIncome(campaign, d) : 0;
+    return {
+      name: ch.name, class: ch.class || '', level: ch.level || 1,
+      personalAuthority: (typeof Ax.computePersonalAuthority === 'function') ? Ax.computePersonalAuthority(ch.level || 1, domainIncomeVal) : 0,
+      gpThreshold: (typeof Ax.computeGpThreshold === 'function') ? Ax.computeGpThreshold(ch.level || 1) : 0,
+      administersThisMonth: false,
+      isPC: (typeof Ax.isPlayerControlled === 'function') ? Ax.isPlayerControlled(ch) : false,
+      occupier: true
+    };
+  }
+
   function peasantIncomeShare(campaign, d){
     const Ax = A();
     if(typeof Ax.incomeBreakdown !== 'function') return 1;
@@ -948,7 +1020,7 @@
   Object.assign(ACKS, {
     // composition + movement
     armyTroopCount, armyBrigadeEquivalents, armyCavalryCompanyEquivalents, armyOnCampaign,
-    armyMarchProfile, armyExpeditionSpeedMilesPerDay,
+    armyMarchProfile, armyExpeditionSpeedMilesPerDay, armyDominantScale,
     recordArmyMarchDay, armyFatigued,
     // allegiance
     leadersOpposed, armiesOpposed, domainFriendlyToArmy,
@@ -966,7 +1038,7 @@
     // pillage
     beginPillage, rollPillageResults, applyPillageResults, resolvePillage, ransomPrisoners,
     // occupation economics
-    peasantIncomeShare
+    peasantIncomeShare, occupierRulerSummary
   });
 
   if(typeof module !== 'undefined' && module.exports){

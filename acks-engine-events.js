@@ -141,6 +141,18 @@ const EVENT_KINDS = Object.freeze([
   // battle-resolved: the ONE comprehensive outcome record (applyBattleAftermath) —
   // winner, casualties, spoils, XP; chronicle-visible.
   'battle-resolved',
+  // Phase 3 Military W4 (2026-06-12) — the campaign cycle (RR pp.447–460). Both are
+  // record-only audits emitted through the day-tick notable channel (the slot-88
+  // military consumer); the commits write the state.
+  // army-contact: two opposing armies met in a 6-mile hex — both contact recon
+  // results, the derived awareness, the strategic situation, and (when stances make
+  // a battle) the created Battle's id. Chronicle-visible.
+  'army-contact',
+  // domain-warfare: the invasion/occupation/conquest/pillage lifecycle, action-
+  // discriminated (payload.action: invaded | occupied | occupation-ended |
+  // conquered | pillaged — the F&D/E10 one-kind-many-actions pattern).
+  // Chronicle-visible.
+  'domain-warfare',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -502,6 +514,23 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { battleId: 'string' },
     O: { winner: 'string', endedBy: 'string', turns: 'number', spoilsGp: 'number',
          prisoners: 'number', casualties: 'object', xp: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W4 — the campaign-cycle audits (RR pp.447–460). Emitted through
+  // the day-tick notable channel; the military consumer's commit writes the state.
+  // army-contact: both recon summaries + awareness + the strategic situation; when
+  // stances make a battle, battleId points at the created W3 Battle (setup state).
+  'army-contact': {
+    R: { actingArmyId: 'string', otherArmyId: 'string' },
+    O: { hexId: 'string', awareness: 'string', situation: 'string', situationLabel: 'string',
+         battle: 'boolean', battleId: 'string', reconActing: 'object', reconOther: 'object',
+         narrative: 'string' }
+  },
+  // domain-warfare: action ∈ invaded | occupied | occupation-ended | conquered | pillaged.
+  'domain-warfare': {
+    R: { action: 'string', domainId: 'string' },
+    O: { armyId: 'string', hexId: 'string', occupierLeaderId: 'string', months: 'number',
+         moraleRoll: 'object', math: 'object', mode: 'string', newRulerCharacterId: 'string',
+         saltTheEarth: 'boolean', results: 'object', narrative: 'string' }
   },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
@@ -1995,6 +2024,15 @@ function applyEvent_battleAudit(campaign, event){
 registerEventHandler('battle-started', applyEvent_battleAudit);
 registerEventHandler('battle-turn', applyEvent_battleAudit);
 registerEventHandler('battle-resolved', applyEvent_battleAudit);
+// Phase 3 Military W4 — the campaign-cycle audits share the posture: the slot-88
+// military consumer's commit (and the conquest/pillage verbs) own the world state;
+// these handlers only keep the events well-formed on replay.
+function applyEvent_warfareAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'campaign record' } };
+}
+registerEventHandler('army-contact', applyEvent_warfareAudit);
+registerEventHandler('domain-warfare', applyEvent_warfareAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -4947,7 +4985,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'domain-incursion',
   // Phase 3 Military W3 — owned by the battle engine (beginBattle / runBattleTurn /
   // applyBattleAftermath emit these; raw emit would narrate a fight the entity doesn't hold).
-  'battle-started', 'battle-turn', 'battle-resolved'
+  'battle-started', 'battle-turn', 'battle-resolved',
+  // Phase 3 Military W4 — owned by the slot-88 military consumer + the conquest/pillage
+  // verbs (their commits write the state; raw emit would narrate a campaign move the
+  // armies/domains don't show).
+  'army-contact', 'domain-warfare'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
