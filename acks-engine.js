@@ -3168,6 +3168,150 @@ function validateArmyOrganization(campaign, army){
   return findings;
 }
 
+// ─── Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106) ───
+// All derive-don't-store (§3.13): territory, borders, classification demotion, the daily
+// chance, and the platoon-scale BR comparison are pure reads over the campaign; the only
+// stored state W2 adds is d.dangerousBordersOverride (the GM's judgment lever),
+// d.incursionXenophobiaPending (the JJ p.103 one-shot −1) and group.incursion (the
+// materialized band's verdict bundle).
+
+// How many 6-mile hexes the domain holds: authored hexes are the truth when the map
+// carries any; legacy aggregate domains fall back to geography.controlledHexes.
+function domainTerritoryHexCount(campaign, d){
+  if(!d) return 1;
+  const authored = ((campaign && campaign.hexes) || []).filter(h => h && h.domainId === d.id).length;
+  if(authored > 0) return authored;
+  return Math.max(1, (d.geography && d.geography.controlledHexes) || 1);
+}
+
+// JJ p.102 — is the domain's border dangerous, and in which configuration? RAW frames
+// this as a judgment from the regional geography; the derivation reads the hex map:
+// a border face is SECURE when the neighbour belongs to any domain, is water
+// (impassable), or the shared edge carries a river (RAW's own "a domain with a broad
+// river … is far easier to defend" — the §24 effect-3 note, closed here); otherwise it
+// is dangerous (unsettled or unauthored land — a frontier is exposed even where the GM
+// hasn't authored the wilds). The dangerous fraction of border faces maps onto RAW's
+// four illustrations (🔧 heuristic: 0 → secure · ≤⅓ → line · ≤½ → flank · <1 →
+// spearhead · all → isolated); d.dangerousBordersOverride (one of
+// BORDER_CONFIGURATIONS) outranks the heuristic, exactly as printed. A mapless domain
+// derives 'secure' (no inflation without geography).
+function domainBorderConfiguration(campaign, d){
+  const A = global.ACKS || {};
+  const out = { configuration: 'secure', source: 'derived', dangerousFaces: 0, borderFaces: 0 };
+  if(!d) return out;
+  const hexes = ((campaign && campaign.hexes) || []).filter(h => h && h.domainId === d.id && h.coord);
+  if(hexes.length){
+    const byCoord = new Map();
+    for(const h of ((campaign && campaign.hexes) || [])){ if(h && h.coord) byCoord.set(h.coord.q + ',' + h.coord.r, h); }
+    // HEX_EDGE_DELTAS order (the map convention — riverSides indices key off it)
+    const deltas = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
+    let dangerous = 0, total = 0;
+    for(const h of hexes){
+      for(let side = 0; side < 6; side++){
+        const n = byCoord.get((h.coord.q + deltas[side][0]) + ',' + (h.coord.r + deltas[side][1])) || null;
+        if(n && n.domainId === d.id) continue;                 // internal face
+        total++;
+        let secure = false;
+        if(n && n.domainId) secure = true;                     // a neighbouring domain holds it
+        else if(n){
+          const base = (typeof A.terrainBase === 'function') ? A.terrainBase(n.terrain) : n.terrain;
+          if(base === 'water') secure = true;                  // impassable terrain
+        }
+        const opp = (side + 3) % 6;
+        if(!secure && Array.isArray(h.riverSides) && h.riverSides.indexOf(side) >= 0) secure = true;
+        if(!secure && n && Array.isArray(n.riverSides) && n.riverSides.indexOf(opp) >= 0) secure = true;
+        if(!secure) dangerous++;
+      }
+    }
+    out.borderFaces = total; out.dangerousFaces = dangerous;
+    if(total > 0 && dangerous > 0){
+      const f = dangerous / total;
+      out.configuration = (dangerous >= total) ? 'isolated'
+        : (f > 0.5)   ? 'spearhead'
+        : (f > 1 / 3) ? 'flank'
+        : 'line';
+    }
+  }
+  const override = d.dangerousBordersOverride;
+  const cfgList = (A.BORDER_CONFIGURATIONS || ['secure', 'line', 'flank', 'spearhead', 'isolated']);
+  if(override && cfgList.indexOf(String(override).toLowerCase()) >= 0){
+    out.configuration = String(override).toLowerCase();
+    out.source = 'override';
+  }
+  return out;
+}
+
+// JJ p.102 — actual territory + border configuration → the effective territory size
+// the encounter throw reads.
+function domainEffectiveTerritory(campaign, d){
+  const A = global.ACKS || {};
+  const actual = domainTerritoryHexCount(campaign, d);
+  const cfg = domainBorderConfiguration(campaign, d);
+  const effective = (typeof A.effectiveTerritoryWithBorders === 'function')
+    ? A.effectiveTerritoryWithBorders(actual, cfg.configuration)
+    : actual;
+  return { actualHexes: actual, effectiveHexes: effective, configuration: cfg.configuration,
+           configurationSource: cfg.source, dangerousFaces: cfg.dangerousFaces, borderFaces: cfg.borderFaces };
+}
+
+// JJ p.102 — an insufficient garrison and/or stronghold reads the domain one
+// classification worse for domain encounters (civilized → borderlands → outlands →
+// unsettled; the printed example demotes a bankrupt outlands domain to unsettled).
+// Garrison sufficiency uses the same effective spend the morale adequacy sees
+// (garrisonCost + scutage paid this month, RR p.347); stronghold sufficiency is value
+// vs the RR p.349 per-hex requirement.
+function domainIncursionClassification(campaign, d){
+  const A = global.ACKS || {};
+  const base = String(effectiveDomainClassification(d) || 'Outlands').toLowerCase();
+  const garrSpend = ((typeof A.garrisonCost === 'function') ? A.garrisonCost(d) : 0)
+    + ((typeof A.scutagePaidThisMonth === 'function') ? A.scutagePaidThisMonth(campaign, d) : 0);
+  const garrReq = (typeof A.requiredGarrison === 'function') ? A.requiredGarrison(campaign, d) : 0;
+  const insufficientGarrison = garrReq > 0 && garrSpend < garrReq;
+  const shReq = (typeof A.strongholdRequired === 'function') ? A.strongholdRequired(d) : 0;
+  const shVal = (typeof A.strongholdValue === 'function') ? A.strongholdValue(campaign, d) : 0;
+  const insufficientStronghold = shReq > 0 && shVal < shReq;
+  const ladder = ['civilized', 'borderlands', 'outlands', 'unsettled'];
+  let idx = ladder.indexOf(base); if(idx < 0) idx = 2;
+  const demoted = insufficientGarrison || insufficientStronghold;
+  if(demoted) idx = Math.min(ladder.length - 1, idx + 1);
+  return { base, effective: ladder[idx], demoted, insufficientGarrison, insufficientStronghold };
+}
+
+// The one read the consumer, the UI and the tests share: the domain's daily domain-
+// encounter chance (JJ p.101) off its effective territory + effective classification.
+function domainDailyEncounterChance(campaign, d){
+  const A = global.ACKS || {};
+  const terr = domainEffectiveTerritory(campaign, d);
+  const cls = domainIncursionClassification(campaign, d);
+  const pct = (typeof A.incursionDailyPct === 'function') ? A.incursionDailyPct(terr.effectiveHexes, cls.effective) : 0;
+  return Object.assign({ pct }, terr, cls);
+}
+
+// ── JJ p.105 — mass combat for domain encounters runs at PLATOON scale ──
+// (units of 30 men / 15 large; per-creature BR is ×4 the company values). The garrison
+// prices its actual units; a monster band prices off the MONSTER_CATALOG battleRating
+// the same way — the shared battle interface (§5.1), no promotion.
+function _roundQuarterBr(x){ return Math.round(x * 4) / 4; }   // the printed platoon-BR grain
+function unitPlatoonBrPerCreature(unit){
+  if(!unit) return 0;
+  const stored = (typeof unit.brPerSoldier === 'number' && unit.brPerSoldier > 0) ? unit.brPerSoldier : null;
+  if(stored != null) return stored;
+  const row = unitTroopRow(unit);
+  return row ? (row.brPerCreature || 0) : 0;
+}
+function domainGarrisonPlatoonBr(campaign, d){
+  const units = (d && d.garrison && Array.isArray(d.garrison.units)) ? d.garrison.units : [];
+  let br = 0;
+  for(const u of units){ if(u) br += unitPlatoonBrPerCreature(u) * unitActiveCount(u) * 4; }
+  return _roundQuarterBr(br);
+}
+// A band of N creatures at platoon scale; null when the creature carries no catalog BR
+// (a label-only identity — the GM prices it).
+function monsterPlatoonBr(brPerCreature, count){
+  if(!(brPerCreature > 0) || !(count > 0)) return null;
+  return _roundQuarterBr(brPerCreature * count * 4);
+}
+
 // ─── Canonical stationing setter + the garrison/mercenaryCompany lift (rule #10) ───
 
 // Move a unit to a station, maintaining BOTH homes: campaign.units[] (canonical) and
@@ -9137,6 +9281,10 @@ const ACKS = Object.assign(global.ACKS || {}, {
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
   validateArmyOrganization, stationUnit, disbandUnit, migrateGarrisonUnitsToUnits,
+  // Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106)
+  domainTerritoryHexCount, domainBorderConfiguration, domainEffectiveTerritory,
+  domainIncursionClassification, domainDailyEncounterChance,
+  unitPlatoonBrPerCreature, domainGarrisonPlatoonBr, monsterPlatoonBr,
   // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)

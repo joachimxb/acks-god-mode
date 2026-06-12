@@ -194,6 +194,8 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'monster-pursuit', category:'encounters', name:'Monster pursuit', source:'RR p.285 + p.120 / #476 E3', default:true, description:'A tracking-capable monster the party evades may take up pursuit ("adventurers who evade might be tracked by some monsters" — RR p.285): the evaded encounter holds open while the GM adjudicates intent; a pursuer follows the trail at half expedition speed with daily Tracking throws (RR p.120) via the day clock, and a catch-up springs a fresh encounter. RAW frames this as GM judgment, so the automation is the toggle. Default on.' },
   { id:'domain-morale-banditry', category:'encounters', name:'Domain banditry takes the field', source:'RR pp.350–351 / #476 E10', default:true,
     description:'A domain at Turbulent morale or worse is plagued by bandits (RR p.350: one able-bodied man per 5 / 2 / 1 families at −2 / −3 / −4). With this on, those bandits MATERIALIZE as bands placed in the world each monthly turn — raiding within their domain on the Day Clock, meetable through the encounter layer, counting as an enemy army whose occupation penalty builds on the morale roll (RR p.349 + p.351). Killed bandits reduce the population (RR p.351); morale recovering to −1 disbands them back to their fields. Off = the bandit count stays a readout only. Default on.' },
+  { id:'vagaries-of-incursion', category:'encounters', name:'Vagaries of Incursion (domain encounters)', source:'JJ pp.100–103 / Phase 3 Military W2',
+    description:'Every domain rolls the Daily Domain Encounter Probability on the Day Clock — wandering monsters arrive from outside (dangerous borders and an insufficient garrison or stronghold raise the odds), roll their domain reaction and reconnaissance, and materialize as real bands in the world, with the platoon-scale Battle Rating comparison against the garrison (JJ pp.104–106). The whole Vagaries chapter is strictly optional per JJ p.100, so this defaults off; a physical wandering band crossing the border (Persistent wandering monsters) counts as the day’s occurrence either way. The bundled demo enables it. Default off.' },
   { id:'ignore-rations', category:'world', name:'Ignore rations', source:'RR p.275 (abstraction)', description:'Abstract away food + water logistics on Journeys — the engine stops tracking rations and never applies hunger or dehydration. RAW (strict ration tracking) is the default; this is the abstraction. Default off.' },
   // ----- Domain mechanics -----
   { id:'families-per-hex-tracking', category:'domain', name:'Families-per-hex tracking',
@@ -1881,6 +1883,81 @@ function territoryClassForHex(campaign, hex){
   return (t === 'civilized' || t === 'borderlands' || t === 'outlands') ? t : 'outlands';
 }
 
+// ── Phase 3 Military W2 — The Vagaries of Incursion (JJ pp.100–103) ─────────
+// Domain encounters: the daily chance a wandering-monster incursion strikes a domain.
+// The generator runs behind the 'vagaries-of-incursion' rule (strictly optional per
+// JJ p.100, default OFF); these tables + bands are core plumbing the rule feeds.
+// Daily Domain Encounter Probability by Territory Size and Classification (JJ p.101).
+// Rows band by territory size in 6-mile hexes; values are % per day. The unsettled
+// column serves dungeons in unsettled territory / under-garrisoned outlands (the JJ
+// p.101 footnote) — it is also where the JJ p.102 garrison/stronghold demotion lands.
+const INCURSION_DAILY_PCT = Object.freeze([
+  Object.freeze({ maxHexes: 1,  civilized: 0.5, borderlands: 1,  outlands: 3,  unsettled: 4 }),
+  Object.freeze({ maxHexes: 2,  civilized: 1,   borderlands: 1,  outlands: 5,  unsettled: 9 }),
+  Object.freeze({ maxHexes: 3,  civilized: 1,   borderlands: 2,  outlands: 8,  unsettled: 13 }),
+  Object.freeze({ maxHexes: 6,  civilized: 2,   borderlands: 3,  outlands: 15, unsettled: 22 }),
+  Object.freeze({ maxHexes: 8,  civilized: 3,   borderlands: 5,  outlands: 20, unsettled: 30 }),
+  Object.freeze({ maxHexes: 10, civilized: 4,   borderlands: 7,  outlands: 27, unsettled: 44 }),
+  Object.freeze({ maxHexes: 13, civilized: 5,   borderlands: 9,  outlands: 35, unsettled: 57 }),
+  Object.freeze({ maxHexes: 16, civilized: 6,   borderlands: 11, outlands: 44, unsettled: 70 })
+]);
+// Territory > 16 hexes reads the 14–16 row (the printed table tops there).
+function incursionDailyPct(territoryHexes, territoryClass){
+  const n = Math.max(1, Math.min(16, Math.round(Number(territoryHexes) || 1)));
+  const row = INCURSION_DAILY_PCT.find(r => n <= r.maxHexes) || INCURSION_DAILY_PCT[INCURSION_DAILY_PCT.length - 1];
+  const t = String(territoryClass || 'unsettled').toLowerCase();
+  return (row[t] != null) ? row[t] : row.unsettled;
+}
+// Effective Domain Territory with Dangerous Borders (JJ p.102) — a domain adjacent to
+// unsettled territory counts as having a larger territory for encounter throws, by
+// configuration: isolated (unsettled all around) / spearhead (front + both flanks) /
+// flank (front + one flank) / line (front only). 'secure' = no dangerous borders.
+const BORDER_CONFIGURATIONS = Object.freeze(['secure', 'line', 'flank', 'spearhead', 'isolated']);
+const DANGEROUS_BORDERS_TERRITORY = Object.freeze([
+  Object.freeze({ maxHexes: 1,  isolated: 16, spearhead: 8,  flank: 6,  line: 4 }),
+  Object.freeze({ maxHexes: 2,  isolated: 16, spearhead: 10, flank: 7,  line: 4 }),
+  Object.freeze({ maxHexes: 3,  isolated: 16, spearhead: 12, flank: 9,  line: 5 }),
+  Object.freeze({ maxHexes: 6,  isolated: 16, spearhead: 14, flank: 10, line: 6 }),
+  Object.freeze({ maxHexes: 8,  isolated: 16, spearhead: 16, flank: 12, line: 8 }),
+  Object.freeze({ maxHexes: 10, isolated: 16, spearhead: 16, flank: 14, line: 10 }),
+  Object.freeze({ maxHexes: 13, isolated: 16, spearhead: 16, flank: 16, line: 13 }),
+  Object.freeze({ maxHexes: 16, isolated: 16, spearhead: 16, flank: 16, line: 16 })
+]);
+function effectiveTerritoryWithBorders(territoryHexes, configuration){
+  const n = Math.max(1, Math.min(16, Math.round(Number(territoryHexes) || 1)));
+  const cfg = String(configuration || 'secure').toLowerCase();
+  if(cfg === 'secure' || BORDER_CONFIGURATIONS.indexOf(cfg) < 0) return n;
+  const row = DANGEROUS_BORDERS_TERRITORY.find(r => n <= r.maxHexes) || DANGEROUS_BORDERS_TERRITORY[DANGEROUS_BORDERS_TERRITORY.length - 1];
+  return (row[cfg] != null) ? row[cfg] : n;
+}
+// Domain Encounter Reaction (JJ p.103) — 2d6 ± circumstance. Its OWN table, distinct
+// from the wilderness 2d6 reaction: the domain's rulers apply no CHA or proficiency
+// adjustments and don't know the result until they discover it in play.
+const DOMAIN_REACTION_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'hostile',      label: 'Hostile — pillage' }),
+  Object.freeze({ max: 5,    key: 'unfriendly',   label: 'Unfriendly — opportunistic' }),
+  Object.freeze({ max: 8,    key: 'neutral',      label: 'Neutral — exploratory' }),
+  Object.freeze({ max: 11,   key: 'mercantilist', label: 'Mercantilist — trade' }),
+  Object.freeze({ max: null, key: 'friendly',     label: 'Friendly — help' })
+]);
+function domainEncounterReactionBand(total){
+  for(const b of DOMAIN_REACTION_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return DOMAIN_REACTION_BANDS[DOMAIN_REACTION_BANDS.length - 1];
+}
+// Reconnaissance roll result bands (RR p.452) — shared by the W2 recon-lite for domain
+// encounters (JJ p.103) and the W4 full army reconnaissance when it lands.
+const RECON_ROLL_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'catastrophe', label: 'Catastrophe — false intelligence' }),
+  Object.freeze({ max: 5,    key: 'failure',     label: 'Failure — no intelligence' }),
+  Object.freeze({ max: 8,    key: 'marginal',    label: 'Marginal success' }),
+  Object.freeze({ max: 11,   key: 'success',     label: 'Success' }),
+  Object.freeze({ max: null, key: 'major',       label: 'Major success' })
+]);
+function reconRollBand(total){
+  for(const b of RECON_ROLL_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return RECON_ROLL_BANDS[RECON_ROLL_BANDS.length - 1];
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -1910,6 +1987,10 @@ Object.assign(ACKS, {
   ENCOUNTER_CATEGORY_COLUMNS, ENCOUNTER_TERRITORY_CLASSES, encounterCategoryColumnIndex, rollEncounterCategory,
   ENCOUNTER_RARITY_BY_TERRITORY, rollEncounterRarity,
   ENCOUNTER_FREQUENCY, restEncounterChecksForDay, territoryClassForHex,
+  // Phase 3 Military W2 — the Vagaries of Incursion tables (JJ pp.100–103) + recon bands (RR p.452)
+  INCURSION_DAILY_PCT, incursionDailyPct, BORDER_CONFIGURATIONS, DANGEROUS_BORDERS_TERRITORY,
+  effectiveTerritoryWithBorders, DOMAIN_REACTION_BANDS, domainEncounterReactionBand,
+  RECON_ROLL_BANDS, reconRollBand,
   // #476 M4 — Wilderness Search target (RR p.276)
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)

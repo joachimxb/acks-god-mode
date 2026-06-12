@@ -150,6 +150,10 @@ function blankDomain(opts={}){
     liegeId: opts.liegeId || null,
     vassalIds: opts.vassalIds || [],
     isRealm: opts.isRealm || false,
+    // Phase 3 Military W2 — Vagaries of Incursion (JJ p.102; lazy on old saves).
+    // dangerousBordersOverride: the GM's border-configuration judgment ('secure' | 'line' |
+    // 'flank' | 'spearhead' | 'isolated'); null = derive from the hex map.
+    dangerousBordersOverride: opts.dangerousBordersOverride || null,
     // Geography (hexes live here for v2; canonical-store lift to campaign-level remains deferred per task #119)
     geography: opts.geography || {
       hexMapId: null,
@@ -1448,6 +1452,14 @@ function blankGroup(opts={}){
     // or heads home, and the monthly turn reconciles it to banditCount (dissolving it when
     // morale recovers to −1 or better — the men return to their fields).
     banditryDomainId: opts.banditryDomainId || null,
+    // Phase 3 Military W2 — Vagaries of Incursion (JJ pp.100–106; lazy on old saves).
+    // Set = this band arrived as a DOMAIN ENCOUNTER: the verdict bundle the incursion
+    // consumer recorded. Shape: { domainId, attitude (hostile|unfriendly|neutral|
+    // mercantilist|friendly), disposition ('lingering'|'migrating'), fullStrength,
+    // treasureType, rulerAware, monstersIntel, arrivedAtTurn, arrivedOnDay }. A
+    // migrating band wanders on via the monster-bands consumer; a lingering one holds
+    // (wanderState.halted) as the standing threat the BR comparison priced.
+    incursion: opts.incursion || null,
     // #476 E6 — autonomous band motion (the monster-bands day consumer; lazy on old
     // saves). null = the defaults govern: an un-housed living band WANDERS (migration
     // movement — half expedition speed, random steps, never directly back). Shape:
