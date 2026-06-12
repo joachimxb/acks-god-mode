@@ -3401,6 +3401,66 @@ function disbandUnit(campaign, unitOrId){
   return unit;
 }
 
+// ─── Phase 3 Military — army muster / disband (the canonical CRUD both verbs route
+//     through; the in-fiction Muster modal on a character/domain AND the Inspector
+//     Admin-verb Create) ──────────────────────────────────────────────────────────
+// Push a blank army to campaign.armies; optionally seat a leader, name it, place it on a
+// hex, set its stance, and STATION a starting roster (unitIds → stationUnit to
+// {kind:'army', id} — stationUnit handles the garrison/merc-company mirror bookkeeping).
+// When a leader + units are given it auto-builds a single "Main Body" division led by the
+// commander — the RAW-minimal valid org (RR p.435: a small army is one division led by its
+// commander; the GM splits into more divisions later). validateArmyOrganization surfaces
+// an under-qualified commander or too-few units as advisory findings (GM-overridable per
+// RAW's waiver clause). id-stable (opts.id returns the existing army — the createLair
+// idempotency pattern). Stamps an army.history 'mustered' entry. Returns the army.
+function createArmy(campaign, opts={}){
+  if(!campaign) return null;
+  if(!Array.isArray(campaign.armies)) campaign.armies = [];
+  if(opts.id){
+    const ex = campaign.armies.find(a => a && a.id === opts.id);
+    if(ex) return ex;
+  }
+  const army = global.ACKS.blankArmy({
+    id: opts.id,
+    name: opts.name || '',
+    leaderCharacterId: opts.leaderCharacterId || null,
+    currentHexId: opts.currentHexId || null,
+    strategicStance: opts.strategicStance || 'defensive'
+  });
+  campaign.armies.push(army);
+  const unitIds = Array.isArray(opts.unitIds) ? opts.unitIds.filter(Boolean) : [];
+  const stationed = [];
+  for(const uid of unitIds){
+    const u = stationUnit(campaign, uid, { kind: 'army', id: army.id });
+    if(u) stationed.push(u.id);
+  }
+  if(army.leaderCharacterId && stationed.length){
+    army.divisions = [{ name: 'Main Body', commanderCharacterId: army.leaderCharacterId, adjutantCharacterId: null, unitIds: stationed, role: 'main' }];
+  }
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  army.history.push({ turn, type: 'mustered', text: 'Mustered' + (opts.name ? ' as ' + opts.name : '') + (stationed.length ? ' with ' + stationed.length + ' unit' + (stationed.length === 1 ? '' : 's') : '') });
+  return army;
+}
+
+// Disband an army: un-station its units (they SURVIVE in campaign.units, homeless until
+// re-stationed — the next muster's available-units list surfaces them, closing the loop),
+// stop its march (the journey is marked disbanded), and splice it from campaign.armies.
+// Returns the removed army or null. The counterpart of createArmy.
+function disbandArmy(campaign, armyOrId){
+  const army = (typeof armyOrId === 'string') ? findArmy(campaign, armyOrId) : armyOrId;
+  if(!campaign || !army) return null;
+  for(const u of armyUnits(campaign, army)){ if(u) u.stationedAt = null; }
+  if(army.journeyId && Array.isArray(campaign.journeys)){
+    const j = campaign.journeys.find(x => x && x.id === army.journeyId);
+    if(j) j.status = 'disbanded';
+  }
+  if(Array.isArray(campaign.armies)){
+    const i = campaign.armies.findIndex(a => a && a.id === army.id);
+    if(i >= 0) campaign.armies.splice(i, 1);
+  }
+  return army;
+}
+
 // Lazy-default the W1 military fields on a legacy garrison-unit object (additive; never
 // clobbers existing values — idempotent).
 function _lazyDefaultUnitFields(u){
@@ -9340,7 +9400,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
-  validateArmyOrganization, stationUnit, disbandUnit, migrateGarrisonUnitsToUnits,
+  validateArmyOrganization, stationUnit, disbandUnit, createArmy, disbandArmy, migrateGarrisonUnitsToUnits,
   // Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106)
   domainTerritoryHexCount, domainBorderConfiguration, domainEffectiveTerritory,
   domainIncursionClassification, domainDailyEncounterChance,

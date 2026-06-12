@@ -372,6 +372,41 @@ ok('multi-kit races carry the LOW end (goblin 0.005 = its troop-table light infa
    ACKS.findMonster('goblin').battleRating === 0.005 &&
    ACKS.findMonster('goblin').battleRating === ACKS.findTroopType('light-infantry', { race: 'goblin' }).brPerCreature);
 
+section('createArmy / muster / disbandArmy (the Action + Admin verb engine)');
+{
+  const camp = {
+    currentTurn: 4,
+    characters: [{ schemaVersion: 2, id: 'chr-cmd', name: 'Aelric', alive: true }],
+    domains: [{ id: 'dom-a', name: 'March', garrison: { units: [] } }],
+    journeys: [], armies: [], units: []
+  };
+  for(const [id, n] of [['unit-1', 'Foot'], ['unit-2', 'Bows'], ['unit-3', 'Horse']]){
+    ACKS.stationUnit(camp, ACKS.blankUnit({ id, displayName: n, unitTypeKey: 'light-infantry', count: 60, brPerSoldier: 0.01 }), { kind: 'domain-garrison', id: 'dom-a' });
+  }
+  ok('setup: 3 units in campaign.units + the garrison mirror', camp.units.length === 3 && camp.domains[0].garrison.units.length === 3);
+
+  const army = ACKS.createArmy(camp, { name: 'Field Army', leaderCharacterId: 'chr-cmd', currentHexId: 'hex-x', strategicStance: 'offensive', unitIds: ['unit-1', 'unit-2', 'unit-3'] });
+  ok('createArmy pushes to campaign.armies', camp.armies.length === 1 && camp.armies[0] === army);
+  ok('army carries name/leader/hex/stance', army.name === 'Field Army' && army.leaderCharacterId === 'chr-cmd' && army.currentHexId === 'hex-x' && army.strategicStance === 'offensive');
+  ok('stationed units read via armyUnits', ACKS.armyUnits(camp, army).length === 3);
+  ok('stationing PULLED the units out of the garrison mirror (reference-unified)', camp.domains[0].garrison.units.length === 0 && camp.units.every(u => u.stationedAt && u.stationedAt.kind === 'army'));
+  ok('auto Main Body division led by the commander holds the roster', army.divisions.length === 1 && army.divisions[0].name === 'Main Body' && army.divisions[0].commanderCharacterId === 'chr-cmd' && army.divisions[0].unitIds.length === 3);
+  ok('history stamps a mustered entry', army.history.some(h => h.type === 'mustered'));
+  ok('createArmy is id-stable (idempotent)', ACKS.createArmy(camp, { id: army.id }) === army && camp.armies.length === 1);
+
+  const blank = ACKS.createArmy(camp, { name: 'New Army' });
+  ok('blank army (Admin verb): no leader, no division', camp.armies.length === 2 && blank.leaderCharacterId === null && blank.divisions.length === 0 && blank.name === 'New Army');
+
+  const small = ACKS.createArmy(camp, { name: 'Patrol', leaderCharacterId: 'chr-cmd' });
+  ACKS.stationUnit(camp, ACKS.blankUnit({ id: 'unit-s', displayName: 'Scouts', unitTypeKey: 'light-cavalry', count: 20 }), { kind: 'army', id: small.id });
+  ok('validateArmyOrganization flags under-3-units (advisory)', ACKS.validateArmyOrganization(camp, small).some(f => f.code === 'under-3-units'));
+
+  const before = camp.armies.length;
+  ACKS.disbandArmy(camp, army.id);
+  ok('disbandArmy removes the army', camp.armies.length === before - 1 && !ACKS.findArmy(camp, army.id));
+  ok('disbanded units SURVIVE unstationed (re-musterable)', camp.units.some(u => u.id === 'unit-1') && camp.units.find(u => u.id === 'unit-1').stationedAt === null);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n=============================================');
 console.log('military.smoke.js — Passed: ' + pass + ', Failed: ' + fail);

@@ -11,7 +11,7 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-12-b"></script>
+<script src="acks-engine.js?v=2026-06-12-c"></script>
 <script src="acks-engine-entities.js?v=2026-06-12-b"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-05-31-a"></script>
@@ -1050,10 +1050,10 @@ document.addEventListener('alpine:init', () => {
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
       <h3 class="font-bold text-lg">🎖 Armies <span class="text-sm opacity-70 font-normal" x-text="'· ' + armiesRows().length + ' mustered'"></span></h3>
-      <p class="text-xs opacity-60">Raise an army via 🔍 Inspector ▸ ✨ Create ▸ 🎖 Army, then station units to it from a garrison.</p>
+      <button @click="openMusterArmy()" class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400" title="Raise a new army — pick a commander and station units (RR pp.435–437)">🎖 Muster a new army</button>
     </div>
     <template x-if="armiesRows().length === 0">
-      <p class="text-sm italic opacity-60 py-6 text-center">No armies mustered. Create one in the Inspector (✨ Create ▸ Army), station garrison units to it, and it takes the field here — marching on the Day Clock, scouting its rivals, and forcing battles where columns collide.</p>
+      <p class="text-sm italic opacity-60 py-6 text-center">No armies mustered. <button @click="openMusterArmy()" class="underline font-semibold">Muster one</button> — pick a commander and station his troops, and it takes the field here: marching on the Day Clock, scouting its rivals, and forcing battles where columns collide. (A character can also raise an army from his own sheet, and a ruler from his domain's Military tab.)</p>
     </template>
     <template x-if="armiesRows().length > 0">
       <table class="bookkeeping text-sm w-full">
@@ -1082,12 +1082,21 @@ document.addEventListener('alpine:init', () => {
         <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
           <p class="font-bold">🎖 <span x-text="armySelected().name || armySelected().id"></span>
             <span class="font-normal opacity-70" x-text="' · ' + armySelRow().troops + ' troops · BR ' + armySelRow().br + ' · ' + armySelRow().speed + ' mi/day (' + (armySelProfile().slowestUnitName || 'no units') + (armySelProfile().largeMultiplier < 1 ? (' · ' + armySelProfile().largeLabel) : '') + (armySelProfile().warMachineCap ? ' · war machines cap ' + armySelProfile().warMachineCap : '') + ')'"></span></p>
-          <p class="text-xs opacity-70">
-            <span x-show="armySelected().lastInitiative != null" x-text="'initiative ' + armySelected().lastInitiative + ' · '"></span>
-            <span x-show="armySelFatigue().fatigued" class="accent-red font-semibold" x-text="'⚠ FATIGUED — ' + armySelFatigue().reasons.join('; ')"></span>
-            <span x-show="!armySelFatigue().fatigued">rested</span>
-          </p>
+          <div class="flex items-baseline gap-3">
+            <p class="text-xs opacity-70">
+              <span x-show="armySelected().lastInitiative != null" x-text="'initiative ' + armySelected().lastInitiative + ' · '"></span>
+              <span x-show="armySelFatigue().fatigued" class="accent-red font-semibold" x-text="'⚠ FATIGUED — ' + armySelFatigue().reasons.join('; ')"></span>
+              <span x-show="!armySelFatigue().fatigued">rested</span>
+            </p>
+            <button @click="armyDisband()" class="text-xs underline accent-red" title="Disband this army — its units return to the unstationed pool">🗑 Disband</button>
+          </div>
         </div>
+        <!-- advisory organization findings (RR pp.434–437; GM-overridable) -->
+        <template x-if="armyOrgFindings().length > 0">
+          <div class="text-xs text-amber-700 mb-1">
+            <template x-for="f in armyOrgFindings()" :key="f"><span class="block">⚠ <span x-text="f"></span></span></template>
+          </div>
+        </template>
 
         <!-- march -->
         <div class="border-t border-ink/20 pt-2 mt-1">
@@ -2301,6 +2310,76 @@ document.addEventListener('alpine:init', () => {
     <div class="flex justify-end gap-2 border-t border-ink/20 pt-2">
       <button @click="lairWizardOpen = false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
       <button @click="lairWizardSubmit()" :disabled="!lairWizardCanSubmit()" :class="!lairWizardCanSubmit() ? 'opacity-50 cursor-not-allowed' : ''" class="px-3 py-1 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold" x-text="lairWizardMode==='seed' ? 'Seed lairs' : 'Create lair'"></button>
+    </div>
+  </div>
+</div>
+
+<!-- 🎖 Muster Army modal (Phase 3 Military — the in-fiction ACTION verb: a character
+     raises a field force from the troops he controls. Launched from the character sheet
+     (Retainers), a domain's Military tab, and the Armies view header. The Inspector
+     Create ▸ Army is the free-form ADMIN-verb counterpart. Engine: ACKS.createArmy
+     (stations the roster + a Main Body division led by the commander, RR p.435). -->
+<div x-show="musterArmyOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:60; background:rgba(0,0,0,.4)" x-cloak @click.self="musterArmyOpen = false" @keydown.escape.window="if(musterArmyOpen){ musterArmyOpen = false; $event.preventDefault() }">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-2 p-4 space-y-3">
+    <div class="flex justify-between items-start border-b border-ink/20 pb-2">
+      <div>
+        <h3 class="font-bold text-lg">🎖 Muster an Army <span class="text-sm font-normal opacity-70">· RR pp.435–437</span></h3>
+        <p class="text-sm opacity-70 italic">A commander raises a field force from the troops he controls. Station units now or add them later; reorganize divisions on the Armies view.</p>
+      </div>
+      <button @click="musterArmyOpen = false" class="text-xl px-2 leading-none">×</button>
+    </div>
+
+    <label class="block text-sm">
+      <span class="font-semibold">Commander</span>
+      <select x-model="musterArmyForm.commanderId" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
+        <option value="">— none (set later) —</option>
+        <template x-for="c in musterCommanderOptions()" :key="c.id"><option :value="c.id" x-text="c.name + (c.class ? ' · ' + c.class + ' ' + (c.level||1) : '')"></option></template>
+      </select>
+      <span class="text-xs opacity-60" x-show="musterArmyForm.commanderId" x-text="(() => { const la = musterLeadership(); return 'Leadership ' + la + ' — may field up to ' + la + ' division' + (la===1?'':'s') + ' (RR p.435).'; })()"></span>
+    </label>
+
+    <div class="grid sm:grid-cols-2 gap-3">
+      <label class="block text-sm"><span class="font-semibold">Army name</span>
+        <input type="text" x-model="musterArmyForm.name" placeholder="e.g. the Field Army" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1"></label>
+      <label class="block text-sm"><span class="font-semibold">Stance</span>
+        <select x-model="musterArmyForm.stance" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
+          <option value="defensive">Defensive</option><option value="offensive">Offensive</option><option value="evasive">Evasive</option>
+        </select></label>
+    </div>
+    <label class="block text-sm"><span class="font-semibold">Mustering at</span>
+      <select x-model="musterArmyForm.hexId" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
+        <option value="">— no hex (set on the Armies view) —</option>
+        <template x-for="h in musterHexOptions()" :key="h.id"><option :value="h.id" x-text="h.label"></option></template>
+      </select></label>
+
+    <div>
+      <div class="flex items-baseline justify-between">
+        <span class="font-semibold text-sm">Station units</span>
+        <span class="text-xs opacity-60" x-text="musterArmyForm.unitIds.length + ' selected'"></span>
+      </div>
+      <template x-if="musterAvailableUnits().length === 0">
+        <p class="text-sm italic opacity-60 py-2">No free units to station — hire mercenaries (Recruit) or add garrison units to a domain first, or muster an empty army and station later.</p>
+      </template>
+      <div class="max-h-48 overflow-y-auto border border-ink/20 rounded mt-1" x-show="musterAvailableUnits().length > 0">
+        <template x-for="row in musterAvailableUnits()" :key="row.unit.id">
+          <label class="flex items-center gap-2 px-2 py-1 text-sm hover:bg-yellow-50 cursor-pointer border-b border-ink/10">
+            <input type="checkbox" :value="row.unit.id" x-model="musterArmyForm.unitIds">
+            <span class="flex-1" x-text="(row.unit.displayName || row.unit.unitTypeKey || 'unit') + ' · ' + Math.max(0,(row.unit.count||0)-(row.unit.casualties||0)) + ' troops'"></span>
+            <span class="text-xs opacity-60" x-text="row.home"></span>
+          </label>
+        </template>
+      </div>
+    </div>
+
+    <div class="text-sm border-t border-ink/20 pt-2">
+      <p><span class="font-semibold" x-text="musterTroops().toLocaleString()"></span> troops · BR <span class="font-mono" x-text="musterBr().toFixed(2)"></span>
+        <span class="opacity-60" x-show="musterArmyForm.unitIds.length" x-text="' · ' + musterScaleLabel() + ' scale'"></span></p>
+      <template x-for="f in musterFindings()" :key="f"><p class="text-xs text-amber-700">⚠ <span x-text="f"></span></p></template>
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-ink/20 pt-2">
+      <button @click="musterArmyOpen = false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+      <button @click="musterArmySubmit()" :disabled="!musterCanSubmit()" :class="!musterCanSubmit() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-100 hover:bg-yellow-200 font-semibold'" class="px-3 py-1 border border-ink rounded">🎖 Muster army</button>
     </div>
   </div>
 </div>
@@ -3938,6 +4017,9 @@ document.addEventListener('alpine:init', () => {
                       :title="!rulerCharacter(selectedDomain) ? 'No ruler to recruit as patron' : 'Open Recruit workflow for mercenary hires'"
                       :class="!rulerCharacter(selectedDomain) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-100'"
                       class="px-2 py-1 border border-ink rounded text-sm">+ Recruit unit</button>
+              <button @click="openMusterArmy({ commanderId: rulerCharacter(selectedDomain)?.id, domainId: selectedDomain.id })"
+                      :title="'Muster a field army — ' + (rulerCharacter(selectedDomain) ? (rulerCharacter(selectedDomain).name + ' leads, this garrison is pre-selected') : 'pick a commander') + ' (RR pp.435–437)'"
+                      class="px-2 py-1 border border-ink rounded text-sm font-semibold hover:bg-yellow-100">🎖 Muster field army</button>
             </div>
           </div>
         </div>
@@ -7808,6 +7890,8 @@ document.addEventListener('alpine:init', () => {
           </div>
           <div class="flex items-center gap-2">
             <!-- journey controls moved to the character-sheet header (Start / On-journey link); see top of modal -->
+            <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); openMusterArmy({ commanderId: id }); })()"
+                    class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold hover:bg-yellow-100 whitespace-nowrap" title="Raise an army with this character as commander (RR pp.435–437)">🎖 Muster army</button>
             <button @click="(() => { const id = characterEditing.id; closeCharacterEditor(); recruitDeepLink({ patronId: id }); })()"
                     class="px-3 py-1 border-2 border-ink rounded text-sm font-semibold bg-yellow-300 hover:bg-yellow-400 whitespace-nowrap" title="Open the Recruit workflow with this character as patron">+ Recruit</button>
           </div>
@@ -10533,6 +10617,7 @@ return {
       case 'character': return () => this.openNewCharacterEditor({ kind: 'NPC' });
       case 'domain':    return () => this.addBlankDomain();  // queued: Domain Wizard (#435) replaces this when shipped
       case 'journey':   return () => this.inspectorCreateBlankJourney();  // Phase 2.5 #475 — Admin verb (free-form); set status=in-transit + Tick Day to drive
+      case 'army':      return () => this.inspectorCreateBlankArmy();  // Phase 3 Military — Admin verb (free-form blank); the 🎖 Muster modal on a character/domain is the guided Action verb
       case 'lair':      return () => this.openLairWizard('author');  // #476 M1 — the manual Lair Wizard (§12.5); the schemaForm edit sits under it for admin tweaks
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
@@ -10557,6 +10642,19 @@ return {
     this.inspectorOpenInspect('journey', j.id);
     this.inspectorEditMode = true;
     if(this.showToast) this.showToast('New Journey created — set participants, start + destination hexes, then status = in-transit.');
+  },
+
+  // Phase 3 Military — Admin-verb create for an Army: spawn a blank army (via the canonical
+  // ACKS.createArmy setter) and open it in the Inspector edit form for free-form authoring.
+  // No commander, no units, no cost — the GM fills it in. The guided in-fiction Action verb
+  // is the 🎖 Muster modal (openMusterArmy) on a character sheet or a domain's Military tab.
+  inspectorCreateBlankArmy(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    const army = window.ACKS.createArmy(this.currentCampaign, { name: 'New Army' });
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('army', army.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Army created — set the leader, then station units to it. (The 🎖 Muster army button on a character or a domain’s Military tab is the guided path.)');
   },
 
   // ── #476 M1 — Lair Wizard (Inspector Create > Lair; §12.5) ──────────────────
@@ -12393,6 +12491,130 @@ return {
   // The list of World sub-tabs. Order (#225, 2026-06-02): Map, Domains, Hexes, then Rumors.
   // Map + Domains were promoted from top-level tabs into World sub-views. Rumors only appears
   // when rumors-manual is on. (Hexes uses ⬡ since Map now owns the 🗺 glyph.)
+  // ═══ Phase 3 Military — 🎖 Muster Army (the in-fiction ACTION verb) ═══════════
+  // A character raises a field force from the troops he controls. Launched from the
+  // character sheet (Retainers), a domain's Military tab (commander = ruler, garrison
+  // pre-checked), and the Armies view header. Engine: ACKS.createArmy stations the
+  // roster + a Main Body division (RR p.435); validateArmyOrganization's findings show
+  // as advisory hints. The Inspector Create ▸ Army is the free-form ADMIN-verb sibling.
+  openMusterArmy(opts={}){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    const camp = this.currentCampaign;
+    const commanderId = opts.commanderId || '';
+    const cmdr = commanderId ? (camp.characters||[]).find(c => c && c.id === commanderId) : null;
+    // default hex: the commander's current hex, else (domain launch) that domain's first hex
+    let hexId = (cmdr && cmdr.currentHexId) || '';
+    const domainId = opts.domainId || '';
+    if(!hexId && domainId){
+      const dh = (camp.hexes||[]).find(h => h && h.domainId === domainId);
+      if(dh) hexId = dh.id;
+    }
+    const defName = cmdr ? (cmdr.name + "'s Army") : '';
+    // pre-check: a domain launch stages that domain's garrison; else the commander's own company
+    let preIds = [];
+    if(domainId){
+      preIds = (camp.units||[]).filter(u => u && u.stationedAt && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === domainId && Math.max(0,(u.count||0)-(u.casualties||0)) > 0).map(u => u.id);
+    } else if(commanderId){
+      preIds = (camp.units||[]).filter(u => u && u.stationedAt && u.stationedAt.kind === 'character' && u.stationedAt.id === commanderId && Math.max(0,(u.count||0)-(u.casualties||0)) > 0).map(u => u.id);
+    }
+    this.musterArmyForm = { commanderId, name: defName, hexId, stance: 'defensive', unitIds: preIds, _domainId: domainId };
+    this.musterArmyOpen = true;
+  },
+  // Candidate commanders — every living character (RAW: any character can command, subject
+  // to scale quals which the findings surface). Sorted by name.
+  musterCommanderOptions(){
+    return ((this.currentCampaign && this.currentCampaign.characters) || [])
+      .filter(c => c && c.alive !== false)
+      .slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  },
+  musterCommander(){
+    const id = this.musterArmyForm.commanderId; if(!id) return null;
+    return ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) || null;
+  },
+  musterLeadership(){
+    const c = this.musterCommander(); if(!c || !window.ACKS.leadershipAbility) return 0;
+    return window.ACKS.leadershipAbility(c);
+  },
+  musterHexOptions(){
+    return ((this.currentCampaign && this.currentCampaign.hexes) || [])
+      .filter(h => h && h.id)
+      .map(h => ({ id: h.id, label: (window.ACKS.hexName ? window.ACKS.hexName(h) : (h.name || h.id)) + (h.domainId ? '' : ' · unclaimed') }));
+  },
+  // Free units the GM may pull under this commander: any first-class unit with living
+  // troops not already in an army, labelled with its current home (garrison / company /
+  // unstationed). RAW leaves "whose troops you may muster" to the GM, so the list is
+  // permissive; openMusterArmy pre-checks the obvious set.
+  musterAvailableUnits(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    return ((camp.units) || [])
+      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army'))
+      .map(u => ({ unit: u, home: this._unitHomeLabel(u) }));
+  },
+  _unitHomeLabel(u){
+    const camp = this.currentCampaign; const st = u && u.stationedAt;
+    if(!st) return 'unstationed';
+    if(st.kind === 'domain-garrison'){ const d = (camp.domains||[]).find(x => x && x.id === st.id); return d ? ('garrison · ' + (d.name || d.id)) : 'a garrison'; }
+    if(st.kind === 'character'){ const c = (camp.characters||[]).find(x => x && x.id === st.id); return c ? ('company · ' + (c.name || c.id)) : 'a company'; }
+    return st.kind;
+  },
+  _musterSelectedUnits(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const ids = this.musterArmyForm.unitIds || [];
+    return (camp.units||[]).filter(u => u && ids.includes(u.id));
+  },
+  musterTroops(){ return this._musterSelectedUnits().reduce((s, u) => s + Math.max(0,(u.count||0)-(u.casualties||0)), 0); },
+  musterBr(){
+    const camp = this.currentCampaign;
+    return this._musterSelectedUnits().reduce((s, u) => s + (window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(camp, u) : 0), 0);
+  },
+  musterScaleLabel(){
+    const n = this.musterTroops();
+    return (window.ACKS.armyScaleForSize ? window.ACKS.armyScaleForSize(n) : 'company');
+  },
+  // Advisory RAW findings (RR p.435) computed for the in-progress selection — the muster
+  // is never blocked on them (GM-overridable waiver), they just guide.
+  musterFindings(){
+    const out = [];
+    const n = (this.musterArmyForm.unitIds || []).length;
+    if(!this.musterArmyForm.commanderId) out.push('No commander set — an army needs a leader (RR p.435).');
+    else if(this.musterLeadership() < 1) out.push((this.musterCommander()?.name || 'The commander') + ' has Leadership 0 — cannot field a division (RR p.435). Override at the GM\'s discretion.');
+    if(n > 0 && n < 3) out.push('An army should have at least 3 units (RR p.435) — ' + n + ' selected.');
+    return out;
+  },
+  musterCanSubmit(){ return !!(this.musterArmyForm.name && this.musterArmyForm.name.trim()); },
+  musterArmySubmit(){
+    if(!this.musterCanSubmit()) return;
+    const f = this.musterArmyForm;
+    const army = window.ACKS.createArmy(this.currentCampaign, {
+      name: f.name.trim(),
+      leaderCharacterId: f.commanderId || null,
+      currentHexId: f.hexId || null,
+      strategicStance: f.stance || 'defensive',
+      unitIds: (f.unitIds || []).slice()
+    });
+    this.markDirty(); this.schedulePersist();
+    this.musterArmyOpen = false;
+    // jump to the Armies view focused on the new army
+    this.currentView = 'world'; this.worldSubView = 'armies'; this.armiesSelectedId = army.id; this.armyMarchDest = '';
+    const troops = (window.ACKS.armyTroopCount ? window.ACKS.armyTroopCount(this.currentCampaign, army) : 0);
+    if(this.showToast) this.showToast('🎖 ' + (army.name || 'Army') + ' mustered — ' + troops.toLocaleString() + ' troops. Steer it here.');
+  },
+  // Disband the selected army (engine un-stations its units, which survive homeless and
+  // re-musterable, and drops its march). A confirm guards the action.
+  armyDisband(){
+    const a = this.armySelected(); if(!a) return;
+    if(!confirm('Disband "' + (a.name || a.id) + '"? Its units return to the unstationed pool (you can re-muster them).')) return;
+    window.ACKS.disbandArmy(this.currentCampaign, a.id);
+    this.armiesSelectedId = null;
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Army disbanded — its units are free to re-muster.');
+  },
+  // Advisory org findings for the selected army's card (RR pp.434–437; GM-overridable).
+  armyOrgFindings(){
+    const a = this.armySelected(); if(!a || !window.ACKS.validateArmyOrganization) return [];
+    return window.ACKS.validateArmyOrganization(this.currentCampaign, a).map(f => f.text);
+  },
+
   // ═══ Phase 3 Military W4 — World ▸ 🎖 Armies (the campaign layer) ═══════════
   // The view is a read surface over the maneuvers engine (acks-engine-maneuvers.js);
   // every write goes through an engine verb or commitStatEdit (gm-fiat). The Day
@@ -17449,6 +17671,10 @@ return {
   armiesSelectedId: null,
   armyMarchDest: '',
   armyMarchPace: 'normal',
+  // Phase 3 Military — the Muster Army modal (Action verb; ACKS.createArmy). _domainId
+  // remembers a domain-launch so its garrison is pre-checked.
+  musterArmyOpen: false,
+  musterArmyForm: { commanderId: '', name: '', hexId: '', stance: 'defensive', unitIds: [], _domainId: '' },
   battleHeroDraft: null,         // the add-hero-unit form (null = closed)
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
