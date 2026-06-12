@@ -3292,17 +3292,25 @@ function domainDailyEncounterChance(campaign, d){
 // prices its actual units; a monster band prices off the MONSTER_CATALOG battleRating
 // the same way — the shared battle interface (§5.1), no promotion.
 function _roundQuarterBr(x){ return Math.round(x * 4) / 4; }   // the printed platoon-BR grain
-function unitPlatoonBrPerCreature(unit){
+// One unit's BR at platoon scale. A stored brPerSoldier (the GM override) wins; else the
+// PRINTED company unit BR scaled to the active fraction × the ×4 platoon factor — which
+// reproduces the JJ p.105 worked example exactly (60 heavy + 30 light foot → garrison
+// BR 5.0); rows with no printed unit BR fall back to per-creature × count × 4.
+function unitPlatoonScaleBr(unit){
   if(!unit) return 0;
+  const active = unitActiveCount(unit);
+  if(!active) return 0;
   const stored = (typeof unit.brPerSoldier === 'number' && unit.brPerSoldier > 0) ? unit.brPerSoldier : null;
-  if(stored != null) return stored;
+  if(stored != null) return stored * active * 4;
   const row = unitTroopRow(unit);
-  return row ? (row.brPerCreature || 0) : 0;
+  if(!row) return 0;
+  if(row.unitBattleRating != null && row.unitSize > 0) return row.unitBattleRating * (active / row.unitSize) * 4;
+  return (row.brPerCreature || 0) * active * 4;
 }
 function domainGarrisonPlatoonBr(campaign, d){
   const units = (d && d.garrison && Array.isArray(d.garrison.units)) ? d.garrison.units : [];
   let br = 0;
-  for(const u of units){ if(u) br += unitPlatoonBrPerCreature(u) * unitActiveCount(u) * 4; }
+  for(const u of units){ if(u) br += unitPlatoonScaleBr(u); }
   return _roundQuarterBr(br);
 }
 // A band of N creatures at platoon scale; null when the creature carries no catalog BR
@@ -9294,7 +9302,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106)
   domainTerritoryHexCount, domainBorderConfiguration, domainEffectiveTerritory,
   domainIncursionClassification, domainDailyEncounterChance,
-  unitPlatoonBrPerCreature, domainGarrisonPlatoonBr, monsterPlatoonBr,
+  unitPlatoonScaleBr, domainGarrisonPlatoonBr, monsterPlatoonBr,
   // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)
