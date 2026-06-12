@@ -13,7 +13,7 @@ const path = require('path');
 
 const DIR = path.join(__dirname, '..');
 [
-  'acks-engine-catalogs.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',
@@ -351,7 +351,7 @@ section('Supply toggle re-resolves the latest day (reapplyLatestDaySurvival)');
   const d1 = j.days[j.days.length - 1];
   ok('the latest day now records a forage throw', !!(d1.waterForage && d1.waterForage.attempted));
   ok('dehydration now matches the forage outcome', c.characters[0].dehydrated === !d1.waterForage.success);
-  ok('the day notables carry the re-resolved survival (typed)', (d1.notableEvents || []).every(ne => !ne.type || ['hunger','dehydration','survival-critical','supplies-low','navigation-fail','navigation-recovered','arrived','fording-fail','fording-success','halted','forced-rest'].indexOf(ne.type) >= 0));
+  ok('the day notables carry the re-resolved survival (typed)', (d1.notableEvents || []).every(ne => !ne.type || ['hunger','dehydration','survival-critical','supplies-low','navigation-fail','navigation-recovered','arrived','fording-fail','fording-success','halted','forced-rest','encounter'].indexOf(ne.type) >= 0));
 
   // day 0 / no committed day → reapply is a no-op (the toggle just sets the order)
   const c2 = ACKS.blankCampaign({ name: 'reapply0' });

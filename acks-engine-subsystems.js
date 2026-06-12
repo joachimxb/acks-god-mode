@@ -1737,23 +1737,208 @@ function journeyDefaultName(campaign, journey){
   return null;
 }
 
+// ─── #476 E1 — proposal-id minting (collision-proof) ──────────────────────────────────────────
+// Encounter proposal ids are minted at PROPOSE time from the seeded rng so a re-opened preview
+// shows the same id and the commit's id-idempotent create replays cleanly. But an id-idempotent
+// create silently MERGES two different encounters if two mints ever collide (a constant test rng,
+// or two seeded streams emitting the same draw) — so the mint checks both the campaign's existing
+// entities and the batch's own mints (takenIds, threaded through a day's loop) and appends a
+// deterministic counter suffix until free. Same state → same suffixes → previews stay byte-stable.
+function _mintEncounterProposalId(campaign, rng, takenIds){
+  const base = 'enc-' + ('0000000' + Math.floor((rng || Math.random)() * 78364164096).toString(36)).slice(-7);
+  const A = _jACKS();
+  let id = base, n = 2;
+  while((takenIds && takenIds[id]) || (typeof A.findEncounter === 'function' && A.findEncounter(campaign, id))){
+    id = base + '-' + n; n++;
+  }
+  if(takenIds) takenIds[id] = true;
+  return id;
+}
+
+// E4m — name a loose-band verdict for the GM review ("who answers the draw"): the chase's
+// quarry, or the migrant group's name. GM-facing — the characters just meet a band.
+function _looseBandMetText(campaign, bind){
+  const A = _jACKS();
+  if(bind && bind.bandKind === 'pursuer' && bind.encounterId){
+    const chase = (typeof A.findEncounter === 'function') ? A.findEncounter(campaign, bind.encounterId) : null;
+    const ps = (chase && chase.partySide) || {};
+    const party = ps.partyId ? ((campaign.parties || []).find(p => p && p.id === ps.partyId)) : null;
+    const ch = ((ps.characterIds || []).length) ? ((campaign.characters || []).find(c => c && c.id === ps.characterIds[0])) : null;
+    const quarry = (party && party.name) || (ch && ch.name) || 'another party';
+    return 'the band hunting ' + quarry + ' crosses your path';
+  }
+  if(bind && bind.bandKind === 'migrant' && bind.groupId){
+    const g = (campaign.groups || []).find(x => x && x.id === bind.groupId);
+    return 'the roaming band' + (g && g.name ? ' “' + g.name + '”' : '') + ' is met here';
+  }
+  return 'a known band abroad here';
+}
+
+// ─── #476 E1 — the per-hex travel encounter throw (JJ pp.41–42; replaces the J1 1/6 stub) ─────
+// ONE hex's RAW draw: the 1d20 category throw on the territory-classification column (a road
+// folds one column LEFT — roads are safer, not safe, reversing the J1 "roads = no encounters"
+// stub; travel is the daytime 8h block, so no night shift), then monster identity POOL-FIRST
+// through encounterDraw (existing lair → the MM p.15 lair-vs-wandering split / seeded shells /
+// else GM-pick until #141's identity tables land — D12). Returns null on no-encounter. A meeting
+// category (monster/civilized) returns { encounterRecord, notableEvent } with the full draw +
+// the pre-rolled RAW distance riding the record, so the commit materializes the Encounter entity
+// byte-identically to the reviewed preview (seeded rng). A terrain category (dangerous/valuable/
+// unique) returns a notable WITHOUT an entity — a discovery has no sides; its 1d12 content
+// tables are #141 — and demotes to no-encounter on a known route (JJ p.42 step 7).
 function rollEncounter(campaign, journey, opts){
   opts = opts || {};
   const rng = opts.rng || Math.random;
-  const chance = opts.hasRoad ? 0 : (1 / 6); // ~1-in-6 wilderness; roads safe for J1
-  if(chance <= 0 || rng() >= chance) return null;
-  const hexId = (journey && journey.startHexId) || null;
+  const hexId = (opts.hexId !== undefined) ? opts.hexId : ((journey && (journey.currentHexId || journey.startHexId)) || null);
+  const coord = opts.coord || null;
   const dayIndex = opts.dayIndex || ((journey && journey.currentDayIndex) || 0) + 1;
-  const encId = 'enc-' + Math.floor(rng() * 2176782336).toString(36); // 'enc' is not a registered ID prefix
+  if(!campaign || (!hexId && !coord) || typeof ACKS.encounterDraw !== 'function') return null;
+  // Known route: a hex some PRIOR committed day of this journey already traversed —
+  // matched by id when authored, by coord when not.
+  const knownRoute = (opts.knownRoute != null) ? !!opts.knownRoute
+    : !!(journey && Array.isArray(journey.days) && journey.days.some(d => d && Array.isArray(d.hexPath) && d.hexPath.some(h => h
+        && ((hexId && h.hexId === hexId) || (coord && h.q === coord.q && h.r === coord.r)))));
+  // The hex (or, for an unauthored sparse-route step, the journey's current/start hex
+  // ENVIRONMENT — the §24 fallback) keys both the identity table and the distance row.
+  const hex = hexId ? (campaign.hexes || []).find(h => h && h.id === hexId) : null;
+  const envHex = hex || (campaign.hexes || []).find(h => h && h.id === ((journey && (journey.currentHexId || journey.startHexId)) || null)) || null;
+  // E4: identity rolls on the JJ tables inside the draw (table-first — RAW JJ p.43; the
+  // hex's lairs MATCH the rolled monster via the 6a Lair % binding rather than overriding
+  // the table). A pooled dynamic lair is revealed only when the table rolls ITS monster
+  // in-lair (RAW's parenthetical) — the old blanket includeDynamicPool stays off.
+  const draw = ACKS.encounterDraw(campaign, hexId, {
+    road: !!opts.hasRoad, night: false, resting: false, knownRoute, rng,
+    terrainKey: (!hex && envHex && typeof ACKS.terrainKey === 'function') ? ACKS.terrainKey(envHex) : undefined,
+    hasRiver: (!hex && envHex) ? !!(Array.isArray(envHex.riverSides) && envHex.riverSides.length) : undefined,
+    // E4m — the drawing group: a loose band abroad here can answer the wandering verdict,
+    // but never a chase's own quarry (meeting your pursuer is the chase's catch).
+    partySide: { partyId: (journey && journey.partyId) || null,
+                 characterIds: ((journey && journey.participantCharacterIds) || []).slice() }
+  });
+  if(!draw || draw.category === 'no-encounter') return null;
+  const jName = (journey && journey.name) || 'Journey';
+  // Terrain categories — a discovery notable, no entity.
+  if(draw.category === 'dangerous' || draw.category === 'valuable' || draw.category === 'unique'){
+    const label = jName + ': ' + draw.category + ' terrain encounter — GM, resolve (the 1d12 terrain tables land with #141)';
+    return { encounterRecord: null, notableEvent: {
+      kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
+      label: label,
+      payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: null,
+                 category: draw.category, rarity: null, lairId: null, seededShellLairIds: null,
+                 encounterKind: null, fragmentCount: null }
+    } };
+  }
+  // Meeting categories (monster / civilized) → the entity proposal. The id is minted from the
+  // SEEDED rng (7-char base36, the registered enc- prefix) so a re-opened preview shows the
+  // same id and the commit creates the entity under it (createEncounter is id-idempotent).
+  const encId = _mintEncounterProposalId(campaign, rng, opts.takenIds);
+  const prop = draw.proposal || null;
+  const ir = draw.identityRoll || null, bind = draw.binding || null;
+  let label, monsters = [], lairId = null, seededShellLairIds = null, encounterKind = null, fragmentCount = null;
+  if(ir){
+    // E4 — the table named the creature; the label states the 6a verdict so the GM
+    // ratifies knowing exactly what the commit will do to the world.
+    const mName = (ir.key && typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(ir.key)) || ir.label || 'creatures';
+    const head = jName + ': ' + (draw.category === 'civilized' ? 'civilized encounter — ' : 'encounter — ');
+    const n = bind && bind.count;
+    if(!ir.key){
+      label = head + ir.label + ' (rolled ' + ir.natural + ' on the ' + (draw.category === 'civilized' ? 'civilized' : (draw.rarity || '')) + ' table — GM details the specifics) — GM, resolve';
+      encounterKind = 'wandering';
+    } else if(bind && bind.mode === 'existing-lair'){
+      lairId = bind.lairId; encounterKind = 'at-lair';
+      const den = (typeof ACKS.findLair === 'function') ? ACKS.findLair(campaign, bind.lairId) : null;
+      if(den) monsters = (den.groupIds || []).map(id => ({ groupId: id }));
+      label = head + mName + ' in their lair here' + (n ? ' (' + n + ' inhabitants)' : '') + ' — GM, resolve';
+    } else if(bind && bind.mode === 'fragment'){
+      lairId = bind.lairId; encounterKind = 'wandering-fragment'; fragmentCount = n || null;
+      label = head + (n ? n + ' ' : 'a band of ') + mName.toLowerCase() + (n === 1 ? '' : 's')
+        + ' out from their lair in this hex — GM, resolve (Tracking can follow them home)';
+    } else if(bind && bind.mode === 'populate-shell'){
+      encounterKind = 'at-lair';
+      label = head + mName + ' in their lair (' + (n || '?') + ') — details one of this hex’s seeded lairs at commit — GM, resolve';
+    } else if(bind && bind.mode === 'reveal-dynamic'){
+      encounterKind = 'at-lair';
+      const dl = (typeof ACKS.findLair === 'function') ? ACKS.findLair(campaign, bind.lairId) : null;
+      label = head + mName + ' in their lair — reveals the pooled “' + ((dl && dl.name) || 'dynamic lair') + '” here at commit — GM, resolve';
+    } else if(bind && bind.mode === 'fresh-lair'){
+      encounterKind = 'at-lair';
+      label = head + mName + ' in their lair (' + (n || '?') + ') — a new den in this hex at commit — GM, resolve';
+    } else if(bind && bind.mode === 'loose-band'){
+      // E4m — a known band abroad answers: name it so the GM ratifies knowing who.
+      encounterKind = 'wandering';
+      lairId = bind.lairId || null;
+      label = head + (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's')
+        + ' — ' + _looseBandMetText(campaign, bind) + ' — GM, resolve';
+    } else {
+      encounterKind = 'wandering';
+      const where = (bind && bind.inLair)
+        ? (draw.category === 'civilized' ? ' at their dwelling' : ' in their lair (unauthored hex — no den is minted)')
+        : ' (wandering)';
+      label = head + (n ? n + ' ' : '') + (n === 1 ? mName : mName + (draw.category === 'civilized' ? '' : 's')).replace(/ss$/, 's')
+        + where + ' — GM, resolve';
+    }
+  } else if(draw.category === 'civilized'){
+    label = jName + ': civilized encounter — travellers, locals, or a patrol; GM, pick who';
+  } else if(prop && prop.source === 'existing-lair'){
+    lairId = prop.lairId;
+    encounterKind = prop.encounterKind || 'at-lair';
+    const mName = (typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'unknown creatures';
+    if(encounterKind === 'wandering-fragment'){
+      // M4 (RAW MM p.15): the lair'd hex's monsters met AWAY from home — a fragment, no hoard,
+      // the lair itself not located. Tracking can follow them home (§6.2 — the GM affordance).
+      fragmentCount = (prop.fragment && prop.fragment.count) || null;
+      label = jName + ': encounter — '
+        + (fragmentCount ? fragmentCount + ' ' : 'a band of ') + mName.toLowerCase() + (fragmentCount === 1 ? '' : 's')
+        + ' out from an unlocated lair in this hex — GM, resolve (Tracking can follow them home)';
+    } else {
+      label = jName + ': encounter — ' + mName + ' lair'
+        + (prop.contents.totalInhabitantCount ? ' (' + prop.contents.totalInhabitantCount + ' inhabitants)' : '')
+        + ' — GM, resolve';
+      monsters = prop.contents.groupIds.map(id => ({ groupId: id }));
+    }
+  } else if(prop && prop.source === 'seeded-shell'){
+    // D4→D5: the hex was seeded with undetailed lair shells — the encounter should BE one of them,
+    // not a fresh invention. The GM populates a shell (lair detail ✨ / Lair Wizard) and resolves.
+    seededShellLairIds = prop.candidates.map(l => l.id);
+    label = jName + ': encounter — this hex holds '
+      + prop.candidates.length + ' unauthored lair' + (prop.candidates.length === 1 ? '' : 's')
+      + ' (seeded) — GM: populate one or resolve generically';
+  } else {
+    label = jName + ': ' + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster encounter — GM, pick the creature (catalog)';
+  }
+  // Pre-roll the RAW distance with the SEEDED rng — the commit copies it verbatim. The
+  // env hex (computed above) keys the terrain row for unauthored sparse-route steps.
+  const rowKey = (envHex && typeof ACKS.encounterRowKeyForHex === 'function') ? ACKS.encounterRowKeyForHex(envHex) : null;
+  const sizeCount = ((journey && journey.participantCharacterIds) || []).length || 1;
+  const monsterCount = (bind && bind.count) || fragmentCount || (prop && prop.contents && prop.contents.totalInhabitantCount) || null;
+  const distance = (rowKey && typeof ACKS.computeEncounterDistance === 'function')
+    ? ACKS.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight', sideACount: sizeCount, sideBCount: monsterCount, rng })
+    : null;
   const encounterRecord = {
-    id: encId, dayIndex, hexId, triggeredBy: 'wandering-roll', encounterTableUsed: null,
-    monsters: [], rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
-    partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null
+    id: encId, dayIndex, hexId, coord: coord || (hex && hex.coord) || null,
+    triggeredBy: 'wandering-roll', encounterTableUsed: draw.columnKey,
+    category: draw.category, rarity: draw.rarity || null,
+    monsters: monsters, lairId: lairId, rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
+    partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null,
+    // The compacted draw + distance the commit materializes the entity from (plan §15.2).
+    // E4: identityRoll + binding ride verbatim — the commit applies the RECORDED verdict
+    // (no re-roll), so the materialized entity matches the reviewed preview byte-for-byte.
+    draw: { hexId: draw.hexId, territoryClass: draw.territoryClass, columnKey: draw.columnKey,
+            category: draw.category, rarity: draw.rarity, identity: draw.identity,
+            identityRoll: ir, binding: bind,
+            proposal: prop ? { source: prop.source, lairId: prop.lairId || null,
+                               encounterKind: prop.encounterKind || null, fragment: prop.fragment || null,
+                               contents: prop.contents || null,
+                               candidateLairIds: prop.candidates ? prop.candidates.map(l => l.id) : null } : null },
+    distance: distance
   };
   const notableEvent = {
     kind: 'journey-encounter', type: 'encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
-    label: ((journey && journey.name) || 'Journey') + ': encounter check — GM, resolve this encounter (' + (opts.terrain || 'wilderness') + ')',
-    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId }
+    label: label,
+    payload: { journeyId: journey && journey.id, dayIndex, hexId, encounterId: encId,
+               category: draw.category, rarity: draw.rarity || null,
+               identityLabel: ir ? ir.label : null, monsterKey: ir ? (ir.key || null) : null,
+               bindingMode: bind ? bind.mode : null,
+               lairId: lairId, seededShellLairIds: seededShellLairIds, encounterKind: encounterKind, fragmentCount: fragmentCount }
   };
   return { encounterRecord, notableEvent };
 }
@@ -2171,11 +2356,14 @@ function tickJourneyDay(campaign, journey, ctx){
   // ── navigation (§7 / RR p.275): one Navigation throw per travel day. Skipped only when NOT lost and
   // following a road/trail (those routes are safe); a LOST party always throws — that's its chance to
   // re-orient. +4 for the Navigation proficiency OR the Pathfinding class power, +8 for both; an
-  // unmodified natural 1 always fails. The Judge throws secretly on the party's behalf. ──
+  // unmodified natural 1 always fails. The Judge throws secretly on the party's behalf.
+  // E5 — a party FOLLOWING TRACKS makes no Navigation throw either (RR p.120: following the
+  // spoor needs no throw — the trail leads); a party already lost still throws to recover. ──
+  const followingTrail = !!((typeof A.journeyTrackingPursuit === 'function') && A.journeyTrackingPursuit(campaign, journey.id));
   let navRecord = null;
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
-  if(!restDay && !halted && dist.remaining > 0 && (isLost || !onRoadOrTrail)){
+  if(!restDay && !halted && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
     // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
     const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
     const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
@@ -2345,10 +2533,27 @@ function tickJourneyDay(campaign, journey, ctx){
     fatigueDays += 1; fatigueAccumulated = 1; // ordinary travel = one strenuous day (RR p.279)
   }
 
-  // ── encounter check (§12 — J1 stub). Safe on a day spent entirely on roads; flavour terrain is the
-  // hardest hex actually traversed (§24). ──
-  const enc = rollEncounter(campaign, journey, { rng, terrain: representativeTerrain, hasRoad: dayRoaded, dayIndex: newDayIndex });
-  if(enc){ encounters.push(enc.encounterRecord); notableEvents.push(enc.notableEvent); }
+  // ── encounter checks (#476 E1 — RAW: one throw per hex ENTERED, JJ p.41). Each throw runs on
+  // ITS hex's territory column; a day spent on roads uses the safer +Road column (§24's dayRoaded
+  // — per-hex roadedness isn't retained from the walk, so the day-level flag stands in 🔧); a
+  // hex this journey already traversed demotes terrain finds (JJ p.42 step 7). A day that
+  // entered no hex (rest / blocked at a river / halted) makes no travel throw — the stationary
+  // rest/night checks are the 'encounters' day consumer's (slot 80). ──
+  const _encSeen = {};
+  const _encTaken = {};   // proposal-id mints shared across the day's hexes (collision-proof)
+  for(const _ph of hexPath){
+    if(!_ph) continue;
+    // An UNauthored hex (hexId null — the sparse-campaign norm) still gets its RAW throw:
+    // unsettled territory, no pool, the start-hex environment for distance (§24 fallback).
+    const _ekey = _ph.hexId || ('c' + _ph.q + ',' + _ph.r);
+    if(_encSeen[_ekey]) continue;
+    _encSeen[_ekey] = true;
+    const enc = rollEncounter(campaign, journey, { rng, hexId: _ph.hexId || null, coord: { q: _ph.q, r: _ph.r }, hasRoad: dayRoaded, dayIndex: newDayIndex, takenIds: _encTaken });
+    if(enc){
+      if(enc.encounterRecord) encounters.push(enc.encounterRecord);
+      notableEvents.push(enc.notableEvent);
+    }
+  }
 
   // ── status transition + arrival event. currentHexId now advances hex-by-hex along the route to the
   // authored hex the party is in (it stays put across UNauthored stretches — no hex id to move to). ──
@@ -2421,7 +2626,11 @@ function tickJourneyDay(campaign, journey, ctx){
     memberSurvival,                                          // Provisioning — compact per-member post-day survival (for the members-table proposed-day preview)
     fatigueAccumulated,
     encounters: encounters.map(e => ({ kind: e.triggeredBy || 'wandering-roll', encounterId: e.id })),
-    notableEvents: notableEvents.map(n => ({ kind: n.kind, type: n.type || null, text: n.label })),  // type routes each to the nav vs forage row in the day log
+    // type routes each notable to the nav vs forage row in the day log; payload is KEPT in the
+    // committed digest — the day-log affordances (E2 ⚔ Resolve via payload.encounterId; M4's
+    // → lair / 🐾 Track home via payload.lairId) read it. Older saves' digests lack it → the
+    // buttons simply hide (graceful), so no migration.
+    notableEvents: notableEvents.map(n => ({ kind: n.kind, type: n.type || null, text: n.label, payload: n.payload || null })),
     status: 'pending'
   };
 
@@ -2495,7 +2704,10 @@ function tickJourneyDay(campaign, journey, ctx){
     survival: survival.ignored ? null : survival,   // Provisioning V2/V3 — per-member absolutes (commit replays via applyJourneyDaySurvival)
     newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null,
     // §27 getting-lost post-state (commitJourneyRecord applies these; reroll-revert restores the pre-state)
-    newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored
+    newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored,
+    // #476 E1 — the day's meeting encounters (full draw + pre-rolled distance); the commit
+    // materializes each as an Encounter entity under its preview-minted id.
+    encounterProposals: encounters
   };
   // Attribute every notable to THIS day. A multi-day advance produces one journey record per day, and the
   // day-tick review surface matches a record's notables by (journeyId, dayIndex) — without a dayIndex on
@@ -2680,6 +2892,25 @@ function commitJourneyRecord(campaign, record){
   if('newRouteAnchorCoord' in record) j.routeAnchorCoord = record.newRouteAnchorCoord || null;
   if('newRouteAnchorHexId' in record) j.routeAnchorHexId = record.newRouteAnchorHexId || null;
   if(record.reanchored){ try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ } }
+  // #476 E1 — materialize the day's meeting encounters as Encounter entities. The draw + the
+  // pre-rolled distance rode the record from the seeded preview, so the entity matches what the
+  // GM reviewed byte-for-byte; createEncounter is id-idempotent, so the propose pass's working-
+  // copy commit and a reroll's re-commit never duplicate.
+  if(Array.isArray(record.encounterProposals) && record.encounterProposals.length
+     && global.ACKS && typeof global.ACKS.createEncounterFromDraw === 'function'){
+    for(const ep of record.encounterProposals){
+      if(!ep || !ep.draw) continue;
+      global.ACKS.createEncounterFromDraw(campaign, ep.draw, {
+        id: ep.id, trigger: 'journey-travel',
+        partySide: { partyId: j.partyId || null, journeyId: j.id,
+                     characterIds: (j.participantCharacterIds || []).slice(),
+                     faceCharacterId: null,
+                     sizeCount: (j.participantCharacterIds || []).length || 1 },
+        distance: ep.distance || null,
+        onDayInMonth: (dr.worldDay && dr.worldDay.dayInMonth) || undefined
+      });
+    }
+  }
   (j.history = j.history || []).push({ turn: campaign.currentTurn || null, dayIndex: record.newDayIndex, type: (record.newStatus === 'arrived' ? 'arrived' : 'day-tick'), narrative: record.label || ('day ' + record.newDayIndex) });
   // Provisioning V2/V3 — apply the per-member survival absolutes (water/food/conditions/CON loss +
   // changed inventories + camp), replacing the old uniform first-member mirror. Sets hungerDays/
@@ -2754,6 +2985,28 @@ function rerollJourneyDay(campaign, journey, ctx){
     if(ev.kind === 'journey-arrived') return false; // a journey arrives once = its latest day
     return true;
   });
+  // 1b. #476 E1 — drop the reverted day's materialized Encounter entities (+ any encounter-*
+  // events hanging off them): the day never happened. Surgical, like rerollHexSearch's
+  // discovery reversal — a GM who already walked/resolved one of these loses that walk with
+  // the day, which is the point of the reroll. E4: an encounter whose 6a binding MINTED a
+  // lair (detailed a shell / revealed a pooled lair / created a fresh den) unwinds that
+  // first — the world keeps no den from a day that never happened.
+  {
+    const _encIds = ((lastDay && lastDay.encounters) || []).map(e => e && e.encounterId).filter(Boolean);
+    if(_encIds.length){
+      if(Array.isArray(campaign.encounters)){
+        for(const e of campaign.encounters){
+          if(e && _encIds.indexOf(e.id) >= 0 && e.monsterSide && e.monsterSide.minted && typeof A._unwindEncounterMinting === 'function')
+            A._unwindEncounterMinting(campaign, e.monsterSide.minted);
+        }
+        campaign.encounters = campaign.encounters.filter(e => !(e && _encIds.indexOf(e.id) >= 0));
+      }
+      campaign.eventLog = (campaign.eventLog || []).filter(entry => {
+        const ev = entry && entry.event;
+        return !(ev && ev.payload && ev.payload.encounterId && _encIds.indexOf(ev.payload.encounterId) >= 0);
+      });
+    }
+  }
   // 2. revert journey + participants to the pre-day snapshot
   j.days.pop();
   j.currentDayIndex = pre.currentDayIndex;
@@ -3183,6 +3436,8 @@ function reRouteJourney(campaign, journey, opts){
   j.isLost = false;                        // a fresh heading re-orients a lost party
   j.strayHeading = null;                   // §27 — drop the stray heading; the GM has re-oriented them
   j.routeAnchorCoord = null;               // §27 — re-anchor by the (authored) current hex, not a strayed coord
+  if(j.status === 'lost') j.status = 'in-transit';   // E8 — a re-route re-orients a KNOWINGLY-lost party too (RR p.285)
+  j.lostEncounterId = null;
   try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
   const dist = computeJourneyDistance(campaign, j);
   j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.remaining / 4)) : 0;
@@ -3425,6 +3680,9 @@ function hexName(hex){
   if(!base && hex.terrain){
     const t = String(hex.terrain).trim();
     base = t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+    // Terrain model — a sub-type'd hex names as "Barrens (tundra)"; an unset sub-type is omitted.
+    const sub = hex.terrainSubtype ? String(hex.terrainSubtype).trim() : '';
+    if(base && sub) base = base + ' (' + sub + ')';
   }
   if(!base) return coords;
   return coords ? (base + ' (' + coords + ')') : base;
@@ -3692,8 +3950,12 @@ function _survivalDayGroups(campaign){
   // in his realm are exempt, party-sharing or not. Field characters everywhere else always consume.
   const regimeOf = A.characterEffectiveRegime || A.characterProvisioningRegime;
   const onJourney = {};
+  // E8 — a KNOWINGLY-lost journey (status 'lost', RR p.285) is deliberately NOT excluded: it
+  // holds its position (the journeys consumer ticks only in-transit), so its members are a
+  // stationary field group — this consumer owns their food/water while they search for the
+  // landmark, and the rest-night camp checks face them too (lost camps stay dangerous).
   (campaign.journeys || []).forEach(j => {
-    if(j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost')){
+    if(j && (j.status === 'in-transit' || j.status === 'resting')){
       (j.participantCharacterIds || []).forEach(id => { onJourney[id] = 1; });
     }
   });
@@ -3903,6 +4165,14 @@ Object.assign(ACKS, {
   hasFreshSource, seedJourneyProvisions, resolveDaySurvival, journeyDaySurvival, applyDaySurvival, applyJourneyDaySurvival, rerollJourneyForage, rerollJourneyNav, reapplyLatestDaySurvival,
   // CoL-1 (Provisioning §16.2) — off-journey survival day-consumer.
   proposeSurvivalDay, commitSurvivalRecord,
+  // #476 E1 — the slot-80 rest/night encounter consumer (JJ p.41).
+  proposeEncounterDay, commitEncounterRecord,
+  // #476 E3c — the slot-82 pursuit consumer (the day handler + its commit hook).
+  proposePursuitDay, commitPursuitRecord, trackingQuarryWalkDay, trackingSpringCatch,
+  // #476 E6 — the slot-84 monster-bands consumer (wander + homing motion).
+  proposeMonsterBandDay, commitMonsterBandRecord,
+  // #476 E10 — domain-morale banditry (RR pp.350–351): the monthly reconcile + lookup.
+  banditryBandsForDomain, processBanditryForTurn,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -3914,8 +4184,1020 @@ Object.assign(ACKS, {
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName, generateBlankHexGrid,
   hexNeighborDeltas, hexEdgeBetween, hexOppositeEdge, hexLineDraw, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_FACE_LABELS,
-  HEX_TERRAIN_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
+  HEX_TERRAIN_COLORS, HEX_TERRAIN_ALIASES, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
+
+// ─── #476 E1 — rest/night encounter checks (JJ p.41) — the slot-80 consumer ──────────────────
+// The Calendar §12 collision slot gets its first occupant: STATIONARY field groups (a party
+// camped in the wild, a lone warden, a RESTING journey's party — an in-transit journey's
+// per-hex travel throws already covered its day) face the RAW rest/stationary frequencies:
+// unsettled = one check per 12 hours day AND night; outlands = nights; borderlands = every
+// 3rd night; civilized = every 7th night (cadence keyed off the absolute world ordinal —
+// deterministic, no stored state). Terrain categories demote while resting (JJ p.42 step 7),
+// so a camp check yields a MEETING (monster / civilized) or nothing. Seeded rng off
+// (group, hex, world-day) — the review re-opens byte-stable; the commit materializes the
+// Encounter entity under the preview-minted id. Camps are finally dangerous.
+
+// Stationary field groups by (party, hex) — mirrors the survival consumer's grouping. Settled
+// characters face settlement encounters, not wilderness ones (JJ p.41) — skipped; so is anyone
+// whose in-transit journey already threw for the day.
+function _restEncounterGroups(campaign){
+  const A = _jACKS();
+  const out = {};
+  const inTransit = {};
+  for(const j of (campaign.journeys || [])){
+    if(j && j.status === 'in-transit') (j.participantCharacterIds || []).forEach(id => { inTransit[id] = true; });
+  }
+  for(const ch of (campaign.characters || [])){
+    if(!ch || !ch.currentHexId) continue;
+    if(inTransit[ch.id]) continue;
+    if(typeof A.characterEffectiveRegime === 'function' && A.characterEffectiveRegime(campaign, ch) !== 'field') continue;
+    const key = (ch.partyId || ('solo-' + ch.id)) + '@' + ch.currentHexId;
+    (out[key] = out[key] || { key: key, partyId: ch.partyId || null, hexId: ch.currentHexId, characterIds: [] }).characterIds.push(ch.id);
+  }
+  return Object.keys(out).map(k => out[k]);
+}
+
+// §14 day-handler (slot 80). PURE — proposes rest-encounter records without mutating;
+// commitEncounterRecord materializes a ratified record's Encounter entity.
+function proposeEncounterDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [], encounters = [];
+  if(!campaign) return { pendingRecords, notableEvents, encounters };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(typeof A.encounterDraw !== 'function' || typeof A.restEncounterChecksForDay !== 'function')
+    return { pendingRecords, notableEvents, encounters };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const takenIds = {};   // proposal-id mints shared across the day's groups (collision-proof)
+  for(const g of _restEncounterGroups(campaign)){
+    const hex = (campaign.hexes || []).find(h => h && h.id === g.hexId);
+    if(!hex) continue;
+    const territory = (typeof A.territoryClassForHex === 'function') ? A.territoryClassForHex(campaign, hex) : 'unsettled';
+    const checks = A.restEncounterChecksForDay(territory, worldOrd);
+    if(!checks.length) continue;
+    const rng = ctx.rng || _jMulberry32(_jHash32('rest-enc|' + g.key + '|' + worldOrd));
+    for(const chk of checks){
+      const draw = A.encounterDraw(campaign, g.hexId, { resting: true, night: chk.period === 'night', rng: rng,
+        partySide: { partyId: g.partyId || null, characterIds: g.characterIds.slice() } });   // E4m — quarry exclusion
+      if(!draw || draw.category === 'no-encounter') continue;
+      if(draw.category !== 'monster' && draw.category !== 'civilized') continue;  // resting demotes terrain finds (belt + braces)
+      const encId = _mintEncounterProposalId(campaign, rng, takenIds);
+      const party = g.partyId ? (campaign.parties || []).find(p => p && p.id === g.partyId) : null;
+      const firstCh = (campaign.characters || []).find(c => c && c.id === g.characterIds[0]);
+      const who = (party && party.name) || (firstCh && firstCh.name) || 'A camped group';
+      const prop = draw.proposal || null;
+      const ir = draw.identityRoll || null, bind = draw.binding || null;
+      let what;
+      if(ir){
+        // E4 — the table named them; say what the commit will do (ratify-informed).
+        const mName = (ir.key && typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(ir.key)) || ir.label || 'creatures';
+        const n = bind && bind.count;
+        if(!ir.key) what = ir.label + ' (rolled ' + ir.natural + ' — GM details the specifics) — GM, resolve';
+        else if(bind && bind.mode === 'existing-lair') what = mName + ' — their lair is in this hex; GM, resolve';
+        else if(bind && bind.mode === 'fragment') what = (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's') + ' out from their lair here — GM, resolve';
+        else if(bind && (bind.mode === 'populate-shell' || bind.mode === 'fresh-lair' || bind.mode === 'reveal-dynamic'))
+          what = mName + ' in their lair — the den materializes here at commit; GM, resolve';
+        else if(bind && bind.mode === 'loose-band')
+          what = (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's') + ' — ' + _looseBandMetText(campaign, bind) + ' — GM, resolve';
+        else what = (n ? n + ' ' : '') + mName + (bind && bind.inLair ? ' at their dwelling' : ' (wandering)') + ' — GM, resolve';
+      }
+      else if(draw.category === 'civilized') what = 'civilized visitors — GM, pick who';
+      else if(prop && prop.source === 'existing-lair'){
+        const mName = (typeof A.monsterDisplayName === 'function' && A.monsterDisplayName(prop.contents.monsterCatalogKey)) || 'creatures';
+        what = prop.encounterKind === 'wandering-fragment'
+          ? (mName + ' out from their lair — GM, resolve')
+          : (mName + ' — their lair is in this hex; GM, resolve');
+      }
+      else if(prop && prop.source === 'seeded-shell') what = 'something from one of this hex’s unauthored lairs — GM, populate + resolve';
+      else what = (/^[aeiou]/.test(draw.rarity || '') ? 'an ' : 'a ') + (draw.rarity ? (draw.rarity + ' ') : '') + 'monster — GM, pick the creature (catalog)';
+      const label = who + ': ' + (chk.period === 'night' ? 'night' : 'daytime') + ' camp encounter — ' + what;
+      pendingRecords.push({
+        kind: 'rest-encounter', label: label,
+        encounterId: encId, hexId: g.hexId, partyId: g.partyId, characterIds: g.characterIds.slice(),
+        period: chk.period, territoryClass: territory, dayInMonth: dayInMonth,
+        draw: { hexId: draw.hexId, territoryClass: draw.territoryClass, columnKey: draw.columnKey,
+                category: draw.category, rarity: draw.rarity, identity: draw.identity,
+                identityRoll: ir, binding: bind,
+                proposal: prop ? { source: prop.source, lairId: prop.lairId || null,
+                                   encounterKind: prop.encounterKind || null, fragment: prop.fragment || null,
+                                   contents: prop.contents || null,
+                                   candidateLairIds: prop.candidates ? prop.candidates.map(l => l.id) : null } : null },
+        primaryHexId: g.hexId
+      });
+      // The notable pauses the tick (auto-pause-on-encounter) and emits via the gm-narrative
+      // fallback, campaignLogHidden — the entity + its eventual encounter-resolved narrate the
+      // story; this line keeps the Event Log + hex/character histories complete.
+      notableEvents.push({
+        type: 'encounter', pauseTrigger: 'encounter', primaryHexId: g.hexId,
+        campaignLogHidden: true,
+        relatedEntities: g.characterIds.map(id => ({ kind: 'character', id: id, role: 'subject' }))
+          .concat(g.partyId ? [{ kind: 'party', id: g.partyId, role: 'subject' }] : []),
+        label: label,
+        payload: { encounterId: encId, hexId: g.hexId, period: chk.period, category: draw.category, rarity: draw.rarity || null, narrative: label }
+      });
+    }
+  }
+  return { pendingRecords, notableEvents, encounters };
+}
+
+// Apply a ratified rest-encounter record: materialize the Encounter entity (id-idempotent —
+// safe across the propose pass's working-copy commit and the real commit).
+function commitEncounterRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'rest-encounter' || !record.draw) return;
+  const A = _jACKS();
+  if(typeof A.createEncounterFromDraw !== 'function') return;
+  A.createEncounterFromDraw(campaign, record.draw, {
+    id: record.encounterId, trigger: 'rest-night',
+    partySide: { partyId: record.partyId || null, journeyId: null,
+                 characterIds: (record.characterIds || []).slice(),
+                 faceCharacterId: null,
+                 sizeCount: (record.characterIds || []).length || 1 },
+    // 🔧 moon phase is GM detail — a night check defaults to full-moon visibility; the GM
+    // refines light on the entity (E2's surface offers the pick).
+    light: record.period === 'night' ? 'full-moon' : 'daylight',
+    onDayInMonth: record.dayInMonth
+  });
+}
+
+// ── #476 E3c — the 'pursuit' day-consumer (slot 82, right after encounters) ─────────
+// Each PURSUING encounter ('monster-pursuit' ON; pursuit.status 'pursuing') advances
+// daily: a keep-the-trail Tracking throw (RR p.120 — 11+, the party-size count bands,
+// natural 1 fails, ± the pursuit's standing GM modifier) and a gap update — the
+// party's straight-line hex movement ×6 mi vs the pursuer's half-expedition-speed
+// (🔧 v1: straight-line distance, not the walked path; the trail's water/rain·snow
+// breaks + Passing Without Trace are GM levers — the standing modifier + the
+// trace-concealed tick). Lost → the encounter resolves 'evaded'. Caught (gap ≤ 0) →
+// a FRESH encounter at the party's hex (trigger 'pursuit', distance pre-rolled with
+// the seeded rng so previews are byte-stable); the old one resolves 'evaded' and
+// priorReactionBetween recalls it (D9). The handler is PURE (the day-tick working
+// copy); commitPursuitRecord applies the ratified record.
+function _pursuingEncounters(campaign){
+  return ((campaign && campaign.encounters) || []).filter(e => e && e.status === 'active' && e.pursuit && e.pursuit.status === 'pursuing');
+}
+function proposePursuitDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const takenIds = {};
+  for(const enc of _pursuingEncounters(campaign)){
+    const pur = enc.pursuit;
+    const rng = ctx.rng || _jMulberry32(_jHash32('pursuit|' + enc.id + '|' + worldOrd));
+    if(pur.traceConcealed){
+      const label = pur.pursuerLabel + ' loses the trail — concealed (Passing Without Trace).';
+      pendingRecords.push({ kind: 'pursuit-day', label, encounterId: enc.id, outcome: 'lost',
+        reason: 'trace concealed (Passing Without Trace)', dayInMonth, primaryHexId: enc.hexId });
+      notableEvents.push({ type: 'pursuit-lost', primaryHexId: enc.hexId, campaignLogHidden: true,
+        relatedEntities: ((enc.partySide && enc.partySide.characterIds) || []).map(id => ({ kind: 'character', id, role: 'subject' })),
+        label, payload: { encounterId: enc.id, narrative: label } });
+      continue;
+    }
+    // keep-the-trail (RR p.120): 11+, the party-size count bands, natural 1 fails.
+    const n = (enc.partySide && (enc.partySide.sizeCount || ((enc.partySide.characterIds || []).length))) || 1;
+    const countBonus = (n >= 17) ? 8 : (n > 8) ? 6 : (n > 4) ? 4 : (n >= 2) ? 2 : 0;
+    const mod = Number(pur.gmMod) || 0;
+    const natural = 1 + Math.floor(rng() * 20);
+    const total = natural + countBonus + mod;
+    const success = (natural !== 1) && (total >= 11);
+    const newHexId = (typeof A.encounterPartyHexId === 'function') ? A.encounterPartyHexId(campaign, enc) : enc.hexId;
+    const oldHexId = pur.lastPartyHexId || newHexId;
+    const hexes = campaign.hexes || [];
+    const oldHex = hexes.find(h => h && h.id === oldHexId);
+    const newHex = hexes.find(h => h && h.id === newHexId);
+    const partyMiles = (oldHex && newHex && oldHex !== newHex && typeof A.hexAxialDistance === 'function')
+      ? (A.hexAxialDistance(oldHex.coord || oldHex, newHex.coord || newHex) || 0) * 6 : 0;
+    const pursuerMiles = pur.pursuerMilesPerDay || 12;
+    const gapBefore = Number(pur.gapMiles) || 0;
+    const rawGap = gapBefore + partyMiles - pursuerMiles;
+    const caught = success && rawGap <= 0;
+    const gapAfter = Math.max(0, rawGap);
+    const outcome = !success ? 'lost' : (caught ? 'caught' : 'tracking');
+    let caughtEncounterId = null, caughtDistance = null;
+    if(caught){
+      caughtEncounterId = _mintEncounterProposalId(campaign, rng, takenIds);
+      // pre-roll the fresh meeting's distance with the seeded rng (byte-stable previews)
+      const rowKey = newHex && typeof A.encounterRowKeyForHex === 'function' ? A.encounterRowKeyForHex(newHex) : null;
+      if(rowKey && typeof A.computeEncounterDistance === 'function'){
+        caughtDistance = A.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight',
+          sideACount: n, sideBCount: (enc.monsterSide && enc.monsterSide.count) || 1, rng });
+      }
+    }
+    const throwText = (natural === 1 ? 'natural 1' : (total + ' vs 11+'));
+    const label = !success
+      ? (pur.pursuerLabel + ' loses the trail (' + throwText + ').')
+      : caught
+        ? ('🐺 ' + pur.pursuerLabel + ' catches up — a fresh encounter at the party\'s hex!')
+        : (pur.pursuerLabel + ' holds the trail (' + throwText + ') — ' + gapAfter + ' mi behind.');
+    pendingRecords.push({
+      kind: 'pursuit-day', label, encounterId: enc.id, outcome,
+      trailThrow: { natural, countBonus, mod, total, target: 11, success },
+      partyMiles, pursuerMiles, gapBefore, gapAfter, newPartyHexId: newHexId,
+      caughtEncounterId, caughtDistance, dayInMonth, primaryHexId: newHexId
+    });
+    notableEvents.push({
+      type: caught ? 'encounter' : (success ? 'pursuit-day' : 'pursuit-lost'),
+      pauseTrigger: caught ? 'encounter' : undefined,
+      primaryHexId: newHexId, campaignLogHidden: true,
+      relatedEntities: ((enc.partySide && enc.partySide.characterIds) || []).map(id => ({ kind: 'character', id, role: 'subject' }))
+        .concat((enc.partySide && enc.partySide.partyId) ? [{ kind: 'party', id: enc.partySide.partyId, role: 'subject' }] : []),
+      label, payload: { encounterId: enc.id, caughtEncounterId, outcome, narrative: label }
+    });
+  }
+  // ── E5 — the follows (direction 'party'): the quarry walks its plan, the RAW loss events
+  // break the trail, the catch springs the meeting. Computed from start-of-day state (the
+  // E3c lag convention); _commitTrackingRecord applies the recorded absolutes. ──
+  for(const enc of _trackingEncounters(campaign)){
+    const pur = enc.pursuit;
+    const rng = ctx.rng || _jMulberry32(_jHash32('tracking|' + enc.id + '|' + worldOrd));
+    const A2 = _jACKS();
+    const q0 = JSON.parse(JSON.stringify(pur.quarry || {}));
+    // A quarry whose Group settled into a living den mid-follow is home — the world's truth wins.
+    if(q0.groupId){
+      const den = (campaign.lairs || []).find(l => l && (l.status === 'active' || l.status === 'unknown') && (l.groupIds || []).indexOf(q0.groupId) >= 0);
+      const dh = (den && den.hexId) ? ((campaign.hexes || []).find(h => h && h.id === den.hexId) || null) : null;
+      if(den && dh && dh.coord){
+        q0.halted = true; q0.destLairId = den.id;
+        q0.destCoord = { q: dh.coord.q, r: dh.coord.r };
+        q0.coord = { q: dh.coord.q, r: dh.coord.r };
+        q0.hexId = den.hexId;
+      }
+    }
+    const walk = trackingQuarryWalkDay(campaign, q0, rng);
+    // Loss events (RR p.120): ONE hour of rain/snow destroys the trail; so does the trail
+    // entering water. Either forces a fresh find throw ("must search again"). The day's
+    // condition comes from the day-tick ctx when the weather layer supplies it (T4); the
+    // GM's weatherLostPending lever asserts the rain/snow day until then.
+    const cond = (ctx.weather && ctx.weather.condition) || null;
+    const rainDay = pur.weatherLostPending === true || cond === 'rainy' || cond === 'snowy' || cond === 'stormy';
+    let refind = null, lossCause = null, outcome = 'tracking';
+    if(rainDay || walk.waterCrossed){
+      lossCause = rainDay ? 'rain' : 'water';
+      refind = (typeof A2.trackingFindThrow === 'function')
+        ? A2.trackingFindThrow({ ranks: pur.trackerRanks, countTracked: pur.countTracked,
+                                 rainHours: rainDay ? 1 : 0, gmMod: pur.gmMod, rng: rng })
+        : { natural: 20, target: 11, modifiers: [], total: 20, success: true };
+      if(!refind.success) outcome = 'lost';
+    }
+    // Caught — the trackers stand where the quarry now is.
+    const partyCoord = _trackingPartyCoord(campaign, pur);
+    const gapHexes = (partyCoord && q0.coord && typeof A2.hexAxialDistance === 'function') ? A2.hexAxialDistance(partyCoord, q0.coord) : null;
+    const gapMiles = (gapHexes == null) ? null : gapHexes * 6;
+    if(outcome === 'tracking' && gapHexes === 0) outcome = 'caught';
+    let caughtEncounterId = null, caughtDistance = null;
+    if(outcome === 'caught'){
+      caughtEncounterId = _mintEncounterProposalId(campaign, rng, takenIds);
+      const qHex = q0.hexId ? (campaign.hexes || []).find(h => h && h.id === q0.hexId) : null;
+      const rowKey = qHex && typeof A2.encounterRowKeyForHex === 'function' ? A2.encounterRowKeyForHex(qHex) : null;
+      const denCatch = !!(q0.destLairId && q0.halted && q0.destCoord && q0.coord && q0.coord.q === q0.destCoord.q && q0.coord.r === q0.destCoord.r);
+      let sideB = pur.countTracked || 1;
+      if(denCatch){
+        const den = (typeof A2.findLair === 'function') ? A2.findLair(campaign, q0.destLairId) : null;
+        if(den && typeof A2.lairInhabitantCount === 'function') sideB = A2.lairInhabitantCount(campaign, den) || sideB;
+      }
+      const jt = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+      const nTrackers = (jt && (jt.participantCharacterIds || []).length) || 1;
+      if(rowKey && typeof A2.computeEncounterDistance === 'function'){
+        caughtDistance = A2.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight', sideACount: nTrackers, sideBCount: sideB, rng: rng });
+      }
+    }
+    const tn = pur.trackerName || 'The trackers';
+    const ql = pur.quarryLabel || 'the band';
+    const refindText = refind ? ((lossCause === 'rain' ? 'rain/snow washed the trail' : 'the trail entered water')
+      + ' — re-find ' + (refind.natural === 1 ? 'natural 1' : (refind.total + ' vs 11+')) + (refind.success ? ' ✓' : ' ✗')) : null;
+    const label = outcome === 'lost'
+      ? ('🐾 ' + tn + ' loses the trail of ' + ql + ' — ' + refindText + '.')
+      : outcome === 'caught'
+        ? ('🐾 ' + tn + ' — caught up with ' + ql + ': a fresh encounter at its hex!')
+        : ('🐾 on the trail of ' + ql + (refindText ? (' (' + refindText + ')') : '')
+           + (walk.camped ? ' — the band camps' : (walk.arrived ? ' — the band has gone to ground' : ''))
+           + ((gapMiles != null) ? (' — ' + gapMiles + ' mi behind.') : '.'));
+    pendingRecords.push({
+      kind: 'tracking-day', label, encounterId: enc.id, outcome,
+      refind, lossCause,
+      newQuarry: q0, quarryWalk: { moved: walk.moved, camped: walk.camped, arrived: walk.arrived, waterCrossed: walk.waterCrossed },
+      gapMiles, newDestinationHexId: (outcome === 'tracking' && q0.hexId) ? q0.hexId : null,
+      caughtEncounterId, caughtDistance, dayInMonth, primaryHexId: q0.hexId || enc.hexId || null
+    });
+    const j2 = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+    notableEvents.push({
+      type: outcome === 'caught' ? 'encounter' : (outcome === 'lost' ? 'tracking-lost' : 'tracking-day'),
+      pauseTrigger: outcome === 'caught' ? 'encounter' : (outcome === 'lost' ? 'navigation-fail' : undefined),
+      primaryHexId: q0.hexId || enc.hexId || null, campaignLogHidden: true,
+      relatedEntities: ((j2 && j2.participantCharacterIds) || [pur.trackerCharacterId]).filter(Boolean).map(id => ({ kind: 'character', id, role: 'subject' }))
+        .concat(pur.trackerPartyId ? [{ kind: 'party', id: pur.trackerPartyId, role: 'subject' }] : []),
+      label, payload: { encounterId: enc.id, caughtEncounterId, outcome, narrative: label }
+    });
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitPursuitRecord(campaign, record){
+  if(record && record.kind === 'tracking-day') return _commitTrackingRecord(campaign, record);   // E5 — the follow's day
+  const A = _jACKS();
+  const enc = ((campaign && campaign.encounters) || []).find(e => e && e.id === record.encounterId);
+  if(!enc || !enc.pursuit) return;
+  const pur = enc.pursuit;
+  if(record.trailThrow){
+    pur.throws.push(Object.assign({ kind: 'keep-trail', atTurn: campaign.currentTurn || 1, atDay: record.dayInMonth || null }, record.trailThrow));
+  }
+  if(record.outcome === 'lost'){
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-lost',
+      reason: record.reason || ((record.trailThrow && record.trailThrow.natural === 1) ? 'natural 1 — the trail is gone' : 'the trail is gone') });
+    if(typeof A.recordEncounterResolved === 'function')
+      A.recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuit lost the trail' + (record.reason ? ' — ' + record.reason : '') + '.' });
+    // E6 — the hunt over, the band turns for home (or, denless, becomes a wandering
+    // migrant). 🔧 v1 position: the chase model is straight-line gapMiles behind the
+    // party, so the band stands at the trail's anchor hex when the trail goes cold.
+    if(typeof A.pursuitAftermath === 'function')
+      A.pursuitAftermath(campaign, enc, { hexId: record.newPartyHexId || pur.lastPartyHexId || enc.hexId });
+    return;
+  }
+  pur.gapMiles = record.gapAfter;
+  pur.lastPartyHexId = record.newPartyHexId;
+  if(record.outcome === 'caught'){
+    // The fresh meeting at the party's hex — the same sides. The monster side carries
+    // pursuitEncounterId = the chase it sprang from (E4m), so priorReactionBetween
+    // recalls the evaded meeting (D9) even for a den-less, group-less band — and any
+    // lair/Group refs ride along as before.
+    const fresh = (typeof A.createEncounter === 'function') ? A.createEncounter(campaign, {
+      id: record.caughtEncounterId || undefined,
+      trigger: 'pursuit', hexId: record.newPartyHexId,
+      category: enc.category || 'monster', rarity: enc.rarity || null,
+      partySide: {
+        partyId: (enc.partySide && enc.partySide.partyId) || null,
+        journeyId: (enc.partySide && enc.partySide.journeyId) || null,
+        characterIds: ((enc.partySide && enc.partySide.characterIds) || []).slice(),
+        faceCharacterId: (enc.partySide && enc.partySide.faceCharacterId) || null,
+        sizeCount: (enc.partySide && enc.partySide.sizeCount) || null
+      },
+      monsterSide: Object.assign({}, enc.monsterSide, { groupIds: ((enc.monsterSide && enc.monsterSide.groupIds) || []).slice(), pursuitEncounterId: enc.id }),
+      createReason: 'pursuit-caught-up',
+      occurredOnDayInMonth: record.dayInMonth || null
+    }) : null;
+    if(fresh && record.caughtDistance && fresh.distance == null){
+      fresh.distance = record.caughtDistance;
+      fresh.history.push({ turn: fresh.occurredAtTurn, type: 'distance',
+        reason: (record.caughtDistance.distanceFt != null ? record.caughtDistance.distanceFt : '?') + ' ft (' + (record.caughtDistance.terrainRow || 'terrain') + ')' });
+    }
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-caught',
+      reason: pur.pursuerLabel + ' caught up' + (fresh ? ' — fresh encounter ' + fresh.id : '') });
+    if(typeof A.recordEncounterResolved === 'function')
+      A.recordEncounterResolved(campaign, enc.id, 'evaded', { note: 'The pursuer caught up — a fresh encounter springs at the party\'s hex.' });
+    return;
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'pursuit-day',
+    reason: 'trail held (' + (record.trailThrow ? record.trailThrow.total + ' vs 11+' : '—') + ') — ' + record.gapAfter + ' mi behind (party +' + record.partyMiles + ' / pursuer −' + record.pursuerMiles + ')' });
+}
+
+// ── #476 E5 — the party-direction follow (the same slot-82 consumer; pursuit.direction
+// 'party' — the E3c chase's mirror). One day of a follow: the quarry walks its plan, the
+// RAW loss events break the trail (RR p.120 — ONE hour of rain/snow, or the trail entering
+// water; either forces a fresh find throw, "must search again"), FOLLOWING itself needs no
+// throw, and a catch — the trackers standing where the quarry is — springs a fresh meeting
+// at its hex. Handlers are PURE; commit applies the recorded absolutes. ──
+function _trackingEncounters(campaign){
+  return ((campaign && campaign.encounters) || []).filter(e => e && e.pursuit && e.pursuit.direction === 'party' && e.pursuit.status === 'tracking');
+}
+// Where the trackers ARE (their journey's physical position — the §27 stray anchor when
+// off-route, else the current/start hex; a journeyless tracker reads from the character).
+function _trackingPartyCoord(campaign, pur){
+  const j = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+  if(j){
+    if(j.routeAnchorCoord && typeof j.routeAnchorCoord.q === 'number') return { q: j.routeAnchorCoord.q, r: j.routeAnchorCoord.r };
+    const hid = j.currentHexId || j.startHexId || null;
+    const hx = hid ? ((campaign.hexes || []).find(h => h && h.id === hid) || null) : null;
+    if(hx && hx.coord) return { q: hx.coord.q, r: hx.coord.r };
+  }
+  const ch = (campaign.characters || []).find(x => x && x.id === pur.trackerCharacterId);
+  const hx2 = (ch && ch.currentHexId) ? ((campaign.hexes || []).find(h => h && h.id === ch.currentHexId) || null) : null;
+  return (hx2 && hx2.coord) ? { q: hx2.coord.q, r: hx2.coord.r } : null;
+}
+// E6 — one 6-mile wander step: a random face, never directly back into the hex just left
+// (Joachim 2026-06-11: "The movement is random, but wandering never goes directly back to
+// the hex from where it just came from"). Shared by the quarry walk + the band consumer.
+function _wanderPickStep(cur, last, rng, allow){
+  const pick = (excludeBack) => {
+    const opts = [];
+    for(let d = 0; d < 6; d++){
+      const dd = HEX_EDGE_DELTAS[d] || [0, 0];
+      const c = { q: cur.q + dd[0], r: cur.r + dd[1] };
+      if(excludeBack && last && c.q === last.q && c.r === last.r) continue;
+      if(allow && !allow(c)) continue;
+      opts.push(c);
+    }
+    return opts;
+  };
+  let opts = pick(true);
+  // E10 — a FENCED walk (a banditry band raids within its domain) may find only the
+  // back-face left (a dead-end spur): doubling back beats leaving the domain. Unfenced
+  // walks never retry — a hex always has 5 non-back faces, so the rng stream is unchanged.
+  if(!opts.length && allow) opts = pick(false);
+  if(!opts.length) return null;
+  return opts[Math.floor((rng || Math.random)() * opts.length)];
+}
+// One day of the quarry's walk (MUTATES the quarry object passed — the propose path clones
+// first; beginTracking uses it directly for the trail-age head start). 🔧 v1: a straight
+// hex-line at 6 mi per hex regardless of terrain (catalog expedition speeds already average
+// a terrain mix); flags — does not resolve — the RAW water loss (a river edge crossed or a
+// water hex entered on the quarry's path; the consumer answers it with the re-find throw).
+// A destination-less quarry WANDERS (E6 — the migration movement): half expedition speed
+// is set at begin; each step picks via _wanderPickStep against quarry.lastCoord. The rng
+// is required for the wander steps (the consumer passes its seeded stream; legacy quarries
+// with a stored straight heading walk it only when no rng is given).
+function trackingQuarryWalkDay(campaign, quarry, rng){
+  const A = _jACKS();
+  const out = { moved: 0,
+                fromCoord: { q: (quarry.coord && quarry.coord.q) || 0, r: (quarry.coord && quarry.coord.r) || 0 },
+                toCoord: null, path: [], waterCrossed: false, camped: false, arrived: false };
+  if(quarry.halted){ out.toCoord = out.fromCoord; return out; }
+  const MILES_PER_HEX = 6;
+  let budget = (Number(quarry.milesPerDay) || 0) + (Number(quarry.mileRemainder) || 0);
+  let cur = { q: out.fromCoord.q, r: out.fromCoord.r };
+  let last = (quarry.lastCoord && typeof quarry.lastCoord.q === 'number') ? { q: quarry.lastCoord.q, r: quarry.lastCoord.r } : null;
+  const atDest = c => !!(quarry.destCoord && c.q === quarry.destCoord.q && c.r === quarry.destCoord.r);
+  // E10 — a tracked morale-banditry band keeps to its domain (the fenced wander).
+  const qGroup = quarry.groupId ? (((campaign && campaign.groups) || []).find(x => x && x.id === quarry.groupId) || null) : null;
+  const qFence = (qGroup && qGroup.banditryDomainId)
+    ? (c => { const hx = A.hexAtCoord(campaign, c.q, c.r); return !!(hx && hx.domainId === qGroup.banditryDomainId); })
+    : null;
+  while(budget >= MILES_PER_HEX && !atDest(cur)){
+    let next = null;
+    if(quarry.destCoord){
+      const line = hexLineDraw(cur, quarry.destCoord);
+      next = (line.length > 1) ? line[1] : null;
+    } else if(rng){
+      next = _wanderPickStep(cur, last, rng, qFence);   // E6 — the wander activity (E10 — fenced for banditry)
+    } else if(typeof quarry.heading === 'number'){
+      // pre-E6 follows persisted a straight heading — honored only on rng-less calls
+      const d = HEX_EDGE_DELTAS[((quarry.heading % 6) + 6) % 6] || [0, 0];
+      next = { q: cur.q + d[0], r: cur.r + d[1] };
+    }
+    if(!next) break;
+    const fromHex = A.hexAtCoord(campaign, cur.q, cur.r);
+    const toHex = A.hexAtCoord(campaign, next.q, next.r);
+    const side = hexEdgeBetween(cur, next);
+    const crossing = riverCrossingForStep(fromHex, toHex, side >= 0 ? side : null);
+    if((crossing && crossing.barrier) || (toHex && toHex.terrain === 'water')) out.waterCrossed = true;
+    last = cur; cur = next; out.moved++; budget -= MILES_PER_HEX;
+    out.path.push({ q: cur.q, r: cur.r });
+  }
+  quarry.mileRemainder = atDest(cur) ? 0 : Math.max(0, budget);
+  quarry.coord = { q: cur.q, r: cur.r };
+  quarry.lastCoord = last ? { q: last.q, r: last.r } : (quarry.lastCoord || null);
+  const hx = A.hexAtCoord(campaign, cur.q, cur.r);
+  quarry.hexId = hx ? hx.id : null;
+  if(atDest(cur)){ quarry.halted = true; out.arrived = true; }
+  if(!quarry.halted && quarry.walkDaysLeft != null){
+    quarry.walkDaysLeft = Math.max(0, quarry.walkDaysLeft - 1);
+    if(quarry.walkDaysLeft === 0){ quarry.halted = true; out.camped = true; }
+  }
+  out.toCoord = { q: cur.q, r: cur.r };
+  return out;
+}
+// Steer the follow's journey to the trail head WITHOUT the journey-rerouted ceremony (the
+// daily pursuit notable narrates the day; a journey-rerouted event per day would spam the
+// log). The reRouteJourney core minus the event/history — and minus the lost-state reset:
+// the trail steering must not silently re-orient a party that is genuinely lost.
+function _quietRetargetJourney(campaign, j, destHexId){
+  if(!j || !destHexId || j.destinationHexId === destHexId) return;
+  if(j.status === 'arrived') j.status = 'in-transit';   // the quarry moved on — the follow resumes
+  j.destinationHexId = destHexId;
+  const totalCovered = (j.days || []).reduce((s, d) => s + ((d && d.hexesTraveled) || 0), 0);
+  if((j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost') && totalCovered > 0 && j.currentHexId){
+    j.routeAnchorHexId = j.currentHexId;   // the route continues from where the party is
+    j.coveredBaseline = totalCovered;
+  }
+  try { j.routeCoords = journeyRoute(campaign, j).map(s => s.coord); } catch(e){ /* keep prior snapshot */ }
+  const dist = computeJourneyDistance(campaign, j);
+  j.daysRemainingEstimate = dist.total > 0 ? Math.max(1, Math.ceil(dist.remaining / 4)) : 0;
+}
+// The shared catch — beginTracking's same-hex immediate case + the consumer's commit.
+// Springs the fresh meeting at the quarry's hex (trigger 'pursuit', createReason
+// 'tracking-caught-up', monsterSide.pursuitEncounterId → D9 recalls the tracked meeting);
+// a quarry caught AT its den is an at-lair meeting against the den's living population,
+// and the arrival IS the discovery (discoverLair method 'tracking' + the chronicle
+// record). opts: { caughtEncounterId?, caughtDistance?, dayInMonth?, rng? }.
+function trackingSpringCatch(campaign, enc, opts){
+  const A = _jACKS();
+  const o = opts || {};
+  const pur = enc.pursuit || {};
+  const q = pur.quarry || {};
+  const ms = enc.monsterSide || {};
+  const rng = o.rng || Math.random;
+  let lair = null, denCatch = false;
+  if(q.destLairId && q.halted && q.destCoord && q.coord && q.coord.q === q.destCoord.q && q.coord.r === q.destCoord.r){
+    lair = (typeof A.findLair === 'function') ? A.findLair(campaign, q.destLairId) : null;
+    if(lair) denCatch = true;
+  }
+  if(denCatch && lair && !lair.knownToPlayers){
+    if(typeof A.discoverLair === 'function') A.discoverLair(campaign, lair.id, { by: pur.trackerCharacterId || null, method: 'tracking' });
+    if(typeof A.recordLairDiscovered === 'function') A.recordLairDiscovered(campaign, lair.id, { byCharacterId: pur.trackerCharacterId || null, method: 'track-home' });
+  }
+  const j = pur.journeyId ? ((campaign.journeys || []).find(x => x && x.id === pur.journeyId) || null) : null;
+  const trackerIds = (j && (j.participantCharacterIds || []).length) ? j.participantCharacterIds.slice() : [pur.trackerCharacterId].filter(Boolean);
+  const aliveOf = g => (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+  const grp = q.groupId ? ((campaign.groups || []).find(x => x && x.id === q.groupId) || null) : null;
+  const count = denCatch
+    ? ((lair && typeof A.lairInhabitantCount === 'function') ? (A.lairInhabitantCount(campaign, lair) || ms.count || null) : (ms.count || null))
+    : (grp ? aliveOf(grp) : ((pur.countTracked || ms.count) || null));
+  // Distance pre-rolled by the consumer (byte-stable previews); the immediate path rolls here.
+  let distance = o.caughtDistance || null;
+  if(!distance && q.hexId){
+    const qHex = (campaign.hexes || []).find(h => h && h.id === q.hexId) || null;
+    const rowKey = (qHex && typeof A.encounterRowKeyForHex === 'function') ? A.encounterRowKeyForHex(qHex) : null;
+    if(rowKey && typeof A.computeEncounterDistance === 'function'){
+      distance = A.computeEncounterDistance({ terrainRow: rowKey, light: 'daylight',
+        sideACount: trackerIds.length || 1, sideBCount: count || 1, rng });
+    }
+  }
+  const fresh = (typeof A.createEncounter === 'function') ? A.createEncounter(campaign, {
+    id: o.caughtEncounterId || undefined,
+    trigger: 'pursuit', hexId: q.hexId || null,
+    category: enc.category || 'monster', rarity: enc.rarity || null,
+    partySide: { partyId: pur.trackerPartyId || null, journeyId: pur.journeyId || null,
+                 characterIds: trackerIds, faceCharacterId: null, sizeCount: trackerIds.length || 1 },
+    monsterSide: Object.assign({}, ms, {
+      groupIds: grp ? [grp.id] : ((ms.groupIds || []).slice()),
+      pursuitEncounterId: enc.id,
+      encounterKind: denCatch ? 'at-lair' : 'wandering',
+      lairId: denCatch ? lair.id : (ms.lairId || null),
+      count: count
+    }),
+    createReason: 'tracking-caught-up',
+    occurredOnDayInMonth: (o.dayInMonth != null) ? o.dayInMonth : (campaign.currentDayInMonth || null)
+  }) : null;
+  if(fresh && distance && fresh.distance == null){
+    fresh.distance = distance;
+    fresh.history.push({ turn: fresh.occurredAtTurn, type: 'distance',
+      reason: (distance.distanceFt != null ? distance.distanceFt : '?') + ' ft (' + (distance.terrainRow || 'terrain') + ')' });
+  }
+  pur.status = 'caught';
+  enc.history = enc.history || [];
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-caught',
+    reason: 'the trackers caught up with ' + (pur.quarryLabel || 'the band')
+      + (denCatch ? (' at its lair — ' + ((lair && lair.name) || 'the den') + ' discovered') : '')
+      + (fresh ? (' — fresh encounter ' + fresh.id) : '') });
+  return { encounter: fresh, denCatch: denCatch, lair: lair || null };
+}
+// Commit half of a follow's day (dispatched from commitPursuitRecord on kind 'tracking-day').
+function _commitTrackingRecord(campaign, record){
+  const enc = ((campaign && campaign.encounters) || []).find(e => e && e.id === record.encounterId);
+  if(!enc || !enc.pursuit || enc.pursuit.direction !== 'party') return;
+  const pur = enc.pursuit;
+  if(record.refind){
+    pur.throws.push(Object.assign({ kind: 're-find', cause: record.lossCause || null,
+      atTurn: campaign.currentTurn || 1, atDay: record.dayInMonth || null }, record.refind));
+  }
+  pur.weatherLostPending = false;   // the GM's rain lever is one-shot — consumed by this day
+  if(record.newQuarry) pur.quarry = JSON.parse(JSON.stringify(record.newQuarry));
+  const q = pur.quarry || {};
+  // A tracked migrant Group moves with the follow (the world stays consistent — E4m).
+  if(q.groupId && q.hexId){
+    const g = (campaign.groups || []).find(x => x && x.id === q.groupId);
+    if(g) g.currentHexId = q.hexId;
+  }
+  enc.history = enc.history || [];
+  if(record.outcome === 'lost'){
+    pur.status = 'lost';
+    enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-lost',
+      reason: (record.lossCause === 'rain' ? 'an hour of rain/snow washed out the trail (RR p.120)' : 'the trail entered water (RR p.120)')
+        + ' — the re-find failed; the follow ends' });
+    return;
+  }
+  if(record.newDestinationHexId && pur.journeyId){
+    const j = (campaign.journeys || []).find(x => x && x.id === pur.journeyId);
+    if(j) _quietRetargetJourney(campaign, j, record.newDestinationHexId);
+  }
+  if(record.outcome === 'caught'){
+    trackingSpringCatch(campaign, enc, { caughtEncounterId: record.caughtEncounterId,
+      caughtDistance: record.caughtDistance, dayInMonth: record.dayInMonth });
+    return;
+  }
+  enc.history.push({ turn: campaign.currentTurn || 1, type: 'tracking-day',
+    reason: 'on the trail' + ((record.gapMiles != null) ? (' — ' + record.gapMiles + ' mi behind') : '')
+      + (record.quarryWalk && record.quarryWalk.camped ? ' (the band camps)' : '')
+      + (record.refind ? ' (trail re-found)' : '') });
+}
+
+// ── #476 E6 — the 'monster-bands' day-consumer (slot 84): autonomous band motion ─────
+// Joachim 2026-06-11: "Monster movement: Wander activity. Monsters utilize this type of
+// movement when they are migrating. Wandering movement is at half-speed. The movement is
+// random, but wandering never goes directly back to the hex from where it just came from.
+// … If monsters wander into a Domain, they basically act like in Vagaries of Incursion
+// (their entry is counted as a positive occurrence of the Daily Domain Encounter
+// Probability). On entry, they roll according to JJ p.103 to determine their disposition.
+// … Monsters on their way home do not stop or change their behaviour even if they run
+// into a domain."
+// Two motions, both read off looseMonsterBands (the ONE roster, so what the dice can find
+// is exactly what moves):
+//   • migrant — WANDERS: half expedition speed, each 6-mile step a random face, never
+//     directly back. Entering a DOMAIN (a border crossing onto a domainId hex) rolls the
+//     JJ p.103 disposition at once — linger (1d100 ≤ Lair %) → the band settles AS a den
+//     at the entry hex (the E3a/E4m adopt mechanics: the den binds THE Group, full
+//     strength gathers it to the rolled lair count, hoard only at full strength); migrate
+//     → it keeps wandering. The entry is recorded as a positive occurrence of the Daily
+//     Domain Encounter Probability — a STUB the Vagaries of Incursion machinery consumes
+//     when it lands with the mass-combat phase (Phase 3 Military).
+//   • homing — a post-chase band returning to its den (pursuitAftermath): FULL expedition
+//     speed, straight line, no stops and NO domain disposition en route (the directive),
+//     dissolving into the den on arrival (a transient walk token — the den's population
+//     never moved out). Still on the looseMonsterBands roster, so a third party can run
+//     into it (E4m) and it can pick up a new pursuit on the way.
+// Group walk state lives on group.wanderState (lazy): { coord, lastCoord, mileRemainder,
+// mode (null = wandering | 'heading-home'), destLairId, dissolveOnArrival, lastDomainId,
+// halted (the GM's parking lever) }. The Group's currentHexId stays the placement truth —
+// a GM move (the hex disagreeing with the walk coord) reseeds the walk there; the coord
+// carries the band across unauthored hexes where currentHexId goes null.
+// Gated on persistent-wandering-monsters (world persistence — default ON; OFF = the
+// static shipped world). Handlers PURE (the day-tick working copy); commit replays the
+// recorded absolutes.
+function _bandExpeditionSpeed(tpl){
+  const A = _jACKS();
+  const entry = (tpl && tpl.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(tpl.monsterCatalogKey) : null;
+  const exp = entry ? parseFloat(String(entry.expeditionSpeed || '')) : NaN;
+  return { entry, fullSpeed: (isFinite(exp) && exp > 0) ? exp : 24 };   // 🔧 an unknown creature walks at the human norm
+}
+function proposeMonsterBandDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'persistent-wandering-monsters'))) return { pendingRecords, notableEvents };
+  if(typeof A.looseMonsterBands !== 'function') return { pendingRecords, notableEvents };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const MILES_PER_HEX = 6;
+  for(const row of A.looseMonsterBands(campaign)){
+    if(row.kind !== 'migrant' && row.kind !== 'homing' && row.kind !== 'banditry') continue;
+    const g = (campaign.groups || []).find(x => x && x.id === row.groupId);
+    if(!g) continue;
+    const ws0 = g.wanderState || {};
+    if(ws0.halted) continue;                       // the GM parked the band
+    // Position: the Group's hex is the truth when it disagrees with the walk coord (the
+    // GM moved the band, or this is its first walk); the coord carries it off-map.
+    let coord = (ws0.coord && typeof ws0.coord.q === 'number') ? { q: ws0.coord.q, r: ws0.coord.r } : null;
+    let lastCoord = (ws0.lastCoord && typeof ws0.lastCoord.q === 'number') ? { q: ws0.lastCoord.q, r: ws0.lastCoord.r } : null;
+    const posHex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+    if(posHex && posHex.coord && (!coord || posHex.coord.q !== coord.q || posHex.coord.r !== coord.r)){
+      coord = { q: posHex.coord.q, r: posHex.coord.r };
+      lastCoord = null;
+    }
+    if(!coord) continue;                           // hexless and never walked — nowhere to start
+    const homing = row.kind === 'homing';
+    // E10 — a morale-banditry band raids WITHIN its domain: the wander is fenced (a step
+    // must land on one of the domain's hexes; only the back-face beats leaving), and the
+    // domain-entry disposition below never applies (these are the domain's own men, not
+    // an incursion — they neither linger-as-a-lair nor count as a Vagaries occurrence).
+    const banditry = row.kind === 'banditry';
+    const fence = banditry
+      ? (c => { const hx = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, c.q, c.r) : null; return !!(hx && hx.domainId === row.banditryDomainId); })
+      : null;
+    const speed = _bandExpeditionSpeed(g.groupTemplate);
+    const entry = speed.entry;
+    const rng = ctx.rng || _jMulberry32(_jHash32('monster-band|' + g.id + '|' + worldOrd));
+    const name = row.label || (entry && entry.name) || g.name || 'A band';
+    let destLair = null, destCoord = null;
+    if(homing){
+      destLair = (typeof A.findLair === 'function') ? A.findLair(campaign, ws0.destLairId) : null;
+      const denHex = (destLair && destLair.hexId) ? ((campaign.hexes || []).find(h => h && h.id === destLair.hexId) || null) : null;
+      const denLiving = destLair && (destLair.status === 'active' || destLair.status === 'unknown');
+      if(!denLiving || !denHex || !denHex.coord){
+        // the den died (or lost its place) while they walked — they become migrants and wander
+        const label = '🚶 ' + name + ' finds no den left to return to — it becomes a migrant and wanders.';
+        pendingRecords.push({ kind: 'monster-band-day', label, groupId: g.id, outcome: 'home-lost',
+          path: [], domainEntries: [], settle: null, arrivedHome: null,
+          newWanderState: { coord, lastCoord, mileRemainder: Number(ws0.mileRemainder) || 0, mode: null,
+                            destLairId: null, dissolveOnArrival: false,
+                            lastDomainId: ('lastDomainId' in ws0) ? ws0.lastDomainId : ((posHex && posHex.domainId) || null), halted: false },
+          newHexId: g.currentHexId || null, dayInMonth, primaryHexId: g.currentHexId || null });
+        continue;
+      }
+      destCoord = { q: denHex.coord.q, r: denHex.coord.r };
+    }
+    // ── the day's walk (pre-rolled on the working copy; commit replays the absolutes) ──
+    let budget = (homing ? speed.fullSpeed : (speed.fullSpeed / 2)) + (Number(ws0.mileRemainder) || 0);
+    let cur = coord, last = lastCoord;
+    let curDomain = ('lastDomainId' in ws0) ? (ws0.lastDomainId || null) : (() => {
+      const hx = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, cur.q, cur.r) : null;
+      return (hx && hx.domainId) || null;
+    })();
+    const path = [], domainEntries = [];
+    let arrivedHome = false, settle = null;
+    const atDest = c => !!(destCoord && c.q === destCoord.q && c.r === destCoord.r);
+    if(homing && atDest(cur)) arrivedHome = true;
+    while(budget >= MILES_PER_HEX && !arrivedHome && !settle){
+      let next = null;
+      if(homing){
+        const line = hexLineDraw(cur, destCoord);
+        next = (line.length > 1) ? line[1] : null;
+      } else {
+        next = _wanderPickStep(cur, last, rng, fence);
+      }
+      if(!next) break;
+      last = cur; cur = next; budget -= MILES_PER_HEX;
+      path.push({ q: cur.q, r: cur.r });
+      const hx = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, cur.q, cur.r) : null;
+      const dom = (hx && hx.domainId) || null;
+      if(homing){
+        if(atDest(cur)) arrivedHome = true;        // homers do not stop or change behaviour (E6)
+      } else if(!banditry && dom && dom !== curDomain){
+        // E6 — wandered INTO a domain (a border crossing): the entry counts as a positive
+        // occurrence of the Daily Domain Encounter Probability (Vagaries of Incursion —
+        // recorded as a STUB for the mass-combat phase to consume), and the band rolls
+        // its JJ p.103 disposition NOW: linger → it settles at the entry hex; migrate →
+        // it keeps wandering. E9 — a hex already at its JJ p.69 lair cap never takes the
+        // linger roll ("it is simply too crowded for them"): the entry still counts as
+        // the day's occurrence, but the band moves on to another hex.
+        const capHere = (hx && typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, hx.id) : null;
+        const hexFull = !!(capHere && capHere.full);
+        const pct = (entry && typeof entry.lairPct === 'number') ? entry.lairPct : 0;
+        const lingerRoll = hexFull ? null : (1 + Math.floor(rng() * 100));
+        const lingers = !hexFull && pct > 0 && lingerRoll <= pct;
+        const strengthRoll = hexFull ? null : (1 + Math.floor(rng() * 100));
+        const fullStrength = lingers && strengthRoll <= pct;
+        const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+        let fullCount = alive;
+        if(fullStrength && entry && entry.numberAppearing){
+          const spec = entry.numberAppearing.lair || entry.numberAppearing.wandering || '1';
+          const rolled = (typeof A._rollDiceStr === 'function') ? A._rollDiceStr(spec, rng) : alive;
+          fullCount = Math.max(alive, rolled);
+        }
+        domainEntries.push({ domainId: dom, hexId: hx ? hx.id : null, occurrence: true,
+                             lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength,
+                             hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null });
+        if(lingers && hx){
+          settle = { hexId: hx.id, fullStrength, count: fullCount,
+                     monsterCatalogKey: (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || null };
+        }
+      }
+      curDomain = dom;
+    }
+    const endHex = (typeof A.hexAtCoord === 'function') ? A.hexAtCoord(campaign, cur.q, cur.r) : null;
+    const newWS = { coord: { q: cur.q, r: cur.r }, lastCoord: last ? { q: last.q, r: last.r } : null,
+                    mileRemainder: (arrivedHome || settle) ? 0 : Math.max(0, budget),
+                    mode: homing ? 'heading-home' : null,
+                    destLairId: homing ? (ws0.destLairId || null) : null,
+                    dissolveOnArrival: homing ? !!ws0.dissolveOnArrival : false,
+                    lastDomainId: curDomain, halted: false };
+    let label;
+    if(arrivedHome)            label = '🏠 ' + name + ' reaches its den' + (destLair && destLair.name ? (' — ' + destLair.name) : '') + (ws0.dissolveOnArrival ? '.' : ' and rejoins it.');
+    else if(settle)            label = '🏚 ' + name + ' wanders into a domain and LINGERS (JJ p.103) — it settles as a lair' + (settle.fullStrength ? ' at full strength.' : '.');
+    else if(domainEntries.length) label = '🚶 ' + name + ' wanders into a domain — the day counts as a domain encounter; '
+      + (domainEntries.some(de => de.hexFull) ? 'the hex is at its lair cap (JJ p.69), too crowded to den — it moves on' : 'it migrates onward')
+      + ' (' + path.length + ' hexes).';
+    else if(banditry)          label = path.length
+      ? ('🏴 ' + name + ' raids within ' + (row.banditryDomainName || 'its domain') + ' (' + path.length + ' hexes today).')
+      : ('🏴 ' + name + ' holds its ground in ' + (row.banditryDomainName || 'its domain') + '.');
+    else                       label = (homing ? ('🏠 ' + name + ' presses on toward its den (') : ('🚶 ' + name + ' wanders (')) + path.length + ' hexes today).';
+    pendingRecords.push({ kind: 'monster-band-day', label, groupId: g.id,
+      outcome: arrivedHome ? 'arrived-home' : (settle ? 'settled' : 'moving'),
+      path, domainEntries, settle, arrivedHome: arrivedHome ? { lairId: ws0.destLairId || null } : null,
+      newWanderState: newWS, newHexId: endHex ? endHex.id : null,
+      dayInMonth, primaryHexId: endHex ? endHex.id : null });
+    if(settle || arrivedHome || domainEntries.length){
+      notableEvents.push({ type: settle ? 'band-settled' : (arrivedHome ? 'band-home' : 'band-incursion'),
+        primaryHexId: endHex ? endHex.id : null, campaignLogHidden: true,
+        relatedEntities: [{ kind: 'group', id: g.id, role: 'subject' }],
+        label, payload: { groupId: g.id, narrative: label, domainEntries: domainEntries.slice() } });
+    }
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitMonsterBandRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'monster-band-day') return;
+  const A = _jACKS();
+  const g = (campaign.groups || []).find(x => x && x.id === record.groupId);
+  if(!g) return;
+  const turn = campaign.currentTurn || 1;
+  if(record.newWanderState) g.wanderState = JSON.parse(JSON.stringify(record.newWanderState));
+  g.currentHexId = record.newHexId || null;
+  g.history = g.history || [];
+  if(record.outcome === 'home-lost'){
+    g.history.push({ turn, type: 'wander', reason: 'no den left to return to — the band wanders as a migrant' });
+    return;
+  }
+  // The Vagaries occurrence stub — recorded on the Group; the Daily Domain Encounter
+  // Probability machinery consumes these when Vagaries of Incursion lands (Phase 3 Military).
+  for(const de of (record.domainEntries || [])){
+    const dom = (campaign.domains || []).find(d => d && d.id === de.domainId);
+    g.history.push({ turn, type: 'incursion',
+      reason: 'wandered into ' + ((dom && dom.name) || 'a domain') + ' — counts as the day’s domain encounter occurrence (Vagaries of Incursion, Phase 3 Military); disposition '
+        + (de.hexFull
+            ? ('migrates — the hex is at its lair cap (' + (de.lairCap ? (de.lairCap.count + ' of ' + de.lairCap.max) : 'full') + ', JJ p.69), too crowded to den')
+            : ((de.lingers ? 'lingers' : 'migrates') + ' (' + de.lingerRoll + ' vs Lair ' + de.lairPct + '%)')) });
+  }
+  // Linger → the band settles AS a den at the entry hex (JJ p.103; the E4m adopt — the
+  // den binds THE Group, no second population; full strength gathers it to the lair count).
+  if(record.settle && record.settle.hexId){
+    // E9 — re-check the JJ p.69 cap at commit (another band may have denned this hex the
+    // same day, or the GM authored a lair since the propose pass): full ⇒ the band moves on.
+    const capNow = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, record.settle.hexId) : null;
+    if(capNow && capNow.full){
+      g.history.push({ turn, type: 'wander',
+        reason: 'the hex filled to its lair cap (' + capNow.count + ' of ' + capNow.max + ', JJ p.69) before the band could den — it moves on' });
+      return;
+    }
+    const s = record.settle;
+    const entry = (s.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(s.monsterCatalogKey) : null;
+    const lair = (typeof A.createLair === 'function') ? A.createLair(campaign, {
+      hexId: s.hexId, monsterCatalogKey: (entry && entry.key) || s.monsterCatalogKey || '',
+      status: 'active', establishedBy: 'wander-settle', establishedAtTurn: turn,
+      knownToPlayers: false, name: ((entry && entry.name) || g.name || 'Monster') + ' lair'
+    }) : null;
+    if(lair){
+      if(lair.lairPct == null && entry) lair.lairPct = entry.lairPct;
+      lair.treasureType = s.fullStrength ? ((entry && entry.treasureType) || '') : '';
+      lair.groupIds = [g.id];
+      const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+      if(s.fullStrength && s.count > alive) g.count = (g.count || 0) + (s.count - alive);
+      lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+      lair.history = lair.history || [];
+      lair.history.push({ turn, type: 'settled',
+        reason: 'a wandering band lingered on entering the domain (JJ p.103) — ' + (s.fullStrength ? ('full lair strength (' + s.count + ')') : 'wandering numbers (no hoard yet)') });
+      g.currentHexId = s.hexId;
+      g.wanderState = null;                        // housed — no longer migrating
+      g.history.push({ turn, type: 'settled', reason: 'lingered and denned — ' + (lair.name || lair.id) });
+    }
+    return;
+  }
+  // Arrived home — the transient walk token dissolves into the den (the population never
+  // moved out for the hunt); a real Group the GM sent home is adopted back in instead.
+  if(record.arrivedHome){
+    const lair = (typeof A.findLair === 'function') ? A.findLair(campaign, record.arrivedHome.lairId) : null;
+    if(lair && (lair.status === 'active' || lair.status === 'unknown' || lair.status === 'dynamic')){
+      lair.history = lair.history || [];
+      if(g.wanderState && g.wanderState.dissolveOnArrival){
+        lair.history.push({ turn, type: 'returned', reason: 'the hunting band returned to the den (its population already counts them)' });
+        campaign.groups = (campaign.groups || []).filter(x => !(x && x.id === g.id));
+      } else {
+        if((lair.groupIds || []).indexOf(g.id) < 0) lair.groupIds = (lair.groupIds || []).concat([g.id]);
+        lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+        lair.history.push({ turn, type: 'returned', reason: (g.name || 'a band') + ' returned and rejoined the den' });
+        g.currentHexId = lair.hexId || record.newHexId || null;
+        g.wanderState = null;
+        g.history.push({ turn, type: 'returned', reason: 'reached the den — home' });
+      }
+    } else {
+      // the den vanished between propose and commit — wander on as a migrant
+      if(g.wanderState){ g.wanderState.mode = null; g.wanderState.destLairId = null; g.wanderState.dissolveOnArrival = false; }
+      g.history.push({ turn, type: 'wander', reason: 'the den was gone — the band wanders as a migrant' });
+    }
+    return;
+  }
+  // routine motion — the Group moved; the day record carried the path (no history spam)
+}
+
+// ── #476 E10 — domain-morale banditry (RR pp.350–351): the monthly materialization ──────
+// "Domains with current morale scores of -2 or less will be plagued by bandits." The RAW
+// counts are already derived (banditCount, the economy module: −2 → 1 bandit per 5 peasant
+// families, −3 → 1 per 2, −4 → every able-bodied man); the income loss is already wired
+// (INCOME_FACTOR_BY_MORALE) and the extra family flight too (rollMoraleExtra). E10 puts the
+// bandits IN THE WORLD: placed Groups (banditryDomainId) raiding within their domain —
+// fenced wander on the Day Clock, found by the wandering draw (E4m, source 'banditry-band'),
+// meetable / attackable / trackable like any band. Reconciled every monthly turn:
+//   • casualties settle FIRST — killed bandits are the domain's own men: the population
+//     falls by the number killed (RR p.351 "killing 100 bandits reduces the population by
+//     100 families"); freeing prisoners instead is the GM's call (restore families by hand).
+//   • the target re-derives off the post-settlement morale + families; bands rise, swell,
+//     wane, or disband to match — morale recovering to −1 or better disbands them WITHOUT
+//     population loss (RR p.351 "reduce the number of bandits to zero without diminishing
+//     the population" — the men return to their fields).
+//   • bandits count as an ENEMY ARMY (RR p.351): while they plague the domain the occupation
+//     penalty builds on the morale roll — 0 the first month, then −1 per month, cumulative
+//     (RR p.349) — moraleModifiersFor reads it off d.banditryOccupationMonths (lazy field).
+// NOT here (Phase 3 Military §4.2.1): the army-scale battle (+1 morale on defeating the
+// bandit army, prisoner release) and the cumulative-% NPC bandit-leader challenger.
+// 🔧 The band split is presentation (RAW musters the bandits as one army): one band per
+// domain hex, at most 6, sized evenly — the scale a travelling party actually meets.
+// Gated on the 'domain-morale-banditry' rule (default ON); OFF = no reconcile runs (any
+// already-risen bands stay as world entities — the founded-dens precedent, HR-Enc).
+function banditryBandsForDomain(campaign, domainId){
+  return ((campaign && campaign.groups) || []).filter(g => g && g.banditryDomainId === domainId);
+}
+function _banditryEmitEvent(campaign, d, payload, narrative){
+  const A = _jACKS();
+  if(typeof A.newEvent !== 'function') return null;
+  const ev = A.newEvent('domain-banditry', {
+    submittedBy: 'engine', targetTurn: campaign.currentTurn || 1, cadence: 'monthly-turn',
+    payload: Object.assign({ domainId: d.id, narrative }, payload || {})
+  });
+  if(typeof A.setEventContext === 'function'){
+    const firstHex = (campaign.hexes || []).find(h => h && h.domainId === d.id) || null;
+    A.setEventContext(ev, {
+      primaryHexId: firstHex ? firstHex.id : null,
+      domainId: d.id,
+      relatedEntities: [{ kind: 'domain', id: d.id, role: 'subject' }]
+        .concat(((payload && payload.bands) || []).map(b => ({ kind: 'group', id: b.groupId, role: 'subject' })))
+    });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = campaign.currentTurn || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+function processBanditryForTurn(campaign, options){
+  const A = _jACKS();
+  const o = options || {};
+  const rng = o.rng || Math.random;
+  const out = { ruleOn: false, domains: [], logEntries: [] };
+  if(!campaign) return out;
+  out.ruleOn = !!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'domain-morale-banditry'));
+  if(!out.ruleOn) return out;
+  const turn = campaign.currentTurn || 1;
+  campaign.groups = campaign.groups || [];
+  const NAMES = A.MORALE_LEVEL_NAMES || {};
+  for(const d of (campaign.domains || [])){
+    if(!d || !d.demographics) continue;
+    let bands = banditryBandsForDomain(campaign, d.id);
+    // 1) Casualty settlement — killed bandits are the domain's own men (RR p.351).
+    let killed = 0;
+    for(const g of bands){
+      const c = Math.max(0, g.casualties || 0);
+      if(c > 0){
+        killed += Math.min(c, Math.max(0, g.count || 0));
+        g.count = Math.max(0, (g.count || 0) - c);
+        g.casualties = 0;
+      }
+    }
+    if(killed > 0) d.demographics.peasantFamilies = Math.max(0, (d.demographics.peasantFamilies || 0) - killed);
+    // A wholly-wiped band is gone (the same disaffection raises NEW bands below if morale
+    // still warrants them — RR p.351's Anárion example: defeat them, morale unchanged, a
+    // fresh muster the next month).
+    const wiped = new Set(bands.filter(g => (g.count || 0) <= 0).map(g => g.id));
+    if(wiped.size) campaign.groups = campaign.groups.filter(g => !(g && wiped.has(g.id)));
+    bands = bands.filter(g => !wiped.has(g.id));
+    // 2) The RAW target off the post-settlement morale + families.
+    const target = (typeof A.banditCount === 'function') ? A.banditCount(d) : 0;
+    const aliveNow = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+    const morale = (d.demographics.morale != null) ? d.demographics.morale : 0;
+    const moraleName = NAMES[String(morale)] || ('morale ' + morale);
+    let action = null;
+    if(target <= 0 && bands.length){
+      // Morale recovered (or no families remain) — the men return to their fields,
+      // WITHOUT population loss (RR p.351).
+      const ids = new Set(bands.map(g => g.id));
+      campaign.groups = campaign.groups.filter(g => !(g && ids.has(g.id)));
+      action = 'disbanded';
+    } else if(target > 0 && !bands.length){
+      // Rise — 🔧 one band per domain hex, at most 6, sized evenly (rng-placed).
+      const spots = (campaign.hexes || []).filter(h => h && h.domainId === d.id);
+      for(let i = spots.length - 1; i > 0; i--){ const j = Math.floor(rng() * (i + 1)); const t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
+      const nBands = Math.max(1, Math.min(6, spots.length || 1, target));
+      const base = Math.floor(target / nBands), rem = target % nBands;
+      for(let i = 0; i < nBands; i++){
+        const g = (typeof A.blankGroup === 'function') ? A.blankGroup({
+          name: 'Bandits of ' + (d.name || d.id) + (nBands > 1 ? ' · band ' + (i + 1) : ''),
+          groupTemplate: { monsterCatalogKey: 'bandit', creatureTypes: ['humanoid'], hitDice: '1' },
+          count: base + (i < rem ? 1 : 0),
+          currentHexId: spots.length ? spots[i % spots.length].id : null,
+          currentDomainId: d.id
+        }) : null;
+        if(!g) break;
+        g.banditryDomainId = d.id;
+        g.history.push({ turn, type: 'banditry',
+          reason: 'risen from ' + (d.name || 'the domain') + '’s disaffected families (morale ' + moraleName + ', RR pp.350–351)' });
+        campaign.groups.push(g);
+        bands.push(g);
+      }
+      action = 'rise';
+    } else if(target > 0 && bands.length && aliveNow !== target){
+      // Resize the existing set evenly (positions + histories kept); a share of 0 disbands
+      // that band (the target shrank below the band count).
+      const base = Math.floor(target / bands.length), rem = target % bands.length;
+      bands.forEach((g, i) => { g.count = base + (i < rem ? 1 : 0); g.casualties = 0; });
+      const empty = new Set(bands.filter(g => (g.count || 0) <= 0).map(g => g.id));
+      if(empty.size){
+        campaign.groups = campaign.groups.filter(g => !(g && empty.has(g.id)));
+        bands = bands.filter(g => !empty.has(g.id));
+      }
+      action = (target > aliveNow) ? 'swell' : 'wane';
+    }
+    // 3) The enemy-army occupation counter (RR p.349 + p.351; moraleModifiersFor reads it).
+    d.banditryOccupationMonths = (target > 0) ? ((d.banditryOccupationMonths || 0) + 1) : 0;
+    // 4) Record what changed (a no-change plague month records nothing).
+    if(killed > 0 || wiped.size > 0 || action){
+      const parts = [];
+      if(killed > 0) parts.push(killed.toLocaleString() + ' bandits were killed — ' + (d.name || 'the domain') + ' loses ' + killed.toLocaleString() + ' families (RR p.351)');
+      if(action === 'rise') parts.push('⚔ Banditry plagues ' + (d.name || 'the domain') + ' — ' + target.toLocaleString() + ' of its men have turned bandit (' + moraleName + ', RR pp.350–351); ' + bands.length + ' band' + (bands.length === 1 ? '' : 's') + ' now raid the domain');
+      else if(action === 'swell') parts.push('⚔ Banditry in ' + (d.name || 'the domain') + ' swells to ' + target.toLocaleString() + ' raiders (' + moraleName + ')');
+      else if(action === 'wane') parts.push('Banditry in ' + (d.name || 'the domain') + ' wanes to ' + target.toLocaleString() + ' raiders');
+      else if(action === 'disbanded') parts.push('\u{1F3F3} The bandits of ' + (d.name || 'the domain') + ' lay down their arms and return to their fields — morale has recovered');
+      const narrative = parts.join('. ') + '.';
+      const bandRoster = bands.map(g => ({ groupId: g.id, count: g.count || 0, hexId: g.currentHexId || null }));
+      _banditryEmitEvent(campaign, d, {
+        action: action || 'casualties-settled', morale, target, killed,
+        familiesLost: killed, occupationMonths: d.banditryOccupationMonths || 0, bands: bandRoster
+      }, narrative);
+      out.logEntries.push(narrative);
+      out.domains.push({ domainId: d.id, action: action || 'casualties-settled', target, killed, bands: bandRoster });
+    }
+  }
+  return out;
+}
 
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
 // registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
@@ -3940,6 +5222,33 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 45,
     pauseTriggers: [],
     commit: commitRecruitmentRecord
+  });
+  // #476 E1 — the slot-80 collision/encounter consumer: rest/night checks for stationary
+  // field groups (JJ p.41). The Calendar §12 reserved slot's first occupant.
+  ACKS.registerDayConsumer('encounters', {
+    handler: proposeEncounterDay,
+    order: 80,
+    pauseTriggers: ['encounter'],
+    commit: commitEncounterRecord
+  });
+  // #476 E3c + E5 — pursuit, both directions (slot 82): monster chases follow the party's
+  // trail daily (the 'monster-pursuit' rule gates the OFFER); party follows track their
+  // quarry (E5 — RAW-core, no rule). A catch-up pauses the tick; a lost trail pauses as a
+  // navigation-fail.
+  ACKS.registerDayConsumer('pursuit', {
+    handler: proposePursuitDay,
+    order: 82,
+    pauseTriggers: ['encounter', 'navigation-fail'],
+    commit: commitPursuitRecord
+  });
+  // #476 E6 — autonomous band motion (slot 84): wandering migrants + homing post-chase
+  // bands. No pause triggers — the world moves on its own; settles + domain incursions
+  // surface as notables in the review.
+  ACKS.registerDayConsumer('monster-bands', {
+    handler: proposeMonsterBandDay,
+    order: 84,
+    pauseTriggers: [],
+    commit: commitMonsterBandRecord
   });
 }
 

@@ -23,7 +23,7 @@ const path = require('path');
 const fs = require('fs');
 // Load all engine modules in order; each accumulates onto global.ACKS.
 [
-  'acks-engine-catalogs.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',
@@ -144,8 +144,12 @@ ACKS.applyEvent(camp, updateEv);
 check('character XP updated', ch.xp === xpBefore + 1000);
 check('character hp.current updated via dotted path', ch.hp.current === hpBefore - 5);
 
-const hexBefore = camp.domains[0].geography.hexes.find(h => h.id === 'hex-thorn-wood');
-check('thorn-wood hex has goblin lair before adventure', (hexBefore.lairs||[]).length === 1);
+// #476 M0 — lairs are first-class (campaign.lairs[]); the frontier template's legacy nested
+// hex.lairs goblin warren is lifted on migrate. Check via lairsAtHex, not nested hex.lairs.
+const lairsBefore = ACKS.lairsAtHex(camp, 'hex-thorn-wood');
+check('thorn-wood goblin lair lifted to campaign.lairs before adventure', lairsBefore.length === 1 && lairsBefore[0].id === 'lai-thorn-wood-goblins');
+check('the lifted goblin lair is active before adventure', lairsBefore[0].status === 'active');
+check('nested hex.lairs cleared by the lift', (camp.domains[0].geography.hexes.find(h => h.id === 'hex-thorn-wood').lairs||[]).length === 0);
 const advEv = ACKS.newEvent('adventure-result', {
   submittedBy: 'tool:rpgmaker-test',
   payload: {
@@ -161,7 +165,9 @@ const advEv = ACKS.newEvent('adventure-result', {
 const advR = ACKS.applyEvent(camp, advEv);
 const hexAfter = camp.domains[0].geography.hexes.find(h => h.id === 'hex-thorn-wood');
 check('thorn-wood hex now explored', hexAfter.explored === true);
-check('thorn-wood goblin lair removed', (hexAfter.lairs||[]).length === 0);
+const lairAfter = ACKS.findLair(camp, 'lai-thorn-wood-goblins');
+check('thorn-wood goblin lair flipped to cleared (structure remains, #476 M0)', lairAfter && lairAfter.status === 'cleared');
+check('cleared lair stamped clearedByEventId', lairAfter.clearedByEventId === advEv.id);
 check('halvard XP increased by 1800', camp.characters.find(c => c.id === 'chr-halvard-bold').xp >= xpBefore + 1800);
 check('edrik HP set to 12', camp.characters.find(c => c.id === 'chr-edrik-steady').hp.current === 12);
 check('adventure narrative composed', advR.result.narrativeSummary.indexOf('cleared') > 0);

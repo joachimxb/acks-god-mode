@@ -123,7 +123,10 @@ function blankCampaign(opts={}){
     vagaryOfIncursionEvents: opts.vagaryOfIncursionEvents || [],
     // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30) — Project + Constructible
     projects:       opts.projects       || [],
-    constructibles: opts.constructibles || []
+    constructibles: opts.constructibles || [],
+    // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed
+    // entities (the RAW-core layer). Lifted from legacy nested hex.lairs[] by migrateCampaign.
+    lairs: opts.lairs || []
   };
 }
 
@@ -254,6 +257,14 @@ function blankHex(opts={}){
     constructionSupervisorCharacterIds: opts.constructionSupervisorCharacterIds
       || (opts.constructionSupervisorCharacterId ? [opts.constructionSupervisorCharacterId] : []),
     terrain: opts.terrain || '',
+    // Phase_2.5_Terrain_Model_Plan.md — terrain refinement axes (additive, optional; no migration).
+    // terrainSubtype: a TERRAIN_SUBTYPES token for the base (sandy/taiga/volcanic/scrubby/…) — drives the
+    // lair count (JJ p.69), the encounter sub-table (JJ pp.45–67), and visibility (RR p.275). koppen: a
+    // Köppen climate code (Af…EF) — the weather key (JJ p.41) + the biome source. biomeOverride: set ONLY
+    // to override the Köppen-derived biome (biome is DERIVED via ACKS.biomeForHex, never stored).
+    terrainSubtype: opts.terrainSubtype || '',
+    koppen:         opts.koppen || '',
+    biomeOverride:  opts.biomeOverride || '',
     // Phase 2.5 Journeys (#475) — travel-relevant hex geography. terrain (above) keys the
     // speed + navigation catalogs; these refine route cost. GM-settable on the hex card.
     hasRoad: opts.hasRoad === true,        // legacy COARSE travel flag (×3/2 speed, RR p.272) read by the
@@ -325,15 +336,104 @@ function blankSettlement(opts={}){
   };
 }
 
+// Phase 2.5 Monster Persistence (#476) — Lair, a first-class placed entity.
+// M0 (2026-06-09) promoted blankLair from the legacy nested hex.lairs[] sub-entity
+// ({id,name,creatureType,hd,numberAppearing,description}) to this shape; legacy nested
+// lairs are lifted to campaign.lairs[] by migrateLegacyHexLairs (acks-engine.js). The RAW
+// CORE is catalog-free — monsterCatalogKey is just a string until the MONSTER_CATALOG (M2)
+// exists; generation (lairPct rolls, treasure, structured population) is the catalog-gated
+// part (M3). Two-layer model (survey §2): the Lair entity + lifecycle is the RAW core
+// (default behaviour); the "world remembers" persistence layer is default-OFF rules (M10+).
+// Population is COMPOSITION (survey §5): groupIds[] → the rank-and-file campaign.groups[],
+// leaderCharacterIds[] → individuated leaders in campaign.characters[]. Treasure is lair-only
+// (a wandering Group carries none). See Phase_2.5_Monster_Persistence_Plan.md §3.1.
 function blankLair(opts={}){
   return {
     schemaVersion: SCHEMA_VERSION,
     id: opts.id || newId(ID_PREFIXES.lair),
     name: opts.name || '',
-    creatureType: opts.creatureType || '',
-    hd: opts.hd || '',
-    numberAppearing: opts.numberAppearing || '',
-    description: opts.description || ''
+    // Lifecycle status. 'dynamic' = authored-but-unplaced pool entry (hexId null), revealed
+    // into a hex on a lair roll (the RAW dynamic lair, JJ p.195). 'unknown' = placed but
+    // undetailed (the dynamic-lair authoring mode). See §3.2.
+    status: opts.status || 'active',  // active|cleared|abandoned|destroyed|unknown|dynamic
+    // Placement (D2 — strictly hex-local; no territory radius in v1).
+    hexId: opts.hexId || null,                       // null while status:'dynamic'
+    precisePlacement: opts.precisePlacement || '',   // GM narrative: "cave on the eastern slope"
+    knownToPlayers: opts.knownToPlayers === true,    // discovered via search/tracking? (§6)
+    hiddenDC: (opts.hiddenDC === undefined ? null : opts.hiddenDC),  // hex-search modifier
+    // Content — the STRUCTURED population (survey §5; NOT a flat count).
+    monsterCatalogKey: opts.monsterCatalogKey || '', // → MONSTER_CATALOG (M2); free string until then
+    lairPct: (opts.lairPct === undefined ? null : opts.lairPct),     // the monster's Lair % (0 = never lairs)
+    groupIds: opts.groupIds || [],                   // rank-and-file Groups → campaign.groups[]
+    leaderCharacterIds: opts.leaderCharacterIds || [], // individuated leaders → campaign.characters[]
+    totalInhabitantCount: opts.totalInhabitantCount || 0,  // derived-cache (ACKS.lairInhabitantCount)
+    // Treasure (lair-only — survey §16.3; a wandering Group carries no hoard).
+    treasureType: opts.treasureType || '',           // 'A'..'R' or '' if none
+    treasureCustodyId: opts.treasureCustodyId || null, // → campaign.itemCustody[] kind 'monster-hoard'
+    // Characteristics
+    lairType: opts.lairType || 'lair',               // lair|lair-large|hideout|ruin|natural-cave|dungeon-level
+    terrain: opts.terrain || '',
+    hasFortifications: opts.hasFortifications === true,
+    features: opts.features || [],
+    factionKey: opts.factionKey || null,             // reserved — cross-hex-lair-network (M10+)
+    // Lifecycle
+    establishedAtTurn: opts.establishedAtTurn || 1,
+    establishedBy: opts.establishedBy || 'gm-fiat',  // genesis|hex-seeding|dynamic-reveal|persistent-wanderer|gm-fiat
+    lastVisitedTurn: (opts.lastVisitedTurn === undefined ? null : opts.lastVisitedTurn),
+    clearedAtTurn: (opts.clearedAtTurn === undefined ? null : opts.clearedAtTurn),
+    clearedByEventId: opts.clearedByEventId || null,
+    repopulationChance: (opts.repopulationChance === undefined ? null : opts.repopulationChance), // reserved
+    // Audit (notability is EMERGENT from history — survey §18.8)
+    discoveryHistory: opts.discoveryHistory || [],
+    notes: opts.notes || '',
+    history: opts.history || []                       // derived via Event.context where possible
+  };
+}
+
+// #476 Encounter layer E1 (D8, 2026-06-10) — the reified pre-combat interaction
+// (RR pp.280–287; survey §19, plan §15.1). An Encounter is a committed interaction
+// between two sides with identity through change: it hosts the step state the RAW
+// procedure accumulates (distance → surprise → evasion → reaction/influence), the
+// stored intimidation roll (RAW re-uses the ORIGINAL roll vs new allies — E3), and
+// the pursuit phase (E3, absorbing M5). Resolved encounters persist as world
+// memory; prior attitude is DERIVED from them (D9), never stored on Lair/Group.
+function blankEncounter(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.encounter),
+    name: opts.name || '',                            // GM label; display derives from monster/hex
+    scale: opts.scale || 'wilderness',                // wilderness|dungeon|sea|settlement|domain (only wilderness live in E1)
+    trigger: opts.trigger || 'gm-authored',           // journey-travel|hex-search|rest-night|domain-incursion|gm-authored
+    status: opts.status || 'active',                  // active|resolved
+    phase: opts.phase || 'setup',                     // setup|surprise|evasion|interaction|pursuit
+    outcome: (opts.outcome === undefined ? null : opts.outcome), // null|no-encounter|evaded|parleyed|dispersed|combat|settled-as-lair|dismissed
+    hexId: opts.hexId || null,
+    category: opts.category || null,                  // monster|civilized (the JJ category draw; null = GM-authored)
+    rarity: opts.rarity || null,                      // common|uncommon|rare|very-rare (monster draws, JJ p.44)
+    occurredAtTurn: opts.occurredAtTurn || 1,
+    occurredOnDayInMonth: (opts.occurredOnDayInMonth === undefined ? null : opts.occurredOnDayInMonth),
+    // Sides. partySide.sizeCount = man-equivalents (mounted/large 2, huge 6, gigantic 24,
+    // colossal 120 — ENCOUNTER_SIZE_MEN); monsterSide mirrors the M3 pool proposal. E4 adds:
+    // label (the printed table cell, verbatim — the display name when the catalog has no key),
+    // identity (the 1d100 table roll: {natural, label, key, tableKey|columnKey, rarity, page,
+    // gmChosen?}), binding ({mode, inLair, lairRoll, lairPct} — the JJ p.43 step 6a verdict),
+    // minted (the unwind receipt when materializing detailed/revealed/created a lair).
+    // E4m adds pursuitEncounterId — the chase encounter this band IS, when a third party
+    // meets a band that is mid-hunt (dispersing the meeting ends the chase; D9 recalls).
+    partySide: Object.assign({ partyId: null, journeyId: null, characterIds: [], faceCharacterId: null, sizeCount: null }, opts.partySide || {}),
+    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null }, opts.monsterSide || {}),
+    // Step state (each null until its step runs; shapes documented in Data_Dictionary §4):
+    distance: opts.distance || null,                  // { rolledFt, capFt, distanceFt, light, detectedBy, terrainRow }
+    surprise: opts.surprise || null,                  // { party:{...}, monsters:{...}, evadeEligibility, noEncounter }
+    evasion: opts.evasion || null,                    // { target, modifiers[], roll, success, aftermath:{...} }
+    reaction: opts.reaction || null,                  // { current, rolls[], intimidationOriginalRoll (E3) }
+    pursuit: opts.pursuit || null,                    // reserved — E3 (absorbs M5; the monster-pursuit rule)
+    resolvedAtTurn: (opts.resolvedAtTurn === undefined ? null : opts.resolvedAtTurn),
+    resolvedOnDayInMonth: (opts.resolvedOnDayInMonth === undefined ? null : opts.resolvedOnDayInMonth),
+    resolvedByEventId: opts.resolvedByEventId || null,
+    survivorsCarriedOver: opts.survivorsCarriedOver || [],  // absorbed from the J1 encounterRecord (§15.1)
+    notes: opts.notes || '',
+    history: opts.history || []
   };
 }
 
@@ -1280,6 +1380,17 @@ function blankGroup(opts={}){
     currentHexId: opts.currentHexId || null,
     currentDomainId: opts.currentDomainId || null,
     commanderCharacterId: opts.commanderCharacterId || null,  // Optional named commander
+    // #476 E10 — domain-morale banditry (RR pp.350–351; lazy on old saves). Set = this band
+    // is the domain's OWN disaffected men: its wander is fenced to that domain, it never dens
+    // or heads home, and the monthly turn reconciles it to banditCount (dissolving it when
+    // morale recovers to −1 or better — the men return to their fields).
+    banditryDomainId: opts.banditryDomainId || null,
+    // #476 E6 — autonomous band motion (the monster-bands day consumer; lazy on old
+    // saves). null = the defaults govern: an un-housed living band WANDERS (migration
+    // movement — half expedition speed, random steps, never directly back). Shape:
+    // { coord, lastCoord, mileRemainder, mode (null = wandering | 'heading-home'),
+    //   destLairId, dissolveOnArrival, lastDomainId, halted (the GM's parking lever) }.
+    wanderState: opts.wanderState || null,
     // Per-group history (combat actions, recruitment, attrition)
     history: opts.history || [],
     notes: opts.notes || ''
@@ -1325,6 +1436,11 @@ function blankJourney(opts={}){
     // straying — it takes precedence over routeAnchorHexId so the route resolves from where the party
     // physically is, even in trackless wilderness. null = anchor by hex id (the normal case).
     routeAnchorCoord: opts.routeAnchorCoord || null,
+    // E8 (RR p.285): the encounter whose evaded-then-failed Navigation throw (at −4) put this
+    // journey at status 'lost' — KNOWINGLY lost, unlike the §27 unknowing stray (isLost). The
+    // journey HOLDS until the landmark search recovers it, a re-route re-orients it, or the GM
+    // clears it. null = not knowingly lost. (Read defensively — pre-E8 saves lack the field.)
+    lostEncounterId: opts.lostEncounterId || null,
     coveredBaseline: opts.coveredBaseline || 0,
     currentHexId: opts.currentHexId || null,            // the hex the party is in now (advances hex-by-hex along the route — §24)
     currentDayIndex: opts.currentDayIndex || 0,         // 0..N days into the journey
@@ -1477,7 +1593,7 @@ function blankConstructible(opts={}){
 }
 
 Object.assign(ACKS, {
-  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
+  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
   blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement, blankOutpost,
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation factory

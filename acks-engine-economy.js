@@ -448,6 +448,16 @@ function moraleModifiersFor(campaign, d){
   if(liturgy > 1) mods.push({ label: 'Liturgy above baseline', value: Math.floor(liturgy-1) });
   else if(liturgy < 1) mods.push({ label: 'Liturgy below baseline', value: -Math.ceil(1-liturgy) });
   if(!d.expenses.tithePaid) mods.push({ label: 'Tithe not paid', value: -1 });
+  // #476 E10 — bandits count as an ENEMY ARMY (RR p.351): while they plague the domain the
+  // occupation penalty builds on the morale roll — 0 the first month, then −1 per month,
+  // cumulative (RR p.349 "Domain invaded and occupied by enemy army: 0, then -1 per month").
+  // banditryOccupationMonths is advanced by processBanditryForTurn (lazy field; rule-gated
+  // so an unticked rule leaves no live penalty — principle 8).
+  const occMonths = d.banditryOccupationMonths || 0;
+  if(occMonths >= 1 && isHouseRuleEnabled(campaign, 'domain-morale-banditry')){
+    mods.push({ label: 'Bandits plague the domain — enemy-army occupation, month ' + occMonths + ' (RR p.349 + p.351)',
+                value: -Math.max(0, occMonths - 1) });
+  }
   // RR p.351 — administered this month → +1 (only one applies even if several are ticked).
   const adminList = magistrateAdminCandidates(campaign, d);
   if(adminList.length > 0){
