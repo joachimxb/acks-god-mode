@@ -539,6 +539,10 @@ function blankArmy(opts={}){
     id: opts.id || newId(ID_PREFIXES.army),
     name: opts.name || '',
     leaderCharacterId: opts.leaderCharacterId || null,
+    // §12 Group model — the individuated roster (officers / riding-along PCs), displayed
+    // exactly like a party's members. The leader is one of them; division commanders are
+    // drawn from them. Additive + lazy ([]); armies are runtime-only, so templates stay no-ops.
+    memberCharacterIds: opts.memberCharacterIds || [],
     // [{name, commanderCharacterId, adjutantCharacterId, unitIds: [], role: 'vanguard'|'main'|'rear-guard'}]
     divisions: opts.divisions || [],
     strategicStance: opts.strategicStance || 'defensive',   // offensive | defensive | evasive (RR p.448)

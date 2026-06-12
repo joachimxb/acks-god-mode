@@ -3551,6 +3551,278 @@ function armyIncomingUnits(campaign, army){
   });
 }
 
+// =============================================================================
+// §12 The Group model — the shared interface over the collective-actor kinds
+// (Architecture.md §12). Party / Army / Unit / Band are ONE behavioral category — a
+// positioned, mobile, fightable, persistent collective — but stay DISTINCT entities;
+// these accessors are the shared contract the merged "Parties" view and the Player
+// Portal `controllable` read through. Caravan is specced (§12.8) but its entity lands
+// with the Ventures-RAW slice, so groupKindOf never returns it yet. The kind is sniffed
+// by SIGNATURE (the shapes are disjoint — no new stored field). Cross-module reads
+// (armyMarchProfile in maneuvers, journeyBaseSpeedMilesPerDay in subsystems) go through
+// global.ACKS lazily, like unitTroopRow → findTroopType.
+// =============================================================================
+
+// Discriminate a group entity by signature. Army FIRST (it now also carries
+// memberCharacterIds, the party tell), then unit / band / caravan, party last.
+function groupKindOf(g){
+  if(!g || typeof g !== 'object') return null;
+  if(Array.isArray(g.divisions)) return 'army';
+  if(g.unitTypeKey != null) return 'unit';
+  if(g.groupTemplate != null) return 'band';
+  if(g.cargo != null || g.ventureId != null) return 'caravan';   // reserved (§12.8)
+  if(Array.isArray(g.memberCharacterIds)) return 'party';
+  return null;
+}
+
+const GROUP_KIND_META = {
+  party:   { icon: '🧭', label: 'Party' },
+  army:    { icon: '🎖', label: 'Army' },
+  unit:    { icon: '🪖', label: 'Unit' },
+  band:    { icon: '🐉', label: 'Band' },
+  caravan: { icon: '🐪', label: 'Caravan' }
+};
+function groupKindMeta(kind){ return GROUP_KIND_META[kind] || { icon: '•', label: 'Group' }; }
+
+function groupDisplayName(g){
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return g.displayName || g.unitTypeKey || 'Unit';
+  if(kind === 'band') return g.name || (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || 'Band';
+  return g.name || g.id || '';   // party / army / caravan
+}
+
+// The INDIVIDUATED channel — member Characters (full sheets), deduped + order-preserving.
+// Party members; army officers (leader + division commanders + adjutants + the roster);
+// a unit's commander/lieutenant; a band's commander. This is what the members table renders.
+function groupMembers(campaign, g){
+  if(!campaign || !g) return [];
+  const ids = [];
+  const push = id => { if(id && !ids.includes(id)) ids.push(id); };
+  const kind = groupKindOf(g);
+  if(kind === 'party'){ (g.memberCharacterIds || []).forEach(push); }
+  else if(kind === 'army'){
+    push(g.leaderCharacterId);
+    for(const dv of (g.divisions || [])){ push(dv && dv.commanderCharacterId); push(dv && dv.adjutantCharacterId); }
+    (g.memberCharacterIds || []).forEach(push);
+  } else if(kind === 'unit'){ push(g.commanderCharacterId); push(g.lieutenantCharacterId); }
+  else if(kind === 'band'){ push(g.commanderCharacterId); }
+  return ids.map(id => _findCharacterById(campaign, id)).filter(Boolean);
+}
+
+function groupLeader(campaign, g){
+  if(!campaign || !g) return null;
+  const kind = groupKindOf(g);
+  const id = (kind === 'unit') ? (g.commanderCharacterId || g.lieutenantCharacterId)
+           : (g.leaderCharacterId || g.commanderCharacterId);
+  return id ? _findCharacterById(campaign, id) : null;
+}
+
+// The COUNTED channel — the formations the group carries: army → its stationed units;
+// party → its members' mercenary-company units; an atom (unit/band) → itself.
+function groupFormations(campaign, g){
+  if(!campaign || !g) return [];
+  const kind = groupKindOf(g);
+  if(kind === 'army') return armyUnits(campaign, g);
+  if(kind === 'unit' || kind === 'band') return [g];
+  if(kind === 'party'){
+    const out = [];
+    for(const id of (g.memberCharacterIds || [])){
+      const c = _findCharacterById(campaign, id);
+      const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+      if(Array.isArray(arr)) for(const u of arr) if(u) out.push(u);
+    }
+    return out;
+  }
+  return [];
+}
+
+// The group's natural size: party → characters + their mercenaries; army → troops;
+// unit → soldiers; band → creatures (active = count − casualties throughout).
+function groupHeadcount(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return unitActiveCount(g);
+  if(kind === 'band') return groupActiveCount(g);
+  const counted = groupFormations(campaign, g).reduce((s, u) => s + unitActiveCount(u), 0);
+  if(kind === 'party') return (g.memberCharacterIds || []).length + counted;
+  return counted;   // army (troops) / caravan
+}
+
+// Where the group physically is, as a hex id. A nested member resolves to its CONTAINER'S
+// position (a stationed unit → its army/garrison hex). Pure read.
+function groupPosition(campaign, g){
+  if(!campaign || !g) return null;
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return unitCurrentHexId(campaign, g);
+  if(kind === 'army'){
+    if(g.currentHexId) return g.currentHexId;
+    const u = armyUnits(campaign, g)[0];
+    return u ? unitCurrentHexId(campaign, u) : null;
+  }
+  return g.currentHexId || null;   // party / band / caravan
+}
+
+// The group's active journey/march (the journey entity it rides), or null. A band
+// wanders via the monster-bands consumer (no journey entity).
+function groupJourney(campaign, g){
+  if(!campaign || !g || !Array.isArray(campaign.journeys)) return null;
+  const kind = groupKindOf(g);
+  const jid = (kind === 'party') ? g.activeJourneyId
+            : (kind === 'army')  ? g.journeyId
+            : (kind === 'unit')  ? g.rallyJourneyId
+            : null;
+  return jid ? (campaign.journeys.find(j => j && j.id === jid) || null) : null;
+}
+
+// Daily movement in miles (best-effort; generalizes the per-kind reads).
+function groupSpeed(campaign, g){
+  const A = global.ACKS, kind = groupKindOf(g);
+  if(kind === 'unit') return unitMarchMilesPerDay(g);
+  if(kind === 'army' && A && typeof A.armyMarchProfile === 'function'){
+    const p = A.armyMarchProfile(campaign, g); return p ? (p.milesPerDay || null) : null;
+  }
+  const j = groupJourney(campaign, g);
+  if(j && A && typeof A.journeyBaseSpeedMilesPerDay === 'function') return A.journeyBaseSpeedMilesPerDay(campaign, j);
+  return null;
+}
+
+// The per-day logistics model (a tagged union): party eats rations + drinks water;
+// army/unit draw supplies (RR p.450); a band forages.
+function groupLogistics(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'party')   return { model: 'rations-water' };
+  if(kind === 'army')    return { model: 'supplies', simplified: g.supplySimplified !== false };
+  if(kind === 'unit')    return { model: 'supplies', state: g.supplyState || 'supplied' };
+  if(kind === 'band')    return { model: 'forage' };
+  if(kind === 'caravan') return { model: 'supplies' };
+  return { model: 'none' };
+}
+
+// The parent GROUP this one is nested in (the inverse of groupFormations): a unit
+// stationed to an army → that army; else null. A lair holds a band but is not a group.
+function groupContainer(campaign, g){
+  if(!campaign || !g) return null;
+  if(groupKindOf(g) === 'unit'){
+    const st = g.stationedAt;
+    if(st && st.kind === 'army') return findArmy(campaign, st.id);
+  }
+  return null;
+}
+
+// Autonomous = a top-level actor (a row in the merged view), i.e. NOT nested in another
+// group. A unit is nested iff stationed to an army; a band iff a lair holds it;
+// party/army/caravan are always autonomous (§12.5).
+function groupIsAutonomous(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return !(g.stationedAt && g.stationedAt.kind === 'army');
+  if(kind === 'band'){
+    if(campaign && Array.isArray(campaign.lairs))
+      return !campaign.lairs.some(l => l && Array.isArray(l.groupIds) && l.groupIds.includes(g.id));
+    return true;
+  }
+  return true;
+}
+
+function groupLifecycleState(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'party') return g.status || 'active';
+  if(kind === 'band')  return g.lifecycleState || 'wild';
+  if(kind === 'unit')  return g.rallyingToArmyId ? 'rallying' : ((g.stationedAt && g.stationedAt.kind) || 'loose');
+  if(kind === 'army')  return g.journeyId ? 'marching' : 'mustered';
+  return 'active';
+}
+
+// The shared row descriptor for the merged "Parties" view tables. Pure data; the UI
+// formats the hex label (hexName) + the link targets.
+function groupRow(campaign, g){
+  const kind = groupKindOf(g), meta = groupKindMeta(kind), leader = groupLeader(campaign, g);
+  const j = groupJourney(campaign, g);
+  return {
+    kind, id: g.id, icon: meta.icon, kindLabel: meta.label,
+    name: groupDisplayName(g),
+    leaderName: leader ? (leader.name || '(unnamed)') : null,
+    leaderId: leader ? leader.id : null,
+    headcount: groupHeadcount(campaign, g),
+    memberCount: groupMembers(campaign, g).length,
+    hexId: groupPosition(campaign, g),
+    onTheMove: !!(j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost')),
+    journeyId: j ? j.id : null,
+    lifecycle: groupLifecycleState(campaign, g)
+  };
+}
+
+// The Units table: every unit NOT absorbed into an army (garrison / mercenary-company /
+// rallying-in / hex). An army-stationed unit shows only under its army (§12.5).
+function looseUnits(campaign){
+  if(!campaign || !Array.isArray(campaign.units)) return [];
+  return campaign.units.filter(u => u && !(u.stationedAt && u.stationedAt.kind === 'army'));
+}
+
+// The cross-kind enumerator: every AUTONOMOUS group in the world, as {kind, entity}
+// (parties + armies + loose units; bands/caravans join as the view grows). opts.kinds
+// filters; opts.includeNested keeps absorbed units / lair-bound bands.
+function worldGroups(campaign, opts={}){
+  if(!campaign) return [];
+  const want = opts.kinds ? new Set(opts.kinds) : null;
+  const out = [];
+  const add = (entity) => {
+    const kind = groupKindOf(entity);
+    if(want && !want.has(kind)) return;
+    if(!opts.includeNested && !groupIsAutonomous(campaign, entity)) return;
+    out.push({ kind, entity });
+  };
+  for(const p of (campaign.parties || [])) if(p && p.status !== 'disbanded') add(p);
+  for(const a of (campaign.armies || [])) add(a);
+  for(const u of (campaign.units || [])) add(u);
+  return out;
+}
+
+// Muster an army FROM an existing party (§12.6 — the party→army transformation). The
+// party's members become the army's individuated roster (its leader → the commander),
+// each member's mercenary-company units → the army's first units, and the party is
+// CONSUMED (its camp handed to the leader, members freed, the party removed). The army
+// inherits the party's hex + (an in-transit) journey ends so the army marches anew.
+// Returns the army. id-stable via opts.id (the createArmy idempotency pattern).
+function musterArmyFromParty(campaign, partyOrId, opts={}){
+  if(!campaign) return null;
+  const party = (typeof partyOrId === 'string')
+    ? (campaign.parties || []).find(p => p && p.id === partyOrId) : partyOrId;
+  if(!party) return null;
+  const memberIds = (party.memberCharacterIds || []).slice();
+  const commanderId = opts.commanderCharacterId || party.leaderCharacterId || memberIds[0] || null;
+  const hexId = opts.currentHexId || party.currentHexId || null;
+  // the members' mercenary-company units become the army's units
+  const unitIds = [];
+  for(const id of memberIds){
+    const c = _findCharacterById(campaign, id);
+    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+    if(Array.isArray(arr)) for(const u of arr) if(u && u.id) unitIds.push(u.id);
+  }
+  const army = createArmy(campaign, {
+    id: opts.id,
+    name: opts.name || (party.name ? (party.name + ' (army)') : ''),
+    leaderCharacterId: commanderId,
+    currentHexId: hexId,
+    strategicStance: opts.strategicStance || 'defensive',
+    unitIds
+  });
+  if(!army) return null;
+  army.memberCharacterIds = memberIds.slice();   // the party's people become the army's roster
+  // consume the party: hand its camp to the leader, free the members, remove it
+  handOffPartyCampToLeader(campaign, party);
+  for(const id of memberIds){ const c = _findCharacterById(campaign, id); if(c && c.partyId === party.id) c.partyId = null; }
+  if(party.activeJourneyId && Array.isArray(campaign.journeys)){
+    const j = campaign.journeys.find(x => x && x.id === party.activeJourneyId);
+    if(j && j.status === 'in-transit') j.status = 'arrived';
+  }
+  if(Array.isArray(campaign.parties)){
+    const i = campaign.parties.findIndex(p => p && p.id === party.id);
+    if(i >= 0) campaign.parties.splice(i, 1);
+  }
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  army.history.push({ turn, type: 'mustered-from-party', text: 'Mustered from the party ' + (party.name || party.id) });
+  return army;
+}
+
 // Lazy-default the W1 military fields on a legacy garrison-unit object (additive; never
 // clobbers existing values — idempotent).
 function _lazyDefaultUnitFields(u){
@@ -9494,6 +9766,10 @@ const ACKS = Object.assign(global.ACKS || {}, {
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
   validateArmyOrganization, stationUnit, disbandUnit, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
+  // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
+  groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
+  groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,
+  groupIsAutonomous, groupLifecycleState, groupRow, looseUnits, worldGroups, musterArmyFromParty,
   // Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106)
   domainTerritoryHexCount, domainBorderConfiguration, domainEffectiveTerritory,
   domainIncursionClassification, domainDailyEncounterChance,
