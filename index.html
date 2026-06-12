@@ -879,6 +879,414 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- ═══ World ▸ 🎌 Battles (Phase 3 Military W3 — RR pp.461–472) ═══════════════
+     The master list (the Encounters-view pattern) + the inline new-battle launcher.
+     The step-walking battle panel is the modal below (the encounter-panel pattern at
+     army scale). -->
+<div x-show="currentView === 'world' && worldSubView === 'battles'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🎌 Battles <span class="text-sm opacity-70 font-normal" x-text="'· ' + activeBattlesFiltered().length + ' in motion · ' + pastBattlesFiltered().length + ' past'"></span></h3>
+      <div class="flex gap-2 items-baseline">
+        <input type="text" x-model="battlesSearch" placeholder="Search name, hex…" class="w-48 text-sm">
+        <button @click="battleWizard ? battleWizard = null : openBattleWizard()" class="px-2 py-1 rounded border border-ink text-sm font-semibold" x-text="battleWizard ? '✕ close launcher' : '⚔ New battle'"></button>
+      </div>
+    </div>
+
+    <!-- The launcher: two sides (army / garrison / monster band) × stances × awareness →
+         the derived strategic situation (RR pp.461–462). -->
+    <div x-show="battleWizard" class="border-2 rounded p-3 mb-3" style="background:#f3ead8; border-color:#7a1f1f" x-cloak>
+      <template x-if="battleWizard">
+        <div>
+          <p class="font-bold text-sm mb-2">⚔ Set up a battle</p>
+          <div class="grid md:grid-cols-2 gap-3 text-sm">
+            <div class="space-y-1">
+              <label class="block"><span class="font-semibold">Side A</span>
+                <select x-model="battleWizard.sourceA" class="w-full text-sm">
+                  <option value="">— pick an army / garrison / band —</option>
+                  <template x-for="o in battleSourceOptions()" :key="'a-' + o.key"><option :value="o.key" x-text="o.label"></option></template>
+                </select></label>
+              <label class="block">Stance
+                <select x-model="battleWizard.stanceA" class="w-full text-sm">
+                  <option value="offensive">Offensive</option><option value="defensive">Defensive</option><option value="evasive">Evasive</option>
+                </select></label>
+            </div>
+            <div class="space-y-1">
+              <label class="block"><span class="font-semibold">Side B</span>
+                <select x-model="battleWizard.sourceB" class="w-full text-sm">
+                  <option value="">— pick an army / garrison / band —</option>
+                  <template x-for="o in battleSourceOptions()" :key="'b-' + o.key"><option :value="o.key" x-text="o.label"></option></template>
+                </select></label>
+              <label class="block">Stance
+                <select x-model="battleWizard.stanceB" class="w-full text-sm">
+                  <option value="offensive">Offensive</option><option value="defensive">Defensive</option><option value="evasive">Evasive</option>
+                </select></label>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-4 gap-3 text-sm mt-2">
+            <label class="block">Awareness (recon)
+              <select x-model="battleWizard.awareness" class="w-full text-sm">
+                <option value="mutual">Mutual awareness</option>
+                <option value="mutual-unawareness">Mutual unawareness</option>
+                <option value="unilateral-a">Only A is aware</option>
+                <option value="unilateral-b">Only B is aware</option>
+              </select></label>
+            <label class="block">Hex
+              <select x-model="battleWizard.hexId" class="w-full text-sm">
+                <option value="">— unmapped field —</option>
+                <template x-for="h in ((currentCampaign && currentCampaign.hexes) || [])" :key="'bwh-' + h.id"><option :value="h.id" x-text="window.ACKS.hexName ? window.ACKS.hexName(h) : h.id"></option></template>
+              </select></label>
+            <label class="block">Scale (RR p.437)
+              <select x-model="battleWizard.scale" class="w-full text-sm">
+                <option value="platoon">Platoon (×¼)</option><option value="company">Company</option>
+                <option value="battalion">Battalion (×4)</option><option value="brigade">Brigade (×16)</option>
+              </select></label>
+            <label class="block">Name (optional)
+              <input type="text" x-model="battleWizard.name" class="w-full text-sm" placeholder="auto"></label>
+          </div>
+          <div class="flex flex-wrap gap-4 mt-2 text-sm items-baseline">
+            <label class="inline-flex items-center gap-1"><input type="checkbox" x-model="battleWizard.asymmetry"> Army-size asymmetry <span class="opacity-60 text-xs">(RR p.464 optional — recommended ON for monster fights)</span></label>
+            <label class="inline-flex items-center gap-1">Advantageous terrain:
+              <select x-model="battleWizard.advantageousTerrain" class="text-sm"><option value="">neither</option><option value="a">Side A holds it</option><option value="b">Side B holds it</option></select></label>
+          </div>
+          <div class="mt-2 p-2 rounded border border-ink/40 bg-white/40 text-sm" x-show="battleWizardSituation()">
+            <span class="font-semibold">Strategic situation:</span>
+            <span x-text="battleWizardSituation() ? battleWizardSituation().label : ''"></span>
+            <span x-show="battleWizardSituation() && battleWizardSituation().surprisedSide" class="accent-red font-semibold" x-text="' — side ' + (battleWizardSituation() ? (battleWizardSituation().surprisedSide || '').toUpperCase() : '') + ' is surprised'"></span>
+            <span x-show="battleWizardSituation() && !battleWizardSituation().battle" class="italic opacity-70"> — no battle occurs; the armies pass.</span>
+          </div>
+          <div class="mt-2 text-right">
+            <button @click="battleWizardCreate()" class="px-3 py-1 rounded border-2 font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f" :disabled="!battleWizardSituation() || !battleWizardSituation().battle">⚔ Create the battle</button>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <template x-if="allBattles().length === 0 && !battleWizard">
+      <p class="text-sm italic opacity-60 py-6 text-center">No battles yet. When two forces stand in the same hex — an incursion band against the garrison, two armies on the march — set one up with ⚔ New battle.</p>
+    </template>
+    <template x-if="activeBattlesFiltered().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th></th><th>Battle</th><th>Situation</th><th>Hex</th><th>Scale</th><th>Turn</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
+        <tbody>
+          <template x-for="b in activeBattlesFiltered()" :key="b.id">
+            <tr>
+              <td x-text="b.status === 'setup' ? '🛠' : (b.status === 'ended' ? '🏳' : '⚔')"></td>
+              <td><button @click="openBattlePanel(b.id)" class="underline font-semibold text-left" x-text="b.name || b.id"></button></td>
+              <td x-text="battleSituationLabel(b)"></td>
+              <td x-text="battleHexLabel(b)"></td>
+              <td class="capitalize" x-text="b.scale"></td>
+              <td class="font-mono" x-text="b.turnNumber"></td>
+              <td class="capitalize font-semibold" :class="b.status === 'ended' ? 'text-red-700' : ''" x-text="b.status === 'ended' ? 'awaiting aftermath' : b.status"></td>
+              <td class="text-right"><button @click="openBattlePanel(b.id)" class="underline text-red-800 font-semibold" x-text="b.status === 'setup' ? '🛠 deploy' : (b.status === 'ended' ? '⚖ aftermath' : '⚔ fight')"></button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <template x-if="pastBattlesFiltered().length > 0">
+      <div class="mt-4 border-t border-ink/20 pt-2">
+        <h4 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-1">Past battles</h4>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th></th><th>Battle</th><th>Hex</th><th>Victor</th><th>Ended by</th><th>Turns</th><th class="text-right">Actions</th></tr></thead>
+          <tbody>
+            <template x-for="b in pastBattlesFiltered()" :key="b.id">
+              <tr>
+                <td>✓</td>
+                <td><button @click="openBattlePanel(b.id)" class="underline text-left" x-text="b.name || b.id"></button></td>
+                <td x-text="battleHexLabel(b)"></td>
+                <td x-text="b.result && b.result.winner ? b.sides[b.result.winner].label : '—'"></td>
+                <td class="capitalize" x-text="b.result ? String(b.result.endedBy || '').replace(/-/g, ' ') : '—'"></td>
+                <td class="font-mono" x-text="b.result ? b.result.endedAtTurn : '—'"></td>
+                <td class="text-right"><button @click="openBattlePanel(b.id)" class="underline opacity-80">open</button></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">The RR battle engine (pp.461–472): ~10-minute battle turns of missile and melee per zone, morale collapse at the break point, then pursuit, casualties, spoils, and XP. Heroes join as heroic units or zoom in through heroic forays — the foray fight itself is yours to run at the table.</p>
+  </div>
+</div>
+
+<!-- ═══ The battle panel (W3) — the step-walking surface over acks-engine-battles.js.
+     z-76: below the encounter modal (77) / lair peek (78). Visibility-flag close (the E2
+     convention — battlePanelId stays set so the subtree never tears down against null).
+     Setup-stage roster edits (zones, M/L ticks, officers) are DIRECT working-state writes:
+     the battle isn't live until ⚔ Begin emits battle-started. ═══ -->
+<div x-show="battlePanelOpen" @keydown.escape.window="if(battlePanelOpen && !$event.defaultPrevented){ closeBattlePanel(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="closeBattlePanel()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-5xl my-6">
+    <template x-if="battlePanel()">
+      <div class="p-4">
+        <!-- header -->
+        <div class="flex justify-between items-start gap-2 border-b border-ink/30 pb-2 mb-3">
+          <div>
+            <h3 class="font-bold text-lg">🎌 <span x-text="battlePanel().name"></span></h3>
+            <p class="text-sm opacity-80">
+              <span x-text="battleSituationLabel(battlePanel())"></span>
+              · <span x-text="battleHexLabel(battlePanel())"></span>
+              · <span class="capitalize" x-text="battlePanel().scale + ' scale'"></span>
+              <span x-show="battlePanel().surprisedSide" class="accent-red font-semibold" x-text="' · ' + (battlePanel().sides[battlePanel().surprisedSide] || {}).label + ' is SURPRISED'"></span>
+              <span x-show="battlePanel().options && battlePanel().options.advantageousTerrain" x-text="' · ' + ((battlePanel().sides[battlePanel().options.advantageousTerrain] || {}).label) + ' holds advantageous terrain'"></span>
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded border text-xs font-bold uppercase" :class="battlePanel().status === 'fighting' ? 'border-red-700 text-red-700' : 'border-ink/50'" x-text="battlePanel().status === 'ended' ? 'awaiting aftermath' : battlePanel().status"></span>
+            <button @click="inspectorOpen && inspectorOpen('battle', battlePanel().id)" class="text-xs underline opacity-70">Inspector</button>
+            <button @click="closeBattlePanel()" class="font-bold text-lg leading-none px-1">✕</button>
+          </div>
+        </div>
+
+        <!-- sides summary -->
+        <div class="grid md:grid-cols-2 gap-3 mb-3">
+          <template x-for="sk in ['a','b']" :key="'bss-' + sk">
+            <div class="border border-ink/40 rounded p-2 text-sm" :style="sk === battlePanel().attackerSide ? 'background:#f6e8e0' : 'background:#eef0e4'">
+              <p class="font-bold">
+                <span x-text="(sk === battlePanel().attackerSide ? '⚔ ' : '🛡 ') + battleSummary(sk).label"></span>
+                <span class="opacity-60 font-normal text-xs" x-text="sk === battlePanel().attackerSide ? '(attacker)' : '(defender)'"></span>
+              </p>
+              <p class="text-xs opacity-90">
+                Leader: <span class="font-semibold" x-text="battleCharName(battlePanel().sides[sk].leaderCharacterId)"></span>
+                · stance <span class="capitalize" x-text="battlePanel().sides[sk].stance"></span>
+              </p>
+              <p class="text-xs mt-0.5">
+                <span x-text="battleSummary(sk).active + ' active'"></span>
+                · <span :class="battleSummary(sk).lost >= battleSummary(sk).breakPoint && battleSummary(sk).breakPoint ? 'accent-red font-bold' : ''" x-text="battleSummary(sk).lost + ' lost (break point ' + (battleSummary(sk).breakPoint || '—') + ')'"></span>
+                · BR <span class="font-mono" x-text="battleSummary(sk).br"></span>
+              </p>
+              <div class="mt-1 flex gap-2" x-show="battlePanel().status === 'fighting'">
+                <button @click="battleOpenHeroDraft(sk)" class="text-xs underline">🛡 add a hero unit</button>
+                <button @click="battleWithdraw(sk)" class="text-xs underline accent-red">🏳 withdraw</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- add-hero form -->
+        <div x-show="battleHeroDraft" class="border border-ink/40 rounded p-2 mb-3 text-sm" style="background:#f3ead8" x-cloak>
+          <template x-if="battleHeroDraft">
+            <div class="flex flex-wrap gap-2 items-end">
+              <span class="font-semibold">🛡 Hero unit for <span x-text="battlePanel().sides[battleHeroDraft.side].label"></span>:</span>
+              <select x-model="battleHeroDraft.characterId" class="text-sm">
+                <option value="">— character —</option>
+                <template x-for="c in battleHeroPickList()" :key="'bhp-' + c.id"><option :value="c.id" x-text="c.name + ' (L' + (c.level || 0) + ')'"></option></template>
+              </select>
+              <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" x-model="battleHeroDraft.arcaneCaster"> arcane caster (counts 2 specials)</label>
+              <select x-model="battleHeroDraft.zone" class="text-sm"><option value="reserve">reserve</option><option value="left">left</option><option value="center">center</option><option value="right">right</option></select>
+              <span class="text-xs" x-show="battleHeroDraftInfo()">
+                <span x-show="battleHeroDraftInfo() && !battleHeroDraftInfo().qualifies" class="accent-red" x-text="'⚠ ' + (battleHeroDraftInfo() || {}).reason + ' — the Judge may still allow it'"></span>
+                <span x-show="battleHeroDraftInfo() && battleHeroDraftInfo().qualifies" x-text="'✓ ' + (battleHeroDraftInfo() || {}).reason"></span>
+                <span class="font-mono" x-text="battleHeroDraftInfo() ? ' · BR ' + battleHeroDraftInfo().br : ''"></span>
+              </span>
+              <button @click="battleHeroSubmit()" class="px-2 py-0.5 rounded border border-ink text-xs font-semibold" :disabled="!battleHeroDraft.characterId">add</button>
+              <button @click="battleHeroDraft = null" class="text-xs underline opacity-70">cancel</button>
+            </div>
+          </template>
+        </div>
+
+        <!-- the zone grid (RR p.463) — first zone = A right vs B left -->
+        <div class="mb-3">
+          <div class="grid grid-cols-3 gap-1 text-xs">
+            <div></div>
+            <div class="border border-dashed border-ink/40 rounded p-1 min-h-8"><p class="font-bold opacity-60">B Reserve</p><template x-for="u in battleZoneUnits('b','reserve')" :key="'zg-' + u.key"><p><span x-text="u.label"></span> <span class="font-mono opacity-70" x-text="'(' + u.br + ')'"></span> <span class="opacity-60" x-text="battleUnitFlags(u)"></span></p></template></div>
+            <div></div>
+            <template x-for="z in ['right','center','left']" :key="'zb-' + z">
+              <div class="border border-ink/40 rounded p-1 min-h-10" style="background:#eef0e4">
+                <p class="font-bold opacity-60" x-text="'B ' + z.charAt(0).toUpperCase() + z.slice(1)"></p>
+                <template x-for="u in battleZoneUnits('b', z)" :key="'zgb-' + u.key"><p><span x-text="u.label"></span> <span class="font-mono opacity-70" x-text="'(' + u.br + ')'"></span> <span class="opacity-60" x-text="battleUnitFlags(u)"></span></p></template>
+              </div>
+            </template>
+            <template x-for="z in ['left','center','right']" :key="'za-' + z">
+              <div class="border border-ink/40 rounded p-1 min-h-10" style="background:#f6e8e0">
+                <p class="font-bold opacity-60" x-text="'A ' + z.charAt(0).toUpperCase() + z.slice(1)"></p>
+                <template x-for="u in battleZoneUnits('a', z)" :key="'zga-' + u.key"><p><span x-text="u.label"></span> <span class="font-mono opacity-70" x-text="'(' + u.br + ')'"></span> <span class="opacity-60" x-text="battleUnitFlags(u)"></span></p></template>
+              </div>
+            </template>
+            <div></div>
+            <div class="border border-dashed border-ink/40 rounded p-1 min-h-8"><p class="font-bold opacity-60">A Reserve</p><template x-for="u in battleZoneUnits('a','reserve')" :key="'zga2-' + u.key"><p><span x-text="u.label"></span> <span class="font-mono opacity-70" x-text="'(' + u.br + ')'"></span> <span class="opacity-60" x-text="battleUnitFlags(u)"></span></p></template></div>
+            <div></div>
+          </div>
+          <p class="text-xs opacity-60 mt-1">The first zone pairs A-Right with B-Left; reserves redeploy through phase 8; M = missile, L = loose (withdraws at ½ BR instead of dying).</p>
+        </div>
+
+        <!-- SETUP: per-side roster tables (direct working-state edits) + begin -->
+        <template x-if="battlePanel().status === 'setup'">
+          <div>
+            <template x-for="sk in ['a','b']" :key="'ros-' + sk">
+              <div class="mb-3">
+                <p class="font-semibold text-sm mb-1" x-text="battlePanel().sides[sk].label + ' — deployment' + (battlePanel().sides[sk].deployRestriction !== 'all' ? ' (only ' + battlePanel().sides[sk].deployRestriction + ' divisions start deployed — the rest arrive as reinforcements)' : '')"></p>
+                <table class="bookkeeping text-xs w-full">
+                  <thead><tr><th>Unit</th><th>Troops</th><th>BR</th><th>Morale</th><th title="missile unit (RR p.462)">M</th><th title="loose unit (RR p.462)">L</th><th>Zone</th><th>Officer attached</th></tr></thead>
+                  <tbody>
+                    <template x-for="u in battlePanel().sides[sk].units" :key="'rosu-' + u.key">
+                      <tr>
+                        <td x-text="u.label + (u.divisionRole ? ' · ' + u.divisionRole : '')"></td>
+                        <td class="font-mono" x-text="u.creatures"></td>
+                        <td class="font-mono" x-text="u.br"></td>
+                        <td class="font-mono" x-text="u.morale"></td>
+                        <td><input type="checkbox" x-model="u.missile"></td>
+                        <td><input type="checkbox" x-model="u.loose"></td>
+                        <td><select x-model="u.zone" class="text-xs">
+                          <option value="left">left</option><option value="center">center</option><option value="right">right</option>
+                          <option value="reserve">reserve</option><option value="undeployed">undeployed</option>
+                        </select></td>
+                        <td><select x-model="u.officerCharacterId" class="text-xs">
+                          <option :value="null">—</option>
+                          <template x-for="c in battleHeroPickList()" :key="'rof-' + u.key + c.id"><option :value="c.id" x-text="c.name"></option></template>
+                        </select></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+            <div class="flex justify-between items-center">
+              <button @click="battleDiscard()" class="text-xs underline opacity-70">🗑 discard this setup</button>
+              <div class="flex gap-2">
+                <button @click="battleAutoDeploy()" class="px-2 py-1 rounded border border-ink text-sm">↻ auto-deploy</button>
+                <button @click="battleBegin()" class="px-3 py-1 rounded border-2 font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f">⚔ Begin the battle</button>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- FIGHTING: forays + run the turn -->
+        <template x-if="battlePanel().status === 'fighting'">
+          <div>
+            <div class="border border-ink/40 rounded p-2 mb-3 text-sm" style="background:#f3ead8">
+              <div class="flex justify-between items-baseline">
+                <p class="font-semibold">⚔ Heroic forays — battle turn <span x-text="battlePanel().turnNumber + 1"></span> <span class="text-xs opacity-60 font-normal">(declare → fight it at the table → record the outcome; the turn applies it at its step, RR p.466)</span></p>
+                <button @click="battleForayDraft ? battleForayDraft = null : battleOpenForayDraft()" class="text-xs underline" x-text="battleForayDraft ? '✕ cancel' : '＋ declare a foray'"></button>
+              </div>
+              <div x-show="battleForayDraft" class="mt-2" x-cloak>
+                <template x-if="battleForayDraft">
+                  <div class="space-y-1 text-xs">
+                    <div class="flex flex-wrap gap-2 items-baseline">
+                      <label>Side <select x-model="battleForayDraft.side" class="text-xs"><option value="a" x-text="battlePanel().sides.a.label"></option><option value="b" x-text="battlePanel().sides.b.label"></option></select></label>
+                      <label>Zone <select x-model="battleForayDraft.zonePairIndex" class="text-xs"><option :value="0">First (A-Right / B-Left)</option><option :value="1">Second (Center)</option><option :value="2">Third (A-Left / B-Right)</option></select></label>
+                      <label>Phase <select x-model="battleForayDraft.phaseKind" class="text-xs"><option value="missile">Missile</option><option value="melee">Melee</option></select></label>
+                    </div>
+                    <template x-for="(h, hi) in battleForayDraft.heroes" :key="'bfh-' + hi">
+                      <div class="flex gap-2 items-baseline">
+                        <select x-model="h.characterId" class="text-xs">
+                          <option value="">— hero —</option>
+                          <template x-for="c in battleHeroPickList()" :key="'bfhc-' + hi + c.id"><option :value="c.id" x-text="c.name + ' (L' + (c.level || 0) + ')'"></option></template>
+                        </select>
+                        <select x-model="h.stake" class="text-xs">
+                          <template x-for="s in battleForayStakes()" :key="'bfs-' + hi + s.br"><option :value="s.br" x-text="s.br + ' BR — ' + s.label"></option></template>
+                        </select>
+                      </div>
+                    </template>
+                    <div class="flex gap-3">
+                      <button @click="battleForayAddHero()" class="underline">＋ another hero</button>
+                      <button @click="battleForaySubmit()" class="px-2 py-0.5 rounded border border-ink font-semibold">frame the foray</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <!-- pending + resolved foray cards for the upcoming turn -->
+              <template x-for="f in battleUpcomingForays()" :key="f.id">
+                <div class="mt-2 border border-ink/30 rounded p-2 text-xs bg-white/40">
+                  <p class="font-semibold">
+                    <span x-text="(f.side === 'a' ? battlePanel().sides.a.label : battlePanel().sides.b.label) + ' — ' + ['first','second','third'][f.zonePairIndex] + ' zone ' + f.phaseKind + ' · ' + f.stakedBr + ' BR staked'"></span>
+                    <span x-show="f.opposed" class="accent-red"> · heroes vs heroes</span>
+                    <span class="capitalize px-1 rounded border ml-1" :class="f.status === 'resolved' ? 'border-green-700 text-green-800' : 'border-amber-700 text-amber-800'" x-text="f.status"></span>
+                  </p>
+                  <p class="opacity-80" x-text="'Heroes: ' + f.heroes.map(h => battleCharName(h.characterId) + ' (' + h.stake + ')').join(', ')"></p>
+                  <template x-if="!f.opposed && f.foes && f.foes.length">
+                    <p>Foes: <span x-text="f.foes.map(x => x.creatures + ' of ' + x.label + ' (BR ' + x.br + ')').join(' + ')"></span></p>
+                  </template>
+                  <template x-if="!f.opposed && f.groups && f.groups.length">
+                    <p>They arrive in <span x-text="f.groups.length"></span> group(s): <span x-text="f.groups.map(g => g.creatures + ' at ' + g.distanceFt + 'ft').join(' · ')"></span> <span class="opacity-60" x-text="f.groups[0] && f.groups[0].diceLabel ? '(' + f.groups[0].diceLabel + ')' : ''"></span></p>
+                  </template>
+                  <p x-show="f.note" class="italic opacity-80" x-text="f.note"></p>
+                  <p class="italic opacity-70">Resolve at the table under the standard combat rules — max 10 rounds; fleeing or withdrawing foes count as defeated.</p>
+                  <div x-show="f.status === 'pending'" class="mt-1 flex flex-wrap gap-2 items-baseline">
+                    <template x-if="!f.opposed">
+                      <label class="inline-flex items-center gap-1"><input type="checkbox" x-model="(battleForayOutcome[f.id] = battleForayOutcome[f.id] || { allFoesDefeated:false, theirBrLost:0, ourBrLost:0 }).allFoesDefeated"> every foe defeated (they lose the full stake)</label>
+                    </template>
+                    <template x-if="!f.opposed">
+                      <label class="inline-flex items-center gap-1">else their BR lost: <input type="number" step="0.5" min="0" x-model.number="(battleForayOutcome[f.id] = battleForayOutcome[f.id] || { allFoesDefeated:false, theirBrLost:0, ourBrLost:0 }).theirBrLost" class="w-16 text-xs"></label>
+                    </template>
+                    <template x-if="f.opposed">
+                      <label class="inline-flex items-center gap-1">our side's BR lost in the foray: <input type="number" step="0.5" min="0" x-model.number="(battleForayOutcome[f.id] = battleForayOutcome[f.id] || { allFoesDefeated:false, theirBrLost:0, ourBrLost:0 }).ourBrLost" class="w-16 text-xs"></label>
+                    </template>
+                    <button @click="battleForayResolve(f.id)" class="px-2 py-0.5 rounded border border-ink font-semibold">✓ record the outcome</button>
+                    <button @click="battleCancelForay(f.id)" class="underline opacity-70">✕ cancel</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div class="flex justify-between items-center mb-3">
+              <button @click="battleRevertTurn()" class="text-xs underline opacity-70" x-show="battleLatestTurn() && battleLatestTurn()._pre">⟲ revert turn <span x-text="battleLatestTurn() ? battleLatestTurn().turnNumber : ''"></span></button>
+              <span x-show="!(battleLatestTurn() && battleLatestTurn()._pre)"></span>
+              <button @click="battleRunTurn()" class="px-3 py-1 rounded border-2 font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f" x-text="'▶ Fight battle turn ' + (battlePanel().turnNumber + 1)"></button>
+            </div>
+          </div>
+        </template>
+
+        <!-- ENDED / RESOLVED: result + aftermath -->
+        <template x-if="battlePanel().status === 'ended' || battlePanel().status === 'resolved'">
+          <div class="mb-3">
+            <div class="border-2 rounded p-2 text-sm font-semibold" style="border-color:#7a1f1f; background:#f6e8e0">
+              🏳 <span x-text="battlePanel().result && battlePanel().result.winner ? battlePanel().sides[battlePanel().result.winner].label + ' holds the field' : 'No victor'"></span>
+              — ended by <span class="capitalize" x-text="battlePanel().result ? String(battlePanel().result.endedBy || '').replace(/-/g, ' ') : ''"></span>
+              after <span x-text="battlePanel().result ? battlePanel().result.endedAtTurn : ''"></span> turn(s).
+            </div>
+            <div class="mt-2" x-show="battlePanel().status === 'ended' && !battlePanel().aftermath">
+              <button @click="battleResolveAftermath()" class="px-3 py-1 rounded border-2 font-bold text-sm" style="border-color:#7a1f1f; color:#7a1f1f">⚖ Resolve the aftermath</button>
+              <button @click="battleRevertTurn()" class="text-xs underline opacity-70 ml-2" x-show="battleLatestTurn() && battleLatestTurn()._pre">⟲ revert the final turn instead</button>
+            </div>
+            <template x-if="battlePanel().aftermath">
+              <div class="mt-2 text-sm space-y-1">
+                <template x-for="(ln, li) in battlePanel().aftermath.lines" :key="'afl-' + li"><p x-text="ln"></p></template>
+                <!-- officer outcome entry -->
+                <template x-if="battlePanel().aftermath.officers && battlePanel().aftermath.officers.length">
+                  <div class="border border-ink/40 rounded p-2 mt-1">
+                    <p class="font-semibold text-xs mb-1">🩸 Officer &amp; hero casualties — roll the Mortal Wounds table at the table (net <span class="font-mono">0</span> victor / <span class="font-mono">−4</span> defeated), then enter each band:</p>
+                    <template x-for="o in battlePanel().aftermath.officers" :key="'afo-' + o.characterId">
+                      <div class="flex flex-wrap gap-2 items-baseline text-xs mb-0.5">
+                        <span class="font-semibold" x-text="o.name"></span>
+                        <span class="opacity-70" x-text="'(' + o.unitLabel + ' ' + o.unitStatus + ' · ' + (o.victor ? 'victor, net 0' : 'defeated, net −4') + ')'"></span>
+                        <select :disabled="battlePanel().aftermath.applied" @change="battleSetOfficer(o.characterId, $event.target.value)" class="text-xs">
+                          <option value="" :selected="!o.outcome">— outcome —</option>
+                          <template x-for="oc in battleOfficerOutcomes()" :key="'afoc-' + o.characterId + oc.key"><option :value="oc.key" :selected="o.outcome === oc.key" x-text="oc.label"></option></template>
+                          <option value="captured-voluntarily" x-show="o.mayDeclineToCaptivity" :selected="o.outcome === 'captured-voluntarily'">Submits to capture (no roll — routed officers may)</option>
+                        </select>
+                        <span x-show="o.woundRoll != null" class="opacity-80" x-text="'permanent-wound 1d6 = ' + o.woundRoll + ' (apply per the Mortal Wounds table)'"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <div class="mt-2" x-show="!battlePanel().aftermath.applied">
+                  <button @click="battleApplyAftermath()" class="px-3 py-1 rounded border-2 font-bold text-sm" style="border-color:#1f4a7a; color:#1f4a7a">✓ Apply the aftermath to the world</button>
+                  <span class="text-xs opacity-70 ml-2">writes unit/group casualties, officer outcomes, commander XP, and per-troop XP</span>
+                </div>
+                <p class="text-xs italic opacity-70" x-show="battlePanel().aftermath.applied">✓ Applied — the world carries the consequences.</p>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- the turn log -->
+        <template x-if="battlePanel().turnLog.length > 0">
+          <div class="border-t border-ink/20 pt-2">
+            <h4 class="font-semibold text-sm uppercase tracking-wide opacity-70 mb-1">Turn log</h4>
+            <template x-for="rec in battlePanel().turnLog.slice().reverse()" :key="'btl-' + rec.turnNumber">
+              <details class="mb-1" :open="rec.turnNumber === battlePanel().turnNumber">
+                <summary class="text-sm font-semibold cursor-pointer">Battle turn <span x-text="rec.turnNumber"></span> <span class="opacity-60 font-normal text-xs" x-text="'(' + rec.lines.length + ' lines)'"></span></summary>
+                <div class="pl-3 text-xs font-mono whitespace-pre-wrap opacity-90">
+                  <template x-for="(ln, li) in rec.lines" :key="'btll-' + rec.turnNumber + '-' + li"><p x-text="ln"></p></template>
+                </div>
+              </details>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- Lair detail modal (#476 M7) — read view + lifecycle actions over the M1 setters. The Inspector
      stays the no-frills field editor underneath (Open in Inspector). z-78: ABOVE the hex card (50)
      and the search/track modals (75) — their "→ lair" buttons open this as a peek you close to drop
@@ -2802,6 +3210,13 @@ document.addEventListener('alpine:init', () => {
                   ⚔ <span x-text="(Math.max(0, (g.count || 0) - (g.casualties || 0))) + ' × ' + (g.name || 'monsters')"></span>
                   — <span x-text="((g.incursion && g.incursion.attitude) || 'unknown') + ', ' + ((g.incursion && g.incursion.disposition) || '')"></span><span x-show="g.incursion && g.incursion.rulerAware === false" class="accent-red font-bold"> · the ruler is UNAWARE</span>
                   — <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
+                  <!-- W3 — bring it to blows: prefill the battle launcher with the garrison vs the
+                       band (platoon scale, asymmetry on; an unaware ruler = only the band is aware). -->
+                  · <button @click="openBattleWizard({ hexId: g.currentHexId || '', sourceA: 'garrison:' + selectedDomain.id, sourceB: 'group:' + g.id,
+                        stanceA: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'defensive' : 'offensive',
+                        stanceB: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'offensive' : 'defensive',
+                        awareness: (g.incursion && g.incursion.rulerAware === false) ? 'unilateral-b' : 'mutual',
+                        scale: 'platoon', asymmetry: true })" class="underline accent-red">🎌 battle</button>
                 </p>
               </template>
               <p class="text-xs mt-1 opacity-80" x-show="isHouseRuleEnabled('vagaries-of-incursion') && incursionBands(selectedDomain).length === 0">No incursion bands stand in the domain.</p>
@@ -11781,6 +12196,218 @@ return {
   // The list of World sub-tabs. Order (#225, 2026-06-02): Map, Domains, Hexes, then Rumors.
   // Map + Domains were promoted from top-level tabs into World sub-views. Rumors only appears
   // when rumors-manual is on. (Hexes uses ⬡ since Map now owns the 🗺 glyph.)
+  // ═══ Phase 3 Military W3 — World ▸ 🎌 Battles + the battle panel ═══════════
+  // The panel is the step-walking surface over acks-engine-battles.js (the encounter-panel
+  // pattern at army scale): setup (zones, commanders, missile/loose ticks — DIRECT working-
+  // state edits; the battle isn't live until ⚔ Begin, which emits battle-started) →
+  // fighting (forays + ▶ battle turns + withdrawal) → aftermath review → apply.
+  allBattles(){ return (this.currentCampaign && this.currentCampaign.battles) || []; },
+  activeBattlesFiltered(){
+    const q = (this.battlesSearch || '').trim().toLowerCase();
+    return this.allBattles().filter(b => b && b.status !== 'resolved')
+      .filter(b => !q || (b.name || '').toLowerCase().includes(q) || (b.hexId || '').toLowerCase().includes(q))
+      .slice().reverse();
+  },
+  pastBattlesFiltered(){
+    const q = (this.battlesSearch || '').trim().toLowerCase();
+    return this.allBattles().filter(b => b && b.status === 'resolved')
+      .filter(b => !q || (b.name || '').toLowerCase().includes(q) || (b.hexId || '').toLowerCase().includes(q))
+      .slice().reverse();
+  },
+  battlePanel(){ return window.ACKS.findBattle(this.currentCampaign, this.battlePanelId) || null; },
+  openBattlePanel(id){ this.battlePanelId = id; this.battlePanelOpen = true; this.battleForayDraft = null; this.battleHeroDraft = null; },
+  closeBattlePanel(){ this.battlePanelOpen = false; },
+  battleSituationLabel(b){ const s = b && window.ACKS.STRATEGIC_SITUATIONS[b.situation]; return s ? s.label : (b ? b.situation : ''); },
+  battleHexLabel(b){
+    const h = b && b.hexId ? ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === b.hexId) : null;
+    return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (b && b.hexId) || '—';
+  },
+  battleSummary(sk){ const b = this.battlePanel(); return b ? window.ACKS.battleSideSummary(b, sk) : { label:'', active:0, lost:0, br:0, breakPoint:0 }; },
+  battleZoneUnits(sk, zone){
+    const b = this.battlePanel(); if(!b) return [];
+    return b.sides[sk].units.filter(u => u.zone === zone && u.status === 'active');
+  },
+  battleUnitFlags(u){
+    const f = [];
+    if(u.missile) f.push('M'); if(u.loose) f.push('L');
+    if(u.wavering) f.push('〰 wavering'); if(u.disordered) f.push('✱ disordered');
+    return f.join(' · ');
+  },
+  battleRosterStatus(u){
+    if(u.status === 'destroyed') return u.eliminatedByPursuit ? 'destroyed (pursuit)' : 'destroyed';
+    if(u.status === 'routed') return 'routed';
+    const bits = [u.zone];
+    if(u.wavering) bits.push('wavering'); if(u.disordered) bits.push('disordered');
+    return bits.join(' · ');
+  },
+  battleCharName(id){
+    const c = id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === id) : null;
+    return c ? c.name : (id || '—');
+  },
+  // ── the new-battle launcher ──
+  battleSourceOptions(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const A = window.ACKS; const out = [];
+    for(const a of (camp.armies || [])) out.push({ key: 'army:' + a.id, label: '🎖 ' + (a.name || a.id) + ' (' + A.armyUnits(camp, a).length + ' units)' });
+    for(const d of (this.domains || [])){
+      const n = A.unitsStationedAt(camp, { kind: 'domain-garrison', id: d.id }).length;
+      if(n > 0) out.push({ key: 'garrison:' + d.id, label: '🛡 ' + (d.name || d.id) + ' garrison (' + n + ' units)' });
+    }
+    for(const g of (camp.groups || [])){
+      const active = Math.max(0, (g.count || 0) - (g.casualties || 0));
+      if(active > 0) out.push({ key: 'group:' + g.id, label: '🐉 ' + (g.name || (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || g.id) + ' (' + active + ')' });
+    }
+    return out;
+  },
+  openBattleWizard(prefill){
+    const p = prefill || {};
+    this.battleWizard = {
+      hexId: p.hexId || '', name: '',
+      sourceA: p.sourceA || '', stanceA: p.stanceA || 'defensive',
+      sourceB: p.sourceB || '', stanceB: p.stanceB || 'offensive',
+      awareness: p.awareness || 'mutual',
+      scale: p.scale || 'company',
+      asymmetry: p.asymmetry != null ? p.asymmetry : false,
+      advantageousTerrain: ''
+    };
+    this.currentView = 'world'; this.worldSubView = 'battles';
+  },
+  battleWizardSituation(){
+    const w = this.battleWizard; if(!w) return null;
+    return window.ACKS.resolveStrategicSituation(w.awareness, w.stanceA, w.stanceB);
+  },
+  _battleSideSpec(key, stance){
+    if(!key) return null;
+    const [kind, id] = String(key).split(':');
+    if(kind === 'army') return { kind: 'army', armyId: id, stance };
+    if(kind === 'garrison') return { kind: 'garrison', domainId: id, stance };
+    if(kind === 'group') return { kind: 'groups', groupIds: [id], stance };
+    return null;
+  },
+  battleWizardCreate(){
+    const w = this.battleWizard; if(!w) return;
+    const sideA = this._battleSideSpec(w.sourceA, w.stanceA);
+    const sideB = this._battleSideSpec(w.sourceB, w.stanceB);
+    if(!sideA || !sideB){ this.showToast('Pick both sides first.'); return; }
+    const sit = this.battleWizardSituation();
+    if(sit && !sit.battle){ this.showToast('Those stances yield No Battle — the armies pass each other by (RR p.461).'); return; }
+    const b = window.ACKS.createBattle(this.currentCampaign, {
+      name: (w.name || '').trim() || undefined,
+      hexId: w.hexId || null, scale: w.scale, awareness: w.awareness,
+      sideA, sideB,
+      options: { armySizeAsymmetry: !!w.asymmetry, advantageousTerrain: w.advantageousTerrain || null, cannotRetreat: null }
+    });
+    if(!b || b.noBattle){ this.showToast('Could not create the battle — check the sides.'); return; }
+    this.battleWizard = null;
+    this.openBattlePanel(b.id);
+    this.showToast('🎌 ' + b.name + ' — deploy in the panel, then ⚔ Begin the battle.');
+  },
+  // ── setup-stage actions ──
+  battleAutoDeploy(){ const b = this.battlePanel(); if(b) window.ACKS.autoDeployBattle(this.currentCampaign, b.id); },
+  battleBegin(){
+    const b = this.battlePanel(); if(!b) return;
+    window.ACKS.beginBattle(this.currentCampaign, b.id);
+    this.showToast('⚔ ' + b.name + ' is joined — fight it one battle turn at a time.');
+  },
+  battleDiscard(){
+    const b = this.battlePanel(); if(!b || b.status !== 'setup') return;
+    if(!confirm('Discard this battle setup? Nothing has been fought.')) return;
+    const arr = this.currentCampaign.battles;
+    const i = arr.findIndex(x => x && x.id === b.id);
+    if(i >= 0) arr.splice(i, 1);
+    this.closeBattlePanel();
+  },
+  // ── fighting-stage actions ──
+  battleRunTurn(){
+    const b = this.battlePanel(); if(!b) return;
+    try {
+      window.ACKS.runBattleTurn(this.currentCampaign, b.id);
+      if(b.status === 'ended') this.showToast('🏳 The battle is over — ' + (b.result && b.result.winner ? b.sides[b.result.winner].label + ' holds the field.' : 'no victor.'));
+    } catch(e){ this.showToast('⚠ ' + e.message, 6000); }
+  },
+  battleRevertTurn(){ const b = this.battlePanel(); if(b) window.ACKS.revertBattleTurn(this.currentCampaign, b.id); },
+  battleWithdraw(sk){
+    const b = this.battlePanel(); if(!b) return;
+    if(!confirm(b.sides[sk].label + ' withdraws from the field? The battle ends — they are the defeated side for the aftermath.')) return;
+    window.ACKS.withdrawBattleSide(this.currentCampaign, b.id, sk);
+  },
+  battleLatestTurn(){ const b = this.battlePanel(); return b && b.turnLog.length ? b.turnLog[b.turnLog.length - 1] : null; },
+  // ── forays ──
+  battleForayStakes(){ return window.ACKS.FORAY_STAKES || []; },
+  battleOpenForayDraft(){
+    const b = this.battlePanel(); if(!b) return;
+    this.battleForayDraft = { side: 'a', zonePairIndex: 0, phaseKind: 'melee', heroes: [{ characterId: '', stake: 1 }] };
+  },
+  battleForayAddHero(){ if(this.battleForayDraft) this.battleForayDraft.heroes.push({ characterId: '', stake: 1 }); },
+  battleForaySubmit(){
+    const b = this.battlePanel(); const d = this.battleForayDraft;
+    if(!b || !d) return;
+    const heroes = d.heroes.filter(h => h.characterId).map(h => ({ characterId: h.characterId, stake: Number(h.stake) || 0 }));
+    if(!heroes.length){ this.showToast('Pick at least one hero.'); return; }
+    const f = window.ACKS.declareForay(this.currentCampaign, b.id, {
+      side: d.side, zonePairIndex: Number(d.zonePairIndex), phaseKind: d.phaseKind, heroes
+    });
+    if(!f){ this.showToast('Could not frame the foray.'); return; }
+    if(f.error){ this.showToast('⚠ ' + f.error, 5000); return; }
+    this.battleForayDraft = null;
+    this.battleForayOutcome[f.id] = { allFoesDefeated: false, theirBrLost: 0, ourBrLost: 0 };
+  },
+  battleUpcomingForays(){
+    const b = this.battlePanel(); if(!b) return [];
+    return (b.forays || []).filter(f => f.turnNumber === b.turnNumber + 1);
+  },
+  battleForayResolve(forayId){
+    const b = this.battlePanel(); if(!b) return;
+    const o = this.battleForayOutcome[forayId] || {};
+    window.ACKS.resolveForay(this.currentCampaign, b.id, forayId, {
+      allFoesDefeated: !!o.allFoesDefeated,
+      theirBrLost: Number(o.theirBrLost) || 0,
+      ourBrLost: Number(o.ourBrLost) || 0
+    });
+  },
+  battleCancelForay(forayId){ const b = this.battlePanel(); if(b) window.ACKS.cancelForay(this.currentCampaign, b.id, forayId); },
+  battleHeroPickList(){
+    return ((this.currentCampaign && this.currentCampaign.characters) || [])
+      .filter(c => c && (!window.ACKS.isActive || window.ACKS.isActive(c)));
+  },
+  // ── hero-units ──
+  battleOpenHeroDraft(sk){ this.battleHeroDraft = { side: sk, characterId: '', arcaneCaster: false, zone: 'reserve' }; },
+  battleHeroDraftInfo(){
+    const d = this.battleHeroDraft; const b = this.battlePanel();
+    if(!d || !d.characterId || !b) return null;
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === d.characterId);
+    if(!ch) return null;
+    const q = window.ACKS.qualifiesAsBattleHero(this.currentCampaign, ch, b.scale);
+    const br = window.ACKS.heroBattleUnitBr(this.currentCampaign, ch, { scale: b.scale, arcaneCaster: d.arcaneCaster });
+    return { qualifies: q.qualifies, reason: q.reason, br };
+  },
+  battleHeroSubmit(){
+    const d = this.battleHeroDraft; const b = this.battlePanel();
+    if(!d || !d.characterId || !b) return;
+    const bu = window.ACKS.addHeroToBattle(this.currentCampaign, b.id, d.side, {
+      characterId: d.characterId, arcaneCaster: d.arcaneCaster, zone: d.zone
+    });
+    if(bu){ this.battleHeroDraft = null; this.showToast('🛡 ' + bu.label + ' takes the field as a heroic unit (BR ' + bu.br + ').'); }
+  },
+  // ── aftermath ──
+  battleResolveAftermath(){
+    const b = this.battlePanel(); if(!b || b.status !== 'ended') return;
+    if(!b.result || !b.result.winner){ this.showToast('No victor — the aftermath is the GM\'s narration.'); return; }
+    if(!b.aftermath) window.ACKS.computeBattleAftermath(this.currentCampaign, b.id);
+  },
+  battleOfficerOutcomes(){ return window.ACKS.OFFICER_CASUALTY_OUTCOMES || []; },
+  battleSetOfficer(charId, key){
+    const b = this.battlePanel(); if(!b) return;
+    window.ACKS.setOfficerOutcome(this.currentCampaign, b.id, charId, key);
+  },
+  battleApplyAftermath(){
+    const b = this.battlePanel(); if(!b) return;
+    try {
+      window.ACKS.applyBattleAftermath(this.currentCampaign, b.id);
+      this.showToast('⚖ Aftermath applied — casualties, spoils, and XP are recorded in the world.');
+    } catch(e){ this.showToast('⚠ ' + e.message, 6000); }
+  },
+
   get worldSubTabs(){
     const tabs = [
       { id:'map',     label:'🗺 Map',     count: null },
@@ -11801,6 +12428,9 @@ return {
     // #476 E2 — encounters (campaign.encounters[]). The badge counts ACTIVE ones — the
     // "needs the GM" signal (resolved encounters stay browsable inside the view).
     tabs.push({ id:'encounters', label:'⚔ Encounters', count: (window.ACKS.activeEncounters(this.currentCampaign) || []).length || null });
+    // Phase 3 Military W3 — battles (campaign.battles[]). The badge counts the ones still
+    // in motion (setup / fighting / ended-awaiting-aftermath); resolved battles stay browsable.
+    tabs.push({ id:'battles', label:'🎌 Battles', count: (window.ACKS.activeBattles(this.currentCampaign) || []).length || null });
     return tabs;
   },
 
@@ -16375,6 +17005,15 @@ return {
   // #476 M4 — Search-the-hex (RR pp.276–277) + track-home (RR p.120) modals.
   searchHex: { open:false, actorId:null, hexId:null, specific:false, landmarkJourneyId:null, results:[] },
   trackHome: { open:false, actorId:null, lairId:null, encounterId:null, hexId:null, countTracked:0, mod:0, groundMod:0, rainHours:0, dimLight:false, result:null },
+  // Phase 3 Military W3 — World ▸ 🎌 Battles (RR pp.461–472). The panel follows the
+  // encounter modal's visibility-flag convention (id kept set on close — no teardown warnings).
+  battlesSearch: '',
+  battlePanelOpen: false,
+  battlePanelId: null,
+  battleWizard: null,            // the new-battle launcher's working object (null = closed)
+  battleForayDraft: null,        // the declare-a-foray form (null = closed)
+  battleForayOutcome: {},        // per-foray outcome inputs, keyed by foray id
+  battleHeroDraft: null,         // the add-hero-unit form (null = closed)
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.
   _hexAddReturn: null,
