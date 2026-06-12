@@ -1193,14 +1193,30 @@ function applyEvent_adventureResult(campaign, event){
     if(!targetHex.explored){ targetHex.explored = true; changed.hexesChanged.push(targetHex.id); summaryParts.push('hex '+targetHex.id+' marked explored'); }
   }
 
-  // Clear named lair when outcome is "cleared".
-  if(p.lairId && targetHex && p.outcome === 'cleared'){
-    const before = (targetHex.lairs||[]).length;
-    targetHex.lairs = (targetHex.lairs||[]).filter(l => l.id !== p.lairId);
-    if(targetHex.lairs.length < before){
-      changed.hexesChanged.push(targetHex.id);
-      summaryParts.push('lair '+p.lairId+' cleared');
+  // Clear named lair when outcome is "cleared". Lairs are first-class (campaign.lairs[], #476 M0):
+  // flip the lair to status 'cleared' — RAW §3.2: inhabitants wiped + treasure taken, structure
+  // remains (the lair is NOT deleted) — and stamp the lifecycle audit. Also filter any legacy nested
+  // hex.lairs[] copy (defensive — migrateLegacyHexLairs lifts nested lairs to campaign.lairs on load,
+  // but a stale nested entry is cleaned up here too). Found by lairId; targetHex not required.
+  if(p.lairId && p.outcome === 'cleared'){
+    let cleared = false;
+    // Delegate to the canonical setter (#476 M1 clearLair) — flips status:'cleared', stamps
+    // clearedAtTurn / clearedByEventId AND the lifecycle history entry. Read the prior status first
+    // so the summary flag only fires on a real transition (clearLair is idempotent — a re-clear
+    // returns the lair unchanged).
+    const A = (typeof global !== 'undefined' && global.ACKS) ? global.ACKS : null;
+    if(A && typeof A.clearLair === 'function'){
+      const existing = (typeof A.findLair === 'function') ? A.findLair(campaign, p.lairId) : null;
+      const wasCleared = existing && existing.status === 'cleared';
+      const lair = A.clearLair(campaign, p.lairId, { atTurn: campaign.currentTurn || null, byEventId: event.id || null, reason: 'adventure-cleared' });
+      if(lair && !wasCleared) cleared = true;
     }
+    if(targetHex && Array.isArray(targetHex.lairs)){
+      const before = targetHex.lairs.length;
+      targetHex.lairs = targetHex.lairs.filter(l => l.id !== p.lairId);
+      if(targetHex.lairs.length < before){ changed.hexesChanged.push(targetHex.id); cleared = true; }
+    }
+    if(cleared) summaryParts.push('lair '+p.lairId+' cleared');
   }
   // Clear named dungeon when outcome is "cleared".
   if(p.dungeonId && targetHex && p.outcome === 'cleared'){

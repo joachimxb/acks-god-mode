@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Monster lairs are now first-class places in your world.** A monster's lair — its den, warren, or webbed deep — is tracked as a proper entity bound to a hex, holding its inhabitants (the monster group that dens there), its treasure, its discovery state, and its own history, with a lifecycle (active → cleared / abandoned / destroyed). A new **Lair Wizard** (🔍 Inspector ▸ Create ▸ Lair) lets you **author a lair** by hand — placing it on a hex now, or holding it in reserve to drop into a hex later — or **seed a wilderness hex**, which rolls how many lairs that hex's terrain supports (JJ p.69, *Lairs per Hex* — from a sparse steppe to a teeming jungle) and lays down that many undetailed lairs for you to flesh out as your party explores. Only unsettled hexes seed; a hex inside a domain holds none. Clearing a lair through an adventure result marks it **cleared** (the structure remains, ready to be reoccupied) rather than erasing it. The bundled demo ships the three lairs that beset the March of Saltspur — the Grey Pack's den, the Drowned Causeway of the Mere-Folk, and the Weaver Deeps — each tied to the monster band that holds it; the Frontier Barony template's goblin warren is likewise now a real lair you can inspect. *(Finding lairs by searching a hex, the wilderness encounter pipeline that draws on them, populating seeded lairs from a monster catalog, and a dedicated Lairs view come next.)*
+
+### Fixed
+- **The Inspector's ✨ Create button now opens the right creation form.** Picking a kind and clicking ✨ Create always showed the "no dedicated wizard yet" placeholder, even for kinds that *have* a dedicated creator — so Create → Character / Domain / Journey / Lair never launched their wizard. The button now dispatches to the kind's creator (e.g. the Lair Wizard); kinds without one still show the placeholder as before.
+
 ## [0.23.0] - 2026-06-08
 
 ### Added

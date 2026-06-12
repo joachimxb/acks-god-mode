@@ -429,6 +429,45 @@
         { name: 'notes',   type: 'longText', group: 'History' },
         { name: 'history', type: 'history', readonly: true, group: 'History' }
       ]
+    },
+
+    // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lair, the first-class placed
+    // monster-home entity (RAW core; survey §5, §16.3). Inspector-creatable as the no-frills
+    // admin path (the generative Lair Wizard, plan §12.5, lands later). Population is composition:
+    // groupIds[] → campaign.groups[], leaderCharacterIds[] → campaign.characters[]. Treasure is
+    // lair-only. Every field is a blankLair key (global schema⊆factory invariant); totalInhabitantCount
+    // is a derived cache (computed). monsterCatalogKey is a free string until the MONSTER_CATALOG (M2).
+    'lair': {
+      factory: 'blankLair',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Placement', 'Population', 'Treasure', 'Characteristics', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                   type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                 type: 'string', group: 'Identity', default: '', description: 'GM label, e.g. "Bloodfang Cave"' },
+        { name: 'status',               type: 'enum',   enumValues: ['active','cleared','abandoned','destroyed','unknown','dynamic'], group: 'Identity', default: 'active', description: 'dynamic = authored-but-unplaced (revealed on a lair roll); unknown = placed-but-undetailed' },
+        { name: 'monsterCatalogKey',    type: 'string', group: 'Identity', description: 'Key into the MONSTER_CATALOG (M2) — a free string until then' },
+        { name: 'hexId',                type: 'id', idKind: 'hex', group: 'Placement', description: 'The hex this lair sits in — empty while status:dynamic' },
+        { name: 'precisePlacement',     type: 'string', group: 'Placement', description: 'e.g. "cave on the eastern slope"' },
+        { name: 'knownToPlayers',       type: 'boolean', group: 'Placement', description: 'Discovered via search / tracking?' },
+        { name: 'hiddenDC',             type: 'number', group: 'Placement', description: 'Hex-search modifier for a well-hidden lair (null = none)' },
+        { name: 'groupIds',             type: 'idArray', idKind: 'group', group: 'Population', description: 'Rank-and-file Groups denning here' },
+        { name: 'leaderCharacterIds',   type: 'idArray', idKind: 'character', group: 'Population', description: 'Individuated leaders (chieftain, champions)' },
+        { name: 'totalInhabitantCount', type: 'computed', readonly: true, group: 'Population', description: 'Derived — Σ active group counts + leaders (ACKS.lairInhabitantCount)' },
+        { name: 'treasureType',         type: 'string', group: 'Treasure', description: "Treasure Type 'A'..'R' (lair-only; '' = none)" },
+        { name: 'treasureCustodyId',    type: 'string', group: 'Treasure', readonly: true, description: 'monster-hoard custody record at this lair (set by the treasure generator, M3)' },
+        { name: 'lairType',             type: 'enum', enumValues: ['lair','lair-large','hideout','ruin','natural-cave','dungeon-level'], group: 'Characteristics', default: 'lair' },
+        { name: 'terrain',              type: 'string', group: 'Characteristics' },
+        { name: 'hasFortifications',    type: 'boolean', group: 'Characteristics' },
+        { name: 'lairPct',              type: 'number', group: 'Characteristics', description: "The monster's Lair % (0 = never lairs); from the catalog" },
+        { name: 'factionKey',           type: 'string', group: 'Characteristics', description: 'Reserved — cross-hex lair network (M10+)' },
+        { name: 'establishedAtTurn',    type: 'number', group: 'Lifecycle' },
+        { name: 'establishedBy',        type: 'enum', enumValues: ['genesis','hex-seeding','dynamic-reveal','persistent-wanderer','gm-fiat'], group: 'Lifecycle', default: 'gm-fiat' },
+        { name: 'lastVisitedTurn',      type: 'number', group: 'Lifecycle' },
+        { name: 'clearedAtTurn',        type: 'number', group: 'Lifecycle' },
+        { name: 'repopulationChance',   type: 'number', group: 'Lifecycle', description: 'Reserved — lair-repopulation (M10+)' },
+        { name: 'notes',                type: 'longText', group: 'History' },
+        { name: 'history',              type: 'history', readonly: true, group: 'History' }
+      ]
     }
   };
 
