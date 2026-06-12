@@ -280,6 +280,8 @@ document.addEventListener('alpine:init', () => {
               <div x-show="grp.consumer === 'encounters'" class="text-xs opacity-60 italic">Committing the day creates each as a resolvable Encounter — handle them in World ▸ ⚔ Encounters (reject = it never happened).</div>
               <!-- E6 — autonomous band motion: wandering migrants + bands walking home. -->
               <div x-show="grp.consumer === 'monster-bands'" class="text-xs opacity-60 italic">The world's loose bands on the move (World ▸ 🐉 Monsters ▸ Groups) — reject a line and that band stays put today.</div>
+              <!-- W2 — the Vagaries of Incursion: each line is a domain encounter (JJ pp.100–106). -->
+              <div x-show="grp.consumer === 'incursions'" class="text-xs opacity-60 italic">Domain encounters (Vagaries of Incursion, JJ p.101) — committing materializes each band in the world (World ▸ 🐉 Monsters); reject a line and it never happened.</div>
               <template x-for="(r, ri) in grp.records" :key="grp.consumer + '-' + ri">
                 <div class="border-b border-dashed border-gray-300">
                   <div class="flex items-center justify-between gap-2 py-0.5" :class="r.rejected ? 'opacity-40 line-through' : ''">
@@ -309,6 +311,20 @@ document.addEventListener('alpine:init', () => {
                       <div class="text-xs text-red-700 leading-snug" x-text="'• ' + dayTickNotableText(ne)"></div>
                     </template>
                   </div>
+                  <!-- W2 INCURSION records: the verdict at a glance — the probability line, the
+                       reaction arithmetic, recon both sides, the platoon-scale BR comparison + the
+                       JJ p.104 trigger lines. x-if (not x-show) — other kinds lack these fields. -->
+                  <template x-if="r.kind === 'incursion' && !r.rejected">
+                    <div class="ml-3 pb-1 space-y-0.5">
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🎲 ' + r.chance.roll + ' vs ' + r.chance.pct + '%/day — effective territory ' + r.chance.effectiveHexes + ' hexes (' + r.chance.configuration + ') · ' + r.chance.classification + (r.chance.demoted ? ' ⚠ under-defended (JJ p.102)' : '')"></div>
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🤝 reaction 2d6 ' + r.reaction.roll + ((r.reaction.mods || []).length ? (' ' + r.reaction.mods.map(m => (m.value > 0 ? '+' : '') + m.value + ' (' + m.label + ')').join(' ')) : '') + ' = ' + r.reaction.total + ' → ' + r.reaction.attitudeLabel + (r.reaction.capped ? ' (capped at Neutral — animal intelligence, JJ p.104)' : '')"></div>
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🕵 recon (RR p.452) — ruler 2d6: ' + r.recon.ruler.total + ' → ' + r.recon.ruler.result + (r.recon.rulerAware ? ' (aware)' : ' (UNAWARE — the arrival is invisible to him)') + ' · monsters: ' + r.recon.monsters.total + ' → ' + r.recon.monsters.result"></div>
+                      <div class="text-xs opacity-80 leading-snug" x-text="'⚖ BR at platoon scale (JJ p.105): the band ' + (r.brComparison.monsterBr != null ? r.brComparison.monsterBr : '(GM prices)') + ' vs the garrison ' + r.brComparison.garrisonBr"></div>
+                      <template x-for="(vl, vli) in (r.brComparison.verdictLines || [])" :key="grp.consumer + '-' + ri + '-vl-' + vli">
+                        <div class="text-xs text-red-700 leading-snug" x-text="'• ' + vl"></div>
+                      </template>
+                    </div>
+                  </template>
                   <!-- SURVIVAL records (CoL-1): a per-member detail row — name + conditions (hunger/thirst
                        + CON loss) + whether they ate/drank + food/water left — and a Survival → link to act
                        on each one (replaces reject; survival always commits, the GM forages/moves instead). -->
@@ -2771,6 +2787,24 @@ document.addEventListener('alpine:init', () => {
                    + ((selectedDomain.banditryOccupationMonths || 0) >= 2 ? (' — −' + ((selectedDomain.banditryOccupationMonths || 0) - 1) + ' on the next morale roll') : ' — the penalty builds from next month')
                    + ' (RR p.349 + p.351)'"></p>
               <p class="text-xs mt-1 opacity-80" x-show="banditCount(selectedDomain) > 0 && banditryBands(selectedDomain).length === 0 && isHouseRuleEnabled('domain-morale-banditry')">🏴 They take the field at the next monthly turn — the bands materialize in the world when the month advances.</p>
+            </div>
+
+            <!-- Phase 3 Military W2 — the Vagaries of Incursion (JJ pp.100–106): the daily
+                 domain-encounter chance + the live incursion bands standing in the domain.
+                 The chance line is rule-gated; existing bands show regardless (the
+                 founded-dens precedent — they are world entities). -->
+            <div x-show="isHouseRuleEnabled('vagaries-of-incursion') || incursionBands(selectedDomain).length > 0" class="mt-3 p-2 rounded border-2" style="background:#f3ead8; border-color:#8a6d1f">
+              <p class="text-sm font-bold">⚔ Domain encounters <span class="opacity-60 font-normal">(Vagaries of Incursion, JJ p.101)</span></p>
+              <p class="text-xs mt-1 opacity-90" x-show="isHouseRuleEnabled('vagaries-of-incursion')" x-text="incursionChanceLine(selectedDomain)"></p>
+              <template x-for="g in incursionBands(selectedDomain)" :key="g.id">
+                <p class="text-sm mt-1 font-semibold">
+                  ⚔ <span x-text="(Math.max(0, (g.count || 0) - (g.casualties || 0))) + ' × ' + (g.name || 'monsters')"></span>
+                  — <span x-text="((g.incursion && g.incursion.attitude) || 'unknown') + ', ' + ((g.incursion && g.incursion.disposition) || '')"></span><span x-show="g.incursion && g.incursion.rulerAware === false" class="accent-red font-bold"> · the ruler is UNAWARE</span>
+                  — <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
+                </p>
+              </template>
+              <p class="text-xs mt-1 opacity-80" x-show="isHouseRuleEnabled('vagaries-of-incursion') && incursionBands(selectedDomain).length === 0">No incursion bands stand in the domain.</p>
+              <p class="text-xs mt-1 opacity-90 accent-red" x-show="selectedDomain.incursionXenophobiaPending && isHouseRuleEnabled('vagaries-of-incursion')">⚠ Peasant unease — monsters crossed the domain unchallenged: −1 on the next domain morale roll (JJ p.103).</p>
             </div>
           </div>
 
@@ -10182,6 +10216,25 @@ return {
       // strayed onto an unauthored coord keeps walking (the walk coord carries it off-map).
       const ruleOn = (typeof A.isHouseRuleEnabled === 'function') && A.isHouseRuleEnabled(c, 'persistent-wandering-monsters');
       const moving = ruleOn && !b.halted && (hex || !!(g.wanderState && g.wanderState.coord));
+      // Phase 3 Military W2 — a band that arrived as a DOMAIN ENCOUNTER wears its verdict:
+      // whose domain, what attitude, lingering (holds) vs migrating (wanders on via E6).
+      if(b.incursion){
+        const incDom = ((c.domains || []).find(x => x && x.id === b.incursion.domainId)) || null;
+        return {
+          key: 'group-' + b.groupId, icon: '⚔',
+          band: g.name || '(unnamed band)',
+          monster: monster || (tpl.creatureTypes || []).join(', ') || '—',
+          count: b.count,
+          hexId: hex ? hex.id : null,
+          where: where || 'wandering — no fixed hex',
+          statusLabel: 'incursion · ' + (b.incursion.attitude || ''),
+          statusText: '⚔ domain encounter at ' + ((incDom && incDom.name) || 'a domain') + ' (Vagaries of Incursion, JJ p.101) — '
+            + (b.incursion.attitude || 'unknown') + ', ' + (b.incursion.disposition || '')
+            + (b.incursion.rulerAware === false ? '; the ruler is UNAWARE' : '')
+            + (moving ? ' · 🚶 wandering with the Day Clock' : (b.halted || b.incursion.disposition === 'lingering' ? ' · holding in the domain' : '')),
+          encounterId: null, groupId: b.groupId
+        };
+      }
       return {
         key: 'group-' + b.groupId, icon: '🚶',
         band: g.name || '(unnamed band)',
@@ -10454,6 +10507,16 @@ return {
         const dom = ((this.currentCampaign && this.currentCampaign.domains) || []).find(d => d && d.id === (g.banditryDomainId || ms.banditryDomainId));
         return { encounterId: null, groupId: g.id, live: false,
                  text: '🏴 these are ' + ((dom && dom.name) || 'a domain') + '’s own men turned bandit (domain morale, RR pp.350–351) — the band raids within the domain until morale recovers (🐉 Monsters tab)' };
+      }
+      // Phase 3 Military W2 — a Vagaries of Incursion arrival: name whose domain it
+      // descended on + its verdict (the JJ p.104 attitude row in the tone checklist
+      // carries the ±mod into this meeting's reaction roll).
+      if(g && g.incursion){
+        const dom = ((this.currentCampaign && this.currentCampaign.domains) || []).find(d => d && d.id === g.incursion.domainId);
+        return { encounterId: null, groupId: g.id, live: false,
+                 text: '⚔ this band arrived as a domain encounter at ' + ((dom && dom.name) || 'a domain')
+                   + ' (Vagaries of Incursion) — ' + (g.incursion.attitude || 'unknown') + ' toward the domain, '
+                   + (g.incursion.disposition || '') + ' (🐉 Monsters tab)' };
       }
       if(g) return { encounterId: null, groupId: g.id, live: false,
                      text: '🚶 this is the roaming band “' + (g.name || 'unnamed') + '” — it persists in the world (🐉 Monsters tab)' };
@@ -18330,6 +18393,26 @@ return {
   banditryBands(d){
     if(!d || !this.currentCampaign || typeof window.ACKS.banditryBandsForDomain !== 'function') return [];
     return window.ACKS.banditryBandsForDomain(this.currentCampaign, d.id);
+  },
+  // Phase 3 Military W2 — the Vagaries of Incursion domain-panel reads.
+  incursionBands(d){
+    if(!d || !this.currentCampaign || typeof window.ACKS.incursionBandsForDomain !== 'function') return [];
+    return window.ACKS.incursionBandsForDomain(this.currentCampaign, d.id);
+  },
+  incursionChanceLine(d){
+    if(!d || !this.currentCampaign || typeof window.ACKS.domainDailyEncounterChance !== 'function') return '';
+    const c = window.ACKS.domainDailyEncounterChance(this.currentCampaign, d);
+    let line = c.pct + '% per day — effective territory ' + c.effectiveHexes + ' hexes';
+    if(c.configuration !== 'secure'){
+      line += ' (' + c.actualHexes + ' held; dangerous borders: ' + c.configuration
+        + (c.configurationSource === 'override' ? ', GM-set' : '') + ', JJ p.102)';
+    }
+    line += ' · ' + c.effective;
+    if(c.demoted){
+      const why = [c.insufficientGarrison ? 'garrison under strength' : null, c.insufficientStronghold ? 'stronghold under value' : null].filter(Boolean).join(' + ');
+      line += ' (⚠ one class worse — ' + why + ', JJ p.102)';
+    }
+    return line;
   },
 
   // RR p.340 — classification is a GM judgment. Stored domain.classification wins; the

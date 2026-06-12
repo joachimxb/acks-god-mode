@@ -20,7 +20,8 @@ global.ACKS_DEMO_TEMPLATE = {
     "season": null
   },
   "houseRules": {
-    "families-per-hex-tracking": true
+    "families-per-hex-tracking": true,
+    "vagaries-of-incursion": true
   },
   "campaignContext": {
     "theme": "Established march with vassal baronies",
