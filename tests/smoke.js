@@ -23,7 +23,7 @@ const DIR = path.join(__dirname, '..');
 // field-schemas → events → subsystems); each module extends global.ACKS.
 [
   'acks-engine-catalogs.js',
-  'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
+  'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-entity-registry.js',

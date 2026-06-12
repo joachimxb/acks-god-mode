@@ -31,7 +31,7 @@
 
 const path = require('path');
 [
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',

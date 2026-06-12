@@ -23,7 +23,7 @@ const path = require('path');
 const fs = require('fs');
 // Load all engine modules in order; each accumulates onto global.ACKS.
 [
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',

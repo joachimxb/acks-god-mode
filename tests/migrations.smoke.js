@@ -28,7 +28,7 @@ const assert = require('assert');
 
 const DIR = path.join(__dirname, '..');
 [
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
+  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
   'acks-engine.js',
   'acks-engine-entities.js',
   'acks-engine-economy.js',
