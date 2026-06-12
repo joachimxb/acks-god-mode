@@ -129,7 +129,12 @@ const ID_PREFIXES = Object.freeze({
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
   favorDutyObligation:  'fdo',
   // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)
-  encounter:            'enc'
+  encounter:            'enc',
+  // Phase 3 Military W1 (2026-06-12) — Unit (the Group's military sibling) + Army.
+  // NB lifted legacy garrison units KEEP their 'gar-' ids (id stability); 'unit-' is
+  // the prefix for units created after the lift.
+  unit:                 'unit',
+  army:                 'army'
 });
 
 function newId(prefix){
@@ -667,6 +672,10 @@ function validateUniqueIds(campaign){
   checkCollection(campaign.parties, 'parties');
   checkCollection(campaign.ventures, 'ventures');
   checkCollection(campaign.passiveInvestments, 'passiveInvestments');
+  // Phase 3 Military W1 — first-class Units + Armies (the nested garrison/company arrays
+  // mirror the SAME unit objects, so they are checked per-collection, never cross-collection).
+  checkCollection(campaign.units, 'units');
+  checkCollection(campaign.armies, 'armies');
   // Per-domain sub-collections
   (campaign.domains||[]).forEach(d => {
     const dl = 'domain['+d.id+']';
@@ -792,6 +801,12 @@ function migrateCampaign(raw){
   // lazyDefaultV1ScopeReservations guarantees campaign.lairs[]. Idempotent; a no-op on campaigns
   // with no nested lairs (every shipped template). See migrateLegacyHexLairs below.
   migrateLegacyHexLairs(current);
+  // Phase 3 Military W1 (2026-06-12) — lift nested garrison/mercenary-company units to the
+  // first-class campaign.units[] collection, reference-unified (the SAME object in both homes —
+  // the hexes precedent, Architecture §3.3). Runs after lazyDefaultV1ScopeReservations guarantees
+  // campaign.units[]/armies[]. Idempotent + self-healing in both directions (a JSON round-trip
+  // duplicates the shared objects; this re-unifies by id on every load).
+  migrateGarrisonUnitsToUnits(current);
   // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
   // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
   // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
@@ -833,6 +848,10 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
   // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions (D8).
   if(!Array.isArray(campaign.encounters)) campaign.encounters = [];
+  // Phase 3 Military W1 (2026-06-12) — Units (first-class; the nested garrison/company
+  // arrays stay reference-unified mirrors) + Armies.
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  if(!Array.isArray(campaign.armies)) campaign.armies = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -2808,6 +2827,473 @@ function groupActiveCount(group){
   const count = group.count || 0;
   const casualties = group.casualties || 0;
   return Math.max(0, count - casualties);
+}
+
+// =============================================================================
+// Phase 3 Military W1 (2026-06-12) — Units & Armies.
+// Unit is the Group's military sibling kind (campaign.units[]; Architecture §2.4 —
+// soldiers never leak into the monster-band machinery that iterates campaign.groups[]).
+// Both kinds meet the battle layer through the SAME derived interface: a Unit's BR
+// reads TROOP_CATALOG (RR pp.438–444); a Group's BR reads the MONSTER_CATALOG's
+// per-creature battleRating (the JJ pp.104–106 platoon organization consumes it at W2).
+// Armies embed their divisions (no independent lifetime — Architecture §3.1).
+// The legacy nested homes (domain.garrison.units[] / character.mercenaryCompany.units[])
+// stay as REFERENCE-UNIFIED MIRRORS of campaign.units[] (the hexes precedent, §3.3):
+// the lift migration extends each nested unit in place and shares the object, so the
+// economy + UI readers are untouched while military reads go through the collection.
+// =============================================================================
+
+function findUnit(campaign, unitId){
+  if(!campaign || !Array.isArray(campaign.units)) return null;
+  return campaign.units.find(u => u && u.id === unitId) || null;
+}
+
+function findArmy(campaign, armyId){
+  if(!campaign || !Array.isArray(campaign.armies)) return null;
+  return campaign.armies.find(a => a && a.id === armyId) || null;
+}
+
+// All units assigned to a station — {kind: 'domain-garrison'|'character'|'army'|'hex'|'constructible', id}.
+function unitsStationedAt(campaign, stationedAt){
+  if(!campaign || !Array.isArray(campaign.units) || !stationedAt) return [];
+  return campaign.units.filter(u => u && u.stationedAt &&
+    u.stationedAt.kind === stationedAt.kind && u.stationedAt.id === stationedAt.id);
+}
+
+function armiesAtHex(campaign, hexId){
+  if(!campaign || !Array.isArray(campaign.armies)) return [];
+  return campaign.armies.filter(a => a && a.currentHexId === hexId);
+}
+
+// Active soldier count = count − casualties (the Group shape).
+function unitActiveCount(unit){
+  if(!unit) return 0;
+  return Math.max(0, (unit.count || 0) - (unit.casualties || 0));
+}
+
+// The army's units (stationedAt = the army). Division membership (division.unitIds) is the
+// army's INTERNAL org chart; stationedAt is the unit's assignment truth — validateArmyOrganization
+// flags disagreements between the two rather than auto-mutating either.
+function armyUnits(campaign, army){
+  if(!army) return [];
+  return unitsStationedAt(campaign, { kind: 'army', id: army.id });
+}
+
+function armyDivisionForUnit(army, unitId){
+  if(!army || !Array.isArray(army.divisions)) return null;
+  return army.divisions.find(dv => dv && Array.isArray(dv.unitIds) && dv.unitIds.includes(unitId)) || null;
+}
+
+// ─── Catalog-derived unit reads (derive-don't-store; stored per-soldier wage/BR are
+//     GM overrides that win over the catalog — the legacy garrison-unit fields) ───
+
+// Resolve the unit's TROOP_CATALOG row (null when the race doesn't field the type
+// or the type is unknown — e.g. a fully hand-authored unit).
+function unitTroopRow(unit){
+  if(!unit || !global.ACKS || typeof global.ACKS.findTroopType !== 'function') return null;
+  return global.ACKS.findTroopType(unit.unitTypeKey, {
+    race: unit.race || 'man', veteran: !!unit.veteran, loadout: unit.loadout || null
+  });
+}
+
+// Round to the printed unit-BR grain (nearest 0.5 — RR pp.442–444).
+function _roundHalfBr(x){ return Math.round(x * 2) / 2; }
+
+// RR p.462 — a unit's battle rating. A stored brPerSoldier (>0, the GM-override /
+// legacy garrison field) wins; else the catalog row: full-strength standard units use
+// the PRINTED unit BR (a few veteran rows differ from per-creature × size by design,
+// RR p.443 designer's note), understrength/over scale per-creature × active count.
+function unitBattleRating(campaign, unit){
+  const active = unitActiveCount(unit);
+  if(!active) return 0;
+  const stored = (typeof unit.brPerSoldier === 'number' && unit.brPerSoldier > 0) ? unit.brPerSoldier : null;
+  if(stored != null) return _roundHalfBr(stored * active);
+  const row = unitTroopRow(unit);
+  if(!row) return 0;
+  if(active === row.unitSize && row.unitBattleRating != null) return row.unitBattleRating;
+  return _roundHalfBr(row.brPerCreature * active);
+}
+
+// The Group side of the shared battle interface: per-creature battleRating from the
+// MONSTER_CATALOG (MM stat blocks) × active count. This is how a monster band, an E10
+// banditry band, or a lair's defenders price into the JJ pp.104–106 mass-combat layer —
+// no promotion to Unit needed.
+function groupBattleRating(campaign, group){
+  const active = groupActiveCount(group);
+  if(!active) return 0;
+  const key = group && group.groupTemplate && group.groupTemplate.monsterCatalogKey;
+  const m = key && global.ACKS && typeof global.ACKS.findMonster === 'function' ? global.ACKS.findMonster(key) : null;
+  if(!m || typeof m.battleRating !== 'number') return 0;
+  return _roundHalfBr(m.battleRating * active);
+}
+
+// Per-soldier monthly wage: stored monthlyWage (>0) wins, else the catalog row's wage.
+// Elite troops (RR p.434, behind the `elite-troops` rule): +1gp per full 6gp of regular
+// wage, minimum +3gp. 🔧 "per every 6gp" read as floor(wage/6).
+function unitWagePerSoldier(campaign, unit){
+  if(!unit) return 0;
+  const stored = (typeof unit.monthlyWage === 'number' && unit.monthlyWage > 0) ? unit.monthlyWage : null;
+  const row = stored == null ? unitTroopRow(unit) : null;
+  let wage = stored != null ? stored : (row ? row.wageGpMonth : 0);
+  if(unit.elite && isHouseRuleEnabled(campaign, 'elite-troops')){
+    wage += Math.max(3, Math.floor(wage / 6));
+  }
+  return wage;
+}
+
+// Monthly wage bill: active soldiers × per-soldier wage (dead mercenaries collect no wages).
+function unitWageMonthly(campaign, unit){
+  return unitActiveCount(unit) * unitWagePerSoldier(campaign, unit);
+}
+
+// RR p.450 — weekly supply cost for the unit at its scale. The catalog row carries the
+// PRINTED company-scale weekly cost (carnivore-correct, e.g. wolf riders 480gp); other
+// scales multiply by the RR p.437 scale factor. Rowless units fall back to the generic
+// scale table by category. Supply is per unit regardless of understrength (RAW).
+function unitWeeklySupplyCost(campaign, unit){
+  if(!unit || !global.ACKS) return 0;
+  const scaleRowFn = global.ACKS.scaleRow, costFn = global.ACKS.unitScaleSupplyCost;
+  const sc = (typeof scaleRowFn === 'function') ? scaleRowFn(unit.scale || 'company') : null;
+  const mult = sc && sc.multiplier ? sc.multiplier : 1;
+  const row = unitTroopRow(unit);
+  if(row && row.unitSupplyWeekly != null) return row.unitSupplyWeekly * mult;
+  const category = (row && row.category) || (unit.category) || 'infantry';
+  const base = (typeof costFn === 'function') ? costFn(category === 'infantry' ? 'infantry' : 'cavalry', unit.scale || 'company') : null;
+  return base != null ? base : 0;
+}
+
+// Unit morale score: the catalog row's morale (veteran rows carry the veteran value;
+// a veteran flag without a veteran row adds the RR p.430 +1), plus the stored
+// moraleAdjustment (the one-time levy ±1 from domain morale, GM tweaks).
+function unitMoraleScore(campaign, unit){
+  if(!unit) return 0;
+  let base = null;
+  const row = unitTroopRow(unit);
+  if(row && typeof row.morale === 'number'){
+    base = row.morale;
+  } else if(global.ACKS && typeof global.ACKS.mercMorale === 'function'){
+    const m = global.ACKS.mercMorale(unit.unitTypeKey, unit.race || 'man');
+    if(typeof m === 'number') base = m;
+    if(base != null && unit.veteran) base += 1;   // no veteran row resolved — apply the RAW +1
+  }
+  if(base == null) base = 0;
+  return base + (unit.moraleAdjustment || 0);
+}
+
+// ─── Officer characteristics (RR pp.435–437 + p.171) — pure derived reads on Character.
+//     A character with numeric abilities uses the PC/NPC formulas; one without (a monster
+//     leader) uses the monster formulas off its hitDice. ───
+
+function _hdLead(hd){ const m = String(hd == null ? '' : hd).match(/-?\d+/); return m ? +m[0] : 0; }
+function _isMonsterOfficer(c){ return !(c && c.abilities && typeof c.abilities.CHA === 'number'); }
+
+// Sum of proficiency ranks for a named proficiency. An entry's rank = its trailing
+// number ("Military Strategy 2" = 2 ranks) or 1; repeated entries sum (the E5
+// tracking-ranks convention — count entries — generalized for the officer table's
+// single-entry-with-rank style).
+function proficiencyRanks(character, name){
+  if(!character || !Array.isArray(character.proficiencies) || !name) return 0;
+  const want = String(name).toLowerCase();
+  let ranks = 0;
+  for(const p of character.proficiencies){
+    const s = (typeof p === 'string' ? p : (p && p.name) || '').trim().toLowerCase();
+    if(!s.startsWith(want)) continue;
+    const rest = s.slice(want.length).trim();
+    if(rest && !/^\d+$/.test(rest)) continue;       // "Command" must not match "Commanding Presence"
+    ranks += rest ? +rest : 1;
+  }
+  return ranks;
+}
+function hasProficiencyNamed(character, name){ return proficiencyRanks(character, name) >= 1; }
+
+// RR p.435 — leadership ability: units controllable at once / divisions per army.
+// Character: 4 + CHA mod (+1 Leadership proficiency; −1 using an adjutant), max 8.
+// Monster: 3 + HD/4 (rounded down), max 8.
+function leadershipAbility(character, opts){
+  const o = opts || {};
+  let la;
+  if(_isMonsterOfficer(character)){
+    la = 3 + Math.floor(_hdLead(character && character.hitDice) / 4);
+  } else {
+    la = 4 + abilityMod(character.abilities.CHA)
+       + (hasProficiencyNamed(character, 'Leadership') ? 1 : 0)
+       - (o.usingAdjutant ? 1 : 0);
+  }
+  return Math.min(8, la);
+}
+
+// RR p.436 — strategic ability: better-of(INT, WIL) bonus (min 0) + worse-of penalty
+// (max 0) + Military Strategy ranks; clamped [−3, +6]. Monster: HD/5 (rounded down)
+// ± intelligence tier (opts.monsterIntelligence: 'sub' −1 | 'high' +1 | 'super' +2).
+function strategicAbility(character, opts){
+  const o = opts || {};
+  let sa;
+  if(_isMonsterOfficer(character)){
+    sa = Math.floor(_hdLead(character && character.hitDice) / 5);
+    if(o.monsterIntelligence === 'sub') sa -= 1;
+    if(o.monsterIntelligence === 'high') sa += 1;
+    if(o.monsterIntelligence === 'super') sa += 2;
+  } else {
+    const intMod = abilityMod(character.abilities.INT || 10);
+    const wilMod = abilityMod(character.abilities.WIL || 10);
+    sa = Math.max(0, Math.max(intMod, wilMod)) + Math.min(0, Math.min(intMod, wilMod))
+       + proficiencyRanks(character, 'Military Strategy');
+  }
+  return clamp(sa, -3, 6);
+}
+
+// RR p.436 — a commander with an adjutant may use the adjutant's SA − 1 in place of
+// his own. Returns the better arrangement: { value, usingAdjutant } (using the adjutant
+// costs −1 morale modifier — officerMoraleModifier reads the flag).
+function effectiveStrategicAbility(commander, adjutant, opts){
+  const own = strategicAbility(commander, opts);
+  if(!adjutant) return { value: own, usingAdjutant: false };
+  const loan = strategicAbility(adjutant, opts) - 1;
+  return loan > own ? { value: loan, usingAdjutant: true } : { value: own, usingAdjutant: false };
+}
+
+// RR p.436 — morale modifier (Unit Morale rolls, NOT Unit Loyalty): CHA mod
+// (+1 battlefield prowess — 5th+ barbarian/bard/explorer/fighter/paladin or the class
+// power; +2 Command proficiency; −1 using an adjutant). Monster: 0 unless the MM grants
+// an "as long as X is alive" bonus (opts.monsterMoraleBonus).
+function officerMoraleModifier(character, opts){
+  const o = opts || {};
+  if(_isMonsterOfficer(character)){
+    return (typeof o.monsterMoraleBonus === 'number' ? o.monsterMoraleBonus : 0) - (o.usingAdjutant ? 1 : 0);
+  }
+  const cls = String(character.class || '').toLowerCase();
+  const prowessClass = /barbarian|bard|explorer|fighter|paladin/.test(cls);
+  const prowessPower = Array.isArray(character.classPowers) &&
+    character.classPowers.some(p => /battlefield prowess/i.test(typeof p === 'string' ? p : (p && p.name) || ''));
+  return abilityMod(character.abilities.CHA)
+    + (((prowessClass && (character.level || 0) >= 5) || prowessPower) ? 1 : 0)
+    + (hasProficiencyNamed(character, 'Command') ? 2 : 0)
+    - (o.usingAdjutant ? 1 : 0);
+}
+
+// RR p.437 — scale-dependent officer qualification. Characters check level against the
+// Army Organization and Size table; monsters need HD ≥ the commanded unit's average HD
+// + the scale threshold (pass opts.unitAvgHd; without it a monster check returns null =
+// "Judge decides"). Beastman chieftain/sub-chieftain waivers stay a GM call (RR p.437).
+function qualifiesAsOfficer(character, role, scale, opts){
+  const o = opts || {};
+  const sc = (global.ACKS && typeof global.ACKS.scaleRow === 'function') ? global.ACKS.scaleRow(scale || 'company') : null;
+  if(!sc) return null;
+  const qual = role === 'lieutenant' ? sc.lieutenantQual : sc.commanderQual;
+  if(_isMonsterOfficer(character)){
+    if(typeof o.unitAvgHd !== 'number') return null;
+    return _hdLead(character && character.hitDice) >= o.unitAvgHd + (qual.monsterHdOver || 0);
+  }
+  return (character.level || 0) >= (qual.npcLevel || 0);
+}
+function qualifiesAsCommander(character, scale, opts){ return qualifiesAsOfficer(character, 'commander', scale, opts); }
+function qualifiesAsLieutenant(character, scale, opts){ return qualifiesAsOfficer(character, 'lieutenant', scale, opts); }
+
+// ─── Army derived reads ───
+
+// RR pp.462–463 — army BR: Σ unit BRs, rounded down; the leader's strategic ability
+// adds +0.5 per unit at SA ≥ +3 and +1.0 per unit at SA ≥ +5.
+function armyBattleRating(campaign, army){
+  const units = armyUnits(campaign, army);
+  let br = units.reduce((s, u) => s + unitBattleRating(campaign, u), 0);
+  const leader = army && army.leaderCharacterId ? findCharacter(campaign, army.leaderCharacterId) : null;
+  if(leader){
+    const sa = strategicAbility(leader);
+    if(sa >= 5) br += units.length * 1.0;
+    else if(sa >= 3) br += units.length * 0.5;
+  }
+  return Math.floor(br);
+}
+
+function armyWageMonthly(campaign, army){
+  return armyUnits(campaign, army).reduce((s, u) => s + unitWageMonthly(campaign, u), 0);
+}
+
+function armyWeeklySupplyCost(campaign, army){
+  return armyUnits(campaign, army).reduce((s, u) => s + unitWeeklySupplyCost(campaign, u), 0);
+}
+
+// RR p.435 — max divisions = the leader's leadership ability.
+function armyMaxDivisions(campaign, army){
+  const leader = army && army.leaderCharacterId ? findCharacter(campaign, army.leaderCharacterId) : null;
+  return leader ? leadershipAbility(leader) : 0;
+}
+
+// Pure organization diagnostic (RR pp.434–437; engine-enforced findings, GM-overridable
+// per RAW's waiver clause — a validation surface, never an auto-mutation).
+function validateArmyOrganization(campaign, army){
+  const findings = [];
+  if(!army) return findings;
+  const units = armyUnits(campaign, army);
+  const leader = army.leaderCharacterId ? findCharacter(campaign, army.leaderCharacterId) : null;
+  if(!leader) findings.push({ code: 'no-leader', text: 'Army has no leader' });
+  if(units.length < 3) findings.push({ code: 'under-3-units', text: 'An army must have at least 3 units (RR p.435) — has ' + units.length });
+  const divisions = Array.isArray(army.divisions) ? army.divisions : [];
+  if(leader && divisions.length > leadershipAbility(leader)){
+    findings.push({ code: 'too-many-divisions', text: divisions.length + ' divisions exceed the leader\'s leadership ability ' + leadershipAbility(leader) + ' (RR p.435)' });
+  }
+  const totalTroops = units.reduce((s, u) => s + unitActiveCount(u), 0);
+  const scale = (global.ACKS && global.ACKS.armyScaleForSize) ? global.ACKS.armyScaleForSize(totalTroops) : 'company';
+  const seenUnitIds = new Set();
+  for(const dv of divisions){
+    if(!dv) continue;
+    const dvUnits = Array.isArray(dv.unitIds) ? dv.unitIds : [];
+    for(const uid of dvUnits){
+      if(seenUnitIds.has(uid)) findings.push({ code: 'unit-in-two-divisions', text: 'Unit ' + uid + ' appears in more than one division' });
+      seenUnitIds.add(uid);
+      const u = findUnit(campaign, uid);
+      if(!u) findings.push({ code: 'division-unknown-unit', text: (dv.name || 'Division') + ' lists unknown unit ' + uid });
+      else if(!u.stationedAt || u.stationedAt.kind !== 'army' || u.stationedAt.id !== army.id){
+        findings.push({ code: 'division-unit-not-stationed', text: (u.displayName || uid) + ' is in ' + (dv.name || 'a division') + ' but not stationed to this army' });
+      }
+    }
+    const cmdr = dv.commanderCharacterId ? findCharacter(campaign, dv.commanderCharacterId) : null;
+    if(!cmdr) findings.push({ code: 'division-no-commander', text: (dv.name || 'Division') + ' has no commander (RR p.435)' });
+    else {
+      const q = qualifiesAsCommander(cmdr, scale);
+      if(q === false) findings.push({ code: 'commander-unqualified', text: (cmdr.name || 'Commander') + ' does not qualify to command at ' + scale + ' scale (RR p.437)' });
+      if(dvUnits.length > leadershipAbility(cmdr, { usingAdjutant: !!dv.adjutantCharacterId })){
+        findings.push({ code: 'commander-over-leadership', text: (dv.name || 'Division') + ' has ' + dvUnits.length + ' units, over ' + (cmdr.name || 'the commander') + '\'s leadership ability (RR p.435)' });
+      }
+    }
+  }
+  for(const u of units){
+    if(!seenUnitIds.has(u.id)) findings.push({ code: 'unit-no-division', text: (u.displayName || u.id) + ' is stationed to the army but assigned to no division' });
+  }
+  return findings;
+}
+
+// ─── Canonical stationing setter + the garrison/mercenaryCompany lift (rule #10) ───
+
+// Move a unit to a station, maintaining BOTH homes: campaign.units[] (canonical) and
+// the legacy nested mirrors (domain.garrison.units[] / character.mercenaryCompany.units[]
+// — reference-unified: the same object, never a copy). Passing stationedAt null leaves
+// the unit field-stationed nowhere (e.g. an independent band's captured equipment train).
+function stationUnit(campaign, unitOrId, stationedAt){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return null;
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  const idx = campaign.units.findIndex(u => u && u.id === unit.id);
+  if(idx < 0) campaign.units.push(unit);
+  else if(campaign.units[idx] !== unit) campaign.units[idx] = unit;
+  // drop from every nested mirror that is NOT the target
+  for(const d of (campaign.domains || [])){
+    const arr = d && d.garrison && d.garrison.units;
+    if(!Array.isArray(arr)) continue;
+    const keep = stationedAt && stationedAt.kind === 'domain-garrison' && stationedAt.id === d.id;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0 && !keep) arr.splice(i, 1);
+  }
+  for(const c of (campaign.characters || [])){
+    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+    if(!Array.isArray(arr)) continue;
+    const keep = stationedAt && stationedAt.kind === 'character' && stationedAt.id === c.id;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0 && !keep) arr.splice(i, 1);
+  }
+  // add to the target mirror (same object reference)
+  if(stationedAt && stationedAt.kind === 'domain-garrison'){
+    const d = (campaign.domains || []).find(x => x && x.id === stationedAt.id);
+    if(d){
+      if(!d.garrison) d.garrison = { units: [] };
+      if(!Array.isArray(d.garrison.units)) d.garrison.units = [];
+      const i = d.garrison.units.findIndex(u => u && u.id === unit.id);
+      if(i < 0) d.garrison.units.push(unit);
+      else if(d.garrison.units[i] !== unit) d.garrison.units[i] = unit;
+    }
+  } else if(stationedAt && stationedAt.kind === 'character'){
+    const c = (campaign.characters || []).find(x => x && x.id === stationedAt.id);
+    if(c){
+      if(!c.mercenaryCompany) c.mercenaryCompany = { units: [] };
+      if(!Array.isArray(c.mercenaryCompany.units)) c.mercenaryCompany.units = [];
+      const i = c.mercenaryCompany.units.findIndex(u => u && u.id === unit.id);
+      if(i < 0) c.mercenaryCompany.units.push(unit);
+      else if(c.mercenaryCompany.units[i] !== unit) c.mercenaryCompany.units[i] = unit;
+    }
+  }
+  unit.stationedAt = stationedAt || null;
+  return unit;
+}
+
+// Lazy-default the W1 military fields on a legacy garrison-unit object (additive; never
+// clobbers existing values — idempotent).
+function _lazyDefaultUnitFields(u){
+  if(u.race == null) u.race = 'man';
+  if(u.loadout === undefined) u.loadout = null;
+  if(u.veteran == null) u.veteran = false;
+  if(u.elite == null) u.elite = false;
+  if(u.casualties == null) u.casualties = 0;
+  if(u.source == null) u.source = 'mercenary';
+  if(u.scale == null) u.scale = 'company';
+  if(u.trainingState === undefined) u.trainingState = null;
+  if(u.lieutenantCharacterId === undefined) u.lieutenantCharacterId = null;
+  if(u.loyalty == null) u.loyalty = 0;
+  if(u.moraleAdjustment == null) u.moraleAdjustment = 0;
+  if(!Array.isArray(u.calamities)) u.calamities = [];
+  if(u.supplyState == null) u.supplyState = 'supplied';
+  if(!Array.isArray(u.history)) u.history = [];
+  if(u.notes == null) u.notes = '';
+  return u;
+}
+
+// The W1 lift: every nested garrison/mercenary-company unit becomes a first-class
+// member of campaign.units[] — the SAME object in both homes (reference-unified, the
+// hexes/liftToTopLevelCollections precedent). Idempotent + self-healing both ways:
+// a JSON round-trip duplicates the objects; on load the campaign.units copy wins as
+// canonical and the nested entries are re-pointed at it; units present only in
+// campaign.units with a garrison/character station are pushed back into their mirror.
+function migrateGarrisonUnitsToUnits(campaign){
+  if(!campaign) return campaign;
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  if(!Array.isArray(campaign.armies)) campaign.armies = [];
+  const byId = new Map();
+  for(const u of campaign.units){ if(u && u.id) byId.set(u.id, u); }
+  function lift(arr, stationedAt){
+    if(!Array.isArray(arr)) return;
+    for(let i = 0; i < arr.length; i++){
+      let u = arr[i];
+      if(!u) continue;
+      if(!u.id) u.id = newId(ID_PREFIXES.garrisonUnit);
+      const canonical = byId.get(u.id);
+      if(canonical && canonical !== u){ arr[i] = canonical; u = canonical; }
+      _lazyDefaultUnitFields(u);
+      if(!u.stationedAt) u.stationedAt = stationedAt;
+      if(!byId.has(u.id)){ campaign.units.push(u); byId.set(u.id, u); }
+    }
+  }
+  for(const d of (campaign.domains || [])){
+    if(d && d.garrison) lift(d.garrison.units, { kind: 'domain-garrison', id: d.id });
+  }
+  for(const c of (campaign.characters || [])){
+    if(c && c.mercenaryCompany) lift(c.mercenaryCompany.units, { kind: 'character', id: c.id });
+  }
+  // reverse pass: first-class units whose station names a mirror they're missing from
+  for(const u of campaign.units){
+    if(!u) continue;
+    _lazyDefaultUnitFields(u);
+    const st = u.stationedAt;
+    if(!st) continue;
+    if(st.kind === 'domain-garrison'){
+      const d = (campaign.domains || []).find(x => x && x.id === st.id);
+      if(d){
+        if(!d.garrison) d.garrison = { units: [] };
+        if(!Array.isArray(d.garrison.units)) d.garrison.units = [];
+        const i = d.garrison.units.findIndex(x => x && x.id === u.id);
+        if(i < 0) d.garrison.units.push(u);
+        else if(d.garrison.units[i] !== u) d.garrison.units[i] = u;
+      }
+    } else if(st.kind === 'character'){
+      const c = (campaign.characters || []).find(x => x && x.id === st.id);
+      if(c){
+        if(!c.mercenaryCompany) c.mercenaryCompany = { units: [] };
+        if(!Array.isArray(c.mercenaryCompany.units)) c.mercenaryCompany.units = [];
+        const i = c.mercenaryCompany.units.findIndex(x => x && x.id === u.id);
+        if(i < 0) c.mercenaryCompany.units.push(u);
+        else if(c.mercenaryCompany.units[i] !== u) c.mercenaryCompany.units[i] = u;
+      }
+    }
+  }
+  return campaign;
 }
 
 // =============================================================================
@@ -8610,6 +9096,18 @@ const ACKS = Object.assign(global.ACKS || {}, {
   notableItemsInCustodian, notableItemsHeldByCharacter, notableItemsAtHex,
   // #442 — Group entity lookups (Architecture.md §2.4, 2026-05-29)
   findGroup, groupsAtHex, groupsByCatalogKey, groupsCommandedBy, groupActiveCount,
+  // Phase 3 Military W1 (2026-06-12) — Units & Armies: lookups, the shared battle interface
+  // (unitBattleRating reads TROOP_CATALOG; groupBattleRating reads the MM per-creature BR),
+  // officer characteristics (RR pp.435–437), stationing setter + the garrison lift.
+  findUnit, findArmy, unitsStationedAt, armiesAtHex, unitActiveCount,
+  armyUnits, armyDivisionForUnit, unitTroopRow,
+  unitBattleRating, groupBattleRating, unitWagePerSoldier, unitWageMonthly,
+  unitWeeklySupplyCost, unitMoraleScore,
+  proficiencyRanks, hasProficiencyNamed,
+  leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
+  qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
+  armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
+  validateArmyOrganization, stationUnit, migrateGarrisonUnitsToUnits,
   // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)

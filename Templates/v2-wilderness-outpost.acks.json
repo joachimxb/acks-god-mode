@@ -132,7 +132,26 @@
             "count": 8,
             "monthlyWage": 6,
             "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-hawks-reach-core"
+            "stationedAtHexId": "hex-hawks-reach-core",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-hawks-reach"
+            }
           }
         ],
         "totalMonthlyCost": 48,
@@ -332,5 +351,37 @@
       ]
     }
   ],
-  "lairs": []
+  "lairs": [],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-hawks-foot",
+      "displayName": "Light Infantry (militia)",
+      "unitTypeKey": "light-infantry",
+      "count": 8,
+      "monthlyWage": 6,
+      "brPerSoldier": 0.034,
+      "stationedAtHexId": "hex-hawks-reach-core",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-hawks-reach"
+      }
+    }
+  ],
+  "armies": []
 }

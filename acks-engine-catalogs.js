@@ -342,6 +342,9 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'dwarven-mining-salt', category:'cultural', name:'Mining — salt deposits',
     source:'By This Axe Ch.8 (Phase 4 — not yet implemented)',
     description:"Adds salt as a sibling ore type with unique mechanics: unlimited deposit reserves, sustainable capacity 1d3!×100 families, over-exploitation curve (extra families above capacity reduce per-family labor revenue by 2gp each). Requires dwarven-mining." },
+  { id:'elite-troops', category:'military', name:'Elite troops',
+    source:'ACKS II RR p.434 (detail: AXIOMS 4: War)',
+    description:"Units flagged elite cost +1gp/month per 6gp of regular wage (minimum +3gp) and gain +1 to their attack throws in battles. RAW points the full unit-characteristic detail at AXIOMS 4 / D@W:B — this is RR's own simple version. The wage surcharge is live on the unit wage reads; the attack bonus lands with the battle engine (W3)." },
   { id:'elven-civilization', category:'cultural', name:'Elven civilization (Cyclopedia of Elven Civ — future supplement)',
     source:'Future Autarch supplement (Phase 4.7 placeholder)',
     description:"Architectural placeholder for elven-specific domain features: fastnesses, elven family/follower mechanics, mythic groves, and elven realm politics." },
@@ -356,6 +359,7 @@ const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'characters',   label:'👥 Characters',       description:'Henchman loyalty, salary tracking, hireling recruitment (Phase 2.95).' },
   { id:'world',        label:'🌍 World',            description:'Calendar, seasons, time-of-year mechanics (Phase 2.95+).' },
   { id:'encounters',   label:'⚔ Encounters',       description:'Wilderness meetings — what survives them, settles as a lair, and takes up the hunt (Monster Persistence #476).' },
+  { id:'military',     label:'🎖 Military',         description:'The warfare layer — armies, troops, battles (Phase 3 Military). RAW core is always on; these gate optional RAW.' },
   { id:'rumors',       label:'🗣 Rumors',          description:"Manual rumor tracking, engine auto-emission, proliferation (Phase 2.8 / What's the Word)." },
   { id:'hijinks',      label:'🗡 Hijinks',         description:'Criminal syndicates, hijink resolution detail (Phase 2.7 — placeholders).' },
   { id:'cultural',     label:'🌍 Cultural',        description:'Slavery, dwarven/elven/beastman civilization supplements.' }

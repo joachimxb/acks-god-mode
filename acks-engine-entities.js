@@ -467,16 +467,79 @@ function blankLandImprovementProject(opts={}){
   };
 }
 
-function blankGarrisonUnit(opts={}){
+// Phase 3 Military W1 (2026-06-12) — the Unit factory. Unit is the Group's military
+// sibling kind (campaign.units[]; Architecture §2.4): a count of soldiers with troop
+// type + the military lifecycle (source / training / stationing / unit loyalty +
+// calamities / supply state). The legacy garrison-unit shape is a strict SUBSET —
+// blankGarrisonUnit below delegates here, and the load migration extends nested
+// garrison/company units in place (reference-unified mirrors, Architecture §3.3).
+// Wage + BR defaults derive from TROOP_CATALOG (RR pp.438–441) for the troop type;
+// stored values act as GM overrides thereafter.
+function blankUnit(opts={}){
+  const typeKey = opts.unitTypeKey || 'light-infantry';
+  const race = opts.race || 'man';
+  const A = (typeof global !== 'undefined' && global.ACKS) ? global.ACKS : {};
+  const row = (typeof A.findTroopType === 'function')
+    ? A.findTroopType(typeKey, { race, veteran: !!opts.veteran, loadout: opts.loadout || null })
+    : null;
   return {
     schemaVersion: SCHEMA_VERSION,
-    id: opts.id || newId(ID_PREFIXES.garrisonUnit),
-    displayName: opts.displayName || 'Light Infantry',
-    unitTypeKey: opts.unitTypeKey || 'light-infantry',
+    id: opts.id || newId(ID_PREFIXES.unit),
+    displayName: opts.displayName || (row ? row.label : 'Light Infantry'),
+    unitTypeKey: typeKey,
+    race,
+    loadout: opts.loadout || null,                 // equipment variant A/B/C… (RR catalogs); null = default
+    veteran: opts.veteran || false,                // RR p.430 — +1 morale, veteran wage; ≤25% of human mercs
+    elite: opts.elite || false,                    // RR p.434 — behind the elite-troops house rule
     count: opts.count || 0,
-    monthlyWage: opts.monthlyWage || 6,
-    brPerSoldier: opts.brPerSoldier || 0.034,
-    stationedAtHexId: opts.stationedAtHexId || null
+    casualties: opts.casualties || 0,
+    monthlyWage: opts.monthlyWage != null ? opts.monthlyWage : (row ? row.wageGpMonth : 0),   // per soldier
+    brPerSoldier: opts.brPerSoldier != null ? opts.brPerSoldier : (row ? row.brPerCreature : 0),
+    source: opts.source || 'mercenary',            // mercenary | conscript | militia | clanhold | follower | vassal | slave
+    scale: opts.scale || 'company',                // platoon | company | battalion | brigade (RR p.437)
+    trainingState: opts.trainingState || null,     // {targetTroopType, startedAtDay, completesAtDay} (RR p.431, W7)
+    lieutenantCharacterId: opts.lieutenantCharacterId || null,
+    commanderCharacterId: opts.commanderCharacterId || null,
+    // Where the unit is assigned: {kind: 'domain-garrison'|'character'|'army'|'hex'|'constructible', id}.
+    // The §5.5 Outpost demotion — stationing is a field, not a container entity.
+    stationedAt: opts.stationedAt || null,
+    stationedAtHexId: opts.stationedAtHexId || null,   // legacy geographic hint (kept; map reads it)
+    loyalty: opts.loyalty != null ? opts.loyalty : 0,  // unit loyalty score (RR p.429; ± employer CHA at hire)
+    moraleAdjustment: opts.moraleAdjustment != null ? opts.moraleAdjustment : 0,  // one-time levy ±1 + GM tweaks
+    calamities: opts.calamities || [],             // [{kind, atTurn|atDay, note}] — RR p.430 loyalty-roll triggers
+    supplyState: opts.supplyState || 'supplied',   // supplied | underfed | starving | dehydrated (RR p.452)
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
+// Legacy factory — kept as a thin delegate so every existing caller gets the W1 superset
+// shape (additive) + RAW catalog wage/BR defaults (the old hardcoded 6gp/0.034 BR were
+// the interim MERCENARY_UNIT_DEFAULTS values, retired with TROOP_CATALOG).
+function blankGarrisonUnit(opts={}){
+  return blankUnit(opts);
+}
+
+// Phase 3 Military W1 — the Army factory. Divisions are EMBEDDED (no independent
+// lifetime, nothing external points at them — Architecture §3.1; the old `div-` prefix
+// reservation is dropped). Armies move on the journey engine (journeyId, W4); supply
+// runs Simplified by default (RR p.452 — RAW's own automation mode, a per-army choice).
+function blankArmy(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.army),
+    name: opts.name || '',
+    leaderCharacterId: opts.leaderCharacterId || null,
+    // [{name, commanderCharacterId, adjutantCharacterId, unitIds: [], role: 'vanguard'|'main'|'rear-guard'}]
+    divisions: opts.divisions || [],
+    strategicStance: opts.strategicStance || 'defensive',   // offensive | defensive | evasive (RR p.448)
+    journeyId: opts.journeyId || null,                      // armies march as journeys (W4); null = in garrison
+    currentHexId: opts.currentHexId || null,
+    supplyBaseIds: opts.supplyBaseIds || [],                // settlements / strongholds / border forts (RR p.450)
+    supplySimplified: opts.supplySimplified != null ? opts.supplySimplified : true,  // RR p.452 default mode
+    lastInitiative: opts.lastInitiative != null ? opts.lastInitiative : null,
+    history: opts.history || [],
+    notes: opts.notes || ''
   };
 }
 
@@ -1602,6 +1665,8 @@ Object.assign(ACKS, {
   blankNotableItem, blankItemCustody,
   // #442 — Group entity factory (Architecture.md §2.4, 2026-05-29)
   blankGroup,
+  // Phase 3 Military W1 (2026-06-12) — Unit (Group's military sibling) + Army factories
+  blankUnit, blankArmy,
   // Phase 2.5 Journeys (#475) — Journey entity factory (J1)
   blankJourney,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)

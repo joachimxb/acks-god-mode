@@ -187,7 +187,26 @@
             "count": 30,
             "monthlyWage": 6,
             "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-tower-of-thornreach"
+            "stationedAtHexId": "hex-tower-of-thornreach",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-barony-of-thornreach"
+            }
           },
           {
             "schemaVersion": 2,
@@ -197,7 +216,26 @@
             "count": 12,
             "monthlyWage": 9,
             "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-tower-of-thornreach"
+            "stationedAtHexId": "hex-tower-of-thornreach",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-barony-of-thornreach"
+            }
           },
           {
             "schemaVersion": 2,
@@ -207,7 +245,26 @@
             "count": 6,
             "monthlyWage": 15,
             "brPerSoldier": 0.083,
-            "stationedAtHexId": null
+            "stationedAtHexId": null,
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-barony-of-thornreach"
+            }
           }
         ],
         "totalMonthlyCost": 378,
@@ -549,5 +606,95 @@
       "notes": "Old badger setts colonized by goblins. Skirmish the Northern Farmsteads in the fortnight before harvest. (legacy Creature: goblins, HD: 1-1, No. appearing: 2d10)",
       "history": []
     }
-  ]
+  ],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-thornreach-foot",
+      "displayName": "Light Infantry",
+      "unitTypeKey": "light-infantry",
+      "count": 30,
+      "monthlyWage": 6,
+      "brPerSoldier": 0.034,
+      "stationedAtHexId": "hex-tower-of-thornreach",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-of-thornreach"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-thornreach-bows",
+      "displayName": "Bowmen",
+      "unitTypeKey": "bowmen",
+      "count": 12,
+      "monthlyWage": 9,
+      "brPerSoldier": 0.063,
+      "stationedAtHexId": "hex-tower-of-thornreach",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-of-thornreach"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-thornreach-horse",
+      "displayName": "Light Cavalry",
+      "unitTypeKey": "light-cavalry",
+      "count": 6,
+      "monthlyWage": 15,
+      "brPerSoldier": 0.083,
+      "stationedAtHexId": null,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-of-thornreach"
+      }
+    }
+  ],
+  "armies": []
 }
