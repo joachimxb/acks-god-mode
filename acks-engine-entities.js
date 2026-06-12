@@ -512,6 +512,11 @@ function blankUnit(opts={}){
     moraleAdjustment: opts.moraleAdjustment != null ? opts.moraleAdjustment : 0,  // one-time levy ±1 + GM tweaks
     calamities: opts.calamities || [],             // [{kind, atTurn|atDay, note}] — RR p.430 loyalty-roll triggers
     supplyState: opts.supplyState || 'supplied',   // supplied | underfed | starving | dehydrated (RR p.452)
+    // Reinforcement / rally state: when a distant unit is CALLED UP to an army it leaves its
+    // garrison and marches in (callUpUnit). rallyingToArmyId names the army it joins on arrival;
+    // rallyJourneyId is its rally march. Both null when present/at home (lazy — old saves read null).
+    rallyingToArmyId: opts.rallyingToArmyId || null,
+    rallyJourneyId: opts.rallyJourneyId || null,
     history: opts.history || [],
     notes: opts.notes || ''
   };
@@ -1563,6 +1568,10 @@ function blankJourney(opts={}){
     // multiplier × war-machine cap, the ARMY weather table, no navigation throw, no
     // per-hex encounter draws, no character survival (army supply is W5). Lazy field.
     armyId: opts.armyId || null,
+    // A single UNIT marching to rally at an army's muster point (callUpUnit). Like an army
+    // march, the party-grain machinery stands down; speed = the unit's own troop-type pace.
+    // On arrival the unit is stationed to the army. Lazy field.
+    unitId: opts.unitId || null,
     // Origin / destination / route
     startedAtTurn: opts.startedAtTurn || null,
     startedAtDayInMonth: opts.startedAtDayInMonth || null,

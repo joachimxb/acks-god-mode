@@ -2280,6 +2280,11 @@ function journeyBaseSpeedMilesPerDay(campaign, journey){
     const army = A.findArmy(campaign, journey.armyId);
     if(army) return A.armyExpeditionSpeedMilesPerDay(campaign, army);
   }
+  // A single unit rallying to a muster point (journey.unitId): the unit's own troop-type pace.
+  if(journey && journey.unitId && typeof A.findUnit === 'function' && typeof A.unitMarchMilesPerDay === 'function'){
+    const unit = A.findUnit(campaign, journey.unitId);
+    if(unit) return A.unitMarchMilesPerDay(unit);
+  }
   const ids = (journey && journey.participantCharacterIds) || [];
   if(!ids.length || !campaign || !Array.isArray(campaign.characters)) return A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
   let slowest = Infinity;
@@ -2304,6 +2309,14 @@ function tickJourneyDay(campaign, journey, ctx){
   // (army supply is W5), no party fatigue streak (the 3-of-7 rest rule on the army).
   const _marchArmy = (journey.armyId && typeof A.findArmy === 'function') ? A.findArmy(campaign, journey.armyId) : null;
   const isArmy = !!_marchArmy;
+  // A single unit rallying to a muster point (journey.unitId) stands the party-grain
+  // machinery down the SAME way an army's march does (no navigation throw / no per-hex
+  // encounter draws / no character survival / no party fatigue; the column weather table;
+  // hold at an unbridged river) — but it is NOT an army, so the army-scale CONTACT +
+  // ctx._armyDay machinery (gated on isArmy) stays off. `standDown` is the shared gate;
+  // the substitution is value-identical for armies and parties (zero regression).
+  const isUnit = !!(journey.unitId);
+  const standDown = isArmy || isUnit;
   const dist = computeJourneyDistance(campaign, journey);
   const startHex = dist.startHex;
   const newDayIndex = (journey.currentDayIndex || 0) + 1;
@@ -2348,10 +2361,10 @@ function tickJourneyDay(campaign, journey, ctx){
   // when it isn't (RR p.272 / pp.277-278).
   // Armies read the RR p.449 severe-weather table (rain/snow ×½, storm ×¼ — a column
   // suffers where a party shrugs); parties keep the J2 RAW readings.
-  const weatherMult = isArmy
+  const weatherMult = standDown
     ? A.armyWeatherSpeedMult(weather.condition, null)
     : ((A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1);
-  const tempMult = isArmy
+  const tempMult = standDown
     ? A.armyWeatherSpeedMult(null, weather.temperature)
     : ((A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1);
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
@@ -2373,7 +2386,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // surfaced, never auto-rested: the GM rests the column). ──
   const simplifiedFatigue = A.isHouseRuleEnabled(campaign, 'simplified-fatigue');
   const strenuousPace = (pace === 'normal' || pace === 'forced-march');
-  const restDay = (!simplifiedFatigue && !isArmy && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
+  const restDay = (!simplifiedFatigue && !standDown && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
 
   // Route position = hexes already covered; the next hex to ENTER is pos+1.
   const startPos = dist.covered;
@@ -2399,7 +2412,7 @@ function tickJourneyDay(campaign, journey, ctx){
   let navRecord = null;
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
-  if(!restDay && !halted && !isArmy && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
+  if(!restDay && !halted && !standDown && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
     // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
     const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
     const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
@@ -2481,12 +2494,12 @@ function tickJourneyDay(campaign, journey, ctx){
       if(hexesToday > 0 && milesBudget < costMiles) break; // can't afford another hex (but always take the first)
       const crossing = riverCrossingForStep(fromHex, toHex, fromStep ? fromStep.exitSide : null);
       const fromId = fromStep ? fromStep.hexId : null, toId = toStep ? toStep.hexId : null;
-      if(isArmy && crossing.barrier && crossing.swimmingThrowNeeded){
-        // 🔧 W4: an army cannot swim a river — it HOLDS at the near bank until the GM
-        // re-routes via a ford or bridge (engineering a crossing is W6 territory).
+      if(standDown && crossing.barrier && crossing.swimmingThrowNeeded){
+        // 🔧 W4: a marching column (an army, or a single unit rallying in) cannot swim a
+        // river — it HOLDS at the near bank until the GM re-routes via a ford or bridge.
         fordingRecord = { result: 'failed', crossingType: 'army-held', rolled: null, bonus: 0, target: null, fromHexId: fromId, toHexId: toId };
         notableEvents.push({ kind: 'journey-fording', type: 'fording-fail', pauseTrigger: 'fording', primaryHexId: fromId || journey.currentHexId || null, involvedHexIds: [fromId, toId].filter(Boolean),
-          label: (journey.name || 'Army') + ': held at an unbridged river — an army needs a ford or a bridge (re-route, or build one)',
+          label: (journey.name || (isArmy ? 'Army' : 'Column')) + ': held at an unbridged river — troops need a ford or a bridge (re-route, or build one)',
           payload: { journeyId: journey.id, dayIndex: newDayIndex } });
         break; // held at the near bank — no further movement today
       }
@@ -2561,7 +2574,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // skipSurvival (rerollJourneyNav): re-roll navigation / movement only and leave provisioning entirely
   // untouched — reuses the proven ignore-rations "ignored" shape, so the record carries no survival and
   // no forage throw, and rerollJourneyNav restores the held water/food outcome afterward.
-  const survival = ((ctx && ctx.skipSurvival) || isArmy)
+  const survival = ((ctx && ctx.skipSurvival) || standDown)
     ? { ignored: true, members: {}, notableEvents: [], waterForage: null }
     : journeyDaySurvival(campaign, journey, curHex, { rng });
   if(!survival.ignored){
@@ -2579,8 +2592,8 @@ function tickJourneyDay(campaign, journey, ctx){
   // Armies skip the party streak — commitJourneyRecord stamps marchedOrds and the
   // RR p.448 3-of-7 rule derives fatigue from the window (armyFatigued).
   let fatigueAccumulated = 0;
-  if(isArmy){
-    // no party fatigue machinery for a marching army
+  if(standDown){
+    // no party fatigue machinery for a marching column (army or rallying unit)
   } else if(restDay){
     fatigueDays = 0; // a dedicated rest day clears the streak (RR p.279)
     notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (RR p.279)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
@@ -2604,9 +2617,10 @@ function tickJourneyDay(campaign, journey, ctx){
   // rest/night checks are the 'encounters' day consumer's (slot 80). ──
   const _encSeen = {};
   const _encTaken = {};   // proposal-id mints shared across the day's hexes (collision-proof)
-  // W4 — an army's march draws no per-hex wandering encounters (armies meet the world
-  // through the military layer: contact, invasion, the incursion machinery) 🔧.
-  for(const _ph of (isArmy ? [] : hexPath)){
+  // W4 — a marching column (army or rallying unit) draws no per-hex wandering encounters
+  // (armies meet the world through the military layer: contact, invasion, the incursion
+  // machinery; a single rallying detachment we leave alone for v1) 🔧.
+  for(const _ph of (standDown ? [] : hexPath)){
     if(!_ph) continue;
     // An UNauthored hex (hexId null — the sparse-campaign norm) still gets its RAW throw:
     // unsettled territory, no pool, the start-hex environment for distance (§24 fallback).
@@ -3039,6 +3053,20 @@ function commitJourneyRecord(campaign, record){
         army.journeyId = null;
         (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'march-arrived', narrative: (army.name || 'The army') + ' arrived at ' + (j.destinationHexId || 'its destination') + '.' });
       }
+    }
+  }
+  // A rallying UNIT (journey.unitId): on arrival it falls in — stationed to the army it
+  // was called up to, its rally markers cleared (it now counts in the army's strength).
+  if(j.unitId && record.newStatus === 'arrived'){
+    const unit = (campaign.units || []).find(u => u && u.id === j.unitId);
+    if(unit){
+      const armyId = unit.rallyingToArmyId;
+      const army = armyId ? (campaign.armies || []).find(a => a && a.id === armyId) : null;
+      if(army && global.ACKS && typeof global.ACKS.stationUnit === 'function'){
+        global.ACKS.stationUnit(campaign, unit, { kind: 'army', id: army.id });
+        (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'reinforcement-arrived', narrative: (unit.displayName || unit.unitTypeKey || 'A unit') + ' marched in and joined ' + (army.name || 'the army') + '.' });
+      }
+      unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
     }
   }
 }

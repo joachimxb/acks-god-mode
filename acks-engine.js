@@ -2901,6 +2901,35 @@ function unitTroopRow(unit){
   });
 }
 
+// A single unit's daily march in miles (RR p.448 — the printed unit daily move, else
+// exploration ft/5, else 24 🔧). Mirrors armyMarchProfile's per-unit read so a lone
+// detachment rallying to a muster point travels at its own troop type's pace.
+function unitMarchMilesPerDay(unit){
+  const row = unitTroopRow(unit);
+  return (row && typeof row.unitDailyMoveMiles === 'number' && row.unitDailyMoveMiles > 0) ? row.unitDailyMoveMiles
+       : (row && typeof row.moveFt === 'number' && row.moveFt > 0) ? row.moveFt / 5
+       : 24;
+}
+
+// Where a unit physically is, as a hex id (for plotting a rally march). A garrison unit
+// sits at its domain's seat (🔧 v1: the domain's first authored hex — the muster default's
+// twin); a company unit is with its patron; a hex/army station resolves directly. null
+// when unresolvable (no hexes authored / dangling station). Pure read.
+function unitCurrentHexId(campaign, unit){
+  const st = unit && unit.stationedAt;
+  if(!campaign || !st) return null;
+  if(st.kind === 'hex') return st.id;
+  if(st.kind === 'army'){ const a = findArmy(campaign, st.id); return a ? (a.currentHexId || null) : null; }
+  if(st.kind === 'character'){ const c = _findCharacterById(campaign, st.id); return c ? (c.currentHexId || null) : null; }
+  if(st.kind === 'domain-garrison'){
+    const d = (campaign.domains || []).find(x => x && x.id === st.id);
+    if(!d) return null;
+    const seat = (campaign.hexes || []).find(h => h && h.domainId === d.id);
+    return seat ? seat.id : null;
+  }
+  return null;
+}
+
 // Round to the printed unit-BR grain (nearest 0.5 — RR pp.442–444).
 function _roundHalfBr(x){ return Math.round(x * 2) / 2; }
 
@@ -3437,8 +3466,18 @@ function createArmy(campaign, opts={}){
   if(army.leaderCharacterId && stationed.length){
     army.divisions = [{ name: 'Main Body', commanderCharacterId: army.leaderCharacterId, adjutantCharacterId: null, unitIds: stationed, role: 'main' }];
   }
+  // Distant units called up rather than teleported: each marches to the muster point
+  // (callUpUnit plots a rally journey; a co-located one just joins). The army has its
+  // hex set above, so the rally march can be plotted.
+  const callUp = Array.isArray(opts.callUpUnitIds) ? opts.callUpUnitIds.filter(Boolean) : [];
+  let marching = 0;
+  for(const uid of callUp){
+    const r = callUpUnit(campaign, uid, army);
+    if(r && r.action === 'marching') marching++;
+    else if(r && r.action === 'joined' && !stationed.includes(uid)) stationed.push(uid);
+  }
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  army.history.push({ turn, type: 'mustered', text: 'Mustered' + (opts.name ? ' as ' + opts.name : '') + (stationed.length ? ' with ' + stationed.length + ' unit' + (stationed.length === 1 ? '' : 's') : '') });
+  army.history.push({ turn, type: 'mustered', text: 'Mustered' + (opts.name ? ' as ' + opts.name : '') + (stationed.length ? ' with ' + stationed.length + ' unit' + (stationed.length === 1 ? '' : 's') : '') + (marching ? ' (' + marching + ' marching in)' : '') });
   return army;
 }
 
@@ -3461,6 +3500,57 @@ function disbandArmy(campaign, armyOrId){
   return army;
 }
 
+// Call up a unit to an army's muster point (the hard-constraint alternative to teleporting
+// troops in). If the unit is already AT the army's hex (or the army/unit has no resolvable
+// hex), it joins immediately. Otherwise the unit LEAVES its garrison (un-stationed — the
+// troops have marched out) and a rally journey is plotted from its hex to the muster point;
+// `unit.rallyingToArmyId` marks it incoming. It is NOT counted in the army's present strength
+// until the journey arrives (commitJourneyRecord stations it then). Returns
+// {action:'joined'|'marching'|'error', unitId, journeyId?, journey?}.
+function callUpUnit(campaign, unitOrId, armyOrId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  const army = (typeof armyOrId === 'string') ? findArmy(campaign, armyOrId) : armyOrId;
+  if(!campaign || !unit || !army) return { action: 'error', reason: 'missing' };
+  const dest = army.currentHexId || null;
+  const origin = unitCurrentHexId(campaign, unit);
+  if(!dest || !origin || origin === dest){
+    stationUnit(campaign, unit, { kind: 'army', id: army.id });
+    unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+    return { action: 'joined', unitId: unit.id };
+  }
+  const A = global.ACKS;
+  stationUnit(campaign, unit, null);   // the troops leave their garrison and take the road
+  const name = (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + (army.name || 'the army');
+  const journey = A.blankJourney({ unitId: unit.id, name, startHexId: origin, destinationHexId: dest, participantCharacterIds: [] });
+  if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
+  campaign.journeys.push(journey);
+  if(typeof A.startJourney === 'function') A.startJourney(campaign, journey);
+  else journey.status = 'in-transit';
+  unit.rallyingToArmyId = army.id; unit.rallyJourneyId = journey.id;
+  return { action: 'marching', unitId: unit.id, journeyId: journey.id, journey };
+}
+
+// The units MARCHING IN to an army (rallyingToArmyId === army.id) — each with its rally
+// journey + the distance still to cover (miles / hexes / days at the unit's own pace). The
+// army card's "reinforcements marching in" readout. Pure derived read.
+function armyIncomingUnits(campaign, army){
+  if(!campaign || !army || !Array.isArray(campaign.units)) return [];
+  const A = global.ACKS;
+  const milesPerHex = (A && A.JOURNEY_MILES_PER_HEX) || 6;
+  return campaign.units.filter(u => u && u.rallyingToArmyId === army.id).map(u => {
+    const j = u.rallyJourneyId ? (campaign.journeys || []).find(x => x && x.id === u.rallyJourneyId) : null;
+    let hexes = null, miles = null, days = null;
+    if(j && A && typeof A.computeJourneyDistance === 'function'){
+      const d = A.computeJourneyDistance(campaign, j);
+      hexes = Math.max(0, (d.total || 0) - (d.covered || 0));
+      miles = hexes * milesPerHex;
+      const spd = unitMarchMilesPerDay(u);
+      days = (spd > 0) ? Math.ceil(miles / spd) : null;
+    }
+    return { unit: u, journey: j, hexesRemaining: hexes, milesRemaining: miles, daysRemaining: days, fromHexId: j ? j.startHexId : null };
+  });
+}
+
 // Lazy-default the W1 military fields on a legacy garrison-unit object (additive; never
 // clobbers existing values — idempotent).
 function _lazyDefaultUnitFields(u){
@@ -3477,6 +3567,9 @@ function _lazyDefaultUnitFields(u){
   if(u.moraleAdjustment == null) u.moraleAdjustment = 0;
   if(!Array.isArray(u.calamities)) u.calamities = [];
   if(u.supplyState == null) u.supplyState = 'supplied';
+  // rallyingToArmyId / rallyJourneyId are transient runtime state (set only while a unit is
+  // marching to rally — callUpUnit). NOT backfilled on load: a unit without them reads as
+  // present (every consumer tests `=== army.id`), so templates stay migrate-no-ops.
   if(!Array.isArray(u.history)) u.history = [];
   if(u.notes == null) u.notes = '';
   return u;
@@ -9393,14 +9486,14 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // (unitBattleRating reads TROOP_CATALOG; groupBattleRating reads the MM per-creature BR),
   // officer characteristics (RR pp.435–437), stationing setter + the garrison lift.
   findUnit, findArmy, unitsStationedAt, armiesAtHex, unitActiveCount,
-  armyUnits, armyDivisionForUnit, unitTroopRow,
+  armyUnits, armyDivisionForUnit, unitTroopRow, unitMarchMilesPerDay, unitCurrentHexId,
   unitBattleRating, groupBattleRating, unitWagePerSoldier, unitWageMonthly,
   unitWeeklySupplyCost, unitMoraleScore,
   proficiencyRanks, hasProficiencyNamed,
   leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
-  validateArmyOrganization, stationUnit, disbandUnit, createArmy, disbandArmy, migrateGarrisonUnitsToUnits,
+  validateArmyOrganization, stationUnit, disbandUnit, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
   // Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106)
   domainTerritoryHexCount, domainBorderConfiguration, domainEffectiveTerritory,
   domainIncursionClassification, domainDailyEncounterChance,

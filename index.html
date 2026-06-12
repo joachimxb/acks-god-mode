@@ -1141,6 +1141,30 @@ document.addEventListener('alpine:init', () => {
             · <button @click="armyRansomGo()" class="underline">💰 ransom (40gp a head)</button></span>
         </div>
 
+        <!-- reinforcements marching in (call-up) -->
+        <div class="border-t border-ink/20 pt-2 mt-2">
+          <div class="flex items-baseline justify-between">
+            <p class="font-semibold text-xs uppercase tracking-wide opacity-70">🚶 Reinforcements <span class="font-normal normal-case opacity-70" x-show="armyIncomingRows().length" x-text="'· ' + armyIncomingRows().length + ' marching in'"></span></p>
+            <button @click="armyCallUpOpen = !armyCallUpOpen" class="text-xs underline" x-text="armyCallUpOpen ? 'close' : '＋ Call up units'"></button>
+          </div>
+          <template x-for="row in armyIncomingRows()" :key="'inc-' + row.unit.id">
+            <p class="text-xs text-sky-700 py-0.5">🚶 <span class="font-semibold" x-text="row.unit.displayName || row.unit.unitTypeKey || 'unit'"></span>
+              <span x-text="'· ' + Math.max(0,(row.unit.count||0)-(row.unit.casualties||0)) + ' troops · from ' + hexLabelById(row.fromHexId)"></span>
+              <span x-text="row.hexesRemaining != null ? (' · ' + row.hexesRemaining + ' hex / ' + row.milesRemaining + ' mi / ~' + row.daysRemaining + ' day' + (row.daysRemaining===1?'':'s') + ' off') : ' · en route'"></span></p>
+          </template>
+          <!-- the inline call-up picker -->
+          <div x-show="armyCallUpOpen" class="mt-1 border border-ink/20 rounded max-h-40 overflow-y-auto">
+            <template x-if="armyCallUpCandidates().length === 0"><p class="text-xs italic opacity-60 p-2">No free units to call up.</p></template>
+            <template x-for="cu in armyCallUpCandidates()" :key="'cu-' + cu.unit.id">
+              <div class="flex items-center gap-2 px-2 py-1 text-xs border-b border-ink/10">
+                <span class="flex-1" x-text="(cu.unit.displayName || cu.unit.unitTypeKey || 'unit') + ' · ' + Math.max(0,(cu.unit.count||0)-(cu.unit.casualties||0)) + ' troops · ' + cu.home"></span>
+                <span class="opacity-60" x-text="cu.atMuster ? 'here' : (cu.days != null ? ('~' + cu.days + 'd') : 'afar')"></span>
+                <button @click="armyCallUp(cu.unit.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" x-text="cu.atMuster ? 'Join' : 'Call up'"></button>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <!-- reconnaissance intelligence -->
         <div class="border-t border-ink/20 pt-2 mt-2">
           <p class="font-semibold text-xs uppercase tracking-wide opacity-70 mb-1">🕵 Intelligence (RR pp.452–457)</p>
@@ -2357,6 +2381,7 @@ document.addEventListener('alpine:init', () => {
         <span class="font-semibold text-sm">Station units</span>
         <span class="text-xs opacity-60" x-text="musterArmyForm.unitIds.length + ' selected'"></span>
       </div>
+      <p class="text-xs opacity-60 italic">Units at the muster point fall in now; troops elsewhere are <strong>called up</strong> — they march to the muster point (no teleporting).</p>
       <template x-if="musterAvailableUnits().length === 0">
         <p class="text-sm italic opacity-60 py-2">No free units to station — hire mercenaries (Recruit) or add garrison units to a domain first, or muster an empty army and station later.</p>
       </template>
@@ -2365,15 +2390,17 @@ document.addEventListener('alpine:init', () => {
           <label class="flex items-center gap-2 px-2 py-1 text-sm hover:bg-yellow-50 cursor-pointer border-b border-ink/10">
             <input type="checkbox" :value="row.unit.id" x-model="musterArmyForm.unitIds">
             <span class="flex-1" x-text="(row.unit.displayName || row.unit.unitTypeKey || 'unit') + ' · ' + Math.max(0,(row.unit.count||0)-(row.unit.casualties||0)) + ' troops'"></span>
-            <span class="text-xs opacity-60" x-text="row.home"></span>
+            <span class="text-xs" :class="row.atMuster ? 'opacity-60' : 'text-sky-700'"
+                  x-text="row.atMuster ? (row.home + ' · at the muster point') : ('🚶 from ' + row.home + (row.eta && row.eta.days != null ? (' · marches in ~' + row.eta.days + 'd (' + row.eta.hexes + ' hex)') : ' · marches in'))"></span>
           </label>
         </template>
       </div>
     </div>
 
     <div class="text-sm border-t border-ink/20 pt-2">
-      <p><span class="font-semibold" x-text="musterTroops().toLocaleString()"></span> troops · BR <span class="font-mono" x-text="musterBr().toFixed(2)"></span>
-        <span class="opacity-60" x-show="musterArmyForm.unitIds.length" x-text="' · ' + musterScaleLabel() + ' scale'"></span></p>
+      <p><span class="font-semibold" x-text="musterTroops().toLocaleString()"></span> troops present · BR <span class="font-mono" x-text="musterBr().toFixed(2)"></span>
+        <span class="opacity-60" x-show="musterTroops()" x-text="' · ' + musterScaleLabel() + ' scale'"></span></p>
+      <p class="text-xs text-sky-700" x-show="musterIncomingCount()" x-text="'🚶 ' + musterIncomingCount() + ' unit' + (musterIncomingCount()===1?'':'s') + ' will march in' + (musterIncomingEta()!=null ? (' — ETA ~' + musterIncomingEta() + ' day' + (musterIncomingEta()===1?'':'s')) : '')"></p>
       <template x-for="f in musterFindings()" :key="f"><p class="text-xs text-amber-700">⚠ <span x-text="f"></span></p></template>
     </div>
 
@@ -12541,36 +12568,58 @@ return {
       .map(h => ({ id: h.id, label: (window.ACKS.hexName ? window.ACKS.hexName(h) : (h.name || h.id)) + (h.domainId ? '' : ' · unclaimed') }));
   },
   // Free units the GM may pull under this commander: any first-class unit with living
-  // troops not already in an army, labelled with its current home (garrison / company /
-  // unstationed). RAW leaves "whose troops you may muster" to the GM, so the list is
-  // permissive; openMusterArmy pre-checks the obvious set.
+  // troops not already in an army (and not already rallying elsewhere), labelled with its
+  // current home + whether it is AT the muster point (joins now) or must MARCH IN (with a
+  // distance preview — the hard-constraint, no-teleport model). RAW leaves "whose troops
+  // you may muster" to the GM, so the list is permissive.
   musterAvailableUnits(){
     const camp = this.currentCampaign; if(!camp) return [];
     return ((camp.units) || [])
-      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army'))
-      .map(u => ({ unit: u, home: this._unitHomeLabel(u) }));
+      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army') && !u.rallyingToArmyId)
+      .map(u => { const eta = this._musterUnitEta(u); return { unit: u, home: this._unitHomeLabel(u), atMuster: eta.atMuster, eta }; });
   },
   _unitHomeLabel(u){
     const camp = this.currentCampaign; const st = u && u.stationedAt;
     if(!st) return 'unstationed';
     if(st.kind === 'domain-garrison'){ const d = (camp.domains||[]).find(x => x && x.id === st.id); return d ? ('garrison · ' + (d.name || d.id)) : 'a garrison'; }
     if(st.kind === 'character'){ const c = (camp.characters||[]).find(x => x && x.id === st.id); return c ? ('company · ' + (c.name || c.id)) : 'a company'; }
+    if(st.kind === 'hex'){ const h = (camp.hexes||[]).find(x => x && x.id === st.id); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : st.id) : st.id; }
     return st.kind;
   },
-  _musterSelectedUnits(){
-    const camp = this.currentCampaign; if(!camp) return [];
-    const ids = this.musterArmyForm.unitIds || [];
-    return (camp.units||[]).filter(u => u && ids.includes(u.id));
+  // Distance preview from a unit's hex to the muster point (no journey yet): at the muster
+  // point (joins now), or N hexes / M miles / ~D days away (it would march in).
+  _musterUnitEta(u){
+    const camp = this.currentCampaign; const A = window.ACKS;
+    const origin = (A.unitCurrentHexId) ? A.unitCurrentHexId(camp, u) : null;
+    const dest = this.musterArmyForm.hexId || null;
+    if(!origin || !dest || origin === dest) return { atMuster: true, hexes: 0, miles: 0, days: 0 };
+    let hexes = null, miles = null, days = null;
+    if(A.computeJourneyDistance){
+      try {
+        const d = A.computeJourneyDistance(camp, { startHexId: origin, destinationHexId: dest, participantCharacterIds: [], covered: 0, currentDayIndex: 0 });
+        hexes = d.total || 0; miles = hexes * (A.JOURNEY_MILES_PER_HEX || 6);
+        const spd = (A.unitMarchMilesPerDay) ? A.unitMarchMilesPerDay(u) : 24;
+        days = (spd > 0) ? Math.ceil(miles / spd) : null;
+      } catch(e){ hexes = null; }
+    }
+    return { atMuster: false, hexes, miles, days };
   },
-  musterTroops(){ return this._musterSelectedUnits().reduce((s, u) => s + Math.max(0,(u.count||0)-(u.casualties||0)), 0); },
+  _musterSelectedRows(){ const ids = this.musterArmyForm.unitIds || []; return this.musterAvailableUnits().filter(r => ids.includes(r.unit.id)); },
+  _musterPresentUnits(){ return this._musterSelectedRows().filter(r => r.atMuster).map(r => r.unit); },
+  _musterCallUpRows(){ return this._musterSelectedRows().filter(r => !r.atMuster); },
+  // Troops/BR/scale count only the units PRESENT at the muster point — the strength that
+  // forms up at once; called-up units march in and join on arrival.
+  musterTroops(){ return this._musterPresentUnits().reduce((s, u) => s + Math.max(0,(u.count||0)-(u.casualties||0)), 0); },
   musterBr(){
     const camp = this.currentCampaign;
-    return this._musterSelectedUnits().reduce((s, u) => s + (window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(camp, u) : 0), 0);
+    return this._musterPresentUnits().reduce((s, u) => s + (window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(camp, u) : 0), 0);
   },
   musterScaleLabel(){
     const n = this.musterTroops();
     return (window.ACKS.armyScaleForSize ? window.ACKS.armyScaleForSize(n) : 'company');
   },
+  musterIncomingCount(){ return this._musterCallUpRows().length; },
+  musterIncomingEta(){ const ds = this._musterCallUpRows().map(r => r.eta && r.eta.days).filter(d => typeof d === 'number'); return ds.length ? Math.max.apply(null, ds) : null; },
   // Advisory RAW findings (RR p.435) computed for the in-progress selection — the muster
   // is never blocked on them (GM-overridable waiver), they just guide.
   musterFindings(){
@@ -12585,19 +12634,53 @@ return {
   musterArmySubmit(){
     if(!this.musterCanSubmit()) return;
     const f = this.musterArmyForm;
+    // Hard constraint, no teleport: units AT the muster point fall in now; distant units are
+    // CALLED UP and march in (createArmy plots their rally journeys).
+    const present = this._musterPresentUnits().map(u => u.id);
+    const callUp = this._musterCallUpRows().map(r => r.unit.id);
     const army = window.ACKS.createArmy(this.currentCampaign, {
       name: f.name.trim(),
       leaderCharacterId: f.commanderId || null,
       currentHexId: f.hexId || null,
       strategicStance: f.stance || 'defensive',
-      unitIds: (f.unitIds || []).slice()
+      unitIds: present,
+      callUpUnitIds: callUp
     });
     this.markDirty(); this.schedulePersist();
     this.musterArmyOpen = false;
     // jump to the Armies view focused on the new army
     this.currentView = 'world'; this.worldSubView = 'armies'; this.armiesSelectedId = army.id; this.armyMarchDest = '';
     const troops = (window.ACKS.armyTroopCount ? window.ACKS.armyTroopCount(this.currentCampaign, army) : 0);
-    if(this.showToast) this.showToast('🎖 ' + (army.name || 'Army') + ' mustered — ' + troops.toLocaleString() + ' troops. Steer it here.');
+    if(this.showToast) this.showToast('🎖 ' + (army.name || 'Army') + ' mustered — ' + troops.toLocaleString() + ' troops' + (callUp.length ? (', ' + callUp.length + ' marching in') : '') + '. Steer it here.');
+  },
+  // Call up reinforcements to a STANDING army (the army card's ＋ button). The inline picker
+  // lists free units; each is called up immediately (co-located → joins, distant → marches in).
+  armyCallUp(unitId){
+    const a = this.armySelected(); if(!a || !unitId) return;
+    const r = window.ACKS.callUpUnit(this.currentCampaign, unitId, a.id);
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast){
+      const u = (this.currentCampaign.units||[]).find(x => x && x.id === unitId);
+      const nm = u ? (u.displayName || u.unitTypeKey || 'unit') : 'unit';
+      this.showToast(r && r.action === 'joined' ? ('🎖 ' + nm + ' joined ' + (a.name || 'the army') + '.') : ('🚶 ' + nm + ' is marching to join ' + (a.name || 'the army') + '.'));
+    }
+  },
+  // Free units available to call up to the SELECTED standing army (same filter as muster,
+  // annotated present/marching-in against the army's current hex).
+  armyCallUpCandidates(){
+    const camp = this.currentCampaign; const a = this.armySelected(); if(!camp || !a) return [];
+    const A = window.ACKS; const dest = a.currentHexId || null;
+    const milesPerHex = (A.JOURNEY_MILES_PER_HEX || 6);
+    return ((camp.units) || [])
+      .filter(u => u && Math.max(0,(u.count||0)-(u.casualties||0)) > 0 && !(u.stationedAt && u.stationedAt.kind === 'army') && !u.rallyingToArmyId)
+      .map(u => {
+        const origin = A.unitCurrentHexId ? A.unitCurrentHexId(camp, u) : null;
+        let atMuster = (!origin || !dest || origin === dest), days = 0, hexes = 0;
+        if(!atMuster && A.computeJourneyDistance){
+          try { const d = A.computeJourneyDistance(camp, { startHexId: origin, destinationHexId: dest, participantCharacterIds: [], covered: 0, currentDayIndex: 0 }); hexes = d.total || 0; const spd = A.unitMarchMilesPerDay ? A.unitMarchMilesPerDay(u) : 24; days = spd > 0 ? Math.ceil(hexes * milesPerHex / spd) : null; } catch(e){ hexes = null; }
+        }
+        return { unit: u, home: this._unitHomeLabel(u), atMuster, hexes, days };
+      });
   },
   // Disband the selected army (engine un-stations its units, which survive homeless and
   // re-musterable, and drops its march). A confirm guards the action.
@@ -12613,6 +12696,11 @@ return {
   armyOrgFindings(){
     const a = this.armySelected(); if(!a || !window.ACKS.validateArmyOrganization) return [];
     return window.ACKS.validateArmyOrganization(this.currentCampaign, a).map(f => f.text);
+  },
+  // The units MARCHING IN to the selected army (callUpUnit) — each with distance/ETA.
+  armyIncomingRows(){
+    const a = this.armySelected(); if(!a || !window.ACKS.armyIncomingUnits) return [];
+    return window.ACKS.armyIncomingUnits(this.currentCampaign, a);
   },
 
   // ═══ Phase 3 Military W4 — World ▸ 🎖 Armies (the campaign layer) ═══════════
@@ -17675,6 +17763,7 @@ return {
   // remembers a domain-launch so its garrison is pre-checked.
   musterArmyOpen: false,
   musterArmyForm: { commanderId: '', name: '', hexId: '', stance: 'defensive', unitIds: [], _domainId: '' },
+  armyCallUpOpen: false,   // the army card's inline "call up reinforcements" picker
   battleHeroDraft: null,         // the add-hero-unit form (null = closed)
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.

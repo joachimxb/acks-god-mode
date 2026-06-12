@@ -407,6 +407,40 @@ section('createArmy / muster / disbandArmy (the Action + Admin verb engine)');
   ok('disbanded units SURVIVE unstationed (re-musterable)', camp.units.some(u => u.id === 'unit-1') && camp.units.find(u => u.id === 'unit-1').stationedAt === null);
 }
 
+section('call-up / rally-to-muster (the hard-constraint reinforcement — units march in, no teleport)');
+{
+  const c = { currentTurn: 3, currentDayInMonth: 1, characters: [], journeys: [], armies: [], units: [],
+    domains: [{ id: 'dom-far', name: 'Far Hold', garrison: { units: [] } }],
+    hexes: [{ id: 'hex-muster', domainId: null, coord: { q: 0, r: 0 }, terrain: 'grassland' },
+            { id: 'hex-far', domainId: 'dom-far', coord: { q: 3, r: 0 }, terrain: 'grassland' }] };
+  ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-far', displayName: 'Far Bows', unitTypeKey: 'longbowman', count: 60, brPerSoldier: 0.02 }), { kind: 'domain-garrison', id: 'dom-far' });
+  ok('unitCurrentHexId resolves a garrison unit to its domain seat', ACKS.unitCurrentHexId(c, c.units[0]) === 'hex-far');
+  ok('unitMarchMilesPerDay reads the troop daily move (longbowman 18)', ACKS.unitMarchMilesPerDay(c.units[0]) === 18);
+
+  const army = ACKS.createArmy(c, { name: 'Muster Host', leaderCharacterId: 'chr-x', currentHexId: 'hex-muster' });
+  const r = ACKS.callUpUnit(c, 'unit-far', army.id);
+  ok('callUpUnit on a DISTANT unit plots a rally march', r.action === 'marching' && !!r.journeyId);
+  ok('the called-up unit LEAVES its garrison (un-stationed — marched out)', c.units[0].stationedAt === null && c.domains[0].garrison.units.length === 0);
+  ok('it is NOT in the army\'s present strength yet', ACKS.armyUnits(c, army).length === 0);
+  ok('rallyingToArmyId marks it incoming', c.units[0].rallyingToArmyId === army.id && c.units[0].rallyJourneyId === r.journeyId);
+  const inc = ACKS.armyIncomingUnits(c, army);
+  ok('armyIncomingUnits reports it with distance (3 hexes / 18 mi / 1 day)', inc.length === 1 && inc[0].hexesRemaining === 3 && inc[0].milesRemaining === 18 && inc[0].daysRemaining === 1 && inc[0].fromHexId === 'hex-far');
+
+  ACKS.commitDayTick(c, ACKS.proposeDayTick(c, {}));
+  ok('on arrival the unit falls in (stationed to the army, markers cleared)', c.units[0].stationedAt && c.units[0].stationedAt.kind === 'army' && c.units[0].rallyingToArmyId == null && c.units[0].rallyJourneyId == null);
+  ok('it now counts in the army strength', ACKS.armyUnits(c, army).length === 1 && ACKS.armyIncomingUnits(c, army).length === 0);
+
+  // a CO-LOCATED unit joins at once (no march)
+  ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-here', displayName: 'Local Foot', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'hex', id: 'hex-muster' });
+  const r2 = ACKS.callUpUnit(c, 'unit-here', army.id);
+  ok('callUpUnit on a CO-LOCATED unit joins at once (no journey)', r2.action === 'joined' && c.units.find(u => u.id === 'unit-here').stationedAt.kind === 'army');
+
+  // createArmy with callUpUnitIds marches distant units in
+  ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-far2', displayName: 'Far Horse', unitTypeKey: 'light-cavalry', count: 30 }), { kind: 'domain-garrison', id: 'dom-far' });
+  const army2 = ACKS.createArmy(c, { name: 'Second Host', leaderCharacterId: 'chr-y', currentHexId: 'hex-muster', callUpUnitIds: ['unit-far2'] });
+  ok('createArmy callUpUnitIds marches distant units in (incoming, not present)', ACKS.armyIncomingUnits(c, army2).length === 1 && ACKS.armyUnits(c, army2).length === 0);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n=============================================');
 console.log('military.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
