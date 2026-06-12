@@ -2187,6 +2187,236 @@ const OFFICER_CASUALTY_OUTCOMES = Object.freeze([
   Object.freeze({ key: 'knocked-out',        label: 'Knocked Out or Just Dazed',     dies: 'never', escapedIfDefeated: true,   woundRoll: true })
 ]);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 Military W4 — the maneuvers catalogs (RR pp.447–460).
+// The campaign-cycle machinery lives in acks-engine-maneuvers.js; these are
+// the printed tables it reads. Mechanical facts only, page-cited (CLAUDE §13.6).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Movement of Large Armies (RR p.448) — column length + speed multiplier by army size
+// in BRIGADE equivalents. The printed table counts brigades; sub-brigade units convert
+// at the RR p.437 scale ratios (battalion ¼, company 1/16, platoon 1/64 of a brigade).
+const ARMY_LARGE_MULTIPLIERS = Object.freeze([
+  Object.freeze({ maxBrigades: 15,   mult: 1,     columnMiles: 3,  label: 'Less than 16 brigades' }),
+  Object.freeze({ maxBrigades: 26,   mult: 2 / 3, columnMiles: 6,  label: '16–26 brigades' }),
+  Object.freeze({ maxBrigades: 32,   mult: 1 / 2, columnMiles: 9,  label: '27–32 brigades' }),
+  Object.freeze({ maxBrigades: null, mult: 1 / 3, columnMiles: 12, label: '33 brigades or more' })
+]);
+function armyLargeMultiplierRow(brigadeEquivalents){
+  const n = Math.max(0, Number(brigadeEquivalents) || 0);
+  for(const row of ARMY_LARGE_MULTIPLIERS){ if(row.maxBrigades == null || n <= row.maxBrigades) return row; }
+  return ARMY_LARGE_MULTIPLIERS[ARMY_LARGE_MULTIPLIERS.length - 1];
+}
+
+// Movement of War Machines (RR p.449): assembled 30'/turn = 6 mi/day, disassembled
+// 60'/turn = 12 mi/day — a cap on the army's daily speed while it hauls them.
+// (Dis)assembly is a construction project at 1/100 build cost (min 1 day) — that
+// project wiring lands with W6 artillery.
+const WAR_MACHINE_SPEED = Object.freeze({ assembled: 6, disassembled: 12 });
+
+// Effects of Severe Weather on ARMIES (RR p.449). NB the army table deliberately
+// DIFFERS from the party travel readings (the J2 RAW audit): rain/snow halve an army's
+// expedition speed and storms QUARTER it — a marching column suffers where a small
+// party shrugs. Temperature matches the party factors (frigid/sweltering ×½). The
+// disease-vagary %/week rides vagaries-of-war (W8) — recorded here as reference.
+// Condition keys = the journey weather enums; 'windy' has no journey enum yet (T4).
+const ARMY_WEATHER_EFFECTS = Object.freeze({
+  conditions: Object.freeze({
+    rainy:  Object.freeze({ speedMult: 0.5,  reconMod: -2, missileMod: -2, diseasePctWeek: 10, label: 'Rainy' }),
+    snowy:  Object.freeze({ speedMult: 0.5,  reconMod: -2, missileMod: -2, diseasePctWeek: 10, label: 'Snowy' }),
+    stormy: Object.freeze({ speedMult: 0.25, reconMod: -4, missileMod: -4, reconBarrensDesertOnly: true, label: 'Stormy' }),
+    windy:  Object.freeze({ speedMult: 0.5,  reconMod: -4, missileMod: -2, reconBarrensDesertOnly: true, label: 'Windy' }),
+    foggy:  Object.freeze({ speedMult: 0.5,  reconMod: 0,  missileMod: 0,  label: 'Foggy' })   // 🔧 not on the army table; the party visibility factor kept
+  }),
+  temperatures: Object.freeze({
+    frigid:     Object.freeze({ speedMult: 0.5, diseasePctWeek: 10, label: 'Frigid', notes: 'mounts cannot graze; unprotected troops suffer a weekly morale calamity' }),
+    cold:       Object.freeze({ speedMult: 1,   diseasePctWeek: 5,  label: 'Cold' }),
+    moderate:   Object.freeze({ speedMult: 1,   label: 'Moderate' }),
+    sweltering: Object.freeze({ speedMult: 0.5, label: 'Sweltering', notes: 'heavy armor strips to medium; supply cost +25%; out-of-supply penalties doubled' })
+  })
+});
+// The army-march day multiplier: condition × temperature (each defaults ×1 when unkeyed).
+function armyWeatherSpeedMult(condition, temperature){
+  const c = ARMY_WEATHER_EFFECTS.conditions[condition];
+  const t = ARMY_WEATHER_EFFECTS.temperatures[temperature];
+  return (c ? c.speedMult : 1) * (t ? t.speedMult : 1);
+}
+
+// Reconnaissance Range (RR p.452) — how close the observing army must be, by the
+// OPPOSING army's size, in 24-mile hexes. 🔧 The campaign map has no 24-mile super-
+// grid, so 1 twenty-four-mile hex ≈ 4 six-mile hexes of axial distance throughout.
+const RECON_RANGE = Object.freeze([
+  Object.freeze({ maxTroops: 120,  range24: 1 }),
+  Object.freeze({ maxTroops: 600,  range24: 2 }),
+  Object.freeze({ maxTroops: 3000, range24: 3 }),
+  Object.freeze({ maxTroops: null, range24: 4 })
+]);
+function reconRange24(opposingTroops){
+  const n = Math.max(0, Number(opposingTroops) || 0);
+  for(const row of RECON_RANGE){ if(row.maxTroops == null || n <= row.maxTroops) return row.range24; }
+  return 4;
+}
+
+// Reconnaissance Modifiers — opposing army size (RR p.453).
+const RECON_SIZE_MODS = Object.freeze([
+  Object.freeze({ maxTroops: 600,   value: -2 }),
+  Object.freeze({ maxTroops: 3000,  value: -1 }),
+  Object.freeze({ maxTroops: 12000, value: 0 }),
+  Object.freeze({ maxTroops: 36000, value: 1 }),
+  Object.freeze({ maxTroops: 72000, value: 2 }),
+  Object.freeze({ maxTroops: null,  value: 3 })
+]);
+function reconSizeMod(opposingTroops){
+  const n = Math.max(0, Number(opposingTroops) || 0);
+  for(const row of RECON_SIZE_MODS){ if(row.maxTroops == null || n <= row.maxTroops) return row.value; }
+  return 3;
+}
+// The "Approximate Size" bands intelligence reveals (RR p.455).
+const ARMY_SIZE_BANDS = Object.freeze([
+  Object.freeze({ maxTroops: 600,   label: 'small (600 or fewer troops)' }),
+  Object.freeze({ maxTroops: 3000,  label: 'average (601–3,000 troops)' }),
+  Object.freeze({ maxTroops: 12000, label: 'large (3,001–12,000 troops)' }),
+  Object.freeze({ maxTroops: 36000, label: 'huge (12,001–36,000 troops)' }),
+  Object.freeze({ maxTroops: 72000, label: 'gigantic (36,001–72,000 troops)' }),
+  Object.freeze({ maxTroops: null,  label: 'colossal (72,001 or more troops)' })
+]);
+function armySizeBandLabel(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  for(const row of ARMY_SIZE_BANDS){ if(row.maxTroops == null || n <= row.maxTroops) return row.label; }
+  return ARMY_SIZE_BANDS[ARMY_SIZE_BANDS.length - 1].label;
+}
+// Proximity modifier (RR p.453): same 6-mi hex +2; adjacent 6-mi hexes +1; same 24-mi
+// hex 0; −1 per 24-mi hex apart. Quantized from 6-mile axial distance (🔧 4:1).
+function reconProximityMod(hexDist){
+  if(hexDist == null) return 0;
+  if(hexDist <= 0) return 2;
+  if(hexDist === 1) return 1;
+  if(hexDist <= 4) return 0;
+  return -Math.ceil((hexDist - 4) / 4);
+}
+// Terrain row (RR p.453) — by the OPPOSING army's hex (base or base-subtype key).
+// Open ground exposes (+1 to observe them); close terrain conceals (−1).
+function reconTerrainMod(terrainKeyOrBase){
+  const k = String(terrainKeyOrBase || '').toLowerCase();
+  const b = (typeof terrainBase === 'function') ? (terrainBase(k) || k) : k;
+  if(b === 'barrens' || b === 'desert' || b === 'grassland') return 1;
+  if(k === 'scrubland-low' || k === 'scrubland-sparse') return 1;
+  if(k === 'forest-taiga' || k === 'hills-rocky' || k === 'scrubland-high' || k === 'scrubland-dense' || k === 'swamp-marshy') return -1;
+  return 0;
+}
+// Scouting/screening strength (RR p.453, company-equivalents of cavalry + flyers:
+// 4 platoons = 1, battalion = 4, brigade = 16). Same brackets both directions.
+function reconScoutingMod(companyEquivalents){
+  const n = Math.max(0, Number(companyEquivalents) || 0);
+  if(n >= 101) return 3;
+  if(n >= 21) return 2;
+  if(n >= 6) return 1;
+  return 0;
+}
+
+// Results of Reconnaissance Rolls (RR p.455) — proximity tier × degree of success.
+// Tiers quantized from 6-mile axial distance (🔧 4:1): 0 → same-6 · 1–4 → same-24 ·
+// 5–8 → near (1–2 24-mi hexes) · 9+ → far (3–4 24-mi hexes).
+const RECON_RESULTS = Object.freeze({
+  'same-6': Object.freeze({
+    marginal: Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' }),
+    success:  Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types']), prisoner: 'valuable' }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types', 'unit-strengths']), prisoner: 'very-valuable' })
+  }),
+  'same-24': Object.freeze({
+    marginal: Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null }),
+    success:  Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types']), prisoner: 'valuable' })
+  }),
+  'near': Object.freeze({
+    marginal: Object.freeze({ location: 'within 2 24-mile hexes', reveals: Object.freeze(['size', 'direction']), prisoner: null }),
+    success:  Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' })
+  }),
+  'far': Object.freeze({
+    marginal: Object.freeze({ location: 'within 4 24-mile hexes', reveals: Object.freeze(['size']), prisoner: null }),
+    success:  Object.freeze({ location: 'within 2 24-mile hexes', reveals: Object.freeze(['size', 'direction']), prisoner: null }),
+    major:    Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null })
+  })
+});
+function reconProximityTier(hexDist){
+  const d = (hexDist == null) ? 99 : hexDist;
+  if(d <= 0) return 'same-6';
+  if(d <= 4) return 'same-24';
+  if(d <= 8) return 'near';
+  return 'far';
+}
+function reconResultsFor(hexDist, degreeKey){
+  const tier = RECON_RESULTS[reconProximityTier(hexDist)];
+  if(!tier) return null;
+  if(degreeKey === 'marginal' || degreeKey === 'success' || degreeKey === 'major') return tier[degreeKey];
+  return null;
+}
+
+// Prisoner Information (RR p.456) — the 1d8 topic table × prisoner grade. Each
+// prisoner knows 1d3 pieces; a repeated topic shifts one grade RIGHT (more detail).
+const PRISONER_INFORMATION = Object.freeze([
+  Object.freeze({ d8: 1, topic: 'leader',       common: 'The name, class, approximate level, and description of the opposing army’s leader.', valuable: '…plus its total number of officers.', veryValuable: 'The leaders AND division commanders described, plus the total number of officers.' }),
+  Object.freeze({ d8: 2, topic: 'spies',        common: 'Whether the opposing army has spies infiltrated into the friendly army.', valuable: '…and if so, one spy described.', veryValuable: '…and if so, up to 1d4 spies described.' }),
+  Object.freeze({ d8: 3, topic: 'supply',       common: 'Whether the opposing army is in supply.', valuable: '…and the location of its supply base.', veryValuable: '…plus the supply base described (commander, size, stronghold value, garrison) and the supply line’s route.' }),
+  Object.freeze({ d8: 4, topic: 'spellcasters', common: 'Whether any 7th+ level spellcasters serve in the opposing army.', valuable: '…plus the most powerful spellcaster named and described.', veryValuable: 'The total number of 7th+ spellcasters, plus the most powerful named and described.' }),
+  Object.freeze({ d8: 5, topic: 'morale',       common: 'The morale modifier of the opposing army’s leader.', valuable: '…and the least charismatic commander’s name and morale modifier.', veryValuable: '…and the most- and least-charismatic commanders’ names and morale modifiers.' }),
+  Object.freeze({ d8: 6, topic: 'stance',       common: 'The strategic stance of the opposing army.', valuable: '…and the number of siege weapons it is transporting.', veryValuable: '…and the number and type of siege weapons it is transporting.' }),
+  Object.freeze({ d8: 7, topic: 'units',        common: 'The type of each unit in the opposing army.', valuable: 'The type and strength of each unit.', veryValuable: 'The type and strength of each unit, plus its strategic objective.' }),
+  Object.freeze({ d8: 8, topic: 'judges-choice', common: 'Judge’s choice of any of the above or another piece of common information.', valuable: 'Judge’s choice of valuable information.', veryValuable: 'Judge’s choice of very valuable information.' })
+]);
+const PRISONER_GRADES = Object.freeze(['common', 'valuable', 'very-valuable']);
+function prisonerInformationText(d8, grade){
+  const row = PRISONER_INFORMATION.find(r => r.d8 === d8) || null;
+  if(!row) return null;
+  if(grade === 'very-valuable') return row.veryValuable;
+  if(grade === 'valuable') return row.valuable;
+  return row.common;
+}
+
+// Results of Interrogation (RR p.457) — 2d6 + the interrogator's CHA + applicable
+// proficiencies/bribes (Judge-priced).
+const INTERROGATION_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'false',   label: 'False information', pieces: 0 }),
+  Object.freeze({ max: 5,    key: 'nothing', label: 'Nothing',           pieces: 0 }),
+  Object.freeze({ max: 8,    key: 'one',     label: 'One piece of information',  pieces: 1 }),
+  Object.freeze({ max: 11,   key: 'two',     label: 'Two pieces of information', pieces: 2 }),
+  Object.freeze({ max: null, key: 'all',     label: 'All known information',     pieces: 99 })
+]);
+function interrogationBand(total){
+  for(const b of INTERROGATION_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return INTERROGATION_BANDS[INTERROGATION_BANDS.length - 1];
+}
+
+// Domain Pillaging Requirements (RR p.458) — army size + time by domain size.
+const PILLAGE_REQUIREMENTS = Object.freeze([
+  Object.freeze({ maxFamilies: 500,   troops: 600,   timeDice: Object.freeze({ n: 0, d: 0, flat: 1 }), timeLabel: '1 day' }),
+  Object.freeze({ maxFamilies: 2500,  troops: 2400,  timeDice: Object.freeze({ n: 1, d: 3, flat: 0 }), timeLabel: '1d3 days' }),
+  Object.freeze({ maxFamilies: 7500,  troops: 7200,  timeDice: Object.freeze({ n: 1, d: 4, flat: 0 }), timeLabel: '1d4 days' }),
+  Object.freeze({ maxFamilies: 12500, troops: 12000, timeDice: Object.freeze({ n: 1, d: 6, flat: 0 }), timeLabel: '1d6 days' }),
+  Object.freeze({ maxFamilies: null,  troops: 24000, timeDice: Object.freeze({ n: 1, d: 8, flat: 0 }), timeLabel: '1d8 days' })
+]);
+function pillageRequirementRow(totalFamilies){
+  const n = Math.max(0, Number(totalFamilies) || 0);
+  for(const row of PILLAGE_REQUIREMENTS){ if(row.maxFamilies == null || n <= row.maxFamilies) return row; }
+  return PILLAGE_REQUIREMENTS[PILLAGE_REQUIREMENTS.length - 1];
+}
+
+// Results of Pillaging (RR p.458) — ONE roll of each die multiplies the family counts
+// (the printed Sarotem example: 3d6 rolled 13 → 13gp × 500 families). Salting the
+// earth (RR p.459): ×4 the time, flat yields, the domain destroyed.
+const PILLAGE_RESULTS = Object.freeze({
+  goldPerPeasantDice:   Object.freeze({ n: 3,  d: 6 }),   // gp per peasant family
+  goldPerUrbanDice:     Object.freeze({ n: 10, d: 6 }),   // gp per urban family
+  suppliesPerPeasantDice: Object.freeze({ n: 1, d: 10, mult: 5 }),  // ×5 gp per peasant family
+  prisonersPer10Dice:   Object.freeze({ n: 1, d: 10 }),   // per 10 families (peasant + urban)
+  familiesLostPer10Dice: Object.freeze({ n: 1, d: 10 }),  // per 10 families
+  ransomGpPerPrisoner: 40
+});
+const SALT_THE_EARTH = Object.freeze({
+  timeMult: 4, goldPerUrban: 75, goldPerPeasant: 20, suppliesPerPeasant: 50, prisonersPerFamily: 1
+});
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -2227,6 +2457,14 @@ Object.assign(ACKS, {
   PURSUIT_THROWS, BATTLEFIELD_ENCOUNTER_DISTANCE, battlefieldEncounterSpec, rollBattlefieldDistanceFt,
   FORAY_STAKES, HERO_QUALIFICATION, reinforcementThrowTarget,
   OFFICER_CASUALTY_MODS, OFFICER_CASUALTY_OUTCOMES,
+  // Phase 3 Military W4 — the maneuvers catalogs (RR pp.447–460)
+  ARMY_LARGE_MULTIPLIERS, armyLargeMultiplierRow, WAR_MACHINE_SPEED,
+  ARMY_WEATHER_EFFECTS, armyWeatherSpeedMult,
+  RECON_RANGE, reconRange24, RECON_SIZE_MODS, reconSizeMod, ARMY_SIZE_BANDS, armySizeBandLabel,
+  reconProximityMod, reconTerrainMod, reconScoutingMod,
+  RECON_RESULTS, reconProximityTier, reconResultsFor,
+  PRISONER_INFORMATION, PRISONER_GRADES, prisonerInformationText, INTERROGATION_BANDS, interrogationBand,
+  PILLAGE_REQUIREMENTS, pillageRequirementRow, PILLAGE_RESULTS, SALT_THE_EARTH,
   // #476 M4 — Wilderness Search target (RR p.276)
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
