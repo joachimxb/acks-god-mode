@@ -194,8 +194,13 @@
     return ch.level || 0;
   }
   function _isMonsterCharacter(ch){
-    const types = (ch && ch.creatureTypes) || [];
-    return types.length > 0 && !types.includes('person');
+    if(!ch) return false;
+    // the W1 officer convention: a monster leader has no numeric ability scores —
+    // plus the five-axis read: a creature typed outside humanoid/person is a monster
+    // (ordinary characters default creatureTypes ['humanoid'])
+    if(!(ch.abilities && typeof ch.abilities.CHA === 'number')) return true;
+    const types = ch.creatureTypes || [];
+    return types.length > 0 && !types.includes('humanoid') && !types.includes('person');
   }
   // qualifiesAsBattleHero(campaign, ch, scale) → {qualifies, reason}. PC always; monster
   // 9+ HD; NPC 6th+; a QUALIFYING hero's henchman 4th+ — thresholds shift −2 at platoon,
@@ -275,6 +280,29 @@
     const mag = domain.magistrates && domain.magistrates['captain-of-the-guard'];
     return (mag && mag.characterId) || domain.rulerCharacterId || null;
   }
+  // RR p.463 — a commander of great strategic ability increases the BR of the units in
+  // his division: +0.5 each at SA ≥ +3, +1.0 at SA ≥ +5 (the printed example: 4 longbow
+  // units under a +3 captain total (4) × (3 + 0.5) = 14). Applied per battle-unit from
+  // its division commander, falling back to the side leader.
+  function _applySaBrBonus(campaign, side){
+    const Ax = A();
+    if(typeof Ax.strategicAbility !== 'function') return;
+    const saOf = {};
+    const saFor = (charId) => {
+      if(!charId) return 0;
+      if(!(charId in saOf)){
+        const ch = _char(campaign, charId);
+        saOf[charId] = ch ? Ax.strategicAbility(ch) : 0;
+      }
+      return saOf[charId];
+    };
+    for(const u of side.units){
+      if(u.sourceKind === 'hero') continue;
+      const sa = saFor(u.divisionCommanderCharacterId || side.leaderCharacterId);
+      if(sa >= 5) u.br = _halfBr(u.br + 1.0);
+      else if(sa >= 3) u.br = _halfBr(u.br + 0.5);
+    }
+  }
   // buildBattleSide(campaign, spec, scale) — spec: {kind: 'army'|'garrison'|'groups',
   // armyId | domainId | groupIds, stance, label?}. Returns a blankBattleSide-shaped
   // object with the roster built, leaders/commanders derived, division roles stamped.
@@ -325,6 +353,7 @@
         for(const bu of _battleUnitsFromGroup(campaign, g, scale)) side.units.push(bu);
       }
     }
+    _applySaBrBonus(campaign, side);
     return side;
   }
 
