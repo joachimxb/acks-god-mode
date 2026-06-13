@@ -418,6 +418,12 @@ document.addEventListener('alpine:init', () => {
                       <div class="text-xs opacity-80 leading-snug" x-text="'🔥 ' + r.results.gold.toLocaleString() + 'gp plundered · ' + r.results.supplies.toLocaleString() + 'gp supplies · ' + r.results.prisoners + ' prisoners · ' + r.results.familiesLost + ' families lost' + (r.results.destroyed ? ' · the domain is DESTROYED' : (r.morale ? ' · morale ' + r.morale.before + ' → ' + r.morale.after + ' (−4 roll)' : ''))"></div>
                     </div>
                   </template>
+                  <!-- W5 ARMY-SUPPLY records (out of supply): the cost / base value / line breakdown. -->
+                  <template x-if="r.kind === 'army-supply' && !r.inSupply && !r.rejected">
+                    <div class="ml-3 pb-1">
+                      <div class="text-xs opacity-80 leading-snug" x-text="'📦 cost ' + (r.cost || 0).toLocaleString() + 'gp/wk · base value ' + (r.baseValue != null ? r.baseValue.toLocaleString() + 'gp' : '—') + (r.line ? ' · line ' + r.line.status : '') + ' → ' + r.condition + ' (RR p.452)'"></div>
+                    </div>
+                  </template>
                   <!-- SURVIVAL records (CoL-1): a per-member detail row — name + conditions (hunger/thirst
                        + CON loss) + whether they ate/drank + food/water left — and a Survival → link to act
                        on each one (replaces reject; survival always commits, the GM forages/moves instead). -->
@@ -7389,7 +7395,7 @@ document.addEventListener('alpine:init', () => {
 
         <!-- the units travelling with the army (the counted channel) + encumbrance + supply -->
         <div class="border-t border-ink/20 pt-2 mt-2">
-          <div class="text-xs uppercase tracking-wide opacity-70 mb-1">🪖 Units in the field <span class="normal-case opacity-60" x-text="'· supplies (RR p.450) — ' + (armySelected().supplySimplified !== false ? 'Simplified' : 'full lines')"></span></div>
+          <div class="text-xs uppercase tracking-wide opacity-70 mb-1">🪖 Units in the field</div>
           <template x-if="armyUnitRows(armySelected()).length === 0"><p class="text-xs italic opacity-60">No units stationed. Call some up below, or muster again.</p></template>
           <table class="text-sm w-full max-w-3xl" x-show="armyUnitRows(armySelected()).length > 0">
             <thead><tr class="text-left text-xs opacity-60 border-b border-ink/30"><th class="font-normal py-0.5 pr-4">Unit</th><th class="font-normal py-0.5 pr-4">Soldiers</th><th class="font-normal py-0.5 pr-4">BR</th><th class="font-normal py-0.5 pr-4">Encumbrance</th><th class="font-normal py-0.5">Supply</th></tr></thead>
@@ -7405,6 +7411,44 @@ document.addEventListener('alpine:init', () => {
               </template>
             </tbody>
           </table>
+        </div>
+
+        <!-- supply (RR pp.450–452) -->
+        <div class="border-t border-ink/20 pt-2 mt-2" x-data="{ supplyBasesOpen: false }">
+          <div class="flex items-baseline justify-between flex-wrap gap-2">
+            <p class="font-semibold text-xs uppercase tracking-wide opacity-70">📦 Supply (RR pp.450–452)</p>
+            <label class="text-xs flex items-center gap-1" title="Supply Simplified (RR p.452): deduct the cost weekly; only compute supply lines when cut off, crossing hostile/unsettled terrain, or >24 mi from a road or waterway.">
+              <input type="checkbox" :checked="armySelected().supplySimplified !== false" @change="armySetSupplySimplified($event.target.checked)"> Simplified
+            </label>
+          </div>
+          <template x-if="armySupply()">
+            <div class="text-sm mt-1">
+              <p x-show="armySupply().inSupply" class="text-green-800">🚚 In supply — <span x-text="(armySupply().cost || 0).toLocaleString()"></span>gp/wk<span class="opacity-60" x-show="armySupply().line && armySupply().line.status === 'simplified'"> · simplified (no line computed)</span><span class="opacity-60" x-show="armySupply().line && armySupply().line.weightedLength != null" x-text="' · line ' + armySupply().line.weightedLength + '/16 weighted hexes'"></span></p>
+              <p x-show="!armySupply().inSupply" class="accent-red font-semibold">⚠ OUT OF SUPPLY — <span x-text="armySupplyReasonText(armySupply().reasons)"></span></p>
+              <p x-show="!armySupply().inSupply" class="text-xs opacity-80" x-text="'cost ' + (armySupply().cost || 0).toLocaleString() + 'gp/wk · base value ' + (armySupply().baseValue != null ? armySupply().baseValue.toLocaleString() + 'gp' : '—') + (armySupply().line ? (' · line ' + armySupply().line.status) : '')"></p>
+              <p class="text-xs opacity-60" x-show="armyMarketClassLabel()" x-text="'🛒 Campaign market: Class ' + armyMarketClassLabel() + ' — the baggage train (RR p.452)'"></p>
+            </div>
+          </template>
+          <!-- supply bases (the GM designates friendly domains; value chains through clear lines) -->
+          <div class="mt-1">
+            <button @click="supplyBasesOpen = !supplyBasesOpen" class="text-xs underline" x-text="supplyBasesOpen ? 'close bases' : ('＋ Supply bases (' + (armySelected().supplyBaseIds || []).length + ')')"></button>
+            <div x-show="supplyBasesOpen" class="mt-1 border border-ink/20 rounded max-h-40 overflow-y-auto">
+              <template x-if="armySupplyBaseDomains().length === 0"><p class="text-xs italic opacity-60 p-2">No friendly domains to designate as supply bases.</p></template>
+              <template x-for="bd in armySupplyBaseDomains()" :key="'sb-' + bd.id">
+                <label class="flex items-center gap-2 px-2 py-1 text-xs border-b border-ink/10">
+                  <input type="checkbox" :checked="bd.added" @change="armyToggleSupplyBase(bd.id)">
+                  <span class="flex-1" x-text="bd.name"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+          <!-- requisition / loot (RR p.451) — when out of supply at a domain -->
+          <div class="mt-1 flex flex-wrap gap-2 items-baseline" x-show="armySupply() && !armySupply().inSupply && armyRequisitionTarget()">
+            <span class="text-xs opacity-70" x-text="armyRequisitionTarget() ? ('Feed off ' + (armyRequisitionTarget().name || 'this domain') + ':') : ''"></span>
+            <button @click="armyRequisition(false)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="35gp per family, once per year; the peasants survive (RR p.451)">🌾 Requisition</button>
+            <button @click="armyRequisition(true)" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-red-100 accent-red" title="Loot up to 15gp per family at the cost of 1 family per 15gp (RR p.451)">🔥 Loot</button>
+          </div>
+          <p class="text-xs accent-red opacity-80 mt-1" x-show="armySelected().requisitioning">— feeding off the land: −50% march speed unless force-marching (RR p.451)</p>
         </div>
 
         <!-- march -->
@@ -13154,6 +13198,57 @@ return {
       newV = { count: n, assembled: mode === 'assembled' };
     }
     this.commitStatEdit({ entityType: 'army', entityId: a.id, entity: a, fieldPath: 'warMachines', label: 'War machines', oldValue: oldV, newValue: newV, suppressFromCampaignLog: true });
+  },
+  // ── W5 supply (RR pp.450–452) ──
+  armySupply(){ const a = this.armySelected(); if(!a) return null; try { return window.ACKS.armyInSupply(this.currentCampaign, a); } catch(e){ return null; } },
+  armySupplyReasonText(reasons){
+    const m = { 'cannot-pay': "can't pay the cost", 'insufficient-base': 'no base of sufficient value', 'line-blocked': 'supply line cut', 'line-overextended': 'supply line overextended', 'line-no-base': 'no supply base' };
+    return (reasons || []).map(r => m[r] || r).join(', ');
+  },
+  armyMarketClassLabel(){ const a = this.armySelected(); if(!a) return null; try { return window.ACKS.armyMarketClass(this.currentCampaign, a); } catch(e){ return null; } },
+  armySetSupplySimplified(on){
+    const a = this.armySelected(); if(!a) return; const v = !!on;
+    if((a.supplySimplified !== false) === v) return;
+    this.commitStatEdit({ entityType: 'army', entityId: a.id, entity: a, fieldPath: 'supplySimplified', label: 'Supply mode', oldValue: a.supplySimplified !== false, newValue: v, suppressFromCampaignLog: true });
+  },
+  armySupplyBaseDomains(){
+    const a = this.armySelected(); if(!a) return [];
+    const camp = this.currentCampaign, A = window.ACKS, ids = a.supplyBaseIds || [], out = [];
+    for(const d of (this.domains || [])){
+      if(!d) continue;
+      const friendly = (typeof A.domainFriendlyToArmy === 'function') ? A.domainFriendlyToArmy(camp, d, a) : true;
+      if(!friendly && ids.indexOf(d.id) < 0) continue;   // only friendly domains (keep any already-listed)
+      out.push({ id: d.id, name: d.name || d.id, added: ids.indexOf(d.id) >= 0 });
+    }
+    return out;
+  },
+  armyToggleSupplyBase(domainId){
+    const a = this.armySelected(); if(!a) return;
+    const cur = Array.isArray(a.supplyBaseIds) ? a.supplyBaseIds.slice() : [];
+    const i = cur.indexOf(domainId); if(i >= 0) cur.splice(i, 1); else cur.push(domainId);
+    this.commitStatEdit({ entityType: 'army', entityId: a.id, entity: a, fieldPath: 'supplyBaseIds', label: 'Supply bases', oldValue: a.supplyBaseIds || [], newValue: cur, suppressFromCampaignLog: true });
+  },
+  armyRequisitionTarget(){
+    const a = this.armySelected(); if(!a || !a.currentHexId) return null;
+    const hex = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(h => h && h.id === a.currentHexId);
+    if(!hex || !hex.domainId) return null;
+    const d = (this.domains || []).find(x => x && x.id === hex.domainId);
+    const fam = (d && d.demographics && d.demographics.peasantFamilies) || 0;
+    return (d && fam > 0) ? d : null;
+  },
+  armyRequisition(allowLoot){
+    const a = this.armySelected(); if(!a) return;
+    const out = window.ACKS.requisitionSupplies(this.currentCampaign, { armyId: a.id, allowLoot: !!allowLoot });
+    if(!out.ok){
+      const why = { 'no-army': 'no army', 'no-domain': 'no domain here', 'no-peasants': 'no peasants here', 'already-requisitioned-this-year': 'already requisitioned here this year — loot instead', 'nothing-available': 'nothing left to take' }[out.reason] || out.reason;
+      this.showToast('📦 Cannot — ' + why + '.');
+      return;
+    }
+    const bits = [];
+    if(out.requisitionedGp) bits.push(out.requisitionedGp.toLocaleString() + 'gp requisitioned');
+    if(out.lootedGp) bits.push(out.lootedGp.toLocaleString() + 'gp looted (' + out.familiesLost + ' families lost)');
+    this.showToast('📦 ' + (a.name || 'The army') + ' feeds off the land: ' + (bits.join(', ') || 'nothing') + '.');
+    this.persistSession && this.persistSession();
   },
   armyIntelRows(){
     const a = this.armySelected(); if(!a) return [];
