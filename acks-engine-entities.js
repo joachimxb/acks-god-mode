@@ -284,6 +284,18 @@ function blankHex(opts={}){
     terrainSubtype: opts.terrainSubtype || '',
     koppen:         opts.koppen || '',
     biomeOverride:  opts.biomeOverride || '',
+    // Phase_2.5_Hex_Scales_and_Weather_Plan.md §5 + §9 (HW-4) — the three interlocked map scales.
+    // hexScale: which tier this hex belongs to ('local' 1.5-mi | 'regional' 6-mi | 'continental' 24-mi).
+    // DEFAULT 'regional' — the canonical, shipped behaviour (every domain mechanic resolves at 6-mile).
+    // parentHexId: the id of the COARSER hex that contains this one (a continental hex for a regional
+    // child; a regional hex for a local child); null = derive the parent from coords (cube/4, §5.2) —
+    // STORED WINS. childHexIds is COMPUTED, never stored (Architecture §3.3). Both additive + read
+    // defensively (an old hex with neither reads as a parentless regional hex); deliberately NOT lazy-
+    // injected into migrateCampaign, so the 6 templates + demo stay true migrate-no-ops (absent ⇒
+    // 'regional'/null). Continental hexes own the climate (koppen) + the rolled weather; their land
+    // value / families are AGGREGATES of children (ACKS.aggregateContinentalCell), not stored here.
+    hexScale:    (opts.hexScale === 'local' || opts.hexScale === 'continental') ? opts.hexScale : 'regional',
+    parentHexId: opts.parentHexId || null,
     // Phase 2.5 Journeys (#475) — travel-relevant hex geography. terrain (above) keys the
     // speed + navigation catalogs; these refine route cost. GM-settable on the hex card.
     hasRoad: opts.hasRoad === true,        // legacy COARSE travel flag (×3/2 speed, RR p.272) read by the

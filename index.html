@@ -34,6 +34,7 @@
 <!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
 <script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
 <!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
+<script src="acks-engine-hex-scales.js?v=2026-06-13-a"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -2915,6 +2916,21 @@ document.addEventListener('alpine:init', () => {
             <span x-text="L.label"></span>
           </label>
         </template>
+        <!-- map-control:scale-switcher (team agent-3, Hex Scales HW-4) — Regional (6-mile, the canonical
+             shipped view) ⇄ Continental (24-mile aggregation). Continental cells roll up ~16 regional
+             children (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2); click one to drill back in. The 1.5-mile
+             Local tier is the HW-5 follow-on (drill-down authoring) — not offered here yet. -->
+        <span class="ml-3 pl-3 border-l border-ink/30 flex items-center gap-1.5" title="Map scale — Regional (6-mile) is where you act; Continental (24-mile) aggregates ~16 regional hexes per cell (climate + weather are native here). Click a continental cell to drill in.">
+          <span class="text-sm font-semibold">Scale:</span>
+          <template x-for="s in mapScaleOptions()" :key="s.id">
+            <button @click="mapSetScale(s.id)" type="button"
+                    :class="mapScale === s.id ? 'bg-yellow-200 font-semibold border-ink' : 'border-ink/40 hover:bg-yellow-100'"
+                    class="text-sm px-2 py-0.5 border rounded flex items-center gap-1"
+                    :title="s.label + ' (' + s.sub + ')'">
+              <span x-text="s.icon"></span><span x-text="s.label"></span>
+            </button>
+          </template>
+        </span>
         <span class="ml-auto flex items-center gap-2">
           <button @click="mapGridModalOpen = true" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Lay down a blank grid of hexes — existing hexes are kept; the grid fills in around them">➕ Create Map</button>
           <button @click="mapStandardView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Reset to the standard composite — terrain + settlements + strongholds + roads/rivers + domain borders + journeys">⌂ Standard view</button>
@@ -2922,8 +2938,22 @@ document.addEventListener('alpine:init', () => {
         </span>
       </div>
 
-      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. -->
-      <div class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <!-- Continental-scale breadcrumb (team agent-3, HW-4) — shown only at the 24-mile scale. The
+           regional Show: row is hidden here (symbols/edges/journeys are 6-mile concepts); weather IS
+           native at 24-mile (§7.3), so it stays available. Click a cell on the map to drill back in. -->
+      <div x-show="mapScale === 'continental'" class="vellum border border-amber-500/60 bg-amber-50/60 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" x-cloak>
+        <span class="font-semibold">⬣ Continental view (24-mile)</span>
+        <span class="opacity-70" x-text="mapContinentalCells().length + (mapContinentalCells().length === 1 ? ' region' : ' regions') + ' · each aggregates ~16 six-mile hexes'"></span>
+        <span class="italic opacity-60">— click a region to drill into it</span>
+        <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Tint each region by its weather today — weather is native at the 24-mile scale (one value per region)">
+          <input type="checkbox" x-model="mapShowWeather">
+          <span>🌦 Weather</span>
+        </label>
+      </div>
+
+      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. (Regional/
+           local scales only — these are 6-mile concepts; the continental view has its own breadcrumb above.) -->
+      <div x-show="mapScale !== 'continental'" class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span class="font-semibold">Show:</span>
         <template x-for="L in mapSymbolLayers()" :key="'sym-'+L.id">
           <label class="flex items-center gap-1 cursor-pointer">
@@ -19632,8 +19662,12 @@ return {
   mapHexEntries(){
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const out = [], seen = new Set();
+    // HW-4 (team agent-3): the 6-mile (regional) view shows REGIONAL hexes only. Continental (24-mile)
+    // aggregation cells render via mapContinentalMarkup; the local (1.5-mile) tier is a drill-down (HW-5).
+    // hexScaleOf defaults to 'regional' for any unset/legacy hex, so existing campaigns are unchanged.
+    const isRegional = h => !A.hexScaleOf || A.hexScaleOf(h) === 'regional';
     this.allHexes().forEach(e => {
-      const h = e.hex; if(!h || !h.coord) return;
+      const h = e.hex; if(!h || !h.coord || !isRegional(h)) return;
       seen.add(h.id);
       const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
       out.push({ hex:h, domainId:e.domainId, domainName:e.domainName, hexIndex:e.hexIndex,
@@ -19641,7 +19675,7 @@ return {
                  label:A.hexDisplayLabel(h.coord.q, h.coord.r), domainless:false });
     });
     (this.currentCampaign?.hexes||[]).forEach(h => {
-      if(!h || !h.coord || seen.has(h.id)) return;
+      if(!h || !h.coord || seen.has(h.id) || !isRegional(h)) return;
       const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
       out.push({ hex:h, domainId:h.domainId||null, domainName:null, hexIndex:-1,
                  cx:c.x, cy:c.y, points:A.hexPolygonPoints(h.coord.q, h.coord.r, size),
@@ -19677,6 +19711,9 @@ return {
   // when the hex set or active fill layer changes (both read here). Each polygon carries
   // data-hex-id so the delegated click handler (mapSvgClick) can resolve which hex was clicked.
   mapSvgMarkup(){
+    // HW-4 (team agent-3): at the continental (24-mile) scale the map renders the aggregated region
+    // cells, not the 6-mile hexes. Branch out before the regional render. (Local 1.5-mi = HW-5.)
+    if(this.mapScale === 'continental') return this.mapContinentalMarkup();
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const entries = this.mapHexEntries();
@@ -20085,6 +20122,13 @@ return {
   // Delegated click on the SVG → resolve the clicked hex via its data-hex-id, then dispatch
   // (mapClickHex owns the drag-suppression + inspect/select mode handling).
   mapSvgClick(e){
+    // HW-4 (team agent-3): a click on a continental cell DRILLS DOWN to the regional scale, framed
+    // on that region's ~16 children (the §7.2 interlace). Cell polygons carry data-cont-key.
+    if(this.mapScale === 'continental'){
+      const cc = (e.target && e.target.closest) ? e.target.closest('[data-cont-key]') : null;
+      if(cc){ if(this._mapDragged){ this._mapDragged = false; return; } this.mapContinentalDrill(cc.getAttribute('data-cont-key')); }
+      return;
+    }
     const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id],[data-empty-q]') : null;
     if(!el) return;
     if(el.hasAttribute('data-empty-q')){
@@ -20100,6 +20144,16 @@ return {
   // on campaign load, and by the "Fit" button.
   mapResetView(){
     const A = window.ACKS;
+    // HW-4 (team agent-3): at continental scale, fit to the 24-mile cells (drawn at 4× hex size, so
+    // a cell overlays its children's centroid — the §7.2 interlace; the same viewBox space as regional).
+    if(this.mapScale === 'continental'){
+      const contSize = this.MAP_HEX_SIZE * this.MAP_CONTINENTAL_FACTOR;
+      const b = A.hexMapBounds(this.mapContinentalCells(), contSize, contSize * 1.0);
+      if(!b){ const s = contSize; this.mapViewBox = { x:-s*2, y:-s*2, w:s*4, h:s*4 }; }
+      else  { this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+      this.schedulePersist();
+      return;
+    }
     const hexes = this.mapHexEntries().map(e => e.hex);
     const b = A.hexMapBounds(hexes, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5);
     if(!b){ const s = this.MAP_HEX_SIZE; this.mapViewBox = { x:-s*2, y:-s*2, w:s*4, h:s*4 }; }
@@ -23049,6 +23103,62 @@ return {
     } catch(e){ this.showToast('Apply failed: ' + e.message); }
   },
   // ── agent-3 (Hex Scales HW-4) state + methods ──
+  // The active map scale (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2). 'regional' (6-mile) is the
+  // canonical shipped view; 'continental' (24-mile) renders the aggregated region cells. The 'local'
+  // (1.5-mile) drill-down tier is the HW-5 follow-on. Transient (resets to regional on reload — a
+  // zoomed-out exploration view, not a saved preference); not part of the .acks.json.
+  mapScale: 'regional',
+  // Continental cells draw at 4× the regional hex size (24mi vs 6mi); a cell then sits over its
+  // children's centroid (the JJ p.467 interlace — axial→pixel is linear, so 4Q@size === Q@4·size).
+  MAP_CONTINENTAL_FACTOR: 4,
+  // The scale-selector options. Regional + Continental for v1; Local (1.5-mi authoring) is HW-5.
+  mapScaleOptions(){ return ['regional','continental'].map(id => window.ACKS.HEX_SCALE_META[id]); },
+  mapSetScale(s){ if(s !== 'regional' && s !== 'continental') return; if(this.mapScale === s) return; this.mapScale = s; this.mapViewBox = null; this.mapEnsureView(); this.schedulePersist(); },
+  // The continental render set — one aggregate per 24-mile region (engine: continentalCellsForCampaign).
+  mapContinentalCells(){ return window.ACKS.continentalCellsForCampaign(this.currentCampaign); },
+  // Drill from a continental cell back to the 6-mile scale, framed on that region's ~16 children (§7.2).
+  mapContinentalDrill(key){
+    const A = window.ACKS;
+    const cell = this.mapContinentalCells().find(c => c.key === key);
+    this.mapScale = 'regional';
+    if(cell){
+      const byId = {}; this.mapHexEntries().forEach(e => { byId[e.hex.id] = e.hex; });
+      const kids = (cell.childHexIds || []).map(id => byId[id]).filter(Boolean);
+      const b = kids.length ? A.hexMapBounds(kids, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5) : null;
+      if(b){ this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+      else { this.mapViewBox = null; this.mapEnsureView(); }
+    } else { this.mapViewBox = null; this.mapEnsureView(); }
+    this.schedulePersist();
+  },
+  // Build the continental (24-mile) SVG markup: each region cell as a hex at its continental coord,
+  // drawn at 4× size. Fill honors the active "Color by:" layer via a SYNTHETIC hex built from the
+  // aggregate (so the shipped hexFillColor handles terrain→dominant / biome / classification / …); an
+  // optional weather tint per region (native at this scale, §7.3). data-cont-key drives the drill click.
+  mapContinentalMarkup(){
+    const A = window.ACKS, size = this.MAP_HEX_SIZE * this.MAP_CONTINENTAL_FACTOR;
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const cells = this.mapContinentalCells();
+    const ctx = this.mapFillContext();
+    const layer = this.mapFillLayer;
+    const sw = (size * 0.03).toFixed(2), labelFs = (size * 0.10).toFixed(1), subFs = (size * 0.07).toFixed(1);
+    const wmap = this.mapShowWeather ? A.weatherMapForCampaign(this.currentCampaign) : null;
+    const parts = [];
+    cells.forEach(c => {
+      const pts = A.hexPolygonPoints(c.coord.q, c.coord.r, size);
+      const pix = A.hexAxialToPixel(c.coord.q, c.coord.r, size);
+      const synth = { terrain:c.dominantTerrain, koppen:c.koppen, biomeOverride:'', classification:c.classification, families:c.families, valuePerFamily:6, domainId:(c.domainIds.length === 1 ? c.domainIds[0] : null) };
+      const title = 'Continental cell ' + A.hexDisplayLabel(c.coord.q, c.coord.r) + ' · ' + c.childCount + ' six-mile hex' + (c.childCount === 1 ? '' : 'es')
+        + (c.dominantTerrain ? ' · ' + c.dominantTerrain : '') + ' · ' + (c.families || 0).toLocaleString() + ' families'
+        + (c.koppen ? ' · ' + c.koppen + (c.biome ? ' (' + c.biome + ')' : '') : '')
+        + (c.domainIds.length ? ' · ' + c.domainIds.length + ' domain' + (c.domainIds.length === 1 ? '' : 's') : ' · unclaimed')
+        + ' — click to drill in';
+      parts.push('<polygon data-cont-key="' + esc(c.key) + '" points="' + pts + '" fill="' + A.hexFillColor(synth, layer, ctx) + '" stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(title) + '</title></polygon>');
+      if(wmap){ const wr = wmap[c.key]; if(wr) parts.push('<polygon points="' + pts + '" fill="' + A.weatherFillColor(wr) + '" fill-opacity="0.5" style="pointer-events:none;"><title>' + esc(A.weatherSummaryText(wr)) + '</title></polygon>'); }
+      parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + (pix.y - size * 0.62).toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + labelFs + '" fill="#2b2b2b" fill-opacity="0.8" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(A.hexDisplayLabel(c.coord.q, c.coord.r)) + '</text>');
+      parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + pix.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + subFs + '" fill="#3b2f1c" fill-opacity="0.6" style="pointer-events:none;user-select:none;">' + esc((c.dominantTerrain || '—') + ' · ' + c.childCount) + '</text>');
+    });
+    return parts.join('');
+  },
   // ── agent-4 (DC-3) state + methods ──
   // DC-3 (RR pp.350-351) — the per-band morale EFFECTS for the Morale block's "Effects this month"
   // readout. A thin null-safe pass-through to the engine's SINGLE-source accessor
