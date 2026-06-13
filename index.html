@@ -21,6 +21,10 @@
 <script src="acks-engine-religion.js?v=2026-06-13-a"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
+<!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
+<!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
+<!-- agent-5 (Hijinks HJ-1): add your acks-engine-hijinks.js tag immediately below this line -->
+<!-- (agent-1 Religion R1 extends acks-engine-religion.js · agent-2 DC-2 extends acks-engine-domain-completion.js · agent-3 Terrain T3 adds no new module — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -9283,6 +9287,13 @@ document.addEventListener('alpine:init', () => {
      style="position:fixed; top:0; left:0; right:0; padding:0.75rem 1.5rem; z-index:9999; background:#2a1f12; color:#fff; font-weight:500; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
   <span x-text="toast" style="color:#fff"></span>
 </div>
+
+<!-- ════ TEAM SESSION (world-front 2026-06-13) — per-agent NEW top-level HTML (views / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
+<!-- ── agent-1 (Religion R1): your new ⛪ Religion top-level view block goes below ── -->
+<!-- ── agent-2 (DC-2): extends the existing Domain-Advancement panel in place — usually nothing here ── -->
+<!-- ── agent-3 (Terrain T3): extends the map render + hex card in place — usually nothing here ── -->
+<!-- ── agent-4 (Proficiency PT-1): your throw-result modal goes below ── -->
+<!-- ── agent-5 (Hijinks HJ-1): any hijink modal goes below (the sub-view itself is the existing Activities▸Hijinks placeholder) ── -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -19200,6 +19211,12 @@ return {
       console.error('showToast threw:', e);
     }
   },
+  // ════ TEAM SESSION (world-front 2026-06-13) — per-agent Alpine state props + methods; add yours after YOUR marker (additive, never reorder); Lead removes this block at integration ════
+  // ── agent-1 (Religion R1) state + methods ──
+  // ── agent-2 (DC-2) state + methods ──
+  // ── agent-3 (Terrain T3) state + methods ──
+  // ── agent-4 (Proficiency PT-1) state + methods ──
+  // ── agent-5 (Hijinks HJ-1) state + methods ──
 };
 }
 </script>
