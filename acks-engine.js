@@ -609,8 +609,19 @@ function suggestDomainClassification(d){
 }
 function effectiveDomainClassification(d){
   const stored = d && d.classification;
-  if(stored && DOMAIN_CLASSIFICATIONS.indexOf(stored) !== -1) return stored; // GM authored value wins
-  return suggestDomainClassification(d);
+  const authored = (stored && DOMAIN_CLASSIFICATIONS.indexOf(stored) !== -1) ? stored : suggestDomainClassification(d);
+  // === DC-2 (team) === classification advancement is PERMANENT (RR p.340). The effective tier is
+  // the MORE-ADVANCED of the GM-authored value and the advancement floor (d.classificationAdvancedTo,
+  // read DEFENSIVELY — absent on legacy/template domains ⇒ undefined ⇒ authored wins, a migrate-no-op).
+  // The GM may author HIGHER (start Civilized); the engine never silently lowers a domain below what
+  // it earned (canonical-setter discipline, principle #10). DOMAIN_CLASSIFICATIONS is most→least, so
+  // "more advanced" = the lower index. The floor is written only by processClassificationAdvancement.
+  const floor = d && d.classificationAdvancedTo;
+  if(floor && DOMAIN_CLASSIFICATIONS.indexOf(floor) !== -1 &&
+     DOMAIN_CLASSIFICATIONS.indexOf(floor) < DOMAIN_CLASSIFICATIONS.indexOf(authored)){
+    return floor;
+  }
+  return authored;
 }
 
 // =============================================================================
@@ -7184,6 +7195,24 @@ function commitTurn(campaign, proposal, options){
         (banditryResult.logEntries || []).forEach(l => logEntries.push(l));
       }
     } catch(e){ /* never let banditry fail the monthly commit */ }
+  }
+
+  // === DC-2 (team) ===
+  // RR p.340 classification advancement (Outlands→Borderlands→Civilized), checked "at the end of
+  // any month". Runs AFTER the per-domain morale + population resolution (the gate reads the
+  // post-turn morale + family counts the loop just set) + after banditry, and BEFORE the turn
+  // counter advances so classificationLockedAt records the committed turn. Auto-advance is the RAW
+  // default; the floor it sets (domain.classificationAdvancedTo) raises effectiveDomainClassification
+  // permanently, so NEXT month's base morale eases (RR p.348) + the population cap rises (RR p.340).
+  // Gated on committed > 0; try-guarded — never fail the commit. (processClassificationAdvancement
+  // lives in acks-engine-domain-completion.js, which loads after this file — resolved at call-time.)
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processClassificationAdvancement === 'function'){
+        const advResult = global.ACKS.processClassificationAdvancement(campaign, { rng });
+        (advResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let classification advancement fail the monthly commit */ }
   }
 
   // === RUMOR AUTO-EMIT ===
