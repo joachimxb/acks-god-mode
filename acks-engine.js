@@ -147,7 +147,10 @@ const ID_PREFIXES = Object.freeze({
   battle:               'btl',
   // Phase 3 Military W6 (2026-06-13, burst3 team session) — Siege (the RR pp.473–485
   // stronghold-investment record; resolved by acks-engine-sieges.js).
-  siege:                'sie'
+  siege:                'sie',
+  // === Voyages V1 (burst4) — Phase 3 Voyages (#145): Vessel (RR Ch.7 Seafarers & Voyages,
+  // the RR p.316 Sea Vessels classes; resolved by acks-engine-voyages.js). ===
+  vessel:               'vsl'
 });
 
 function newId(prefix){
