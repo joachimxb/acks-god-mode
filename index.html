@@ -23,6 +23,7 @@
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
+<script src="acks-engine-proficiencies.js?v=2026-06-13-a"></script>
 <!-- agent-5 (Hijinks HJ-1): add your acks-engine-hijinks.js tag immediately below this line -->
 <!-- (agent-1 Religion R1 extends acks-engine-religion.js · agent-2 DC-2 extends acks-engine-domain-completion.js · agent-3 Terrain T3 adds no new module — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -7540,7 +7541,10 @@ document.addEventListener('alpine:init', () => {
            (tracked as task #203). -->
       <div x-show="characterEditorTab==='skills'" class="space-y-4">
         <div x-data="{ newProf: '' }">
-          <h4 class="font-semibold text-sm mb-1">Proficiencies <span class="text-sm font-normal opacity-60">(RR ch.4)</span></h4>
+          <div class="flex items-center justify-between mb-1">
+            <h4 class="font-semibold text-sm">Proficiencies <span class="text-sm font-normal opacity-60">(RR ch.4)</span></h4>
+            <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
+          </div>
           <p class="text-sm opacity-70 mb-2">Class + general proficiencies. Add one at a time; every add/edit/remove is logged.</p>
           <template x-if="(characterEditing.proficiencies||[]).length === 0">
             <p class="text-sm italic opacity-60 mb-2">No proficiencies yet.</p>
@@ -9293,6 +9297,139 @@ document.addEventListener('alpine:init', () => {
 <!-- ── agent-2 (DC-2): extends the existing Domain-Advancement panel in place — usually nothing here ── -->
 <!-- ── agent-3 (Terrain T3): extends the map render + hex card in place — usually nothing here ── -->
 <!-- ── agent-4 (Proficiency PT-1): your throw-result modal goes below ── -->
+<!-- Proficiency Throw modal (RR pp.9-10) — the shared 1d20 throw surface. Launched from the
+     character sheet (SKILLS tab). z-79 sits above the character editor (z-50). GM picks a task
+     (the 5 Adventuring sub-throws + the character's proficiency throws + an Improvised-by-
+     difficulty option, JJ p.94), sees the forecast (resolved target + itemized modifiers +
+     success chance), adds a situational modifier, then rolls (re-rollable). A class-derived
+     task (Lockpicking/Climbing) takes a GM-set target. Secret mode + an optional record. -->
+<div x-show="profThrow.open" @keydown.escape.window="if(profThrow.open && !$event.defaultPrevented){ closeProficiencyThrowModal(); $event.preventDefault() }"
+     class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeProficiencyThrowModal()">
+  <template x-if="profThrow.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🎲 Proficiency Throw <span class="text-sm font-normal opacity-70">· RR pp.9–10</span></h2>
+      <button @click="closeProficiencyThrowModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- Character snapshot -->
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="profThrowChar() ? profThrowChar().name : '(no character)'"></span>
+        <span class="opacity-70" x-text="profThrowChar() ? (' · ' + (profThrowChar().class || '—') + ' L' + (profThrowChar().level || 1)) : ''"></span>
+      </div>
+
+      <!-- Task picker -->
+      <div class="text-sm">
+        <label class="block font-semibold mb-1">Throw</label>
+        <select x-model="profThrow.taskKey" @change="profThrow.result=null" class="w-full text-sm">
+          <optgroup label="Adventuring (RR p.105)">
+            <template x-for="o in profThrowOptions().filter(o=>o.universal)" :key="o.taskKey">
+              <option :value="o.taskKey" x-text="o.label + (o.resolvedTarget!=null ? ' — '+o.resolvedTarget+'+' : '')"></option>
+            </template>
+          </optgroup>
+          <template x-if="profThrowOptions().some(o=>!o.universal && !o.improvised)">
+            <optgroup label="Your proficiencies">
+              <template x-for="o in profThrowOptions().filter(o=>!o.universal && !o.improvised)" :key="o.taskKey">
+                <option :value="o.taskKey" x-text="o.label + (o.resolvedTarget!=null ? ' — '+o.resolvedTarget+'+' : ' — GM sets')"></option>
+              </template>
+            </optgroup>
+          </template>
+          <optgroup label="Improvised throw (JJ p.94)">
+            <template x-for="o in profThrowOptions().filter(o=>o.improvised)" :key="o.taskKey">
+              <option :value="o.taskKey" x-text="o.label"></option>
+            </template>
+          </optgroup>
+        </select>
+      </div>
+
+      <!-- Improvised: ability + relevant ranks -->
+      <template x-if="profThrowIsImprovised()">
+        <div class="flex gap-3 text-sm">
+          <label class="flex items-center gap-1">Attribute
+            <select x-model="profThrow.abilityKey" @change="profThrow.result=null" class="text-sm">
+              <template x-for="ab in ['STR','INT','WIL','DEX','CON','CHA']" :key="ab"><option :value="ab" x-text="ab"></option></template>
+            </select>
+          </label>
+          <label class="flex items-center gap-1">Relevant ranks
+            <select x-model.number="profThrow.relevantRanks" @change="profThrow.result=null" class="text-sm">
+              <template x-for="n in [0,1,2]" :key="n"><option :value="n" x-text="n"></option></template>
+            </select>
+          </label>
+        </div>
+      </template>
+
+      <!-- Class-derived: GM target -->
+      <template x-if="profThrowForecast() && profThrowForecast().baseTargetSource">
+        <label class="flex items-center gap-2 text-sm">Target value (GM sets — class-derived)
+          <input type="number" min="1" x-model.number="profThrow.manualTarget" @input="profThrow.result=null" class="w-20 text-sm" placeholder="e.g. 7">
+        </label>
+      </template>
+
+      <!-- Situational modifier -->
+      <div class="text-sm flex items-center gap-2 flex-wrap">
+        <span class="opacity-70">Situational</span>
+        <template x-for="m in [-4,-2,-1,0,1,2,4]" :key="m">
+          <button @click="profThrow.situational = m; profThrow.result=null"
+                  :class="profThrow.situational === m ? 'bg-yellow-300 font-bold' : 'hover:bg-yellow-100'"
+                  class="px-2 py-0.5 border border-ink rounded text-xs" x-text="(m>=0?'+':'')+m"></button>
+        </template>
+      </div>
+
+      <!-- Forecast -->
+      <template x-if="profThrowForecast()">
+        <div class="wizard-forecast-row" :class="(profThrowForecast().successChance===0) ? 'wizard-no-chance' : ''">
+          <div class="w-full">
+            <div>
+              <template x-if="profThrowEffectiveTarget()!=null">
+                <span><span class="font-semibold" x-text="'Target ' + profThrowEffectiveTarget() + '+'"></span><span class="opacity-70" x-text="profThrowForecast().proficiency ? (' · ' + proficiencyLabelText(profThrowForecast().proficiency.key) + ' rank ' + profThrowForecast().proficiency.ranks) : ' · improvised'"></span></span>
+              </template>
+              <template x-if="profThrowEffectiveTarget()==null"><span class="opacity-80">Set the target value above (class-derived throw).</span></template>
+            </div>
+            <div class="text-xs opacity-75 mt-0.5" x-show="profThrowAllModifiers().length"
+                 x-text="profThrowAllModifiers().map(m => (m.value>=0?'+':'')+m.value+' '+m.label).join(' · ')"></div>
+            <div class="text-xs mt-0.5" x-show="profThrowEffectiveTarget()!=null"
+                 x-text="'Success chance: ' + Math.round(profThrowChance()*100) + '%' + (profThrowForecast().proficient ? ' · proficient (nat-20 auto-succeeds)' : ' · NOT proficient (nat-20 does not auto-succeed)')"></div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Roll -->
+      <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
+        <div class="flex items-center gap-3 mb-2">
+          <button @click="rollProfThrow()" :disabled="profThrowEffectiveTarget()==null"
+                  :class="profThrowEffectiveTarget()==null ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
+                  class="px-4 py-2 border-2 border-ink rounded font-semibold"
+                  x-text="profThrow.result ? '🎲 Re-roll 1d20' : '🎲 Roll 1d20'"></button>
+          <label class="text-sm flex items-center gap-1"><input type="checkbox" x-model="profThrow.secret"> Secret (GM rolls)</label>
+        </div>
+        <template x-if="profThrow.result">
+          <div class="space-y-1.5">
+            <div class="text-sm font-mono" x-show="!profThrow.secret"
+                 x-text="'1d20 ' + profThrow.result.natural + (profThrow.result.modifierTotal ? (' '+(profThrow.result.modifierTotal>=0?'+':'')+profThrow.result.modifierTotal) : '') + ' = ' + profThrow.result.total + ' vs ' + profThrow.result.target + '+'"></div>
+            <div>
+              <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
+                    :style="profThrow.result.success ? 'background:#e8f3df;color:#2f5a2f;border-color:#2f5a2f' : 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f'"
+                    x-text="profThrow.result.success ? '✓ Success' : '✗ Failure'"></span>
+              <span class="ml-2 text-sm opacity-70" x-show="!profThrow.secret && profThrow.result.margin!=null" x-text="'(margin ' + (profThrow.result.margin>=0?'+':'') + profThrow.result.margin + ')'"></span>
+              <span class="ml-2 text-sm font-semibold accent-red" x-show="profThrow.result.botch" x-text="profThrow.result.fumbleEffect ? ('✗ botch — ' + profThrow.result.fumbleEffect) : '✗ botch (natural ' + profThrow.result.natural + ')'"></span>
+              <span class="ml-2 text-sm font-semibold accent-green" x-show="profThrow.result.crit" x-text="'★ critical (natural 20)'"></span>
+            </div>
+            <div class="text-xs opacity-60" x-show="profThrow.secret">Secret roll — share the outcome with the player as you see fit.</div>
+            <label class="text-sm flex items-center gap-1 pt-1"><input type="checkbox" x-model="profThrow.logToEvent" @change="profThrowToggleLog()"> Record this throw to the Event Log</label>
+          </div>
+        </template>
+      </div>
+
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">A proficiency throw is a die, not a state change — the result is yours to apply.</span>
+        <div class="flex gap-2">
+          <button @click="closeProficiencyThrowModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- ── agent-5 (Hijinks HJ-1): any hijink modal goes below (the sub-view itself is the existing Activities▸Hijinks placeholder) ── -->
 
 <script>
@@ -19216,6 +19353,82 @@ return {
   // ── agent-2 (DC-2) state + methods ──
   // ── agent-3 (Terrain T3) state + methods ──
   // ── agent-4 (Proficiency PT-1) state + methods ──
+  // The shared Proficiency Throw modal (RR pp.9–10). A throw is a pure die (engine Layer 1/3) —
+  // the modal computes the forecast + rolls; the consequence is the GM's to apply (DQ3/Q3).
+  profThrow: { open:false, characterId:null, character:null, taskKey:'adventuring:dungeonbashing', abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false },
+  openProficiencyThrowModal(ch){
+    if(!ch){ this.showToast && this.showToast('No character to roll for.'); return; }
+    const opts = (window.ACKS.characterAvailableThrows(this.currentCampaign, ch) || []);
+    this.profThrow = {
+      open:true, characterId:ch.id, character:ch,
+      taskKey: (opts[0] && opts[0].taskKey) || 'adventuring:dungeonbashing',
+      abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false
+    };
+  },
+  closeProficiencyThrowModal(){ this.profThrow.open = false; this.profThrow.result = null; },
+  profThrowChar(){
+    // Prefer the live campaign object (reflects edits), fall back to the stored ref (matches the
+    // Loyalty modal; robust if the character isn't in currentCampaign.characters yet).
+    const id = this.profThrow.characterId;
+    const live = id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null;
+    return live || this.profThrow.character || null;
+  },
+  profThrowIsImprovised(){ return /^improvised:/.test(this.profThrow.taskKey || ''); },
+  // The dropdown rows: the character's available throws (Adventuring sub-throws + their profs)
+  // + the JJ p.94 improvised difficulty classes.
+  profThrowOptions(){
+    const ch = this.profThrowChar();
+    if(!ch) return [];
+    const rows = (window.ACKS.characterAvailableThrows(this.currentCampaign, ch) || []).map(r => Object.assign({ improvised:false }, r));
+    const imp = Object.entries(window.ACKS.IMPROVISED_THROW_DIFFICULTY || {}).map(([k, v]) => ({ taskKey:'improvised:' + k, label:v.label, improvised:true, universal:false, resolvedTarget:null }));
+    return rows.concat(imp);
+  },
+  // The roll:false forecast for the current selection (resolved target + itemized modifiers).
+  profThrowForecast(){
+    const ch = this.profThrowChar();
+    if(!ch) return null;
+    const sit = this.profThrow.situational ? [{ source:'situational', value:Number(this.profThrow.situational) || 0, label:'situational' }] : [];
+    if(this.profThrowIsImprovised()){
+      const dc = (this.profThrow.taskKey || '').replace(/^improvised:/, '');
+      return window.ACKS.characterProficiencyThrow(this.currentCampaign, ch, null, { difficultyClass:dc, abilityKeyOverride:this.profThrow.abilityKey, relevantRanks:Number(this.profThrow.relevantRanks) || 0, situational:sit, roll:false });
+    }
+    return window.ACKS.characterProficiencyThrow(this.currentCampaign, ch, this.profThrow.taskKey, { situational:sit, roll:false });
+  },
+  profThrowAllModifiers(){ const f = this.profThrowForecast(); return (f && f.itemizedModifiers) ? f.itemizedModifiers : []; },
+  // class-derived tasks have no engine number — the GM supplies one via profThrow.manualTarget.
+  profThrowEffectiveTarget(){
+    const f = this.profThrowForecast();
+    if(!f) return null;
+    if(f.resolvedTarget != null) return f.resolvedTarget;
+    if(f.baseTargetSource && this.profThrow.manualTarget) return Number(this.profThrow.manualTarget) || null;
+    return null;
+  },
+  profThrowChance(){
+    const f = this.profThrowForecast(); const t = this.profThrowEffectiveTarget();
+    if(!f || t == null) return 0;
+    return window.ACKS.throwSuccessChance(t, f.modifierTotal || 0, f.autoFailBand, f.proficient) || 0;
+  },
+  proficiencyLabelText(key){ return window.ACKS.proficiencyLabel(key); },
+  rollProfThrow(){
+    const ch = this.profThrowChar(); const f = this.profThrowForecast(); const t = this.profThrowEffectiveTarget();
+    if(!ch || !f || t == null) return;
+    this.profThrow.result = window.ACKS.rollProficiencyThrow({
+      target:t, modifiers:f.itemizedModifiers || [], proficient:f.proficient,
+      autoFailBand:f.autoFailBand, fumbleEffect:f.fumbleEffect, secret:this.profThrow.secret
+    });
+    // re-rolling invalidates a prior record so the GM can record the new outcome
+    this.profThrow._logged = false; this.profThrow.logToEvent = false;
+  },
+  // Optional record-only audit (the GM ticks "Record this throw") — campaignLogHidden by default.
+  profThrowToggleLog(){
+    if(!this.profThrow.logToEvent || !this.profThrow.result || this.profThrow._logged) return;
+    const ch = this.profThrowChar(); const f = this.profThrowForecast();
+    const data = Object.assign({ actorCharacterId: ch ? ch.id : null, taskKey: this.profThrow.taskKey, label: f ? f.label : '' }, this.profThrow.result);
+    window.ACKS.recordProficiencyThrow(this.currentCampaign, data);
+    this.profThrow._logged = true;
+    if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist();
+    if(this.showToast) this.showToast('Proficiency throw recorded to the Event Log.');
+  },
   // ── agent-5 (Hijinks HJ-1) state + methods ──
 };
 }
