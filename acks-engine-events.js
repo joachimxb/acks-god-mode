@@ -145,7 +145,13 @@ const EVENT_KINDS = Object.freeze([
   // (a priced buy/sell at a market). The primitives carry typed source/destination handles.
   'wealth-transfer',
   'item-transfer',
-  'market-transaction'
+  'market-transaction',
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 (2026-06-13) — RR p.340 classification advancement
+  // (Outlands→Borderlands→Civilized) fired by the monthly turn. Record-only (the floor was
+  // already applied by processClassificationAdvancement); chronicle-visible. Carries the
+  // Event.context envelope (the domain + its capital hex).
+  'domain-advanced',
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -503,7 +509,15 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { direction: 'string', actorCharacterId: 'string', lines: 'array' },
     O: { settlementId: 'string', marketClass: 'string', totalGp: 'number', currency: 'string',
          notable: 'boolean', activityCost: 'object', payFrom: 'string', itemTo: 'string', itemFrom: 'string' }
-  }
+  },
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 — the RR p.340 classification-advancement record (engine-emitted,
+  // record-only; the floor lives on domain.classificationAdvancedTo). reason ∈
+  // 'pop+road+morale' | 'territory+pop+morale' | 'urban-settlement'.
+  'domain-advanced': {
+    R: { domainId: 'string', from: 'string', to: 'string' },
+    O: { reason: 'string', atTurn: 'number', narrative: 'string' }
+  },
 });
 
 // 9.5.4 — Submitter string conventions. Documented here, enforced loosely.
@@ -1940,6 +1954,17 @@ function applyEvent_favorDutyAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'favor/duty edict' } };
 }
 registerEventHandler('favor-duty', applyEvent_favorDutyAudit);
+// === DC-2 (team) ===
+// Domain Completion DC-2 — the classification-advancement record shares the audit posture:
+// processClassificationAdvancement (commitTurn end-of-month) already raised the permanent floor
+// (domain.classificationAdvancedTo); this handler exists only so the event is well-formed if ever
+// replayed (a no-op beyond recording the narrative).
+function applyEvent_domainAdvancedAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative ||
+    (p.domainId ? ('domain advanced to ' + (p.to || '?')) : 'domain advanced') } };
+}
+registerEventHandler('domain-advanced', applyEvent_domainAdvancedAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -4860,7 +4885,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'favor-duty',
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
-  'domain-banditry'
+  'domain-banditry',
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 — owned by processClassificationAdvancement (the monthly turn already
+  // raised the permanent floor; raw emit would narrate an advance the domain state doesn't show).
+  'domain-advanced',
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
