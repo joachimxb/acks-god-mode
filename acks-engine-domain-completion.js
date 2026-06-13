@@ -371,12 +371,15 @@ function _advanceReasonPhrase(reason){
 // audit + chronicle line). Returns { advanced:[{domainId,from,to,reason}], logEntries:[...] }.
 // Single-step per call (one tier per domain per month). Idempotent within a month — re-running
 // finds no new advance because the floor already raised effectiveDomainClassification.
+// options.onlyDomainId — restrict to one domain (the panel's manual "Advance now" affordance,
+// RR p.340 "the Judge may advance for other in-game circumstances"); omit ⇒ every domain.
 function processClassificationAdvancement(campaign, options){
   options = options || {};
   const out = { advanced: [], logEntries: [] };
   if(!campaign || !Array.isArray(campaign.domains)) return out;
   const turn = campaign.currentTurn || 1;
   for(const d of campaign.domains){
+    if(options.onlyDomainId && d.id !== options.onlyDomainId) continue;
     const res = classificationAdvanceCheck(campaign, d);
     if(!res) continue;
     d.classificationAdvancedTo = mostAdvancedClassification(res.to, d.classificationAdvancedTo || null);
