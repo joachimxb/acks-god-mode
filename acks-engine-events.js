@@ -157,6 +157,15 @@ const EVENT_KINDS = Object.freeze([
   // army-out-of-supply). Owned by the slot-88 military consumer's commit (applyArmySupplyOutcome
   // pays the cost / sets the RR p.452 ladder); routine "in supply" records are campaign-log-hidden.
   'army-supply',
+  // Phase 3 Military W6 (2026-06-13, burst3 team session) — the siege lifecycle (RR pp.473–485),
+  // record-only audits owned by acks-engine-sieges.js (the Siege entity + the slot-90 consumer
+  // hold the state). siege-started: the investment begins (chronicle-visible). siege-progress:
+  // a method milestone — blockade established / bombardment / assault joined / capture-ready /
+  // supplies-exhausted (routine reduction days are campaignLogHidden). siege-resolved: the
+  // stronghold is captured / destroyed / surrenders, or the siege is lifted (chronicle-visible).
+  'siege-started',
+  'siege-progress',
+  'siege-resolved',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -566,6 +575,25 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { armyId: 'string', inSupply: 'boolean' },
     O: { cost: 'number', baseValue: 'number', lineStatus: 'string', reasons: 'object',
          condition: 'string', narrative: 'string' }
+  },
+  // Phase 3 Military W6 — the siege audits (RR pp.473–485). acks-engine-sieges.js owns the state.
+  'siege-started': {
+    R: { siegeId: 'string', besiegerArmyId: 'string' },
+    O: { defenderDomainId: 'string', defenderArmyId: 'string', strongholdShp: 'number',
+         unitCapacity: 'number', unitAdvantage: 'number', daysRequired: 'number',
+         siteType: 'string', resolutionMode: 'string', narrative: 'string' }
+  },
+  'siege-progress': {
+    R: { siegeId: 'string', phase: 'string' },
+    O: { circumvallationFeet: 'number', storedSuppliesGp: 'number', weeksOfSupply: 'number',
+         shpDealt: 'number', shpDamage: 'number', breaches: 'number', reducedToRubble: 'boolean',
+         battleId: 'string', daysElapsed: 'number', daysRequired: 'number',
+         campaignLogHidden: 'boolean', narrative: 'string' }
+  },
+  'siege-resolved': {
+    R: { siegeId: 'string', outcome: 'string' },
+    O: { besiegerWon: 'boolean', battleId: 'string', besiegerArmyId: 'string',
+         defenderDomainId: 'string', narrative: 'string' }
   },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
@@ -2108,6 +2136,16 @@ function applyEvent_warfareAudit(campaign, event){
 registerEventHandler('army-contact', applyEvent_warfareAudit);
 registerEventHandler('domain-warfare', applyEvent_warfareAudit);
 registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
+// Phase 3 Military W6 — the siege audits share the posture: acks-engine-sieges.js (the Siege
+// entity + the slot-90 consumer + the setters) owns the world state; these handlers only keep
+// the events well-formed on replay.
+function applyEvent_siegeAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'siege record' } };
+}
+registerEventHandler('siege-started', applyEvent_siegeAudit);
+registerEventHandler('siege-progress', applyEvent_siegeAudit);
+registerEventHandler('siege-resolved', applyEvent_siegeAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -5111,7 +5149,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
   // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
-  'army-contact', 'domain-warfare', 'army-supply'
+  'army-contact', 'domain-warfare', 'army-supply',
+  // Phase 3 Military W6 (burst3) — owned by acks-engine-sieges.js (the setters + the slot-90
+  // consumer write the Siege state); a raw emit would narrate an investment the entity doesn't hold.
+  'siege-started', 'siege-progress', 'siege-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
