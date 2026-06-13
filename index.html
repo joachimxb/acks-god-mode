@@ -27,9 +27,15 @@
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
 <script src="acks-engine-proficiencies.js?v=2026-06-13-a"></script>
-<!-- agent-5 (Hijinks HJ-1): add your acks-engine-hijinks.js tag immediately below this line -->
 <script src="acks-engine-hijinks.js?v=2026-06-13-a"></script>
-<!-- (agent-1 Religion R1 extends acks-engine-religion.js · agent-2 DC-2 extends acks-engine-domain-completion.js · agent-3 Terrain T3 adds no new module — they add no tag here) -->
+<!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
+<!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
+<script src="acks-engine-sieges.js?v=2026-06-13-a"></script>
+<!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
+<script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
+<!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
+<script src="acks-engine-hex-scales.js?v=2026-06-13-a"></script>
+<!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -2910,6 +2916,21 @@ document.addEventListener('alpine:init', () => {
             <span x-text="L.label"></span>
           </label>
         </template>
+        <!-- map-control:scale-switcher (team agent-3, Hex Scales HW-4) — Regional (6-mile, the canonical
+             shipped view) ⇄ Continental (24-mile aggregation). Continental cells roll up ~16 regional
+             children (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2); click one to drill back in. The 1.5-mile
+             Local tier is the HW-5 follow-on (drill-down authoring) — not offered here yet. -->
+        <span class="ml-3 pl-3 border-l border-ink/30 flex items-center gap-1.5" title="Map scale — Regional (6-mile) is where you act; Continental (24-mile) aggregates ~16 regional hexes per cell (climate + weather are native here). Click a continental cell to drill in.">
+          <span class="text-sm font-semibold">Scale:</span>
+          <template x-for="s in mapScaleOptions()" :key="s.id">
+            <button @click="mapSetScale(s.id)" type="button"
+                    :class="mapScale === s.id ? 'bg-yellow-200 font-semibold border-ink' : 'border-ink/40 hover:bg-yellow-100'"
+                    class="text-sm px-2 py-0.5 border rounded flex items-center gap-1"
+                    :title="s.label + ' (' + s.sub + ')'">
+              <span x-text="s.icon"></span><span x-text="s.label"></span>
+            </button>
+          </template>
+        </span>
         <span class="ml-auto flex items-center gap-2">
           <button @click="mapGridModalOpen = true" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Lay down a blank grid of hexes — existing hexes are kept; the grid fills in around them">➕ Create Map</button>
           <button @click="mapStandardView()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Reset to the standard composite — terrain + settlements + strongholds + roads/rivers + domain borders + journeys">⌂ Standard view</button>
@@ -2917,8 +2938,22 @@ document.addEventListener('alpine:init', () => {
         </span>
       </div>
 
-      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. -->
-      <div class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <!-- Continental-scale breadcrumb (team agent-3, HW-4) — shown only at the 24-mile scale. The
+           regional Show: row is hidden here (symbols/edges/journeys are 6-mile concepts); weather IS
+           native at 24-mile (§7.3), so it stays available. Click a cell on the map to drill back in. -->
+      <div x-show="mapScale === 'continental'" class="vellum border border-amber-500/60 bg-amber-50/60 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" x-cloak>
+        <span class="font-semibold">⬣ Continental view (24-mile)</span>
+        <span class="opacity-70" x-text="mapContinentalCells().length + (mapContinentalCells().length === 1 ? ' region' : ' regions') + ' · each aggregates ~16 six-mile hexes'"></span>
+        <span class="italic opacity-60">— click a region to drill into it</span>
+        <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Tint each region by its weather today — weather is native at the 24-mile scale (one value per region)">
+          <input type="checkbox" x-model="mapShowWeather">
+          <span>🌦 Weather</span>
+        </label>
+      </div>
+
+      <!-- M3/M4/M6 layer toggles: symbols, edges, journeys, + the M5 "Add/Edit hexes" mode. (Regional/
+           local scales only — these are 6-mile concepts; the continental view has its own breadcrumb above.) -->
+      <div x-show="mapScale !== 'continental'" class="vellum border border-ink/40 rounded px-3 py-2 mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span class="font-semibold">Show:</span>
         <template x-for="L in mapSymbolLayers()" :key="'sym-'+L.id">
           <label class="flex items-center gap-1 cursor-pointer">
@@ -3309,6 +3344,68 @@ document.addEventListener('alpine:init', () => {
                 <span class="text-sm font-normal opacity-80 ml-1" x-text="'· ' + moraleLevel(selectedDomain.demographics.morale) + ' ' + moraleEmoji(selectedDomain.demographics.morale)"></span>
               </h2>
               <p class="text-sm leading-relaxed" x-text="moraleStateText(selectedDomain.demographics.morale)"></p>
+              <!-- agent-4 DC-3 (panel:domain-morale-effects): the per-band cross-subsystem effects, extending the
+                   Morale block in place. Driven by ACKS.domainMoraleEffects — the SINGLE source every consumer
+                   reads (RR pp.350-351). Income + bandit count are the shipped reads (delegated, no double-count);
+                   the recruitment / vassal-loyalty / conscript / spy-thief modifiers are DC-3's. -->
+              <div class="mt-3 pt-2 border-t border-ink/20" x-data="{ me:null }" x-effect="me = domainMoraleEffects(selectedDomain)">
+                <template x-if="me">
+                  <div>
+                    <div class="text-xs font-semibold opacity-80 mb-1">Effects this month <span class="opacity-60 font-normal">(RR pp.350-351)</span></div>
+                    <table class="bookkeeping text-sm w-full">
+                      <tr>
+                        <td>Income</td>
+                        <td class="text-right">
+                          <span x-show="me.incomeFactor >= 1" class="opacity-70">full</span>
+                          <span x-show="me.incomeFactor > 0 && me.incomeFactor < 1" class="accent-red font-semibold" x-text="Math.round(me.incomeFactor*100) + '%'"></span>
+                          <span x-show="me.incomeFactor === 0" class="accent-red font-semibold">none — open revolt</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>Population</td>
+                        <td class="text-right">
+                          <span x-show="me.populationSwingDicePerThousand > 0" class="accent-green" x-text="'+' + me.populationSwingDicePerThousand + 'd10 / 1,000 (growth)'"></span>
+                          <span x-show="me.populationSwingDicePerThousand < 0" class="accent-red" x-text="me.populationSwingDicePerThousand + 'd10 / 1,000 (loss)'"></span>
+                          <span x-show="me.populationSwingDicePerThousand === 0" class="opacity-60">steady (natural rolls only)</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>Recruitment <span class="opacity-60">(Vagaries roll)</span></td>
+                        <td class="text-right">
+                          <span x-show="me.recruitmentVagary !== 0" :class="me.recruitmentVagary > 0 ? 'accent-green' : 'accent-red'" class="font-semibold" x-text="(me.recruitmentVagary>0?'+':'') + me.recruitmentVagary"></span>
+                          <span x-show="me.recruitmentVagary === 0" class="opacity-50">—</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>Vassal loyalty</td>
+                        <td class="text-right">
+                          <span x-show="me.vassalLoyalty !== 0" :class="me.vassalLoyalty > 0 ? 'accent-green' : 'accent-red'" class="font-semibold" x-text="(me.vassalLoyalty>0?'+':'') + me.vassalLoyalty"></span>
+                          <span x-show="me.vassalLoyalty === 0" class="opacity-50">—</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>Conscripts / militia</td>
+                        <td class="text-right">
+                          <span x-show="!me.conscriptsLeviable" class="accent-red font-semibold">cannot be levied</span>
+                          <span x-show="me.conscriptsLeviable && me.conscriptMorale !== 0" :class="me.conscriptMorale > 0 ? 'accent-green' : 'accent-red'" x-text="'muster ' + (me.conscriptMorale>0?'+':'') + me.conscriptMorale + ' morale'"></span>
+                          <span x-show="me.conscriptsLeviable && me.conscriptMorale === 0" class="opacity-60">may be levied</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>Spies / thieves vs. domain</td>
+                        <td class="text-right">
+                          <span x-show="me.spyThiefThrow !== 0" class="accent-green font-semibold" x-text="me.spyThiefThrow + ' to their throws'"></span>
+                          <span x-show="me.spyThiefThrow === 0" class="opacity-50">—</span>
+                        </td>
+                      </tr>
+                      <tr x-show="me.banditCount > 0">
+                        <td>Bandits</td>
+                        <td class="text-right accent-red" x-text="me.banditCount.toLocaleString() + ' villagers turn bandit'"></td>
+                      </tr>
+                    </table>
+                  </div>
+                </template>
+              </div>
               <p class="text-sm opacity-70 italic mt-2">Effects of domain morale — see ACKS II Revised Rulebook, pp. 349-351</p>
             </div>
             <!-- team:agent-3-domain-completion (panel:domain-advancement) — DC-0 read-only spatial
@@ -6657,6 +6754,116 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
+        <!-- ════ Hijinks HJ-2 (team 2026-06-13) — Syndicates (RR pp.358–362) ════ -->
+        <!-- subview:hijinks-syndicates — the criminal-enterprise layer: a boss runs a syndicate,
+             collects monthly tribute, and stands its caught members to trial. -->
+        <div class="vellum border border-ink rounded p-4 space-y-3">
+          <div class="flex items-baseline justify-between flex-wrap gap-2">
+            <h3 class="font-semibold">🏛 Syndicates <span class="opacity-60 font-normal text-sm" x-text="'(' + syndicateRows().length + ')'"></span></h3>
+            <span class="text-xs opacity-60">A boss runs hijinks + collects tribute out of a hideout (RR pp.358–362).</span>
+          </div>
+
+          <!-- found a syndicate -->
+          <details class="text-sm">
+            <summary class="cursor-pointer font-semibold select-none">＋ Found a syndicate</summary>
+            <div class="grid md:grid-cols-2 gap-3 mt-2">
+              <label class="block text-sm">
+                <span class="font-semibold">Boss</span>
+                <select x-model="synForm.bossCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                  <option value="" :selected="!synForm.bossCharacterId">— pick a boss —</option>
+                  <template x-for="c in synBossOptions()" :key="c.id">
+                    <option :value="c.id" :selected="synForm.bossCharacterId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                  </template>
+                </select>
+                <span x-show="synBossOptions().length === 0" class="block text-xs text-red-700 mt-1">No eligible boss — add a <strong>Thief / Assassin / Nightblade / Venturer</strong> character.</span>
+              </label>
+              <label class="block text-sm">
+                <span class="font-semibold">Name <span class="opacity-60 font-normal">(optional)</span></span>
+                <input x-model="synForm.name" type="text" placeholder="e.g. The Argollëan Family" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+              </label>
+              <label class="block text-sm">
+                <span class="font-semibold">Base settlement <span class="opacity-60 font-normal">(optional)</span></span>
+                <select x-model="synForm.baseSettlementId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                  <option value="" :selected="!synForm.baseSettlementId">— none —</option>
+                  <template x-for="s in (currentCampaign?.settlements||[])" :key="s.id">
+                    <option :value="s.id" :selected="synForm.baseSettlementId===s.id" x-text="(s.name||'(unnamed)') + (s.marketClass||s.market ? (' · Class ' + (s.marketClass||s.market)) : '')"></option>
+                  </template>
+                </select>
+                <span x-show="_synSettlementMarketClass()" class="block text-xs opacity-60 mt-0.5">Market class derived from the settlement (Class <span x-text="_synSettlementMarketClass()"></span>).</span>
+              </label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="block text-sm">
+                  <span class="font-semibold">Market class <span class="opacity-60 font-normal">(if no settlement)</span></span>
+                  <select x-model="synForm.marketClass" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                    <template x-for="mc in ['VI','V','IV','III','II','I']" :key="mc">
+                      <option :value="mc" :selected="synForm.marketClass===mc" x-text="'Class ' + mc"></option>
+                    </template>
+                  </select>
+                </label>
+                <label class="block text-sm">
+                  <span class="font-semibold">Hideout value (gp)</span>
+                  <input x-model.number="synForm.hideoutValueGp" type="number" min="0" step="1000" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                </label>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 mt-2">
+              <button @click="synFormSubmit()" :disabled="!synCanForm()"
+                      class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+                      :class="synCanForm() ? 'bg-green-200 hover:bg-green-300' : 'opacity-40 cursor-not-allowed'">🏛 Found syndicate</button>
+              <span x-show="!synCanForm() && synFormDisabledReason()" class="text-xs italic opacity-70" x-text="synFormDisabledReason()"></span>
+            </div>
+          </details>
+
+          <!-- syndicate list -->
+          <template x-if="syndicateRows().length === 0">
+            <p class="text-xs italic opacity-60">No syndicates yet. Found one above — a boss can then collect monthly tribute from his members.</p>
+          </template>
+          <template x-for="syn in syndicateRows()" :key="syn.id">
+            <div class="border border-ink/40 rounded p-3 space-y-2">
+              <div class="flex items-baseline justify-between flex-wrap gap-2">
+                <div>
+                  <span class="font-semibold" x-text="'🏛 ' + syn.name"></span>
+                  <span class="text-xs opacity-70" x-text="' · boss ' + syn.bossName + ' · Class ' + syn.marketClass + ' ' + syn.hideoutType + ' (' + syn.hideoutValueGp.toLocaleString() + 'gp)'"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs opacity-70" x-text="syn.memberCount + ' / ' + syn.maxMembers + ' members · eff. L' + syn.maxEffectiveLevel"></span>
+                  <button @click="synCollect(syn.id)" :disabled="!syn.hasBoss || syn.collectedThisTurn || syn.tributeTotal <= 0"
+                          class="px-2 py-0.5 border border-ink rounded text-xs font-semibold"
+                          :class="(syn.hasBoss && !syn.collectedThisTurn && syn.tributeTotal > 0) ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-40 cursor-not-allowed'"
+                          :title="syn.collectedThisTurn ? 'Tribute already collected this turn' : (!syn.hasBoss ? 'No boss set' : '')">💰 Collect tribute<span x-show="syn.tributeTotal > 0" x-text="' (' + syn.tributeTotal.toLocaleString() + 'gp)'"></span></button>
+                </div>
+              </div>
+              <!-- members by level + tribute -->
+              <div class="text-xs">
+                <table class="w-full" x-show="syn.members.length">
+                  <thead><tr class="text-left border-b border-ink/30 uppercase tracking-wide opacity-60">
+                    <th class="py-0.5">Level</th><th>Count</th><th>Tribute/ea</th><th>Subtotal</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="line in syn.tributeLines" :key="line.level">
+                      <tr class="border-b border-dashed border-gray-200">
+                        <td class="py-0.5" x-text="line.level + 'th'"></td>
+                        <td x-text="line.count"></td>
+                        <td class="opacity-70" x-text="line.perMember + 'gp'"></td>
+                        <td x-text="line.subtotal.toLocaleString() + 'gp'"></td>
+                        <td class="text-right"><button @click="synRemoveMembers(syn.id, line.level, 1)" class="text-red-700 hover:underline" title="Remove one">−1</button></td>
+                      </tr>
+                    </template>
+                    <tr class="font-semibold"><td colspan="3" class="py-0.5 text-right">Monthly tribute</td><td x-text="syn.tributeTotal.toLocaleString() + 'gp'"></td><td></td></tr>
+                  </tbody>
+                </table>
+                <p x-show="!syn.members.length" class="italic opacity-60">No members. Add ruffians + lieutenants below.</p>
+              </div>
+              <!-- add members -->
+              <div class="flex items-end gap-2 text-xs">
+                <label class="block">Level <input type="number" min="0" max="14" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).level" @input="_synDraft(syn.id).level = $event.target.value"></label>
+                <label class="block">Count <input type="number" min="1" class="w-16 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).count" @input="_synDraft(syn.id).count = $event.target.value"></label>
+                <button @click="synAddMembers(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-green-100 hover:bg-green-200">＋ Add members</button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- ════ end Hijinks HJ-2 Syndicates ════ -->
+
         <!-- ── Active hijinks ───────────────────────────────────────────── -->
         <div class="vellum border border-ink rounded p-4">
           <h3 class="font-semibold mb-2">In progress <span class="opacity-60 font-normal text-sm" x-text="'(' + hijinkActiveRows().length + ')'"></span></h3>
@@ -6701,6 +6908,57 @@ document.addEventListener('alpine:init', () => {
             </table>
           </div>
         </template>
+
+        <!-- ════ Hijinks HJ-2 (team 2026-06-13) — Trials & sentencing (RR pp.367–368) ════ -->
+        <template x-if="synCaughtTrials().length">
+          <div class="vellum border border-ink rounded p-4 space-y-2">
+            <h3 class="font-semibold mb-1">⚖ Awaiting trial <span class="opacity-60 font-normal text-sm" x-text="'(' + synCaughtTrials().length + ')'"></span></h3>
+            <p class="text-xs opacity-60">A caught perpetrator languishes, then faces the 2d6 Crime &amp; Punishment roll — the boss pays the fine (RR pp.367–368).</p>
+            <template x-for="t in synCaughtTrials()" :key="t.id">
+              <div class="border border-ink/40 rounded p-2 flex flex-wrap items-end gap-2 text-sm">
+                <div class="flex-1 min-w-[12rem]">
+                  <span class="font-semibold" x-text="t.perpName"></span>
+                  <span class="text-xs opacity-70" x-text="' · ' + t.icon + ' ' + t.typeLabel + ' · charged with ' + t.crime + ' (severity ' + (t.severity>=0?'+':'') + t.severity + ')' + (t.bossName ? ' · boss ' + t.bossName + ' pays' : '')"></span>
+                </div>
+                <label class="block text-xs">Plea
+                  <select class="border border-ink rounded px-1 py-0.5 ml-1 text-xs" :value="_synTrialDraft(t.id).plea" @change="_synTrialDraft(t.id).plea = $event.target.value">
+                    <option value="guilty">Plead guilty</option>
+                    <option value="trial">Stand trial</option>
+                  </select>
+                </label>
+                <label class="block text-xs" x-show="_synTrialDraft(t.id).plea === 'guilty'">Priors
+                  <input type="number" min="0" max="2" class="w-12 border border-ink rounded px-1 py-0.5 ml-1" :value="_synTrialDraft(t.id).priorOffenses" @input="_synTrialDraft(t.id).priorOffenses = $event.target.value" title="0 = first catch (lesser) · 1 = second (standard) · 2+ must stand trial">
+                </label>
+                <label class="block text-xs" x-show="_synTrialDraft(t.id).plea === 'trial'">GM mod
+                  <input type="number" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synTrialDraft(t.id).gmModifier" @input="_synTrialDraft(t.id).gmModifier = $event.target.value" title="Evidence / attorney / interpleader / bribes (RR p.368)">
+                </label>
+                <button @click="synResolveTrial(t.id)" class="px-2 py-0.5 border border-ink rounded text-xs font-semibold bg-red-100 hover:bg-red-200">⚖ Resolve trial</button>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- the verdict log -->
+        <template x-if="synTriedRows().length">
+          <div class="vellum border border-ink rounded p-4">
+            <h3 class="font-semibold mb-2">Verdicts <span class="opacity-60 font-normal text-sm" x-text="'(' + synTriedRows().length + ')'"></span></h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/40 text-xs uppercase tracking-wide opacity-70">
+                <th class="py-1">Perpetrator</th><th>Crime</th><th>Verdict</th><th>Consequence</th></tr></thead>
+              <tbody>
+                <template x-for="v in synTriedRows()" :key="v.id">
+                  <tr class="border-b border-dashed border-gray-300">
+                    <td class="py-1" x-text="v.perpName"></td>
+                    <td x-text="v.crime"></td>
+                    <td><span class="px-1 rounded text-xs font-semibold" :class="v.acquitted ? 'bg-green-200' : 'bg-red-200 text-red-900'" x-text="v.label"></span></td>
+                    <td class="opacity-80 text-xs" x-text="(v.acquitted ? (v.damagesGp ? ('+' + v.damagesGp.toLocaleString() + 'gp damages') : 'acquitted') : ((v.fineGp ? ('fined ' + v.fineGp.toLocaleString() + 'gp' + (v.indentureGp ? (' · ' + v.indentureGp.toLocaleString() + 'gp indentured') : '')) : '') + (v.physical ? ((v.fineGp?' · ':'') + v.physical) : ''))) || '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <!-- ════ end Hijinks HJ-2 Trials ════ -->
 
         <!-- ── RAW reference (collapsible) ──────────────────────────────── -->
         <div class="vellum border border-ink rounded p-4">
@@ -8883,6 +9141,47 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Delves D1 (agent-2, burst3 2026-06-13) — Wounds readout. The Mortal Wounds table
+             (RR pp.300–301 + Appendix C pp.517–523). Visible for ANY character; the standing
+             wound penalty already shows in the Loyalty Ledger above. Bed rest advances on the
+             Day Clock (the slot-58 convalescence consumer). The ⚔ button opens the GM modal. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Wounds <span class="text-sm font-normal opacity-60">(RR pp.300–301)</span></h4>
+              <button @click="openRecordWoundModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Record a Mortal Wound (RR p.300)">⚔ Record a wound</button>
+            </div>
+            <template x-if="characterEditing.lifecycleState === 'incapacitated'">
+              <p class="text-sm accent-red font-semibold mb-1" x-text="'🛌 Incapacitated — ' + woundConvalescenceDays(characterEditing) + ' day(s) of bed rest left (advance the Day Clock to recover)'"></p>
+            </template>
+            <template x-if="characterEditing.lifecycleState === 'deceased'">
+              <p class="text-sm accent-red font-semibold mb-1">☠ Slain.</p>
+            </template>
+            <template x-if="(characterEditing.mortalWounds||[]).length === 0">
+              <p class="text-sm italic opacity-60">No wounds recorded.</p>
+            </template>
+            <ul class="space-y-1 text-sm" x-show="(characterEditing.mortalWounds||[]).length">
+              <template x-for="(w, wi) in (characterEditing.mortalWounds||[])" :key="wi">
+                <li class="flex items-start gap-2 py-0.5 border-b border-ink/10">
+                  <span class="text-base leading-tight" x-text="w.outcome === 'killed' ? '☠' : (w.resolved ? '✓' : '🛌')"></span>
+                  <span class="flex-1">
+                    <span class="font-semibold" x-text="w.conditionLabel || w.condition"></span>
+                    <span class="opacity-60" x-text="' · ' + (w.damageType||'savage') + (w.tampering ? ' (tampering)' : '')"></span>
+                    <template x-if="w.permanentWound"><span class="block text-xs accent-red" x-text="'⚑ ' + w.permanentWound"></span></template>
+                    <template x-if="!w.resolved && w.outcome !== 'killed' && (w.bedRestDaysRemaining||0) > 0">
+                      <span class="block text-xs opacity-70" x-text="'bed rest: ' + w.bedRestDaysRemaining + ' / ' + w.bedRestDays + ' day(s) left'"></span>
+                    </template>
+                    <template x-if="w.outcome !== 'killed' && w.needsEmergencyHealing && !w.healedToOneHp && !w.resolved">
+                      <span class="block text-xs accent-red">⚠ died in the window (not healed to 1 hp in time)</span>
+                    </template>
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p class="text-xs italic opacity-60 mt-2">A lasting wound also carries a standing loyalty penalty (the ledger above). Bed rest advances on the Day Clock.</p>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -10958,7 +11257,352 @@ document.addEventListener('alpine:init', () => {
   </div>
   </template>
 </div>
-<!-- ── agent-5 (Hijinks HJ-1): any hijink modal goes below (the sub-view itself is the existing Activities▸Hijinks placeholder) ── -->
+<!-- ════ TEAM SESSION (burst3 2026-06-13) — per-agent NEW top-level HTML (panels / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
+<!-- ── agent-1 (Military W6 Sieges): your siege panel / siege-resolution modal goes below ── -->
+<!-- Phase 3 Military W6 — Sieges (RR pp.473–485). A sibling of 📋 Review ▸ 🎌 Battles: the
+     simplified resolver (the Duration-of-Siege table) is the default; blockade / reduction /
+     assault are the per-instance detail; an assault hands off to the W3 battle engine. -->
+<div x-show="currentView === 'review' && reviewSubView === 'sieges'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🏯 Sieges <span class="text-sm opacity-70 font-normal" x-text="'· ' + activeSiegesFiltered().length + ' under way · ' + pastSiegesFiltered().length + ' past'"></span></h3>
+      <div class="flex gap-2 items-baseline">
+        <input type="text" x-model="siegesSearch" placeholder="Search name, hex…" class="w-48 text-sm">
+        <button @click="siegeWizard ? closeSiegeWizard() : openSiegeWizard()" class="px-2 py-1 rounded border border-ink text-sm font-semibold" x-text="siegeWizard ? '✕ close launcher' : '🏯 New siege'"></button>
+      </div>
+    </div>
+    <p class="text-xs opacity-60 mb-3">An army invests a garrisoned stronghold or urban settlement. By default the siege resolves <em>simplified</em> — the Duration-of-Siege table (shp × the besieger's unit advantage → days to capture). Switch to <em>detailed</em> for blockade, bombardment, and assault (RR pp.473–485).</p>
+
+    <!-- The launcher — besieger army vs the besieged domain. -->
+    <div x-show="siegeWizard" class="border-2 rounded p-3 mb-3" style="background:#f3ead8; border-color:#5a3a1f" x-cloak>
+      <template x-if="siegeWizard">
+        <div>
+          <p class="font-bold text-sm mb-2">🏯 Lay a siege</p>
+          <template x-if="!siegeArmyOptions().length">
+            <p class="text-sm italic accent-red">No armies yet — muster one first (a character's Retainers tab, a domain's Military tab, or Characters ▸ Parties).</p>
+          </template>
+          <template x-if="siegeArmyOptions().length">
+            <div>
+              <div class="grid md:grid-cols-2 gap-3 text-sm">
+                <label class="block"><span class="font-semibold">Besieging army</span>
+                  <select x-model="siegeWizard.besiegerArmyId" class="w-full text-sm">
+                    <template x-for="a in siegeArmyOptions()" :key="'swa-'+a.id"><option :value="a.id" x-text="(a.name||a.id)"></option></template>
+                  </select></label>
+                <label class="block"><span class="font-semibold">Besieged domain (its garrison + stronghold)</span>
+                  <select x-model="siegeWizard.defenderDomainId" class="w-full text-sm">
+                    <template x-for="d in siegeDefenderOptions()" :key="'swd-'+d.id"><option :value="d.id" x-text="(d.name||d.id) + (d.strongholdGp>0 ? (' — stronghold '+d.strongholdGp.toLocaleString()+'gp') : ' — no stronghold')"></option></template>
+                  </select></label>
+              </div>
+              <div class="grid md:grid-cols-4 gap-3 text-sm mt-2">
+                <label class="block">Material
+                  <select x-model="siegeWizard.material" class="w-full text-sm"><option value="stone">Stone</option><option value="wood">Wooden (⅒ shp)</option></select></label>
+                <label class="block">Site (RR p.485)
+                  <select x-model="siegeWizard.siteType" class="w-full text-sm">
+                    <option value="normal">Normal (×1)</option><option value="riverbank">Riverbank (×2)</option><option value="peninsula">Peninsula (×3)</option><option value="island">Island (×4)</option><option value="mountain">Mountain (×5)</option>
+                  </select></label>
+                <label class="block">Resolution
+                  <select x-model="siegeWizard.resolutionMode" class="w-full text-sm"><option value="simplified">Simplified (the table)</option><option value="detailed">Detailed</option></select></label>
+                <label class="block">Name (optional)
+                  <input type="text" x-model="siegeWizard.name" class="w-full text-sm" placeholder="auto"></label>
+              </div>
+              <div class="grid md:grid-cols-2 gap-3 text-xs mt-2 opacity-80">
+                <label class="block">Stronghold shp override (blank = estimate from the gp value)
+                  <input type="number" x-model="siegeWizard.shpOverride" class="w-full text-sm" placeholder="estimate"></label>
+                <label class="block">Unit capacity override (blank = ⌈shp / 1000⌉)
+                  <input type="number" x-model="siegeWizard.unitCapacityOverride" class="w-full text-sm" placeholder="estimate"></label>
+              </div>
+              <!-- live preview -->
+              <template x-if="siegeWizardPreview()">
+                <div class="mt-2 p-2 rounded border border-ink/40 bg-white/50 text-sm">
+                  <span class="font-semibold" x-text="siegeWizardPreview().shp.toLocaleString() + ' shp'"></span>,
+                  capacity <span x-text="siegeWizardPreview().cap"></span> ·
+                  unit advantage <span class="font-semibold" x-text="(siegeWizardPreview().advantage>=0?'+':'') + siegeWizardPreview().advantage"></span>
+                  <span class="opacity-60 text-xs" x-text="'('+siegeWizardPreview().besiegerUnits+' besieger − '+siegeWizardPreview().defenderUnits+' defender)'"></span>
+                  →
+                  <template x-if="siegeWizardPreview().dur.tooWeak"><span class="accent-red font-semibold">too weak to storm it — blockade only</span></template>
+                  <template x-if="siegeWizardPreview().dur.immediate"><span class="accent-green font-semibold">it falls at once</span></template>
+                  <template x-if="siegeWizardPreview().dur.days != null && siegeWizardPreview().dur.days > 0"><span class="font-semibold" x-text="'~'+siegeWizardPreview().dur.days+' days to capture' + (siegeWizardPreview().dur.siteModifier>1 ? (' (×'+siegeWizardPreview().dur.siteModifier+' site)') : '')"></span></template>
+                </div>
+              </template>
+              <div class="mt-2 text-right">
+                <button @click="siegeWizardCreate()" class="px-3 py-1 rounded border-2 font-bold text-sm" style="border-color:#5a3a1f; color:#5a3a1f" :disabled="!siegeWizard.besiegerArmyId || !siegeWizard.defenderDomainId">🏯 Lay the siege</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <template x-if="allSieges().length === 0 && !siegeWizard">
+      <p class="text-sm italic opacity-60 py-6 text-center">No sieges yet. Send an army against a garrisoned stronghold and lay siege with 🏯 New siege.</p>
+    </template>
+
+    <template x-if="activeSiegesFiltered().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th></th><th>Siege</th><th>Stronghold</th><th>Besieger</th><th>Hex</th><th>Progress</th><th class="text-right">Actions</th></tr></thead>
+        <tbody>
+          <template x-for="s in activeSiegesFiltered()" :key="s.id">
+            <tr>
+              <td x-text="siegeProgressFor(s) && siegeProgressFor(s).captureReady ? '🚩' : (siegeProgressFor(s) && siegeProgressFor(s).status==='blockade-only' ? '⛓' : '🏯')"></td>
+              <td><button @click="openSiegePanel(s.id)" class="underline font-semibold text-left" x-text="s.name"></button></td>
+              <td x-text="siegeDefenderName(s)"></td>
+              <td x-text="siegeBesiegerName(s)"></td>
+              <td class="text-xs" x-text="siegeHexLabel(s)"></td>
+              <td class="text-xs" x-text="siegeProgressFor(s) ? (siegeProgressFor(s).captureReady ? 'Ready to fall (day '+siegeProgressFor(s).daysElapsed+')' : (siegeProgressFor(s).tooWeak ? 'Blockade only' : ('Day '+siegeProgressFor(s).daysElapsed+(siegeProgressFor(s).daysRequired!=null?(' of '+siegeProgressFor(s).daysRequired):'')))) : ''"></td>
+              <td class="text-right"><button @click="openSiegePanel(s.id)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100">Open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+
+    <template x-if="pastSiegesFiltered().length > 0">
+      <div class="mt-4">
+        <p class="text-sm font-semibold opacity-70 mb-1">Past sieges</p>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th>Siege</th><th>Outcome</th><th>Besieger</th><th>Stronghold</th></tr></thead>
+          <tbody>
+            <template x-for="s in pastSiegesFiltered()" :key="s.id">
+              <tr>
+                <td><button @click="openSiegePanel(s.id)" class="underline text-left" x-text="s.name"></button></td>
+                <td class="capitalize" x-text="(s.resolution && s.resolution.outcome) || 'ended'"></td>
+                <td x-text="siegeBesiegerName(s)"></td>
+                <td x-text="siegeDefenderName(s)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Siege detail / resolution modal (the "panel"). The body is x-if-guarded so it fully
+     unmounts on close — no expression evaluates against a null siege (the W3 modal-teardown
+     lesson). z-76 (the battle-panel layer; the two flows never stack). -->
+<div x-show="siegePanelOpen" @keydown.escape.window="if(siegePanelOpen && !$event.defaultPrevented){ closeSiegePanel(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSiegePanel()">
+  <div class="vellum border-2 border-ink rounded-lg shadow-xl w-full max-w-3xl my-6" style="background:#f7f0e0">
+    <template x-if="currentSiege()">
+      <div class="p-4">
+        <!-- header -->
+        <div class="flex justify-between items-start gap-3 mb-2 pb-2 border-b border-ink/30">
+          <div>
+            <h3 class="font-bold text-lg">🏯 <span x-text="currentSiege().name"></span></h3>
+            <p class="text-sm opacity-80">
+              <span x-text="siegeBesiegerName(currentSiege())"></span> besieges <span class="font-semibold" x-text="siegeDefenderName(currentSiege())"></span>
+              · <span x-text="siegeHexLabel(currentSiege())"></span>
+              · <span class="capitalize" x-text="currentSiege().resolutionMode"></span>
+            </p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="px-2 py-0.5 rounded border text-xs font-bold uppercase" :class="currentSiege().status==='resolved' ? 'border-ink/50' : (siegePanelProgress() && siegePanelProgress().captureReady ? 'border-red-700 text-red-700' : 'border-ink/50')" x-text="currentSiege().status==='resolved' ? ('resolved — '+((currentSiege().resolution&&currentSiege().resolution.outcome)||'ended')) : (siegePanelProgress() && siegePanelProgress().captureReady ? 'ready to fall' : 'investing')"></span>
+            <button @click="inspectorOpen && inspectorOpen('siege', currentSiege().id)" class="text-xs underline opacity-70">Inspector</button>
+            <button @click="closeSiegePanel()" class="text-lg leading-none opacity-60 hover:opacity-100">✕</button>
+          </div>
+        </div>
+
+        <template x-if="siegePanelProgress()">
+          <div>
+            <!-- capture-ready banner -->
+            <template x-if="siegePanelProgress().captureReady && currentSiege().status!=='resolved'">
+              <div class="mb-3 p-2 rounded border-2 text-sm font-semibold" style="border-color:#7a1f1f; background:#f6e3e3; color:#7a1f1f">🚩 The stronghold's defenses are spent — the besieger may take it. Resolve the siege below (or storm it with an assault).</div>
+            </template>
+
+            <!-- profile grid -->
+            <div class="grid md:grid-cols-3 gap-3 text-sm mb-3">
+              <div class="border border-ink/30 rounded p-2 bg-white/40">
+                <p class="font-semibold text-xs uppercase opacity-60 mb-1">Stronghold</p>
+                <p><span class="capitalize" x-text="siegePanelProgress().stronghold.material"></span>, <span x-text="siegePanelProgress().stronghold.shpRemaining.toLocaleString()"></span> / <span x-text="siegePanelProgress().stronghold.strongholdShp.toLocaleString()"></span> shp</p>
+                <p x-text="siegePanelProgress().stronghold.breaches + ' breach' + (siegePanelProgress().stronghold.breaches===1?'':'es') + ' · capacity ' + siegePanelProgress().stronghold.unitCapacity"></p>
+                <p class="text-xs opacity-70 capitalize" x-text="siegePanelProgress().stronghold.siteType + (siegePanelProgress().stronghold.siteModifier>1 ? (' (×'+siegePanelProgress().stronghold.siteModifier+')') : '')"></p>
+              </div>
+              <div class="border border-ink/30 rounded p-2 bg-white/40">
+                <p class="font-semibold text-xs uppercase opacity-60 mb-1">Forces</p>
+                <p>Besieger <span class="font-semibold" x-text="siegePanelProgress().besiegerUnits + ' units'"></span><span x-show="siegePanelProgress().besiegerBonus" x-text="' + '+siegePanelProgress().besiegerBonus+' siege'"></span></p>
+                <p>Defender <span class="font-semibold" x-text="siegePanelProgress().defenderUnits + ' units'"></span><span x-show="siegePanelProgress().defenderBonus" x-text="' + '+siegePanelProgress().defenderBonus+' siege'"></span></p>
+                <p>Unit advantage <span class="font-semibold" x-text="(siegePanelProgress().unitAdvantage>=0?'+':'')+siegePanelProgress().unitAdvantage"></span></p>
+              </div>
+              <div class="border border-ink/30 rounded p-2 bg-white/40">
+                <p class="font-semibold text-xs uppercase opacity-60 mb-1">Simplified clock</p>
+                <template x-if="siegePanelProgress().tooWeak"><p class="accent-red font-semibold">Too weak — blockade only</p></template>
+                <template x-if="!siegePanelProgress().tooWeak">
+                  <div>
+                    <p x-text="'Day ' + siegePanelProgress().daysElapsed + (siegePanelProgress().daysRequired!=null ? (' of ' + siegePanelProgress().daysRequired) : '')"></p>
+                    <p class="text-xs opacity-70" x-show="siegePanelProgress().daysRemaining!=null" x-text="siegePanelProgress().daysRemaining + ' days remaining'"></p>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- method controls (active sieges only) -->
+            <template x-if="currentSiege().status!=='resolved'">
+              <div class="space-y-3">
+                <!-- blockade -->
+                <div class="border border-ink/30 rounded p-2">
+                  <p class="font-semibold text-sm mb-1">⛓ Blockade</p>
+                  <template x-if="siegePanelProgress().supplies">
+                    <p class="text-xs mb-1" x-text="'Stored supplies ' + siegePanelProgress().supplies.storedGp.toLocaleString() + 'gp · ' + (isFinite(siegePanelProgress().supplies.weeksOfSupply) ? ('~'+Math.floor(siegePanelProgress().supplies.weeksOfSupply)+' weeks (week '+siegePanelProgress().supplies.weeksElapsed+')') : 'indefinite') + (siegePanelProgress().supplies.exhausted ? ' — EXHAUSTED' : '') + (siegePanelProgress().supplies.fullyEncircled ? ' · fully encircled' : '')"></p>
+                  </template>
+                  <div class="flex flex-wrap items-end gap-2 text-xs">
+                    <label class="block">Circumvallation (ft)<input type="number" x-model="siegeBlockadeFeet" class="w-24 text-sm block" min="0"></label>
+                    <label class="block">Weeks of warning<input type="number" x-model="siegeBlockadeWeeks" class="w-20 text-sm block" min="0"></label>
+                    <button @click="siegeEstablishBlockade(currentSiege())" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100" x-text="currentSiege().blockade && currentSiege().blockade.inPlace ? 'Update blockade' : 'Establish blockade'"></button>
+                  </div>
+                </div>
+                <!-- reduction: siege train + bombard -->
+                <div class="border border-ink/30 rounded p-2">
+                  <p class="font-semibold text-sm mb-1">🎯 Reduction — siege train <span class="opacity-60 font-normal text-xs" x-text="'(+'+siegeArtilleryBonus(currentSiege())+' bonus units; '+window.ACKS.bombardmentPerDay(currentSiege().besiegerArtillery, siegePanelProgress().stronghold.material).toLocaleString()+' shp/day)'"></span></p>
+                  <div class="grid grid-cols-3 gap-1 text-xs mb-2">
+                    <template x-for="row in siegeArtilleryRows()" :key="'art-'+row.key">
+                      <label class="flex items-center justify-between gap-1"><span x-text="row.label"></span>
+                        <input type="number" min="0" class="w-14 text-sm" :value="(currentSiege().besiegerArtillery && currentSiege().besiegerArtillery[row.key]) || 0" @change="siegeSetArtillery(currentSiege(), row.key, $event.target.value)"></label>
+                    </template>
+                  </div>
+                  <div class="flex items-end gap-2 text-xs">
+                    <label class="block">Days<input type="number" x-model="siegeBombardDays" class="w-16 text-sm block" min="1"></label>
+                    <button @click="siegeBombard(currentSiege())" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">🎯 Bombard</button>
+                    <span class="opacity-60" x-text="'damage ' + siegePanelProgress().stronghold.shpDamage.toLocaleString() + ' shp'"></span>
+                  </div>
+                </div>
+                <!-- assault + resolution -->
+                <div class="border border-ink/30 rounded p-2">
+                  <p class="font-semibold text-sm mb-1">⚔ Assault &amp; resolution</p>
+                  <template x-if="currentSiege().assaultBattleId">
+                    <p class="text-xs mb-1">An assault is in motion — resolve it in <button @click="closeSiegePanel(); goToReview && goToReview('battles')" class="underline font-semibold">🎌 Battles</button>, then capture the stronghold.</p>
+                  </template>
+                  <div class="flex flex-wrap gap-2">
+                    <button @click="siegeLaunchAssault(currentSiege())" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">⚔ Launch assault (→ battle)</button>
+                    <button @click="siegeResolve(currentSiege(),'captured')" class="px-2 py-1 border-2 rounded text-xs font-semibold" style="border-color:#2f5a2f;color:#2f5a2f">🏯 Capture</button>
+                    <button @click="siegeResolve(currentSiege(),'destroyed')" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">💥 Destroy (rubble)</button>
+                    <button @click="siegeResolve(currentSiege(),'surrendered')" class="px-2 py-1 border border-ink rounded text-xs hover:bg-yellow-100">🏳 Surrender</button>
+                    <button @click="siegeResolve(currentSiege(),'lifted')" class="px-2 py-1 border-2 rounded text-xs" style="border-color:#7a1f1f;color:#7a1f1f">↩ Lift (withdraw)</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- history -->
+            <template x-if="(currentSiege().history||[]).length">
+              <div class="mt-3">
+                <p class="font-semibold text-xs uppercase opacity-60 mb-1">History</p>
+                <ul class="text-xs space-y-0.5 max-h-40 overflow-y-auto">
+                  <template x-for="(h,i) in currentSiege().history" :key="'sh-'+i">
+                    <li class="opacity-80" x-text="'· ' + (h.narrative || h.type)"></li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+</div>
+<!-- ── agent-2 (Delves D1 Mortal Wounds): your record-wound modal goes below (the wounds readout extends the character sheet in place) ── -->
+<!-- Record-a-wound modal — the manual GM Mortal Wounds resolver (RR pp.300–301 + Appendix C
+     pp.517–523). Opened from the character-sheet Wounds readout (stats tab). z-index:79 (above
+     the character editor, like the proficiency-throw modal opened from the same sheet). -->
+<div x-show="recordWound.open" @keydown.escape.window="if(recordWound.open && !$event.defaultPrevented){ closeRecordWoundModal(); $event.preventDefault() }"
+     class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecordWoundModal()">
+  <template x-if="recordWound.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">⚔ Record a Mortal Wound <span class="text-sm font-normal opacity-70">· RR pp.300–301</span></h2>
+      <button @click="closeRecordWoundModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- character snapshot + auto modifiers -->
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="recordWound.charName || '(no character)'"></span>
+        <span class="opacity-70" x-text="' · ' + (recordWound.charClass || '—') + ' L' + (recordWound.charLevel || 1)"></span>
+        <span class="opacity-70" x-text="' · CON ' + (recordWound.conMod>=0?'+':'') + recordWound.conMod + (recordWound.hitDieType ? (' · HD ' + recordWound.hitDieType + ' (+' + recordWound.hdBonus + ')') : '')"></span>
+      </div>
+
+      <!-- damage type -->
+      <label class="block text-sm">Damage type
+        <select x-model="recordWound.damageType" @change="recordWound.result=null" class="w-full text-sm">
+          <template x-for="dt in woundDamageTypes()" :key="dt"><option :value="dt" x-text="dt + (dt==='savage' ? ' (natural weapons — abstract default)' : '')"></option></template>
+        </select>
+      </label>
+
+      <!-- modifiers / mode -->
+      <div class="space-y-1.5 text-sm">
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="recordWound.abstract" @change="recordWound.result=null"> Abstract — Constitution, Hit Dice & helm only <span class="opacity-60">(JJ p.276)</span></label>
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="recordWound.heavyHelm" @change="recordWound.result=null"> Heavy helm <span class="opacity-60">(+2)</span></label>
+        <template x-if="!recordWound.abstract">
+          <div class="space-y-1.5 pl-4 border-l border-ink/20">
+            <label class="flex items-center gap-1">Treatment timing
+              <select x-model="recordWound.treatmentTiming" @change="recordWound.result=null" class="text-sm flex-1">
+                <option value="">— none —</option>
+                <template x-for="t in woundTimingOptions()" :key="t.key"><option :value="t.key" x-text="t.label"></option></template>
+              </select>
+            </label>
+            <label class="flex items-center gap-1">Healing magic level applied <span class="opacity-60">(+1/level)</span>
+              <input type="number" min="0" x-model.number="recordWound.healingMagicLevel" @input="recordWound.result=null" class="w-16 text-sm">
+            </label>
+          </div>
+        </template>
+        <label class="flex items-center gap-1 pt-1"><input type="checkbox" x-model="recordWound.pickBand" @change="recordWound.result=null"> Set the condition directly <span class="opacity-60">(skip the d20)</span></label>
+        <template x-if="recordWound.pickBand">
+          <select x-model="recordWound.conditionId" @change="recordWound.result=null" class="w-full text-sm">
+            <template x-for="b in woundConditions()" :key="b.id"><option :value="b.id" x-text="b.label"></option></template>
+          </select>
+        </template>
+      </div>
+
+      <!-- roll -->
+      <div class="flex gap-2 items-center">
+        <button @click="recordWoundRoll()" class="px-4 py-2 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400"
+                x-text="recordWound.result ? '🎲 Re-roll' : '🎲 Roll 1d20 + 1d6'"></button>
+      </div>
+
+      <!-- result -->
+      <template x-if="recordWound.result">
+        <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+          <div class="text-sm font-mono" x-show="!recordWound.pickBand"
+               x-text="'1d20 ' + recordWound.result.d20 + (recordWound.result.modifierTotal ? (' ' + (recordWound.result.modifierTotal>=0?'+':'') + recordWound.result.modifierTotal) : '') + ' = ' + recordWound.result.modified"></div>
+          <div>
+            <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
+                  :style="recordWound.result.killed ? 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
+                  x-text="recordWound.result.conditionLabel"></span>
+            <span class="ml-2 text-xs opacity-70" x-text="recordWound.result.cite"></span>
+          </div>
+          <template x-if="recordWound.result.healToOneHpWindow">
+            <p class="text-sm accent-red" x-text="'Dies unless healed to 1 hp within ' + recordWound.result.healToOneHpWindow + '; if healed, ' + recordWound.result.bedRestLabel + ' of bed rest.'"></p>
+          </template>
+          <template x-if="!recordWound.result.killed && recordWound.result.recoversAutomatically">
+            <p class="text-sm" x-text="'Recovers with 1 hp · ' + recordWound.result.bedRestLabel + ' of bed rest' + (recordWound.result.magicalShortensToDays!=null ? (' (' + recordWound.result.magicalShortensToDays + ' day with magical healing)') : '') + '.'"></p>
+          </template>
+          <template x-if="recordWound.result.permanentWound">
+            <p class="text-sm" x-text="'⚑ Permanent wound (1d6 ' + recordWound.result.d6 + '): ' + recordWound.result.permanentWound.effect"></p>
+          </template>
+          <!-- emergency-healing decision for the 1–15 bands -->
+          <template x-if="!recordWound.result.killed && recordWound.result.healToOneHpWindow">
+            <label class="text-sm flex items-center gap-1 pt-1"><input type="checkbox" x-model="recordWound.healedToOneHp"> Healed to 1 hp within the window (else dies)</label>
+          </template>
+          <!-- magical-healing shortcut for the 16+ bands -->
+          <template x-if="!recordWound.result.killed && recordWound.result.recoversAutomatically && recordWound.result.magicalShortensToDays!=null">
+            <label class="text-sm flex items-center gap-1 pt-1"><input type="checkbox" x-model="recordWound.magicalHealing"> Magical healing applied (shortens bed rest)</label>
+          </template>
+        </div>
+      </template>
+
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Applies the wound, the bed-rest clock, and the standing loyalty penalty.</span>
+        <div class="flex gap-2">
+          <button @click="closeRecordWoundModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+          <button @click="recordWoundApply()" :disabled="!recordWound.result"
+                  :class="recordWound.result ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                  class="px-4 py-1.5 border-2 border-ink rounded font-semibold">Apply wound</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- ── agent-3 (Hex Scales HW-4): the scale-switcher extends the World▸Map render in place — usually nothing here ── -->
+<!-- ── agent-4 (DC-3): extends the domain panel in place — usually nothing here ── -->
+<!-- ── agent-5 (Hijinks HJ-2): your syndicate modal goes below (the sub-view itself is the existing Activities▸Hijinks) ── -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -14306,15 +14950,17 @@ return {
   // in motion. The same numbers the top-tab badge sums.
   get reviewSubTabs(){
     const c = this.currentCampaign;
-    let due = 0, enc = 0, btl = 0;
+    let due = 0, enc = 0, btl = 0, sie = 0;
     try { due = c ? (window.ACKS.eventsTargetingTurn(c, c.currentTurn || 1) || []).length : 0; } catch(e){}
     try { enc = (window.ACKS.activeEncounters(c) || []).length; } catch(e){}
     try { btl = (window.ACKS.activeBattles(c) || []).length; } catch(e){}
+    try { sie = (window.ACKS.activeSieges(c) || []).length; } catch(e){}   // Military W6 (burst3)
     return [
       { id:'pending-events', label:'📥 Pending Events', count: (due + (this.dayTickProposal ? 1 : 0)) || null },
       { id:'domain-review',  label:'🏰 Domain Review',  count: this.turnProposal ? 1 : null },
       { id:'encounters',     label:'⚔ Encounters',      count: enc || null },
-      { id:'battles',        label:'🎌 Battles',        count: btl || null }
+      { id:'battles',        label:'🎌 Battles',        count: btl || null },
+      { id:'sieges',         label:'🏯 Sieges',         count: sie || null }
     ];
   },
 
@@ -19016,8 +19662,12 @@ return {
   mapHexEntries(){
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const out = [], seen = new Set();
+    // HW-4 (team agent-3): the 6-mile (regional) view shows REGIONAL hexes only. Continental (24-mile)
+    // aggregation cells render via mapContinentalMarkup; the local (1.5-mile) tier is a drill-down (HW-5).
+    // hexScaleOf defaults to 'regional' for any unset/legacy hex, so existing campaigns are unchanged.
+    const isRegional = h => !A.hexScaleOf || A.hexScaleOf(h) === 'regional';
     this.allHexes().forEach(e => {
-      const h = e.hex; if(!h || !h.coord) return;
+      const h = e.hex; if(!h || !h.coord || !isRegional(h)) return;
       seen.add(h.id);
       const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
       out.push({ hex:h, domainId:e.domainId, domainName:e.domainName, hexIndex:e.hexIndex,
@@ -19025,7 +19675,7 @@ return {
                  label:A.hexDisplayLabel(h.coord.q, h.coord.r), domainless:false });
     });
     (this.currentCampaign?.hexes||[]).forEach(h => {
-      if(!h || !h.coord || seen.has(h.id)) return;
+      if(!h || !h.coord || seen.has(h.id) || !isRegional(h)) return;
       const c = A.hexAxialToPixel(h.coord.q, h.coord.r, size);
       out.push({ hex:h, domainId:h.domainId||null, domainName:null, hexIndex:-1,
                  cx:c.x, cy:c.y, points:A.hexPolygonPoints(h.coord.q, h.coord.r, size),
@@ -19061,6 +19711,9 @@ return {
   // when the hex set or active fill layer changes (both read here). Each polygon carries
   // data-hex-id so the delegated click handler (mapSvgClick) can resolve which hex was clicked.
   mapSvgMarkup(){
+    // HW-4 (team agent-3): at the continental (24-mile) scale the map renders the aggregated region
+    // cells, not the 6-mile hexes. Branch out before the regional render. (Local 1.5-mi = HW-5.)
+    if(this.mapScale === 'continental') return this.mapContinentalMarkup();
     const size = this.MAP_HEX_SIZE, A = window.ACKS;
     const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const entries = this.mapHexEntries();
@@ -19469,6 +20122,13 @@ return {
   // Delegated click on the SVG → resolve the clicked hex via its data-hex-id, then dispatch
   // (mapClickHex owns the drag-suppression + inspect/select mode handling).
   mapSvgClick(e){
+    // HW-4 (team agent-3): a click on a continental cell DRILLS DOWN to the regional scale, framed
+    // on that region's ~16 children (the §7.2 interlace). Cell polygons carry data-cont-key.
+    if(this.mapScale === 'continental'){
+      const cc = (e.target && e.target.closest) ? e.target.closest('[data-cont-key]') : null;
+      if(cc){ if(this._mapDragged){ this._mapDragged = false; return; } this.mapContinentalDrill(cc.getAttribute('data-cont-key')); }
+      return;
+    }
     const el = (e.target && e.target.closest) ? e.target.closest('[data-hex-id],[data-empty-q]') : null;
     if(!el) return;
     if(el.hasAttribute('data-empty-q')){
@@ -19484,6 +20144,16 @@ return {
   // on campaign load, and by the "Fit" button.
   mapResetView(){
     const A = window.ACKS;
+    // HW-4 (team agent-3): at continental scale, fit to the 24-mile cells (drawn at 4× hex size, so
+    // a cell overlays its children's centroid — the §7.2 interlace; the same viewBox space as regional).
+    if(this.mapScale === 'continental'){
+      const contSize = this.MAP_HEX_SIZE * this.MAP_CONTINENTAL_FACTOR;
+      const b = A.hexMapBounds(this.mapContinentalCells(), contSize, contSize * 1.0);
+      if(!b){ const s = contSize; this.mapViewBox = { x:-s*2, y:-s*2, w:s*4, h:s*4 }; }
+      else  { this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+      this.schedulePersist();
+      return;
+    }
     const hexes = this.mapHexEntries().map(e => e.hex);
     const b = A.hexMapBounds(hexes, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5);
     if(!b){ const s = this.MAP_HEX_SIZE; this.mapViewBox = { x:-s*2, y:-s*2, w:s*4, h:s*4 }; }
@@ -20474,10 +21144,14 @@ return {
       'encounters',
       // === Hijinks HJ-1 (team 2026-06-13) — Phase 2.7 hijink attempts (§8.9 importer mandate)
       'hijinks',
+      // === Hijinks HJ-2 (team 2026-06-13) — Phase 2.7 criminal syndicates (§8.9 importer mandate)
+      'syndicates',
       // Phase 3 Military W1 (2026-06-12) — first-class Units + Armies
       'units', 'armies',
       // Phase 3 Military W3 (2026-06-12) — Battle engagement records
-      'battles'
+      'battles',
+      // Phase 3 Military W6 (2026-06-13, burst3) — Siege records (RR pp.473–485)
+      'sieges'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -22276,6 +22950,331 @@ return {
     const term = ['complete','failed','caught'];
     return (this.currentCampaign?.hijinks||[]).filter(h => h && term.indexOf(h.status) >= 0).map(h => this._hijinkRow(h));
   },
+  // ════ TEAM SESSION (burst3 2026-06-13) — per-agent Alpine state props + methods; add yours after YOUR marker (additive, never reorder); Lead removes this block at integration ════
+  // ── agent-1 (Military W6 Sieges) state + methods ──
+  siegeWizard: null,            // the 🏯 New-siege launcher state
+  siegePanelId: null,           // selected siege id (STAYS set so the modal subtree never tears down against null — the W3 modal-teardown lesson)
+  siegePanelOpen: false,        // modal visibility (x-show); closing flips this, the id persists
+  siegesSearch: '',
+  allSieges(){ return (this.currentCampaign && this.currentCampaign.sieges) || []; },
+  _siegeMatch(s, t){ return !t || (((s.name||'') + ' ' + (s.hexId||'')).toLowerCase().indexOf(t) >= 0); },
+  activeSiegesFiltered(){ const t = (this.siegesSearch||'').toLowerCase(); return this.allSieges().filter(s => s && s.status !== 'resolved' && this._siegeMatch(s, t)); },
+  pastSiegesFiltered(){ const t = (this.siegesSearch||'').toLowerCase(); return this.allSieges().filter(s => s && s.status === 'resolved' && this._siegeMatch(s, t)); },
+  siegeProgressFor(s){ try { return window.ACKS.siegeProgress(this.currentCampaign, s); } catch(e){ return null; } },
+  siegeArmyOptions(){ return ((this.currentCampaign && this.currentCampaign.armies) || []).filter(a => a); },
+  siegeDefenderOptions(){
+    const A = window.ACKS, c = this.currentCampaign;
+    return ((c && c.domains) || []).filter(d => d).map(d => ({ id: d.id, name: d.name || d.id, strongholdGp: (A.strongholdValue ? A.strongholdValue(c, d) : 0) || 0 }));
+  },
+  siegeBesiegerName(s){ const a = window.ACKS.siegeBesiegerArmy(this.currentCampaign, s); return a ? (a.name || a.id) : '—'; },
+  siegeDefenderName(s){ const d = window.ACKS.siegeDefenderDomain(this.currentCampaign, s); return d ? (d.name || d.id) : (s && s.defenderArmyId ? 'a defending army' : '—'); },
+  siegeHexLabel(s){ const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === (s && s.hexId)); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : ((s && s.hexId) || '—'); },
+  // The bombarding / bonus-unit siege engines (RR pp.476 + 485) — the modal's compact siege-train editor.
+  siegeArtilleryRows(){ return [
+    { key:'light-ballista', label:'Light ballista' }, { key:'medium-ballista', label:'Medium ballista' }, { key:'heavy-ballista', label:'Heavy ballista' },
+    { key:'light-catapult', label:'Light catapult' }, { key:'medium-catapult', label:'Medium catapult' }, { key:'heavy-catapult', label:'Heavy catapult' },
+    { key:'light-trebuchet', label:'Light trebuchet' }, { key:'medium-trebuchet', label:'Medium trebuchet' }, { key:'heavy-trebuchet', label:'Heavy trebuchet' }
+  ]; },
+  siegeSetArtillery(s, key, val){
+    if(!s) return; if(!s.besiegerArtillery || typeof s.besiegerArtillery !== 'object') s.besiegerArtillery = {};
+    const n = Math.max(0, parseInt(val, 10) || 0);
+    if(n > 0) s.besiegerArtillery[key] = n; else delete s.besiegerArtillery[key];
+    this.markDirty(); this.schedulePersist();
+  },
+  siegeArtilleryBonus(s){ try { return window.ACKS.artilleryBonusUnits((s && s.besiegerArtillery) || {}); } catch(e){ return 0; } },
+  // ── the launcher ──
+  openSiegeWizard(opts){
+    opts = opts || {}; const armies = this.siegeArmyOptions(), doms = this.siegeDefenderOptions();
+    const firstStronghold = doms.find(d => d.strongholdGp > 0) || doms[0] || {};
+    this.siegeWizard = {
+      besiegerArmyId: opts.besiegerArmyId || (armies[0] && armies[0].id) || '',
+      defenderDomainId: opts.defenderDomainId || firstStronghold.id || '',
+      material: 'stone', siteType: 'normal', resolutionMode: 'simplified',
+      shpOverride: '', unitCapacityOverride: '', name: ''
+    };
+  },
+  closeSiegeWizard(){ this.siegeWizard = null; },
+  siegeWizardPreview(){
+    const w = this.siegeWizard; if(!w || !w.besiegerArmyId || !w.defenderDomainId) return null;
+    try {
+      const A = window.ACKS, c = this.currentCampaign;
+      const dom = (c.domains || []).find(d => d && d.id === w.defenderDomainId);
+      let shp = parseInt(w.shpOverride, 10) || 0;
+      if(shp <= 0 && dom) shp = A.strongholdShpEstimate(A.strongholdValue(c, dom), w.material);
+      const cap = parseInt(w.unitCapacityOverride, 10) || A.unitCapacityEstimate(shp);
+      const tmp = A.blankSiege({ besiegerArmyId: w.besiegerArmyId, defenderDomainId: w.defenderDomainId, stronghold: { material: w.material, strongholdShp: shp, unitCapacity: cap, siteType: w.siteType } });
+      const adv = A.siegeUnitAdvantage(c, tmp);
+      const dur = A.siegeDurationDays(shp, adv, w.siteType);
+      return { shp, cap, advantage: adv, besiegerUnits: A.siegeBesiegerUnitCount(c, tmp), defenderUnits: A.siegeDefenderUnitCount(c, tmp), dur };
+    } catch(e){ return null; }
+  },
+  siegeWizardCreate(){
+    const w = this.siegeWizard; if(!w || !w.besiegerArmyId || !w.defenderDomainId) return;
+    const A = window.ACKS;
+    const spec = { besiegerArmyId: w.besiegerArmyId, defenderDomainId: w.defenderDomainId, material: w.material, siteType: w.siteType, resolutionMode: w.resolutionMode };
+    const nm = (w.name || '').trim(); if(nm) spec.name = nm;
+    if(parseInt(w.shpOverride, 10) > 0) spec.strongholdShp = parseInt(w.shpOverride, 10);
+    if(parseInt(w.unitCapacityOverride, 10) > 0) spec.unitCapacity = parseInt(w.unitCapacityOverride, 10);
+    const res = A.startSiege(this.currentCampaign, spec);
+    if(!res.ok){ this.showToast('Could not lay siege: ' + res.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.siegeWizard = null; this.openSiegePanel(res.siege.id);
+    this.showToast('🏯 Siege laid: ' + res.siege.name);
+  },
+  // ── the detail / resolution modal ──
+  openSiegePanel(id){ this.siegePanelId = id; this.siegePanelOpen = true; this.siegeBlockadeFeet = 0; this.siegeBlockadeWeeks = 0; this.siegeBombardDays = 1; },
+  closeSiegePanel(){ this.siegePanelOpen = false; },   // keep siegePanelId set — no null teardown
+  currentSiege(){ return this.siegePanelId ? window.ACKS.findSiege(this.currentCampaign, this.siegePanelId) : null; },
+  siegePanelProgress(){ const s = this.currentSiege(); return s ? this.siegeProgressFor(s) : null; },
+  siegeBlockadeFeet: 0, siegeBlockadeWeeks: 0, siegeBombardDays: 1,
+  siegeEstablishBlockade(s){
+    if(!s) return;
+    const r = window.ACKS.establishBlockade(this.currentCampaign, s.id, { circumvallationFeet: Math.max(0, parseInt(this.siegeBlockadeFeet, 10) || 0), weeksPrep: Math.max(0, parseInt(this.siegeBlockadeWeeks, 10) || 0) });
+    if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast('Blockade established — supply line cut.'); }
+    else this.showToast('Could not blockade: ' + r.reason, 4000);
+  },
+  siegeBombard(s){
+    if(!s) return;
+    const r = window.ACKS.recordBombardment(this.currentCampaign, s.id, { days: Math.max(1, parseInt(this.siegeBombardDays, 10) || 1) });
+    if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast('🎯 Bombardment — ' + r.breaches + ' breach' + (r.breaches === 1 ? '' : 'es') + (r.reducedToRubble ? '; reduced to rubble' : '') + '.'); }
+    else this.showToast(r.reason === 'no-bombardment' ? 'No bombarding artillery assigned — add catapults / trebuchets in the siege train below.' : 'Could not bombard: ' + r.reason, 4500);
+  },
+  siegeLaunchAssault(s){
+    if(!s) return;
+    const r = window.ACKS.launchSiegeAssault(this.currentCampaign, s.id);
+    if(r.ok){ this.markDirty(); this.schedulePersist(); this.closeSiegePanel(); this.showToast('⚔ Assault joined — resolve it in 🎌 Battles, then capture the stronghold.', 5000); if(this.goToReview) this.goToReview('battles'); }
+    else this.showToast('Could not assault: ' + (r.reason === 'no-battle' ? 'the strategic situation yields no battle' : r.reason), 4500);
+  },
+  siegeResolve(s, outcome){
+    if(!s) return;
+    const r = window.ACKS.resolveSiege(this.currentCampaign, s.id, { outcome });
+    if(r.ok){ this.markDirty(); this.schedulePersist(); this.showToast('🏯 Siege resolved — ' + outcome + '.'); }
+    else this.showToast('Could not resolve: ' + r.reason, 4000);
+  },
+  // ── agent-2 (Delves D1 Mortal Wounds) state + methods ──
+  // The manual GM Record-a-wound modal + the character-sheet Wounds readout. The resolver +
+  // convalescence consumer live in acks-engine-mortal-wounds.js (RR pp.300–301 + Appendix C).
+  recordWound: { open:false, characterId:null, charName:'', charClass:'', charLevel:1, conMod:0, hitDieType:null, hdBonus:0,
+    damageType:'savage', abstract:true, heavyHelm:false, treatmentTiming:'', healingMagicLevel:0,
+    pickBand:false, conditionId:'in-shock', healedToOneHp:true, magicalHealing:false, result:null },
+  openRecordWoundModal(ch){
+    if(!ch) return;
+    const A = window.ACKS;
+    const conMod = (A && A.mortalWoundAbilityMod) ? A.mortalWoundAbilityMod(ch.abilities && ch.abilities.CON) : 0;
+    const hd = ch.hp && ch.hp.hitDice && String(ch.hp.hitDice).match(/d(\d+)/i);
+    const hitDieType = hd ? ('d' + hd[1]) : null;
+    const hdBonus = (hitDieType && A && A.HIT_DIE_VALUE_BONUS) ? (A.HIT_DIE_VALUE_BONUS[hitDieType] || 0) : 0;
+    this.recordWound = {
+      open:true, characterId: ch.id, charName: ch.name, charClass: ch.class || '', charLevel: ch.level || 1,
+      conMod, hitDieType, hdBonus,
+      damageType:'savage', abstract:true, heavyHelm:false, treatmentTiming:'', healingMagicLevel:0,
+      pickBand:false, conditionId:'in-shock', healedToOneHp:true, magicalHealing:false, result:null
+    };
+  },
+  closeRecordWoundModal(){ this.recordWound.open = false; this.recordWound.result = null; },
+  woundDamageTypes(){ return (window.ACKS && window.ACKS.DAMAGE_TYPES) || ['savage']; },
+  woundConditions(){ return ((window.ACKS && window.ACKS.MORTAL_WOUND_CONDITIONS) || []).map(b => ({ id: b.id, label: b.label })); },
+  woundTimingOptions(){ const m = (window.ACKS && window.ACKS.TREATMENT_TIMING_LABELS) || {}; return Object.keys(m).map(k => ({ key: k, label: m[k] })); },
+  woundConvalescenceDays(ch){ const A = window.ACKS; return (A && A.characterConvalescence) ? A.characterConvalescence(ch).daysRemaining : 0; },
+  recordWoundRoll(){
+    const rw = this.recordWound; const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    const ch = (camp.characters || []).find(c => c.id === rw.characterId);
+    if(!ch){ this.showToast('Character not found.'); return; }
+    const opts = { damageType: rw.damageType, abstract: rw.abstract, heavyHelm: rw.heavyHelm };
+    if(!rw.abstract){
+      if(rw.treatmentTiming) opts.treatmentTiming = rw.treatmentTiming;
+      if(rw.healingMagicLevel) opts.healingMagicLevel = Number(rw.healingMagicLevel) || 0;
+    }
+    if(rw.pickBand) opts.conditionId = rw.conditionId;
+    try { rw.result = window.ACKS.rollMortalWound(ch, opts); }
+    catch(e){ this.showToast('Roll failed: ' + e.message); }
+  },
+  recordWoundApply(){
+    const rw = this.recordWound;
+    if(!rw.result){ this.showToast('Roll first, then apply.'); return; }
+    const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    try {
+      const rec = window.ACKS.applyMortalWound(camp, rw.characterId, rw.result, { healedToOneHp: rw.healedToOneHp, magicalHealing: rw.magicalHealing });
+      if(!rec){ this.showToast('Could not apply the wound.'); return; }
+      this.showToast(rec.outcome === 'killed' ? (rw.charName + ' is slain.') : (rw.charName + ' — ' + (rec.conditionLabel || 'wounded') + '.'));
+      this.closeRecordWoundModal();
+    } catch(e){ this.showToast('Apply failed: ' + e.message); }
+  },
+  // ── agent-3 (Hex Scales HW-4) state + methods ──
+  // The active map scale (Phase_2.5_Hex_Scales_and_Weather_Plan §7.2). 'regional' (6-mile) is the
+  // canonical shipped view; 'continental' (24-mile) renders the aggregated region cells. The 'local'
+  // (1.5-mile) drill-down tier is the HW-5 follow-on. Transient (resets to regional on reload — a
+  // zoomed-out exploration view, not a saved preference); not part of the .acks.json.
+  mapScale: 'regional',
+  // Continental cells draw at 4× the regional hex size (24mi vs 6mi); a cell then sits over its
+  // children's centroid (the JJ p.467 interlace — axial→pixel is linear, so 4Q@size === Q@4·size).
+  MAP_CONTINENTAL_FACTOR: 4,
+  // The scale-selector options. Regional + Continental for v1; Local (1.5-mi authoring) is HW-5.
+  mapScaleOptions(){ return ['regional','continental'].map(id => window.ACKS.HEX_SCALE_META[id]); },
+  mapSetScale(s){ if(s !== 'regional' && s !== 'continental') return; if(this.mapScale === s) return; this.mapScale = s; this.mapViewBox = null; this.mapEnsureView(); this.schedulePersist(); },
+  // The continental render set — one aggregate per 24-mile region (engine: continentalCellsForCampaign).
+  mapContinentalCells(){ return window.ACKS.continentalCellsForCampaign(this.currentCampaign); },
+  // Drill from a continental cell back to the 6-mile scale, framed on that region's ~16 children (§7.2).
+  mapContinentalDrill(key){
+    const A = window.ACKS;
+    const cell = this.mapContinentalCells().find(c => c.key === key);
+    this.mapScale = 'regional';
+    if(cell){
+      const byId = {}; this.mapHexEntries().forEach(e => { byId[e.hex.id] = e.hex; });
+      const kids = (cell.childHexIds || []).map(id => byId[id]).filter(Boolean);
+      const b = kids.length ? A.hexMapBounds(kids, this.MAP_HEX_SIZE, this.MAP_HEX_SIZE * 1.5) : null;
+      if(b){ this.mapViewBox = { x:b.minX, y:b.minY, w:b.width, h:b.height }; }
+      else { this.mapViewBox = null; this.mapEnsureView(); }
+    } else { this.mapViewBox = null; this.mapEnsureView(); }
+    this.schedulePersist();
+  },
+  // Build the continental (24-mile) SVG markup: each region cell as a hex at its continental coord,
+  // drawn at 4× size. Fill honors the active "Color by:" layer via a SYNTHETIC hex built from the
+  // aggregate (so the shipped hexFillColor handles terrain→dominant / biome / classification / …); an
+  // optional weather tint per region (native at this scale, §7.3). data-cont-key drives the drill click.
+  mapContinentalMarkup(){
+    const A = window.ACKS, size = this.MAP_HEX_SIZE * this.MAP_CONTINENTAL_FACTOR;
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const cells = this.mapContinentalCells();
+    const ctx = this.mapFillContext();
+    const layer = this.mapFillLayer;
+    const sw = (size * 0.03).toFixed(2), labelFs = (size * 0.10).toFixed(1), subFs = (size * 0.07).toFixed(1);
+    const wmap = this.mapShowWeather ? A.weatherMapForCampaign(this.currentCampaign) : null;
+    const parts = [];
+    cells.forEach(c => {
+      const pts = A.hexPolygonPoints(c.coord.q, c.coord.r, size);
+      const pix = A.hexAxialToPixel(c.coord.q, c.coord.r, size);
+      const synth = { terrain:c.dominantTerrain, koppen:c.koppen, biomeOverride:'', classification:c.classification, families:c.families, valuePerFamily:6, domainId:(c.domainIds.length === 1 ? c.domainIds[0] : null) };
+      const title = 'Continental cell ' + A.hexDisplayLabel(c.coord.q, c.coord.r) + ' · ' + c.childCount + ' six-mile hex' + (c.childCount === 1 ? '' : 'es')
+        + (c.dominantTerrain ? ' · ' + c.dominantTerrain : '') + ' · ' + (c.families || 0).toLocaleString() + ' families'
+        + (c.koppen ? ' · ' + c.koppen + (c.biome ? ' (' + c.biome + ')' : '') : '')
+        + (c.domainIds.length ? ' · ' + c.domainIds.length + ' domain' + (c.domainIds.length === 1 ? '' : 's') : ' · unclaimed')
+        + ' — click to drill in';
+      parts.push('<polygon data-cont-key="' + esc(c.key) + '" points="' + pts + '" fill="' + A.hexFillColor(synth, layer, ctx) + '" stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(title) + '</title></polygon>');
+      if(wmap){ const wr = wmap[c.key]; if(wr) parts.push('<polygon points="' + pts + '" fill="' + A.weatherFillColor(wr) + '" fill-opacity="0.5" style="pointer-events:none;"><title>' + esc(A.weatherSummaryText(wr)) + '</title></polygon>'); }
+      parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + (pix.y - size * 0.62).toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + labelFs + '" fill="#2b2b2b" fill-opacity="0.8" style="pointer-events:none;user-select:none;font-family:monospace;">' + esc(A.hexDisplayLabel(c.coord.q, c.coord.r)) + '</text>');
+      parts.push('<text x="' + pix.x.toFixed(1) + '" y="' + pix.y.toFixed(1) + '" text-anchor="middle" dominant-baseline="central" font-size="' + subFs + '" fill="#3b2f1c" fill-opacity="0.6" style="pointer-events:none;user-select:none;">' + esc((c.dominantTerrain || '—') + ' · ' + c.childCount) + '</text>');
+    });
+    return parts.join('');
+  },
+  // ── agent-4 (DC-3) state + methods ──
+  // DC-3 (RR pp.350-351) — the per-band morale EFFECTS for the Morale block's "Effects this month"
+  // readout. A thin null-safe pass-through to the engine's SINGLE-source accessor
+  // (ACKS.domainMoraleEffects); the recruitment / vassal-loyalty / conscript / spy-thief consumers
+  // read the SAME accessor, so the readout and those consumers can never drift. Reactive: the engine
+  // reads d.demographics.morale on the Alpine proxy inside x-effect, so the box recomputes on a
+  // morale change (the domainAdvancementReadout pattern).
+  domainMoraleEffects(d){
+    const A = window.ACKS;
+    if(!A || typeof A.domainMoraleEffects !== 'function' || !d) return null;
+    return A.domainMoraleEffects(this.currentCampaign, d);
+  },
+  // ── agent-5 (Hijinks HJ-2) state + methods ──
+  // Phase 2.7 Hijinks HJ-2 (RR pp.358–369) — syndicates / tribute / trials. The engine
+  // (acks-engine-hijinks.js) owns formSyndicate / collectSyndicateTribute / resolveHijinkTrial;
+  // this is the surface inside Activities ▸ Hijinks (extends the sub-view in place).
+  synForm: { bossCharacterId: '', baseSettlementId: '', marketClass: 'VI', hideoutType: 'hideout', hideoutValueGp: 5000, name: '' },
+  synMemberDraft: {},   // { [synId]: { level, count } }
+  synTrialDraft: {},    // { [hijinkId]: { plea, priorOffenses, gmModifier } }
+  // Bosses who can found a syndicate (RR p.358 — thief / assassin / nightblade / venturer).
+  synBossOptions() {
+    const A = window.ACKS; if (!A || !this.currentCampaign) return [];
+    return (this.currentCampaign.characters || []).filter(c => c
+      && (A.isActive ? A.isActive(c) : (c.alive !== false))
+      && A.syndicateBossEligible && A.syndicateBossEligible(c));
+  },
+  _synSettlementMarketClass() {
+    const id = this.synForm.baseSettlementId; if (!id) return null;
+    const s = (this.currentCampaign?.settlements || []).find(x => x && x.id === id);
+    return (s && (s.marketClass || s.market)) || null;
+  },
+  synCanForm() {
+    const A = window.ACKS; const boss = (this.currentCampaign?.characters || []).find(c => c && c.id === this.synForm.bossCharacterId);
+    return !!(boss && A && A.syndicateBossEligible && A.syndicateBossEligible(boss));
+  },
+  synFormDisabledReason() {
+    if (!this.synForm.bossCharacterId) return 'Pick an eligible boss (a thief / assassin / nightblade / venturer).';
+    return this.synCanForm() ? '' : 'Only a thief / assassin / nightblade / venturer may run a syndicate (RR p.358).';
+  },
+  synFormSubmit() {
+    const A = window.ACKS; if (!this.synCanForm() || !A || !A.formSyndicate) return;
+    const res = A.formSyndicate(this.currentCampaign, {
+      bossCharacterId: this.synForm.bossCharacterId,
+      baseSettlementId: this.synForm.baseSettlementId || null,
+      marketClass: this.synForm.marketClass,
+      // hideoutType omitted → the engine auto-detects (a venturer founds a guildhouse, RR p.43; else a hideout)
+      hideoutValueGp: Number(this.synForm.hideoutValueGp) || 0,
+      name: this.synForm.name || ''
+    });
+    if (!res || !res.ok) { this.showToast('Could not found the syndicate: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.showToast('🏛 ' + res.syndicate.name + ' founded (Class ' + res.syndicate.marketClass + ' ' + res.syndicate.hideoutType + ').', 4000);
+    this.synForm.bossCharacterId = ''; this.synForm.name = '';
+    this.markDirty(); this.schedulePersist();
+  },
+  _synCharName(id) { const c = (this.currentCampaign?.characters || []).find(x => x && x.id === id); return (c && c.name) || '—'; },
+  syndicateRows() {
+    const A = window.ACKS; if (!A || !this.currentCampaign) return [];
+    return (this.currentCampaign.syndicates || []).filter(s => s && s.status !== 'disbanded').map(s => {
+      const trib = A.syndicateMonthlyTribute(this.currentCampaign, s);
+      const maxMembers = A.syndicateMaxMembers(s);
+      const collectedThisTurn = s.lastTributeTurn === (this.currentCampaign.currentTurn || 1);
+      return {
+        id: s.id, name: s.name || '(unnamed syndicate)', bossName: this._synCharName(s.bossCharacterId), hasBoss: !!s.bossCharacterId,
+        marketClass: s.marketClass, hideoutType: s.hideoutType, hideoutValueGp: s.hideoutValueGp || 0,
+        memberCount: A.syndicateMemberCount(s), maxMembers, maxEffectiveLevel: A.syndicateMaxEffectiveLevel(s.marketClass),
+        members: (s.members || []).slice().sort((a, b) => (a.level || 0) - (b.level || 0)),
+        tributeTotal: trib.totalGp, tributeLines: trib.lines, collectedThisTurn
+      };
+    });
+  },
+  synCollect(synId) {
+    const A = window.ACKS; if (!A || !A.collectSyndicateTribute) return;
+    const res = A.collectSyndicateTribute(this.currentCampaign, synId);
+    if (!res || !res.ok) { this.showToast('Tribute not collected: ' + ((res && (res.detail || res.error)) || 'unknown'), 3500); return; }
+    this.showToast('💰 Collected ' + res.totalGp.toLocaleString() + 'gp in tribute.', 3500);
+    this.markDirty(); this.schedulePersist();
+  },
+  _synDraft(synId) { if (!this.synMemberDraft[synId]) this.synMemberDraft[synId] = { level: 0, count: 1 }; return this.synMemberDraft[synId]; },
+  synAddMembers(synId) {
+    const A = window.ACKS, d = this._synDraft(synId);
+    const res = A.addSyndicateMembers(this.currentCampaign, synId, Number(d.level) || 0, Number(d.count) || 0);
+    if (!res || !res.ok) { this.showToast('Could not add members: ' + ((res && (res.detail || res.error)) || 'unknown'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+  },
+  synRemoveMembers(synId, level, count) {
+    const A = window.ACKS;
+    A.removeSyndicateMembers(this.currentCampaign, synId, level, count);
+    this.markDirty(); this.schedulePersist();
+  },
+  // Hijinks that resolved as CAUGHT and await trial (HJ-1 reveals the catch at the day-tick →
+  // status 'caught' + a rolled charge; HJ-2 resolves the trial). status (not the launch-locked,
+  // still-hidden outcome) is the gate — you can't try a perpetrator before he's actually caught.
+  synCaughtTrials() {
+    const A = window.ACKS;
+    return (this.currentCampaign?.hijinks || []).filter(h => h && h.status === 'caught' && !(h.trial && h.trial.resolved)).map(h => {
+      const def = (A && A.hijinkDefinition) ? (A.hijinkDefinition(h.type) || {}) : {};
+      const prof = (A && A.crimeProfile) ? A.crimeProfile(h.charge) : {};
+      return { id: h.id, perpName: this._synCharName(h.perpetratorCharacterId), bossName: h.bossCharacterId ? this._synCharName(h.bossCharacterId) : '', icon: def.icon || '🗡', typeLabel: def.label || h.type, charge: h.charge, crime: prof.crime || h.charge, severity: prof.severity };
+    });
+  },
+  // Tried hijinks (the verdict log).
+  synTriedRows() {
+    return (this.currentCampaign?.hijinks || []).filter(h => h && h.trial && h.trial.resolved).map(h => ({
+      id: h.id, perpName: this._synCharName(h.perpetratorCharacterId), crime: h.trial.crime, label: h.trial.label,
+      acquitted: h.trial.acquitted, fineGp: h.trial.fineGp, indentureGp: h.trial.indentureGp, damagesGp: h.trial.damagesGp,
+      physical: h.trial.physical, languishingDays: h.trial.languishingDays
+    }));
+  },
+  _synTrialDraft(hijinkId) { if (!this.synTrialDraft[hijinkId]) this.synTrialDraft[hijinkId] = { plea: 'guilty', priorOffenses: 0, gmModifier: 0 }; return this.synTrialDraft[hijinkId]; },
+  synResolveTrial(hijinkId) {
+    const A = window.ACKS, d = this._synTrialDraft(hijinkId);
+    const res = A.resolveHijinkTrial(this.currentCampaign, hijinkId, { plea: d.plea, priorOffenses: Number(d.priorOffenses) || 0, gmModifier: Number(d.gmModifier) || 0 });
+    if (!res || !res.ok) { this.showToast('Trial not resolved: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.showToast('⚖ ' + (res.narrative || (res.label + ' — ' + res.crime)), 5000);
+    this.markDirty(); this.schedulePersist();
+  }
 };
 }
 </script>

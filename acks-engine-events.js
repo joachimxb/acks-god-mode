@@ -157,6 +157,15 @@ const EVENT_KINDS = Object.freeze([
   // army-out-of-supply). Owned by the slot-88 military consumer's commit (applyArmySupplyOutcome
   // pays the cost / sets the RR p.452 ladder); routine "in supply" records are campaign-log-hidden.
   'army-supply',
+  // Phase 3 Military W6 (2026-06-13, burst3 team session) — the siege lifecycle (RR pp.473–485),
+  // record-only audits owned by acks-engine-sieges.js (the Siege entity + the slot-90 consumer
+  // hold the state). siege-started: the investment begins (chronicle-visible). siege-progress:
+  // a method milestone — blockade established / bombardment / assault joined / capture-ready /
+  // supplies-exhausted (routine reduction days are campaignLogHidden). siege-resolved: the
+  // stronghold is captured / destroyed / surrenders, or the siege is lifted (chronicle-visible).
+  'siege-started',
+  'siege-progress',
+  'siege-resolved',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -201,7 +210,19 @@ const EVENT_KINDS = Object.freeze([
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
   // Wizard opt-out below. Carry the Event.context envelope (perpetrator + hex + settlement).
   'hijink-attempted',
-  'hijink-resolved'
+  'hijink-resolved',
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) ===
+  // RR pp.300–301 + Appendix C pp.517–523. Record-only audit — the wound/recovery state is
+  // applied by ACKS.applyMortalWound + the slot-58 convalescence consumer (acks-engine-mortal-
+  // wounds.js); these events keep the eventLog well-formed on replay. Carry the Event.context
+  // envelope (the wounded character as subject). 'mortal-wound' also records a Tampering side effect.
+  'mortal-wound',
+  'wound-recovery',
+  // === Hijinks HJ-2 (team 2026-06-13) === — syndicate/tribute/trial lifecycle (RR pp.358–369),
+  // engine-emitted by formSyndicate / collectSyndicateTribute / resolveHijinkTrial. Record-only.
+  'hijink-syndicate-formed',
+  'hijink-tribute',
+  'hijink-trial'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -567,6 +588,25 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { cost: 'number', baseValue: 'number', lineStatus: 'string', reasons: 'object',
          condition: 'string', narrative: 'string' }
   },
+  // Phase 3 Military W6 — the siege audits (RR pp.473–485). acks-engine-sieges.js owns the state.
+  'siege-started': {
+    R: { siegeId: 'string', besiegerArmyId: 'string' },
+    O: { defenderDomainId: 'string', defenderArmyId: 'string', strongholdShp: 'number',
+         unitCapacity: 'number', unitAdvantage: 'number', daysRequired: 'number',
+         siteType: 'string', resolutionMode: 'string', narrative: 'string' }
+  },
+  'siege-progress': {
+    R: { siegeId: 'string', phase: 'string' },
+    O: { circumvallationFeet: 'number', storedSuppliesGp: 'number', weeksOfSupply: 'number',
+         shpDealt: 'number', shpDamage: 'number', breaches: 'number', reducedToRubble: 'boolean',
+         battleId: 'string', daysElapsed: 'number', daysRequired: 'number',
+         campaignLogHidden: 'boolean', narrative: 'string' }
+  },
+  'siege-resolved': {
+    R: { siegeId: 'string', outcome: 'string' },
+    O: { besiegerWon: 'boolean', battleId: 'string', besiegerArmyId: 'string',
+         defenderDomainId: 'string', narrative: 'string' }
+  },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
   'encounter-resolved': {
@@ -651,6 +691,33 @@ const EVENT_SCHEMAS = Object.freeze({
   'hijink-resolved': {
     R: { hijinkId: 'string', outcome: 'string' },
     O: { type: 'string', rewardGp: 'number', charge: 'string', narrative: 'string' }
+  },
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === (RR pp.300–301 + Appendix C pp.517–523)
+  // A combatant felled to 0 hp rolls on the Mortal Wounds table (or a slain character rolls the
+  // Tampering with Mortality side-effect — tampering:true). outcome ∈ killed|incapacitated|recovered.
+  'mortal-wound': {
+    R: { characterId: 'string' },
+    O: { table: 'string', damageType: 'string', d20: 'number', d6: 'number', modified: 'number',
+         condition: 'string', permanentWound: 'string', outcome: 'string', bedRestDays: 'number',
+         tampering: 'boolean', bandId: 'string', mortalityDelta: 'number', narrative: 'string' }
+  },
+  // An incapacitated character finishes convalescence (emitted by the slot-58 consumer's commit).
+  'wound-recovery': {
+    R: { characterId: 'string' },
+    O: { woundIndex: 'number', condition: 'string', narrative: 'string' }
+  },
+  // === Hijinks HJ-2 (team 2026-06-13) === (RR pp.358–369; engine-emitted, record-only)
+  'hijink-syndicate-formed': {
+    R: { syndicateId: 'string', bossCharacterId: 'string' },
+    O: { baseSettlementId: 'string', marketClass: 'string', narrative: 'string' }
+  },
+  'hijink-tribute': {
+    R: { syndicateId: 'string', totalGp: 'number' },
+    O: { bossCharacterId: 'string', turn: 'number', narrative: 'string' }
+  },
+  'hijink-trial': {
+    R: { hijinkId: 'string', crime: 'string', punishmentLevel: 'string' },
+    O: { charge: 'string', band: 'string', fineGp: 'number', indentureGp: 'number', damagesGp: 'number', acquitted: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2108,6 +2175,16 @@ function applyEvent_warfareAudit(campaign, event){
 registerEventHandler('army-contact', applyEvent_warfareAudit);
 registerEventHandler('domain-warfare', applyEvent_warfareAudit);
 registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
+// Phase 3 Military W6 — the siege audits share the posture: acks-engine-sieges.js (the Siege
+// entity + the slot-90 consumer + the setters) owns the world state; these handlers only keep
+// the events well-formed on replay.
+function applyEvent_siegeAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'siege record' } };
+}
+registerEventHandler('siege-started', applyEvent_siegeAudit);
+registerEventHandler('siege-progress', applyEvent_siegeAudit);
+registerEventHandler('siege-resolved', applyEvent_siegeAudit);
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -2147,6 +2224,22 @@ function applyEvent_hijinkAudit(campaign, event){
 }
 registerEventHandler('hijink-attempted', applyEvent_hijinkAudit);
 registerEventHandler('hijink-resolved', applyEvent_hijinkAudit);
+// === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === — record-only audit posture: the
+// wound/recovery state is applied by ACKS.applyMortalWound + the slot-58 convalescence consumer
+// (acks-engine-mortal-wounds.js); these handlers keep the events well-formed on replay (a no-op
+// beyond the recorded narrative). Mirrors survival / banditry / hijink.
+function applyEvent_mortalWoundAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'mortal wound' } };
+}
+registerEventHandler('mortal-wound', applyEvent_mortalWoundAudit);
+registerEventHandler('wound-recovery', applyEvent_mortalWoundAudit);
+// === Hijinks HJ-2 (team 2026-06-13) === — syndicate/tribute/trial events share the audit
+// posture: formSyndicate / collectSyndicateTribute / resolveHijinkTrial already moved the gp
+// + state; the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('hijink-syndicate-formed', applyEvent_hijinkAudit);
+registerEventHandler('hijink-tribute', applyEvent_hijinkAudit);
+registerEventHandler('hijink-trial', applyEvent_hijinkAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5102,6 +5195,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
   // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
   'hijink-attempted', 'hijink-resolved',
+  // === Hijinks HJ-2 (team 2026-06-13) === — owned by formSyndicate / collectSyndicateTribute /
+  // resolveHijinkTrial (raw emit would record an enterprise change the syndicate/hijink doesn't show).
+  'hijink-syndicate-formed', 'hijink-tribute', 'hijink-trial',
   // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
   // the band; raw emit would narrate an arrival the world doesn't show).
   'domain-incursion',
@@ -5111,7 +5207,15 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
   // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
-  'army-contact', 'domain-warfare', 'army-supply'
+  'army-contact', 'domain-warfare', 'army-supply',
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === — owned by ACKS.applyMortalWound +
+  // the slot-58 convalescence consumer (raw emit would narrate a wound/recovery the character's
+  // mortalWounds[] + lifecycleState don't show). The GM records a wound via the character-sheet
+  // Record-a-wound modal, not the Event Wizard.
+  'mortal-wound', 'wound-recovery',
+  // Phase 3 Military W6 (burst3) — owned by acks-engine-sieges.js (the setters + the slot-90
+  // consumer write the Siege state); a raw emit would narrate an investment the entity doesn't hold.
+  'siege-started', 'siege-progress', 'siege-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

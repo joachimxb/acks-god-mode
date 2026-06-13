@@ -131,6 +131,8 @@ const ID_PREFIXES = Object.freeze({
   recruitmentDrive:     'rcd',
   // Phase 2.7 Hijinks (HJ-1, world-front team session 2026-06-13) — registered canonically at integration
   hijink:               'hij',
+  // === Hijinks HJ-2 (team 2026-06-13) — Syndicate (RR pp.358–362; campaign.syndicates[])
+  syndicate:            'syn',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
   favorDutyObligation:  'fdo',
   // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)
@@ -142,7 +144,10 @@ const ID_PREFIXES = Object.freeze({
   army:                 'army',
   // Phase 3 Military W3 (2026-06-12) — Battle (the RR pp.461–472 engagement record:
   // sides + zones + the turn log + aftermath; resolved by acks-engine-battles.js).
-  battle:               'btl'
+  battle:               'btl',
+  // Phase 3 Military W6 (2026-06-13, burst3 team session) — Siege (the RR pp.473–485
+  // stronghold-investment record; resolved by acks-engine-sieges.js).
+  siege:                'sie'
 });
 
 function newId(prefix){

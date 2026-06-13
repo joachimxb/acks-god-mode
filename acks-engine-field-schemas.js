@@ -311,6 +311,45 @@
       ]
     },
 
+    // Phase 3 Military W6 (2026-06-13, burst3) — Siege (RR pp.473–485). The siege panel is the
+    // working surface (the simplified resolver + the blockade/reduction/assault verbs); the
+    // Inspector covers the scalar state. Every field is a blankSiege key (the global schema⊆
+    // factory invariant); the artillery maps + resolution/history are deep records (Raw-JSON).
+    'siege': {
+      factory: 'blankSiege',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Parties', 'Stronghold', 'Blockade', 'State', 'History'],
+      fields: [
+        { name: 'id',               type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',             type: 'string', required: true, group: 'Identity' },
+        { name: 'status',           type: 'enum', enumValues: ['investing','resolved'], readonly: true, group: 'Identity' },
+        { name: 'resolutionMode',   type: 'enum', enumValues: ['simplified','detailed'], group: 'Identity', default: 'simplified', description: 'Sieges Simplified (the duration table) vs the detailed blockade/reduction/assault — a per-instance mode, not a house rule (RR pp.484–485)' },
+        { name: 'besiegerArmyId',   type: 'id', idKind: 'army', required: true, group: 'Parties', description: 'The besieging army' },
+        { name: 'defenderDomainId', type: 'id', idKind: 'domain', group: 'Parties', description: 'The besieged domain — its garrison defends + its strongholdValue estimates the shp (RR p.474)' },
+        { name: 'defenderArmyId',   type: 'id', idKind: 'army', group: 'Parties', description: 'A defending army holed up inside (optional)' },
+        { name: 'hexId',            type: 'id', idKind: 'hex', group: 'Parties', description: 'Where the stronghold stands' },
+        { name: 'stronghold',       type: 'object', group: 'Stronghold', description: 'The besieged stronghold (authored, or estimated from strongholdValue)', fields: [
+          { name: 'material',     type: 'enum', enumValues: ['stone','wood'], description: 'Wooden strongholds have ⅒ the shp (RR p.474)' },
+          { name: 'strongholdShp', type: 'number', description: 'Structural hit points — gp value ÷ 10 (stone) / ÷ 100 (wood)' },
+          { name: 'shpDamage',    type: 'number', description: 'Reduction damage dealt so far — breaches = ⌊shpDamage / 1000⌋' },
+          { name: 'unitCapacity', type: 'number', description: 'Units it can defend = ⌈shp / 1000⌉ (RR p.473)' },
+          { name: 'siteType',     type: 'enum', enumValues: ['normal','riverbank','peninsula','island','mountain'], description: 'Inaccessible terrain multiplies the duration (riverbank ×2 … mountain ×5)' }
+        ] },
+        { name: 'blockade',         type: 'object', group: 'Blockade', description: 'Encirclement + stored-supply depletion (RR pp.474–475)', fields: [
+          { name: 'inPlace',           type: 'boolean' },
+          { name: 'circumvallationFeet', type: 'number', description: 'Each 250\' replaces 2 blockading units; a full ring → −4 smuggling' },
+          { name: 'weeksPrep',         type: 'number', description: 'Weeks of warning before encirclement — more stored supplies (+600/cap per week)' },
+          { name: 'storedSuppliesGp',  type: 'number', description: '600gp × unit capacity, +600/cap per prep week, cap 3,000/cap' },
+          { name: 'suppliesExhausted', type: 'boolean', readonly: true }
+        ] },
+        { name: 'daysRequired',     type: 'number', readonly: true, group: 'State', description: 'Sieges-Simplified days to capture (null = the besieger is too weak — blockade only)' },
+        { name: 'captureReady',     type: 'boolean', readonly: true, group: 'State', description: 'The simplified clock has run out — the GM resolves the siege' },
+        { name: 'assaultBattleId',  type: 'id', idKind: 'battle', readonly: true, group: 'State', description: 'The W3 Battle an assault handed off to' },
+        { name: 'notes',            type: 'string', group: 'History' },
+        { name: 'history',          type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
     // Favors & Duties (#230, F&D-1 — 2026-06-08) — relation entity (RR pp.345–348).
     // Inspector-creatable: pick the liege + vassal domain + edict kind; the monthly turn
     // auto-rolls these by default (favor-duty-auto-roll). Every field is a blankFavorDutyObligation
@@ -674,8 +713,33 @@
         { name: 'status',             type: 'enum', enumValues: ['active'], group: 'Standing', default: 'active' },
         { name: 'history',            type: 'history', readonly: true, group: 'History' }
       ]
-    }
+    },
     // === end Religion R0 ===
+
+    // === Hijinks HJ-2 (team 2026-06-13) — the criminal Syndicate (Phase 2.7, RR pp.358–362).
+    // Fields ⊆ blankSyndicate keys (the global schema⊆factory invariant). The Admin path. ──
+    'syndicate': {
+      factory: 'blankSyndicate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Hideout', 'Membership', 'History'],
+      fields: [
+        { name: 'id',               type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',             type: 'string', group: 'Identity', description: 'e.g. "The Argollëan Family"' },
+        { name: 'bossCharacterId',  type: 'id', idKind: 'character', group: 'Identity', description: 'The boss (analogous to a domain ruler)' },
+        { name: 'baseSettlementId', type: 'id', idKind: 'settlement', group: 'Identity', description: 'The urban settlement; its market class caps the syndicate' },
+        { name: 'hexId',            type: 'id', idKind: 'hex', group: 'Hideout', description: 'The hideout hex (≤6mi from the base)' },
+        { name: 'marketClass',      type: 'enum', enumValues: ['I','II','III','IV','V','VI'], group: 'Hideout', default: 'VI', description: 'Caps size + perpetrator effective level (RR p.359)' },
+        { name: 'hideoutType',      type: 'enum', enumValues: ['hideout','guildhouse'], group: 'Hideout', default: 'hideout', description: 'A venturer\'s guildhouse counts at ½ value' },
+        { name: 'hideoutValueGp',   type: 'gp', group: 'Hideout', description: 'gp invested; unlocks the membership tier (RR p.359)' },
+        { name: 'members',          type: 'array', group: 'Membership', description: 'Members counted by level [{level, count}]',
+          itemSchema: { fields: [ { name: 'level', type: 'number', min: 0 }, { name: 'count', type: 'number', min: 0 } ] } },
+        { name: 'status',           type: 'enum', enumValues: ['active','disbanded'], group: 'Identity', default: 'active' },
+        { name: 'foundedTurn',      type: 'number', group: 'History' },
+        { name: 'lastTributeTurn',  type: 'number', readonly: true, group: 'History', description: 'Last monthly tribute collection' },
+        { name: 'history',          type: 'history', readonly: true, group: 'History' }
+      ]
+    }
+    // === end Hijinks HJ-2 ===
   };
 
   // ─── 4. Public API ───

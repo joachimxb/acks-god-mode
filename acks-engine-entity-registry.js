@@ -239,6 +239,15 @@
       find: (c, id) => ((c && c.hijinks) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.label) || (obj && obj.type) || (obj && obj.id) },
 
+    // === Hijinks HJ-2 (team 2026-06-13) — the criminal Syndicate (Phase 2.7, RR pp.358–362).
+    // campaign.syndicates[]; the enterprise a boss runs out of a hideout. displayName reads
+    // only blankSyndicate-emitted keys (name/id) per the registry⊆factory invariant. ──
+    { kind: 'syndicate', label: 'Syndicate', pluralLabel: 'Syndicates', icon: '🏛',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.syndicates) || [],
+      find: (c, id) => ((c && c.syndicates) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
     // Phase 3 Military W1 (2026-06-12) — Unit (the Group's military sibling) + Army.
     // Units are first-class in campaign.units[]; the legacy 'garrison-unit' sub-entity
     // kind below keeps resolving the SAME objects through the nested mirrors.
@@ -264,6 +273,15 @@
       addressable: true, chronicleable: true,
       list: (c) => (c && c.battles) || [],
       find: (c, id) => ((c && c.battles) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
+
+    // Phase 3 Military W6 (2026-06-13, burst3) — Siege (the RR pp.473–485 stronghold investment).
+    // campaign.sieges[] (read defensively — no migrateCampaign injector). displayName reads only
+    // blankSiege-emitted keys (name/id) per the registry⊆factory invariant.
+    { kind: 'siege', label: 'Siege', pluralLabel: 'Sieges', icon: '🏯',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.sieges) || [],
+      find: (c, id) => ((c && c.sieges) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
 
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
