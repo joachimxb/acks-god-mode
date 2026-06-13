@@ -8546,6 +8546,24 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
 
+      <!-- Terrain detail (Terrain T3, team agent-3 — Phase_2.5_Terrain_Model_Plan.md §7): the
+           read-only resolved picture of this hex's terrain axes (base · sub-type · biome · climate)
+           + the RR p.275 visibility factor, which scales sighting range and so the distance at which
+           wilderness encounters begin. The dropdowns above SET these axes; this is the at-a-glance
+           derive (biome is computed from the Köppen climate). Gated on the terrain being set. -->
+      <template x-if="hexTerrainDetailLine(worldHexEditingHex())">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm space-y-0.5">
+          <div class="flex items-start gap-1">
+            <span class="font-semibold shrink-0">🌍 Terrain:</span>
+            <span x-text="hexTerrainDetailLine(worldHexEditingHex())" title="Resolved terrain — base · sub-type · derived biome · Köppen climate (Phase 2.5 Terrain Model)"></span>
+          </div>
+          <div class="flex items-start gap-1">
+            <span class="font-semibold shrink-0">👁 Visibility:</span>
+            <span x-text="hexVisibilityLine(worldHexEditingHex())" title="Sighting multiplier by terrain (RR p.275) — reduces how far a party sees, and so the distance at which wilderness encounters begin"></span>
+          </div>
+        </div>
+      </template>
+
       <!-- Weather HW-3 (team agent-2): this hex's current-day weather (its 24-mile region's roll —
            the cached tick weather if any, else an on-demand deterministic roll of the current day).
            Read-only; weather derives from the hex's Köppen climate + the calendar season. -->
@@ -19352,6 +19370,31 @@ return {
   // ── agent-1 (Religion R1) state + methods ──
   // ── agent-2 (DC-2) state + methods ──
   // ── agent-3 (Terrain T3) state + methods ──
+  // Terrain T3 (Phase_2.5_Terrain_Model_Plan.md §7) — read-only hex-card readout helpers.
+  // hexTerrainDetailLine: the resolved base · sub-type · derived biome · Köppen climate, at a glance
+  // (only the parts that are set; the dropdowns above SET them). hexVisibilityLine: the RR p.275
+  // sighting factor (full / −33% / −50% + the reason) — it scales sighting range and so the distance
+  // at which wilderness encounters begin. Both defensive: a null / terrain-less hex → '' (card hides).
+  hexTerrainDetailLine(hex){
+    const A = window.ACKS;
+    if(!hex || !hex.terrain) return '';
+    const base = A.terrainBase(hex.terrain) || String(hex.terrain || '');
+    let head = base.charAt(0).toUpperCase() + base.slice(1);
+    const sub = String(hex.terrainSubtype || '').trim();
+    if(sub) head += ' · ' + sub;
+    const parts = [head];
+    const biome = A.biomeForHex(hex);
+    if(biome) parts.push(biome + ' biome');
+    const kop = String(hex.koppen || '').trim();
+    if(kop){ const k = (A.KOPPEN_CLIMATE || {})[kop]; parts.push(kop + (k ? ' (' + k.name + ')' : '')); }
+    return parts.join(' · ');
+  },
+  hexVisibilityLine(hex){
+    if(!hex || !hex.terrain) return '';
+    const f = window.ACKS.visibilityFactorForHex(hex);
+    if(f >= 1) return 'Full — open sighting (RR p.275)';
+    return '−' + Math.round((1 - f) * 100) + '% — sighting & encounter distance reduced (RR p.275)';
+  },
   // ── agent-4 (Proficiency PT-1) state + methods ──
   // The shared Proficiency Throw modal (RR pp.9–10). A throw is a pure die (engine Layer 1/3) —
   // the modal computes the forecast + rolls; the consequence is the GM's to apply (DQ3/Q3).
