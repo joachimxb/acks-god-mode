@@ -458,6 +458,25 @@ function moraleModifiersFor(campaign, d){
     mods.push({ label: 'Bandits plague the domain — enemy-army occupation, month ' + occMonths + ' (RR p.349 + p.351)',
                 value: -Math.max(0, occMonths - 1) });
   }
+  // Phase 3 Military W2 — JJ p.103: a NEUTRAL domain-encounter band the ruler did not
+  // deploy the garrison against costs −1 on the NEXT domain morale roll (peasant
+  // xenophobia). One-shot: the incursion consumer sets the flag, commitTurn consumes it
+  // after the roll. Rule-gated so an unticked rule leaves no live penalty (principle 8).
+  if(d.incursionXenophobiaPending && isHouseRuleEnabled(campaign, 'vagaries-of-incursion')){
+    mods.push({ label: 'Monsters crossed the domain unchallenged — peasant unease (JJ p.103)', value: -1 });
+  }
+  // Phase 3 Military W4 — RR p.458: while OCCUPIED the occupier suffers a penalty equal
+  // to the prior ruler's morale at occupation (min −1) until he conquers the domain.
+  // RAW core, not rule-gated (the lazy occupiedBy field only exists when an army put it there).
+  if(d.occupiedBy && typeof d.occupiedBy.moralePenalty === 'number' && d.occupiedBy.moralePenalty !== 0){
+    mods.push({ label: 'Under military occupation — the peasants remember their rightful lord (RR p.458)', value: d.occupiedBy.moralePenalty });
+  }
+  // W4 — RR p.458: an owner who BROKE an occupation takes −1 per month it lasted on his
+  // NEXT morale roll. One-shot: endOccupation sets it, commitTurn consumes it after the
+  // roll (the xenophobia pattern).
+  if((d.postOccupationPenaltyMonths || 0) > 0){
+    mods.push({ label: 'Recovering from ' + d.postOccupationPenaltyMonths + ' month' + (d.postOccupationPenaltyMonths === 1 ? '' : 's') + ' of occupation (RR p.458)', value: -d.postOccupationPenaltyMonths });
+  }
   // RR p.351 — administered this month → +1 (only one applies even if several are ticked).
   const adminList = magistrateAdminCandidates(campaign, d);
   if(adminList.length > 0){
