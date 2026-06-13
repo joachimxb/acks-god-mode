@@ -23,6 +23,7 @@
 <!-- team:agent-2-weather (script) -->
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <!-- team:agent-3-domain-completion (script) -->
+<script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -2587,6 +2588,38 @@ document.addEventListener('alpine:init', () => {
               </h2>
               <p class="text-sm leading-relaxed" x-text="moraleStateText(selectedDomain.demographics.morale)"></p>
               <p class="text-sm opacity-70 italic mt-2">Effects of domain morale — see ACKS II Revised Rulebook, pp. 349-351</p>
+            </div>
+            <!-- team:agent-3-domain-completion (panel:domain-advancement) — DC-0 read-only spatial
+                 conditions toward Outlands→Borderlands→Civilized advancement (RR p.340). Derived from
+                 the hex map (roads + settlement sizes); the GM override + the full eligibility check are DC-2. -->
+            <div class="vellum border border-ink p-3 rounded" x-data="{ sc:null }" x-effect="sc = domainAdvancementSpatial(selectedDomain)">
+              <h2 class="font-bold text-lg mb-2">Domain Advancement — Spatial Conditions
+                <span class="opacity-50 cursor-help text-sm" title="RR p.340 — two of the classification-advancement conditions are spatial: a road to a town (≥500 families) within 24 miles, and a friendly city / large town (≥625 families) within 48/72 miles. Derived here from the hex map; read-only (DC-0). The GM override and the full Outlands→Borderlands→Civilized eligibility check arrive with DC-2.">ⓘ</span>
+              </h2>
+              <template x-if="sc">
+                <table class="bookkeeping text-sm">
+                  <tr>
+                    <td>Road to a town (≤24 mi)</td>
+                    <td class="text-right">
+                      <span x-show="sc.roadToTown.effective" class="accent-green font-semibold">✓ yes</span>
+                      <span x-show="!sc.roadToTown.effective" class="accent-red font-semibold">✗ no</span>
+                      <span class="block text-xs opacity-70" x-show="sc.roadToTown.derived && sc.roadToTown.witnessLabel" x-text="'→ ' + sc.roadToTown.witnessLabel + ' · ' + sc.roadToTown.settlementFamilies.toLocaleString() + ' families · ' + sc.roadToTown.miles + ' mi by road'"></span>
+                      <span class="block text-xs opacity-60 italic" x-show="sc.roadToTown.overridden" x-text="'GM override: ' + (sc.roadToTown.overrideValue ? 'connected' : 'not connected') + ' (derived ' + (sc.roadToTown.derived ? 'yes' : 'no') + ')'"></span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Friendly city / large town</td>
+                    <td class="text-right">
+                      <span x-show="sc.friendlyCity.band==='within-48mi'" class="accent-green font-semibold">within 48 mi</span>
+                      <span x-show="sc.friendlyCity.band==='within-72mi'" class="font-semibold">within 72 mi</span>
+                      <span x-show="sc.friendlyCity.band==='none'" class="accent-red font-semibold">none within 72 mi</span>
+                      <span class="block text-xs opacity-70" x-show="sc.friendlyCity.band!=='none' && sc.friendlyCity.witnessLabel" x-text="'→ nearest ' + sc.friendlyCity.witnessLabel + ' · ' + sc.friendlyCity.settlementFamilies.toLocaleString() + ' families · ' + sc.friendlyCity.miles + ' mi (straight line)'"></span>
+                      <span class="block text-xs opacity-60 italic" x-show="sc.friendlyCity.overridden">GM-asserted friendliness</span>
+                    </td>
+                  </tr>
+                </table>
+              </template>
+              <p class="text-xs opacity-60 italic mt-2">Derived from the hex map (roads + settlement sizes). Feeds Outlands→Borderlands→Civilized advancement (RR p.340). Read-only — DC-0; the GM override and the full eligibility check arrive with DC-2.</p>
             </div>
             <!-- Overview + Ruler grid (50/50 on md+, stacks below md). -->
             <div class="grid md:grid-cols-2 gap-4">
@@ -9703,6 +9736,19 @@ return {
     return 'today (day ' + day + (cal.season ? ' · ' + cal.season : '') + ')';
   },
   // team:agent-3-domain-completion (data+methods)
+  // DC-0 read-only spatial conditions for the State-of-the-Domain panel. Wraps the pure engine
+  // read (ACKS.domainSpatialConditions) and resolves each witness hexId → a human label
+  // (settlement name + col·row). Returns null when there is no campaign/domain. Engine stays DOM-free.
+  domainAdvancementSpatial(d){
+    const c=this.currentCampaign; if(!c||!d) return null;
+    const sc=window.ACKS.domainSpatialConditions(c,d);
+    const label=id=>{ if(!id) return ''; const h=window.ACKS.findHex(c,id); if(!h||!h.coord) return '';
+      const s=h.settlement||window.ACKS.settlementForHex(c,h.id); const nm=(s&&s.name)?s.name:'';
+      const cr=window.ACKS.hexDisplayLabel(h.coord.q,h.coord.r); return nm?(nm+' ('+cr+')'):cr; };
+    sc.roadToTown.witnessLabel=label(sc.roadToTown.witnessHexId);
+    sc.friendlyCity.witnessLabel=label(sc.friendlyCity.witnessHexId);
+    return sc;
+  },
   SCHEMA_VERSION,REQUIRED_GARRISON_PER_FAMILY,TEMPLATES:EMBEDDED_TEMPLATES,HOUSERULES:HOUSERULES_REGISTRY,HOUSERULE_CATEGORIES,STRONGHOLD_CATALOG,
   MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE,
   lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff,
