@@ -218,6 +218,13 @@ function blankDomain(opts={}){
     council: opts.council || null,
     // Domain history — log of monthly turn snapshots and notable events
     history: opts.history || [],
+    // === Domain Completion DC-0 (team) === GM override for the RR p.340 "road-connected to a
+    // small town within 24 miles" condition. null = use DC-0's DERIVED road-to-small-town check
+    // (ACKS.roadConnectedToSmallTown); true/false = GM override for map-less campaigns. Read
+    // defensively everywhere (`domain.roadToTownOverride ?? derived`); deliberately NOT lazy-injected
+    // into migrateCampaign, so the 6 templates stay true migrate-no-ops (absent ⇒ undefined ⇒ derive).
+    // The `!== undefined` guard preserves an explicit `false` passed via opts. (Plan §11.1 / §12.)
+    roadToTownOverride: (opts.roadToTownOverride !== undefined ? opts.roadToTownOverride : null),
     notes: opts.notes || ''
   };
 }
