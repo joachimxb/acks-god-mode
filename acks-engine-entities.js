@@ -150,6 +150,10 @@ function blankDomain(opts={}){
     liegeId: opts.liegeId || null,
     vassalIds: opts.vassalIds || [],
     isRealm: opts.isRealm || false,
+    // Phase 3 Military W2 — Vagaries of Incursion (JJ p.102; lazy on old saves).
+    // dangerousBordersOverride: the GM's border-configuration judgment ('secure' | 'line' |
+    // 'flank' | 'spearhead' | 'isolated'); null = derive from the hex map.
+    dangerousBordersOverride: opts.dangerousBordersOverride || null,
     // Geography (hexes live here for v2; canonical-store lift to campaign-level remains deferred per task #119)
     geography: opts.geography || {
       hexMapId: null,
@@ -474,16 +478,159 @@ function blankLandImprovementProject(opts={}){
   };
 }
 
-function blankGarrisonUnit(opts={}){
+// Phase 3 Military W1 (2026-06-12) — the Unit factory. Unit is the Group's military
+// sibling kind (campaign.units[]; Architecture §2.4): a count of soldiers with troop
+// type + the military lifecycle (source / training / stationing / unit loyalty +
+// calamities / supply state). The legacy garrison-unit shape is a strict SUBSET —
+// blankGarrisonUnit below delegates here, and the load migration extends nested
+// garrison/company units in place (reference-unified mirrors, Architecture §3.3).
+// Wage + BR defaults derive from TROOP_CATALOG (RR pp.438–441) for the troop type;
+// stored values act as GM overrides thereafter.
+function blankUnit(opts={}){
+  const typeKey = opts.unitTypeKey || 'light-infantry';
+  const race = opts.race || 'man';
+  const A = (typeof global !== 'undefined' && global.ACKS) ? global.ACKS : {};
+  const row = (typeof A.findTroopType === 'function')
+    ? A.findTroopType(typeKey, { race, veteran: !!opts.veteran, loadout: opts.loadout || null })
+    : null;
   return {
     schemaVersion: SCHEMA_VERSION,
-    id: opts.id || newId(ID_PREFIXES.garrisonUnit),
-    displayName: opts.displayName || 'Light Infantry',
-    unitTypeKey: opts.unitTypeKey || 'light-infantry',
+    id: opts.id || newId(ID_PREFIXES.unit),
+    displayName: opts.displayName || (row ? row.label : 'Light Infantry'),
+    unitTypeKey: typeKey,
+    race,
+    loadout: opts.loadout || null,                 // equipment variant A/B/C… (RR catalogs); null = default
+    veteran: opts.veteran || false,                // RR p.430 — +1 morale, veteran wage; ≤25% of human mercs
+    elite: opts.elite || false,                    // RR p.434 — behind the elite-troops house rule
     count: opts.count || 0,
-    monthlyWage: opts.monthlyWage || 6,
-    brPerSoldier: opts.brPerSoldier || 0.034,
-    stationedAtHexId: opts.stationedAtHexId || null
+    casualties: opts.casualties || 0,
+    monthlyWage: opts.monthlyWage != null ? opts.monthlyWage : (row ? row.wageGpMonth : 0),   // per soldier
+    brPerSoldier: opts.brPerSoldier != null ? opts.brPerSoldier : (row ? row.brPerCreature : 0),
+    source: opts.source || 'mercenary',            // mercenary | conscript | militia | clanhold | follower | vassal | slave
+    scale: opts.scale || 'company',                // platoon | company | battalion | brigade (RR p.437)
+    trainingState: opts.trainingState || null,     // {targetTroopType, startedAtDay, completesAtDay} (RR p.431, W7)
+    lieutenantCharacterId: opts.lieutenantCharacterId || null,
+    commanderCharacterId: opts.commanderCharacterId || null,
+    // Where the unit is assigned: {kind: 'domain-garrison'|'character'|'army'|'hex'|'constructible', id}.
+    // The §5.5 Outpost demotion — stationing is a field, not a container entity.
+    stationedAt: opts.stationedAt || null,
+    stationedAtHexId: opts.stationedAtHexId || null,   // legacy geographic hint (kept; map reads it)
+    loyalty: opts.loyalty != null ? opts.loyalty : 0,  // unit loyalty score (RR p.429; ± employer CHA at hire)
+    moraleAdjustment: opts.moraleAdjustment != null ? opts.moraleAdjustment : 0,  // one-time levy ±1 + GM tweaks
+    calamities: opts.calamities || [],             // [{kind, atTurn|atDay, note}] — RR p.430 loyalty-roll triggers
+    supplyState: opts.supplyState || 'supplied',   // supplied | underfed | starving | dehydrated (RR p.452)
+    // Reinforcement / rally state: when a distant unit is CALLED UP to an army it leaves its
+    // garrison and marches in (callUpUnit). rallyingToArmyId names the army it joins on arrival;
+    // rallyJourneyId is its rally march. Both null when present/at home (lazy — old saves read null).
+    rallyingToArmyId: opts.rallyingToArmyId || null,
+    rallyJourneyId: opts.rallyJourneyId || null,
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
+// Legacy factory — kept as a thin delegate so every existing caller gets the W1 superset
+// shape (additive) + RAW catalog wage/BR defaults (the old hardcoded 6gp/0.034 BR were
+// the interim MERCENARY_UNIT_DEFAULTS values, retired with TROOP_CATALOG).
+function blankGarrisonUnit(opts={}){
+  return blankUnit(opts);
+}
+
+// Phase 3 Military W1 — the Army factory. Divisions are EMBEDDED (no independent
+// lifetime, nothing external points at them — Architecture §3.1; the old `div-` prefix
+// reservation is dropped). Armies move on the journey engine (journeyId, W4); supply
+// runs Simplified by default (RR p.452 — RAW's own automation mode, a per-army choice).
+function blankArmy(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.army),
+    name: opts.name || '',
+    leaderCharacterId: opts.leaderCharacterId || null,
+    // §12 Group model — the individuated roster (officers / riding-along PCs), displayed
+    // exactly like a party's members. The leader is one of them; division commanders are
+    // drawn from them. Additive + lazy ([]); armies are runtime-only, so templates stay no-ops.
+    memberCharacterIds: opts.memberCharacterIds || [],
+    // [{name, commanderCharacterId, adjutantCharacterId, unitIds: [], role: 'vanguard'|'main'|'rear-guard'}]
+    divisions: opts.divisions || [],
+    strategicStance: opts.strategicStance || 'defensive',   // offensive | defensive | evasive (RR p.448)
+    journeyId: opts.journeyId || null,                      // armies march as journeys (W4); null = in garrison
+    currentHexId: opts.currentHexId || null,
+    supplyBaseIds: opts.supplyBaseIds || [],                // friendly domains / strongholds / border forts (RR p.450)
+    supplySimplified: opts.supplySimplified != null ? opts.supplySimplified : true,  // RR p.452 default mode
+    // ── W5 supply (RR pp.450–452) — all lazy (older saves read defensively) ──
+    lastSupplyCheckOrd: opts.lastSupplyCheckOrd != null ? opts.lastSupplyCheckOrd : null,  // world ordinal of the last weekly check
+    supplyTerrainTreatment: opts.supplyTerrainTreatment || null,   // GM override: null (auto) | 'elf' | 'dwarf' | 'beastman'
+    requisitioning: opts.requisitioning || null,            // {atOrd, gp} while feeding off the land — −50% march speed (RR p.451)
+    lastInitiative: opts.lastInitiative != null ? opts.lastInitiative : null,
+    // ── W4 maneuvers (RR pp.447–460) — all lazy (older saves read defensively) ──
+    marchedOrds: opts.marchedOrds || [],                    // world ordinals marched (last 14) — the 3-of-7 rest rule (RR p.448)
+    forcedMarchOrds: opts.forcedMarchOrds || [],            // the forced-march subset (rest the day after or fatigued, RR p.449)
+    warMachines: opts.warMachines || null,                  // null | {count, assembled} — caps speed 6/12 mi/day (RR p.449)
+    intelReports: opts.intelReports || [],                  // reconnaissance reports incl. held prisoners (RR pp.452–457)
+    reconModifier: opts.reconModifier != null ? opts.reconModifier : 0,        // standing GM mod on ITS rolls (magic/spies/stratagems)
+    concealmentModifier: opts.concealmentModifier != null ? opts.concealmentModifier : 0,  // standing GM mod on rolls AGAINST it
+    alliedLeaderCharacterIds: opts.alliedLeaderCharacterIds || [],   // GM-marked allies beyond the realm chain
+    permittedDomainIds: opts.permittedDomainIds || [],      // domains whose ground this army may enter uninvited (no invasion)
+    invasions: opts.invasions || {},                        // {domainId: worldOrd} — the once-per-domain invasion stamp (RR p.458)
+    pillage: opts.pillage || null,                          // {domainId, startedOrd, daysRequired, saltTheEarth, unitsProportion} | null
+    prisoners: opts.prisoners != null ? opts.prisoners : 0, // held prisoners (ransom 40gp/head or Construction labor, RR p.458)
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
+// Phase 3 Military W3 (2026-06-12) — the Battle entity (RR pp.461–472): one engagement
+// between two sides, from setup through the 10-phase battle turns to the aftermath.
+// Sides hold battle-unit working records (snapshots pointing back at world Units/Groups/
+// heroes — world casualties land only when the aftermath is APPLIED). Resolution verbs
+// live in acks-engine-battles.js. campaign.battles[] is lazy-defaulted on load.
+function blankBattleSide(opts={}){
+  return {
+    label: opts.label || '',
+    kind: opts.kind || 'adhoc',                 // army | garrison | groups | adhoc
+    armyId: opts.armyId || null,
+    domainId: opts.domainId || null,            // garrison sides — whose garrison
+    groupIds: opts.groupIds || [],
+    stance: opts.stance || 'defensive',         // offensive | defensive | evasive (RR p.448)
+    leaderCharacterId: opts.leaderCharacterId || null,
+    commanders: opts.commanders || [],          // [{characterId, zones: ['left'|'center'|'right']}]
+    units: opts.units || [],                    // battle-unit records (see acks-engine-battles.js)
+    deployRestriction: opts.deployRestriction || 'all',   // all | vanguard | rear-guard (the situation's role)
+    zonesDenied: opts.zonesDenied || [],        // zones the surprised side cannot deploy into (RR p.463)
+    startingUnitCount: opts.startingUnitCount || 0,       // stamped at beginBattle
+    breakPoint: opts.breakPoint || 0,           // ⅓ starting units, rounded up (RR p.467)
+    startingBr: opts.startingBr || 0,           // Σ roster BR at begin (the troop-XP ratio reads it)
+    withdrawn: opts.withdrawn || false,         // voluntarily withdrew (phase 10)
+    gmAttackMod: opts.gmAttackMod || 0          // standing GM attack-throw modifier (conditions, stratagems)
+  };
+}
+function blankBattle(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.battle),
+    name: opts.name || '',
+    hexId: opts.hexId || null,
+    scale: opts.scale || 'company',             // platoon | company | battalion | brigade (RR p.437)
+    status: opts.status || 'setup',             // setup | fighting | ended | resolved
+    awareness: opts.awareness || 'mutual',      // mutual | mutual-unawareness | unilateral-a | unilateral-b
+    situation: opts.situation || 'pitched-battle',        // STRATEGIC_SITUATIONS key
+    attackerSide: opts.attackerSide || 'a',
+    surprisedSide: opts.surprisedSide || null,  // null | 'a' | 'b'
+    options: opts.options || {
+      armySizeAsymmetry: false,                 // RR p.464 optional rule (recommended ON for monster fights)
+      advantageousTerrain: null,                // null | 'a' | 'b' — which side holds the hill/ridgeline (−2 vs it)
+      cannotRetreat: null                       // null | 'a' | 'b' | 'both' — +2 morale (surrounded/trapped)
+    },
+    turnNumber: opts.turnNumber || 0,
+    sides: opts.sides || { a: blankBattleSide(), b: blankBattleSide() },
+    forays: opts.forays || [],                  // heroic foray records (declare → resolve → applied by the turn)
+    turnLog: opts.turnLog || [],                // one record per battle turn (lines + the _pre revert snapshot)
+    result: opts.result || null,                // {winner, loser, endedBy, endedAtTurn} once ended
+    aftermath: opts.aftermath || null,          // the computed proposal; applied:true once world-writes land
+    createdAtTurn: opts.createdAtTurn || 1,
+    createdOnDay: opts.createdOnDay || 1,
+    history: opts.history || [],
+    notes: opts.notes || ''
   };
 }
 
@@ -1406,6 +1553,14 @@ function blankGroup(opts={}){
     // or heads home, and the monthly turn reconciles it to banditCount (dissolving it when
     // morale recovers to −1 or better — the men return to their fields).
     banditryDomainId: opts.banditryDomainId || null,
+    // Phase 3 Military W2 — Vagaries of Incursion (JJ pp.100–106; lazy on old saves).
+    // Set = this band arrived as a DOMAIN ENCOUNTER: the verdict bundle the incursion
+    // consumer recorded. Shape: { domainId, attitude (hostile|unfriendly|neutral|
+    // mercantilist|friendly), disposition ('lingering'|'migrating'), fullStrength,
+    // treasureType, rulerAware, monstersIntel, arrivedAtTurn, arrivedOnDay }. A
+    // migrating band wanders on via the monster-bands consumer; a lingering one holds
+    // (wanderState.halted) as the standing threat the BR comparison priced.
+    incursion: opts.incursion || null,
     // #476 E6 — autonomous band motion (the monster-bands day consumer; lazy on old
     // saves). null = the defaults govern: an un-housed living band WANDERS (migration
     // movement — half expedition speed, random steps, never directly back). Shape:
@@ -1437,6 +1592,15 @@ function blankJourney(opts={}){
     participantCharacterIds: opts.participantCharacterIds || [],
     packAnimalIds: opts.packAnimalIds || [],
     shipId: opts.shipId || null,                        // voyage modes only (reserved)
+    // W4 — an ARMY's march (RR p.448: armies move on the standard expedition rules).
+    // When set, the army governs the journey: its slowest-unit speed × the large-army
+    // multiplier × war-machine cap, the ARMY weather table, no navigation throw, no
+    // per-hex encounter draws, no character survival (army supply is W5). Lazy field.
+    armyId: opts.armyId || null,
+    // A single UNIT marching to rally at an army's muster point (callUpUnit). Like an army
+    // march, the party-grain machinery stands down; speed = the unit's own troop-type pace.
+    // On arrival the unit is stationed to the army. Lazy field.
+    unitId: opts.unitId || null,
     // Origin / destination / route
     startedAtTurn: opts.startedAtTurn || null,
     startedAtDayInMonth: opts.startedAtDayInMonth || null,
@@ -1696,6 +1860,10 @@ Object.assign(ACKS, {
   blankNotableItem, blankItemCustody,
   // #442 — Group entity factory (Architecture.md §2.4, 2026-05-29)
   blankGroup,
+  // Phase 3 Military W1 (2026-06-12) — Unit (Group's military sibling) + Army factories
+  blankUnit, blankArmy,
+  // Phase 3 Military W3 (2026-06-12) — Battle entity + side factories (RR pp.461–472)
+  blankBattle, blankBattleSide,
   // Phase 2.5 Journeys (#475) — Journey entity factory (J1)
   blankJourney,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)

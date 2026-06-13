@@ -230,6 +230,33 @@
       find: (c, id) => ((c && c.oaths) || []).find(x => x && x.id === id),
       displayName: (c, obj) => ((obj && obj.text) || '').slice(0, 50) || (obj && obj.id) },
 
+    // Phase 3 Military W1 (2026-06-12) — Unit (the Group's military sibling) + Army.
+    // Units are first-class in campaign.units[]; the legacy 'garrison-unit' sub-entity
+    // kind below keeps resolving the SAME objects through the nested mirrors.
+    { kind: 'unit', label: 'Unit', pluralLabel: 'Units', icon: '🪖',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.units) || [],
+      find: (c, id) => ((c && c.units) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => {
+        if(!obj) return '';
+        const name = (obj.displayName || '').trim() || obj.unitTypeKey || obj.id;
+        const count = obj.count != null ? (' (' + obj.count + ')') : '';
+        return name + count;
+      } },
+
+    { kind: 'army', label: 'Army', pluralLabel: 'Armies', icon: '🎖',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.armies) || [],
+      find: (c, id) => ((c && c.armies) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
+
+    // Phase 3 Military W3 (2026-06-12) — Battle (the RR pp.461–472 engagement record).
+    { kind: 'battle', label: 'Battle', pluralLabel: 'Battles', icon: '🎌',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.battles) || [],
+      find: (c, id) => ((c && c.battles) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
+
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',
       addressable: true, chronicleable: true,

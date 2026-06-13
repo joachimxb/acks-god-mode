@@ -132,7 +132,15 @@ const ID_PREFIXES = Object.freeze({
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
   favorDutyObligation:  'fdo',
   // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)
-  encounter:            'enc'
+  encounter:            'enc',
+  // Phase 3 Military W1 (2026-06-12) — Unit (the Group's military sibling) + Army.
+  // NB lifted legacy garrison units KEEP their 'gar-' ids (id stability); 'unit-' is
+  // the prefix for units created after the lift.
+  unit:                 'unit',
+  army:                 'army',
+  // Phase 3 Military W3 (2026-06-12) — Battle (the RR pp.461–472 engagement record:
+  // sides + zones + the turn log + aftermath; resolved by acks-engine-battles.js).
+  battle:               'btl'
 });
 
 function newId(prefix){
@@ -670,6 +678,10 @@ function validateUniqueIds(campaign){
   checkCollection(campaign.parties, 'parties');
   checkCollection(campaign.ventures, 'ventures');
   checkCollection(campaign.passiveInvestments, 'passiveInvestments');
+  // Phase 3 Military W1 — first-class Units + Armies (the nested garrison/company arrays
+  // mirror the SAME unit objects, so they are checked per-collection, never cross-collection).
+  checkCollection(campaign.units, 'units');
+  checkCollection(campaign.armies, 'armies');
   // Per-domain sub-collections
   (campaign.domains||[]).forEach(d => {
     const dl = 'domain['+d.id+']';
@@ -795,6 +807,12 @@ function migrateCampaign(raw){
   // lazyDefaultV1ScopeReservations guarantees campaign.lairs[]. Idempotent; a no-op on campaigns
   // with no nested lairs (every shipped template). See migrateLegacyHexLairs below.
   migrateLegacyHexLairs(current);
+  // Phase 3 Military W1 (2026-06-12) — lift nested garrison/mercenary-company units to the
+  // first-class campaign.units[] collection, reference-unified (the SAME object in both homes —
+  // the hexes precedent, Architecture §3.3). Runs after lazyDefaultV1ScopeReservations guarantees
+  // campaign.units[]/armies[]. Idempotent + self-healing in both directions (a JSON round-trip
+  // duplicates the shared objects; this re-unifies by id on every load).
+  migrateGarrisonUnitsToUnits(current);
   // Wave Construction-B — backfill agricultural improvements onto Project entities. Runs after
   // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
   // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
@@ -836,6 +854,12 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!Array.isArray(campaign.lairs)) campaign.lairs = [];
   // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions (D8).
   if(!Array.isArray(campaign.encounters)) campaign.encounters = [];
+  // Phase 3 Military W1 (2026-06-12) — Units (first-class; the nested garrison/company
+  // arrays stay reference-unified mirrors) + Armies.
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  if(!Array.isArray(campaign.armies)) campaign.armies = [];
+  // Phase 3 Military W3 (2026-06-12) — Battles (RR pp.461–472 engagement records).
+  if(!Array.isArray(campaign.battles)) campaign.battles = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -2814,6 +2838,1093 @@ function groupActiveCount(group){
 }
 
 // =============================================================================
+// Phase 3 Military W1 (2026-06-12) — Units & Armies.
+// Unit is the Group's military sibling kind (campaign.units[]; Architecture §2.4 —
+// soldiers never leak into the monster-band machinery that iterates campaign.groups[]).
+// Both kinds meet the battle layer through the SAME derived interface: a Unit's BR
+// reads TROOP_CATALOG (RR pp.438–444); a Group's BR reads the MONSTER_CATALOG's
+// per-creature battleRating (the JJ pp.104–106 platoon organization consumes it at W2).
+// Armies embed their divisions (no independent lifetime — Architecture §3.1).
+// The legacy nested homes (domain.garrison.units[] / character.mercenaryCompany.units[])
+// stay as REFERENCE-UNIFIED MIRRORS of campaign.units[] (the hexes precedent, §3.3):
+// the lift migration extends each nested unit in place and shares the object, so the
+// economy + UI readers are untouched while military reads go through the collection.
+// =============================================================================
+
+function findUnit(campaign, unitId){
+  if(!campaign || !Array.isArray(campaign.units)) return null;
+  return campaign.units.find(u => u && u.id === unitId) || null;
+}
+
+function findArmy(campaign, armyId){
+  if(!campaign || !Array.isArray(campaign.armies)) return null;
+  return campaign.armies.find(a => a && a.id === armyId) || null;
+}
+
+// All units assigned to a station — {kind: 'domain-garrison'|'character'|'army'|'hex'|'constructible', id}.
+function unitsStationedAt(campaign, stationedAt){
+  if(!campaign || !Array.isArray(campaign.units) || !stationedAt) return [];
+  return campaign.units.filter(u => u && u.stationedAt &&
+    u.stationedAt.kind === stationedAt.kind && u.stationedAt.id === stationedAt.id);
+}
+
+function armiesAtHex(campaign, hexId){
+  if(!campaign || !Array.isArray(campaign.armies)) return [];
+  return campaign.armies.filter(a => a && a.currentHexId === hexId);
+}
+
+// Active soldier count = count − casualties (the Group shape).
+function unitActiveCount(unit){
+  if(!unit) return 0;
+  return Math.max(0, (unit.count || 0) - (unit.casualties || 0));
+}
+
+// The army's units (stationedAt = the army). Division membership (division.unitIds) is the
+// army's INTERNAL org chart; stationedAt is the unit's assignment truth — validateArmyOrganization
+// flags disagreements between the two rather than auto-mutating either.
+function armyUnits(campaign, army){
+  if(!army) return [];
+  return unitsStationedAt(campaign, { kind: 'army', id: army.id });
+}
+
+function armyDivisionForUnit(army, unitId){
+  if(!army || !Array.isArray(army.divisions)) return null;
+  return army.divisions.find(dv => dv && Array.isArray(dv.unitIds) && dv.unitIds.includes(unitId)) || null;
+}
+
+// ─── Catalog-derived unit reads (derive-don't-store; stored per-soldier wage/BR are
+//     GM overrides that win over the catalog — the legacy garrison-unit fields) ───
+
+// Resolve the unit's TROOP_CATALOG row (null when the race doesn't field the type
+// or the type is unknown — e.g. a fully hand-authored unit).
+function unitTroopRow(unit){
+  if(!unit || !global.ACKS || typeof global.ACKS.findTroopType !== 'function') return null;
+  return global.ACKS.findTroopType(unit.unitTypeKey, {
+    race: unit.race || 'man', veteran: !!unit.veteran, loadout: unit.loadout || null
+  });
+}
+
+// A single unit's daily march in miles (RR p.448 — the printed unit daily move, else
+// exploration ft/5, else 24 🔧). Mirrors armyMarchProfile's per-unit read so a lone
+// detachment rallying to a muster point travels at its own troop type's pace.
+function unitMarchMilesPerDay(unit){
+  const row = unitTroopRow(unit);
+  return (row && typeof row.unitDailyMoveMiles === 'number' && row.unitDailyMoveMiles > 0) ? row.unitDailyMoveMiles
+       : (row && typeof row.moveFt === 'number' && row.moveFt > 0) ? row.moveFt / 5
+       : 24;
+}
+
+// Where a unit physically is, as a hex id (for plotting a rally march). A garrison unit
+// sits at its domain's seat (🔧 v1: the domain's first authored hex — the muster default's
+// twin); a company unit is with its patron; a hex/army station resolves directly. null
+// when unresolvable (no hexes authored / dangling station). Pure read.
+function unitCurrentHexId(campaign, unit){
+  const st = unit && unit.stationedAt;
+  if(!campaign || !st) return null;
+  if(st.kind === 'hex') return st.id;
+  if(st.kind === 'army'){ const a = findArmy(campaign, st.id); return a ? (a.currentHexId || null) : null; }
+  if(st.kind === 'character'){ const c = _findCharacterById(campaign, st.id); return c ? (c.currentHexId || null) : null; }
+  if(st.kind === 'domain-garrison'){
+    const d = (campaign.domains || []).find(x => x && x.id === st.id);
+    if(!d) return null;
+    const seat = (campaign.hexes || []).find(h => h && h.domainId === d.id);
+    return seat ? seat.id : null;
+  }
+  return null;
+}
+
+// Round to the printed unit-BR grain (nearest 0.5 — RR pp.442–444).
+function _roundHalfBr(x){ return Math.round(x * 2) / 2; }
+
+// RR p.462 — a unit's battle rating. A stored brPerSoldier (>0, the GM-override /
+// legacy garrison field) wins; else the catalog row: full-strength standard units use
+// the PRINTED unit BR (a few veteran rows differ from per-creature × size by design,
+// RR p.443 designer's note), understrength/over scale per-creature × active count.
+function unitBattleRating(campaign, unit){
+  const active = unitActiveCount(unit);
+  if(!active) return 0;
+  const stored = (typeof unit.brPerSoldier === 'number' && unit.brPerSoldier > 0) ? unit.brPerSoldier : null;
+  if(stored != null) return _roundHalfBr(stored * active);
+  const row = unitTroopRow(unit);
+  if(!row) return 0;
+  if(active === row.unitSize && row.unitBattleRating != null) return row.unitBattleRating;
+  return _roundHalfBr(row.brPerCreature * active);
+}
+
+// The Group side of the shared battle interface: per-creature battleRating from the
+// MONSTER_CATALOG (MM stat blocks) × active count. This is how a monster band, an E10
+// banditry band, or a lair's defenders price into the JJ pp.104–106 mass-combat layer —
+// no promotion to Unit needed.
+function groupBattleRating(campaign, group){
+  const active = groupActiveCount(group);
+  if(!active) return 0;
+  const key = group && group.groupTemplate && group.groupTemplate.monsterCatalogKey;
+  const m = key && global.ACKS && typeof global.ACKS.findMonster === 'function' ? global.ACKS.findMonster(key) : null;
+  if(!m || typeof m.battleRating !== 'number') return 0;
+  return _roundHalfBr(m.battleRating * active);
+}
+
+// Per-soldier monthly wage: stored monthlyWage (>0) wins, else the catalog row's wage.
+// Elite troops (RR p.434, behind the `elite-troops` rule): +1gp per full 6gp of regular
+// wage, minimum +3gp. 🔧 "per every 6gp" read as floor(wage/6).
+function unitWagePerSoldier(campaign, unit){
+  if(!unit) return 0;
+  const stored = (typeof unit.monthlyWage === 'number' && unit.monthlyWage > 0) ? unit.monthlyWage : null;
+  const row = stored == null ? unitTroopRow(unit) : null;
+  let wage = stored != null ? stored : (row ? row.wageGpMonth : 0);
+  if(unit.elite && isHouseRuleEnabled(campaign, 'elite-troops')){
+    wage += Math.max(3, Math.floor(wage / 6));
+  }
+  return wage;
+}
+
+// Monthly wage bill: active soldiers × per-soldier wage (dead mercenaries collect no wages).
+function unitWageMonthly(campaign, unit){
+  return unitActiveCount(unit) * unitWagePerSoldier(campaign, unit);
+}
+
+// RR p.450 — weekly supply cost for the unit at its scale. The catalog row carries the
+// PRINTED company-scale weekly cost (carnivore-correct, e.g. wolf riders 480gp); other
+// scales multiply by the RR p.437 scale factor. Rowless units fall back to the generic
+// scale table by category. Supply is per unit regardless of understrength (RAW).
+function unitWeeklySupplyCost(campaign, unit){
+  if(!unit || !global.ACKS) return 0;
+  const scaleRowFn = global.ACKS.scaleRow, costFn = global.ACKS.unitScaleSupplyCost;
+  const sc = (typeof scaleRowFn === 'function') ? scaleRowFn(unit.scale || 'company') : null;
+  const mult = sc && sc.multiplier ? sc.multiplier : 1;
+  const row = unitTroopRow(unit);
+  if(row && row.unitSupplyWeekly != null) return row.unitSupplyWeekly * mult;
+  const category = (row && row.category) || (unit.category) || 'infantry';
+  const base = (typeof costFn === 'function') ? costFn(category === 'infantry' ? 'infantry' : 'cavalry', unit.scale || 'company') : null;
+  return base != null ? base : 0;
+}
+
+// Unit morale score: the catalog row's morale (veteran rows carry the veteran value;
+// a veteran flag without a veteran row adds the RR p.430 +1), plus the stored
+// moraleAdjustment (the one-time levy ±1 from domain morale, GM tweaks).
+function unitMoraleScore(campaign, unit){
+  if(!unit) return 0;
+  let base = null;
+  const row = unitTroopRow(unit);
+  if(row && typeof row.morale === 'number'){
+    base = row.morale;
+  } else if(global.ACKS && typeof global.ACKS.mercMorale === 'function'){
+    const m = global.ACKS.mercMorale(unit.unitTypeKey, unit.race || 'man');
+    if(typeof m === 'number') base = m;
+    if(base != null && unit.veteran) base += 1;   // no veteran row resolved — apply the RAW +1
+  }
+  if(base == null) base = 0;
+  return base + (unit.moraleAdjustment || 0);
+}
+
+// ─── Officer characteristics (RR pp.435–437 + p.171) — pure derived reads on Character.
+//     A character with numeric abilities uses the PC/NPC formulas; one without (a monster
+//     leader) uses the monster formulas off its hitDice. ───
+
+function _hdLead(hd){ const m = String(hd == null ? '' : hd).match(/-?\d+/); return m ? +m[0] : 0; }
+function _isMonsterOfficer(c){ return !(c && c.abilities && typeof c.abilities.CHA === 'number'); }
+
+// Sum of proficiency ranks for a named proficiency. An entry's rank = its trailing
+// number ("Military Strategy 2" = 2 ranks) or 1; repeated entries sum (the E5
+// tracking-ranks convention — count entries — generalized for the officer table's
+// single-entry-with-rank style).
+function proficiencyRanks(character, name){
+  if(!character || !Array.isArray(character.proficiencies) || !name) return 0;
+  const want = String(name).toLowerCase();
+  let ranks = 0;
+  for(const p of character.proficiencies){
+    const s = (typeof p === 'string' ? p : (p && p.name) || '').trim().toLowerCase();
+    if(!s.startsWith(want)) continue;
+    const rest = s.slice(want.length).trim();
+    if(rest && !/^\d+$/.test(rest)) continue;       // "Command" must not match "Commanding Presence"
+    ranks += rest ? +rest : 1;
+  }
+  return ranks;
+}
+function hasProficiencyNamed(character, name){ return proficiencyRanks(character, name) >= 1; }
+
+// RR p.435 — leadership ability: units controllable at once / divisions per army.
+// Character: 4 + CHA mod (+1 Leadership proficiency; −1 using an adjutant), max 8.
+// Monster: 3 + HD/4 (rounded down), max 8.
+function leadershipAbility(character, opts){
+  const o = opts || {};
+  let la;
+  if(_isMonsterOfficer(character)){
+    la = 3 + Math.floor(_hdLead(character && character.hitDice) / 4);
+  } else {
+    la = 4 + abilityMod(character.abilities.CHA)
+       + (hasProficiencyNamed(character, 'Leadership') ? 1 : 0)
+       - (o.usingAdjutant ? 1 : 0);
+  }
+  return Math.min(8, la);
+}
+
+// RR p.436 — strategic ability: better-of(INT, WIL) bonus (min 0) + worse-of penalty
+// (max 0) + Military Strategy ranks; clamped [−3, +6]. Monster: HD/5 (rounded down)
+// ± intelligence tier (opts.monsterIntelligence: 'sub' −1 | 'high' +1 | 'super' +2).
+function strategicAbility(character, opts){
+  const o = opts || {};
+  let sa;
+  if(_isMonsterOfficer(character)){
+    sa = Math.floor(_hdLead(character && character.hitDice) / 5);
+    if(o.monsterIntelligence === 'sub') sa -= 1;
+    if(o.monsterIntelligence === 'high') sa += 1;
+    if(o.monsterIntelligence === 'super') sa += 2;
+  } else {
+    const intMod = abilityMod(character.abilities.INT || 10);
+    const wilMod = abilityMod(character.abilities.WIL || 10);
+    sa = Math.max(0, Math.max(intMod, wilMod)) + Math.min(0, Math.min(intMod, wilMod))
+       + proficiencyRanks(character, 'Military Strategy');
+  }
+  return clamp(sa, -3, 6);
+}
+
+// RR p.436 — a commander with an adjutant may use the adjutant's SA − 1 in place of
+// his own. Returns the better arrangement: { value, usingAdjutant } (using the adjutant
+// costs −1 morale modifier — officerMoraleModifier reads the flag).
+function effectiveStrategicAbility(commander, adjutant, opts){
+  const own = strategicAbility(commander, opts);
+  if(!adjutant) return { value: own, usingAdjutant: false };
+  const loan = strategicAbility(adjutant, opts) - 1;
+  return loan > own ? { value: loan, usingAdjutant: true } : { value: own, usingAdjutant: false };
+}
+
+// RR p.436 — morale modifier (Unit Morale rolls, NOT Unit Loyalty): CHA mod
+// (+1 battlefield prowess — 5th+ barbarian/bard/explorer/fighter/paladin or the class
+// power; +2 Command proficiency; −1 using an adjutant). Monster: 0 unless the MM grants
+// an "as long as X is alive" bonus (opts.monsterMoraleBonus).
+function officerMoraleModifier(character, opts){
+  const o = opts || {};
+  if(_isMonsterOfficer(character)){
+    return (typeof o.monsterMoraleBonus === 'number' ? o.monsterMoraleBonus : 0) - (o.usingAdjutant ? 1 : 0);
+  }
+  const cls = String(character.class || '').toLowerCase();
+  const prowessClass = /barbarian|bard|explorer|fighter|paladin/.test(cls);
+  const prowessPower = Array.isArray(character.classPowers) &&
+    character.classPowers.some(p => /battlefield prowess/i.test(typeof p === 'string' ? p : (p && p.name) || ''));
+  return abilityMod(character.abilities.CHA)
+    + (((prowessClass && (character.level || 0) >= 5) || prowessPower) ? 1 : 0)
+    + (hasProficiencyNamed(character, 'Command') ? 2 : 0)
+    - (o.usingAdjutant ? 1 : 0);
+}
+
+// RR p.437 — scale-dependent officer qualification. Characters check level against the
+// Army Organization and Size table; monsters need HD ≥ the commanded unit's average HD
+// + the scale threshold (pass opts.unitAvgHd; without it a monster check returns null =
+// "Judge decides"). Beastman chieftain/sub-chieftain waivers stay a GM call (RR p.437).
+function qualifiesAsOfficer(character, role, scale, opts){
+  const o = opts || {};
+  const sc = (global.ACKS && typeof global.ACKS.scaleRow === 'function') ? global.ACKS.scaleRow(scale || 'company') : null;
+  if(!sc) return null;
+  const qual = role === 'lieutenant' ? sc.lieutenantQual : sc.commanderQual;
+  if(_isMonsterOfficer(character)){
+    if(typeof o.unitAvgHd !== 'number') return null;
+    return _hdLead(character && character.hitDice) >= o.unitAvgHd + (qual.monsterHdOver || 0);
+  }
+  return (character.level || 0) >= (qual.npcLevel || 0);
+}
+function qualifiesAsCommander(character, scale, opts){ return qualifiesAsOfficer(character, 'commander', scale, opts); }
+function qualifiesAsLieutenant(character, scale, opts){ return qualifiesAsOfficer(character, 'lieutenant', scale, opts); }
+
+// ─── Army derived reads ───
+
+function _findCharacterById(campaign, characterId){
+  if(!campaign || !Array.isArray(campaign.characters) || !characterId) return null;
+  return campaign.characters.find(c => c && c.id === characterId) || null;
+}
+
+// RR pp.462–463 — army BR: Σ unit BRs, rounded down; the leader's strategic ability
+// adds +0.5 per unit at SA ≥ +3 and +1.0 per unit at SA ≥ +5.
+function armyBattleRating(campaign, army){
+  const units = armyUnits(campaign, army);
+  let br = units.reduce((s, u) => s + unitBattleRating(campaign, u), 0);
+  const leader = army && army.leaderCharacterId ? _findCharacterById(campaign, army.leaderCharacterId) : null;
+  if(leader){
+    const sa = strategicAbility(leader);
+    if(sa >= 5) br += units.length * 1.0;
+    else if(sa >= 3) br += units.length * 0.5;
+  }
+  return Math.floor(br);
+}
+
+function armyWageMonthly(campaign, army){
+  return armyUnits(campaign, army).reduce((s, u) => s + unitWageMonthly(campaign, u), 0);
+}
+
+function armyWeeklySupplyCost(campaign, army){
+  return armyUnits(campaign, army).reduce((s, u) => s + unitWeeklySupplyCost(campaign, u), 0);
+}
+
+// RR p.435 — max divisions = the leader's leadership ability.
+function armyMaxDivisions(campaign, army){
+  const leader = army && army.leaderCharacterId ? _findCharacterById(campaign, army.leaderCharacterId) : null;
+  return leader ? leadershipAbility(leader) : 0;
+}
+
+// Pure organization diagnostic (RR pp.434–437; engine-enforced findings, GM-overridable
+// per RAW's waiver clause — a validation surface, never an auto-mutation).
+function validateArmyOrganization(campaign, army){
+  const findings = [];
+  if(!army) return findings;
+  const units = armyUnits(campaign, army);
+  const leader = army.leaderCharacterId ? _findCharacterById(campaign, army.leaderCharacterId) : null;
+  if(!leader) findings.push({ code: 'no-leader', text: 'Army has no leader' });
+  if(units.length < 3) findings.push({ code: 'under-3-units', text: 'An army must have at least 3 units (RR p.435) — has ' + units.length });
+  const divisions = Array.isArray(army.divisions) ? army.divisions : [];
+  if(leader && divisions.length > leadershipAbility(leader)){
+    findings.push({ code: 'too-many-divisions', text: divisions.length + ' divisions exceed the leader\'s leadership ability ' + leadershipAbility(leader) + ' (RR p.435)' });
+  }
+  const totalTroops = units.reduce((s, u) => s + unitActiveCount(u), 0);
+  const scale = (global.ACKS && global.ACKS.armyScaleForSize) ? global.ACKS.armyScaleForSize(totalTroops) : 'company';
+  const seenUnitIds = new Set();
+  for(const dv of divisions){
+    if(!dv) continue;
+    const dvUnits = Array.isArray(dv.unitIds) ? dv.unitIds : [];
+    for(const uid of dvUnits){
+      if(seenUnitIds.has(uid)) findings.push({ code: 'unit-in-two-divisions', text: 'Unit ' + uid + ' appears in more than one division' });
+      seenUnitIds.add(uid);
+      const u = findUnit(campaign, uid);
+      if(!u) findings.push({ code: 'division-unknown-unit', text: (dv.name || 'Division') + ' lists unknown unit ' + uid });
+      else if(!u.stationedAt || u.stationedAt.kind !== 'army' || u.stationedAt.id !== army.id){
+        findings.push({ code: 'division-unit-not-stationed', text: (u.displayName || uid) + ' is in ' + (dv.name || 'a division') + ' but not stationed to this army' });
+      }
+    }
+    const cmdr = dv.commanderCharacterId ? _findCharacterById(campaign, dv.commanderCharacterId) : null;
+    if(!cmdr) findings.push({ code: 'division-no-commander', text: (dv.name || 'Division') + ' has no commander (RR p.435)' });
+    else {
+      const q = qualifiesAsCommander(cmdr, scale);
+      if(q === false) findings.push({ code: 'commander-unqualified', text: (cmdr.name || 'Commander') + ' does not qualify to command at ' + scale + ' scale (RR p.437)' });
+      if(dvUnits.length > leadershipAbility(cmdr, { usingAdjutant: !!dv.adjutantCharacterId })){
+        findings.push({ code: 'commander-over-leadership', text: (dv.name || 'Division') + ' has ' + dvUnits.length + ' units, over ' + (cmdr.name || 'the commander') + '\'s leadership ability (RR p.435)' });
+      }
+    }
+  }
+  for(const u of units){
+    if(!seenUnitIds.has(u.id)) findings.push({ code: 'unit-no-division', text: (u.displayName || u.id) + ' is stationed to the army but assigned to no division' });
+  }
+  return findings;
+}
+
+// ─── Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106) ───
+// All derive-don't-store (§3.13): territory, borders, classification demotion, the daily
+// chance, and the platoon-scale BR comparison are pure reads over the campaign; the only
+// stored state W2 adds is d.dangerousBordersOverride (the GM's judgment lever),
+// d.incursionXenophobiaPending (the JJ p.103 one-shot −1) and group.incursion (the
+// materialized band's verdict bundle).
+
+// How many 6-mile hexes the domain holds: authored hexes are the truth when the map
+// carries any; legacy aggregate domains fall back to geography.controlledHexes.
+function domainTerritoryHexCount(campaign, d){
+  if(!d) return 1;
+  const authored = ((campaign && campaign.hexes) || []).filter(h => h && h.domainId === d.id).length;
+  if(authored > 0) return authored;
+  return Math.max(1, (d.geography && d.geography.controlledHexes) || 1);
+}
+
+// JJ p.102 — is the domain's border dangerous, and in which configuration? RAW frames
+// this as a judgment from the regional geography; the derivation reads the hex map:
+// a border face is SECURE when the neighbour belongs to any domain, is water
+// (impassable), or the shared edge carries a river (RAW's own "a domain with a broad
+// river … is far easier to defend" — the §24 effect-3 note, closed here); otherwise it
+// is dangerous (unsettled or unauthored land — a frontier is exposed even where the GM
+// hasn't authored the wilds). The dangerous fraction of border faces maps onto RAW's
+// four illustrations (🔧 heuristic: 0 → secure · ≤⅓ → line · ≤½ → flank · <1 →
+// spearhead · all → isolated); d.dangerousBordersOverride (one of
+// BORDER_CONFIGURATIONS) outranks the heuristic, exactly as printed. A mapless domain
+// derives 'secure' (no inflation without geography).
+function domainBorderConfiguration(campaign, d){
+  const A = global.ACKS || {};
+  const out = { configuration: 'secure', source: 'derived', dangerousFaces: 0, borderFaces: 0 };
+  if(!d) return out;
+  const hexes = ((campaign && campaign.hexes) || []).filter(h => h && h.domainId === d.id && h.coord);
+  if(hexes.length){
+    const byCoord = new Map();
+    for(const h of ((campaign && campaign.hexes) || [])){ if(h && h.coord) byCoord.set(h.coord.q + ',' + h.coord.r, h); }
+    // HEX_EDGE_DELTAS order (the map convention — riverSides indices key off it)
+    const deltas = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
+    let dangerous = 0, total = 0;
+    for(const h of hexes){
+      for(let side = 0; side < 6; side++){
+        const n = byCoord.get((h.coord.q + deltas[side][0]) + ',' + (h.coord.r + deltas[side][1])) || null;
+        if(n && n.domainId === d.id) continue;                 // internal face
+        total++;
+        let secure = false;
+        if(n && n.domainId) secure = true;                     // a neighbouring domain holds it
+        else if(n){
+          const base = (typeof A.terrainBase === 'function') ? A.terrainBase(n.terrain) : n.terrain;
+          if(base === 'water') secure = true;                  // impassable terrain
+        }
+        const opp = (side + 3) % 6;
+        if(!secure && Array.isArray(h.riverSides) && h.riverSides.indexOf(side) >= 0) secure = true;
+        if(!secure && n && Array.isArray(n.riverSides) && n.riverSides.indexOf(opp) >= 0) secure = true;
+        if(!secure) dangerous++;
+      }
+    }
+    out.borderFaces = total; out.dangerousFaces = dangerous;
+    if(total > 0 && dangerous > 0){
+      const f = dangerous / total;
+      out.configuration = (dangerous >= total) ? 'isolated'
+        : (f > 0.5)   ? 'spearhead'
+        : (f > 1 / 3) ? 'flank'
+        : 'line';
+    }
+  }
+  const override = d.dangerousBordersOverride;
+  const cfgList = (A.BORDER_CONFIGURATIONS || ['secure', 'line', 'flank', 'spearhead', 'isolated']);
+  if(override && cfgList.indexOf(String(override).toLowerCase()) >= 0){
+    out.configuration = String(override).toLowerCase();
+    out.source = 'override';
+  }
+  return out;
+}
+
+// JJ p.102 — actual territory + border configuration → the effective territory size
+// the encounter throw reads.
+function domainEffectiveTerritory(campaign, d){
+  const A = global.ACKS || {};
+  const actual = domainTerritoryHexCount(campaign, d);
+  const cfg = domainBorderConfiguration(campaign, d);
+  const effective = (typeof A.effectiveTerritoryWithBorders === 'function')
+    ? A.effectiveTerritoryWithBorders(actual, cfg.configuration)
+    : actual;
+  return { actualHexes: actual, effectiveHexes: effective, configuration: cfg.configuration,
+           configurationSource: cfg.source, dangerousFaces: cfg.dangerousFaces, borderFaces: cfg.borderFaces };
+}
+
+// JJ p.102 — an insufficient garrison and/or stronghold reads the domain one
+// classification worse for domain encounters (civilized → borderlands → outlands →
+// unsettled; the printed example demotes a bankrupt outlands domain to unsettled).
+// Garrison sufficiency uses the same effective spend the morale adequacy sees
+// (garrisonCost + scutage paid this month, RR p.347); stronghold sufficiency is value
+// vs the RR p.349 per-hex requirement.
+function domainIncursionClassification(campaign, d){
+  const A = global.ACKS || {};
+  const base = String(effectiveDomainClassification(d) || 'Outlands').toLowerCase();
+  const garrSpend = ((typeof A.garrisonCost === 'function') ? A.garrisonCost(d) : 0)
+    + ((typeof A.scutagePaidThisMonth === 'function') ? A.scutagePaidThisMonth(campaign, d) : 0);
+  const garrReq = (typeof A.requiredGarrison === 'function') ? A.requiredGarrison(campaign, d) : 0;
+  const insufficientGarrison = garrReq > 0 && garrSpend < garrReq;
+  const shReq = (typeof A.strongholdRequired === 'function') ? A.strongholdRequired(d) : 0;
+  const shVal = (typeof A.strongholdValue === 'function') ? A.strongholdValue(campaign, d) : 0;
+  const insufficientStronghold = shReq > 0 && shVal < shReq;
+  const ladder = ['civilized', 'borderlands', 'outlands', 'unsettled'];
+  let idx = ladder.indexOf(base); if(idx < 0) idx = 2;
+  const demoted = insufficientGarrison || insufficientStronghold;
+  if(demoted) idx = Math.min(ladder.length - 1, idx + 1);
+  return { base, effective: ladder[idx], demoted, insufficientGarrison, insufficientStronghold };
+}
+
+// The one read the consumer, the UI and the tests share: the domain's daily domain-
+// encounter chance (JJ p.101) off its effective territory + effective classification.
+function domainDailyEncounterChance(campaign, d){
+  const A = global.ACKS || {};
+  const terr = domainEffectiveTerritory(campaign, d);
+  const cls = domainIncursionClassification(campaign, d);
+  const pct = (typeof A.incursionDailyPct === 'function') ? A.incursionDailyPct(terr.effectiveHexes, cls.effective) : 0;
+  return Object.assign({ pct }, terr, cls);
+}
+
+// ── JJ p.105 — mass combat for domain encounters runs at PLATOON scale ──
+// (units of 30 men / 15 large; per-creature BR is ×4 the company values). The garrison
+// prices its actual units; a monster band prices off the MONSTER_CATALOG battleRating
+// the same way — the shared battle interface (§5.1), no promotion.
+function _roundQuarterBr(x){ return Math.round(x * 4) / 4; }   // the printed platoon-BR grain
+// One unit's BR at platoon scale. A stored brPerSoldier (the GM override) wins; else the
+// PRINTED company unit BR scaled to the active fraction × the ×4 platoon factor — which
+// reproduces the JJ p.105 worked example exactly (60 heavy + 30 light foot → garrison
+// BR 5.0); rows with no printed unit BR fall back to per-creature × count × 4.
+function unitPlatoonScaleBr(unit){
+  if(!unit) return 0;
+  const active = unitActiveCount(unit);
+  if(!active) return 0;
+  const stored = (typeof unit.brPerSoldier === 'number' && unit.brPerSoldier > 0) ? unit.brPerSoldier : null;
+  if(stored != null) return stored * active * 4;
+  const row = unitTroopRow(unit);
+  if(!row) return 0;
+  if(row.unitBattleRating != null && row.unitSize > 0) return row.unitBattleRating * (active / row.unitSize) * 4;
+  return (row.brPerCreature || 0) * active * 4;
+}
+function domainGarrisonPlatoonBr(campaign, d){
+  const units = (d && d.garrison && Array.isArray(d.garrison.units)) ? d.garrison.units : [];
+  let br = 0;
+  for(const u of units){ if(u) br += unitPlatoonScaleBr(u); }
+  return _roundQuarterBr(br);
+}
+// A band of N creatures at platoon scale; null when the creature carries no catalog BR
+// (a label-only identity — the GM prices it).
+function monsterPlatoonBr(brPerCreature, count){
+  if(!(brPerCreature > 0) || !(count > 0)) return null;
+  return _roundQuarterBr(brPerCreature * count * 4);
+}
+
+// ─── Canonical stationing setter + the garrison/mercenaryCompany lift (rule #10) ───
+
+// Move a unit to a station, maintaining BOTH homes: campaign.units[] (canonical) and
+// the legacy nested mirrors (domain.garrison.units[] / character.mercenaryCompany.units[]
+// — reference-unified: the same object, never a copy). Passing stationedAt null leaves
+// the unit field-stationed nowhere (e.g. an independent band's captured equipment train).
+function stationUnit(campaign, unitOrId, stationedAt){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return null;
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  const idx = campaign.units.findIndex(u => u && u.id === unit.id);
+  if(idx < 0) campaign.units.push(unit);
+  else if(campaign.units[idx] !== unit) campaign.units[idx] = unit;
+  // drop from every nested mirror that is NOT the target
+  for(const d of (campaign.domains || [])){
+    const arr = d && d.garrison && d.garrison.units;
+    if(!Array.isArray(arr)) continue;
+    const keep = stationedAt && stationedAt.kind === 'domain-garrison' && stationedAt.id === d.id;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0 && !keep) arr.splice(i, 1);
+  }
+  for(const c of (campaign.characters || [])){
+    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+    if(!Array.isArray(arr)) continue;
+    const keep = stationedAt && stationedAt.kind === 'character' && stationedAt.id === c.id;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0 && !keep) arr.splice(i, 1);
+  }
+  // add to the target mirror (same object reference)
+  if(stationedAt && stationedAt.kind === 'domain-garrison'){
+    const d = (campaign.domains || []).find(x => x && x.id === stationedAt.id);
+    if(d){
+      if(!d.garrison) d.garrison = { units: [] };
+      if(!Array.isArray(d.garrison.units)) d.garrison.units = [];
+      const i = d.garrison.units.findIndex(u => u && u.id === unit.id);
+      if(i < 0) d.garrison.units.push(unit);
+      else if(d.garrison.units[i] !== unit) d.garrison.units[i] = unit;
+    }
+  } else if(stationedAt && stationedAt.kind === 'character'){
+    const c = (campaign.characters || []).find(x => x && x.id === stationedAt.id);
+    if(c){
+      if(!c.mercenaryCompany) c.mercenaryCompany = { units: [] };
+      if(!Array.isArray(c.mercenaryCompany.units)) c.mercenaryCompany.units = [];
+      const i = c.mercenaryCompany.units.findIndex(u => u && u.id === unit.id);
+      if(i < 0) c.mercenaryCompany.units.push(unit);
+      else if(c.mercenaryCompany.units[i] !== unit) c.mercenaryCompany.units[i] = unit;
+    }
+  }
+  unit.stationedAt = stationedAt || null;
+  return unit;
+}
+
+// Remove a unit from the world: campaign.units[] + every nested mirror (the merge /
+// disband destructor — the counterpart of stationUnit). Returns the removed unit or null.
+function disbandUnit(campaign, unitOrId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return null;
+  if(Array.isArray(campaign.units)){
+    const i = campaign.units.findIndex(u => u && u.id === unit.id);
+    if(i >= 0) campaign.units.splice(i, 1);
+  }
+  for(const d of (campaign.domains || [])){
+    const arr = d && d.garrison && d.garrison.units;
+    if(!Array.isArray(arr)) continue;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0) arr.splice(i, 1);
+  }
+  for(const c of (campaign.characters || [])){
+    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+    if(!Array.isArray(arr)) continue;
+    const i = arr.findIndex(u => u && u.id === unit.id);
+    if(i >= 0) arr.splice(i, 1);
+  }
+  return unit;
+}
+
+// ─── Phase 3 Military — army muster / disband (the canonical CRUD both verbs route
+//     through; the in-fiction Muster modal on a character/domain AND the Inspector
+//     Admin-verb Create) ──────────────────────────────────────────────────────────
+// Push a blank army to campaign.armies; optionally seat a leader, name it, place it on a
+// hex, set its stance, and STATION a starting roster (unitIds → stationUnit to
+// {kind:'army', id} — stationUnit handles the garrison/merc-company mirror bookkeeping).
+// When a leader + units are given it auto-builds a single "Main Body" division led by the
+// commander — the RAW-minimal valid org (RR p.435: a small army is one division led by its
+// commander; the GM splits into more divisions later). validateArmyOrganization surfaces
+// an under-qualified commander or too-few units as advisory findings (GM-overridable per
+// RAW's waiver clause). id-stable (opts.id returns the existing army — the createLair
+// idempotency pattern). Stamps an army.history 'mustered' entry. Returns the army.
+function createArmy(campaign, opts={}){
+  if(!campaign) return null;
+  if(!Array.isArray(campaign.armies)) campaign.armies = [];
+  if(opts.id){
+    const ex = campaign.armies.find(a => a && a.id === opts.id);
+    if(ex) return ex;
+  }
+  const army = global.ACKS.blankArmy({
+    id: opts.id,
+    name: opts.name || '',
+    leaderCharacterId: opts.leaderCharacterId || null,
+    currentHexId: opts.currentHexId || null,
+    strategicStance: opts.strategicStance || 'defensive'
+  });
+  campaign.armies.push(army);
+  const unitIds = Array.isArray(opts.unitIds) ? opts.unitIds.filter(Boolean) : [];
+  const stationed = [];
+  for(const uid of unitIds){
+    const u = stationUnit(campaign, uid, { kind: 'army', id: army.id });
+    if(u) stationed.push(u.id);
+  }
+  if(army.leaderCharacterId && stationed.length){
+    army.divisions = [{ name: 'Main Body', commanderCharacterId: army.leaderCharacterId, adjutantCharacterId: null, unitIds: stationed, role: 'main' }];
+  }
+  // Distant units called up rather than teleported: each marches to the muster point
+  // (callUpUnit plots a rally journey; a co-located one just joins). The army has its
+  // hex set above, so the rally march can be plotted.
+  const callUp = Array.isArray(opts.callUpUnitIds) ? opts.callUpUnitIds.filter(Boolean) : [];
+  let marching = 0;
+  for(const uid of callUp){
+    const r = callUpUnit(campaign, uid, army);
+    if(r && r.action === 'marching') marching++;
+    else if(r && r.action === 'joined' && !stationed.includes(uid)) stationed.push(uid);
+  }
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  army.history.push({ turn, type: 'mustered', text: 'Mustered' + (opts.name ? ' as ' + opts.name : '') + (stationed.length ? ' with ' + stationed.length + ' unit' + (stationed.length === 1 ? '' : 's') : '') + (marching ? ' (' + marching + ' marching in)' : '') });
+  return army;
+}
+
+// Disband an army: un-station its units (they SURVIVE in campaign.units, homeless until
+// re-stationed — the next muster's available-units list surfaces them, closing the loop),
+// stop its march (the journey is marked disbanded), and splice it from campaign.armies.
+// Returns the removed army or null. The counterpart of createArmy.
+function disbandArmy(campaign, armyOrId){
+  const army = (typeof armyOrId === 'string') ? findArmy(campaign, armyOrId) : armyOrId;
+  if(!campaign || !army) return null;
+  for(const u of armyUnits(campaign, army)){ if(u) u.stationedAt = null; }
+  if(army.journeyId && Array.isArray(campaign.journeys)){
+    const j = campaign.journeys.find(x => x && x.id === army.journeyId);
+    if(j) j.status = 'disbanded';
+  }
+  if(Array.isArray(campaign.armies)){
+    const i = campaign.armies.findIndex(a => a && a.id === army.id);
+    if(i >= 0) campaign.armies.splice(i, 1);
+  }
+  return army;
+}
+
+// Call up a unit to an army's muster point (the hard-constraint alternative to teleporting
+// troops in). If the unit is already AT the army's hex (or the army/unit has no resolvable
+// hex), it joins immediately. Otherwise the unit LEAVES its garrison (un-stationed — the
+// troops have marched out) and a rally journey is plotted from its hex to the muster point;
+// `unit.rallyingToArmyId` marks it incoming. It is NOT counted in the army's present strength
+// until the journey arrives (commitJourneyRecord stations it then). Returns
+// {action:'joined'|'marching'|'error', unitId, journeyId?, journey?}.
+function callUpUnit(campaign, unitOrId, armyOrId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  const army = (typeof armyOrId === 'string') ? findArmy(campaign, armyOrId) : armyOrId;
+  if(!campaign || !unit || !army) return { action: 'error', reason: 'missing' };
+  const dest = army.currentHexId || null;
+  const origin = unitCurrentHexId(campaign, unit);
+  if(!dest || !origin || origin === dest){
+    stationUnit(campaign, unit, { kind: 'army', id: army.id });
+    unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+    return { action: 'joined', unitId: unit.id };
+  }
+  const A = global.ACKS;
+  stationUnit(campaign, unit, null);   // the troops leave their garrison and take the road
+  const name = (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + (army.name || 'the army');
+  const journey = A.blankJourney({ unitId: unit.id, name, startHexId: origin, destinationHexId: dest, participantCharacterIds: [] });
+  if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
+  campaign.journeys.push(journey);
+  if(typeof A.startJourney === 'function') A.startJourney(campaign, journey);
+  else journey.status = 'in-transit';
+  unit.rallyingToArmyId = army.id; unit.rallyJourneyId = journey.id;
+  return { action: 'marching', unitId: unit.id, journeyId: journey.id, journey };
+}
+
+// The units MARCHING IN to an army (rallyingToArmyId === army.id) — each with its rally
+// journey + the distance still to cover (miles / hexes / days at the unit's own pace). The
+// army card's "reinforcements marching in" readout. Pure derived read.
+function armyIncomingUnits(campaign, army){
+  if(!campaign || !army || !Array.isArray(campaign.units)) return [];
+  const A = global.ACKS;
+  const milesPerHex = (A && A.JOURNEY_MILES_PER_HEX) || 6;
+  return campaign.units.filter(u => u && u.rallyingToArmyId === army.id).map(u => {
+    const j = u.rallyJourneyId ? (campaign.journeys || []).find(x => x && x.id === u.rallyJourneyId) : null;
+    let hexes = null, miles = null, days = null;
+    if(j && A && typeof A.computeJourneyDistance === 'function'){
+      const d = A.computeJourneyDistance(campaign, j);
+      hexes = Math.max(0, (d.total || 0) - (d.covered || 0));
+      miles = hexes * milesPerHex;
+      const spd = unitMarchMilesPerDay(u);
+      days = (spd > 0) ? Math.ceil(miles / spd) : null;
+    }
+    return { unit: u, journey: j, hexesRemaining: hexes, milesRemaining: miles, daysRemaining: days, fromHexId: j ? j.startHexId : null };
+  });
+}
+
+// =============================================================================
+// §12 The Group model — the shared interface over the collective-actor kinds
+// (Architecture.md §12). Party / Army / Unit / Band are ONE behavioral category — a
+// positioned, mobile, fightable, persistent collective — but stay DISTINCT entities;
+// these accessors are the shared contract the merged "Parties" view and the Player
+// Portal `controllable` read through. Caravan is specced (§12.8) but its entity lands
+// with the Ventures-RAW slice, so groupKindOf never returns it yet. The kind is sniffed
+// by SIGNATURE (the shapes are disjoint — no new stored field). Cross-module reads
+// (armyMarchProfile in maneuvers, journeyBaseSpeedMilesPerDay in subsystems) go through
+// global.ACKS lazily, like unitTroopRow → findTroopType.
+// =============================================================================
+
+// Discriminate a group entity by signature. Army FIRST (it now also carries
+// memberCharacterIds, the party tell), then unit / band / caravan, party last.
+function groupKindOf(g){
+  if(!g || typeof g !== 'object') return null;
+  if(Array.isArray(g.divisions)) return 'army';
+  if(g.unitTypeKey != null) return 'unit';
+  if(g.groupTemplate != null) return 'band';
+  if(g.cargo != null || g.ventureId != null) return 'caravan';   // reserved (§12.8)
+  if(Array.isArray(g.memberCharacterIds)) return 'party';
+  return null;
+}
+
+const GROUP_KIND_META = {
+  party:   { icon: '🧭', label: 'Party' },
+  army:    { icon: '🎖', label: 'Army' },
+  unit:    { icon: '🪖', label: 'Unit' },
+  band:    { icon: '🐉', label: 'Band' },
+  caravan: { icon: '🐪', label: 'Caravan' }
+};
+function groupKindMeta(kind){ return GROUP_KIND_META[kind] || { icon: '•', label: 'Group' }; }
+
+function groupDisplayName(g){
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return g.displayName || g.unitTypeKey || 'Unit';
+  if(kind === 'band') return g.name || (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || 'Band';
+  return g.name || g.id || '';   // party / army / caravan
+}
+
+// The INDIVIDUATED channel — member Characters (full sheets), deduped + order-preserving.
+// Party members; army officers (leader + division commanders + adjutants + the roster);
+// a unit's commander/lieutenant; a band's commander. This is what the members table renders.
+function groupMembers(campaign, g){
+  if(!campaign || !g) return [];
+  const ids = [];
+  const push = id => { if(id && !ids.includes(id)) ids.push(id); };
+  const kind = groupKindOf(g);
+  if(kind === 'party'){ (g.memberCharacterIds || []).forEach(push); }
+  else if(kind === 'army'){
+    push(g.leaderCharacterId);
+    for(const dv of (g.divisions || [])){ push(dv && dv.commanderCharacterId); push(dv && dv.adjutantCharacterId); }
+    (g.memberCharacterIds || []).forEach(push);
+  } else if(kind === 'unit'){ push(g.commanderCharacterId); push(g.lieutenantCharacterId); }
+  else if(kind === 'band'){ push(g.commanderCharacterId); }
+  return ids.map(id => _findCharacterById(campaign, id)).filter(Boolean);
+}
+
+function groupLeader(campaign, g){
+  if(!campaign || !g) return null;
+  const kind = groupKindOf(g);
+  const id = (kind === 'unit') ? (g.commanderCharacterId || g.lieutenantCharacterId)
+           : (g.leaderCharacterId || g.commanderCharacterId);
+  return id ? _findCharacterById(campaign, id) : null;
+}
+
+// The COUNTED channel — the formations the group carries: army → its stationed units;
+// party → its members' mercenary-company units; an atom (unit/band) → itself.
+function groupFormations(campaign, g){
+  if(!campaign || !g) return [];
+  const kind = groupKindOf(g);
+  if(kind === 'army') return armyUnits(campaign, g);
+  if(kind === 'unit' || kind === 'band') return [g];
+  if(kind === 'party'){
+    const out = [];
+    for(const id of (g.memberCharacterIds || [])){
+      const c = _findCharacterById(campaign, id);
+      const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+      if(Array.isArray(arr)) for(const u of arr) if(u) out.push(u);
+    }
+    return out;
+  }
+  return [];
+}
+
+// The group's natural size: party → characters + their mercenaries; army → troops;
+// unit → soldiers; band → creatures (active = count − casualties throughout).
+function groupHeadcount(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return unitActiveCount(g);
+  if(kind === 'band') return groupActiveCount(g);
+  const counted = groupFormations(campaign, g).reduce((s, u) => s + unitActiveCount(u), 0);
+  if(kind === 'party') return (g.memberCharacterIds || []).length + counted;
+  return counted;   // army (troops) / caravan
+}
+
+// Where the group physically is, as a hex id. A nested member resolves to its CONTAINER'S
+// position (a stationed unit → its army/garrison hex). Pure read.
+function groupPosition(campaign, g){
+  if(!campaign || !g) return null;
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return unitCurrentHexId(campaign, g);
+  if(kind === 'army'){
+    if(g.currentHexId) return g.currentHexId;
+    const u = armyUnits(campaign, g)[0];
+    return u ? unitCurrentHexId(campaign, u) : null;
+  }
+  return g.currentHexId || null;   // party / band / caravan
+}
+
+// The group's active journey/march (the journey entity it rides), or null. A band
+// wanders via the monster-bands consumer (no journey entity).
+function groupJourney(campaign, g){
+  if(!campaign || !g || !Array.isArray(campaign.journeys)) return null;
+  const kind = groupKindOf(g);
+  const jid = (kind === 'party') ? g.activeJourneyId
+            : (kind === 'army')  ? g.journeyId
+            : (kind === 'unit')  ? g.rallyJourneyId
+            : null;
+  return jid ? (campaign.journeys.find(j => j && j.id === jid) || null) : null;
+}
+
+// Daily movement in miles (best-effort; generalizes the per-kind reads).
+function groupSpeed(campaign, g){
+  const A = global.ACKS, kind = groupKindOf(g);
+  if(kind === 'unit') return unitMarchMilesPerDay(g);
+  if(kind === 'army' && A && typeof A.armyMarchProfile === 'function'){
+    const p = A.armyMarchProfile(campaign, g); return p ? (p.milesPerDay || null) : null;
+  }
+  const j = groupJourney(campaign, g);
+  if(j && A && typeof A.journeyBaseSpeedMilesPerDay === 'function') return A.journeyBaseSpeedMilesPerDay(campaign, j);
+  return null;
+}
+
+// The per-day logistics model (a tagged union): party eats rations + drinks water;
+// army/unit draw supplies (RR p.450); a band forages.
+function groupLogistics(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'party')   return { model: 'rations-water' };
+  if(kind === 'army')    return { model: 'supplies', simplified: g.supplySimplified !== false };
+  if(kind === 'unit')    return { model: 'supplies', state: g.supplyState || 'supplied' };
+  if(kind === 'band')    return { model: 'forage' };
+  if(kind === 'caravan') return { model: 'supplies' };
+  return { model: 'none' };
+}
+
+// The parent GROUP this one is nested in (the inverse of groupFormations): a unit
+// stationed to an army → that army; else null. A lair holds a band but is not a group.
+function groupContainer(campaign, g){
+  if(!campaign || !g) return null;
+  if(groupKindOf(g) === 'unit'){
+    const st = g.stationedAt;
+    if(st && st.kind === 'army') return findArmy(campaign, st.id);
+  }
+  return null;
+}
+
+// Autonomous = a top-level actor (a row in the merged view), i.e. NOT nested in another
+// group. A unit is nested iff stationed to an army; a band iff a lair holds it;
+// party/army/caravan are always autonomous (§12.5).
+function groupIsAutonomous(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'unit') return !(g.stationedAt && g.stationedAt.kind === 'army');
+  if(kind === 'band'){
+    if(campaign && Array.isArray(campaign.lairs))
+      return !campaign.lairs.some(l => l && Array.isArray(l.groupIds) && l.groupIds.includes(g.id));
+    return true;
+  }
+  return true;
+}
+
+function groupLifecycleState(campaign, g){
+  const kind = groupKindOf(g);
+  if(kind === 'party') return g.status || 'active';
+  if(kind === 'band')  return g.lifecycleState || 'wild';
+  if(kind === 'unit')  return g.rallyingToArmyId ? 'rallying' : ((g.stationedAt && g.stationedAt.kind) || 'loose');
+  if(kind === 'army')  return g.journeyId ? 'marching' : 'mustered';
+  return 'active';
+}
+
+// The shared row descriptor for the merged "Parties" view tables. Pure data; the UI
+// formats the hex label (hexName) + the link targets.
+function groupRow(campaign, g){
+  const kind = groupKindOf(g), meta = groupKindMeta(kind), leader = groupLeader(campaign, g);
+  const j = groupJourney(campaign, g);
+  return {
+    kind, id: g.id, icon: meta.icon, kindLabel: meta.label,
+    name: groupDisplayName(g),
+    leaderName: leader ? (leader.name || '(unnamed)') : null,
+    leaderId: leader ? leader.id : null,
+    headcount: groupHeadcount(campaign, g),
+    memberCount: groupMembers(campaign, g).length,
+    hexId: groupPosition(campaign, g),
+    onTheMove: !!(j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost')),
+    journeyId: j ? j.id : null,
+    lifecycle: groupLifecycleState(campaign, g)
+  };
+}
+
+// The Units table: every unit NOT absorbed into an army (garrison / mercenary-company /
+// rallying-in / hex). An army-stationed unit shows only under its army (§12.5).
+function looseUnits(campaign){
+  if(!campaign || !Array.isArray(campaign.units)) return [];
+  return campaign.units.filter(u => u && !(u.stationedAt && u.stationedAt.kind === 'army'));
+}
+
+// The cross-kind enumerator: every AUTONOMOUS group in the world, as {kind, entity}
+// (parties + armies + loose units; bands/caravans join as the view grows). opts.kinds
+// filters; opts.includeNested keeps absorbed units / lair-bound bands.
+function worldGroups(campaign, opts={}){
+  if(!campaign) return [];
+  const want = opts.kinds ? new Set(opts.kinds) : null;
+  const out = [];
+  const add = (entity) => {
+    const kind = groupKindOf(entity);
+    if(want && !want.has(kind)) return;
+    if(!opts.includeNested && !groupIsAutonomous(campaign, entity)) return;
+    out.push({ kind, entity });
+  };
+  for(const p of (campaign.parties || [])) if(p && p.status !== 'disbanded') add(p);
+  for(const a of (campaign.armies || [])) add(a);
+  for(const u of (campaign.units || [])) add(u);
+  return out;
+}
+
+// The group (party / army / unit) that OWNS a journey — the inverse of groupJourney.
+// A journey carries exactly one owner discriminator (armyId | unitId | partyId); a lone
+// traveller (participantCharacterIds, no group) returns null. Lets the Journey Detail
+// panel render group-aware (an army's march shows its units + supplies, not rations).
+function groupForJourney(campaign, journeyOrId){
+  if(!campaign) return null;
+  const j = (typeof journeyOrId === 'string') ? (campaign.journeys || []).find(x => x && x.id === journeyOrId) : journeyOrId;
+  if(!j) return null;
+  if(j.armyId) return findArmy(campaign, j.armyId);
+  if(j.unitId) return findUnit(campaign, j.unitId);
+  if(j.partyId) return (campaign.parties || []).find(p => p && p.id === j.partyId) || null;
+  return null;
+}
+
+// Muster an army FROM an existing party (§12.6 — the party→army transformation). The
+// party's members become the army's individuated roster (its leader → the commander),
+// each member's mercenary-company units → the army's first units, and the party is
+// CONSUMED (its camp handed to the leader, members freed, the party removed). The army
+// inherits the party's hex + (an in-transit) journey ends so the army marches anew.
+// Returns the army. id-stable via opts.id (the createArmy idempotency pattern).
+function musterArmyFromParty(campaign, partyOrId, opts={}){
+  if(!campaign) return null;
+  const party = (typeof partyOrId === 'string')
+    ? (campaign.parties || []).find(p => p && p.id === partyOrId) : partyOrId;
+  if(!party) return null;
+  const memberIds = (party.memberCharacterIds || []).slice();
+  const commanderId = opts.commanderCharacterId || party.leaderCharacterId || memberIds[0] || null;
+  const hexId = opts.currentHexId || party.currentHexId || null;
+  // the members' mercenary-company units become the army's units
+  const unitIds = [];
+  for(const id of memberIds){
+    const c = _findCharacterById(campaign, id);
+    const arr = c && c.mercenaryCompany && c.mercenaryCompany.units;
+    if(Array.isArray(arr)) for(const u of arr) if(u && u.id) unitIds.push(u.id);
+  }
+  const army = createArmy(campaign, {
+    id: opts.id,
+    name: opts.name || (party.name ? (party.name + ' (army)') : ''),
+    leaderCharacterId: commanderId,
+    currentHexId: hexId,
+    strategicStance: opts.strategicStance || 'defensive',
+    unitIds
+  });
+  if(!army) return null;
+  army.memberCharacterIds = memberIds.slice();   // the party's people become the army's roster
+  // consume the party: hand its camp to the leader, free the members, remove it
+  handOffPartyCampToLeader(campaign, party);
+  for(const id of memberIds){ const c = _findCharacterById(campaign, id); if(c && c.partyId === party.id) c.partyId = null; }
+  if(party.activeJourneyId && Array.isArray(campaign.journeys)){
+    const j = campaign.journeys.find(x => x && x.id === party.activeJourneyId);
+    if(j && j.status === 'in-transit') j.status = 'arrived';
+  }
+  if(Array.isArray(campaign.parties)){
+    const i = campaign.parties.findIndex(p => p && p.id === party.id);
+    if(i >= 0) campaign.parties.splice(i, 1);
+  }
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  army.history.push({ turn, type: 'mustered-from-party', text: 'Mustered from the party ' + (party.name || party.id) });
+  return army;
+}
+
+// Lazy-default the W1 military fields on a legacy garrison-unit object (additive; never
+// clobbers existing values — idempotent).
+function _lazyDefaultUnitFields(u){
+  if(u.race == null) u.race = 'man';
+  if(u.loadout === undefined) u.loadout = null;
+  if(u.veteran == null) u.veteran = false;
+  if(u.elite == null) u.elite = false;
+  if(u.casualties == null) u.casualties = 0;
+  if(u.source == null) u.source = 'mercenary';
+  if(u.scale == null) u.scale = 'company';
+  if(u.trainingState === undefined) u.trainingState = null;
+  if(u.lieutenantCharacterId === undefined) u.lieutenantCharacterId = null;
+  if(u.loyalty == null) u.loyalty = 0;
+  if(u.moraleAdjustment == null) u.moraleAdjustment = 0;
+  if(!Array.isArray(u.calamities)) u.calamities = [];
+  if(u.supplyState == null) u.supplyState = 'supplied';
+  // rallyingToArmyId / rallyJourneyId are transient runtime state (set only while a unit is
+  // marching to rally — callUpUnit). NOT backfilled on load: a unit without them reads as
+  // present (every consumer tests `=== army.id`), so templates stay migrate-no-ops.
+  if(!Array.isArray(u.history)) u.history = [];
+  if(u.notes == null) u.notes = '';
+  return u;
+}
+
+// The W1 lift: every nested garrison/mercenary-company unit becomes a first-class
+// member of campaign.units[] — the SAME object in both homes (reference-unified, the
+// hexes/liftToTopLevelCollections precedent). Idempotent + self-healing both ways:
+// a JSON round-trip duplicates the objects; on load the campaign.units copy wins as
+// canonical and the nested entries are re-pointed at it; units present only in
+// campaign.units with a garrison/character station are pushed back into their mirror.
+function migrateGarrisonUnitsToUnits(campaign){
+  if(!campaign) return campaign;
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  if(!Array.isArray(campaign.armies)) campaign.armies = [];
+  const byId = new Map();
+  for(const u of campaign.units){ if(u && u.id) byId.set(u.id, u); }
+  function lift(arr, stationedAt){
+    if(!Array.isArray(arr)) return;
+    for(let i = 0; i < arr.length; i++){
+      let u = arr[i];
+      if(!u) continue;
+      if(!u.id) u.id = newId(ID_PREFIXES.garrisonUnit);
+      const canonical = byId.get(u.id);
+      if(canonical && canonical !== u){ arr[i] = canonical; u = canonical; }
+      _lazyDefaultUnitFields(u);
+      if(!u.stationedAt) u.stationedAt = stationedAt;
+      if(!byId.has(u.id)){ campaign.units.push(u); byId.set(u.id, u); }
+    }
+  }
+  for(const d of (campaign.domains || [])){
+    if(d && d.garrison) lift(d.garrison.units, { kind: 'domain-garrison', id: d.id });
+  }
+  for(const c of (campaign.characters || [])){
+    if(c && c.mercenaryCompany) lift(c.mercenaryCompany.units, { kind: 'character', id: c.id });
+  }
+  // reverse pass: first-class units whose station names a mirror they're missing from
+  for(const u of campaign.units){
+    if(!u) continue;
+    _lazyDefaultUnitFields(u);
+    const st = u.stationedAt;
+    if(!st) continue;
+    if(st.kind === 'domain-garrison'){
+      const d = (campaign.domains || []).find(x => x && x.id === st.id);
+      if(d){
+        if(!d.garrison) d.garrison = { units: [] };
+        if(!Array.isArray(d.garrison.units)) d.garrison.units = [];
+        const i = d.garrison.units.findIndex(x => x && x.id === u.id);
+        if(i < 0) d.garrison.units.push(u);
+        else if(d.garrison.units[i] !== u) d.garrison.units[i] = u;
+      }
+    } else if(st.kind === 'character'){
+      const c = (campaign.characters || []).find(x => x && x.id === st.id);
+      if(c){
+        if(!c.mercenaryCompany) c.mercenaryCompany = { units: [] };
+        if(!Array.isArray(c.mercenaryCompany.units)) c.mercenaryCompany.units = [];
+        const i = c.mercenaryCompany.units.findIndex(x => x && x.id === u.id);
+        if(i < 0) c.mercenaryCompany.units.push(u);
+        else if(c.mercenaryCompany.units[i] !== u) c.mercenaryCompany.units[i] = u;
+      }
+    }
+  }
+  return campaign;
+}
+
+// =============================================================================
 // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lair lookups + the legacy lift.
 // Lairs are first-class placed entities (campaign.lairs[]); see blankLair (§3.1). These pure
 // finds mirror the Group/Outpost lookup shape; the encounter pipeline (M3) and discovery (M4)
@@ -3581,7 +4692,11 @@ function looseMonsterBands(campaign){
       groupIds: [g.id],
       lairId: null,
       deadHomeLairId: deadHome[g.id] || null,
-      halted: !!(ws && ws.halted)                  // E6 — the GM's parking lever (else it wanders)
+      halted: !!(ws && ws.halted),                 // E6 — the GM's parking lever (else it wanders)
+      // W2 — a band that arrived as a DOMAIN ENCOUNTER carries its verdict (the Groups
+      // table + the 6a binding label name the incursion; the band wanders/holds the same).
+      incursion: g.incursion ? { domainId: g.incursion.domainId, attitude: g.incursion.attitude,
+                                 disposition: g.incursion.disposition, rulerAware: g.incursion.rulerAware !== false } : null
     });
   }
   return rows;
@@ -6517,7 +7632,13 @@ function proposeMonthlyTurn(campaign, options){
         domainId: d.id,
         domainName: d.name,
         classification: effectiveDomainClassification(d),
-        ruler: global.ACKS.effectiveRuler(campaign, d),
+        // W4 — RR p.458: while OCCUPIED the monthly morale machinery runs under the
+        // OCCUPIER's personal authority (the base morale recomputes from him); the
+        // moraleModifiersFor occupation-penalty row rides on top. Unoccupied domains
+        // (the universal case) read effectiveRuler exactly as before.
+        ruler: (d.occupiedBy && d.occupiedBy.leaderCharacterId && global.ACKS.occupierRulerSummary)
+          ? global.ACKS.occupierRulerSummary(campaign, d)
+          : global.ACKS.effectiveRuler(campaign, d),
         tithePaid: d.expenses.tithePaid !== false,
         tributePaid: d.expenses.tributePaid !== false,
         administersThisMonth: !!d.administersThisMonth,
@@ -6698,8 +7819,32 @@ function commitTurn(campaign, proposal, options){
       morale: d.demographics.morale,
       treasuryGp: d.treasury.gp
     };
-    _applyDomainTreasuryDelta(campaign, d, net, { reason:'monthly-net-income', label:'monthly net income' });
-    if(net) _turnWealthChildren.push({ amount: net, bucket:'monthly-net-income', reason:'monthly net income' });
+    // W4 — RR p.458: while OCCUPIED (not conquered) the peasants and their revenues are
+    // the occupier's; the urban families stay the owner's until conquest. A positive
+    // month splits by the peasant-attributable share of gross income (peasantIncomeShare);
+    // a negative month stays the owner's burden (the occupier does not subsidize 🔧).
+    let _ownerNet = net;
+    if(d.occupiedBy && d.occupiedBy.leaderCharacterId && net > 0 && global.ACKS.peasantIncomeShare){
+      const _occShare = global.ACKS.peasantIncomeShare(campaign, d);
+      const _occupierGp = Math.max(0, Math.round(net * _occShare));
+      if(_occupierGp > 0){
+        _ownerNet = net - _occupierGp;
+        const _occupier = (campaign.characters || []).find(c => c && c.id === d.occupiedBy.leaderCharacterId);
+        if(_occupier){
+          const _occDom = (campaign.domains || []).find(x => x && x.rulerCharacterId === _occupier.id) || null;
+          const _handle = (_occupier.payKeepFromTreasury !== false && _occDom)
+            ? { kind: 'treasury', id: _occDom.id } : { kind: 'character-gp', id: _occupier.id };
+          const _spec = { amount: _occupierGp, source: { kind: 'external', label: 'occupation of ' + (d.name || 'a domain') },
+                          destination: _handle, reason: 'Occupation revenue from ' + (d.name || 'a domain'), bucket: 'occupation-revenue' };
+          try {
+            if(global.ACKS.applyWealthTransfer) global.ACKS.applyWealthTransfer(campaign, _spec);
+            if(global.ACKS.recordWealthTransfer) global.ACKS.recordWealthTransfer(campaign, _spec, { submittedBy: 'engine', campaignLogHidden: true });
+          } catch(e){ /* the turn still settles; the event log just misses the transfer record */ }
+        }
+      }
+    }
+    _applyDomainTreasuryDelta(campaign, d, _ownerNet, { reason:'monthly-net-income', label:'monthly net income' });
+    if(_ownerNet) _turnWealthChildren.push({ amount: _ownerNet, bucket:'monthly-net-income', reason:'monthly net income' });
     d.demographics.morale = moraleAfter;
     // Foundation #241 — go through the canonical setter so `hex.families` stays in sync.
     setPeasantPopulation(d, (d.demographics.peasantFamilies || 0) + popDelta);
@@ -7075,8 +8220,10 @@ function commitTurn(campaign, proposal, options){
       }
     } catch(e){ /* swallow per original */ }
 
-    // Award XP to ruler (RR p.423; henchman rulers get half).
-    const xpEarned = global.ACKS.domainXpFromNet(campaign, d, net - totalInvestmentSpent - totalAgriculturalSpent);
+    // Award XP to ruler (RR p.423; henchman rulers get half). While occupied, the
+    // owner's XP basis is the net HE actually kept (_ownerNet — the occupier's share
+    // earned the occupier gp, not the deposed lord XP).
+    const xpEarned = global.ACKS.domainXpFromNet(campaign, d, _ownerNet - totalInvestmentSpent - totalAgriculturalSpent);
     let rulerXpAwarded = 0;
     if(xpEarned && xpEarned > 0){
       const rulerCh = global.ACKS.rulerCharacter(campaign, d);
@@ -7085,7 +8232,7 @@ function commitTurn(campaign, proposal, options){
         rulerXpAwarded = Math.round(xpEarned * henchPenalty);
         rulerCh.xp = (rulerCh.xp || 0) + rulerXpAwarded;
         addCharacterHistory(campaign, rulerCh, 'xp',
-          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + (net - totalInvestmentSpent - totalAgriculturalSpent).toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp' + (henchPenalty < 1 ? ', henchman ½' : '') + ')',
+          '+' + rulerXpAwarded.toLocaleString() + ' XP from ruling ' + d.name + ' (domain net ' + (_ownerNet - totalInvestmentSpent - totalAgriculturalSpent).toLocaleString() + 'gp − threshold ' + computeGpThreshold(rulerCh.level || 1).toLocaleString() + 'gp' + (henchPenalty < 1 ? ', henchman ½' : '') + ')',
           { xp: rulerXpAwarded, source: 'domain', domainId: d.id }
         );
       }
@@ -7184,6 +8331,17 @@ function commitTurn(campaign, proposal, options){
         (banditryResult.logEntries || []).forEach(l => logEntries.push(l));
       }
     } catch(e){ /* never let banditry fail the monthly commit */ }
+    // Phase 3 Military W2 — the JJ p.103 peasant-unease flag is ONE-SHOT: it just fed
+    // this month's morale roll (the moraleModifiersFor row), so consume it. Clearing a
+    // stale flag is harmless + self-healing, so this runs unconditionally of the rule.
+    try {
+      (campaign.domains || []).forEach(d => { if(d && d.incursionXenophobiaPending) d.incursionXenophobiaPending = false; });
+    } catch(e){ /* never let the flag clear fail the monthly commit */ }
+    // W4 — RR p.458: the post-occupation −1/month penalty is likewise ONE-SHOT (the
+    // owner's NEXT morale roll). It just fed this month's roll — consume it.
+    try {
+      (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
+    } catch(e){ /* never let the flag clear fail the monthly commit */ }
   }
 
   // === RUMOR AUTO-EMIT ===
@@ -7438,6 +8596,27 @@ function dayTickActivityInFlight(campaign){
   if(budgeted(campaign.hexes)) return true;
   if(Array.isArray(campaign.domains) && campaign.domains.some(d => d && d.geography && budgeted(d.geography.hexes))) return true;
   return false;
+}
+
+// What HOLDS the world clock (Review tab, 2026-06-13): sub-day-scale situations that need
+// the GM resolved before another day passes — active Encounters (the RAW pre-combat walk)
+// and Battles still in motion (setup / fighting / awaiting aftermath; ~10-minute battle
+// turns). The advance buttons grey while any exist. Month-grained obligations (the
+// pendingEvents queue — player plans, scheduled loyalty checks) deliberately do NOT hold
+// the day clock: they ride until the month commit, where the turn resolution forces a
+// decision per event (eventsTargetingTurn). Pure derived read.
+function dailyAdvanceBlockers(campaign){
+  if(!campaign) return [];
+  const out = [];
+  (activeEncounters(campaign) || []).forEach(e => {
+    out.push({ kind: 'encounter', id: e.id, label: encounterDisplayName(campaign, e) });
+  });
+  // activeBattles lives in acks-engine-battles.js (loads after this module) — call-time lookup.
+  const battlesFn = global.ACKS && typeof global.ACKS.activeBattles === 'function' ? global.ACKS.activeBattles : null;
+  ((battlesFn ? battlesFn(campaign) : []) || []).forEach(b => {
+    out.push({ kind: 'battle', id: b.id, label: (b.name || b.id) + (b.status === 'ended' ? ' — awaiting aftermath' : '') });
+  });
+  return out;
 }
 
 // PROPOSE half of the day-tick commit pipeline (Calendar §10). Advances up to `days`
@@ -8508,6 +9687,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Day-tick primitives (also for future Calendar C2 reuse by Hijinks / Journeys / Spell Research)
   registerDayConsumer, unregisterDayConsumer, tickDay, tickDayOnce, dayConsumersInOrder,
   dayTickContext, isDayTickRuleOn, dayTickPauseReasons, dayTickActivityInFlight,
+  dailyAdvanceBlockers,
   proposeDayTick, commitDayTick, runDayTickToMonthEnd, emitDayTickEvents,
   proposeConstructionDay, commitConstructionRecord,
   // Construction-specific helpers
@@ -8613,6 +9793,26 @@ const ACKS = Object.assign(global.ACKS || {}, {
   notableItemsInCustodian, notableItemsHeldByCharacter, notableItemsAtHex,
   // #442 — Group entity lookups (Architecture.md §2.4, 2026-05-29)
   findGroup, groupsAtHex, groupsByCatalogKey, groupsCommandedBy, groupActiveCount,
+  // Phase 3 Military W1 (2026-06-12) — Units & Armies: lookups, the shared battle interface
+  // (unitBattleRating reads TROOP_CATALOG; groupBattleRating reads the MM per-creature BR),
+  // officer characteristics (RR pp.435–437), stationing setter + the garrison lift.
+  findUnit, findArmy, unitsStationedAt, armiesAtHex, unitActiveCount,
+  armyUnits, armyDivisionForUnit, unitTroopRow, unitMarchMilesPerDay, unitCurrentHexId,
+  unitBattleRating, groupBattleRating, unitWagePerSoldier, unitWageMonthly,
+  unitWeeklySupplyCost, unitMoraleScore,
+  proficiencyRanks, hasProficiencyNamed,
+  leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
+  qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
+  armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
+  validateArmyOrganization, stationUnit, disbandUnit, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
+  // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
+  groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
+  groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,
+  groupIsAutonomous, groupLifecycleState, groupRow, looseUnits, worldGroups, groupForJourney, musterArmyFromParty,
+  // Phase 3 Military W2 — the Vagaries of Incursion derived reads (JJ pp.100–106)
+  domainTerritoryHexCount, domainBorderConfiguration, domainEffectiveTerritory,
+  domainIncursionClassification, domainDailyEncounterChance,
+  unitPlatoonScaleBr, domainGarrisonPlatoonBr, monsterPlatoonBr,
   // #476 Monster Persistence M0 — Lair lookups + the legacy hex.lairs[] lift (2026-06-09)
   findLair, lairsAtHex, lairsByMonsterKey, activeLairs, clearedLairs, lairInhabitantCount, migrateLegacyHexLairs,
   // #476 M1 — Lair lifecycle setters + terrain-keyed density seeding (Plan §13)

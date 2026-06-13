@@ -217,7 +217,26 @@
             "count": 80,
             "monthlyWage": 15,
             "brPerSoldier": 0.125,
-            "stationedAtHexId": "hex-kazad-doln-gates"
+            "stationedAtHexId": "hex-kazad-doln-gates",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-vault-of-kazad-doln"
+            }
           },
           {
             "schemaVersion": 2,
@@ -227,7 +246,26 @@
             "count": 40,
             "monthlyWage": 12,
             "brPerSoldier": 0.1,
-            "stationedAtHexId": "hex-kazad-doln-gates"
+            "stationedAtHexId": "hex-kazad-doln-gates",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-vault-of-kazad-doln"
+            }
           }
         ],
         "totalMonthlyCost": 1680,
@@ -404,7 +442,26 @@
             "count": 25,
             "monthlyWage": 15,
             "brPerSoldier": 0.125,
-            "stationedAtHexId": "hex-brokk-hold"
+            "stationedAtHexId": "hex-brokk-hold",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-thane-hold-of-brokk"
+            }
           }
         ],
         "totalMonthlyCost": 375,
@@ -888,5 +945,96 @@
       ]
     }
   ],
-  "lairs": []
+  "lairs": [],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-kazad-vaultguard",
+      "displayName": "Dwarven Vaultguard",
+      "unitTypeKey": "dwarven-vaultguard",
+      "count": 80,
+      "monthlyWage": 15,
+      "brPerSoldier": 0.125,
+      "stationedAtHexId": "hex-kazad-doln-gates",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-vault-of-kazad-doln"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-kazad-arbalest",
+      "displayName": "Dwarven Crossbowmen",
+      "unitTypeKey": "dwarven-crossbow",
+      "count": 40,
+      "monthlyWage": 12,
+      "brPerSoldier": 0.1,
+      "stationedAtHexId": "hex-kazad-doln-gates",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-vault-of-kazad-doln"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-brokk-vaultguard",
+      "displayName": "Dwarven Vaultguard",
+      "unitTypeKey": "dwarven-vaultguard",
+      "count": 25,
+      "monthlyWage": 15,
+      "brPerSoldier": 0.125,
+      "stationedAtHexId": "hex-brokk-hold",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-thane-hold-of-brokk"
+      }
+    }
+  ],
+  "armies": [],
+  "battles": []
 }

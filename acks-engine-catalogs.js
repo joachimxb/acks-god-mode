@@ -193,6 +193,8 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'monster-pursuit', category:'encounters', name:'Monster pursuit', source:'RR p.285 + p.120 / #476 E3', default:true, description:'A tracking-capable monster the party evades may take up pursuit ("adventurers who evade might be tracked by some monsters" — RR p.285): the evaded encounter holds open while the GM adjudicates intent; a pursuer follows the trail at half expedition speed with daily Tracking throws (RR p.120) via the day clock, and a catch-up springs a fresh encounter. RAW frames this as GM judgment, so the automation is the toggle. Default on.' },
   { id:'domain-morale-banditry', category:'encounters', name:'Domain banditry takes the field', source:'RR pp.350–351 / #476 E10', default:true,
     description:'A domain at Turbulent morale or worse is plagued by bandits (RR p.350: one able-bodied man per 5 / 2 / 1 families at −2 / −3 / −4). With this on, those bandits MATERIALIZE as bands placed in the world each monthly turn — raiding within their domain on the Day Clock, meetable through the encounter layer, counting as an enemy army whose occupation penalty builds on the morale roll (RR p.349 + p.351). Killed bandits reduce the population (RR p.351); morale recovering to −1 disbands them back to their fields. Off = the bandit count stays a readout only. Default on.' },
+  { id:'vagaries-of-incursion', category:'encounters', name:'Vagaries of Incursion (domain encounters)', source:'JJ pp.100–103 / Phase 3 Military W2',
+    description:'Every domain rolls the Daily Domain Encounter Probability on the Day Clock — wandering monsters arrive from outside (dangerous borders and an insufficient garrison or stronghold raise the odds), roll their domain reaction and reconnaissance, and materialize as real bands in the world, with the platoon-scale Battle Rating comparison against the garrison (JJ pp.104–106). The whole Vagaries chapter is strictly optional per JJ p.100, so this defaults off; a physical wandering band crossing the border (Persistent wandering monsters) counts as the day’s occurrence either way. The bundled demo enables it. Default off.' },
   { id:'ignore-rations', category:'world', name:'Ignore rations', source:'RR p.275 (abstraction)', description:'Abstract away food + water logistics on Journeys — the engine stops tracking rations and never applies hunger or dehydration. RAW (strict ration tracking) is the default; this is the abstraction. Default off.' },
   // ----- Domain mechanics -----
   { id:'families-per-hex-tracking', category:'domain', name:'Families-per-hex tracking',
@@ -341,6 +343,9 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'dwarven-mining-salt', category:'cultural', name:'Mining — salt deposits',
     source:'By This Axe Ch.8 (Phase 4 — not yet implemented)',
     description:"Adds salt as a sibling ore type with unique mechanics: unlimited deposit reserves, sustainable capacity 1d3!×100 families, over-exploitation curve (extra families above capacity reduce per-family labor revenue by 2gp each). Requires dwarven-mining." },
+  { id:'elite-troops', category:'military', name:'Elite troops',
+    source:'ACKS II RR p.434 (detail: AXIOMS 4: War)',
+    description:"Units flagged elite cost +1gp/month per 6gp of regular wage (minimum +3gp) and gain +1 to their attack throws in battles. RAW points the full unit-characteristic detail at AXIOMS 4 / D@W:B — this is RR's own simple version. The wage surcharge is live on the unit wage reads; the attack bonus lands with the battle engine (W3)." },
   { id:'elven-civilization', category:'cultural', name:'Elven civilization (Cyclopedia of Elven Civ — future supplement)',
     source:'Future Autarch supplement (Phase 4.7 placeholder)',
     description:"Architectural placeholder for elven-specific domain features: fastnesses, elven family/follower mechanics, mythic groves, and elven realm politics." },
@@ -364,6 +369,7 @@ const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'characters',   label:'👥 Characters',       description:'Henchman loyalty, salary tracking, hireling recruitment (Phase 2.95).' },
   { id:'world',        label:'🌍 World',            description:'Calendar, seasons, time-of-year mechanics (Phase 2.95+).' },
   { id:'encounters',   label:'⚔ Encounters',       description:'Wilderness meetings — what survives them, settles as a lair, and takes up the hunt (Monster Persistence #476).' },
+  { id:'military',     label:'🎖 Military',         description:'The warfare layer — armies, troops, battles (Phase 3 Military). RAW core is always on; these gate optional RAW.' },
   { id:'rumors',       label:'🗣 Rumors',          description:"Manual rumor tracking, engine auto-emission, proliferation (Phase 2.8 / What's the Word)." },
   { id:'hijinks',      label:'🗡 Hijinks',         description:'Criminal syndicates, hijink resolution detail (Phase 2.7 — placeholders).' },
   { id:'cultural',     label:'🌍 Cultural',        description:'Slavery, dwarven/elven/beastman civilization supplements.' }
@@ -1890,6 +1896,586 @@ function territoryClassForHex(campaign, hex){
   return (t === 'civilized' || t === 'borderlands' || t === 'outlands') ? t : 'outlands';
 }
 
+// ── Phase 3 Military W2 — The Vagaries of Incursion (JJ pp.100–103) ─────────
+// Domain encounters: the daily chance a wandering-monster incursion strikes a domain.
+// The generator runs behind the 'vagaries-of-incursion' rule (strictly optional per
+// JJ p.100, default OFF); these tables + bands are core plumbing the rule feeds.
+// Daily Domain Encounter Probability by Territory Size and Classification (JJ p.101).
+// Rows band by territory size in 6-mile hexes; values are % per day. The unsettled
+// column serves dungeons in unsettled territory / under-garrisoned outlands (the JJ
+// p.101 footnote) — it is also where the JJ p.102 garrison/stronghold demotion lands.
+const INCURSION_DAILY_PCT = Object.freeze([
+  Object.freeze({ maxHexes: 1,  civilized: 0.5, borderlands: 1,  outlands: 3,  unsettled: 4 }),
+  Object.freeze({ maxHexes: 2,  civilized: 1,   borderlands: 1,  outlands: 5,  unsettled: 9 }),
+  Object.freeze({ maxHexes: 3,  civilized: 1,   borderlands: 2,  outlands: 8,  unsettled: 13 }),
+  Object.freeze({ maxHexes: 6,  civilized: 2,   borderlands: 3,  outlands: 15, unsettled: 22 }),
+  Object.freeze({ maxHexes: 8,  civilized: 3,   borderlands: 5,  outlands: 20, unsettled: 30 }),
+  Object.freeze({ maxHexes: 10, civilized: 4,   borderlands: 7,  outlands: 27, unsettled: 44 }),
+  Object.freeze({ maxHexes: 13, civilized: 5,   borderlands: 9,  outlands: 35, unsettled: 57 }),
+  Object.freeze({ maxHexes: 16, civilized: 6,   borderlands: 11, outlands: 44, unsettled: 70 })
+]);
+// Territory > 16 hexes reads the 14–16 row (the printed table tops there).
+function incursionDailyPct(territoryHexes, territoryClass){
+  const n = Math.max(1, Math.min(16, Math.round(Number(territoryHexes) || 1)));
+  const row = INCURSION_DAILY_PCT.find(r => n <= r.maxHexes) || INCURSION_DAILY_PCT[INCURSION_DAILY_PCT.length - 1];
+  const t = String(territoryClass || 'unsettled').toLowerCase();
+  return (row[t] != null) ? row[t] : row.unsettled;
+}
+// Effective Domain Territory with Dangerous Borders (JJ p.102) — a domain adjacent to
+// unsettled territory counts as having a larger territory for encounter throws, by
+// configuration: isolated (unsettled all around) / spearhead (front + both flanks) /
+// flank (front + one flank) / line (front only). 'secure' = no dangerous borders.
+const BORDER_CONFIGURATIONS = Object.freeze(['secure', 'line', 'flank', 'spearhead', 'isolated']);
+const DANGEROUS_BORDERS_TERRITORY = Object.freeze([
+  Object.freeze({ maxHexes: 1,  isolated: 16, spearhead: 8,  flank: 6,  line: 4 }),
+  Object.freeze({ maxHexes: 2,  isolated: 16, spearhead: 10, flank: 7,  line: 4 }),
+  Object.freeze({ maxHexes: 3,  isolated: 16, spearhead: 12, flank: 9,  line: 5 }),
+  Object.freeze({ maxHexes: 6,  isolated: 16, spearhead: 14, flank: 10, line: 6 }),
+  Object.freeze({ maxHexes: 8,  isolated: 16, spearhead: 16, flank: 12, line: 8 }),
+  Object.freeze({ maxHexes: 10, isolated: 16, spearhead: 16, flank: 14, line: 10 }),
+  Object.freeze({ maxHexes: 13, isolated: 16, spearhead: 16, flank: 16, line: 13 }),
+  Object.freeze({ maxHexes: 16, isolated: 16, spearhead: 16, flank: 16, line: 16 })
+]);
+function effectiveTerritoryWithBorders(territoryHexes, configuration){
+  const n = Math.max(1, Math.min(16, Math.round(Number(territoryHexes) || 1)));
+  const cfg = String(configuration || 'secure').toLowerCase();
+  if(cfg === 'secure' || BORDER_CONFIGURATIONS.indexOf(cfg) < 0) return n;
+  const row = DANGEROUS_BORDERS_TERRITORY.find(r => n <= r.maxHexes) || DANGEROUS_BORDERS_TERRITORY[DANGEROUS_BORDERS_TERRITORY.length - 1];
+  return (row[cfg] != null) ? row[cfg] : n;
+}
+// Domain Encounter Reaction (JJ p.103) — 2d6 ± circumstance. Its OWN table, distinct
+// from the wilderness 2d6 reaction: the domain's rulers apply no CHA or proficiency
+// adjustments and don't know the result until they discover it in play.
+const DOMAIN_REACTION_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'hostile',      label: 'Hostile — pillage' }),
+  Object.freeze({ max: 5,    key: 'unfriendly',   label: 'Unfriendly — opportunistic' }),
+  Object.freeze({ max: 8,    key: 'neutral',      label: 'Neutral — exploratory' }),
+  Object.freeze({ max: 11,   key: 'mercantilist', label: 'Mercantilist — trade' }),
+  Object.freeze({ max: null, key: 'friendly',     label: 'Friendly — help' })
+]);
+function domainEncounterReactionBand(total){
+  for(const b of DOMAIN_REACTION_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return DOMAIN_REACTION_BANDS[DOMAIN_REACTION_BANDS.length - 1];
+}
+// Reconnaissance roll result bands (RR p.452) — shared by the W2 recon-lite for domain
+// encounters (JJ p.103) and the W4 full army reconnaissance when it lands.
+const RECON_ROLL_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'catastrophe', label: 'Catastrophe — false intelligence' }),
+  Object.freeze({ max: 5,    key: 'failure',     label: 'Failure — no intelligence' }),
+  Object.freeze({ max: 8,    key: 'marginal',    label: 'Marginal success' }),
+  Object.freeze({ max: 11,   key: 'success',     label: 'Success' }),
+  Object.freeze({ max: null, key: 'major',       label: 'Major success' })
+]);
+function reconRollBand(total){
+  for(const b of RECON_ROLL_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return RECON_ROLL_BANDS[RECON_ROLL_BANDS.length - 1];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 Military W3 — the battle engine catalogs (RR pp.461–470).
+// The resolution machinery lives in acks-engine-battles.js; these are the
+// printed tables it reads. Mechanical facts only, page-cited (CLAUDE §13.6).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Strategic stances (RR p.448) — the maneuvers-layer enum the awareness matrices key on.
+const STRATEGIC_STANCES = Object.freeze(['offensive', 'defensive', 'evasive']);
+
+// The strategic situations (RR pp.461–462). Deployment + surprise are resolved per
+// PAIRING by resolveStrategicSituation (the offensive/evading ROLE decides who fields
+// vanguard/rear-guard divisions; the unaware side is the surprised one).
+const STRATEGIC_SITUATIONS = Object.freeze({
+  'no-battle':              Object.freeze({ key: 'no-battle',              label: 'No Battle',              battle: false }),
+  'pitched-battle':         Object.freeze({ key: 'pitched-battle',         label: 'Pitched Battle',         battle: true }),
+  'meeting-engagement':     Object.freeze({ key: 'meeting-engagement',     label: 'Meeting Engagement',     battle: true }),
+  'rear-guard-action':      Object.freeze({ key: 'rear-guard-action',      label: 'Rear Guard Action',      battle: true, evading: true }),
+  'skirmish':               Object.freeze({ key: 'skirmish',               label: 'Skirmish',               battle: true, evading: true }),
+  'ambush':                 Object.freeze({ key: 'ambush',                 label: 'Ambush',                 battle: true }),
+  'envelopment':            Object.freeze({ key: 'envelopment',            label: 'Envelopment',            battle: true }),
+  'deep-envelopment':       Object.freeze({ key: 'deep-envelopment',       label: 'Deep Envelopment',       battle: true }),
+  'rear-guard-envelopment': Object.freeze({ key: 'rear-guard-envelopment', label: 'Rear Guard Envelopment', battle: true, evading: true })
+});
+
+// The three State of Awareness tables (RR pp.461–462), stance × stance → situation.
+// For the unilateral table, the FIRST index is the aware army's stance.
+const _AWARENESS_MATRIX_MUTUAL = Object.freeze({
+  offensive: Object.freeze({ offensive: 'pitched-battle',    defensive: 'pitched-battle', evasive: 'rear-guard-action' }),
+  defensive: Object.freeze({ offensive: 'pitched-battle',    defensive: 'no-battle',      evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'rear-guard-action', defensive: 'no-battle',      evasive: 'no-battle' })
+});
+const _AWARENESS_MATRIX_UNAWARE = Object.freeze({
+  offensive: Object.freeze({ offensive: 'meeting-engagement', defensive: 'meeting-engagement', evasive: 'skirmish' }),
+  defensive: Object.freeze({ offensive: 'meeting-engagement', defensive: 'no-battle',          evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'skirmish',           defensive: 'no-battle',          evasive: 'no-battle' })
+});
+const _AWARENESS_MATRIX_UNILATERAL = Object.freeze({
+  offensive: Object.freeze({ offensive: 'deep-envelopment', defensive: 'envelopment', evasive: 'rear-guard-envelopment' }),
+  defensive: Object.freeze({ offensive: 'ambush',           defensive: 'no-battle',   evasive: 'no-battle' }),
+  evasive:   Object.freeze({ offensive: 'no-battle',        defensive: 'no-battle',   evasive: 'no-battle' })
+});
+
+// awareness: 'mutual' | 'mutual-unawareness' | 'unilateral-a' | 'unilateral-b' (the
+// suffix names the AWARE side). Returns { situation, label, battle, surprisedSide,
+// deploy: {a,b: 'all'|'vanguard'|'rear-guard'}, zonesDenied: {a,b: []}, attackerDefault }.
+// attackerDefault per RR p.463: a surprised army defends (the ambusher "always counts as
+// an attacking army"); else the offensive side attacks; both-offensive = GM's call
+// (the army that arrived first chooses; simultaneous → the smaller chooses).
+function resolveStrategicSituation(awareness, stanceA, stanceB){
+  const aw = String(awareness || 'mutual').toLowerCase();
+  const sA = STRATEGIC_STANCES.indexOf(stanceA) >= 0 ? stanceA : 'defensive';
+  const sB = STRATEGIC_STANCES.indexOf(stanceB) >= 0 ? stanceB : 'defensive';
+  let key, surprised = null;
+  if(aw === 'unilateral-a'){
+    key = _AWARENESS_MATRIX_UNILATERAL[sA][sB];
+    if(STRATEGIC_SITUATIONS[key].battle) surprised = 'b';
+  } else if(aw === 'unilateral-b'){
+    key = _AWARENESS_MATRIX_UNILATERAL[sB][sA];
+    if(STRATEGIC_SITUATIONS[key].battle) surprised = 'a';
+  } else if(aw === 'mutual-unawareness'){
+    key = _AWARENESS_MATRIX_UNAWARE[sA][sB];
+  } else {
+    key = _AWARENESS_MATRIX_MUTUAL[sA][sB];
+  }
+  const sit = STRATEGIC_SITUATIONS[key];
+  const out = { situation: key, label: sit.label, battle: !!sit.battle, surprisedSide: surprised,
+                deploy: { a: 'all', b: 'all' }, zonesDenied: { a: [], b: [] }, attackerDefault: null };
+  if(!sit.battle) return out;
+  const offensiveSide = (sA === 'offensive' && sB !== 'offensive') ? 'a'
+                      : (sB === 'offensive' && sA !== 'offensive') ? 'b' : null;
+  const evasiveSide = sA === 'evasive' ? 'a' : (sB === 'evasive' ? 'b' : null);
+  switch(key){
+    case 'meeting-engagement':
+      out.deploy = { a: 'vanguard', b: 'vanguard' }; break;
+    case 'rear-guard-action':
+      if(evasiveSide) out.deploy[evasiveSide] = 'rear-guard'; break;
+    case 'skirmish':
+      if(offensiveSide) out.deploy[offensiveSide] = 'vanguard';
+      if(evasiveSide) out.deploy[evasiveSide] = 'rear-guard'; break;
+    case 'rear-guard-envelopment':
+      if(surprised){ out.deploy[surprised] = 'rear-guard'; out.zonesDenied[surprised] = ['right']; } break;
+    case 'envelopment':
+      if(surprised){ out.zonesDenied[surprised] = ['right']; } break;
+    case 'deep-envelopment':
+      if(surprised){ out.zonesDenied[surprised] = ['left', 'right']; } break;
+  }
+  if(surprised) out.attackerDefault = surprised === 'a' ? 'b' : 'a';
+  else if(offensiveSide) out.attackerDefault = offensiveSide;
+  return out;
+}
+
+// The battle turn's attack throws (RR p.464): missile phases target 17+, melee 16+.
+const BATTLE_ATTACK_TARGETS = Object.freeze({ missile: 17, melee: 16 });
+// Reference rows (RR p.464). The engine applies broken/surprised/terrain automatically;
+// "personally leading" is the per-zone GM lever (one unit's worth in RAW — see W3 notes).
+const BATTLE_ATTACK_MODIFIERS = Object.freeze([
+  Object.freeze({ key: 'leading',   label: 'Commander or Lieutenant personally leading unit', value: 1 }),
+  Object.freeze({ key: 'broken',    label: 'Unit facing broken zone', value: 2 }),
+  Object.freeze({ key: 'surprised', label: 'Opposing army surprised (first battle turn only)', value: 2 }),
+  Object.freeze({ key: 'terrain',   label: 'Opposing army occupies advantageous terrain (hill, ridgeline)', value: -2 })
+]);
+
+// Unit Morale (RR pp.467–468) — 2d6 + unit morale ± modifiers. Distinct from the
+// RR p.430 Unit LOYALTY bands (W1) — this is the in-battle morale phase.
+const UNIT_MORALE_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'rout',       label: 'Rout',       effect: 'routs off the battlefield (counts as destroyed)' }),
+  Object.freeze({ max: 5,    key: 'flee',       label: 'Flee',       effect: 'retreats disordered to the reserve; counts as routed if never rallied' }),
+  Object.freeze({ max: 8,    key: 'waver',      label: 'Waver',      effect: 'BR halved when attacking until regrouped' }),
+  Object.freeze({ max: 11,   key: 'stand-firm', label: 'Stand Firm', effect: 'no effect' }),
+  Object.freeze({ max: null, key: 'rally',      label: 'Rally',      effect: '+½ BR attacking next turn; wavering/disordered end' })
+]);
+function unitMoraleBand(total){
+  for(const b of UNIT_MORALE_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return UNIT_MORALE_BANDS[UNIT_MORALE_BANDS.length - 1];
+}
+// Reference rows (RR p.468) — the engine derives all of these live.
+const BATTLE_MORALE_MODIFIERS = Object.freeze([
+  Object.freeze({ key: 'leader-present',  scope: 'army', label: 'Army leader present on battlefield', value: '+½ morale modifier (round up)' }),
+  Object.freeze({ key: 'lost-half',       scope: 'army', label: 'Army has lost ½ or more of its starting units, but less than ⅔', value: -2 }),
+  Object.freeze({ key: 'lost-two-thirds', scope: 'army', label: 'Army has lost ⅔ or more of its starting units', value: -5 }),
+  Object.freeze({ key: 'destroyed-more',  scope: 'army', label: 'Army has destroyed more units than opposing army', value: 2 }),
+  Object.freeze({ key: 'lost-more',       scope: 'army', label: 'Army has lost more units than opposing army', value: -2 }),
+  Object.freeze({ key: 'cannot-retreat',  scope: 'army', label: 'Army cannot retreat (surrounded, trapped)', value: 2 }),
+  Object.freeze({ key: 'officer-attached', scope: 'unit', label: 'Officer attached to unit', value: '+ morale modifier' }),
+  Object.freeze({ key: 'shaken',          scope: 'unit', label: 'Unit is wavering or disordered', value: -2 }),
+  Object.freeze({ key: 'adjacent-broken', scope: 'unit', label: 'Unit is adjacent to a broken zone', value: -2 })
+]);
+
+// Pursuit throws (RR pp.469–470): one throw per eligible pursuing unit; +4 when all the
+// defeated army's cavalry/flyers were destroyed or routed; cumulative −1 per battle turn
+// against a defeated EVADING army; a natural 20 always eliminates a unit.
+const PURSUIT_THROWS = Object.freeze([
+  Object.freeze({ key: 'light-cavalry-or-flyer', label: 'Light Cavalry or Flyer', target: 11 }),
+  Object.freeze({ key: 'other-cavalry',          label: 'Other Cavalry',          target: 14 }),
+  Object.freeze({ key: 'light-infantry',         label: 'Light Infantry',         target: 14 }),
+  Object.freeze({ key: 'other-infantry',         label: 'Other Infantry',         target: 18 })
+]);
+
+// Battlefield Encounter Distance (RR p.466) — foray engagement ranges, keyed on the SAME
+// terrain sub-type rows the wilderness encounter tables use (encounterRowKey resolves a
+// hex). The (2d6+1) adds BEFORE the ×15' multiplier. 🔧 swamp-forested is not printed —
+// folded to the scrubby-swamp row (denser cover cannot open the range).
+const _BFD_DICE = Object.freeze({
+  m420: Object.freeze({ n: 4, d: 6, plus: 0, multFt: 30, avgFt: 420, label: "4d6 × 30'" }),
+  m480: Object.freeze({ n: 5, d: 6, plus: 0, multFt: 30, avgFt: 480, label: "5d6 × 30'" }),
+  m157: Object.freeze({ n: 3, d: 6, plus: 0, multFt: 15, avgFt: 157, label: "3d6 × 15'" }),
+  m70:  Object.freeze({ n: 5, d: 8, plus: 0, multFt: 3,  avgFt: 70,  label: "5d8 × 3'"  }),
+  e120: Object.freeze({ n: 2, d: 6, plus: 1, multFt: 15, avgFt: 120, label: "2d6+1 × 15'" }),
+  e38:  Object.freeze({ n: 5, d: 4, plus: 0, multFt: 3,  avgFt: 38,  label: "5d4 × 3'"  })
+});
+const BATTLEFIELD_ENCOUNTER_DISTANCE = Object.freeze({
+  'barrens':            Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'desert-rocky':       Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'desert-sandy':       Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'forest-taiga':       Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'forest-deciduous':   Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'grassland-other':    Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'grassland-steppe':   Object.freeze({ missile: _BFD_DICE.m480, melee: _BFD_DICE.e120 }),
+  'hills-forested':     Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'hills-rocky':        Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'jungle':             Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.e38  }),
+  'mountains-forested': Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'mountains-rocky':    Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'scrubland-sparse':   Object.freeze({ missile: _BFD_DICE.m420, melee: _BFD_DICE.e120 }),
+  'scrubland-dense':    Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'swamp-marshy':       Object.freeze({ missile: _BFD_DICE.m157, melee: _BFD_DICE.e120 }),
+  'swamp-scrubby':      Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  }),
+  'swamp-forested':     Object.freeze({ missile: _BFD_DICE.m70,  melee: _BFD_DICE.m70  })
+});
+function battlefieldEncounterSpec(rowOrTerrainKey, phaseKind){
+  const row = BATTLEFIELD_ENCOUNTER_DISTANCE[rowOrTerrainKey] ? rowOrTerrainKey : encounterRowKey(rowOrTerrainKey);
+  const e = row ? BATTLEFIELD_ENCOUNTER_DISTANCE[row] : null;
+  if(!e) return null;
+  return phaseKind === 'melee' ? e.melee : e.missile;
+}
+function rollBattlefieldDistanceFt(rowOrTerrainKey, phaseKind, rng){
+  const spec = battlefieldEncounterSpec(rowOrTerrainKey, phaseKind);
+  if(!spec) return null;
+  const r = rng || Math.random;
+  let t = spec.plus || 0;
+  for(let i = 0; i < spec.n; i++) t += 1 + Math.floor(r() * spec.d);
+  return t * spec.multFt;
+}
+
+// Heroic foray stakes (RR p.466) — 0–3 BR per hero, with the printed flavor ladder.
+const FORAY_STAKES = Object.freeze([
+  Object.freeze({ br: 0,   label: 'Entering the foray' }),
+  Object.freeze({ br: 0.5, label: 'Leading from the front' }),
+  Object.freeze({ br: 1,   label: 'Heroically charging into battle' }),
+  Object.freeze({ br: 1.5, label: 'Attacking in front of the vanguard' }),
+  Object.freeze({ br: 2,   label: 'Cutting a swath of glory' }),
+  Object.freeze({ br: 2.5, label: 'Carving his name into the epics' }),
+  Object.freeze({ br: 3,   label: 'Seeking glorious death!' })
+]);
+
+// Hero qualification (RR p.466): any PC; monster 9+ HD; NPC 6th+; a qualifying hero's
+// henchman 4th+. Thresholds shift −2 at platoon scale, +2 battalion, +4 brigade.
+const HERO_QUALIFICATION = Object.freeze({
+  monsterHd: 9, npcLevel: 6, henchmanLevel: 4,
+  scaleShift: Object.freeze({ platoon: -2, company: 0, battalion: 2, brigade: 4 })
+});
+
+// Reinforcement deployment throw (RR p.465, phase 9): d20 + the leader's strategic
+// ability. 🔧 water/unmapped terrain defaults to the middle target (GM overridable).
+function reinforcementThrowTarget(terrainKeyOrBase){
+  const b = terrainBase(terrainKeyOrBase) || String(terrainKeyOrBase || '').toLowerCase();
+  if(b === 'grassland' || b === 'scrubland') return 4;
+  if(b === 'barrens' || b === 'desert' || b === 'hills') return 12;
+  if(b === 'forest' || b === 'jungle' || b === 'mountains' || b === 'swamp') return 16;
+  return 12;
+}
+
+// Officer casualties (RR p.470) — the battle chapter's outcome BANDS. The Mortal Wounds
+// d20 table itself belongs to the Combat layer (#141): the GM rolls it at the table
+// (victor net 0 = +3 proficiency −3 treatment; defeated net −4 = +1/−5) and enters the
+// band; the tool applies the battle-side effects. Surviving bands roll 1d6 toward the
+// permanent-wound column — reported for the GM, not auto-applied (the wound table is #141).
+const OFFICER_CASUALTY_MODS = Object.freeze({
+  victor:   Object.freeze({ proficiency: 3, treatment: -3, net: 0 }),
+  defeated: Object.freeze({ proficiency: 1, treatment: -5, net: -4 })
+});
+const OFFICER_CASUALTY_OUTCOMES = Object.freeze([
+  Object.freeze({ key: 'instantly-killed',   label: 'Instantly Killed',            dies: 'always',      woundRoll: false }),
+  Object.freeze({ key: 'mortally-wounded',   label: 'Mortally Wounded',            dies: 'always',      woundRoll: false }),
+  Object.freeze({ key: 'grievously-wounded', label: 'Grievously Wounded',          dies: 'if-defeated', woundRoll: true }),
+  Object.freeze({ key: 'critically-wounded', label: 'Critically Wounded or Shocked', dies: 'never', capturedIfDefeated: true,  woundRoll: true }),
+  Object.freeze({ key: 'knocked-out',        label: 'Knocked Out or Just Dazed',     dies: 'never', escapedIfDefeated: true,   woundRoll: true })
+]);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 Military W4 — the maneuvers catalogs (RR pp.447–460).
+// The campaign-cycle machinery lives in acks-engine-maneuvers.js; these are
+// the printed tables it reads. Mechanical facts only, page-cited (CLAUDE §13.6).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Movement of Large Armies (RR p.448) — column length + speed multiplier by army size
+// in BRIGADE equivalents. The printed table counts brigades; sub-brigade units convert
+// at the RR p.437 scale ratios (battalion ¼, company 1/16, platoon 1/64 of a brigade).
+const ARMY_LARGE_MULTIPLIERS = Object.freeze([
+  Object.freeze({ maxBrigades: 15,   mult: 1,     columnMiles: 3,  label: 'Less than 16 brigades' }),
+  Object.freeze({ maxBrigades: 26,   mult: 2 / 3, columnMiles: 6,  label: '16–26 brigades' }),
+  Object.freeze({ maxBrigades: 32,   mult: 1 / 2, columnMiles: 9,  label: '27–32 brigades' }),
+  Object.freeze({ maxBrigades: null, mult: 1 / 3, columnMiles: 12, label: '33 brigades or more' })
+]);
+function armyLargeMultiplierRow(brigadeEquivalents){
+  const n = Math.max(0, Number(brigadeEquivalents) || 0);
+  for(const row of ARMY_LARGE_MULTIPLIERS){ if(row.maxBrigades == null || n <= row.maxBrigades) return row; }
+  return ARMY_LARGE_MULTIPLIERS[ARMY_LARGE_MULTIPLIERS.length - 1];
+}
+
+// Movement of War Machines (RR p.449): assembled 30'/turn = 6 mi/day, disassembled
+// 60'/turn = 12 mi/day — a cap on the army's daily speed while it hauls them.
+// (Dis)assembly is a construction project at 1/100 build cost (min 1 day) — that
+// project wiring lands with W6 artillery.
+const WAR_MACHINE_SPEED = Object.freeze({ assembled: 6, disassembled: 12 });
+
+// Effects of Severe Weather on ARMIES (RR p.449). NB the army table deliberately
+// DIFFERS from the party travel readings (the J2 RAW audit): rain/snow halve an army's
+// expedition speed and storms QUARTER it — a marching column suffers where a small
+// party shrugs. Temperature matches the party factors (frigid/sweltering ×½). The
+// disease-vagary %/week rides vagaries-of-war (W8) — recorded here as reference.
+// Condition keys = the journey weather enums; 'windy' has no journey enum yet (T4).
+const ARMY_WEATHER_EFFECTS = Object.freeze({
+  conditions: Object.freeze({
+    rainy:  Object.freeze({ speedMult: 0.5,  reconMod: -2, missileMod: -2, diseasePctWeek: 10, label: 'Rainy' }),
+    snowy:  Object.freeze({ speedMult: 0.5,  reconMod: -2, missileMod: -2, diseasePctWeek: 10, label: 'Snowy' }),
+    stormy: Object.freeze({ speedMult: 0.25, reconMod: -4, missileMod: -4, reconBarrensDesertOnly: true, label: 'Stormy' }),
+    windy:  Object.freeze({ speedMult: 0.5,  reconMod: -4, missileMod: -2, reconBarrensDesertOnly: true, label: 'Windy' }),
+    foggy:  Object.freeze({ speedMult: 0.5,  reconMod: 0,  missileMod: 0,  label: 'Foggy' })   // 🔧 not on the army table; the party visibility factor kept
+  }),
+  temperatures: Object.freeze({
+    frigid:     Object.freeze({ speedMult: 0.5, diseasePctWeek: 10, label: 'Frigid', notes: 'mounts cannot graze; unprotected troops suffer a weekly morale calamity' }),
+    cold:       Object.freeze({ speedMult: 1,   diseasePctWeek: 5,  label: 'Cold' }),
+    moderate:   Object.freeze({ speedMult: 1,   label: 'Moderate' }),
+    sweltering: Object.freeze({ speedMult: 0.5, label: 'Sweltering', notes: 'heavy armor strips to medium; supply cost +25%; out-of-supply penalties doubled' })
+  })
+});
+// The army-march day multiplier: condition × temperature (each defaults ×1 when unkeyed).
+function armyWeatherSpeedMult(condition, temperature){
+  const c = ARMY_WEATHER_EFFECTS.conditions[condition];
+  const t = ARMY_WEATHER_EFFECTS.temperatures[temperature];
+  return (c ? c.speedMult : 1) * (t ? t.speedMult : 1);
+}
+
+// Reconnaissance Range (RR p.452) — how close the observing army must be, by the
+// OPPOSING army's size, in 24-mile hexes. 🔧 The campaign map has no 24-mile super-
+// grid, so 1 twenty-four-mile hex ≈ 4 six-mile hexes of axial distance throughout.
+const RECON_RANGE = Object.freeze([
+  Object.freeze({ maxTroops: 120,  range24: 1 }),
+  Object.freeze({ maxTroops: 600,  range24: 2 }),
+  Object.freeze({ maxTroops: 3000, range24: 3 }),
+  Object.freeze({ maxTroops: null, range24: 4 })
+]);
+function reconRange24(opposingTroops){
+  const n = Math.max(0, Number(opposingTroops) || 0);
+  for(const row of RECON_RANGE){ if(row.maxTroops == null || n <= row.maxTroops) return row.range24; }
+  return 4;
+}
+
+// Reconnaissance Modifiers — opposing army size (RR p.453).
+const RECON_SIZE_MODS = Object.freeze([
+  Object.freeze({ maxTroops: 600,   value: -2 }),
+  Object.freeze({ maxTroops: 3000,  value: -1 }),
+  Object.freeze({ maxTroops: 12000, value: 0 }),
+  Object.freeze({ maxTroops: 36000, value: 1 }),
+  Object.freeze({ maxTroops: 72000, value: 2 }),
+  Object.freeze({ maxTroops: null,  value: 3 })
+]);
+function reconSizeMod(opposingTroops){
+  const n = Math.max(0, Number(opposingTroops) || 0);
+  for(const row of RECON_SIZE_MODS){ if(row.maxTroops == null || n <= row.maxTroops) return row.value; }
+  return 3;
+}
+// The "Approximate Size" bands intelligence reveals (RR p.455).
+const ARMY_SIZE_BANDS = Object.freeze([
+  Object.freeze({ maxTroops: 600,   label: 'small (600 or fewer troops)' }),
+  Object.freeze({ maxTroops: 3000,  label: 'average (601–3,000 troops)' }),
+  Object.freeze({ maxTroops: 12000, label: 'large (3,001–12,000 troops)' }),
+  Object.freeze({ maxTroops: 36000, label: 'huge (12,001–36,000 troops)' }),
+  Object.freeze({ maxTroops: 72000, label: 'gigantic (36,001–72,000 troops)' }),
+  Object.freeze({ maxTroops: null,  label: 'colossal (72,001 or more troops)' })
+]);
+function armySizeBandLabel(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  for(const row of ARMY_SIZE_BANDS){ if(row.maxTroops == null || n <= row.maxTroops) return row.label; }
+  return ARMY_SIZE_BANDS[ARMY_SIZE_BANDS.length - 1].label;
+}
+// Proximity modifier (RR p.453): same 6-mi hex +2; adjacent 6-mi hexes +1; same 24-mi
+// hex 0; −1 per 24-mi hex apart. Quantized from 6-mile axial distance (🔧 4:1).
+function reconProximityMod(hexDist){
+  if(hexDist == null) return 0;
+  if(hexDist <= 0) return 2;
+  if(hexDist === 1) return 1;
+  if(hexDist <= 4) return 0;
+  return -Math.ceil((hexDist - 4) / 4);
+}
+// Terrain row (RR p.453) — by the OPPOSING army's hex (base or base-subtype key).
+// Open ground exposes (+1 to observe them); close terrain conceals (−1).
+function reconTerrainMod(terrainKeyOrBase){
+  const k = String(terrainKeyOrBase || '').toLowerCase();
+  const b = (typeof terrainBase === 'function') ? (terrainBase(k) || k) : k;
+  if(b === 'barrens' || b === 'desert' || b === 'grassland') return 1;
+  if(k === 'scrubland-low' || k === 'scrubland-sparse') return 1;
+  if(k === 'forest-taiga' || k === 'hills-rocky' || k === 'scrubland-high' || k === 'scrubland-dense' || k === 'swamp-marshy') return -1;
+  return 0;
+}
+// Scouting/screening strength (RR p.453, company-equivalents of cavalry + flyers:
+// 4 platoons = 1, battalion = 4, brigade = 16). Same brackets both directions.
+function reconScoutingMod(companyEquivalents){
+  const n = Math.max(0, Number(companyEquivalents) || 0);
+  if(n >= 101) return 3;
+  if(n >= 21) return 2;
+  if(n >= 6) return 1;
+  return 0;
+}
+
+// Results of Reconnaissance Rolls (RR p.455) — proximity tier × degree of success.
+// Tiers quantized from 6-mile axial distance (🔧 4:1): 0 → same-6 · 1–4 → same-24 ·
+// 5–8 → near (1–2 24-mi hexes) · 9+ → far (3–4 24-mi hexes).
+const RECON_RESULTS = Object.freeze({
+  'same-6': Object.freeze({
+    marginal: Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' }),
+    success:  Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types']), prisoner: 'valuable' }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types', 'unit-strengths']), prisoner: 'very-valuable' })
+  }),
+  'same-24': Object.freeze({
+    marginal: Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null }),
+    success:  Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division', 'unit-types']), prisoner: 'valuable' })
+  }),
+  'near': Object.freeze({
+    marginal: Object.freeze({ location: 'within 2 24-mile hexes', reveals: Object.freeze(['size', 'direction']), prisoner: null }),
+    success:  Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null }),
+    major:    Object.freeze({ location: '6-mile hex',           reveals: Object.freeze(['size', 'direction', 'divisions', 'units-per-division']), prisoner: 'common' })
+  }),
+  'far': Object.freeze({
+    marginal: Object.freeze({ location: 'within 4 24-mile hexes', reveals: Object.freeze(['size']), prisoner: null }),
+    success:  Object.freeze({ location: 'within 2 24-mile hexes', reveals: Object.freeze(['size', 'direction']), prisoner: null }),
+    major:    Object.freeze({ location: '24-mile hex',          reveals: Object.freeze(['size', 'direction', 'divisions']), prisoner: null })
+  })
+});
+function reconProximityTier(hexDist){
+  const d = (hexDist == null) ? 99 : hexDist;
+  if(d <= 0) return 'same-6';
+  if(d <= 4) return 'same-24';
+  if(d <= 8) return 'near';
+  return 'far';
+}
+function reconResultsFor(hexDist, degreeKey){
+  const tier = RECON_RESULTS[reconProximityTier(hexDist)];
+  if(!tier) return null;
+  if(degreeKey === 'marginal' || degreeKey === 'success' || degreeKey === 'major') return tier[degreeKey];
+  return null;
+}
+
+// Prisoner Information (RR p.456) — the 1d8 topic table × prisoner grade. Each
+// prisoner knows 1d3 pieces; a repeated topic shifts one grade RIGHT (more detail).
+const PRISONER_INFORMATION = Object.freeze([
+  Object.freeze({ d8: 1, topic: 'leader',       common: 'The name, class, approximate level, and description of the opposing army’s leader.', valuable: '…plus its total number of officers.', veryValuable: 'The leaders AND division commanders described, plus the total number of officers.' }),
+  Object.freeze({ d8: 2, topic: 'spies',        common: 'Whether the opposing army has spies infiltrated into the friendly army.', valuable: '…and if so, one spy described.', veryValuable: '…and if so, up to 1d4 spies described.' }),
+  Object.freeze({ d8: 3, topic: 'supply',       common: 'Whether the opposing army is in supply.', valuable: '…and the location of its supply base.', veryValuable: '…plus the supply base described (commander, size, stronghold value, garrison) and the supply line’s route.' }),
+  Object.freeze({ d8: 4, topic: 'spellcasters', common: 'Whether any 7th+ level spellcasters serve in the opposing army.', valuable: '…plus the most powerful spellcaster named and described.', veryValuable: 'The total number of 7th+ spellcasters, plus the most powerful named and described.' }),
+  Object.freeze({ d8: 5, topic: 'morale',       common: 'The morale modifier of the opposing army’s leader.', valuable: '…and the least charismatic commander’s name and morale modifier.', veryValuable: '…and the most- and least-charismatic commanders’ names and morale modifiers.' }),
+  Object.freeze({ d8: 6, topic: 'stance',       common: 'The strategic stance of the opposing army.', valuable: '…and the number of siege weapons it is transporting.', veryValuable: '…and the number and type of siege weapons it is transporting.' }),
+  Object.freeze({ d8: 7, topic: 'units',        common: 'The type of each unit in the opposing army.', valuable: 'The type and strength of each unit.', veryValuable: 'The type and strength of each unit, plus its strategic objective.' }),
+  Object.freeze({ d8: 8, topic: 'judges-choice', common: 'Judge’s choice of any of the above or another piece of common information.', valuable: 'Judge’s choice of valuable information.', veryValuable: 'Judge’s choice of very valuable information.' })
+]);
+const PRISONER_GRADES = Object.freeze(['common', 'valuable', 'very-valuable']);
+function prisonerInformationText(d8, grade){
+  const row = PRISONER_INFORMATION.find(r => r.d8 === d8) || null;
+  if(!row) return null;
+  if(grade === 'very-valuable') return row.veryValuable;
+  if(grade === 'valuable') return row.valuable;
+  return row.common;
+}
+
+// Results of Interrogation (RR p.457) — 2d6 + the interrogator's CHA + applicable
+// proficiencies/bribes (Judge-priced).
+const INTERROGATION_BANDS = Object.freeze([
+  Object.freeze({ max: 2,    key: 'false',   label: 'False information', pieces: 0 }),
+  Object.freeze({ max: 5,    key: 'nothing', label: 'Nothing',           pieces: 0 }),
+  Object.freeze({ max: 8,    key: 'one',     label: 'One piece of information',  pieces: 1 }),
+  Object.freeze({ max: 11,   key: 'two',     label: 'Two pieces of information', pieces: 2 }),
+  Object.freeze({ max: null, key: 'all',     label: 'All known information',     pieces: 99 })
+]);
+function interrogationBand(total){
+  for(const b of INTERROGATION_BANDS){ if(b.max == null || total <= b.max) return b; }
+  return INTERROGATION_BANDS[INTERROGATION_BANDS.length - 1];
+}
+
+// Domain Pillaging Requirements (RR p.458) — army size + time by domain size.
+const PILLAGE_REQUIREMENTS = Object.freeze([
+  Object.freeze({ maxFamilies: 500,   troops: 600,   timeDice: Object.freeze({ n: 0, d: 0, flat: 1 }), timeLabel: '1 day' }),
+  Object.freeze({ maxFamilies: 2500,  troops: 2400,  timeDice: Object.freeze({ n: 1, d: 3, flat: 0 }), timeLabel: '1d3 days' }),
+  Object.freeze({ maxFamilies: 7500,  troops: 7200,  timeDice: Object.freeze({ n: 1, d: 4, flat: 0 }), timeLabel: '1d4 days' }),
+  Object.freeze({ maxFamilies: 12500, troops: 12000, timeDice: Object.freeze({ n: 1, d: 6, flat: 0 }), timeLabel: '1d6 days' }),
+  Object.freeze({ maxFamilies: null,  troops: 24000, timeDice: Object.freeze({ n: 1, d: 8, flat: 0 }), timeLabel: '1d8 days' })
+]);
+function pillageRequirementRow(totalFamilies){
+  const n = Math.max(0, Number(totalFamilies) || 0);
+  for(const row of PILLAGE_REQUIREMENTS){ if(row.maxFamilies == null || n <= row.maxFamilies) return row; }
+  return PILLAGE_REQUIREMENTS[PILLAGE_REQUIREMENTS.length - 1];
+}
+
+// Results of Pillaging (RR p.458) — ONE roll of each die multiplies the family counts
+// (the printed Sarotem example: 3d6 rolled 13 → 13gp × 500 families). Salting the
+// earth (RR p.459): ×4 the time, flat yields, the domain destroyed.
+const PILLAGE_RESULTS = Object.freeze({
+  goldPerPeasantDice:   Object.freeze({ n: 3,  d: 6 }),   // gp per peasant family
+  goldPerUrbanDice:     Object.freeze({ n: 10, d: 6 }),   // gp per urban family
+  suppliesPerPeasantDice: Object.freeze({ n: 1, d: 10, mult: 5 }),  // ×5 gp per peasant family
+  prisonersPer10Dice:   Object.freeze({ n: 1, d: 10 }),   // per 10 families (peasant + urban)
+  familiesLostPer10Dice: Object.freeze({ n: 1, d: 10 }),  // per 10 families
+  ransomGpPerPrisoner: 40
+});
+const SALT_THE_EARTH = Object.freeze({
+  timeMult: 4, goldPerUrban: 75, goldPerPeasant: 20, suppliesPerPeasant: 50, prisonersPerFamily: 1
+});
+
+// ─── Phase 3 Military W5 — supply (RR pp.450–452) ─────────────────────────
+// Length-of-supply terrain weights (RR p.451, "Each Hex of Terrain | Counts as").
+// Keyed on the BASE terrain (the engine normalizes via terrainBase before lookup).
+// A road segment counts ½ and a navigable-waterway segment 0, REGARDLESS of the
+// underlying terrain (the route follows the road/river) — handled as overrides in
+// supplyLineHexWeight, not as terrain keys. Cap: 16 weighted hexes (96 miles).
+const SUPPLY_LINE_WEIGHTS = Object.freeze({
+  barrens: 4, desert: 4,
+  jungle: 2, mountains: 2, swamp: 2,
+  hills: 1.5, forest: 1.5,
+  grassland: 1, scrubland: 1, scrub: 1, plains: 1, steppe: 1, savanna: 1, taiga: 1,
+  water: 0                                   // an open-water hex IS a waterway (×0)
+});
+const SUPPLY_LINE_ROAD_MULT = 0.5;           // RR p.451 — every two road hexes count as one
+const SUPPLY_LINE_WATERWAY_MULT = 0;         // RR p.451 — waterway hexes are not counted
+const SUPPLY_LINE_MAX_WEIGHTED_HEXES = 16;   // RR p.451 — beyond 16 (96 mi) the line is overextended
+// Racial terrain treatments (RR p.451): elves treat forest as grassland; dwarves treat
+// hills & mountains as grassland; beastmen (little need of food, forage rapaciously)
+// treat ALL terrain as grassland. treatment ∈ null | 'elf' | 'dwarf' | 'beastman'.
+function supplyLineHexWeight(terrainKey, opts){
+  const o = opts || {};
+  if(o.waterway) return SUPPLY_LINE_WATERWAY_MULT;
+  if(o.road) return SUPPLY_LINE_ROAD_MULT;
+  let key = String(terrainKey || '').toLowerCase();
+  if(o.treatment === 'beastman') key = 'grassland';
+  else if(o.treatment === 'elf' && key === 'forest') key = 'grassland';
+  else if(o.treatment === 'dwarf' && (key === 'hills' || key === 'mountains')) key = 'grassland';
+  return (SUPPLY_LINE_WEIGHTS[key] != null) ? SUPPLY_LINE_WEIGHTS[key] : 1;
+}
+
+// Equipment Availability on Campaign (RR p.452): an army of 1,200+ troops is its own
+// market (its baggage train of merchants/craftsmen), Class VI up to Class II — wired
+// into the Trade Wizard market-class logic; lost while supply lines are not clear.
+const ARMY_MARKET_CLASS = Object.freeze([
+  Object.freeze({ minTroops: 72000, marketClass: 'II' }),
+  Object.freeze({ minTroops: 36001, marketClass: 'III' }),
+  Object.freeze({ minTroops: 12001, marketClass: 'IV' }),
+  Object.freeze({ minTroops: 3001,  marketClass: 'V' }),
+  Object.freeze({ minTroops: 1200,  marketClass: 'VI' })
+]);
+function armyMarketClassForSize(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  for(const r of ARMY_MARKET_CLASS){ if(n >= r.minTroops) return r.marketClass; }
+  return null;                                // under 1,200 troops — no baggage-train market
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -1919,6 +2505,28 @@ Object.assign(ACKS, {
   ENCOUNTER_CATEGORY_COLUMNS, ENCOUNTER_TERRITORY_CLASSES, encounterCategoryColumnIndex, rollEncounterCategory,
   ENCOUNTER_RARITY_BY_TERRITORY, rollEncounterRarity,
   ENCOUNTER_FREQUENCY, restEncounterChecksForDay, territoryClassForHex,
+  // Phase 3 Military W2 — the Vagaries of Incursion tables (JJ pp.100–103) + recon bands (RR p.452)
+  INCURSION_DAILY_PCT, incursionDailyPct, BORDER_CONFIGURATIONS, DANGEROUS_BORDERS_TERRITORY,
+  effectiveTerritoryWithBorders, DOMAIN_REACTION_BANDS, domainEncounterReactionBand,
+  RECON_ROLL_BANDS, reconRollBand,
+  // Phase 3 Military W3 — the battle engine catalogs (RR pp.461–470)
+  STRATEGIC_STANCES, STRATEGIC_SITUATIONS, resolveStrategicSituation,
+  BATTLE_ATTACK_TARGETS, BATTLE_ATTACK_MODIFIERS,
+  UNIT_MORALE_BANDS, unitMoraleBand, BATTLE_MORALE_MODIFIERS,
+  PURSUIT_THROWS, BATTLEFIELD_ENCOUNTER_DISTANCE, battlefieldEncounterSpec, rollBattlefieldDistanceFt,
+  FORAY_STAKES, HERO_QUALIFICATION, reinforcementThrowTarget,
+  OFFICER_CASUALTY_MODS, OFFICER_CASUALTY_OUTCOMES,
+  // Phase 3 Military W4 — the maneuvers catalogs (RR pp.447–460)
+  ARMY_LARGE_MULTIPLIERS, armyLargeMultiplierRow, WAR_MACHINE_SPEED,
+  ARMY_WEATHER_EFFECTS, armyWeatherSpeedMult,
+  RECON_RANGE, reconRange24, RECON_SIZE_MODS, reconSizeMod, ARMY_SIZE_BANDS, armySizeBandLabel,
+  reconProximityMod, reconTerrainMod, reconScoutingMod,
+  RECON_RESULTS, reconProximityTier, reconResultsFor,
+  PRISONER_INFORMATION, PRISONER_GRADES, prisonerInformationText, INTERROGATION_BANDS, interrogationBand,
+  PILLAGE_REQUIREMENTS, pillageRequirementRow, PILLAGE_RESULTS, SALT_THE_EARTH,
+  // Phase 3 Military W5 — supply (RR pp.450–452)
+  SUPPLY_LINE_WEIGHTS, SUPPLY_LINE_ROAD_MULT, SUPPLY_LINE_WATERWAY_MULT, SUPPLY_LINE_MAX_WEIGHTED_HEXES,
+  supplyLineHexWeight, ARMY_MARKET_CLASS, armyMarketClassForSize,
   // #476 M4 — Wilderness Search target (RR p.276)
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)

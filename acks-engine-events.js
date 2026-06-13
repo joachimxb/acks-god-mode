@@ -123,6 +123,40 @@ const EVENT_KINDS = Object.freeze([
   // disbanded, or casualties settled as population loss); a no-change plague month emits nothing.
   // Record-only (the processor already applied the world changes); chronicle-visible.
   'domain-banditry',
+  // Phase 3 Military W2 (2026-06-12) — one Vagaries of Incursion domain encounter (JJ
+  // pp.100–106): the daily probability struck, monsters arrived. The payload carries the
+  // whole verdict bundle (probability + identity + linger/migrate + the domain reaction +
+  // recon-lite + the platoon-scale BR comparison); the context envelope carries the entry
+  // hex + the domain + the materialized Group. Record-only (the incursion day consumer's
+  // commit already placed the band); chronicle-visible.
+  'domain-incursion',
+  // Phase 3 Military W3 (2026-06-12) — the battle engine (RR pp.461–472). All three are
+  // record-only audits emitted by acks-engine-battles.js, stamping subdayContext =
+  // {cadence:'battle-turn', battleId, turnNumber} (the reserved field's second referent).
+  // battle-started: the engagement is joined (beginBattle); chronicle-visible.
+  'battle-started',
+  // battle-turn: one ~10-minute battle turn's digest (the lines ride the payload).
+  // Always campaignLogHidden — the audit trail; battle-resolved narrates.
+  'battle-turn',
+  // battle-resolved: the ONE comprehensive outcome record (applyBattleAftermath) —
+  // winner, casualties, spoils, XP; chronicle-visible.
+  'battle-resolved',
+  // Phase 3 Military W4 (2026-06-12) — the campaign cycle (RR pp.447–460). Both are
+  // record-only audits emitted through the day-tick notable channel (the slot-88
+  // military consumer); the commits write the state.
+  // army-contact: two opposing armies met in a 6-mile hex — both contact recon
+  // results, the derived awareness, the strategic situation, and (when stances make
+  // a battle) the created Battle's id. Chronicle-visible.
+  'army-contact',
+  // domain-warfare: the invasion/occupation/conquest/pillage lifecycle, action-
+  // discriminated (payload.action: invaded | occupied | occupation-ended |
+  // conquered | pillaged | requisitioned | looted — the F&D/E10 one-kind-many-actions pattern).
+  // Chronicle-visible.
+  'domain-warfare',
+  // Phase 3 Military W5 (2026-06-13) — the weekly supply check outcome (type: army-supplied |
+  // army-out-of-supply). Owned by the slot-88 military consumer's commit (applyArmySupplyOutcome
+  // pays the cost / sets the RR p.452 ladder); routine "in supply" records are campaign-log-hidden.
+  'army-supply',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -457,6 +491,59 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { domainId: 'string' },
     O: { action: 'string', morale: 'number', target: 'number', killed: 'number',
          familiesLost: 'number', occupationMonths: 'number', bands: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W2 — the Vagaries of Incursion domain encounter (JJ pp.100–106).
+  // groupId = the materialized band; chance/roll = the daily probability; identity =
+  // {label,key,rarity}; disposition = lingering|migrating (+ fullStrength/treasureType);
+  // reaction = {roll,total,attitude,mods}; recon = {ruler:{...},monsters:{...}};
+  // brComparison = {monsterBr,garrisonBr,verdict}.
+  'domain-incursion': {
+    R: { domainId: 'string' },
+    O: { groupId: 'string', hexId: 'string', chance: 'object', identity: 'object',
+         count: 'number', disposition: 'string', fullStrength: 'boolean', treasureType: 'string',
+         reaction: 'object', recon: 'object', brComparison: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W3 — the battle engine audits (RR pp.461–472). Emitted by
+  // acks-engine-battles.js; the entity (campaign.battles[]) is the working state.
+  'battle-started': {
+    R: { battleId: 'string' },
+    O: { hexId: 'string', name: 'string', situation: 'string', scale: 'string',
+         sideA: 'object', sideB: 'object', narrative: 'string' }
+  },
+  'battle-turn': {
+    R: { battleId: 'string', turnNumber: 'number' },
+    O: { lines: 'object', narrative: 'string' }
+  },
+  'battle-resolved': {
+    R: { battleId: 'string' },
+    O: { winner: 'string', endedBy: 'string', turns: 'number', spoilsGp: 'number',
+         prisoners: 'number', casualties: 'object', xp: 'object', narrative: 'string' }
+  },
+  // Phase 3 Military W4 — the campaign-cycle audits (RR pp.447–460). Emitted through
+  // the day-tick notable channel; the military consumer's commit writes the state.
+  // army-contact: both recon summaries + awareness + the strategic situation; when
+  // stances make a battle, battleId points at the created W3 Battle (setup state).
+  'army-contact': {
+    R: { actingArmyId: 'string', otherArmyId: 'string' },
+    O: { hexId: 'string', awareness: 'string', situation: 'string', situationLabel: 'string',
+         battle: 'boolean', battleId: 'string', reconActing: 'object', reconOther: 'object',
+         narrative: 'string' }
+  },
+  // domain-warfare: action ∈ invaded | occupied | occupation-ended | conquered | pillaged |
+  // requisitioned | looted (the W5 requisition/loot verbs).
+  'domain-warfare': {
+    R: { action: 'string', domainId: 'string' },
+    O: { armyId: 'string', hexId: 'string', occupierLeaderId: 'string', months: 'number',
+         moraleRoll: 'object', math: 'object', mode: 'string', newRulerCharacterId: 'string',
+         saltTheEarth: 'boolean', results: 'object',
+         requisitionedGp: 'number', lootedGp: 'number', familiesLost: 'number', gp: 'number',
+         narrative: 'string' }
+  },
+  // army-supply (W5): the weekly supply check outcome.
+  'army-supply': {
+    R: { armyId: 'string', inSupply: 'boolean' },
+    O: { cost: 'number', baseValue: 'number', lineStatus: 'string', reasons: 'object',
+         condition: 'string', narrative: 'string' }
   },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
@@ -1932,6 +2019,34 @@ function applyEvent_domainBanditryAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || 'domain banditry' } };
 }
 registerEventHandler('domain-banditry', applyEvent_domainBanditryAudit);
+// Phase 3 Military W2 — the domain-incursion record shares the audit posture: the
+// incursion day consumer's commit already materialized the band; this handler only
+// keeps the event well-formed on replay.
+function applyEvent_domainIncursionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'domain encounter (Vagaries of Incursion)' } };
+}
+registerEventHandler('domain-incursion', applyEvent_domainIncursionAudit);
+// Phase 3 Military W3 — the battle audits share the posture: acks-engine-battles.js
+// owns the world state (the Battle entity + the aftermath's casualty/XP writes); these
+// handlers only keep the events well-formed on replay.
+function applyEvent_battleAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'battle record' } };
+}
+registerEventHandler('battle-started', applyEvent_battleAudit);
+registerEventHandler('battle-turn', applyEvent_battleAudit);
+registerEventHandler('battle-resolved', applyEvent_battleAudit);
+// Phase 3 Military W4 — the campaign-cycle audits share the posture: the slot-88
+// military consumer's commit (and the conquest/pillage verbs) own the world state;
+// these handlers only keep the events well-formed on replay.
+function applyEvent_warfareAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'campaign record' } };
+}
+registerEventHandler('army-contact', applyEvent_warfareAudit);
+registerEventHandler('domain-warfare', applyEvent_warfareAudit);
+registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -4243,7 +4358,25 @@ function encounterToneRows(campaign, encounterId, tone, opts){
         if(row.derive && row.derive.indexOf('prof:') === 0 && hasProf(row.derive.slice(5))){ r.auto = true; r.on = true; }
     }
     return r;
-  });
+  }).concat((() => {
+    // Phase 3 Military W2 — JJ p.104: a band that arrived as a DOMAIN ENCOUNTER carries
+    // its attitude toward the domain into individual meetings with adventurers (−2
+    // hostile / −1 unfriendly / +1 mercantilist / +2 friendly; neutral adds nothing).
+    // Auto-derived from the bound Group's incursion verdict; a reaction-roll circumstance,
+    // so it surfaces under every tone.
+    const incGrp = ((enc.monsterSide && enc.monsterSide.groupIds) || [])
+      .map(gid => (((campaign && campaign.groups) || []).find(g => g && g.id === gid)) || null)
+      .find(g => g && g.incursion && g.incursion.attitude);
+    if(!incGrp) return [];
+    const att = String(incGrp.incursion.attitude);
+    const val = att === 'hostile' ? -2 : att === 'unfriendly' ? -1 : att === 'mercantilist' ? 1 : att === 'friendly' ? 2 : 0;
+    if(!val) return [];
+    const dom = ((campaign && campaign.domains) || []).find(d => d && d.id === incGrp.incursion.domainId) || null;
+    return [{ key: 'incursion-attitude', group: 'Relationship',
+      label: 'The band is ' + att + ' toward ' + ((dom && dom.name) || 'the domain') + ' — a domain-encounter arrival (JJ p.104)',
+      value: val, variable: false, derive: 'incursion-attitude',
+      note: 'the domain-encounter attitude carries into individual meetings', auto: true, on: true }];
+  })());
 }
 
 // ═══ E3a — settle-as-lair (the RAW linger-or-migrate branch, JJ p.69 + p.103) ═════
@@ -4860,7 +4993,17 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'favor-duty',
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
-  'domain-banditry'
+  'domain-banditry',
+  // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
+  // the band; raw emit would narrate an arrival the world doesn't show).
+  'domain-incursion',
+  // Phase 3 Military W3 — owned by the battle engine (beginBattle / runBattleTurn /
+  // applyBattleAftermath emit these; raw emit would narrate a fight the entity doesn't hold).
+  'battle-started', 'battle-turn', 'battle-resolved',
+  // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
+  // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
+  // armies/domains don't show).
+  'army-contact', 'domain-warfare', 'army-supply'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

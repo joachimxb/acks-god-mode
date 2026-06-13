@@ -1,12 +1,10 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces.
-// Regenerated 2026-06-05 — Saltspur expansion (rev 2): a contiguous 9×5 hex field with a
-// Salt Sea row + a 1-hex wilderness buffer ring; the Free Holding of Tidewrack (a far
-// Outlands port with its own settlement) reached by a single straight coastal road over
-// the Saltspur Pass; 3 characters; 3 lair Groups (Monster Persistence #476); 4 rumors.
+// Regenerated 2026-06-12 — Phase 3 Military W3: the empty battles[] collection
+// (the RR pp.461–472 battle engine's engagement records). Content unchanged otherwise.
 // migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
-  global.ACKS_DEMO_TEMPLATE = {
+global.ACKS_DEMO_TEMPLATE = {
   "schemaVersion": 2,
   "kind": "campaign",
   "id": "cmp-saltspur-march-demo",
@@ -21,7 +19,8 @@
     "season": null
   },
   "houseRules": {
-    "families-per-hex-tracking": true
+    "families-per-hex-tracking": true,
+    "vagaries-of-incursion": true
   },
   "campaignContext": {
     "theme": "Established march with vassal baronies",
@@ -254,7 +253,26 @@
             "count": 60,
             "monthlyWage": 12,
             "brPerSoldier": 0.083,
-            "stationedAtHexId": "hex-saltspur-keep"
+            "stationedAtHexId": "hex-saltspur-keep",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-march-of-saltspur"
+            }
           },
           {
             "schemaVersion": 2,
@@ -264,7 +282,26 @@
             "count": 30,
             "monthlyWage": 9,
             "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-saltspur-keep"
+            "stationedAtHexId": "hex-saltspur-keep",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-march-of-saltspur"
+            }
           },
           {
             "schemaVersion": 2,
@@ -274,7 +311,26 @@
             "count": 20,
             "monthlyWage": 25,
             "brPerSoldier": 0.15,
-            "stationedAtHexId": "hex-saltspur-keep"
+            "stationedAtHexId": "hex-saltspur-keep",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-march-of-saltspur"
+            }
           }
         ],
         "totalMonthlyCost": 1490,
@@ -473,7 +529,26 @@
             "count": 25,
             "monthlyWage": 6,
             "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-northwatch-tower"
+            "stationedAtHexId": "hex-northwatch-tower",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-barony-northwatch"
+            }
           },
           {
             "schemaVersion": 2,
@@ -483,7 +558,26 @@
             "count": 10,
             "monthlyWage": 9,
             "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-northwatch-tower"
+            "stationedAtHexId": "hex-northwatch-tower",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-barony-northwatch"
+            }
           }
         ],
         "totalMonthlyCost": 240,
@@ -677,7 +771,26 @@
             "count": 20,
             "monthlyWage": 6,
             "brPerSoldier": 0.034,
-            "stationedAtHexId": "hex-saltcombe-shrine"
+            "stationedAtHexId": "hex-saltcombe-shrine",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-barony-saltcombe"
+            }
           }
         ],
         "totalMonthlyCost": 120,
@@ -4964,6 +5077,184 @@
       "notes": "Giant spiders web the south flank of the Saltspur Pass. Caravans walk it at noon and hang cold iron; the weavers take the stragglers.",
       "history": []
     }
-  ]
+  ],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-saltspur-foot",
+      "displayName": "Heavy Infantry",
+      "unitTypeKey": "heavy-infantry",
+      "count": 60,
+      "monthlyWage": 12,
+      "brPerSoldier": 0.083,
+      "stationedAtHexId": "hex-saltspur-keep",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-march-of-saltspur"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-saltspur-bows",
+      "displayName": "Bowmen",
+      "unitTypeKey": "bowmen",
+      "count": 30,
+      "monthlyWage": 9,
+      "brPerSoldier": 0.063,
+      "stationedAtHexId": "hex-saltspur-keep",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-march-of-saltspur"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-saltspur-horse",
+      "displayName": "Medium Cavalry",
+      "unitTypeKey": "medium-cavalry",
+      "count": 20,
+      "monthlyWage": 25,
+      "brPerSoldier": 0.15,
+      "stationedAtHexId": "hex-saltspur-keep",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-march-of-saltspur"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-northwatch-foot",
+      "displayName": "Light Infantry",
+      "unitTypeKey": "light-infantry",
+      "count": 25,
+      "monthlyWage": 6,
+      "brPerSoldier": 0.034,
+      "stationedAtHexId": "hex-northwatch-tower",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-northwatch"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-northwatch-bows",
+      "displayName": "Bowmen",
+      "unitTypeKey": "bowmen",
+      "count": 10,
+      "monthlyWage": 9,
+      "brPerSoldier": 0.063,
+      "stationedAtHexId": "hex-northwatch-tower",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-northwatch"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-saltcombe-foot",
+      "displayName": "Light Infantry (lay brothers)",
+      "unitTypeKey": "light-infantry",
+      "count": 20,
+      "monthlyWage": 6,
+      "brPerSoldier": 0.034,
+      "stationedAtHexId": "hex-saltcombe-shrine",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-barony-saltcombe"
+      }
+    }
+  ],
+  "armies": [],
+  "battles": []
 };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

@@ -144,6 +144,126 @@ function advanceCalendarOneDay(campaign){
   return d;
 }
 
+// ─── Review-tab calendar cursors + dated event reads (2026-06-13) ────────────
+// The Review ▸ Pending Events tables page through the calendar (◀ today ▶). These
+// are pure derived reads — nothing here mutates the campaign. Turn numbers and the
+// calendar advance in lockstep (commitTurn does both), so a month offset of -1 is
+// both "last calendar month" and "turn − 1"; the cursors carry the pair.
+
+// The current calendar position shifted by `monthOffset` whole months.
+// → { year, month, turn, label } on the fixed 12-month / 30-day-per-month clock.
+function calendarShiftMonths(campaign, monthOffset){
+  const cal = (campaign && campaign.calendar) || {};
+  const off = monthOffset || 0;
+  const baseY = cal.year || 1, baseM = cal.month || 1;
+  const total = (baseY * 12 + (baseM - 1)) + off;     // months since year 0
+  const year = Math.floor(total / 12);
+  const month = (total % 12 + 12) % 12 + 1;
+  const turn = ((campaign && campaign.currentTurn) || 1) + off;
+  return { year, month, turn, label: monthName(campaign, month) + ', Year ' + year };
+}
+
+// The current calendar position shifted by `dayOffset` days (30-day months).
+// → { year, month, day, turn, label, isToday }.
+function calendarDayShift(campaign, dayOffset){
+  const dim = (campaign && campaign.currentDayInMonth) || 1;
+  const total = dim + (dayOffset || 0);               // 1-based day within the current month
+  const monthShift = Math.floor((total - 1) / 30);
+  const day = ((total - 1) % 30 + 30) % 30 + 1;
+  const m = calendarShiftMonths(campaign, monthShift);
+  return {
+    year: m.year, month: m.month, day, turn: m.turn,
+    // "Day 12 of Mosadios, Year 2" — reads right for named AND generic ("Month 3") calendars.
+    label: 'Day ' + day + ' of ' + monthName(campaign, m.month) + ', Year ' + m.year,
+    isToday: (dayOffset || 0) === 0
+  };
+}
+
+// An event's day stamp, when it carries one: appliedAtDay (the #346 errand stamp set at
+// apply time) or gameTimeAt.day (the day-tick emissions). Null = month-grained.
+function _eventDayStamp(ev){
+  if(!ev) return null;
+  if(ev.appliedAtDay != null) return ev.appliedAtDay;
+  if(ev.gameTimeAt && ev.gameTimeAt.day != null) return ev.gameTimeAt.day;
+  return null;
+}
+
+// Uniform row shape for the Review ▸ Pending Events tables. `entryOrEv` is either a
+// pendingEvents[] event (isPending) or an eventLog[] wrapper {event, result, appliedAtTurn}.
+function _reviewEventRow(entryOrEv, isPending){
+  const ev = isPending ? entryOrEv : ((entryOrEv && entryOrEv.event) || entryOrEv);
+  const res = isPending ? null : (entryOrEv && entryOrEv.result) || null;
+  return {
+    isPending: !!isPending,
+    id: ev.id,
+    kind: ev.kind,
+    status: isPending ? 'pending' : (ev.status || 'applied'),
+    submittedBy: ev.submittedBy || '',
+    summary: (res && res.narrativeSummary) || '',
+    targetTurn: ev.targetTurn != null ? ev.targetTurn : null,
+    day: _eventDayStamp(ev),
+    campaignLogHidden: !isPending && !!(entryOrEv && entryOrEv.campaignLogHidden),
+    event: ev
+  };
+}
+
+// Every DAY-dated event on one calendar day — committed log entries plus any
+// future-dated pending events. `info` is a calendarDayShift() cursor. Month-grained
+// events (no day stamp) belong to monthlyEventsForReview below.
+function eventsOnCalendarDay(campaign, info){
+  if(!campaign || !info) return [];
+  const rows = [];
+  (campaign.eventLog || []).forEach(entry => {
+    const ev = (entry && entry.event) || entry;
+    if(!ev) return;
+    const evDay = _eventDayStamp(ev);
+    if(evDay == null) return;
+    const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+    const gta = ev.gameTimeAt;
+    // A full game-date stamp matches on (year, month, day); a bare day stamp on (turn, day).
+    const matches = (gta && gta.day != null)
+      ? (gta.year === info.year && gta.month === info.month && gta.day === info.day)
+      : (evTurn === info.turn && evDay === info.day);
+    if(matches) rows.push(_reviewEventRow(entry, false));
+  });
+  (campaign.pendingEvents || []).forEach(ev => {
+    if(!ev || ev.status !== 'pending') return;
+    const evDay = _eventDayStamp(ev);
+    if(evDay == null) return;
+    const gta = ev.gameTimeAt;
+    const matches = (gta && gta.day != null)
+      ? (gta.year === info.year && gta.month === info.month && gta.day === info.day)
+      : ((ev.targetTurn || 0) === info.turn && evDay === info.day);
+    if(matches) rows.push(_reviewEventRow(ev, true));
+  });
+  return rows;
+}
+
+// Every MONTH-grained event for one month: the pending queue targeting that turn
+// (overdue items surface on the CURRENT month — they're due now) + the turn's applied
+// log entries. Pending rows lead. `info` is a calendarShiftMonths() cursor.
+function monthlyEventsForReview(campaign, info){
+  if(!campaign || !info) return [];
+  const currentTurn = (campaign.currentTurn || 1);
+  const pending = [], logged = [];
+  (campaign.pendingEvents || []).forEach(ev => {
+    if(!ev || ev.status !== 'pending') return;
+    if(_eventDayStamp(ev) != null) return;            // the daily table's business
+    const t = ev.targetTurn || 0;
+    const onItsMonth = (t === info.turn);
+    const dueNow = (info.turn === currentTurn && t <= currentTurn);
+    if(onItsMonth || dueNow) pending.push(_reviewEventRow(ev, true));
+  });
+  (campaign.eventLog || []).forEach(entry => {
+    const ev = (entry && entry.event) || entry;
+    if(!ev) return;
+    if(_eventDayStamp(ev) != null) return;
+    const evTurn = (entry.appliedAtTurn != null) ? entry.appliedAtTurn : ev.appliedAtTurn;
+    if(evTurn === info.turn) logged.push(_reviewEventRow(entry, false));
+  });
+  return pending.concat(logged);
+}
+
 // =============================================================================
 // 9.54 HIRELINGS & LOYALTY (Phase 2.95)
 // =============================================================================
@@ -337,19 +457,18 @@ function applyEvent_recruitHireling(campaign, event){
         unit = patron.mercenaryCompany.units.find(u => u.unitTypeKey === p.hireTypeId);
       }
       if(!unit){
-        unit = {
-          schemaVersion: 2,
-          id: newId('gar'),
-          name: '',
+        // W1: create through blankUnit (TROOP_CATALOG wage/BR defaults — closes the old
+        // "pending Phase 3 DaW" zero-wage placeholders; race defaults 'man' — the settlement's
+        // prevailing race lands with realm recruitment, W7) + stationUnit (first-class
+        // campaign.units[] membership alongside the mercenary-company mirror).
+        unit = global.ACKS.blankUnit({
+          displayName: unitDisplayName,
           unitTypeKey: p.hireTypeId,
           count: 0,
-          monthlyWage: 0,           // race-keyed; pending Phase 3 DaW wage table
-          brPerSoldier: 0,          // pending
-          stationedAtHexId: patron.currentHexId || null,
-          commanderCharacterId: null,
-          recruitedAt: p.settlementId || null
-        };
-        patron.mercenaryCompany.units.push(unit);
+          stationedAtHexId: patron.currentHexId || null
+        });
+        unit.recruitedAt = p.settlementId || null;
+        global.ACKS.stationUnit(campaign, unit, { kind: 'character', id: patron.id });
       }
       unit.count = Number(unit.count || 0) + addCount;
       if(p.commandUnitId === unit.id && Array.isArray(p.candidateIds) && p.candidateIds[0]){
@@ -372,18 +491,14 @@ function applyEvent_recruitHireling(campaign, event){
         unit = ruledDomain.garrison.units.find(u => u.unitTypeKey === p.hireTypeId);
       }
       if(!unit){
-        unit = {
-          schemaVersion: 2,
-          id: newId('gar'),
-          name: '',
+        // W1: blankUnit (catalog wage/BR) + stationUnit (campaign.units[] + the garrison mirror).
+        unit = global.ACKS.blankUnit({
+          displayName: unitDisplayName,
           unitTypeKey: p.hireTypeId,
           count: 0,
-          monthlyWage: 0,           // race-keyed; pending
-          brPerSoldier: 0,          // pending
-          stationedAtHexId: patron.currentHexId || null,
-          commanderCharacterId: null
-        };
-        ruledDomain.garrison.units.push(unit);
+          stationedAtHexId: patron.currentHexId || null
+        });
+        global.ACKS.stationUnit(campaign, unit, { kind: 'domain-garrison', id: ruledDomain.id });
       }
       unit.count = Number(unit.count || 0) + addCount;
       if(p.commandUnitId === unit.id && Array.isArray(p.candidateIds) && p.candidateIds[0]){
@@ -2258,8 +2373,38 @@ function applyJourneyDaySurvival(campaign, journey, survival){
 // the participant characters; no participant characters → the flat base (JOURNEY_BASE_SPEED_MILES_PER_DAY,
 // 24). This is the "current speed" the Journey panel shows above Pace/Mode, and the value the GM speed
 // override (§26) replaces. Exposed so the UI mirrors exactly what tickJourneyDay uses for the base.
+// W4 — does an OPPOSING army stand on the hex the marching army is entering? Reads
+// each army's EFFECTIVE day position: a same-day proposed move (the ctx._armyDay
+// stash, journey-order earlier movers) wins over the committed currentHexId.
+function _armyContactBlocker(campaign, marchingArmy, hexId, ctx){
+  const A = _jACKS();
+  if(!campaign || !marchingArmy || !hexId) return null;
+  for(const ar of (campaign.armies || [])){
+    if(!ar || ar.id === marchingArmy.id) continue;
+    const stashed = ctx && ctx._armyDay && ctx._armyDay.moves[ar.id];
+    const effHexId = stashed ? stashed.endHexId : ar.currentHexId;
+    if(effHexId !== hexId) continue;
+    if(typeof A.armyTroopCount === 'function' && A.armyTroopCount(campaign, ar) <= 0) continue;
+    if(typeof A.armiesOpposed === 'function' && !A.armiesOpposed(campaign, marchingArmy, ar)) continue;
+    return ar;
+  }
+  return null;
+}
+
 function journeyBaseSpeedMilesPerDay(campaign, journey){
   const A = _jACKS();
+  // W4 — an army's march: the army governs the base rate (slowest unit × the
+  // large-army multiplier × the war-machine cap, RR pp.448–449). The §26 GM
+  // override still wins in tickJourneyDay (the escape hatch outranks everything).
+  if(journey && journey.armyId && typeof A.findArmy === 'function' && typeof A.armyExpeditionSpeedMilesPerDay === 'function'){
+    const army = A.findArmy(campaign, journey.armyId);
+    if(army) return A.armyExpeditionSpeedMilesPerDay(campaign, army);
+  }
+  // A single unit rallying to a muster point (journey.unitId): the unit's own troop-type pace.
+  if(journey && journey.unitId && typeof A.findUnit === 'function' && typeof A.unitMarchMilesPerDay === 'function'){
+    const unit = A.findUnit(campaign, journey.unitId);
+    if(unit) return A.unitMarchMilesPerDay(unit);
+  }
   const ids = (journey && journey.participantCharacterIds) || [];
   if(!ids.length || !campaign || !Array.isArray(campaign.characters)) return A.JOURNEY_BASE_SPEED_MILES_PER_DAY;
   let slowest = Infinity;
@@ -2276,6 +2421,22 @@ function tickJourneyDay(campaign, journey, ctx){
   ctx = ctx || {};
   const rng = ctx.rng || Math.random;
   const participants = Math.max(1, (journey.participantCharacterIds || []).length);
+  // W4 — an ARMY's march (journey.armyId): the army governs speed (slowest unit ×
+  // large-army × war machines), the ARMY weather table applies (RR p.449), and the
+  // party-grain machinery stands down — no navigation throw (armies campaign on
+  // mapped regions behind scouting screens 🔧), no per-hex encounter draws (the
+  // slot-88 military consumer owns army-scale contact), no character survival
+  // (army supply is W5), no party fatigue streak (the 3-of-7 rest rule on the army).
+  const _marchArmy = (journey.armyId && typeof A.findArmy === 'function') ? A.findArmy(campaign, journey.armyId) : null;
+  const isArmy = !!_marchArmy;
+  // A single unit rallying to a muster point (journey.unitId) stands the party-grain
+  // machinery down the SAME way an army's march does (no navigation throw / no per-hex
+  // encounter draws / no character survival / no party fatigue; the column weather table;
+  // hold at an unbridged river) — but it is NOT an army, so the army-scale CONTACT +
+  // ctx._armyDay machinery (gated on isArmy) stays off. `standDown` is the shared gate;
+  // the substitution is value-identical for armies and parties (zero regression).
+  const isUnit = !!(journey.unitId);
+  const standDown = isArmy || isUnit;
   const dist = computeJourneyDistance(campaign, journey);
   const startHex = dist.startHex;
   const newDayIndex = (journey.currentDayIndex || 0) + 1;
@@ -2330,8 +2491,14 @@ function tickJourneyDay(campaign, journey, ctx){
   // charged PER HEX during the walk below (a hex of speed-mult m costs MILES_PER_HEX / m of the day's
   // budget), so the day's reach equals the old hexes/day when terrain is uniform and varies hex-by-hex
   // when it isn't (RR p.272 / pp.277-278).
-  const weatherMult = (A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1;
-  const tempMult = (A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1;
+  // Armies read the RR p.449 severe-weather table (rain/snow ×½, storm ×¼ — a column
+  // suffers where a party shrugs); parties keep the J2 RAW readings.
+  const weatherMult = standDown
+    ? A.armyWeatherSpeedMult(weather.condition, null)
+    : ((A.JOURNEY_WEATHER_SPEED[weather.condition] != null) ? A.JOURNEY_WEATHER_SPEED[weather.condition] : 1);
+  const tempMult = standDown
+    ? A.armyWeatherSpeedMult(null, weather.temperature)
+    : ((A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] != null) ? A.JOURNEY_TEMPERATURE_SPEED[weather.temperature] : 1);
   const paceMult = (A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
   // §26 — GM speed override: a positive journey.speedOverrideMilesPerDay REPLACES the party's base
   // "current speed" (the slowest-member rate) for this leg — it is a GM-chosen BASE RATE, not a fixed
@@ -2346,10 +2513,12 @@ function tickJourneyDay(campaign, journey, ctx){
   let milesBudget = baseMilesPerDay * weatherMult * tempMult * paceMult;
   const coldWater = (weather.temperature === 'frigid' || weather.temperature === 'cold'); // −2 to a ford (§24)
 
-  // ── fatigue (§10 / JJ p.84): a 6-day strenuous streak forces a rest day ──
+  // ── fatigue (§10 / JJ p.84): a 6-day strenuous streak forces a rest day. Armies
+  // run the RR p.448 3-of-7 rule instead (armyFatigued, derived from marchedOrds —
+  // surfaced, never auto-rested: the GM rests the column). ──
   const simplifiedFatigue = A.isHouseRuleEnabled(campaign, 'simplified-fatigue');
   const strenuousPace = (pace === 'normal' || pace === 'forced-march');
-  const restDay = (!simplifiedFatigue && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
+  const restDay = (!simplifiedFatigue && !standDown && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
 
   // Route position = hexes already covered; the next hex to ENTER is pos+1.
   const startPos = dist.covered;
@@ -2375,7 +2544,7 @@ function tickJourneyDay(campaign, journey, ctx){
   let navRecord = null;
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
-  if(!restDay && !halted && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
+  if(!restDay && !halted && !standDown && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
     // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
     const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
     const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
@@ -2419,7 +2588,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // holds the party at the near bank with a 'fording' pause for the GM. No movement on a rest/lost day;
   // a travel day always advances at least one hex (RAW floors progress ≥1). ──
   let hexesToday = 0, dayAllRoaded = true, hardestNav = -1, representativeTerrain = baseTerrain, fordingRecord = null;
-  let strayPath = null, strayLandingCoord = null;
+  let strayPath = null, strayLandingCoord = null, armyContactRecord = null;
   if(!restDay && !halted && isLost && dist.remaining > 0){
     // ── LOST (RR p.275): the party covers a full day's distance toward its random stray heading, OFF
     // the planned route and unaware. Terrain + ground pace each hex (looked up by coord, falling back to
@@ -2457,6 +2626,15 @@ function tickJourneyDay(campaign, journey, ctx){
       if(hexesToday > 0 && milesBudget < costMiles) break; // can't afford another hex (but always take the first)
       const crossing = riverCrossingForStep(fromHex, toHex, fromStep ? fromStep.exitSide : null);
       const fromId = fromStep ? fromStep.hexId : null, toId = toStep ? toStep.hexId : null;
+      if(standDown && crossing.barrier && crossing.swimmingThrowNeeded){
+        // 🔧 W4: a marching column (an army, or a single unit rallying in) cannot swim a
+        // river — it HOLDS at the near bank until the GM re-routes via a ford or bridge.
+        fordingRecord = { result: 'failed', crossingType: 'army-held', rolled: null, bonus: 0, target: null, fromHexId: fromId, toHexId: toId };
+        notableEvents.push({ kind: 'journey-fording', type: 'fording-fail', pauseTrigger: 'fording', primaryHexId: fromId || journey.currentHexId || null, involvedHexIds: [fromId, toId].filter(Boolean),
+          label: (journey.name || (isArmy ? 'Army' : 'Column')) + ': held at an unbridged river — troops need a ford or a bridge (re-route, or build one)',
+          payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+        break; // held at the near bank — no further movement today
+      }
       if(crossing.barrier && crossing.swimmingThrowNeeded){
         const roughWater = !!(fromHex && fromHex.fastWater) || !!(toHex && toHex.fastWater);
         const ford = journeyFordingThrow(campaign, journey, { rng, coldWater, roughWater });
@@ -2480,6 +2658,20 @@ function tickJourneyDay(campaign, journey, ctx){
       milesBudget -= costMiles; pos += 1; hexesToday += 1;
       if(!roaded) dayAllRoaded = false;
       { const nt = (A.JOURNEY_NAV_THROWS[toHex.terrain] != null) ? A.JOURNEY_NAV_THROWS[toHex.terrain] : 0; if(nt > hardestNav){ hardestNav = nt; representativeTerrain = toHex.terrain || baseTerrain; } }
+      // W4 — army contact (RR p.447, step 3c/d): an acting army entering the same
+      // 6-mile hex as an opposing army HALTS there. The march record carries the
+      // contact; the slot-88 military consumer rolls both contact reconnaissance
+      // throws and proposes the battle (paused for the GM).
+      if(isArmy && toId){
+        const _blocker = _armyContactBlocker(campaign, _marchArmy, toId, ctx);
+        if(_blocker){
+          armyContactRecord = { opposingArmyId: _blocker.id, opposingArmyName: _blocker.name || 'an opposing army', hexId: toId };
+          notableEvents.push({ kind: 'journey-day-tick', type: 'army-contact', pauseTrigger: 'encounter', primaryHexId: toId,
+            label: (journey.name || 'Army') + ': marched into ' + (_blocker.name || 'an opposing army') + ' — the armies meet',
+            payload: { journeyId: journey.id, armyId: _marchArmy.id, opposingArmyId: _blocker.id, dayIndex: newDayIndex } });
+          break; // the march halts at the contact hex (RR p.447 — battle, then movement may continue)
+        }
+      }
     }
   }
   const dayRoaded = (hexesToday > 0) ? dayAllRoaded : roadBonusForStep(curHex, null, curStep ? curStep.exitSide : null);
@@ -2514,7 +2706,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // skipSurvival (rerollJourneyNav): re-roll navigation / movement only and leave provisioning entirely
   // untouched — reuses the proven ignore-rations "ignored" shape, so the record carries no survival and
   // no forage throw, and rerollJourneyNav restores the held water/food outcome afterward.
-  const survival = (ctx && ctx.skipSurvival)
+  const survival = ((ctx && ctx.skipSurvival) || standDown)
     ? { ignored: true, members: {}, notableEvents: [], waterForage: null }
     : journeyDaySurvival(campaign, journey, curHex, { rng });
   if(!survival.ignored){
@@ -2529,8 +2721,12 @@ function tickJourneyDay(campaign, journey, ctx){
   const waterConsumed = _survMembers.filter(m => m.fedWater).length;
 
   // ── fatigue accrual / reset (RR p.279 "Rest and Recuperation") ──
+  // Armies skip the party streak — commitJourneyRecord stamps marchedOrds and the
+  // RR p.448 3-of-7 rule derives fatigue from the window (armyFatigued).
   let fatigueAccumulated = 0;
-  if(restDay){
+  if(standDown){
+    // no party fatigue machinery for a marching column (army or rallying unit)
+  } else if(restDay){
     fatigueDays = 0; // a dedicated rest day clears the streak (RR p.279)
     notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (RR p.279)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
   } else if(pace === 'forced-march'){
@@ -2553,7 +2749,10 @@ function tickJourneyDay(campaign, journey, ctx){
   // rest/night checks are the 'encounters' day consumer's (slot 80). ──
   const _encSeen = {};
   const _encTaken = {};   // proposal-id mints shared across the day's hexes (collision-proof)
-  for(const _ph of hexPath){
+  // W4 — a marching column (army or rallying unit) draws no per-hex wandering encounters
+  // (armies meet the world through the military layer: contact, invasion, the incursion
+  // machinery; a single rallying detachment we leave alone for v1) 🔧.
+  for(const _ph of (standDown ? [] : hexPath)){
     if(!_ph) continue;
     // An UNauthored hex (hexId null — the sparse-campaign norm) still gets its RAW throw:
     // unsettled territory, no pool, the start-hex environment for distance (§24 fallback).
@@ -2595,12 +2794,22 @@ function tickJourneyDay(campaign, journey, ctx){
     if(here && here.hexId) newCurrentHexId = here.hexId;
   }
 
+  // W4 — stash the army's proposed day-end position + contact on the shared day ctx
+  // (the E6-interlock pattern), so the slot-88 military consumer — same day, later
+  // slot — evaluates POST-march positions instead of yesterday's.
+  if(isArmy && ctx._armyDay){
+    ctx._armyDay.moves[journey.armyId] = { journeyId: journey.id, endHexId: newCurrentHexId || null, hexPath: hexPath.slice(), pace: restDay ? 'rest' : pace, arrived: willArrive };
+    if(armyContactRecord) ctx._armyDay.contacts.push(Object.assign({ armyId: journey.armyId }, armyContactRecord));
+  }
+
   // ── the review-surface summary label (every day; routine travel emits NO event) ──
   let summaryLabel;
   if(willArrive)            summaryLabel = (journey.name || 'Journey') + ': arrived (day ' + newDayIndex + ')';
   else if(restDay)          summaryLabel = (journey.name || 'Journey') + ': forced rest (day ' + newDayIndex + ')';
   else if(fordingRecord && fordingRecord.result === 'failed')
                             summaryLabel = (journey.name || 'Journey') + ': ' + (hexesToday > 0 ? ('+' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then ') : '') + 'blocked at a river (day ' + newDayIndex + ')';
+  else if(armyContactRecord)
+                            summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then met ' + (armyContactRecord.opposingArmyName || 'an opposing army') + ' (day ' + newDayIndex + ')';
   else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — strayed ' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' ' + (HEX_FACE_LABELS[strayHeading] || '') + ', unaware (day ' + newDayIndex + ')';
   else                      summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi)' + (fordingRecord && fordingRecord.result === 'forded-swim' ? ', forded a river' : '') + ', day ' + newDayIndex;
 
@@ -2637,6 +2846,8 @@ function tickJourneyDay(campaign, journey, ctx){
     waterForage: (survival && survival.waterForage) || null, // Provisioning — the day's water-Foraging throw (null = none attempted), for the day log + its reroll
     memberSurvival,                                          // Provisioning — compact per-member post-day survival (for the members-table proposed-day preview)
     fatigueAccumulated,
+    armyId: journey.armyId || null,                          // W4 — an army's march day (null = a party's)
+    armyContact: armyContactRecord,                          // W4 — {opposingArmyId, hexId} when the march halted on an opposing army
     encounters: encounters.map(e => ({ kind: e.triggeredBy || 'wandering-roll', encounterId: e.id })),
     // type routes each notable to the nav vs forage row in the day log; payload is KEPT in the
     // committed digest — the day-log affordances (E2 ⚔ Resolve via payload.encounterId; M4's
@@ -2665,6 +2876,7 @@ function tickJourneyDay(campaign, journey, ctx){
   const _travellerIds = (journey.participantCharacterIds || []).filter(Boolean);
   const _related = _travellerIds.map(id => ({ kind: 'character', id, role: 'traveller' }));
   _related.push({ kind: 'journey', id: journey.id, role: 'subject' });
+  if(isArmy) _related.push({ kind: 'army', id: journey.armyId, role: 'subject' });   // W4 — the marching army
   const _dayStartHexId = (curStep && curStep.hexId) || journey.currentHexId || journey.startHexId || null;
   const _involvedHexIds = [];
   if(_dayStartHexId) _involvedHexIds.push(_dayStartHexId);
@@ -2796,6 +3008,11 @@ function proposeJourneyDay(campaign, ctx){
   // compares each in-transit journey's travel marker against it.
   const _leftDayInMonth = (typeof ctx.dayInMonth === 'number') ? (ctx.dayInMonth - 1) : ((campaign.currentDayInMonth) || 1);
   const leftOrd = ((campaign.currentTurn || 1) * 30) + _leftDayInMonth;
+  // W4 — the shared army-day stash (the E6-interlock pattern): each army journey's
+  // proposed end position + contacts ride the day ctx so the slot-88 military
+  // consumer evaluates POST-march positions. Created on the ORIGINAL ctx object —
+  // the per-journey Object.assign copy below shares the nested reference.
+  if(!ctx._armyDay) ctx._armyDay = { moves: {}, contacts: [] };
   for(const j of campaign.journeys){
     if(!j || j.status !== 'in-transit') continue;
     // Lockstep skip-guard (Complete Movement, 2026-06-05): one leg per world day. If this journey's
@@ -2949,6 +3166,39 @@ function commitJourneyRecord(campaign, record){
       if(record.newStatus === 'arrived'){ pt.activeJourneyId = null; pt.currentHexId = j.destinationHexId || pt.currentHexId; }
       // The party's camp stash travels with it (Items I1 / Stash B) — follow the party's hex each day.
       if(global.ACKS && global.ACKS.syncPartyCampHex) global.ACKS.syncPartyCampHex(campaign, pt);
+    }
+  }
+  // W4 — the ARMY tracks its march the same way: position follows the journey each
+  // day, the marched-day window feeds the RR p.448 3-of-7 fatigue rule, and arrival
+  // releases the march link (the journey stays in campaign.journeys as the log).
+  if(j.armyId){
+    const army = (campaign.armies || []).find(a => a && a.id === j.armyId);
+    if(army){
+      if(record.newCurrentHexId) army.currentHexId = record.newCurrentHexId;
+      const dr2 = record.dayRecord || {};
+      if((dr2.hexesTraveled || 0) > 0 && global.ACKS && typeof global.ACKS.recordArmyMarchDay === 'function'){
+        const _travelDayInMonth = (typeof record.dayInMonth === 'number') ? (record.dayInMonth - 1) : ((campaign.currentDayInMonth) || 1);
+        const _travelOrd = ((campaign.currentTurn || 1) * 30) + _travelDayInMonth;
+        global.ACKS.recordArmyMarchDay(army, _travelOrd, dr2.pace || j.pace || 'normal');
+      }
+      if(record.newStatus === 'arrived'){
+        army.journeyId = null;
+        (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'march-arrived', narrative: (army.name || 'The army') + ' arrived at ' + (j.destinationHexId || 'its destination') + '.' });
+      }
+    }
+  }
+  // A rallying UNIT (journey.unitId): on arrival it falls in — stationed to the army it
+  // was called up to, its rally markers cleared (it now counts in the army's strength).
+  if(j.unitId && record.newStatus === 'arrived'){
+    const unit = (campaign.units || []).find(u => u && u.id === j.unitId);
+    if(unit){
+      const armyId = unit.rallyingToArmyId;
+      const army = armyId ? (campaign.armies || []).find(a => a && a.id === armyId) : null;
+      if(army && global.ACKS && typeof global.ACKS.stationUnit === 'function'){
+        global.ACKS.stationUnit(campaign, unit, { kind: 'army', id: army.id });
+        (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'reinforcement-arrived', narrative: (unit.displayName || unit.unitTypeKey || 'A unit') + ' marched in and joined ' + (army.name || 'the army') + '.' });
+      }
+      unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
     }
   }
 }
@@ -4168,7 +4418,10 @@ function commitSurvivalRecord(campaign, record){
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
-  CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay, rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
+  CALENDARS, calendarFor, monthName, seasonFor, currentDateString, advanceCalendarOneMonth, advanceCalendarOneDay,
+  // Review tab (2026-06-13) — calendar cursors + dated event reads for Pending Events.
+  calendarShiftMonths, calendarDayShift, eventsOnCalendarDay, monthlyEventsForReview,
+  rollLoyaltyCheck, tickHenchmanLoyalty, RUMOR_TOPICS, RUMOR_APPARENT_LEVELS, RUMOR_TRUTH_LEVELS, RUMOR_PROLIFERATION_CHANCE, blankRumor, tickRumorApparentLevels, NOTABILITY_CATEGORIES, ENTRYWAY_KINDS, ENTRYWAY_SECURITY, ASSET_RESTRICTIONS, ENTRYWAY_INSPECTION_DEFAULT, computeTransactionThreshold, blankNotability, blankEntryway, blankRegulatedAsset, travelEstimate, rollEncounter, applyTravelTick,
   // Phase 2.5 Journeys (#475 — J1 + J2) — overland travel day-tick consumer.
   tickJourneyDay, proposeJourneyDay, commitJourneyRecord, startJourney, advanceJourneyOneDay, abortJourney, reRouteJourney, rerollJourneyDay, journeyLastDayRerollable, computeJourneyDistance, rollNavigation, journeyDefaultName, journeyBaseSpeedMilesPerDay,
   // §24 hex-by-hex resolution — route + pure per-step travel effects (roads / rivers / fording).
@@ -4183,8 +4436,13 @@ Object.assign(ACKS, {
   proposePursuitDay, commitPursuitRecord, trackingQuarryWalkDay, trackingSpringCatch,
   // #476 E6 — the slot-84 monster-bands consumer (wander + homing motion).
   proposeMonsterBandDay, commitMonsterBandRecord,
+  // Phase 3 Military W2 — the slot-86 incursions consumer (the Vagaries of Incursion,
+  // JJ pp.100–106) + the domain-panel lookup.
+  proposeIncursionDay, commitIncursionRecord, incursionBandsForDomain,
   // #476 E10 — domain-morale banditry (RR pp.350–351): the monthly reconcile + lookup.
   banditryBandsForDomain, processBanditryForTurn,
+  // Phase 3 Military W4 — the slot-88 military consumer (the campaign cycle, RR p.447).
+  proposeMilitaryDay, commitMilitaryRecord,
   // Phase 2.95 §4.2 — Hireling recruitment engine helpers.
   parseAvailabilitySpec, rollAvailabilitySpec, rollAvailabilitySpecDetailed, rollDiceNotation, rollDiceNotationDetailed, rollAvailability, rollAvailabilityDetailed, resolveSolicitFee, rollReactionToHiring, computeReactionMods, solicitHirelings, individuateHirelingCandidate,
   findPersistentCandidates, computeEffectiveLoyalty,
@@ -4939,6 +5197,10 @@ function proposeMonsterBandDay(campaign, ctx){
         domainEntries.push({ domainId: dom, hexId: hx ? hx.id : null, occurrence: true,
                              lingerRoll, lairPct: pct, lingers, strengthRoll, fullStrength,
                              hexFull, lairCap: capHere ? { count: capHere.count, max: capHere.max } : null });
+        // W2 interlock — the physical border crossing IS this domain's positive occurrence
+        // today: the incursion consumer (slot 86, same tick) reads the stash off the shared
+        // day ctx and skips its probability roll (JJ p.103 / E6 — never double-roll).
+        if(ctx) (ctx._wanderEntryDomainIds = ctx._wanderEntryDomainIds || []).push(dom);
         if(lingers && hx){
           settle = { hexId: hx.id, fullStrength, count: fullCount,
                      monsterCatalogKey: (g.groupTemplate && g.groupTemplate.monsterCatalogKey) || null };
@@ -5059,6 +5321,360 @@ function commitMonsterBandRecord(campaign, record){
     return;
   }
   // routine motion — the Group moved; the day record carried the path (no history spam)
+}
+
+// ── Phase 3 Military W2 — the 'incursions' day consumer (slot 86): the Vagaries of ──────
+// Incursion (JJ pp.100–106). Gated on the 'vagaries-of-incursion' rule (default OFF —
+// JJ p.100 calls the chapter "strictly optional"; the bundled demo enables it). Every
+// world day each domain rolls its Daily Domain Encounter Probability (effective
+// territory per dangerous borders, JJ p.102; an insufficient garrison/stronghold reads
+// one classification worse). A day on which a physical wandering band crossed the
+// domain's border (the monster-bands consumer, slot 84) already HAS its occurrence —
+// the ctx stash interlock skips the roll. A positive day builds the whole RAW chain as
+// ONE record: entry hex (🔧 v1: a seeded pick among the domain's exposed border hexes —
+// RAW says judge from the geography; re-place the band via the Inspector) → rarity
+// (JJ p.72, on the effective classification) → the 1d100 identity on the entry hex's
+// terrain table → linger/migrate vs Lair % + the number encountered (JJ p.103; treasure
+// only at full lair strength or a mercantilist arrival) → the Domain Encounter Reaction
+// 2d6 (current morale + the alignment circumstance, doubled when the band's BR tops the
+// garrison's; animal/vermin/ooze/construct intelligence caps at Neutral — 🔧 the elven-
+// fastness exception stays the GM's edit) → recon-lite for BOTH sides (RR p.452 — an
+// oblivious ruler may not know the monsters came) → the platoon-scale BR comparison +
+// the JJ p.104 verdict lines. COMMIT materializes the band as a Group with the verdict
+// on group.incursion: a migrating band wanders on via the E6 machinery from tomorrow; a
+// lingering band holds (wanderState.halted) as the standing threat the BR comparison
+// priced; a lingering NEUTRAL band settles as a den at once (JJ p.103 "attempt to find
+// a place to settle"), respecting the E9 hex cap. The comprehensive 'domain-incursion'
+// event rides the notable (record-only; chronicle-visible).
+function _incursionSizeMod(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  if(n <= 600) return -2;
+  if(n <= 3000) return -1;
+  if(n <= 12000) return 0;
+  if(n <= 36000) return 1;
+  if(n <= 72000) return 2;
+  return 3;
+}
+function _incursionProximityMod(distHexes){
+  if(distHexes == null) return 0;
+  if(distHexes <= 0) return 2;                       // same 6-mile hex
+  if(distHexes === 1) return 1;                      // adjacent 6-mile hexes
+  if(distHexes <= 3) return 0;                       // ~the same 24-mile hex
+  return -Math.ceil((distHexes - 3) / 4);            // −1 per 24-mile hex beyond
+}
+// RR p.452 terrain row (keyed on the shipped base + sub-type): open ground +1 to
+// observe an army in it, concealing terrain −1, everything else 0.
+function _incursionTerrainConcealMod(hex){
+  if(!hex) return 0;
+  const A = _jACKS();
+  const base = (typeof A.terrainBase === 'function') ? A.terrainBase(hex.terrain) : String(hex.terrain || '');
+  const sub = String(hex.terrainSubtype || '').toLowerCase();
+  if(base === 'barrens' || base === 'desert' || base === 'grassland') return 1;
+  if(base === 'scrubland') return (sub === 'high' || sub === 'dense') ? -1 : 1;
+  if(base === 'forest') return (sub === 'taiga') ? -1 : 0;
+  if(base === 'hills') return (sub === 'rocky') ? -1 : 0;
+  if(base === 'swamp') return (sub === 'marshy') ? -1 : 0;
+  return 0;
+}
+// RR p.452 recon-lite for a domain encounter (JJ p.103): one 2d6 per side with the
+// derivable modifier subset (opposing size · proximity · regional familiarity · terrain
+// concealment · garrison cavalry scouting · the JJ Aerial tag). The W4 full recon adds
+// SA, magic, spies, screens, stratagems, prisoners. The garrison observes from the
+// stronghold hex (the hex with the largest settlement, else the domain's first — JJ
+// p.103 "assume the garrison is in the domain's stronghold").
+function _incursionReconLite(campaign, d, entryHex, entry, count, rng){
+  const A = _jACKS();
+  const domHexes = ((campaign && campaign.hexes) || []).filter(h => h && h.domainId === d.id);
+  let strongholdHex = null, best = -1;
+  for(const h of domHexes){
+    const fam = (h.settlement && (h.settlement.families || 0)) || 0;
+    if(fam > best){ best = fam; strongholdHex = h; }
+  }
+  const dist = (strongholdHex && strongholdHex.coord && entryHex && entryHex.coord && typeof A.hexAxialDistance === 'function')
+    ? A.hexAxialDistance(strongholdHex.coord, entryHex.coord) : null;
+  let cav = 0;
+  for(const u of ((d.garrison && d.garrison.units) || [])){
+    if(!u) continue;
+    const row = (typeof A.findTroopType === 'function')
+      ? A.findTroopType(u.unitTypeKey, { race: u.race || 'man', veteran: !!u.veteran, loadout: u.loadout || null }) : null;
+    if(row && row.category === 'cavalry') cav++;
+  }
+  const cavMod = cav >= 101 ? 3 : cav >= 21 ? 2 : cav >= 6 ? 1 : 0;
+  const mc = (entry && typeof A.massCombatRow === 'function') ? A.massCombatRow(entry.key) : null;
+  const aerial = !!(mc && Array.isArray(mc.tags) && mc.tags.indexOf('aerial') >= 0);
+  const roll2d6 = () => (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+  const mkSide = mods => {
+    const applied = mods.filter(m => m.value !== 0);
+    const roll = roll2d6();
+    const total = roll + applied.reduce((s, m) => s + m.value, 0);
+    const band = (typeof A.reconRollBand === 'function') ? A.reconRollBand(total) : { key: 'failure', label: 'Failure' };
+    return { roll, total, result: band.key, resultLabel: band.label, mods: applied };
+  };
+  const ruler = mkSide([
+    { label: 'a band of ' + (count != null ? count : '?'), value: _incursionSizeMod(count || 1) },
+    { label: 'proximity (' + (dist != null ? dist + ' hexes' : 'unknown') + ')', value: _incursionProximityMod(dist) },
+    { label: 'more familiar with the region', value: 1 },
+    { label: 'their terrain', value: _incursionTerrainConcealMod(entryHex) },
+    { label: 'garrison cavalry scouting (' + cav + ' units)', value: cavMod }
+  ]);
+  const monsters = mkSide([
+    { label: 'garrison of ' + ((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(d) : '?'), value: _incursionSizeMod((typeof A.garrisonHeadcount === 'function') ? A.garrisonHeadcount(d) : 0) },
+    { label: 'proximity (' + (dist != null ? dist + ' hexes' : 'unknown') + ')', value: _incursionProximityMod(dist) },
+    { label: 'less familiar with the region', value: -1 },
+    { label: 'observing from the air', value: aerial ? 2 : 0 },
+    { label: 'the stronghold’s terrain', value: _incursionTerrainConcealMod(strongholdHex) }
+  ]);
+  const aware = k => (k === 'marginal' || k === 'success' || k === 'major');
+  return { ruler, monsters, rulerAware: aware(ruler.result), monstersIntel: aware(monsters.result) };
+}
+// The JJ p.104 mass-combat trigger lines — GM guidance recorded with the verdict (the
+// battles themselves are W3/W6; deployment is the GM's call, so both branches print).
+function _incursionVerdictLines(attitude, monsterBr, garrisonBr, intel, sapient, lingering){
+  const lines = [];
+  const priced = (monsterBr != null && garrisonBr != null);
+  if(attitude === 'hostile'){
+    lines.push('garrison deployed → pitched battle — hostile monsters always fight (JJ p.104)');
+    if(priced){
+      if(monsterBr > 2 * garrisonBr && intel && sapient)
+        lines.push('garrison in the stronghold → they ASSAULT it (BR ' + monsterBr + ' > 2× garrison ' + garrisonBr + ', with the intelligence and means)');
+      else if(monsterBr > 2 * garrisonBr)
+        lines.push('garrison in the stronghold → they pillage the domain (BR tops 2× the garrison but ' + (sapient ? 'their reconnaissance failed' : 'they lack the wits to assault') + ')');
+      else
+        lines.push('garrison in the stronghold → they pillage the domain (BR ' + monsterBr + ' ≤ 2× garrison ' + garrisonBr + ')');
+    } else lines.push('garrison in the stronghold → pillage vs assault is the Judge’s call (no priced BR)');
+  } else if(attitude === 'unfriendly'){
+    if(priced){
+      if(monsterBr >= garrisonBr) lines.push('garrison deployed → they FIGHT (BR ' + monsterBr + ' ≥ garrison ' + garrisonBr + ')');
+      else lines.push('garrison deployed → they are DRIVEN OFF (BR ' + monsterBr + ' < garrison ' + garrisonBr + ')');
+    } else lines.push('garrison deployed → fight vs driven-off is the Judge’s call (no priced BR)');
+    lines.push('left alone → they loot supplies, then ' + (lingering ? 'keep at it until driven off' : 'depart'));
+  } else if(attitude === 'neutral'){
+    lines.push('garrison deployed → they turn UNFRIENDLY (JJ p.104)');
+    lines.push('left alone → ' + (lingering ? 'they look for a place to settle' : 'they exit peacefully within 1d4 weeks') + ' — and the peasants grumble (−1 on the next domain morale roll)');
+  } else if(attitude === 'mercantilist'){
+    lines.push('they head for the settlement to trade (treasure as merchandise — M&M); garrison deployed → they turn UNFRIENDLY');
+  } else if(attitude === 'friendly'){
+    lines.push('they offer their help (mercenary or henchman offers at +2); garrison deployed → they turn UNFRIENDLY');
+  }
+  return lines;
+}
+function proposeIncursionDay(campaign, ctx){
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const A = _jACKS();
+  if(!(typeof A.isHouseRuleEnabled === 'function' && A.isHouseRuleEnabled(campaign, 'vagaries-of-incursion'))) return { pendingRecords, notableEvents };
+  const dayInMonth = (typeof ctx.dayInMonth === 'number') ? ctx.dayInMonth : ((campaign.currentDayInMonth || 1) + 1);
+  const worldOrd = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const entered = ctx._wanderEntryDomainIds || [];
+  for(const d of (campaign.domains || [])){
+    if(!d) continue;
+    if(entered.indexOf(d.id) >= 0) continue;           // the physical entry IS today's occurrence
+    const chance = (typeof A.domainDailyEncounterChance === 'function') ? A.domainDailyEncounterChance(campaign, d) : null;
+    if(!chance || !(chance.pct > 0)) continue;
+    const rng = ctx.rng || _jMulberry32(_jHash32('incursion|' + d.id + '|' + worldOrd));
+    const roll = Math.round(rng() * 1000) / 10;        // 0.0–99.9 at the table's half-percent grain
+    if(roll >= chance.pct) continue;                   // quiet day — no record (no spam)
+    // ── an incursion! the entry hex: a seeded pick among the exposed border hexes ──
+    const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === d.id && h.coord);
+    let candidates = [];
+    if(domHexes.length){
+      const byCoord = new Map();
+      for(const h of (campaign.hexes || [])){ if(h && h.coord) byCoord.set(h.coord.q + ',' + h.coord.r, h); }
+      const deltas = (typeof A.hexNeighborDeltas === 'function') ? A.hexNeighborDeltas() : [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+      candidates = domHexes.filter(h => deltas.some(dl => {
+        const n = byCoord.get((h.coord.q + dl[0]) + ',' + (h.coord.r + dl[1])) || null;
+        if(!n) return true;                            // unauthored = the open wilds
+        if(n.domainId) return false;
+        const base = (typeof A.terrainBase === 'function') ? A.terrainBase(n.terrain) : n.terrain;
+        return base !== 'water';                       // unsettled land
+      }));
+      if(!candidates.length) candidates = domHexes;
+    }
+    const entryHex = candidates.length ? candidates[Math.floor(rng() * candidates.length)] : null;
+    // ── identity: rarity (JJ p.72, the effective classification) → the terrain table ──
+    const rar = (typeof A.rollEncounterRarity === 'function') ? A.rollEncounterRarity(chance.effective, rng) : { roll: null, rarity: 'common' };
+    let identity = null;
+    if(entryHex && typeof A.rollEncounterIdentity === 'function' && typeof A.terrainKey === 'function'){
+      const tKey = A.terrainKey(entryHex);
+      if(tKey) identity = A.rollEncounterIdentity({
+        terrainKey: tKey, hasRiver: !!(Array.isArray(entryHex.riverSides) && entryHex.riverSides.length),
+        category: 'monster', rarity: rar.rarity, rng
+      });
+    }
+    const entry = (identity && identity.key && typeof A.findMonster === 'function') ? A.findMonster(identity.key) : null;
+    const idLabel = (entry && entry.name) || (identity && identity.label) || 'monsters (GM identifies)';
+    // ── linger or migrate (JJ p.103) + the number encountered ──
+    const lairPct = (entry && typeof entry.lairPct === 'number') ? entry.lairPct : 0;
+    const lingerRoll = 1 + Math.floor(rng() * 100);
+    const lingering = lairPct > 0 && lingerRoll <= lairPct;
+    const strengthRoll = lingering ? (1 + Math.floor(rng() * 100)) : null;
+    const fullStrength = !!(lingering && strengthRoll <= lairPct);
+    let count = null, countSpec = null;
+    if(entry && entry.numberAppearing){
+      countSpec = fullStrength ? (entry.numberAppearing.lair || entry.numberAppearing.wandering)
+                               : (entry.numberAppearing.wandering || entry.numberAppearing.lair);
+      if(countSpec && typeof A._rollDiceStr === 'function') count = Math.max(1, A._rollDiceStr(countSpec, rng) || 1);
+    }
+    // ── the platoon-scale BR comparison (JJ p.105) ──
+    const garrisonBr = (typeof A.domainGarrisonPlatoonBr === 'function') ? A.domainGarrisonPlatoonBr(campaign, d) : 0;
+    const monsterBr = (entry && typeof entry.battleRating === 'number' && count)
+      ? ((typeof A.monsterPlatoonBr === 'function') ? A.monsterPlatoonBr(entry.battleRating, count) : null) : null;
+    // ── the Domain Encounter Reaction (JJ p.103): 2d6 + morale + alignment ──
+    const mods = [];
+    const morale = (d.demographics && typeof d.demographics.morale === 'number') ? d.demographics.morale : 0;
+    if(morale !== 0) mods.push({ label: 'domain morale score', value: morale });
+    const rulerCh = (typeof A.rulerCharacter === 'function') ? A.rulerCharacter(campaign, d) : null;
+    const dAl = String((rulerCh && rulerCh.alignment) || '').charAt(0).toUpperCase();
+    const mAl = String((entry && entry.alignment) || '').charAt(0).toUpperCase();
+    const brTops = (monsterBr != null) && (monsterBr > garrisonBr);
+    if(dAl && mAl){
+      if(dAl === 'L' && mAl === 'L') mods.push({ label: 'lawful domain, lawful monsters', value: 2 });
+      else if((dAl === 'L' || dAl === 'N') && mAl === 'C')
+        mods.push({ label: 'lawful/neutral domain, chaotic monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+      else if(dAl === 'C' && mAl === 'L')
+        mods.push({ label: 'chaotic domain, lawful monsters' + (brTops ? ' — doubled, their BR tops the garrison’s' : ''), value: brTops ? -4 : -2 });
+    }
+    const reactionRoll = (1 + Math.floor(rng() * 6)) + (1 + Math.floor(rng() * 6));
+    const reactionTotal = reactionRoll + mods.reduce((s, m) => s + m.value, 0);
+    let band = (typeof A.domainEncounterReactionBand === 'function') ? A.domainEncounterReactionBand(reactionTotal) : { key: 'neutral', label: 'Neutral' };
+    const types = (entry && entry.creatureTypes) || [];
+    const mindCapped = types.some(t => t === 'animal' || t === 'vermin' || t === 'ooze' || t === 'construct');
+    let attitudeCapped = false;
+    if(mindCapped && (band.key === 'mercantilist' || band.key === 'friendly')){
+      const neutral = ((A.DOMAIN_REACTION_BANDS || []).find(b => b.key === 'neutral')) || { key: 'neutral', label: 'Neutral — exploratory' };
+      band = neutral; attitudeCapped = true;
+    }
+    const sapient = !mindCapped;
+    const treasureType = (fullStrength || band.key === 'mercantilist') ? ((entry && entry.treasureType) || '') : '';
+    // ── recon-lite (RR p.452) + the verdict ──
+    const recon = _incursionReconLite(campaign, d, entryHex, entry, count, rng);
+    const verdictLines = _incursionVerdictLines(band.key, monsterBr, garrisonBr, recon.monstersIntel, sapient, lingering);
+    // ── the pre-minted Group id (the E1 collision-proof preview idiom: the work-copy
+    // commit and the real commit must create the SAME band) ──
+    const groupId = 'grp-' + Math.floor(rng() * Math.pow(36, 7)).toString(36).padStart(7, '0');
+    const label = '⚔ ' + (d.name || 'Domain') + ': domain encounter — '
+      + (count != null ? count + ' × ' : '') + idLabel
+      + ' (' + rar.rarity + ', ' + (lingering ? 'LINGERING' : 'migrating') + ') · ' + band.label
+      + (recon.rulerAware ? '' : ' · the ruler is UNAWARE');
+    pendingRecords.push({
+      kind: 'incursion', label, groupId,
+      domainId: d.id, hexId: entryHex ? entryHex.id : null,
+      chance: { pct: chance.pct, roll, actualHexes: chance.actualHexes, effectiveHexes: chance.effectiveHexes,
+                configuration: chance.configuration, base: chance.base, classification: chance.effective, demoted: chance.demoted },
+      identity: { label: idLabel, key: (identity && identity.key) || null,
+                  natural: identity ? identity.natural : null, tableKey: identity ? identity.tableKey : null,
+                  rarity: rar.rarity, rarityRoll: rar.roll },
+      lairPct, lingerRoll, lingering, strengthRoll, fullStrength, count, countSpec, treasureType,
+      reaction: { roll: reactionRoll, mods, total: reactionTotal, attitude: band.key, attitudeLabel: band.label, capped: attitudeCapped },
+      recon, brComparison: { monsterBr, garrisonBr, verdictLines },
+      dayInMonth, primaryHexId: entryHex ? entryHex.id : null
+    });
+    notableEvents.push({
+      type: 'incursion', pauseTrigger: 'encounter', kind: 'domain-incursion',
+      primaryHexId: entryHex ? entryHex.id : null, domainId: d.id,
+      relatedEntities: [{ kind: 'domain', id: d.id, role: 'target' }, { kind: 'group', id: groupId, role: 'subject' }],
+      label,
+      payload: { domainId: d.id, groupId, hexId: entryHex ? entryHex.id : null,
+                 chance: { pct: chance.pct, roll }, identity: { label: idLabel, key: (identity && identity.key) || null, rarity: rar.rarity },
+                 count, disposition: lingering ? 'lingering' : 'migrating', fullStrength, treasureType,
+                 reaction: { roll: reactionRoll, total: reactionTotal, attitude: band.key, mods },
+                 recon: { rulerAware: recon.rulerAware, monstersIntel: recon.monstersIntel,
+                          ruler: { roll: recon.ruler.roll, total: recon.ruler.total, result: recon.ruler.result },
+                          monsters: { roll: recon.monsters.roll, total: recon.monsters.total, result: recon.monsters.result } },
+                 brComparison: { monsterBr, garrisonBr, verdictLines }, narrative: label }
+    });
+  }
+  return { pendingRecords, notableEvents };
+}
+function commitIncursionRecord(campaign, record){
+  if(!campaign || !record || record.kind !== 'incursion') return;
+  const A = _jACKS();
+  const d = (campaign.domains || []).find(x => x && x.id === record.domainId);
+  if(!d) return;
+  const turn = campaign.currentTurn || 1;
+  if(!Array.isArray(campaign.groups)) campaign.groups = [];
+  if(campaign.groups.some(g => g && g.id === record.groupId)) return;   // defensive — already committed
+  const entry = (record.identity && record.identity.key && typeof A.findMonster === 'function') ? A.findMonster(record.identity.key) : null;
+  const att = (record.reaction && record.reaction.attitude) || 'neutral';
+  const g = (typeof A.blankGroup === 'function') ? A.blankGroup({
+    id: record.groupId,
+    name: (entry && entry.name) || (record.identity && record.identity.label) || 'Arriving monsters',
+    groupTemplate: { monsterCatalogKey: (entry && entry.key) || null,
+                     creatureTypes: (entry && Array.isArray(entry.creatureTypes)) ? entry.creatureTypes.slice() : ['humanoid'],
+                     hitDice: (entry && entry.hd) || null },
+    count: record.count || 0,
+    currentHexId: record.hexId || null,
+    currentDomainId: record.domainId,
+    lifecycleState: 'wild'
+  }) : null;
+  if(!g) return;
+  g.incursion = {
+    domainId: record.domainId, attitude: att,
+    disposition: record.lingering ? 'lingering' : 'migrating',
+    fullStrength: !!record.fullStrength, treasureType: record.treasureType || '',
+    rulerAware: !!(record.recon && record.recon.rulerAware),
+    monstersIntel: !!(record.recon && record.recon.monstersIntel),
+    arrivedAtTurn: turn, arrivedOnDay: record.dayInMonth || null
+  };
+  g.history = g.history || [];
+  g.history.push({ turn, type: 'incursion',
+    reason: 'arrived as a domain encounter at ' + (d.name || 'a domain') + ' (Vagaries of Incursion, JJ p.101) — '
+      + ((record.reaction && record.reaction.attitudeLabel) || att) + ', ' + (record.lingering ? 'lingering' : 'migrating')
+      + (record.recon && record.recon.rulerAware === false ? '; the ruler is unaware' : '') });
+  // a lingering band holds where it arrived (the standing threat the verdict priced);
+  // a migrating band's wanderState stays null — the E6 machinery walks it from tomorrow.
+  if(record.lingering){
+    g.wanderState = { coord: null, lastCoord: null, mileRemainder: 0, mode: null,
+                      destLairId: null, dissolveOnArrival: false, lastDomainId: record.domainId, halted: true };
+  }
+  campaign.groups.push(g);
+  // a lingering NEUTRAL band looks for a place to settle at once (JJ p.103); the E9 hex
+  // cap can refuse it ("simply too crowded" — it holds as a loose band instead).
+  if(record.lingering && att === 'neutral' && record.hexId){
+    const capNow = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, record.hexId) : null;
+    if(capNow && capNow.full){
+      g.history.push({ turn, type: 'wander',
+        reason: 'sought to settle but the hex is at its lair cap (' + capNow.count + ' of ' + capNow.max + ', JJ p.69) — the band holds as a loose camp' });
+    } else {
+      const lair = (typeof A.createLair === 'function') ? A.createLair(campaign, {
+        hexId: record.hexId, monsterCatalogKey: (entry && entry.key) || '',
+        status: 'active', establishedBy: 'incursion-settle', establishedAtTurn: turn,
+        knownToPlayers: false, name: ((entry && entry.name) || g.name || 'Monster') + ' lair'
+      }) : null;
+      if(lair){
+        if(lair.lairPct == null && entry) lair.lairPct = entry.lairPct;
+        lair.treasureType = record.fullStrength ? ((entry && entry.treasureType) || '') : '';
+        lair.groupIds = [g.id];
+        lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+        lair.history = lair.history || [];
+        lair.history.push({ turn, type: 'settled',
+          reason: 'a domain-encounter arrival lingered and settled (JJ p.103) — '
+            + (record.fullStrength ? ('full lair strength (' + (record.count || '?') + ')') : 'wandering numbers (no hoard yet)') });
+        g.wanderState = null;                          // housed
+        g.history.push({ turn, type: 'settled', reason: 'lingered and denned — ' + (lair.name || lair.id) });
+      }
+    }
+  }
+  // JJ p.103 — peasants distrust a NEUTRAL band the garrison is not deployed against:
+  // −1 on the NEXT domain morale roll. One-shot; the monthly turn consumes the flag
+  // (clear it by hand if the garrison was in fact deployed — deployment is W4 state).
+  if(att === 'neutral') d.incursionXenophobiaPending = true;
+}
+// The UI read: the live incursion bands standing in a domain (alive + still on the
+// domain's ground; a settled band keeps showing through its den's hex).
+function incursionBandsForDomain(campaign, domainId){
+  const A = _jACKS();
+  const out = [];
+  for(const g of ((campaign && campaign.groups) || [])){
+    if(!g || !g.incursion || g.incursion.domainId !== domainId) continue;
+    const alive = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+    if(alive <= 0) continue;
+    const hex = g.currentHexId ? ((campaign.hexes || []).find(h => h && h.id === g.currentHexId) || null) : null;
+    if(!hex || hex.domainId !== domainId) continue;    // wandered off (or off the map) — no longer this domain's problem
+    out.push(g);
+  }
+  return out;
 }
 
 // ── #476 E10 — domain-morale banditry (RR pp.350–351): the monthly materialization ──────
@@ -5211,6 +5827,376 @@ function processBanditryForTurn(campaign, options){
   return out;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 3 Military W4 — the slot-88 'military' day consumer: the campaign cycle
+// (RR p.447). Runs AFTER journeys (slot 30) moved the armies — the shared
+// ctx._armyDay stash carries each army journey's PROPOSED day-end position +
+// march contacts, so this consumer evaluates post-march positions. Per day:
+//   1. initiative + initial reconnaissance per army with an opposing army in
+//      range (RR p.447 steps 1–2; rolled daily-when-in-range — the tool's Day
+//      Clock is RAW's "shift to days in close proximity" grain 🔧),
+//   2. contacts (a march that halted on an opposing army, or opposing armies
+//      newly co-located) → contact recon both ways → awareness → the strategic
+//      situation → a BATTLE proposal (paused for the GM; commit creates the
+//      W3 Battle entity in setup),
+//   3. invasions (an army's march entered an unfriendly domain, RR p.458) →
+//      the immediate domain morale roll, once per army-domain,
+//   4. occupation flips (the RR p.458 wages math, checked daily) + endings,
+//   5. pillage progress (armies mid-pillage; the rolled Results at completion).
+// All previews are SEEDED (byte-stable re-opens, the journey-preview pattern);
+// an injected ctx.rng (tests) overrides. RAW core — no house rule gates this.
+// ═══════════════════════════════════════════════════════════════════════════
+function _seededMilitaryRng(campaign, ctx){
+  const parts = ['military', (campaign.currentTurn || 1), (ctx && ctx.dayInMonth) != null ? ctx.dayInMonth : (campaign.currentDayInMonth || 1)];
+  for(const a of (campaign.armies || [])){
+    if(!a) continue;
+    parts.push(a.id, a.currentHexId || '', a.strategicStance || '', a.journeyId || '', a.pillage ? 'p' + a.pillage.startedOrd : '');
+  }
+  return _jMulberry32(_jHash32(parts.join('|')));
+}
+function _mintBattleProposalId(rng){
+  let s = '';
+  for(let i = 0; i < 7; i++) s += '0123456789abcdefghijklmnopqrstuvwxyz'[Math.floor(rng() * 36)];
+  return 'btl-' + s;
+}
+function proposeMilitaryDay(campaign, ctx){
+  const A = _jACKS();
+  const pendingRecords = [], notableEvents = [];
+  if(!campaign || !Array.isArray(campaign.armies) || !campaign.armies.length) return { pendingRecords, notableEvents };
+  ctx = ctx || {};
+  const stash = ctx._armyDay || { moves: {}, contacts: [] };
+  const rng = ctx.rng || _seededMilitaryRng(campaign, ctx);
+  const dayInMonth = (ctx.dayInMonth != null) ? ctx.dayInMonth : (campaign.currentDayInMonth || 1);
+  const ord = ((campaign.currentTurn || 1) * 30) + dayInMonth;
+  const active = campaign.armies.filter(a => a && typeof A.armyTroopCount === 'function' && A.armyTroopCount(campaign, a) > 0);
+  if(!active.length) return { pendingRecords, notableEvents };
+  const effHex = a => { const m = stash.moves[a.id]; return (m && m.endHexId) ? m.endHexId : a.currentHexId; };
+  const armyName = a => (a && a.name) || 'an army';
+
+  // ── 1. initiative + initial reconnaissance (armies with an opposing army in range) ──
+  const initiativeOf = {};
+  for(const army of active){
+    const oppos = active.filter(o => o.id !== army.id && A.armiesOpposed(campaign, army, o)
+      && A.armyInReconRange(campaign, army, o, { obsHexId: effHex(army), oppHexId: effHex(o) }));
+    if(!oppos.length) continue;
+    const initiative = A.rollArmyInitiative(campaign, army, { rng });
+    initiativeOf[army.id] = initiative.total;
+    const recons = [];
+    for(const o of oppos){
+      const rr = A.armyReconRoll(campaign, army, o, { rng, obsHexId: effHex(army), oppHexId: effHex(o) });
+      const report = A.buildIntelReport(campaign, army, o, rr, { rng, atOrd: ord });
+      recons.push({ opposingArmyId: o.id, opposingName: armyName(o), recon: { roll: rr.roll, total: rr.total, mods: rr.mods, result: rr.result, resultLabel: rr.resultLabel }, report });
+    }
+    const fat = A.armyFatigued(campaign, army, ord);
+    pendingRecords.push({
+      kind: 'army-day', armyId: army.id, name: armyName(army),
+      label: '\u{1F396} ' + armyName(army) + ': initiative ' + initiative.total + ' (1d6 ' + initiative.roll + (initiative.sa ? ' + SA ' + initiative.sa : '') + (initiative.forcedBonus ? ' + forced march ' + initiative.forcedBonus : '') + ') · ' + recons.length + ' reconnaissance roll' + (recons.length === 1 ? '' : 's'),
+      initiative, recons, fatigued: fat.fatigued ? fat : null, status: 'pending'
+    });
+    if(fat.fatigued){
+      notableEvents.push({ kind: 'army-day', type: 'army-fatigued', transient: true,
+        label: '\u{26A0} ' + armyName(army) + ' is FATIGUED — ' + fat.reasons.join('; '),
+        payload: { armyId: army.id } });
+    }
+  }
+
+  // ── 2. contacts → battles (RR p.447 steps 3c–d) ──
+  const contacts = [];
+  const seenPair = {};
+  for(const c of (stash.contacts || [])){
+    const a = active.find(x => x.id === c.armyId), b = active.find(x => x.id === c.opposingArmyId);
+    if(!a || !b) continue;
+    contacts.push({ acting: a, other: b, hexId: c.hexId });
+    seenPair[[a.id, b.id].sort().join('|')] = true;
+  }
+  for(let i = 0; i < active.length; i++){
+    for(let k = i + 1; k < active.length; k++){
+      const a = active[i], b = active[k];
+      if(!A.armiesOpposed(campaign, a, b)) continue;
+      const ha = effHex(a), hb = effHex(b);
+      if(!ha || ha !== hb) continue;
+      const key = [a.id, b.id].sort().join('|');
+      if(seenPair[key]) continue;
+      const aMoved = !!stash.moves[a.id], bMoved = !!stash.moves[b.id];
+      if(!aMoved && !bMoved) continue;   // a standing stalemate is the GM's status quo — fresh contact only
+      if(_militaryBattleBetween(campaign, a, b)) continue;   // already fighting
+      const acting = (aMoved && !bMoved) ? a : ((bMoved && !aMoved) ? b : ((initiativeOf[a.id] || 0) >= (initiativeOf[b.id] || 0) ? a : b));
+      contacts.push({ acting, other: acting === a ? b : a, hexId: ha });
+      seenPair[key] = true;
+    }
+  }
+  for(const c of contacts){
+    if(_militaryBattleBetween(campaign, c.acting, c.other)) continue;
+    const reconActing = A.armyReconRoll(campaign, c.acting, c.other, { rng, obsHexId: c.hexId, oppHexId: c.hexId });
+    const reconOther = A.armyReconRoll(campaign, c.other, c.acting, { rng, obsHexId: c.hexId, oppHexId: c.hexId });
+    const reportActing = A.buildIntelReport(campaign, c.acting, c.other, reconActing, { rng, atOrd: ord });
+    const reportOther = A.buildIntelReport(campaign, c.other, c.acting, reconOther, { rng, atOrd: ord });
+    const awareness = A.contactAwareness(reconActing, reconOther);
+    const actingStance = c.acting.strategicStance || 'defensive';
+    const otherStance = c.other.strategicStance || 'defensive';
+    const sit = A.resolveStrategicSituation(awareness, actingStance, otherStance);
+    const battleProposalId = sit.battle ? _mintBattleProposalId(rng) : null;
+    const label = '\u{2694} ' + armyName(c.acting) + ' meets ' + armyName(c.other) + (c.hexId ? ' at ' + c.hexId : '') + ' — ' + sit.label;
+    pendingRecords.push({
+      kind: 'army-contact', actingArmyId: c.acting.id, otherArmyId: c.other.id, hexId: c.hexId || null,
+      name: armyName(c.acting) + ' \u{2194} ' + armyName(c.other),
+      reconActing: { roll: reconActing.roll, total: reconActing.total, mods: reconActing.mods, result: reconActing.result, resultLabel: reconActing.resultLabel },
+      reconOther: { roll: reconOther.roll, total: reconOther.total, mods: reconOther.mods, result: reconOther.result, resultLabel: reconOther.resultLabel },
+      reportActing, reportOther,
+      awareness, actingStance, otherStance,
+      situation: sit.situation, situationLabel: sit.label, battle: !!sit.battle,
+      battleProposalId, scale: A.armyDominantScale(campaign, c.acting),
+      label, status: 'pending'
+    });
+    notableEvents.push({
+      kind: 'army-contact', type: 'army-contact', pauseTrigger: sit.battle ? 'encounter' : null,
+      primaryHexId: c.hexId || null,
+      relatedEntities: [
+        { kind: 'army', id: c.acting.id, role: 'subject' }, { kind: 'army', id: c.other.id, role: 'target' },
+        c.acting.leaderCharacterId ? { kind: 'character', id: c.acting.leaderCharacterId, role: 'commander' } : null,
+        c.other.leaderCharacterId ? { kind: 'character', id: c.other.leaderCharacterId, role: 'commander' } : null
+      ].filter(Boolean),
+      label: label + (sit.battle ? ' — committing creates the battle (World \u{25B8} \u{1F38C} Battles)' : ' — no battle (stances hold)'),
+      payload: { actingArmyId: c.acting.id, otherArmyId: c.other.id, hexId: c.hexId || null,
+                 awareness, situation: sit.situation, situationLabel: sit.label, battle: !!sit.battle,
+                 battleId: battleProposalId,
+                 reconActing: { result: reconActing.result, total: reconActing.total },
+                 reconOther: { result: reconOther.result, total: reconOther.total },
+                 narrative: label }
+    });
+  }
+
+  // ── 3. invasions (RR p.458) — marches that entered an unfriendly domain today ──
+  for(const army of active){
+    const m = stash.moves[army.id];
+    if(!m) continue;
+    const enteredDomains = {};
+    for(const ph of (m.hexPath || [])){
+      const h = ph && ph.hexId ? (campaign.hexes || []).find(x => x && x.id === ph.hexId) : null;
+      if(!h || !h.domainId || enteredDomains[h.domainId]) continue;
+      enteredDomains[h.domainId] = true;
+      const dom = (campaign.domains || []).find(d => d && d.id === h.domainId);
+      if(!dom || A.domainFriendlyToArmy(campaign, dom, army)) continue;
+      if((army.invasions || {})[dom.id]) continue;   // the once-per-domain invasion stamp
+      const extraMods = A.invasionGarrisonSupportMods(campaign, dom);
+      const morale = A.immediateDomainMoraleRoll(campaign, dom, { rng, extraMods });
+      const label = '\u{26A0} ' + armyName(army) + ' INVADES ' + (dom.name || 'a domain') + ' — immediate domain morale roll (RR p.458)';
+      pendingRecords.push({
+        kind: 'domain-invasion', armyId: army.id, domainId: dom.id, hexId: h.id,
+        name: armyName(army) + ' \u{2192} ' + (dom.name || 'domain'),
+        morale, label, status: 'pending'
+      });
+      notableEvents.push({
+        kind: 'domain-warfare', type: 'domain-invaded', pauseTrigger: 'encounter',
+        primaryHexId: h.id, domainId: dom.id,
+        relatedEntities: [
+          { kind: 'army', id: army.id, role: 'subject' }, { kind: 'domain', id: dom.id, role: 'target' },
+          army.leaderCharacterId ? { kind: 'character', id: army.leaderCharacterId, role: 'commander' } : null
+        ].filter(Boolean),
+        label,
+        payload: { action: 'invaded', armyId: army.id, domainId: dom.id, hexId: h.id,
+                   moraleRoll: { roll: morale.roll, modSum: morale.modSum, adjusted: morale.adjusted, before: morale.before, after: morale.after },
+                   narrative: armyName(army) + ' invaded ' + (dom.name || 'a domain') + ' (morale ' + morale.before + ' \u{2192} ' + morale.after + ').' }
+      });
+    }
+  }
+
+  // ── 3b. supply (RR pp.450–452, campaign-cycle step 4) — each on-campaign army checks
+  //        supply weekly (daily in barrens/desert). Simplified deducts the cost; the full
+  //        check resolves the line/base when triggered. Out of supply → the RR p.452 ladder
+  //        + a loyalty calamity (applied on commit). ──
+  for(const army of active){
+    if(typeof A.armyInSupply !== 'function') break;
+    const armyHex = (campaign.hexes || []).find(h => h && h.id === effHex(army));
+    const baseT = (armyHex && typeof A.terrainBase === 'function') ? A.terrainBase(armyHex.terrain) : (armyHex && armyHex.terrain);
+    const dailyCheck = (baseT === 'barrens' || baseT === 'desert');     // RR p.451 — checked daily there
+    const since = (army.lastSupplyCheckOrd != null) ? (ord - army.lastSupplyCheckOrd) : Infinity;
+    if(since < (dailyCheck ? 1 : 7)) continue;
+    const sup = A.armyInSupply(campaign, army, { armyHexId: effHex(army) });
+    if(sup.hungerless) continue;                                        // constructs/undead never check
+    const hasWater = !!(armyHex && (baseT === 'water' || (Array.isArray(armyHex.riverSides) && armyHex.riverSides.length) || armyHex.hasLake || armyHex.freshWater));
+    const dehydrated = !sup.inSupply && dailyCheck && !hasWater;
+    const condition = sup.inSupply ? 'supplied' : (dehydrated ? 'dehydrated' : ((sup.fraction != null && sup.fraction >= 0.5) ? 'underfed' : 'starving'));
+    const fedByReq = !!(army.requisitioning && army.requisitioning.atOrd === ord);
+    const reasonText = (sup.reasons || []).map(r => ({
+      'cannot-pay': "can't pay the cost", 'insufficient-base': 'no base of sufficient value',
+      'line-blocked': 'supply line cut', 'line-overextended': 'supply line overextended', 'line-no-base': 'no supply base'
+    })[r] || r).join(', ');
+    const label = sup.inSupply
+      ? '\u{1F69A} ' + armyName(army) + ': in supply (' + (sup.cost || 0).toLocaleString() + 'gp/wk' + (sup.line && sup.line.status === 'simplified' ? ', simplified' : (sup.line && sup.line.weightedLength != null ? ', line ' + sup.line.weightedLength + '/16' : '')) + ')'
+      : '\u{26A0} ' + armyName(army) + ': OUT OF SUPPLY' + (reasonText ? ' — ' + reasonText : '') + ' → ' + condition + ' (RR p.452)';
+    pendingRecords.push({
+      kind: 'army-supply', armyId: army.id, name: armyName(army),
+      inSupply: sup.inSupply, cost: sup.cost, baseValue: sup.baseValue, line: sup.line || null,
+      fraction: sup.fraction, dehydrated, condition, simplified: sup.simplified, simplifiedTrigger: sup.simplifiedTrigger,
+      reasons: sup.reasons, ord, payGold: sup.inSupply && !fedByReq, fedByReq, hasWater,
+      label, status: 'pending'
+    });
+    notableEvents.push({
+      kind: 'army-supply', type: sup.inSupply ? 'army-supplied' : 'army-out-of-supply',
+      pauseTrigger: sup.inSupply ? null : 'supplies-low',
+      campaignLogHidden: sup.inSupply,                                  // routine "in supply" stays out of the chronicle
+      primaryHexId: effHex(army) || null,
+      relatedEntities: [{ kind: 'army', id: army.id, role: 'subject' }].concat(army.leaderCharacterId ? [{ kind: 'character', id: army.leaderCharacterId, role: 'commander' }] : []),
+      label,
+      payload: { armyId: army.id, inSupply: sup.inSupply, cost: sup.cost, baseValue: sup.baseValue,
+                 lineStatus: sup.line ? sup.line.status : null, reasons: sup.reasons, condition,
+                 narrative: label }
+    });
+  }
+
+  // ── 4. occupation flips + endings (RR p.458, the wages math checked daily) ──
+  const overrides = {};
+  for(const a of active){ const m = stash.moves[a.id]; if(m && m.endHexId) overrides[a.id] = m.endHexId; }
+  for(const dom of (campaign.domains || [])){
+    if(!dom) continue;
+    const status = A.domainOccupationStatus(campaign, dom, { armyHexOverrides: overrides });
+    if(status.occupied && !dom.occupiedBy){
+      const occupier = (campaign.characters || []).find(ch => ch && ch.id === status.occupierLeaderId) || null;
+      const label = '\u{1F3F4} ' + (dom.name || 'A domain') + ' is OCCUPIED by ' + (occupier ? occupier.name : 'the invaders') + ' (' + status.netPerFamily.toFixed(1) + 'gp/family of occupying troops > ' + status.threshold + 'gp garrison cost, RR p.458)';
+      pendingRecords.push({
+        kind: 'domain-occupation', domainId: dom.id, name: dom.name || 'domain',
+        occupierLeaderId: status.occupierLeaderId, occupierArmyIds: status.occupierArmyIds,
+        math: { occupyingWages: status.occupyingWages, defendingWages: status.defendingWages, peasantFamilies: status.peasantFamilies, netPerFamily: status.netPerFamily, threshold: status.threshold },
+        label, status: 'pending'
+      });
+      notableEvents.push({
+        kind: 'domain-warfare', type: 'domain-occupied', domainId: dom.id,
+        primaryHexId: null,
+        relatedEntities: [
+          { kind: 'domain', id: dom.id, role: 'target' },
+          status.occupierLeaderId ? { kind: 'character', id: status.occupierLeaderId, role: 'commander' } : null
+        ].filter(Boolean),
+        label,
+        payload: { action: 'occupied', domainId: dom.id, occupierLeaderId: status.occupierLeaderId,
+                   math: { occupyingWages: status.occupyingWages, defendingWages: status.defendingWages, netPerFamily: status.netPerFamily, threshold: status.threshold },
+                   narrative: label }
+      });
+    } else if(!status.occupied && dom.occupiedBy){
+      const months = Math.max(1, A.occupationMonths(campaign, dom, ord));
+      const label = '\u{1F3F3} The occupation of ' + (dom.name || 'a domain') + ' is BROKEN — the owner resumes control (next morale roll \u{2212}' + months + ', RR p.458)';
+      pendingRecords.push({
+        kind: 'occupation-end', domainId: dom.id, name: dom.name || 'domain', months, label, status: 'pending'
+      });
+      notableEvents.push({
+        kind: 'domain-warfare', type: 'occupation-ended', domainId: dom.id, primaryHexId: null,
+        relatedEntities: [{ kind: 'domain', id: dom.id, role: 'target' }],
+        label,
+        payload: { action: 'occupation-ended', domainId: dom.id, months, narrative: label }
+      });
+    }
+  }
+
+  // ── 5. pillage progress (RR pp.458–459) ──
+  for(const army of active){
+    if(!army.pillage) continue;
+    const p = army.pillage;
+    const dom = (campaign.domains || []).find(d => d && d.id === p.domainId);
+    if(!dom) continue;
+    const elapsed = ord - p.startedOrd + 1;   // the start day counts (a 1-day pillage completes the day it began)
+    if(elapsed >= p.daysRequired){
+      const results = A.rollPillageResults(campaign, dom, { rng, saltTheEarth: p.saltTheEarth, proportionUnits: p.unitsProportion });
+      const morale = results.destroyed ? null : A.immediateDomainMoraleRoll(campaign, dom, { rng, extraMods: [{ label: 'The domain was pillaged (RR p.459)', value: -4 }] });
+      const label = '\u{1F525} ' + armyName(army) + (p.saltTheEarth ? ' SALTS THE EARTH of ' : ' pillages ') + (dom.name || 'the domain') + ': ' + results.gold.toLocaleString() + 'gp, ' + results.supplies.toLocaleString() + 'gp supplies, ' + results.prisoners + ' prisoners; ' + results.familiesLost + ' families lost' + (results.destroyed ? ' — the domain is DESTROYED' : '');
+      pendingRecords.push({
+        kind: 'pillage-complete', armyId: army.id, domainId: dom.id,
+        name: armyName(army) + ' \u{2192} ' + (dom.name || 'domain'),
+        results, morale, label, status: 'pending'
+      });
+      notableEvents.push({
+        kind: 'domain-warfare', type: 'domain-pillaged', pauseTrigger: 'encounter', domainId: dom.id,
+        primaryHexId: army.currentHexId || null,
+        relatedEntities: [
+          { kind: 'army', id: army.id, role: 'subject' }, { kind: 'domain', id: dom.id, role: 'victim' },
+          army.leaderCharacterId ? { kind: 'character', id: army.leaderCharacterId, role: 'commander' } : null
+        ].filter(Boolean),
+        label,
+        payload: { action: 'pillaged', armyId: army.id, domainId: dom.id, saltTheEarth: p.saltTheEarth,
+                   results: { gold: results.gold, supplies: results.supplies, prisoners: results.prisoners, familiesLost: results.familiesLost, destroyed: results.destroyed, proportion: results.proportion },
+                   narrative: label }
+      });
+    } else {
+      notableEvents.push({
+        kind: 'army-day', type: 'pillage-progress', transient: true,
+        label: '\u{1F525} ' + armyName(army) + (p.saltTheEarth ? ' salts the earth of ' : ' pillages ') + (dom.name || 'the domain') + ' — day ' + elapsed + ' of ' + p.daysRequired,
+        payload: { armyId: army.id, domainId: dom.id }
+      });
+    }
+  }
+  return { pendingRecords, notableEvents };
+}
+function _militaryBattleBetween(campaign, a, b){
+  for(const btl of (campaign.battles || [])){
+    if(!btl || !(btl.status === 'setup' || btl.status === 'fighting' || btl.status === 'ended')) continue;
+    const ids = [btl.sides && btl.sides.a && btl.sides.a.armyId, btl.sides && btl.sides.b && btl.sides.b.armyId];
+    if(ids.indexOf(a.id) >= 0 && ids.indexOf(b.id) >= 0) return btl;
+  }
+  return null;
+}
+// COMMIT half — applies a ratified military record to the real campaign (and to the
+// working copy between proposal days). Events ride the notable-event channel
+// (emitDayTickEvents) — the commits here write STATE.
+function commitMilitaryRecord(campaign, record){
+  const A = _jACKS();
+  if(!campaign || !record) return;
+  if(record.kind === 'army-day'){
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
+    if(!army) return;
+    if(record.initiative) army.lastInitiative = record.initiative.total;
+    if(Array.isArray(record.recons) && record.recons.length){
+      if(!Array.isArray(army.intelReports)) army.intelReports = [];
+      for(const r of record.recons){ if(r && r.report) army.intelReports.push(r.report); }
+      if(army.intelReports.length > 40) army.intelReports = army.intelReports.slice(-40);
+    }
+  } else if(record.kind === 'army-contact'){
+    const acting = (campaign.armies || []).find(a => a && a.id === record.actingArmyId);
+    const other = (campaign.armies || []).find(a => a && a.id === record.otherArmyId);
+    if(acting && record.reportActing){ (acting.intelReports = acting.intelReports || []).push(record.reportActing); }
+    if(other && record.reportOther){ (other.intelReports = other.intelReports || []).push(record.reportOther); }
+    if(record.battle && record.battleProposalId && acting && other && typeof A.createBattle === 'function'){
+      if(!(campaign.battles || []).some(b => b && b.id === record.battleProposalId)){
+        A.createBattle(campaign, {
+          id: record.battleProposalId,
+          hexId: record.hexId || null,
+          scale: record.scale || 'company',
+          awareness: record.awareness || 'mutual',
+          sideA: { kind: 'army', armyId: acting.id, stance: record.actingStance || 'defensive' },
+          sideB: { kind: 'army', armyId: other.id, stance: record.otherStance || 'defensive' }
+        });
+      }
+    }
+  } else if(record.kind === 'domain-invasion'){
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
+    const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);
+    if(!dom) return;
+    if(record.morale && typeof A.applyImmediateMoraleResult === 'function') A.applyImmediateMoraleResult(campaign, dom, record.morale);
+    if(army){
+      if(!army.invasions || typeof army.invasions !== 'object') army.invasions = {};
+      army.invasions[dom.id] = ((campaign.currentTurn || 1) * 30) + (campaign.currentDayInMonth || 1);
+      (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'invasion', narrative: (army.name || 'The army') + ' invaded ' + (dom.name || 'a domain') + '.' });
+    }
+  } else if(record.kind === 'domain-occupation'){
+    if(typeof A.occupyDomain === 'function') A.occupyDomain(campaign, record.domainId, { leaderCharacterId: record.occupierLeaderId || null });
+  } else if(record.kind === 'occupation-end'){
+    if(typeof A.endOccupation === 'function') A.endOccupation(campaign, record.domainId, {});
+  } else if(record.kind === 'army-supply'){
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
+    if(!army) return;
+    if(typeof A.applyArmySupplyOutcome === 'function'){
+      A.applyArmySupplyOutcome(campaign, army, {
+        inSupply: record.inSupply, cost: record.cost, fraction: record.fraction,
+        dehydrated: record.dehydrated, payGold: record.payGold, ord: record.ord
+      });
+    }
+  } else if(record.kind === 'pillage-complete'){
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
+    const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);
+    if(!army || !dom) return;
+    if(typeof A.applyPillageResults === 'function') A.applyPillageResults(campaign, army, dom, record.results, record.morale);
+    army.pillage = null;
+  }
+}
+
 // Register the Journeys consumer in the §14 shape (Calendar §10.2 slot 30 — travel).
 // registerDayConsumer + the day-tick orchestrator ship from acks-engine.js (loaded first),
 // so ACKS.registerDayConsumer is available here. pauseTriggers wire the auto-pause-* rules.
@@ -5261,6 +6247,26 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     order: 84,
     pauseTriggers: [],
     commit: commitMonsterBandRecord
+  });
+  // Phase 3 Military W2 — the Vagaries of Incursion (slot 86): the daily domain-
+  // encounter probability + materialization (JJ pp.100–106), behind the
+  // vagaries-of-incursion rule. Runs AFTER monster-bands so a physical border
+  // crossing (the E6 occurrence) suppresses the day's roll — never double-roll.
+  ACKS.registerDayConsumer('incursions', {
+    handler: proposeIncursionDay,
+    order: 86,
+    pauseTriggers: ['encounter'],
+    commit: commitIncursionRecord
+  });
+  // Phase 3 Military W4 + W5 — the campaign cycle (slot 88, RR p.447): initiative +
+  // reconnaissance, army contacts → battles, invasions → the immediate morale roll,
+  // the weekly supply check (W5, step 4), occupation flips, pillage progress. Runs
+  // LAST so the day's marches (slot 30, via the ctx._armyDay stash) are on the table.
+  ACKS.registerDayConsumer('military', {
+    handler: proposeMilitaryDay,
+    order: 88,
+    pauseTriggers: ['encounter', 'supplies-low'],
+    commit: commitMilitaryRecord
   });
 }
 

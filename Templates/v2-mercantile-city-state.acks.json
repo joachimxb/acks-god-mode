@@ -234,7 +234,26 @@
             "count": 120,
             "monthlyWage": 12,
             "brPerSoldier": 0.067,
-            "stationedAtHexId": "hex-cyfaraun-city"
+            "stationedAtHexId": "hex-cyfaraun-city",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-cyfaraun"
+            }
           },
           {
             "schemaVersion": 2,
@@ -244,7 +263,26 @@
             "count": 60,
             "monthlyWage": 9,
             "brPerSoldier": 0.063,
-            "stationedAtHexId": "hex-cyfaraun-city"
+            "stationedAtHexId": "hex-cyfaraun-city",
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-cyfaraun"
+            }
           },
           {
             "schemaVersion": 2,
@@ -254,7 +292,26 @@
             "count": 18,
             "monthlyWage": 60,
             "brPerSoldier": 0.333,
-            "stationedAtHexId": null
+            "stationedAtHexId": null,
+            "race": "man",
+            "loadout": null,
+            "veteran": false,
+            "elite": false,
+            "casualties": 0,
+            "source": "mercenary",
+            "scale": "company",
+            "trainingState": null,
+            "lieutenantCharacterId": null,
+            "loyalty": 0,
+            "moraleAdjustment": 0,
+            "calamities": [],
+            "supplyState": "supplied",
+            "history": [],
+            "notes": "",
+            "stationedAt": {
+              "kind": "domain-garrison",
+              "id": "dom-cyfaraun"
+            }
           }
         ],
         "totalMonthlyCost": 3060,
@@ -575,5 +632,96 @@
       ]
     }
   ],
-  "lairs": []
+  "lairs": [],
+  "units": [
+    {
+      "schemaVersion": 2,
+      "id": "gar-cyfaraun-watch",
+      "displayName": "City Watch",
+      "unitTypeKey": "heavy-infantry",
+      "count": 120,
+      "monthlyWage": 12,
+      "brPerSoldier": 0.067,
+      "stationedAtHexId": "hex-cyfaraun-city",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-cyfaraun"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-cyfaraun-bows",
+      "displayName": "Bowmen",
+      "unitTypeKey": "bowmen",
+      "count": 60,
+      "monthlyWage": 9,
+      "brPerSoldier": 0.063,
+      "stationedAtHexId": "hex-cyfaraun-city",
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-cyfaraun"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "id": "gar-cyfaraun-cavalry",
+      "displayName": "Heavy Cavalry",
+      "unitTypeKey": "heavy-cavalry",
+      "count": 18,
+      "monthlyWage": 60,
+      "brPerSoldier": 0.333,
+      "stationedAtHexId": null,
+      "race": "man",
+      "loadout": null,
+      "veteran": false,
+      "elite": false,
+      "casualties": 0,
+      "source": "mercenary",
+      "scale": "company",
+      "trainingState": null,
+      "lieutenantCharacterId": null,
+      "loyalty": 0,
+      "moraleAdjustment": 0,
+      "calamities": [],
+      "supplyState": "supplied",
+      "history": [],
+      "notes": "",
+      "stationedAt": {
+        "kind": "domain-garrison",
+        "id": "dom-cyfaraun"
+      }
+    }
+  ],
+  "armies": [],
+  "battles": []
 }
