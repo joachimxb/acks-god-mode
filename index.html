@@ -9290,6 +9290,166 @@ document.addEventListener('alpine:init', () => {
 
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — per-agent NEW top-level HTML (views / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
 <!-- ── agent-1 (Religion R1): your new ⛪ Religion top-level view block goes below ── -->
+<!-- ═══════════ VIEW: RELIGION (R1 — divine power, RR pp.421–425) ═══════════ -->
+<div x-show="currentCampaign && currentView === 'religion'" class="p-4 space-y-4" x-cloak>
+
+  <!-- Intro -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg">⛪ Religion &amp; Divine Power</h3>
+    <p class="text-sm opacity-70 mt-1">A divine caster gathers the faithful, accrues <em>divine power</em> (a gp-equivalent resource that fades one month after it's received — RR p.422), and spends it to bless his realm or returns it to his god for experience. Congregations generate power each monthly turn (Advance Month); a ruler/chaplain who leads his subjects in worship draws power scaled by domain morale. Core RAW — no house rule gates it.</p>
+  </div>
+
+  <!-- Deities -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🛐 Deities <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionDeities().length"></span></h3>
+    </div>
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm">
+      <label class="flex flex-col">Name<input type="text" x-model="religionDeityForm.name" placeholder="the Lawgiver" class="w-48"></label>
+      <label class="flex flex-col">Alignment
+        <select x-model="religionDeityForm.alignment" class="w-32"><option>Lawful</option><option>Neutral</option><option>Chaotic</option></select>
+      </label>
+      <button @click="religionAddDeity()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold" :disabled="!religionDeityForm.name.trim()">+ New deity</button>
+    </div>
+    <template x-if="religionDeities().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No deities yet. Add one above (or via 🔍 Inspector ▸ Create ▸ Deity). Deities are system-agnostic — author your own pantheon.</p>
+    </template>
+    <template x-if="religionDeities().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Name</th><th>Alignment</th><th>Portfolio</th><th>Blood sacrifice</th><th>Status</th></tr></thead>
+        <tbody>
+          <template x-for="dei in religionDeities()" :key="dei.id">
+            <tr>
+              <td class="font-semibold" x-text="dei.name || '(unnamed)'"></td>
+              <td x-text="dei.alignment"></td>
+              <td x-text="dei.portfolio || '—'"></td>
+              <td x-text="dei.acceptsBloodSacrifice"></td>
+              <td x-text="dei.status"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+  <!-- Congregations -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">⛪ Congregations <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionCongregations().length"></span></h3>
+    </div>
+    <!-- Found-congregation form -->
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
+      <label class="flex flex-col">Name<input type="text" x-model="religionCongForm.name" placeholder="the Faithful of the Dawn" class="w-52"></label>
+      <label class="flex flex-col">Deity
+        <select x-model="religionCongForm.deityId" class="w-40">
+          <option value="">— pick —</option>
+          <template x-for="dei in religionDeities()" :key="dei.id"><option :value="dei.id" x-text="dei.name || dei.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">High priest
+        <select x-model="religionCongForm.highPriestCharacterId" class="w-44">
+          <option value="">— pick —</option>
+          <template x-for="ch in (currentCampaign.characters||[])" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Domain worship (ruler/chaplain)
+        <select x-model="religionCongForm.domainWorshipDomainId" class="w-44">
+          <option value="">— none —</option>
+          <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Personal congregants<input type="number" min="0" x-model.number="religionCongForm.personalCongregants" class="w-28"></label>
+      <button @click="religionFoundCongregation()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold" :disabled="!religionCongForm.highPriestCharacterId">+ Found congregation</button>
+    </div>
+    <template x-if="religionCongregations().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No congregations yet. A divine caster founds one above — its faithful generate divine power for him each monthly turn.</p>
+    </template>
+    <template x-if="religionCongregations().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Deity</th><th>High priest</th><th class="text-right">Personal</th><th>Domain worship</th>
+          <th class="text-right">Weekly DP</th><th class="text-right">Monthly DP</th><th>Tended</th><th>Status</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="cong in religionCongregations()" :key="cong.id">
+            <tr>
+              <td class="font-semibold" x-text="cong.name || '(unnamed)'"></td>
+              <td x-text="religionDeityName(cong.deityId)"></td>
+              <td x-text="religionCharName(cong.highPriestCharacterId)"></td>
+              <td class="text-right" x-text="(cong.personalCongregants||0).toLocaleString()"></td>
+              <td x-text="cong.domainWorshipDomainId ? religionDomainName(cong.domainWorshipDomainId) : '—'"></td>
+              <td class="text-right font-mono" x-text="religionWeeklyDP(cong).toLocaleString()+' gp'"></td>
+              <td class="text-right font-mono" x-text="religionMonthlyDP(cong).toLocaleString()+' gp'"></td>
+              <td><button @click="religionToggleMaintain(cong.id)" class="text-sm underline" x-text="religionAutoMaintain(cong) ? '✓ tended' : '⚠ neglected'" :title="religionAutoMaintain(cong) ? 'Tended each week as a matter of course — full accrual. Click to mark neglected.' : 'Untended — accrues nothing and declines each monthly turn. Click to mark tended.'"></button></td>
+              <td x-text="cong.status"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-2 italic">Weekly DP = 10gp per 50 personal congregants (full rate) + (families ÷ 10) × the morale rate for domain worship (RR p.421). Monthly DP accrues to the high priest on Advance Month.</p>
+  </div>
+
+  <!-- Divine power ledgers -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">📿 Divine power <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionDivineCasterRows().length + ' caster(s)'"></span></h3>
+    </div>
+    <template x-if="religionDivineCasterRows().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No divine casters yet. A character of a divine class (Crusader, Bladedancer, Craftpriest, Priestess, Shaman, Witch…) or any high priest above appears here with their divine-power ledger.</p>
+    </template>
+    <div class="space-y-3">
+      <template x-for="row in religionDivineCasterRows()" :key="row.ch.id">
+        <div class="border border-ink/40 rounded p-3">
+          <div class="flex flex-wrap justify-between items-baseline gap-2">
+            <div>
+              <span class="font-semibold" x-text="row.ch.name || row.ch.id"></span>
+              <span class="text-sm opacity-70" x-show="row.deity" x-text="' · worships ' + (row.deity ? row.deity.name : '')"></span>
+              <span class="text-sm opacity-70" x-show="row.favor" x-text="' · ' + (row.favor ? row.favor.standing : '')"></span>
+            </div>
+            <div class="font-mono font-bold" x-text="'Available: ' + row.available.toLocaleString() + ' gp DP'"></div>
+          </div>
+          <!-- ledger entries -->
+          <template x-if="row.entries.length > 0">
+            <table class="bookkeeping text-xs w-full mt-2">
+              <thead><tr><th class="text-right">Amount</th><th>Source</th><th class="text-right">Accrued (turn)</th><th class="text-right">Fades (turn)</th></tr></thead>
+              <tbody>
+                <template x-for="(e,i) in row.entries" :key="i">
+                  <tr><td class="text-right font-mono" x-text="(e.amountGp||0).toLocaleString()"></td><td x-text="e.source||'—'"></td><td class="text-right" x-text="e.accruedAtTurn"></td><td class="text-right" x-text="(e.expiresAtTurn != null ? e.expiresAtTurn : (e.accruedAtTurn+1))"></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+          <template x-if="row.entries.length === 0">
+            <p class="text-xs italic opacity-60 mt-1">No live divine power — accrues on Advance Month from a tended congregation, or grant some below.</p>
+          </template>
+          <!-- actions -->
+          <div class="flex flex-wrap items-end gap-3 mt-2 text-sm">
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Grant (GM) gp<input type="number" min="0" x-model.number="religionGrantGp[row.ch.id]" class="w-24"></label>
+              <button @click="religionGrantDP(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Add divine power directly (GM grant)">Grant</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Consecrate fields
+                <select x-model="religionConsecrateDomain[row.ch.id]" class="w-36">
+                  <option value="">— domain —</option>
+                  <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
+                </select>
+              </label>
+              <button @click="religionConsecrate(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionConsecrateDomain[row.ch.id]" title="Spend 2gp DP per family + a magic-research throw → +1 Land Value (pending the R3 economy read)">Consecrate</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Pray &amp; sacrifice gp<input type="number" min="0" x-model.number="religionPrayGp[row.ch.id]" class="w-24"></label>
+              <button @click="religionPray(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Return divine power to the deity → campaign XP above your monthly threshold, settled on Advance Month">Pray</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <p class="text-sm opacity-60 mt-3 italic">Divine power is spent on consecration or returned for XP. It cannot be hoarded — each accrual fades one month after it's received (RR p.422). Pray-and-sacrifice grants campaign XP for the month's returned power above your XP threshold, settled at Advance Month.</p>
+  </div>
+</div>
+<!-- ═══════════ end VIEW: RELIGION ═══════════ -->
 <!-- ── agent-2 (DC-2): extends the existing Domain-Advancement panel in place — usually nothing here ── -->
 <!-- ── agent-3 (Terrain T3): extends the map render + hex card in place — usually nothing here ── -->
 <!-- ── agent-4 (Proficiency PT-1): your throw-result modal goes below ── -->
@@ -9925,6 +10085,8 @@ return {
       { id:'characters',   label:'👥 Characters',      count: aliveChars || null },
       { id:'activities',   label:'🎭 Activities',      count: (this.currentCampaign?.ventures||[]).length },
       { id:'events',       label:'📜 Events',      count: (pendingEv + loggedEv) || null },
+      // Religion R1 (team 2026-06-13) — the ⛪ Religion top-level tab (sole tab-adder this burst).
+      { id:'religion',     label:'⛪ Religion',       count: (this.currentCampaign?.congregations||[]).length || null },
       { id:'inspector',    label:'🔍 Inspector' },  // #555 Wave Inspector-B (2026-05-31)
       { id:'house-rules',  label:'⚙ House Rules',     count: enabledRules || null }
       // Future: { id:'syndicates', label:'🗡 Syndicates' },  (Phase 2.7)
@@ -19213,6 +19375,89 @@ return {
   },
   // ════ TEAM SESSION (world-front 2026-06-13) — per-agent Alpine state props + methods; add yours after YOUR marker (additive, never reorder); Lead removes this block at integration ════
   // ── agent-1 (Religion R1) state + methods ──
+  // Religion R1 (team 2026-06-13) — the ⛪ Religion view. Thin Alpine layer over the
+  // acks-engine-religion.js verbs; every action mutates currentCampaign through the engine
+  // (which emits the typed events) then markDirty + schedulePersist + a toast.
+  religionDeityForm: { name: '', alignment: 'Lawful' },
+  religionCongForm: { name: '', deityId: '', highPriestCharacterId: '', domainWorshipDomainId: '', personalCongregants: 0 },
+  religionGrantGp: {},          // per-caster grant input (keyed by charId)
+  religionPrayGp: {},           // per-caster pray-and-sacrifice input (keyed by charId)
+  religionConsecrateDomain: {}, // per-caster consecrate-fields target domain (keyed by charId)
+  // — reads —
+  religionDeities(){ return (this.currentCampaign && this.currentCampaign.deities) || []; },
+  religionCongregations(){ return (this.currentCampaign && this.currentCampaign.congregations) || []; },
+  religionDeityName(id){ const d = this.religionDeities().find(x => x.id === id); return d ? (d.name || d.id) : '—'; },
+  religionCharName(id){ const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x.id === id); return c ? (c.name || c.id) : '—'; },
+  religionDomainName(id){ const d = (this.domains || []).find(x => x.id === id); return d ? (d.name || d.id) : id; },
+  religionWeeklyDP(cong){ try { return window.ACKS.congregationWeeklyDivinePowerGp(this.currentCampaign, cong) || 0; } catch(e){ return 0; } },
+  religionMonthlyDP(cong){ try { return window.ACKS.congregationMonthlyDivinePowerGp(this.currentCampaign, cong) || 0; } catch(e){ return 0; } },
+  religionAutoMaintain(cong){ return !!(cong && cong.autoMaintain !== false); },
+  religionAvailable(id){ try { return window.ACKS.divinePowerAvailable(this.currentCampaign, id) || 0; } catch(e){ return 0; } },
+  religionDivineCasterRows(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const A = window.ACKS; const chars = camp.characters || [];
+    const priestIds = new Set((camp.congregations || []).map(c => c.highPriestCharacterId).filter(Boolean));
+    const ct = camp.currentTurn || 1;
+    const liveEntries = ch => (ch.divinePower && Array.isArray(ch.divinePower.entries) ? ch.divinePower.entries : [])
+      .filter(e => { if(!e) return false; const exp = (e.expiresAtTurn != null) ? e.expiresAtTurn : (e.accruedAtTurn != null ? e.accruedAtTurn + 1 : null); return exp == null || exp > ct; });
+    return chars.filter(ch => ch && (A.isDivineCaster(ch) || priestIds.has(ch.id) ||
+        (ch.divinePower && (((ch.divinePower.entries || []).length > 0) || (ch.divinePower.reliquaryStoreGp > 0) || (ch.divinePower.prayedThisTurnGp > 0)))))
+      .map(ch => {
+        const fav = A.divineFavorOf(camp, ch.id);
+        const deity = fav ? A.findDeity(camp, fav.deityId) : null;
+        return { ch, available: this.religionAvailable(ch.id), favor: fav, deity, entries: liveEntries(ch) };
+      });
+  },
+  // — actions —
+  religionAddDeity(){
+    const f = this.religionDeityForm; if(!f.name.trim()) return;
+    const dei = window.ACKS.blankDeity({ name: f.name.trim(), alignment: f.alignment,
+      acceptsBloodSacrifice: f.alignment === 'Chaotic' ? 'sapient' : 'none' });
+    if(!Array.isArray(this.currentCampaign.deities)) this.currentCampaign.deities = [];
+    this.currentCampaign.deities.push(dei);
+    this.religionDeityForm = { name: '', alignment: 'Lawful' };
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Deity added: ' + dei.name);
+  },
+  religionFoundCongregation(){
+    const f = this.religionCongForm; if(!f.highPriestCharacterId) return;
+    const cong = window.ACKS.foundCongregation(this.currentCampaign, {
+      name: f.name.trim() || ('Congregation of ' + this.religionCharName(f.highPriestCharacterId)),
+      deityId: f.deityId || null, highPriestCharacterId: f.highPriestCharacterId,
+      domainWorshipDomainId: f.domainWorshipDomainId || null,
+      personalCongregants: Number(f.personalCongregants) || 0
+    });
+    this.religionCongForm = { name: '', deityId: f.deityId, highPriestCharacterId: '', domainWorshipDomainId: '', personalCongregants: 0 };
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Congregation founded' + (cong ? ': ' + (cong.name || '') : ''));
+  },
+  religionToggleMaintain(congId){
+    const cong = this.religionCongregations().find(c => c.id === congId); if(!cong) return;
+    window.ACKS.setCongregationMaintenance(this.currentCampaign, congId, !(cong.autoMaintain !== false), 0);
+    this.markDirty(); this.schedulePersist();
+  },
+  religionGrantDP(charId){
+    const gp = Number(this.religionGrantGp[charId]) || 0; if(gp <= 0) return;
+    window.ACKS.grantDivinePower(this.currentCampaign, charId, gp);
+    this.religionGrantGp[charId] = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Granted ' + gp.toLocaleString() + ' gp divine power');
+  },
+  religionConsecrate(charId){
+    const domId = this.religionConsecrateDomain[charId]; if(!domId) return;
+    const r = window.ACKS.consecrateFields(this.currentCampaign, { casterId: charId, domainId: domId });
+    if(!r || !r.ok){ this.showToast('Cannot consecrate: ' + (r && r.reason === 'insufficient-divine-power' ? ('needs ' + (r.cost || 0).toLocaleString() + ' gp DP') : (r && r.reason) || 'failed')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Consecrated fields — ' + (r.cost || 0).toLocaleString() + ' gp DP, Land Value ' + (r.landValueDelta > 0 ? '+1' : (r.landValueDelta < 0 ? '−1' : 'no change')));
+  },
+  religionPray(charId){
+    const gp = Number(this.religionPrayGp[charId]) || 0; if(gp <= 0) return;
+    const r = window.ACKS.prayAndSacrifice(this.currentCampaign, charId, gp);
+    if(!r || !r.ok){ this.showToast('Cannot pray: ' + (r && r.reason === 'insufficient-divine-power' ? 'not enough divine power' : (r && r.reason) || 'failed')); return; }
+    this.religionPrayGp[charId] = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Returned ' + gp.toLocaleString() + ' gp DP — XP settles on Advance Month');
+  },
   // ── agent-2 (DC-2) state + methods ──
   // ── agent-3 (Terrain T3) state + methods ──
   // ── agent-4 (Proficiency PT-1) state + methods ──
