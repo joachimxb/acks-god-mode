@@ -142,7 +142,10 @@ const ID_PREFIXES = Object.freeze({
   army:                 'army',
   // Phase 3 Military W3 (2026-06-12) — Battle (the RR pp.461–472 engagement record:
   // sides + zones + the turn log + aftermath; resolved by acks-engine-battles.js).
-  battle:               'btl'
+  battle:               'btl',
+  // Phase 3 Military W6 (2026-06-13, burst3 team session) — Siege (the RR pp.473–485
+  // stronghold-investment record; resolved by acks-engine-sieges.js).
+  siege:                'sie'
 });
 
 function newId(prefix){

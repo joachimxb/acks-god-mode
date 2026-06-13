@@ -266,6 +266,15 @@
       find: (c, id) => ((c && c.battles) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
 
+    // Phase 3 Military W6 (2026-06-13, burst3) — Siege (the RR pp.473–485 stronghold investment).
+    // campaign.sieges[] (read defensively — no migrateCampaign injector). displayName reads only
+    // blankSiege-emitted keys (name/id) per the registry⊆factory invariant.
+    { kind: 'siege', label: 'Siege', pluralLabel: 'Sieges', icon: '🏯',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.sieges) || [],
+      find: (c, id) => ((c && c.sieges) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
+
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',
       addressable: true, chronicleable: true,

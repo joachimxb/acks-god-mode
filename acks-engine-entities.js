@@ -638,6 +638,57 @@ function blankBattle(opts={}){
   };
 }
 
+// Phase 3 Military W6 (2026-06-13, burst3 team session) — the Siege entity (RR pp.473–485):
+// an investment of a garrisoned stronghold / urban settlement by a besieging army. The
+// default resolution is Sieges Simplified (the Duration-of-Siege table, days-to-capture); the
+// detailed blockade / reduction / assault state is the per-instance opt-up. daysElapsed is
+// DERIVED (worldOrd − startedOrd) — not stored. campaign.sieges[] is read defensively (no
+// migrateCampaign injector, so the 6 templates + demo stay migrate-no-ops). Setters + the
+// slot-90 day-tick consumer + the simplified resolver live in acks-engine-sieges.js.
+function blankSiege(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.siege),
+    name: opts.name || '',
+    status: opts.status || 'investing',          // investing | resolved
+    resolutionMode: opts.resolutionMode || 'simplified',  // simplified (default) | detailed
+    besiegerArmyId: opts.besiegerArmyId || null,
+    defenderDomainId: opts.defenderDomainId || null,      // the besieged domain (garrison + stronghold value)
+    defenderArmyId: opts.defenderArmyId || null,          // a defending army holed up inside (optional)
+    hexId: opts.hexId || null,                            // where the stronghold stands
+    // Stronghold profile — authored, or estimated from strongholdValue at startSiege (RR p.474).
+    stronghold: Object.assign({
+      material: 'stone',                                  // stone | wood (wood = ⅒ the shp)
+      strongholdShp: 0,                                   // total structural hit points
+      shpDamage: 0,                                       // damage dealt so far — breaches = ⌊shpDamage / 1000⌋
+      unitCapacity: 0,                                    // units it can defend (RR p.473)
+      siteType: 'normal'                                  // normal | riverbank(×2) | peninsula(×3) | island(×4) | mountain(×5)
+    }, opts.stronghold || {}),
+    // Blockade state (RR pp.474–475) — the detailed opt-up.
+    blockade: Object.assign({
+      inPlace: false,
+      circumvallationFeet: 0,                             // each 250' replaces 2 blockading units; full ring → −4 smuggling
+      weeksPrep: 0,                                       // weeks of warning before encirclement (more stored supplies)
+      storedSuppliesGp: 0,                                // current value of stored supplies (depletes as the garrison eats)
+      suppliesExhausted: false
+    }, opts.blockade || {}),
+    // Besieger / defender war machines (the Sieges-Simplified bonus-unit table, RR p.485) —
+    // {typeKey: count}. Bonus units widen the unit advantage; detailed bombardment reads them too.
+    besiegerArtillery: opts.besiegerArtillery || {},
+    defenderArtillery: opts.defenderArtillery || {},
+    // Simplified clock (RR pp.484–485).
+    daysRequired: opts.daysRequired != null ? opts.daysRequired : null,   // null = '−' (besieger too weak; blockade only)
+    unitAdvantageAtStart: opts.unitAdvantageAtStart != null ? opts.unitAdvantageAtStart : null,
+    startedOrd: opts.startedOrd != null ? opts.startedOrd : null,         // worldOrd when investing began
+    captureReady: opts.captureReady || false,            // the simplified clock has run out — the GM resolves
+    lastTickOrd: opts.lastTickOrd != null ? opts.lastTickOrd : null,      // last slot-90 advance
+    assaultBattleId: opts.assaultBattleId || null,       // the W3 Battle an assault handed off to
+    resolution: opts.resolution || null,                 // {outcome: captured|lifted|surrendered|destroyed, endedAtTurn, battleId?}
+    history: opts.history || [],
+    notes: opts.notes || ''
+  };
+}
+
 function blankSpecialist(opts={}){
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -1875,6 +1926,8 @@ Object.assign(ACKS, {
   blankUnit, blankArmy,
   // Phase 3 Military W3 (2026-06-12) — Battle entity + side factories (RR pp.461–472)
   blankBattle, blankBattleSide,
+  // Phase 3 Military W6 (2026-06-13, burst3) — Siege entity factory (RR pp.473–485)
+  blankSiege,
   // Phase 2.5 Journeys (#475) — Journey entity factory (J1)
   blankJourney,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
