@@ -145,7 +145,13 @@ const EVENT_KINDS = Object.freeze([
   // (a priced buy/sell at a market). The primitives carry typed source/destination handles.
   'wealth-transfer',
   'item-transfer',
-  'market-transaction'
+  'market-transaction',
+  // === Hijinks HJ-1 (team) ===
+  // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
+  // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
+  // Wizard opt-out below. Carry the Event.context envelope (perpetrator + hex + settlement).
+  'hijink-attempted',
+  'hijink-resolved'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -503,6 +509,15 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { direction: 'string', actorCharacterId: 'string', lines: 'array' },
     O: { settlementId: 'string', marketClass: 'string', totalGp: 'number', currency: 'string',
          notable: 'boolean', activityCost: 'object', payFrom: 'string', itemTo: 'string', itemFrom: 'string' }
+  },
+  // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
+  'hijink-attempted': {
+    R: { hijinkId: 'string', type: 'string', perpetratorCharacterId: 'string' },
+    O: { bossCharacterId: 'string', settlementId: 'string', hexId: 'string', narrative: 'string' }
+  },
+  'hijink-resolved': {
+    R: { hijinkId: 'string', outcome: 'string' },
+    O: { type: 'string', rewardGp: 'number', charge: 'string', narrative: 'string' }
   }
 });
 
@@ -1940,6 +1955,15 @@ function applyEvent_favorDutyAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'favor/duty edict' } };
 }
 registerEventHandler('favor-duty', applyEvent_favorDutyAudit);
+// === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
+// startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
+// handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
+function applyEvent_hijinkAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'hijink' } };
+}
+registerEventHandler('hijink-attempted', applyEvent_hijinkAudit);
+registerEventHandler('hijink-resolved', applyEvent_hijinkAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -4860,7 +4884,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'favor-duty',
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
-  'domain-banditry'
+  'domain-banditry',
+  // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
+  // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
+  'hijink-attempted', 'hijink-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
