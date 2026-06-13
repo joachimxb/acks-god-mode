@@ -145,7 +145,12 @@ const EVENT_KINDS = Object.freeze([
   // (a priced buy/sell at a market). The primitives carry typed source/destination handles.
   'wealth-transfer',
   'item-transfer',
-  'market-transaction'
+  'market-transaction',
+  // === Religion R1 (team 2026-06-13) — divine-power accrual + consumers (RR pp.421–425, #146) ===
+  // Engine-emitted record-only events (the verbs in acks-engine-religion.js already applied state).
+  'divine-power-accrued',   // a divine caster's expiring ledger gains DP (congregation / domain-worship / gm-grant)
+  'consecration',           // DP spent on a consecration act (consecrate-fields / a generic divine spend)
+  'divine-favor-changed'    // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -503,6 +508,19 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { direction: 'string', actorCharacterId: 'string', lines: 'array' },
     O: { settlementId: 'string', marketClass: 'string', totalGp: 'number', currency: 'string',
          notable: 'boolean', activityCost: 'object', payFrom: 'string', itemTo: 'string', itemFrom: 'string' }
+  },
+  // === Religion R1 (team 2026-06-13) — divine-power accrual + consumers (RR pp.421–425) ===
+  'divine-power-accrued': {
+    R: { characterId: 'string', amountGp: 'number', source: 'string' },
+    O: { deityId: 'string' }
+  },
+  'consecration': {
+    R: { casterCharacterId: 'string', kind: 'string', divinePowerSpentGp: 'number' },
+    O: { domainId: 'string', familiesConsecrated: 'number', throwResult: 'object', landValueDelta: 'number', purpose: 'string' }
+  },
+  'divine-favor-changed': {
+    R: { characterId: 'string', action: 'string' },
+    O: { deityId: 'string', standing: 'string', previousStanding: 'string', reason: 'string', divinePowerReturnedGp: 'number' }
   }
 });
 
@@ -1940,6 +1958,17 @@ function applyEvent_favorDutyAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'favor/duty edict' } };
 }
 registerEventHandler('favor-duty', applyEvent_favorDutyAudit);
+// === Religion R1 (team 2026-06-13) — record-only audit posture. The religion verbs in
+// acks-engine-religion.js (accrueDivinePower / consecrateFields / prayAndSacrifice / …) already
+// applied the ledger + domain state; these handlers exist only so the events are well-formed if
+// ever replayed (a no-op beyond the recorded narrative). Mirrors favor-duty / banditry / survival.
+function applyEvent_religionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'religion event' } };
+}
+registerEventHandler('divine-power-accrued', applyEvent_religionAudit);
+registerEventHandler('consecration', applyEvent_religionAudit);
+registerEventHandler('divine-favor-changed', applyEvent_religionAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -4860,7 +4889,12 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'favor-duty',
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
-  'domain-banditry'
+  'domain-banditry',
+  // === Religion R1 (team 2026-06-13) — owned by the religion verbs + the monthly consumer
+  // (processReligionForTurn). Raw emit would narrate a divine-power/consecration change the ledger
+  // + domain state don't show; the GM authors deities/congregations via Inspector Create + the
+  // ⛪ Religion view's actions, not these raw events.
+  'divine-power-accrued', 'consecration', 'divine-favor-changed'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

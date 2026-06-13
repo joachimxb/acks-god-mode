@@ -7186,6 +7186,23 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let banditry fail the monthly commit */ }
   }
 
+  // === Religion R1 (team 2026-06-13) — divine-power accrual + consumers (RR pp.421–425, #146) ===
+  // Per monthly commit: congregations generate divine power for their high priest, proselytizing
+  // grows their faithful, untended congregations decline, faded power expires, and pray-and-sacrifice
+  // returns power for campaign XP. No house rule gates it (D2 — divine power is core RAW for divine
+  // classes). Runs AFTER the per-domain morale + family resolution above (domain-worship reads the
+  // live morale). The consumer lives in acks-engine-religion.js (loads last) — late-bound via
+  // global.ACKS; wrapped so a Religion error never breaks the core monthly commit.
+  let religionResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processReligionForTurn === 'function'){
+        religionResult = global.ACKS.processReligionForTurn(campaign, { rng }) || religionResult;
+        (religionResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let Religion fail the monthly commit */ }
+  }
+
   // === RUMOR AUTO-EMIT ===
   if(isHouseRuleEnabled(campaign, 'rumors-auto-emit')){
     const upcomingTurn = (campaign.currentTurn || 1) + 1;
