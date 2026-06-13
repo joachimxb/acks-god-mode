@@ -19,6 +19,7 @@
 <script src="acks-engine-subsystems.js?v=2026-05-28-g"></script>
 <!-- team-markers (world-layer burst): each Builder adds its engine-module script tag at ITS OWN line below; the Lead removes consumed markers at integration -->
 <!-- team:agent-1-religion (script) -->
+<script src="acks-engine-religion.js?v=2026-06-13-a"></script>
 <!-- team:agent-2-weather (script) -->
 <!-- team:agent-3-domain-completion (script) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -17748,7 +17749,8 @@ return {
       'notableItems', 'itemCustody', 'groups',
       // 2026-05-30 reservations (empty in v0.9 saves; cheap to include defensively)
       'journeys', 'outposts', 'dungeons',
-      'congregations', 'divineFavors', 'attunements',
+      // Religion R0 (team 2026-06-13) — 'deities' added (congregations/divineFavors were reserved)
+      'deities', 'congregations', 'divineFavors', 'attunements',
       'settlementVisits', 'oaths', 'vagaryOfIncursionEvents',
       // Phase 4 Construction Wave A (2026-05-30) — Project + Constructible collections
       'projects', 'constructibles',
@@ -17843,7 +17845,7 @@ return {
       vassalages:'vassalage', tributaryAgreements:'tributary agreement',
       notableItems:'notable item', itemCustody:'custody record', groups:'group',
       journeys:'journey', outposts:'outpost', dungeons:'dungeon',
-      congregations:'congregation', divineFavors:'divine favor',
+      deities:'deity', congregations:'congregation', divineFavors:'divine favor',
       attunements:'attunement', settlementVisits:'settlement visit',
       oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry'
     };

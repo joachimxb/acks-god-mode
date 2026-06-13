@@ -921,6 +921,20 @@ function blankCharacter(opts={}){
     // Effective loyalty = clamp(loyalty + permanentWoundPenalty + mortalityPenalty, -4, +4).
     permanentWoundPenalty: opts.permanentWoundPenalty || 0,
     mortalityPenalty:      opts.mortalityPenalty      || 0,
+    // === Religion R0 (team 2026-06-13 — Phase_4_Religion_Plan.md §4.4) ===
+    // Divine power: a per-character spendable resource (gp-equivalent) a divine caster
+    // accrues from worship/sacrifice. It CANNOT be stored — each accrual fades one month
+    // after it is received (RR p.422), so it's an expiring ledger of {accruedAtTurn, amountGp,
+    // source, deityId, expiresAtTurn} entries; reliquaryStoreGp is the craftpriest reliquary's
+    // ONE non-expiring exception (0 for everyone else). Spendable now = Σ unexpired entries +
+    // reliquaryStoreGp (ACKS.divinePowerAvailable). Additive + read DEFENSIVELY everywhere
+    // (char.divinePower?.entries || []); deliberately NOT lazy-injected into migrateCampaign, so
+    // legacy saves + the 6 templates stay migrate-no-ops (R0). Accrual/expiry land in R1.
+    divinePower: (opts.divinePower && typeof opts.divinePower === 'object')
+      ? { entries: Array.isArray(opts.divinePower.entries) ? opts.divinePower.entries : [],
+          reliquaryStoreGp: Number(opts.divinePower.reliquaryStoreGp) || 0 }
+      : { entries: [], reliquaryStoreGp: 0 },
+    // === end Religion R0 ===
     // Reserved for Phase 2.8 Rumors — Status tracking
     upkeepMonthly: opts.upkeepMonthly || 0,
     honor: opts.honor || [],
@@ -1592,6 +1606,79 @@ function blankConstructible(opts={}){
   };
 }
 
+// =============================================================================
+// === Religion R0 (team 2026-06-13 — Phase_4_Religion_Plan.md §4.1–§4.3) ===
+// Wave E (Architecture.md §3.5). Catalog-free RAW core: the Deity reference entity +
+// the Congregation + the DivineFavor relation. RAW-faithful per the D1 ruling — DivineFavor
+// tracks `standing` + a transgression log, NOT a numeric `favorLevel`; divine *power* (the
+// expiring ledger on the character, §4.4) is the only numeric resource. No `kind` field is
+// stored (the Entity Registry + collection membership carry the kind — the blankLair precedent).
+// =============================================================================
+
+// §4.1 — Deity. A first-class, system-agnostic reference entity (CORR-3). Ships generic;
+// the Auran pantheon is an optional content pack (§11.4), never baked in (principle #4).
+function blankDeity(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.deity),
+    name: opts.name || '',
+    alignment: opts.alignment || 'Neutral',          // Lawful | Neutral | Chaotic
+    portfolio: opts.portfolio || '',                  // free text — "war, the dawn, justice"
+    codeOfBehavior: opts.codeOfBehavior || '',        // free text (or a Phase 6 code ref) — what adherents uphold
+    // Blood-sacrifice posture (RR p.422). Lawful/Neutral → none|animals-only; Chaotic → sapient.
+    acceptsBloodSacrifice: opts.acceptsBloodSacrifice || 'none', // none | animals-only | sapient
+    // Auran Empyrean rule: animal sacrifice yields the CASTER nothing (pure devotion to the god).
+    sacrificeAsDevotion: opts.sacrificeAsDevotion === true,
+    notes: opts.notes || '',
+    status: opts.status || 'active',                  // active | dormant
+    history: opts.history || []
+  };
+}
+
+// §4.2 — Congregation. A divine caster's body of faithful (personal proselytizing and/or
+// Domain Worship). Generates divine power weekly (the accrual math lands in R1). Domain-worship
+// DP is DERIVED from the domain's live families × morale, never stored. templeRef is the optional
+// {kind,id} site pointer (kept null until placed — Inspector edits it via Raw JSON for now).
+function blankCongregation(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.congregation),
+    name: opts.name || '',
+    deityId: opts.deityId || null,
+    highPriestCharacterId: opts.highPriestCharacterId || null,  // the divine caster who draws the power
+    templeRef: opts.templeRef || null,                          // { kind:'settlement'|'outpost'|'stronghold'|'hex', id } | null
+    personalCongregants: opts.personalCongregants || 0,         // from proselytizing — full 10gp/50/week rate
+    domainWorshipDomainId: opts.domainWorshipDomainId || null,  // ruler/chaplain path; DP from this domain is DERIVED
+    proselytizingValueThisMonthGp: opts.proselytizingValueThisMonthGp || 0, // accumulator → congregant gain at month end
+    maintainedWeeksThisMonth: opts.maintainedWeeksThisMonth || 0,           // 0..4; un-maintained weeks drive decline
+    lastMaintainedAtTurn: (opts.lastMaintainedAtTurn != null ? opts.lastMaintainedAtTurn : null),
+    foundedAtTurn: opts.foundedAtTurn || 1,
+    status: opts.status || 'active',                            // active | declining | abandoned | suppressed
+    history: opts.history || []
+  };
+}
+
+// §4.3 — DivineFavor. The (character ↔ deity) relation (Architecture §3, Wave E). RAW-faithful
+// (D1): `standing` is the categorical relationship state (RAW has NO numeric favor score), with a
+// transgression log. One active favor per (character, deity); a divine caster normally has one patron.
+function blankDivineFavor(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.divineFavor),
+    characterId: opts.characterId || null,
+    deityId: opts.deityId || null,
+    standing: opts.standing || 'good-standing',     // good-standing | lapsed | excommunicate (RAW, not numeric)
+    codeOfBehaviorAck: opts.codeOfBehaviorAck === true,  // does this character uphold the deity's code
+    sinceTurn: opts.sinceTurn || 1,
+    lastSacrificeAtTurn: (opts.lastSacrificeAtTurn != null ? opts.lastSacrificeAtTurn : null),
+    lastWorshipAtTurn: (opts.lastWorshipAtTurn != null ? opts.lastWorshipAtTurn : null), // last pray-and-sacrifice
+    transgressionsLog: opts.transgressionsLog || [], // [{turn, kind, severity, tableRoll, consequence, atonedAtTurn|null}] — R5 owns the table
+    status: opts.status || 'active',
+    history: opts.history || []
+  };
+}
+// === end Religion R0 ===
+
 Object.assign(ACKS, {
   blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
@@ -1606,6 +1693,8 @@ Object.assign(ACKS, {
   blankJourney,
   // Phase 4 Construction Wave A (Architecture.md §10 — 2026-05-30)
   blankProject, blankConstructible,
+  // === Religion R0 (team 2026-06-13) — Wave E: Deity + Congregation + DivineFavor factories ===
+  blankDeity, blankCongregation, blankDivineFavor,
   MAGISTRATE_ROLES, MAGISTRATE_ROLE_KEYS, MAGISTRATE_SALARY_FRACTION, emptyMagistrates, ensureMagistratesShape, isCharacterQualifiedForRole,
   LOYALTY_BANDS, loyaltyBandFor, applyLoyaltyFloors, rollLoyalty
 });
