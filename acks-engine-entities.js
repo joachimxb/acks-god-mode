@@ -548,8 +548,12 @@ function blankArmy(opts={}){
     strategicStance: opts.strategicStance || 'defensive',   // offensive | defensive | evasive (RR p.448)
     journeyId: opts.journeyId || null,                      // armies march as journeys (W4); null = in garrison
     currentHexId: opts.currentHexId || null,
-    supplyBaseIds: opts.supplyBaseIds || [],                // settlements / strongholds / border forts (RR p.450)
+    supplyBaseIds: opts.supplyBaseIds || [],                // friendly domains / strongholds / border forts (RR p.450)
     supplySimplified: opts.supplySimplified != null ? opts.supplySimplified : true,  // RR p.452 default mode
+    // ── W5 supply (RR pp.450–452) — all lazy (older saves read defensively) ──
+    lastSupplyCheckOrd: opts.lastSupplyCheckOrd != null ? opts.lastSupplyCheckOrd : null,  // world ordinal of the last weekly check
+    supplyTerrainTreatment: opts.supplyTerrainTreatment || null,   // GM override: null (auto) | 'elf' | 'dwarf' | 'beastman'
+    requisitioning: opts.requisitioning || null,            // {atOrd, gp} while feeding off the land — −50% march speed (RR p.451)
     lastInitiative: opts.lastInitiative != null ? opts.lastInitiative : null,
     // ── W4 maneuvers (RR pp.447–460) — all lazy (older saves read defensively) ──
     marchedOrds: opts.marchedOrds || [],                    // world ordinals marched (last 14) — the 3-of-7 rest rule (RR p.448)

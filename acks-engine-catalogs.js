@@ -2417,6 +2417,52 @@ const SALT_THE_EARTH = Object.freeze({
   timeMult: 4, goldPerUrban: 75, goldPerPeasant: 20, suppliesPerPeasant: 50, prisonersPerFamily: 1
 });
 
+// ─── Phase 3 Military W5 — supply (RR pp.450–452) ─────────────────────────
+// Length-of-supply terrain weights (RR p.451, "Each Hex of Terrain | Counts as").
+// Keyed on the BASE terrain (the engine normalizes via terrainBase before lookup).
+// A road segment counts ½ and a navigable-waterway segment 0, REGARDLESS of the
+// underlying terrain (the route follows the road/river) — handled as overrides in
+// supplyLineHexWeight, not as terrain keys. Cap: 16 weighted hexes (96 miles).
+const SUPPLY_LINE_WEIGHTS = Object.freeze({
+  barrens: 4, desert: 4,
+  jungle: 2, mountains: 2, swamp: 2,
+  hills: 1.5, forest: 1.5,
+  grassland: 1, scrubland: 1, scrub: 1, plains: 1, steppe: 1, savanna: 1, taiga: 1,
+  water: 0                                   // an open-water hex IS a waterway (×0)
+});
+const SUPPLY_LINE_ROAD_MULT = 0.5;           // RR p.451 — every two road hexes count as one
+const SUPPLY_LINE_WATERWAY_MULT = 0;         // RR p.451 — waterway hexes are not counted
+const SUPPLY_LINE_MAX_WEIGHTED_HEXES = 16;   // RR p.451 — beyond 16 (96 mi) the line is overextended
+// Racial terrain treatments (RR p.451): elves treat forest as grassland; dwarves treat
+// hills & mountains as grassland; beastmen (little need of food, forage rapaciously)
+// treat ALL terrain as grassland. treatment ∈ null | 'elf' | 'dwarf' | 'beastman'.
+function supplyLineHexWeight(terrainKey, opts){
+  const o = opts || {};
+  if(o.waterway) return SUPPLY_LINE_WATERWAY_MULT;
+  if(o.road) return SUPPLY_LINE_ROAD_MULT;
+  let key = String(terrainKey || '').toLowerCase();
+  if(o.treatment === 'beastman') key = 'grassland';
+  else if(o.treatment === 'elf' && key === 'forest') key = 'grassland';
+  else if(o.treatment === 'dwarf' && (key === 'hills' || key === 'mountains')) key = 'grassland';
+  return (SUPPLY_LINE_WEIGHTS[key] != null) ? SUPPLY_LINE_WEIGHTS[key] : 1;
+}
+
+// Equipment Availability on Campaign (RR p.452): an army of 1,200+ troops is its own
+// market (its baggage train of merchants/craftsmen), Class VI up to Class II — wired
+// into the Trade Wizard market-class logic; lost while supply lines are not clear.
+const ARMY_MARKET_CLASS = Object.freeze([
+  Object.freeze({ minTroops: 72000, marketClass: 'II' }),
+  Object.freeze({ minTroops: 36001, marketClass: 'III' }),
+  Object.freeze({ minTroops: 12001, marketClass: 'IV' }),
+  Object.freeze({ minTroops: 3001,  marketClass: 'V' }),
+  Object.freeze({ minTroops: 1200,  marketClass: 'VI' })
+]);
+function armyMarketClassForSize(troops){
+  const n = Math.max(0, Number(troops) || 0);
+  for(const r of ARMY_MARKET_CLASS){ if(n >= r.minTroops) return r.marketClass; }
+  return null;                                // under 1,200 troops — no baggage-train market
+}
+
 // ─── Attach to ACKS namespace ────────────────────────────────────────────
 const ACKS = global.ACKS = global.ACKS || {};
 Object.assign(ACKS, {
@@ -2465,6 +2511,9 @@ Object.assign(ACKS, {
   RECON_RESULTS, reconProximityTier, reconResultsFor,
   PRISONER_INFORMATION, PRISONER_GRADES, prisonerInformationText, INTERROGATION_BANDS, interrogationBand,
   PILLAGE_REQUIREMENTS, pillageRequirementRow, PILLAGE_RESULTS, SALT_THE_EARTH,
+  // Phase 3 Military W5 — supply (RR pp.450–452)
+  SUPPLY_LINE_WEIGHTS, SUPPLY_LINE_ROAD_MULT, SUPPLY_LINE_WATERWAY_MULT, SUPPLY_LINE_MAX_WEIGHTED_HEXES,
+  supplyLineHexWeight, ARMY_MARKET_CLASS, armyMarketClassForSize,
   // #476 M4 — Wilderness Search target (RR p.276)
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)

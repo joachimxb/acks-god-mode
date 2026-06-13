@@ -5989,6 +5989,50 @@ function proposeMilitaryDay(campaign, ctx){
     }
   }
 
+  // ── 3b. supply (RR pp.450–452, campaign-cycle step 4) — each on-campaign army checks
+  //        supply weekly (daily in barrens/desert). Simplified deducts the cost; the full
+  //        check resolves the line/base when triggered. Out of supply → the RR p.452 ladder
+  //        + a loyalty calamity (applied on commit). ──
+  for(const army of active){
+    if(typeof A.armyInSupply !== 'function') break;
+    const armyHex = (campaign.hexes || []).find(h => h && h.id === effHex(army));
+    const baseT = (armyHex && typeof A.terrainBase === 'function') ? A.terrainBase(armyHex.terrain) : (armyHex && armyHex.terrain);
+    const dailyCheck = (baseT === 'barrens' || baseT === 'desert');     // RR p.451 — checked daily there
+    const since = (army.lastSupplyCheckOrd != null) ? (ord - army.lastSupplyCheckOrd) : Infinity;
+    if(since < (dailyCheck ? 1 : 7)) continue;
+    const sup = A.armyInSupply(campaign, army, { armyHexId: effHex(army) });
+    if(sup.hungerless) continue;                                        // constructs/undead never check
+    const hasWater = !!(armyHex && (baseT === 'water' || (Array.isArray(armyHex.riverSides) && armyHex.riverSides.length) || armyHex.hasLake || armyHex.freshWater));
+    const dehydrated = !sup.inSupply && dailyCheck && !hasWater;
+    const condition = sup.inSupply ? 'supplied' : (dehydrated ? 'dehydrated' : ((sup.fraction != null && sup.fraction >= 0.5) ? 'underfed' : 'starving'));
+    const fedByReq = !!(army.requisitioning && army.requisitioning.atOrd === ord);
+    const reasonText = (sup.reasons || []).map(r => ({
+      'cannot-pay': "can't pay the cost", 'insufficient-base': 'no base of sufficient value',
+      'line-blocked': 'supply line cut', 'line-overextended': 'supply line overextended', 'line-no-base': 'no supply base'
+    })[r] || r).join(', ');
+    const label = sup.inSupply
+      ? '\u{1F69A} ' + armyName(army) + ': in supply (' + (sup.cost || 0).toLocaleString() + 'gp/wk' + (sup.line && sup.line.status === 'simplified' ? ', simplified' : (sup.line && sup.line.weightedLength != null ? ', line ' + sup.line.weightedLength + '/16' : '')) + ')'
+      : '\u{26A0} ' + armyName(army) + ': OUT OF SUPPLY' + (reasonText ? ' — ' + reasonText : '') + ' → ' + condition + ' (RR p.452)';
+    pendingRecords.push({
+      kind: 'army-supply', armyId: army.id, name: armyName(army),
+      inSupply: sup.inSupply, cost: sup.cost, baseValue: sup.baseValue, line: sup.line || null,
+      fraction: sup.fraction, dehydrated, condition, simplified: sup.simplified, simplifiedTrigger: sup.simplifiedTrigger,
+      reasons: sup.reasons, ord, payGold: sup.inSupply && !fedByReq, fedByReq, hasWater,
+      label, status: 'pending'
+    });
+    notableEvents.push({
+      kind: 'army-supply', type: sup.inSupply ? 'army-supplied' : 'army-out-of-supply',
+      pauseTrigger: sup.inSupply ? null : 'supplies-low',
+      campaignLogHidden: sup.inSupply,                                  // routine "in supply" stays out of the chronicle
+      primaryHexId: effHex(army) || null,
+      relatedEntities: [{ kind: 'army', id: army.id, role: 'subject' }].concat(army.leaderCharacterId ? [{ kind: 'character', id: army.leaderCharacterId, role: 'commander' }] : []),
+      label,
+      payload: { armyId: army.id, inSupply: sup.inSupply, cost: sup.cost, baseValue: sup.baseValue,
+                 lineStatus: sup.line ? sup.line.status : null, reasons: sup.reasons, condition,
+                 narrative: label }
+    });
+  }
+
   // ── 4. occupation flips + endings (RR p.458, the wages math checked daily) ──
   const overrides = {};
   for(const a of active){ const m = stash.moves[a.id]; if(m && m.endHexId) overrides[a.id] = m.endHexId; }
@@ -6123,6 +6167,15 @@ function commitMilitaryRecord(campaign, record){
     if(typeof A.occupyDomain === 'function') A.occupyDomain(campaign, record.domainId, { leaderCharacterId: record.occupierLeaderId || null });
   } else if(record.kind === 'occupation-end'){
     if(typeof A.endOccupation === 'function') A.endOccupation(campaign, record.domainId, {});
+  } else if(record.kind === 'army-supply'){
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
+    if(!army) return;
+    if(typeof A.applyArmySupplyOutcome === 'function'){
+      A.applyArmySupplyOutcome(campaign, army, {
+        inSupply: record.inSupply, cost: record.cost, fraction: record.fraction,
+        dehydrated: record.dehydrated, payGold: record.payGold, ord: record.ord
+      });
+    }
   } else if(record.kind === 'pillage-complete'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
     const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);
@@ -6193,14 +6246,14 @@ if(typeof ACKS.registerDayConsumer === 'function'){
     pauseTriggers: ['encounter'],
     commit: commitIncursionRecord
   });
-  // Phase 3 Military W4 — the campaign cycle (slot 88, RR p.447): initiative +
-  // reconnaissance, army contacts → battles, invasions → the immediate morale
-  // roll, occupation flips, pillage progress. Runs LAST so the day's marches
-  // (slot 30, via the ctx._armyDay stash) are already on the table.
+  // Phase 3 Military W4 + W5 — the campaign cycle (slot 88, RR p.447): initiative +
+  // reconnaissance, army contacts → battles, invasions → the immediate morale roll,
+  // the weekly supply check (W5, step 4), occupation flips, pillage progress. Runs
+  // LAST so the day's marches (slot 30, via the ctx._armyDay stash) are on the table.
   ACKS.registerDayConsumer('military', {
     handler: proposeMilitaryDay,
     order: 88,
-    pauseTriggers: ['encounter'],
+    pauseTriggers: ['encounter', 'supplies-low'],
     commit: commitMilitaryRecord
   });
 }

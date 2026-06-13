@@ -150,9 +150,13 @@ const EVENT_KINDS = Object.freeze([
   'army-contact',
   // domain-warfare: the invasion/occupation/conquest/pillage lifecycle, action-
   // discriminated (payload.action: invaded | occupied | occupation-ended |
-  // conquered | pillaged — the F&D/E10 one-kind-many-actions pattern).
+  // conquered | pillaged | requisitioned | looted — the F&D/E10 one-kind-many-actions pattern).
   // Chronicle-visible.
   'domain-warfare',
+  // Phase 3 Military W5 (2026-06-13) — the weekly supply check outcome (type: army-supplied |
+  // army-out-of-supply). Owned by the slot-88 military consumer's commit (applyArmySupplyOutcome
+  // pays the cost / sets the RR p.452 ladder); routine "in supply" records are campaign-log-hidden.
+  'army-supply',
   // #476 Encounter layer E1 (2026-06-10) — the ONE comprehensive resolution record per encounter
   // (the travel-day idiom): outcome + the whole step walk in the payload, both sides in the context
   // envelope, subdayContext.encounterId stamped. Emitted by recordEncounterResolved (which owns the
@@ -525,12 +529,21 @@ const EVENT_SCHEMAS = Object.freeze({
          battle: 'boolean', battleId: 'string', reconActing: 'object', reconOther: 'object',
          narrative: 'string' }
   },
-  // domain-warfare: action ∈ invaded | occupied | occupation-ended | conquered | pillaged.
+  // domain-warfare: action ∈ invaded | occupied | occupation-ended | conquered | pillaged |
+  // requisitioned | looted (the W5 requisition/loot verbs).
   'domain-warfare': {
     R: { action: 'string', domainId: 'string' },
     O: { armyId: 'string', hexId: 'string', occupierLeaderId: 'string', months: 'number',
          moraleRoll: 'object', math: 'object', mode: 'string', newRulerCharacterId: 'string',
-         saltTheEarth: 'boolean', results: 'object', narrative: 'string' }
+         saltTheEarth: 'boolean', results: 'object',
+         requisitionedGp: 'number', lootedGp: 'number', familiesLost: 'number', gp: 'number',
+         narrative: 'string' }
+  },
+  // army-supply (W5): the weekly supply check outcome.
+  'army-supply': {
+    R: { armyId: 'string', inSupply: 'boolean' },
+    O: { cost: 'number', baseValue: 'number', lineStatus: 'string', reasons: 'object',
+         condition: 'string', narrative: 'string' }
   },
   // #476 E1 — the comprehensive encounter resolution record (recordEncounterResolved owns the
   // entity flip; the payload carries the whole step walk compactly).
@@ -2033,6 +2046,7 @@ function applyEvent_warfareAudit(campaign, event){
 }
 registerEventHandler('army-contact', applyEvent_warfareAudit);
 registerEventHandler('domain-warfare', applyEvent_warfareAudit);
+registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
 // Favors & Duties (#230, F&D-1) — the monthly edict record shares the audit posture: the
 // obligation + gp flows + Loyalty roll were already applied by processFavorsAndDutiesForTurn;
 // this handler exists only so the event is well-formed if ever replayed (a no-op beyond the narrative).
@@ -4986,10 +5000,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 3 Military W3 — owned by the battle engine (beginBattle / runBattleTurn /
   // applyBattleAftermath emit these; raw emit would narrate a fight the entity doesn't hold).
   'battle-started', 'battle-turn', 'battle-resolved',
-  // Phase 3 Military W4 — owned by the slot-88 military consumer + the conquest/pillage
-  // verbs (their commits write the state; raw emit would narrate a campaign move the
+  // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
+  // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
-  'army-contact', 'domain-warfare'
+  'army-contact', 'domain-warfare', 'army-supply'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

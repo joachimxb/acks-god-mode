@@ -1017,6 +1017,327 @@
     return Math.max(0, Math.min(1, peasantGp / gross));
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Phase 3 Military W5 — supply (RR pp.450–452). The COST layer (unitWeeklySupplyCost /
+  // armyWeeklySupplyCost) ships from acks-engine.js (W1); this is the line / base / check /
+  // ladder / requisition / market layer. Three conditions to be in supply (RR p.450): pay
+  // the cost in gold, have base(s) of sufficient value, and hold a CLEAR line to a base.
+  // Supply Simplified (RR p.452 — the default per-army mode) deducts the cost and only
+  // computes the line when the army is cut off, crosses hostile/unsettled terrain, or
+  // strays >24 mi from a road or waterway. Pure reads (derive, don't store — §5.4: no
+  // SupplyChain entity; the army stores only supplyBaseIds + lastSupplyCheckOrd). Checked
+  // weekly; daily in barrens/desert (the consumer's cadence).
+  // ═══════════════════════════════════════════════════════════════════════════
+  function _army(campaign, id){ return (campaign && Array.isArray(campaign.armies)) ? (campaign.armies.find(a => a && a.id === id) || null) : null; }
+
+  // Coarse per-hex route reads — a 96-mile supply line weighs hex-level features, not the
+  // per-side §24 grain: a road hex counts ½, a waterway hex (open water, or a river the line
+  // follows) counts 0, regardless of terrain (RR p.451).
+  function _hexHasRoad(hex){ return !!(hex && (hex.hasRoad === true || (Array.isArray(hex.roadSides) && hex.roadSides.length))); }
+  function _hexIsWaterway(campaign, hex){
+    const Ax = A();
+    if(!hex) return false;
+    const base = (typeof Ax.terrainBase === 'function') ? Ax.terrainBase(hex.terrain) : String(hex.terrain || '');
+    return base === 'water' || (Array.isArray(hex.riverSides) && hex.riverSides.length > 0);
+  }
+  function _domainsFriendly(campaign, a, b){
+    if(!a || !b) return false;
+    if(a.id === b.id) return true;
+    return !leadersOpposed(campaign, a.rulerCharacterId, b.rulerCharacterId);
+  }
+
+  // The terrain treatment an army's troops grant the supply line (RR p.451): a homogeneous
+  // elf / dwarf / beastman host eases certain terrain. GM override army.supplyTerrainTreatment
+  // wins; a mixed host gets none.
+  function armySupplyTerrainTreatment(campaign, army){
+    if(!army) return null;
+    if(army.supplyTerrainTreatment) return army.supplyTerrainTreatment;
+    const Ax = A();
+    const units = (typeof Ax.armyUnits === 'function') ? Ax.armyUnits(campaign, army) : [];
+    let treatment = null, set = false;
+    for(const u of units){
+      if(Math.max(0, (u.count || 0) - (u.casualties || 0)) <= 0) continue;
+      const r = String(u.race || 'man').toLowerCase();
+      const t = /elf/.test(r) ? 'elf' : /dwarf/.test(r) ? 'dwarf'
+              : /goblin|orc|kobold|hobgoblin|gnoll|bugbear|beastman|ogre|troll/.test(r) ? 'beastman' : 'man';
+      if(!set){ treatment = t; set = true; }
+      else if(treatment !== t) return null;        // mixed host — no uniform treatment
+    }
+    return (treatment && treatment !== 'man') ? treatment : null;
+  }
+
+  // The seat hex of a supply base. v1: a base id is a friendly DOMAIN id; the seat is its
+  // largest-settlement hex (else its first hex). Tolerates a bare hex id.
+  function _supplyBaseHex(campaign, baseId){
+    const dom = _domain(campaign, baseId);
+    if(!dom){ return _hex(campaign, baseId) || null; }
+    const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === dom.id);
+    if(!domHexes.length) return null;
+    return domHexes.find(h => h.settlement && (h.settlement.families > 0)) || domHexes[0];
+  }
+
+  // Weigh a candidate supply line army→base: route the hexes between them (the §24 line
+  // machinery), weight each by terrain/road/waterway (RR p.451), flag blocked / overextended.
+  function _weighSupplyRoute(campaign, army, fromCoord, toCoord, treatment){
+    const Ax = A();
+    const maxW = Ax.SUPPLY_LINE_MAX_WEIGHTED_HEXES || 16;
+    let coords = (typeof Ax.hexLineDraw === 'function') ? (Ax.hexLineDraw(fromCoord, toCoord) || []) : [];
+    if(coords.length) coords = coords.slice(1);            // count hexes BETWEEN the army and the base
+    let weighted = 0, blockedAtHexId = null;
+    for(const c of coords){
+      const hex = (typeof Ax.hexAtCoord === 'function') ? Ax.hexAtCoord(campaign, c) : null;
+      const terrain = hex ? hex.terrain : 'grassland';     // unauthored route hexes → open country (×1)
+      weighted += (typeof Ax.supplyLineHexWeight === 'function')
+        ? Ax.supplyLineHexWeight((typeof Ax.terrainBase === 'function') ? Ax.terrainBase(terrain) : terrain,
+            { road: _hexHasRoad(hex), waterway: _hexIsWaterway(campaign, hex), treatment })
+        : 1;
+      if(!blockedAtHexId && hex && _supplyRouteHexBlocked(campaign, army, hex)) blockedAtHexId = hex.id;
+    }
+    const status = blockedAtHexId ? 'blocked' : (weighted > maxW ? 'overextended' : 'clear');
+    return { status, weightedLength: Math.round(weighted * 100) / 100, route: coords.map(c => ({ q: c.q, r: c.r })), blockedAtHexId };
+  }
+  // A route hex is blocked by an opposing army standing on it (RR p.451 — RAW requires a
+  // blocker of the army's unit scale or larger; 🔧 v1 reads any opposing ARMY as a blocker).
+  function _supplyRouteHexBlocked(campaign, army, hex){
+    for(const other of (campaign.armies || [])){
+      if(!other || other.id === army.id || other.currentHexId !== hex.id) continue;
+      if(armiesOpposed(campaign, army, other)) return true;
+    }
+    return false;
+  }
+
+  // supplyLineStatus(campaign, army, opts?) → the best line to a designated base:
+  //   { status: 'clear'|'blocked'|'overextended'|'no-base', baseId, weightedLength, route, blockedAtHexId }
+  // Prefers a clear base, then the shortest weighted length. opts.candidateBaseIds /
+  // opts.armyHexId / opts.treatment override (tests + the chaining flood).
+  function supplyLineStatus(campaign, army, opts){
+    const Ax = A(); const o = opts || {};
+    const armyHex = _hex(campaign, o.armyHexId || (army && army.currentHexId));
+    if(!armyHex || !armyHex.coord) return { status: 'no-base', baseId: null, weightedLength: null, route: [], reason: 'no-army-hex' };
+    const baseIds = o.candidateBaseIds || (army && army.supplyBaseIds) || [];
+    const treatment = (o.treatment !== undefined) ? o.treatment : armySupplyTerrainTreatment(campaign, army);
+    let best = null;
+    for(const baseId of baseIds){
+      const baseHex = _supplyBaseHex(campaign, baseId);
+      if(!baseHex || !baseHex.coord) continue;
+      const line = _weighSupplyRoute(campaign, army, armyHex.coord, baseHex.coord, treatment);
+      line.baseId = baseId;
+      if(!best){ best = line; continue; }
+      const lineClear = line.status === 'clear', bestClear = best.status === 'clear';
+      if((lineClear && !bestClear) || (lineClear === bestClear && line.weightedLength < best.weightedLength)) best = line;
+    }
+    return best || { status: 'no-base', baseId: null, weightedLength: null, route: [] };
+  }
+
+  // supplyBaseValue (RR p.450): a base's value = its domain's monthly net income + the net
+  // income of friendly domains in the same 24-mile hex (≈ axial distance ≤ 3). Chaining
+  // (base→base) is handled by armySupplyBaseTotalValue's connectivity flood, not here.
+  function supplyBaseValue(campaign, baseId){
+    const Ax = A();
+    const dom = _domain(campaign, baseId);
+    if(!dom) return 0;
+    let value = (typeof Ax.monthlyNet === 'function') ? Math.max(0, Ax.monthlyNet(campaign, dom)) : 0;
+    const seat = _supplyBaseHex(campaign, baseId);
+    if(seat && seat.coord){
+      for(const other of (campaign.domains || [])){
+        if(!other || other.id === dom.id) continue;
+        const oh = _supplyBaseHex(campaign, other.id);
+        if(!oh || !oh.coord) continue;
+        const d = (typeof Ax.hexAxialDistance === 'function') ? Ax.hexAxialDistance(seat.coord, oh.coord) : Infinity;
+        if(d <= 3 && _domainsFriendly(campaign, dom, other)) value += (typeof Ax.monthlyNet === 'function') ? Math.max(0, Ax.monthlyNet(campaign, other)) : 0;
+      }
+    }
+    return value;
+  }
+
+  // armySupplyBaseTotalValue — the value the army can draw on: a connectivity flood from the
+  // army through CLEAR lines (army→base, then base→base — RR p.450 chained bases), summing
+  // each reached base's value once.
+  function armySupplyBaseTotalValue(campaign, army){
+    const bases = ((army && army.supplyBaseIds) || []).filter(id => _domain(campaign, id));
+    if(!bases.length) return 0;
+    const treatment = armySupplyTerrainTreatment(campaign, army);
+    const reached = new Set(), frontier = [];
+    for(const id of bases){
+      if(supplyLineStatus(campaign, army, { candidateBaseIds: [id] }).status === 'clear'){ reached.add(id); frontier.push(id); }
+    }
+    while(frontier.length){
+      const aHex = _supplyBaseHex(campaign, frontier.shift());
+      if(!aHex || !aHex.coord) continue;
+      for(const b of bases){
+        if(reached.has(b)) continue;
+        const bHex = _supplyBaseHex(campaign, b);
+        if(!bHex || !bHex.coord) continue;
+        if(_weighSupplyRoute(campaign, army, aHex.coord, bHex.coord, treatment).status === 'clear'){ reached.add(b); frontier.push(b); }
+      }
+    }
+    let total = 0;
+    for(const id of reached) total += supplyBaseValue(campaign, id);
+    return total;
+  }
+
+  // Is a road or navigable waterway within `radius` 6-mile hexes of `hex`? (RR p.452 — the
+  // Simplified trigger: >24 mi = >4 hexes from a road/waterway forces the full check.)
+  function _nearRoadOrWaterway(campaign, hex, radius){
+    const Ax = A();
+    if(!hex || !hex.coord) return true;
+    if(_hexHasRoad(hex) || _hexIsWaterway(campaign, hex)) return true;
+    for(const h of (campaign.hexes || [])){
+      if(!h || !h.coord) continue;
+      const d = (typeof Ax.hexAxialDistance === 'function') ? Ax.hexAxialDistance(hex.coord, h.coord) : Infinity;
+      if(d <= radius && (_hexHasRoad(h) || _hexIsWaterway(campaign, h))) return true;
+    }
+    return false;
+  }
+
+  // armySupplyTrigger (RR p.452) — does Simplified mode have to fall back to the full
+  // line/base check this period? { triggered, reasons[] }.
+  function armySupplyTrigger(campaign, army, opts){
+    const Ax = A(); const o = opts || {};
+    const reasons = [];
+    const armyHex = _hex(campaign, o.armyHexId || (army && army.currentHexId));
+    if(armyHex){
+      const base = (typeof Ax.terrainBase === 'function') ? Ax.terrainBase(armyHex.terrain) : String(armyHex.terrain || '');
+      if(['barrens', 'desert', 'jungle', 'swamp'].indexOf(base) >= 0) reasons.push('hostile-terrain');
+      if(!armyHex.domainId) reasons.push('unsettled');
+      else { const dom = _domain(campaign, armyHex.domainId); if(dom && !domainFriendlyToArmy(campaign, dom, army)) reasons.push('hostile-domain'); }
+      if(!_nearRoadOrWaterway(campaign, armyHex, 4)) reasons.push('far-from-road');
+    }
+    if(supplyLineStatus(campaign, army, { armyHexId: o.armyHexId }).status === 'blocked') reasons.push('cut-off');
+    return { triggered: reasons.length > 0, reasons };
+  }
+
+  // The army's current funds — its leader's pay handle (domain treasury when he rules + opted
+  // in, else the purse — the CoL-2 / GP Wave B convention).
+  function _leaderAvailableFunds(campaign, leader){
+    const Ax = A();
+    const handle = _leaderPayHandle(campaign, leader);
+    if(handle.kind === 'treasury'){
+      if(typeof Ax.domainTreasuryGp === 'function') return Ax.domainTreasuryGp(campaign, handle.id) || 0;
+      const dom = _domain(campaign, handle.id); return (dom && dom.treasury && dom.treasury.gp) || 0;
+    }
+    if(leader && leader.coins && typeof leader.coins.gp === 'number') return leader.coins.gp;
+    return (leader && leader.personalGp) || 0;
+  }
+
+  // armyInSupply — the three-condition check (RR p.450), short-circuited by Simplified mode.
+  //   { inSupply, cost, canPay, baseValue, line, fraction, simplified, simplifiedTrigger, reasons[] }
+  // fraction = the fed share (baseValue/cost, capped 1) — drives the underfed/starving ladder.
+  function armyInSupply(campaign, army, opts){
+    const Ax = A(); const o = opts || {};
+    const cost = (typeof Ax.armyWeeklySupplyCost === 'function') ? Ax.armyWeeklySupplyCost(campaign, army) : 0;
+    if(cost <= 0) return { inSupply: true, cost: 0, canPay: true, baseValue: 0, line: { status: 'clear' }, fraction: 1, simplified: army.supplySimplified !== false, simplifiedTrigger: false, hungerless: true, reasons: [] };
+    const leader = _char(campaign, army && army.leaderCharacterId);
+    const funds = _leaderAvailableFunds(campaign, leader);
+    const canPay = funds >= cost;
+    const simplified = army.supplySimplified !== false;
+    const trig = o.forceFull ? { triggered: true, reasons: ['forced'] } : armySupplyTrigger(campaign, army, { armyHexId: o.armyHexId });
+    if(simplified && !trig.triggered){
+      return { inSupply: canPay, cost, canPay, baseValue: null, line: { status: 'simplified' }, fraction: canPay ? 1 : 0, simplified: true, simplifiedTrigger: false, reasons: canPay ? [] : ['cannot-pay'] };
+    }
+    const line = supplyLineStatus(campaign, army, o);
+    const baseValue = armySupplyBaseTotalValue(campaign, army);
+    const reasons = [];
+    if(!canPay) reasons.push('cannot-pay');
+    if(baseValue < cost) reasons.push('insufficient-base');
+    if(line.status !== 'clear') reasons.push('line-' + line.status);
+    const fraction = cost > 0 ? Math.min(1, baseValue / cost) : 1;
+    return { inSupply: reasons.length === 0, cost, canPay, baseValue, line, fraction, simplified, simplifiedTrigger: trig.triggered, reasons };
+  }
+
+  // armyMarketClass (RR p.452) — equipment availability from the army's baggage train
+  // (1,200+ troops → Class VI…II); lost while the supply line is blocked or overextended.
+  function armyMarketClass(campaign, army){
+    const Ax = A();
+    const troops = (typeof Ax.armyTroopCount === 'function') ? Ax.armyTroopCount(campaign, army) : 0;
+    const cls = (typeof Ax.armyMarketClassForSize === 'function') ? Ax.armyMarketClassForSize(troops) : null;
+    if(!cls) return null;
+    const st = supplyLineStatus(campaign, army, {}).status;
+    return (st === 'blocked' || st === 'overextended') ? null : cls;
+  }
+
+  // Pay the weekly supply cost from the leader's pay handle (GP Wave B; campaign-log-hidden).
+  function _payArmySupplyCost(campaign, army, cost){
+    const Ax = A();
+    const leader = _char(campaign, army && army.leaderCharacterId);
+    if(!leader || !(cost > 0)) return;
+    const spec = { amount: cost, source: _leaderPayHandle(campaign, leader), destination: { kind: 'external', label: 'supply' }, reason: 'Weekly supply — ' + (army.name || 'army'), bucket: 'supply' };
+    try {
+      if(typeof Ax.applyWealthTransfer === 'function') Ax.applyWealthTransfer(campaign, spec);
+      if(typeof Ax.recordWealthTransfer === 'function') Ax.recordWealthTransfer(campaign, spec, { submittedBy: 'engine', campaignLogHidden: true });
+    } catch(e){ /* the army-supply event still records the cost */ }
+  }
+
+  // applyArmySupplyOutcome — the commit half (the consumer's army-supply record). In supply:
+  // clear conditions, pay the gold (unless fed by requisition). Out of supply: set the RR p.452
+  // ladder (≥½ fed → underfed; <½ → starving; barrens/desert without water → dehydrated) and
+  // log each unit's out-of-supply CALAMITY (the loyalty roll is the GM's — the §11 modal; the
+  // feed-some-not-all −1 and the hp→casualty attrition are W7 / GM-applied 🔧).
+  function applyArmySupplyOutcome(campaign, army, outcome){
+    const Ax = A();
+    const units = (typeof Ax.armyUnits === 'function') ? Ax.armyUnits(campaign, army) : [];
+    army.lastSupplyCheckOrd = (outcome.ord != null) ? outcome.ord : worldOrd(campaign);
+    if(outcome.inSupply){
+      for(const u of units){ if(u.supplyState !== 'supplied') u.supplyState = 'supplied'; }
+      if(outcome.payGold) _payArmySupplyCost(campaign, army, outcome.cost || 0);
+      army.requisitioning = null;
+      return;
+    }
+    const state = outcome.dehydrated ? 'dehydrated' : ((outcome.fraction != null && outcome.fraction >= 0.5) ? 'underfed' : 'starving');
+    for(const u of units){
+      u.supplyState = state;
+      u.calamities = u.calamities || [];
+      u.calamities.push({ kind: 'out-of-supply', atOrd: army.lastSupplyCheckOrd, note: 'Out of supply (' + state + ') — loyalty roll due (RR p.452)' });
+    }
+  }
+
+  // requisitionSupplies (RR p.451) — an out-of-supply army feeds itself from a domain's
+  // peasants: requisition 35gp/family (once per year per domain; peasants survive), then
+  // (allowLoot) loot 15gp/family at the cost of 1 family per 15gp. Capped at the army's
+  // weekly supply cost (RAW: ≤ weekly cost per day). Feeds the army this period; sets the
+  // −50% requisitioning flag (🔧 v1 GM-applied to the march); emits domain-warfare.
+  function requisitionSupplies(campaign, spec){
+    const Ax = A(); spec = spec || {};
+    const army = _army(campaign, spec.armyId);
+    if(!army) return { ok: false, reason: 'no-army' };
+    let dom = _domain(campaign, spec.domainId);
+    if(!dom){ const h = _hex(campaign, army.currentHexId); dom = (h && h.domainId) ? _domain(campaign, h.domainId) : null; }
+    if(!dom) return { ok: false, reason: 'no-domain' };
+    const ord = (spec.atOrd != null) ? spec.atOrd : worldOrd(campaign);
+    const fam = (dom.demographics && dom.demographics.peasantFamilies) || 0;
+    if(fam <= 0) return { ok: false, reason: 'no-peasants' };
+    const cost = (typeof Ax.armyWeeklySupplyCost === 'function') ? Ax.armyWeeklySupplyCost(campaign, army) : 0;
+    const cap = (spec.gpWanted != null) ? spec.gpWanted : Math.max(cost, 0);
+    const REQ = 35, LOOT = 15, YEAR = 360;
+    const requisitionedThisYear = (dom.lastRequisitionedOrd != null) && (ord - dom.lastRequisitionedOrd < YEAR);
+    const reqGp = requisitionedThisYear ? 0 : Math.min(cap, REQ * fam);
+    const remaining = Math.max(0, cap - reqGp);
+    let lootGp = 0, familiesLost = 0;
+    if(remaining > 0 && spec.allowLoot){
+      lootGp = Math.min(remaining, LOOT * fam);
+      familiesLost = Math.floor(lootGp / LOOT);
+    }
+    const totalGp = reqGp + lootGp;
+    if(totalGp <= 0) return { ok: false, reason: requisitionedThisYear ? 'already-requisitioned-this-year' : 'nothing-available' };
+    if(reqGp > 0) dom.lastRequisitionedOrd = ord;
+    if(familiesLost > 0){
+      const newFam = Math.max(0, fam - familiesLost);
+      if(typeof Ax.setPeasantPopulation === 'function') Ax.setPeasantPopulation(dom, newFam);
+      else if(dom.demographics) dom.demographics.peasantFamilies = newFam;
+    }
+    army.lastSupplyCheckOrd = ord;
+    army.requisitioning = { atOrd: ord, gp: totalGp };
+    for(const u of ((typeof Ax.armyUnits === 'function') ? Ax.armyUnits(campaign, army) : [])){ u.supplyState = 'supplied'; }
+    const verb = lootGp > 0 ? 'loots' : 'requisitions supplies from';
+    _armyHistory(campaign, army, 'requisition', (army.name || 'The army') + ' ' + verb + ' ' + (dom.name || 'a domain') + ': ' + totalGp + 'gp' + (familiesLost ? (' — ' + familiesLost + ' families lost') : '') + '.');
+    _emitWarfareEvent(campaign,
+      { action: lootGp > 0 ? 'looted' : 'requisitioned', armyId: army.id, domainId: dom.id, requisitionedGp: reqGp, lootedGp: lootGp, familiesLost, gp: totalGp },
+      { primaryHexId: army.currentHexId || null, domainId: dom.id,
+        relatedEntities: [{ kind: 'army', id: army.id, role: 'subject' }, { kind: 'domain', id: dom.id, role: lootGp > 0 ? 'victim' : 'target' }].concat(army.leaderCharacterId ? [{ kind: 'character', id: army.leaderCharacterId, role: 'commander' }] : []) },
+      (army.name || 'The army') + ' ' + verb + ' ' + (dom.name || 'a domain') + ' (' + totalGp + 'gp' + (familiesLost ? (', ' + familiesLost + ' families lost') : '') + ').');
+    return { ok: true, requisitionedGp: reqGp, lootedGp: lootGp, totalGp, familiesLost, domainId: dom.id };
+  }
+
   // ── exports ─────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     // composition + movement
@@ -1039,7 +1360,11 @@
     // pillage
     beginPillage, rollPillageResults, applyPillageResults, resolvePillage, ransomPrisoners,
     // occupation economics
-    peasantIncomeShare, occupierRulerSummary
+    peasantIncomeShare, occupierRulerSummary,
+    // supply (W5 — RR pp.450–452)
+    supplyLineStatus, supplyBaseValue, armySupplyBaseTotalValue, armyInSupply,
+    armySupplyTrigger, armyMarketClass, armySupplyTerrainTreatment,
+    applyArmySupplyOutcome, requisitionSupplies
   });
 
   if(typeof module !== 'undefined' && module.exports){
