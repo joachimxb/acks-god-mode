@@ -17,6 +17,10 @@
 <script src="acks-engine-field-schemas.js?v=2026-05-31-a"></script>
 <script src="acks-engine-events.js?v=2026-05-28-g"></script>
 <script src="acks-engine-subsystems.js?v=2026-05-28-g"></script>
+<!-- team-markers (world-layer burst): each Builder adds its engine-module script tag at ITS OWN line below; the Lead removes consumed markers at integration -->
+<!-- team:agent-1-religion (script) -->
+<!-- team:agent-2-weather (script) -->
+<!-- team:agent-3-domain-completion (script) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -9650,6 +9654,9 @@ function buildDomainFromTemplate(tpl){
 
 function domainApp(){
 return {
+  // team-markers (world-layer burst): each UI Builder adds its Alpine data + methods at ITS OWN line below (each property/method comma-terminated); the Lead removes consumed markers at integration
+  // team:agent-2-weather (data+methods)
+  // team:agent-3-domain-completion (data+methods)
   SCHEMA_VERSION,REQUIRED_GARRISON_PER_FAMILY,TEMPLATES:EMBEDDED_TEMPLATES,HOUSERULES:HOUSERULES_REGISTRY,HOUSERULE_CATEGORIES,STRONGHOLD_CATALOG,
   MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE,
   lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff,
