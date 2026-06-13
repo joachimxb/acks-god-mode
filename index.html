@@ -17,6 +17,10 @@
 <script src="acks-engine-field-schemas.js?v=2026-05-31-a"></script>
 <script src="acks-engine-events.js?v=2026-05-28-g"></script>
 <script src="acks-engine-subsystems.js?v=2026-05-28-g"></script>
+<!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
+<script src="acks-engine-religion.js?v=2026-06-13-a"></script>
+<script src="acks-engine-weather.js?v=2026-06-13-a"></script>
+<script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -2209,6 +2213,13 @@ document.addEventListener('alpine:init', () => {
           <input type="checkbox" x-model="mapShowJourneys" @change="schedulePersist()">
           <span>Journeys</span>
         </label>
+        <!-- Weather HW-3 (team agent-2): the weather layer toggle — translucent fill per hex by its
+             24-mile region's current-day weather (the JJ pp.40–41 generator), mirroring the Journeys
+             overlay pattern. Not persisted (defaults off each session). -->
+        <label class="flex items-center gap-1 cursor-pointer" title="Color each hex by its 24-mile region's weather today (translucent over the terrain). Weather rolls on the Day Clock where a journey is in flight; shown here for the current day.">
+          <input type="checkbox" x-model="mapShowWeather">
+          <span>🌦 Weather</span>
+        </label>
         <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Add/Edit hexes — faint addable cells appear (click one to create a hex there), and clicking an existing hex opens a quick editor (domain, terrain, rivers, roads) instead of its full card">
           <input type="checkbox" x-model="mapEditAddMode" @change="mapEditAddMode ? mapEnterAddMode() : mapCancelCreate()">
           <span>✎ Add/Edit hexes</span>
@@ -2341,6 +2352,18 @@ document.addEventListener('alpine:init', () => {
             <span x-text="row.label"></span>
           </span>
         </template>
+      </div>
+
+      <!-- Weather HW-3 (team agent-2): the weather-layer legend (shown when the 🌦 Weather toggle is on). -->
+      <div x-show="mapShowWeather" class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 text-sm" x-cloak>
+        <span class="opacity-60">🌦 Weather:</span>
+        <template x-for="row in weatherMapLegendRows()" :key="'wx-'+row.label">
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block w-3 h-3 rounded-sm border border-ink/40" :style="'background:' + row.color"></span>
+            <span x-text="row.label"></span>
+          </span>
+        </template>
+        <span class="opacity-50 italic" x-text="weatherCurrentDayLabel()"></span>
       </div>
 
       <!-- The SVG hex map. Pan/zoom mutate the viewBox so vectors stay crisp at any scale — no raster tiles, no map library. -->
@@ -2562,6 +2585,38 @@ document.addEventListener('alpine:init', () => {
               </h2>
               <p class="text-sm leading-relaxed" x-text="moraleStateText(selectedDomain.demographics.morale)"></p>
               <p class="text-sm opacity-70 italic mt-2">Effects of domain morale — see ACKS II Revised Rulebook, pp. 349-351</p>
+            </div>
+            <!-- team:agent-3-domain-completion (panel:domain-advancement) — DC-0 read-only spatial
+                 conditions toward Outlands→Borderlands→Civilized advancement (RR p.340). Derived from
+                 the hex map (roads + settlement sizes); the GM override + the full eligibility check are DC-2. -->
+            <div class="vellum border border-ink p-3 rounded" x-data="{ sc:null }" x-effect="sc = domainAdvancementSpatial(selectedDomain)">
+              <h2 class="font-bold text-lg mb-2">Domain Advancement — Spatial Conditions
+                <span class="opacity-50 cursor-help text-sm" title="RR p.340 — two of the classification-advancement conditions are spatial: a road to a town (≥500 families) within 24 miles, and a friendly city / large town (≥625 families) within 48/72 miles. Derived here from the hex map; read-only (DC-0). The GM override and the full Outlands→Borderlands→Civilized eligibility check arrive with DC-2.">ⓘ</span>
+              </h2>
+              <template x-if="sc">
+                <table class="bookkeeping text-sm">
+                  <tr>
+                    <td>Road to a town (≤24 mi)</td>
+                    <td class="text-right">
+                      <span x-show="sc.roadToTown.effective" class="accent-green font-semibold">✓ yes</span>
+                      <span x-show="!sc.roadToTown.effective" class="accent-red font-semibold">✗ no</span>
+                      <span class="block text-xs opacity-70" x-show="sc.roadToTown.derived && sc.roadToTown.witnessLabel" x-text="'→ ' + sc.roadToTown.witnessLabel + ' · ' + sc.roadToTown.settlementFamilies.toLocaleString() + ' families · ' + sc.roadToTown.miles + ' mi by road'"></span>
+                      <span class="block text-xs opacity-60 italic" x-show="sc.roadToTown.overridden" x-text="'GM override: ' + (sc.roadToTown.overrideValue ? 'connected' : 'not connected') + ' (derived ' + (sc.roadToTown.derived ? 'yes' : 'no') + ')'"></span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Friendly city / large town</td>
+                    <td class="text-right">
+                      <span x-show="sc.friendlyCity.band==='within-48mi'" class="accent-green font-semibold">within 48 mi</span>
+                      <span x-show="sc.friendlyCity.band==='within-72mi'" class="font-semibold">within 72 mi</span>
+                      <span x-show="sc.friendlyCity.band==='none'" class="accent-red font-semibold">none within 72 mi</span>
+                      <span class="block text-xs opacity-70" x-show="sc.friendlyCity.band!=='none' && sc.friendlyCity.witnessLabel" x-text="'→ nearest ' + sc.friendlyCity.witnessLabel + ' · ' + sc.friendlyCity.settlementFamilies.toLocaleString() + ' families · ' + sc.friendlyCity.miles + ' mi (straight line)'"></span>
+                      <span class="block text-xs opacity-60 italic" x-show="sc.friendlyCity.overridden">GM-asserted friendliness</span>
+                    </td>
+                  </tr>
+                </table>
+              </template>
+              <p class="text-xs opacity-60 italic mt-2">Derived from the hex map (roads + settlement sizes). Feeds Outlands→Borderlands→Civilized advancement (RR p.340). Read-only — DC-0; the GM override and the full eligibility check arrive with DC-2.</p>
             </div>
             <!-- Overview + Ruler grid (50/50 on md+, stacks below md). -->
             <div class="grid md:grid-cols-2 gap-4">
@@ -8483,6 +8538,16 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
 
+      <!-- Weather HW-3 (team agent-2): this hex's current-day weather (its 24-mile region's roll —
+           the cached tick weather if any, else an on-demand deterministic roll of the current day).
+           Read-only; weather derives from the hex's Köppen climate + the calendar season. -->
+      <template x-if="weatherHexCardLine(worldHexEditingHex())">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm flex items-start gap-1">
+          <span class="font-semibold shrink-0">🌦 Weather today:</span>
+          <span x-text="weatherHexCardLine(worldHexEditingHex())" title="Generated from this hex's Köppen climate + the calendar season (JJ pp.40–41). Rolls on the Day Clock where a journey is in flight; shown here for the current day."></span>
+        </div>
+      </template>
+
       <!-- Journeys passing through this hex (Phase 2.5 #475 — J2) -->
       <div class="vellum border border-ink/40 rounded p-2">
         <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -9650,6 +9715,34 @@ function buildDomainFromTemplate(tpl){
 
 function domainApp(){
 return {
+  // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
+  // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
+  // (defaults off each session — kept out of the shared session-restore region).
+  mapShowWeather: false,
+  weatherHexCardLine(hex){
+    if(!this.currentCampaign || !hex) return '';
+    const r = window.ACKS.weatherForHex(this.currentCampaign, hex);
+    return r ? window.ACKS.weatherSummaryText(r) : '';
+  },
+  weatherMapLegendRows(){ return window.ACKS.weatherMapLegend(); },
+  weatherCurrentDayLabel(){
+    const cal = (this.currentCampaign && this.currentCampaign.calendar) || {};
+    const day = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || cal.day || 1;
+    return 'today (day ' + day + (cal.season ? ' · ' + cal.season : '') + ')';
+  },
+  // DC-0 read-only spatial conditions for the State-of-the-Domain panel. Wraps the pure engine
+  // read (ACKS.domainSpatialConditions) and resolves each witness hexId → a human label
+  // (settlement name + col·row). Returns null when there is no campaign/domain. Engine stays DOM-free.
+  domainAdvancementSpatial(d){
+    const c=this.currentCampaign; if(!c||!d) return null;
+    const sc=window.ACKS.domainSpatialConditions(c,d);
+    const label=id=>{ if(!id) return ''; const h=window.ACKS.findHex(c,id); if(!h||!h.coord) return '';
+      const s=h.settlement||window.ACKS.settlementForHex(c,h.id); const nm=(s&&s.name)?s.name:'';
+      const cr=window.ACKS.hexDisplayLabel(h.coord.q,h.coord.r); return nm?(nm+' ('+cr+')'):cr; };
+    sc.roadToTown.witnessLabel=label(sc.roadToTown.witnessHexId);
+    sc.friendlyCity.witnessLabel=label(sc.friendlyCity.witnessHexId);
+    return sc;
+  },
   SCHEMA_VERSION,REQUIRED_GARRISON_PER_FAMILY,TEMPLATES:EMBEDDED_TEMPLATES,HOUSERULES:HOUSERULES_REGISTRY,HOUSERULE_CATEGORIES,STRONGHOLD_CATALOG,
   MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE,
   lookupMerchandise, merchandiseAvailableAtClass, merchandiseTariff,
@@ -16371,6 +16464,19 @@ return {
         'stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(this.mapHexTitle(e)) + '</title></polygon>');
     });
 
+    // 1.5) WEATHER OVERLAY (HW-3, team agent-2) — a translucent fill per hex by its 24-mile region's
+    // current-day weather (the JJ pp.40–41 generator), sitting ABOVE the terrain fill and BELOW the
+    // features (edges/journeys/symbols draw over it). pointer-events:none so clicks fall through to the
+    // base hex polygon. The region → weather map is built ONCE per render (cache-preferring).
+    if(this.mapShowWeather){
+      const wmap = A.weatherMapForCampaign(this.currentCampaign);
+      entries.forEach(e => {
+        const wr = wmap[A.regionKeyForCoord(e.hex.coord)];
+        if(!wr) return;
+        parts.push('<polygon points="' + e.points + '" fill="' + A.weatherFillColor(wr) + '" fill-opacity="0.55" style="pointer-events:none;"><title>' + esc(A.weatherSummaryText(wr)) + '</title></polygon>');
+      });
+    }
+
     // 2) EMPTY CELLS (M5) — faint addable hexes (click → create-hex picker).
     if(this.mapEditAddMode){
       this.mapEmptyCells().forEach(c => {
@@ -17741,7 +17847,8 @@ return {
       'notableItems', 'itemCustody', 'groups',
       // 2026-05-30 reservations (empty in v0.9 saves; cheap to include defensively)
       'journeys', 'outposts', 'dungeons',
-      'congregations', 'divineFavors', 'attunements',
+      // Religion R0 (team 2026-06-13) — 'deities' added (congregations/divineFavors were reserved)
+      'deities', 'congregations', 'divineFavors', 'attunements',
       'settlementVisits', 'oaths', 'vagaryOfIncursionEvents',
       // Phase 4 Construction Wave A (2026-05-30) — Project + Constructible collections
       'projects', 'constructibles',
@@ -17836,7 +17943,7 @@ return {
       vassalages:'vassalage', tributaryAgreements:'tributary agreement',
       notableItems:'notable item', itemCustody:'custody record', groups:'group',
       journeys:'journey', outposts:'outpost', dungeons:'dungeon',
-      congregations:'congregation', divineFavors:'divine favor',
+      deities:'deity', congregations:'congregation', divineFavors:'divine favor',
       attunements:'attunement', settlementVisits:'settlement visit',
       oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry'
     };

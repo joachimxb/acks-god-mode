@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Weather now happens in your world.** When a party is out on an expedition, each day's weather is rolled for the ground they're on — temperature (with a separate night reading), precipitation, and wind — generated from the hex's climate and the season exactly as the rules describe (the Judges Journal daily-weather tables, pp.40–41). Cold turns rain to snow and drizzle to flurries; still air turns rain to fog; a weather front nudges each day toward the last, so spells of weather hang together instead of flip-flopping. A whole 24-mile region shares its weather (so two parties near each other see the same sky), and the weather feeds straight into travel — fog and snow slow the march, a sweltering day drives up water use. A new **Weather** layer on the World map paints every hex by its region's weather today, with a legend; open a hex and its card shows the day's conditions in plain language. Weather generation is on by default and any day is yours to override; a new **GM-set weather** house rule turns the generator off for tables that would rather narrate the skies by hand.
+- **Domain advancement conditions, at a glance.** Each domain's Overview now shows a read-only "Domain Advancement — Spatial Conditions" card — whether it is road-connected to a town within 24 miles, and the distance to the nearest friendly city or large town (the spatial prerequisites for a domain growing from Outlands toward Civilized). Derived live from your hex map and roads, and GM-overridable.
+- **Religion data layer.** The foundation for divine power and congregations: deities, congregations, and divine-favor records are now first-class entities you can browse and create in the Inspector, and every character carries a divine-power ledger. (The rituals it will drive — consecration, blood sacrifice, prayer-for-XP — land in a later wave.)
+
+### Removed
+- The unused **Realistic weather** house-rule placeholder — a reservation that never did anything; weather generation is now on by default, with the new **GM-set weather** opt-out for tables that prefer to narrate the skies by hand.
+
 ## [0.24.0] - 2026-06-12
 
 ### Added
