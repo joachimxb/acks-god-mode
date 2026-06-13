@@ -25,6 +25,7 @@
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
 <script src="acks-engine-proficiencies.js?v=2026-06-13-a"></script>
 <!-- agent-5 (Hijinks HJ-1): add your acks-engine-hijinks.js tag immediately below this line -->
+<script src="acks-engine-hijinks.js?v=2026-06-13-a"></script>
 <!-- (agent-1 Religion R1 extends acks-engine-religion.js · agent-2 DC-2 extends acks-engine-domain-completion.js · agent-3 Terrain T3 adds no new module — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -5769,13 +5770,154 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Sub-panel: Hijinks (Phase 2.7 placeholder). -->
+<!-- ═══ Hijinks HJ-1 (team 2026-06-13) — Hideouts & Hijinks (RR pp.360–370), the first slice:
+     launch a hijink, advance the Day Clock, watch it plan → perform → lay low → resolve. ═══ -->
 <div x-show="currentView === 'activities' && activitiesSubView === 'hijinks'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
-    <div class="vellum border border-ink rounded p-6 text-center">
-      <h2 class="font-bold text-xl mb-2">🗡 Hijinks</h2>
-      <p class="text-sm opacity-70 mb-3">Hideouts &amp; Hijinks (RR pp.360–370) — carousing, smuggling, assassination, robbery, sneak attacks, spying, stealing.</p>
-      <p class="text-sm italic opacity-60">Coming in Phase 2.7. Spec lives at <code>Phase_2.7_Hijinks_Plan.md</code> (DEV root).</p>
+
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+      <h2 class="font-bold text-xl">🗡 Hijinks</h2>
+      <span class="text-sm opacity-70">Downtime crime &amp; intrigue (RR pp.360–370). A perpetrator plans, performs, and lays low over a month — the Day Clock advances it.</span>
     </div>
+
+    <template x-if="!currentCampaign">
+      <div class="vellum border border-ink rounded p-6 text-center text-sm italic opacity-60">Load a campaign to assign hijinks.</div>
+    </template>
+
+    <template x-if="currentCampaign">
+      <div class="space-y-4">
+
+        <!-- ── Launch form ──────────────────────────────────────────────── -->
+        <div class="vellum border border-ink rounded p-4 space-y-3">
+          <h3 class="font-semibold">Assign a hijink</h3>
+          <div class="grid md:grid-cols-2 gap-3">
+            <!-- perpetrator (eligible only — RAW: needs Streetwise / a thieving class) -->
+            <label class="block text-sm">
+              <span class="font-semibold">Perpetrator</span>
+              <select x-model="hijinkLaunch.perpetratorCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <option value="" :selected="!hijinkLaunch.perpetratorCharacterId">— pick a perpetrator —</option>
+                <template x-for="c in hijinkEligiblePerpetrators()" :key="c.id">
+                  <option :value="c.id" :selected="hijinkLaunch.perpetratorCharacterId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1) + ' · ' + characterLocationLabel(c)"></option>
+                </template>
+              </select>
+              <span x-show="hijinkEligiblePerpetrators().length === 0" class="block text-xs text-red-700 mt-1">No character is eligible — add the <strong>Streetwise</strong> proficiency (or a Thief / Assassin / Nightblade / Venturer class) via the character sheet or 🔍 Inspector.</span>
+            </label>
+            <!-- hijink type -->
+            <label class="block text-sm">
+              <span class="font-semibold">Hijink</span>
+              <select x-model="hijinkLaunch.type" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <template x-for="t in hijinkDefList()" :key="t.type">
+                  <option :value="t.type" :selected="hijinkLaunch.type===t.type" :disabled="!hijinkTypeAllowed(t.type)" x-text="t.icon + ' ' + t.label + (hijinkTypeAllowed(t.type) ? '' : ' (class-restricted)')"></option>
+                </template>
+              </select>
+            </label>
+            <!-- boss (optional — collects the proceeds; else the perpetrator keeps them) -->
+            <label class="block text-sm">
+              <span class="font-semibold">Boss <span class="opacity-60 font-normal">(optional — collects the proceeds)</span></span>
+              <select x-model="hijinkLaunch.bossCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <option value="" :selected="!hijinkLaunch.bossCharacterId">— independent (perpetrator keeps it) —</option>
+                <template x-for="c in (currentCampaign.characters||[])" :key="c.id">
+                  <option :value="c.id" :selected="hijinkLaunch.bossCharacterId===c.id" x-text="c.name||'(unnamed)'"></option>
+                </template>
+              </select>
+            </label>
+            <!-- settlement (optional — where it happens) -->
+            <label class="block text-sm">
+              <span class="font-semibold">Settlement <span class="opacity-60 font-normal">(optional)</span></span>
+              <select x-model="hijinkLaunch.settlementId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <option value="" :selected="!hijinkLaunch.settlementId">— none —</option>
+                <template x-for="s in (currentCampaign.settlements||[])" :key="s.id">
+                  <option :value="s.id" :selected="hijinkLaunch.settlementId===s.id" x-text="s.name||'(unnamed)'"></option>
+                </template>
+              </select>
+            </label>
+          </div>
+
+          <!-- live forecast of the throw + timing -->
+          <template x-if="hijinkLaunchForecast()">
+            <div class="text-xs border border-ink/40 rounded bg-yellow-50/40 px-3 py-2 space-y-0.5">
+              <div><span class="opacity-60">Requirement:</span> <span class="font-semibold" x-text="hijinkLaunchForecast().requiredSkill"></span> throw — <span x-text="hijinkLaunchForecast().desc"></span></div>
+              <div><span class="opacity-60">Throw:</span> <span x-text="hijinkLaunchForecast().throwText"></span> <span class="opacity-60">(secret until it completes — fail by 14+ or a natural 1 = caught)</span></div>
+              <div><span class="opacity-60">Timing:</span> <span x-text="hijinkLaunchForecast().timingText"></span></div>
+            </div>
+          </template>
+
+          <div class="flex items-center gap-3">
+            <button @click="launchHijinkSubmit()" :disabled="!hijinkCanLaunch()"
+                    class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+                    :class="hijinkCanLaunch() ? 'bg-green-200 hover:bg-green-300' : 'opacity-40 cursor-not-allowed'">🗡 Assign hijink</button>
+            <span x-show="!hijinkCanLaunch() && hijinkLaunchDisabledReason()" class="text-xs italic opacity-70" x-text="hijinkLaunchDisabledReason()"></span>
+          </div>
+        </div>
+
+        <!-- ── Active hijinks ───────────────────────────────────────────── -->
+        <div class="vellum border border-ink rounded p-4">
+          <h3 class="font-semibold mb-2">In progress <span class="opacity-60 font-normal text-sm" x-text="'(' + hijinkActiveRows().length + ')'"></span></h3>
+          <template x-if="hijinkActiveRows().length === 0">
+            <p class="text-xs italic opacity-60">No hijinks under way. Assign one above, then advance the 🕑 Day Clock.</p>
+          </template>
+          <template x-if="hijinkActiveRows().length">
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/40 text-xs uppercase tracking-wide opacity-70">
+                <th class="py-1">Perpetrator</th><th>Hijink</th><th>Phase</th><th>Where</th></tr></thead>
+              <tbody>
+                <template x-for="h in hijinkActiveRows()" :key="h.id">
+                  <tr class="border-b border-dashed border-gray-300">
+                    <td class="py-1" x-text="h.perpName"></td>
+                    <td><span x-text="h.icon + ' ' + h.typeLabel"></span></td>
+                    <td><span class="px-1 rounded text-xs font-semibold" :class="h.phaseClass" x-text="h.phaseText"></span></td>
+                    <td class="opacity-70 text-xs" x-text="h.where"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+
+        <!-- ── Resolved hijinks ─────────────────────────────────────────── -->
+        <template x-if="hijinkResolvedRows().length">
+          <div class="vellum border border-ink rounded p-4">
+            <h3 class="font-semibold mb-2">Resolved <span class="opacity-60 font-normal text-sm" x-text="'(' + hijinkResolvedRows().length + ')'"></span></h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/40 text-xs uppercase tracking-wide opacity-70">
+                <th class="py-1">Perpetrator</th><th>Hijink</th><th>Outcome</th><th>Take</th></tr></thead>
+              <tbody>
+                <template x-for="h in hijinkResolvedRows()" :key="h.id">
+                  <tr class="border-b border-dashed border-gray-300">
+                    <td class="py-1" x-text="h.perpName"></td>
+                    <td><span x-text="h.icon + ' ' + h.typeLabel"></span></td>
+                    <td><span class="px-1 rounded text-xs font-semibold" :class="h.outcomeClass" x-text="h.outcomeText"></span></td>
+                    <td class="opacity-80 text-xs" x-text="h.takeText"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
+        <!-- ── RAW reference (collapsible) ──────────────────────────────── -->
+        <div class="vellum border border-ink rounded p-4">
+          <button @click="hijinkRefOpen = !hijinkRefOpen" class="font-semibold text-sm flex items-center gap-1">
+            <span x-text="hijinkRefOpen ? '▾' : '▸'"></span> Hijinks by type <span class="opacity-60 font-normal">(RR p.361)</span>
+          </button>
+          <table x-show="hijinkRefOpen" class="w-full text-xs mt-2">
+            <thead><tr class="text-left border-b border-ink/40 uppercase tracking-wide opacity-70">
+              <th class="py-1">Hijink</th><th>Requirement</th><th>Plan?</th><th>Successful outcome</th></tr></thead>
+            <tbody>
+              <template x-for="t in hijinkDefList()" :key="t.type">
+                <tr class="border-b border-dashed border-gray-200">
+                  <td class="py-1 whitespace-nowrap" x-text="t.icon + ' ' + t.label"></td>
+                  <td class="whitespace-nowrap" x-text="t.requiredSkill"></td>
+                  <td x-text="t.plannable ? 'plan + lay low' : 'ongoing'"></td>
+                  <td class="opacity-80" x-text="t.desc"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </template>
   </div>
 </div>
 
@@ -12401,7 +12543,7 @@ return {
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
-      { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
+      { id:'hijinks',        label:'🗡 Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
   },
@@ -18245,7 +18387,9 @@ return {
       // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed entities
       'lairs',
       // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions
-      'encounters'
+      'encounters',
+      // === Hijinks HJ-1 (team 2026-06-13) — Phase 2.7 hijink attempts (§8.9 importer mandate)
+      'hijinks'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -19856,6 +20000,102 @@ return {
     if(this.showToast) this.showToast('Proficiency throw recorded to the Event Log.');
   },
   // ── agent-5 (Hijinks HJ-1) state + methods ──
+  // Phase 2.7 Hijinks (RR pp.360–370) — the Activities ▸ Hijinks launch + lists. The engine
+  // (acks-engine-hijinks.js) owns startHijink + the slot-60 day-consumer; this is the surface.
+  hijinkLaunch: { perpetratorCharacterId:'', type:'carousing', bossCharacterId:'', settlementId:'' },
+  hijinkRefOpen: false,
+  hijinkDefList(){
+    const D = (window.ACKS && window.ACKS.HIJINK_DEFINITIONS) || {};
+    return (window.ACKS && window.ACKS.hijinkTypes ? window.ACKS.hijinkTypes() : Object.keys(D)).map(type => {
+      const d = D[type] || {};
+      return { type, label:d.label||type, icon:d.icon||'🗡', requiredSkill:d.requiredSkill||'', plannable:!!d.plannable, desc:d.desc||'' };
+    });
+  },
+  // Active characters generally eligible to perpetrate (RAW: Streetwise or a thieving class).
+  hijinkEligiblePerpetrators(){
+    const A = window.ACKS; if(!A || !this.currentCampaign) return [];
+    return (this.currentCampaign.characters||[]).filter(c => c
+      && (A.isActive ? A.isActive(c) : (c.alive !== false))
+      && A.hijinkPerpetratorEligible && A.hijinkPerpetratorEligible(c));
+  },
+  _hijinkPerp(){ return (this.currentCampaign?.characters||[]).find(c => c && c.id === this.hijinkLaunch.perpetratorCharacterId) || null; },
+  // Can the selected perpetrator attempt this type? (class restriction — RR p.362 assassinating.)
+  hijinkTypeAllowed(type){
+    const A = window.ACKS, perp = this._hijinkPerp();
+    if(!A || !perp) return true;                       // nothing picked yet — don't disable
+    return !!(A.hijinkPerpetratorEligible && A.hijinkPerpetratorEligible(perp, type));
+  },
+  hijinkCanLaunch(){
+    const perp = this._hijinkPerp();
+    return !!(perp && this.hijinkLaunch.type && window.ACKS && window.ACKS.hijinkPerpetratorEligible
+      && window.ACKS.hijinkPerpetratorEligible(perp, this.hijinkLaunch.type));
+  },
+  hijinkLaunchDisabledReason(){
+    const A = window.ACKS, perp = this._hijinkPerp();
+    if(!perp) return 'Pick an eligible perpetrator.';
+    const r = A && A.hijinkIneligibleReason ? A.hijinkIneligibleReason(perp, this.hijinkLaunch.type) : '';
+    return r || '';
+  },
+  hijinkLaunchForecast(){
+    const A = window.ACKS, perp = this._hijinkPerp(); if(!A || !perp || !this.hijinkLaunch.type) return null;
+    const def = A.hijinkDefinition ? A.hijinkDefinition(this.hijinkLaunch.type) : null; if(!def) return null;
+    const prof = A.hijinkThrowProfile(this.currentCampaign, perp, this.hijinkLaunch.type, {});
+    const b = prof.bonus || 0;
+    const parts = (prof.parts||[]).map(p => p.label + ' ' + (p.value>=0?'+':'') + p.value).join(', ');
+    const throwText = '1d20 ' + (b>=0?'+':'') + b + ' vs ' + prof.target + '+'
+      + (parts ? ' (' + parts + ')' : '')
+      + (def.victimPenalty ? ' · − victim level at resolution' : '');
+    const lvl = Math.max(1, perp.level||1);
+    const planExpr = lvl>=9 ? '2d4+3' : lvl>=5 ? '2d6+3' : '2d8+3';
+    const perfExpr = lvl>=9 ? '2d6+5' : lvl>=5 ? '3d4+8' : '3d6+10';
+    const timingText = def.plannable
+      ? ('plan ' + planExpr + ' + perform 1 + lay low 2d8+3 days')
+      : ('perform ' + perfExpr + ' days');
+    return { requiredSkill: def.requiredSkill, desc: def.desc, throwText, timingText };
+  },
+  launchHijinkSubmit(){
+    if(!this.hijinkCanLaunch() || !window.ACKS || !window.ACKS.startHijink) return;
+    const res = window.ACKS.startHijink(this.currentCampaign, {
+      perpetratorCharacterId: this.hijinkLaunch.perpetratorCharacterId,
+      type: this.hijinkLaunch.type,
+      bossCharacterId: this.hijinkLaunch.bossCharacterId || null,
+      settlementId: this.hijinkLaunch.settlementId || null
+    });
+    if(!res || !res.ok){ this.showToast('Could not assign hijink: ' + ((res && (res.detail||res.error)) || 'unknown'), 4000); return; }
+    const def = window.ACKS.hijinkDefinition(res.hijink.type) || {};
+    this.showToast('🗡 ' + (this._hijinkPerp()?.name || 'Perpetrator') + ' begins a ' + (def.label||res.hijink.type).toLowerCase() + ' hijink — advance the Day Clock to resolve it.', 4500);
+    this.hijinkLaunch.perpetratorCharacterId = '';     // keep type/boss/settlement for a quick repeat
+    this.markDirty(); this.schedulePersist();
+    if(this.dayTickProposal) this._refreshPendingDayTick();
+  },
+  _hijinkCharName(id){ const c = (this.currentCampaign?.characters||[]).find(x => x && x.id === id); return (c && c.name) || '—'; },
+  _hijinkWhere(h){
+    if(h.settlementId){ const s = (this.currentCampaign?.settlements||[]).find(x => x && x.id === h.settlementId); if(s) return s.name || s.id; }
+    if(h.hexId){ const hx = (this.currentCampaign?.hexes||[]).find(x => x && x.id === h.hexId); if(hx) return (window.ACKS && window.ACKS.hexName) ? window.ACKS.hexName(hx) : h.hexId; }
+    return '—';
+  },
+  _hijinkRow(h){
+    const def = (window.ACKS && window.ACKS.hijinkDefinition) ? (window.ACKS.hijinkDefinition(h.type)||{}) : {};
+    const phaseCls = { 'planning':'bg-gray-200', 'performing':'bg-amber-200', 'laying-low':'bg-sky-200' }[h.status] || 'bg-gray-100';
+    const outCls = { 'complete':'bg-green-200', 'failed':'bg-gray-300', 'caught':'bg-red-200 text-red-900' }[h.status] || 'bg-gray-100';
+    const take = (h.status==='complete') ? (h.rewardText || '—') : (h.status==='caught') ? ('charged: ' + (h.charge||'—')) : '—';
+    const outText = (h.status==='complete') ? '✓ success' : (h.status==='caught') ? '✗ caught' : '✗ failed';
+    return {
+      id: h.id, perpName: this._hijinkCharName(h.perpetratorCharacterId),
+      icon: def.icon||'🗡', typeLabel: def.label||h.type,
+      phaseText: (window.ACKS && window.ACKS.hijinkPhaseLabel) ? window.ACKS.hijinkPhaseLabel(h) : h.status,
+      phaseClass: phaseCls, where: this._hijinkWhere(h),
+      outcomeText: outText, outcomeClass: outCls, takeText: take
+    };
+  },
+  hijinkActiveRows(){
+    const term = ['complete','failed','caught'];
+    return (this.currentCampaign?.hijinks||[]).filter(h => h && term.indexOf(h.status) < 0).map(h => this._hijinkRow(h));
+  },
+  hijinkResolvedRows(){
+    const term = ['complete','failed','caught'];
+    return (this.currentCampaign?.hijinks||[]).filter(h => h && term.indexOf(h.status) >= 0).map(h => this._hijinkRow(h));
+  },
 };
 }
 </script>

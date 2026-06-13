@@ -126,7 +126,11 @@ function blankCampaign(opts={}){
     constructibles: opts.constructibles || [],
     // Phase 2.5 Monster Persistence (#476, M0 — 2026-06-09) — Lairs as first-class placed
     // entities (the RAW-core layer). Lifted from legacy nested hex.lairs[] by migrateCampaign.
-    lairs: opts.lairs || []
+    lairs: opts.lairs || [],
+    // === Hijinks HJ-1 (team) === Phase 2.7 (RR pp.360–370) — hijink attempts (campaign.hijinks[]),
+    // each a day-tick-driven lifecycle (plan → perform → lay low). Read defensively everywhere
+    // (campaign.hijinks ?? []); NOT lazy-injected by migrateCampaign, so templates stay migrate-no-ops.
+    hijinks: opts.hijinks || []
   };
 }
 

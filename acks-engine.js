@@ -129,6 +129,8 @@ const ID_PREFIXES = Object.freeze({
   constructible:        'cst',
   // Phase 2.95 Hirelings (#310) — day-aware recruitment drive (sub-object on the patron, 2026-06-06)
   recruitmentDrive:     'rcd',
+  // Phase 2.7 Hijinks (HJ-1, world-front team session 2026-06-13) — registered canonically at integration
+  hijink:               'hij',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
   favorDutyObligation:  'fdo',
   // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)

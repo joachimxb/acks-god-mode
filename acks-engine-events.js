@@ -161,7 +161,13 @@ const EVENT_KINDS = Object.freeze([
   // Engine-emitted record-only events (the verbs in acks-engine-religion.js already applied state).
   'divine-power-accrued',   // a divine caster's expiring ledger gains DP (congregation / domain-worship / gm-grant)
   'consecration',           // DP spent on a consecration act (consecrate-fields / a generic divine spend)
-  'divine-favor-changed'    // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
+  'divine-favor-changed',   // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
+  // === Hijinks HJ-1 (team) ===
+  // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
+  // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
+  // Wizard opt-out below. Carry the Event.context envelope (perpetrator + hex + settlement).
+  'hijink-attempted',
+  'hijink-resolved'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -549,6 +555,15 @@ const EVENT_SCHEMAS = Object.freeze({
   'divine-favor-changed': {
     R: { characterId: 'string', action: 'string' },
     O: { deityId: 'string', standing: 'string', previousStanding: 'string', reason: 'string', divinePowerReturnedGp: 'number' }
+  },
+  // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
+  'hijink-attempted': {
+    R: { hijinkId: 'string', type: 'string', perpetratorCharacterId: 'string' },
+    O: { bossCharacterId: 'string', settlementId: 'string', hexId: 'string', narrative: 'string' }
+  },
+  'hijink-resolved': {
+    R: { hijinkId: 'string', outcome: 'string' },
+    O: { type: 'string', rewardGp: 'number', charge: 'string', narrative: 'string' }
   }
 });
 
@@ -2008,6 +2023,15 @@ function applyEvent_religionAudit(campaign, event){
 registerEventHandler('divine-power-accrued', applyEvent_religionAudit);
 registerEventHandler('consecration', applyEvent_religionAudit);
 registerEventHandler('divine-favor-changed', applyEvent_religionAudit);
+// === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
+// startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
+// handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
+function applyEvent_hijinkAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'hijink' } };
+}
+registerEventHandler('hijink-attempted', applyEvent_hijinkAudit);
+registerEventHandler('hijink-resolved', applyEvent_hijinkAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -4941,7 +4965,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (processReligionForTurn). Raw emit would narrate a divine-power/consecration change the ledger
   // + domain state don't show; the GM authors deities/congregations via Inspector Create + the
   // ⛪ Religion view's actions, not these raw events.
-  'divine-power-accrued', 'consecration', 'divine-favor-changed'
+  'divine-power-accrued', 'consecration', 'divine-favor-changed',
+  // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
+  // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
+  'hijink-attempted', 'hijink-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
