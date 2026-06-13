@@ -27,16 +27,7 @@ const fs = require('fs');
 const assert = require('assert');
 
 const DIR = path.join(__dirname, '..');
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js',
-  'acks-engine.js',
-  'acks-engine-entities.js',
-  'acks-engine-economy.js',
-  'acks-engine-entity-registry.js',
-  'acks-engine-field-schemas.js',
-  'acks-engine-events.js',
-  'acks-engine-subsystems.js',
-].forEach(f => require(path.join(DIR, f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 // ─── tiny assertion harness (mirrors tests/smoke.js) ───

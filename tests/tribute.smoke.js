@@ -5,12 +5,7 @@
 // =============================================================================
 const path = require('path');
 global.window = global;
-require(path.join(__dirname, '..', 'acks-engine-catalogs.js'));
-require(path.join(__dirname, '..', 'acks-engine-monsters.js'));
-require(path.join(__dirname, '..', 'acks-engine-encounter-tables.js'));
-require(path.join(__dirname, '..', 'acks-engine.js'));
-require(path.join(__dirname, '..', 'acks-engine-entities.js'));
-require(path.join(__dirname, '..', 'acks-engine-economy.js'));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 let pass = 0, fail = 0; const failures = [];
 function ok(name, cond, detail){ if(cond){ pass++; } else { fail++; failures.push(name + (detail ? ' — ' + detail : '')); } }
