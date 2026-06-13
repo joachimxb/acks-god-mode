@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Weather now happens in your world.** When a party is out on an expedition, each day's weather is rolled for the ground they're on — temperature (with a separate night reading), precipitation, and wind — generated from the hex's climate and the season exactly as the rules describe (the Judges Journal daily-weather tables, pp.40–41). Cold turns rain to snow and drizzle to flurries; still air turns rain to fog; a weather front nudges each day toward the last, so spells of weather hang together instead of flip-flopping. A whole 24-mile region shares its weather (so two parties near each other see the same sky), and the weather feeds straight into travel — fog and snow slow the march, a sweltering day drives up water use. A new **Weather** layer on the World map paints every hex by its region's weather today, with a legend; open a hex and its card shows the day's conditions in plain language. Weather generation is on by default and any day is yours to override; a new **GM-set weather** house rule turns the generator off for tables that would rather narrate the skies by hand.
+
 ## [0.24.0] - 2026-06-12
 
 ### Added
