@@ -21,6 +21,7 @@
 <!-- team:agent-1-religion (script) -->
 <script src="acks-engine-religion.js?v=2026-06-13-a"></script>
 <!-- team:agent-2-weather (script) -->
+<script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <!-- team:agent-3-domain-completion (script) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -2214,6 +2215,13 @@ document.addEventListener('alpine:init', () => {
           <input type="checkbox" x-model="mapShowJourneys" @change="schedulePersist()">
           <span>Journeys</span>
         </label>
+        <!-- Weather HW-3 (team agent-2): the weather layer toggle — translucent fill per hex by its
+             24-mile region's current-day weather (the JJ pp.40–41 generator), mirroring the Journeys
+             overlay pattern. Not persisted (defaults off each session). -->
+        <label class="flex items-center gap-1 cursor-pointer" title="Color each hex by its 24-mile region's weather today (translucent over the terrain). Weather rolls on the Day Clock where a journey is in flight; shown here for the current day.">
+          <input type="checkbox" x-model="mapShowWeather">
+          <span>🌦 Weather</span>
+        </label>
         <label class="flex items-center gap-1 cursor-pointer ml-auto" title="Add/Edit hexes — faint addable cells appear (click one to create a hex there), and clicking an existing hex opens a quick editor (domain, terrain, rivers, roads) instead of its full card">
           <input type="checkbox" x-model="mapEditAddMode" @change="mapEditAddMode ? mapEnterAddMode() : mapCancelCreate()">
           <span>✎ Add/Edit hexes</span>
@@ -2346,6 +2354,18 @@ document.addEventListener('alpine:init', () => {
             <span x-text="row.label"></span>
           </span>
         </template>
+      </div>
+
+      <!-- Weather HW-3 (team agent-2): the weather-layer legend (shown when the 🌦 Weather toggle is on). -->
+      <div x-show="mapShowWeather" class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 text-sm" x-cloak>
+        <span class="opacity-60">🌦 Weather:</span>
+        <template x-for="row in weatherMapLegendRows()" :key="'wx-'+row.label">
+          <span class="inline-flex items-center gap-1">
+            <span class="inline-block w-3 h-3 rounded-sm border border-ink/40" :style="'background:' + row.color"></span>
+            <span x-text="row.label"></span>
+          </span>
+        </template>
+        <span class="opacity-50 italic" x-text="weatherCurrentDayLabel()"></span>
       </div>
 
       <!-- The SVG hex map. Pan/zoom mutate the viewBox so vectors stay crisp at any scale — no raster tiles, no map library. -->
@@ -8488,6 +8508,16 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
 
+      <!-- Weather HW-3 (team agent-2): this hex's current-day weather (its 24-mile region's roll —
+           the cached tick weather if any, else an on-demand deterministic roll of the current day).
+           Read-only; weather derives from the hex's Köppen climate + the calendar season. -->
+      <template x-if="weatherHexCardLine(worldHexEditingHex())">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm flex items-start gap-1">
+          <span class="font-semibold shrink-0">🌦 Weather today:</span>
+          <span x-text="weatherHexCardLine(worldHexEditingHex())" title="Generated from this hex's Köppen climate + the calendar season (JJ pp.40–41). Rolls on the Day Clock where a journey is in flight; shown here for the current day."></span>
+        </div>
+      </template>
+
       <!-- Journeys passing through this hex (Phase 2.5 #475 — J2) -->
       <div class="vellum border border-ink/40 rounded p-2">
         <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -9657,6 +9687,21 @@ function domainApp(){
 return {
   // team-markers (world-layer burst): each UI Builder adds its Alpine data + methods at ITS OWN line below (each property/method comma-terminated); the Lead removes consumed markers at integration
   // team:agent-2-weather (data+methods)
+  // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
+  // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
+  // (defaults off each session — kept out of the shared session-restore region).
+  mapShowWeather: false,
+  weatherHexCardLine(hex){
+    if(!this.currentCampaign || !hex) return '';
+    const r = window.ACKS.weatherForHex(this.currentCampaign, hex);
+    return r ? window.ACKS.weatherSummaryText(r) : '';
+  },
+  weatherMapLegendRows(){ return window.ACKS.weatherMapLegend(); },
+  weatherCurrentDayLabel(){
+    const cal = (this.currentCampaign && this.currentCampaign.calendar) || {};
+    const day = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || cal.day || 1;
+    return 'today (day ' + day + (cal.season ? ' · ' + cal.season : '') + ')';
+  },
   // team:agent-3-domain-completion (data+methods)
   SCHEMA_VERSION,REQUIRED_GARRISON_PER_FAMILY,TEMPLATES:EMBEDDED_TEMPLATES,HOUSERULES:HOUSERULES_REGISTRY,HOUSERULE_CATEGORIES,STRONGHOLD_CATALOG,
   MERCHANDISE_CATALOG, GENERIC_MERCHANDISE, VAGARIES_TABLE,
@@ -16378,6 +16423,19 @@ return {
       parts.push('<polygon data-hex-id="' + esc(e.hex.id) + '" points="' + e.points + '" fill="' + A.hexFillColor(e.hex, layer, ctx) + '" ' +
         'stroke="#4b3f2f" stroke-width="' + sw + '" style="cursor:pointer;transition:fill .15s;"><title>' + esc(this.mapHexTitle(e)) + '</title></polygon>');
     });
+
+    // 1.5) WEATHER OVERLAY (HW-3, team agent-2) — a translucent fill per hex by its 24-mile region's
+    // current-day weather (the JJ pp.40–41 generator), sitting ABOVE the terrain fill and BELOW the
+    // features (edges/journeys/symbols draw over it). pointer-events:none so clicks fall through to the
+    // base hex polygon. The region → weather map is built ONCE per render (cache-preferring).
+    if(this.mapShowWeather){
+      const wmap = A.weatherMapForCampaign(this.currentCampaign);
+      entries.forEach(e => {
+        const wr = wmap[A.regionKeyForCoord(e.hex.coord)];
+        if(!wr) return;
+        parts.push('<polygon points="' + e.points + '" fill="' + A.weatherFillColor(wr) + '" fill-opacity="0.55" style="pointer-events:none;"><title>' + esc(A.weatherSummaryText(wr)) + '</title></polygon>');
+      });
+    }
 
     // 2) EMPTY CELLS (M5) — faint addable hexes (click → create-hex picker).
     if(this.mapEditAddMode){
