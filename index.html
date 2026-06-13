@@ -17,12 +17,9 @@
 <script src="acks-engine-field-schemas.js?v=2026-05-31-a"></script>
 <script src="acks-engine-events.js?v=2026-05-28-g"></script>
 <script src="acks-engine-subsystems.js?v=2026-05-28-g"></script>
-<!-- team-markers (world-layer burst): each Builder adds its engine-module script tag at ITS OWN line below; the Lead removes consumed markers at integration -->
-<!-- team:agent-1-religion (script) -->
+<!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-13-a"></script>
-<!-- team:agent-2-weather (script) -->
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
-<!-- team:agent-3-domain-completion (script) -->
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -9718,8 +9715,6 @@ function buildDomainFromTemplate(tpl){
 
 function domainApp(){
 return {
-  // team-markers (world-layer burst): each UI Builder adds its Alpine data + methods at ITS OWN line below (each property/method comma-terminated); the Lead removes consumed markers at integration
-  // team:agent-2-weather (data+methods)
   // Weather HW-3 (team agent-2): the map weather-layer toggle + read helpers. The overlay/legend/
   // hex-card line read the generated weather via window.ACKS (acks-engine-weather.js). Not persisted
   // (defaults off each session — kept out of the shared session-restore region).
@@ -9735,7 +9730,6 @@ return {
     const day = (this.currentCampaign && this.currentCampaign.currentDayInMonth) || cal.day || 1;
     return 'today (day ' + day + (cal.season ? ' · ' + cal.season : '') + ')';
   },
-  // team:agent-3-domain-completion (data+methods)
   // DC-0 read-only spatial conditions for the State-of-the-Domain panel. Wraps the pure engine
   // read (ACKS.domainSpatialConditions) and resolves each witness hexId → a human label
   // (settlement name + col·row). Returns null when there is no campaign/domain. Engine stays DOM-free.
