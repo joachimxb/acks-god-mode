@@ -130,7 +130,11 @@ function blankCampaign(opts={}){
     // === Hijinks HJ-1 (team) === Phase 2.7 (RR pp.360–370) — hijink attempts (campaign.hijinks[]),
     // each a day-tick-driven lifecycle (plan → perform → lay low). Read defensively everywhere
     // (campaign.hijinks ?? []); NOT lazy-injected by migrateCampaign, so templates stay migrate-no-ops.
-    hijinks: opts.hijinks || []
+    hijinks: opts.hijinks || [],
+    // === Hijinks HJ-2 (team 2026-06-13) === Phase 2.7 (RR pp.358–362) — criminal syndicates
+    // (campaign.syndicates[]); a boss runs hijinks + collects tribute. Read defensively
+    // everywhere (campaign.syndicates ?? []); NOT lazy-injected by migrateCampaign (no-op).
+    syndicates: opts.syndicates || []
   };
 }
 

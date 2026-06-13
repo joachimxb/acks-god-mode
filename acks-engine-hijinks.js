@@ -305,6 +305,7 @@ function blankHijink(opts){
     charge: opts.charge || null,                          // the crime if caught
     resolved: !!opts.resolved,                            // the throw has been revealed + applied
     revealed: !!opts.revealed,
+    trial: opts.trial || null,                            // HJ-2: the trial result if caught + tried (resolveHijinkTrial)
     rumorEmitted: !!opts.rumorEmitted,
     startedTurn: opts.startedTurn || 1,
     startedDayInMonth: opts.startedDayInMonth || 1,
@@ -565,6 +566,435 @@ function _emitHijinkEvent(campaign, h, kind, payload, narrative){
   return ev;
 }
 
+// =============================================================================
+// === Hijinks HJ-2 (team 2026-06-13) — syndicates / tribute / trials (RR pp.358–369) ===
+// The criminal-enterprise layer atop HJ-1's per-perpetrator hijinks. A boss runs a
+// SYNDICATE (campaign.syndicates[]) out of a hideout near an urban settlement; the
+// market class caps its size + the perpetrators' effective level; members the boss does
+// not assign a hijink pay him MONTHLY TRIBUTE (the designer's-note shorthand path, RR
+// p.362); a CAUGHT hijink (HJ-1 already rolls the charge) opens a TRIAL — await-trial
+// languishing then the 2d6 Crime & Punishment roll, with the boss paying the fine.
+//
+// SCOPE (HJ-2, this wave): the enterprise core — formation, the passive monthly-tribute
+// take, and trials/sentencing (fine + outcome band + plead-guilty). 🔧 v1 simplifications,
+// documented in Mechanic Extensions: members are counted by level ({level,count}); the
+// PHYSICAL punishments (whip / brand / mutilation / execution) are stored as descriptive
+// text + left to the GM (the Mortal Wounds tie is agent-2's lane, #141); the per-member
+// hijink-FEE / individual member→hijink assignment / change-in-management takeover /
+// criminal-guild (multi-syndicate) layers are HJ-3. Tribute is a MANUAL verb (a panel
+// button at month-end), NOT auto-wired into commitTurn — that keeps this lane out of the
+// shared commitTurn hand-merge zone; auto-collection is a documented follow-on.
+//
+// campaign.syndicates[] is DEFENSIVE-READ + lazily initialized on first write (the HJ-1
+// idiom) — NO blankCampaign / migrateCampaign inject, so templates stay migrate-no-ops.
+// =============================================================================
+
+// The Hideout Size, Cost, and Level table (RR p.359). Market class → the max syndicate
+// membership the settlement can sustain, the minimum hideout gp to reach that size, and
+// the max effective perpetrator level for hijinks based in that market.
+const MARKET_SYNDICATE_CAPS = Object.freeze({
+  'VI':  { maxMembers: 25,   minHideoutGp: 5000,   maxEffectiveLevel: 3  },
+  'V':   { maxMembers: 50,   minHideoutGp: 10000,  maxEffectiveLevel: 5  },
+  'IV':  { maxMembers: 100,  minHideoutGp: 20000,  maxEffectiveLevel: 7  },
+  'III': { maxMembers: 375,  minHideoutGp: 75000,  maxEffectiveLevel: 9  },
+  'II':  { maxMembers: 750,  minHideoutGp: 150000, maxEffectiveLevel: 11 },
+  'I':   { maxMembers: 3000, minHideoutGp: 600000, maxEffectiveLevel: 14 }
+});
+const SYNDICATE_MARKET_ORDER = Object.freeze(['VI', 'V', 'IV', 'III', 'II', 'I']);   // ascending size
+
+// Monthly Member Tribute by member level (RR p.362). index = level, 0..8. 🔧 the RAW
+// table tops out at 8th level, so levels above 8 clamp to the level-8 value AND to the
+// market's max effective level (RAW: members above the cap pay tribute at the cap).
+const MONTHLY_MEMBER_TRIBUTE = Object.freeze([1, 5, 30, 200, 425, 650, 835, 1500, 2000]);
+
+// Classes that can found a syndicate (RR p.358 + p.43). Thief / assassin / (elven)
+// nightblade build hideouts; a venturer builds a GUILDHOUSE that counts as a hideout of
+// one-half its value when running a syndicate.
+const SYNDICATE_BOSS_CLASSES = Object.freeze(['Thief', 'Assassin', 'Nightblade', 'Elven Nightblade', 'Venturer']);
+const SYNDICATE_GUILDHOUSE_CLASSES = Object.freeze(['Venturer']);
+
+// ── Crime & Punishment (RR pp.367–368) ──
+// CRIME_PROFILES — per the charges a caught hijink produces (HJ-1 _hijinkRollCharge).
+//   languishing : the await-trial dice (RR p.367 Awaiting Trial; weeks/months pre-multiplied to days)
+//   severity    : the Crime & Punishment die modifier (RR p.368 "Severity of Crime")
+//   fine        : { lesser, standard, punitive } gp (RR p.368 Retribution by Crime)
+//   physical    : { lesser, standard, punitive } the non-monetary punishment, as GM-resolve text
+// 🔧 the physical punishments are descriptive only this wave — the mutilation/execution
+// mechanics tie to Mortal Wounds (#141, agent-2's lane) and are not auto-applied.
+const CRIME_PROFILES = Object.freeze({
+  'drunkenness':  { languishing: '1d2',    severity: 0,  fine: { lesser: 1,    standard: 2,    punitive: 5    }, physical: { lesser: '', standard: '', punitive: '' } },
+  'outrage':      { languishing: '1d2',    severity: 0,  fine: { lesser: 1,    standard: 2,    punitive: 5    }, physical: { lesser: '', standard: '', punitive: '' } },
+  'eavesdropping':{ languishing: '1d4',    severity: -1, fine: { lesser: 5,    standard: 10,   punitive: 25   }, physical: { lesser: '', standard: '', punitive: 'ear cut off (−1 reaction/listening/surprise)' } },
+  'solicitation': { languishing: '1d4',    severity: -1, fine: { lesser: 5,    standard: 10,   punitive: 25   }, physical: { lesser: '', standard: '', punitive: 'ear cut off (−1 reaction/listening/surprise)' } },
+  'trespassing':  { languishing: '1d4',    severity: -1, fine: { lesser: 10,   standard: 25,   punitive: 50   }, physical: { lesser: '', standard: '', punitive: 'placed in stocks 2d6 days' } },
+  'gambling':     { languishing: '1d4',    severity: -1, fine: { lesser: 10,   standard: 25,   punitive: 50   }, physical: { lesser: '', standard: '', punitive: 'placed in stocks 2d6 days' } },
+  'bribery':      { languishing: '1d6',    severity: -2, fine: { lesser: 25,   standard: 50,   punitive: 150  }, physical: { lesser: '', standard: 'stocks 2d6 days', punitive: 'tongue cut off (−4, cannot speak/cast)' } },
+  'theft':        { languishing: '1d6',    severity: -2, fine: { lesser: 150,  standard: 300,  punitive: 450  }, physical: { lesser: 'stocks 2d6 days', standard: 'whipped (Death save or scarring)', punitive: 'hand amputated' } },
+  'contraband':   { languishing: '1d6',    severity: -2, fine: { lesser: 150,  standard: 300,  punitive: 450  }, physical: { lesser: 'stocks 2d6 days', standard: 'whipped (Death save or scarring)', punitive: 'hand amputated' } },
+  'extortion':    { languishing: '1d6',    severity: -2, fine: { lesser: 150,  standard: 300,  punitive: 450  }, physical: { lesser: 'stocks 2d6 days', standard: 'whipped', punitive: 'hand amputated' } },
+  'assault':      { languishing: '1d8',    severity: -2, fine: { lesser: 300,  standard: 450,  punitive: 600  }, physical: { lesser: 'whipped', standard: 'whipped', punitive: 'tortured (permanent wound)' } },
+  'vandalism':    { languishing: '1d8',    severity: -2, fine: { lesser: 300,  standard: 450,  punitive: 600  }, physical: { lesser: 'whipped', standard: 'whipped', punitive: 'tortured (permanent wound)' } },
+  'burglary':     { languishing: '4w',     severity: -3, fine: { lesser: 450,  standard: 600,  punitive: 900  }, physical: { lesser: 'whipped', standard: 'branded (scarring)', punitive: 'both hands amputated' } },
+  'smuggling':    { languishing: '4w',     severity: -3, fine: { lesser: 450,  standard: 600,  punitive: 900  }, physical: { lesser: 'whipped', standard: 'branded (scarring)', punitive: 'both hands amputated' } },
+  'kidnapping':   { languishing: '4mo',    severity: -3, fine: { lesser: 600,  standard: 750,  punitive: 0    }, physical: { lesser: 'whipped', standard: 'tortured (permanent wound)', punitive: 'tortured + proscribed (exile)' } },
+  'manslaughter': { languishing: '4mo',    severity: -4, fine: { lesser: 600,  standard: 750,  punitive: 0    }, physical: { lesser: 'whipped', standard: 'tortured (permanent wound)', punitive: 'tortured + proscribed (exile)' } },
+  'mayhem':       { languishing: '4mo',    severity: -4, fine: { lesser: 600,  standard: 750,  punitive: 0    }, physical: { lesser: 'whipped', standard: 'tortured (permanent wound)', punitive: 'tortured + proscribed (exile)' } },
+  'robbery':      { languishing: '6mo',    severity: -4, fine: { lesser: 750,  standard: 900,  punitive: 1200 }, physical: { lesser: 'branded (scarring)', standard: 'hand amputated', punitive: 'execution (beheaded or hung)' } },
+  'racketeering': { languishing: '6mo',    severity: -4, fine: { lesser: 750,  standard: 900,  punitive: 1200 }, physical: { lesser: 'branded (scarring)', standard: 'hand amputated', punitive: 'execution (beheaded or hung)' } },
+  'arson':        { languishing: '12mo',   severity: -5, fine: { lesser: 0,    standard: 0,    punitive: 0    }, physical: { lesser: 'proscribed (exile)', standard: 'execution', punitive: 'agonizing execution' } },
+  'murder':       { languishing: '12mo',   severity: -5, fine: { lesser: 0,    standard: 0,    punitive: 0    }, physical: { lesser: 'proscribed (exile)', standard: 'execution', punitive: 'agonizing execution' } },
+  'sedition':     { languishing: '12mo',   severity: -4, fine: { lesser: 0,    standard: 0,    punitive: 0    }, physical: { lesser: 'proscribed (exile)', standard: 'execution', punitive: 'agonizing execution' } },
+  'sabotage':     { languishing: '1d8',    severity: -2, fine: { lesser: 300,  standard: 450,  punitive: 600  }, physical: { lesser: 'whipped', standard: 'whipped', punitive: 'tortured (permanent wound)' } }
+});
+// HJ-1's per-hijink charge names that don't match a RAW crime row → resolve to one (RR pp.366–368).
+const CRIME_ALIASES = Object.freeze({
+  'grand larceny': 'robbery',   // HJ-1 stealing's 6-roll (RAW p.366 names it 'robbery')
+  'espionage':     'eavesdropping',
+  'unknown':       'trespassing'
+});
+
+// The 2d6 Crime & Punishment table (RR p.368). Adjusted die roll → the verdict band.
+function crimePunishmentBand(adjustedRoll){
+  if(adjustedRoll <= 2)  return { band: 'punitive-conviction',       label: 'Punitive Conviction',        punishmentLevel: 'punitive' };
+  if(adjustedRoll <= 5)  return { band: 'conviction',                label: 'Conviction',                 punishmentLevel: 'standard' };
+  if(adjustedRoll <= 8)  return { band: 'conviction-lesser',         label: 'Conviction on Lesser Charge', punishmentLevel: 'lesser' };
+  if(adjustedRoll <= 11) return { band: 'acquittal',                 label: 'Acquittal',                  punishmentLevel: 'acquitted' };
+  return                      { band: 'acquittal-damages',         label: 'Acquittal with Damages',     punishmentLevel: 'acquitted-damages' };
+}
+
+// ── syndicate factory (campaign.syndicates[]) ──
+function blankSyndicate(opts){
+  opts = opts || {};
+  return {
+    schemaVersion: 2,
+    kind: 'syndicate',
+    id: opts.id || ((ACKS.ID_PREFIXES && ACKS.newId) ? ACKS.newId(ACKS.ID_PREFIXES.syndicate || 'syn') : ('syn-' + Math.random().toString(36).slice(2, 9))),
+    name: opts.name || '',
+    bossCharacterId: opts.bossCharacterId || null,        // the boss (analogous to a domain ruler)
+    baseSettlementId: opts.baseSettlementId || null,      // the urban settlement (base of operations)
+    hexId: opts.hexId || null,                            // the hideout hex (≤6mi from base)
+    marketClass: opts.marketClass || 'VI',                // I..VI — caps size + effective level
+    hideoutType: opts.hideoutType || 'hideout',           // 'hideout' | 'guildhouse' (venturer ½ value)
+    hideoutValueGp: opts.hideoutValueGp || 0,             // gp invested in the hideout
+    members: Array.isArray(opts.members) ? opts.members : [],  // [{ level, count }] — 0th ruffians counted in groups
+    status: opts.status || 'active',                      // 'active' | 'disbanded'
+    foundedTurn: opts.foundedTurn || 1,
+    lastTributeTurn: (opts.lastTributeTurn != null) ? opts.lastTributeTurn : null,
+    history: opts.history || []
+  };
+}
+
+// ── syndicate lookups (pure) ──
+function findSyndicate(campaign, id){ return ((campaign && campaign.syndicates) || []).find(s => s && s.id === id) || null; }
+function syndicatesForBoss(campaign, charId){ return ((campaign && campaign.syndicates) || []).filter(s => s && s.bossCharacterId === charId); }
+function syndicatesAtSettlement(campaign, setId){ return ((campaign && campaign.syndicates) || []).filter(s => s && s.baseSettlementId === setId); }
+function activeSyndicates(campaign){ return ((campaign && campaign.syndicates) || []).filter(s => s && s.status !== 'disbanded'); }
+
+// ── caps + composition (RR p.359) ──
+function syndicateMaxEffectiveLevel(marketClass){ const c = MARKET_SYNDICATE_CAPS[marketClass]; return c ? c.maxEffectiveLevel : 3; }
+// The membership tier a hideout VALUE unlocks: the largest max-membership whose minimum
+// hideout cost is met (RR p.359 — Viktir's 10,000gp hideout in a Class IV market caps at 50).
+function _membershipForHideoutValue(effectiveGp){
+  let best = 0;
+  for(const mc of SYNDICATE_MARKET_ORDER){ const row = MARKET_SYNDICATE_CAPS[mc]; if(effectiveGp >= row.minHideoutGp && row.maxMembers > best) best = row.maxMembers; }
+  return best;
+}
+// A guildhouse counts as a hideout of one-half its value (RR p.43).
+function syndicateEffectiveHideoutGp(syn){ const v = (syn && syn.hideoutValueGp) || 0; return (syn && syn.hideoutType === 'guildhouse') ? Math.floor(v / 2) : v; }
+// The effective max membership: the market class's ceiling, further limited by the hideout value.
+function syndicateMaxMembers(syn){
+  if(!syn) return 0;
+  const classMax = (MARKET_SYNDICATE_CAPS[syn.marketClass] || MARKET_SYNDICATE_CAPS['VI']).maxMembers;
+  return Math.min(classMax, _membershipForHideoutValue(syndicateEffectiveHideoutGp(syn)));
+}
+function syndicateMemberCount(syn){ return ((syn && syn.members) || []).reduce((n, m) => n + (Math.max(0, (m && m.count) || 0)), 0); }
+
+// RAW p.358: who can found a syndicate. Returns '' if eligible, else the reason.
+function syndicateBossIneligibleReason(ch){
+  if(!ch) return 'no boss selected';
+  if(SYNDICATE_BOSS_CLASSES.indexOf(ch.class) >= 0) return '';
+  return 'only ' + SYNDICATE_BOSS_CLASSES.join(' / ') + ' may run a syndicate (RR p.358)';
+}
+function syndicateBossEligible(ch){ return syndicateBossIneligibleReason(ch) === ''; }
+
+// The market class of a settlement, if recorded (else null → caller falls back to opts).
+function _settlementMarketClass(campaign, setId){
+  if(!setId) return null;
+  const s = ((campaign && campaign.settlements) || []).find(x => x && x.id === setId);
+  return (s && (s.marketClass || s.market || null)) || null;
+}
+
+// =============================================================================
+// formSyndicate — the formation verb (a GM/player action). Validates the boss class +
+// derives the market class from the base settlement (RAW: the settlement determines size),
+// sets the hideout type (a venturer's guildhouse), pushes the syndicate, and emits a
+// 'hijink-syndicate-formed' record. Returns { ok, syndicate } or { ok:false, error }.
+// =============================================================================
+function formSyndicate(campaign, opts){
+  opts = opts || {};
+  if(!campaign) return { ok: false, error: 'no-campaign' };
+  const boss = opts.bossCharacterId ? ((campaign.characters) || []).find(c => c && c.id === opts.bossCharacterId) : null;
+  if(opts.bossCharacterId && !boss) return { ok: false, error: 'unknown-boss' };
+  if(boss && !syndicateBossEligible(boss)) return { ok: false, error: 'boss-ineligible', detail: syndicateBossIneligibleReason(boss) };
+  // market class: the base settlement's, else an explicit opt, else VI.
+  const marketClass = _settlementMarketClass(campaign, opts.baseSettlementId) || opts.marketClass || 'VI';
+  if(!MARKET_SYNDICATE_CAPS[marketClass]) return { ok: false, error: 'bad-market-class', detail: marketClass };
+  // a venturer's stronghold is a guildhouse (½ value); else a hideout. opts can force it.
+  const hideoutType = opts.hideoutType || ((boss && SYNDICATE_GUILDHOUSE_CLASSES.indexOf(boss.class) >= 0) ? 'guildhouse' : 'hideout');
+  const syn = blankSyndicate({
+    id: opts.id,
+    name: opts.name || ((boss && boss.name) ? (boss.name + "'s Syndicate") : 'Unnamed Syndicate'),
+    bossCharacterId: opts.bossCharacterId || null,
+    baseSettlementId: opts.baseSettlementId || null,
+    hexId: opts.hexId || (boss && boss.currentHexId) || null,
+    marketClass, hideoutType,
+    hideoutValueGp: opts.hideoutValueGp || 0,
+    members: Array.isArray(opts.members) ? opts.members : [],
+    foundedTurn: campaign.currentTurn || 1
+  });
+  syn.history.push({ turn: syn.foundedTurn, type: 'founded',
+    narrative: (boss && boss.name ? boss.name : 'A boss') + ' founds ' + (syn.name) + ' (Class ' + marketClass + ' ' + hideoutType + ').' });
+  campaign.syndicates = campaign.syndicates || [];   // defensive lazy-init (the HJ-1 idiom)
+  campaign.syndicates.push(syn);
+  _emitSyndicateEvent(campaign, syn, 'hijink-syndicate-formed',
+    { syndicateId: syn.id, bossCharacterId: syn.bossCharacterId, baseSettlementId: syn.baseSettlementId, marketClass },
+    (boss && boss.name ? boss.name : 'A boss') + ' establishes the syndicate "' + syn.name + '".');
+  return { ok: true, syndicate: syn };
+}
+
+// Add/remove members (counted by level). Respects the market+hideout max-membership cap.
+function addSyndicateMembers(campaign, synId, level, count){
+  const syn = findSyndicate(campaign, synId);
+  if(!syn) return { ok: false, error: 'unknown-syndicate' };
+  const lvl = Math.max(0, Math.floor(level || 0)), add = Math.max(0, Math.floor(count || 0));
+  if(!add) return { ok: false, error: 'no-count' };
+  if(syndicateMemberCount(syn) + add > syndicateMaxMembers(syn)) return { ok: false, error: 'over-max', detail: 'max ' + syndicateMaxMembers(syn) + ' members for this hideout' };
+  const bucket = (syn.members || []).find(m => m && (m.level || 0) === lvl);
+  if(bucket) bucket.count = (bucket.count || 0) + add;
+  else { syn.members = syn.members || []; syn.members.push({ level: lvl, count: add }); }
+  syn.members.sort((a, b) => (a.level || 0) - (b.level || 0));
+  return { ok: true, syndicate: syn };
+}
+function removeSyndicateMembers(campaign, synId, level, count){
+  const syn = findSyndicate(campaign, synId);
+  if(!syn) return { ok: false, error: 'unknown-syndicate' };
+  const lvl = Math.max(0, Math.floor(level || 0)), sub = Math.max(0, Math.floor(count || 0));
+  const bucket = (syn.members || []).find(m => m && (m.level || 0) === lvl);
+  if(!bucket) return { ok: false, error: 'no-such-level' };
+  bucket.count = Math.max(0, (bucket.count || 0) - sub);
+  syn.members = (syn.members || []).filter(m => m && (m.count || 0) > 0);
+  return { ok: true, syndicate: syn };
+}
+
+// =============================================================================
+// Tribute — the designer's-note monthly take (RR p.362). The boss collects tribute from
+// every member he does NOT assign a hijink; the table is tuned so it equals the average
+// hijink profit, so a boss can "sit back and collect his ill-gotten gains." 🔧 this wave
+// ships the passive whole-roster take (the detailed per-member assignment path is HJ-3).
+// =============================================================================
+function memberMonthlyTribute(level, maxEffectiveLevel){
+  const cap = (typeof maxEffectiveLevel === 'number') ? maxEffectiveLevel : 8;
+  const idx = Math.max(0, Math.min(Math.floor(level || 0), cap, MONTHLY_MEMBER_TRIBUTE.length - 1));
+  return MONTHLY_MEMBER_TRIBUTE[idx];
+}
+// Derived read: the monthly tribute total + the per-level breakdown (the Viktir example).
+function syndicateMonthlyTribute(campaign, syn){
+  if(!syn) return { totalGp: 0, lines: [], maxEffectiveLevel: 3 };
+  const maxEff = syndicateMaxEffectiveLevel(syn.marketClass);
+  const lines = ((syn.members) || []).filter(m => m && (m.count || 0) > 0).map(m => {
+    const perMember = memberMonthlyTribute(m.level, maxEff);
+    return { level: m.level || 0, count: m.count || 0, perMember, subtotal: perMember * (m.count || 0) };
+  });
+  return { totalGp: lines.reduce((n, l) => n + l.subtotal, 0), lines, maxEffectiveLevel: maxEff };
+}
+// The collect-tribute verb: routes the monthly take to the boss's purse via the GP Wave B
+// grammar (a wealth-transfer, bucket 'hijinks'), emits 'hijink-tribute', stamps the turn.
+function collectSyndicateTribute(campaign, synId, opts){
+  opts = opts || {};
+  const syn = findSyndicate(campaign, synId);
+  if(!syn) return { ok: false, error: 'unknown-syndicate' };
+  if(!syn.bossCharacterId) return { ok: false, error: 'no-boss' };
+  const turn = (opts.atTurn != null) ? opts.atTurn : (campaign.currentTurn || 1);
+  if(!opts.force && syn.lastTributeTurn === turn) return { ok: false, error: 'already-collected', detail: 'tribute already collected this turn' };
+  const trib = syndicateMonthlyTribute(campaign, syn);
+  const boss = ((campaign.characters) || []).find(c => c && c.id === syn.bossCharacterId);
+  if(trib.totalGp > 0){
+    const A = global.ACKS;
+    const spec = { amount: trib.totalGp,
+      source: { kind: 'external', label: syn.name + ' tribute' },
+      destination: { kind: 'character-gp', id: syn.bossCharacterId, label: (boss && boss.name) ? (boss.name + "'s purse") : null },
+      reason: 'syndicate monthly tribute', bucket: 'hijinks' };
+    if(typeof A.applyWealthTransfer === 'function'){
+      try { A.applyWealthTransfer(campaign, spec); if(typeof A.recordWealthTransfer === 'function') A.recordWealthTransfer(campaign, spec, { submittedBy: 'engine' }); } catch(e){}
+    }
+  }
+  syn.lastTributeTurn = turn;
+  const narrative = (boss && boss.name ? boss.name : 'The boss') + ' collects ' + trib.totalGp.toLocaleString() + 'gp in monthly tribute from ' + syndicateMemberCount(syn) + ' members of ' + syn.name + '.';
+  syn.history.push({ turn, type: 'tribute', narrative, gp: trib.totalGp });
+  _emitSyndicateEvent(campaign, syn, 'hijink-tribute',
+    { syndicateId: syn.id, totalGp: trib.totalGp, bossCharacterId: syn.bossCharacterId, turn }, narrative);
+  return { ok: true, totalGp: trib.totalGp, lines: trib.lines };
+}
+
+// =============================================================================
+// Trials & sentencing (RR pp.367–368). A caught hijink (HJ-1 set h.outcome='caught' and
+// rolled h.charge) leads to await-trial languishing, then the 2d6 Crime & Punishment roll
+// (or an auto plead-guilty for the first/second offence). The boss pays the fine (RAW:
+// "the syndicate boss is expected to pay for the lawyers, bribes, fines… of members who
+// get caught"); a perpetrator who can't pay works it off as indenture (3gp/month). 🔧 the
+// physical punishments are GM-resolve text (the Mortal Wounds tie is #141).
+// =============================================================================
+function crimeProfile(charge){
+  const key = CRIME_ALIASES[String(charge || '').toLowerCase()] || String(charge || '').toLowerCase();
+  const p = CRIME_PROFILES[key];
+  return p ? Object.assign({ crime: key }, p) : { crime: key || 'unknown', languishing: '1d4', severity: -1, fine: { lesser: 25, standard: 50, punitive: 100 }, physical: { lesser: '', standard: '', punitive: '' } };
+}
+// The await-trial languishing duration in days (RR p.367). '4w' = 1d4 weeks, '4mo' =
+// 1d4 months, '6mo' = 1d6 months, '12mo' = 1d12 months (a month = 30 days here).
+function awaitTrialDays(charge, rng){
+  rng = rng || Math.random;
+  const code = crimeProfile(charge).languishing;
+  if(code === '4w')   return _rollDice('1d4', rng) * 7;
+  if(code === '4mo')  return _rollDice('1d4', rng) * 30;
+  if(code === '6mo')  return _rollDice('1d6', rng) * 30;
+  if(code === '12mo') return _rollDice('1d12', rng) * 30;
+  if(code === '24mo') return _rollDice('2d12', rng) * 30;
+  return _rollDice(code, rng);
+}
+// The 2d6 Crime & Punishment modifiers (RR p.368): CHA + Diplomacy/Mystic Aura/Seduction
+// proficiencies + crime severity + evidence (1d4 favorable − 1d8 unfavorable) + GM.
+function _trialAbilityMod(ch, abil){
+  // ACKS ability modifier table (RR p.16): 3→−3 … 18→+3.
+  const v = (ch && ch.abilities && (ch.abilities[abil] != null ? ch.abilities[abil] : ch.abilities[abil && abil.toUpperCase()])) || 10;
+  if(v <= 3) return -3; if(v <= 5) return -2; if(v <= 8) return -1; if(v <= 12) return 0; if(v <= 15) return 1; if(v <= 17) return 2; return 3;
+}
+function hijinkTrialModifiers(campaign, h, opts){
+  opts = opts || {};
+  const perp = ((campaign && campaign.characters) || []).find(c => c && c.id === (h && h.perpetratorCharacterId));
+  const parts = [];
+  let total = 0;
+  const cha = _trialAbilityMod(perp, 'CHA');
+  if(cha){ total += cha; parts.push({ label: 'CHA', value: cha }); }
+  ['Diplomacy', 'Mystic Aura', 'Seduction'].forEach(p => { if(_hijinkHasProf(perp, p)){ total += 1; parts.push({ label: p, value: 1 }); } });
+  const prof = crimeProfile(h && h.charge);
+  if(prof.severity){ total += prof.severity; parts.push({ label: 'severity (' + prof.crime + ')', value: prof.severity }); }
+  if(typeof opts.evidenceMod === 'number' && opts.evidenceMod){ total += opts.evidenceMod; parts.push({ label: 'evidence', value: opts.evidenceMod }); }
+  if(typeof opts.attorneyMod === 'number' && opts.attorneyMod){ total += opts.attorneyMod; parts.push({ label: 'attorney/interpleader', value: opts.attorneyMod }); }
+  if(typeof opts.bribeMod === 'number' && opts.bribeMod){ total += opts.bribeMod; parts.push({ label: 'bribe', value: opts.bribeMod }); }
+  if(typeof opts.gmModifier === 'number' && opts.gmModifier){ total += opts.gmModifier; parts.push({ label: 'GM', value: opts.gmModifier }); }
+  return { total, parts };
+}
+// Resolve a caught hijink's trial. opts: { plea:'guilty'|'trial', priorOffenses, rng, +trial mods }.
+function resolveHijinkTrial(campaign, hijinkId, opts){
+  opts = opts || {};
+  const h = findHijink(campaign, hijinkId);
+  if(!h) return { ok: false, error: 'unknown-hijink' };
+  // RAW: a trial follows being CAUGHT — i.e. the hijink has resolved to its caught terminal
+  // state (HJ-1 locks the outcome at launch but keeps it hidden until the day-tick reveals it).
+  if(h.status !== 'caught') return { ok: false, error: 'not-caught', detail: 'the perpetrator has not been caught (the hijink must resolve as caught first)' };
+  if(h.trial && h.trial.resolved) return { ok: false, error: 'already-tried' };
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+  const prof = crimeProfile(h.charge);
+  const priors = Math.max(0, Math.floor(opts.priorOffenses || 0));
+  const languishingDays = awaitTrialDays(h.charge, rng);
+  let band, label, punishmentLevel, dieRoll = null, mods = null;
+  const plea = (opts.plea === 'trial') ? 'trial' : 'guilty';
+  if(plea === 'guilty'){
+    // 1st catch → lesser; 2nd → standard; 3rd+ must stand trial (RR p.367).
+    if(priors >= 2) return { ok: false, error: 'must-stand-trial', detail: 'a third offence must stand trial' };
+    punishmentLevel = (priors === 0) ? 'lesser' : 'standard';
+    band = 'plead-guilty'; label = 'Pleaded guilty';
+  } else {
+    mods = hijinkTrialModifiers(campaign, h, opts);
+    dieRoll = _rollDice('2d6', rng);
+    const adjusted = dieRoll + mods.total;
+    const verdict = crimePunishmentBand(adjusted);
+    band = verdict.band; label = verdict.label; punishmentLevel = verdict.punishmentLevel;
+  }
+  // fines: a conviction debits the fine; acquittal-with-damages awards the would-be fine TO the perpetrator.
+  let fineGp = 0, damagesGp = 0;
+  if(punishmentLevel === 'acquitted'){ fineGp = 0; }
+  else if(punishmentLevel === 'acquitted-damages'){ damagesGp = prof.fine.standard || 0; }
+  else { fineGp = prof.fine[punishmentLevel] || 0; }
+  const physical = (punishmentLevel === 'acquitted' || punishmentLevel === 'acquitted-damages') ? '' : (prof.physical[punishmentLevel] || '');
+
+  // pay the fine (boss if a syndicate member, else the perpetrator) — clamp to funds, the
+  // remainder becomes indenture (RAW 3gp/month); award damages to the perpetrator.
+  const A = global.ACKS;
+  const payerId = h.bossCharacterId || h.perpetratorCharacterId;
+  let paidGp = 0, indentureGp = 0;
+  if(fineGp > 0 && payerId && typeof A.applyWealthTransfer === 'function'){
+    const payer = ((campaign.characters) || []).find(c => c && c.id === payerId);
+    const avail = (payer && payer.coins && Number(payer.coins.gp)) || 0;
+    paidGp = Math.min(fineGp, Math.max(0, avail));
+    indentureGp = fineGp - paidGp;
+    if(paidGp > 0){
+      const spec = { amount: paidGp, source: { kind: 'character-gp', id: payerId, label: (payer && payer.name) ? (payer.name + "'s purse") : null },
+        destination: { kind: 'external', label: 'court fine (' + prof.crime + ')' }, reason: 'hijink trial fine', bucket: 'hijinks' };
+      try { A.applyWealthTransfer(campaign, spec); if(typeof A.recordWealthTransfer === 'function') A.recordWealthTransfer(campaign, spec, { submittedBy: 'engine' }); } catch(e){}
+    }
+  } else if(damagesGp > 0 && h.perpetratorCharacterId && typeof A.applyWealthTransfer === 'function'){
+    const spec = { amount: damagesGp, source: { kind: 'external', label: 'court damages' },
+      destination: { kind: 'character-gp', id: h.perpetratorCharacterId, label: null }, reason: 'hijink trial damages', bucket: 'hijinks' };
+    try { A.applyWealthTransfer(campaign, spec); if(typeof A.recordWealthTransfer === 'function') A.recordWealthTransfer(campaign, spec, { submittedBy: 'engine' }); } catch(e){}
+  }
+
+  const acquitted = (punishmentLevel === 'acquitted' || punishmentLevel === 'acquitted-damages');
+  h.trial = { resolved: true, plea, band, label, punishmentLevel, crime: prof.crime, charge: h.charge, severity: prof.severity,
+    dieRoll, adjustedRoll: (dieRoll != null && mods) ? (dieRoll + mods.total) : null, modifiers: mods ? mods.parts : [],
+    languishingDays, fineGp, paidGp, indentureGp, damagesGp, physical, acquitted,
+    resolvedTurn: campaign.currentTurn || 1 };
+
+  const perpName = (() => { const c = ((campaign.characters) || []).find(x => x && x.id === h.perpetratorCharacterId); return (c && c.name) || 'The perpetrator'; })();
+  let narrative;
+  if(acquitted) narrative = perpName + ' is ' + (punishmentLevel === 'acquitted-damages' ? ('acquitted of ' + prof.crime + ' with ' + damagesGp.toLocaleString() + 'gp damages') : ('acquitted of ' + prof.crime)) + ' after ' + languishingDays + ' days awaiting trial.';
+  else narrative = perpName + ' is convicted of ' + prof.crime + ' (' + label + ')' + (fineGp ? (' — fined ' + fineGp.toLocaleString() + 'gp' + (indentureGp ? (' (' + indentureGp.toLocaleString() + 'gp indentured)') : '')) : '') + (physical ? (' — ' + physical) : '') + '.';
+  h.history.push({ turn: h.trial.resolvedTurn, type: 'tried', narrative });
+  _emitSyndicateEvent(campaign, h, 'hijink-trial',
+    { hijinkId: h.id, charge: h.charge, crime: prof.crime, band, punishmentLevel, fineGp, indentureGp, damagesGp, acquitted }, narrative);
+  return Object.assign({ ok: true }, h.trial, { narrative });
+}
+
+// Emit a syndicate/trial event into the eventLog. Mirrors _emitHijinkEvent but takes the
+// context from either a syndicate (formed/tribute) or a hijink (trial). Record-only audit.
+function _emitSyndicateEvent(campaign, entity, kind, payload, narrative){
+  const A = global.ACKS;
+  if(typeof A.newEvent !== 'function') return null;
+  const cal = campaign.calendar || {};
+  const isSyndicate = entity && entity.kind === 'syndicate';
+  let ev;
+  try {
+    ev = A.newEvent(kind, {
+      submittedBy: 'engine', cadence: isSyndicate ? 'monthly-turn' : 'daily', targetTurn: campaign.currentTurn || 1,
+      gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
+      payload: Object.assign({ narrative }, payload || {})
+    });
+  } catch(e){ return null; }
+  if(typeof A.setEventContext === 'function'){
+    const related = [];
+    if(isSyndicate){
+      if(entity.bossCharacterId) related.push({ kind: 'character', id: entity.bossCharacterId, role: 'subject' });
+      related.push({ kind: 'syndicate', id: entity.id, role: 'site' });
+    } else {
+      if(entity.perpetratorCharacterId) related.push({ kind: 'character', id: entity.perpetratorCharacterId, role: 'subject' });
+      if(entity.bossCharacterId) related.push({ kind: 'character', id: entity.bossCharacterId, role: 'beneficiary' });
+    }
+    A.setEventContext(ev, {
+      primaryHexId: (entity && entity.hexId) || null,
+      settlementId: (entity && (entity.settlementId || entity.baseSettlementId)) || null,
+      domainId: (entity && entity.domainId) || null,
+      relatedEntities: related
+    });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = campaign.currentTurn || 1;
+  ev.appliedAtDay = campaign.currentDayInMonth || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
 // ── self-register the slot-60 'hijinks' day-consumer (the weather/construction-module
 // pattern; registerDayConsumer ships from acks-engine.js, loaded before this module) ──
 if(typeof ACKS.registerDayConsumer === 'function'){
@@ -581,7 +1011,16 @@ Object.assign(ACKS, {
   blankHijink, hijinkDefinition, hijinkTypes,
   hijinkPerpetratorEligible, hijinkIneligibleReason, hijinkThrowProfile, hijinkResolveThrow,
   startHijink, proposeHijinkDay, commitHijinkRecord,
-  findHijink, hijinksForPerpetrator, hijinksAtSettlement, activeHijinks, hijinkPhaseLabel
+  findHijink, hijinksForPerpetrator, hijinksAtSettlement, activeHijinks, hijinkPhaseLabel,
+  // === Hijinks HJ-2 (team 2026-06-13) — syndicates / tribute / trials ===
+  MARKET_SYNDICATE_CAPS, MONTHLY_MEMBER_TRIBUTE, SYNDICATE_BOSS_CLASSES, SYNDICATE_MARKET_ORDER,
+  CRIME_PROFILES, CRIME_ALIASES,
+  blankSyndicate, formSyndicate, findSyndicate, syndicatesForBoss, syndicatesAtSettlement, activeSyndicates,
+  addSyndicateMembers, removeSyndicateMembers,
+  syndicateMaxEffectiveLevel, syndicateEffectiveHideoutGp, syndicateMaxMembers, syndicateMemberCount,
+  syndicateBossEligible, syndicateBossIneligibleReason,
+  memberMonthlyTribute, syndicateMonthlyTribute, collectSyndicateTribute,
+  crimeProfile, awaitTrialDays, crimePunishmentBand, hijinkTrialModifiers, resolveHijinkTrial
 });
 
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;

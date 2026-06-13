@@ -131,6 +131,8 @@ const ID_PREFIXES = Object.freeze({
   recruitmentDrive:     'rcd',
   // Phase 2.7 Hijinks (HJ-1, world-front team session 2026-06-13) — registered canonically at integration
   hijink:               'hij',
+  // === Hijinks HJ-2 (team 2026-06-13) — Syndicate (RR pp.358–362; campaign.syndicates[])
+  syndicate:            'syn',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
   favorDutyObligation:  'fdo',
   // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)
