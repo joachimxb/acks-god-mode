@@ -189,17 +189,28 @@
       displayName: (c, obj) => obj ? ((obj.kind || 'edict') + ': ' + (obj.liegeCharacterId || '?') + ' → ' + (obj.vassalDomainId || '?')) : '' },
 
     // ── RESERVED (collections defined; subsystems not yet shipped) ──
+    // === Religion R0 (team 2026-06-13) — Wave E now active (Phase_4_Religion_Plan.md). The
+    // Deity reference entity is added; congregation/divineFavor were pre-reserved. divineFavor's
+    // displayName is corrected to read only blankDivineFavor fields (it has NO `name`; D1) — else
+    // the displayName + schema⊆factory smoke invariants fail once the factory exists. ──
+    { kind: 'deity', label: 'Deity', pluralLabel: 'Deities', icon: '🛐',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.deities) || [],
+      find: (c, id) => ((c && c.deities) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
     { kind: 'congregation', label: 'Congregation', pluralLabel: 'Congregations', icon: '⛪',
       addressable: true, chronicleable: true,
       list: (c) => (c && c.congregations) || [],
       find: (c, id) => ((c && c.congregations) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
 
-    { kind: 'divineFavor', label: 'Divine Favor', pluralLabel: 'Divine Favors', icon: '✨',
+    { kind: 'divineFavor', label: 'Divine Favor', pluralLabel: 'Divine Favors', icon: '📿',
       addressable: true, chronicleable: true,
       list: (c) => (c && c.divineFavors) || [],
       find: (c, id) => ((c && c.divineFavors) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+      // blankDivineFavor emits characterId + deityId (no `name`, D1) — describe by the relation.
+      displayName: (c, obj) => obj ? ((obj.characterId || '?') + ' ⛪ ' + (obj.deityId || '?')) : '' },
 
     { kind: 'attunement', label: 'Attunement', pluralLabel: 'Attunements', icon: '🔮',
       addressable: true, chronicleable: true,

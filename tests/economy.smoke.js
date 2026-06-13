@@ -22,17 +22,8 @@
 const path = require('path');
 // Load all engine modules in order; each accumulates onto global.ACKS. acks-engine-economy.js
 // captures its constants from catalogs/engine/entities at load, so it loads after those three.
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
-  'acks-engine.js',
-  'acks-engine-entities.js',
-  'acks-engine-economy.js',
-  'acks-engine-entity-registry.js',
-  'acks-engine-field-schemas.js',
-  'acks-engine-events.js', 'acks-engine-battles.js',
-  'acks-engine-maneuvers.js', 'acks-engine-subsystems.js',
-  'acks-demo-template.js',
-].forEach(f => require(path.join(__dirname, '..', f)));
+require('./_engine.js').load();
+require(path.join(__dirname, '..', 'acks-demo-template.js'));
 const ACKS = global.ACKS;
 const ORACLE = require(path.join(__dirname, 'fixtures', 'economy-demo-oracle.json'));
 

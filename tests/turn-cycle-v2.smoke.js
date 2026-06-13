@@ -22,16 +22,7 @@
 const path = require('path');
 const fs = require('fs');
 // Load all engine modules in order; each accumulates onto global.ACKS.
-[
-  'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
-  'acks-engine.js',
-  'acks-engine-entities.js',
-  'acks-engine-economy.js',
-  'acks-engine-entity-registry.js',
-  'acks-engine-field-schemas.js',
-  'acks-engine-events.js', 'acks-engine-battles.js',
-  'acks-engine-maneuvers.js', 'acks-engine-subsystems.js',
-].forEach(f => require(path.join(__dirname, '..', f)));
+require('./_engine.js').load();
 const ACKS = global.ACKS;
 
 let passed = 0;

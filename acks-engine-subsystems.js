@@ -2446,7 +2446,19 @@ function tickJourneyDay(campaign, journey, ctx){
   // the domain-admin gate resolves. Falls back to the stored pace if the helper isn't present.
   const pace = (typeof A.journeyEffectivePace === 'function') ? A.journeyEffectivePace(campaign, journey) : (journey.pace || 'normal');
   const halted = (pace === 'halted');   // the day's activities (or the GM) leave no room to travel → 0 hexes, no nav/ford
-  const weather = (ctx.weather && ctx.weather.condition) ? ctx.weather : { condition: 'fair', temperature: 'moderate', rolledOrSet: 'gm-fiat' };
+  // Weather HW-2 (team agent-2): the slot-1 weather day-consumer hands the day's per-region
+  // weather to downstream consumers via ctx.weatherByRegion (keyed by the 24-mile region key).
+  // Prefer THIS journey's own region (multi-region-day correctness), fall back to the single
+  // ctx.weather (the common single-region case), then the gm-fiat default. Defensive: works
+  // with the weather module absent (falls straight to ctx.weather).
+  const weather = (function(){
+    const byR = ctx.weatherByRegion;
+    if(byR && typeof A.journeyRegionKey === 'function'){
+      const k = A.journeyRegionKey(campaign, journey);
+      if(k && byR[k] && byR[k].condition) return byR[k];
+    }
+    return (ctx.weather && ctx.weather.condition) ? ctx.weather : { condition: 'fair', temperature: 'moderate', rolledOrSet: 'gm-fiat' };
+  })();
 
   // carry-forward absolutes
   let fatigueDays = journey.fatigueDays || 0;

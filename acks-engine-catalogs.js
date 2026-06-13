@@ -184,7 +184,6 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'monthly-commit-subsumes-in-flight', category:'world', name:'Monthly commit subsumes in-flight activity', source:'Phase 2.95 Calendar §13', description:'At month end, unresolved day-aware activities auto-complete at their current state. When off, the GM must resolve them day-by-day before the monthly commit. Default on.' },
   { id:'journey-batching-routine', category:'world', name:'Journey batching (routine)', source:'Phase 2.95 Calendar §13', description:'Silent-advance routine travel until a consumer surfaces a notable event. Effect lands with Journeys. Default off.' },
   { id:'journey-fast-travel', category:'world', name:'Journey fast-travel', source:'Phase 2.95 Calendar §13', description:'Collapse known-safe travel stretches to single-roll summary outcomes. Effect lands with Journeys. Default off.' },
-  { id:'realistic-weather', category:'world', name:'Realistic weather', source:'Phase 2.95 Calendar §13', description:'Roll weather per day on regional tables instead of GM fiat. Effect lands with the weather consumer. Default off.' },
   // RAW-default posture (CLAUDE §6, the fatigue/rations flip-queue): on a Journey the engine
   // tracks RAW rations + the JJ p.84 strenuous-day fatigue cycle BY DEFAULT (no toggle). These
   // two opt-ins SIMPLIFY away from RAW — they are the simplification, never RAW-behind-a-toggle.
@@ -352,7 +351,16 @@ const HOUSERULES_REGISTRY = Object.freeze([
     description:"Architectural placeholder for elven-specific domain features: fastnesses, elven family/follower mechanics, mythic groves, and elven realm politics." },
   { id:'beastman-domains', category:'cultural', name:'Beastman domains (clanholds and transitional)',
     source:'ACKS II RR (clanholds) + future supplement (Phase 4.8 placeholder)',
-    description:"Architectural placeholder for the full clanhold variant: tribal warband family categories, transitional governance, and the beastman path from clan to civilized realm." }
+    description:"Architectural placeholder for the full clanhold variant: tribal warband family categories, transitional governance, and the beastman path from clan to civilized realm." },
+  // === Weather HW (team agent-2): the §6.5 polarity OPT-OUT. Weather generation (JJ pp.40–41)
+  // is RAW-default CORE behaviour of the slot-1 day-tick weather consumer — it only fires on an
+  // expedition, GM-overridable per day. This is the only optional weather rule: a default-OFF
+  // opt-out for tables that prefer to narrate weather by hand. When ON, the consumer skips
+  // generation. (Replaces the retired `realistic-weather` reservation — retired at the world-layer
+  // team-session integration per Phase_2.5_Hex_Scales_and_Weather_Plan.md §6.5/Q3.) ===
+  { id:'gm-set-weather', category:'world', name:'GM-set weather',
+    source:'Phase 2.5 Hex Scales & Weather §6.5 (RAW-default polarity — the opt-out)',
+    description:"Opt out of the RAW daily-weather generator (JJ pp.40–41) and narrate weather by hand. RAW weather generation is the default (it only rolls on an expedition and any day is GM-overridable); this turns the generator off so the GM sets each day's weather. Default off." }
 ]);
 const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'domain',       label:'🏰 Domain',         description:'Hex tracking, vassal structure, geography, land/lordship.' },
@@ -767,7 +775,12 @@ const JOURNEY_NAV_THROWS = Object.freeze({
 // penalty condition, and no RAW weather imposes ×1/4 (the prior ×1/4 was unsupported).
 const JOURNEY_WEATHER_SPEED = Object.freeze({
   fair: 1, drizzly: 1, flurry: 1, sunbaked: 1, rainy: 1, stormy: 1,
-  foggy: 1/2, snowy: 1/2
+  foggy: 1/2, snowy: 1/2,
+  // === Weather HW (team agent-2): the generator's missing condition enum. RR p.277 — windy
+  // doesn't halve BASE travel speed (its 20ft-visibility-in-barrens + missile −2 are separate
+  // axes, applied via acks-engine-weather.js weatherConditionEffects). The ARMY_WEATHER_EFFECTS
+  // temperature/recon reconciliation lands when feature/military-w1 merges (not on this base).
+  windy: 1
 });
 
 // Temperature speed multiplier (RR pp.277-278). Frigid (<=0F) and Sweltering (>=95F) each

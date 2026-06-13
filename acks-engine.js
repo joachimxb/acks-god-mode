@@ -114,6 +114,9 @@ const ID_PREFIXES = Object.freeze({
   journey:              'jrn',
   outpost:              'out',
   // Wave E (Architecture.md §3.5) — Religion + Sanctums relation entities, reserved 2026-05-30
+  // === Religion R0 (team 2026-06-13) — Deity reference entity (Phase_4_Religion_Plan.md §4.1, CORR-3).
+  // con/dfv/att pre-reserved; dei added now (the deity collection ships with R0).
+  deity:                'dei',
   congregation:         'con',
   divineFavor:          'dfv',
   attunement:           'att',

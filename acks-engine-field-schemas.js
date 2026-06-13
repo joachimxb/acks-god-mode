@@ -613,7 +613,69 @@
         { name: 'notes',                type: 'longText', group: 'History' },
         { name: 'history',              type: 'history', readonly: true, group: 'History' }
       ]
+    },
+
+    // === Religion R0 (team 2026-06-13 — Phase_4_Religion_Plan.md §4.1–§4.3 + §14) ===
+    // Wave E. Every field is a key the matching factory emits (global schema⊆factory
+    // invariant in tests/smoke.js). RAW-faithful: DivineFavor has `standing`, NO favorLevel
+    // (D1). Polymorphic/deferred shapes (congregation.templeRef, divineFavor.transgressionsLog)
+    // are omitted per the Wave-C freeform convention — raw-JSON-edited / owned by R5.
+    'deity': {
+      factory: 'blankDeity',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Worship', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string',  readonly: true, group: 'Identity' },
+        { name: 'name',                type: 'string',  group: 'Identity', description: 'Generic name, e.g. "the Lawgiver"' },
+        { name: 'alignment',           type: 'enum',    enumValues: ['Lawful','Neutral','Chaotic'], group: 'Identity', default: 'Neutral' },
+        { name: 'portfolio',           type: 'string',  group: 'Identity', description: 'Free text — "war, the dawn, justice"' },
+        { name: 'codeOfBehavior',      type: 'longText', group: 'Worship', description: 'What adherents must uphold (or a Phase 6 code ref)' },
+        { name: 'acceptsBloodSacrifice', type: 'enum',  enumValues: ['none','animals-only','sapient'], group: 'Worship', default: 'none', description: 'RR p.422 — Lawful/Neutral → none|animals-only; Chaotic → sapient' },
+        { name: 'sacrificeAsDevotion', type: 'boolean', group: 'Worship', description: 'Auran Empyrean rule — animal sacrifice yields the caster nothing (pure devotion)' },
+        { name: 'status',              type: 'enum',    enumValues: ['active','dormant'], group: 'Identity', default: 'active' },
+        { name: 'notes',               type: 'longText', group: 'History' },
+        { name: 'history',             type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'congregation': {
+      factory: 'blankCongregation',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Faithful', 'Maintenance', 'History'],
+      fields: [
+        { name: 'id',                    type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                  type: 'string', group: 'Identity', description: 'e.g. "the Faithful of the Dawn at Saltspur"' },
+        { name: 'deityId',               type: 'id', idKind: 'deity', group: 'Identity' },
+        { name: 'highPriestCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'The divine caster who draws the power' },
+        { name: 'personalCongregants',   type: 'number', min: 0, group: 'Faithful', description: 'Proselytized faithful — the full 10gp/50/week rate' },
+        { name: 'domainWorshipDomainId', type: 'id', idKind: 'domain', group: 'Faithful', description: 'Ruler/chaplain path; DP from this domain is derived (families × morale), never stored' },
+        { name: 'proselytizingValueThisMonthGp', type: 'gp', group: 'Maintenance', description: 'Accumulator → congregant gain at month end' },
+        { name: 'maintainedWeeksThisMonth', type: 'number', min: 0, group: 'Maintenance', description: '0..4; un-maintained weeks drive decline' },
+        { name: 'lastMaintainedAtTurn',  type: 'number', group: 'Maintenance' },
+        { name: 'foundedAtTurn',         type: 'number', group: 'History' },
+        { name: 'status',                type: 'enum', enumValues: ['active','declining','abandoned','suppressed'], group: 'Identity', default: 'active' },
+        { name: 'history',               type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'divineFavor': {
+      factory: 'blankDivineFavor',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Standing', 'History'],
+      fields: [
+        { name: 'id',                 type: 'string', readonly: true, group: 'Parties' },
+        { name: 'characterId',        type: 'id', idKind: 'character', required: true, group: 'Parties' },
+        { name: 'deityId',            type: 'id', idKind: 'deity', required: true, group: 'Parties' },
+        { name: 'standing',           type: 'enum', enumValues: ['good-standing','lapsed','excommunicate'], group: 'Standing', default: 'good-standing', description: 'RAW relationship state (no numeric score — D1)' },
+        { name: 'codeOfBehaviorAck',  type: 'boolean', group: 'Standing', description: 'Does this character uphold the deity\'s code' },
+        { name: 'sinceTurn',          type: 'number', group: 'Standing' },
+        { name: 'lastSacrificeAtTurn', type: 'number', group: 'Standing' },
+        { name: 'lastWorshipAtTurn',  type: 'number', group: 'Standing', description: 'Last pray-and-sacrifice' },
+        { name: 'status',             type: 'enum', enumValues: ['active'], group: 'Standing', default: 'active' },
+        { name: 'history',            type: 'history', readonly: true, group: 'History' }
+      ]
     }
+    // === end Religion R0 ===
   };
 
   // ─── 4. Public API ───
