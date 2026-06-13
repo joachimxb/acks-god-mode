@@ -28,8 +28,9 @@
  * SCOPE: DC-0 (above) is the derived spatial-query layer + a read-only panel. DC-2
  * (added below — classificationAdvanceCheck / processClassificationAdvancement) is the
  * RR p.340 classification-advancement apply that consumes DC-0; the commitTurn hook +
- * the effectiveDomainClassification permanence floor live in acks-engine.js. The
- * morale-effect modifiers (DC-3) are still NOT here.
+ * the effectiveDomainClassification permanence floor live in acks-engine.js. DC-3
+ * (the morale-effects loop, RR pp.350–351 — domainMoraleEffects, the single source the
+ * recruitment / vassal-loyalty / conscript / spy-thief consumers read) is at the tail.
  *
  * Load order: LAST (after acks-engine-subsystems.js, which owns the §24 road-edge
  * model + hexAtCoord helpers). All OUT references resolve at call-time on the
@@ -420,6 +421,99 @@ function _emitDomainAdvanced(campaign, domain, res, narrative, turn){
   return ev;
 }
 
+// =============================================================================
+// DC-3 — the morale-effects loop (RR pp.350–351; the canonical prose home is
+// MORALE_STATE_TEXT in acks-engine.js, every number preserved here verbatim).
+// The morale SCORE, once set, drives a set of cross-subsystem effects BEYOND the
+// shipped income factor (incomeFactor, RR p.350) and the shipped bandit count
+// (banditCount, RR p.350). This module is the SINGLE source for those per-band
+// effects — the Vagaries-of-Recruitment modifier, the vassal-Loyalty-check
+// modifier, conscript/militia leviability + muster morale, and the spy/thief
+// throw modifier — so every consumer reads ONE table and they can never drift.
+//
+// RAW core, default-ON — morale effects are core, NOT a house rule (CLAUDE §6).
+// PURE: reads only the morale score; the income + bandit reads are DELEGATED to
+// the shipped economy helpers (never redefined here — this is how DC-3 proves it
+// does not double-count the income hit or the bandit count).
+//
+// SCOPE BOUNDARY (Domain_Completion_Plan.md §7 + the DC-3 handoff):
+//   • The morale-roll MODIFIERS that feed NEXT month's score (garrison /
+//     stronghold adequacy, taxes, liturgy, tithe, the E10 banditry-occupation
+//     term, the W4 occupation terms, admin) are a DIFFERENT mechanic — they live
+//     in moraleModifiersFor (acks-engine-economy.js, RR p.349), not here.
+//   • The expanded banditry threat layer (the enemy bandit ARMY, the cumulative-%
+//     NPC challenger, population loss from killing bandits) is the military/threat
+//     layer's (Phase_3_Military_Plan.md §4.2.1). DC-3 only SURFACES the morale band
+//     so that layer can read it — it does not resolve any of it here.
+//
+// CONSUMERS (read this accessor; the modifier VALUES are owned here): each lives
+// in an engine file outside the DC-3 lane, so the wiring is one read-line each,
+// recorded for a post-merge pass (the plan's §4/G6 stub-and-record posture):
+//   • Vagaries-of-Recruitment roll (acks-engine-subsystems.js / -events.js):
+//       += ACKS.domainMoraleEffects(campaign, recruitingDomain).recruitmentVagary
+//   • vassal Loyalty roll — the authoritative path _favorDutyLoyaltyRoll /
+//     rollLoyalty (acks-engine-subsystems.js / acks-engine.js) AND the manual
+//     openLoyaltyRollModal (index.html): for a VASSAL of a domain ruler L,
+//       mod += ACKS.domainMoraleEffects(campaign, domainRuledBy(L)).vassalLoyalty
+//   • conscript/militia levy (acks-engine-troops.js / -maneuvers.js): gate on
+//       ACKS.domainMoraleEffects(campaign, d).conscriptsLeviable  (false ⇒ no levy)
+//       and apply .conscriptMorale to the mustered unit's morale.
+//   • spies/thieves operating against the domain (Hijinks / Proficiency throws):
+//       throw += ACKS.domainMoraleEffects(campaign, d).spyThiefThrow
+// =============================================================================
+
+// Per-band cross-subsystem effect tables (RR pp.350–351), keyed by clamped morale −4..+4.
+// recruitmentVagary = the Vagaries-of-Recruitment roll modifier (−20…+20).
+const _MORALE_RECRUITMENT_VAGARY = Object.freeze({
+  '-4': -20, '-3': -10, '-2': -5, '-1': 0, '0': 0, '1': 0, '2': 5, '3': 10, '4': 20
+});
+// vassalLoyalty = the modifier to loyalty rolls made by the domain ruler's vassals (−2…+2).
+const _MORALE_VASSAL_LOYALTY = Object.freeze({
+  '-4': -2, '-3': -1, '-2': 0, '-1': 0, '0': 0, '1': 0, '2': 0, '3': 1, '4': 2
+});
+// conscriptMorale = the muster-morale modifier for conscripts/militia raised here, WHEN leviable
+// (RR p.350 — they cannot be levied at all at morale ≤ −2). −1 at morale −1/0; +1 at +3/+4; else 0.
+const _MORALE_CONSCRIPT_MORALE = Object.freeze({
+  '-1': -1, '0': -1, '1': 0, '2': 0, '3': 1, '4': 1
+});
+// spyThiefThrow = the modifier on the THROWS of spies/thieves working AGAINST the domain — a loyal
+// populace resists infiltration (RR p.351). 0 at ≤0 morale; −1…−4 at +1…+4.
+const _MORALE_SPY_THIEF_THROW = Object.freeze({
+  '-4': 0, '-3': 0, '-2': 0, '-1': 0, '0': 0, '1': -1, '2': -2, '3': -3, '4': -4
+});
+
+function _clampMorale(m){ return Math.max(-4, Math.min(4, m | 0)); }
+
+// The per-band morale EFFECTS for a domain (RR pp.350–351) — the single source every consumer
+// reads. PURE; defensive (a domain with no demographics reads morale 0). The income factor + bandit
+// count are DELEGATED to the shipped economy helpers (ACKS.incomeFactor / ACKS.banditCount) so the
+// readout shows the whole band from one call WITHOUT this module redefining either — the no-double-
+// count guarantee. populationSwingDicePerThousand mirrors the shipped rollMoraleExtra
+// (±|morale|d10! per 1,000 families) as a signed dice-count descriptor (positive grows, negative
+// shrinks, 0 none). The recruitment / vassal-loyalty / conscript / spy-thief modifiers are owned here.
+function domainMoraleEffects(campaign, domain){
+  const morale = _clampMorale((domain && domain.demographics && domain.demographics.morale) || 0);
+  const key = String(morale);
+  const conscriptsLeviable = morale >= -1;              // RR p.350 — no levy at morale ≤ −2
+  const names = ACKS.MORALE_LEVEL_NAMES || {};
+  const emoji = ACKS.MORALE_EMOJI || {};
+  return {
+    morale,
+    label: names[key] || '—',
+    emoji: emoji[key] || '',
+    // Shipped reads — SINGLE source, delegated (never redefined here ⇒ no double-count):
+    incomeFactor: (typeof ACKS.incomeFactor === 'function') ? ACKS.incomeFactor(morale) : 1,   // RR p.350
+    banditCount:  (domain && typeof ACKS.banditCount === 'function') ? ACKS.banditCount(domain) : 0,  // RR p.350
+    populationSwingDicePerThousand: morale,              // signed d10! count / 1,000 fam (rollMoraleExtra)
+    // DC-3 per-band cross-subsystem effects (RR pp.350–351) — owned here:
+    recruitmentVagary: _MORALE_RECRUITMENT_VAGARY[key] || 0,           // Vagaries-of-Recruitment roll modifier
+    vassalLoyalty:     _MORALE_VASSAL_LOYALTY[key] || 0,               // vassal Loyalty-check modifier
+    conscriptsLeviable,                                                // false at morale ≤ −2
+    conscriptMorale:   conscriptsLeviable ? (_MORALE_CONSCRIPT_MORALE[key] || 0) : 0,
+    spyThiefThrow:     _MORALE_SPY_THIEF_THROW[key] || 0               // modifier vs spies'/thieves' throws
+  };
+}
+
 Object.assign(ACKS, {
   // Hex adjacency + road connectivity (reuses the §24 road-edge primitives)
   hexNeighbors, hexesRoadConnected, roadReachableHexes,
@@ -429,7 +523,9 @@ Object.assign(ACKS, {
   effectiveRoadToTown, effectiveNearFriendlyCity, domainSpatialConditions,
   // DC-2 — classification advancement (RR p.340)
   domainFamilies, controlledHexCount, domainHasUrbanSettlement,
-  mostAdvancedClassification, classificationAdvanceCheck, processClassificationAdvancement
+  mostAdvancedClassification, classificationAdvanceCheck, processClassificationAdvancement,
+  // DC-3 — the morale-effects loop (RR pp.350–351) — the single source consumers read
+  domainMoraleEffects
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }
