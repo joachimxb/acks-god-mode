@@ -101,6 +101,24 @@
       find: (c, id) => ((c && c.encounters) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.name) || (obj && obj.monsterSide && obj.monsterSide.monsterCatalogKey) || (obj && obj.category) || (obj && obj.id) },
 
+    // === Delves D2 (burst4) — Dungeon (the delve target / arcane source) + Delve (the multi-foray
+    // operation). 🏯 clashes with siege + stronghold-component, so Dungeon uses 🕳️ (per the prompt's
+    // "confirm no icon clash"); ⛏ Delve is clash-free. campaign.dungeons[] (lazy-defaulted) +
+    // campaign.delves[] (read defensively). displayName reads only blank{Dungeon,Delve} keys
+    // (the registry⊆factory invariant). ===
+    { kind: 'dungeon', label: 'Dungeon', pluralLabel: 'Dungeons', icon: '🕳️',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.dungeons) || [],
+      find: (c, id) => ((c && c.dungeons) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
+    { kind: 'delve', label: 'Delve', pluralLabel: 'Delves', icon: '⛏',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.delves) || [],
+      find: (c, id) => ((c && c.delves) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+    // === end Delves D2 ===
+
     // ── WEALTH + INVENTORY ──
     { kind: 'stash', label: 'Stash', pluralLabel: 'Stashes', icon: '💰',
       addressable: true, chronicleable: true,

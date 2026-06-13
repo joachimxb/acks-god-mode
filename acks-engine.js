@@ -147,7 +147,10 @@ const ID_PREFIXES = Object.freeze({
   battle:               'btl',
   // Phase 3 Military W6 (2026-06-13, burst3 team session) — Siege (the RR pp.473–485
   // stronghold-investment record; resolved by acks-engine-sieges.js).
-  siege:                'sie'
+  siege:                'sie',
+  // === Delves D2 (burst4) — the multi-foray clear-a-dungeon operation (Phase_3.5_Delves_Plan.md
+  // §4.2). The Dungeon prefix 'dun' is already registered above (since 2026-05-30); this adds Delve. ===
+  delve:                'dlv'
 });
 
 function newId(prefix){
