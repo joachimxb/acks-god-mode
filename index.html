@@ -27,9 +27,12 @@
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
 <script src="acks-engine-proficiencies.js?v=2026-06-13-a"></script>
-<!-- agent-5 (Hijinks HJ-1): add your acks-engine-hijinks.js tag immediately below this line -->
 <script src="acks-engine-hijinks.js?v=2026-06-13-a"></script>
-<!-- (agent-1 Religion R1 extends acks-engine-religion.js · agent-2 DC-2 extends acks-engine-domain-completion.js · agent-3 Terrain T3 adds no new module — they add no tag here) -->
+<!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
+<!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
+<!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
+<!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
+<!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -10958,7 +10961,12 @@ document.addEventListener('alpine:init', () => {
   </div>
   </template>
 </div>
-<!-- ── agent-5 (Hijinks HJ-1): any hijink modal goes below (the sub-view itself is the existing Activities▸Hijinks placeholder) ── -->
+<!-- ════ TEAM SESSION (burst3 2026-06-13) — per-agent NEW top-level HTML (panels / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
+<!-- ── agent-1 (Military W6 Sieges): your siege panel / siege-resolution modal goes below ── -->
+<!-- ── agent-2 (Delves D1 Mortal Wounds): your record-wound modal goes below (the wounds readout extends the character sheet in place) ── -->
+<!-- ── agent-3 (Hex Scales HW-4): the scale-switcher extends the World▸Map render in place — usually nothing here ── -->
+<!-- ── agent-4 (DC-3): extends the domain panel in place — usually nothing here ── -->
+<!-- ── agent-5 (Hijinks HJ-2): your syndicate modal goes below (the sub-view itself is the existing Activities▸Hijinks) ── -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -22276,6 +22284,12 @@ return {
     const term = ['complete','failed','caught'];
     return (this.currentCampaign?.hijinks||[]).filter(h => h && term.indexOf(h.status) >= 0).map(h => this._hijinkRow(h));
   },
+  // ════ TEAM SESSION (burst3 2026-06-13) — per-agent Alpine state props + methods; add yours after YOUR marker (additive, never reorder); Lead removes this block at integration ════
+  // ── agent-1 (Military W6 Sieges) state + methods ──
+  // ── agent-2 (Delves D1 Mortal Wounds) state + methods ──
+  // ── agent-3 (Hex Scales HW-4) state + methods ──
+  // ── agent-4 (DC-3) state + methods ──
+  // ── agent-5 (Hijinks HJ-2) state + methods ──
 };
 }
 </script>
