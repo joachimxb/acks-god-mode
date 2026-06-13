@@ -35,6 +35,12 @@
 <script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
 <!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
 <script src="acks-engine-hex-scales.js?v=2026-06-13-a"></script>
+<!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
+<!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
+<!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
+<!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
+<!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
+<!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -23274,7 +23280,13 @@ return {
     if (!res || !res.ok) { this.showToast('Trial not resolved: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
     this.showToast('⚖ ' + (res.narrative || (res.label + ' — ' + res.crime)), 5000);
     this.markDirty(); this.schedulePersist();
-  }
+  },
+  // ===== burst4 team-session — Alpine state + methods. Each builder adds its props/getters/methods after ITS marker, each ending in a trailing comma (valid JS). =====
+  // burst4 agent-1 (Military W7 — army-troops-depth + fd-troops-effects):
+  // burst4 agent-2 (Politics P-1 — realm-senate panel):
+  // burst4 agent-3 (Character Lifecycle CL-1 — char-sheet aging readout):
+  // burst4 agent-4 (Voyages V1 — vessels panel / Inspector helpers):
+  // burst4 agent-5 (Delves D2 — world-dungeons sub-view / Inspector helpers):
 };
 }
 </script>
