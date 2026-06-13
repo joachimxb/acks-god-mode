@@ -31,6 +31,7 @@
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
 <!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
 <!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
+<script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
 <!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -8886,6 +8887,47 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Delves D1 (agent-2, burst3 2026-06-13) — Wounds readout. The Mortal Wounds table
+             (RR pp.300–301 + Appendix C pp.517–523). Visible for ANY character; the standing
+             wound penalty already shows in the Loyalty Ledger above. Bed rest advances on the
+             Day Clock (the slot-58 convalescence consumer). The ⚔ button opens the GM modal. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Wounds <span class="text-sm font-normal opacity-60">(RR pp.300–301)</span></h4>
+              <button @click="openRecordWoundModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Record a Mortal Wound (RR p.300)">⚔ Record a wound</button>
+            </div>
+            <template x-if="characterEditing.lifecycleState === 'incapacitated'">
+              <p class="text-sm accent-red font-semibold mb-1" x-text="'🛌 Incapacitated — ' + woundConvalescenceDays(characterEditing) + ' day(s) of bed rest left (advance the Day Clock to recover)'"></p>
+            </template>
+            <template x-if="characterEditing.lifecycleState === 'deceased'">
+              <p class="text-sm accent-red font-semibold mb-1">☠ Slain.</p>
+            </template>
+            <template x-if="(characterEditing.mortalWounds||[]).length === 0">
+              <p class="text-sm italic opacity-60">No wounds recorded.</p>
+            </template>
+            <ul class="space-y-1 text-sm" x-show="(characterEditing.mortalWounds||[]).length">
+              <template x-for="(w, wi) in (characterEditing.mortalWounds||[])" :key="wi">
+                <li class="flex items-start gap-2 py-0.5 border-b border-ink/10">
+                  <span class="text-base leading-tight" x-text="w.outcome === 'killed' ? '☠' : (w.resolved ? '✓' : '🛌')"></span>
+                  <span class="flex-1">
+                    <span class="font-semibold" x-text="w.conditionLabel || w.condition"></span>
+                    <span class="opacity-60" x-text="' · ' + (w.damageType||'savage') + (w.tampering ? ' (tampering)' : '')"></span>
+                    <template x-if="w.permanentWound"><span class="block text-xs accent-red" x-text="'⚑ ' + w.permanentWound"></span></template>
+                    <template x-if="!w.resolved && w.outcome !== 'killed' && (w.bedRestDaysRemaining||0) > 0">
+                      <span class="block text-xs opacity-70" x-text="'bed rest: ' + w.bedRestDaysRemaining + ' / ' + w.bedRestDays + ' day(s) left'"></span>
+                    </template>
+                    <template x-if="w.outcome !== 'killed' && w.needsEmergencyHealing && !w.healedToOneHp && !w.resolved">
+                      <span class="block text-xs accent-red">⚠ died in the window (not healed to 1 hp in time)</span>
+                    </template>
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p class="text-xs italic opacity-60 mt-2">A lasting wound also carries a standing loyalty penalty (the ledger above). Bed rest advances on the Day Clock.</p>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -10964,6 +11006,107 @@ document.addEventListener('alpine:init', () => {
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — per-agent NEW top-level HTML (panels / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
 <!-- ── agent-1 (Military W6 Sieges): your siege panel / siege-resolution modal goes below ── -->
 <!-- ── agent-2 (Delves D1 Mortal Wounds): your record-wound modal goes below (the wounds readout extends the character sheet in place) ── -->
+<!-- Record-a-wound modal — the manual GM Mortal Wounds resolver (RR pp.300–301 + Appendix C
+     pp.517–523). Opened from the character-sheet Wounds readout (stats tab). z-index:79 (above
+     the character editor, like the proficiency-throw modal opened from the same sheet). -->
+<div x-show="recordWound.open" @keydown.escape.window="if(recordWound.open && !$event.defaultPrevented){ closeRecordWoundModal(); $event.preventDefault() }"
+     class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecordWoundModal()">
+  <template x-if="recordWound.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">⚔ Record a Mortal Wound <span class="text-sm font-normal opacity-70">· RR pp.300–301</span></h2>
+      <button @click="closeRecordWoundModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- character snapshot + auto modifiers -->
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="recordWound.charName || '(no character)'"></span>
+        <span class="opacity-70" x-text="' · ' + (recordWound.charClass || '—') + ' L' + (recordWound.charLevel || 1)"></span>
+        <span class="opacity-70" x-text="' · CON ' + (recordWound.conMod>=0?'+':'') + recordWound.conMod + (recordWound.hitDieType ? (' · HD ' + recordWound.hitDieType + ' (+' + recordWound.hdBonus + ')') : '')"></span>
+      </div>
+
+      <!-- damage type -->
+      <label class="block text-sm">Damage type
+        <select x-model="recordWound.damageType" @change="recordWound.result=null" class="w-full text-sm">
+          <template x-for="dt in woundDamageTypes()" :key="dt"><option :value="dt" x-text="dt + (dt==='savage' ? ' (natural weapons — abstract default)' : '')"></option></template>
+        </select>
+      </label>
+
+      <!-- modifiers / mode -->
+      <div class="space-y-1.5 text-sm">
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="recordWound.abstract" @change="recordWound.result=null"> Abstract — Constitution, Hit Dice & helm only <span class="opacity-60">(JJ p.276)</span></label>
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="recordWound.heavyHelm" @change="recordWound.result=null"> Heavy helm <span class="opacity-60">(+2)</span></label>
+        <template x-if="!recordWound.abstract">
+          <div class="space-y-1.5 pl-4 border-l border-ink/20">
+            <label class="flex items-center gap-1">Treatment timing
+              <select x-model="recordWound.treatmentTiming" @change="recordWound.result=null" class="text-sm flex-1">
+                <option value="">— none —</option>
+                <template x-for="t in woundTimingOptions()" :key="t.key"><option :value="t.key" x-text="t.label"></option></template>
+              </select>
+            </label>
+            <label class="flex items-center gap-1">Healing magic level applied <span class="opacity-60">(+1/level)</span>
+              <input type="number" min="0" x-model.number="recordWound.healingMagicLevel" @input="recordWound.result=null" class="w-16 text-sm">
+            </label>
+          </div>
+        </template>
+        <label class="flex items-center gap-1 pt-1"><input type="checkbox" x-model="recordWound.pickBand" @change="recordWound.result=null"> Set the condition directly <span class="opacity-60">(skip the d20)</span></label>
+        <template x-if="recordWound.pickBand">
+          <select x-model="recordWound.conditionId" @change="recordWound.result=null" class="w-full text-sm">
+            <template x-for="b in woundConditions()" :key="b.id"><option :value="b.id" x-text="b.label"></option></template>
+          </select>
+        </template>
+      </div>
+
+      <!-- roll -->
+      <div class="flex gap-2 items-center">
+        <button @click="recordWoundRoll()" class="px-4 py-2 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400"
+                x-text="recordWound.result ? '🎲 Re-roll' : '🎲 Roll 1d20 + 1d6'"></button>
+      </div>
+
+      <!-- result -->
+      <template x-if="recordWound.result">
+        <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+          <div class="text-sm font-mono" x-show="!recordWound.pickBand"
+               x-text="'1d20 ' + recordWound.result.d20 + (recordWound.result.modifierTotal ? (' ' + (recordWound.result.modifierTotal>=0?'+':'') + recordWound.result.modifierTotal) : '') + ' = ' + recordWound.result.modified"></div>
+          <div>
+            <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
+                  :style="recordWound.result.killed ? 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
+                  x-text="recordWound.result.conditionLabel"></span>
+            <span class="ml-2 text-xs opacity-70" x-text="recordWound.result.cite"></span>
+          </div>
+          <template x-if="recordWound.result.healToOneHpWindow">
+            <p class="text-sm accent-red" x-text="'Dies unless healed to 1 hp within ' + recordWound.result.healToOneHpWindow + '; if healed, ' + recordWound.result.bedRestLabel + ' of bed rest.'"></p>
+          </template>
+          <template x-if="!recordWound.result.killed && recordWound.result.recoversAutomatically">
+            <p class="text-sm" x-text="'Recovers with 1 hp · ' + recordWound.result.bedRestLabel + ' of bed rest' + (recordWound.result.magicalShortensToDays!=null ? (' (' + recordWound.result.magicalShortensToDays + ' day with magical healing)') : '') + '.'"></p>
+          </template>
+          <template x-if="recordWound.result.permanentWound">
+            <p class="text-sm" x-text="'⚑ Permanent wound (1d6 ' + recordWound.result.d6 + '): ' + recordWound.result.permanentWound.effect"></p>
+          </template>
+          <!-- emergency-healing decision for the 1–15 bands -->
+          <template x-if="!recordWound.result.killed && recordWound.result.healToOneHpWindow">
+            <label class="text-sm flex items-center gap-1 pt-1"><input type="checkbox" x-model="recordWound.healedToOneHp"> Healed to 1 hp within the window (else dies)</label>
+          </template>
+          <!-- magical-healing shortcut for the 16+ bands -->
+          <template x-if="!recordWound.result.killed && recordWound.result.recoversAutomatically && recordWound.result.magicalShortensToDays!=null">
+            <label class="text-sm flex items-center gap-1 pt-1"><input type="checkbox" x-model="recordWound.magicalHealing"> Magical healing applied (shortens bed rest)</label>
+          </template>
+        </div>
+      </template>
+
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Applies the wound, the bed-rest clock, and the standing loyalty penalty.</span>
+        <div class="flex gap-2">
+          <button @click="closeRecordWoundModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+          <button @click="recordWoundApply()" :disabled="!recordWound.result"
+                  :class="recordWound.result ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                  class="px-4 py-1.5 border-2 border-ink rounded font-semibold">Apply wound</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- ── agent-3 (Hex Scales HW-4): the scale-switcher extends the World▸Map render in place — usually nothing here ── -->
 <!-- ── agent-4 (DC-3): extends the domain panel in place — usually nothing here ── -->
 <!-- ── agent-5 (Hijinks HJ-2): your syndicate modal goes below (the sub-view itself is the existing Activities▸Hijinks) ── -->
@@ -22287,6 +22430,56 @@ return {
   // ════ TEAM SESSION (burst3 2026-06-13) — per-agent Alpine state props + methods; add yours after YOUR marker (additive, never reorder); Lead removes this block at integration ════
   // ── agent-1 (Military W6 Sieges) state + methods ──
   // ── agent-2 (Delves D1 Mortal Wounds) state + methods ──
+  // The manual GM Record-a-wound modal + the character-sheet Wounds readout. The resolver +
+  // convalescence consumer live in acks-engine-mortal-wounds.js (RR pp.300–301 + Appendix C).
+  recordWound: { open:false, characterId:null, charName:'', charClass:'', charLevel:1, conMod:0, hitDieType:null, hdBonus:0,
+    damageType:'savage', abstract:true, heavyHelm:false, treatmentTiming:'', healingMagicLevel:0,
+    pickBand:false, conditionId:'in-shock', healedToOneHp:true, magicalHealing:false, result:null },
+  openRecordWoundModal(ch){
+    if(!ch) return;
+    const A = window.ACKS;
+    const conMod = (A && A.mortalWoundAbilityMod) ? A.mortalWoundAbilityMod(ch.abilities && ch.abilities.CON) : 0;
+    const hd = ch.hp && ch.hp.hitDice && String(ch.hp.hitDice).match(/d(\d+)/i);
+    const hitDieType = hd ? ('d' + hd[1]) : null;
+    const hdBonus = (hitDieType && A && A.HIT_DIE_VALUE_BONUS) ? (A.HIT_DIE_VALUE_BONUS[hitDieType] || 0) : 0;
+    this.recordWound = {
+      open:true, characterId: ch.id, charName: ch.name, charClass: ch.class || '', charLevel: ch.level || 1,
+      conMod, hitDieType, hdBonus,
+      damageType:'savage', abstract:true, heavyHelm:false, treatmentTiming:'', healingMagicLevel:0,
+      pickBand:false, conditionId:'in-shock', healedToOneHp:true, magicalHealing:false, result:null
+    };
+  },
+  closeRecordWoundModal(){ this.recordWound.open = false; this.recordWound.result = null; },
+  woundDamageTypes(){ return (window.ACKS && window.ACKS.DAMAGE_TYPES) || ['savage']; },
+  woundConditions(){ return ((window.ACKS && window.ACKS.MORTAL_WOUND_CONDITIONS) || []).map(b => ({ id: b.id, label: b.label })); },
+  woundTimingOptions(){ const m = (window.ACKS && window.ACKS.TREATMENT_TIMING_LABELS) || {}; return Object.keys(m).map(k => ({ key: k, label: m[k] })); },
+  woundConvalescenceDays(ch){ const A = window.ACKS; return (A && A.characterConvalescence) ? A.characterConvalescence(ch).daysRemaining : 0; },
+  recordWoundRoll(){
+    const rw = this.recordWound; const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    const ch = (camp.characters || []).find(c => c.id === rw.characterId);
+    if(!ch){ this.showToast('Character not found.'); return; }
+    const opts = { damageType: rw.damageType, abstract: rw.abstract, heavyHelm: rw.heavyHelm };
+    if(!rw.abstract){
+      if(rw.treatmentTiming) opts.treatmentTiming = rw.treatmentTiming;
+      if(rw.healingMagicLevel) opts.healingMagicLevel = Number(rw.healingMagicLevel) || 0;
+    }
+    if(rw.pickBand) opts.conditionId = rw.conditionId;
+    try { rw.result = window.ACKS.rollMortalWound(ch, opts); }
+    catch(e){ this.showToast('Roll failed: ' + e.message); }
+  },
+  recordWoundApply(){
+    const rw = this.recordWound;
+    if(!rw.result){ this.showToast('Roll first, then apply.'); return; }
+    const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    try {
+      const rec = window.ACKS.applyMortalWound(camp, rw.characterId, rw.result, { healedToOneHp: rw.healedToOneHp, magicalHealing: rw.magicalHealing });
+      if(!rec){ this.showToast('Could not apply the wound.'); return; }
+      this.showToast(rec.outcome === 'killed' ? (rw.charName + ' is slain.') : (rw.charName + ' — ' + (rec.conditionLabel || 'wounded') + '.'));
+      this.closeRecordWoundModal();
+    } catch(e){ this.showToast('Apply failed: ' + e.message); }
+  },
   // ── agent-3 (Hex Scales HW-4) state + methods ──
   // ── agent-4 (DC-3) state + methods ──
   // ── agent-5 (Hijinks HJ-2) state + methods ──
