@@ -7197,15 +7197,19 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let banditry fail the monthly commit */ }
   }
 
-  // === DC-2 (team) ===
-  // RR p.340 classification advancement (Outlands→Borderlands→Civilized), checked "at the end of
-  // any month". Runs AFTER the per-domain morale + population resolution (the gate reads the
-  // post-turn morale + family counts the loop just set) + after banditry, and BEFORE the turn
-  // counter advances so classificationLockedAt records the committed turn. Auto-advance is the RAW
+  // === DC-2 + Religion R1 (team 2026-06-13) — two monthly-turn processors under one committed>0 gate ===
+  // DC-2 (RR p.340): classification advancement (Outlands→Borderlands→Civilized), checked at month-end,
+  // AFTER the per-domain morale + population resolution (reads the post-turn morale + family counts the
+  // loop just set) + after banditry, and BEFORE the turn counter advances. Auto-advance is the RAW
   // default; the floor it sets (domain.classificationAdvancedTo) raises effectiveDomainClassification
-  // permanently, so NEXT month's base morale eases (RR p.348) + the population cap rises (RR p.340).
-  // Gated on committed > 0; try-guarded — never fail the commit. (processClassificationAdvancement
-  // lives in acks-engine-domain-completion.js, which loads after this file — resolved at call-time.)
+  // permanently, so next month's base morale eases (RR p.348) + the population cap rises.
+  // Religion R1 (RR pp.421–425, #146): congregations generate divine power for their high priest,
+  // proselytizing grows the faithful, untended congregations decline, faded power expires, and
+  // pray-and-sacrifice returns power for campaign XP. No house rule gates it (D2). Domain-worship reads
+  // the live post-turn morale.
+  // Both consumers live in modules that load after this file — late-bound via global.ACKS; each is
+  // try-guarded so neither can fail the core monthly commit.
+  let religionResult = { ran: false };
   if(committed > 0){
     try {
       if(typeof global.ACKS.processClassificationAdvancement === 'function'){
@@ -7213,6 +7217,12 @@ function commitTurn(campaign, proposal, options){
         (advResult.logEntries || []).forEach(l => logEntries.push(l));
       }
     } catch(e){ /* never let classification advancement fail the monthly commit */ }
+    try {
+      if(typeof global.ACKS.processReligionForTurn === 'function'){
+        religionResult = global.ACKS.processReligionForTurn(campaign, { rng }) || religionResult;
+        (religionResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let Religion fail the monthly commit */ }
   }
 
   // === RUMOR AUTO-EMIT ===
