@@ -230,6 +230,15 @@
       find: (c, id) => ((c && c.oaths) || []).find(x => x && x.id === id),
       displayName: (c, obj) => ((obj && obj.text) || '').slice(0, 50) || (obj && obj.id) },
 
+    // === Hijinks HJ-1 (team 2026-06-13) — the hijink attempt (Phase 2.7, RR pp.360–370).
+    // campaign.hijinks[]; a day-tick-driven downtime activity. displayName reads only
+    // blankHijink-emitted keys (label/type/id) per the registry⊆factory invariant. ──
+    { kind: 'hijink', label: 'Hijink', pluralLabel: 'Hijinks', icon: '🗡',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.hijinks) || [],
+      find: (c, id) => ((c && c.hijinks) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.label) || (obj && obj.type) || (obj && obj.id) },
+
     // Phase 3 Military W1 (2026-06-12) — Unit (the Group's military sibling) + Army.
     // Units are first-class in campaign.units[]; the legacy 'garrison-unit' sub-entity
     // kind below keeps resolving the SAME objects through the nested mirrors.

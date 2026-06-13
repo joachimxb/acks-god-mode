@@ -25,15 +25,18 @@
  * The override is READ DEFENSIVELY (`?? derived`); DC-0 does NOT lazy-inject it into
  * migrateCampaign, so the 6 templates stay true migrate-no-ops.
  *
- * SCOPE: DC-0 is the derived spatial-query layer + a read-only panel ONLY. The
- * classification-advance apply (commitTurn), the effectiveDomainClassification
- * permanence floor, and the morale-effect modifiers are DC-2 / DC-3 (NOT here).
+ * SCOPE: DC-0 (above) is the derived spatial-query layer + a read-only panel. DC-2
+ * (added below — classificationAdvanceCheck / processClassificationAdvancement) is the
+ * RR p.340 classification-advancement apply that consumes DC-0; the commitTurn hook +
+ * the effectiveDomainClassification permanence floor live in acks-engine.js. The
+ * morale-effect modifiers (DC-3) are still NOT here.
  *
  * Load order: LAST (after acks-engine-subsystems.js, which owns the §24 road-edge
  * model + hexAtCoord helpers). All OUT references resolve at call-time on the
  * shared global.ACKS object — every function runs long after every module loads.
  *
- * Authored 2026-06-13 — world-layer team session (CLAUDE §15), agent-3 lane.
+ * DC-0 authored 2026-06-13 — world-layer team session (CLAUDE §15), agent-3 lane.
+ * DC-2 added 2026-06-13 — world-front team session (CLAUDE §15), agent-2 lane.
  * =============================================================================
  */
 (function(global){
@@ -263,13 +266,170 @@ function domainSpatialConditions(campaign, domain){
   };
 }
 
+// =============================================================================
+// DC-2 — classification advancement (RR p.340). Outlands→Borderlands→Civilized,
+// checked "at the end of any month", permanent once gained (Domain_Completion_Plan.md §11).
+// Builds ON DC-0's override-aware spatial reads (effectiveRoadToTown / effectiveNearFriendlyCity
+// above) + the shipped morale + family counts. The permanence floor lives on
+// domain.classificationAdvancedTo and is READ DEFENSIVELY (`d.classificationAdvancedTo` absent ⇒
+// undefined ⇒ authored value wins): DC-2 does NOT add it to blankDomain or lazy-inject it in
+// migrateCampaign, so the 6 templates + demo stay true migrate-no-ops — the floor is written ONLY
+// when advancement fires (processClassificationAdvancement, the commitTurn end-of-month hook).
+// DC-2 ships AUTO-ADVANCE (the RAW default); the optional GM-confirm prompt + the optional regress
+// (both RR p.340 "optional") defer to a later slice (they need house-rule registrations this team
+// lane has no slot for — CLAUDE §15 lane discipline).
+// =============================================================================
+
+// Peasant families — RAW-consistent: every growth / limits / advancement threshold is
+// peasant-density (Domain_Completion_Plan.md §11.11 — 925 = 5×185, the Outlands per-hex cap;
+// urban families don't "populate hexes"). Read defensively.
+function domainFamilies(domain){
+  return (domain && domain.demographics && domain.demographics.peasantFamilies) || 0;
+}
+
+// Controlled 6-mile hexes (the territory-path gate). The optional littoral-hex bonus
+// (RR p.340) is a DC-1/G5 concern (its own house rule) — out of DC-2 scope, so the count
+// is the plain controlledHexes here. Read defensively.
+function controlledHexCount(domain){
+  return (domain && domain.geography && domain.geography.controlledHexes) || 0;
+}
+
+// Any ESTABLISHED urban settlement in the domain — a settlement of ≥75 families (Class VI+).
+// RAW condition 3 reads "an urban settlement has been established" (RR p.340), and a settlement
+// is FOUNDED by moving 75–249 families (RR p.351); below 75 it dissolves (RR p.352). So the test
+// is a raw ≥75 family count — NOT "≥ small town" (≥500; that is the *road* condition's external
+// town, Domain_Completion_Plan.md §11.2/§11.11). NB the SETTLEMENT_BENCHMARKS table labels the
+// 0–74 bracket "Hamlet" (market class VI*, no market) — a sub-established settlement — so the
+// type-rank compare would wrongly accept it; the ≥75 count is the RAW-correct gate. Reuses DC-0's
+// origin-hex walk + per-hex family read (embedded hex.settlement OR campaign.settlements[]).
+function domainHasUrbanSettlement(campaign, domain){
+  for(const hex of _domainOriginHexes(campaign, domain)){
+    if(_familiesAtHex(campaign, hex) >= 75) return true;
+  }
+  return false;
+}
+
+// Post-turn domain morale ≥ +1 (the two pop+road and territory advancement gates require it).
+function _moraleOK(domain){
+  return ((domain && domain.demographics && domain.demographics.morale) || 0) >= 1;
+}
+
+// The more-advanced of two classifications = the LOWER DOMAIN_CLASSIFICATIONS index
+// (the array is ['Civilized','Borderlands','Outlands'], most→least). Either may be null/absent.
+function mostAdvancedClassification(a, b){
+  const L = ACKS.DOMAIN_CLASSIFICATIONS || ['Civilized', 'Borderlands', 'Outlands'];
+  const ia = L.indexOf(a), ib = L.indexOf(b);
+  if(ia < 0) return b;
+  if(ib < 0) return a;
+  return ia <= ib ? a : b;
+}
+
+// The RR p.340 end-of-month advancement check. PURE; reads only shipped + DC-2 fields (all
+// defensively). Returns a SINGLE-STEP advance { from, to, reason } or null. Advancement is
+// single-step per month (an Outlands domain meeting Civilized-level numbers advances only to
+// Borderlands this month). `current` = effectiveDomainClassification (so it already respects an
+// earned floor — re-running after an advance returns null, the idempotence the apply relies on).
+function classificationAdvanceCheck(campaign, domain){
+  if(!campaign || !domain) return null;
+  const current  = ACKS.effectiveDomainClassification(domain);
+  const fam      = domainFamilies(domain);
+  const hexes    = controlledHexCount(domain);
+  const road     = ACKS.effectiveRoadToTown(campaign, domain);
+  const city     = ACKS.effectiveNearFriendlyCity(campaign, domain); // 'within-48mi'|'within-72mi'|'none'
+  const moraleOK = _moraleOK(domain);
+  const urban    = domainHasUrbanSettlement(campaign, domain);
+
+  if(current === 'Outlands'){
+    if(fam >= 185 && road && moraleOK)               return { from:'Outlands', to:'Borderlands', reason:'pop+road+morale' };
+    if(hexes >= 5 && fam >= 925 && moraleOK)         return { from:'Outlands', to:'Borderlands', reason:'territory+pop+morale' };
+    if(urban && (city === 'within-72mi' || city === 'within-48mi'))
+                                                     return { from:'Outlands', to:'Borderlands', reason:'urban-settlement' };
+    return null;
+  }
+  if(current === 'Borderlands'){
+    if(fam >= 375 && road && moraleOK)               return { from:'Borderlands', to:'Civilized', reason:'pop+road+morale' };
+    if(hexes >= 7 && fam >= 1200 && moraleOK)        return { from:'Borderlands', to:'Civilized', reason:'territory+pop+morale' };
+    if(urban && city === 'within-48mi')              return { from:'Borderlands', to:'Civilized', reason:'urban-settlement' };
+    return null;
+  }
+  return null; // Civilized is the top tier
+}
+
+// A human phrase for the event narrative, keyed by the check's reason.
+function _advanceReasonPhrase(reason){
+  switch(reason){
+    case 'pop+road+morale':      return 'its population, a road to a nearby town, and high morale';
+    case 'territory+pop+morale': return 'its expansive settled territory and high morale';
+    case 'urban-settlement':     return 'an established urban settlement near a friendly city';
+    default:                     return 'meeting the conditions for advancement';
+  }
+}
+
+// Apply advancement for every domain at month-end (RR p.340 "at the end of any month"). For each
+// domain that qualifies: raise the PERMANENT floor (domain.classificationAdvancedTo) + record the
+// turn, and emit a record-only `domain-advanced` event (the floor is the state; the event is the
+// audit + chronicle line). Returns { advanced:[{domainId,from,to,reason}], logEntries:[...] }.
+// Single-step per call (one tier per domain per month). Idempotent within a month — re-running
+// finds no new advance because the floor already raised effectiveDomainClassification.
+// options.onlyDomainId — restrict to one domain (the panel's manual "Advance now" affordance,
+// RR p.340 "the Judge may advance for other in-game circumstances"); omit ⇒ every domain.
+function processClassificationAdvancement(campaign, options){
+  options = options || {};
+  const out = { advanced: [], logEntries: [] };
+  if(!campaign || !Array.isArray(campaign.domains)) return out;
+  const turn = campaign.currentTurn || 1;
+  for(const d of campaign.domains){
+    if(options.onlyDomainId && d.id !== options.onlyDomainId) continue;
+    const res = classificationAdvanceCheck(campaign, d);
+    if(!res) continue;
+    d.classificationAdvancedTo = mostAdvancedClassification(res.to, d.classificationAdvancedTo || null);
+    d.classificationLockedAt = turn;
+    const narrative = d.name + ' advanced from ' + res.from + ' to ' + res.to + ' — earned through ' + _advanceReasonPhrase(res.reason) + '.';
+    out.advanced.push({ domainId: d.id, from: res.from, to: res.to, reason: res.reason });
+    out.logEntries.push(narrative);
+    _emitDomainAdvanced(campaign, d, res, narrative, turn);
+  }
+  return out;
+}
+
+// Engine-emitted record-only event (mirrors the banditry _banditryEmitEvent pattern). The floor
+// was already written by the caller; this keeps an audit + chronicle line with the Event.context
+// envelope (the domain + its capital hex). Wrapped in try/catch so an engine build that lacks the
+// `domain-advanced` kind (events module without DC-2) silently skips the audit rather than throwing.
+function _emitDomainAdvanced(campaign, domain, res, narrative, turn){
+  if(typeof ACKS.newEvent !== 'function') return null;
+  let ev;
+  try {
+    ev = ACKS.newEvent('domain-advanced', {
+      submittedBy: 'engine', targetTurn: turn, cadence: 'monthly-turn',
+      payload: { domainId: domain.id, from: res.from, to: res.to, reason: res.reason, atTurn: turn, narrative }
+    });
+  } catch(e){ return null; }
+  if(typeof ACKS.setEventContext === 'function'){
+    const capital = ((campaign.hexes || []).find(h => h && h.domainId === domain.id)) || null;
+    ACKS.setEventContext(ev, {
+      primaryHexId: capital ? capital.id : null,
+      domainId: domain.id,
+      relatedEntities: [{ kind: 'domain', id: domain.id, role: 'subject' }]
+    });
+  }
+  ev.status = (ACKS.EVENT_STATUS && ACKS.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = turn;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative }, appliedAtTurn: turn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
 Object.assign(ACKS, {
   // Hex adjacency + road connectivity (reuses the §24 road-edge primitives)
   hexNeighbors, hexesRoadConnected, roadReachableHexes,
   // The two RR p.340 spatial conditions
   roadConnectedToSmallTown, nearestSettlementWithin,
   // Override-aware derived consumers + the panel read
-  effectiveRoadToTown, effectiveNearFriendlyCity, domainSpatialConditions
+  effectiveRoadToTown, effectiveNearFriendlyCity, domainSpatialConditions,
+  // DC-2 — classification advancement (RR p.340)
+  domainFamilies, controlledHexCount, domainHasUrbanSettlement,
+  mostAdvancedClassification, classificationAdvanceCheck, processClassificationAdvancement
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

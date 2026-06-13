@@ -24,6 +24,12 @@
 <script src="acks-engine-religion.js?v=2026-06-13-a"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
+<!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
+<!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
+<script src="acks-engine-proficiencies.js?v=2026-06-13-a"></script>
+<!-- agent-5 (Hijinks HJ-1): add your acks-engine-hijinks.js tag immediately below this line -->
+<script src="acks-engine-hijinks.js?v=2026-06-13-a"></script>
+<!-- (agent-1 Religion R1 extends acks-engine-religion.js · agent-2 DC-2 extends acks-engine-domain-completion.js · agent-3 Terrain T3 adds no new module — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
      _setByPath + validateEvent already block __proto__/constructor/prototype segments;
@@ -3308,10 +3314,11 @@ document.addEventListener('alpine:init', () => {
             <!-- team:agent-3-domain-completion (panel:domain-advancement) — DC-0 read-only spatial
                  conditions toward Outlands→Borderlands→Civilized advancement (RR p.340). Derived from
                  the hex map (roads + settlement sizes); the GM override + the full eligibility check are DC-2. -->
-            <div class="vellum border border-ink p-3 rounded" x-data="{ sc:null }" x-effect="sc = domainAdvancementSpatial(selectedDomain)">
-              <h2 class="font-bold text-lg mb-2">Domain Advancement — Spatial Conditions
-                <span class="opacity-50 cursor-help text-sm" title="RR p.340 — two of the classification-advancement conditions are spatial: a road to a town (≥500 families) within 24 miles, and a friendly city / large town (≥625 families) within 48/72 miles. Derived here from the hex map; read-only (DC-0). The GM override and the full Outlands→Borderlands→Civilized eligibility check arrive with DC-2.">ⓘ</span>
+            <div class="vellum border border-ink p-3 rounded" x-data="{ sc:null, adv:null }" x-effect="sc = domainAdvancementSpatial(selectedDomain); adv = domainAdvancementReadout(selectedDomain)">
+              <h2 class="font-bold text-lg mb-2">Domain Advancement
+                <span class="opacity-50 cursor-help text-sm" title="RR p.340 — a domain advances Outlands→Borderlands→Civilized at the end of any month when it meets ANY one of the per-tier conditions (population + a road to a town within 24mi + morale ≥+1; or settled territory; or an established urban settlement near a friendly city). Advancement is permanent. Two conditions are spatial (road / friendly-city distance), derived from the hex map with a GM override.">ⓘ</span>
               </h2>
+              <div class="text-xs opacity-70 font-semibold mb-1">Spatial conditions <span class="opacity-60 font-normal">(RR p.340 — derived from the hex map)</span></div>
               <template x-if="sc">
                 <table class="bookkeeping text-sm">
                   <tr>
@@ -3335,7 +3342,66 @@ document.addEventListener('alpine:init', () => {
                   </tr>
                 </table>
               </template>
-              <p class="text-xs opacity-60 italic mt-2">Derived from the hex map (roads + settlement sizes). Feeds Outlands→Borderlands→Civilized advancement (RR p.340). Read-only — DC-0; the GM override and the full eligibility check arrive with DC-2.</p>
+              <!-- DC-2 (team agent-2): the eligibility readout + GM spatial overrides + the manual
+                   advance affordance, layered on DC-0's read-only spatial conditions. -->
+              <template x-if="adv">
+                <div class="mt-3 pt-2 border-t border-ink/20 text-sm">
+                  <div class="flex items-baseline justify-between">
+                    <span class="font-semibold">Classification</span>
+                    <span>
+                      <span class="font-semibold" x-text="adv.current"></span>
+                      <template x-if="adv.next"><span class="opacity-60" x-text="' → ' + adv.next + ' (next tier)'"></span></template>
+                      <template x-if="!adv.next"><span class="opacity-60"> · highest tier</span></template>
+                    </span>
+                  </div>
+                  <div class="text-xs accent-green mt-0.5" x-show="adv.floor" x-text="'⚑ Advancement floor earned: ' + adv.floor + (adv.lockedAt!=null ? ' (turn ' + adv.lockedAt + ')' : '') + ' — permanent (RR p.340)'"></div>
+
+                  <!-- Next-tier eligibility checklist (advances on ANY one condition). -->
+                  <template x-if="adv.next">
+                    <div class="mt-2">
+                      <div class="text-xs opacity-70 mb-1" x-text="'To advance to ' + adv.next + ' — any one of (RR p.340):'"></div>
+                      <ul class="space-y-1">
+                        <template x-for="(cond, i) in adv.conditions" :key="i">
+                          <li class="flex items-baseline gap-1">
+                            <span :class="cond.met ? 'accent-green' : 'accent-red'" class="font-semibold" x-text="cond.met ? '✓' : '✗'"></span>
+                            <span class="leading-tight"><span x-text="cond.label"></span><span class="block text-xs opacity-60" x-text="cond.detail"></span></span>
+                          </li>
+                        </template>
+                      </ul>
+                      <div class="mt-2" x-show="adv.qualifies">
+                        <span class="accent-green font-semibold" x-text="'✓ Qualifies for ' + adv.next + ' — advances automatically at the next monthly turn.'"></span>
+                        <button class="ml-2 ed-btn" @click="advanceDomainNow(selectedDomain)" title="RR p.340 — the Judge may advance now for in-game circumstances; otherwise it advances automatically at month-end.">⤴ Advance now</button>
+                      </div>
+                      <div class="mt-1 text-xs opacity-60 italic" x-show="!adv.qualifies">Does not yet qualify — advancement is checked automatically each monthly turn.</div>
+                    </div>
+                  </template>
+
+                  <!-- GM spatial overrides (canonical-setter discipline: the derived value is the truth; an override wins). -->
+                  <div class="mt-3 pt-2 border-t border-ink/10">
+                    <div class="text-xs opacity-70 mb-1">GM overrides <span class="opacity-60">(for map-less campaigns or special cases)</span></div>
+                    <label class="flex items-center justify-between gap-2 text-xs mb-1">
+                      <span>Road to a town (≤24mi)</span>
+                      <select class="text-xs border border-ink rounded px-1 py-0.5"
+                        @change="setDomainRoadOverride(selectedDomain, $event.target.value)">
+                        <option value="auto" :selected="selectedDomain.roadToTownOverride !== true && selectedDomain.roadToTownOverride !== false">Auto (derive)</option>
+                        <option value="yes" :selected="selectedDomain.roadToTownOverride === true">Yes</option>
+                        <option value="no" :selected="selectedDomain.roadToTownOverride === false">No</option>
+                      </select>
+                    </label>
+                    <label class="flex items-center justify-between gap-2 text-xs">
+                      <span>Friendly city / large town</span>
+                      <select class="text-xs border border-ink rounded px-1 py-0.5"
+                        @change="setDomainFriendlyCity(selectedDomain, $event.target.value)">
+                        <option value="auto" :selected="!selectedDomain.nearFriendlyCity || selectedDomain.nearFriendlyCity==='auto'">Auto (derive distance)</option>
+                        <option value="within-48mi" :selected="selectedDomain.nearFriendlyCity==='within-48mi'">Friendly ≤48mi</option>
+                        <option value="within-72mi" :selected="selectedDomain.nearFriendlyCity==='within-72mi'">Friendly ≤72mi</option>
+                        <option value="none" :selected="selectedDomain.nearFriendlyCity==='none'">None</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </template>
+              <p class="text-xs opacity-60 italic mt-2">Spatial conditions are derived from the hex map (roads + settlement sizes); a GM override wins. Advancement (RR p.340) is permanent and fires automatically at each monthly turn — DC-2.</p>
             </div>
             <!-- Overview + Ruler grid (50/50 on md+, stacks below md). -->
             <div class="grid md:grid-cols-2 gap-4">
@@ -6511,13 +6577,154 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Sub-panel: Hijinks (Phase 2.7 placeholder). -->
+<!-- ═══ Hijinks HJ-1 (team 2026-06-13) — Hideouts & Hijinks (RR pp.360–370), the first slice:
+     launch a hijink, advance the Day Clock, watch it plan → perform → lay low → resolve. ═══ -->
 <div x-show="currentView === 'activities' && activitiesSubView === 'hijinks'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
-    <div class="vellum border border-ink rounded p-6 text-center">
-      <h2 class="font-bold text-xl mb-2">🗡 Hijinks</h2>
-      <p class="text-sm opacity-70 mb-3">Hideouts &amp; Hijinks (RR pp.360–370) — carousing, smuggling, assassination, robbery, sneak attacks, spying, stealing.</p>
-      <p class="text-sm italic opacity-60">Coming in Phase 2.7. Spec lives at <code>Phase_2.7_Hijinks_Plan.md</code> (DEV root).</p>
+
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+      <h2 class="font-bold text-xl">🗡 Hijinks</h2>
+      <span class="text-sm opacity-70">Downtime crime &amp; intrigue (RR pp.360–370). A perpetrator plans, performs, and lays low over a month — the Day Clock advances it.</span>
     </div>
+
+    <template x-if="!currentCampaign">
+      <div class="vellum border border-ink rounded p-6 text-center text-sm italic opacity-60">Load a campaign to assign hijinks.</div>
+    </template>
+
+    <template x-if="currentCampaign">
+      <div class="space-y-4">
+
+        <!-- ── Launch form ──────────────────────────────────────────────── -->
+        <div class="vellum border border-ink rounded p-4 space-y-3">
+          <h3 class="font-semibold">Assign a hijink</h3>
+          <div class="grid md:grid-cols-2 gap-3">
+            <!-- perpetrator (eligible only — RAW: needs Streetwise / a thieving class) -->
+            <label class="block text-sm">
+              <span class="font-semibold">Perpetrator</span>
+              <select x-model="hijinkLaunch.perpetratorCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <option value="" :selected="!hijinkLaunch.perpetratorCharacterId">— pick a perpetrator —</option>
+                <template x-for="c in hijinkEligiblePerpetrators()" :key="c.id">
+                  <option :value="c.id" :selected="hijinkLaunch.perpetratorCharacterId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1) + ' · ' + characterLocationLabel(c)"></option>
+                </template>
+              </select>
+              <span x-show="hijinkEligiblePerpetrators().length === 0" class="block text-xs text-red-700 mt-1">No character is eligible — add the <strong>Streetwise</strong> proficiency (or a Thief / Assassin / Nightblade / Venturer class) via the character sheet or 🔍 Inspector.</span>
+            </label>
+            <!-- hijink type -->
+            <label class="block text-sm">
+              <span class="font-semibold">Hijink</span>
+              <select x-model="hijinkLaunch.type" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <template x-for="t in hijinkDefList()" :key="t.type">
+                  <option :value="t.type" :selected="hijinkLaunch.type===t.type" :disabled="!hijinkTypeAllowed(t.type)" x-text="t.icon + ' ' + t.label + (hijinkTypeAllowed(t.type) ? '' : ' (class-restricted)')"></option>
+                </template>
+              </select>
+            </label>
+            <!-- boss (optional — collects the proceeds; else the perpetrator keeps them) -->
+            <label class="block text-sm">
+              <span class="font-semibold">Boss <span class="opacity-60 font-normal">(optional — collects the proceeds)</span></span>
+              <select x-model="hijinkLaunch.bossCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <option value="" :selected="!hijinkLaunch.bossCharacterId">— independent (perpetrator keeps it) —</option>
+                <template x-for="c in (currentCampaign.characters||[])" :key="c.id">
+                  <option :value="c.id" :selected="hijinkLaunch.bossCharacterId===c.id" x-text="c.name||'(unnamed)'"></option>
+                </template>
+              </select>
+            </label>
+            <!-- settlement (optional — where it happens) -->
+            <label class="block text-sm">
+              <span class="font-semibold">Settlement <span class="opacity-60 font-normal">(optional)</span></span>
+              <select x-model="hijinkLaunch.settlementId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                <option value="" :selected="!hijinkLaunch.settlementId">— none —</option>
+                <template x-for="s in (currentCampaign.settlements||[])" :key="s.id">
+                  <option :value="s.id" :selected="hijinkLaunch.settlementId===s.id" x-text="s.name||'(unnamed)'"></option>
+                </template>
+              </select>
+            </label>
+          </div>
+
+          <!-- live forecast of the throw + timing -->
+          <template x-if="hijinkLaunchForecast()">
+            <div class="text-xs border border-ink/40 rounded bg-yellow-50/40 px-3 py-2 space-y-0.5">
+              <div><span class="opacity-60">Requirement:</span> <span class="font-semibold" x-text="hijinkLaunchForecast().requiredSkill"></span> throw — <span x-text="hijinkLaunchForecast().desc"></span></div>
+              <div><span class="opacity-60">Throw:</span> <span x-text="hijinkLaunchForecast().throwText"></span> <span class="opacity-60">(secret until it completes — fail by 14+ or a natural 1 = caught)</span></div>
+              <div><span class="opacity-60">Timing:</span> <span x-text="hijinkLaunchForecast().timingText"></span></div>
+            </div>
+          </template>
+
+          <div class="flex items-center gap-3">
+            <button @click="launchHijinkSubmit()" :disabled="!hijinkCanLaunch()"
+                    class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+                    :class="hijinkCanLaunch() ? 'bg-green-200 hover:bg-green-300' : 'opacity-40 cursor-not-allowed'">🗡 Assign hijink</button>
+            <span x-show="!hijinkCanLaunch() && hijinkLaunchDisabledReason()" class="text-xs italic opacity-70" x-text="hijinkLaunchDisabledReason()"></span>
+          </div>
+        </div>
+
+        <!-- ── Active hijinks ───────────────────────────────────────────── -->
+        <div class="vellum border border-ink rounded p-4">
+          <h3 class="font-semibold mb-2">In progress <span class="opacity-60 font-normal text-sm" x-text="'(' + hijinkActiveRows().length + ')'"></span></h3>
+          <template x-if="hijinkActiveRows().length === 0">
+            <p class="text-xs italic opacity-60">No hijinks under way. Assign one above, then advance the 🕑 Day Clock.</p>
+          </template>
+          <template x-if="hijinkActiveRows().length">
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/40 text-xs uppercase tracking-wide opacity-70">
+                <th class="py-1">Perpetrator</th><th>Hijink</th><th>Phase</th><th>Where</th></tr></thead>
+              <tbody>
+                <template x-for="h in hijinkActiveRows()" :key="h.id">
+                  <tr class="border-b border-dashed border-gray-300">
+                    <td class="py-1" x-text="h.perpName"></td>
+                    <td><span x-text="h.icon + ' ' + h.typeLabel"></span></td>
+                    <td><span class="px-1 rounded text-xs font-semibold" :class="h.phaseClass" x-text="h.phaseText"></span></td>
+                    <td class="opacity-70 text-xs" x-text="h.where"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+        </div>
+
+        <!-- ── Resolved hijinks ─────────────────────────────────────────── -->
+        <template x-if="hijinkResolvedRows().length">
+          <div class="vellum border border-ink rounded p-4">
+            <h3 class="font-semibold mb-2">Resolved <span class="opacity-60 font-normal text-sm" x-text="'(' + hijinkResolvedRows().length + ')'"></span></h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/40 text-xs uppercase tracking-wide opacity-70">
+                <th class="py-1">Perpetrator</th><th>Hijink</th><th>Outcome</th><th>Take</th></tr></thead>
+              <tbody>
+                <template x-for="h in hijinkResolvedRows()" :key="h.id">
+                  <tr class="border-b border-dashed border-gray-300">
+                    <td class="py-1" x-text="h.perpName"></td>
+                    <td><span x-text="h.icon + ' ' + h.typeLabel"></span></td>
+                    <td><span class="px-1 rounded text-xs font-semibold" :class="h.outcomeClass" x-text="h.outcomeText"></span></td>
+                    <td class="opacity-80 text-xs" x-text="h.takeText"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
+        <!-- ── RAW reference (collapsible) ──────────────────────────────── -->
+        <div class="vellum border border-ink rounded p-4">
+          <button @click="hijinkRefOpen = !hijinkRefOpen" class="font-semibold text-sm flex items-center gap-1">
+            <span x-text="hijinkRefOpen ? '▾' : '▸'"></span> Hijinks by type <span class="opacity-60 font-normal">(RR p.361)</span>
+          </button>
+          <table x-show="hijinkRefOpen" class="w-full text-xs mt-2">
+            <thead><tr class="text-left border-b border-ink/40 uppercase tracking-wide opacity-70">
+              <th class="py-1">Hijink</th><th>Requirement</th><th>Plan?</th><th>Successful outcome</th></tr></thead>
+            <tbody>
+              <template x-for="t in hijinkDefList()" :key="t.type">
+                <tr class="border-b border-dashed border-gray-200">
+                  <td class="py-1 whitespace-nowrap" x-text="t.icon + ' ' + t.label"></td>
+                  <td class="whitespace-nowrap" x-text="t.requiredSkill"></td>
+                  <td x-text="t.plannable ? 'plan + lay low' : 'ongoing'"></td>
+                  <td class="opacity-80" x-text="t.desc"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </template>
   </div>
 </div>
 
@@ -8684,7 +8891,10 @@ document.addEventListener('alpine:init', () => {
            (tracked as task #203). -->
       <div x-show="characterEditorTab==='skills'" class="space-y-4">
         <div x-data="{ newProf: '' }">
-          <h4 class="font-semibold text-sm mb-1">Proficiencies <span class="text-sm font-normal opacity-60">(RR ch.4)</span></h4>
+          <div class="flex items-center justify-between mb-1">
+            <h4 class="font-semibold text-sm">Proficiencies <span class="text-sm font-normal opacity-60">(RR ch.4)</span></h4>
+            <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
+          </div>
           <p class="text-sm opacity-70 mb-2">Class + general proficiencies. Add one at a time; every add/edit/remove is logged.</p>
           <template x-if="(characterEditing.proficiencies||[]).length === 0">
             <p class="text-sm italic opacity-60 mb-2">No proficiencies yet.</p>
@@ -9686,6 +9896,24 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
 
+      <!-- Terrain detail (Terrain T3, team agent-3 — Phase_2.5_Terrain_Model_Plan.md §7): the
+           read-only resolved picture of this hex's terrain axes (base · sub-type · biome · climate)
+           + the RR p.275 visibility factor, which scales sighting range and so the distance at which
+           wilderness encounters begin. The dropdowns above SET these axes; this is the at-a-glance
+           derive (biome is computed from the Köppen climate). Gated on the terrain being set. -->
+      <template x-if="hexTerrainDetailLine(worldHexEditingHex())">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm space-y-0.5">
+          <div class="flex items-start gap-1">
+            <span class="font-semibold shrink-0">🌍 Terrain:</span>
+            <span x-text="hexTerrainDetailLine(worldHexEditingHex())" title="Resolved terrain — base · sub-type · derived biome · Köppen climate (Phase 2.5 Terrain Model)"></span>
+          </div>
+          <div class="flex items-start gap-1">
+            <span class="font-semibold shrink-0">👁 Visibility:</span>
+            <span x-text="hexVisibilityLine(worldHexEditingHex())" title="Sighting multiplier by terrain (RR p.275) — reduces how far a party sees, and so the distance at which wilderness encounters begin"></span>
+          </div>
+        </div>
+      </template>
+
       <!-- Weather HW-3 (team agent-2): this hex's current-day weather (its 24-mile region's roll —
            the cached tick weather if any, else an on-demand deterministic roll of the current day).
            Read-only; weather derives from the hex's Köppen climate + the calendar season. -->
@@ -10432,6 +10660,306 @@ document.addEventListener('alpine:init', () => {
   <span x-text="toast" style="color:#fff"></span>
 </div>
 
+<!-- ════ TEAM SESSION (world-front 2026-06-13) — per-agent NEW top-level HTML (views / modals); insert ONLY after your own marker; Lead removes this block at integration ════ -->
+<!-- ── agent-1 (Religion R1): your new ⛪ Religion top-level view block goes below ── -->
+<!-- ═══════════ VIEW: RELIGION (R1 — divine power, RR pp.421–425) ═══════════ -->
+<div x-show="currentCampaign && currentView === 'religion'" class="p-4 space-y-4" x-cloak>
+
+  <!-- Intro -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg">⛪ Religion &amp; Divine Power</h3>
+    <p class="text-sm opacity-70 mt-1">A divine caster gathers the faithful, accrues <em>divine power</em> (a gp-equivalent resource that fades one month after it's received — RR p.422), and spends it to bless his realm or returns it to his god for experience. Congregations generate power each monthly turn (Advance Month); a ruler/chaplain who leads his subjects in worship draws power scaled by domain morale. Core RAW — no house rule gates it.</p>
+  </div>
+
+  <!-- Deities -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🛐 Deities <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionDeities().length"></span></h3>
+    </div>
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm">
+      <label class="flex flex-col">Name<input type="text" x-model="religionDeityForm.name" placeholder="the Lawgiver" class="w-48"></label>
+      <label class="flex flex-col">Alignment
+        <select x-model="religionDeityForm.alignment" class="w-32"><option>Lawful</option><option>Neutral</option><option>Chaotic</option></select>
+      </label>
+      <button @click="religionAddDeity()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold" :disabled="!religionDeityForm.name.trim()">+ New deity</button>
+    </div>
+    <template x-if="religionDeities().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No deities yet. Add one above (or via 🔍 Inspector ▸ Create ▸ Deity). Deities are system-agnostic — author your own pantheon.</p>
+    </template>
+    <template x-if="religionDeities().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Name</th><th>Alignment</th><th>Portfolio</th><th>Blood sacrifice</th><th>Status</th></tr></thead>
+        <tbody>
+          <template x-for="dei in religionDeities()" :key="dei.id">
+            <tr>
+              <td class="font-semibold" x-text="dei.name || '(unnamed)'"></td>
+              <td x-text="dei.alignment"></td>
+              <td x-text="dei.portfolio || '—'"></td>
+              <td x-text="dei.acceptsBloodSacrifice"></td>
+              <td x-text="dei.status"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+  <!-- Congregations -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">⛪ Congregations <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionCongregations().length"></span></h3>
+    </div>
+    <!-- Found-congregation form -->
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
+      <label class="flex flex-col">Name<input type="text" x-model="religionCongForm.name" placeholder="the Faithful of the Dawn" class="w-52"></label>
+      <label class="flex flex-col">Deity
+        <select x-model="religionCongForm.deityId" class="w-40">
+          <option value="">— pick —</option>
+          <template x-for="dei in religionDeities()" :key="dei.id"><option :value="dei.id" x-text="dei.name || dei.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">High priest
+        <select x-model="religionCongForm.highPriestCharacterId" class="w-44">
+          <option value="">— pick —</option>
+          <template x-for="ch in (currentCampaign.characters||[])" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Domain worship (ruler/chaplain)
+        <select x-model="religionCongForm.domainWorshipDomainId" class="w-44">
+          <option value="">— none —</option>
+          <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Personal congregants<input type="number" min="0" x-model.number="religionCongForm.personalCongregants" class="w-28"></label>
+      <button @click="religionFoundCongregation()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold" :disabled="!religionCongForm.highPriestCharacterId">+ Found congregation</button>
+    </div>
+    <template x-if="religionCongregations().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No congregations yet. A divine caster founds one above — its faithful generate divine power for him each monthly turn.</p>
+    </template>
+    <template x-if="religionCongregations().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Deity</th><th>High priest</th><th class="text-right">Personal</th><th>Domain worship</th>
+          <th class="text-right">Weekly DP</th><th class="text-right">Monthly DP</th><th>Tended</th><th>Status</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="cong in religionCongregations()" :key="cong.id">
+            <tr>
+              <td class="font-semibold" x-text="cong.name || '(unnamed)'"></td>
+              <td x-text="religionDeityName(cong.deityId)"></td>
+              <td x-text="religionCharName(cong.highPriestCharacterId)"></td>
+              <td class="text-right" x-text="(cong.personalCongregants||0).toLocaleString()"></td>
+              <td x-text="cong.domainWorshipDomainId ? religionDomainName(cong.domainWorshipDomainId) : '—'"></td>
+              <td class="text-right font-mono" x-text="religionWeeklyDP(cong).toLocaleString()+' gp'"></td>
+              <td class="text-right font-mono" x-text="religionMonthlyDP(cong).toLocaleString()+' gp'"></td>
+              <td><button @click="religionToggleMaintain(cong.id)" class="text-sm underline" x-text="religionAutoMaintain(cong) ? '✓ tended' : '⚠ neglected'" :title="religionAutoMaintain(cong) ? 'Tended each week as a matter of course — full accrual. Click to mark neglected.' : 'Untended — accrues nothing and declines each monthly turn. Click to mark tended.'"></button></td>
+              <td x-text="cong.status"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-2 italic">Weekly DP = 10gp per 50 personal congregants (full rate) + (families ÷ 10) × the morale rate for domain worship (RR p.421). Monthly DP accrues to the high priest on Advance Month.</p>
+  </div>
+
+  <!-- Divine power ledgers -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">📿 Divine power <span class="text-sm opacity-70 font-normal" x-text="'· ' + religionDivineCasterRows().length + ' caster(s)'"></span></h3>
+    </div>
+    <template x-if="religionDivineCasterRows().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No divine casters yet. A character of a divine class (Crusader, Bladedancer, Craftpriest, Priestess, Shaman, Witch…) or any high priest above appears here with their divine-power ledger.</p>
+    </template>
+    <div class="space-y-3">
+      <template x-for="row in religionDivineCasterRows()" :key="row.ch.id">
+        <div class="border border-ink/40 rounded p-3">
+          <div class="flex flex-wrap justify-between items-baseline gap-2">
+            <div>
+              <span class="font-semibold" x-text="row.ch.name || row.ch.id"></span>
+              <span class="text-sm opacity-70" x-show="row.deity" x-text="' · worships ' + (row.deity ? row.deity.name : '')"></span>
+              <span class="text-sm opacity-70" x-show="row.favor" x-text="' · ' + (row.favor ? row.favor.standing : '')"></span>
+            </div>
+            <div class="font-mono font-bold" x-text="'Available: ' + row.available.toLocaleString() + ' gp DP'"></div>
+          </div>
+          <!-- ledger entries -->
+          <template x-if="row.entries.length > 0">
+            <table class="bookkeeping text-xs w-full mt-2">
+              <thead><tr><th class="text-right">Amount</th><th>Source</th><th class="text-right">Accrued (turn)</th><th class="text-right">Fades (turn)</th></tr></thead>
+              <tbody>
+                <template x-for="(e,i) in row.entries" :key="i">
+                  <tr><td class="text-right font-mono" x-text="(e.amountGp||0).toLocaleString()"></td><td x-text="e.source||'—'"></td><td class="text-right" x-text="e.accruedAtTurn"></td><td class="text-right" x-text="(e.expiresAtTurn != null ? e.expiresAtTurn : (e.accruedAtTurn+1))"></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+          <template x-if="row.entries.length === 0">
+            <p class="text-xs italic opacity-60 mt-1">No live divine power — accrues on Advance Month from a tended congregation, or grant some below.</p>
+          </template>
+          <!-- actions -->
+          <div class="flex flex-wrap items-end gap-3 mt-2 text-sm">
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Grant (GM) gp<input type="number" min="0" x-model.number="religionGrantGp[row.ch.id]" class="w-24"></label>
+              <button @click="religionGrantDP(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Add divine power directly (GM grant)">Grant</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Consecrate fields
+                <select x-model="religionConsecrateDomain[row.ch.id]" class="w-36">
+                  <option value="">— domain —</option>
+                  <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name || d.id"></option></template>
+                </select>
+              </label>
+              <button @click="religionConsecrate(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!religionConsecrateDomain[row.ch.id]" title="Spend 2gp DP per family + a magic-research throw → +1 Land Value (pending the R3 economy read)">Consecrate</button>
+            </div>
+            <div class="flex items-end gap-1">
+              <label class="flex flex-col text-xs">Pray &amp; sacrifice gp<input type="number" min="0" x-model.number="religionPrayGp[row.ch.id]" class="w-24"></label>
+              <button @click="religionPray(row.ch.id)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Return divine power to the deity → campaign XP above your monthly threshold, settled on Advance Month">Pray</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <p class="text-sm opacity-60 mt-3 italic">Divine power is spent on consecration or returned for XP. It cannot be hoarded — each accrual fades one month after it's received (RR p.422). Pray-and-sacrifice grants campaign XP for the month's returned power above your XP threshold, settled at Advance Month.</p>
+  </div>
+</div>
+<!-- ═══════════ end VIEW: RELIGION ═══════════ -->
+<!-- ── agent-2 (DC-2): extends the existing Domain-Advancement panel in place — usually nothing here ── -->
+<!-- ── agent-3 (Terrain T3): extends the map render + hex card in place — usually nothing here ── -->
+<!-- ── agent-4 (Proficiency PT-1): your throw-result modal goes below ── -->
+<!-- Proficiency Throw modal (RR pp.9-10) — the shared 1d20 throw surface. Launched from the
+     character sheet (SKILLS tab). z-79 sits above the character editor (z-50). GM picks a task
+     (the 5 Adventuring sub-throws + the character's proficiency throws + an Improvised-by-
+     difficulty option, JJ p.94), sees the forecast (resolved target + itemized modifiers +
+     success chance), adds a situational modifier, then rolls (re-rollable). A class-derived
+     task (Lockpicking/Climbing) takes a GM-set target. Secret mode + an optional record. -->
+<div x-show="profThrow.open" @keydown.escape.window="if(profThrow.open && !$event.defaultPrevented){ closeProficiencyThrowModal(); $event.preventDefault() }"
+     class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeProficiencyThrowModal()">
+  <template x-if="profThrow.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🎲 Proficiency Throw <span class="text-sm font-normal opacity-70">· RR pp.9–10</span></h2>
+      <button @click="closeProficiencyThrowModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- Character snapshot -->
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="profThrowChar() ? profThrowChar().name : '(no character)'"></span>
+        <span class="opacity-70" x-text="profThrowChar() ? (' · ' + (profThrowChar().class || '—') + ' L' + (profThrowChar().level || 1)) : ''"></span>
+      </div>
+
+      <!-- Task picker -->
+      <div class="text-sm">
+        <label class="block font-semibold mb-1">Throw</label>
+        <select x-model="profThrow.taskKey" @change="profThrow.result=null" class="w-full text-sm">
+          <optgroup label="Adventuring (RR p.105)">
+            <template x-for="o in profThrowOptions().filter(o=>o.universal)" :key="o.taskKey">
+              <option :value="o.taskKey" x-text="o.label + (o.resolvedTarget!=null ? ' — '+o.resolvedTarget+'+' : '')"></option>
+            </template>
+          </optgroup>
+          <template x-if="profThrowOptions().some(o=>!o.universal && !o.improvised)">
+            <optgroup label="Your proficiencies">
+              <template x-for="o in profThrowOptions().filter(o=>!o.universal && !o.improvised)" :key="o.taskKey">
+                <option :value="o.taskKey" x-text="o.label + (o.resolvedTarget!=null ? ' — '+o.resolvedTarget+'+' : ' — GM sets')"></option>
+              </template>
+            </optgroup>
+          </template>
+          <optgroup label="Improvised throw (JJ p.94)">
+            <template x-for="o in profThrowOptions().filter(o=>o.improvised)" :key="o.taskKey">
+              <option :value="o.taskKey" x-text="o.label"></option>
+            </template>
+          </optgroup>
+        </select>
+      </div>
+
+      <!-- Improvised: ability + relevant ranks -->
+      <template x-if="profThrowIsImprovised()">
+        <div class="flex gap-3 text-sm">
+          <label class="flex items-center gap-1">Attribute
+            <select x-model="profThrow.abilityKey" @change="profThrow.result=null" class="text-sm">
+              <template x-for="ab in ['STR','INT','WIL','DEX','CON','CHA']" :key="ab"><option :value="ab" x-text="ab"></option></template>
+            </select>
+          </label>
+          <label class="flex items-center gap-1">Relevant ranks
+            <select x-model.number="profThrow.relevantRanks" @change="profThrow.result=null" class="text-sm">
+              <template x-for="n in [0,1,2]" :key="n"><option :value="n" x-text="n"></option></template>
+            </select>
+          </label>
+        </div>
+      </template>
+
+      <!-- Class-derived: GM target -->
+      <template x-if="profThrowForecast() && profThrowForecast().baseTargetSource">
+        <label class="flex items-center gap-2 text-sm">Target value (GM sets — class-derived)
+          <input type="number" min="1" x-model.number="profThrow.manualTarget" @input="profThrow.result=null" class="w-20 text-sm" placeholder="e.g. 7">
+        </label>
+      </template>
+
+      <!-- Situational modifier -->
+      <div class="text-sm flex items-center gap-2 flex-wrap">
+        <span class="opacity-70">Situational</span>
+        <template x-for="m in [-4,-2,-1,0,1,2,4]" :key="m">
+          <button @click="profThrow.situational = m; profThrow.result=null"
+                  :class="profThrow.situational === m ? 'bg-yellow-300 font-bold' : 'hover:bg-yellow-100'"
+                  class="px-2 py-0.5 border border-ink rounded text-xs" x-text="(m>=0?'+':'')+m"></button>
+        </template>
+      </div>
+
+      <!-- Forecast -->
+      <template x-if="profThrowForecast()">
+        <div class="wizard-forecast-row" :class="(profThrowForecast().successChance===0) ? 'wizard-no-chance' : ''">
+          <div class="w-full">
+            <div>
+              <template x-if="profThrowEffectiveTarget()!=null">
+                <span><span class="font-semibold" x-text="'Target ' + profThrowEffectiveTarget() + '+'"></span><span class="opacity-70" x-text="profThrowForecast().proficiency ? (' · ' + proficiencyLabelText(profThrowForecast().proficiency.key) + ' rank ' + profThrowForecast().proficiency.ranks) : ' · improvised'"></span></span>
+              </template>
+              <template x-if="profThrowEffectiveTarget()==null"><span class="opacity-80">Set the target value above (class-derived throw).</span></template>
+            </div>
+            <div class="text-xs opacity-75 mt-0.5" x-show="profThrowAllModifiers().length"
+                 x-text="profThrowAllModifiers().map(m => (m.value>=0?'+':'')+m.value+' '+m.label).join(' · ')"></div>
+            <div class="text-xs mt-0.5" x-show="profThrowEffectiveTarget()!=null"
+                 x-text="'Success chance: ' + Math.round(profThrowChance()*100) + '%' + (profThrowForecast().proficient ? ' · proficient (nat-20 auto-succeeds)' : ' · NOT proficient (nat-20 does not auto-succeed)')"></div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Roll -->
+      <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
+        <div class="flex items-center gap-3 mb-2">
+          <button @click="rollProfThrow()" :disabled="profThrowEffectiveTarget()==null"
+                  :class="profThrowEffectiveTarget()==null ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
+                  class="px-4 py-2 border-2 border-ink rounded font-semibold"
+                  x-text="profThrow.result ? '🎲 Re-roll 1d20' : '🎲 Roll 1d20'"></button>
+          <label class="text-sm flex items-center gap-1"><input type="checkbox" x-model="profThrow.secret"> Secret (GM rolls)</label>
+        </div>
+        <template x-if="profThrow.result">
+          <div class="space-y-1.5">
+            <div class="text-sm font-mono" x-show="!profThrow.secret"
+                 x-text="'1d20 ' + profThrow.result.natural + (profThrow.result.modifierTotal ? (' '+(profThrow.result.modifierTotal>=0?'+':'')+profThrow.result.modifierTotal) : '') + ' = ' + profThrow.result.total + ' vs ' + profThrow.result.target + '+'"></div>
+            <div>
+              <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
+                    :style="profThrow.result.success ? 'background:#e8f3df;color:#2f5a2f;border-color:#2f5a2f' : 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f'"
+                    x-text="profThrow.result.success ? '✓ Success' : '✗ Failure'"></span>
+              <span class="ml-2 text-sm opacity-70" x-show="!profThrow.secret && profThrow.result.margin!=null" x-text="'(margin ' + (profThrow.result.margin>=0?'+':'') + profThrow.result.margin + ')'"></span>
+              <span class="ml-2 text-sm font-semibold accent-red" x-show="profThrow.result.botch" x-text="profThrow.result.fumbleEffect ? ('✗ botch — ' + profThrow.result.fumbleEffect) : '✗ botch (natural ' + profThrow.result.natural + ')'"></span>
+              <span class="ml-2 text-sm font-semibold accent-green" x-show="profThrow.result.crit" x-text="'★ critical (natural 20)'"></span>
+            </div>
+            <div class="text-xs opacity-60" x-show="profThrow.secret">Secret roll — share the outcome with the player as you see fit.</div>
+            <label class="text-sm flex items-center gap-1 pt-1"><input type="checkbox" x-model="profThrow.logToEvent" @change="profThrowToggleLog()"> Record this throw to the Event Log</label>
+          </div>
+        </template>
+      </div>
+
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">A proficiency throw is a die, not a state change — the result is yours to apply.</span>
+        <div class="flex gap-2">
+          <button @click="closeProficiencyThrowModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- ── agent-5 (Hijinks HJ-1): any hijink modal goes below (the sub-view itself is the existing Activities▸Hijinks placeholder) ── -->
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -11078,6 +11606,8 @@ return {
       { id:'characters',   label:'👥 Characters',      count: aliveChars || null },
       { id:'activities',   label:'🎭 Activities',      count: (this.currentCampaign?.ventures||[]).length },
       { id:'events',       label:'📜 Events',      count: (pendingEv + loggedEv) || null },
+      // Religion R1 (team 2026-06-13) — the ⛪ Religion top-level tab (sole tab-adder this burst).
+      { id:'religion',     label:'⛪ Religion',       count: (this.currentCampaign?.congregations||[]).length || null },
       { id:'inspector',    label:'🔍 Inspector' },  // #555 Wave Inspector-B (2026-05-31)
       { id:'house-rules',  label:'⚙ House Rules',     count: enabledRules || null },
       // Future: { id:'syndicates', label:'🗡 Syndicates' },  (Phase 2.7)
@@ -13965,7 +14495,7 @@ return {
       { id:'journeys',       label:'⛺ Travel',        ready: true,  count: (this.currentCampaign?.journeys||[]).filter(j=>j && ['planning','in-transit','resting','lost'].includes(j.status)).length, placeholderNote: '' },
       { id:'ventures',       label:'⚖ Ventures',       ready: true,  count: (this.currentCampaign?.ventures||[]).length, placeholderNote: '' },
       { id:'recruit',        label:'⚔ Recruit',        ready: true,  count: (this.currentCampaign?.characters||[]).reduce((n,c)=> n + ((c && c.recruitmentDrives||[]).filter(d=>d&&d.status==='active').length), 0) || null, placeholderNote: '' },
-      { id:'hijinks',        label:'🗡 Hijinks',       ready: false, count: null, placeholderNote: 'Phase 2.7 — see Phase_2.7_Hijinks_Plan.md' },
+      { id:'hijinks',        label:'🗡 Hijinks',       ready: true,  count: ((this.currentCampaign?.hijinks)||[]).filter(h=>h && !['complete','failed','caught'].includes(h.status)).length || null, placeholderNote: '' },
       { id:'spell-research', label:'📜 Spell Research', ready: false, count: null, placeholderNote: 'Phase 4.6' }
     ];
   },
@@ -19942,6 +20472,8 @@ return {
       'lairs',
       // #476 Encounter layer E1 (2026-06-10) — Encounters as first-class interactions
       'encounters',
+      // === Hijinks HJ-1 (team 2026-06-13) — Phase 2.7 hijink attempts (§8.9 importer mandate)
+      'hijinks',
       // Phase 3 Military W1 (2026-06-12) — first-class Units + Armies
       'units', 'armies',
       // Phase 3 Military W3 (2026-06-12) — Battle engagement records
@@ -21379,6 +21911,370 @@ return {
     } catch(e){
       console.error('showToast threw:', e);
     }
+  },
+  // ════ TEAM SESSION (world-front 2026-06-13) — per-agent Alpine state props + methods; add yours after YOUR marker (additive, never reorder); Lead removes this block at integration ════
+  // ── agent-1 (Religion R1) state + methods ──
+  // Religion R1 (team 2026-06-13) — the ⛪ Religion view. Thin Alpine layer over the
+  // acks-engine-religion.js verbs; every action mutates currentCampaign through the engine
+  // (which emits the typed events) then markDirty + schedulePersist + a toast.
+  religionDeityForm: { name: '', alignment: 'Lawful' },
+  religionCongForm: { name: '', deityId: '', highPriestCharacterId: '', domainWorshipDomainId: '', personalCongregants: 0 },
+  religionGrantGp: {},          // per-caster grant input (keyed by charId)
+  religionPrayGp: {},           // per-caster pray-and-sacrifice input (keyed by charId)
+  religionConsecrateDomain: {}, // per-caster consecrate-fields target domain (keyed by charId)
+  // — reads —
+  religionDeities(){ return (this.currentCampaign && this.currentCampaign.deities) || []; },
+  religionCongregations(){ return (this.currentCampaign && this.currentCampaign.congregations) || []; },
+  religionDeityName(id){ const d = this.religionDeities().find(x => x.id === id); return d ? (d.name || d.id) : '—'; },
+  religionCharName(id){ const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x.id === id); return c ? (c.name || c.id) : '—'; },
+  religionDomainName(id){ const d = (this.domains || []).find(x => x.id === id); return d ? (d.name || d.id) : id; },
+  religionWeeklyDP(cong){ try { return window.ACKS.congregationWeeklyDivinePowerGp(this.currentCampaign, cong) || 0; } catch(e){ return 0; } },
+  religionMonthlyDP(cong){ try { return window.ACKS.congregationMonthlyDivinePowerGp(this.currentCampaign, cong) || 0; } catch(e){ return 0; } },
+  religionAutoMaintain(cong){ return !!(cong && cong.autoMaintain !== false); },
+  religionAvailable(id){ try { return window.ACKS.divinePowerAvailable(this.currentCampaign, id) || 0; } catch(e){ return 0; } },
+  religionDivineCasterRows(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const A = window.ACKS; const chars = camp.characters || [];
+    const priestIds = new Set((camp.congregations || []).map(c => c.highPriestCharacterId).filter(Boolean));
+    const ct = camp.currentTurn || 1;
+    const liveEntries = ch => (ch.divinePower && Array.isArray(ch.divinePower.entries) ? ch.divinePower.entries : [])
+      .filter(e => { if(!e) return false; const exp = (e.expiresAtTurn != null) ? e.expiresAtTurn : (e.accruedAtTurn != null ? e.accruedAtTurn + 1 : null); return exp == null || exp > ct; });
+    return chars.filter(ch => ch && (A.isDivineCaster(ch) || priestIds.has(ch.id) ||
+        (ch.divinePower && (((ch.divinePower.entries || []).length > 0) || (ch.divinePower.reliquaryStoreGp > 0) || (ch.divinePower.prayedThisTurnGp > 0)))))
+      .map(ch => {
+        const fav = A.divineFavorOf(camp, ch.id);
+        const deity = fav ? A.findDeity(camp, fav.deityId) : null;
+        return { ch, available: this.religionAvailable(ch.id), favor: fav, deity, entries: liveEntries(ch) };
+      });
+  },
+  // — actions —
+  religionAddDeity(){
+    const f = this.religionDeityForm; if(!f.name.trim()) return;
+    const dei = window.ACKS.blankDeity({ name: f.name.trim(), alignment: f.alignment,
+      acceptsBloodSacrifice: f.alignment === 'Chaotic' ? 'sapient' : 'none' });
+    if(!Array.isArray(this.currentCampaign.deities)) this.currentCampaign.deities = [];
+    this.currentCampaign.deities.push(dei);
+    this.religionDeityForm = { name: '', alignment: 'Lawful' };
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Deity added: ' + dei.name);
+  },
+  religionFoundCongregation(){
+    const f = this.religionCongForm; if(!f.highPriestCharacterId) return;
+    const cong = window.ACKS.foundCongregation(this.currentCampaign, {
+      name: f.name.trim() || ('Congregation of ' + this.religionCharName(f.highPriestCharacterId)),
+      deityId: f.deityId || null, highPriestCharacterId: f.highPriestCharacterId,
+      domainWorshipDomainId: f.domainWorshipDomainId || null,
+      personalCongregants: Number(f.personalCongregants) || 0
+    });
+    this.religionCongForm = { name: '', deityId: f.deityId, highPriestCharacterId: '', domainWorshipDomainId: '', personalCongregants: 0 };
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Congregation founded' + (cong ? ': ' + (cong.name || '') : ''));
+  },
+  religionToggleMaintain(congId){
+    const cong = this.religionCongregations().find(c => c.id === congId); if(!cong) return;
+    window.ACKS.setCongregationMaintenance(this.currentCampaign, congId, !(cong.autoMaintain !== false), 0);
+    this.markDirty(); this.schedulePersist();
+  },
+  religionGrantDP(charId){
+    const gp = Number(this.religionGrantGp[charId]) || 0; if(gp <= 0) return;
+    window.ACKS.grantDivinePower(this.currentCampaign, charId, gp);
+    this.religionGrantGp[charId] = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Granted ' + gp.toLocaleString() + ' gp divine power');
+  },
+  religionConsecrate(charId){
+    const domId = this.religionConsecrateDomain[charId]; if(!domId) return;
+    const r = window.ACKS.consecrateFields(this.currentCampaign, { casterId: charId, domainId: domId });
+    if(!r || !r.ok){ this.showToast('Cannot consecrate: ' + (r && r.reason === 'insufficient-divine-power' ? ('needs ' + (r.cost || 0).toLocaleString() + ' gp DP') : (r && r.reason) || 'failed')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Consecrated fields — ' + (r.cost || 0).toLocaleString() + ' gp DP, Land Value ' + (r.landValueDelta > 0 ? '+1' : (r.landValueDelta < 0 ? '−1' : 'no change')));
+  },
+  religionPray(charId){
+    const gp = Number(this.religionPrayGp[charId]) || 0; if(gp <= 0) return;
+    const r = window.ACKS.prayAndSacrifice(this.currentCampaign, charId, gp);
+    if(!r || !r.ok){ this.showToast('Cannot pray: ' + (r && r.reason === 'insufficient-divine-power' ? 'not enough divine power' : (r && r.reason) || 'failed')); return; }
+    this.religionPrayGp[charId] = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Returned ' + gp.toLocaleString() + ' gp DP — XP settles on Advance Month');
+  },
+  // ── agent-2 (DC-2) state + methods ──
+  // DC-2 — the classification-advancement readout for the Domain-Advancement panel (layered on
+  // DC-0's domainAdvancementSpatial). Returns the current tier, the next tier, the permanent floor,
+  // and the per-condition checklist for the next tier (RR p.340 — advances on ANY one). Pure read
+  // over the engine helpers; null when there is no campaign/domain. The morale gate reads the
+  // CURRENT (pre-turn) morale — a readiness preview; the actual advance at month-end reads post-turn.
+  domainAdvancementReadout(d){
+    const c = this.currentCampaign; if(!c || !d) return null;
+    const A = window.ACKS; if(!A || typeof A.classificationAdvanceCheck !== 'function') return null;
+    const current  = A.effectiveDomainClassification(d);
+    const fam      = A.domainFamilies(d);
+    const hexes    = A.controlledHexCount(d);
+    const road     = A.effectiveRoadToTown(c, d);
+    const city     = A.effectiveNearFriendlyCity(c, d);   // 'within-48mi'|'within-72mi'|'none'
+    const morale   = (d.demographics && d.demographics.morale) || 0;
+    const moraleOK = morale >= 1;
+    const urban    = A.domainHasUrbanSettlement(c, d);
+    const check    = A.classificationAdvanceCheck(c, d);
+    const next     = current === 'Outlands' ? 'Borderlands' : current === 'Borderlands' ? 'Civilized' : null;
+    const ms       = (morale >= 0 ? '+' : '') + morale;
+    const cityTxt  = city === 'none' ? '✗' : city.replace('within-', '≤').replace('mi', 'mi');
+    let conditions = [];
+    if(next === 'Borderlands'){
+      conditions = [
+        { label: '≥185 families · road to a town ≤24mi · morale ≥+1', met: (fam >= 185 && road && moraleOK),
+          detail: fam.toLocaleString() + ' fam · road ' + (road ? '✓' : '✗') + ' · morale ' + ms },
+        { label: '≥5 hexes · ≥925 families · morale ≥+1', met: (hexes >= 5 && fam >= 925 && moraleOK),
+          detail: hexes + ' hexes · ' + fam.toLocaleString() + ' fam · morale ' + ms },
+        { label: 'an established urban settlement · friendly city ≤72mi', met: (urban && (city === 'within-72mi' || city === 'within-48mi')),
+          detail: 'settlement ' + (urban ? '✓' : '✗') + ' · friendly city ' + cityTxt }
+      ];
+    } else if(next === 'Civilized'){
+      conditions = [
+        { label: '≥375 families · road to a town ≤24mi · morale ≥+1', met: (fam >= 375 && road && moraleOK),
+          detail: fam.toLocaleString() + ' fam · road ' + (road ? '✓' : '✗') + ' · morale ' + ms },
+        { label: '≥7 hexes · ≥1,200 families · morale ≥+1', met: (hexes >= 7 && fam >= 1200 && moraleOK),
+          detail: hexes + ' hexes · ' + fam.toLocaleString() + ' fam · morale ' + ms },
+        { label: 'an established urban settlement · friendly city ≤48mi', met: (urban && city === 'within-48mi'),
+          detail: 'settlement ' + (urban ? '✓' : '✗') + ' · friendly city ' + cityTxt }
+      ];
+    }
+    return {
+      current, next,
+      qualifies: !!check,
+      reason: check ? check.reason : null,
+      conditions,
+      floor: d.classificationAdvancedTo || null,
+      lockedAt: (d.classificationLockedAt != null) ? d.classificationLockedAt : null
+    };
+  },
+  // Manual advance (RR p.340 "the Judge may advance for other in-game circumstances"). Routes
+  // through the canonical engine path (processClassificationAdvancement scoped to this domain) so
+  // it sets the permanent floor + emits the domain-advanced event exactly like the monthly turn.
+  // The deep currentCampaign $watch catches the mutation (dirty + persist), matching commitStatEdit.
+  advanceDomainNow(d){
+    const c = this.currentCampaign; if(!c || !d) return;
+    const A = window.ACKS;
+    const res = A.classificationAdvanceCheck(c, d);
+    if(!res){ this.showToast(d.name + ' does not currently qualify for advancement.', 4000); return; }
+    A.processClassificationAdvancement(c, { onlyDomainId: d.id });
+    this.showToast(d.name + ' advanced ' + res.from + ' → ' + res.to + ' (RR p.340).', 5000);
+  },
+  // GM spatial overrides for the advancement check (canonical-setter discipline — the derived
+  // value is the truth; the override wins). Both route through commitStatEdit (gm-fiat, audited).
+  // roadToTownOverride is a tri-state null|true|false; nearFriendlyCity is the band string.
+  setDomainRoadOverride(d, selectVal){
+    if(!d) return;
+    const newV = selectVal === 'yes' ? true : selectVal === 'no' ? false : null;
+    const oldV = (d.roadToTownOverride === true || d.roadToTownOverride === false) ? d.roadToTownOverride : null;
+    this.commitStatEdit({ entityType:'domain', entityId:d.id, entity:d, fieldPath:'roadToTownOverride',
+      label:'Road-to-town override', oldValue:oldV, newValue:newV });
+  },
+  setDomainFriendlyCity(d, selectVal){
+    if(!d) return;
+    const newV = selectVal || 'auto';
+    const oldV = (d.nearFriendlyCity && d.nearFriendlyCity !== 'auto') ? d.nearFriendlyCity : 'auto';
+    this.commitStatEdit({ entityType:'domain', entityId:d.id, entity:d, fieldPath:'nearFriendlyCity',
+      label:'Friendly-city band', oldValue:oldV, newValue:newV });
+  },
+  // ── agent-3 (Terrain T3) state + methods ──
+  // Terrain T3 (Phase_2.5_Terrain_Model_Plan.md §7) — read-only hex-card readout helpers.
+  // hexTerrainDetailLine: the resolved base · sub-type · derived biome · Köppen climate, at a glance
+  // (only the parts that are set; the dropdowns above SET them). hexVisibilityLine: the RR p.275
+  // sighting factor (full / −33% / −50% + the reason) — it scales sighting range and so the distance
+  // at which wilderness encounters begin. Both defensive: a null / terrain-less hex → '' (card hides).
+  hexTerrainDetailLine(hex){
+    const A = window.ACKS;
+    if(!hex || !hex.terrain) return '';
+    const base = A.terrainBase(hex.terrain) || String(hex.terrain || '');
+    let head = base.charAt(0).toUpperCase() + base.slice(1);
+    const sub = String(hex.terrainSubtype || '').trim();
+    if(sub) head += ' · ' + sub;
+    const parts = [head];
+    const biome = A.biomeForHex(hex);
+    if(biome) parts.push(biome + ' biome');
+    const kop = String(hex.koppen || '').trim();
+    if(kop){ const k = (A.KOPPEN_CLIMATE || {})[kop]; parts.push(kop + (k ? ' (' + k.name + ')' : '')); }
+    return parts.join(' · ');
+  },
+  hexVisibilityLine(hex){
+    if(!hex || !hex.terrain) return '';
+    const f = window.ACKS.visibilityFactorForHex(hex);
+    if(f >= 1) return 'Full — open sighting (RR p.275)';
+    return '−' + Math.round((1 - f) * 100) + '% — sighting & encounter distance reduced (RR p.275)';
+  },
+  // ── agent-4 (Proficiency PT-1) state + methods ──
+  // The shared Proficiency Throw modal (RR pp.9–10). A throw is a pure die (engine Layer 1/3) —
+  // the modal computes the forecast + rolls; the consequence is the GM's to apply (DQ3/Q3).
+  profThrow: { open:false, characterId:null, character:null, taskKey:'adventuring:dungeonbashing', abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false },
+  openProficiencyThrowModal(ch){
+    if(!ch){ this.showToast && this.showToast('No character to roll for.'); return; }
+    const opts = (window.ACKS.characterAvailableThrows(this.currentCampaign, ch) || []);
+    this.profThrow = {
+      open:true, characterId:ch.id, character:ch,
+      taskKey: (opts[0] && opts[0].taskKey) || 'adventuring:dungeonbashing',
+      abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false
+    };
+  },
+  closeProficiencyThrowModal(){ this.profThrow.open = false; this.profThrow.result = null; },
+  profThrowChar(){
+    // Prefer the live campaign object (reflects edits), fall back to the stored ref (matches the
+    // Loyalty modal; robust if the character isn't in currentCampaign.characters yet).
+    const id = this.profThrow.characterId;
+    const live = id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null;
+    return live || this.profThrow.character || null;
+  },
+  profThrowIsImprovised(){ return /^improvised:/.test(this.profThrow.taskKey || ''); },
+  // The dropdown rows: the character's available throws (Adventuring sub-throws + their profs)
+  // + the JJ p.94 improvised difficulty classes.
+  profThrowOptions(){
+    const ch = this.profThrowChar();
+    if(!ch) return [];
+    const rows = (window.ACKS.characterAvailableThrows(this.currentCampaign, ch) || []).map(r => Object.assign({ improvised:false }, r));
+    const imp = Object.entries(window.ACKS.IMPROVISED_THROW_DIFFICULTY || {}).map(([k, v]) => ({ taskKey:'improvised:' + k, label:v.label, improvised:true, universal:false, resolvedTarget:null }));
+    return rows.concat(imp);
+  },
+  // The roll:false forecast for the current selection (resolved target + itemized modifiers).
+  profThrowForecast(){
+    const ch = this.profThrowChar();
+    if(!ch) return null;
+    const sit = this.profThrow.situational ? [{ source:'situational', value:Number(this.profThrow.situational) || 0, label:'situational' }] : [];
+    if(this.profThrowIsImprovised()){
+      const dc = (this.profThrow.taskKey || '').replace(/^improvised:/, '');
+      return window.ACKS.characterProficiencyThrow(this.currentCampaign, ch, null, { difficultyClass:dc, abilityKeyOverride:this.profThrow.abilityKey, relevantRanks:Number(this.profThrow.relevantRanks) || 0, situational:sit, roll:false });
+    }
+    return window.ACKS.characterProficiencyThrow(this.currentCampaign, ch, this.profThrow.taskKey, { situational:sit, roll:false });
+  },
+  profThrowAllModifiers(){ const f = this.profThrowForecast(); return (f && f.itemizedModifiers) ? f.itemizedModifiers : []; },
+  // class-derived tasks have no engine number — the GM supplies one via profThrow.manualTarget.
+  profThrowEffectiveTarget(){
+    const f = this.profThrowForecast();
+    if(!f) return null;
+    if(f.resolvedTarget != null) return f.resolvedTarget;
+    if(f.baseTargetSource && this.profThrow.manualTarget) return Number(this.profThrow.manualTarget) || null;
+    return null;
+  },
+  profThrowChance(){
+    const f = this.profThrowForecast(); const t = this.profThrowEffectiveTarget();
+    if(!f || t == null) return 0;
+    return window.ACKS.throwSuccessChance(t, f.modifierTotal || 0, f.autoFailBand, f.proficient) || 0;
+  },
+  proficiencyLabelText(key){ return window.ACKS.proficiencyLabel(key); },
+  rollProfThrow(){
+    const ch = this.profThrowChar(); const f = this.profThrowForecast(); const t = this.profThrowEffectiveTarget();
+    if(!ch || !f || t == null) return;
+    this.profThrow.result = window.ACKS.rollProficiencyThrow({
+      target:t, modifiers:f.itemizedModifiers || [], proficient:f.proficient,
+      autoFailBand:f.autoFailBand, fumbleEffect:f.fumbleEffect, secret:this.profThrow.secret
+    });
+    // re-rolling invalidates a prior record so the GM can record the new outcome
+    this.profThrow._logged = false; this.profThrow.logToEvent = false;
+  },
+  // Optional record-only audit (the GM ticks "Record this throw") — campaignLogHidden by default.
+  profThrowToggleLog(){
+    if(!this.profThrow.logToEvent || !this.profThrow.result || this.profThrow._logged) return;
+    const ch = this.profThrowChar(); const f = this.profThrowForecast();
+    const data = Object.assign({ actorCharacterId: ch ? ch.id : null, taskKey: this.profThrow.taskKey, label: f ? f.label : '' }, this.profThrow.result);
+    window.ACKS.recordProficiencyThrow(this.currentCampaign, data);
+    this.profThrow._logged = true;
+    if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist();
+    if(this.showToast) this.showToast('Proficiency throw recorded to the Event Log.');
+  },
+  // ── agent-5 (Hijinks HJ-1) state + methods ──
+  // Phase 2.7 Hijinks (RR pp.360–370) — the Activities ▸ Hijinks launch + lists. The engine
+  // (acks-engine-hijinks.js) owns startHijink + the slot-60 day-consumer; this is the surface.
+  hijinkLaunch: { perpetratorCharacterId:'', type:'carousing', bossCharacterId:'', settlementId:'' },
+  hijinkRefOpen: false,
+  hijinkDefList(){
+    const D = (window.ACKS && window.ACKS.HIJINK_DEFINITIONS) || {};
+    return (window.ACKS && window.ACKS.hijinkTypes ? window.ACKS.hijinkTypes() : Object.keys(D)).map(type => {
+      const d = D[type] || {};
+      return { type, label:d.label||type, icon:d.icon||'🗡', requiredSkill:d.requiredSkill||'', plannable:!!d.plannable, desc:d.desc||'' };
+    });
+  },
+  // Active characters generally eligible to perpetrate (RAW: Streetwise or a thieving class).
+  hijinkEligiblePerpetrators(){
+    const A = window.ACKS; if(!A || !this.currentCampaign) return [];
+    return (this.currentCampaign.characters||[]).filter(c => c
+      && (A.isActive ? A.isActive(c) : (c.alive !== false))
+      && A.hijinkPerpetratorEligible && A.hijinkPerpetratorEligible(c));
+  },
+  _hijinkPerp(){ return (this.currentCampaign?.characters||[]).find(c => c && c.id === this.hijinkLaunch.perpetratorCharacterId) || null; },
+  // Can the selected perpetrator attempt this type? (class restriction — RR p.362 assassinating.)
+  hijinkTypeAllowed(type){
+    const A = window.ACKS, perp = this._hijinkPerp();
+    if(!A || !perp) return true;                       // nothing picked yet — don't disable
+    return !!(A.hijinkPerpetratorEligible && A.hijinkPerpetratorEligible(perp, type));
+  },
+  hijinkCanLaunch(){
+    const perp = this._hijinkPerp();
+    return !!(perp && this.hijinkLaunch.type && window.ACKS && window.ACKS.hijinkPerpetratorEligible
+      && window.ACKS.hijinkPerpetratorEligible(perp, this.hijinkLaunch.type));
+  },
+  hijinkLaunchDisabledReason(){
+    const A = window.ACKS, perp = this._hijinkPerp();
+    if(!perp) return 'Pick an eligible perpetrator.';
+    const r = A && A.hijinkIneligibleReason ? A.hijinkIneligibleReason(perp, this.hijinkLaunch.type) : '';
+    return r || '';
+  },
+  hijinkLaunchForecast(){
+    const A = window.ACKS, perp = this._hijinkPerp(); if(!A || !perp || !this.hijinkLaunch.type) return null;
+    const def = A.hijinkDefinition ? A.hijinkDefinition(this.hijinkLaunch.type) : null; if(!def) return null;
+    const prof = A.hijinkThrowProfile(this.currentCampaign, perp, this.hijinkLaunch.type, {});
+    const b = prof.bonus || 0;
+    const parts = (prof.parts||[]).map(p => p.label + ' ' + (p.value>=0?'+':'') + p.value).join(', ');
+    const throwText = '1d20 ' + (b>=0?'+':'') + b + ' vs ' + prof.target + '+'
+      + (parts ? ' (' + parts + ')' : '')
+      + (def.victimPenalty ? ' · − victim level at resolution' : '');
+    const lvl = Math.max(1, perp.level||1);
+    const planExpr = lvl>=9 ? '2d4+3' : lvl>=5 ? '2d6+3' : '2d8+3';
+    const perfExpr = lvl>=9 ? '2d6+5' : lvl>=5 ? '3d4+8' : '3d6+10';
+    const timingText = def.plannable
+      ? ('plan ' + planExpr + ' + perform 1 + lay low 2d8+3 days')
+      : ('perform ' + perfExpr + ' days');
+    return { requiredSkill: def.requiredSkill, desc: def.desc, throwText, timingText };
+  },
+  launchHijinkSubmit(){
+    if(!this.hijinkCanLaunch() || !window.ACKS || !window.ACKS.startHijink) return;
+    const res = window.ACKS.startHijink(this.currentCampaign, {
+      perpetratorCharacterId: this.hijinkLaunch.perpetratorCharacterId,
+      type: this.hijinkLaunch.type,
+      bossCharacterId: this.hijinkLaunch.bossCharacterId || null,
+      settlementId: this.hijinkLaunch.settlementId || null
+    });
+    if(!res || !res.ok){ this.showToast('Could not assign hijink: ' + ((res && (res.detail||res.error)) || 'unknown'), 4000); return; }
+    const def = window.ACKS.hijinkDefinition(res.hijink.type) || {};
+    this.showToast('🗡 ' + (this._hijinkPerp()?.name || 'Perpetrator') + ' begins a ' + (def.label||res.hijink.type).toLowerCase() + ' hijink — advance the Day Clock to resolve it.', 4500);
+    this.hijinkLaunch.perpetratorCharacterId = '';     // keep type/boss/settlement for a quick repeat
+    this.markDirty(); this.schedulePersist();
+    if(this.dayTickProposal) this._refreshPendingDayTick();
+  },
+  _hijinkCharName(id){ const c = (this.currentCampaign?.characters||[]).find(x => x && x.id === id); return (c && c.name) || '—'; },
+  _hijinkWhere(h){
+    if(h.settlementId){ const s = (this.currentCampaign?.settlements||[]).find(x => x && x.id === h.settlementId); if(s) return s.name || s.id; }
+    if(h.hexId){ const hx = (this.currentCampaign?.hexes||[]).find(x => x && x.id === h.hexId); if(hx) return (window.ACKS && window.ACKS.hexName) ? window.ACKS.hexName(hx) : h.hexId; }
+    return '—';
+  },
+  _hijinkRow(h){
+    const def = (window.ACKS && window.ACKS.hijinkDefinition) ? (window.ACKS.hijinkDefinition(h.type)||{}) : {};
+    const phaseCls = { 'planning':'bg-gray-200', 'performing':'bg-amber-200', 'laying-low':'bg-sky-200' }[h.status] || 'bg-gray-100';
+    const outCls = { 'complete':'bg-green-200', 'failed':'bg-gray-300', 'caught':'bg-red-200 text-red-900' }[h.status] || 'bg-gray-100';
+    const take = (h.status==='complete') ? (h.rewardText || '—') : (h.status==='caught') ? ('charged: ' + (h.charge||'—')) : '—';
+    const outText = (h.status==='complete') ? '✓ success' : (h.status==='caught') ? '✗ caught' : '✗ failed';
+    return {
+      id: h.id, perpName: this._hijinkCharName(h.perpetratorCharacterId),
+      icon: def.icon||'🗡', typeLabel: def.label||h.type,
+      phaseText: (window.ACKS && window.ACKS.hijinkPhaseLabel) ? window.ACKS.hijinkPhaseLabel(h) : h.status,
+      phaseClass: phaseCls, where: this._hijinkWhere(h),
+      outcomeText: outText, outcomeClass: outCls, takeText: take
+    };
+  },
+  hijinkActiveRows(){
+    const term = ['complete','failed','caught'];
+    return (this.currentCampaign?.hijinks||[]).filter(h => h && term.indexOf(h.status) < 0).map(h => this._hijinkRow(h));
+  },
+  hijinkResolvedRows(){
+    const term = ['complete','failed','caught'];
+    return (this.currentCampaign?.hijinks||[]).filter(h => h && term.indexOf(h.status) >= 0).map(h => this._hijinkRow(h));
   },
 };
 }

@@ -4017,6 +4017,18 @@ const HEX_TERRAIN_ALIASES = Object.freeze({
   sand:'desert', dunes:'desert', sandy:'desert',
   rainforest:'jungle', rainforests:'jungle', tropical:'jungle'
 });
+// === Terrain T3 (team) === Phase_2.5_Terrain_Model_Plan.md §7 (T3 render).
+// Biome palette for the optional "Color by: Biome" fill layer — the JJ p.40 biome column
+// (BIOMES, catalogs), DERIVED per hex from its Köppen code (biomeForHex). 10 colours, NOT a
+// 22-colour sub-type palette (plan §4 / Map plan §4 — keep the standard view legible). Keyed in
+// the canonical BIOMES order (the JJ p.40 column), so the legend reads in that order. Climate-
+// evocative colours (tropical green / tawny savanna / pale sand / cold grey-blue …). A hex with
+// no Köppen / override (biome '') falls through to HEX_FILL_UNKNOWN, so the map never holes.
+const HEX_BIOME_COLORS = Object.freeze({
+  'Rainforest':'#15803d', 'Savanna':'#dcae52', 'Desert':'#ecdba0', 'Semi-Arid Desert':'#cba66e',
+  'Steppe':'#b6c06a', 'Scrub':'#8f9a4f', 'Forest':'#4f9d5e', 'Taiga':'#5b8c84',
+  'Prairie':'#c3dd76', 'Tundra':'#c0cdcf'
+});
 const HEX_CLASSIFICATION_COLORS = Object.freeze({
   civilized:'#2c7fb8', borderlands:'#7fcdbb', outlands:'#edf8b1', unsettled:'#d9d2c0'
 });
@@ -4088,6 +4100,11 @@ function hexFillColor(hex, layer, ctx){
     }
     case 'exploration':
       return hex.explored === false ? '#6b6450' : '#cfe3b0'; // fogged vs explored
+    case 'biome': { // === Terrain T3 (team) === derived biome (Köppen → biomeForHex, catalogs)
+      const A = global.ACKS || {};
+      const b = A.biomeForHex ? A.biomeForHex(hex) : (hex.biomeOverride || '');
+      return HEX_BIOME_COLORS[b] || HEX_FILL_UNKNOWN; // unset biome → neutral parchment
+    }
     case 'terrain':
     default: {
       // Tolerate MM biome sub-types ("Forest (Taiga)" → "forest"), any casing, and common synonyms.
@@ -4102,6 +4119,7 @@ function hexFillColor(hex, layer, ctx){
 function hexFillLayers(){
   return [
     { id:'terrain',        label:'Terrain' },
+    { id:'biome',          label:'Biome' },   // === Terrain T3 (team) === derived from Köppen (JJ p.40)
     { id:'domain',         label:'Domain' },
     { id:'land-value',     label:'Land value' },
     { id:'classification', label:'Classification' },
@@ -4139,6 +4157,9 @@ function hexFillLegend(layer, domains){
         .map(pair => ({ label: pair[0], color: HEX_ECONOMY_COLORS[pair[1]] }));
     case 'exploration':
       return [{ label:'Explored', color:'#cfe3b0' }, { label:'Unexplored', color:'#6b6450' }];
+    case 'biome': // === Terrain T3 (team) === the 10 JJ p.40 biomes + an "Unset" row (no Köppen)
+      return Object.keys(HEX_BIOME_COLORS).map(k => ({ label: k, color: HEX_BIOME_COLORS[k] }))
+        .concat([{ label: 'Unset', color: HEX_FILL_UNKNOWN }]);
     case 'terrain':
     default:
       return Object.keys(HEX_TERRAIN_COLORS).map(k => ({ label: k.charAt(0).toUpperCase() + k.slice(1), color: HEX_TERRAIN_COLORS[k] }));
@@ -4454,7 +4475,7 @@ Object.assign(ACKS, {
   MAP_DEFAULT_HEX_SIZE, hexAxialToPixel, hexCornerPoints, hexPolygonPoints, hexMapBounds, hexAxialToColRow, hexColRowToAxial, hexDisplayLabel, hexName, generateBlankHexGrid,
   hexNeighborDeltas, hexEdgeBetween, hexOppositeEdge, hexLineDraw, hexEdgePoints, hexEdgeMidpoint, hexRiverSegments, hexRoadPathD, hexCrossingSegment, settlementGlyphScale, mapSymbolLayers, mapEdgeLayers, mapTerrainTypes,
   HEX_FACE_LABELS,
-  HEX_TERRAIN_COLORS, HEX_TERRAIN_ALIASES, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
+  HEX_TERRAIN_COLORS, HEX_TERRAIN_ALIASES, HEX_BIOME_COLORS, HEX_CLASSIFICATION_COLORS, HEX_LANDVALUE_RAMP, hexFillColor, hexFillLayers, hexFillLegend
 });
 
 // ─── #476 E1 — rest/night encounter checks (JJ p.41) — the slot-80 consumer ──────────────────

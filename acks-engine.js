@@ -129,6 +129,8 @@ const ID_PREFIXES = Object.freeze({
   constructible:        'cst',
   // Phase 2.95 Hirelings (#310) — day-aware recruitment drive (sub-object on the patron, 2026-06-06)
   recruitmentDrive:     'rcd',
+  // Phase 2.7 Hijinks (HJ-1, world-front team session 2026-06-13) — registered canonically at integration
+  hijink:               'hij',
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — the monthly liege↔vassal obligation relation (RR pp.345–348)
   favorDutyObligation:  'fdo',
   // #476 Encounter layer E1 (2026-06-10) — the reified pre-combat interaction (D8; RR pp.280–287)
@@ -617,8 +619,19 @@ function suggestDomainClassification(d){
 }
 function effectiveDomainClassification(d){
   const stored = d && d.classification;
-  if(stored && DOMAIN_CLASSIFICATIONS.indexOf(stored) !== -1) return stored; // GM authored value wins
-  return suggestDomainClassification(d);
+  const authored = (stored && DOMAIN_CLASSIFICATIONS.indexOf(stored) !== -1) ? stored : suggestDomainClassification(d);
+  // === DC-2 (team) === classification advancement is PERMANENT (RR p.340). The effective tier is
+  // the MORE-ADVANCED of the GM-authored value and the advancement floor (d.classificationAdvancedTo,
+  // read DEFENSIVELY — absent on legacy/template domains ⇒ undefined ⇒ authored wins, a migrate-no-op).
+  // The GM may author HIGHER (start Civilized); the engine never silently lowers a domain below what
+  // it earned (canonical-setter discipline, principle #10). DOMAIN_CLASSIFICATIONS is most→least, so
+  // "more advanced" = the lower index. The floor is written only by processClassificationAdvancement.
+  const floor = d && d.classificationAdvancedTo;
+  if(floor && DOMAIN_CLASSIFICATIONS.indexOf(floor) !== -1 &&
+     DOMAIN_CLASSIFICATIONS.indexOf(floor) < DOMAIN_CLASSIFICATIONS.indexOf(authored)){
+    return floor;
+  }
+  return authored;
 }
 
 // =============================================================================
@@ -8342,6 +8355,34 @@ function commitTurn(campaign, proposal, options){
     try {
       (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
     } catch(e){ /* never let the flag clear fail the monthly commit */ }
+  }
+
+  // === DC-2 + Religion R1 (team 2026-06-13) — two monthly-turn processors under one committed>0 gate ===
+  // DC-2 (RR p.340): classification advancement (Outlands→Borderlands→Civilized), checked at month-end,
+  // AFTER the per-domain morale + population resolution (reads the post-turn morale + family counts the
+  // loop just set) + after banditry, and BEFORE the turn counter advances. Auto-advance is the RAW
+  // default; the floor it sets (domain.classificationAdvancedTo) raises effectiveDomainClassification
+  // permanently, so next month's base morale eases (RR p.348) + the population cap rises.
+  // Religion R1 (RR pp.421–425, #146): congregations generate divine power for their high priest,
+  // proselytizing grows the faithful, untended congregations decline, faded power expires, and
+  // pray-and-sacrifice returns power for campaign XP. No house rule gates it (D2). Domain-worship reads
+  // the live post-turn morale.
+  // Both consumers live in modules that load after this file — late-bound via global.ACKS; each is
+  // try-guarded so neither can fail the core monthly commit.
+  let religionResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processClassificationAdvancement === 'function'){
+        const advResult = global.ACKS.processClassificationAdvancement(campaign, { rng });
+        (advResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let classification advancement fail the monthly commit */ }
+    try {
+      if(typeof global.ACKS.processReligionForTurn === 'function'){
+        religionResult = global.ACKS.processReligionForTurn(campaign, { rng }) || religionResult;
+        (religionResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let Religion fail the monthly commit */ }
   }
 
   // === RUMOR AUTO-EMIT ===

@@ -179,7 +179,29 @@ const EVENT_KINDS = Object.freeze([
   // (a priced buy/sell at a market). The primitives carry typed source/destination handles.
   'wealth-transfer',
   'item-transfer',
-  'market-transaction'
+  'market-transaction',
+  // === Proficiency PT-1 (team) ===
+  // A stand-alone GM proficiency throw (RR pp.9-10). Record-only + always campaignLogHidden
+  // (a die roll is table chatter — DQ6); emitted by ACKS.recordProficiencyThrow only when the
+  // GM ticks "record" in the throw modal. The throw itself is ephemeral by default.
+  'proficiency-throw',
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 (2026-06-13) — RR p.340 classification advancement
+  // (Outlands→Borderlands→Civilized) fired by the monthly turn. Record-only (the floor was
+  // already applied by processClassificationAdvancement); chronicle-visible. Carries the
+  // Event.context envelope (the domain + its capital hex).
+  'domain-advanced',
+  // === Religion R1 (team 2026-06-13) — divine-power accrual + consumers (RR pp.421–425, #146) ===
+  // Engine-emitted record-only events (the verbs in acks-engine-religion.js already applied state).
+  'divine-power-accrued',   // a divine caster's expiring ledger gains DP (congregation / domain-worship / gm-grant)
+  'consecration',           // DP spent on a consecration act (consecrate-fields / a generic divine spend)
+  'divine-favor-changed',   // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
+  // === Hijinks HJ-1 (team) ===
+  // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
+  // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
+  // Wizard opt-out below. Carry the Event.context envelope (perpetrator + hex + settlement).
+  'hijink-attempted',
+  'hijink-resolved'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -590,6 +612,45 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { direction: 'string', actorCharacterId: 'string', lines: 'array' },
     O: { settlementId: 'string', marketClass: 'string', totalGp: 'number', currency: 'string',
          notable: 'boolean', activityCost: 'object', payFrom: 'string', itemTo: 'string', itemFrom: 'string' }
+  },
+  // === Proficiency PT-1 (team) ===
+  // A stand-alone GM proficiency throw (RR pp.9-10). Record-only (recordProficiencyThrow logs
+  // it directly as applied); no required fields beyond the actor + throw breakdown.
+  'proficiency-throw': {
+    R: {},
+    O: { actorCharacterId: 'string', taskKey: 'string', label: 'string', target: 'number',
+         natural: 'number', modifierTotal: 'number', total: 'number', success: 'boolean',
+         secret: 'boolean', modifiers: 'array', narrative: 'string' }
+  },
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 — the RR p.340 classification-advancement record (engine-emitted,
+  // record-only; the floor lives on domain.classificationAdvancedTo). reason ∈
+  // 'pop+road+morale' | 'territory+pop+morale' | 'urban-settlement'.
+  'domain-advanced': {
+    R: { domainId: 'string', from: 'string', to: 'string' },
+    O: { reason: 'string', atTurn: 'number', narrative: 'string' }
+  },
+  // === Religion R1 (team 2026-06-13) — divine-power accrual + consumers (RR pp.421–425) ===
+  'divine-power-accrued': {
+    R: { characterId: 'string', amountGp: 'number', source: 'string' },
+    O: { deityId: 'string' }
+  },
+  'consecration': {
+    R: { casterCharacterId: 'string', kind: 'string', divinePowerSpentGp: 'number' },
+    O: { domainId: 'string', familiesConsecrated: 'number', throwResult: 'object', landValueDelta: 'number', purpose: 'string' }
+  },
+  'divine-favor-changed': {
+    R: { characterId: 'string', action: 'string' },
+    O: { deityId: 'string', standing: 'string', previousStanding: 'string', reason: 'string', divinePowerReturnedGp: 'number' }
+  },
+  // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
+  'hijink-attempted': {
+    R: { hijinkId: 'string', type: 'string', perpetratorCharacterId: 'string' },
+    O: { bossCharacterId: 'string', settlementId: 'string', hexId: 'string', narrative: 'string' }
+  },
+  'hijink-resolved': {
+    R: { hijinkId: 'string', outcome: 'string' },
+    O: { type: 'string', rewardGp: 'number', charge: 'string', narrative: 'string' }
   }
 });
 
@@ -2055,6 +2116,37 @@ function applyEvent_favorDutyAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'favor/duty edict' } };
 }
 registerEventHandler('favor-duty', applyEvent_favorDutyAudit);
+// === DC-2 (team) ===
+// Domain Completion DC-2 — the classification-advancement record shares the audit posture:
+// processClassificationAdvancement (commitTurn end-of-month) already raised the permanent floor
+// (domain.classificationAdvancedTo); this handler exists only so the event is well-formed if ever
+// replayed (a no-op beyond recording the narrative).
+function applyEvent_domainAdvancedAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative ||
+    (p.domainId ? ('domain advanced to ' + (p.to || '?')) : 'domain advanced') } };
+}
+registerEventHandler('domain-advanced', applyEvent_domainAdvancedAudit);
+// === Religion R1 (team 2026-06-13) — record-only audit posture. The religion verbs in
+// acks-engine-religion.js (accrueDivinePower / consecrateFields / prayAndSacrifice / …) already
+// applied the ledger + domain state; these handlers exist only so the events are well-formed if
+// ever replayed (a no-op beyond the recorded narrative). Mirrors favor-duty / banditry / survival.
+function applyEvent_religionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'religion event' } };
+}
+registerEventHandler('divine-power-accrued', applyEvent_religionAudit);
+registerEventHandler('consecration', applyEvent_religionAudit);
+registerEventHandler('divine-favor-changed', applyEvent_religionAudit);
+// === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
+// startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
+// handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
+function applyEvent_hijinkAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'hijink' } };
+}
+registerEventHandler('hijink-attempted', applyEvent_hijinkAudit);
+registerEventHandler('hijink-resolved', applyEvent_hijinkAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -4994,6 +5086,22 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
   'domain-banditry',
+  // === Proficiency PT-1 (team) ===
+  // owned by ACKS.recordProficiencyThrow (the throw modal) — a raw emit would carry no real
+  // throw breakdown; the GM rolls via the modal, not the Event Wizard.
+  'proficiency-throw',
+  // === DC-2 (team) ===
+  // Domain Completion DC-2 — owned by processClassificationAdvancement (the monthly turn already
+  // raised the permanent floor; raw emit would narrate an advance the domain state doesn't show).
+  'domain-advanced',
+  // === Religion R1 (team 2026-06-13) — owned by the religion verbs + the monthly consumer
+  // (processReligionForTurn). Raw emit would narrate a divine-power/consecration change the ledger
+  // + domain state don't show; the GM authors deities/congregations via Inspector Create + the
+  // ⛪ Religion view's actions, not these raw events.
+  'divine-power-accrued', 'consecration', 'divine-favor-changed',
+  // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
+  // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
+  'hijink-attempted', 'hijink-resolved',
   // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
   // the band; raw emit would narrate an arrival the world doesn't show).
   'domain-incursion',
