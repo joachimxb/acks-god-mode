@@ -38,6 +38,7 @@
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
+<script src="acks-engine-politics.js?v=2026-06-13-a"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
@@ -21157,7 +21158,9 @@ return {
       // Phase 3 Military W3 (2026-06-12) — Battle engagement records
       'battles',
       // Phase 3 Military W6 (2026-06-13, burst3) — Siege records (RR pp.473–485)
-      'sieges'
+      'sieges',
+      // === Politics P-1 (burst4 2026-06-13) — senate/faction/senatorship (§8.9 importer mandate)
+      'senates', 'factions', 'senatorships'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -23284,6 +23287,51 @@ return {
   // ===== burst4 team-session — Alpine state + methods. Each builder adds its props/getters/methods after ITS marker, each ending in a trailing comma (valid JS). =====
   // burst4 agent-1 (Military W7 — army-troops-depth + fd-troops-effects):
   // burst4 agent-2 (Politics P-1 — realm-senate panel):
+  // Politics P-1 — the realm-senate readout (data-layer surface; the visible Senate tab is P-5).
+  // Resolves the senate governing a domain's realm (at the apex) — null when none (dormant-until-used).
+  realmSenateOf(domain){
+    if(!domain || !this.currentCampaign || !window.ACKS || !window.ACKS.senateForDomain) return null;
+    return window.ACKS.senateForDomain(this.currentCampaign, domain);
+  },
+  // A compact, GM-facing summary of the realm's senate: seats, the live vote tally, ruling/leading
+  // faction (DERIVED), the factions with their live influence + standing, and the dispute/benefit
+  // state. Returns null when the realm has no senate. Browser-verify: acksApp.realmSenateReadout(d).
+  realmSenateReadout(domain){
+    const A = window.ACKS; const c = this.currentCampaign;
+    const senate = this.realmSenateOf(domain);
+    if(!senate || !A) return null;
+    const factions = (A.factionsForSenate(c, senate.id) || []).map(f => ({
+      id: f.id, name: f.name || f.id, influence: A.factionTotalInfluence(c, f), standing: A.factionStanding(c, f)
+    })).sort((a, b) => b.influence - a.influence);
+    const seated = A.senatorshipsForSenate(c, senate.id) || [];
+    return {
+      senate, name: senate.name || senate.id, kind: senate.kind, seats: senate.seats,
+      totalVotes: A.senateTotalVotes(c, senate),
+      inDispute: senate.dispute != null,
+      benefitsActive: A.senateBenefitsActive(c, domain),
+      rulingFactionId: A.senateRulingFactionId(c, senate),
+      leadingFactionId: A.senateLeadingFactionId(c, senate),
+      factions,
+      leadingSenators: seated.filter(s => s.rank === 'leading').length,
+      independentVotes: senate.independentMinorSenatorVotes || 0
+    };
+  },
+  // Admin-verb create for a Politics entity (senate/faction/senatorship): spawn a blank via the
+  // factory, push to the (defensively-ensured) collection, and open it in the Inspector edit form.
+  // The guided Senate Wizard (the Action verb) is P-5; this is the free-form Admin path.
+  politicsCreate(kind, opts){
+    const A = window.ACKS; const c = this.currentCampaign;
+    if(!c){ alert('Create or open a campaign first.'); return null; }
+    const map = { senate: ['senates', 'blankSenate'], faction: ['factions', 'blankFaction'], senatorship: ['senatorships', 'blankSenatorship'] };
+    const m = map[kind];
+    if(!m || !A || typeof A[m[1]] !== 'function') return null;
+    if(!Array.isArray(c[m[0]])) c[m[0]] = [];
+    const ent = A[m[1]](opts || {});
+    c[m[0]].push(ent);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect(kind, ent.id);
+    return ent;
+  },
   // burst4 agent-3 (Character Lifecycle CL-1 — char-sheet aging readout):
   // burst4 agent-4 (Voyages V1 — vessels panel / Inspector helpers):
   // burst4 agent-5 (Delves D2 — world-dungeons sub-view / Inspector helpers):
