@@ -6660,6 +6660,116 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
+        <!-- ════ Hijinks HJ-2 (team 2026-06-13) — Syndicates (RR pp.358–362) ════ -->
+        <!-- subview:hijinks-syndicates — the criminal-enterprise layer: a boss runs a syndicate,
+             collects monthly tribute, and stands its caught members to trial. -->
+        <div class="vellum border border-ink rounded p-4 space-y-3">
+          <div class="flex items-baseline justify-between flex-wrap gap-2">
+            <h3 class="font-semibold">🏛 Syndicates <span class="opacity-60 font-normal text-sm" x-text="'(' + syndicateRows().length + ')'"></span></h3>
+            <span class="text-xs opacity-60">A boss runs hijinks + collects tribute out of a hideout (RR pp.358–362).</span>
+          </div>
+
+          <!-- found a syndicate -->
+          <details class="text-sm">
+            <summary class="cursor-pointer font-semibold select-none">＋ Found a syndicate</summary>
+            <div class="grid md:grid-cols-2 gap-3 mt-2">
+              <label class="block text-sm">
+                <span class="font-semibold">Boss</span>
+                <select x-model="synForm.bossCharacterId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                  <option value="" :selected="!synForm.bossCharacterId">— pick a boss —</option>
+                  <template x-for="c in synBossOptions()" :key="c.id">
+                    <option :value="c.id" :selected="synForm.bossCharacterId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                  </template>
+                </select>
+                <span x-show="synBossOptions().length === 0" class="block text-xs text-red-700 mt-1">No eligible boss — add a <strong>Thief / Assassin / Nightblade / Venturer</strong> character.</span>
+              </label>
+              <label class="block text-sm">
+                <span class="font-semibold">Name <span class="opacity-60 font-normal">(optional)</span></span>
+                <input x-model="synForm.name" type="text" placeholder="e.g. The Argollëan Family" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+              </label>
+              <label class="block text-sm">
+                <span class="font-semibold">Base settlement <span class="opacity-60 font-normal">(optional)</span></span>
+                <select x-model="synForm.baseSettlementId" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                  <option value="" :selected="!synForm.baseSettlementId">— none —</option>
+                  <template x-for="s in (currentCampaign?.settlements||[])" :key="s.id">
+                    <option :value="s.id" :selected="synForm.baseSettlementId===s.id" x-text="(s.name||'(unnamed)') + (s.marketClass||s.market ? (' · Class ' + (s.marketClass||s.market)) : '')"></option>
+                  </template>
+                </select>
+                <span x-show="_synSettlementMarketClass()" class="block text-xs opacity-60 mt-0.5">Market class derived from the settlement (Class <span x-text="_synSettlementMarketClass()"></span>).</span>
+              </label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="block text-sm">
+                  <span class="font-semibold">Market class <span class="opacity-60 font-normal">(if no settlement)</span></span>
+                  <select x-model="synForm.marketClass" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                    <template x-for="mc in ['VI','V','IV','III','II','I']" :key="mc">
+                      <option :value="mc" :selected="synForm.marketClass===mc" x-text="'Class ' + mc"></option>
+                    </template>
+                  </select>
+                </label>
+                <label class="block text-sm">
+                  <span class="font-semibold">Hideout value (gp)</span>
+                  <input x-model.number="synForm.hideoutValueGp" type="number" min="0" step="1000" class="w-full mt-1 border border-ink rounded px-2 py-1 text-sm">
+                </label>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 mt-2">
+              <button @click="synFormSubmit()" :disabled="!synCanForm()"
+                      class="px-3 py-1 border border-ink rounded text-sm font-semibold"
+                      :class="synCanForm() ? 'bg-green-200 hover:bg-green-300' : 'opacity-40 cursor-not-allowed'">🏛 Found syndicate</button>
+              <span x-show="!synCanForm() && synFormDisabledReason()" class="text-xs italic opacity-70" x-text="synFormDisabledReason()"></span>
+            </div>
+          </details>
+
+          <!-- syndicate list -->
+          <template x-if="syndicateRows().length === 0">
+            <p class="text-xs italic opacity-60">No syndicates yet. Found one above — a boss can then collect monthly tribute from his members.</p>
+          </template>
+          <template x-for="syn in syndicateRows()" :key="syn.id">
+            <div class="border border-ink/40 rounded p-3 space-y-2">
+              <div class="flex items-baseline justify-between flex-wrap gap-2">
+                <div>
+                  <span class="font-semibold" x-text="'🏛 ' + syn.name"></span>
+                  <span class="text-xs opacity-70" x-text="' · boss ' + syn.bossName + ' · Class ' + syn.marketClass + ' ' + syn.hideoutType + ' (' + syn.hideoutValueGp.toLocaleString() + 'gp)'"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs opacity-70" x-text="syn.memberCount + ' / ' + syn.maxMembers + ' members · eff. L' + syn.maxEffectiveLevel"></span>
+                  <button @click="synCollect(syn.id)" :disabled="!syn.hasBoss || syn.collectedThisTurn || syn.tributeTotal <= 0"
+                          class="px-2 py-0.5 border border-ink rounded text-xs font-semibold"
+                          :class="(syn.hasBoss && !syn.collectedThisTurn && syn.tributeTotal > 0) ? 'bg-yellow-200 hover:bg-yellow-300' : 'opacity-40 cursor-not-allowed'"
+                          :title="syn.collectedThisTurn ? 'Tribute already collected this turn' : (!syn.hasBoss ? 'No boss set' : '')">💰 Collect tribute<span x-show="syn.tributeTotal > 0" x-text="' (' + syn.tributeTotal.toLocaleString() + 'gp)'"></span></button>
+                </div>
+              </div>
+              <!-- members by level + tribute -->
+              <div class="text-xs">
+                <table class="w-full" x-show="syn.members.length">
+                  <thead><tr class="text-left border-b border-ink/30 uppercase tracking-wide opacity-60">
+                    <th class="py-0.5">Level</th><th>Count</th><th>Tribute/ea</th><th>Subtotal</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="line in syn.tributeLines" :key="line.level">
+                      <tr class="border-b border-dashed border-gray-200">
+                        <td class="py-0.5" x-text="line.level + 'th'"></td>
+                        <td x-text="line.count"></td>
+                        <td class="opacity-70" x-text="line.perMember + 'gp'"></td>
+                        <td x-text="line.subtotal.toLocaleString() + 'gp'"></td>
+                        <td class="text-right"><button @click="synRemoveMembers(syn.id, line.level, 1)" class="text-red-700 hover:underline" title="Remove one">−1</button></td>
+                      </tr>
+                    </template>
+                    <tr class="font-semibold"><td colspan="3" class="py-0.5 text-right">Monthly tribute</td><td x-text="syn.tributeTotal.toLocaleString() + 'gp'"></td><td></td></tr>
+                  </tbody>
+                </table>
+                <p x-show="!syn.members.length" class="italic opacity-60">No members. Add ruffians + lieutenants below.</p>
+              </div>
+              <!-- add members -->
+              <div class="flex items-end gap-2 text-xs">
+                <label class="block">Level <input type="number" min="0" max="14" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).level" @input="_synDraft(syn.id).level = $event.target.value"></label>
+                <label class="block">Count <input type="number" min="1" class="w-16 border border-ink rounded px-1 py-0.5 ml-1" :value="_synDraft(syn.id).count" @input="_synDraft(syn.id).count = $event.target.value"></label>
+                <button @click="synAddMembers(syn.id)" class="px-2 py-0.5 border border-ink rounded font-semibold bg-green-100 hover:bg-green-200">＋ Add members</button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- ════ end Hijinks HJ-2 Syndicates ════ -->
+
         <!-- ── Active hijinks ───────────────────────────────────────────── -->
         <div class="vellum border border-ink rounded p-4">
           <h3 class="font-semibold mb-2">In progress <span class="opacity-60 font-normal text-sm" x-text="'(' + hijinkActiveRows().length + ')'"></span></h3>
@@ -6704,6 +6814,57 @@ document.addEventListener('alpine:init', () => {
             </table>
           </div>
         </template>
+
+        <!-- ════ Hijinks HJ-2 (team 2026-06-13) — Trials & sentencing (RR pp.367–368) ════ -->
+        <template x-if="synCaughtTrials().length">
+          <div class="vellum border border-ink rounded p-4 space-y-2">
+            <h3 class="font-semibold mb-1">⚖ Awaiting trial <span class="opacity-60 font-normal text-sm" x-text="'(' + synCaughtTrials().length + ')'"></span></h3>
+            <p class="text-xs opacity-60">A caught perpetrator languishes, then faces the 2d6 Crime &amp; Punishment roll — the boss pays the fine (RR pp.367–368).</p>
+            <template x-for="t in synCaughtTrials()" :key="t.id">
+              <div class="border border-ink/40 rounded p-2 flex flex-wrap items-end gap-2 text-sm">
+                <div class="flex-1 min-w-[12rem]">
+                  <span class="font-semibold" x-text="t.perpName"></span>
+                  <span class="text-xs opacity-70" x-text="' · ' + t.icon + ' ' + t.typeLabel + ' · charged with ' + t.crime + ' (severity ' + (t.severity>=0?'+':'') + t.severity + ')' + (t.bossName ? ' · boss ' + t.bossName + ' pays' : '')"></span>
+                </div>
+                <label class="block text-xs">Plea
+                  <select class="border border-ink rounded px-1 py-0.5 ml-1 text-xs" :value="_synTrialDraft(t.id).plea" @change="_synTrialDraft(t.id).plea = $event.target.value">
+                    <option value="guilty">Plead guilty</option>
+                    <option value="trial">Stand trial</option>
+                  </select>
+                </label>
+                <label class="block text-xs" x-show="_synTrialDraft(t.id).plea === 'guilty'">Priors
+                  <input type="number" min="0" max="2" class="w-12 border border-ink rounded px-1 py-0.5 ml-1" :value="_synTrialDraft(t.id).priorOffenses" @input="_synTrialDraft(t.id).priorOffenses = $event.target.value" title="0 = first catch (lesser) · 1 = second (standard) · 2+ must stand trial">
+                </label>
+                <label class="block text-xs" x-show="_synTrialDraft(t.id).plea === 'trial'">GM mod
+                  <input type="number" class="w-14 border border-ink rounded px-1 py-0.5 ml-1" :value="_synTrialDraft(t.id).gmModifier" @input="_synTrialDraft(t.id).gmModifier = $event.target.value" title="Evidence / attorney / interpleader / bribes (RR p.368)">
+                </label>
+                <button @click="synResolveTrial(t.id)" class="px-2 py-0.5 border border-ink rounded text-xs font-semibold bg-red-100 hover:bg-red-200">⚖ Resolve trial</button>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- the verdict log -->
+        <template x-if="synTriedRows().length">
+          <div class="vellum border border-ink rounded p-4">
+            <h3 class="font-semibold mb-2">Verdicts <span class="opacity-60 font-normal text-sm" x-text="'(' + synTriedRows().length + ')'"></span></h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left border-b border-ink/40 text-xs uppercase tracking-wide opacity-70">
+                <th class="py-1">Perpetrator</th><th>Crime</th><th>Verdict</th><th>Consequence</th></tr></thead>
+              <tbody>
+                <template x-for="v in synTriedRows()" :key="v.id">
+                  <tr class="border-b border-dashed border-gray-300">
+                    <td class="py-1" x-text="v.perpName"></td>
+                    <td x-text="v.crime"></td>
+                    <td><span class="px-1 rounded text-xs font-semibold" :class="v.acquitted ? 'bg-green-200' : 'bg-red-200 text-red-900'" x-text="v.label"></span></td>
+                    <td class="opacity-80 text-xs" x-text="(v.acquitted ? (v.damagesGp ? ('+' + v.damagesGp.toLocaleString() + 'gp damages') : 'acquitted') : ((v.fineGp ? ('fined ' + v.fineGp.toLocaleString() + 'gp' + (v.indentureGp ? (' · ' + v.indentureGp.toLocaleString() + 'gp indentured') : '')) : '') + (v.physical ? ((v.fineGp?' · ':'') + v.physical) : ''))) || '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <!-- ════ end Hijinks HJ-2 Trials ════ -->
 
         <!-- ── RAW reference (collapsible) ──────────────────────────────── -->
         <div class="vellum border border-ink rounded p-4">
@@ -20482,6 +20643,8 @@ return {
       'encounters',
       // === Hijinks HJ-1 (team 2026-06-13) — Phase 2.7 hijink attempts (§8.9 importer mandate)
       'hijinks',
+      // === Hijinks HJ-2 (team 2026-06-13) — Phase 2.7 criminal syndicates (§8.9 importer mandate)
+      'syndicates',
       // Phase 3 Military W1 (2026-06-12) — first-class Units + Armies
       'units', 'armies',
       // Phase 3 Military W3 (2026-06-12) — Battle engagement records
@@ -22290,6 +22453,109 @@ return {
   // ── agent-3 (Hex Scales HW-4) state + methods ──
   // ── agent-4 (DC-3) state + methods ──
   // ── agent-5 (Hijinks HJ-2) state + methods ──
+  // Phase 2.7 Hijinks HJ-2 (RR pp.358–369) — syndicates / tribute / trials. The engine
+  // (acks-engine-hijinks.js) owns formSyndicate / collectSyndicateTribute / resolveHijinkTrial;
+  // this is the surface inside Activities ▸ Hijinks (extends the sub-view in place).
+  synForm: { bossCharacterId: '', baseSettlementId: '', marketClass: 'VI', hideoutType: 'hideout', hideoutValueGp: 5000, name: '' },
+  synMemberDraft: {},   // { [synId]: { level, count } }
+  synTrialDraft: {},    // { [hijinkId]: { plea, priorOffenses, gmModifier } }
+  // Bosses who can found a syndicate (RR p.358 — thief / assassin / nightblade / venturer).
+  synBossOptions() {
+    const A = window.ACKS; if (!A || !this.currentCampaign) return [];
+    return (this.currentCampaign.characters || []).filter(c => c
+      && (A.isActive ? A.isActive(c) : (c.alive !== false))
+      && A.syndicateBossEligible && A.syndicateBossEligible(c));
+  },
+  _synSettlementMarketClass() {
+    const id = this.synForm.baseSettlementId; if (!id) return null;
+    const s = (this.currentCampaign?.settlements || []).find(x => x && x.id === id);
+    return (s && (s.marketClass || s.market)) || null;
+  },
+  synCanForm() {
+    const A = window.ACKS; const boss = (this.currentCampaign?.characters || []).find(c => c && c.id === this.synForm.bossCharacterId);
+    return !!(boss && A && A.syndicateBossEligible && A.syndicateBossEligible(boss));
+  },
+  synFormDisabledReason() {
+    if (!this.synForm.bossCharacterId) return 'Pick an eligible boss (a thief / assassin / nightblade / venturer).';
+    return this.synCanForm() ? '' : 'Only a thief / assassin / nightblade / venturer may run a syndicate (RR p.358).';
+  },
+  synFormSubmit() {
+    const A = window.ACKS; if (!this.synCanForm() || !A || !A.formSyndicate) return;
+    const res = A.formSyndicate(this.currentCampaign, {
+      bossCharacterId: this.synForm.bossCharacterId,
+      baseSettlementId: this.synForm.baseSettlementId || null,
+      marketClass: this.synForm.marketClass,
+      // hideoutType omitted → the engine auto-detects (a venturer founds a guildhouse, RR p.43; else a hideout)
+      hideoutValueGp: Number(this.synForm.hideoutValueGp) || 0,
+      name: this.synForm.name || ''
+    });
+    if (!res || !res.ok) { this.showToast('Could not found the syndicate: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.showToast('🏛 ' + res.syndicate.name + ' founded (Class ' + res.syndicate.marketClass + ' ' + res.syndicate.hideoutType + ').', 4000);
+    this.synForm.bossCharacterId = ''; this.synForm.name = '';
+    this.markDirty(); this.schedulePersist();
+  },
+  _synCharName(id) { const c = (this.currentCampaign?.characters || []).find(x => x && x.id === id); return (c && c.name) || '—'; },
+  syndicateRows() {
+    const A = window.ACKS; if (!A || !this.currentCampaign) return [];
+    return (this.currentCampaign.syndicates || []).filter(s => s && s.status !== 'disbanded').map(s => {
+      const trib = A.syndicateMonthlyTribute(this.currentCampaign, s);
+      const maxMembers = A.syndicateMaxMembers(s);
+      const collectedThisTurn = s.lastTributeTurn === (this.currentCampaign.currentTurn || 1);
+      return {
+        id: s.id, name: s.name || '(unnamed syndicate)', bossName: this._synCharName(s.bossCharacterId), hasBoss: !!s.bossCharacterId,
+        marketClass: s.marketClass, hideoutType: s.hideoutType, hideoutValueGp: s.hideoutValueGp || 0,
+        memberCount: A.syndicateMemberCount(s), maxMembers, maxEffectiveLevel: A.syndicateMaxEffectiveLevel(s.marketClass),
+        members: (s.members || []).slice().sort((a, b) => (a.level || 0) - (b.level || 0)),
+        tributeTotal: trib.totalGp, tributeLines: trib.lines, collectedThisTurn
+      };
+    });
+  },
+  synCollect(synId) {
+    const A = window.ACKS; if (!A || !A.collectSyndicateTribute) return;
+    const res = A.collectSyndicateTribute(this.currentCampaign, synId);
+    if (!res || !res.ok) { this.showToast('Tribute not collected: ' + ((res && (res.detail || res.error)) || 'unknown'), 3500); return; }
+    this.showToast('💰 Collected ' + res.totalGp.toLocaleString() + 'gp in tribute.', 3500);
+    this.markDirty(); this.schedulePersist();
+  },
+  _synDraft(synId) { if (!this.synMemberDraft[synId]) this.synMemberDraft[synId] = { level: 0, count: 1 }; return this.synMemberDraft[synId]; },
+  synAddMembers(synId) {
+    const A = window.ACKS, d = this._synDraft(synId);
+    const res = A.addSyndicateMembers(this.currentCampaign, synId, Number(d.level) || 0, Number(d.count) || 0);
+    if (!res || !res.ok) { this.showToast('Could not add members: ' + ((res && (res.detail || res.error)) || 'unknown'), 3500); return; }
+    this.markDirty(); this.schedulePersist();
+  },
+  synRemoveMembers(synId, level, count) {
+    const A = window.ACKS;
+    A.removeSyndicateMembers(this.currentCampaign, synId, level, count);
+    this.markDirty(); this.schedulePersist();
+  },
+  // Hijinks that resolved as CAUGHT and await trial (HJ-1 reveals the catch at the day-tick →
+  // status 'caught' + a rolled charge; HJ-2 resolves the trial). status (not the launch-locked,
+  // still-hidden outcome) is the gate — you can't try a perpetrator before he's actually caught.
+  synCaughtTrials() {
+    const A = window.ACKS;
+    return (this.currentCampaign?.hijinks || []).filter(h => h && h.status === 'caught' && !(h.trial && h.trial.resolved)).map(h => {
+      const def = (A && A.hijinkDefinition) ? (A.hijinkDefinition(h.type) || {}) : {};
+      const prof = (A && A.crimeProfile) ? A.crimeProfile(h.charge) : {};
+      return { id: h.id, perpName: this._synCharName(h.perpetratorCharacterId), bossName: h.bossCharacterId ? this._synCharName(h.bossCharacterId) : '', icon: def.icon || '🗡', typeLabel: def.label || h.type, charge: h.charge, crime: prof.crime || h.charge, severity: prof.severity };
+    });
+  },
+  // Tried hijinks (the verdict log).
+  synTriedRows() {
+    return (this.currentCampaign?.hijinks || []).filter(h => h && h.trial && h.trial.resolved).map(h => ({
+      id: h.id, perpName: this._synCharName(h.perpetratorCharacterId), crime: h.trial.crime, label: h.trial.label,
+      acquitted: h.trial.acquitted, fineGp: h.trial.fineGp, indentureGp: h.trial.indentureGp, damagesGp: h.trial.damagesGp,
+      physical: h.trial.physical, languishingDays: h.trial.languishingDays
+    }));
+  },
+  _synTrialDraft(hijinkId) { if (!this.synTrialDraft[hijinkId]) this.synTrialDraft[hijinkId] = { plea: 'guilty', priorOffenses: 0, gmModifier: 0 }; return this.synTrialDraft[hijinkId]; },
+  synResolveTrial(hijinkId) {
+    const A = window.ACKS, d = this._synTrialDraft(hijinkId);
+    const res = A.resolveHijinkTrial(this.currentCampaign, hijinkId, { plea: d.plea, priorOffenses: Number(d.priorOffenses) || 0, gmModifier: Number(d.gmModifier) || 0 });
+    if (!res || !res.ok) { this.showToast('Trial not resolved: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
+    this.showToast('⚖ ' + (res.narrative || (res.label + ' — ' + res.crime)), 5000);
+    this.markDirty(); this.schedulePersist();
+  }
 };
 }
 </script>

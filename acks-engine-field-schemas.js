@@ -674,8 +674,33 @@
         { name: 'status',             type: 'enum', enumValues: ['active'], group: 'Standing', default: 'active' },
         { name: 'history',            type: 'history', readonly: true, group: 'History' }
       ]
-    }
+    },
     // === end Religion R0 ===
+
+    // === Hijinks HJ-2 (team 2026-06-13) — the criminal Syndicate (Phase 2.7, RR pp.358–362).
+    // Fields ⊆ blankSyndicate keys (the global schema⊆factory invariant). The Admin path. ──
+    'syndicate': {
+      factory: 'blankSyndicate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Hideout', 'Membership', 'History'],
+      fields: [
+        { name: 'id',               type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',             type: 'string', group: 'Identity', description: 'e.g. "The Argollëan Family"' },
+        { name: 'bossCharacterId',  type: 'id', idKind: 'character', group: 'Identity', description: 'The boss (analogous to a domain ruler)' },
+        { name: 'baseSettlementId', type: 'id', idKind: 'settlement', group: 'Identity', description: 'The urban settlement; its market class caps the syndicate' },
+        { name: 'hexId',            type: 'id', idKind: 'hex', group: 'Hideout', description: 'The hideout hex (≤6mi from the base)' },
+        { name: 'marketClass',      type: 'enum', enumValues: ['I','II','III','IV','V','VI'], group: 'Hideout', default: 'VI', description: 'Caps size + perpetrator effective level (RR p.359)' },
+        { name: 'hideoutType',      type: 'enum', enumValues: ['hideout','guildhouse'], group: 'Hideout', default: 'hideout', description: 'A venturer\'s guildhouse counts at ½ value' },
+        { name: 'hideoutValueGp',   type: 'gp', group: 'Hideout', description: 'gp invested; unlocks the membership tier (RR p.359)' },
+        { name: 'members',          type: 'array', group: 'Membership', description: 'Members counted by level [{level, count}]',
+          itemSchema: { fields: [ { name: 'level', type: 'number', min: 0 }, { name: 'count', type: 'number', min: 0 } ] } },
+        { name: 'status',           type: 'enum', enumValues: ['active','disbanded'], group: 'Identity', default: 'active' },
+        { name: 'foundedTurn',      type: 'number', group: 'History' },
+        { name: 'lastTributeTurn',  type: 'number', readonly: true, group: 'History', description: 'Last monthly tribute collection' },
+        { name: 'history',          type: 'history', readonly: true, group: 'History' }
+      ]
+    }
+    // === end Hijinks HJ-2 ===
   };
 
   // ─── 4. Public API ───

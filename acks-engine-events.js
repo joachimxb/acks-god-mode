@@ -201,7 +201,12 @@ const EVENT_KINDS = Object.freeze([
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
   // Wizard opt-out below. Carry the Event.context envelope (perpetrator + hex + settlement).
   'hijink-attempted',
-  'hijink-resolved'
+  'hijink-resolved',
+  // === Hijinks HJ-2 (team 2026-06-13) === — syndicate/tribute/trial lifecycle (RR pp.358–369),
+  // engine-emitted by formSyndicate / collectSyndicateTribute / resolveHijinkTrial. Record-only.
+  'hijink-syndicate-formed',
+  'hijink-tribute',
+  'hijink-trial'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -651,6 +656,19 @@ const EVENT_SCHEMAS = Object.freeze({
   'hijink-resolved': {
     R: { hijinkId: 'string', outcome: 'string' },
     O: { type: 'string', rewardGp: 'number', charge: 'string', narrative: 'string' }
+  },
+  // === Hijinks HJ-2 (team 2026-06-13) === (RR pp.358–369; engine-emitted, record-only)
+  'hijink-syndicate-formed': {
+    R: { syndicateId: 'string', bossCharacterId: 'string' },
+    O: { baseSettlementId: 'string', marketClass: 'string', narrative: 'string' }
+  },
+  'hijink-tribute': {
+    R: { syndicateId: 'string', totalGp: 'number' },
+    O: { bossCharacterId: 'string', turn: 'number', narrative: 'string' }
+  },
+  'hijink-trial': {
+    R: { hijinkId: 'string', crime: 'string', punishmentLevel: 'string' },
+    O: { charge: 'string', band: 'string', fineGp: 'number', indentureGp: 'number', damagesGp: 'number', acquitted: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2147,6 +2165,12 @@ function applyEvent_hijinkAudit(campaign, event){
 }
 registerEventHandler('hijink-attempted', applyEvent_hijinkAudit);
 registerEventHandler('hijink-resolved', applyEvent_hijinkAudit);
+// === Hijinks HJ-2 (team 2026-06-13) === — syndicate/tribute/trial events share the audit
+// posture: formSyndicate / collectSyndicateTribute / resolveHijinkTrial already moved the gp
+// + state; the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('hijink-syndicate-formed', applyEvent_hijinkAudit);
+registerEventHandler('hijink-tribute', applyEvent_hijinkAudit);
+registerEventHandler('hijink-trial', applyEvent_hijinkAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5102,6 +5126,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
   // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
   'hijink-attempted', 'hijink-resolved',
+  // === Hijinks HJ-2 (team 2026-06-13) === — owned by formSyndicate / collectSyndicateTribute /
+  // resolveHijinkTrial (raw emit would record an enterprise change the syndicate/hijink doesn't show).
+  'hijink-syndicate-formed', 'hijink-tribute', 'hijink-trial',
   // Phase 3 Military W2 — owned by the incursion day consumer (its commit materializes
   // the band; raw emit would narrate an arrival the world doesn't show).
   'domain-incursion',
