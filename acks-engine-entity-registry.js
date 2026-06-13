@@ -284,6 +284,29 @@
       find: (c, id) => ((c && c.sieges) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
 
+    // === Politics P-1 (burst4 2026-06-13) — the senate/faction/senatorship data layer (RR pp.355–360;
+    // acks-engine-politics.js). Read defensively (campaign.senates/factions/senatorships) — no
+    // migrateCampaign injector, so the templates stay migrate-no-ops. displayName reads only the
+    // matching blankX-emitted keys (the registry⊆factory invariant). ──
+    { kind: 'senate', label: 'Senate', pluralLabel: 'Senates', icon: '🏛',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.senates) || [],
+      find: (c, id) => ((c && c.senates) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
+    { kind: 'faction', label: 'Faction', pluralLabel: 'Factions', icon: '⚖',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.factions) || [],
+      find: (c, id) => ((c && c.factions) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
+    { kind: 'senatorship', label: 'Senatorship', pluralLabel: 'Senatorships', icon: '🗳',
+      addressable: true, chronicleable: false,
+      list: (c) => (c && c.senatorships) || [],
+      find: (c, id) => ((c && c.senatorships) || []).find(x => x && x.id === id),
+      // blankSenatorship emits senatorCharacterId + senateId (no `name`) — describe by the relation.
+      displayName: (c, obj) => obj ? ((obj.senatorCharacterId || '?') + ' in ' + (obj.senateId || '?')) : '' },
+
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',
       addressable: true, chronicleable: true,

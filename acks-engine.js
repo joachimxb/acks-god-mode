@@ -147,7 +147,12 @@ const ID_PREFIXES = Object.freeze({
   battle:               'btl',
   // Phase 3 Military W6 (2026-06-13, burst3 team session) — Siege (the RR pp.473–485
   // stronghold-investment record; resolved by acks-engine-sieges.js).
-  siege:                'sie'
+  siege:                'sie',
+  // === Politics P-1 (burst4 2026-06-13) — the senate/faction/senatorship data layer
+  // (RR pp.355–360; acks-engine-politics.js). Wave D (Architecture §3.5).
+  senate:               'sen',
+  faction:              'fac',
+  senatorship:          'snr'
 });
 
 function newId(prefix){
