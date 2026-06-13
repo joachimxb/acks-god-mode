@@ -23381,6 +23381,7 @@ return {
     const d = window.ACKS.blankDungeon({ name: 'New Dungeon' });
     this.currentCampaign.dungeons.push(d);
     this.markDirty(); this.schedulePersist();
+    this.currentView = 'inspector';   // jump to the editor (Author from the World ▸ Dungeons sub-view too)
     this.inspectorOpenInspect('dungeon', d.id);
     this.inspectorEditMode = true;
     if(this.showToast) this.showToast('New Dungeon created — set its hex, size, level, and encounter count. (The abstract-foray resolver + Foray Wizard land in D3.)');
@@ -23392,6 +23393,7 @@ return {
     const dl = window.ACKS.blankDelve({ name: 'New Delve' });
     this.currentCampaign.delves.push(dl);
     this.markDirty(); this.schedulePersist();
+    this.currentView = 'inspector';   // jump to the editor (Author from the World ▸ Dungeons sub-view too)
     this.inspectorOpenInspect('delve', dl.id);
     this.inspectorEditMode = true;
     if(this.showToast) this.showToast('New Delve created — link it to a dungeon + add participants. The multi-foray resolution is D3.');
