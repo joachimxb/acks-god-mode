@@ -145,7 +145,12 @@ const EVENT_KINDS = Object.freeze([
   // (a priced buy/sell at a market). The primitives carry typed source/destination handles.
   'wealth-transfer',
   'item-transfer',
-  'market-transaction'
+  'market-transaction',
+  // === Proficiency PT-1 (team) ===
+  // A stand-alone GM proficiency throw (RR pp.9-10). Record-only + always campaignLogHidden
+  // (a die roll is table chatter — DQ6); emitted by ACKS.recordProficiencyThrow only when the
+  // GM ticks "record" in the throw modal. The throw itself is ephemeral by default.
+  'proficiency-throw'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -503,6 +508,15 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { direction: 'string', actorCharacterId: 'string', lines: 'array' },
     O: { settlementId: 'string', marketClass: 'string', totalGp: 'number', currency: 'string',
          notable: 'boolean', activityCost: 'object', payFrom: 'string', itemTo: 'string', itemFrom: 'string' }
+  },
+  // === Proficiency PT-1 (team) ===
+  // A stand-alone GM proficiency throw (RR pp.9-10). Record-only (recordProficiencyThrow logs
+  // it directly as applied); no required fields beyond the actor + throw breakdown.
+  'proficiency-throw': {
+    R: {},
+    O: { actorCharacterId: 'string', taskKey: 'string', label: 'string', target: 'number',
+         natural: 'number', modifierTotal: 'number', total: 'number', success: 'boolean',
+         secret: 'boolean', modifiers: 'array', narrative: 'string' }
   }
 });
 
@@ -4860,7 +4874,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'favor-duty',
   // #476 E10 — owned by processBanditryForTurn (the monthly reconcile already moved the bands +
   // population; raw emit would narrate a change the world state doesn't show).
-  'domain-banditry'
+  'domain-banditry',
+  // === Proficiency PT-1 (team) ===
+  // owned by ACKS.recordProficiencyThrow (the throw modal) — a raw emit would carry no real
+  // throw breakdown; the GM rolls via the modal, not the Event Wizard.
+  'proficiency-throw'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
