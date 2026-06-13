@@ -201,7 +201,14 @@ const EVENT_KINDS = Object.freeze([
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
   // Wizard opt-out below. Carry the Event.context envelope (perpetrator + hex + settlement).
   'hijink-attempted',
-  'hijink-resolved'
+  'hijink-resolved',
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) ===
+  // RR pp.300–301 + Appendix C pp.517–523. Record-only audit — the wound/recovery state is
+  // applied by ACKS.applyMortalWound + the slot-58 convalescence consumer (acks-engine-mortal-
+  // wounds.js); these events keep the eventLog well-formed on replay. Carry the Event.context
+  // envelope (the wounded character as subject). 'mortal-wound' also records a Tampering side effect.
+  'mortal-wound',
+  'wound-recovery'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -651,6 +658,20 @@ const EVENT_SCHEMAS = Object.freeze({
   'hijink-resolved': {
     R: { hijinkId: 'string', outcome: 'string' },
     O: { type: 'string', rewardGp: 'number', charge: 'string', narrative: 'string' }
+  },
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === (RR pp.300–301 + Appendix C pp.517–523)
+  // A combatant felled to 0 hp rolls on the Mortal Wounds table (or a slain character rolls the
+  // Tampering with Mortality side-effect — tampering:true). outcome ∈ killed|incapacitated|recovered.
+  'mortal-wound': {
+    R: { characterId: 'string' },
+    O: { table: 'string', damageType: 'string', d20: 'number', d6: 'number', modified: 'number',
+         condition: 'string', permanentWound: 'string', outcome: 'string', bedRestDays: 'number',
+         tampering: 'boolean', bandId: 'string', mortalityDelta: 'number', narrative: 'string' }
+  },
+  // An incapacitated character finishes convalescence (emitted by the slot-58 consumer's commit).
+  'wound-recovery': {
+    R: { characterId: 'string' },
+    O: { woundIndex: 'number', condition: 'string', narrative: 'string' }
   }
 });
 
@@ -2147,6 +2168,16 @@ function applyEvent_hijinkAudit(campaign, event){
 }
 registerEventHandler('hijink-attempted', applyEvent_hijinkAudit);
 registerEventHandler('hijink-resolved', applyEvent_hijinkAudit);
+// === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === — record-only audit posture: the
+// wound/recovery state is applied by ACKS.applyMortalWound + the slot-58 convalescence consumer
+// (acks-engine-mortal-wounds.js); these handlers keep the events well-formed on replay (a no-op
+// beyond the recorded narrative). Mirrors survival / banditry / hijink.
+function applyEvent_mortalWoundAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'mortal wound' } };
+}
+registerEventHandler('mortal-wound', applyEvent_mortalWoundAudit);
+registerEventHandler('wound-recovery', applyEvent_mortalWoundAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5111,7 +5142,12 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
   // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
-  'army-contact', 'domain-warfare', 'army-supply'
+  'army-contact', 'domain-warfare', 'army-supply',
+  // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === — owned by ACKS.applyMortalWound +
+  // the slot-58 convalescence consumer (raw emit would narrate a wound/recovery the character's
+  // mortalWounds[] + lifecycleState don't show). The GM records a wound via the character-sheet
+  // Record-a-wound modal, not the Event Wizard.
+  'mortal-wound', 'wound-recovery'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

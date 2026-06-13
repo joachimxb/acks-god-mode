@@ -1079,6 +1079,13 @@ function blankCharacter(opts={}){
     // Effective loyalty = clamp(loyalty + permanentWoundPenalty + mortalityPenalty, -4, +4).
     permanentWoundPenalty: opts.permanentWoundPenalty || 0,
     mortalityPenalty:      opts.mortalityPenalty      || 0,
+    // === Delves D1 — Mortal Wounds (team burst3 2026-06-13 — acks-engine-mortal-wounds.js) ===
+    // The wound-record array (RR pp.300–301 + Appendix C pp.517–523). applyMortalWound pushes
+    // a record {table,damageType,d20,d6,condition,permanentWound,bedRestDaysRemaining,outcome,…};
+    // the slot-58 convalescence consumer advances bedRestDaysRemaining + resolves recovery. Read
+    // defensively as (c.mortalWounds || []) everywhere — NO migrateCampaign injector, so the 6
+    // templates + demo stay migrate-no-ops (the team-session defensive-read discipline, CLAUDE §15).
+    mortalWounds: opts.mortalWounds || [],
     // === Religion R0 (team 2026-06-13 — Phase_4_Religion_Plan.md §4.4) ===
     // Divine power: a per-character spendable resource (gp-equivalent) a divine caster
     // accrues from worship/sacrifice. It CANNOT be stored — each accrual fades one month
