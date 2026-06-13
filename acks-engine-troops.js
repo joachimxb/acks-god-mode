@@ -1732,6 +1732,71 @@
   { key:"zombie", label:"Zombie", category:"undead", br:0.025, platoons:1, platoonSize:15, platoonBr:1.5, lairPlatoons:1, lairPlatoonSize:15, lairPlatoonBr:1.5, lingerPct:35, tags:[] }
   ];
 
+  // =========================================================================
+  // === Military W7 (burst4) — Conscripts, militia & training (RR pp.430–433)
+  //     Hand-transcribed from the RR p.431 tables (the W1 generator covers the
+  //     unit/wage/officer catalogs; these two W7 tables are added by hand — the
+  //     generator must reproduce them when it next regenerates this file).
+  // =========================================================================
+
+  // RR p.431 — Conscript Qualifying Number (per 120 conscripts), by troop type × race.
+  // How many of each troop type a pool of 120 conscripts of a given race yields. The HUMAN
+  // column is the systematic source the worked examples use (full + clean); the demi-human/
+  // humanoid cells are transcribed where the printed table is legible (a race with no entry
+  // for a type simply can't field it). Light infantry: any able-bodied conscript qualifies,
+  // so 120 for every race (RR p.430). Human percentages: heavy inf 50% (60), slingers/bowmen/
+  // crossbowmen 50% (60), composite bowmen/longbowmen/light cav 25% (30), medium cav 17% (20),
+  // horse archers 12.5% (15), heavy cav 8.5% (10), cataphracts 5% (6).
+  const CONSCRIPT_QUALIFYING = {
+    'light-infantry':    { man:120, dwarf:120, elf:120, kobold:120, goblin:120, orc:120, hobgoblin:120, gnoll:120, lizardman:120, bugbear:120, ogre:120 },
+    'heavy-infantry':    { man:60,  dwarf:120, elf:60,  orc:90, hobgoblin:90, gnoll:90, lizardman:90, bugbear:90, ogre:60 },
+    'slinger':           { man:60,  goblin:60 },
+    'bowman':            { man:60,  elf:120, kobold:60, goblin:60, orc:60, bugbear:60 },
+    'composite-bowman':  { man:30,  hobgoblin:60 },
+    'crossbowman':       { man:60,  dwarf:60, orc:60 },
+    'longbowman':        { man:30,  elf:60, gnoll:60 },
+    'light-cavalry':     { man:30,  elf:60, hobgoblin:30 },
+    'horse-archers':     { man:15,  elf:30, hobgoblin:15 },
+    'medium-cavalry':    { man:20,  hobgoblin:20 },
+    'heavy-cavalry':     { man:10 },
+    'cataphract-cavalry':{ man:6,   elf:12 },
+    'camel-archers':     { man:15 },
+    'camel-lancers':     { man:6 },
+    'war-elephants':     { man:15 },
+    'mounted-crossbowman':{ dwarf:15 },
+    'beast-riders':      { kobold:6, goblin:6, orc:6, gnoll:6 }
+  };
+
+  // RR p.431 — Training and Equipment Time and Cost (default troop types). perTroopGp is the
+  // printed TOTAL COST (TROOP) column (marshal + training + equipment); the unit total = perTroopGp
+  // × the troop type's unitSize (e.g. light infantry 88.5 × 120 = 10,620gp — matches the printed
+  // Total Cost (Unit) column). Trained conscripts/militia become mercenaries of their type and are
+  // paid that type's wage thereafter (RR p.431). ⚠ The RR p.433 Marcus militia EXAMPLE prices heavy
+  // infantry at 124gp and light infantry at 94.5gp (≠ this table's 122 / 88.5) — a known RR-internal
+  // print inconsistency; the engine follows this systematic table (which the plan §6 cites).
+  const TRAINING_COSTS = {
+    'light-infantry':    { months:1,  marshalGp:0.5, trainingGp:3,   equipmentGp:85,   perTroopGp:88.5 },
+    'heavy-infantry':    { months:1,  marshalGp:1,   trainingGp:6,   equipmentGp:115,  perTroopGp:122 },
+    'slinger':           { months:1.5,marshalGp:1.5, trainingGp:4.5, equipmentGp:64,   perTroopGp:70 },
+    'bowman':            { months:2,  marshalGp:2,   trainingGp:9,   equipmentGp:76,   perTroopGp:87 },
+    'composite-bowman':  { months:3,  marshalGp:3,   trainingGp:27,  equipmentGp:113,  perTroopGp:140 },
+    'crossbowman':       { months:1,  marshalGp:1,   trainingGp:9,   equipmentGp:154,  perTroopGp:164 },
+    'longbowman':        { months:3,  marshalGp:3,   trainingGp:27,  equipmentGp:100,  perTroopGp:130 },
+    'light-cavalry':     { months:3,  marshalGp:3,   trainingGp:45,  equipmentGp:283,  perTroopGp:331 },
+    'horse-archers':     { months:6,  marshalGp:12,  trainingGp:135, equipmentGp:298,  perTroopGp:445 },
+    'medium-cavalry':    { months:4,  marshalGp:8,   trainingGp:90,  equipmentGp:480,  perTroopGp:578 },
+    'heavy-cavalry':     { months:6,  marshalGp:12,  trainingGp:180, equipmentGp:565,  perTroopGp:757 },
+    'cataphract-cavalry':{ months:12, marshalGp:48,  trainingGp:450, equipmentGp:746,  perTroopGp:1244 },
+    'camel-archers':     { months:6,  marshalGp:12,  trainingGp:90,  equipmentGp:248,  perTroopGp:350 },
+    'camel-lancers':     { months:12, marshalGp:48,  trainingGp:270, equipmentGp:273,  perTroopGp:591 },
+    'war-elephants':     { months:6,  marshalGp:72,  trainingGp:1080,equipmentGp:6766, perTroopGp:7918 },
+    'mounted-crossbowman':{ months:4, marshalGp:8,   trainingGp:110, equipmentGp:226,  perTroopGp:344 },
+    'weasel-riders':     { months:6,  marshalGp:12,  trainingGp:210, equipmentGp:1277, perTroopGp:1487 },
+    'wolf-riders':       { months:6,  marshalGp:12,  trainingGp:240, equipmentGp:1620, perTroopGp:1767 },
+    'boar-riders':       { months:6,  marshalGp:12,  trainingGp:255, equipmentGp:1797, perTroopGp:2064 },
+    'hyena-riders':      { months:6,  marshalGp:12,  trainingGp:675, equipmentGp:4497, perTroopGp:5172 }
+  };
+
   // ─── lookups ───
   function normalizeTroopTypeKey(typeKey){
     const k = String(typeKey || '').toLowerCase();
@@ -1811,6 +1876,50 @@
       || null;
   }
 
+  // ─── Military W7 (burst4) — conscript/militia/training lookups (RR pp.430–433) ───
+  /** RR p.431 — number of `typeKey` troops a 120-conscript pool of `race` yields (0 = the
+   *  race can't field that type). Aliases (composite-bow, beast-riders) fold first. */
+  function conscriptQualifyingNumber(typeKey, race){
+    const k = normalizeTroopTypeKey(typeKey);
+    // beast-riders is its own row in the qualifying table (the per-race rider is resolved later).
+    const row = CONSCRIPT_QUALIFYING[k] || (BEAST_RIDER_BY_RACE[k] ? CONSCRIPT_QUALIFYING['beast-riders'] : null);
+    if(!row) return 0;
+    const v = row[race || 'man'];
+    return typeof v === 'number' ? v : 0;
+  }
+  /** RR p.431 — {months, perTroopGp, unitGp} to train + equip one conscript/militiaman as
+   *  `typeKey` (unitGp = perTroopGp × the type's unitSize). null when the type isn't trainable. */
+  function trainingCostFor(typeKey, race){
+    const k = normalizeTroopTypeKey(typeKey);
+    const t = TRAINING_COSTS[k] || (BEAST_RIDER_BY_RACE[k] ? TRAINING_COSTS[BEAST_RIDER_BY_RACE[k]] : null);
+    if(!t) return null;
+    const lookupKey = k === 'beast-riders' ? (BEAST_RIDER_BY_RACE[race] || k) : k;
+    // unitSize is a property of the troop type (cavalry 60 / infantry 120 / large 5…), consistent
+    // across races; fall back to ANY catalog row of the type when the race row isn't found (e.g.
+    // wolf-riders are goblin-only, so the default 'man' lookup misses — the printed Unit total uses
+    // the type's natural unit size, RR p.443).
+    let row = findTroopType(lookupKey, { race: race || 'man' });
+    if(!row) row = TROOP_CATALOG.find(x => x.typeKey === lookupKey && !x.veteran) || TROOP_CATALOG.find(x => x.typeKey === lookupKey);
+    const unitSize = (row && row.unitSize) || 120;
+    return { months: t.months, marshalGp: t.marshalGp, trainingGp: t.trainingGp, equipmentGp: t.equipmentGp,
+             perTroopGp: t.perTroopGp, unitGp: t.perTroopGp * unitSize };
+  }
+  /** Training months for a troop type (RR p.431), or null. */
+  function trainingMonthsFor(typeKey){ const c = trainingCostFor(typeKey); return c ? c.months : null; }
+  /** The monthly wage a TRAINED conscript/militiaman of `typeKey` is paid (= the mercenary wage of
+   *  that type/race — RR p.431). Falls back to the catalog row's wage. */
+  function trainedTroopWage(typeKey, race, veteran){
+    const w = mercWage(typeKey, race || 'man');
+    if(typeof w === 'number') return w;
+    const row = findTroopType(typeKey, { race: race || 'man', veteran: !!veteran });
+    return row ? row.wageGpMonth : 0;
+  }
+  /** Troop types a race can be trained into (qualifying number > 0), sorted. */
+  function trainableTroopTypes(race){
+    const r = race || 'man';
+    return Object.keys(TRAINING_COSTS).filter(k => conscriptQualifyingNumber(k, r) > 0).sort();
+  }
+
   Object.assign(ACKS, {
     TROOP_CATALOG, TROOP_TYPE_ALIASES, BEAST_RIDER_BY_RACE,
     MERC_WAGES, MERC_MORALE, OFFICER_RANKS, ARMY_ORG_SCALE,
@@ -1819,7 +1928,10 @@
     JJ_MASS_COMBAT, massCombatRow,
     normalizeTroopTypeKey, findTroopType, troopTypeKeys, troopTypesForRace,
     mercWage, mercMorale, findOfficerRank, scaleRow, armyScaleForSize,
-    unitScaleSupplyCost, unitLoyaltyBand
+    unitScaleSupplyCost, unitLoyaltyBand,
+    // W7 — conscripts/militia/training
+    CONSCRIPT_QUALIFYING, TRAINING_COSTS,
+    conscriptQualifyingNumber, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = ACKS;

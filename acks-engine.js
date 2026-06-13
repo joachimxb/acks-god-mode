@@ -3573,6 +3573,258 @@ function armyIncomingUnits(campaign, army){
 }
 
 // =============================================================================
+// === Military W7 (burst4) — Conscripts, militia, training & the F&D call-to-arms /
+//     Troops-favor materialization (RR pp.430–434 + p.341 + #230). Levies are Units
+//     (the W1 sibling kind) carrying lazy fields (homeDomainId / calledUp / wageWaived)
+//     set on the instance — entities.js's blankUnit is untouched (CL-1 owns it), so old
+//     units read undefined → the defensive defaults below. No new prefix/entity/rule.
+// =============================================================================
+
+// Identify a levy unit (conscripts/militia) raised from a domain.
+function _isLevyUnit(u){ return !!u && (u.source === 'conscript' || u.source === 'militia'); }
+// A levy is TRAINED once it's been converted off the 'untrained-levy' type (RR p.431).
+function _isTrainedLevy(u){ return !!u && u.unitTypeKey && u.unitTypeKey !== 'untrained-levy'; }
+
+// RR p.430 — ≤1 conscript per 10 peasant families (no morale/revenue cost).
+function conscriptLevyMax(d){ return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10); }
+// RR p.432 — ≤2 additional militia per 10 peasant families.
+function militiaLevyMax(d){ return Math.floor((((d && d.demographics) || {}).peasantFamilies || 0) / 10) * 2; }
+
+// Levy units raised from a domain (homeDomainId match), optionally filtered by source.
+function domainLevyUnits(campaign, domainOrId, source){
+  const id = (typeof domainOrId === 'string') ? domainOrId : (domainOrId && domainOrId.id);
+  if(!campaign || !id || !Array.isArray(campaign.units)) return [];
+  return campaign.units.filter(u => u && u.homeDomainId === id && (!source || u.source === source));
+}
+function _levyActiveCount(campaign, domainOrId, source, pred){
+  return domainLevyUnits(campaign, domainOrId, source)
+    .filter(u => pred ? pred(u) : true)
+    .reduce((s, u) => s + unitActiveCount(u), 0);
+}
+// Conscripts currently maintained from a domain (RR p.430).
+function conscriptCount(campaign, d){ return _levyActiveCount(campaign, d, 'conscript'); }
+// Militia CALLED UP from a domain (in the garrison/army, billed — drives the revenue/morale penalty).
+function militiaCalledUpCount(campaign, d){ return _levyActiveCount(campaign, d, 'militia', u => u.calledUp !== false); }
+
+// RR p.432 — domain morale penalty while militia are called up: −1 by levying ≤1 per 10 families,
+// −2 by levying 2 per 10 families. Returns ≤ 0 (0 when none called up). Reads the called-up count.
+function militiaDomainMoralePenalty(campaign, d){
+  const fam = (((d && d.demographics) || {}).peasantFamilies || 0);
+  const calledUp = militiaCalledUpCount(campaign, d);
+  if(calledUp <= 0 || fam <= 0) return 0;
+  const perTen = calledUp / (fam / 10);    // militia levied per 10 families
+  return perTen >= 2 ? -2 : -1;
+}
+// RR p.432 — each called-up militiaman costs the domain 1 family of revenue.
+function militiaRevenuePenaltyFamilies(campaign, d){ return militiaCalledUpCount(campaign, d); }
+
+// RR p.341 / p.433 — the gp value of trained + equipped militia (their implicit monthly wage) counts
+// toward the domain's garrison cost EVEN WHEN NOT CALLED UP. Returns the at-home trained militia's
+// implicit wages (the called-up ones are already in garrisonCost, so excluded to avoid double-count).
+// The Marcus example (RR p.433): 120 light @6 + 120 heavy @12 = 2,160gp.
+function domainTrainedMilitiaCredit(campaign, d){
+  return domainLevyUnits(campaign, d, 'militia')
+    .filter(u => _isTrainedLevy(u) && u.calledUp === false)
+    .reduce((s, u) => s + unitActiveCount(u) * (u.monthlyWage || 0), 0);
+}
+// RR p.431/433 — the one-time levy morale/loyalty adjustment from the domain's morale: +1 from a
+// Steadfast (+3) or Stalwart (+4) domain, −1 from an Apathetic (0) or Demoralized (−1) domain.
+function levyMoraleAdjustmentForDomain(d){
+  const m = (((d && d.demographics) || {}).morale) || 0;
+  if(m >= 3) return 1;
+  if(m === 0 || m === -1) return -1;
+  return 0;
+}
+// RR p.432 — a Turbulent/Defiant/Rebellious domain (morale ≤ −2) cannot levy conscripts or militia.
+function canLevyFromDomain(d){ return ((((d && d.demographics) || {}).morale) || 0) > -2; }
+
+// The trained-militia troop type a domain fields, if any — the hook E10's banditry uses (RR p.433:
+// "any rebels will be drawn from the militia"). Returns the most common trained-militia typeKey or null.
+// (W7 provides this read; wiring it into processBanditryForTurn — subsystems — is a follow-on.)
+function domainMilitiaTroopTypeKey(campaign, d){
+  const trained = domainLevyUnits(campaign, d, 'militia').filter(_isTrainedLevy);
+  if(!trained.length) return null;
+  const tally = {};
+  for(const u of trained){ tally[u.unitTypeKey] = (tally[u.unitTypeKey] || 0) + unitActiveCount(u); }
+  return Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0] || null;
+}
+
+// ─── Levy / train setters ───────────────────────────────────────────────────
+// Resolve a domain (id or object) on the campaign.
+function _resolveDomain(campaign, domainOrId){
+  if(!campaign) return null;
+  if(domainOrId && typeof domainOrId === 'object') return domainOrId;
+  return (campaign.domains || []).find(d => d && d.id === domainOrId) || null;
+}
+// Internal: create + station a levy unit (conscript/militia), clamped to its RAW cap. Returns the
+// unit, or null when the cap leaves no room / the domain can't levy. The one-time domain-morale
+// levy adjustment (RR p.431/433) is baked into the unit's moraleAdjustment + loyalty at creation.
+function _createLevyUnit(campaign, d, source, count, opts){
+  opts = opts || {};
+  if(!campaign || !d) return null;
+  if(!canLevyFromDomain(d)) return null;                          // RR p.432 — morale ≤ −2 blocks levying
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  const max = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
+  const existing = _levyActiveCount(campaign, d, source);
+  const room = Math.max(0, max - existing);
+  const n = Math.min(Math.max(0, Math.floor(count || 0)), room);
+  if(n <= 0) return null;
+  const race = opts.race || 'man';
+  const A = global.ACKS;
+  const u = A.blankUnit({ unitTypeKey: 'untrained-levy', race, count: n, source,
+    displayName: (d.name ? d.name + ' ' : '') + (source === 'militia' ? 'Militia' : 'Conscripts') });
+  // lazy instance fields (blankUnit doesn't emit them — additive, no migration)
+  u.homeDomainId = d.id;
+  u.calledUp = true;                                             // freshly levied = called up (in the garrison)
+  const adj = levyMoraleAdjustmentForDomain(d);
+  u.moraleAdjustment = (u.moraleAdjustment || 0) + adj;
+  u.loyalty = (u.loyalty || 0) + adj;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  u.history.push({ turn, type: 'levied', text: 'Levied as ' + (source === 'militia' ? 'militia' : 'conscripts') + (adj ? ' (' + (adj > 0 ? '+' : '') + adj + ' morale from domain morale)' : '') });
+  stationUnit(campaign, u, { kind: 'domain-garrison', id: d.id });
+  return u;
+}
+// RR p.430 — conscript peasants into the domain's army (≤1 per 10 families; no morale/revenue cost).
+function levyConscripts(campaign, domainOrId, opts){
+  return _createLevyUnit(campaign, _resolveDomain(campaign, domainOrId), 'conscript', (opts || {}).count, opts);
+}
+// RR p.432 — levy a peasant militia (≤2 per 10 families; −1 family of revenue each + domain morale −1/−2).
+function levyMilitia(campaign, domainOrId, opts){
+  return _createLevyUnit(campaign, _resolveDomain(campaign, domainOrId), 'militia', (opts || {}).count, opts);
+}
+
+// RR p.431 — train a levy unit into a professional troop type. v1 trains IMMEDIATELY (the day-tick
+// training timer is deferred): the unit becomes the target type (catalog wage/BR/morale), the home
+// domain treasury is debited perTroopGp × count (RR p.431), and a 'trained' history entry is stamped.
+// Returns { ok, cost, months, unit, reason }. Fails when the unit isn't an untrained levy or the
+// race can't field the type.
+function trainLevyUnit(campaign, unitOrId, opts){
+  opts = opts || {};
+  const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !u) return { ok: false, reason: 'no-unit' };
+  if(!_isLevyUnit(u)) return { ok: false, reason: 'not-a-levy' };
+  if(_isTrainedLevy(u)) return { ok: false, reason: 'already-trained' };
+  const A = global.ACKS;
+  const target = opts.targetTroopType;
+  const race = u.race || 'man';
+  if(!target || A.conscriptQualifyingNumber(target, race) <= 0) return { ok: false, reason: 'cannot-qualify' };
+  const costRow = A.trainingCostFor(target, race);
+  if(!costRow) return { ok: false, reason: 'not-trainable' };
+  const n = unitActiveCount(u);
+  const cost = costRow.perTroopGp * n;                            // RR p.431 — per-troop cost × number trained
+  const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
+  if(d && cost > 0) _applyDomainTreasuryDelta(campaign, d, -cost, { reason: 'troop-training', label: 'train ' + n + ' as ' + target });
+  // Convert the unit to the trained type (trained conscripts/militia = mercenaries of their type).
+  const row = A.findTroopType(target, { race });
+  u.unitTypeKey = target;
+  u.monthlyWage = A.trainedTroopWage(target, race);
+  u.brPerSoldier = row ? row.brPerCreature : (u.brPerSoldier || 0);
+  u.trainingState = null;
+  if(row) u.displayName = (d && d.name ? d.name + ' ' : '') + (u.source === 'militia' ? 'Militia ' : 'Conscript ') + row.label;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  u.history.push({ turn, type: 'trained', text: 'Trained as ' + (row ? row.label : target) + ' (' + cost.toLocaleString() + 'gp, ' + costRow.months + 'mo)' });
+  return { ok: true, cost, months: costRow.months, unit: u };
+}
+
+// RR p.432 — send militia home: trained militia leave the garrison but stay in the world (at home,
+// crediting the garrison; calledUp → false), untrained militia disband (return to their farms). This
+// ends the called-up morale + revenue penalty. Returns { sentHome, disbanded }.
+function sendMilitiaHome(campaign, domainOrId){
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return { sentHome: 0, disbanded: 0 };
+  let sentHome = 0, disbanded = 0;
+  for(const u of domainLevyUnits(campaign, d, 'militia').slice()){
+    if(_isTrainedLevy(u)){
+      stationUnit(campaign, u, null);                            // leaves the garrison; stays in campaign.units
+      u.calledUp = false; u.homeDomainId = d.id;                 // at home — credits garrison (RR p.341)
+      sentHome++;
+    } else {
+      disbandUnit(campaign, u);                                  // untrained militia return to their farms
+      disbanded++;
+    }
+  }
+  return { sentHome, disbanded };
+}
+
+// ─── F&D Call-to-Arms / Troops-favor materialization (RR pp.433–434 + #230) ──
+// Make the shipped F&D Call-to-Arms duty + Troops favor REAL — they were GM-resolve notes. Both
+// muster the realm's troops as light infantry (the cheapest standard troop, 6gp — maximizes the
+// force for the 1gp/family wage budget; the Judge re-organizes later). 🔧 v1: one representative
+// light-infantry unit (over-strength allowed); the muster-schedule staging (½/¼/remainder) is shown
+// on the obligation but the force materializes at grant.
+const _FAVORDUTY_LEVY_WAGE = 6;   // man light infantry monthly wage (RR p.429)
+
+// Find (or create) the liege's standing F&D army — the host his Call-to-Arms levies rally to.
+function _findOrCreateFavorDutyArmy(campaign, liegeId, hexId, liegeName){
+  if(!Array.isArray(campaign.armies)) campaign.armies = [];
+  let army = campaign.armies.find(a => a && a.leaderCharacterId === liegeId && a._favorDutyArmy);
+  if(!army){
+    army = createArmy(campaign, { leaderCharacterId: liegeId, currentHexId: hexId || null,
+      name: (liegeName ? liegeName + "'s" : 'Feudal') + ' Host' });
+    army._favorDutyArmy = true;                                  // lazy marker — disbands when its last levy is revoked
+  }
+  return army;
+}
+
+// Materialize the troops for a freshly-granted Call-to-Arms duty or Troops favor. Records the created
+// unit/army ids on the obligation (lazy fields) so a later revoke can dematerialize them.
+function _favorDutyMaterializeTroops(campaign, obligation, ctx){
+  if(!campaign || !obligation) return;
+  const kind = obligation.kind;
+  if(kind !== 'call-to-arms' && kind !== 'troops') return;
+  const A = global.ACKS;
+  const budget = Math.max(0, Math.round(obligation.gpPerMonth || 0));
+  const count = Math.max(1, Math.floor(budget / _FAVORDUTY_LEVY_WAGE));
+  const race = (ctx && ctx.race) || 'man';
+  const vassalDomain = (ctx && ctx.vassalDomain) || null;
+  const vassalName = (vassalDomain && vassalDomain.name) || 'the vassal';
+  obligation.materializedUnitIds = obligation.materializedUnitIds || [];
+
+  if(kind === 'call-to-arms'){
+    // The vassal musters his realm's troops into the LIEGE's host (available to the lord until revoked).
+    const liegeRuler = (campaign.characters || []).find(c => c && c.id === ctx.liegeId) || null;
+    const hexId = (liegeRuler && liegeRuler.currentHexId)
+      || (((campaign.hexes || []).find(h => h && h.domainId === (ctx.liegeDomain && ctx.liegeDomain.id))) || {}).id
+      || null;
+    const army = _findOrCreateFavorDutyArmy(campaign, ctx.liegeId, hexId, liegeRuler && liegeRuler.name);
+    const u = A.blankUnit({ unitTypeKey: 'light-infantry', race, count, source: 'vassal',
+      displayName: vassalName + ' Levy' });
+    u.homeDomainId = vassalDomain ? vassalDomain.id : null;
+    stationUnit(campaign, u, { kind: 'army', id: army.id });
+    // keep the army's division roster honest (append to Main Body, or create it)
+    if(!Array.isArray(army.divisions) || !army.divisions.length){
+      army.divisions = [{ name: 'Main Body', commanderCharacterId: army.leaderCharacterId, adjutantCharacterId: null, unitIds: [u.id], role: 'main' }];
+    } else if(!army.divisions[0].unitIds.includes(u.id)){
+      army.divisions[0].unitIds.push(u.id);
+    }
+    obligation.materializedArmyId = army.id;
+    obligation.materializedUnitIds.push(u.id);
+  } else { // troops
+    // The lord stations a garrison under the VASSAL's command; the vassal pays no wages (wageWaived).
+    if(!vassalDomain) return;
+    const u = A.blankUnit({ unitTypeKey: 'light-infantry', race, count, source: 'vassal',
+      displayName: 'Liege Garrison' });
+    u.homeDomainId = vassalDomain.id;
+    u.wageWaived = true;                                         // RR p.348 — "the vassal pays no wages"
+    stationUnit(campaign, u, { kind: 'domain-garrison', id: vassalDomain.id });
+    obligation.materializedUnitIds.push(u.id);
+  }
+}
+
+// Disband the troops a Call-to-Arms / Troops obligation materialized (on revoke). If the liege's F&D
+// host has no units left after, it is disbanded too (the levies were the reason it existed).
+function _favorDutyDematerializeTroops(campaign, obligation){
+  if(!campaign || !obligation || !Array.isArray(obligation.materializedUnitIds)) return;
+  for(const uid of obligation.materializedUnitIds.slice()){ disbandUnit(campaign, uid); }
+  obligation.materializedUnitIds = [];
+  if(obligation.materializedArmyId){
+    const army = findArmy(campaign, obligation.materializedArmyId);
+    if(army && army._favorDutyArmy && armyUnits(campaign, army).length === 0) disbandArmy(campaign, army);
+    obligation.materializedArmyId = null;
+  }
+}
+
+// =============================================================================
 // §12 The Group model — the shared interface over the collective-actor kinds
 // (Architecture.md §12). Party / Army / Unit / Band are ONE behavioral category — a
 // positioned, mobile, fightable, persistent collective — but stay DISTINCT entities;
@@ -5472,6 +5724,10 @@ function revokeFavorDutyObligation(campaign, obligationId, atTurn, reason){
   record.revokedAtTurn = atTurn != null ? atTurn : (campaign.currentTurn || 1);
   if(!Array.isArray(record.history)) record.history = [];
   record.history.push({ turn: record.revokedAtTurn, type: 'revoked', reason: reason || 'revoked' });
+  // === Military W7 (burst4) — disband any troops a Call-to-Arms / Troops obligation materialized.
+  if(record.kind === 'call-to-arms' || record.kind === 'troops'){
+    try { _favorDutyDematerializeTroops(campaign, record); } catch(e){ /* best-effort */ }
+  }
   return record;
 }
 
@@ -7056,6 +7312,13 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
     // (an *ongoing* custom edict with gp recurs in Phase B instead — no on-grant move, to avoid double-billing)
     if(entry.isFavor) _favorDutyMoveGp(campaign, liegeDomain, vassalDomain, gpPerMonth, 'custom-favor', flows);
     else              _favorDutyMoveGp(campaign, vassalDomain, liegeDomain, gpPerMonth, 'custom-duty', flows);
+  }
+
+  // === Military W7 (burst4) — materialize the Call-to-Arms duty / Troops favor into real Units
+  //     (the shipped F&D left these as GM-resolve notes). No-op for every other kind.
+  if(entry.kind === 'call-to-arms' || entry.kind === 'troops'){
+    try { _favorDutyMaterializeTroops(campaign, obligation, { liegeId, vassalDomain, liegeDomain, race: 'man' }); }
+    catch(e){ /* materialization is best-effort — never block the edict on a troop-muster hiccup */ }
   }
 
   // Balance + the excess-duty Loyalty roll (duties only — favors never over-demand).
@@ -9851,6 +10114,11 @@ const ACKS = Object.assign(global.ACKS || {}, {
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
   validateArmyOrganization, stationUnit, disbandUnit, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
+  // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization
+  conscriptLevyMax, militiaLevyMax, domainLevyUnits, conscriptCount, militiaCalledUpCount,
+  militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,
+  levyMoraleAdjustmentForDomain, canLevyFromDomain, domainMilitiaTroopTypeKey,
+  levyConscripts, levyMilitia, trainLevyUnit, sendMilitiaHome,
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
   groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
   groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,
