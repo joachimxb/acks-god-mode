@@ -810,9 +810,16 @@ function isCharacterQualifiedForRole(character, roleKey){
   if (!character) return false;
   const role = MAGISTRATE_ROLES[roleKey];
   if (!role) return false;
-  const profs = (character.proficiencies || []).map(p => String(p || '').toLowerCase());
+  // PT-0: route proficiency detection through the canonical accessor — it alias-folds and normalizes
+  // BOTH the needle and the stored {key,ranks} entry to the same slug, so a required 'Manual of Arms'
+  // matches {key:'manual-of-arms'} (and 'Heraldry'→manual-of-arms via the alias). The shape-aware
+  // de-hyphenated substring scan is the standalone-engine fallback.
+  const canon = (global.ACKS && typeof global.ACKS.hasProficiency === 'function') ? global.ACKS.hasProficiency : null;
+  const profs = (character.proficiencies || []).map(p =>
+    (typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || '').toLowerCase().replace(/-/g, ' '));
   function hasProf(name){
-    const needle = String(name || '').toLowerCase();
+    if (canon) return canon(character, name);
+    const needle = String(name || '').toLowerCase().replace(/-/g, ' ');
     if (!needle) return false;
     return profs.some(p => p.startsWith(needle) || p.includes(needle));
   }

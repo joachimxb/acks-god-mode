@@ -2990,7 +2990,9 @@ function reverseMarketTransaction(campaign, eventId, opts){
 // the audit record of a move the verb already made.
 
 function _provHasProf(ch, re){
-  return !!(ch && Array.isArray(ch.proficiencies)) && ch.proficiencies.some(p => re.test(typeof p === 'string' ? p : (p && p.name) || ''));
+  // PT-0: read the canonical {key} (slug) as well as legacy strings / {name}; the single-word
+  // forage/hunt regexes (/survival/i, /hunting/i) match the slug keys directly.
+  return !!(ch && Array.isArray(ch.proficiencies)) && ch.proficiencies.some(p => re.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''));
 }
 // Territory class for forage/hunt modifiers: a hex's domain classification, else 'Unsettled' (wilderness).
 function _provTerritoryClass(campaign, hex){
@@ -3635,7 +3637,11 @@ function beginTracking(campaign, opts){
     return { ok: false, error: 'already-tracking' };
   // The tracker: Tracking proficiency (RR p.120 — the throw IS a Tracking throw), standing
   // where the trail starts. A party that moved on must return to the meeting hex first.
-  const ranks = ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))).length;
+  // PT-0: the canonical rank count (merges ["Tracking","Tracking"] AND {key:'tracking',ranks:2} → 2,
+  // matching the pre-migration count-entries value). Fallback: shape-aware count-entries.
+  const ranks = (typeof A.proficiencyRanks === 'function')
+    ? A.proficiencyRanks(ch, 'tracking')
+    : ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''))).length;
   if(ranks < 1) return { ok: false, error: 'no-tracking' };
   if(ch.currentHexId !== enc.hexId) return { ok: false, error: 'not-at-trail-hex' };
   const meetHex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
@@ -3933,8 +3939,8 @@ function _evasionNavAndCarry(campaign, enc, rng){
   const target = (A.JOURNEY_NAV_THROWS && A.JOURNEY_NAV_THROWS[terrain] != null) ? A.JOURNEY_NAV_THROWS[terrain] : 6;
   const ids = (enc.partySide && enc.partySide.characterIds) || [];
   let hasNav = false, hasPath = false;
-  const scan = (entry) => {
-    const name = (typeof entry === 'string') ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || '');
+  const scan = (entry) => {       // PT-0: read the canonical {key} slug as well as legacy strings / {name}
+    const name = (typeof entry === 'string') ? entry : ((entry && (entry.key || entry.name || entry.label || entry.id || entry.proficiency)) || '');
     if(/\bnavigation\b/i.test(name)) hasNav = true;
     if(/\bpathfinding\b/i.test(name)) hasPath = true;
   };
@@ -4533,8 +4539,10 @@ function encounterToneRows(campaign, encounterId, tone, opts){
     else if(mHd - fLvl >= 3) gapKey = 'down';
   }
 
+  // PT-0: read the canonical {key} slug as well as legacy strings / {name}; de-hyphenate so a
+  // 'Mystic Aura' needle matches the slug key 'mystic-aura' under the substring indexOf below.
   const profs = face ? [].concat(face.proficiencies || [], face.classPowers || [])
-    .map(p => String((p && p.name) || p || '').toLowerCase()) : [];
+    .map(p => String((p && (p.key || p.name || p.label)) || p || '').toLowerCase().replace(/-/g, ' ')) : [];
   const hasProf = name => profs.some(p => p.indexOf(name.toLowerCase()) >= 0);
 
   let rel = (enc.reaction && enc.reaction.current) || null;

@@ -174,10 +174,11 @@ function _rollDice(expr, rng){
   let total = 0; for(let i = 0; i < n; i++) total += _d(rng, sides);
   return total + mod;
 }
-// Does the character carry this proficiency or class power? (string or {name} entries.)
+// Does the character carry this proficiency or class power? (canonical {key,ranks}, legacy string,
+// or {name} entries.) PT-0: read the {key} slug and de-hyphenate so a multi-word needle still matches.
 function _hijinkHasProf(ch, name){
   const re = new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-  const scan = (entry) => re.test(typeof entry === 'string' ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || ''));
+  const scan = (entry) => re.test((typeof entry === 'string' ? entry : ((entry && (entry.key || entry.name || entry.label || entry.proficiency)) || '')).replace(/-/g, ' '));
   return !!(ch && ((Array.isArray(ch.proficiencies) && ch.proficiencies.some(scan)) ||
                    (Array.isArray(ch.classPowers) && ch.classPowers.some(scan))));
 }

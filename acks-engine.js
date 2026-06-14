@@ -805,6 +805,15 @@ function migrateCampaign(raw){
   // / hitDice fields. Legacy c.kind is preserved through stage 1 for display-string
   // compat; stage 2 will land the deletion after the index.html sweep.
   migrateAllCharacterClassification(current);
+  // Phase 3.6 Proficiency Throws PT-0 — materialize the loose character.proficiencies[] into the
+  // canonical { key, ranks (, spec) } shape on disk (idempotent). The proficiencies module's read
+  // layer already parses every legacy string form on the fly; this writes that view back so the
+  // stored field is canonical for the engine officer readers + integrators reading the .acks.json.
+  // Guarded: a no-op when the proficiencies module isn't loaded (standalone engine use). Runs after
+  // the five-axis classification migration. See Phase_3.6_Proficiency_Throws_Plan.md §5.2.
+  if(global.ACKS && typeof global.ACKS.migrateAllCharacterProficiencies === 'function'){
+    global.ACKS.migrateAllCharacterProficiencies(current);
+  }
   // Items I1 — character coin purse. Idempotent. Ensures every character has a
   // coins:{pp,gp,ep,sp,cp} object (folding a legacy personalGp scalar into coins.gp)
   // and keeps the personalGp mirror in lockstep (canonical-setter rule #10).
@@ -1120,11 +1129,14 @@ function agriculturalConstructionRatePerDay(campaign, domain, hex){
 // -> <=25,000gp (siege engineer), per RR p.174. A manually-set character.constructionSupervisorCap is
 // honored as a fallback/override (NPCs entered without proficiency detail). 0 = not a supervisor.
 // NOTE: RR p.174 says one rank of Siege Engineering counts as a skilled laborer, not a siege engineer;
-// a ranks check is a future refinement once the proficiency model tracks ranks (it stores names today).
+// a ranks check is a future refinement (the PT-0 model now tracks ranks via ACKS.proficiencyRanks).
 function constructionSupervisorCapForCharacter(character){
   if(!character) return 0;
   const manual = character.constructionSupervisorCap || 0;
-  const profs = (character.proficiencies || []).map(p => (typeof p === 'string' ? p : (p && p.key) || '').toLowerCase());
+  // PT-0: read the canonical {key} (or a legacy string / {name}); de-hyphenate so the slug key
+  // 'siege-engineering' still matches the 'siege engineering' substring needle below.
+  const profs = (character.proficiencies || []).map(p =>
+    (typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || '').toLowerCase().replace(/-/g, ' '));
   let derived = 0;
   if(profs.some(p => p.includes('engineering') && !p.includes('siege'))) derived = 100000;      // Engineer
   else if(profs.some(p => p.includes('siege engineering'))) derived = 25000;                     // Siege Engineer
@@ -3058,11 +3070,22 @@ function _isMonsterOfficer(c){ return !(c && c.abilities && typeof c.abilities.C
 // tracking-ranks convention — count entries — generalized for the officer table's
 // single-entry-with-rank style).
 function proficiencyRanks(character, name){
+  // PT-0: the canonical accessor lives in acks-engine-proficiencies.js — it reads the {key,ranks}
+  // shape AND legacy strings, alias-folds the name, and folds class-power equivalents. Delegate to it
+  // when loaded; the trailing-number parser below is the standalone-engine fallback. (The guard
+  // canon !== proficiencyRanks prevents self-recursion when this engine's own export is the one on ACKS.)
+  const canon = global.ACKS && global.ACKS.proficiencyRanks;
+  if(typeof canon === 'function' && canon !== proficiencyRanks) return canon(character, name);
   if(!character || !Array.isArray(character.proficiencies) || !name) return 0;
-  const want = String(name).toLowerCase();
+  const want = String(name).toLowerCase().replace(/-/g, ' ');
   let ranks = 0;
   for(const p of character.proficiencies){
-    const s = (typeof p === 'string' ? p : (p && p.name) || '').trim().toLowerCase();
+    if(p && typeof p === 'object' && typeof p.ranks === 'number'){       // canonical {key,ranks} entry
+      const k = String(p.key || p.name || p.label || '').toLowerCase().replace(/-/g, ' ');
+      if(k === want) ranks += p.ranks;
+      continue;
+    }
+    const s = (typeof p === 'string' ? p : (p && (p.name || p.key)) || '').trim().toLowerCase().replace(/-/g, ' ');
     if(!s.startsWith(want)) continue;
     const rest = s.slice(want.length).trim();
     if(rest && !/^\d+$/.test(rest)) continue;       // "Command" must not match "Commanding Presence"

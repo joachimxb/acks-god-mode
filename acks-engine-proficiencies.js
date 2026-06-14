@@ -496,6 +496,53 @@
     return out;
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // PT-0 — the on-disk migration. Materialize the loose stored proficiencies[] into the
+  // canonical { key, ranks (, spec, label) } shape ON DISK (idempotent). The read-layer above
+  // already parses every legacy form on the fly; this writes that view back so the field is
+  // canonical for the engine officer readers + integrators reading the .acks.json directly.
+  // See Phase_3.6_Proficiency_Throws_Plan.md §5.2.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // One normalized group → the stored entry. `ranks` and (when set) `spec` always; `label` ONLY
+  // for an off-catalog key, so a GM's custom proficiency keeps its human name (never reduced to a
+  // slug) and round-trips (parseProficiencyEntry reads entry.label). A catalog key derives its
+  // label from PROFICIENCY_CATALOG, so storing it would be redundant.
+  function _materializeProficiencyEntry(g){
+    const o = { key: g.key, ranks: Math.max(1, (g.ranks | 0) || 1) };
+    if(g.spec) o.spec = String(g.spec);
+    if(!PROFICIENCY_CATALOG[g.key] && g.label && g.label !== g.key) o.label = String(g.label);
+    return o;
+  }
+  // Field-wise compare (NOT JSON — property order must not matter): two arrays are the same shape
+  // iff every entry is a {key,ranks,spec?,label?} object matching the materialized target. A string
+  // / legacy-shaped entry, a length mismatch, or any differing field → not yet canonical → migrate.
+  function _sameProficiencyShape(stored, next){
+    if(!Array.isArray(stored) || stored.length !== next.length) return false;
+    for(let i = 0; i < stored.length; i++){
+      const x = stored[i], y = next[i];
+      if(!x || typeof x !== 'object' || Array.isArray(x)) return false;
+      if(x.key !== y.key || (x.ranks | 0) !== y.ranks) return false;   // a bare {key} (ranks→0) ≠ materialized (≥1) → migrate
+      if((x.spec || '') !== (y.spec || '')) return false;
+      if((x.label || '') !== (y.label || '')) return false;
+    }
+    return true;
+  }
+  // Migrate one character's proficiencies[] in place. Returns true iff it rewrote the field.
+  function migrateCharacterProficiencies(character){
+    if(!character || !Array.isArray(character.proficiencies)) return false;
+    const next = characterProficiencies(character).map(_materializeProficiencyEntry);
+    if(_sameProficiencyShape(character.proficiencies, next)) return false;   // already canonical → no-op
+    character.proficiencies = next;
+    return true;
+  }
+  function migrateAllCharacterProficiencies(campaign){
+    if(!campaign || !Array.isArray(campaign.characters)) return 0;
+    let n = 0;
+    for(const c of campaign.characters){ if(migrateCharacterProficiencies(c)) n++; }
+    return n;
+  }
+
   // Class-power → proficiency-rank equivalents (DQ3): a class power can stand in for proficiency
   // ranks (e.g. a Bard's Performance class power = 1 rank Performance). Minimal seed; extended by
   // later phases. Matched case-insensitively against character.classPowers[].
@@ -761,6 +808,8 @@
     // model (Layer 0)
     parseProficiencyEntry, characterProficiencies, canonicalProficiencyKey,
     proficiencyRanks, hasProficiency, proficiencyLabel,
+    // model migration (PT-0)
+    migrateCharacterProficiencies, migrateAllCharacterProficiencies,
     // resolver (Layer 1)
     rollProficiencyThrow, throwSuccessChance,
     // derivation (Layer 3)

@@ -1777,8 +1777,8 @@ function _journeyFordBonus(campaign, journey){
   let bonus = 0;
   for(const c of ((campaign && campaign.characters) || [])){
     if(!c || ids.indexOf(c.id) < 0) continue;
-    for(const p of (c.proficiencies || [])){
-      const name = (typeof p === 'string') ? p : ((p && (p.name || p.id || p.proficiency)) || '');
+    for(const p of (c.proficiencies || [])){       // PT-0: read the canonical {key} slug too
+      const name = (typeof p === 'string') ? p : ((p && (p.key || p.name || p.label || p.proficiency)) || '');
       if(RE.test(name)) bonus = Math.max(bonus, 2);
     }
   }
@@ -1814,8 +1814,8 @@ function rollNavigation(navTarget, bonus, rng){
 function _journeyNavBonus(campaign, journey){
   const ids = journey.participantCharacterIds || [];
   let hasNav = false, hasPath = false;
-  const scan = (entry) => {
-    const name = (typeof entry === 'string') ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || '');
+  const scan = (entry) => {       // PT-0: read the canonical {key} slug as well as legacy strings / {name}
+    const name = (typeof entry === 'string') ? entry : ((entry && (entry.key || entry.name || entry.label || entry.id || entry.proficiency)) || '');
     if(/\bnavigation\b/i.test(name)) hasNav = true;
     if(/\bpathfinding\b/i.test(name)) hasPath = true;
   };
@@ -2204,7 +2204,7 @@ function resolveDaySurvival(campaign, args, opts){
       // forageTarget pins the original throw's target so a reroll re-rolls the same throw, only the die.
       const dry = (hex && (hex.terrain === 'barrens' || hex.terrain === 'desert'));
       const target = (typeof opts.forageTarget === 'number') ? opts.forageTarget : (dry ? 18 : 14);
-      const hasSurvival = members.some(c => (c.proficiencies || []).some(p => /survival/i.test(typeof p === 'string' ? p : (p && p.name) || '')));
+      const hasSurvival = members.some(c => (c.proficiencies || []).some(p => /survival/i.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || '')));   // PT-0: read the {key} slug too
       // forageReuse (reapplyLatestDaySurvival): reuse the day's existing throw instead of rolling, so a
       // re-resolve triggered by an unrelated toggle (share rations) leaves the water outcome undisturbed.
       const reuse = opts.forageReuse;
