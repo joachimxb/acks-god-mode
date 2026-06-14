@@ -1,0 +1,5 @@
+# Vendored third-party assets must NOT be line-ending-normalized: they are minified
+# bundles, and any CRLF rewrite (a) bloats them and (b) — critically — changes their
+# bytes so the Subresource-Integrity hash in index.html no longer matches and the browser
+# refuses to load the script. Keep them exactly as fetched from the CDN. (audit T10, 2026-06-14)
+vendor/** -text
