@@ -153,7 +153,12 @@ const ID_PREFIXES = Object.freeze({
   vessel:               'vsl',
   // === Delves D2 (burst4) — the multi-foray clear-a-dungeon operation (Phase_3.5_Delves_Plan.md
   // §4.2). The Dungeon prefix 'dun' is already registered above (since 2026-05-30); this adds Delve. ===
-  delve:                'dlv'
+  delve:                'dlv',
+  // === Politics P-1 (burst4 2026-06-13) — the senate/faction/senatorship data layer
+  // (RR pp.355–360; acks-engine-politics.js). Wave D (Architecture §3.5).
+  senate:               'sen',
+  faction:              'fac',
+  senatorship:          'snr'
 });
 
 function newId(prefix){

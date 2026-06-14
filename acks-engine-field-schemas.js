@@ -843,8 +843,98 @@
         { name: 'notes',                   type: 'longText', group: 'History' },
         { name: 'history',                 type: 'history', readonly: true, group: 'History' }
       ]
-    }
+    },
     // === end Delves D2 ===
+    // === Politics P-1 (burst4 2026-06-13) — senate / faction / senatorship (RR pp.355–360;
+    // Phase_4_Politics_Plan.md §4). Every field ⊆ the matching blankX keys (the global schema⊆
+    // factory invariant). rulingFactionId/leadingFactionId + faction ruling/leading standing are
+    // DERIVED (§4.4 — senateRulingFactionId / factionStanding) and so are NOT schema fields. ──
+    'senate': {
+      factory: 'blankSenate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Composition', 'Requirements of Office', 'State', 'History'],
+      fields: [
+        { name: 'id',            type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',          type: 'string', group: 'Identity', description: 'e.g. "Senate of Aura"' },
+        { name: 'realmDomainId', type: 'id', idKind: 'domain', group: 'Identity', description: 'The realm apex (a domain with no liege) the senate sits on' },
+        { name: 'kind',          type: 'enum', enumValues: ['senate','eldermoot','council'], group: 'Identity', default: 'senate', description: 'Eldermoot reuses this scaffolding (Dwarven seam)' },
+        { name: 'seats',         type: 'number', min: 0, group: 'Composition', description: 'Total vote pool (RR p.357 size-of-the-senate table)' },
+        { name: 'minSenatorLevel', type: 'number', group: 'Composition', description: 'Min level to sit — inverse to seat count (RR p.357)' },
+        { name: 'independentMinorSenatorVotes', type: 'number', min: 0, group: 'Composition', description: 'Anonymous remainder — leading influence + this = seats (RR p.357)' },
+        { name: 'requirementsOfOffice', type: 'object', group: 'Requirements of Office', description: 'The in-world bar + the bribe-cost-by-period row (RR p.357)', fields: [
+          { name: 'minLevel',        type: 'number' },
+          { name: 'title',           type: 'string', description: 'Baron / Viscount / Count / Duke / Prince' },
+          { name: 'netWorthGp',      type: 'gp' },
+          { name: 'landDescription', type: 'string', description: 'e.g. "2 × 6-mile hexes"' },
+          { name: 'families',        type: 'number' },
+          { name: 'bribeCostDay',    type: 'gp' },
+          { name: 'bribeCostWeek',   type: 'gp' },
+          { name: 'bribeCostMonth',  type: 'gp' },
+          { name: 'bribeCostYear',   type: 'gp' }
+        ] },
+        { name: 'establishedAtTurn',  type: 'number', group: 'State' },
+        { name: 'honeymoonUntilTurn', type: 'number', group: 'State', description: 'RR p.357 — the 1d6-month all-vote-for window for an adventurer-established senate' },
+        { name: 'dispute', type: 'object', group: 'State', description: 'Non-null suspends all senate benefits until resolved (RR p.359)', fields: [
+          { name: 'defiedTopic', type: 'string' },
+          { name: 'sinceTurn',   type: 'number' },
+          { name: 'attempts',    type: 'number' }
+        ] },
+        { name: 'status',  type: 'enum', enumValues: ['active','in-dispute','dissolved'], group: 'State', default: 'active' },
+        { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'faction': {
+      factory: 'blankFaction',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Platform', 'History'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',            type: 'string', group: 'Identity', description: 'e.g. "The Optimates"' },
+        { name: 'senateId',        type: 'id', idKind: 'senate', group: 'Identity', description: 'The senate this faction operates in (nullable — generic factions allowed)' },
+        { name: 'realmDomainId',   type: 'id', idKind: 'domain', group: 'Identity' },
+        { name: 'platform',        type: 'longText', group: 'Platform', description: 'Free-text platform summary' },
+        { name: 'policyObjectives', type: 'enumMulti', enumValues: ['overland-trade-routes','maritime-trade-routes','increase-army','decrease-army','increase-navy','decrease-navy','replace-ruler','preserve-ruler','conquer-neighbor','make-peace','build-border-strongholds','decrease-peasant-taxes','increase-peasant-taxes','eliminate-or-institute-slavery','redistribute-land-to-peasants','support-existing-faith','introduce-new-faith','grow-urban-settlements','grow-personal-realm','gain-merchandise-monopolies'], group: 'Platform', description: 'The 1d20 objective taxonomy (RR p.357)' },
+        { name: 'kind',            type: 'enum', enumValues: ['ruling','leading','opposition','minor'], group: 'Identity', default: 'minor', description: 'GM stance; the LIVE ruling/leading standing is derived (ACKS.factionStanding)' },
+        { name: 'status',          type: 'enum', enumValues: ['active','dissolved'], group: 'Identity', default: 'active' },
+        { name: 'history',         type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'senatorship': {
+      factory: 'blankSenatorship',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Influence', 'Disposition', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string', readonly: true, group: 'Parties' },
+        { name: 'senatorCharacterId',  type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'The senator' },
+        { name: 'senateId',            type: 'id', idKind: 'senate', required: true, group: 'Parties' },
+        { name: 'factionId',           type: 'id', idKind: 'faction', group: 'Parties', description: 'Nullable — an independent leading senator' },
+        { name: 'rank',                type: 'enum', enumValues: ['leading','minor'], group: 'Influence', default: 'leading', description: 'leading = named NPC; minor = usually anonymous (senate.independentMinorSenatorVotes)' },
+        { name: 'votes',               type: 'number', min: 0, group: 'Influence', description: 'Influence — the votes this seat controls (RR p.357)' },
+        { name: 'policyObjectives',    type: 'enumMulti', enumValues: ['overland-trade-routes','maritime-trade-routes','increase-army','decrease-army','increase-navy','decrease-navy','replace-ruler','preserve-ruler','conquer-neighbor','make-peace','build-border-strongholds','decrease-peasant-taxes','increase-peasant-taxes','eliminate-or-institute-slavery','redistribute-land-to-peasants','support-existing-faith','introduce-new-faith','grow-urban-settlements','grow-personal-realm','gain-merchandise-monopolies'], group: 'Influence', description: '1d3 secret objectives (RR p.357)' },
+        { name: 'attitudeTowardRuler', type: 'number', group: 'Disposition', description: '2–12 running disposition — the vote baseline' },
+        { name: 'isSecretInfluence',   type: 'boolean', group: 'Disposition', description: 'RAW: influence + objectives secret until revealed (RR p.357)' },
+        { name: 'bribeCostByPeriod',   type: 'object', group: 'Influence', description: 'Bribe cost per income period (from the requirements-of-office row, RR p.357)', fields: [
+          { name: 'day',   type: 'gp' },
+          { name: 'week',  type: 'gp' },
+          { name: 'month', type: 'gp' },
+          { name: 'year',  type: 'gp' }
+        ] },
+        { name: 'influenceModifiers',  type: 'array', group: 'Influence', description: 'Standing pre-vote modifiers — bribed/intimidated/seduced/owes-favor (P-4 writes these)', itemSchema: { fields: [
+          { name: 'source',        type: 'string', description: 'bribe | intimidate | seduce | gift | owes-favor' },
+          { name: 'kind',          type: 'string', description: 'favorable | unfavorable' },
+          { name: 'value',         type: 'number' },
+          { name: 'sinceTurn',     type: 'number' },
+          { name: 'byCharacterId', type: 'id', idKind: 'character' }
+        ] } },
+        { name: 'seatedAtTurn',  type: 'number', group: 'Lifecycle' },
+        { name: 'vacatedAtTurn', type: 'number', group: 'Lifecycle', description: 'Set on vacating — null while active' },
+        { name: 'status',        type: 'enum', enumValues: ['active','vacated'], group: 'Lifecycle', default: 'active' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    }
+    // === end Politics P-1 ===
   };
 
   // ─── 4. Public API ───
