@@ -4,7 +4,31 @@
 <meta charset="UTF-8">
 <title>ACKS God Mode</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- Favicon — inline SVG data-URI (a crown over a parchment field, in the brand ink/accent palette).
+     Costs no extra request and ships inside the single file, so the browser tab carries the brand
+     mark on the hosted site and under file://. (graphic-designer audit O4, 2026-06-14.) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='10'%20fill='%23f7f1e2'/%3E%3Cpath%20d='M12%2044h40l3-22-11%208-12-16-12%2016-11-8z'%20fill='%237a1f1f'%20stroke='%232a1f12'%20stroke-width='2.5'%20stroke-linejoin='round'/%3E%3Crect%20x='12'%20y='46'%20width='40'%20height='7'%20rx='2'%20fill='%236b4f24'/%3E%3C/svg%3E">
+<!-- Content-Security-Policy (appsec audit, 2026-06-14). Baseline for the client-only app:
+     all script/style is now LOCAL (vendored Alpine + Tailwind, below) or inline — no remote
+     script origin is allowed, so a compromised CDN can no longer run code here.
+       • 'unsafe-eval' is REQUIRED: Alpine 3's standard build compiles every x-* expression
+         with new Function() (== eval). Removing it makes the whole app non-functional (browser-
+         verified 2026-06-14). The CSP-friendly Alpine build would lift this, but only by rewriting
+         every inline expression into registered methods — a separate, large refactor.
+       • 'unsafe-inline' is REQUIRED for the inline Alpine bootstrap + the Tailwind-runtime <style>.
+     What the policy still buys: no third-party script ORIGIN, object-src/base-uri locked down,
+     frame-ancestors blocks click-jacking embeds, and a second line of defense if a future feature
+     adds a remote-src. Tightening to nonces/hashes + the CSP-friendly Alpine build is the follow-up
+     once a build step exists. img-src data: covers the inline favicon + the map SVGs. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+<!-- Tailwind — vendored locally (appsec audit, 2026-06-14). Was the floating runtime CDN
+     (https://cdn.tailwindcss.com); now a pinned, self-hosted copy of the Tailwind Play 3.4.16
+     bundle so the tool loads with no network (the "single file you own" pitch) and can never be
+     served a tampered build. NOTE: this is still the runtime JIT compiler — swapping it for a
+     purged/compiled static stylesheet is the performance-reviewer's follow-up (needs a build step
+     the project deliberately doesn't have yet). Re-pin via:
+     curl -sL https://cdn.tailwindcss.com/3.4.16 -o vendor/tailwind-play-3.4.16.js -->
+<script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
 <script src="acks-engine-catalogs.js?v=2026-06-12-b"></script>
@@ -58,7 +82,13 @@
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
 <script src="acks-demo-template.js?v=2026-06-14-audit1"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<!-- Alpine — vendored locally + version-pinned (appsec audit, 2026-06-14). Was a FLOATING
+     range (alpinejs@3.x.x) off jsDelivr with no integrity check; now a pinned, self-hosted copy
+     so a compromised/MITM'd CDN can't run arbitrary script in every session, and the app works
+     offline. integrity= documents the pinned hash. Re-pin via:
+     curl -sL https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js -o vendor/alpine-3.14.9.min.js
+     (then refresh the sha384 below). -->
+<script defer src="vendor/alpine-3.14.9.min.js" integrity="sha384-9Ax3MmS9AClxJyd5/zafcXXjxmwFhZCdsT6HJoJjarvCaAkJlk5QDzjLJm+Wdx5F" crossorigin="anonymous"></script>
 
 <!-- Reusable editable-stat component (new GM stat-editing standard).
      Every GM-editable scalar uses this component: display-by-default, unlock to edit, save via gm-fiat event.
@@ -133,6 +163,79 @@ document.addEventListener('alpine:init', () => {
     }
   }));
 });
+</script>
+<!-- Modal a11y: focus trap + focus restore (accessibility audit, 2026-06-14).
+     The app has ~25 modal overlays (now marked role="dialog" aria-modal="true"). Without a focus
+     trap, Tab escapes into the page behind the open modal; without restore, focus is lost when it
+     closes. No @alpinejs/focus plugin is loaded, so this is a small dependency-free layer that
+     works against ANY visible [role=dialog] overlay without per-modal wiring:
+       • a capturing MutationObserver watches for a dialog becoming visible → records the
+         previously-focused element and moves focus to the dialog's first focusable control;
+       • a capturing keydown cycles Tab/Shift+Tab within the topmost visible dialog;
+       • when the dialog hides, focus returns to the element that opened it.
+     Escape-to-close is already wired per-modal (@keydown.escape), so this only adds trap+restore. -->
+<script>
+(function(){
+  var SEL = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  var lastFocusByDialog = new WeakMap();
+  function isVisible(el){
+    if(!el || !el.isConnected) return false;
+    var s = getComputedStyle(el);
+    if(s.display === 'none' || s.visibility === 'hidden') return false;
+    return el.offsetParent !== null || s.position === 'fixed';
+  }
+  function topOpenDialog(){
+    var dialogs = Array.prototype.slice.call(document.querySelectorAll('[role="dialog"]')).filter(isVisible);
+    if(!dialogs.length) return null;
+    // topmost = highest effective z-index (walk up for the stacking context the overlays set)
+    function z(el){ var n=el, best=0; while(n && n!==document.body){ var v=parseInt(getComputedStyle(n).zIndex,10); if(!isNaN(v)) best=Math.max(best,v); n=n.parentElement; } return best; }
+    dialogs.sort(function(a,b){ return z(a)-z(b); });
+    return dialogs[dialogs.length-1];
+  }
+  function focusables(container){
+    return Array.prototype.slice.call(container.querySelectorAll(SEL)).filter(isVisible);
+  }
+  // Trap Tab within the topmost open dialog.
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Tab') return;
+    var dlg = topOpenDialog();
+    if(!dlg || !dlg.contains(document.activeElement) && document.activeElement !== document.body) {
+      // focus is outside any dialog while one is open → pull it back in
+      if(dlg && !dlg.contains(document.activeElement)){ var f0=focusables(dlg); if(f0.length){ e.preventDefault(); f0[0].focus(); } }
+      return;
+    }
+    if(!dlg) return;
+    var f = focusables(dlg);
+    if(!f.length) return;
+    var first = f[0], last = f[f.length-1];
+    if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+  }, true);
+  // When a dialog becomes visible, remember the opener + focus the dialog; on hide, restore.
+  function onDialogShown(dlg){
+    if(lastFocusByDialog.get(dlg)) return; // already tracked as open
+    lastFocusByDialog.set(dlg, (document.activeElement && document.activeElement !== document.body) ? document.activeElement : null);
+    // Don't steal focus from an input the modal autofocused (x-init $el.focus()).
+    setTimeout(function(){
+      if(!isVisible(dlg)) return;
+      if(dlg.contains(document.activeElement) && document.activeElement !== document.body) return;
+      var f = focusables(dlg); if(f.length) f[0].focus();
+    }, 60);
+  }
+  function onDialogHidden(dlg){
+    if(!lastFocusByDialog.has(dlg)) return;
+    var prev = lastFocusByDialog.get(dlg);
+    lastFocusByDialog.delete(dlg);
+    if(prev && prev.isConnected && isVisible(prev)) { try { prev.focus(); } catch(_){} }
+  }
+  var mo = new MutationObserver(function(){
+    document.querySelectorAll('[role="dialog"]').forEach(function(dlg){
+      if(isVisible(dlg)) onDialogShown(dlg); else onDialogHidden(dlg);
+    });
+  });
+  function startObserving(){ mo.observe(document.body, { attributes:true, childList:true, subtree:true, attributeFilter:['style','class','hidden'] }); }
+  if(document.body) startObserving(); else document.addEventListener('DOMContentLoaded', startObserving);
+})();
 </script>
 <style>
   body { font-family: 'Iowan Old Style','Palatino Linotype',Palatino,'URW Palladio L',serif; }
@@ -211,6 +314,62 @@ document.addEventListener('alpine:init', () => {
     color: #7a1f1f; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
   .skipped { opacity: 0.5; text-decoration: line-through; pointer-events: none; }
   .skipped input, .skipped textarea, .skipped select, .skipped button { text-decoration: line-through; }
+  /* ═══════════ Semantic design system (graphic-designer audit C1/O3, 2026-06-14) ═══════════
+     The surface palette (.parchment/.vellum/.ink/.accent-red/.accent-green) was already
+     tokenized; the NEXT layer down — success/warning/danger/primary as ROLES, and a button
+     hierarchy — was ad-hoc Tailwind drift (two greens, three warning hues, the primary CTA lost
+     tan-on-tan). This is the single source of truth for those roles. A CSS-class layer (not raw
+     Tailwind utilities) so it survives the runtime JIT, exactly like the wizard-* primitives. */
+  :root {
+    --c-ink:        #2a1f12;   /* primary text */
+    --c-parchment:  #f7f1e2;   /* app ground */
+    --c-vellum:     #faf6ea;   /* raised panels */
+    --c-border:     #6b4f24;   /* the one border brown */
+    /* Semantic roles — ONE hue each (resolves the emerald-vs-green / amber-vs-orange drift). */
+    --c-success:    #2f7d32;   --c-success-bg: #d8ead9;  --c-success-bg-hover: #c3dec5;
+    --c-warning:    #9a6a14;   --c-warning-bg: #f4e3bd;  --c-warning-bg-hover: #ecd6a3;
+    --c-danger:     #7a1f1f;   --c-danger-bg:  #f0d6d6;  --c-danger-bg-hover:  #e6bdbd;
+    --c-primary:    #2a1f12;   --c-primary-bg: #e7c46c;  --c-primary-bg-hover: #dbb24e; /* the gold CTA */
+    --c-info:       #1f4e6b;   --c-info-bg:    #d6e6f0;  --c-info-bg-hover:    #bdd8ea;
+  }
+  /* Button hierarchy. Apply .btn + an optional variant; the primary action gets .btn-primary
+     (heavier border + the gold fill) so the eye finds it against the warm ground. These set
+     their own bg/border/colour, so a co-applied Tailwind bg-* is redundant on a .btn element
+     (the sweep removes those it touches; untouched buttons keep working as before). */
+  .btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.75rem;
+    border: 1px solid var(--c-border); border-radius: 4px; background: rgba(255,255,255,0.5);
+    color: var(--c-ink); font: inherit; cursor: pointer; line-height: 1.3;
+    transition: background-color 0.1s ease, border-color 0.1s ease; }
+  .btn:hover { background: #fbf3da; }
+  .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: var(--c-primary-bg); border: 2px solid var(--c-border);
+    color: var(--c-primary); font-weight: 700; }
+  .btn-primary:hover { background: var(--c-primary-bg-hover); }
+  .btn-success { background: var(--c-success-bg); border-color: var(--c-success); color: #1c4d1f; font-weight: 600; }
+  .btn-success:hover { background: var(--c-success-bg-hover); }
+  .btn-warn { background: var(--c-warning-bg); border-color: var(--c-warning); color: #6f4d0e; font-weight: 600; }
+  .btn-warn:hover { background: var(--c-warning-bg-hover); }
+  .btn-danger { background: var(--c-danger-bg); border-color: var(--c-danger); color: var(--c-danger); font-weight: 600; }
+  .btn-danger:hover { background: var(--c-danger-bg-hover); }
+  .btn-info { background: var(--c-info-bg); border-color: var(--c-info); color: var(--c-info); font-weight: 600; }
+  .btn-info:hover { background: var(--c-info-bg-hover); }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .btn-ghost:hover { background: rgba(42,31,18,0.07); }
+  /* Toast semantic variants (graphic-designer O3 + a11y). The bar carries errors, warnings, and
+     confirmations as one identical brown bar today; a left accent stripe + tint give the message
+     a visual meaning. Driven by .toast-success / .toast-warn / .toast-error via showToast(msg,ms,type). */
+  .toast-bar { border-left: 6px solid transparent; }
+  .toast-bar.toast-success { border-left-color: var(--c-success); }
+  .toast-bar.toast-warn    { border-left-color: var(--c-warning); }
+  .toast-bar.toast-error   { border-left-color: var(--c-danger);  background: #3a1414 !important; }
+  /* Visible keyboard-focus ring (a11y audit, 2026-06-14). The app heavily restyles controls and
+     Tailwind's Preflight resets the UA outline, so a keyboard user tabbing through hundreds of
+     controls saw no focus indicator. :focus-visible only shows on keyboard focus, not mouse. */
+  :focus-visible { outline: 2px solid #c08a3e; outline-offset: 2px; border-radius: 2px; }
+  .ed-edit:focus-visible, .ed-btn:focus-visible, .btn:focus-visible { outline: 2px solid #c08a3e; outline-offset: 2px; }
+  /* Visually-hidden helper for screen-reader-only text (e.g. dialog accessible names). */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 </style>
 </head>
 <body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem;">
@@ -226,11 +385,11 @@ document.addEventListener('alpine:init', () => {
   <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid #2a1f12;">
     <h1 class="text-4xl font-black mr-2">ACKS God Mode</h1>
     <span class="flex-grow"></span>
-    <button @click="showWelcomeScreen()" class="px-3 py-1 border border-ink rounded bg-emerald-200 hover:bg-emerald-300 font-semibold" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
-    <button @click="newCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">＋ New campaign</button>
-    <button @click="openCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
-    <button @click="saveCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
-    <button @click="saveCampaignAs()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :disabled="!currentCampaign" title="Save the campaign to a new file. Use this to fork a campaign or to save a template-derived campaign for the first time.">💾 Save as…</button>
+    <button @click="showWelcomeScreen()" class="btn btn-success" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
+    <button @click="newCampaign()" class="btn">＋ New campaign</button>
+    <button @click="openCampaign()" class="btn" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
+    <button @click="saveCampaign()" class="btn btn-primary" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
+    <button @click="saveCampaignAs()" class="btn text-sm" :disabled="!currentCampaign" title="Save the campaign to a new file. Use this to fork a campaign or to save a template-derived campaign for the first time.">💾 Save as…</button>
     <input type="file" x-ref="campaignFileInput" accept=".json,.acks.json" class="hidden" @change="importCampaignFile($event.target.files[0])">
   </div>
 
@@ -777,7 +936,7 @@ document.addEventListener('alpine:init', () => {
                   <template x-if="!editing">
                     <span class="ed-stat" style="align-items:flex-start">
                       <span class="ed-val whitespace-pre-wrap text-sm" style="font-family:inherit" x-text="displayValue"></span>
-                      <button @click="start()" class="ed-edit" title="Edit (logged)">✏</button>
+                      <button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button>
                     </span>
                   </template>
                   <template x-if="editing">
@@ -1307,7 +1466,7 @@ document.addEventListener('alpine:init', () => {
      convention — battlePanelId stays set so the subtree never tears down against null).
      Setup-stage roster edits (zones, M/L ticks, officers) are DIRECT working-state writes:
      the battle isn't live until ⚔ Begin emits battle-started. ═══ -->
-<div x-show="battlePanelOpen" @keydown.escape.window="if(battlePanelOpen && !$event.defaultPrevented){ closeBattlePanel(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="closeBattlePanel()">
+<div x-show="battlePanelOpen" @keydown.escape.window="if(battlePanelOpen && !$event.defaultPrevented){ closeBattlePanel(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="closeBattlePanel()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-5xl my-6">
     <template x-if="battlePanel()">
       <div class="p-4">
@@ -1584,7 +1743,7 @@ document.addEventListener('alpine:init', () => {
      stays the no-frills field editor underneath (Open in Inspector). z-78: ABOVE the hex card (50)
      and the search/track modals (75) — their "→ lair" buttons open this as a peek you close to drop
      back into the session beneath — and below the notable-item modal (80). -->
-<div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLairDetail()">
+<div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLairDetail()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="lairDetailLair()">
       <div>
@@ -1601,7 +1760,7 @@ document.addEventListener('alpine:init', () => {
             </p>
             <p class="text-sm opacity-70" x-show="lairDetailLair().precisePlacement" x-text="'📍 ' + lairDetailLair().precisePlacement"></p>
           </div>
-          <button @click="closeLairDetail()" class="text-2xl leading-none px-2" title="Close">×</button>
+          <button @click="closeLairDetail()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
         <div class="p-4 space-y-3 text-sm">
           <!-- Inhabitants -->
@@ -1710,7 +1869,7 @@ document.addEventListener('alpine:init', () => {
      detail (78) — "→ lair" from here opens the lair as the top peek; the lair detail's own Encounters
      list closes itself before opening this. DOM order (after lair, before search) gives the
      deterministic stacked-Escape order. The Inspector stays the no-frills field editor underneath. -->
-<div x-show="encounterModalOpen" @keydown.escape.window="if(encounterModalOpen && !lairDetailId && !trackHome.open && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeEncounterModal()">
+<div x-show="encounterModalOpen" @keydown.escape.window="if(encounterModalOpen && !lairDetailId && !trackHome.open && !$event.defaultPrevented){ closeEncounterModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeEncounterModal()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="encModalEnc()">
       <div>
@@ -1728,7 +1887,7 @@ document.addEventListener('alpine:init', () => {
               <span x-show="encModalEnc().status === 'resolved'" class="px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 border border-green-500 capitalize" x-text="'resolved — ' + (encModalEnc().outcome || '')"></span>
             </p>
           </div>
-          <button @click="closeEncounterModal()" class="text-2xl leading-none px-2" title="Close">×</button>
+          <button @click="closeEncounterModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
         <div class="p-4 space-y-3 text-sm">
           <!-- Prior meeting (D9) — derived from resolved-encounter history, never stored. -->
@@ -2153,7 +2312,7 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Stash detail modal (Stash B.4) -->
-<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="stashDetailId" @keydown.escape.window="if(!notableModalId) closeStashDetail()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:60; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="stashDetailStash()">
       <div>
@@ -2165,7 +2324,7 @@ document.addEventListener('alpine:init', () => {
             </p>
             <p class="text-sm font-mono mt-1" x-text="Math.round(window.ACKS.stashTotalGp(stashDetailStash())).toLocaleString() + ' gp · ' + (Math.round(window.ACKS.stashTotalEncumbrance(stashDetailStash())*10)/10) + ' st'"></p>
           </div>
-          <button @click="closeStashDetail()" class="text-2xl leading-none px-2" title="Close">×</button>
+          <button @click="closeStashDetail()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
         <div class="flex gap-1 px-4 pt-2 border-b border-ink/20 text-sm">
           <template x-for="t in [{id:'items',label:'Items'},{id:'activity',label:'Activity'},{id:'settings',label:'Settings'}]" :key="t.id">
@@ -2245,7 +2404,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Notable Item modal (Items I1 Step 3) — view/edit a promoted item in place, layered over the
      stash modal (z-80, above the stash's z-60 and the character editor's z-50) so closing returns to the stash. Edits log via gm-fiat on the notableItem.
      Plain/fungible lines never reach here — only promoted lines (which point at a notableItems[] entity). -->
-<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:80; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="notableModalId" @keydown.escape.window="closeNotableModal()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:80; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-xl my-6">
     <template x-if="notableModalItem()">
       <div>
@@ -2254,38 +2413,38 @@ document.addEventListener('alpine:init', () => {
             <h3 class="font-bold text-lg" x-text="(notableModalItem().name || '(unnamed notable item)') + ' ★'"></h3>
             <p class="text-sm opacity-70" x-text="notableKindLabel(notableModalItem().kind) + ' · ' + (notableModalItem().status||'active')"></p>
           </div>
-          <button @click="closeNotableModal()" class="text-2xl leading-none px-2" title="Close">×</button>
+          <button @click="closeNotableModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
         <div class="p-4 space-y-2 text-sm">
           <div class="flex items-center gap-2"><span class="w-28 opacity-70">Name</span>
             <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'name', label:'Name', kind:'text', placeholder:'(unnamed)'})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="flex items-center gap-2"><span class="w-28 opacity-70">Kind</span>
             <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'kind', label:'Kind', kind:'select', formatter(v){ return window.acksApp.notableKindLabel(v); }})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="magic-weapon">Magic weapon</option><option value="magic-armor">Magic armor</option><option value="potion">Potion</option><option value="scroll">Scroll</option><option value="wand">Wand</option><option value="rod">Rod</option><option value="staff">Staff</option><option value="misc-magic">Misc. magic</option><option value="book">Book</option><option value="relic">Relic</option><option value="regalia">Regalia</option><option value="masterwork">Masterwork</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="magic-weapon">Magic weapon</option><option value="magic-armor">Magic armor</option><option value="potion">Potion</option><option value="scroll">Scroll</option><option value="wand">Wand</option><option value="rod">Rod</option><option value="staff">Staff</option><option value="misc-magic">Misc. magic</option><option value="book">Book</option><option value="relic">Relic</option><option value="regalia">Regalia</option><option value="masterwork">Masterwork</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="flex items-center gap-2"><span class="w-28 opacity-70">Status</span>
             <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'status', label:'Status', kind:'select'})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:12rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="active">active</option><option value="destroyed">destroyed</option><option value="lost">lost</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:12rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="active">active</option><option value="destroyed">destroyed</option><option value="lost">lost</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <h4 class="font-semibold pt-2 mt-1 border-t border-ink/20">Provenance</h4>
           <div class="flex items-center gap-2"><span class="w-28 opacity-70">Maker</span><span class="opacity-90" x-text="notableMakerName(notableModalItem()) || '— unknown —'"></span></div>
           <div class="flex items-center gap-2"><span class="w-28 opacity-70">Created turn</span>
             <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'provenance.createdAtTurn', label:'Created turn', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(displayValue ?? '—')"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(displayValue ?? '—')"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div><span class="w-28 opacity-70 block mb-1">Origin lore</span>
             <span class="ed-stat" x-data="editableStat({entityType:'notableItem', getEntity(){return window.acksApp?.notableModalItem();}, fieldPath:'provenance.originLore', label:'Origin lore', kind:'text', placeholder:'(none)'})" style="align-items:flex-start">
-              <template x-if="!editing"><span class="ed-stat" style="align-items:flex-start"><span class="ed-val whitespace-pre-wrap" style="font-family:inherit" x-text="displayValue || '(none)'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="!editing"><span class="ed-stat" style="align-items:flex-start"><span class="ed-val whitespace-pre-wrap" style="font-family:inherit" x-text="displayValue || '(none)'"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
               <template x-if="editing"><span class="ed-stat" style="align-items:flex-start; flex-direction:column"><textarea x-model="draft" rows="2" class="w-full text-sm" x-init="$nextTick(() => $el.focus())" @keyup.escape="cancel()"></textarea><span class="flex gap-1 mt-1"><button @click="save()" class="ed-btn" title="Save & log">✓ save</button><button @click="cancel()" class="ed-btn" title="Cancel">× cancel</button></span></span></template>
             </span>
           </div>
@@ -2322,11 +2481,11 @@ document.addEventListener('alpine:init', () => {
 <!-- Escape stacking: every stacked modal's escape handler acts only while ITS layer is open and marks
      the event consumed (preventDefault); lower layers skip a consumed event — so one Escape closes one
      layer, top-down, regardless of listener registration order. -->
-<div x-show="lairWizardOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:55; background:rgba(0,0,0,.4)" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="if(lairWizardOpen){ lairWizardOpen = false; $event.preventDefault() }">
+<div x-show="lairWizardOpen" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:55; background:rgba(0,0,0,.4)" x-cloak @click.self="lairWizardOpen = false" @keydown.escape.window="if(lairWizardOpen){ lairWizardOpen = false; $event.preventDefault() }">
   <div class="vellum border border-ink rounded-lg shadow-xl max-w-lg w-full mx-4 p-5 space-y-4">
     <div class="flex justify-between items-center">
       <h2 class="font-bold text-lg">🏚 Lair Wizard</h2>
-      <button @click="lairWizardOpen = false" class="text-xl px-2 leading-none">×</button>
+      <button @click="lairWizardOpen = false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
     <div class="flex gap-2 text-sm">
       <button @click="lairWizardMode='author'" :class="lairWizardMode==='author' ? 'bg-yellow-200 font-semibold' : ''" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Author a lair</button>
@@ -2413,14 +2572,14 @@ document.addEventListener('alpine:init', () => {
      (Retainers), a domain's Military tab, and the Armies view header. The Inspector
      Create ▸ Army is the free-form ADMIN-verb counterpart. Engine: ACKS.createArmy
      (stations the roster + a Main Body division led by the commander, RR p.435). -->
-<div x-show="musterArmyOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:60; background:rgba(0,0,0,.4)" x-cloak @click.self="musterArmyOpen = false" @keydown.escape.window="if(musterArmyOpen){ musterArmyOpen = false; $event.preventDefault() }">
+<div x-show="musterArmyOpen" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:60; background:rgba(0,0,0,.4)" x-cloak @click.self="musterArmyOpen = false" @keydown.escape.window="if(musterArmyOpen){ musterArmyOpen = false; $event.preventDefault() }">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-2 p-4 space-y-3">
     <div class="flex justify-between items-start border-b border-ink/20 pb-2">
       <div>
         <h3 class="font-bold text-lg">🎖 Muster an Army <span class="text-sm font-normal opacity-70">· RR pp.435–437</span></h3>
         <p class="text-sm opacity-70 italic">A commander raises a field force from the troops he controls. Station units now or add them later; reorganize divisions on the Armies view.</p>
       </div>
-      <button @click="musterArmyOpen = false" class="text-xl px-2 leading-none">×</button>
+      <button @click="musterArmyOpen = false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
 
     <label class="block text-sm">
@@ -2484,7 +2643,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Garrison reaction (2026-06-14) — ⚔ Deploy a force to meet a domain threat (an incursion
      band). Reuses the muster machinery; the slot-88 military day consumer resolves the meeting
      on arrival (JJ pp.104–106). Engine: ACKS.deployGarrisonReaction / garrisonReactionPreview. -->
-<div x-show="garrisonDeployOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:62; background:rgba(0,0,0,.4)" x-cloak @click.self="garrisonDeployOpen = false" @keydown.escape.window="if(garrisonDeployOpen){ garrisonDeployOpen = false; $event.preventDefault() }">
+<div x-show="garrisonDeployOpen" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:62; background:rgba(0,0,0,.4)" x-cloak @click.self="garrisonDeployOpen = false" @keydown.escape.window="if(garrisonDeployOpen){ garrisonDeployOpen = false; $event.preventDefault() }">
   <template x-if="garrisonDeployOpen && garrisonDeployBand()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-2 p-4 space-y-3">
     <div class="flex justify-between items-start border-b border-ink/20 pb-2">
@@ -2492,7 +2651,7 @@ document.addEventListener('alpine:init', () => {
         <h3 class="font-bold text-lg">⚔ Deploy garrison <span class="text-sm font-normal opacity-70">· JJ pp.104–106</span></h3>
         <p class="text-sm opacity-70 italic">Send a force from the garrison to meet the incursion in the field. The chosen units march to the band, the fight resolves there, and you Recall them home afterward.</p>
       </div>
-      <button @click="garrisonDeployOpen = false" class="text-xl px-2 leading-none">×</button>
+      <button @click="garrisonDeployOpen = false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
     </div>
 
     <!-- the threat -->
@@ -2572,7 +2731,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Carry ⇄ stash transfer modal (Items I1 Step 3) — the character's actor verb: cache carry
      items/coins into a co-located stash, or draw them back. Layered above the character editor
      (z-50) at z-70. Engine: ACKS.cacheToStash / drawFromStash (purse + Phase-2.6 carry shapes). -->
-<div x-show="stashTransferOpen" @keydown.escape.window="closeStashTransfer()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:70; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="stashTransferOpen" @keydown.escape.window="closeStashTransfer()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:70; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="characterEditing">
       <div>
@@ -2584,7 +2743,7 @@ document.addEventListener('alpine:init', () => {
               <template x-if="!characterTransferHexId()"><span class="accent-red">No location set — set this character’s hex on the <span class="font-semibold">Location</span> tab to cache/draw here.</span></template>
             </p>
           </div>
-          <button @click="closeStashTransfer()" class="text-2xl leading-none px-2" title="Close">×</button>
+          <button @click="closeStashTransfer()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
         </div>
 
         <div class="p-4 space-y-3" x-show="characterTransferHexId()">
@@ -2659,14 +2818,14 @@ document.addEventListener('alpine:init', () => {
      Availability + funds; runs THROUGH the real coin purse + carry inventory (no phantom state). The
      #346 proof is the forecast's Activity line: a purchase = ⌈stone ÷ normal-load⌉ ancillary errands
      (M&M p.15). Layered at z-75 (above the character sheet z-50 + the hex card). -->
-<div x-show="trade.open" @keydown.escape.window="closeTrade()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="trade.open" @keydown.escape.window="closeTrade()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-3xl my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
         <h3 class="font-bold text-lg">🛒 Trade<span x-show="tradeActor()" class="font-normal opacity-80"> — <span x-text="tradeActor()?.name||'(unnamed)'"></span></span></h3>
         <p class="text-sm opacity-70">Buy or sell at a market — gated by what it stocks (RR p.124); paid through the purse.</p>
       </div>
-      <button @click="closeTrade()" class="text-2xl leading-none px-2" title="Close">×</button>
+      <button @click="closeTrade()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
     </div>
 
     <div class="p-4 space-y-3">
@@ -2792,14 +2951,14 @@ document.addEventListener('alpine:init', () => {
      counterpart to 🛒 Trade, over ACKS.forageActivity / huntActivity. Opens from the character sheet
      (🌿 Forage / 🏹 Hunt) or a hex card. Forage = ancillary, Hunt = dedicated (#346); +4 with Survival;
      terrain/territory modifiers on food + hunt (RR p.278). Layered at z-75 (above the character sheet). -->
-<div x-show="forage.open" @keydown.escape.window="if(forage.open && !$event.defaultPrevented) closeForage()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="forage.open" @keydown.escape.window="if(forage.open && !$event.defaultPrevented) closeForage()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
         <h3 class="font-bold text-lg">🌿 Forage / 🏹 Hunt<span x-show="forageActor()" class="font-normal opacity-80"> — <span x-text="forageActor()?.name||'(unnamed)'"></span></span></h3>
         <p class="text-sm opacity-70">Live off the land (RR p.278). Forage = one ancillary task; hunting takes the day (dedicated).</p>
       </div>
-      <button @click="closeForage()" class="text-2xl leading-none px-2" title="Close">×</button>
+      <button @click="closeForage()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
     </div>
     <div class="p-4 space-y-3">
       <label class="text-sm block">Character<br>
@@ -2862,14 +3021,14 @@ document.addEventListener('alpine:init', () => {
 <!-- Search the hex (#476 M4 — RR pp.276–277 "Searching the Wild"). The Judge's secret search-hour:
      one Wilderness Search throw vs the hex's undiscovered lairs + the RAW per-hour encounter check.
      GM-facing — players never see the target or "0 of N found"; results stack like Forage. -->
-<div x-show="searchHex.open" @keydown.escape.window="if(searchHex.open && !trackHome.open && !$event.defaultPrevented) closeSearchHex()" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="searchHex.open" @keydown.escape.window="if(searchHex.open && !trackHome.open && !$event.defaultPrevented) closeSearchHex()" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:75; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
         <h3 class="font-bold text-lg">🔍 Search the hex<span x-show="searchHexObj()" class="font-normal opacity-80"> — <span x-text="searchHexObj() ? window.ACKS.hexName(searchHexObj()) : ''"></span></span></h3>
         <p class="text-sm opacity-70">One search-hour = one ancillary task; each hour also risks an encounter (RR pp.276–277). The Judge rolls secretly — a failure tells the players nothing.</p>
       </div>
-      <button @click="closeSearchHex()" class="text-2xl leading-none px-2" title="Close">×</button>
+      <button @click="closeSearchHex()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
     </div>
     <div class="p-4 space-y-3">
       <label class="text-sm block">Searching character <span class="opacity-60">(their party searches with them)</span><br>
@@ -2938,14 +3097,14 @@ document.addEventListener('alpine:init', () => {
      A quarry already gone to ground in this hex is caught at once. Peek-level z-78 (above
      the resolution modal 77 + the search modal 75 — both offer 🐾); their escape handlers
      skip while it's open, and it preventDefaults its own close. -->
-<div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented){ closeTrackHome(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak>
+<div x-show="trackHome.open" @keydown.escape.window="if(trackHome.open && !$event.defaultPrevented){ closeTrackHome(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak>
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
     <div class="flex justify-between items-start p-4 border-b border-ink/30">
       <div>
         <h3 class="font-bold text-lg">🐾 Track them</h3>
         <p class="text-sm opacity-70">Find the trail (Tracking 11+, RR p.120 — one turn's search; no retry for an hour on a miss), then FOLLOW: the party's journey is steered after the band at half expedition speed, day by day, until caught or the trail is lost (it enters water, or an hour of rain/snow falls). Following itself needs no throw.</p>
       </div>
-      <button @click="closeTrackHome()" class="text-2xl leading-none px-2" title="Close">×</button>
+      <button @click="closeTrackHome()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
     </div>
     <div class="p-4 space-y-3 text-sm">
       <label class="block">Tracker <span class="opacity-60">(needs the Tracking proficiency; extra ranks +4 each)</span><br>
@@ -3018,7 +3177,7 @@ document.addEventListener('alpine:init', () => {
     <div class="vellum border border-ink rounded-lg shadow-xl max-w-md w-full mx-4 p-5 space-y-4">
       <div class="flex justify-between items-center">
         <h2 class="font-bold text-lg">➕ Create Map</h2>
-        <button @click="mapGridModalOpen = false" class="text-xl px-2 leading-none">×</button>
+        <button @click="mapGridModalOpen = false" class="text-xl px-2 leading-none" aria-label="Close">×</button>
       </div>
       <p class="text-sm opacity-70">Lay out a rectangular grid of blank hexes — no terrain, unexplored, unclaimed — a clean canvas to build a world on. Hexes you already have are kept (never overwritten); the grid fills in around them.</p>
       <div>
@@ -3281,7 +3440,12 @@ document.addEventListener('alpine:init', () => {
         <!-- viewBox is set via x-effect, not :viewBox — the HTML parser lowercases `:viewBox` to
              `:viewbox`, and SVG's viewBox attribute is case-sensitive, so the binding would be
              silently ignored. setAttribute with the exact case works and re-runs on pan/zoom. -->
+        <!-- a11y (audit 2026-06-14): the map is a pointer-only canvas (pan/zoom/click via mouse).
+             role="img" + a dynamic aria-label give screen readers a summary, and the caption +
+             the World ▸ Hexes table are the documented keyboard/SR-equivalent path to inspect and
+             select hexes by coordinate. (A focusable per-hex SVG affordance is a larger follow-up.) -->
         <svg x-ref="mapSvg" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"
+             role="img" :aria-label="'Campaign hex map' + (currentCampaign && currentCampaign.hexes ? ' — ' + currentCampaign.hexes.length + ' hexes' : '') + '. This map is mouse-driven; use the World ▸ Hexes table to inspect or select hexes by keyboard.'"
              x-effect="$el.setAttribute('viewBox', mapViewBoxStr())"
              :style="'cursor:' + (_mapPan ? 'grabbing' : 'grab')"
              @wheel.prevent="mapWheel($event)"
@@ -3292,7 +3456,7 @@ document.addEventListener('alpine:init', () => {
           <g x-html="mapSvgMarkup()"></g>
         </svg>
       </div>
-      <p class="text-xs opacity-50 mt-1">Labels are RAW-style column-row (RR p.273); hover a hex for its name, terrain, domain, and land value. The map is a view — clicking a hex opens the existing hex card.</p>
+      <p class="text-xs opacity-50 mt-1">Labels are RAW-style column-row (RR p.273); hover a hex for its name, terrain, domain, and land value. The map is a view — clicking a hex opens the existing hex card. <span class="not-italic">For keyboard or screen-reader access, the <strong>World ▸ Hexes</strong> table lists every hex and opens the same hex card.</span></p>
     </div>
   </template>
 </div>
@@ -3324,7 +3488,7 @@ document.addEventListener('alpine:init', () => {
               <p class="text-sm opacity-70">The best way to feel the whole tool. Loading the demo won't overwrite the template file — Save will prompt for a new location.</p>
             </div>
             <button @click="loadDemoTemplate()"
-                    class="px-4 py-2 border-2 border-ink rounded bg-yellow-300 hover:bg-yellow-400 font-semibold whitespace-nowrap">
+                    class="btn btn-primary whitespace-nowrap" style="padding:0.5rem 1rem;">
               🎲 Load demo campaign
             </button>
           </div>
@@ -3475,8 +3639,8 @@ document.addEventListener('alpine:init', () => {
             <div class="vellum border border-ink p-3 rounded">
               <div class="text-sm">Name</div>
               <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){ return window.acksApp?.selectedDomain; }, fieldPath:'name', label:'Domain name', kind:'text'})">
-                <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-lg font-semibold" style="font-family:inherit" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-lg font-semibold" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-lg font-semibold" style="font-family:inherit" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-lg font-semibold" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
               </span>
             </div>
             <!-- Morale block (formerly "State of <name>") — now sits between Name and the
@@ -3810,8 +3974,8 @@ document.addEventListener('alpine:init', () => {
               </template>
               <template x-if="!isHouseRuleEnabled('families-per-hex-tracking')">
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){ return window.acksApp?.selectedDomain; }, fieldPath:'demographics.peasantFamilies', label:'Peasant families', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </template>
             </div>
@@ -3823,8 +3987,8 @@ document.addEventListener('alpine:init', () => {
               </template>
               <template x-if="hexSettlements(selectedDomain).length === 0">
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){ return window.acksApp?.selectedDomain; }, fieldPath:'demographics.urbanFamilies', label:'Urban families', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </template>
             </div>
@@ -3832,8 +3996,8 @@ document.addEventListener('alpine:init', () => {
             <div class="text-sm mt-2 flex items-center gap-2 flex-wrap">
               <span class="w-32">Current morale</span>
               <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){ return window.acksApp?.selectedDomain; }, fieldPath:'demographics.morale', label:'Morale', kind:'number', min:-4, max:4})">
-                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><span x-text="window.acksApp?.moraleEmoji(currentValue)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><span x-text="window.acksApp?.moraleEmoji(currentValue)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
               </span>
               <span class="opacity-80" x-text="moraleEffectSummary(selectedDomain.demographics.morale)"></span>
             </div>
@@ -3906,8 +4070,8 @@ document.addEventListener('alpine:init', () => {
                       <td x-text="settlementType(entry.settlement)"></td>
                       <td>
                         <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:entry.settlement, fieldPath:'families', label:'Settlement families', kind:'number', min:0})">
-                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                          <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                          <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                         </span>
                       </td>
                       <td x-text="'Class '+settlementMarketClass(entry.settlement)"></td>
@@ -3917,8 +4081,8 @@ document.addEventListener('alpine:init', () => {
                       </td>
                       <td>
                         <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:entry.settlement, fieldPath:'totalInvestment', label:'Settlement investment', kind:'number', min:0})">
-                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue + ' gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                          <template x-if="editing"><span class="ed-stat"><input type="number" min="0" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue + ' gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                          <template x-if="editing"><span class="ed-stat"><input type="number" min="0" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                         </span>
                       </td>
                       <td>
@@ -3949,7 +4113,7 @@ document.addEventListener('alpine:init', () => {
                 <h2 class="font-bold text-lg">Treasury (accumulated gp)</h2>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'treasury.gp', label:'Treasury', kind:'number'})">
                   <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-right font-bold text-lg" x-text="displayValue"></span><span class="text-sm">gp</span><button @click="start()" class="ed-edit" title="Edit (logged via gm-fiat)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" class="ed-input text-right font-bold" style="width:10rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-sm">gp</span><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" class="ed-input text-right font-bold" style="width:10rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-sm">gp</span><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
             </div>
@@ -3967,8 +4131,8 @@ document.addEventListener('alpine:init', () => {
               <div class="text-sm flex items-center gap-2 mt-1">
                 <span class="w-44">Tariffs (gp/mo)</span>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'income.tariffs', label:'Tariffs', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
               <!-- Misc income — per-family AND flat. Catch-all GM lever for things outside
@@ -3976,15 +4140,15 @@ document.addEventListener('alpine:init', () => {
               <div class="text-sm flex items-center gap-2 mt-1" title="Per-family GM extra: e.g. 0.5gp/family for a tithe-style overflow income. Multiplied by total (peasant + urban) families.">
                 <span class="w-44">Misc / family</span>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'income.miscPerFamily', label:'Misc income / family', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.1" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.1" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
               <div class="text-sm flex items-center gap-2 mt-1" title="Flat GM extra in gp/mo: e.g. 500gp royal stipend, mining patron share, found treasure stipend.">
                 <span class="w-44">Misc (flat)</span>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'income.miscFlat', label:'Misc income (flat gp/mo)', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
             </div>
@@ -4005,8 +4169,8 @@ document.addEventListener('alpine:init', () => {
               <div class="text-sm flex items-center gap-2 mt-2">
                 <span class="w-32">Liturgy / family</span>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'expenses.liturgyPerFamily', label:'Liturgy / family', kind:'number'})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" step="0.1" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" step="0.1" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
               <div class="text-sm flex items-center gap-2 mt-2" title="Sum of all garrison unit wages from the Military tab. Required garrison depends on classification × families (RR p.349).">
@@ -4031,15 +4195,15 @@ document.addEventListener('alpine:init', () => {
               <div class="text-sm flex items-center gap-2 mt-1" title="Per-family GM expense: e.g. 0.5gp/family for a special levy. Multiplied by total (peasant + urban) families.">
                 <span class="w-32">Misc / family</span>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'expenses.miscPerFamily', label:'Misc expense / family', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.1" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.1" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
               <div class="text-sm flex items-center gap-2 mt-1" title="Flat GM expense in gp/mo: e.g. 1000gp bribe, 500gp lavish upkeep, secret payments.">
                 <span class="w-32">Misc (flat)</span>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'expenses.miscFlat', label:'Misc expense (flat gp/mo)', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue ?? selectedDomain.expenses.personalExpenses ?? 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue ?? selectedDomain.expenses.personalExpenses ?? 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
 
@@ -4054,8 +4218,8 @@ document.addEventListener('alpine:init', () => {
                   <div class="text-sm flex items-center gap-2">
                     <span class="w-32">Labor cap (gp/mo)</span>
                     <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'monthlyLaborCapGp', label:'Monthly labor cap', kind:'number', min:0})">
-                      <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                      <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:8rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                      <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                      <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:8rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                     </span>
                   </div>
                 </div>
@@ -4084,7 +4248,7 @@ document.addEventListener('alpine:init', () => {
                       <span>Manual gp/mo</span>
                       <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'expenses.tributeToLiege', label:'Tribute manual gp/mo', kind:'number', min:0})">
                         <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :disabled="selectedDomain.expenses.tributeAuto" :class="selectedDomain.expenses.tributeAuto ? 'opacity-30 cursor-not-allowed' : ''">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                     </div>
                   </div>
@@ -4149,8 +4313,8 @@ document.addEventListener('alpine:init', () => {
                     <td>
                       <template x-if="isHouseRuleEnabled('families-per-hex-tracking')">
                         <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'families', label:'Families (hex)', kind:'number', min:0})">
-                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                          <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                          <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                          <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                         </span>
                       </template>
                       <template x-if="!isHouseRuleEnabled('families-per-hex-tracking')">
@@ -4160,13 +4324,13 @@ document.addEventListener('alpine:init', () => {
                     <td>
                       <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'valuePerFamily', label:'Land value (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:9})">
                         <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                     </td>
                     <td class="text-sm">
                       <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'landImprovementBonus', label:'Improvement bonus (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0, max:3})">
                         <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-semibold" x-text="'+' + (currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — GM shortcut, max +3. Proper flow is the Queue improvements panel below.">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                       <span class="opacity-60" x-text="'(eff ' + effectiveHexValue(h) + ')'"></span>
                       <template x-if="(h.landImprovementProjects||[]).length > 0">
@@ -4197,8 +4361,8 @@ document.addEventListener('alpine:init', () => {
                       <template x-if="h.settlement">
                         <div class="font-semibold">
                           <span class="ed-stat" x-data="editableStat({entityType:'settlement', entity:h.settlement, fieldPath:'name', label:'Settlement name', kind:'text'})">
-                            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                            <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                           </span>
                         </div>
                       </template>
@@ -4328,8 +4492,8 @@ document.addEventListener('alpine:init', () => {
                         <td>
                           <template x-if="(h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9">
                             <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:h, fieldPath:'improvementBudgetGp', label:'Improvement budget (' + window.ACKS.hexDisplayLabel(h.coord?.q||0, h.coord?.r||0) + ')', kind:'number', min:0})">
-                              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0).toLocaleString() + 'gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:7rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                             </span>
                           </template>
                           <template x-if="!((h.landImprovementBonus||0) < 3 && effectiveHexValue(h) < 9)">
@@ -4368,28 +4532,28 @@ document.addEventListener('alpine:init', () => {
                   <tr>
                     <td>
                       <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'displayName', label:'Unit #'+(i+1)+' name', kind:'text', placeholder:'(unnamed)'})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue || '(unnamed)'" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:12rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue || '(unnamed)'" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:12rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                     </td>
                     <td><select :value="u.unitTypeKey" @change="onGarrisonUnitTypeChange(u, i, $event.target.value)" class="text-sm border border-ink/50 rounded px-2 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer"><template x-for="row in ((window.ACKS && window.ACKS.HIRELING_MERCENARIES) || [])" :key="row.id"><option :value="row.id" x-text="row.label" :selected="row.id === u.unitTypeKey"></option></template></select></td>
                     <td>
                       <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'count', label:'Unit #'+(i+1)+' count', kind:'number', min:0})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                     </td>
                     <td>
                       <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'monthlyWage', label:'Unit #'+(i+1)+' wage', kind:'number', min:0})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.5" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.5" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                     </td>
                     <td x-text="((u.count||0)*(u.monthlyWage||0)).toLocaleString()"></td>
                     <td>
                       <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'brPerSoldier', label:'Unit #'+(i+1)+' BR/soldier', kind:'number', min:0})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.001" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.001" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                     </td>
                     <td x-text="((u.count||0)*(u.brPerSoldier||0)).toFixed(3)"></td>
@@ -4735,8 +4899,8 @@ document.addEventListener('alpine:init', () => {
               <div class="vellum border border-ink/40 rounded p-2">
                 <div class="text-sm opacity-70">Garrison capacity</div>
                 <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'stronghold.garrisonCapacity', label:'Garrison capacity', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-bold text-lg" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:8rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-bold text-lg" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:8rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </div>
               <div class="vellum border border-ink/40 rounded p-2">
@@ -4774,8 +4938,8 @@ document.addEventListener('alpine:init', () => {
                   <div class="block text-sm">
                     <span class="block mb-1 font-semibold">Name <span class="text-sm opacity-60 font-normal">(optional)</span></span>
                     <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'stronghold.components.'+ci+'.name', label:'Component #'+(ci+1)+' name', kind:'text', placeholder:'(unnamed)'})">
-                      <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                      <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                      <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                      <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                     </span>
                   </div>
                   <div class="block text-sm">
@@ -4788,8 +4952,8 @@ document.addEventListener('alpine:init', () => {
                     </template>
                     <template x-if="!(isHouseRuleEnabled('stronghold-by-buildings') && (comp.structures||[]).length > 0)">
                       <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'stronghold.components.'+ci+'.buildValue', label:'Component #'+(ci+1)+' build value', kind:'number', min:0})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue + ' gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:10rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue + ' gp'"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:10rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                       </span>
                     </template>
                   </div>
@@ -4828,15 +4992,15 @@ document.addEventListener('alpine:init', () => {
                             <td class="font-mono" x-text="(STRONGHOLD_CATALOG.find(c => c.key === row.structureKey)?.cost || 0).toLocaleString() + ' gp'"></td>
                             <td>
                               <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'stronghold.components.'+ci+'.structures.'+si+'.quantity', label:'Structure #'+(si+1)+' qty', kind:'number', min:0})">
-                                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                               </span>
                             </td>
                             <td class="font-mono" x-text="((STRONGHOLD_CATALOG.find(c => c.key === row.structureKey)?.cost || 0) * (row.quantity || 0)).toLocaleString() + ' gp'"></td>
                             <td>
                               <span class="ed-stat" x-data="editableStat({entityType:'domain', getEntity(){return window.acksApp?.selectedDomain;}, fieldPath:'stronghold.components.'+ci+'.structures.'+si+'.notes', label:'Structure #'+(si+1)+' notes', kind:'text', placeholder:'(none)'})">
-                                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                                <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                                <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:10rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                               </span>
                             </td>
                             <td><button @click="commitListMutation({entityType:'domain', entityId:selectedDomain.id, entity:selectedDomain, fieldPath:'stronghold.components.'+ci+'.structures', label:'Structure', action:'remove', index:si})" class="accent-red px-2" title="Remove (logged)">×</button></td>
@@ -6705,7 +6869,7 @@ document.addEventListener('alpine:init', () => {
             <template x-if="journeyHasSpeedOverride(journeyDetail()) || journeyOverrideArmed">
               <span class="ed-stat" x-data="editableStat({entityType:'journey', getEntity(){ return window.acksApp?.journeyDetail(); }, fieldPath:'speedOverrideMilesPerDay', label:'Speed override (mi/day)', kind:'number', min:1, suppressFromCampaignLog:true, formatter(v){ return (v==null || v==='') ? '— set a value' : (v + ' mi/day'); }})">
                 <template x-if="!editing"><span class="ed-stat"><span class="opacity-40">→</span> <span class="ed-val" :class="(currentValue==null) ? 'opacity-50 italic' : 'font-mono font-semibold text-amber-800'" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
-                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-xs opacity-60">mi/day</span><button @click="save()" class="ed-btn" title="Save &amp; log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
               </span>
             </template>
             <!-- OFF (not armed, no value): nothing beside the tick — the override is simply off. -->
@@ -7894,7 +8058,7 @@ document.addEventListener('alpine:init', () => {
                   <!-- Party name — ✏ / ✓ / × lock-edit (editableStat), saved via gm-fiat like other fields. -->
                   <span class="ed-stat" x-data="editableStat({entityType:'party', entity:pt, fieldPath:'name', label:'Party name', kind:'text', placeholder:'(unnamed party)'})">
                     <template x-if="!editing"><span class="ed-stat"><span class="ed-val text-base font-semibold" style="font-family:inherit" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit name (logged)">✏</button></span></template>
-                    <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-base font-semibold" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                    <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input text-base font-semibold" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                   </span>
                   <span class="text-sm opacity-60 font-mono" x-text="pt.id"></span>
                 </div>
@@ -7957,7 +8121,7 @@ document.addEventListener('alpine:init', () => {
                     <template x-if="editing">
                       <span class="flex gap-1">
                         <button @click="save()" class="ed-btn" title="Save & lock">✓</button>
-                        <button @click="cancel()" class="ed-btn" title="Cancel">×</button>
+                        <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
                       </span>
                     </template>
                   </div>
@@ -8854,7 +9018,7 @@ document.addEventListener('alpine:init', () => {
 <!-- v2: panel wrapped in x-if so its bindings don't evaluate against null characterEditing -->
 <div class="modal-backdrop" x-show="showCharacterEditorModal" x-cloak @keydown.escape.window="closeCharacterEditor()" @click.self="closeCharacterEditor()">
   <template x-if="characterEditing">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3">
       <div class="flex justify-between items-center">
         <h2 class="font-bold text-lg" x-text="(characterEditingIsNew ? '+ New character — ' : '👤 ') + (characterEditing?.name || '(unnamed)')"></h2>
@@ -8904,30 +9068,30 @@ document.addEventListener('alpine:init', () => {
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Name</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'name', label:'Name', kind:'text', placeholder:'(unnamed)'})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <!-- #448 — Five-axis editors replace the legacy single Kind dropdown. -->
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Control</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'controlledBy', label:'Control', kind:'select', formatter(v){ return v === 'player' ? 'Player-controlled' : v === 'gm' ? 'GM-controlled' : '— unset —'; }})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="gm">GM-controlled</option><option value="player">Player-controlled</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="gm">GM-controlled</option><option value="player">Player-controlled</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Tier</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'socialTier', label:'Social tier', kind:'select', formatter(v){ const map={independent:'Independent', henchman:'Henchman', specialist:'Specialist', follower:'Follower', hireling:'Hireling', mercenary:'Mercenary officer', slave:'Slave'}; return map[v] || '— unset —'; }})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="independent">Independent (PC / NPC / officer)</option><option value="henchman">Henchman</option><option value="specialist">Specialist</option><option value="follower">Follower</option><option value="hireling">Hireling</option><option value="mercenary">Mercenary officer</option><option value="slave">Slave</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:16rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="independent">Independent (PC / NPC / officer)</option><option value="henchman">Henchman</option><option value="specialist">Specialist</option><option value="follower">Follower</option><option value="hireling">Hireling</option><option value="mercenary">Mercenary officer</option><option value="slave">Slave</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Lifecycle</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'lifecycleState', label:'Lifecycle', kind:'select', formatter(v){ const map={active:'Active', candidate:'Candidate', departed:'Departed', imprisoned:'Imprisoned', dominated:'Dominated', deceased:'Deceased'}; return map[v] || '— unset —'; }})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="active">Active</option><option value="candidate">Candidate</option><option value="departed">Departed</option><option value="imprisoned">Imprisoned</option><option value="dominated">Dominated</option><option value="deceased">Deceased</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><option value="active">Active</option><option value="candidate">Candidate</option><option value="departed">Departed</option><option value="imprisoned">Imprisoned</option><option value="dominated">Dominated</option><option value="deceased">Deceased</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
@@ -8964,29 +9128,29 @@ document.addEventListener('alpine:init', () => {
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Class</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'class', label:'Class', kind:'text', placeholder:'(none)'})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="e.g. Fighter, Venturer, Mage"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="e.g. Fighter, Venturer, Mage"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Level</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'level', label:'Level', kind:'number', min:0, max:14})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Alignment</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'alignment', label:'Alignment', kind:'select', formatter(v){ return ({L:'Lawful',N:'Neutral',C:'Chaotic'})[v] || v || '—'; }})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:8rem" x-model="draft" x-init="$nextTick(() => $el.focus())"><option value="L">Lawful</option><option value="N">Neutral</option><option value="C">Chaotic</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:8rem" x-model="draft" x-init="$nextTick(() => $el.focus())"><option value="L">Lawful</option><option value="N">Neutral</option><option value="C">Chaotic</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">Race</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'race', label:'Race', kind:'text', placeholder:'(none)'})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="human / dwarf / elf / …"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="human / dwarf / elf / …"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <!-- === Character Lifecycle CL-1 (burst4) — Age readout (RR p.19) === -->
@@ -8994,8 +9158,8 @@ document.addEventListener('alpine:init', () => {
                title="ACKS RR p.19: age advances with the monthly turn; crossing into Middle Aged / Old / Ancient adjusts attributes, and Old / Ancient / maximum age bring a death-from-old-age save. Elves & Nobirans are ageless. Leave unset to skip aging for this character.">
             <span class="w-20">Age</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'age', label:'Age', kind:'number', min:0, formatter(v){ return (typeof v === 'number') ? (v + ' yrs') : '— not set —'; }})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
             <button x-show="characterEditing && characterEditing.age == null" @click="rollCharacterStartingAge(characterEditing)" class="ed-edit" title="Roll a starting age for this character's class (RR p.19)">🎲</button>
             <span class="text-xs opacity-70" x-text="characterAgingLine(characterEditing)"></span>
@@ -9004,8 +9168,8 @@ document.addEventListener('alpine:init', () => {
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">XP</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'xp', label:'XP', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <!-- Items I1 — the old "Personal GP" scalar moved to the multi-denomination Coins
@@ -9017,8 +9181,8 @@ document.addEventListener('alpine:init', () => {
                title="Per ACKS RR p.174 Wage and Construction Rates: Siege Engineers can supervise projects up to 25,000gp; Engineers up to 100,000gp. 0 means this character is not a construction supervisor. Used when assigning a hex's agricultural-improvement supervisor (RAW default, RR p.174).">
             <span class="w-32">Construction cap</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'constructionSupervisorCap', label:'Construction supervisor cap', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><span class="text-sm opacity-60">gp</span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:8rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-sm opacity-60">gp</span><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><span class="text-sm opacity-60">gp</span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="1000" class="ed-input" style="width:8rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><span class="text-sm opacity-60">gp</span><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
             <span class="text-sm opacity-60 italic">25,000 siege eng. · 100,000 engineer</span>
           </div>
@@ -9062,7 +9226,7 @@ document.addEventListener('alpine:init', () => {
             <div class="block text-sm flex items-center gap-2">
               <span>Liege (bound to)</span>
               <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'liegeCharacterId', label:'Liege', kind:'select', formatter(v){ if(!v) return '— independent —'; const ch = (window.acksApp?.currentCampaign?.characters||[]).find(c => c.id === v); return ch ? (ch.name + ' (' + ACKS.displayKind(ch) + ')') : v; }})">
-                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
                 <template x-if="editing"><span class="ed-stat">
                   <select class="ed-input" style="width:18rem" x-model="draft" x-init="$nextTick(() => $el.focus())">
                     <option :value="null">— independent —</option>
@@ -9070,23 +9234,23 @@ document.addEventListener('alpine:init', () => {
                       <option :value="other.id" x-text="other.name + ' (' + ACKS.displayKind(other) + ')'"></option>
                     </template>
                   </select>
-                  <button @click="save()" class="ed-btn" title="Save & log">✓</button>
-                  <button @click="cancel()" class="ed-btn" title="Cancel">×</button>
+                  <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button>
+                  <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
                 </span></template>
               </span>
             </div>
             <div class="block text-sm flex items-center gap-2">
               <span>Monthly wage (gp)</span>
               <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'monthlyWage', label:'Monthly wage', kind:'number', min:0})">
-                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
               </span>
             </div>
             <div class="block text-sm flex items-center gap-2">
               <span>Loyalty (-4..+4)</span>
               <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'loyalty', label:'Loyalty', kind:'number', min:-4, max:4})">
-                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
               </span>
             </div>
             <p class="text-sm opacity-70 col-span-2 italic">Henchman Loyalty rolls (RR p.346) wire in with the loyalty-machinery polish task; for now the loyalty score is a manual tracker.</p>
@@ -9230,8 +9394,8 @@ document.addEventListener('alpine:init', () => {
                 <td class="text-center">
                   <div class="text-sm font-semibold" x-text="ab"></div>
                   <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'abilities.' + ab, label:ab, kind:'number', min:3, max:18})">
-                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                    <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                    <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                    <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:3.5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                   </span>
                   <div class="text-sm opacity-70" x-text="((abilityMod(characterEditing.abilities[ab]||10) >= 0 ? '+' : '') + abilityMod(characterEditing.abilities[ab]||10))"></div>
                 </td>
@@ -9243,13 +9407,13 @@ document.addEventListener('alpine:init', () => {
           <div class="block text-sm flex items-center gap-2 flex-wrap">
             <span>HP current / max</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'hp.current', label:'HP current', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
             <span class="opacity-60">/</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'hp.max', label:'HP max', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
@@ -9260,15 +9424,15 @@ document.addEventListener('alpine:init', () => {
           <div class="block text-sm flex items-center gap-2">
             <span>AC</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'ac', label:'AC', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span>Attack throw (base)</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'attackThrow', label:'Attack throw', kind:'number', min:0})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
         </div>
@@ -9484,7 +9648,7 @@ document.addEventListener('alpine:init', () => {
                 <span class="flex-1" x-text="proficiencyDisplayLabel(prof)"></span>
                 <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'proficiencies.' + pi + '.ranks', label:'Ranks', kind:'number'})">
                   <template x-if="!editing"><span class="ed-stat opacity-70"><span class="ed-val" x-text="'rank ' + ((prof && prof.ranks) || 1)"></span><button @click="start()" class="ed-edit" title="Edit ranks (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" min="1" class="ed-input" style="width:5rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" min="1" class="ed-input" style="width:5rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
                 <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'proficiencies', label:'Proficiency', action:'remove', index:pi, valueDisplay:proficiencyDisplayLabel(prof)})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
               </li>
@@ -9506,8 +9670,8 @@ document.addEventListener('alpine:init', () => {
             <template x-for="(power, pwi) in (characterEditing.classPowers||[])" :key="pwi">
               <li class="flex items-center gap-2 py-0.5 border-b border-ink/10">
                 <span class="ed-stat flex-1" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'classPowers.' + pwi, label:'Class power #' + (pwi+1), kind:'text'})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
                 <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'classPowers', label:'Class power', action:'remove', index:pwi})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
               </li>
@@ -9552,8 +9716,8 @@ document.addEventListener('alpine:init', () => {
               <label class="text-sm flex items-center gap-1">
                 <span class="font-mono uppercase opacity-70 w-5" x-text="d.k"></span>
                 <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'coins.'+d.k, label:'Coins ('+d.k+')', kind:'number', min:0})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
               </label>
             </template>
@@ -9654,8 +9818,8 @@ document.addEventListener('alpine:init', () => {
                   </template>
                   <template x-if="editing">
                     <span>
-                      <button @click="save()" class="ed-btn" title="Save & log">✓</button>
-                      <button @click="cancel()" class="ed-btn" title="Cancel">×</button>
+                      <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button>
+                      <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
                     </span>
                   </template>
                 </td>
@@ -9778,7 +9942,7 @@ document.addEventListener('alpine:init', () => {
               <template x-if="!editing">
                 <span class="ed-stat" style="align-items:flex-start">
                   <span class="ed-val whitespace-pre-wrap" style="font-family:inherit" x-text="displayValue"></span>
-                  <button @click="start()" class="ed-edit" title="Edit (logged)">✏</button>
+                  <button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button>
                 </span>
               </template>
               <template x-if="editing">
@@ -9804,8 +9968,8 @@ document.addEventListener('alpine:init', () => {
             <template x-for="(goal, gi) in (characterEditing.goals||[])" :key="gi">
               <li class="flex items-center gap-2 py-0.5 border-b border-ink/10">
                 <span class="ed-stat flex-1" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'goals.' + gi, label:'Goal #' + (gi+1), kind:'text'})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
                 <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'goals', label:'Goal', action:'remove', index:gi})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
               </li>
@@ -9827,8 +9991,8 @@ document.addEventListener('alpine:init', () => {
             <template x-for="(rel, ri) in (characterEditing.relationships||[])" :key="ri">
               <li class="flex items-center gap-2 py-0.5 border-b border-ink/10">
                 <span class="ed-stat flex-1" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'relationships.' + ri, label:'Relationship #' + (ri+1), kind:'text'})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
                 </span>
                 <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'relationships', label:'Relationship', action:'remove', index:ri})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
               </li>
@@ -10008,7 +10172,7 @@ document.addEventListener('alpine:init', () => {
         <div class="text-sm flex items-center gap-2">
           <span class="w-32">Party</span>
           <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'partyId', label:'Party', kind:'select', formatter(v){ if(!v) return '— not in a party —'; const p = (window.acksApp?.currentCampaign?.parties||[]).find(pp => pp.id === v); return p ? p.name : v; }})">
-            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
             <template x-if="editing"><span class="ed-stat">
               <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
                 <option :value="null">— not in a party —</option>
@@ -10016,8 +10180,8 @@ document.addEventListener('alpine:init', () => {
                   <option :value="p.id" x-text="p.name"></option>
                 </template>
               </select>
-              <button @click="save()" class="ed-btn" title="Save & log">✓</button>
-              <button @click="cancel()" class="ed-btn" title="Cancel">×</button>
+              <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button>
+              <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
             </span></template>
           </span>
         </div>
@@ -10172,7 +10336,7 @@ document.addEventListener('alpine:init', () => {
      then Apply commits a 'loyalty-check' event that applies the loyalty drift. -->
 <div class="modal-backdrop" x-show="showLoyaltyRollModal" x-cloak @keydown.escape.window="closeLoyaltyRollModal()" @click.self="closeLoyaltyRollModal()">
   <template x-if="loyaltyRollState">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🎲 Roll Loyalty <span class="text-sm font-normal opacity-70">· RR p.168</span></h2>
       <button @click="closeLoyaltyRollModal()" class="text-xl px-2">×</button>
@@ -10273,7 +10437,7 @@ document.addEventListener('alpine:init', () => {
      event for the GM to resolve via the Roll Loyalty modal. -->
 <div class="modal-backdrop" x-show="showCalamityModal" x-cloak @keydown.escape.window="closeCalamityModal()" @click.self="closeCalamityModal()">
   <template x-if="calamityModalState">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">📜 Record Calamity <span class="text-sm font-normal opacity-70">· RR p.166</span></h2>
       <button @click="closeCalamityModal()" class="text-xl px-2">×</button>
@@ -10356,7 +10520,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Hex detail modal (Phase 2.7 World) — expanded editor for a single hex's full data -->
 <div class="modal-backdrop" x-show="showHexDetailModal" x-cloak @keydown.escape.window="if(showHexDetailModal && !$event.defaultPrevented) closeHexDetail()" @click.self="closeHexDetail()">
   <template x-if="worldHexEditingHex()">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">
         🗺 <span x-text="worldHexEditingHex() ? window.ACKS.hexName(worldHexEditingHex()) : 'Hex'"></span>
@@ -10469,8 +10633,8 @@ document.addEventListener('alpine:init', () => {
         <div class="block text-sm flex items-center gap-2 flex-wrap">
           <span class="w-20">Classification</span>
           <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'classification', label:'Classification', kind:'select'})">
-            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-            <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" x-init="$nextTick(() => $el.focus())"><option value="Civilized">Civilized</option><option value="Borderlands">Borderlands</option><option value="Outlands">Outlands</option><option value="Unsettled">Unsettled</option></select><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+            <template x-if="editing"><span class="ed-stat"><select class="ed-input" style="width:14rem" x-model="draft" x-init="$nextTick(() => $el.focus())"><option value="Civilized">Civilized</option><option value="Borderlands">Borderlands</option><option value="Outlands">Outlands</option><option value="Unsettled">Unsettled</option></select><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
           </span>
           <span class="text-sm opacity-60">(RR p.340)</span>
         </div>
@@ -10574,8 +10738,8 @@ document.addEventListener('alpine:init', () => {
             <span style="min-width:9rem">Families</span>
             <template x-if="isHouseRuleEnabled('families-per-hex-tracking')">
               <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'families', label:'Families (hex)', kind:'number', min:0})">
-                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
               </span>
             </template>
             <template x-if="!isHouseRuleEnabled('families-per-hex-tracking')">
@@ -10586,23 +10750,23 @@ document.addEventListener('alpine:init', () => {
             <span style="min-width:9rem">Land value</span>
             <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'valuePerFamily', label:'Land value', kind:'number', min:0, max:9})">
               <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="Math.round(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged) — RAW 3d3 base, 3–9 per family; effective value is capped at 9gp/family (RR p.341)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
             <span class="opacity-60 text-sm">(RAW 3d3 at hex secure, 3–9; GM-settable)</span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span style="min-width:9rem">Land improvement</span>
             <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'landImprovementBonus', label:'Land improvement bonus', kind:'number', min:0, max:3})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="'+' + (currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="'+' + (currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" :max="cfg.max ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
             <span class="opacity-60">(max +3 per RR p.341)</span>
           </div>
           <div class="block text-sm flex items-center gap-2">
             <span style="min-width:9rem">Primary structure</span>
             <span class="ed-stat" x-data="editableStat({entityType:'hex', entity:worldHexEditingHex(), fieldPath:'primaryStructure', label:'Primary structure', kind:'text', placeholder:'(none)'})">
-              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="watchtower, mill, shrine…"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:18rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="watchtower, mill, shrine…"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
             </span>
           </div>
         </div>
@@ -10896,7 +11060,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="!editing">
             <span class="ed-stat" style="align-items:flex-start">
               <span class="ed-val whitespace-pre-wrap" style="font-family:inherit" x-text="displayValue"></span>
-              <button @click="start()" class="ed-edit" title="Edit (logged)">✏</button>
+              <button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button>
             </span>
           </template>
           <template x-if="editing">
@@ -10916,7 +11080,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="!editing">
             <span class="ed-stat" style="align-items:flex-start">
               <span class="ed-val whitespace-pre-wrap" style="font-family:inherit" x-text="displayValue"></span>
-              <button @click="start()" class="ed-edit" title="Edit (logged)">✏</button>
+              <button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button>
             </span>
           </template>
           <template x-if="editing">
@@ -10941,7 +11105,7 @@ document.addEventListener('alpine:init', () => {
 
 <div class="modal-backdrop" x-show="showDemandModifiersModal" x-cloak @keydown.escape.window="showDemandModifiersModal=false" @click.self="showDemandModifiersModal=false">
   <template x-if="dmEditingSettlement">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">📊 Demand modifiers — <span x-text="dmEditingSettlement?.name || '(settlement)'"></span> <span class="text-sm opacity-70 font-normal" x-show="dmEditingSettlement" x-text="'· Class ' + settlementMarketClass(dmEditingSettlement) + ' · ' + (dmEditingSettlement?.families||0).toLocaleString() + ' families'"></span></h2>
       <button @click="showDemandModifiersModal=false" class="text-xl px-2">×</button>
@@ -11003,7 +11167,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- Passive Investment creation modal (Phase 2b.6) -->
 <div class="modal-backdrop" x-show="showPassiveInvestmentCreateModal" x-cloak @keydown.escape.window="cancelPassiveInvestmentCreate()" @click.self="cancelPassiveInvestmentCreate()">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">💰 New passive investment</h2>
       <button @click="cancelPassiveInvestmentCreate()" class="text-xl px-2">×</button>
@@ -11086,7 +11250,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- Venture creation modal (Phase 2b.4) -->
 <div class="modal-backdrop" x-show="showVentureCreateModal" x-cloak @keydown.escape.window="cancelVentureCreate()" @click.self="cancelVentureCreate()">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">⚖ Launch new venture</h2>
       <button @click="cancelVentureCreate()" class="text-xl px-2">×</button>
@@ -11200,7 +11364,7 @@ document.addEventListener('alpine:init', () => {
 
 <!-- Venture completion modal (Phase 2b.4) -->
 <div class="modal-backdrop" x-show="showVentureCompleteModal" x-cloak @keydown.escape.window="showVentureCompleteModal=false" @click.self="showVentureCompleteModal=false">
-  <div class="modal-panel">
+  <div class="modal-panel" role="dialog" aria-modal="true">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
       <h2 class="font-bold text-lg">🛒 Settle venture</h2>
       <button @click="showVentureCompleteModal=false" class="text-xl px-2">×</button>
@@ -11235,7 +11399,12 @@ document.addEventListener('alpine:init', () => {
      the viewport so it stays visible regardless of page scroll position). Spans
      left:0 to right:0 for a true edge-to-edge bar; centered text within. Inline-
      styled so the Tailwind Play CDN's JIT scanner can't fail to compile classes. -->
-<div x-show="toast" x-cloak class="no-print"
+<!-- a11y (audit 2026-06-14): role=status + aria-live makes the toast — the app's whole feedback
+     channel (validation errors, save confirmations, turn results) — announce to screen readers,
+     which previously received none of it. aria-live escalates to assertive for errors so failures
+     interrupt; polite otherwise. -->
+<div x-show="toast" x-cloak class="no-print toast-bar" :class="toastType ? ('toast-' + toastType) : ''"
+     role="status" aria-atomic="true" :aria-live="toastType === 'error' ? 'assertive' : 'polite'"
      style="position:fixed; top:0; left:0; right:0; padding:0.75rem 1.5rem; z-index:9999; background:#2a1f12; color:#fff; font-weight:500; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
   <span x-text="toast" style="color:#fff"></span>
 </div>
@@ -11412,7 +11581,7 @@ document.addEventListener('alpine:init', () => {
      success chance), adds a situational modifier, then rolls (re-rollable). A class-derived
      task (Lockpicking/Climbing) takes a GM-set target. Secret mode + an optional record. -->
 <div x-show="profThrow.open" @keydown.escape.window="if(profThrow.open && !$event.defaultPrevented){ closeProficiencyThrowModal(); $event.preventDefault() }"
-     class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeProficiencyThrowModal()">
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeProficiencyThrowModal()">
   <template x-if="profThrow.open">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -11661,7 +11830,7 @@ document.addEventListener('alpine:init', () => {
 <!-- Siege detail / resolution modal (the "panel"). The body is x-if-guarded so it fully
      unmounts on close — no expression evaluates against a null siege (the W3 modal-teardown
      lesson). z-76 (the battle-panel layer; the two flows never stack). -->
-<div x-show="siegePanelOpen" @keydown.escape.window="if(siegePanelOpen && !$event.defaultPrevented){ closeSiegePanel(); $event.preventDefault() }" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSiegePanel()">
+<div x-show="siegePanelOpen" @keydown.escape.window="if(siegePanelOpen && !$event.defaultPrevented){ closeSiegePanel(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSiegePanel()">
   <div class="vellum border-2 border-ink rounded-lg shadow-xl w-full max-w-3xl my-6" style="background:#f7f0e0">
     <template x-if="currentSiege()">
       <div class="p-4">
@@ -11784,7 +11953,7 @@ document.addEventListener('alpine:init', () => {
      pp.517–523). Opened from the character-sheet Wounds readout (stats tab). z-index:79 (above
      the character editor, like the proficiency-throw modal opened from the same sheet). -->
 <div x-show="recordWound.open" @keydown.escape.window="if(recordWound.open && !$event.defaultPrevented){ closeRecordWoundModal(); $event.preventDefault() }"
-     class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecordWoundModal()">
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecordWoundModal()">
   <template x-if="recordWound.open">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
     <div class="vellum border-b border-ink p-3 flex justify-between items-center">
@@ -12380,7 +12549,7 @@ return {
   turnEventProposals:null, // Turn Cycle v2 — per-turn pending event proposals (accept/edit/reject), set in proposeMonthlyTurn
   dayTickProposal:null, // Phase 2.95 — active proposed day-tick (null when none pending)
   dayTickError:null,    // Phase 2.95 — last day-tick error string for inline display
-  rawJsonError:'',toast:'',_toastTimer:null,
+  rawJsonError:'',toast:'',toastType:'',_toastTimer:null,
 
   init(){
     // Expose the root Alpine proxy on `window.acksApp` so reusable sub-components
@@ -21258,12 +21427,23 @@ return {
     return n + ' ' + (n === 1 ? sing : (plur || sing + 's'));
   },
 
-  showToast(msg,ms=2200){
+  showToast(msg,ms=2200,type){
     this.toast=msg;
+    // Semantic variant (graphic-designer O3, 2026-06-14): an optional 'success'|'warn'|'error'
+    // tints the bar (left accent stripe; error darkens it). Back-compatible — existing 2-arg
+    // calls pass no type and keep the neutral brown bar. When unspecified, a light heuristic
+    // infers 'error' from failure phrasing so the many existing error toasts read as errors
+    // without touching every call site; pass an explicit type to override.
+    this.toastType = type || this._inferToastType(msg);
     clearTimeout(this._toastTimer);
     // Joachim 2026-05-30 — toasts felt too quick to read. Bump every call by +4s.
     // Defaults: 2200ms → 6200ms; explicit ms=5000 (commit-turn) → 9000ms; ms=8000 (commit-fail) → 12000ms.
-    this._toastTimer=setTimeout(()=>this.toast='',ms+4000);
+    this._toastTimer=setTimeout(()=>{ this.toast=''; this.toastType=''; },ms+4000);
+  },
+  _inferToastType(msg){
+    const m = String(msg || '').toLowerCase();
+    if(/\b(fail|failed|error|could not|couldn't|cannot|can't|invalid|required|denied|not allowed|no .* to|unable|missing)\b/.test(m)) return 'error';
+    return '';
   },
 
   newCampaign(){
