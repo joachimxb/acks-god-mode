@@ -19,8 +19,16 @@
      What the policy still buys: no third-party script ORIGIN, object-src/base-uri locked down,
      frame-ancestors blocks click-jacking embeds, and a second line of defense if a future feature
      adds a remote-src. Tightening to nonces/hashes + the CSP-friendly Alpine build is the follow-up
-     once a build step exists. img-src data: covers the inline favicon + the map SVGs. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+     once a build step exists. img-src data: covers the inline favicon + the map SVGs.
+       • file: is allowed on the fetch-directives so the tool still runs as a STANDALONE
+         single file under file:// (a core distribution mode — email the .html to a GM and
+         it works). A file:// document has an OPAQUE origin, so 'self' does NOT match its
+         own sibling local engine-module scripts; without file: the CSP blocks every one of
+         them and the page renders blank. file: permits LOCAL disk only, never a remote origin,
+         so the "no third-party script" guarantee is unchanged on the hosted HTTP site
+         (an HTTP page can't load file: resources regardless). Do NOT remove file: — it is
+         what keeps the single-file distribution alive. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
 <!-- Tailwind — vendored locally (appsec audit, 2026-06-14). Was the floating runtime CDN
      (https://cdn.tailwindcss.com); now a pinned, self-hosted copy of the Tailwind Play 3.4.16
      bundle so the tool loads with no network (the "single file you own" pitch) and can never be
@@ -85,10 +93,13 @@
 <!-- Alpine — vendored locally + version-pinned (appsec audit, 2026-06-14). Was a FLOATING
      range (alpinejs@3.x.x) off jsDelivr with no integrity check; now a pinned, self-hosted copy
      so a compromised/MITM'd CDN can't run arbitrary script in every session, and the app works
-     offline. integrity= documents the pinned hash. Re-pin via:
-     curl -sL https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js -o vendor/alpine-3.14.9.min.js
-     (then refresh the sha384 below). -->
-<script defer src="vendor/alpine-3.14.9.min.js" integrity="sha384-9Ax3MmS9AClxJyd5/zafcXXjxmwFhZCdsT6HJoJjarvCaAkJlk5QDzjLJm+Wdx5F" crossorigin="anonymous"></script>
+     offline. NB: no integrity=/crossorigin= here on purpose — SRI forces a CORS fetch, which a
+     file:// document (opaque origin) cannot satisfy, so those attributes blocked Alpine under the
+     single-file file:// distribution and left the page blank. The asset is now same-origin vendored
+     (like the tailwind tag above, which also ships without SRI), making SRI redundant: an attacker
+     who could tamper with this local file could equally rewrite index.html and its own hash.
+     Re-pin via: curl -sL https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js -o vendor/alpine-3.14.9.min.js -->
+<script defer src="vendor/alpine-3.14.9.min.js"></script>
 
 <!-- Reusable editable-stat component (new GM stat-editing standard).
      Every GM-editable scalar uses this component: display-by-default, unlock to edit, save via gm-fiat event.
