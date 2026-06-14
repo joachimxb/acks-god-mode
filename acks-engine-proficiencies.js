@@ -384,6 +384,25 @@
   };
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Layer 2c-bis (PT-5) — PROFICIENCY_THROWS_DEFERRED. The catalog roster is COMPLETE (every
+  // RR-listed proficiency is present, accurately typed + page-cited) and the throw-granting subset
+  // has its PROFICIENCY_TASKS. Three proficiencies are typed throw/mixed but have no standalone task
+  // here ON PURPOSE — their throw is OWNED by a consuming phase (§7.1 "read by the owning phase"),
+  // so transcribing a target now, with no consumer to validate it, would risk a coarse value
+  // (CLAUDE §6 cartography-before-mechanics). The throw-completeness invariant (proficiencies.smoke)
+  // requires every type:'throw'/'mixed' prof to have a task, be a throw-modifier, OR be tracked here
+  // — so a throw prof can never silently ship with no throw + no reason. Each entry names the owning
+  // phase + the RAW page to transcribe from when that phase consumes it. (The per-prof NON-throw
+  // `effects` blocks of §7.1 — combat/economic/passive/magic — are likewise deferred to their owning
+  // phases for the same reason; PT-5 does not transcribe consumer-less effect tables.)
+  // ─────────────────────────────────────────────────────────────────────────
+  const PROFICIENCY_THROWS_DEFERRED = Object.freeze({
+    'seafaring':   { reason:'sea-handling / sea-navigation throw (the mixed prof also has a sailor-income side)', owningPhase:'Voyages V2 (Phase_3_Voyages_Plan.md)', rawPage:'RR p.117' },
+    'poisoning':   { reason:'grants the Naturalism / Animal-Husbandry / Alchemy extraction throws as 1-rank equivalents + the no-botch effect — a throw-MODIFIER shape, not a standalone throw', owningPhase:'Combat / assassination (#141)', rawPage:'RR p.116' },
+    'lip-reading': { reason:'decipher-speech-at-a-distance perception throw', owningPhase:'a perception / Hijinks consumer (Phase 2.7)', rawPage:'RR p.113' }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Layer 2d — throw-MODIFIER proficiencies (improve another proficiency's throw).
   // setTarget overrides the base target with the (lower) value; bonus is a roll bonus.
   // ─────────────────────────────────────────────────────────────────────────
@@ -803,7 +822,7 @@
   // ─────────────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     // catalog (Layer 2)
-    PROFICIENCY_CATALOG, PROFICIENCY_TASKS, PROFICIENCY_THROW_MODIFIERS,
+    PROFICIENCY_CATALOG, PROFICIENCY_TASKS, PROFICIENCY_THROW_MODIFIERS, PROFICIENCY_THROWS_DEFERRED,
     IMPROVISED_THROW_DIFFICULTY, PROFICIENCY_ALIASES, PROFICIENCY_LISTS, PROFICIENCY_TYPES: TYPES,
     // model (Layer 0)
     parseProficiencyEntry, characterProficiencies, canonicalProficiencyKey,
