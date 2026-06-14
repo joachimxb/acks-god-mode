@@ -81,6 +81,7 @@
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<script src="acks-engine-treasure.js?v=2026-06-14-b5"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
@@ -12258,6 +12259,117 @@ document.addEventListener('alpine:init', () => {
 <!-- ── agent-5 (Hijinks HJ-2): your syndicate modal goes below (the sub-view itself is the existing Activities▸Hijinks) ── -->
 <!-- ===== TEAM BURST5 — modal / body-HTML tail · each UI builder adds ITS modal markup after its own line (inside x-data on <body>, so it binds) ===== -->
 <!-- b5-treasure (#142): Treasure Wizard modal here -->
+<!-- Treasure Generator (#142, T1–T3) — a generative wizard (Architecture §8 — the Town/Faction/
+     Domain/Lair-Wizard family; GM authoring of what's in the world, no in-fiction cost). Rolls a
+     RAW hoard (treasure type A–R, or a 4×ΣXP budget) and materializes it onto the SHIPPED item
+     spine (a `cache` Stash of facet lines + promoted notableItems[] for magic + captive Characters).
+     openTreasureWizard(opts={treasureType,targetGp,hexId,lairId}) — so the Inspector-Create / a
+     lair-detail / a hex-card launch are each a one-liner (deferred to a follow-up — see the SUMMARY).
+     The FAB below is the lane-owned launch. z-index:78 (the generative-wizard family, like the lair detail). -->
+<button x-show="currentCampaign" @click="openTreasureWizard()" x-cloak
+        class="fixed bottom-4 right-4 px-3 py-2 border-2 border-ink rounded-full shadow-lg bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold opacity-80 hover:opacity-100 no-print"
+        style="z-index:40" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache">💰 Treasure</button>
+<div x-show="treasureWizard.open" @keydown.escape.window="if(treasureWizard.open && !$event.defaultPrevented){ closeTreasureWizard(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeTreasureWizard()">
+  <template x-if="treasureWizard.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">💰 Treasure Generator <span class="text-sm font-normal opacity-70">· Treasure Tome pp.13–25</span></h2>
+      <button @click="closeTreasureWizard()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3 text-sm">
+      <!-- context (when launched from a lair) -->
+      <template x-if="treasureWizard.lairName">
+        <div class="vellum border border-ink/40 rounded p-2">🏚 Rolling the hoard for <span class="font-semibold" x-text="treasureWizard.lairName"></span></div>
+      </template>
+
+      <!-- 1. Input: treasure type OR a planned target gp -->
+      <div class="space-y-2">
+        <label class="flex items-center gap-2"><input type="checkbox" x-model="treasureWizard.usePlanned" @change="treasureWizard.hoard=null"> Planned — pick the type nearest a target gp <span class="opacity-60">(4 × Σ monster XP)</span></label>
+        <template x-if="!treasureWizard.usePlanned">
+          <label class="flex items-center gap-2">Treasure Type
+            <select x-model="treasureWizard.treasureType" @change="treasureWizard.hoard=null" class="border border-ink rounded px-2 py-1 flex-1">
+              <template x-for="L in treasureTypeOptions()" :key="L">
+                <option :value="L" x-text="L + ' — avg ' + treasureTypeAvgGpLabel(L) + ' gp · ' + treasureAccumulationLabel(L)"></option>
+              </template>
+            </select>
+          </label>
+        </template>
+        <template x-if="treasureWizard.usePlanned">
+          <label class="flex items-center gap-2">Target gp
+            <input type="number" min="0" x-model.number="treasureWizard.targetGp" @input="treasureWizard.hoard=null" placeholder="e.g. 45000" class="w-32 border border-ink rounded px-2 py-1">
+            <span class="opacity-60" x-show="treasureWizard.targetGp" x-text="'→ nearest type ' + nearestTreasureTypeLabel(treasureWizard.targetGp)"></span>
+          </label>
+        </template>
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="treasureWizard.withSpecial" @change="treasureWizard.hoard=null"> Special treasures <span class="opacity-60">(substitute trade goods + captives)</span></label>
+          <span class="opacity-60 text-xs">Mode: <span class="font-semibold" x-text="treasureModeLabel()"></span></span>
+        </div>
+      </div>
+
+      <button @click="treasureRoll()" class="px-4 py-2 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400"
+              x-text="treasureWizard.hoard ? '🎲 Re-roll' : '🎲 Roll the hoard'"></button>
+
+      <!-- 2. Result -->
+      <template x-if="treasureWizard.hoard">
+        <div class="vellum border border-ink/40 rounded p-3 space-y-2">
+          <div class="font-semibold">Type <span x-text="treasureWizard.hoard.treasureType"></span> hoard
+            <span class="font-normal opacity-70" x-text="'· ~' + treasureGpLabel(treasureWizard.hoard) + ' gp · ' + treasureStoneLabel(treasureWizard.hoard) + ' st'"></span>
+          </div>
+          <ul class="space-y-0.5">
+            <template x-for="row in treasureCoinRows()" :key="'c-'+row.denom">
+              <li>🪙 <span x-text="row.qty.toLocaleString() + ' ' + row.denom"></span> <span class="opacity-60" x-text="'(' + row.gp.toLocaleString() + ' gp)'"></span></li>
+            </template>
+            <template x-for="(g,i) in treasureWizard.hoard.gems" :key="'g-'+i">
+              <li>💎 <span x-text="gemTierLabel(g.tier) + ' — ' + g.valueGp.toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-for="(j,i) in treasureWizard.hoard.jewelry" :key="'j-'+i">
+              <li>📿 <span x-text="jewelryTierLabel(j.tier) + ' — ' + j.valueGp.toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-for="(s,i) in treasureWizard.hoard.specialTreasures" :key="'s-'+i">
+              <li>📦 <span x-text="(s.qty>1 ? (s.qty + '× ') : '') + s.name + ' — ' + (s.valueGp*(s.qty||1)).toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-for="(m,i) in treasureWizard.hoard.magicSlots" :key="'m-'+i">
+              <li>✨ <span x-text="(m.count>1 ? (m.count + '× ') : '') + magicSlotLabel(m.category)"></span> <span class="opacity-60">(GM-fill — Magic Items #143)</span></li>
+            </template>
+            <template x-for="(cap,i) in treasureWizard.hoard.captives" :key="'cap-'+i">
+              <li>⛓ <span x-text="cap.description + ' — base ' + cap.valueGp.toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-if="!treasureCoinRows().length && !treasureWizard.hoard.gems.length && !treasureWizard.hoard.jewelry.length && !treasureWizard.hoard.magicSlots.length">
+              <li class="opacity-60">(empty hoard — re-roll)</li>
+            </template>
+          </ul>
+        </div>
+      </template>
+
+      <!-- 3. Place -->
+      <template x-if="treasureWizard.hoard && !treasureWizard.placed">
+        <div class="space-y-2 pt-1 border-t border-ink/20">
+          <label class="flex items-center gap-2">Place at hex
+            <input x-model="treasureWizard.hexId" placeholder="hex id (optional)" class="flex-1 border border-ink rounded px-2 py-1">
+          </label>
+          <div class="wizard-submit-gate">
+            <span class="text-xs opacity-60">Lands the hoard as a <span class="font-semibold">cache</span> stash (magic → notable items, captives → prisoners).</span>
+            <button @click="treasurePlace()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Place the hoard</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- 4. Placed confirmation -->
+      <template x-if="treasureWizard.placed">
+        <div class="vellum border border-ink/40 rounded p-3" style="background:#e8f3df">
+          <div class="font-semibold">✓ Hoard placed</div>
+          <div class="text-sm" x-text="treasurePlacedSummary()"></div>
+          <div class="flex gap-2 pt-2">
+            <button @click="treasureWizard.hoard=null; treasureWizard.placed=null" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Roll another</button>
+            <button @click="closeTreasureWizard()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- b5-sages (#147): Sage-consultation modal here -->
 <!-- b5-politics (P-2): Senate-vote modal (if any) here · the Senate tab/sub-view markup goes in the World/governance region -->
 <!-- b5-religion (R2): blood-sacrifice modal (if any) here · the ⛪ Religion tab body extends in place -->
@@ -24600,7 +24712,72 @@ return {
   // Inspector-only lanes (gladiators, custom-classes) usually add nothing here.
   // --- b5-gladiators (#150): ---
   // --- b5-custom-classes (#154): ---
-  // --- b5-treasure (#142): ---
+  // --- b5-treasure (#142): Treasure Generator wizard (#142, T1–T3) — engine in acks-engine-treasure.js ---
+  treasureWizard: { open:false, treasureType:'E', targetGp:null, usePlanned:false, withSpecial:false, hexId:'', lairId:null, lairName:null, hoard:null, placed:null },
+  openTreasureWizard(opts){
+    opts = opts || {};
+    const A = window.ACKS;
+    const w = { open:true, treasureType: opts.treasureType || this.treasureWizard.treasureType || 'E',
+      targetGp: opts.targetGp || null, usePlanned: opts.targetGp != null, withSpecial:false,
+      hexId: opts.hexId || '', lairId: opts.lairId || null, lairName: opts.lairName || null, hoard:null, placed:null };
+    // Launched from a lair → auto-read its Treasure Type (its own field, else its monster's catalog TT).
+    if(opts.lairId && A && A.findLair && this.currentCampaign){
+      const l = A.findLair(this.currentCampaign, opts.lairId);
+      if(l){ w.lairName = l.name || w.lairName; if(l.hexId) w.hexId = l.hexId;
+        let tt = l.treasureType || (l.monsterCatalogKey && A.findMonster && A.findMonster(l.monsterCatalogKey) ? (A.findMonster(l.monsterCatalogKey).treasureType || '') : '');
+        if(tt) w.treasureType = tt; }
+    }
+    this.treasureWizard = w;
+  },
+  closeTreasureWizard(){ this.treasureWizard.open = false; },
+  treasureTypeOptions(){ const A = window.ACKS; return (A && A.TREASURE_TYPE_LETTERS) || []; },
+  treasureTypeAvgGpLabel(L){ const A = window.ACKS; return A && A.treasureTypeAvgGp ? A.treasureTypeAvgGp(L).toLocaleString() : ''; },
+  treasureAccumulationLabel(L){ const A = window.ACKS; return A && A.treasureAccumulation ? A.treasureAccumulation(L) : ''; },
+  nearestTreasureTypeLabel(gp){ const A = window.ACKS; return A && A.nearestTreasureType ? A.nearestTreasureType(Number(gp) || 0) : ''; },
+  treasureModeLabel(){ const A = window.ACKS; return A && A.treasureModeFor ? A.treasureModeFor(this.currentCampaign) : 'classic'; },
+  treasureRoll(){
+    const A = window.ACKS, w = this.treasureWizard;
+    if(!A || !A.generateHoard) return;
+    let h;
+    if(w.usePlanned && w.targetGp){ h = A.planHoard(Number(w.targetGp), A.treasureModeFor(this.currentCampaign)); w.treasureType = h.treasureType; }
+    else { h = A.generateHoard({ treasureType: w.treasureType, mode: A.treasureModeFor(this.currentCampaign) }); }
+    if(w.withSpecial && A.applySpecialTreasures) A.applySpecialTreasures(h);
+    w.hoard = h; w.placed = null;
+  },
+  treasureCoinRows(){
+    const A = window.ACKS, w = this.treasureWizard;
+    if(!w.hoard) return [];
+    const V = (A && A.COIN_GP_VALUE) || { cp:0.01, sp:0.1, ep:0.5, gp:1, pp:5 };
+    return ['pp','gp','ep','sp','cp'].filter(d => (w.hoard.coins[d] || 0) > 0)
+      .map(d => ({ denom:d, qty: w.hoard.coins[d], gp: Math.round(w.hoard.coins[d] * (V[d] || 0)) }));
+  },
+  treasureGpLabel(h){ const A = window.ACKS; return A && A.hoardTotalGp ? Math.round(A.hoardTotalGp(h)).toLocaleString() : '0'; },
+  treasureStoneLabel(h){ const A = window.ACKS; return A && A.hoardTotalStone ? (Math.round(A.hoardTotalStone(h) * 10) / 10).toLocaleString() : '0'; },
+  gemTierLabel(t){ return t === 'brilliant' ? 'Brilliant gem' : t === 'gem' ? 'Gem' : 'Ornamental stone'; },
+  jewelryTierLabel(t){ return t === 'regalia' ? 'Regalia' : t === 'jewelry' ? 'Jewelry' : 'Trinket'; },
+  magicSlotLabel(cat){ return cat === 'potion' ? 'Potion' : cat === 'scroll' ? 'Scroll' : cat === 'weapon-or-armor' ? 'Magic weapon/armor' : 'Magic item'; },
+  treasurePlace(){
+    const A = window.ACKS, w = this.treasureWizard;
+    if(!A || !A.materializeHoard || !w.hoard) return;
+    if(!this.currentCampaign){ alert('Open or create a campaign first.'); return; }
+    const res = A.materializeHoard(this.currentCampaign, w.hoard, { hexId: w.hexId || null, lairId: w.lairId || null });
+    w.placed = res;
+    this.markDirty && this.markDirty();
+    this.schedulePersist && this.schedulePersist();
+    if(this.showToast && res && res.stash){
+      this.showToast('💰 Hoard placed: ' + res.stash.name + ' (~' + this.treasureGpLabel(w.hoard) + ' gp · ' +
+        res.notables.length + ' magic · ' + res.captives.length + ' captives).');
+    }
+  },
+  treasurePlacedSummary(){
+    const w = this.treasureWizard, r = w.placed;
+    if(!r) return '';
+    const parts = [];
+    if(r.stash) parts.push((r.deposited ? r.deposited.length : 0) + ' item line(s) in “' + r.stash.name + '”');
+    if(r.notables && r.notables.length) parts.push(r.notables.length + ' magic item(s) → Notable Items');
+    if(r.captives && r.captives.length) parts.push(r.captives.length + ' captive(s) → Characters');
+    return parts.join(' · ') + (w.hexId ? (' · at hex ' + w.hexId) : '') + '.';
+  },
   // --- b5-sages (#147): ---
   // --- b5-politics (P-2): ---
   // --- b5-religion (R2): ---
