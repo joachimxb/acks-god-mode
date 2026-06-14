@@ -4,7 +4,31 @@
 <meta charset="UTF-8">
 <title>ACKS God Mode</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- Favicon — inline SVG data-URI (a crown over a parchment field, in the brand ink/accent palette).
+     Costs no extra request and ships inside the single file, so the browser tab carries the brand
+     mark on the hosted site and under file://. (graphic-designer audit O4, 2026-06-14.) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='10'%20fill='%23f7f1e2'/%3E%3Cpath%20d='M12%2044h40l3-22-11%208-12-16-12%2016-11-8z'%20fill='%237a1f1f'%20stroke='%232a1f12'%20stroke-width='2.5'%20stroke-linejoin='round'/%3E%3Crect%20x='12'%20y='46'%20width='40'%20height='7'%20rx='2'%20fill='%236b4f24'/%3E%3C/svg%3E">
+<!-- Content-Security-Policy (appsec audit, 2026-06-14). Baseline for the client-only app:
+     all script/style is now LOCAL (vendored Alpine + Tailwind, below) or inline — no remote
+     script origin is allowed, so a compromised CDN can no longer run code here.
+       • 'unsafe-eval' is REQUIRED: Alpine 3's standard build compiles every x-* expression
+         with new Function() (== eval). Removing it makes the whole app non-functional (browser-
+         verified 2026-06-14). The CSP-friendly Alpine build would lift this, but only by rewriting
+         every inline expression into registered methods — a separate, large refactor.
+       • 'unsafe-inline' is REQUIRED for the inline Alpine bootstrap + the Tailwind-runtime <style>.
+     What the policy still buys: no third-party script ORIGIN, object-src/base-uri locked down,
+     frame-ancestors blocks click-jacking embeds, and a second line of defense if a future feature
+     adds a remote-src. Tightening to nonces/hashes + the CSP-friendly Alpine build is the follow-up
+     once a build step exists. img-src data: covers the inline favicon + the map SVGs. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+<!-- Tailwind — vendored locally (appsec audit, 2026-06-14). Was the floating runtime CDN
+     (https://cdn.tailwindcss.com); now a pinned, self-hosted copy of the Tailwind Play 3.4.16
+     bundle so the tool loads with no network (the "single file you own" pitch) and can never be
+     served a tampered build. NOTE: this is still the runtime JIT compiler — swapping it for a
+     purged/compiled static stylesheet is the performance-reviewer's follow-up (needs a build step
+     the project deliberately doesn't have yet). Re-pin via:
+     curl -sL https://cdn.tailwindcss.com/3.4.16 -o vendor/tailwind-play-3.4.16.js -->
+<script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
 <script src="acks-engine-catalogs.js?v=2026-06-12-b"></script>
@@ -56,7 +80,13 @@
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
 <script src="acks-demo-template.js?v=2026-06-14-pt0"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<!-- Alpine — vendored locally + version-pinned (appsec audit, 2026-06-14). Was a FLOATING
+     range (alpinejs@3.x.x) off jsDelivr with no integrity check; now a pinned, self-hosted copy
+     so a compromised/MITM'd CDN can't run arbitrary script in every session, and the app works
+     offline. integrity= documents the pinned hash. Re-pin via:
+     curl -sL https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js -o vendor/alpine-3.14.9.min.js
+     (then refresh the sha384 below). -->
+<script defer src="vendor/alpine-3.14.9.min.js" integrity="sha384-9Ax3MmS9AClxJyd5/zafcXXjxmwFhZCdsT6HJoJjarvCaAkJlk5QDzjLJm+Wdx5F" crossorigin="anonymous"></script>
 
 <!-- Reusable editable-stat component (new GM stat-editing standard).
      Every GM-editable scalar uses this component: display-by-default, unlock to edit, save via gm-fiat event.
