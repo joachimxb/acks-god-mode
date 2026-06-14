@@ -512,11 +512,314 @@ section('R1 GUARD — no congregations ⇒ the consumer is inert (no event spam)
 })();
 
 // =============================================================================
+// R2 — Blood Sacrifice (the Chaotic path, Phase_4_Religion_Plan.md §3.3 / §5.4).
+// =============================================================================
+
+// =============================================================================
+section('R2 — SACRIFICE_MULTIPLIERS table (RR p.422)');
+// =============================================================================
+ok('SACRIFICE_MULTIPLIERS present', !!ACKS.SACRIFICE_MULTIPLIERS);
+ok('virgin = +1', ACKS.SACRIFICE_MULTIPLIERS.virgin === 1);
+ok('opposite-faith = +2', ACKS.SACRIFICE_MULTIPLIERS['opposite-faith'] === 2);
+ok('noble = +3', ACKS.SACRIFICE_MULTIPLIERS.noble === 3);
+ok('royal = +5', ACKS.SACRIFICE_MULTIPLIERS.royal === 5);
+ok('beloved = +10', ACKS.SACRIFICE_MULTIPLIERS.beloved === 10);
+ok('sacrificeMultiplierSum stacks (royal+opposite-faith = 7)', ACKS.sacrificeMultiplierSum(['royal', 'opposite-faith']) === 7);
+ok('sacrificeMultiplierSum ignores unknown keys', ACKS.sacrificeMultiplierSum(['royal', 'made-up']) === 5);
+ok('sacrificeMultiplierSum of non-array → 0', ACKS.sacrificeMultiplierSum(null) === 0);
+
+// =============================================================================
+section('R2 — the Mentu worked example (RR p.422: 1,600 base; 12,800 on a hit; 1,600 on a miss)');
+// =============================================================================
+(function(){
+  function mentuRig(){
+    const c = ACKS.blankCampaign({ name: 'Mentu' }); c.currentTurn = 5;
+    const god = ACKS.blankDeity({ id: 'dei-d', name: 'the Devourer', alignment: 'Chaotic', acceptsBloodSacrifice: 'sapient' });
+    c.deities.push(god);
+    const mentu = ACKS.blankCharacter({ id: 'chr-m', name: 'Mentu', class: 'Crusader' }); c.characters.push(mentu);
+    ACKS.ensureDivineFavor(c, 'chr-m', 'dei-d');
+    return { c, mentu };
+  }
+  // Balbus is royal (×5) + a divine caster of opposite faith (×2): sumMult 7. componentValue 1,600.
+  const hitRig = mentuRig();
+  const hit = ACKS.bloodSacrifice(hitRig.c, { casterId: 'chr-m', componentValueGp: 1600,
+    multipliers: ['royal', 'opposite-faith'], victimSapient: true, victimWilling: true, rng: () => 0.99 }); // nat-20 → success
+  ok('base always earned (= component value 1,600)', hit.base === 1600);
+  ok('successful throw → bonus = 1,600 × 7 = 11,200', hit.bonus === 11200);
+  ok('HIT total gained = 12,800', hit.gained === 12800);
+  ok('HIT routes to divine power (12,800)', hit.divinePowerGained === 12800);
+  ok('HIT divine power is spendable now', ACKS.divinePowerAvailable(hitRig.c, 'chr-m') === 12800);
+  ok('HIT throwResult success', hit.throwResult && hit.throwResult.success === true);
+
+  const missRig = mentuRig();
+  const miss = ACKS.bloodSacrifice(missRig.c, { casterId: 'chr-m', componentValueGp: 1600,
+    multipliers: ['royal', 'opposite-faith'], victimSapient: true, victimWilling: true, rng: () => 0 }); // nat-1 → fail
+  ok('MISS still earns the base 1,600 (multipliers lost)', miss.gained === 1600 && miss.bonus === 0);
+  ok('MISS divine power = 1,600', miss.divinePowerGained === 1600 && ACKS.divinePowerAvailable(missRig.c, 'chr-m') === 1600);
+  ok('MISS throwResult failed (natural 1)', miss.throwResult && miss.throwResult.success === false && miss.throwResult.natural1 === true);
+
+  // no multipliers → no throw needed, just the base
+  const baseRig = mentuRig();
+  const plain = ACKS.bloodSacrifice(baseRig.c, { casterId: 'chr-m', componentValueGp: 500, victimSapient: true, victimWilling: true });
+  ok('no multipliers → no throw, base only (500)', plain.throwResult === null && plain.gained === 500);
+
+  // the event is recorded
+  ok('blood-sacrifice event emitted', (hitRig.c.eventLog || []).some(x => x.event && x.event.kind === 'blood-sacrifice'));
+  ok('blood-sacrifice event carries the gained amount', (hitRig.c.eventLog || []).some(x => x.event && x.event.kind === 'blood-sacrifice' && x.event.payload.divinePowerGained === 12800));
+  // the favor's lastSacrificeAtTurn is stamped
+  ok('lastSacrificeAtTurn stamped on the favor', ACKS.divineFavorOf(hitRig.c, 'chr-m').lastSacrificeAtTurn === 5);
+})();
+
+// =============================================================================
+section('R2 — alignment + deity + sapience gates (RR p.422)');
+// =============================================================================
+(function(){
+  // Lawful caster CANNOT sacrifice a sapient creature (only exceptional animals).
+  const c = ACKS.blankCampaign({ name: 'Gates' }); c.currentTurn = 1;
+  const law = ACKS.blankDeity({ id: 'dei-l', alignment: 'Lawful', acceptsBloodSacrifice: 'animals-only' }); c.deities.push(law);
+  const cru = ACKS.blankCharacter({ id: 'chr-cru', class: 'Crusader' }); c.characters.push(cru);
+  ACKS.ensureDivineFavor(c, 'chr-cru', 'dei-l');
+  ok('Lawful caster + sapient victim → blocked', ACKS.bloodSacrifice(c, { casterId: 'chr-cru', componentValueGp: 100, victimSapient: true }).reason === 'lawful-cannot-sacrifice-sapient');
+  // Lawful caster + non-sapient HELPLESS animal → allowed; but this deity is Lawful (animals-only) so it yields.
+  const animal = ACKS.bloodSacrifice(c, { casterId: 'chr-cru', componentValueGp: 50, victimSapient: false, victimHelpless: true });
+  ok('Lawful caster + helpless animal → allowed', animal.ok === true && animal.gained === 50);
+  // Lawful caster + not-helpless → blocked
+  ok('Lawful caster + not-helpless victim → blocked', ACKS.bloodSacrifice(c, { casterId: 'chr-cru', componentValueGp: 50, victimSapient: false, victimHelpless: false }).reason === 'victim-not-helpless');
+
+  // A deity that refuses all blood sacrifice blocks the act outright.
+  const c2 = ACKS.blankCampaign({ name: 'Refuse' }); c2.currentTurn = 1;
+  const peaceGod = ACKS.blankDeity({ id: 'dei-p', alignment: 'Lawful', acceptsBloodSacrifice: 'none' }); c2.deities.push(peaceGod);
+  const pr = ACKS.blankCharacter({ id: 'chr-pr', class: 'Crusader' }); c2.characters.push(pr);
+  ACKS.ensureDivineFavor(c2, 'chr-pr', 'dei-p');
+  ok('deity acceptsBloodSacrifice none → blocked', ACKS.bloodSacrifice(c2, { casterId: 'chr-pr', componentValueGp: 100, victimSapient: false, victimHelpless: true }).reason === 'deity-refuses-sacrifice');
+
+  // animals-only deity + sapient victim → blocked even for a Chaotic-leaning request
+  const c3 = ACKS.blankCampaign({ name: 'AnimalsOnly' }); c3.currentTurn = 1;
+  const ao = ACKS.blankDeity({ id: 'dei-ao', alignment: 'Chaotic', acceptsBloodSacrifice: 'animals-only' }); c3.deities.push(ao);
+  const ch3 = ACKS.blankCharacter({ id: 'chr-3', class: 'Crusader', alignment: 'Chaotic' }); c3.characters.push(ch3);
+  ACKS.ensureDivineFavor(c3, 'chr-3', 'dei-ao');
+  ok('deity animals-only + sapient victim → blocked', ACKS.bloodSacrifice(c3, { casterId: 'chr-3', componentValueGp: 100, victimSapient: true, victimWilling: true }).reason === 'deity-accepts-animals-only');
+
+  ok('no caster → ok:false', ACKS.bloodSacrifice(c, { casterId: 'chr-none' }).reason === 'no-caster');
+})();
+
+// =============================================================================
+section('R2 — cases that YIELD NOTHING though the act happens (RR p.422)');
+// =============================================================================
+(function(){
+  // Unwilling Chaotic-aligned victim → yields nothing.
+  const c = ACKS.blankCampaign({ name: 'Yield0' }); c.currentTurn = 5;
+  const god = ACKS.blankDeity({ id: 'dei-d', alignment: 'Chaotic', acceptsBloodSacrifice: 'sapient' }); c.deities.push(god);
+  const ch = ACKS.blankCharacter({ id: 'chr-c', class: 'Crusader', alignment: 'Chaotic' }); c.characters.push(ch);
+  ACKS.ensureDivineFavor(c, 'chr-c', 'dei-d');
+  const r = ACKS.bloodSacrifice(c, { casterId: 'chr-c', componentValueGp: 800, multipliers: ['noble'],
+    victimSapient: true, victimWilling: false, victimAlignment: 'Chaotic', rng: () => 0.99 });
+  ok('unwilling Chaotic victim → act ok but yields nothing', r.ok === true && r.gained === 0 && r.yieldsNothing === true);
+  ok('unwilling Chaotic → yieldReason', r.yieldReason === 'unwilling-chaotic-yields-nothing');
+  ok('unwilling Chaotic → no divine power accrued', ACKS.divinePowerAvailable(c, 'chr-c') === 0);
+  ok('yieldsNothing → no throw rolled', r.throwResult === null);
+
+  // Auran Empyrean rule: a deity for whom animal sacrifice is pure devotion → the caster gets nothing.
+  const c2 = ACKS.blankCampaign({ name: 'Devotion' }); c2.currentTurn = 5;
+  const empyrean = ACKS.blankDeity({ id: 'dei-e', alignment: 'Lawful', acceptsBloodSacrifice: 'animals-only', sacrificeAsDevotion: true }); c2.deities.push(empyrean);
+  const cru = ACKS.blankCharacter({ id: 'chr-e', class: 'Crusader' }); c2.characters.push(cru);
+  ACKS.ensureDivineFavor(c2, 'chr-e', 'dei-e');
+  const dev = ACKS.bloodSacrifice(c2, { casterId: 'chr-e', componentValueGp: 200, victimSapient: false, victimHelpless: true });
+  ok('Auran devotion animal sacrifice → act ok but caster gains nothing', dev.ok === true && dev.gained === 0 && dev.yieldReason === 'animal-sacrifice-is-devotion');
+  ok('devotion → no divine power for the caster', ACKS.divinePowerAvailable(c2, 'chr-e') === 0);
+})();
+
+// =============================================================================
+section('R2 — component-value sourcing + arcane Power-of-Sacrifice routing (§5.4)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Source' }); c.currentTurn = 5;
+  const god = ACKS.blankDeity({ id: 'dei-d', alignment: 'Chaotic', acceptsBloodSacrifice: 'sapient' }); c.deities.push(god);
+  const ch = ACKS.blankCharacter({ id: 'chr-c', class: 'Crusader', alignment: 'Chaotic' }); c.characters.push(ch);
+  ACKS.ensureDivineFavor(c, 'chr-c', 'dei-d');
+  // victim character → uses the victim's XP total
+  const victim = ACKS.blankCharacter({ id: 'chr-v', name: 'Balbus' }); victim.xp = 1600; c.characters.push(victim);
+  ok('sacrificeComponentValue from a victim character = its XP', ACKS.sacrificeComponentValue(c, { victimCharacterId: 'chr-v' }) === 1600);
+  // monster catalog key → uses the monster XP (findMonster is loaded by the harness)
+  ok('sacrificeComponentValue from a monster catalog key = its XP', ACKS.sacrificeComponentValue(c, { monsterCatalogKey: 'amber-golem' }) === 2250);
+  ok('explicit componentValueGp wins', ACKS.sacrificeComponentValue(c, { componentValueGp: 42, victimCharacterId: 'chr-v' }) === 42);
+  ok('no source → 0', ACKS.sacrificeComponentValue(c, {}) === 0);
+  // a full sacrifice of the victim character routes by XP
+  const r = ACKS.bloodSacrifice(c, { casterId: 'chr-c', victimCharacterId: 'chr-v', victimSapient: true, victimWilling: true });
+  ok('sacrificing a 1,600-XP victim earns 1,600 base', r.gained === 1600 && r.componentValue === 1600);
+  ok('victimRef defaults to the victim character', r && (c.eventLog || []).some(x => x.event && x.event.kind === 'blood-sacrifice' && x.event.payload.victimRef && x.event.payload.victimRef.id === 'chr-v'));
+
+  // arcane Power-of-Sacrifice: stores ARCANE power ×2 indefinitely, NOT divine power. A warlock is
+  // Chaotic (so the sapient sacrifice is permitted — the alignment gate is independent of the routing).
+  const c2 = ACKS.blankCampaign({ name: 'Arcane' }); c2.currentTurn = 5;
+  const warlock = ACKS.blankCharacter({ id: 'chr-w', name: 'Warlock', class: 'Warlock', alignment: 'Chaotic' }); c2.characters.push(warlock);
+  ok('hasPowerOfSacrifice detects a warlock', ACKS.hasPowerOfSacrifice(warlock) === true);
+  ok('hasPowerOfSacrifice false for a crusader', ACKS.hasPowerOfSacrifice({ class: 'Crusader' }) === false);
+  ok('hasPowerOfSacrifice via class power', ACKS.hasPowerOfSacrifice({ class: 'Custom', classPowers: ['Power of Sacrifice'] }) === true);
+  const ar = ACKS.bloodSacrifice(c2, { casterId: 'chr-w', componentValueGp: 1000, victimSapient: true, victimWilling: true });
+  ok('arcane caster stores arcane power ×2 (1,000 → 2,000)', ar.arcane === true && ar.arcaneStoredGp === 2000 && warlock.arcanePowerStoreGp === 2000);
+  ok('arcane caster gains NO divine power (it is arcane)', ar.divinePowerGained === 0 && ACKS.divinePowerAvailable(c2, 'chr-w') === 0);
+})();
+
+// =============================================================================
+// R1.5 — the day-tick weekly grain (Phase_4_Religion_Plan.md §5.7).
+// =============================================================================
+
+// =============================================================================
+section('R1.5 — the religion day-consumer self-registers at slot 52');
+// =============================================================================
+(function(){
+  const reg = ACKS.dayConsumersInOrder().find(c => c.name === 'religion');
+  ok('religion day-consumer registered', !!reg);
+  ok('religion day-consumer order = 52 (after Construction 50, before encounters 80)', reg && reg.order === 52);
+  ok('religion day-consumer has a commit', reg && typeof reg.commit === 'function');
+  ok('religion day-consumer declares no pause triggers (upkeep never interrupts travel)', reg && Array.isArray(reg.pauseTriggers) && reg.pauseTriggers.length === 0);
+})();
+
+// =============================================================================
+section('R1.5 — proposeReligionDay fires only on week-boundary days (7/14/21/28)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Weekly' }); c.currentTurn = 5;
+  const p = ACKS.blankCharacter({ id: 'chr-p', class: 'Crusader' }); c.characters.push(p);
+  ACKS.foundCongregation(c, { highPriestCharacterId: 'chr-p', personalCongregants: 500 }); // 100 gp/wk
+  ok('day 3 (not a boundary) → no records', ACKS.proposeReligionDay(c, { dayInMonth: 3 }).pendingRecords.length === 0);
+  ok('day 7 (week 1) → 1 record', ACKS.proposeReligionDay(c, { dayInMonth: 7 }).pendingRecords.length === 1);
+  ok('day 14 (week 2) → 1 record', ACKS.proposeReligionDay(c, { dayInMonth: 14 }).pendingRecords.length === 1);
+  ok('day 28 (week 4) → 1 record', ACKS.proposeReligionDay(c, { dayInMonth: 28 }).pendingRecords.length === 1);
+  ok('day 29 (past week 4) → no records (the month-remainder, §5.2)', ACKS.proposeReligionDay(c, { dayInMonth: 29 }).pendingRecords.length === 0);
+  const rec = ACKS.proposeReligionDay(c, { dayInMonth: 7 }).pendingRecords[0];
+  ok('record kind religion-week, consumer religion', rec.kind === 'religion-week' && rec.consumer === 'religion');
+  ok('record carries the week + the weekly DP (100)', rec.weekNumber === 1 && rec.weeklyDivinePowerGp === 100);
+})();
+
+// =============================================================================
+section('R1.5 — commitReligionWeek accrues weekly DP + advances the counter (idempotent)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Commit' }); c.currentTurn = 5;
+  const p = ACKS.blankCharacter({ id: 'chr-p', class: 'Crusader' }); c.characters.push(p);
+  const cg = ACKS.foundCongregation(c, { highPriestCharacterId: 'chr-p', personalCongregants: 500 });
+  const rec = ACKS.proposeReligionDay(c, { dayInMonth: 7 }).pendingRecords[0];
+  ACKS.commitReligionWeek(c, rec);
+  ok('week 1 accrued 100 gp DP to the priest', ACKS.divinePowerAvailable(c, 'chr-p') === 100);
+  ok('weekly accrual is spendable now (accruedAtTurn = current turn)', p.divinePower.entries[0].accruedAtTurn === 5 && p.divinePower.entries[0].expiresAtTurn === 6);
+  ok('weekly accrual source = congregation', p.divinePower.entries[0].source === 'congregation');
+  ok('counter advanced to week 1', cg._weeklyDpAccruedWeeks === 1);
+  // committing the SAME week again is a no-op (idempotency)
+  ACKS.commitReligionWeek(c, rec);
+  ok('re-committing week 1 is a no-op (still 100, counter 1)', ACKS.divinePowerAvailable(c, 'chr-p') === 100 && cg._weeklyDpAccruedWeeks === 1);
+  // weekly accrual is campaignLogHidden (routine — out of the narrative Campaign Log)
+  ok('weekly divine-power-accrued is campaignLogHidden', (c.eventLog || []).some(x => x.event && x.event.kind === 'divine-power-accrued' && x.campaignLogHidden === true));
+})();
+
+// =============================================================================
+section('R1.5 — reconciliation: weekly grain TOTAL equals the monthly batch (§5.7)');
+// =============================================================================
+(function(){
+  function rig(){
+    const c = ACKS.blankCampaign({ name: 'Recon' }); c.currentTurn = 5;
+    const p = ACKS.blankCharacter({ id: 'chr-p', class: 'Crusader' }); c.characters.push(p);
+    const cg = ACKS.foundCongregation(c, { highPriestCharacterId: 'chr-p', personalCongregants: 500 }); // 100 gp/wk
+    return { c, p, cg };
+  }
+  const ledgerSum = ch => (ch.divinePower.entries || []).reduce((s, e) => s + (e.amountGp || 0), 0);
+
+  // (a) full weekly ticks (4 weeks) then the monthly turn → monthly tops up 0; total 400
+  const W = rig();
+  [7, 14, 21, 28].forEach(d => ACKS.proposeReligionDay(W.c, { dayInMonth: d }).pendingRecords.forEach(r => ACKS.commitReligionWeek(W.c, r)));
+  ok('4 weekly ticks → 400 DP accrued, counter 4', ledgerSum(W.p) === 400 && W.cg._weeklyDpAccruedWeeks === 4);
+  const wr = ACKS.processReligionForTurn(W.c, { rng: () => 0.5 });
+  ok('monthly tops up 0 (all 4 weeks already accrued)', wr.accruedGp === 0);
+  ok('weekly total still 400', ledgerSum(W.p) === 400);
+  ok('the weekly counter resets at month close', W.cg._weeklyDpAccruedWeeks === 0);
+
+  // (b) the Day Clock NOT engaged → the monthly batch is byte-identical (400)
+  const M = rig();
+  const mr = ACKS.processReligionForTurn(M.c, { rng: () => 0.5 });
+  ok('monthly-only batch = 400 (byte-identical to R1, counter absent ⇒ full batch)', mr.accruedGp === 400 && ledgerSum(M.p) === 400);
+
+  // (c) PARTIAL: 2 weekly ticks, then the monthly turn tops up the remaining 2 → total still 400
+  const P = rig();
+  [7, 14].forEach(d => ACKS.proposeReligionDay(P.c, { dayInMonth: d }).pendingRecords.forEach(r => ACKS.commitReligionWeek(P.c, r)));
+  ok('2 weekly ticks → 200 DP, counter 2', ledgerSum(P.p) === 200 && P.cg._weeklyDpAccruedWeeks === 2);
+  const pr = ACKS.processReligionForTurn(P.c, { rng: () => 0.5 });
+  ok('monthly tops up the remaining 2 weeks (200)', pr.accruedGp === 200);
+  ok('total over both cadences = 400 (the weekly + monthly sum to one month)', ledgerSum(P.p) === 400);
+})();
+
+// =============================================================================
+section('R1.5 — weekly grain honors suspension + untended weeks + integrates with the day-tick pipeline');
+// =============================================================================
+(function(){
+  // suspended (lapsed) priest accrues no weekly DP
+  const c = ACKS.blankCampaign({ name: 'Suspend' }); c.currentTurn = 5;
+  const dei = ACKS.blankDeity({ id: 'dei-1', alignment: 'Lawful' }); c.deities.push(dei);
+  const p = ACKS.blankCharacter({ id: 'chr-p', class: 'Crusader' }); c.characters.push(p);
+  ACKS.foundCongregation(c, { highPriestCharacterId: 'chr-p', deityId: 'dei-1', personalCongregants: 500 });
+  const fav = ACKS.divineFavorOf(c, 'chr-p');
+  ACKS.setDivineFavorStanding(c, fav.id, 'lapsed', 'transgression');
+  ok('a lapsed priest proposes no weekly accrual', ACKS.proposeReligionDay(c, { dayInMonth: 7 }).pendingRecords.length === 0);
+
+  // an UNTENDED week (autoMaintain off, only 2 weeks tended) → weeks 3/4 propose nothing
+  const c2 = ACKS.blankCampaign({ name: 'Untended' }); c2.currentTurn = 5;
+  const p2 = ACKS.blankCharacter({ id: 'chr-q', class: 'Crusader' }); c2.characters.push(p2);
+  const cg2 = ACKS.foundCongregation(c2, { highPriestCharacterId: 'chr-q', personalCongregants: 500 });
+  ACKS.setCongregationMaintenance(c2, cg2.id, false, 2); // only weeks 1–2 tended
+  ok('tended week 2 → a record', ACKS.proposeReligionDay(c2, { dayInMonth: 14 }).pendingRecords.length === 1);
+  ok('untended week 3 → no record (decline is settled monthly)', ACKS.proposeReligionDay(c2, { dayInMonth: 21 }).pendingRecords.length === 0);
+
+  // full pipeline: proposeDayTick(28) → commitDayTick accrues 4 weeks via the registered consumer
+  const c3 = ACKS.blankCampaign({ name: 'Pipeline' }); c3.currentTurn = 5; c3.currentDayInMonth = 1;
+  const p3 = ACKS.blankCharacter({ id: 'chr-r', class: 'Crusader' }); c3.characters.push(p3);
+  ACKS.foundCongregation(c3, { highPriestCharacterId: 'chr-r', personalCongregants: 500 });
+  const proposal = ACKS.proposeDayTick(c3, 28, { rng: () => 0.5 });
+  const religionRecords = (proposal.pendingRecords || []).filter(r => r.consumer === 'religion');
+  ok('proposeDayTick(28) surfaces 4 religion week records', religionRecords.length === 4);
+  ACKS.commitDayTick(c3, proposal);
+  ok('commitDayTick accrues 4 weeks (400 DP) through the registered consumer', ACKS.divinePowerAvailable(c3, 'chr-r') === 400);
+})();
+
+// =============================================================================
+section('R2 — the blood-sacrifice event kind is registered + Wizard-opted-out + handler-dispatched');
+// =============================================================================
+(function(){
+  const k = 'blood-sacrifice';
+  ok('EVENT_KINDS includes blood-sacrifice', ACKS.EVENT_KINDS.includes(k));
+  ok('EVENT_SCHEMAS has blood-sacrifice', !!ACKS.EVENT_SCHEMAS[k]);
+  ok('isEventKindKnown blood-sacrifice', ACKS.isEventKindKnown(k) === true);
+  ok('blood-sacrifice is Wizard-opted-out (engine-emitted)', ACKS.isWizardEmittable(k) === false && ACKS.EVENT_WIZARD_OPTOUT.has(k));
+  ok('blood-sacrifice dispatches through its handler (not the stub)', (function(){
+    try {
+      const ev = ACKS.newEvent(k, { submittedBy: 'engine', targetTurn: 1, payload: { casterCharacterId: 'chr-x', componentValueGp: 100 } });
+      const out = ACKS.applyEvent(ACKS.blankCampaign({ name: 'd' }), ev);
+      return !!out && !!out.result && typeof out.result.narrativeSummary === 'string' && !/handler not yet implemented/.test(out.result.narrativeSummary);
+    } catch(e){ return false; }
+  })());
+})();
+
+// =============================================================================
+section('R2 + R1.5 GUARD — templates + demo STAY migrate-no-ops (no lazy-inject of the new fields)');
+// =============================================================================
+// R2 added NO factory/migrate field (bloodSacrifice writes the divine ledger + arcanePowerStoreGp
+// only on the ACTOR at action time); R1.5's reconciliation counter (_weeklyDpAccruedWeeks) is written
+// only on a day-tick commit. None is injected by blankCampaign/blankCongregation/migrateCampaign, so
+// every shipped template + the demo stay TRUE migrate-no-ops (the R0 guard above re-confirmed here).
+(function(){
+  const migratedDemo = ACKS.migrateCampaign(clone(DEMO));
+  ok('migrate(demo) is STILL a TRUE no-op after R2/R1.5', JSON.stringify(migratedDemo) === JSON.stringify(clone(DEMO)));
+  ok('migrated demo congregations did NOT gain _weeklyDpAccruedWeeks',
+    (migratedDemo.congregations || []).every(cg => !('_weeklyDpAccruedWeeks' in cg)));
+  ok('migrated demo characters did NOT gain arcanePowerStoreGp',
+    (migratedDemo.characters || []).every(ch => !('arcanePowerStoreGp' in ch)));
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Religion R0 + R1 smoke checks passed.');
+  console.log('\nAll Religion R0 + R1 + R1.5 + R2 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));
