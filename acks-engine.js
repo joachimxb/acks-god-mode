@@ -9916,8 +9916,8 @@ function _eventContextOf(e){ const ev = (e && e.event) || e; return (ev && ev.co
 // ── eventLog index (perf audit 2026-06-14, T11) ──────────────────────────────
 // A once-per-build inverted index over the eventLog's context envelope, so the
 // derived-history accessors + characterActivityBudget read an O(1) keyed slice
-// instead of a full O(N) scan each. Built lazily and MEMOIZED on the campaign
-// (a non-enumerable `__eventLogIndex` keyed by eventLog.length, so it never
+// instead of a full O(N) scan each. Built lazily and MEMOIZED in a module-level
+// WeakMap keyed by the campaign (dirty-keyed by eventLog.length, so it never
 // serializes into a save and rebuilds when entries are appended). The eventLog is
 // effectively append-only between renders, so length is a sufficient dirty key —
 // the day-tick / monthly machinery only ever pushes; on the rare in-place edit a
@@ -9961,14 +9961,20 @@ function _buildEventLogIndex(campaign){
 }
 
 // Memoized accessor — rebuilds only when the eventLog grows (or fresh:true).
+// The cache lives in a module-level WeakMap keyed by the campaign object, NOT on the
+// campaign itself. Storing it on the campaign breaks under Alpine: currentCampaign is a
+// reactive Proxy, so writing a property here either retriggers the very render that read it
+// (a reactive loop) or makes Alpine deep-proxy the whole index (Maps of thousands of entries)
+// — the app hangs on load with a large eventLog. A WeakMap is invisible to the reactive graph
+// (no dependency tracked, no trigger fired, no deep-wrap) and still never serializes into a save.
+const _eventLogIndexCache = new WeakMap();   // campaign → { ...idx, len }
 function _eventLogIndexFor(campaign, opts){
-  if(!campaign) return _buildEventLogIndex(null);
+  if(!campaign || typeof campaign !== 'object') return _buildEventLogIndex(campaign || null);
   const len = Array.isArray(campaign.eventLog) ? campaign.eventLog.length : 0;
-  const cached = campaign.__eventLogIndex;
+  const cached = _eventLogIndexCache.get(campaign);
   if(!(opts && opts.fresh) && cached && cached.len === len) return cached;
   const idx = _buildEventLogIndex(campaign);
-  try { Object.defineProperty(campaign, '__eventLogIndex', { value: idx, writable: true, configurable: true, enumerable: false }); }
-  catch(e){ campaign.__eventLogIndex = idx; }   // fallback (defineProperty may throw on a frozen object)
+  try { _eventLogIndexCache.set(campaign, idx); } catch(e){ /* non-extensible/non-object key — skip caching */ }
   return idx;
 }
 

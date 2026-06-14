@@ -12655,22 +12655,14 @@ return {
   // changes not yet written to the bound .acks.json file. Drives the header indicator +
   // the beforeunload guard. _persistTimer backs the debounced localStorage session cache.
   dirty:false, _persistTimer:null, _ignoreMutations:false,
-  // Frame-scoped memo (perf T11). A getter Alpine re-runs several times within ONE synchronous
-  // render pass (e.g. activityDashboardRows is read by the loop + the badge + the count text =
-  // 3×/render, each O(characters × cost-events)) caches its result here and clears it on the next
-  // microtask — so the duplicate calls in one pass share one computation, but a later reactive
-  // update always recomputes fresh (zero staleness risk; the cache never survives across ticks).
-  _frameMemo:{}, _frameMemoScheduled:false,
-  _memoFrame(key, fn){
-    if(key in this._frameMemo) return this._frameMemo[key];
-    const v = fn();
-    this._frameMemo[key] = v;
-    if(!this._frameMemoScheduled){
-      this._frameMemoScheduled = true;
-      Promise.resolve().then(() => { this._frameMemo = {}; this._frameMemoScheduled = false; });
-    }
-    return v;
-  },
+  // NOTE (perf T11, revised): a frame-scoped render memo used to live here to coalesce the
+  // 3×/render duplicate reads of activityDashboardRows/campaignLogEntries. It was REMOVED — it
+  // stored the memo on a reactive data prop (`this._frameMemo`) and reset it on a microtask, so
+  // inside a render getter it wrote reactive state during render → retrigger → microtask reset →
+  // re-render → write → a perpetual reactive loop that hung the app on load (invisible to the
+  // headless tests). The real win is the engine's WeakMap eventLog index (acks-engine.js), which
+  // makes each call O(characters + cost-events); the few duplicate calls per render are now cheap,
+  // so the getters compute directly with no reactive write.
   currentCampaign:null,selectedDomainId:null,
   // Single home for domains (refactor 2026-06-05, audit T3): domains live on
   // currentCampaign.domains — there is no separate copy. `domains` is a getter/setter view over
@@ -16401,7 +16393,7 @@ return {
   // Architecture §7 / §3.13 — derive-don't-store). Reactive on currentDayInMonth/currentTurn/
   // eventLog/journeys/magistracies, so it refreshes when the Day Clock advances. Ventures are
   // intentionally NOT a quick-action here (complex multi-step understructure — its own sub-tab).
-  activityDashboardRows(){ return this._memoFrame('activityDashboardRows', () => this._computeActivityDashboardRows()); },
+  activityDashboardRows(){ return this._computeActivityDashboardRows(); },
   _computeActivityDashboardRows(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.characters)) return [];
@@ -22218,7 +22210,7 @@ return {
   // becomes a row; the date is the appliedAtTurn. Reverse-chronological (newest first).
   // Engine emits + manual emits + GM-fiat audits + treasury edits all land in eventLog
   // so this view covers every meaningful campaign moment without any parallel string list.
-  campaignLogEntries(){ return this._memoFrame('campaignLogEntries', () => this._computeCampaignLogEntries()); },
+  campaignLogEntries(){ return this._computeCampaignLogEntries(); },
   _computeCampaignLogEntries(){
     if(!this.currentCampaign) return [];
     const eventLog = this.currentCampaign.eventLog || [];
