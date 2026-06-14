@@ -39,7 +39,7 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-12-b"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-14-pt5"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
@@ -51,15 +51,15 @@
 <script src="acks-engine-events.js?v=2026-06-14-pt6"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-14-pt6"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-14-pt5"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-13-a"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
-<script src="acks-engine-proficiencies.js?v=2026-06-14-pt0"></script>
-<script src="acks-engine-hijinks.js?v=2026-06-14-pt0"></script>
+<script src="acks-engine-proficiencies.js?v=2026-06-14-pt5"></script>
+<script src="acks-engine-hijinks.js?v=2026-06-14-pt5"></script>
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
 <!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
 <script src="acks-engine-sieges.js?v=2026-06-13-a"></script>
@@ -7484,6 +7484,34 @@ document.addEventListener('alpine:init', () => {
             <button @click="inspectorEditMode = !inspectorEditMode" class="px-3 py-1 border border-ink rounded text-sm" :class="inspectorEditMode ? 'bg-yellow-300' : 'hover:bg-yellow-100'" x-text="inspectorEditMode ? '🔒 Done editing' : '✏ Edit'"></button>
           </div>
 
+          <!-- PT-5 — proficiency-throw sheet (character only): the actor's available throws + resolved
+               targets + success chance, each rollable; "Make a throw" opens the generic launcher
+               (actor picker) so the GM can roll for anyone (RR pp.9–10). -->
+          <template x-if="inspectorSelectedKind === 'character'">
+            <div class="vellum border border-ink/40 rounded p-3 space-y-2" style="background:#f4ecd2">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <h4 class="font-semibold text-sm">🎲 Proficiency throws <span class="opacity-60 font-normal">· RR pp.9–10</span></h4>
+                <button @click="openProficiencyThrowModal(inspectorCurrentEntity(), { actorPicker:true })" class="px-2 py-1 border border-ink rounded text-xs bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Open the throw modal — pick any actor and any throw (incl. an improvised JJ p.94 difficulty)">🎲 Make a throw</button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead><tr class="text-left opacity-60 text-xs"><th class="pr-2 py-0.5">Throw</th><th class="pr-2">Proficiency</th><th class="pr-2 text-right">Target</th><th class="pr-2 text-right">Chance</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="row in inspectorProfThrowRows(inspectorCurrentEntity())" :key="row.taskKey">
+                      <tr class="border-t border-ink/10">
+                        <td class="pr-2 py-0.5" x-text="row.label"></td>
+                        <td class="pr-2 opacity-70" x-text="row.group"></td>
+                        <td class="pr-2 text-right font-mono" x-text="row.resolvedTarget != null ? (row.resolvedTarget + '+') : (row.baseTargetSource ? 'GM' : '—')"></td>
+                        <td class="pr-2 text-right" x-text="row.chance != null ? (Math.round(row.chance * 100) + '%') : '—'"></td>
+                        <td class="text-right"><button @click="openProficiencyThrowModal(inspectorCurrentEntity(), { taskKey: row.taskKey })" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100">Roll</button></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </template>
+
           <!-- Schema-missing fallback: show raw JSON -->
           <template x-if="!inspectorCurrentSchema()">
             <div class="text-sm p-3 rounded" style="background:#f5d6d6">
@@ -11736,6 +11764,17 @@ document.addEventListener('alpine:init', () => {
         <span class="opacity-70" x-text="profThrowChar() ? (' · ' + (profThrowChar().class || '—') + ' L' + (profThrowChar().level || 1)) : ''"></span>
       </div>
 
+      <!-- Actor picker (PT-5 generic "make a throw" — the GM rolls for any active character) -->
+      <template x-if="profThrow.actorPicker">
+        <label class="block text-sm"><span class="opacity-70">Actor</span>
+          <select class="w-full text-sm mt-0.5" @change="profThrowSetActor($event.target.value)">
+            <template x-for="a in profThrowActorOptions()" :key="a.id">
+              <option :value="a.id" :selected="a.id===profThrow.characterId" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+      </template>
+
       <!-- Task picker -->
       <div class="text-sm">
         <label class="block font-semibold mb-1">Throw</label>
@@ -11811,19 +11850,36 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
+      <!-- auto-resolve-trivial-throws (house rule): foregone-conclusion shortcut -->
+      <template x-if="profThrowTrivial()">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm flex items-center gap-2" style="background:#eef6e6">
+          <span x-text="'Trivial throw — auto ' + (profThrowTrivial().auto==='success' ? '✓ success' : '✗ failure') + ' (' + profThrowTrivial().reason + ')'"></span>
+          <button @click="profThrowApplyAuto()" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-yellow-100">Apply auto-result</button>
+        </div>
+      </template>
+
       <!-- Roll -->
       <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
-        <div class="flex items-center gap-3 mb-2">
+        <div class="flex items-center gap-3 mb-2 flex-wrap">
           <button @click="rollProfThrow()" :disabled="profThrowEffectiveTarget()==null"
                   :class="profThrowEffectiveTarget()==null ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'"
                   class="px-4 py-2 border-2 border-ink rounded font-semibold"
                   x-text="profThrow.result ? '🎲 Re-roll 1d20' : '🎲 Roll 1d20'"></button>
           <label class="text-sm flex items-center gap-1"><input type="checkbox" x-model="profThrow.secret"> Secret (GM rolls)</label>
+          <template x-if="profThrowGmFiatOn()">
+            <span class="flex items-center gap-1 text-sm">
+              <span class="opacity-60">or GM:</span>
+              <button @click="profThrowDeclare(true)" class="px-2 py-1 border border-ink rounded text-xs bg-green-100 hover:bg-green-200" title="Declare success without rolling (gm-fiat-proficiency-throws)">✓ Declare success</button>
+              <button @click="profThrowDeclare(false)" class="px-2 py-1 border border-ink rounded text-xs bg-red-100 hover:bg-red-200" title="Declare failure without rolling (gm-fiat-proficiency-throws)">✗ Declare failure</button>
+            </span>
+          </template>
         </div>
         <template x-if="profThrow.result">
           <div class="space-y-1.5">
-            <div class="text-sm font-mono" x-show="!profThrow.secret"
+            <div class="text-sm font-mono" x-show="!profThrow.secret && profThrow.result.natural != null"
                  x-text="'1d20 ' + profThrow.result.natural + (profThrow.result.modifierTotal ? (' '+(profThrow.result.modifierTotal>=0?'+':'')+profThrow.result.modifierTotal) : '') + ' = ' + profThrow.result.total + ' vs ' + profThrow.result.target + '+'"></div>
+            <div class="text-xs italic opacity-70" x-show="profThrow.result.gmFiat" x-text="'GM-declared — no die rolled' + (profThrow.result.target!=null ? (' (target was ' + profThrow.result.target + '+)') : '')"></div>
+            <div class="text-xs italic opacity-70" x-show="profThrow.result.autoResolved" x-text="'Auto-resolved — ' + (profThrow.result.autoReason||'trivial') + ' (no die rolled)'"></div>
             <div>
               <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
                     :style="profThrow.result.success ? 'background:#e8f3df;color:#2f5a2f;border-color:#2f5a2f' : 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f'"
@@ -23724,15 +23780,39 @@ return {
   },
   // The shared Proficiency Throw modal (RR pp.9–10). A throw is a pure die (engine Layer 1/3) —
   // the modal computes the forecast + rolls; the consequence is the GM's to apply (DQ3/Q3).
-  profThrow: { open:false, characterId:null, character:null, taskKey:'adventuring:dungeonbashing', abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false },
-  openProficiencyThrowModal(ch){
-    if(!ch){ this.showToast && this.showToast('No character to roll for.'); return; }
-    const opts = (window.ACKS.characterAvailableThrows(this.currentCampaign, ch) || []);
+  profThrow: { open:false, characterId:null, character:null, actorPicker:false, taskKey:'adventuring:dungeonbashing', abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false },
+  // Open for a FIXED character (the Skills-tab / Inspector "roll" buttons), or GENERIC (ch omitted →
+  // the GM picks the actor in-modal: the PT-5 "make a throw" affordance). opts.taskKey pre-selects a throw.
+  openProficiencyThrowModal(ch, opts){
+    opts = opts || {};
+    const generic = !ch;
+    if(generic){
+      const actors = this.profThrowActorOptions();
+      ch = (this.characterEditing && actors.some(a => a.id === this.characterEditing.id)) ? this.characterEditing : (actors[0] ? ((this.currentCampaign.characters||[]).find(c => c && c.id === actors[0].id)) : null);
+      if(!ch){ this.showToast && this.showToast('No active character to roll for.'); return; }
+    }
+    const avail = (window.ACKS.characterAvailableThrows(this.currentCampaign, ch) || []);
     this.profThrow = {
-      open:true, characterId:ch.id, character:ch,
-      taskKey: (opts[0] && opts[0].taskKey) || 'adventuring:dungeonbashing',
+      open:true, characterId:ch.id, character:ch, actorPicker:(generic || !!opts.actorPicker),
+      taskKey: opts.taskKey || (avail[0] && avail[0].taskKey) || 'adventuring:dungeonbashing',
       abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false
     };
+  },
+  // Active characters that can be rolled for (the generic actor picker).
+  profThrowActorOptions(){
+    const A = window.ACKS;
+    return ((this.currentCampaign && this.currentCampaign.characters) || [])
+      .filter(c => c && (A.isActive ? A.isActive(c) : (c.alive !== false)))
+      .map(c => ({ id:c.id, label:(c.name || c.id) + (c.class ? (' · ' + c.class + ' L' + (c.level||1)) : '') }));
+  },
+  // The GM switched the actor in the picker — re-anchor + re-validate the selected throw + reset the result.
+  profThrowSetActor(id){
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id);
+    if(!ch) return;
+    const avail = (window.ACKS.characterAvailableThrows(this.currentCampaign, ch) || []);
+    this.profThrow.characterId = ch.id; this.profThrow.character = ch;
+    if(!this.profThrowOptions().some(o => o.taskKey === this.profThrow.taskKey)) this.profThrow.taskKey = (avail[0] && avail[0].taskKey) || 'adventuring:dungeonbashing';
+    this.profThrow.result = null; this.profThrow._logged = false; this.profThrow.logToEvent = false;
   },
   closeProficiencyThrowModal(){ this.profThrow.open = false; this.profThrow.result = null; },
   profThrowChar(){
@@ -23778,6 +23858,18 @@ return {
     return window.ACKS.throwSuccessChance(t, f.modifierTotal || 0, f.autoFailBand, f.proficient) || 0;
   },
   proficiencyLabelText(key){ return window.ACKS.proficiencyLabel(key); },
+  // PT-5 — the Inspector proficiency-throw sheet rows: the character's available throws + resolved
+  // target + success chance, each rollable. (A class-derived throw shows "GM" — the target is set in the modal.)
+  inspectorProfThrowRows(ch){
+    if(!ch) return [];
+    const A = window.ACKS;
+    return (A.characterAvailableThrows(this.currentCampaign, ch) || []).map(r => {
+      const fc = A.characterProficiencyThrow(this.currentCampaign, ch, r.taskKey, { roll:false });
+      return { taskKey:r.taskKey, label:r.label, group:r.group, universal:r.universal,
+               resolvedTarget:r.resolvedTarget, baseTargetSource:r.baseTargetSource,
+               chance:(fc && fc.successChance != null) ? fc.successChance : null };
+    });
+  },
   rollProfThrow(){
     const ch = this.profThrowChar(); const f = this.profThrowForecast(); const t = this.profThrowEffectiveTarget();
     if(!ch || !f || t == null) return;
@@ -23788,11 +23880,45 @@ return {
     // re-rolling invalidates a prior record so the GM can record the new outcome
     this.profThrow._logged = false; this.profThrow.logToEvent = false;
   },
+  // gm-fiat-proficiency-throws (house rule): the GM declares the outcome instead of rolling the die.
+  profThrowGmFiatOn(){ return window.ACKS.isHouseRuleEnabled(this.currentCampaign, 'gm-fiat-proficiency-throws'); },
+  profThrowDeclare(success){
+    const f = this.profThrowForecast(); const t = this.profThrowEffectiveTarget();
+    this.profThrow.result = {
+      natural:null, target:(t!=null?t:null), modifiers:(f&&f.itemizedModifiers)||[], modifierTotal:(f&&f.modifierTotal)||0,
+      total:null, success:!!success, margin:null, auto:null, botch:false, crit:false,
+      fumbleEffect:null, secret:this.profThrow.secret, die:'d20', gmFiat:true
+    };
+    this.profThrow._logged = false; this.profThrow.logToEvent = false;
+  },
+  // auto-resolve-trivial-throws (house rule): a foregone-conclusion throw resolves without a die —
+  // ≥0.95 (only a natural 1 can fail) → auto-success; ≤0.05 (only a natural 20 can succeed) → auto-fail.
+  profThrowTrivial(){
+    if(!window.ACKS.isHouseRuleEnabled(this.currentCampaign, 'auto-resolve-trivial-throws')) return null;
+    const t = this.profThrowEffectiveTarget(); if(t == null) return null;
+    const ch = this.profThrowChance();
+    if(ch >= 0.95) return { auto:'success', reason:'only a natural 1 fails' };
+    if(ch <= 0.05) return { auto:'fail', reason:'only a natural 20 succeeds' };
+    return null;
+  },
+  profThrowApplyAuto(){
+    const tr = this.profThrowTrivial(); if(!tr) return;
+    const f = this.profThrowForecast(); const t = this.profThrowEffectiveTarget();
+    this.profThrow.result = {
+      natural:null, target:t, modifiers:(f&&f.itemizedModifiers)||[], modifierTotal:(f&&f.modifierTotal)||0,
+      total:null, success:(tr.auto==='success'), margin:null, auto:tr.auto, botch:false, crit:false,
+      fumbleEffect:null, secret:this.profThrow.secret, die:'d20', autoResolved:true, autoReason:tr.reason
+    };
+    this.profThrow._logged = false; this.profThrow.logToEvent = false;
+  },
   // Optional record-only audit (the GM ticks "Record this throw") — campaignLogHidden by default.
   profThrowToggleLog(){
     if(!this.profThrow.logToEvent || !this.profThrow.result || this.profThrow._logged) return;
-    const ch = this.profThrowChar(); const f = this.profThrowForecast();
-    const data = Object.assign({ actorCharacterId: ch ? ch.id : null, taskKey: this.profThrow.taskKey, label: f ? f.label : '' }, this.profThrow.result);
+    const ch = this.profThrowChar(); const f = this.profThrowForecast(); const r = this.profThrow.result;
+    let narrative = '';
+    if(r.gmFiat) narrative = (f ? f.label : 'Proficiency throw') + ': GM declared ' + (r.success ? 'success' : 'failure');
+    else if(r.autoResolved) narrative = (f ? f.label : 'Proficiency throw') + ': auto-' + (r.success ? 'success' : 'failure') + ' (' + (r.autoReason || 'trivial') + ')';
+    const data = Object.assign({ actorCharacterId: ch ? ch.id : null, taskKey: this.profThrow.taskKey, label: f ? f.label : '', narrative }, r);
     window.ACKS.recordProficiencyThrow(this.currentCampaign, data);
     this.profThrow._logged = true;
     if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist();
