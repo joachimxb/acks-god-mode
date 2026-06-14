@@ -248,7 +248,14 @@ const EVENT_KINDS = Object.freeze([
   // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
   // + carry the Event.context envelope (apex hex + ruler + the voting senators). Wizard opt-out below.
   'senate-vote',
-  'policy-enacted'
+  'policy-enacted',
+  // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
+  // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
+  // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
+  // the GP Wave B adventure-result disbursement); this keeps the eventLog well-formed on replay.
+  // Carries the Event.context envelope (the dungeon as site + the delve + the casualties). Event
+  // Wizard opt-out below — the GM runs a foray via the Foray Wizard, not the Event Wizard.
+  'delve-foray'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -796,6 +803,15 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { senateId: 'string' },
     O: { matter: 'string', restricted: 'boolean', consulted: 'boolean', approved: 'boolean',
          outcome: 'string', disputed: 'boolean', cleared: 'boolean', narrative: 'string' }
+  },
+  // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
+  // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
+  // carries the final disbursement (outcome cleared|withdrawn + magic-item rolls).
+  'delve-foray': {
+    R: { delveId: 'string' },
+    O: { dungeonId: 'string', phase: 'string', forayIndex: 'number', result: 'string',
+         outcome: 'string', encountersCleared: 'number', treasureGp: 'number', xp: 'number',
+         magicItemRolls: 'number', casualties: 'array', narrative: 'string' }
   }
 });
 
@@ -2348,6 +2364,14 @@ function applyEvent_senateAudit(campaign, event){
 }
 registerEventHandler('senate-vote', applyEvent_senateAudit);
 registerEventHandler('policy-enacted', applyEvent_senateAudit);
+// === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
+// already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
+// disbursement); this handler keeps the event well-formed on replay (records the narrative only).
+function applyEvent_delveAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'delve foray' } };
+}
+registerEventHandler('delve-foray', applyEvent_delveAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5368,7 +5392,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'sage-consultation',
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
-  'senate-vote', 'policy-enacted'
+  'senate-vote', 'policy-enacted',
+  // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
+  // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
+  'delve-foray'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
