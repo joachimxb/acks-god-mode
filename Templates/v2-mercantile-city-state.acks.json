@@ -397,11 +397,27 @@
         "spells": 12
       },
       "proficiencies": [
-        "Bargaining",
-        "Diplomacy",
-        "Leadership",
-        "Profession (merchant)",
-        "Riding"
+        {
+          "key": "bargaining",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        },
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "profession",
+          "ranks": 1,
+          "spec": "merchant"
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Mercantile Network",
@@ -495,10 +511,23 @@
         "spells": 10
       },
       "proficiencies": [
-        "Loremastery",
-        "Magical Engineering",
-        "Language (Old Auran)",
-        "Land Surveying"
+        {
+          "key": "loremastery",
+          "ranks": 1
+        },
+        {
+          "key": "magical-engineering",
+          "ranks": 1
+        },
+        {
+          "key": "language",
+          "ranks": 1,
+          "spec": "Old Auran"
+        },
+        {
+          "key": "land-surveying",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 5,

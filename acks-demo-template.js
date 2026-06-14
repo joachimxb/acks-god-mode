@@ -1,7 +1,7 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces.
-// Regenerated 2026-06-12 — Phase 3 Military W3: the empty battles[] collection
-// (the RR pp.461–472 battle engine's engagement records). Content unchanged otherwise.
+// Regenerated 2026-06-14 — Phase 3.6 Proficiency Throws PT-0: character.proficiencies[]
+// materialized to the canonical { key, ranks (, spec) } shape. Content unchanged otherwise.
 // migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
 global.ACKS_DEMO_TEMPLATE = {
@@ -1082,11 +1082,26 @@ global.ACKS_DEMO_TEMPLATE = {
         "spells": 12
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Diplomacy",
-        "Intimidation",
-        "Riding"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        },
+        {
+          "key": "intimidation",
+          "ranks": 1
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 6,
@@ -1175,10 +1190,22 @@ global.ACKS_DEMO_TEMPLATE = {
         "spells": 14
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Leadership",
-        "Command",
-        "Intimidation"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "command",
+          "ranks": 1
+        },
+        {
+          "key": "intimidation",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 4,
@@ -1263,10 +1290,22 @@ global.ACKS_DEMO_TEMPLATE = {
         "spells": 13
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Survival",
-        "Riding",
-        "Intimidation"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "survival",
+          "ranks": 1
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        },
+        {
+          "key": "intimidation",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 4,
@@ -1360,10 +1399,22 @@ global.ACKS_DEMO_TEMPLATE = {
         "spells": 9
       },
       "proficiencies": [
-        "Theology",
-        "Healing",
-        "Leadership",
-        "Mystic Aura"
+        {
+          "key": "theology",
+          "ranks": 1
+        },
+        {
+          "key": "healing",
+          "ranks": 1
+        },
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "mystic-aura",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Turn undead",
@@ -1538,9 +1589,18 @@ global.ACKS_DEMO_TEMPLATE = {
       "morale": 0,
       "henchmanCap": 4,
       "proficiencies": [
-        "Theology (2)",
-        "Healing",
-        "Diplomacy"
+        {
+          "key": "theology",
+          "ranks": 2
+        },
+        {
+          "key": "healing",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "inventory": {
@@ -1614,11 +1674,26 @@ global.ACKS_DEMO_TEMPLATE = {
         "spells": 12
       },
       "proficiencies": [
-        "Navigation",
-        "Survival",
-        "Seafaring",
-        "Alertness",
-        "Tracking"
+        {
+          "key": "navigation",
+          "ranks": 1
+        },
+        {
+          "key": "survival",
+          "ranks": 1
+        },
+        {
+          "key": "seafaring",
+          "ranks": 1
+        },
+        {
+          "key": "alertness",
+          "ranks": 1
+        },
+        {
+          "key": "tracking",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Animal Reflexes"
@@ -1700,10 +1775,22 @@ global.ACKS_DEMO_TEMPLATE = {
       "morale": 0,
       "henchmanCap": 4,
       "proficiencies": [
-        "Navigation",
-        "Survival",
-        "Mountaineering",
-        "Tracking"
+        {
+          "key": "navigation",
+          "ranks": 1
+        },
+        {
+          "key": "survival",
+          "ranks": 1
+        },
+        {
+          "key": "mountaineering",
+          "ranks": 1
+        },
+        {
+          "key": "tracking",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Pathfinding",
@@ -1785,11 +1872,27 @@ global.ACKS_DEMO_TEMPLATE = {
         "spells": 9
       },
       "proficiencies": [
-        "Healing",
-        "Prophecy",
-        "Theology",
-        "Diplomacy",
-        "Knowledge (History)"
+        {
+          "key": "healing",
+          "ranks": 1
+        },
+        {
+          "key": "prophecy",
+          "ranks": 1
+        },
+        {
+          "key": "theology",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        },
+        {
+          "key": "knowledge",
+          "ranks": 1,
+          "spec": "History"
+        }
       ],
       "classPowers": [],
       "henchmanCap": 3,

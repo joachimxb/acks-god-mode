@@ -1269,11 +1269,22 @@
         "spells": 9
       },
       "proficiencies": [
-        "Leadership",
-        "Diplomacy",
-        "Manual of Arms",
-        "Riding",
-        "Heraldry"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 2
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 7,
@@ -1362,9 +1373,18 @@
         "spells": 12
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Leadership",
-        "Riding"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 5,
@@ -1449,9 +1469,18 @@
         "spells": 9
       },
       "proficiencies": [
-        "Loremastery",
-        "Magical Engineering",
-        "Diplomacy"
+        {
+          "key": "loremastery",
+          "ranks": 1
+        },
+        {
+          "key": "magical-engineering",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Cast arcane spells",
@@ -1539,9 +1568,18 @@
         "spells": 11
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Riding"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 6,
@@ -1641,8 +1679,14 @@
         "spells": 13
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Riding"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 4,
@@ -1727,10 +1771,22 @@
         "spells": 6
       },
       "proficiencies": [
-        "Theology",
-        "Healing",
-        "Diplomacy",
-        "Leadership"
+        {
+          "key": "theology",
+          "ranks": 1
+        },
+        {
+          "key": "healing",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        },
+        {
+          "key": "leadership",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Turn undead",
@@ -1833,9 +1889,18 @@
         "spells": 13
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Survival",
-        "Animal Husbandry"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "survival",
+          "ranks": 1
+        },
+        {
+          "key": "animal-husbandry",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 4,
@@ -1929,9 +1994,18 @@
         "spells": 14
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Diplomacy",
-        "Riding"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "diplomacy",
+          "ranks": 1
+        },
+        {
+          "key": "riding",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 4,
