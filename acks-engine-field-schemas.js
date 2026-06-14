@@ -935,8 +935,80 @@
         { name: 'status',        type: 'enum', enumValues: ['active','vacated'], group: 'Lifecycle', default: 'active' },
         { name: 'history',       type: 'history', readonly: true, group: 'History' }
       ]
-    }
+    },
     // === end Politics P-1 ===
+
+    // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — AXIOMS 4 (#150). Bout / Gladiator
+    // School / Game. adminCreate:'schemaForm' = the generic Admin form (the inspectorCreateBlank*
+    // dispatch spawns a blank + opens this edit). Every field ⊆ the matching blankX keys (the global
+    // schema⊆factory invariant, tests/smoke.js). Deep/engine-written records are omitted (raw-JSON
+    // edited): bout.result (the resolver's output), school.uprisingState (G4 transient). The gladiator
+    // is a Character (socialTier:'gladiator') — not in FIELD_SCHEMAS (the character sheet owns it). ──
+    'bout': {
+      factory: 'blankBout',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Combatants', 'Stakes', 'State', 'History'],
+      fields: [
+        { name: 'id',     type: 'string', readonly: true, group: 'Identity' },
+        { name: 'gameId', type: 'id', idKind: 'game', group: 'Identity', description: 'The Game/Munus this bout belongs to (null for a one-off)' },
+        { name: 'kind',   type: 'enum', enumValues: ['to-incapacitation','to-death'], group: 'Identity', default: 'to-incapacitation', description: 'A death-bout rents at 2× (RR/AXIOMS 4 p.20)' },
+        { name: 'sideA',  type: 'object', group: 'Combatants', description: 'One side of the bout', fields: [
+          { name: 'combatantIds', type: 'idArray', idKind: 'character', description: 'Gladiator Character ids (creature/prisoner ids for those side kinds)' },
+          { name: 'kind',         type: 'enum', enumValues: ['gladiator','creature','prisoner'] }
+        ] },
+        { name: 'sideB',  type: 'object', group: 'Combatants', description: 'The other side', fields: [
+          { name: 'combatantIds', type: 'idArray', idKind: 'character', description: 'Gladiator Character ids (creature/prisoner ids for those side kinds)' },
+          { name: 'kind',         type: 'enum', enumValues: ['gladiator','creature','prisoner'] }
+        ] },
+        { name: 'rentPaidGp',     type: 'gp', group: 'Stakes', description: 'What the munerator paid to field these combatants' },
+        { name: 'resolutionMode', type: 'enum', enumValues: ['abstract','combat'], group: 'Stakes', default: 'abstract', description: 'abstract = the 1d10 resolver (p.25); combat = the round-by-round path (Combat-Option-B, G5)' },
+        { name: 'status',         type: 'enum', enumValues: ['scheduled','resolved'], group: 'State', default: 'scheduled' },
+        { name: 'createdAtTurn',  type: 'number', readonly: true, group: 'State' },
+        { name: 'notes',          type: 'string', group: 'History' },
+        { name: 'history',        type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'gladiator-school': {
+      factory: 'blankGladiatorSchool',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Roster', 'Facilities', 'State', 'History'],
+      fields: [
+        { name: 'id',                 type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',               type: 'string', group: 'Identity', description: 'e.g. "Ludus Magnus"' },
+        { name: 'lanistaCharacterId', type: 'id', idKind: 'character', group: 'Identity', description: 'The owner (the "lanista" role)' },
+        { name: 'settlementId',       type: 'id', idKind: 'settlement', group: 'Identity', description: 'Where it operates (≤1 gladiator / 150 families)' },
+        { name: 'gladiatorCharacterIds',     type: 'idArray', idKind: 'character', group: 'Roster', description: 'The gladiators (Characters, socialTier:gladiator)' },
+        { name: 'staffCharacterIds',         type: 'idArray', idKind: 'character', group: 'Roster', description: 'Trainers / guards / healers / handlers (hirelings)' },
+        { name: 'structureConstructibleIds', type: 'idArray', idKind: 'constructible', group: 'Facilities', description: 'The school buildings (Constructibles)' },
+        { name: 'treasuryStashId',    type: 'id', idKind: 'stash', group: 'Facilities', description: "The school's coffers (a Stash)" },
+        { name: 'status',             type: 'enum', enumValues: ['active','disbanded'], group: 'State', default: 'active' },
+        { name: 'foundedAtTurn',      type: 'number', readonly: true, group: 'State' },
+        { name: 'notes',              type: 'string', group: 'History' },
+        { name: 'history',            type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'game': {
+      factory: 'blankGame',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Venue', 'Schedule', 'State', 'History'],
+      fields: [
+        { name: 'id',                          type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                        type: 'string', group: 'Identity', description: 'The munus name, e.g. "Funeral Games for Lord Aelric"' },
+        { name: 'muneratorCharacterId',        type: 'id', idKind: 'character', group: 'Identity', description: 'The sponsor (a role; often the settlement ruler / Munerator magistrate)' },
+        { name: 'settlementId',                type: 'id', idKind: 'settlement', group: 'Venue', description: "Where it's held (the amphitheater's settlement)" },
+        { name: 'amphitheaterConstructibleId', type: 'id', idKind: 'constructible', group: 'Venue', description: 'The amphitheater (a Constructible)' },
+        { name: 'budgetGp',                    type: 'gp', group: 'Schedule', description: '≥ 0.5gp / urban family (the festival/liturgy expense, p.22)' },
+        { name: 'scheduledTurn',               type: 'number', group: 'Schedule', description: 'Light G1 scheduling hook (the full calendar-date scheduling is G4)' },
+        { name: 'boutIds',                     type: 'idArray', idKind: 'bout', group: 'Schedule', description: '≤12 bouts per day (p.22)' },
+        { name: 'status',                      type: 'enum', enumValues: ['planned','held'], group: 'State', default: 'planned' },
+        { name: 'createdAtTurn',               type: 'number', readonly: true, group: 'State' },
+        { name: 'notes',                       type: 'string', group: 'History' },
+        { name: 'history',                     type: 'history', readonly: true, group: 'History' }
+      ]
+    }
+    // === end Gladiators G1 ===
   };
 
   // ─── 4. Public API ───

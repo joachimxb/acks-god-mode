@@ -370,7 +370,15 @@ const HOUSERULES_REGISTRY = Object.freeze([
   // team-session integration per Phase_2.5_Hex_Scales_and_Weather_Plan.md §6.5/Q3.) ===
   { id:'gm-set-weather', category:'world', name:'GM-set weather',
     source:'Phase 2.5 Hex Scales & Weather §6.5 (RAW-default polarity — the opt-out)',
-    description:"Opt out of the RAW daily-weather generator (JJ pp.40–41) and narrate weather by hand. RAW weather generation is the default (it only rolls on an expedition and any day is GM-overridable); this turns the generator off so the GM sets each day's weather. Default off." }
+    description:"Opt out of the RAW daily-weather generator (JJ pp.40–41) and narrate weather by hand. RAW weather generation is the default (it only rolls on an expedition and any day is GM-overridable); this turns the generator off so the GM sets each day's weather. Default off." },
+  // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — AXIOMS 4 "Morituri Te Salutant" (#150).
+  // The §6 supplement rule (like the BTA/HFH/AXIOMS content packs): the whole gladiatorial-games
+  // subsystem rides this default-OFF toggle. The gladiator-as-Character data (socialTier:'gladiator')
+  // is ungated core (a GM may flag an NPC a gladiator with the rule off); only the AXIOMS-4 MECHANICS
+  // ride it. In G1 the rule gates the live mechanic — the abstract bout resolver refuses when off. ===
+  { id:'gladiator-games', category:'cultural', name:'Gladiatorial games (AXIOMS 4)',
+    source:'AXIOMS Issue 4 "Morituri Te Salutant" pp.20–31 (Phase_4_Gladiators_Plan.md / Gladiators_RAW_Survey.md)',
+    description:"Master toggle for the gladiatorial-school + games subsystem: gladiator schools, bouts, games/munera, the amphitheater, training, rents + prizes, uprisings, and the abstract bout resolver. When OFF (default), the school/bout/game collections + their resolver are non-functional. The gladiator-socialTier DATA is NOT gated — a GM may mark an NPC a gladiator for flavor regardless; only the AXIOMS-4 mechanics ride this toggle. Default off (a supplement, like BTA / dwarven / Auran content)." }
 ]);
 const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'domain',       label:'🏰 Domain',         description:'Hex tracking, vassal structure, geography, land/lordship.' },

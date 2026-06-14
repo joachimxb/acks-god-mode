@@ -334,6 +334,32 @@
       // blankSenatorship emits senatorCharacterId + senateId (no `name`) — describe by the relation.
       displayName: (c, obj) => obj ? ((obj.senatorCharacterId || '?') + ' in ' + (obj.senateId || '?')) : '' },
 
+    // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — AXIOMS 4 (#150). Bout / Gladiator
+    // School / Game are first-class; the gladiator is a Character (socialTier:'gladiator', not a
+    // kind here). Read defensively (campaign.bouts/gladiatorSchools/games) — no migrateCampaign
+    // injector, so templates stay migrate-no-ops. displayName reads only the matching blankX keys
+    // (the registry⊆factory invariant; bout/game are checked, gladiator-school is skipped by the
+    // cap-naming but kept factory-clean). ──
+    { kind: 'bout', label: 'Bout', pluralLabel: 'Bouts', icon: '⚔',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.bouts) || [],
+      find: (c, id) => ((c && c.bouts) || []).find(x => x && x.id === id),
+      // blankBout emits no `name` — describe by kind + status.
+      displayName: (c, obj) => obj ? ((obj.kind || 'bout') + ' · ' + (obj.status || '?')) : '' },
+
+    { kind: 'gladiator-school', label: 'Gladiator School', pluralLabel: 'Gladiator Schools', icon: '🏟',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.gladiatorSchools) || [],
+      find: (c, id) => ((c && c.gladiatorSchools) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
+    { kind: 'game', label: 'Gladiatorial Game', pluralLabel: 'Gladiatorial Games', icon: '🎪',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.games) || [],
+      find: (c, id) => ((c && c.games) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+    // === end Gladiators G1 ===
+
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',
       addressable: true, chronicleable: true,
