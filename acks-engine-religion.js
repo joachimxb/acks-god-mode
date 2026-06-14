@@ -272,7 +272,11 @@
     ev.appliedAtDay = campaign.currentDayInMonth || 1;
     if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
     campaign.eventLog.push({ event: ev, result: { narrativeSummary: opts.narrative || (kind + ' applied') },
-      appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString(),
+      // The Campaign Log filter (campaignLogEntries) reads campaignLogHidden off the WRAPPER (the
+      // day-tick / commitStatEdit convention), so set it here too — a routine weekly accrual (R1.5)
+      // stays in the Event Log + histories but out of the narrative Campaign Log.
+      ...(opts.campaignLogHidden ? { campaignLogHidden: true } : {}) });
     return ev;
   }
 
@@ -535,9 +539,17 @@
       }
 
       // Divine-power accrual for the high priest (the favor must not be lapsed/excommunicate, §4.3).
+      // R1.5 reconciliation: a day-tick weekly grain (proposeReligionDay / commitReligionWeek) may
+      // already have accrued some maintained weeks this month — cong._weeklyDpAccruedWeeks (read
+      // DEFENSIVELY: absent ⇒ 0 ⇒ the full monthly batch, so the Day-Clock-NOT-engaged path is
+      // byte-identical to R1). The monthly consumer tops up only the REMAINING maintained weeks, so
+      // the two cadences total the same DP over the month (§5.7 "equals the monthly batch over 4 weeks").
       const fav = priestId ? divineFavorOf(campaign, priestId) : null;
       const suspended = fav && fav.standing && fav.standing !== 'good-standing';
-      const monthly = suspended ? 0 : congregationMonthlyDivinePowerGp(campaign, cong);
+      const maintainedWeeks = congregationMaintainedWeeks(cong);
+      const alreadyAccruedWeeks = Math.max(0, Math.min(maintainedWeeks, Number(cong._weeklyDpAccruedWeeks) || 0));
+      const weeksToAccrue = Math.max(0, maintainedWeeks - alreadyAccruedWeeks);
+      const monthly = suspended ? 0 : (congregationWeeklyDivinePowerGp(campaign, cong) * weeksToAccrue);
       if(monthly > 0 && priestId){
         const personal = congregationPersonalWeeklyGp(cong) > 0;
         const domain = congregationDomainWorshipWeeklyGp(campaign, cong) > 0;
@@ -545,13 +557,16 @@
         accrueDivinePower(campaign, priestId, monthly, source, cong.deityId,
           { accruedAtTurn: turn + 1, expiresAtTurn: turn + 2 });
         out.accruedGp += monthly;
-        out.logEntries.push('⛪ ' + (priest && priest.name || priestId) + ' accrues ' + monthly.toLocaleString() + 'gp divine power from ' + _congLabel(cong));
+        out.logEntries.push('⛪ ' + (priest && priest.name || priestId) + ' accrues ' + monthly.toLocaleString() + 'gp divine power from ' + _congLabel(cong)
+          + (alreadyAccruedWeeks > 0 ? ' (monthly top-up — ' + alreadyAccruedWeeks + ' week(s) already accrued via the Day Clock)' : ''));
       } else if(suspended && priestId){
         out.logEntries.push('⛪ ' + _congLabel(cong) + ': accrual suspended (' + (fav.standing) + ')');
       }
 
-      // Reset the per-month maintenance tracker for the next month.
+      // Reset the per-month trackers for the next month: the GM maintenance count AND the day-tick
+      // weekly-accrual counter (so next month's monthly batch is full again unless the Day Clock runs).
       if(cong.autoMaintain === false) cong.maintainedWeeksThisMonth = 0;
+      cong._weeklyDpAccruedWeeks = 0;
     }
 
     // 2) Per character: expire faded divine power, then award pray-and-sacrifice XP (monthly threshold).
@@ -587,6 +602,238 @@
     return out;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // Religion R2 — Blood Sacrifice, the Chaotic path (Phase_4_Religion_Plan.md §3.3 / §5.4)
+  // ════════════════════════════════════════════════════════════════════════════
+  // Default-ON core RAW (RR pp.421–422) — NO house rule gates it (D3), presented mechanically.
+  // A divine caster spills a victim's life to earn divine power: the BASE (= the victim's component
+  // value, usually its XP value) is always earned; the victim-characteristic MULTIPLIERS are added
+  // only on a successful magic-research throw (the same rollDivineThrow R1 uses). Alignment gates the
+  // act (RR p.422): Lawful/Neutral casters can NEVER sacrifice sapient creatures (only exceptional
+  // animals, helpless); Chaotic casters take a willing victim. A few cases YIELD NOTHING though the
+  // act happens (an unwilling Chaotic-aligned victim; a deity for whom animal sacrifice is pure
+  // devotion — the Auran Empyrean rule). The yield routes to the DIVINE ledger for divine casters,
+  // or to ARCANE storage ×2 (indefinitely) for warlock/demonologist Power-of-Sacrifice classes (§5.4)
+  // — the act is class-agnostic; only the DESTINATION of the power is class-dependent.
+
+  // The victim-characteristic multipliers (RR p.422). Each adds (component value × N) to the BONUS,
+  // earned only on a successful magic-research throw; they STACK. Keys are the GM/UI's checkbox set.
+  const SACRIFICE_MULTIPLIERS = Object.freeze({
+    'virgin': 1,            // + component value
+    'opposite-faith': 2,    // a divine caster of opposite alignment/faith: + ×2
+    'noble': 3,             // ruler/heir, barony→duchy: + ×3
+    'royal': 5,             // ruler/heir, principality/kingdom/empire: + ×5
+    'beloved': 10           // parent, mature descendant, or beloved of the sacrificer: + ×10
+  });
+
+  // Does this character store ARCANE power from sacrifice (warlock/demonologist Power of Sacrifice,
+  // §5.4)? Detected from class powers or the known arcane-sacrifice classes. These store ×2 indefinitely.
+  function hasPowerOfSacrifice(ch){
+    if(!ch) return false;
+    const powers = Array.isArray(ch.classPowers) ? ch.classPowers : [];
+    if(powers.some(p => /power\s*of\s*sacrifice/i.test(typeof p === 'string' ? p : (p && (p.name || p.key || p.label || ''))))) return true;
+    const cls = (ch.class || '').toLowerCase();
+    return cls.includes('warlock') || cls.includes('demonologist');
+  }
+  // The caster's effective alignment for sacrifice (prefer the patron deity's, else the character's).
+  function _sacrificeAlignment(campaign, ch){
+    const deity = ch ? deityOf(campaign, ch.id) : null;
+    return (deity && deity.alignment) || (ch && ch.alignment) || 'Neutral';
+  }
+  // Resolve the victim's component value (= its XP value, §3.3): an explicit override wins, else a
+  // MONSTER_CATALOG key's XP, else a victim character's XP total (the Mentu/Balbus 1,600 example).
+  function sacrificeComponentValue(campaign, opts){
+    opts = opts || {};
+    if(opts.componentValueGp != null) return Math.max(0, Math.round(Number(opts.componentValueGp) || 0));
+    if(opts.monsterCatalogKey){
+      const A = _A();
+      const mon = (typeof A.findMonster === 'function') ? A.findMonster(opts.monsterCatalogKey) : null;
+      return mon ? Math.max(0, Math.round(Number(mon.xp) || 0)) : 0;
+    }
+    if(opts.victimCharacterId){
+      const v = _findChar(campaign, opts.victimCharacterId);
+      return v ? Math.max(0, Math.round(Number(v.xp) || 0)) : 0;
+    }
+    return 0;
+  }
+  // Sum the selected multipliers (unknown keys ignored).
+  function sacrificeMultiplierSum(multipliers){
+    if(!Array.isArray(multipliers)) return 0;
+    return multipliers.reduce((s, k) => s + (SACRIFICE_MULTIPLIERS[k] || 0), 0);
+  }
+
+  // Perform a blood sacrifice (RR pp.421–422). Returns a rich result:
+  //   { ok, reason?, componentValue, multipliers, sumMultiplier, throwResult, base, bonus, gained,
+  //     divinePowerGained, arcaneStoredGp, arcane, yieldsNothing, yieldReason }
+  // opts: { casterId, componentValueGp | monsterCatalogKey | victimCharacterId, multipliers[],
+  //         victimSapient, victimWilling, victimHelpless, victimAlignment, venueRef, rng, target }
+  function bloodSacrifice(campaign, opts){
+    opts = opts || {};
+    const ch = _findChar(campaign, opts.casterId);
+    if(!ch) return { ok: false, reason: 'no-caster' };
+    const align = _sacrificeAlignment(campaign, ch);
+    const isChaoticCaster = align === 'Chaotic';
+    const victimSapient = !!opts.victimSapient;
+    const victimWilling = !!opts.victimWilling;
+    const victimAlignment = opts.victimAlignment || null;
+    const deity = deityOf(campaign, opts.casterId);
+
+    // ── Gates that BLOCK the act (return ok:false) ──
+    // A deity that accepts no blood sacrifice refuses (RR p.422).
+    if(deity && deity.acceptsBloodSacrifice === 'none') return { ok: false, reason: 'deity-refuses-sacrifice' };
+    // Lawful/Neutral casters can NEVER sacrifice sapient creatures — only exceptional animals (RR p.422).
+    if(!isChaoticCaster && victimSapient) return { ok: false, reason: 'lawful-cannot-sacrifice-sapient' };
+    // A deity that accepts only animals blocks a sapient victim regardless of caster alignment.
+    if(deity && deity.acceptsBloodSacrifice === 'animals-only' && victimSapient) return { ok: false, reason: 'deity-accepts-animals-only' };
+    // Lawful/Neutral sacrifice requires a HELPLESS victim (RR p.422) — an explicit not-helpless blocks.
+    if(!isChaoticCaster && opts.victimHelpless === false) return { ok: false, reason: 'victim-not-helpless' };
+
+    const componentValue = sacrificeComponentValue(campaign, opts);
+
+    // ── Cases where the act HAPPENS but YIELDS NOTHING (0 power) ──
+    let yieldsNothing = false, yieldReason = null;
+    // Sacrificing an unwilling Chaotic-aligned victim yields nothing (RR p.422).
+    if(isChaoticCaster && victimAlignment === 'Chaotic' && !victimWilling){ yieldsNothing = true; yieldReason = 'unwilling-chaotic-yields-nothing'; }
+    // Auran Empyrean rule: animal sacrifice yields the CASTER nothing — it all goes to the god as devotion.
+    if(deity && deity.sacrificeAsDevotion && !victimSapient){ yieldsNothing = true; yieldReason = 'animal-sacrifice-is-devotion'; }
+
+    // ── The yield: base always earned; the multiplier bonus only on a successful magic-research throw ──
+    const multKeys = Array.isArray(opts.multipliers) ? opts.multipliers.filter(k => SACRIFICE_MULTIPLIERS[k]) : [];
+    const sumMult = sacrificeMultiplierSum(multKeys);
+    const throwResult = (sumMult > 0 && !yieldsNothing)
+      ? rollDivineThrow(campaign, opts.casterId, { rng: opts.rng, target: opts.target })
+      : null;
+    const base = yieldsNothing ? 0 : componentValue;
+    const bonus = (yieldsNothing || !throwResult || !throwResult.success) ? 0 : (componentValue * sumMult);
+    const gained = base + bonus;
+
+    // ── Route the power: arcane Power-of-Sacrifice → arcane store ×2 (non-expiring seam); else the
+    // expiring divine ledger (source 'blood-sacrifice', spendable now, fades next month — RR p.422). ──
+    const arcane = hasPowerOfSacrifice(ch);
+    let divinePowerGained = 0, arcaneStoredGp = 0;
+    if(gained > 0){
+      if(arcane){
+        // Reserved seam — Magic Research (Phase 4.6) consumes character.arcanePowerStoreGp.
+        // (init-on-write, read defensively elsewhere; NOT the divine ledger, so it never reads as DP.)
+        arcaneStoredGp = gained * 2;
+        ch.arcanePowerStoreGp = (Number(ch.arcanePowerStoreGp) || 0) + arcaneStoredGp;
+      } else {
+        const turn = campaign.currentTurn || 1;
+        accrueDivinePower(campaign, opts.casterId, gained, 'blood-sacrifice', deity ? deity.id : null,
+          { accruedAtTurn: turn, expiresAtTurn: turn + 1 });
+        divinePowerGained = gained;
+      }
+    }
+    // Stamp the favor's last-sacrifice turn (if a favor exists).
+    const fav = divineFavorOf(campaign, opts.casterId);
+    if(fav) fav.lastSacrificeAtTurn = campaign.currentTurn || 1;
+
+    // ── Record the blood-sacrifice event (the §8.9 context envelope: caster + the site) ──
+    const victimRef = opts.victimRef || (opts.victimCharacterId ? { kind: 'character', id: opts.victimCharacterId }
+      : opts.monsterCatalogKey ? { kind: 'monster', key: opts.monsterCatalogKey } : null);
+    const narrative = (ch.name || opts.casterId) + ' offers up '
+      + (victimRef && (victimRef.id || victimRef.key || victimRef.label) ? (victimRef.label || victimRef.id || victimRef.key) : 'a victim')
+      + ' — ' + (yieldsNothing ? 'no power earned (' + yieldReason + ')'
+        : (arcane ? arcaneStoredGp.toLocaleString() + 'gp arcane power stored' : divinePowerGained.toLocaleString() + 'gp divine power'))
+      + (throwResult ? (throwResult.success ? ' [multipliers earned]' : ' [multipliers lost — throw failed]') : '');
+    const ctxRel = [{ kind: 'character', id: opts.casterId, role: 'subject' }];
+    if(victimRef && victimRef.id) ctxRel.push({ kind: victimRef.kind || 'character', id: victimRef.id, role: 'victim' });
+    if(deity) ctxRel.push({ kind: 'deity', id: deity.id, role: 'beneficiary' });
+    const siteRef = opts.venueRef || null;
+    _recordReligionEvent(campaign, 'blood-sacrifice',
+      { casterCharacterId: opts.casterId, victimRef, componentValueGp: componentValue, multipliers: multKeys,
+        throwResult, divinePowerGained, arcaneStoredGp, yieldsNothing, deityId: deity ? deity.id : null },
+      { narrative, cadence: 'action',
+        context: { primaryHexId: (siteRef && siteRef.kind === 'hex') ? siteRef.id : null,
+          settlementId: (siteRef && siteRef.kind === 'settlement') ? siteRef.id : null,
+          relatedEntities: ctxRel } });
+
+    return { ok: true, componentValue, multipliers: multKeys, sumMultiplier: sumMult, throwResult,
+      base, bonus, gained, divinePowerGained, arcaneStoredGp, arcane, yieldsNothing, yieldReason };
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // Religion R1.5 — the day-tick weekly grain (Phase_4_Religion_Plan.md §5.7)
+  // ════════════════════════════════════════════════════════════════════════════
+  // The shipped day-tick pipeline (Calendar #478) lets congregation accrual run at its true WEEKLY
+  // grain when the GM advances days, instead of one lump at month-close. Self-registers the 'religion'
+  // day-consumer at SLOT 52 (after Construction 50, before the encounter stack 80 — the ⚠ slot fix in
+  // §5.7; weather is 1). Each completed week of the 30-day month (days 7/14/21/28 → weeks 1–4) credits
+  // one week of DP to each maintained congregation's high priest. The monthly consumer
+  // (processReligionForTurn) then tops up only the REMAINING weeks, so the two cadences total the same
+  // DP (the reconciliation lives there, via the transient cong._weeklyDpAccruedWeeks counter). When the
+  // Day Clock is NOT engaged the counter stays 0 and the monthly batch is byte-identical to R1.
+  //
+  // Records are informational (no pause trigger — religious upkeep never interrupts travel, §5.7). The
+  // actual ledger write + the divine-power-accrued event happen in commitReligionWeek via the shared
+  // accrueDivinePower (campaignLogHidden — routine weekly accrual stays out of the narrative Campaign
+  // Log, in the Event Log + histories per the Travel-pivot day-tick convention).
+
+  // Which week (1..4) a day completes, or 0 if the day is not a week boundary (or past week 4).
+  function _religionWeekBoundary(dayInMonth){
+    const d = Number(dayInMonth) || 0;
+    if(d % 7 !== 0 || d > 28) return 0;
+    return d / 7;
+  }
+  // PROPOSE (pure): on a week-boundary day, propose one accrual record per maintained, not-yet-accrued
+  // congregation. Reads cong._weeklyDpAccruedWeeks defensively (absent ⇒ 0). Untended weeks accrue
+  // nothing (their decline is settled monthly); a suspended (lapsed/excommunicate) priest accrues nothing.
+  function proposeReligionDay(campaign, ctx){
+    const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+    if(!campaign) return out;
+    ctx = ctx || {};
+    const weekNumber = _religionWeekBoundary(ctx.dayInMonth || campaign.currentDayInMonth || 1);
+    if(weekNumber <= 0) return out;
+    const congs = Array.isArray(campaign.congregations) ? campaign.congregations : [];
+    for(const cong of congs){
+      if(!cong) continue;
+      if(cong.status && cong.status !== 'active' && cong.status !== 'declining') continue;
+      if(weekNumber > congregationMaintainedWeeks(cong)) continue;          // untended week — decline is monthly
+      if(weekNumber <= Math.max(0, Number(cong._weeklyDpAccruedWeeks) || 0)) continue;   // already accrued (idempotency)
+      const priestId = cong.highPriestCharacterId;
+      if(!priestId) continue;
+      const fav = divineFavorOf(campaign, priestId);
+      if(fav && fav.standing && fav.standing !== 'good-standing') continue; // accrual suspended (§4.3)
+      const weeklyGp = congregationWeeklyDivinePowerGp(campaign, cong);
+      if(weeklyGp <= 0) continue;
+      out.pendingRecords.push({
+        kind: 'religion-week', consumer: 'religion', congregationId: cong.id, weekNumber: weekNumber,
+        weeklyDivinePowerGp: weeklyGp, highPriestCharacterId: priestId, deityId: cong.deityId || null,
+        label: '⛪ ' + _congLabel(cong) + ' — week ' + weekNumber + ': +' + weeklyGp.toLocaleString()
+          + 'gp divine power for ' + ((_findChar(campaign, priestId) || {}).name || priestId)
+      });
+    }
+    return out;
+  }
+  // COMMIT: apply a ratified weekly record — credit the week (advance the high-water counter) + accrue
+  // the week's DP to the high priest (spendable now, fades next month). Idempotent: a week already
+  // credited (commit applied twice / the propose-then-commit pass) is a no-op.
+  function commitReligionWeek(campaign, record){
+    if(!campaign || !record || record.kind !== 'religion-week') return;
+    const cong = findCongregation(campaign, record.congregationId);
+    if(!cong) return;
+    const weekNumber = Number(record.weekNumber) || 0;
+    if(weekNumber <= Math.max(0, Number(cong._weeklyDpAccruedWeeks) || 0)) return;   // already accrued
+    cong._weeklyDpAccruedWeeks = weekNumber;                                          // weeks 1..weekNumber credited
+    const gp = Math.round(Number(record.weeklyDivinePowerGp) || 0);
+    if(gp > 0 && record.highPriestCharacterId){
+      const turn = campaign.currentTurn || 1;
+      accrueDivinePower(campaign, record.highPriestCharacterId, gp, 'congregation', record.deityId,
+        { accruedAtTurn: turn, expiresAtTurn: turn + 1, campaignLogHidden: true });
+    }
+  }
+
+  // Self-register the slot-52 religion day-consumer (the weather/construction module pattern;
+  // registerDayConsumer ships from acks-engine.js, loaded before this module).
+  if(typeof ACKS.registerDayConsumer === 'function'){
+    ACKS.registerDayConsumer('religion', {
+      handler: proposeReligionDay,
+      order: 52,
+      pauseTriggers: [],
+      commit: commitReligionWeek
+    });
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     DIVINE_CLASSES,
@@ -607,7 +854,11 @@
     ensureDivineFavor, setDivineFavorStanding,
     foundCongregation, addProselytizingValue, setCongregationMaintenance,
     rollDivineThrow, consecrateFields, spendDivinePowerForPurpose, prayAndSacrifice,
-    processReligionForTurn
+    processReligionForTurn,
+    // ── Religion R2 (team 2026-06-14) — blood sacrifice (the Chaotic path, RR pp.421–422) ──
+    SACRIFICE_MULTIPLIERS, hasPowerOfSacrifice, sacrificeComponentValue, sacrificeMultiplierSum, bloodSacrifice,
+    // ── Religion R1.5 (team 2026-06-14) — the day-tick weekly grain (slot 52) ──
+    proposeReligionDay, commitReligionWeek
   });
 
 })(typeof window !== 'undefined' ? window : global);

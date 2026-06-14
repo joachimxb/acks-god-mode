@@ -205,6 +205,8 @@ const EVENT_KINDS = Object.freeze([
   'divine-power-accrued',   // a divine caster's expiring ledger gains DP (congregation / domain-worship / gm-grant)
   'consecration',           // DP spent on a consecration act (consecrate-fields / a generic divine spend)
   'divine-favor-changed',   // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
+  // === Religion R2 (team 2026-06-14) — blood sacrifice (the Chaotic path, RR pp.421–422) ===
+  'blood-sacrifice',        // a divine/arcane caster sacrifices a victim for divine/arcane power
   // === Hijinks HJ-1 (team) ===
   // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
@@ -228,7 +230,38 @@ const EVENT_KINDS = Object.freeze([
   // hooked into commitTurn); these keep the eventLog well-formed + carry the Event.context envelope
   // (the aging character as subject). 'death-from-old-age' carries the Death-save result (died bool).
   'aging-milestone',
-  'death-from-old-age'
+  'death-from-old-age',
+  // === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit of a generated hoard's
+  // materialization (ACKS.materializeHoard, acks-engine-treasure.js). The state is applied by the stash
+  // setters (depositToStash / promoteLineToNotableItem) + minted captive Characters; this keeps the
+  // eventLog well-formed + carries the Event.context envelope (primaryHexId = the hoard's hex,
+  // relatedEntities = the lair + any captives). Treasure generation is GM authoring, never a character activity.
+  'treasure-generated',
+  // === Sages SG-1 (burst5 b5-sages, #147) === — a sage consultation (RR p.171 / p.112): a lore
+  // query resolved on the shipped Proficiency-Throws Layer-1 die (in-specialty 3+ / out 18+, or a
+  // PC-sage's Knowledge/Loremastery throw), the fee via GP Wave B. Record-only (the consultSage
+  // verb already rolled + debited the fee); chronicle-visible (the answer narrates). Carries the
+  // §528 envelope (sage = source, client = beneficiary) + payload.activityCost (the #346 day).
+  'sage-consultation',
+  // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
+  // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
+  // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
+  // + carry the Event.context envelope (apex hex + ruler + the voting senators). Wizard opt-out below.
+  'senate-vote',
+  'policy-enacted',
+  // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
+  // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
+  // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
+  // the GP Wave B adventure-result disbursement); this keeps the eventLog well-formed on replay.
+  // Carries the Event.context envelope (the dungeon as site + the delve + the casualties). Event
+  // Wizard opt-out below — the GM runs a foray via the Foray Wizard, not the Event Wizard.
+  'delve-foray',
+  // === Character Lifecycle CL-2 (burst5) === — disease (JJ p.84). Record-only audit emitted by
+  // acks-engine-lifecycle.js (contractDisease + the slot-57 disease day-consumer's resolution).
+  // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
+  // death-from-old-age carrying died:bool); the eventLog narrative reads correctly either way.
+  'disease-contracted',
+  'disease-recovered'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -692,6 +725,11 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { characterId: 'string', action: 'string' },
     O: { deityId: 'string', standing: 'string', previousStanding: 'string', reason: 'string', divinePowerReturnedGp: 'number' }
   },
+  // === Religion R2 (team 2026-06-14) — blood sacrifice (RR pp.421–422) ===
+  'blood-sacrifice': {
+    R: { casterCharacterId: 'string', componentValueGp: 'number' },
+    O: { victimRef: 'object', multipliers: 'object', throwResult: 'object', divinePowerGained: 'number', arcaneStoredGp: 'number', yieldsNothing: 'boolean', deityId: 'string' }
+  },
   // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
   'hijink-attempted': {
     R: { hijinkId: 'string', type: 'string', perpetratorCharacterId: 'string' },
@@ -741,6 +779,58 @@ const EVENT_SCHEMAS = Object.freeze({
   'death-from-old-age': {
     R: { characterId: 'string', died: 'boolean' },
     O: { threshold: 'string', save: 'number', target: 'number', narrative: 'string' }
+  },
+  // === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit (see EVENT_KINDS).
+  'treasure-generated': {
+    R: { treasureType: 'string' },
+    O: { mode: 'string', totalGp: 'number', totalStone: 'number', stashId: 'string', lairId: 'string',
+         coins: 'object', gemCount: 'number', jewelryCount: 'number', magicSlotCount: 'number',
+         captiveCount: 'number', narrative: 'string' }
+  },
+  // === Sages SG-1 (burst5 b5-sages, #147) === — a sage consultation (consultSage; RR p.171 / p.112).
+  // Record-only (the verb already rolled the throw + debited the fee); the answer narrates. throw =
+  // { natural, total, target, success, margin, secret }; activityCost = the #346 day tag.
+  'sage-consultation': {
+    R: { sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
+         inSpecialty: 'boolean', target: 'number', throw: 'object', feeGp: 'number',
+         answerText: 'string', loreId: 'string', activityCost: 'object' }
+  },
+  // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
+  // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
+  'senate-vote': {
+    R: { senateId: 'string' },
+    O: { matter: 'string', mode: 'string', outcome: 'string', approved: 'boolean',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
+         totalVotes: 'number', majorityThreshold: 'number', rollCount: 'number', narrative: 'string' }
+  },
+  // The ruler's enactment of a policy (sets/clears senate.dispute). outcome ∈ enacted|defied|dispute-cleared.
+  'policy-enacted': {
+    R: { senateId: 'string' },
+    O: { matter: 'string', restricted: 'boolean', consulted: 'boolean', approved: 'boolean',
+         outcome: 'string', disputed: 'boolean', cleared: 'boolean', narrative: 'string' }
+  },
+  // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
+  // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
+  // carries the final disbursement (outcome cleared|withdrawn + magic-item rolls).
+  'delve-foray': {
+    R: { delveId: 'string' },
+    O: { dungeonId: 'string', phase: 'string', forayIndex: 'number', result: 'string',
+         outcome: 'string', encountersCleared: 'number', treasureGp: 'number', xp: 'number',
+         magicItemRolls: 'number', casualties: 'array', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-2 (burst5) === (JJ p.84; engine-emitted by acks-engine-lifecycle.js,
+  // record-only). A character contracts a disease (infected); then the disease resolves.
+  'disease-contracted': {
+    R: { characterId: 'string', diseaseType: 'string' },
+    O: { diseaseLabel: 'string', onsetDays: 'number', symptomDays: 'number', willDie: 'boolean',
+         saveRoll: 'number', saveTotal: 'number', saveTarget: 'number', narrative: 'string' }
+  },
+  // The disease's resolution. outcome ∈ recovered|cured|died; on death the consumer sets
+  // lifecycleState 'deceased'.
+  'disease-recovered': {
+    R: { characterId: 'string', diseaseType: 'string' },
+    O: { diseaseLabel: 'string', outcome: 'string', died: 'boolean', cured: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2238,6 +2328,9 @@ function applyEvent_religionAudit(campaign, event){
 registerEventHandler('divine-power-accrued', applyEvent_religionAudit);
 registerEventHandler('consecration', applyEvent_religionAudit);
 registerEventHandler('divine-favor-changed', applyEvent_religionAudit);
+// === Religion R2 (team 2026-06-14) — blood sacrifice shares the record-only audit posture
+// (bloodSacrifice already applied the ledger/arcane store; the handler keeps the event well-formed). ===
+registerEventHandler('blood-sacrifice', applyEvent_religionAudit);
 // === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
 // startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
 // handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
@@ -2272,6 +2365,41 @@ function applyEvent_agingAudit(campaign, event){
 }
 registerEventHandler('aging-milestone', applyEvent_agingAudit);
 registerEventHandler('death-from-old-age', applyEvent_agingAudit);
+// === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit posture: the hoard's
+// state is applied by ACKS.materializeHoard (the stash deposit + notable promotion + minted captive
+// Characters, acks-engine-treasure.js); this handler keeps the event well-formed on replay (records
+// the narrative only). Mirrors aging / mortal-wound / survival.
+function applyEvent_treasureAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'treasure generated' } };
+}
+registerEventHandler('treasure-generated', applyEvent_treasureAudit);
+// === Politics P-2 (burst5 2026-06-14) === — the senate events share the record-only audit posture:
+// ACKS.senateVote / ACKS.enactPolicy (acks-engine-politics.js) already computed the tally + set/cleared
+// senate.dispute; the handler keeps the event well-formed on replay (records the narrative only).
+function applyEvent_senateAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'senate event' } };
+}
+registerEventHandler('senate-vote', applyEvent_senateAudit);
+registerEventHandler('policy-enacted', applyEvent_senateAudit);
+// === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
+// already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
+// disbursement); this handler keeps the event well-formed on replay (records the narrative only).
+function applyEvent_delveAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'delve foray' } };
+}
+registerEventHandler('delve-foray', applyEvent_delveAudit);
+// === Character Lifecycle CL-2 (burst5) === — disease events share the record-only audit posture:
+// acks-engine-lifecycle.js already advanced the disease state; the handler keeps the event
+// well-formed on replay (records the narrative only). Mirrors aging / mortal-wound / survival.
+function applyEvent_diseaseAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'disease' } };
+}
+registerEventHandler('disease-contracted', applyEvent_diseaseAudit);
+registerEventHandler('disease-recovered', applyEvent_diseaseAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5252,6 +5380,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // + domain state don't show; the GM authors deities/congregations via Inspector Create + the
   // ⛪ Religion view's actions, not these raw events.
   'divine-power-accrued', 'consecration', 'divine-favor-changed',
+  // === Religion R2 (team 2026-06-14) — owned by bloodSacrifice (raw emit would record a sacrifice
+  // the divine/arcane ledgers don't show; the GM performs it via the ⛪ Religion view's action). ===
+  'blood-sacrifice',
   // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
   // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
   'hijink-attempted', 'hijink-resolved',
@@ -5279,7 +5410,24 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Character Lifecycle CL-1 (burst4) === — owned by ACKS.processAgingForTurn (the monthly pass);
   // a raw emit would narrate an aging/death the character's age/lifecycleState don't show. The GM sets
   // an age via the character sheet, not the Event Wizard.
-  'aging-milestone', 'death-from-old-age'
+  'aging-milestone', 'death-from-old-age',
+  // === Treasure Generation #142 (burst5 2026-06-14) === — owned by ACKS.materializeHoard (the
+  // Treasure Wizard); a raw emit would record a hoard the stashes/notables/captives don't show. The
+  // GM rolls + places a hoard via the wizard, not the Event Wizard.
+  'treasure-generated',
+  // === Sages SG-1 (burst5 b5-sages, #147) === — owned by consultSage (the consult modal); a raw
+  // emit would carry no real throw/fee breakdown. The GM consults a sage via the modal, not here.
+  'sage-consultation',
+  // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
+  // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
+  'senate-vote', 'policy-enacted',
+  // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
+  // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
+  'delve-foray',
+  // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
+  // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
+  // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
+  'disease-contracted', 'disease-recovered'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

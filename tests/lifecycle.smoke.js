@@ -1,4 +1,4 @@
-/* tests/lifecycle.smoke.js — Character Lifecycle CL-1: aging (RR p.19).
+/* tests/lifecycle.smoke.js — Character Lifecycle CL-1 aging (RR p.19) + CL-2 disease (JJ p.84).
  *
  *   node tests/lifecycle.smoke.js   (or via `npm test`)
  *
@@ -260,6 +260,175 @@ section('commitTurn + proposeMonthlyTurn integration (the demo — the hook fire
   ok('the demo character aged 35→36 with the −2 CON adjustment', ch.age===36 && ch.ageCategory==='middle-aged' && ch.abilities.CON===conBefore-2);
   ok('an aging-milestone event landed in the demo eventLog', demo.eventLog.some(e => e.event.kind==='aging-milestone' && e.event.payload.characterId===ch.id));
   ok('demo characters left unseeded (age undefined/null) are skipped — migrate-no-op safe', demo.characters.slice(1).every(x => x.age == null));
+}
+
+// =============================================================================
+// === Character Lifecycle CL-2 (burst5) — disease (JJ p.84) ===================
+// Locks the JJ p.84 disease engine: the six-disease table (save bonuses / onset+symptom / death
+// thresholds), the 1d100 Disease Type roll (open at both ends), contractDisease (made save → no
+// infection; a failed save → infected; willDie by margin AND by natural-1), the slot-57 day-tick
+// consumer (infected → symptomatic [incapacitated] → recover [back to active] / die [deceased]),
+// the pure-handler-mutates-nothing discipline, the full proposeDayTick→commitDayTick pipeline
+// emitting disease-recovered, the auto-pause-on-disease pause, cure / identify, the reads, the
+// D1 incapacitation interplay, and the migrate-no-op (the demo carries no diseases).
+// =============================================================================
+section('CL-2 disease — the Disease Type table (JJ p.84)');
+{
+  const DT = ACKS.DISEASE_TYPES; const by = id => DT.find(d => d.id === id);
+  ok('six diseases in the table', Array.isArray(DT) && DT.length === 6);
+  ok('Plague: max 5, save +0, onset 1d4, symptom 1d8, death by 6+', by('plague').max===5 && by('plague').saveBonus===0 && by('plague').onset==='1d4' && by('plague').symptom==='1d8' && by('plague').deathThreshold===6);
+  ok('Putrid Fever: max 15, +0, onset 2d4, symptom 14d, death by 7+', by('putrid-fever').max===15 && by('putrid-fever').saveBonus===0 && by('putrid-fever').onset==='2d4' && by('putrid-fever').symptom===14 && by('putrid-fever').deathThreshold===7);
+  ok('Spotted Pox: max 30, +1, symptom 21d, death by 8+, disfiguring', by('spotted-pox').max===30 && by('spotted-pox').saveBonus===1 && by('spotted-pox').symptom===21 && by('spotted-pox').deathThreshold===8 && by('spotted-pox').disfiguring===true);
+  ok('Bilious Fever: max 50, +2, symptom 28d, death by 8+', by('bilious-fever').max===50 && by('bilious-fever').saveBonus===2 && by('bilious-fever').symptom===28 && by('bilious-fever').deathThreshold===8);
+  ok('Ague: max 75, +3, symptom 1d4w, death by 10+', by('ague').max===75 && by('ague').saveBonus===3 && by('ague').symptom==='1d4w' && by('ague').deathThreshold===10);
+  ok('Bloody Flux: max 100, +4, onset 1d4, symptom 7d, death only on a natural 1', by('bloody-flux').max===100 && by('bloody-flux').saveBonus===4 && by('bloody-flux').symptom===7 && by('bloody-flux').deathThreshold===Infinity);
+}
+ok("event kind 'disease-contracted' is registered", ACKS.isEventKindKnown('disease-contracted'));
+ok("event kind 'disease-recovered' is registered", ACKS.isEventKindKnown('disease-recovered'));
+ok('both disease events opt out of the Event Wizard', !ACKS.isWizardEmittable('disease-contracted') && !ACKS.isWizardEmittable('disease-recovered'));
+ok('exports the disease verbs + reads + consumer', typeof ACKS.contractDisease==='function' && typeof ACKS.cureDisease==='function' && typeof ACKS.identifyDisease==='function' && typeof ACKS.characterDiseaseInfo==='function' && typeof ACKS.proposeDiseaseDay==='function' && typeof ACKS.advanceDiseases==='function');
+ok('blankCharacter does NOT seed diseases (init-on-write, migrate-no-op)', ACKS.blankCharacter({}).diseases === undefined);
+
+section('CL-2 disease — diseaseTypeForRoll (1d100, open at both ends)');
+{
+  const t = r => ACKS.diseaseTypeForRoll(r).id;
+  ok('5→plague, 6→putrid, 16→pox, 31→bilious, 51→ague, 76→flux', t(5)==='plague' && t(6)==='putrid-fever' && t(16)==='spotted-pox' && t(31)==='bilious-fever' && t(51)==='ague' && t(76)==='bloody-flux');
+  ok('upper boundaries: 15→putrid, 30→pox, 50→bilious, 75→ague, 100→flux', t(15)==='putrid-fever' && t(30)==='spotted-pox' && t(50)==='bilious-fever' && t(75)==='ague' && t(100)==='bloody-flux');
+  ok('open ends: a negative modified roll → Plague (worst); >100 → Bloody Flux', t(-7)==='plague' && t(0)==='plague' && t(150)==='bloody-flux');
+}
+
+section('CL-2 disease — contractDisease (the Death save + willDie, JJ p.84)');
+{
+  // a made save → no infection.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Aelric', savingThrows:{death:11} });
+  const r = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:20 }); // ague +3 → 23 vs 11 → saved
+  ok('a made save → no infection (infected:false), nothing pushed', r.infected===false && (ch.diseases===undefined || ch.diseases.length===0));
+  ok('no disease-contracted event on a made save', !c.eventLog.some(e=>e.event.kind==='disease-contracted'));
+}
+{
+  // a failed save by a wide margin → infected + willDie.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Mira', savingThrows:{death:15} });
+  const r = ACKS.contractDisease(c, ch.id, { diseaseType:'plague', forcedSave:2, forcedOnset:3, forcedSymptom:5 }); // total 2 vs 15 → failed by 13 ≥ 6
+  ok('a failed save → infected, record pushed (init-on-write)', r.phase==='infected' && Array.isArray(ch.diseases) && ch.diseases.length===1);
+  ok('willDie when the margin ≥ the death threshold (failed by 13 ≥ 6)', r.willDie===true && r.failedBy===13);
+  ok('onset/symptom set (forced 3/5)', r.onsetRemaining===3 && r.symptomRemaining===5);
+  ok('a disease-contracted event lands with the character as subject', (()=>{ const e=c.eventLog.find(x=>x.event.kind==='disease-contracted'); return e && e.event.context.relatedEntities[0].id===ch.id && e.event.context.relatedEntities[0].role==='subject' && e.event.payload.willDie===true; })());
+}
+{
+  // failed by LESS than the threshold → infected but will recover.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Tomas', savingThrows:{death:15} });
+  const r = ACKS.contractDisease(c, ch.id, { diseaseType:'plague', forcedSave:12 }); // failed by 3 < 6 → recover
+  ok('failed by less than the threshold → infected but willDie:false', r.phase==='infected' && r.willDie===false && r.failedBy===3);
+}
+{
+  // a NATURAL 1 always fails AND kills (even Bloody Flux, which otherwise only kills on a nat 1).
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Cassian', savingThrows:{death:4} });
+  const r = ACKS.contractDisease(c, ch.id, { diseaseType:'bloody-flux', forcedSave:1 }); // nat 1: total 5 ≥ 4 but fails → infected + willDie
+  ok('a natural 1 fails despite a made total → infected + willDie', r.phase==='infected' && r.naturalOne===true && r.willDie===true);
+}
+{
+  // the context modifier shifts the Disease Type roll (−10 jungle on a d100=12 → 2 → Plague).
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Nessa', savingThrows:{death:20} });
+  const r = ACKS.contractDisease(c, ch.id, { forcedD100:12, modifier:-10, forcedSave:1 });
+  ok('a context modifier shifts the Disease Type roll (−10 → Plague)', r.diseaseType==='plague');
+}
+
+section('CL-2 disease — the slot-57 day-tick consumer (onset → symptomatic → resolve)');
+ok('slot-57 disease day-consumer registered with the disease pause trigger', ACKS.dayConsumersInOrder().some(x=>x.name==='disease' && x.order===57 && (x.pauseTriggers||[]).indexOf('disease')>=0));
+{
+  // infected (onset 2) → symptomatic [incapacitated] → recovered [back to active] (willDie:false).
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Halvard', savingThrows:{death:15} });
+  ACKS.contractDisease(c, ch.id, { diseaseType:'putrid-fever', forcedSave:12, forcedOnset:2, forcedSymptom:3 });
+  ACKS.advanceDiseases(c, 2);
+  ok('after onset elapses → symptomatic + incapacitated', ch.diseases[0].phase==='symptomatic' && ch.lifecycleState==='incapacitated');
+  ACKS.advanceDiseases(c, 3);
+  ok('after symptom elapses (willDie:false) → recovered + back to active', ch.diseases[0].phase==='recovered' && ch.diseases[0].resolved===true && ch.lifecycleState==='active');
+}
+{
+  // willDie path → died + deceased.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Doomed', savingThrows:{death:15} });
+  ACKS.contractDisease(c, ch.id, { diseaseType:'plague', forcedSave:2, forcedOnset:1, forcedSymptom:1 });
+  ACKS.advanceDiseases(c, 1); ACKS.advanceDiseases(c, 1);
+  ok('a willDie disease resolves to died → deceased + alive:false', ch.diseases[0].phase==='died' && ch.lifecycleState==='deceased' && ch.alive===false);
+}
+{
+  // the PURE handler proposes without mutating + labels the record.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Pure', savingThrows:{death:15} });
+  ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:4, forcedSymptom:7 });
+  const before = ch.diseases[0].onsetRemaining;
+  const prop = ACKS.proposeDiseaseDay(c, {});
+  ok('proposeDiseaseDay does NOT mutate + labels the record', ch.diseases[0].onsetRemaining===before && prop.pendingRecords.length===1 && /Ague/.test(prop.pendingRecords[0].label));
+}
+{
+  // the full day-tick pipeline (propose → commit) emits disease-recovered with the subject context.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Pipeline', savingThrows:{death:15}, hexId:'hex-b' });
+  ACKS.contractDisease(c, ch.id, { diseaseType:'plague', forcedSave:12, forcedOnset:1, forcedSymptom:1 });
+  ACKS.commitDayTick(c, ACKS.proposeDayTick(c, 2, { force:true }), null);
+  ok('the day-tick pipeline emits disease-recovered (recovered)', c.eventLog.some(e=>e.event.kind==='disease-recovered' && e.event.payload.outcome==='recovered'));
+  ok('the recovery narrative + subject hex context', (()=>{ const e=c.eventLog.find(x=>x.event.kind==='disease-recovered'); return e && /recovers from Plague/.test(e.result.narrativeSummary) && e.event.context.primaryHexId==='hex-b'; })());
+}
+{
+  // a non-forced multi-day advance PAUSES on the symptomatic flip (auto-pause-on-disease default-on).
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Pauser', savingThrows:{death:15} });
+  ACKS.contractDisease(c, ch.id, { diseaseType:'bilious-fever', forcedSave:12, forcedOnset:1, forcedSymptom:9 });
+  const p = ACKS.proposeDayTick(c, 12, {});
+  ok('a multi-day advance pauses on the symptomatic transition', p.paused===true && p.daysAdvanced<12 && p.pauseReasons.some(r=>r.trigger==='disease'));
+}
+
+section('CL-2 disease — cure, identify, the reads, the D1 interplay');
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Curable', savingThrows:{death:15} });
+  const rec = ACKS.contractDisease(c, ch.id, { diseaseType:'plague', forcedSave:2, forcedOnset:2, forcedSymptom:9 }); // willDie:true
+  ACKS.advanceDiseases(c, 2);
+  ok('symptomatic + incapacitated before the cure', ch.diseases[0].phase==='symptomatic' && ch.lifecycleState==='incapacitated');
+  ACKS.cureDisease(c, ch.id, rec.id, { method:'cure disease' });
+  ok('cure → resolved (recovered) + incapacitation cleared + willDie reset', ch.diseases[0].resolved===true && ch.diseases[0].phase==='recovered' && ch.diseases[0].willDie===false && ch.lifecycleState==='active');
+  ok('a cure emits disease-recovered (cured:true)', c.eventLog.some(e=>e.event.kind==='disease-recovered' && e.event.payload.cured===true));
+}
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Diagnosed', savingThrows:{death:15} });
+  const rec = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:2, forcedSymptom:7 });
+  ACKS.identifyDisease(c, ch.id, rec.id);
+  ok('identify on an infected character → sensed', ch.diseases[0].identifiedLevel==='sensed' && ch.diseases[0].prognosisKnown===false);
+  ACKS.advanceDiseases(c, 2);
+  ACKS.identifyDisease(c, ch.id, rec.id);
+  ok('identify on a symptomatic character → identified', ch.diseases[0].identifiedLevel==='identified');
+  ACKS.identifyDisease(c, ch.id, rec.id, { level:'prognosis' });
+  ok('a further throw → prognosis (prognosisKnown)', ch.diseases[0].identifiedLevel==='prognosis' && ch.diseases[0].prognosisKnown===true);
+}
+{
+  const c = mkCampaign(); const a = mkChar(c, { id:'a', name:'A', savingThrows:{death:15} }); mkChar(c, { id:'b', name:'B', savingThrows:{death:15} });
+  ok('anyDiseased false on a clean campaign', ACKS.anyDiseased(c)===false);
+  ACKS.contractDisease(c, 'a', { diseaseType:'plague', forcedSave:2, forcedOnset:3, forcedSymptom:5 });
+  ok('anyDiseased true once a character is infected', ACKS.anyDiseased(c)===true);
+  const info = ACKS.characterDiseaseInfo(a);
+  ok('characterDiseaseInfo reports the active disease + phase + days remaining', info.count===1 && info.diseases[0].diseaseType==='plague' && info.diseases[0].phase==='infected' && info.diseases[0].daysRemaining===3);
+  ACKS.cureDisease(c, 'a', info.diseases[0].id);
+  ok('characterActiveDiseases excludes a resolved disease', ACKS.characterActiveDiseases(a).length===0);
+}
+if(typeof ACKS.applyMortalWound === 'function' && typeof ACKS.rollMortalWound === 'function'){
+  // a disease recovery does NOT clear incapacitation while a wound still holds it (D1 interplay).
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Both', savingThrows:{death:15}, abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:12,CHA:10}, extra:{ hp:{ current:5, max:10, hitDice:'1d8' } } });
+  const wres = ACKS.rollMortalWound(ch, { abstract:true, conditionId:'critically-wounded', forcedD6:6 });
+  ACKS.applyMortalWound(c, ch.id, wres, { healedToOneHp:true });
+  ok('the wound incapacitates the character', ch.lifecycleState==='incapacitated');
+  const drec = ACKS.contractDisease(c, ch.id, { diseaseType:'ague', forcedSave:8, forcedOnset:1, forcedSymptom:9 });
+  ACKS.advanceDiseases(c, 1);
+  ACKS.cureDisease(c, ch.id, drec.id);
+  ok('curing the disease keeps the character incapacitated while a wound bed-rest remains', ch.lifecycleState==='incapacitated');
+} else {
+  ok('D1 wound-interplay test skipped (mortal-wounds module not present)', true);
+}
+
+section('CL-2 disease — migrate-no-op (the demo carries no diseases)');
+{
+  require(path.join(__dirname, '..', 'acks-demo-template.js'));
+  const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
+  ok('no demo character carries a diseases[] field after migrate (init-on-write)', demo.characters.every(c => c.diseases === undefined));
+  ok('anyDiseased(demo) is false', ACKS.anyDiseased(demo)===false);
+  const elBefore = demo.eventLog.length;
+  ACKS.advanceDiseases(demo, 5);
+  ok('advancing diseases on the demo is a no-op (no disease events)', demo.eventLog.length===elBefore && !demo.eventLog.some(e=>e.event.kind && /disease/.test(e.event.kind)));
 }
 
 // =============================================================================

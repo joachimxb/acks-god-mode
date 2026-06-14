@@ -39,21 +39,21 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-14-pt5"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-14-audit1"></script>
+<script src="acks-engine.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-entities.js?v=2026-06-14-pt0"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
-<script src="acks-engine-entity-registry.js?v=2026-05-31-a"></script>
-<script src="acks-engine-field-schemas.js?v=2026-06-12-b"></script>
-<script src="acks-engine-events.js?v=2026-06-14-pt6"></script>
+<script src="acks-engine-entity-registry.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-field-schemas.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-events.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-14-pt5"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
-<script src="acks-engine-religion.js?v=2026-06-13-a"></script>
+<script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
@@ -70,13 +70,23 @@
 <!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
 <!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
-<script src="acks-engine-politics.js?v=2026-06-13-a"></script>
+<script src="acks-engine-politics.js?v=2026-06-14-burst5"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
-<script src="acks-engine-lifecycle.js?v=2026-06-14-a"></script>
+<script src="acks-engine-lifecycle.js?v=2026-06-14-burst5"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
 <script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
+<!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
+<!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
+<!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<script src="acks-engine-custom-classes.js?v=2026-06-14-burst5"></script>
+<!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<script src="acks-engine-treasure.js?v=2026-06-14-burst5"></script>
+<!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
+<!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
@@ -1111,11 +1121,36 @@ document.addEventListener('alpine:init', () => {
               <td x-text="dungeonSizeLevelLabel(d)"></td>
               <td class="text-right font-mono" x-text="dungeonEncountersLeft(d)"></td>
               <td x-text="d.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="d.knownToPlayers ? '' : 'opacity-60'"></td>
-              <td class="text-right"><button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button></td>
+              <td class="text-right whitespace-nowrap">
+                <template x-if="dungeonForayable(d)"><button @click="openForayWizard(d.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 mr-1" title="Run an abstract foray (JJ ch.12)">⚔ Foray</button></template>
+                <button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button>
+              </td>
             </tr>
           </template>
         </tbody>
       </table>
+    </template>
+    <!-- === Delves D3 — delves in progress (continue / withdraw / realize a multi-foray operation) === -->
+    <template x-if="forayActiveDelves().length > 0">
+      <div class="mt-4 border-t border-ink/20 pt-3">
+        <h4 class="font-semibold text-sm mb-1">⚔ Delves in progress <span class="opacity-60 font-normal" x-text="'· ' + forayActiveDelves().length"></span></h4>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th>Delve</th><th>Dungeon</th><th class="text-right">Forays</th><th class="text-right">Running XP</th><th class="text-right">Running gp</th><th class="text-right">Left</th><th class="text-right">Actions</th></tr></thead>
+          <tbody>
+            <template x-for="dl in forayActiveDelves()" :key="dl.id">
+              <tr>
+                <td x-text="dl.name || '(delve)'"></td>
+                <td x-text="forayDelveDungeonName(dl)"></td>
+                <td class="text-right font-mono" x-text="(dl.foraysResolved||[]).length"></td>
+                <td class="text-right font-mono" x-text="dl.runningXp||0"></td>
+                <td class="text-right font-mono" x-text="dl.runningTreasureGp||0"></td>
+                <td class="text-right font-mono" x-text="forayDelveRemaining(dl)"></td>
+                <td class="text-right"><button @click="openForayWizard(dl.dungeonId)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Continue this delve">⚔ Continue</button></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
     </template>
     <p class="text-sm opacity-60 mt-3 italic">First-class delve targets in <code>campaign.dungeons[]</code> (Phase 3.5). <em>Lifecycle</em> overlays <em>Attuned</em> / <em>Owned</em> onto the stored status (derived — <code>dungeonLifecycleLabel</code>). <em>Encounters left</em> is the authored count, or — for a dungeon stocked with lairs (<code>lair.dungeonId</code>) — the living-lair count. The abstract-foray resolver + the Foray Wizard land in D3.</p>
   </div>
@@ -9739,6 +9774,43 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Character Lifecycle CL-2 (b5-cl2, burst5) — Health / Diseases readout (JJ p.84). Sits
+             beside the Wounds readout above — the "what's wrong with this person" cluster (Plan §9).
+             A symptomatic disease incapacitates; onset/symptom advance on the Day Clock (the slot-57
+             disease consumer). 🤒 exposes the character; per-disease Identify / Cure. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Health <span class="text-sm font-normal opacity-60">(diseases — JJ p.84)</span></h4>
+              <button @click="openExposeDiseaseModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Expose this character to a disease (JJ p.84)">🤒 Expose to disease</button>
+            </div>
+            <template x-if="characterEditing.lifecycleState === 'incapacitated' && diseaseSymptomatic(characterEditing)">
+              <p class="text-sm accent-red font-semibold mb-1">🤒 Symptomatic — incapacitated until the disease resolves or is cured (advance the Day Clock).</p>
+            </template>
+            <template x-if="characterDiseaseRows(characterEditing).length === 0">
+              <p class="text-sm italic opacity-60">No active diseases.</p>
+            </template>
+            <ul class="space-y-1 text-sm" x-show="characterDiseaseRows(characterEditing).length">
+              <template x-for="d in characterDiseaseRows(characterEditing)" :key="d.id">
+                <li class="flex items-start gap-2 py-0.5 border-b border-ink/10">
+                  <span class="text-base leading-tight" x-text="d.phase === 'symptomatic' ? '🤒' : '🦠'"></span>
+                  <span class="flex-1">
+                    <span class="font-semibold" x-text="d.diseaseLabel"></span>
+                    <span class="opacity-70" x-text="' · ' + d.phaseLabel"></span>
+                    <template x-if="d.disfiguring"><span class="text-xs opacity-60"> · disfiguring</span></template>
+                    <template x-if="d.prognosisKnown"><span class="block text-xs" :class="d.willDie ? 'accent-red' : ''" x-text="'prognosis: ' + (d.willDie ? 'will die without a cure' : 'will recover')"></span></template>
+                    <div class="flex gap-1 mt-0.5">
+                      <button @click="identifyDiseaseRow(characterEditing, d)" :disabled="d.identifiedLevel === 'prognosis'" :class="d.identifiedLevel === 'prognosis' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-50'" class="text-xs px-1 border border-ink/30 rounded" title="Record the party's Healing diagnosis (JJ p.84)" x-text="d.identifiedLevel === 'identified' ? '+ prognosis' : (d.identifiedLevel === 'prognosis' ? '✓ diagnosed' : '🔍 identify')"></button>
+                      <button @click="cureDiseaseRow(characterEditing, d)" class="text-xs px-1 border border-ink/30 rounded hover:bg-green-50" title="Cure (Healing proficiency / cure disease magic)">✚ cure</button>
+                    </div>
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p class="text-xs italic opacity-60 mt-2">A symptomatic disease incapacitates until it resolves or is cured. Onset &amp; symptoms advance on the Day Clock (JJ p.84).</p>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -9749,7 +9821,10 @@ document.addEventListener('alpine:init', () => {
         <div x-data="{ newProf: '' }">
           <div class="flex items-center justify-between mb-1">
             <h4 class="font-semibold text-sm">Proficiencies <span class="text-sm font-normal opacity-60">(RR ch.4)</span></h4>
-            <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
+            <span class="flex gap-2">
+              <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
+              <button @click="openSageConsultModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Consult a sage — a lore/knowledge query resolved on the proficiency throw (RR p.171). A character with a specialty, or Knowledge/Loremastery, is a sage.">🔮 Consult a sage</button>
+            </span>
           </div>
           <p class="text-sm opacity-70 mb-2">Class + general proficiencies. Add one at a time; every add/edit/remove is logged.</p>
           <template x-if="(characterEditing.proficiencies||[]).length === 0">
@@ -11639,7 +11714,7 @@ document.addEventListener('alpine:init', () => {
       <label class="flex flex-col">High priest
         <select x-model="religionCongForm.highPriestCharacterId" class="w-44">
           <option value="">— pick —</option>
-          <template x-for="ch in (currentCampaign.characters||[])" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+          <template x-for="ch in ((currentCampaign && currentCampaign.characters)||[])" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
         </select>
       </label>
       <label class="flex flex-col">Domain worship (ruler/chaplain)
@@ -11738,6 +11813,73 @@ document.addEventListener('alpine:init', () => {
     </div>
     <p class="text-sm opacity-60 mt-3 italic">Divine power is spent on consecration or returned for XP. It cannot be hoarded — each accrual fades one month after it's received (RR p.422). Pray-and-sacrifice grants campaign XP for the month's returned power above your XP threshold, settled at Advance Month.</p>
   </div>
+
+  <!-- 🩸 Blood Sacrifice (R2 — the Chaotic path, RR pp.421–422) -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg">🩸 Blood Sacrifice <span class="text-sm opacity-70 font-normal">· the Chaotic path · RR pp.421–422</span></h3>
+    <p class="text-sm opacity-70 mt-1 mb-3">A divine caster spills a victim's life to earn divine power. The <em>base</em> (= the victim's component value, usually its XP value) is always earned; the victim-characteristic <em>multipliers</em> are added only on a successful magic-research throw. Lawful/Neutral casters can only sacrifice <em>helpless animals</em> — never sapient creatures (RR p.422); a Chaotic caster takes a willing victim. Warlock/demonologist <em>Power of Sacrifice</em> casters store arcane power ×2 instead.</p>
+    <template x-if="religionSacCasterOptions().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No divine or arcane casters in this campaign yet.</p>
+    </template>
+    <template x-if="religionSacCasterOptions().length > 0">
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-end gap-2 text-sm">
+          <label class="flex flex-col">Caster
+            <select x-model="religionSacForm.casterId" class="w-44">
+              <option value="">— pick —</option>
+              <template x-for="ch in religionSacCasterOptions()" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Victim (a character)
+            <select x-model="religionSacForm.victimCharacterId" class="w-44">
+              <option value="">— none / use value —</option>
+              <template x-for="ch in ((currentCampaign && currentCampaign.characters)||[])" :key="ch.id"><option :value="ch.id" x-text="(ch.name||ch.id) + ' · ' + (ch.xp||0).toLocaleString() + ' XP'"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col" x-show="!religionSacForm.victimCharacterId">Component value (gp)<input type="number" min="0" x-model.number="religionSacForm.componentValueGp" class="w-32"></label>
+          <label class="flex flex-col">Victim alignment
+            <select x-model="religionSacForm.victimAlignment" class="w-28"><option value="">—</option><option>Lawful</option><option>Neutral</option><option>Chaotic</option></select>
+          </label>
+        </div>
+        <div class="flex flex-wrap items-center gap-4 text-sm">
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="religionSacForm.victimSapient"> Sapient victim</label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="religionSacForm.victimWilling"> Willing</label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="religionSacForm.victimHelpless"> Helpless</label>
+        </div>
+        <div class="text-sm">
+          <span class="opacity-70">Multipliers (each ×component value, on a successful throw):</span>
+          <div class="flex flex-wrap gap-3 mt-1">
+            <template x-for="k in religionSacMultiplierKeys()" :key="k">
+              <label class="flex items-center gap-1"><input type="checkbox" :checked="!!religionSacForm.multipliers[k]" @change="religionSacToggleMult(k)">
+                <span x-text="k + ' (×' + religionSacMultValue(k) + ')'"></span></label>
+            </template>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <button @click="religionPerformSacrifice()" class="px-3 py-1 border border-ink rounded bg-red-200 hover:bg-red-300 font-semibold" :disabled="!religionSacForm.casterId">🩸 Perform sacrifice</button>
+          <span class="text-sm opacity-70" x-text="'base ' + religionSacComponentPreview().toLocaleString() + 'gp · multipliers ×' + religionSacMultSumPreview()"></span>
+        </div>
+        <template x-if="religionSacResult">
+          <div class="vellum border border-ink/40 rounded p-2 text-sm" :class="religionSacResult.ok ? '' : 'border-red-400'">
+            <template x-if="!religionSacResult.ok">
+              <span class="text-red-700" x-text="'✗ Blocked: ' + religionSacResult.reason"></span>
+            </template>
+            <template x-if="religionSacResult.ok">
+              <div>
+                <span x-show="religionSacResult.yieldsNothing" class="text-amber-700" x-text="'⚠ The act is done, but no power is earned (' + religionSacResult.yieldReason + ').'"></span>
+                <span x-show="!religionSacResult.yieldsNothing && religionSacResult.arcane" x-text="'🔮 Stored ' + (religionSacResult.arcaneStoredGp||0).toLocaleString() + 'gp arcane power (×2, indefinite).'"></span>
+                <span x-show="!religionSacResult.yieldsNothing && !religionSacResult.arcane" x-text="'🩸 Gained ' + (religionSacResult.divinePowerGained||0).toLocaleString() + 'gp divine power (base ' + (religionSacResult.base||0).toLocaleString() + ' + bonus ' + (religionSacResult.bonus||0).toLocaleString() + ').'"></span>
+                <span x-show="religionSacResult.throwResult" class="opacity-70" x-text="religionSacResult.throwResult ? (' · throw ' + religionSacResult.throwResult.roll + (religionSacResult.throwResult.success ? ' ✓ multipliers earned' : ' ✗ multipliers lost') ) : ''"></span>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  <!-- Weekly grain note (R1.5) -->
+  <p class="text-sm opacity-60 italic px-1">⏳ Advance the <strong>Day Clock</strong> to accrue divine power at its true <em>weekly</em> grain (one week each on days 7 / 14 / 21 / 28 of the month); the day-tick review lists each week's accrual. Otherwise it batches on <strong>Advance Month</strong> — the two cadences total the same power for the month (RR p.422; Plan §5.7).</p>
 </div>
 <!-- ═══════════ end VIEW: RELIGION ═══════════ -->
 <!-- ── agent-2 (DC-2): extends the existing Domain-Advancement panel in place — usually nothing here ── -->
@@ -12250,6 +12392,650 @@ document.addEventListener('alpine:init', () => {
 <!-- ── agent-3 (Hex Scales HW-4): the scale-switcher extends the World▸Map render in place — usually nothing here ── -->
 <!-- ── agent-4 (DC-3): extends the domain panel in place — usually nothing here ── -->
 <!-- ── agent-5 (Hijinks HJ-2): your syndicate modal goes below (the sub-view itself is the existing Activities▸Hijinks) ── -->
+<!-- ===== TEAM BURST5 — modal / body-HTML tail · each UI builder adds ITS modal markup after its own line (inside x-data on <body>, so it binds) ===== -->
+<!-- b5-treasure (#142): Treasure Wizard modal here -->
+<!-- Treasure Generator (#142, T1–T3) — a generative wizard (Architecture §8 — the Town/Faction/
+     Domain/Lair-Wizard family; GM authoring of what's in the world, no in-fiction cost). Rolls a
+     RAW hoard (treasure type A–R, or a 4×ΣXP budget) and materializes it onto the SHIPPED item
+     spine (a `cache` Stash of facet lines + promoted notableItems[] for magic + captive Characters).
+     openTreasureWizard(opts={treasureType,targetGp,hexId,lairId}) — so the Inspector-Create / a
+     lair-detail / a hex-card launch are each a one-liner (deferred to a follow-up — see the SUMMARY).
+     The FAB below is the lane-owned launch. z-index:78 (the generative-wizard family, like the lair detail). -->
+<button x-show="currentCampaign" @click="openTreasureWizard()" x-cloak
+        class="fixed bottom-4 right-4 px-3 py-2 border-2 border-ink rounded-full shadow-lg bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold opacity-80 hover:opacity-100 no-print"
+        style="z-index:40" title="Generate a treasure hoard (RAW treasure types A–R) and place it as a cache">💰 Treasure</button>
+<div x-show="treasureWizard.open" @keydown.escape.window="if(treasureWizard.open && !$event.defaultPrevented){ closeTreasureWizard(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeTreasureWizard()">
+  <template x-if="treasureWizard.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">💰 Treasure Generator <span class="text-sm font-normal opacity-70">· Treasure Tome pp.13–25</span></h2>
+      <button @click="closeTreasureWizard()" class="text-xl px-2 leading-none" aria-label="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3 text-sm">
+      <!-- context (when launched from a lair) -->
+      <template x-if="treasureWizard.lairName">
+        <div class="vellum border border-ink/40 rounded p-2">🏚 Rolling the hoard for <span class="font-semibold" x-text="treasureWizard.lairName"></span></div>
+      </template>
+
+      <!-- 1. Input: treasure type OR a planned target gp -->
+      <div class="space-y-2">
+        <label class="flex items-center gap-2"><input type="checkbox" x-model="treasureWizard.usePlanned" @change="treasureWizard.hoard=null"> Planned — pick the type nearest a target gp <span class="opacity-60">(4 × Σ monster XP)</span></label>
+        <template x-if="!treasureWizard.usePlanned">
+          <label class="flex items-center gap-2">Treasure Type
+            <select x-model="treasureWizard.treasureType" @change="treasureWizard.hoard=null" class="border border-ink rounded px-2 py-1 flex-1">
+              <template x-for="L in treasureTypeOptions()" :key="L">
+                <option :value="L" x-text="L + ' — avg ' + treasureTypeAvgGpLabel(L) + ' gp · ' + treasureAccumulationLabel(L)"></option>
+              </template>
+            </select>
+          </label>
+        </template>
+        <template x-if="treasureWizard.usePlanned">
+          <label class="flex items-center gap-2">Target gp
+            <input type="number" min="0" x-model.number="treasureWizard.targetGp" @input="treasureWizard.hoard=null" placeholder="e.g. 45000" class="w-32 border border-ink rounded px-2 py-1">
+            <span class="opacity-60" x-show="treasureWizard.targetGp" x-text="'→ nearest type ' + nearestTreasureTypeLabel(treasureWizard.targetGp)"></span>
+          </label>
+        </template>
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="treasureWizard.withSpecial" @change="treasureWizard.hoard=null"> Special treasures <span class="opacity-60">(substitute trade goods + captives)</span></label>
+          <span class="opacity-60 text-xs">Mode: <span class="font-semibold" x-text="treasureModeLabel()"></span></span>
+        </div>
+      </div>
+
+      <button @click="treasureRoll()" class="px-4 py-2 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400"
+              x-text="treasureWizard.hoard ? '🎲 Re-roll' : '🎲 Roll the hoard'"></button>
+
+      <!-- 2. Result -->
+      <template x-if="treasureWizard.hoard">
+        <div class="vellum border border-ink/40 rounded p-3 space-y-2">
+          <div class="font-semibold">Type <span x-text="treasureWizard.hoard.treasureType"></span> hoard
+            <span class="font-normal opacity-70" x-text="'· ~' + treasureGpLabel(treasureWizard.hoard) + ' gp · ' + treasureStoneLabel(treasureWizard.hoard) + ' st'"></span>
+          </div>
+          <ul class="space-y-0.5">
+            <template x-for="row in treasureCoinRows()" :key="'c-'+row.denom">
+              <li>🪙 <span x-text="row.qty.toLocaleString() + ' ' + row.denom"></span> <span class="opacity-60" x-text="'(' + row.gp.toLocaleString() + ' gp)'"></span></li>
+            </template>
+            <template x-for="(g,i) in treasureWizard.hoard.gems" :key="'g-'+i">
+              <li>💎 <span x-text="gemTierLabel(g.tier) + ' — ' + g.valueGp.toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-for="(j,i) in treasureWizard.hoard.jewelry" :key="'j-'+i">
+              <li>📿 <span x-text="jewelryTierLabel(j.tier) + ' — ' + j.valueGp.toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-for="(s,i) in treasureWizard.hoard.specialTreasures" :key="'s-'+i">
+              <li>📦 <span x-text="(s.qty>1 ? (s.qty + '× ') : '') + s.name + ' — ' + (s.valueGp*(s.qty||1)).toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-for="(m,i) in treasureWizard.hoard.magicSlots" :key="'m-'+i">
+              <li>✨ <span x-text="(m.count>1 ? (m.count + '× ') : '') + magicSlotLabel(m.category)"></span> <span class="opacity-60">(GM-fill — Magic Items #143)</span></li>
+            </template>
+            <template x-for="(cap,i) in treasureWizard.hoard.captives" :key="'cap-'+i">
+              <li>⛓ <span x-text="cap.description + ' — base ' + cap.valueGp.toLocaleString() + ' gp'"></span></li>
+            </template>
+            <template x-if="!treasureCoinRows().length && !treasureWizard.hoard.gems.length && !treasureWizard.hoard.jewelry.length && !treasureWizard.hoard.magicSlots.length">
+              <li class="opacity-60">(empty hoard — re-roll)</li>
+            </template>
+          </ul>
+        </div>
+      </template>
+
+      <!-- 3. Place -->
+      <template x-if="treasureWizard.hoard && !treasureWizard.placed">
+        <div class="space-y-2 pt-1 border-t border-ink/20">
+          <label class="flex items-center gap-2">Place at hex
+            <input x-model="treasureWizard.hexId" placeholder="hex id (optional)" class="flex-1 border border-ink rounded px-2 py-1">
+          </label>
+          <div class="wizard-submit-gate">
+            <span class="text-xs opacity-60">Lands the hoard as a <span class="font-semibold">cache</span> stash (magic → notable items, captives → prisoners).</span>
+            <button @click="treasurePlace()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Place the hoard</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- 4. Placed confirmation -->
+      <template x-if="treasureWizard.placed">
+        <div class="vellum border border-ink/40 rounded p-3" style="background:#e8f3df">
+          <div class="font-semibold">✓ Hoard placed</div>
+          <div class="text-sm" x-text="treasurePlacedSummary()"></div>
+          <div class="flex gap-2 pt-2">
+            <button @click="treasureWizard.hoard=null; treasureWizard.placed=null" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Roll another</button>
+            <button @click="closeTreasureWizard()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Done</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- b5-sages (#147): Sage-consultation modal here -->
+<div x-show="sageConsult.open" @keydown.escape.window="if(sageConsult.open && !$event.defaultPrevented){ closeSageConsultModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSageConsultModal()">
+  <template x-if="sageConsult.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🔮 Consult a Sage <span class="text-sm font-normal opacity-70">· RR p.171 / p.112</span></h2>
+      <button @click="closeSageConsultModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- Sage + client -->
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <label class="block"><span class="opacity-70">Sage</span>
+          <select class="w-full text-sm mt-0.5" @change="sageConsultSetSage($event.target.value)">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" :selected="a.id===sageConsult.sageId" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="block"><span class="opacity-70">Inquirer</span>
+          <select class="w-full text-sm mt-0.5" x-model="sageConsult.clientId" @change="sageConsult.result=null">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+      </div>
+
+      <!-- Resolved mode -->
+      <template x-if="sageConsultForecastUI()">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" style="background:#f4ecd2">
+          <template x-if="sageConsultForecastUI().available">
+            <div>
+              <template x-if="sageConsultForecastUI().mode==='npc-specialist'">
+                <span><span class="font-semibold">Hired sage</span> — specialty <span class="italic" x-text="sageConsultForecastUI().specialty || '(set one below)'"></span> · <span x-text="sageConsultForecastUI().inSpecialty ? 'in-specialty 3+' : 'out-of-specialty 18+'"></span></span>
+              </template>
+              <template x-if="sageConsultForecastUI().mode==='pc-scholar'">
+                <span><span class="font-semibold">Scholar</span> — <span x-text="(sageConsultForecastUI().label || 'own learning')"></span><span class="opacity-70" x-text="sageConsultForecastUI().proficiency ? (' · ' + sageConsultForecastUI().proficiency.key + ' rank ' + sageConsultForecastUI().proficiency.ranks) : ''"></span> · target <span x-text="sageConsultForecastUI().target + '+'"></span></span>
+              </template>
+            </div>
+          </template>
+          <template x-if="!sageConsultForecastUI().available">
+            <span class="opacity-80">This character is not yet a sage — give them a <span class="font-semibold">specialty</span> below to consult them as a hired specialist, or add the Knowledge / Loremastery proficiency.</span>
+          </template>
+        </div>
+      </template>
+
+      <!-- Specialty (drives the hired-sage path) -->
+      <label class="block text-sm"><span class="opacity-70">Specialty subject</span> <span class="opacity-50 text-xs">— set to consult as a hired sage (3+/18+); leave blank to use the character's own Knowledge/Loremastery throw</span>
+        <input type="text" class="w-full text-sm mt-0.5" x-model="sageConsult.specialty" @input="sageConsult.result=null" placeholder="e.g. history · geography · metaphysics">
+      </label>
+
+      <!-- Subject + in-specialty (for a hired sage) -->
+      <div class="text-sm">
+        <label class="block"><span class="opacity-70">Query subject</span>
+          <input type="text" class="w-full text-sm mt-0.5" x-model="sageConsult.subject" @input="sageConsult.result=null; sageConsult.inSpecialtyOverride=null" placeholder="what is the query about?">
+        </label>
+        <template x-if="sageConsultForecastUI() && sageConsultForecastUI().mode==='npc-specialist'">
+          <label class="flex items-center gap-1 text-xs mt-1"><input type="checkbox" :checked="sageConsultForecastUI().inSpecialty" @change="sageConsult.inSpecialtyOverride = $event.target.checked; sageConsult.result=null"> In the sage's specialty (3+) <span class="opacity-50">— auto-derived from the subject; tick to override</span></label>
+        </template>
+      </div>
+
+      <!-- Query text -->
+      <label class="block text-sm"><span class="opacity-70">The question (GM)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.query" placeholder="What do you know about…?"></textarea>
+      </label>
+
+      <!-- Fee + secret -->
+      <div class="flex items-center gap-4 text-sm flex-wrap">
+        <label class="flex items-center gap-1">Fee <input type="number" min="0" class="w-24 text-sm" x-model.number="sageConsult.feeGp" @input="sageConsult.result=null"> gp <span class="opacity-50 text-xs">(GM-set; paid by the inquirer — RR has only the 500gp/mo wage)</span></label>
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="sageConsult.secret"> Secret (GM rolls)</label>
+      </div>
+
+      <!-- Answer the GM supplies (the content; the engine resolves only WHETHER the sage knows) -->
+      <label class="block text-sm"><span class="opacity-70">The answer, on success (GM supplies)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.answerText" placeholder="The content of what the sage knows — the engine resolves only whether he knows it."></textarea>
+      </label>
+
+      <!-- Forecast -->
+      <template x-if="sageConsultForecastUI() && sageConsultForecastUI().available">
+        <div class="wizard-forecast-row" :class="(sageConsultForecastUI().successChance===0) ? 'wizard-no-chance' : ''">
+          <div class="w-full text-sm">
+            <span class="font-semibold" x-text="'Target ' + sageConsultForecastUI().target + '+'"></span>
+            <span class="opacity-75" x-text="' · success chance ' + Math.round((sageConsultForecastUI().successChance||0)*100) + '%' + (sageConsult.feeGp>0 ? (' · fee ' + sageConsult.feeGp + 'gp') : '') + ' · 1 ancillary (#346)'"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Consult + result -->
+      <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
+        <button @click="sageConsultSubmit()" :disabled="!(sageConsultForecastUI() && sageConsultForecastUI().available)"
+                :class="(sageConsultForecastUI() && sageConsultForecastUI().available) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                class="px-4 py-2 border-2 border-ink rounded font-semibold" x-text="sageConsult.result ? '🔮 Consult again' : '🔮 Consult'"></button>
+        <template x-if="sageConsult.result && sageConsult.result.ok">
+          <div class="mt-2 space-y-1">
+            <div class="text-sm font-mono" x-show="!sageConsult.result.throw.secret && sageConsult.result.throw.natural != null"
+                 x-text="'1d20 ' + sageConsult.result.throw.natural + ' = ' + sageConsult.result.throw.total + ' vs ' + sageConsult.result.target + '+'"></div>
+            <div class="text-xs italic opacity-70" x-show="sageConsult.result.throw.secret">Secret — the GM rolled.</div>
+            <div class="text-sm font-semibold" :class="sageConsult.result.success ? 'text-green-800' : 'text-red-800'"
+                 x-text="sageConsult.result.success ? '✓ The sage answers.' : '✗ The sage cannot answer.'"></div>
+            <div class="text-sm" x-show="sageConsult.result.success && sageConsult.result.answerText" x-text="sageConsult.result.answerText"></div>
+          </div>
+        </template>
+        <template x-if="sageConsult.result && !sageConsult.result.ok">
+          <div class="mt-2 text-sm text-red-800" x-text="sageConsult.result.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot consult: ' + sageConsult.result.error)"></div>
+        </template>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- b5-politics (P-2): Senate-vote modal (if any) here · the Senate tab/sub-view markup goes in the World/governance region -->
+<!-- b5-politics (P-2): the 🏛 Senate top-level view (a sibling of the ⛪ Religion view above; dormant-
+     until-used — the nav tab is gated on campaignHasSenate()). No modal needed — the consult result
+     renders inline. Thin Alpine layer over acks-engine-politics.js (senateVote / enactPolicy / the
+     derived tally + benefits). State + methods live at the b5-politics domainApp marker. -->
+<!-- ═══════════ VIEW: SENATE (P-2 — voting + benefits + disputes, RR pp.355–360) ═══════════ -->
+<div x-show="currentCampaign && currentView === 'senate'" class="p-4 space-y-4" x-cloak>
+
+  <!-- Intro + senate picker -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline gap-2">
+      <h3 class="font-bold text-lg">🏛 The Senate</h3>
+      <label class="text-sm" x-show="senateAllRows().length > 1">Senate
+        <select x-model="senateSelectedId" class="ml-1">
+          <template x-for="r in senateAllRows()" :key="r.id"><option :value="r.id" x-text="r.name"></option></template>
+        </select>
+      </label>
+    </div>
+    <p class="text-sm opacity-70 mt-1">A senatorial republic is a realm whose ruler is constrained by a senate he must consult before invading, taxing, conscripting, or changing his realm's religion (RR pp.355–360). Consulting rolls <strong>2d6 per leading senator</strong> in order of influence until a majority forms (RR p.358); defying or skipping a required consultation puts the realm <em>in dispute</em> and suspends its benefits. The ruling/leading faction is always derived from live influence — never stored.</p>
+    <template x-if="senateAllRows().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No senate yet. Make a realm's apex domain senatorial (set its <code>governance.mode</code> to <code>senatorial</code> via 🔍 Inspector ▸ a domain), then author a senate + factions + leading senators via 🔍 Inspector ▸ Create ▸ Senate. (The guided Senate Wizard is a later wave.) Granting an <strong>Office favor</strong> on a senatorial realm auto-seats the holder as a leading senator.</p>
+    </template>
+  </div>
+
+  <template x-if="senateSelected()">
+    <div class="space-y-4">
+
+      <!-- Composition + the derived tally -->
+      <div class="vellum border border-ink rounded p-4">
+        <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
+          <h3 class="font-bold text-lg"><span x-text="senateSelected().name"></span>
+            <span class="text-sm opacity-70 font-normal" x-text="'· ' + (senateSelected().kind || 'senate') + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
+          <span class="text-sm opacity-70" x-text="'Ruler: ' + senateRulerName()"></span>
+        </div>
+        <div class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
+          <div>Total votes (the majority denominator): <strong x-text="senateReadout().totalVotes"></strong>
+            <span class="opacity-60" x-text="'(majority needs ' + (Math.floor(senateReadout().totalVotes/2)+1) + ')'"></span></div>
+          <div>Independent minor votes: <strong x-text="senateReadout().independentVotes"></strong></div>
+          <div>Ruling faction:
+            <span x-text="senateFactionName(senateReadout().rulingFactionId)" :class="senateReadout().rulingFactionId ? 'font-semibold text-green-800' : 'opacity-60'"></span>
+            <span class="opacity-60" x-show="!senateReadout().rulingFactionId">(no majority)</span></div>
+          <div>Leading faction:
+            <span x-text="senateFactionName(senateReadout().leadingFactionId)" :class="senateReadout().leadingFactionId ? 'font-semibold' : 'opacity-60'"></span></div>
+        </div>
+      </div>
+
+      <!-- Benefits / dispute state (RR p.355 / p.359) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Benefits <span class="text-sm font-normal" :class="senateBenefitsView().active ? 'text-green-800' : 'text-red-800'"
+          x-text="senateBenefitsView().active ? '· active' : (senateBenefitsView().inDispute ? '· SUSPENDED (in dispute)' : '· inactive')"></span></h3>
+        <template x-if="senateBenefitsView().inDispute">
+          <div class="border border-red-400 bg-red-50 rounded p-2 mb-2 text-sm">
+            ⚠ The realm is <strong>in dispute</strong> over <em x-text="senateSelected().dispute.defiedTopic"></em>
+            (since turn <span x-text="senateSelected().dispute.sinceTurn"></span>, attempt <span x-text="senateSelected().dispute.attempts"></span>).
+            All senate benefits are suspended until the ruler wins the senate's retroactive approval.
+            <button @click="senateResolveDispute()" class="ml-2 px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-xs font-semibold">Resolve (retroactive approval)</button>
+          </div>
+        </template>
+        <ul class="text-sm space-y-0.5">
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">+<span x-text="senateBenefitsView().benefits.moraleBonus"></span> base morale to every domain in the realm (RR p.355)</li>
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">Non-henchman vassal base loyalty <strong x-text="senateBenefitsView().benefits.vassalBaseLoyalty"></strong> (instead of −2)</li>
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">The first extra duty each month skips the Loyalty check <span class="opacity-60">(if senate-approved — the Favors &amp; Duties seam)</span></li>
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">Militia levy costs no realm morale <span class="opacity-60">(if approved)</span></li>
+        </ul>
+        <p class="text-xs opacity-60 mt-2">These read the live senatorial-realm state; the monthly-turn economy wiring of the +1 morale / loyalty-0 / free-duty paths is a later engine touch.</p>
+      </div>
+
+      <!-- Factions roster (derived influence + standing) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Factions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateReadout().factions.length"></span></h3>
+        <template x-if="senateReadout().factions.length === 0">
+          <p class="text-sm italic opacity-60 py-2 text-center">No factions. Add them via 🔍 Inspector ▸ Create ▸ Faction (senateId = this senate), then seat leading senators in them.</p>
+        </template>
+        <template x-if="senateReadout().factions.length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Faction</th><th class="text-right">Influence</th><th>Standing</th></tr></thead>
+            <tbody>
+              <template x-for="f in senateReadout().factions" :key="f.id">
+                <tr>
+                  <td class="font-semibold" x-text="f.name"></td>
+                  <td class="text-right" x-text="f.influence"></td>
+                  <td><span x-text="f.standing" :class="f.standing === 'ruling' ? 'text-green-800 font-semibold' : f.standing === 'leading' ? 'font-semibold' : 'opacity-60'"></span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- Leading senators (the dossier — where an Office-seated senator appears) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Leading senators <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateLeadingSenatorRows().length"></span></h3>
+        <template x-if="senateLeadingSenatorRows().length === 0">
+          <p class="text-sm italic opacity-60 py-2 text-center">No leading senators seated. Author them via 🔍 Inspector ▸ Create ▸ Senatorship, or grant an Office favor on this realm.</p>
+        </template>
+        <template x-if="senateLeadingSenatorRows().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Senator</th><th>Faction</th><th class="text-right">Votes</th><th>Objectives</th><th>Attitude</th></tr></thead>
+            <tbody>
+              <template x-for="s in senateLeadingSenatorRows()" :key="s.id">
+                <tr>
+                  <td class="font-semibold"><span x-text="s.name"></span>
+                    <span x-show="s.viaOffice" class="ml-1 text-xs px-1 rounded bg-amber-200" title="Seated by an Office favor (RR p.355)">📜 office</span>
+                    <span x-show="s.bewitched" class="ml-1 text-xs px-1 rounded bg-purple-200" title="Bewitched — auto-votes as directed">✦ bewitched</span></td>
+                  <td x-text="s.factionName"></td>
+                  <td class="text-right" x-text="s.votes"></td>
+                  <td class="text-xs opacity-80" x-text="s.objectives"></td>
+                  <td x-text="s.attitude"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- Consult the senate (the 2d6 vote) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Consult the senate</h3>
+        <div class="grid sm:grid-cols-2 gap-3 text-sm mb-3">
+          <label class="flex flex-col">Matter
+            <select x-model="senateConsult.matter" class="w-full">
+              <template x-for="m in senateMatterOptions()" :key="m.value"><option :value="m.value" x-text="m.label"></option></template>
+              <option value="__custom__">(other / custom…)</option>
+            </select>
+          </label>
+          <label class="flex flex-col" x-show="senateConsult.matter === '__custom__'">Custom matter
+            <input type="text" x-model="senateConsult.customMatter" placeholder="e.g. ratify the treaty" class="w-full">
+          </label>
+          <label class="flex flex-col">Resolution mode
+            <select x-model="senateConsult.mode" class="w-full">
+              <option value="per-senator">Per senator (roll each)</option>
+              <option value="by-faction">By faction (one roll each — the shortcut)</option>
+            </select>
+          </label>
+          <label class="flex flex-col">Ruler's domain morale score
+            <input type="number" x-model.number="senateConsult.domainMorale" class="w-full"></label>
+          <label class="flex flex-col">Ruler aligns with faction
+            <select x-model="senateConsult.rulerFactionId" class="w-full">
+              <option value="">— none —</option>
+              <template x-for="f in senateReadout().factions" :key="f.id"><option :value="f.id" x-text="f.name"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Military loyal to the ruler
+            <select x-model="senateConsult.militaryLoyalty" class="w-full">
+              <option value="none">None (+0)</option>
+              <option value="third">≥ ⅓ (+1)</option>
+              <option value="all">All (+2)</option>
+            </select>
+          </label>
+          <label class="flex flex-col">Controlled independent votes
+            <input type="number" min="0" x-model.number="senateConsult.controlledIndependentVotes" class="w-full">
+            <span class="text-xs opacity-60">independents the ruler directs (RR p.359 §4.7) — start on the FOR side</span></label>
+          <label class="flex flex-col" x-show="!senateAutoVoteOn()">GM outcome (auto-vote off)
+            <select x-model="senateConsult.gmOutcome" class="w-full"><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+        </div>
+        <details class="text-sm mb-3">
+          <summary class="cursor-pointer opacity-70">Policy helps / hinders senator objectives (RR p.358: +1 helps / −2 hinders, per objective)</summary>
+          <div class="grid sm:grid-cols-2 gap-3 mt-2">
+            <div><div class="font-semibold text-xs mb-1">Helps these objectives (+1 each)</div>
+              <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-32 overflow-y-auto border border-ink/20 rounded p-1">
+                <template x-for="o in policyObjectiveList()" :key="'h'+o">
+                  <label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="senateConsult.policyHelps"><span x-text="o"></span></label>
+                </template>
+              </div></div>
+            <div><div class="font-semibold text-xs mb-1">Hinders these objectives (−2 each)</div>
+              <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-32 overflow-y-auto border border-ink/20 rounded p-1">
+                <template x-for="o in policyObjectiveList()" :key="'x'+o">
+                  <label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="senateConsult.policyHinders"><span x-text="o"></span></label>
+                </template>
+              </div></div>
+          </div>
+        </details>
+        <button @click="senateRunConsult()" class="px-4 py-1.5 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">🗳 Consult senate</button>
+      </div>
+
+      <!-- The vote result + enactment -->
+      <template x-if="senateConsultResult">
+        <div class="vellum border-2 rounded p-4" :class="senateConsultResult.approved ? 'border-green-500 bg-green-50' : senateConsultResult.outcome === 'rejected' ? 'border-red-500 bg-red-50' : 'border-yellow-500 bg-yellow-50'">
+          <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
+            <h3 class="font-bold text-lg">
+              <span x-show="senateConsultResult.outcome === 'approved'" class="text-green-800">✓ Approved</span>
+              <span x-show="senateConsultResult.outcome === 'rejected'" class="text-red-800">✗ Rejected</span>
+              <span x-show="senateConsultResult.outcome === 'no-majority'" class="text-yellow-800">— No majority</span>
+              <span class="text-sm font-normal opacity-70" x-text="'on ' + (senateConsultResult.matter || 'the matter')"></span>
+            </h3>
+            <span class="text-sm" x-text="senateConsultResult.forVotes + ' for / ' + senateConsultResult.againstVotes + ' against / ' + senateConsultResult.abstainVotes + ' abstain — of ' + senateConsultResult.totalVotes + ' (majority ' + senateConsultResult.majorityThreshold + ')'"></span>
+          </div>
+          <p class="text-xs opacity-70 mb-2" x-show="!senateConsultResult.autoRolled">Auto-vote is OFF — the outcome was narrated by the GM, not rolled.</p>
+          <template x-if="senateConsultResult.rolls.length > 0">
+            <table class="bookkeeping text-xs w-full mb-3">
+              <thead><tr><th x-text="senateConsultResult.mode === 'by-faction' ? 'Faction' : 'Senator'"></th><th class="text-right">Votes</th><th class="text-right">2d6</th><th>Modifiers</th><th class="text-right">Adjusted</th><th>Vote</th></tr></thead>
+              <tbody>
+                <template x-for="(row, i) in senateConsultResult.rolls" :key="i">
+                  <tr>
+                    <td x-text="senateRollWho(row)"></td>
+                    <td class="text-right" x-text="row.votes"></td>
+                    <td class="text-right" x-text="row.bewitched ? '—' : (row.roll ? row.roll.natural : '—')"></td>
+                    <td class="opacity-80" x-text="senateRollModifiers(row)"></td>
+                    <td class="text-right" x-text="row.adjusted == null ? '—' : row.adjusted"></td>
+                    <td :class="row.vote === 'for' ? 'text-green-800 font-semibold' : row.vote === 'against' ? 'text-red-800 font-semibold' : 'opacity-60'"
+                        x-text="row.vote + (row.bewitched ? ' (bewitched)' : '')"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+          <div class="flex flex-wrap gap-2 items-center">
+            <span class="text-sm opacity-70">Enact the policy:</span>
+            <button @click="senateEnact(true)" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 text-sm font-semibold">Enact with the senate's sanction</button>
+            <button @click="senateEnact(false)" class="px-3 py-1 border border-ink rounded bg-red-200 hover:bg-red-300 text-sm font-semibold" x-show="senateMatterRestricted()">Defy the senate (→ dispute)</button>
+            <span class="text-xs opacity-60" x-show="senateMatterRestricted()">This matter is restricted — enacting it against the senate puts the realm in dispute.</span>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </template>
+</div>
+<!-- ═══════════ end VIEW: SENATE ═══════════ -->
+<!-- b5-religion (R2): blood-sacrifice modal (if any) here · the ⛪ Religion tab body extends in place -->
+<!-- b5-delves (D3): Foray Wizard modal here · the 🕳️ Dungeons sub-view extends in place -->
+<!-- Foray Wizard — the Abstract Dungeon foray Action verb (JJ ch.12). Opened from World ▸ 🕳️
+     Dungeons (⚔ Foray / ⚔ Continue). Propose-compute-commit: resolveDungeonForay (PURE) → review
+     / ⟳ reroll → commitDungeonForay → realizeDelve. z-index:79 (the recordWound sibling). -->
+<div x-show="foray.open" @keydown.escape.window="if(foray.open && !$event.defaultPrevented){ closeForayWizard(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeForayWizard()">
+  <template x-if="foray.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">⚔ Abstract Dungeon Foray <span class="text-sm font-normal opacity-70">· JJ ch.12</span></h2>
+      <button @click="closeForayWizard()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- dungeon snapshot -->
+      <template x-if="forayDungeon()">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm">
+          <span class="font-semibold" x-text="forayDungeon().name || '(unnamed dungeon)'"></span>
+          <span class="opacity-70" x-text="' · ' + dungeonSizeLevelLabel(forayDungeon())"></span>
+          <span class="opacity-70" x-text="' · ' + forayRemaining() + ' encounter(s) remaining'"></span>
+        </div>
+      </template>
+
+      <!-- the realize summary supersedes the rest once a delve concludes -->
+      <template x-if="foray.realizeResult">
+        <div class="vellum border-2 border-ink rounded p-3 space-y-1">
+          <p class="font-semibold" x-text="foray.realizeResult.fullyCleared ? '✓ Dungeon cleared!' : '↩ Delve withdrawn'"></p>
+          <p class="text-sm" x-text="foray.realizeResult.narrative"></p>
+          <p class="text-xs opacity-70" x-show="foray.realizeResult.magicItemRolls > 0" x-text="'🔮 ' + foray.realizeResult.magicItemRolls + ' magic-item roll(s) — Treasure Type ' + foray.realizeResult.magicItemType + ' (the GM rolls on the Treasure Tables)'"></p>
+          <div class="wizard-submit-gate"><span></span><button @click="closeForayWizard()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Done</button></div>
+        </div>
+      </template>
+
+      <template x-if="!foray.realizeResult">
+      <div class="space-y-3">
+        <!-- 1 · party -->
+        <div>
+          <div class="wizard-step-header">1 · The party <span class="opacity-60 font-normal text-xs" x-text="'(party level ' + forayPartyLevel() + ' · ' + forayPartySize() + ' adventurer(s), max 8)'"></span></div>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1 max-h-40 overflow-y-auto border border-ink/20 rounded p-2 text-sm">
+            <template x-for="c in forayCandidates()" :key="c.id">
+              <label class="flex items-center gap-1" :class="(!foray.participantIds.includes(c.id) && foray.participantIds.length>=8) ? 'opacity-40' : ''">
+                <input type="checkbox" :checked="foray.participantIds.includes(c.id)" @change="forayToggleParticipant(c.id)" :disabled="!foray.participantIds.includes(c.id) && foray.participantIds.length>=8">
+                <span x-text="c.name + ' (L' + (c.level||1) + ')'"></span>
+              </label>
+            </template>
+            <template x-if="forayCandidates().length===0"><span class="opacity-60 italic col-span-2">No active characters.</span></template>
+          </div>
+          <label class="flex items-center gap-1 text-sm pt-1"><input type="checkbox" x-model="foray.isHenchmanDelve" @change="foray.proposal=null"> Henchman delve <span class="opacity-60">(½ combat XP + ½ treasure to the delvers; RAW p.277)</span></label>
+        </div>
+
+        <!-- 2 · encounters -->
+        <div>
+          <div class="wizard-step-header">2 · Encounters to attempt</div>
+          <input type="number" min="1" :max="forayRemaining()" x-model.number="foray.attempted" @input="foray.proposal=null" class="w-20 text-sm">
+          <span class="text-xs opacity-60" x-text="'of ' + forayRemaining() + ' remaining'"></span>
+        </div>
+
+        <!-- 3 · situational modifiers -->
+        <div>
+          <div class="wizard-step-header">3 · Situational modifiers <span class="opacity-60 font-normal text-xs">(optional, JJ p.278)</span></div>
+          <div class="space-y-0.5 text-sm">
+            <template x-for="m in foraySituationalMods()" :key="m.key">
+              <label class="flex items-center gap-1"><input type="checkbox" :checked="foray.situationalKeys.includes(m.key)" @change="forayToggleSituational(m.key)"> <span x-text="m.label"></span></label>
+            </template>
+          </div>
+        </div>
+
+        <!-- forecast (before resolving) -->
+        <template x-if="forayModifierPreview() && !foray.proposal && !foray.lastCommit">
+          <div class="wizard-forecast-row text-sm">
+            <span x-text="'Difficulty: ' + forayModifierPreview().difficultyLabel"></span>
+            <span class="font-mono" x-text="'roll 1d8+1d12 ' + (forayModifierPreview().modifier>=0?'+':'') + forayModifierPreview().modifier"></span>
+          </div>
+        </template>
+
+        <!-- resolve -->
+        <template x-if="!foray.proposal && !foray.lastCommit">
+          <div class="wizard-submit-gate">
+            <span class="text-xs opacity-60">A foray is one day of strenuous dedicated activity (RR p.279).</span>
+            <button @click="forayResolve()" :disabled="!forayCanResolve()" :class="forayCanResolve()?'bg-yellow-300 hover:bg-yellow-400':'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">🎲 Resolve foray</button>
+          </div>
+        </template>
+
+        <!-- proposal review -->
+        <template x-if="foray.proposal">
+          <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+            <div class="text-sm font-mono" x-text="'🎲 1d8(' + foray.proposal.roll.d8 + ') + 1d12(' + foray.proposal.roll.d12 + ') ' + (foray.proposal.modifier>=0?'+':'') + foray.proposal.modifier + ' = ' + foray.proposal.roll.total + ' → ' + foray.proposal.result.toUpperCase()"></div>
+            <details class="text-xs opacity-70"><summary>modifier breakdown</summary>
+              <template x-for="r in foray.proposal.modifierBreakdown" :key="r.key"><div x-text="r.label + ': ' + (r.value>=0?'+':'') + r.value"></div></template>
+            </details>
+            <p class="text-sm" x-text="'Cleared ' + foray.proposal.encountersCleared + ' encounter(s) · ' + foray.proposal.treasureGpGross + 'gp · ' + foray.proposal.xpGross + ' XP (gross, this foray)'"></p>
+            <template x-if="foray.proposal.casualties.length">
+              <div class="text-sm">
+                <p class="font-semibold text-red-800" x-text="'⚑ ' + foray.proposal.casualties.length + ' adventurer(s) suffer a mortal wound:'"></p>
+                <template x-for="cas in foray.proposal.casualties" :key="cas.characterId"><div class="pl-3" x-text="'• ' + cas.name + ' — ' + (cas.conditionLabel || 'wounded')"></div></template>
+                <label class="flex items-center gap-1 pt-1"><input type="checkbox" x-model="foray.healedToOneHp"> The party can heal / evacuate the wounded <span class="opacity-60">(else the 1–15 bands die)</span></label>
+              </div>
+            </template>
+            <template x-if="!foray.proposal.casualties.length"><p class="text-sm opacity-70">No casualties.</p></template>
+            <div class="wizard-submit-gate">
+              <button @click="forayReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⟳ Reroll</button>
+              <button @click="forayCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">✓ Commit foray</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- after a committed foray: running tally + next options -->
+        <template x-if="foray.lastCommit && forayDelve()">
+          <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+            <p class="font-semibold text-sm" x-text="'Foray ' + (forayDelve().foraysResolved||[]).length + ' committed — ' + ((forayDelve().foraysResolved.slice(-1)[0]||{}).result || '')"></p>
+            <p class="text-sm font-mono" x-text="'Running: ' + forayDelve().runningXp + ' XP · ' + forayDelve().runningTreasureGp + 'gp · ' + forayRemaining() + ' encounter(s) left'"></p>
+            <template x-if="forayDelve().status==='wiped'"><p class="text-sm text-red-800 font-semibold">☠ The party was wiped out (catastrophic) — no one returns.</p></template>
+            <label class="block text-sm pt-1" x-show="forayDelve().status!=='wiped'">Award treasure to
+              <select x-model="foray.treasureDest" class="text-sm">
+                <option value="">— first survivor's purse —</option>
+                <template x-for="id in (forayDelve().participantCharacterIds||[])" :key="id"><option :value="id" x-text="forayCharName(id) + ' (purse)'"></option></template>
+              </select>
+            </label>
+            <div class="wizard-submit-gate flex-wrap gap-2">
+              <template x-if="forayRemaining()>0 && forayDelve().status!=='wiped' && (forayDelve().participantCharacterIds||[]).length>0">
+                <button @click="forayAttemptMore()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⚔ Foray again</button>
+              </template>
+              <template x-if="forayRemaining()>0">
+                <button @click="forayRealize('withdrawn')" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">↩ Withdraw (¼ treasure)</button>
+              </template>
+              <template x-if="forayRemaining()<=0">
+                <button @click="forayRealize('cleared')" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">✓ Realize — dungeon cleared</button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- b5-cl2 (disease): disease/health modal (if any) here · the character-sheet health readout extends in place -->
+<!-- Expose-to-disease modal (JJ p.84) — the GM "expose a character" action, opened from the
+     character-sheet Health readout (stats tab). z-index:79 (above the character editor, like the
+     Record-a-wound modal). Contraction is a single combined roll: 1d100 → Disease Type, then a
+     Death save → infected or shrugged off (CL-2, b5-cl2 burst5). -->
+<div x-show="exposeDisease.open" @keydown.escape.window="if(exposeDisease.open && !$event.defaultPrevented){ closeExposeDiseaseModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeExposeDiseaseModal()">
+  <template x-if="exposeDisease.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🤒 Expose to a disease <span class="text-sm font-normal opacity-70">· JJ p.84</span></h2>
+      <button @click="closeExposeDiseaseModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="exposeDisease.charName || '(no character)'"></span>
+        <span class="opacity-70" x-text="' · Death save ' + exposeDisease.deathTarget + '+'"></span>
+      </div>
+      <label class="block text-sm">Disease
+        <select x-model="exposeDisease.diseaseType" class="w-full text-sm">
+          <option value="">🎲 Roll on the Disease Type table (1d100)</option>
+          <template x-for="d in diseaseTypeOptions()" :key="d.id"><option :value="d.id" x-text="d.label + ' (save +' + d.saveBonus + ')'"></option></template>
+        </select>
+      </label>
+      <template x-if="!exposeDisease.diseaseType">
+        <label class="flex items-center gap-1 text-sm">1d100 modifier <span class="opacity-60">(e.g. −10 in a jungle hex — lower is worse)</span>
+          <input type="number" x-model.number="exposeDisease.modifier" class="w-16 text-sm">
+        </label>
+      </template>
+      <div class="space-y-1.5 text-sm">
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="exposeDisease.rollSave"> Roll the Death save <span class="opacity-60">(else set the 1d20)</span></label>
+        <template x-if="!exposeDisease.rollSave">
+          <label class="flex items-center gap-1 pl-4">1d20 = <input type="number" min="1" max="20" x-model.number="exposeDisease.forcedSave" class="w-16 text-sm"></label>
+        </template>
+      </div>
+      <template x-if="exposeDisease.result">
+        <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+          <template x-if="exposeDisease.result.infected === false">
+            <p class="text-sm" x-text="'✅ ' + (exposeDisease.result.narrative || (exposeDisease.charName + ' resists the illness.'))"></p>
+          </template>
+          <template x-if="exposeDisease.result.infected !== false">
+            <div>
+              <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
+                    :style="exposeDisease.result.willDie ? 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
+                    x-text="exposeDisease.result.diseaseLabel"></span>
+              <span class="ml-2 text-xs opacity-70">JJ p.84</span>
+              <p class="text-sm mt-1" x-text="'Death save ' + exposeDisease.result.saveTotal + ' vs ' + exposeDisease.result.saveTarget + '+ failed → infected. Symptoms in ' + exposeDisease.result.onsetDays + ' day' + (exposeDisease.result.onsetDays===1?'':'s') + ', then ' + exposeDisease.result.symptomDays + ' day' + (exposeDisease.result.symptomDays===1?'':'s') + ' symptomatic.'"></p>
+              <p class="text-sm" :class="exposeDisease.result.willDie ? 'accent-red' : ''" x-text="exposeDisease.result.willDie ? '⚠ Will die without a cure.' : 'Will recover if it runs its course.'"></p>
+            </div>
+          </template>
+        </div>
+      </template>
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Advance the Day Clock to progress the disease.</span>
+        <div class="flex gap-2">
+          <button @click="closeExposeDiseaseModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100" x-text="exposeDisease.result ? 'Close' : 'Cancel'"></button>
+          <button x-show="!exposeDisease.result" @click="exposeDiseaseRun()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">🤒 Expose</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- ===== end TEAM BURST5 modal tail ===== -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -12923,7 +13709,9 @@ return {
       { id:'inspector',    label:'🔍 Inspector' },  // #555 Wave Inspector-B (2026-05-31)
       { id:'house-rules',  label:'⚙ House Rules',     count: enabledRules || null },
       // Future: { id:'syndicates', label:'🗡 Syndicates' },  (Phase 2.7)
-      // Future: { id:'senate',     label:'🏛 Senate' },      (Phase 4)
+      // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
+      // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
+      ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -12993,6 +13781,12 @@ return {
       // Action verb (the Foray Wizard) is D3; for D2 these spawn a blank entity for free-form authoring. ===
       case 'dungeon':   return () => this.inspectorCreateBlankDungeon();
       case 'delve':     return () => this.inspectorCreateBlankDelve();
+      // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — Admin-verb create (blank + schemaForm
+      // edit). The guided Action verbs (school/games/bout wizards) are G2–G6. (Lead: union with the
+      // other burst5 lanes' dispatch cases at integration — this switch is shared + unmarked.) ===
+      case 'bout':             return () => this.inspectorCreateBlankBout();
+      case 'gladiator-school': return () => this.inspectorCreateBlankGladiatorSchool();
+      case 'game':             return () => this.inspectorCreateBlankGame();
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -22124,7 +22918,13 @@ return {
       // === Delves D2 (burst4) — Delve operations (dungeons already listed above) ===
       'delves',
       // === Politics P-1 (burst4 2026-06-13) — senate/faction/senatorship (§8.9 importer mandate)
-      'senates', 'factions', 'senatorships'
+      'senates', 'factions', 'senatorships',
+      // ===== TEAM BURST5 — new collections · each builder appends its quoted strings after its own line (mind the trailing comma) =====
+      // b5-gladiators (#150): Gladiators G1 — Bouts + Schools + Games (§8.9 importer mandate)
+      'bouts', 'gladiatorSchools', 'games',
+      // b5-custom-classes (#154): 'customClasses', 'customRaces'
+      'customClasses', 'customRaces',
+      // ===== end TEAM BURST5 collections =====
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -24575,6 +25375,460 @@ return {
     this.inspectorEditMode = true;
     if(this.showToast) this.showToast('New Delve created — link it to a dungeon + add participants. The multi-foray resolution is D3.');
   },
+
+  // ========================= TEAM BURST5 — per-agent Alpine state + methods =========================
+  // Each builder adds its state vars + methods AFTER its own agent line below, each property
+  // COMMA-terminated (a trailing comma before }; is legal). Disjoint anchors → clean merge.
+  // Inspector-only lanes (gladiators, custom-classes) usually add nothing here.
+  // --- b5-gladiators (#150): ---
+  // Gladiators G1 (AXIOMS 4) — Admin-verb create for the 3 entities (init-on-write the collection,
+  // which isn't lazy-injected, then open the generic schemaForm edit). Ungated (the createVessel/
+  // createArmy precedent — the Inspector is the admin escape hatch; the gladiator-games rule gates
+  // the resolver, not authoring). The guided Action verbs (school/game/bout wizards) are G2–G6.
+  inspectorCreateBlankBout(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.bouts)) this.currentCampaign.bouts = [];
+    const b = window.ACKS.blankBout({});
+    this.currentCampaign.bouts.push(b);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('bout', b.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Bout created — set its sides + kind. (Enable the “Gladiatorial games” house rule to resolve it.)');
+  },
+  inspectorCreateBlankGladiatorSchool(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.gladiatorSchools)) this.currentCampaign.gladiatorSchools = [];
+    const s = window.ACKS.blankGladiatorSchool({ name: 'New Gladiator School' });
+    this.currentCampaign.gladiatorSchools.push(s);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('gladiator-school', s.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Gladiator School created — set the lanista, settlement, and roster.');
+  },
+  inspectorCreateBlankGame(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.games)) this.currentCampaign.games = [];
+    const g = window.ACKS.blankGame({ name: 'New Game' });
+    this.currentCampaign.games.push(g);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('game', g.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Game created — set the munerator, venue, and budget, then add bouts.');
+  },
+  // --- b5-custom-classes (#154): ---
+  // --- b5-treasure (#142): Treasure Generator wizard (#142, T1–T3) — engine in acks-engine-treasure.js ---
+  treasureWizard: { open:false, treasureType:'E', targetGp:null, usePlanned:false, withSpecial:false, hexId:'', lairId:null, lairName:null, hoard:null, placed:null },
+  openTreasureWizard(opts){
+    opts = opts || {};
+    const A = window.ACKS;
+    const w = { open:true, treasureType: opts.treasureType || this.treasureWizard.treasureType || 'E',
+      targetGp: opts.targetGp || null, usePlanned: opts.targetGp != null, withSpecial:false,
+      hexId: opts.hexId || '', lairId: opts.lairId || null, lairName: opts.lairName || null, hoard:null, placed:null };
+    // Launched from a lair → auto-read its Treasure Type (its own field, else its monster's catalog TT).
+    if(opts.lairId && A && A.findLair && this.currentCampaign){
+      const l = A.findLair(this.currentCampaign, opts.lairId);
+      if(l){ w.lairName = l.name || w.lairName; if(l.hexId) w.hexId = l.hexId;
+        let tt = l.treasureType || (l.monsterCatalogKey && A.findMonster && A.findMonster(l.monsterCatalogKey) ? (A.findMonster(l.monsterCatalogKey).treasureType || '') : '');
+        if(tt) w.treasureType = tt; }
+    }
+    this.treasureWizard = w;
+  },
+  closeTreasureWizard(){ this.treasureWizard.open = false; },
+  treasureTypeOptions(){ const A = window.ACKS; return (A && A.TREASURE_TYPE_LETTERS) || []; },
+  treasureTypeAvgGpLabel(L){ const A = window.ACKS; return A && A.treasureTypeAvgGp ? A.treasureTypeAvgGp(L).toLocaleString() : ''; },
+  treasureAccumulationLabel(L){ const A = window.ACKS; return A && A.treasureAccumulation ? A.treasureAccumulation(L) : ''; },
+  nearestTreasureTypeLabel(gp){ const A = window.ACKS; return A && A.nearestTreasureType ? A.nearestTreasureType(Number(gp) || 0) : ''; },
+  treasureModeLabel(){ const A = window.ACKS; return A && A.treasureModeFor ? A.treasureModeFor(this.currentCampaign) : 'classic'; },
+  treasureRoll(){
+    const A = window.ACKS, w = this.treasureWizard;
+    if(!A || !A.generateHoard) return;
+    let h;
+    if(w.usePlanned && w.targetGp){ h = A.planHoard(Number(w.targetGp), A.treasureModeFor(this.currentCampaign)); w.treasureType = h.treasureType; }
+    else { h = A.generateHoard({ treasureType: w.treasureType, mode: A.treasureModeFor(this.currentCampaign) }); }
+    if(w.withSpecial && A.applySpecialTreasures) A.applySpecialTreasures(h);
+    w.hoard = h; w.placed = null;
+  },
+  treasureCoinRows(){
+    const A = window.ACKS, w = this.treasureWizard;
+    if(!w.hoard) return [];
+    const V = (A && A.COIN_GP_VALUE) || { cp:0.01, sp:0.1, ep:0.5, gp:1, pp:5 };
+    return ['pp','gp','ep','sp','cp'].filter(d => (w.hoard.coins[d] || 0) > 0)
+      .map(d => ({ denom:d, qty: w.hoard.coins[d], gp: Math.round(w.hoard.coins[d] * (V[d] || 0)) }));
+  },
+  treasureGpLabel(h){ const A = window.ACKS; return A && A.hoardTotalGp ? Math.round(A.hoardTotalGp(h)).toLocaleString() : '0'; },
+  treasureStoneLabel(h){ const A = window.ACKS; return A && A.hoardTotalStone ? (Math.round(A.hoardTotalStone(h) * 10) / 10).toLocaleString() : '0'; },
+  gemTierLabel(t){ return t === 'brilliant' ? 'Brilliant gem' : t === 'gem' ? 'Gem' : 'Ornamental stone'; },
+  jewelryTierLabel(t){ return t === 'regalia' ? 'Regalia' : t === 'jewelry' ? 'Jewelry' : 'Trinket'; },
+  magicSlotLabel(cat){ return cat === 'potion' ? 'Potion' : cat === 'scroll' ? 'Scroll' : cat === 'weapon-or-armor' ? 'Magic weapon/armor' : 'Magic item'; },
+  treasurePlace(){
+    const A = window.ACKS, w = this.treasureWizard;
+    if(!A || !A.materializeHoard || !w.hoard) return;
+    if(!this.currentCampaign){ alert('Open or create a campaign first.'); return; }
+    const res = A.materializeHoard(this.currentCampaign, w.hoard, { hexId: w.hexId || null, lairId: w.lairId || null });
+    w.placed = res;
+    this.markDirty && this.markDirty();
+    this.schedulePersist && this.schedulePersist();
+    if(this.showToast && res && res.stash){
+      this.showToast('💰 Hoard placed: ' + res.stash.name + ' (~' + this.treasureGpLabel(w.hoard) + ' gp · ' +
+        res.notables.length + ' magic · ' + res.captives.length + ' captives).');
+    }
+  },
+  treasurePlacedSummary(){
+    const w = this.treasureWizard, r = w.placed;
+    if(!r) return '';
+    const parts = [];
+    if(r.stash) parts.push((r.deposited ? r.deposited.length : 0) + ' item line(s) in “' + r.stash.name + '”');
+    if(r.notables && r.notables.length) parts.push(r.notables.length + ' magic item(s) → Notable Items');
+    if(r.captives && r.captives.length) parts.push(r.captives.length + ' captive(s) → Characters');
+    return parts.join(' · ') + (w.hexId ? (' · at hex ' + w.hexId) : '') + '.';
+  },
+  // --- b5-sages (#147): ---
+  // Sages SG-1 — the Consult-a-Sage modal (a thin surface over ACKS.consultSage). Launched from a
+  // character sheet's Skills tab (🔮 Consult a sage). Adds no state/collection to the campaign.
+  sageConsult: { open:false, sageId:null, clientId:null, subject:'', query:'', specialty:'', feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null },
+  openSageConsultModal(ch){
+    const actors = this.sageConsultActors();
+    const def = (ch && actors.some(a => a.id === ch.id)) ? ch.id : (actors[0] ? actors[0].id : null);
+    if(!def){ if(this.showToast) this.showToast('No active character to consult.'); return; }
+    const sageCh = (this.currentCampaign.characters||[]).find(c => c && c.id === def);
+    this.sageConsult = { open:true, sageId:def, clientId:def, subject:'', query:'', specialty:(sageCh && sageCh.sageSpecialty) || '', feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null };
+  },
+  closeSageConsultModal(){ this.sageConsult.open = false; this.sageConsult.result = null; },
+  sageConsultActors(){
+    const A = window.ACKS;
+    return ((this.currentCampaign && this.currentCampaign.characters) || [])
+      .filter(c => c && (A.isActive ? A.isActive(c) : (c.alive !== false)))
+      .map(c => ({ id:c.id, label:(c.name || c.id) + (c.class ? (' · ' + c.class + ' L' + (c.level||1)) : '') }));
+  },
+  sageConsultSetSage(id){
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id);
+    this.sageConsult.sageId = id;
+    if(!this.sageConsult.clientId) this.sageConsult.clientId = id;
+    this.sageConsult.specialty = (ch && ch.sageSpecialty) || '';
+    this.sageConsult.inSpecialtyOverride = null;
+    this.sageConsult.result = null;
+  },
+  sageConsultSage(){
+    const id = this.sageConsult.sageId;
+    return id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null;
+  },
+  sageConsultForecastUI(){
+    const sage = this.sageConsultSage();
+    if(!sage || !window.ACKS.sageConsultForecast) return null;
+    return window.ACKS.sageConsultForecast(this.currentCampaign, sage, {
+      subject: this.sageConsult.subject, specialty: this.sageConsult.specialty,
+      inSpecialty: this.sageConsult.inSpecialtyOverride
+    });
+  },
+  sageConsultSubmit(){
+    const sage = this.sageConsultSage();
+    if(!sage) return;
+    const r = window.ACKS.consultSage(this.currentCampaign, {
+      sageId: this.sageConsult.sageId, clientId: this.sageConsult.clientId || this.sageConsult.sageId,
+      subject: this.sageConsult.subject, query: this.sageConsult.query, specialty: this.sageConsult.specialty,
+      inSpecialty: this.sageConsult.inSpecialtyOverride, feeGp: Number(this.sageConsult.feeGp) || 0,
+      answerText: this.sageConsult.answerText, secret: this.sageConsult.secret
+    });
+    this.sageConsult.result = r;
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(r.success ? 'The sage answers.' : 'The sage cannot answer.'); }
+    else if(r && this.showToast){ this.showToast(r.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot consult: ' + r.error)); }
+  },
+  // --- b5-politics (P-2): ---
+  // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level view. A thin Alpine layer over
+  // acks-engine-politics.js (senateVote / enactPolicy / the §4.4 derived tally + benefits). The
+  // ruling/leading faction is always DERIVED — never read off a stored field. (P-1 left
+  // realmSenateOf / realmSenateReadout / politicsCreate above in the burst4 region.)
+  senateSelectedId: '',
+  senateConsult: { matter: 'change-taxes', customMatter: '', mode: 'per-senator', domainMorale: 0,
+    rulerFactionId: '', militaryLoyalty: 'none', controlledIndependentVotes: 0,
+    policyHelps: [], policyHinders: [], gmOutcome: 'approved' },
+  senateConsultResult: null,
+  // dormant-until-used: the nav tab + every panel gate on a senate existing.
+  campaignHasSenate(){ return !!(this.currentCampaign && Array.isArray(this.currentCampaign.senates) && this.currentCampaign.senates.some(s => s && s.status !== 'dissolved')); },
+  policyObjectiveList(){ return (window.ACKS && window.ACKS.POLICY_OBJECTIVES) || []; },
+  senateAutoVoteOn(){ const A = window.ACKS; return !(A && A.isHouseRuleEnabled && A.isHouseRuleEnabled(this.currentCampaign, 'senate-auto-vote') === false); },
+  senateAllRows(){
+    const c = this.currentCampaign;
+    if(!c || !Array.isArray(c.senates)) return [];
+    return c.senates.filter(s => s && s.status !== 'dissolved').map(s => ({ id: s.id, name: s.name || s.id }));
+  },
+  senateSelected(){
+    const c = this.currentCampaign, A = window.ACKS;
+    if(!c || !A) return null;
+    const rows = this.senateAllRows();
+    if(rows.length === 0) return null;
+    const id = this.senateSelectedId || rows[0].id;
+    return A.findSenate(c, id) || A.findSenate(c, rows[0].id);
+  },
+  _senateApex(senate){
+    const c = this.currentCampaign;
+    if(!c || !senate || !Array.isArray(c.domains)) return null;
+    return c.domains.find(d => d && d.id === senate.realmDomainId) || null;
+  },
+  // the derived tally (§4.4) for the selected senate — recomputed live, nothing cached.
+  senateReadout(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return { totalVotes: 0, independentVotes: 0, rulingFactionId: null, leadingFactionId: null, factions: [] };
+    const factions = (A.factionsForSenate(c, senate.id) || []).map(f => ({
+      id: f.id, name: f.name || f.id, influence: A.factionTotalInfluence(c, f), standing: A.factionStanding(c, f)
+    })).sort((a, b) => b.influence - a.influence);
+    return {
+      totalVotes: A.senateTotalVotes(c, senate),
+      independentVotes: senate.independentMinorSenatorVotes || 0,
+      rulingFactionId: A.senateRulingFactionId(c, senate),
+      leadingFactionId: A.senateLeadingFactionId(c, senate),
+      factions
+    };
+  },
+  senateRulerName(){
+    const apex = this._senateApex(this.senateSelected());
+    if(!apex) return '—';
+    const r = (this.currentCampaign.characters || []).find(ch => ch && ch.id === apex.rulerCharacterId);
+    return r ? (r.name || r.id) : '—';
+  },
+  senateFactionName(id){
+    if(!id) return '—';
+    const f = window.ACKS.findFaction(this.currentCampaign, id);
+    return f ? (f.name || f.id) : id;
+  },
+  senateBenefitsView(){
+    const A = window.ACKS, senate = this.senateSelected(), apex = this._senateApex(senate);
+    if(!A || !apex) return { active: false, inDispute: false, isSenatorial: false, benefits: { moraleBonus: 0, vassalBaseLoyalty: -2, freeFirstExtraDuty: false, freeMilitiaLevy: false } };
+    return A.senateBenefits(this.currentCampaign, apex);
+  },
+  senateLeadingSenatorRows(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return [];
+    return (A.senatorshipsForSenate(c, senate.id) || []).filter(s => s.rank !== 'minor').sort((a, b) => (b.votes || 0) - (a.votes || 0)).map(s => {
+      const ch = (c.characters || []).find(x => x && x.id === s.senatorCharacterId);
+      const f = s.factionId ? A.findFaction(c, s.factionId) : null;
+      return {
+        id: s.id, name: ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)'),
+        factionName: f ? (f.name || f.id) : '—', votes: s.votes || 0,
+        objectives: (Array.isArray(s.policyObjectives) && s.policyObjectives.length) ? s.policyObjectives.join(', ') : '—',
+        attitude: s.attitudeTowardRuler != null ? s.attitudeTowardRuler : '—',
+        viaOffice: !!s.sourceObligationId,
+        bewitched: Array.isArray(s.influenceModifiers) && s.influenceModifiers.some(m => m && m.kind === 'bewitched')
+      };
+    });
+  },
+  senateMatterOptions(){
+    const labels = { 'invade-realm': 'Invade another realm', 'demand-duty': 'Demand a duty of a vassal',
+      'appoint-vassal-manager': 'Appoint a vassal-domain manager', 'change-taxes': "Change the realm's taxes",
+      'change-religion': "Change the realm's religion", 'levy-troops': 'Levy conscripts or militia' };
+    return ((window.ACKS && window.ACKS.SENATE_RESTRICTED_MATTERS) || []).map(m => ({ value: m, label: labels[m] || m }));
+  },
+  _senateMatter(){
+    return this.senateConsult.matter === '__custom__' ? (this.senateConsult.customMatter || 'a custom matter') : this.senateConsult.matter;
+  },
+  senateMatterRestricted(){
+    const A = window.ACKS;
+    return !!(A && A.isSenateConsultationRequired && A.isSenateConsultationRequired(this._senateMatter()));
+  },
+  // the result-table render helpers (per-senator rows carry senatorCharacterId; by-faction rows carry factionName)
+  senateRollWho(row){
+    if(row.factionName) return row.factionName;
+    const ch = (this.currentCampaign.characters || []).find(x => x && x.id === row.senatorCharacterId);
+    return ch ? (ch.name || ch.id) : (row.senatorCharacterId || 'senator');
+  },
+  senateRollModifiers(row){
+    if(!row.modifiers || row.modifiers.length === 0) return row.bewitched ? 'auto (bewitched)' : '—';
+    return row.modifiers.map(m => (m.value >= 0 ? '+' : '') + m.value + ' ' + m.label).join(', ');
+  },
+  // run the 2d6 consultation (or record the GM narration when senate-auto-vote is off)
+  senateRunConsult(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return;
+    const res = A.senateVote(c, {
+      senateId: senate.id, matter: this._senateMatter(), mode: this.senateConsult.mode,
+      domainMorale: Number(this.senateConsult.domainMorale) || 0,
+      rulerFactionId: this.senateConsult.rulerFactionId || null,
+      militaryLoyalty: this.senateConsult.militaryLoyalty,
+      controlledIndependentVotes: Number(this.senateConsult.controlledIndependentVotes) || 0,
+      policyHelps: (this.senateConsult.policyHelps || []).slice(),
+      policyHinders: (this.senateConsult.policyHinders || []).slice(),
+      gmOutcome: this.senateConsult.gmOutcome
+    });
+    this.senateConsultResult = res;
+    this.markDirty(); this.schedulePersist();
+    if(res) this.showToast('🗳 The senate votes — ' + res.outcome + ' (' + res.forVotes + ' for / ' + res.againstVotes + ' against of ' + res.totalVotes + ')', 5000);
+  },
+  // the ruler acts on the matter: enact cleanly (approved) or defy the senate (→ dispute)
+  senateEnact(approved){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return;
+    const r = A.enactPolicy(c, { senateId: senate.id, matter: this._senateMatter(), consulted: true, approved: !!approved });
+    this.markDirty(); this.schedulePersist();
+    if(r){
+      if(r.disputed) this.showToast('⚠ The ruler defies the senate — the realm is in dispute.', 5000);
+      else if(r.cleared) this.showToast('✓ The dispute is resolved — benefits restored.', 5000);
+      else this.showToast("✓ Policy enacted with the senate's sanction.", 4000);
+    }
+    this.senateConsultResult = null;
+  },
+  // resolve an existing dispute via a retroactive-approval enactment on the defied topic
+  senateResolveDispute(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate || senate.dispute == null) return;
+    const r = A.enactPolicy(c, { senateId: senate.id, matter: senate.dispute.defiedTopic, consulted: true, approved: true, retroactiveApproval: true });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.cleared) this.showToast('✓ The senate grants retroactive approval — the dispute ends.', 5000);
+  },
+  // --- b5-religion (R2): ---
+  // --- b5-religion (R2): blood sacrifice (the Chaotic path) — thin Alpine layer over bloodSacrifice ---
+  religionSacForm: { casterId: '', componentValueGp: 0, victimCharacterId: '', victimSapient: false, victimWilling: false, victimHelpless: true, victimAlignment: '', multipliers: {} },
+  religionSacResult: null,
+  religionSacCasterOptions(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const A = window.ACKS; const priestIds = new Set((camp.congregations || []).map(c => c.highPriestCharacterId).filter(Boolean));
+    return (camp.characters || []).filter(ch => ch && (A.isDivineCaster(ch) || A.hasPowerOfSacrifice(ch) || priestIds.has(ch.id)));
+  },
+  religionSacMultiplierKeys(){ return Object.keys(window.ACKS.SACRIFICE_MULTIPLIERS || {}); },
+  religionSacMultValue(k){ return (window.ACKS.SACRIFICE_MULTIPLIERS || {})[k] || 0; },
+  religionSacToggleMult(k){ this.religionSacForm.multipliers[k] = !this.religionSacForm.multipliers[k]; },
+  religionSacComponentPreview(){
+    const f = this.religionSacForm;
+    if(f.victimCharacterId){ const v = (this.currentCampaign.characters || []).find(c => c.id === f.victimCharacterId); return v ? (Number(v.xp) || 0) : 0; }
+    return Number(f.componentValueGp) || 0;
+  },
+  religionSacMultSumPreview(){
+    const f = this.religionSacForm;
+    return window.ACKS.sacrificeMultiplierSum(Object.keys(f.multipliers).filter(k => f.multipliers[k]));
+  },
+  religionPerformSacrifice(){
+    const f = this.religionSacForm; if(!f.casterId) return;
+    const multipliers = Object.keys(f.multipliers).filter(k => f.multipliers[k]);
+    const opts = { casterId: f.casterId, multipliers, victimSapient: f.victimSapient,
+      victimWilling: f.victimWilling, victimHelpless: f.victimHelpless, victimAlignment: f.victimAlignment || null };
+    if(f.victimCharacterId) opts.victimCharacterId = f.victimCharacterId;
+    else opts.componentValueGp = Number(f.componentValueGp) || 0;
+    const r = window.ACKS.bloodSacrifice(this.currentCampaign, opts);
+    this.religionSacResult = r;
+    if(!r || !r.ok){ this.showToast('Sacrifice blocked: ' + ((r && r.reason) || 'failed')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast(r.yieldsNothing ? ('Sacrifice performed — no power earned (' + r.yieldReason + ')')
+      : (r.arcane ? ('Stored ' + (r.arcaneStoredGp || 0).toLocaleString() + 'gp arcane power')
+        : ('Gained ' + (r.divinePowerGained || 0).toLocaleString() + 'gp divine power')));
+  },
+  // --- b5-delves (D3): ---
+  // --- b5-delves (D3): the Foray Wizard (Abstract Dungeon foray Action verb, JJ ch.12) ---
+  foray: { open:false, dungeonId:null, delveId:null, participantIds:[], attempted:1, situationalKeys:[], healedToOneHp:true, isHenchmanDelve:false, proposal:null, lastCommit:null, realizeResult:null, treasureDest:'' },
+  // A dungeon is forayable while it isn't cleared/destroyed and still has encounters left.
+  dungeonForayable(d){ return !!d && d.status !== 'cleared' && d.status !== 'destroyed' && this.dungeonEncountersLeft(d) > 0; },
+  forayDungeon(){ return this.foray.dungeonId ? window.ACKS.findDungeon(this.currentCampaign, this.foray.dungeonId) : null; },
+  forayDelve(){ return this.foray.delveId ? window.ACKS.findDelve(this.currentCampaign, this.foray.delveId) : null; },
+  forayCandidates(){ return (this.currentCampaign?.characters || []).filter(c => c && (window.ACKS.isActive ? window.ACKS.isActive(c) : (c.alive !== false))); },
+  forayActiveDelves(){ return (this.currentCampaign && window.ACKS.activeDelves) ? window.ACKS.activeDelves(this.currentCampaign) : []; },
+  forayDelvesForDungeon(dungeonId){ return (this.currentCampaign && window.ACKS.delvesForDungeon) ? window.ACKS.delvesForDungeon(this.currentCampaign, dungeonId).filter(x => x.status === 'in-progress') : []; },
+  forayDelveDungeonName(dl){ const d = dl && window.ACKS.findDungeon(this.currentCampaign, dl.dungeonId); return d ? (d.name || '(dungeon)') : '—'; },
+  forayDelveRemaining(dl){ const d = dl && window.ACKS.findDungeon(this.currentCampaign, dl.dungeonId); return d ? this.dungeonEncountersLeft(d) : 0; },
+  // Open the wizard for a dungeon — continue its in-progress delve, or stage a fresh one.
+  openForayWizard(dungeonId){
+    const existing = this.forayDelvesForDungeon(dungeonId)[0];
+    this.foray = { open:true, dungeonId, delveId: existing ? existing.id : null,
+      participantIds: existing ? (existing.participantCharacterIds || []).slice() : [],
+      attempted: 1, situationalKeys: [], healedToOneHp: true,
+      isHenchmanDelve: existing ? !!existing.isHenchmanDelve : false,
+      proposal: null, lastCommit: null, realizeResult: null, treasureDest: '' };
+  },
+  forayToggleParticipant(id){ const i = this.foray.participantIds.indexOf(id); if(i >= 0) this.foray.participantIds.splice(i, 1); else if(this.foray.participantIds.length < 8) this.foray.participantIds.push(id); this.foray.proposal = null; },
+  forayToggleSituational(key){ const i = this.foray.situationalKeys.indexOf(key); if(i >= 0) this.foray.situationalKeys.splice(i, 1); else this.foray.situationalKeys.push(key); this.foray.proposal = null; },
+  foraySituationalMods(){ return window.ACKS.DUNGEON_SITUATIONAL_MODS || []; },
+  forayPartyLevel(){ return window.ACKS.partyLevelFor(this.currentCampaign, this.foray.participantIds.slice(0, 8)); },
+  forayPartySize(){ return Math.min(8, this.foray.participantIds.length); },
+  forayRemaining(){ const d = this.forayDungeon(); return d ? this.dungeonEncountersLeft(d) : 0; },
+  forayCharName(id){ const c = (this.currentCampaign?.characters || []).find(x => x.id === id); return c ? c.name : id; },
+  forayModifierPreview(){
+    const d = this.forayDungeon(); if(!d) return null;
+    return window.ACKS.dungeonForayResolutionModifier(d, { partyLevel: this.forayPartyLevel(), dungeonLevel: d.dungeonLevel,
+      attemptedEncounters: Math.min(this.foray.attempted, this.forayRemaining()), adventurerCount: this.forayPartySize(), situationalKeys: this.foray.situationalKeys });
+  },
+  forayCanResolve(){ return this.foray.participantIds.length > 0 && this.foray.attempted >= 1 && this.forayRemaining() > 0; },
+  forayResolve(){
+    if(!this.forayCanResolve()) return;
+    if(!this.foray.delveId){
+      const dl = window.ACKS.startDelve(this.currentCampaign, { dungeonId: this.foray.dungeonId, participantCharacterIds: this.foray.participantIds.slice(), isHenchmanDelve: this.foray.isHenchmanDelve });
+      this.foray.delveId = dl.id;
+    } else {
+      const dl = this.forayDelve(); if(dl){ dl.participantCharacterIds = this.foray.participantIds.slice(); dl.isHenchmanDelve = this.foray.isHenchmanDelve; }
+    }
+    this.foray.proposal = window.ACKS.resolveDungeonForay(this.currentCampaign, this.foray.delveId, { attemptedEncounters: Math.min(this.foray.attempted, this.forayRemaining()), situationalKeys: this.foray.situationalKeys });
+    this.foray.lastCommit = null;
+  },
+  forayReroll(){ this.foray.proposal = null; this.forayResolve(); },
+  forayCommit(){
+    if(!this.foray.proposal) return;
+    const out = window.ACKS.commitDungeonForay(this.currentCampaign, this.foray.delveId, this.foray.proposal, { healedToOneHp: this.foray.healedToOneHp });
+    this.foray.lastCommit = out; this.foray.proposal = null;
+    const dl = this.forayDelve(); if(dl) this.foray.participantIds = (dl.participantCharacterIds || []).slice();
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast(out && out.foray ? ('Foray resolved — ' + out.foray.result) : 'Foray resolved');
+  },
+  forayAttemptMore(){ this.foray.lastCommit = null; this.foray.proposal = null; this.foray.attempted = Math.max(1, Math.min(this.foray.attempted, this.forayRemaining())); },
+  forayRealize(outcome){
+    const res = window.ACKS.realizeDelve(this.currentCampaign, this.foray.delveId, { outcome, treasureDestinationCharacterId: this.foray.treasureDest || null });
+    this.foray.realizeResult = res; this.foray.lastCommit = null;
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast && res) this.showToast(res.narrative);
+  },
+  closeForayWizard(){
+    // discard an empty delve that was staged but never resolved a foray (it never happened).
+    const dl = this.forayDelve();
+    if(dl && (dl.foraysResolved || []).length === 0 && Array.isArray(this.currentCampaign.delves)){
+      this.currentCampaign.delves = this.currentCampaign.delves.filter(x => x.id !== dl.id);
+    }
+    this.foray = { open:false, dungeonId:null, delveId:null, participantIds:[], attempted:1, situationalKeys:[], healedToOneHp:true, isHenchmanDelve:false, proposal:null, lastCommit:null, realizeResult:null, treasureDest:'' };
+  },
+  // --- b5-cl2 (disease): ---
+  // --- b5-cl2 (disease): Character Lifecycle CL-2 — disease (JJ p.84) ---
+  // The character-sheet Health readout + the Expose-to-disease modal. The disease engine (the
+  // contraction verb + the slot-57 disease day-tick consumer) lives in acks-engine-lifecycle.js;
+  // these are thin wrappers + the GM modal state. Mutations go through the engine verbs (which find
+  // the live character on currentCampaign), so the readout re-renders like D1's Wounds readout.
+  characterDiseaseRows(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.characterDiseaseInfo !== 'function') return [];
+    return A.characterDiseaseInfo(ch).diseases || [];
+  },
+  diseaseSymptomatic(ch){
+    const A = window.ACKS;
+    return !!(ch && A && typeof A.characterDiseaseInfo === 'function' && A.characterDiseaseInfo(ch).symptomatic);
+  },
+  diseaseTypeOptions(){ return (window.ACKS && window.ACKS.DISEASE_TYPES) || []; },
+  exposeDisease: { open:false, characterId:null, charName:'', deathTarget:15, diseaseType:'', modifier:0, rollSave:true, forcedSave:11, result:null },
+  openExposeDiseaseModal(ch){
+    if(!ch) return;
+    const dt = (ch.savingThrows && ch.savingThrows.death != null) ? ch.savingThrows.death : 15;
+    this.exposeDisease = { open:true, characterId:ch.id, charName:ch.name, deathTarget:dt, diseaseType:'', modifier:0, rollSave:true, forcedSave:11, result:null };
+  },
+  closeExposeDiseaseModal(){ this.exposeDisease.open = false; this.exposeDisease.result = null; },
+  exposeDiseaseRun(){
+    const ed = this.exposeDisease; const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    const opts = {};
+    if(ed.diseaseType) opts.diseaseType = ed.diseaseType;
+    else if(ed.modifier) opts.modifier = Number(ed.modifier) || 0;
+    if(!ed.rollSave) opts.forcedSave = Math.max(1, Math.min(20, Number(ed.forcedSave) || 1));
+    try {
+      const r = window.ACKS.contractDisease(camp, ed.characterId, opts);
+      ed.result = r || { infected:false, narrative:'No result.' };
+      if(r && r.infected === false){ this.showToast('✅ ' + (r.narrative || (ed.charName + ' resists the illness.')), 4000); }
+      else if(r){ this.showToast('🤒 ' + ed.charName + ' contracts ' + r.diseaseLabel + (r.willDie ? ' (will die without a cure)' : '') + '.', 5000); this.markDirty(); this.schedulePersist(); }
+    } catch(e){ this.showToast('Expose failed: ' + e.message); }
+  },
+  identifyDiseaseRow(ch, d){
+    const camp = this.currentCampaign; if(!camp || !ch || !d) return;
+    const opts = (d.identifiedLevel === 'identified') ? { level:'prognosis' } : {};   // sensed→identified→prognosis
+    try { window.ACKS.identifyDisease(camp, ch.id, d.id, opts); this.markDirty(); this.schedulePersist(); }
+    catch(e){ this.showToast('Identify failed: ' + e.message); }
+  },
+  cureDiseaseRow(ch, d){
+    const camp = this.currentCampaign; if(!camp || !ch || !d) return;
+    try { const r = window.ACKS.cureDisease(camp, ch.id, d.id, { method:'Healing' });
+      if(r){ this.showToast('✚ ' + ch.name + ' is cured of ' + (r.diseaseLabel || 'their illness') + '.', 4000); this.markDirty(); this.schedulePersist(); } }
+    catch(e){ this.showToast('Cure failed: ' + e.message); }
+  },
+  // ========================= end TEAM BURST5 state + methods =========================
 };
 }
 </script>
