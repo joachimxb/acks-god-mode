@@ -11,23 +11,23 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-12-c"></script>
-<script src="acks-engine-entities.js?v=2026-06-12-b"></script>
+<script src="acks-engine.js?v=2026-06-14-pt0"></script>
+<script src="acks-engine-entities.js?v=2026-06-14-pt0"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-05-31-a"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-12-b"></script>
-<script src="acks-engine-events.js?v=2026-06-12-b"></script>
+<script src="acks-engine-events.js?v=2026-06-14-pt0"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-12-b"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-14-pt0"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-13-a"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
 <!-- agent-4 (Proficiency PT-1): add your acks-engine-proficiencies.js tag immediately below this line -->
-<script src="acks-engine-proficiencies.js?v=2026-06-13-a"></script>
-<script src="acks-engine-hijinks.js?v=2026-06-13-a"></script>
+<script src="acks-engine-proficiencies.js?v=2026-06-14-pt0"></script>
+<script src="acks-engine-hijinks.js?v=2026-06-14-pt0"></script>
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
 <!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
 <script src="acks-engine-sieges.js?v=2026-06-13-a"></script>
@@ -55,7 +55,7 @@
 <!-- Inlined Established March template for the welcome banner's "Try the demo" CTA.
      Loaded as a sibling script so the welcome experience works under file:// where
      fetch() of relative paths is blocked. Re-generate via outputs/build_demo_template_js.js. -->
-<script src="acks-demo-template.js?v=2026-06-05-saltspur-rev2"></script>
+<script src="acks-demo-template.js?v=2026-06-14-pt0"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
 <!-- Reusable editable-stat component (new GM stat-editing standard).
@@ -9303,20 +9303,22 @@ document.addEventListener('alpine:init', () => {
           <template x-if="(characterEditing.proficiencies||[]).length === 0">
             <p class="text-sm italic opacity-60 mb-2">No proficiencies yet.</p>
           </template>
+          <!-- PT-0: proficiencies are canonical {key,ranks(,spec)} objects. Display the label; edit ranks (number); add parses free-text. -->
           <ul class="space-y-1 text-sm mb-2">
             <template x-for="(prof, pi) in (characterEditing.proficiencies||[])" :key="pi">
               <li class="flex items-center gap-2 py-0.5 border-b border-ink/10">
-                <span class="ed-stat flex-1" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'proficiencies.' + pi, label:'Proficiency #' + (pi+1), kind:'text'})">
-                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
-                  <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:24rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+                <span class="flex-1" x-text="proficiencyDisplayLabel(prof)"></span>
+                <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'proficiencies.' + pi + '.ranks', label:'Ranks', kind:'number'})">
+                  <template x-if="!editing"><span class="ed-stat opacity-70"><span class="ed-val" x-text="'rank ' + ((prof && prof.ranks) || 1)"></span><button @click="start()" class="ed-edit" title="Edit ranks (logged)">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" min="1" class="ed-input" style="width:5rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
                 </span>
-                <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'proficiencies', label:'Proficiency', action:'remove', index:pi})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
+                <button @click="commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'proficiencies', label:'Proficiency', action:'remove', index:pi, valueDisplay:proficiencyDisplayLabel(prof)})" class="text-sm accent-red px-1 border border-ink/30 rounded hover:bg-red-50" title="Remove (logged)">× remove</button>
               </li>
             </template>
           </ul>
           <div class="flex gap-1 items-center">
-            <input type="text" x-model="newProf" placeholder="e.g. Bargaining (2)" class="flex-1 text-sm" @keyup.enter="if(newProf.trim()){ commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'proficiencies', label:'Proficiency', action:'add', value:newProf.trim()}); newProf=''; }">
-            <button @click="if(newProf.trim()){ commitListMutation({entityType:'character', entityId:characterEditing.id, entity:characterEditing, fieldPath:'proficiencies', label:'Proficiency', action:'add', value:newProf.trim()}); newProf=''; }" :disabled="!newProf.trim()" class="px-2 py-1 border border-ink rounded text-sm hover:bg-yellow-100" :class="newProf.trim() ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
+            <input type="text" x-model="newProf" placeholder="e.g. Bargaining (2) or Craft (smithing)" class="flex-1 text-sm" @keyup.enter="if(newProf.trim()){ addProficiency(newProf); newProf=''; }">
+            <button @click="if(newProf.trim()){ addProficiency(newProf); newProf=''; }" :disabled="!newProf.trim()" class="px-2 py-1 border border-ink rounded text-sm hover:bg-yellow-100" :class="newProf.trim() ? '' : 'opacity-50 cursor-not-allowed'">+ add</button>
           </div>
         </div>
 
@@ -13398,7 +13400,7 @@ return {
   },
   encActorBriberyProficient(){
     const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === this.encModal.inflActorId);
-    return !!(c && (c.proficiencies || []).some(p => /bribery/i.test(String((p && (p.name || p)) || ''))));
+    return !!(c && (c.proficiencies || []).some(p => /bribery/i.test(String((p && (p.key || p.name || p.label)) || p || ''))));   // PT-0: canonical {key} slug
   },
   encBribePayLabel(bonus){
     const t = window.ACKS.bribeBonusInfo(bonus, this.encActorBriberyProficient());
@@ -16654,11 +16656,11 @@ return {
       const v = opts.value;
       if(v == null || v === '') return false;
       newArr = oldArr.concat([v]);
-      valueDisplay = (typeof v === 'string') ? v : JSON.stringify(v);
+      valueDisplay = opts.valueDisplay || ((typeof v === 'string') ? v : JSON.stringify(v));   // PT-0: callers may pass a human label for object entries
     } else if(opts.action === 'remove'){
       const idx = (typeof opts.index === 'number') ? opts.index : oldArr.indexOf(opts.value);
       if(idx < 0) return false;
-      valueDisplay = (typeof oldArr[idx] === 'string') ? oldArr[idx] : JSON.stringify(oldArr[idx]);
+      valueDisplay = opts.valueDisplay || ((typeof oldArr[idx] === 'string') ? oldArr[idx] : JSON.stringify(oldArr[idx]));
       newArr = oldArr.slice(0, idx).concat(oldArr.slice(idx + 1));
     } else {
       return false;
@@ -17367,7 +17369,7 @@ return {
   // can have ranks or extra annotation (e.g. "Diplomacy 2") and still match.
   recruitPatronPersuasionProfs(){
     const s = this.recruitState; if(!s || !s.patron) return [];
-    const profs = (s.patron.proficiencies || []).map(p => String(p).toLowerCase().trim());
+    const profs = (s.patron.proficiencies || []).map(p => String((p && (p.key || p.name || p.label)) || p || '').toLowerCase().replace(/-/g, ' ').trim());   // PT-0: canonical {key}, de-hyphenated for 'mystic aura' etc.
     if(profs.length === 0) return [];
     const opts = [
       { id: 'diplomacy',    label: 'Diplomacy',    match: 'diplomacy' },
@@ -19024,7 +19026,7 @@ return {
   forageActor(){ return this.forage.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.forage.actorId) : null; },
   forageCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
   forageHex(){ const c = this.forageActor(); return (c && c.currentHexId) ? (this.currentCampaign?.hexes||[]).find(h => h && h.id === c.currentHexId) : null; },
-  _forageHasProf(re){ const c = this.forageActor(); return !!(c && (c.proficiencies||[]).some(p => re.test(typeof p === 'string' ? p : (p && p.name) || ''))); },
+  _forageHasProf(re){ const c = this.forageActor(); return !!(c && (c.proficiencies||[]).some(p => re.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''))); },   // PT-0: canonical {key} slug
   _forageTerritory(hex){
     if(hex && hex.domainId){ const d = (this.currentCampaign?.domains||[]).find(x => x && x.id === hex.domainId);
       if(d){ const cls = window.ACKS.effectiveDomainClassification ? window.ACKS.effectiveDomainClassification(d) : (d.classification||null); if(cls) return cls; } }
@@ -19157,7 +19159,7 @@ return {
     const hex = this.searchHexObj();
     const tMult = (hex && A.JOURNEY_TERRAIN_SPEED && A.JOURNEY_TERRAIN_SPEED[hex.terrain] != null) ? A.JOURNEY_TERRAIN_SPEED[hex.terrain] : 1;
     const speed = slowest * tMult;
-    const bonus = cohort.some(m => (m.proficiencies||[]).some(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))) ? 4 : 0;
+    const bonus = cohort.some(m => (m.proficiencies||[]).some(p => /tracking/i.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''))) ? 4 : 0;   // PT-0: canonical {key} slug
     return { speed: Math.round(speed * 10) / 10, target: A.wildernessSearchTargetForSpeed(speed), bonus: bonus };
   },
   searchFits(){
@@ -19294,7 +19296,7 @@ return {
     const hid = this.trackHome.hexId;
     return (this.currentCampaign?.characters||[]).filter(c => c && c.id
       && (!hid || c.currentHexId === hid)
-      && (c.proficiencies||[]).some(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || '')));
+      && (c.proficiencies||[]).some(p => /tracking/i.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || '')));   // PT-0: canonical {key} slug
   },
   // E5 — the trail's age in days (−2 each on the find), derived from the meeting's resolution stamp.
   trackHomeAgeDays(){
@@ -22895,6 +22897,33 @@ return {
     return '−' + Math.round((1 - f) * 100) + '% — sighting & encounter distance reduced (RR p.275)';
   },
   // ── agent-4 (Proficiency PT-1) state + methods ──
+  // PT-0 — format a canonical {key,ranks(,spec,label)} proficiency entry (or a legacy string) for
+  // display: the catalog label (or a custom human label), " — spec", and " (rank N)" when N > 1.
+  proficiencyDisplayLabel(p){
+    const A = window.ACKS;
+    if(p == null) return '';
+    if(typeof p === 'string'){ const parsed = (A && A.parseProficiencyEntry) ? A.parseProficiencyEntry(p) : null; if(!parsed) return p; p = parsed; }
+    const inCatalog = !!(A && A.PROFICIENCY_CATALOG && A.PROFICIENCY_CATALOG[p.key]);
+    let s = inCatalog ? A.proficiencyLabel(p.key) : (p.label || (A && A.proficiencyLabel ? A.proficiencyLabel(p.key) : (p.key || '')));
+    if(p.spec) s += ' — ' + p.spec;
+    if(p.ranks > 1) s += ' (rank ' + p.ranks + ')';
+    return s;
+  },
+  // PT-0 — parse free-text ("Bargaining (2)", "Craft (smithing)") into a canonical {key,ranks(,spec)}
+  // entry and append it (logged). A custom (off-catalog) input keeps its human label.
+  addProficiency(raw){
+    const s = String(raw == null ? '' : raw).trim(); if(!s) return;
+    const A = window.ACKS;
+    const parsed = (A && A.parseProficiencyEntry) ? A.parseProficiencyEntry(s) : null;
+    let entry;
+    if(parsed){
+      entry = parsed.spec ? { key:parsed.key, ranks:parsed.ranks, spec:parsed.spec } : { key:parsed.key, ranks:parsed.ranks };
+      if(A.PROFICIENCY_CATALOG && !A.PROFICIENCY_CATALOG[parsed.key] && parsed.label && parsed.label !== parsed.key) entry.label = parsed.label;
+    } else {
+      entry = { key: s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''), ranks:1, label:s };
+    }
+    this.commitListMutation({ entityType:'character', entityId:this.characterEditing.id, entity:this.characterEditing, fieldPath:'proficiencies', label:'Proficiency', action:'add', value:entry, valueDisplay:this.proficiencyDisplayLabel(entry) });
+  },
   // The shared Proficiency Throw modal (RR pp.9–10). A throw is a pure die (engine Layer 1/3) —
   // the modal computes the forecast + rolls; the consequence is the GM's to apply (DQ3/Q3).
   profThrow: { open:false, characterId:null, character:null, taskKey:'adventuring:dungeonbashing', abilityKey:'STR', relevantRanks:0, manualTarget:null, situational:0, secret:false, logToEvent:false, result:null, _logged:false },
