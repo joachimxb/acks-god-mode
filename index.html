@@ -1117,11 +1117,36 @@ document.addEventListener('alpine:init', () => {
               <td x-text="dungeonSizeLevelLabel(d)"></td>
               <td class="text-right font-mono" x-text="dungeonEncountersLeft(d)"></td>
               <td x-text="d.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="d.knownToPlayers ? '' : 'opacity-60'"></td>
-              <td class="text-right"><button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button></td>
+              <td class="text-right whitespace-nowrap">
+                <template x-if="dungeonForayable(d)"><button @click="openForayWizard(d.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 mr-1" title="Run an abstract foray (JJ ch.12)">⚔ Foray</button></template>
+                <button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button>
+              </td>
             </tr>
           </template>
         </tbody>
       </table>
+    </template>
+    <!-- === Delves D3 — delves in progress (continue / withdraw / realize a multi-foray operation) === -->
+    <template x-if="forayActiveDelves().length > 0">
+      <div class="mt-4 border-t border-ink/20 pt-3">
+        <h4 class="font-semibold text-sm mb-1">⚔ Delves in progress <span class="opacity-60 font-normal" x-text="'· ' + forayActiveDelves().length"></span></h4>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th>Delve</th><th>Dungeon</th><th class="text-right">Forays</th><th class="text-right">Running XP</th><th class="text-right">Running gp</th><th class="text-right">Left</th><th class="text-right">Actions</th></tr></thead>
+          <tbody>
+            <template x-for="dl in forayActiveDelves()" :key="dl.id">
+              <tr>
+                <td x-text="dl.name || '(delve)'"></td>
+                <td x-text="forayDelveDungeonName(dl)"></td>
+                <td class="text-right font-mono" x-text="(dl.foraysResolved||[]).length"></td>
+                <td class="text-right font-mono" x-text="dl.runningXp||0"></td>
+                <td class="text-right font-mono" x-text="dl.runningTreasureGp||0"></td>
+                <td class="text-right font-mono" x-text="forayDelveRemaining(dl)"></td>
+                <td class="text-right"><button @click="openForayWizard(dl.dungeonId)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Continue this delve">⚔ Continue</button></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
     </template>
     <p class="text-sm opacity-60 mt-3 italic">First-class delve targets in <code>campaign.dungeons[]</code> (Phase 3.5). <em>Lifecycle</em> overlays <em>Attuned</em> / <em>Owned</em> onto the stored status (derived — <code>dungeonLifecycleLabel</code>). <em>Encounters left</em> is the authored count, or — for a dungeon stocked with lairs (<code>lair.dungeonId</code>) — the living-lair count. The abstract-foray resolver + the Foray Wizard land in D3.</p>
   </div>
@@ -12262,6 +12287,141 @@ document.addEventListener('alpine:init', () => {
 <!-- b5-politics (P-2): Senate-vote modal (if any) here · the Senate tab/sub-view markup goes in the World/governance region -->
 <!-- b5-religion (R2): blood-sacrifice modal (if any) here · the ⛪ Religion tab body extends in place -->
 <!-- b5-delves (D3): Foray Wizard modal here · the 🕳️ Dungeons sub-view extends in place -->
+<!-- Foray Wizard — the Abstract Dungeon foray Action verb (JJ ch.12). Opened from World ▸ 🕳️
+     Dungeons (⚔ Foray / ⚔ Continue). Propose-compute-commit: resolveDungeonForay (PURE) → review
+     / ⟳ reroll → commitDungeonForay → realizeDelve. z-index:79 (the recordWound sibling). -->
+<div x-show="foray.open" @keydown.escape.window="if(foray.open && !$event.defaultPrevented){ closeForayWizard(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeForayWizard()">
+  <template x-if="foray.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">⚔ Abstract Dungeon Foray <span class="text-sm font-normal opacity-70">· JJ ch.12</span></h2>
+      <button @click="closeForayWizard()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- dungeon snapshot -->
+      <template x-if="forayDungeon()">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm">
+          <span class="font-semibold" x-text="forayDungeon().name || '(unnamed dungeon)'"></span>
+          <span class="opacity-70" x-text="' · ' + dungeonSizeLevelLabel(forayDungeon())"></span>
+          <span class="opacity-70" x-text="' · ' + forayRemaining() + ' encounter(s) remaining'"></span>
+        </div>
+      </template>
+
+      <!-- the realize summary supersedes the rest once a delve concludes -->
+      <template x-if="foray.realizeResult">
+        <div class="vellum border-2 border-ink rounded p-3 space-y-1">
+          <p class="font-semibold" x-text="foray.realizeResult.fullyCleared ? '✓ Dungeon cleared!' : '↩ Delve withdrawn'"></p>
+          <p class="text-sm" x-text="foray.realizeResult.narrative"></p>
+          <p class="text-xs opacity-70" x-show="foray.realizeResult.magicItemRolls > 0" x-text="'🔮 ' + foray.realizeResult.magicItemRolls + ' magic-item roll(s) — Treasure Type ' + foray.realizeResult.magicItemType + ' (the GM rolls on the Treasure Tables)'"></p>
+          <div class="wizard-submit-gate"><span></span><button @click="closeForayWizard()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Done</button></div>
+        </div>
+      </template>
+
+      <template x-if="!foray.realizeResult">
+      <div class="space-y-3">
+        <!-- 1 · party -->
+        <div>
+          <div class="wizard-step-header">1 · The party <span class="opacity-60 font-normal text-xs" x-text="'(party level ' + forayPartyLevel() + ' · ' + forayPartySize() + ' adventurer(s), max 8)'"></span></div>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1 max-h-40 overflow-y-auto border border-ink/20 rounded p-2 text-sm">
+            <template x-for="c in forayCandidates()" :key="c.id">
+              <label class="flex items-center gap-1" :class="(!foray.participantIds.includes(c.id) && foray.participantIds.length>=8) ? 'opacity-40' : ''">
+                <input type="checkbox" :checked="foray.participantIds.includes(c.id)" @change="forayToggleParticipant(c.id)" :disabled="!foray.participantIds.includes(c.id) && foray.participantIds.length>=8">
+                <span x-text="c.name + ' (L' + (c.level||1) + ')'"></span>
+              </label>
+            </template>
+            <template x-if="forayCandidates().length===0"><span class="opacity-60 italic col-span-2">No active characters.</span></template>
+          </div>
+          <label class="flex items-center gap-1 text-sm pt-1"><input type="checkbox" x-model="foray.isHenchmanDelve" @change="foray.proposal=null"> Henchman delve <span class="opacity-60">(½ combat XP + ½ treasure to the delvers; RAW p.277)</span></label>
+        </div>
+
+        <!-- 2 · encounters -->
+        <div>
+          <div class="wizard-step-header">2 · Encounters to attempt</div>
+          <input type="number" min="1" :max="forayRemaining()" x-model.number="foray.attempted" @input="foray.proposal=null" class="w-20 text-sm">
+          <span class="text-xs opacity-60" x-text="'of ' + forayRemaining() + ' remaining'"></span>
+        </div>
+
+        <!-- 3 · situational modifiers -->
+        <div>
+          <div class="wizard-step-header">3 · Situational modifiers <span class="opacity-60 font-normal text-xs">(optional, JJ p.278)</span></div>
+          <div class="space-y-0.5 text-sm">
+            <template x-for="m in foraySituationalMods()" :key="m.key">
+              <label class="flex items-center gap-1"><input type="checkbox" :checked="foray.situationalKeys.includes(m.key)" @change="forayToggleSituational(m.key)"> <span x-text="m.label"></span></label>
+            </template>
+          </div>
+        </div>
+
+        <!-- forecast (before resolving) -->
+        <template x-if="forayModifierPreview() && !foray.proposal && !foray.lastCommit">
+          <div class="wizard-forecast-row text-sm">
+            <span x-text="'Difficulty: ' + forayModifierPreview().difficultyLabel"></span>
+            <span class="font-mono" x-text="'roll 1d8+1d12 ' + (forayModifierPreview().modifier>=0?'+':'') + forayModifierPreview().modifier"></span>
+          </div>
+        </template>
+
+        <!-- resolve -->
+        <template x-if="!foray.proposal && !foray.lastCommit">
+          <div class="wizard-submit-gate">
+            <span class="text-xs opacity-60">A foray is one day of strenuous dedicated activity (RR p.279).</span>
+            <button @click="forayResolve()" :disabled="!forayCanResolve()" :class="forayCanResolve()?'bg-yellow-300 hover:bg-yellow-400':'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">🎲 Resolve foray</button>
+          </div>
+        </template>
+
+        <!-- proposal review -->
+        <template x-if="foray.proposal">
+          <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+            <div class="text-sm font-mono" x-text="'🎲 1d8(' + foray.proposal.roll.d8 + ') + 1d12(' + foray.proposal.roll.d12 + ') ' + (foray.proposal.modifier>=0?'+':'') + foray.proposal.modifier + ' = ' + foray.proposal.roll.total + ' → ' + foray.proposal.result.toUpperCase()"></div>
+            <details class="text-xs opacity-70"><summary>modifier breakdown</summary>
+              <template x-for="r in foray.proposal.modifierBreakdown" :key="r.key"><div x-text="r.label + ': ' + (r.value>=0?'+':'') + r.value"></div></template>
+            </details>
+            <p class="text-sm" x-text="'Cleared ' + foray.proposal.encountersCleared + ' encounter(s) · ' + foray.proposal.treasureGpGross + 'gp · ' + foray.proposal.xpGross + ' XP (gross, this foray)'"></p>
+            <template x-if="foray.proposal.casualties.length">
+              <div class="text-sm">
+                <p class="font-semibold text-red-800" x-text="'⚑ ' + foray.proposal.casualties.length + ' adventurer(s) suffer a mortal wound:'"></p>
+                <template x-for="cas in foray.proposal.casualties" :key="cas.characterId"><div class="pl-3" x-text="'• ' + cas.name + ' — ' + (cas.conditionLabel || 'wounded')"></div></template>
+                <label class="flex items-center gap-1 pt-1"><input type="checkbox" x-model="foray.healedToOneHp"> The party can heal / evacuate the wounded <span class="opacity-60">(else the 1–15 bands die)</span></label>
+              </div>
+            </template>
+            <template x-if="!foray.proposal.casualties.length"><p class="text-sm opacity-70">No casualties.</p></template>
+            <div class="wizard-submit-gate">
+              <button @click="forayReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⟳ Reroll</button>
+              <button @click="forayCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">✓ Commit foray</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- after a committed foray: running tally + next options -->
+        <template x-if="foray.lastCommit && forayDelve()">
+          <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+            <p class="font-semibold text-sm" x-text="'Foray ' + (forayDelve().foraysResolved||[]).length + ' committed — ' + ((forayDelve().foraysResolved.slice(-1)[0]||{}).result || '')"></p>
+            <p class="text-sm font-mono" x-text="'Running: ' + forayDelve().runningXp + ' XP · ' + forayDelve().runningTreasureGp + 'gp · ' + forayRemaining() + ' encounter(s) left'"></p>
+            <template x-if="forayDelve().status==='wiped'"><p class="text-sm text-red-800 font-semibold">☠ The party was wiped out (catastrophic) — no one returns.</p></template>
+            <label class="block text-sm pt-1" x-show="forayDelve().status!=='wiped'">Award treasure to
+              <select x-model="foray.treasureDest" class="text-sm">
+                <option value="">— first survivor's purse —</option>
+                <template x-for="id in (forayDelve().participantCharacterIds||[])" :key="id"><option :value="id" x-text="forayCharName(id) + ' (purse)'"></option></template>
+              </select>
+            </label>
+            <div class="wizard-submit-gate flex-wrap gap-2">
+              <template x-if="forayRemaining()>0 && forayDelve().status!=='wiped' && (forayDelve().participantCharacterIds||[]).length>0">
+                <button @click="forayAttemptMore()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⚔ Foray again</button>
+              </template>
+              <template x-if="forayRemaining()>0">
+                <button @click="forayRealize('withdrawn')" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">↩ Withdraw (¼ treasure)</button>
+              </template>
+              <template x-if="forayRemaining()<=0">
+                <button @click="forayRealize('cleared')" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">✓ Realize — dungeon cleared</button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- b5-cl2 (disease): disease/health modal (if any) here · the character-sheet health readout extends in place -->
 <!-- ===== end TEAM BURST5 modal tail ===== -->
 
@@ -24604,7 +24764,74 @@ return {
   // --- b5-sages (#147): ---
   // --- b5-politics (P-2): ---
   // --- b5-religion (R2): ---
-  // --- b5-delves (D3): ---
+  // --- b5-delves (D3): the Foray Wizard (Abstract Dungeon foray Action verb, JJ ch.12) ---
+  foray: { open:false, dungeonId:null, delveId:null, participantIds:[], attempted:1, situationalKeys:[], healedToOneHp:true, isHenchmanDelve:false, proposal:null, lastCommit:null, realizeResult:null, treasureDest:'' },
+  // A dungeon is forayable while it isn't cleared/destroyed and still has encounters left.
+  dungeonForayable(d){ return !!d && d.status !== 'cleared' && d.status !== 'destroyed' && this.dungeonEncountersLeft(d) > 0; },
+  forayDungeon(){ return this.foray.dungeonId ? window.ACKS.findDungeon(this.currentCampaign, this.foray.dungeonId) : null; },
+  forayDelve(){ return this.foray.delveId ? window.ACKS.findDelve(this.currentCampaign, this.foray.delveId) : null; },
+  forayCandidates(){ return (this.currentCampaign?.characters || []).filter(c => c && (window.ACKS.isActive ? window.ACKS.isActive(c) : (c.alive !== false))); },
+  forayActiveDelves(){ return (this.currentCampaign && window.ACKS.activeDelves) ? window.ACKS.activeDelves(this.currentCampaign) : []; },
+  forayDelvesForDungeon(dungeonId){ return (this.currentCampaign && window.ACKS.delvesForDungeon) ? window.ACKS.delvesForDungeon(this.currentCampaign, dungeonId).filter(x => x.status === 'in-progress') : []; },
+  forayDelveDungeonName(dl){ const d = dl && window.ACKS.findDungeon(this.currentCampaign, dl.dungeonId); return d ? (d.name || '(dungeon)') : '—'; },
+  forayDelveRemaining(dl){ const d = dl && window.ACKS.findDungeon(this.currentCampaign, dl.dungeonId); return d ? this.dungeonEncountersLeft(d) : 0; },
+  // Open the wizard for a dungeon — continue its in-progress delve, or stage a fresh one.
+  openForayWizard(dungeonId){
+    const existing = this.forayDelvesForDungeon(dungeonId)[0];
+    this.foray = { open:true, dungeonId, delveId: existing ? existing.id : null,
+      participantIds: existing ? (existing.participantCharacterIds || []).slice() : [],
+      attempted: 1, situationalKeys: [], healedToOneHp: true,
+      isHenchmanDelve: existing ? !!existing.isHenchmanDelve : false,
+      proposal: null, lastCommit: null, realizeResult: null, treasureDest: '' };
+  },
+  forayToggleParticipant(id){ const i = this.foray.participantIds.indexOf(id); if(i >= 0) this.foray.participantIds.splice(i, 1); else if(this.foray.participantIds.length < 8) this.foray.participantIds.push(id); this.foray.proposal = null; },
+  forayToggleSituational(key){ const i = this.foray.situationalKeys.indexOf(key); if(i >= 0) this.foray.situationalKeys.splice(i, 1); else this.foray.situationalKeys.push(key); this.foray.proposal = null; },
+  foraySituationalMods(){ return window.ACKS.DUNGEON_SITUATIONAL_MODS || []; },
+  forayPartyLevel(){ return window.ACKS.partyLevelFor(this.currentCampaign, this.foray.participantIds.slice(0, 8)); },
+  forayPartySize(){ return Math.min(8, this.foray.participantIds.length); },
+  forayRemaining(){ const d = this.forayDungeon(); return d ? this.dungeonEncountersLeft(d) : 0; },
+  forayCharName(id){ const c = (this.currentCampaign?.characters || []).find(x => x.id === id); return c ? c.name : id; },
+  forayModifierPreview(){
+    const d = this.forayDungeon(); if(!d) return null;
+    return window.ACKS.dungeonForayResolutionModifier(d, { partyLevel: this.forayPartyLevel(), dungeonLevel: d.dungeonLevel,
+      attemptedEncounters: Math.min(this.foray.attempted, this.forayRemaining()), adventurerCount: this.forayPartySize(), situationalKeys: this.foray.situationalKeys });
+  },
+  forayCanResolve(){ return this.foray.participantIds.length > 0 && this.foray.attempted >= 1 && this.forayRemaining() > 0; },
+  forayResolve(){
+    if(!this.forayCanResolve()) return;
+    if(!this.foray.delveId){
+      const dl = window.ACKS.startDelve(this.currentCampaign, { dungeonId: this.foray.dungeonId, participantCharacterIds: this.foray.participantIds.slice(), isHenchmanDelve: this.foray.isHenchmanDelve });
+      this.foray.delveId = dl.id;
+    } else {
+      const dl = this.forayDelve(); if(dl){ dl.participantCharacterIds = this.foray.participantIds.slice(); dl.isHenchmanDelve = this.foray.isHenchmanDelve; }
+    }
+    this.foray.proposal = window.ACKS.resolveDungeonForay(this.currentCampaign, this.foray.delveId, { attemptedEncounters: Math.min(this.foray.attempted, this.forayRemaining()), situationalKeys: this.foray.situationalKeys });
+    this.foray.lastCommit = null;
+  },
+  forayReroll(){ this.foray.proposal = null; this.forayResolve(); },
+  forayCommit(){
+    if(!this.foray.proposal) return;
+    const out = window.ACKS.commitDungeonForay(this.currentCampaign, this.foray.delveId, this.foray.proposal, { healedToOneHp: this.foray.healedToOneHp });
+    this.foray.lastCommit = out; this.foray.proposal = null;
+    const dl = this.forayDelve(); if(dl) this.foray.participantIds = (dl.participantCharacterIds || []).slice();
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast(out && out.foray ? ('Foray resolved — ' + out.foray.result) : 'Foray resolved');
+  },
+  forayAttemptMore(){ this.foray.lastCommit = null; this.foray.proposal = null; this.foray.attempted = Math.max(1, Math.min(this.foray.attempted, this.forayRemaining())); },
+  forayRealize(outcome){
+    const res = window.ACKS.realizeDelve(this.currentCampaign, this.foray.delveId, { outcome, treasureDestinationCharacterId: this.foray.treasureDest || null });
+    this.foray.realizeResult = res; this.foray.lastCommit = null;
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast && res) this.showToast(res.narrative);
+  },
+  closeForayWizard(){
+    // discard an empty delve that was staged but never resolved a foray (it never happened).
+    const dl = this.forayDelve();
+    if(dl && (dl.foraysResolved || []).length === 0 && Array.isArray(this.currentCampaign.delves)){
+      this.currentCampaign.delves = this.currentCampaign.delves.filter(x => x.id !== dl.id);
+    }
+    this.foray = { open:false, dungeonId:null, delveId:null, participantIds:[], attempted:1, situationalKeys:[], healedToOneHp:true, isHenchmanDelve:false, proposal:null, lastCommit:null, realizeResult:null, treasureDest:'' };
+  },
   // --- b5-cl2 (disease): ---
   // ========================= end TEAM BURST5 state + methods =========================
 };
