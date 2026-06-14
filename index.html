@@ -72,7 +72,7 @@
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
 <script src="acks-engine-politics.js?v=2026-06-13-a"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
-<script src="acks-engine-lifecycle.js?v=2026-06-14-a"></script>
+<script src="acks-engine-lifecycle.js?v=2026-06-14-b5cl2"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
 <script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
@@ -9774,6 +9774,43 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Character Lifecycle CL-2 (b5-cl2, burst5) — Health / Diseases readout (JJ p.84). Sits
+             beside the Wounds readout above — the "what's wrong with this person" cluster (Plan §9).
+             A symptomatic disease incapacitates; onset/symptom advance on the Day Clock (the slot-57
+             disease consumer). 🤒 exposes the character; per-disease Identify / Cure. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Health <span class="text-sm font-normal opacity-60">(diseases — JJ p.84)</span></h4>
+              <button @click="openExposeDiseaseModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Expose this character to a disease (JJ p.84)">🤒 Expose to disease</button>
+            </div>
+            <template x-if="characterEditing.lifecycleState === 'incapacitated' && diseaseSymptomatic(characterEditing)">
+              <p class="text-sm accent-red font-semibold mb-1">🤒 Symptomatic — incapacitated until the disease resolves or is cured (advance the Day Clock).</p>
+            </template>
+            <template x-if="characterDiseaseRows(characterEditing).length === 0">
+              <p class="text-sm italic opacity-60">No active diseases.</p>
+            </template>
+            <ul class="space-y-1 text-sm" x-show="characterDiseaseRows(characterEditing).length">
+              <template x-for="d in characterDiseaseRows(characterEditing)" :key="d.id">
+                <li class="flex items-start gap-2 py-0.5 border-b border-ink/10">
+                  <span class="text-base leading-tight" x-text="d.phase === 'symptomatic' ? '🤒' : '🦠'"></span>
+                  <span class="flex-1">
+                    <span class="font-semibold" x-text="d.diseaseLabel"></span>
+                    <span class="opacity-70" x-text="' · ' + d.phaseLabel"></span>
+                    <template x-if="d.disfiguring"><span class="text-xs opacity-60"> · disfiguring</span></template>
+                    <template x-if="d.prognosisKnown"><span class="block text-xs" :class="d.willDie ? 'accent-red' : ''" x-text="'prognosis: ' + (d.willDie ? 'will die without a cure' : 'will recover')"></span></template>
+                    <div class="flex gap-1 mt-0.5">
+                      <button @click="identifyDiseaseRow(characterEditing, d)" :disabled="d.identifiedLevel === 'prognosis'" :class="d.identifiedLevel === 'prognosis' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-50'" class="text-xs px-1 border border-ink/30 rounded" title="Record the party's Healing diagnosis (JJ p.84)" x-text="d.identifiedLevel === 'identified' ? '+ prognosis' : (d.identifiedLevel === 'prognosis' ? '✓ diagnosed' : '🔍 identify')"></button>
+                      <button @click="cureDiseaseRow(characterEditing, d)" class="text-xs px-1 border border-ink/30 rounded hover:bg-green-50" title="Cure (Healing proficiency / cure disease magic)">✚ cure</button>
+                    </div>
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p class="text-xs italic opacity-60 mt-2">A symptomatic disease incapacitates until it resolves or is cured. Onset &amp; symptoms advance on the Day Clock (JJ p.84).</p>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -12936,6 +12973,68 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 <!-- b5-cl2 (disease): disease/health modal (if any) here · the character-sheet health readout extends in place -->
+<!-- Expose-to-disease modal (JJ p.84) — the GM "expose a character" action, opened from the
+     character-sheet Health readout (stats tab). z-index:79 (above the character editor, like the
+     Record-a-wound modal). Contraction is a single combined roll: 1d100 → Disease Type, then a
+     Death save → infected or shrugged off (CL-2, b5-cl2 burst5). -->
+<div x-show="exposeDisease.open" @keydown.escape.window="if(exposeDisease.open && !$event.defaultPrevented){ closeExposeDiseaseModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeExposeDiseaseModal()">
+  <template x-if="exposeDisease.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🤒 Expose to a disease <span class="text-sm font-normal opacity-70">· JJ p.84</span></h2>
+      <button @click="closeExposeDiseaseModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="exposeDisease.charName || '(no character)'"></span>
+        <span class="opacity-70" x-text="' · Death save ' + exposeDisease.deathTarget + '+'"></span>
+      </div>
+      <label class="block text-sm">Disease
+        <select x-model="exposeDisease.diseaseType" class="w-full text-sm">
+          <option value="">🎲 Roll on the Disease Type table (1d100)</option>
+          <template x-for="d in diseaseTypeOptions()" :key="d.id"><option :value="d.id" x-text="d.label + ' (save +' + d.saveBonus + ')'"></option></template>
+        </select>
+      </label>
+      <template x-if="!exposeDisease.diseaseType">
+        <label class="flex items-center gap-1 text-sm">1d100 modifier <span class="opacity-60">(e.g. −10 in a jungle hex — lower is worse)</span>
+          <input type="number" x-model.number="exposeDisease.modifier" class="w-16 text-sm">
+        </label>
+      </template>
+      <div class="space-y-1.5 text-sm">
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="exposeDisease.rollSave"> Roll the Death save <span class="opacity-60">(else set the 1d20)</span></label>
+        <template x-if="!exposeDisease.rollSave">
+          <label class="flex items-center gap-1 pl-4">1d20 = <input type="number" min="1" max="20" x-model.number="exposeDisease.forcedSave" class="w-16 text-sm"></label>
+        </template>
+      </div>
+      <template x-if="exposeDisease.result">
+        <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+          <template x-if="exposeDisease.result.infected === false">
+            <p class="text-sm" x-text="'✅ ' + (exposeDisease.result.narrative || (exposeDisease.charName + ' resists the illness.'))"></p>
+          </template>
+          <template x-if="exposeDisease.result.infected !== false">
+            <div>
+              <span class="px-3 py-1 border-2 rounded-full text-base font-bold"
+                    :style="exposeDisease.result.willDie ? 'background:#f5e2e2;color:#7a1f1f;border-color:#7a1f1f' : 'background:#f3ecd9;color:#5a4a2f;border-color:#5a4a2f'"
+                    x-text="exposeDisease.result.diseaseLabel"></span>
+              <span class="ml-2 text-xs opacity-70">JJ p.84</span>
+              <p class="text-sm mt-1" x-text="'Death save ' + exposeDisease.result.saveTotal + ' vs ' + exposeDisease.result.saveTarget + '+ failed → infected. Symptoms in ' + exposeDisease.result.onsetDays + ' day' + (exposeDisease.result.onsetDays===1?'':'s') + ', then ' + exposeDisease.result.symptomDays + ' day' + (exposeDisease.result.symptomDays===1?'':'s') + ' symptomatic.'"></p>
+              <p class="text-sm" :class="exposeDisease.result.willDie ? 'accent-red' : ''" x-text="exposeDisease.result.willDie ? '⚠ Will die without a cure.' : 'Will recover if it runs its course.'"></p>
+            </div>
+          </template>
+        </div>
+      </template>
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Advance the Day Clock to progress the disease.</span>
+        <div class="flex gap-2">
+          <button @click="closeExposeDiseaseModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100" x-text="exposeDisease.result ? 'Close' : 'Cancel'"></button>
+          <button x-show="!exposeDisease.result" @click="exposeDiseaseRun()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">🤒 Expose</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- ===== end TEAM BURST5 modal tail ===== -->
 
 <script>
@@ -25681,6 +25780,54 @@ return {
     this.foray = { open:false, dungeonId:null, delveId:null, participantIds:[], attempted:1, situationalKeys:[], healedToOneHp:true, isHenchmanDelve:false, proposal:null, lastCommit:null, realizeResult:null, treasureDest:'' };
   },
   // --- b5-cl2 (disease): ---
+  // --- b5-cl2 (disease): Character Lifecycle CL-2 — disease (JJ p.84) ---
+  // The character-sheet Health readout + the Expose-to-disease modal. The disease engine (the
+  // contraction verb + the slot-57 disease day-tick consumer) lives in acks-engine-lifecycle.js;
+  // these are thin wrappers + the GM modal state. Mutations go through the engine verbs (which find
+  // the live character on currentCampaign), so the readout re-renders like D1's Wounds readout.
+  characterDiseaseRows(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.characterDiseaseInfo !== 'function') return [];
+    return A.characterDiseaseInfo(ch).diseases || [];
+  },
+  diseaseSymptomatic(ch){
+    const A = window.ACKS;
+    return !!(ch && A && typeof A.characterDiseaseInfo === 'function' && A.characterDiseaseInfo(ch).symptomatic);
+  },
+  diseaseTypeOptions(){ return (window.ACKS && window.ACKS.DISEASE_TYPES) || []; },
+  exposeDisease: { open:false, characterId:null, charName:'', deathTarget:15, diseaseType:'', modifier:0, rollSave:true, forcedSave:11, result:null },
+  openExposeDiseaseModal(ch){
+    if(!ch) return;
+    const dt = (ch.savingThrows && ch.savingThrows.death != null) ? ch.savingThrows.death : 15;
+    this.exposeDisease = { open:true, characterId:ch.id, charName:ch.name, deathTarget:dt, diseaseType:'', modifier:0, rollSave:true, forcedSave:11, result:null };
+  },
+  closeExposeDiseaseModal(){ this.exposeDisease.open = false; this.exposeDisease.result = null; },
+  exposeDiseaseRun(){
+    const ed = this.exposeDisease; const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    const opts = {};
+    if(ed.diseaseType) opts.diseaseType = ed.diseaseType;
+    else if(ed.modifier) opts.modifier = Number(ed.modifier) || 0;
+    if(!ed.rollSave) opts.forcedSave = Math.max(1, Math.min(20, Number(ed.forcedSave) || 1));
+    try {
+      const r = window.ACKS.contractDisease(camp, ed.characterId, opts);
+      ed.result = r || { infected:false, narrative:'No result.' };
+      if(r && r.infected === false){ this.showToast('✅ ' + (r.narrative || (ed.charName + ' resists the illness.')), 4000); }
+      else if(r){ this.showToast('🤒 ' + ed.charName + ' contracts ' + r.diseaseLabel + (r.willDie ? ' (will die without a cure)' : '') + '.', 5000); this.markDirty(); this.schedulePersist(); }
+    } catch(e){ this.showToast('Expose failed: ' + e.message); }
+  },
+  identifyDiseaseRow(ch, d){
+    const camp = this.currentCampaign; if(!camp || !ch || !d) return;
+    const opts = (d.identifiedLevel === 'identified') ? { level:'prognosis' } : {};   // sensed→identified→prognosis
+    try { window.ACKS.identifyDisease(camp, ch.id, d.id, opts); this.markDirty(); this.schedulePersist(); }
+    catch(e){ this.showToast('Identify failed: ' + e.message); }
+  },
+  cureDiseaseRow(ch, d){
+    const camp = this.currentCampaign; if(!camp || !ch || !d) return;
+    try { const r = window.ACKS.cureDisease(camp, ch.id, d.id, { method:'Healing' });
+      if(r){ this.showToast('✚ ' + ch.name + ' is cured of ' + (r.diseaseLabel || 'their illness') + '.', 4000); this.markDirty(); this.schedulePersist(); } }
+    catch(e){ this.showToast('Cure failed: ' + e.message); }
+  },
   // ========================= end TEAM BURST5 state + methods =========================
 };
 }

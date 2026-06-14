@@ -255,7 +255,13 @@ const EVENT_KINDS = Object.freeze([
   // the GP Wave B adventure-result disbursement); this keeps the eventLog well-formed on replay.
   // Carries the Event.context envelope (the dungeon as site + the delve + the casualties). Event
   // Wizard opt-out below — the GM runs a foray via the Foray Wizard, not the Event Wizard.
-  'delve-foray'
+  'delve-foray',
+  // === Character Lifecycle CL-2 (burst5) === — disease (JJ p.84). Record-only audit emitted by
+  // acks-engine-lifecycle.js (contractDisease + the slot-57 disease day-consumer's resolution).
+  // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
+  // death-from-old-age carrying died:bool); the eventLog narrative reads correctly either way.
+  'disease-contracted',
+  'disease-recovered'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -812,6 +818,19 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { dungeonId: 'string', phase: 'string', forayIndex: 'number', result: 'string',
          outcome: 'string', encountersCleared: 'number', treasureGp: 'number', xp: 'number',
          magicItemRolls: 'number', casualties: 'array', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-2 (burst5) === (JJ p.84; engine-emitted by acks-engine-lifecycle.js,
+  // record-only). A character contracts a disease (infected); then the disease resolves.
+  'disease-contracted': {
+    R: { characterId: 'string', diseaseType: 'string' },
+    O: { diseaseLabel: 'string', onsetDays: 'number', symptomDays: 'number', willDie: 'boolean',
+         saveRoll: 'number', saveTotal: 'number', saveTarget: 'number', narrative: 'string' }
+  },
+  // The disease's resolution. outcome ∈ recovered|cured|died; on death the consumer sets
+  // lifecycleState 'deceased'.
+  'disease-recovered': {
+    R: { characterId: 'string', diseaseType: 'string' },
+    O: { diseaseLabel: 'string', outcome: 'string', died: 'boolean', cured: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2372,6 +2391,15 @@ function applyEvent_delveAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'delve foray' } };
 }
 registerEventHandler('delve-foray', applyEvent_delveAudit);
+// === Character Lifecycle CL-2 (burst5) === — disease events share the record-only audit posture:
+// acks-engine-lifecycle.js already advanced the disease state; the handler keeps the event
+// well-formed on replay (records the narrative only). Mirrors aging / mortal-wound / survival.
+function applyEvent_diseaseAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'disease' } };
+}
+registerEventHandler('disease-contracted', applyEvent_diseaseAudit);
+registerEventHandler('disease-recovered', applyEvent_diseaseAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5395,7 +5423,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'senate-vote', 'policy-enacted',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
-  'delve-foray'
+  'delve-foray',
+  // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
+  // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
+  // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
+  'disease-contracted', 'disease-recovered'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
