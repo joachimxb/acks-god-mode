@@ -228,7 +228,13 @@ const EVENT_KINDS = Object.freeze([
   // hooked into commitTurn); these keep the eventLog well-formed + carry the Event.context envelope
   // (the aging character as subject). 'death-from-old-age' carries the Death-save result (died bool).
   'aging-milestone',
-  'death-from-old-age'
+  'death-from-old-age',
+  // === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit of a generated hoard's
+  // materialization (ACKS.materializeHoard, acks-engine-treasure.js). The state is applied by the stash
+  // setters (depositToStash / promoteLineToNotableItem) + minted captive Characters; this keeps the
+  // eventLog well-formed + carries the Event.context envelope (primaryHexId = the hoard's hex,
+  // relatedEntities = the lair + any captives). Treasure generation is GM authoring, never a character activity.
+  'treasure-generated'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -741,6 +747,13 @@ const EVENT_SCHEMAS = Object.freeze({
   'death-from-old-age': {
     R: { characterId: 'string', died: 'boolean' },
     O: { threshold: 'string', save: 'number', target: 'number', narrative: 'string' }
+  },
+  // === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit (see EVENT_KINDS).
+  'treasure-generated': {
+    R: { treasureType: 'string' },
+    O: { mode: 'string', totalGp: 'number', totalStone: 'number', stashId: 'string', lairId: 'string',
+         coins: 'object', gemCount: 'number', jewelryCount: 'number', magicSlotCount: 'number',
+         captiveCount: 'number', narrative: 'string' }
   }
 });
 
@@ -2272,6 +2285,15 @@ function applyEvent_agingAudit(campaign, event){
 }
 registerEventHandler('aging-milestone', applyEvent_agingAudit);
 registerEventHandler('death-from-old-age', applyEvent_agingAudit);
+// === Treasure Generation #142 (burst5 2026-06-14) === — record-only audit posture: the hoard's
+// state is applied by ACKS.materializeHoard (the stash deposit + notable promotion + minted captive
+// Characters, acks-engine-treasure.js); this handler keeps the event well-formed on replay (records
+// the narrative only). Mirrors aging / mortal-wound / survival.
+function applyEvent_treasureAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'treasure generated' } };
+}
+registerEventHandler('treasure-generated', applyEvent_treasureAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5279,7 +5301,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Character Lifecycle CL-1 (burst4) === — owned by ACKS.processAgingForTurn (the monthly pass);
   // a raw emit would narrate an aging/death the character's age/lifecycleState don't show. The GM sets
   // an age via the character sheet, not the Event Wizard.
-  'aging-milestone', 'death-from-old-age'
+  'aging-milestone', 'death-from-old-age',
+  // === Treasure Generation #142 (burst5 2026-06-14) === — owned by ACKS.materializeHoard (the
+  // Treasure Wizard); a raw emit would record a hoard the stashes/notables/captives don't show. The
+  // GM rolls + places a hoard via the wizard, not the Event Wizard.
+  'treasure-generated'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
