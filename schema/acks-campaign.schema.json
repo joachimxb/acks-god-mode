@@ -4438,6 +4438,327 @@
         "id"
       ]
     },
+    "bout": {
+      "title": "Bout",
+      "description": "\"bout\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gameId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "game id — prefix \"gam-\""
+        },
+        "kind": {
+          "enum": [
+            "to-incapacitation",
+            "to-death",
+            null
+          ]
+        },
+        "sideA": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "combatantIds": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "character id — prefix \"chr-\""
+              }
+            },
+            "kind": {
+              "enum": [
+                "gladiator",
+                "creature",
+                "prisoner",
+                null
+              ]
+            }
+          }
+        },
+        "sideB": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "combatantIds": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "character id — prefix \"chr-\""
+              }
+            },
+            "kind": {
+              "enum": [
+                "gladiator",
+                "creature",
+                "prisoner",
+                null
+              ]
+            }
+          }
+        },
+        "rentPaidGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "resolutionMode": {
+          "enum": [
+            "abstract",
+            "combat",
+            null
+          ]
+        },
+        "status": {
+          "enum": [
+            "scheduled",
+            "resolved",
+            null
+          ]
+        },
+        "createdAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "gladiator-school": {
+      "title": "Gladiator School",
+      "description": "\"gladiator-school\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lanistaCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "settlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "gladiatorCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "staffCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "structureConstructibleIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "constructible id — prefix \"cst-\""
+          }
+        },
+        "treasuryStashId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "stash id — prefix \"stash-\""
+        },
+        "status": {
+          "enum": [
+            "active",
+            "disbanded",
+            null
+          ]
+        },
+        "foundedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "game": {
+      "title": "Gladiatorial Game",
+      "description": "\"game\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "muneratorCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "settlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "amphitheaterConstructibleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "constructible id — prefix \"cst-\""
+        },
+        "budgetGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "scheduledTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "boutIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "bout id — prefix \"bot-\""
+          }
+        },
+        "status": {
+          "enum": [
+            "planned",
+            "held",
+            null
+          ]
+        },
+        "createdAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "garrison-unit": {
       "title": "Garrison Unit",
       "description": "\"garrison-unit\" entity (no field schema yet — id-bearing object, fields open)",
@@ -4648,10 +4969,13 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 44,
-    "typedKinds": 26,
+    "entityKinds": 47,
+    "typedKinds": 29,
     "eventKinds": 73,
     "nestedSubEntityKinds": [
+      "bout",
+      "gladiator-school",
+      "game",
       "garrison-unit",
       "stronghold-component"
     ],
