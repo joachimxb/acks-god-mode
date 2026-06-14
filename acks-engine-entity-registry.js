@@ -284,6 +284,15 @@
       find: (c, id) => ((c && c.sieges) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
 
+    // === Voyages V1 (burst4 — 2026-06-14) — Vessel (Phase 3 Voyages #145, RR Ch.7).
+    // campaign.vessels[] (read defensively — no migrateCampaign injector, so templates stay
+    // migrate-no-ops). displayName reads only blankVessel keys (registry⊆factory invariant). ===
+    { kind: 'vessel', label: 'Vessel', pluralLabel: 'Vessels', icon: '🚢',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.vessels) || [],
+      find: (c, id) => ((c && c.vessels) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.catalogKey || obj.id)) || '' },
+
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',
       addressable: true, chronicleable: true,

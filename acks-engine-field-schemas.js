@@ -554,6 +554,9 @@
         { name: 'partyId', type: 'id', idKind: 'party', group: 'Participants', description: 'Optional convenience pointer — participantCharacterIds is the source of truth' },
         { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
         { name: 'armyId', type: 'id', idKind: 'army', group: 'Participants', description: 'W4 — an ARMY’s march: the army governs speed/weather; no nav throw, no encounter draws, no survival (RR p.448)' },
+        // === Voyages V1 (burst4 — 2026-06-14) — surface the reserved blankJourney.shipId (the carrying
+        // Vessel; voyage modes). The factory already emits shipId, so the schema⊆factory invariant holds. ===
+        { name: 'shipId', type: 'id', idKind: 'vessel', group: 'Participants', description: 'V1 — the carrying Vessel for a voyage-mode journey (Phase 3 Voyages #145); null on land journeys' },
         { name: 'startHexId',       type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'destinationHexId', type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'currentHexId',     type: 'id', idKind: 'hex', group: 'Route', description: 'Advances to the destination on arrival (per-hex stepping is a later slice)' },
@@ -575,6 +578,41 @@
         ] },
         { name: 'notes',   type: 'longText', group: 'History' },
         { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // === Voyages V1 (burst4 — 2026-06-14) — Vessel (Phase 3 Voyages #145, RR Ch.7 Seafarers &
+    // Voyages). The Admin verb (Inspector ▸ Create ▸ Vessel → schemaForm + the inspectorCreateBlankVessel
+    // dispatch). catalogKey is the picker populated from the 20 RR p.316 VESSEL_CATALOG classes. Every
+    // field is a blankVessel key (global schema⊆factory invariant); schemaVersion is factory-only. ===
+    'vessel': {
+      factory: 'blankVessel',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Class', 'Crew', 'Cargo', 'Condition', 'History'],
+      fields: [
+        { name: 'id',         type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',       type: 'string', required: true,  group: 'Identity', description: 'Vessel name, e.g. "Sea Wolf"' },
+        { name: 'catalogKey', type: 'enum',   group: 'Class', description: 'The RR p.316 Sea Vessels class (immutable stats)',
+          enumValues: ['barge-small','barge-large','barge-huge','boat-row','boat-sail','canoe','galley-1-rower','galley-1.5-rower','galley-2-rower','galley-2.5-rower','galley-3-rower','galley-4-rower','galley-5-rower','galley-6-rower','galley-8-rower','longship','raft','sailing-ship-small','sailing-ship-large','sailing-ship-huge'] },
+        { name: 'shp',        type: 'number', min: 0, group: 'Class', description: 'Current structural hit points (≤ the class base SHP)' },
+        { name: 'ownerId',    type: 'id', idKind: 'character', group: 'Identity', description: 'Owner — a character (the picker) OR a domain (set a domain id via Raw JSON; vesselOwner resolves both)' },
+        { name: 'currentHexId', type: 'id', idKind: 'hex', group: 'Identity' },
+        { name: 'crewComplement', type: 'object', group: 'Crew', description: 'Current manning vs the class full crew (RR p.316)', fields: [
+          { name: 'sailors', type: 'number', min: 0 },
+          { name: 'rowers',  type: 'number', min: 0 },
+          { name: 'marines', type: 'number', min: 0 }
+        ] },
+        { name: 'crewGroupIds',        type: 'idArray', idKind: 'group', group: 'Crew', description: 'Counted crew (rowers/sailors/marine units) → campaign.groups[]' },
+        { name: 'officerCharacterIds', type: 'idArray', idKind: 'character', group: 'Crew', description: 'Named officers — captain / navigator / master mariner' },
+        { name: 'holdStashId', type: 'id', idKind: 'stash', group: 'Cargo', description: 'Cargo hold — a Stash (stashKind:"vessel-hold")' },
+        { name: 'warMachines', type: 'array', group: 'Condition', description: 'Fitted naval war machines (RR pp.155–156)', itemSchema: { fields: [
+          { name: 'kind', type: 'enum', enumValues: ['naval-ram','boarding-bridge','boarding-ramp','fire-pot-pole','harpoon-ballista','large-tower','small-tower','ballista','catapult','other'] },
+          { name: 'note', type: 'string' }
+        ] } },
+        { name: 'condition',         type: 'enum', enumValues: ['seaworthy','damaged','sinking','beached','wrecked'], group: 'Condition', default: 'seaworthy' },
+        { name: 'constructionState', type: 'enum', enumValues: ['planned','under-construction','complete','in-repair'], group: 'Condition', default: 'complete', description: 'complete when bought; a Construction Project drives the lifecycle (Wave D)' },
+        { name: 'createdAtTurn', type: 'number', readonly: true, group: 'History' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
       ]
     },
 
