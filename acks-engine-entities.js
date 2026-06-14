@@ -468,15 +468,8 @@ function blankEncounter(opts={}){
   };
 }
 
-function blankDungeon(opts={}){
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    id: opts.id || newId(ID_PREFIXES.dungeon),
-    name: opts.name || '',
-    levels: opts.levels || 1,
-    description: opts.description || ''
-  };
-}
+// blankDungeon — the reconciled two-facet factory lives in acks-engine-delves.js (Delves D2, burst4);
+// the vestigial stub that was here is superseded + removed (Data_Dictionary §13.2).
 
 function blankPointOfInterest(opts={}){
   return {
@@ -1951,7 +1944,7 @@ function blankDivineFavor(opts={}){
 // === end Religion R0 ===
 
 Object.assign(ACKS, {
-  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
+  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
   blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement, blankOutpost,
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation factory
