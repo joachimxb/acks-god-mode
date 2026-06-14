@@ -239,6 +239,54 @@ document.addEventListener('alpine:init', () => {
     color: #7a1f1f; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
   .skipped { opacity: 0.5; text-decoration: line-through; pointer-events: none; }
   .skipped input, .skipped textarea, .skipped select, .skipped button { text-decoration: line-through; }
+  /* ═══════════ Semantic design system (graphic-designer audit C1/O3, 2026-06-14) ═══════════
+     The surface palette (.parchment/.vellum/.ink/.accent-red/.accent-green) was already
+     tokenized; the NEXT layer down — success/warning/danger/primary as ROLES, and a button
+     hierarchy — was ad-hoc Tailwind drift (two greens, three warning hues, the primary CTA lost
+     tan-on-tan). This is the single source of truth for those roles. A CSS-class layer (not raw
+     Tailwind utilities) so it survives the runtime JIT, exactly like the wizard-* primitives. */
+  :root {
+    --c-ink:        #2a1f12;   /* primary text */
+    --c-parchment:  #f7f1e2;   /* app ground */
+    --c-vellum:     #faf6ea;   /* raised panels */
+    --c-border:     #6b4f24;   /* the one border brown */
+    /* Semantic roles — ONE hue each (resolves the emerald-vs-green / amber-vs-orange drift). */
+    --c-success:    #2f7d32;   --c-success-bg: #d8ead9;  --c-success-bg-hover: #c3dec5;
+    --c-warning:    #9a6a14;   --c-warning-bg: #f4e3bd;  --c-warning-bg-hover: #ecd6a3;
+    --c-danger:     #7a1f1f;   --c-danger-bg:  #f0d6d6;  --c-danger-bg-hover:  #e6bdbd;
+    --c-primary:    #2a1f12;   --c-primary-bg: #e7c46c;  --c-primary-bg-hover: #dbb24e; /* the gold CTA */
+    --c-info:       #1f4e6b;   --c-info-bg:    #d6e6f0;  --c-info-bg-hover:    #bdd8ea;
+  }
+  /* Button hierarchy. Apply .btn + an optional variant; the primary action gets .btn-primary
+     (heavier border + the gold fill) so the eye finds it against the warm ground. These set
+     their own bg/border/colour, so a co-applied Tailwind bg-* is redundant on a .btn element
+     (the sweep removes those it touches; untouched buttons keep working as before). */
+  .btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.75rem;
+    border: 1px solid var(--c-border); border-radius: 4px; background: rgba(255,255,255,0.5);
+    color: var(--c-ink); font: inherit; cursor: pointer; line-height: 1.3;
+    transition: background-color 0.1s ease, border-color 0.1s ease; }
+  .btn:hover { background: #fbf3da; }
+  .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: var(--c-primary-bg); border: 2px solid var(--c-border);
+    color: var(--c-primary); font-weight: 700; }
+  .btn-primary:hover { background: var(--c-primary-bg-hover); }
+  .btn-success { background: var(--c-success-bg); border-color: var(--c-success); color: #1c4d1f; font-weight: 600; }
+  .btn-success:hover { background: var(--c-success-bg-hover); }
+  .btn-warn { background: var(--c-warning-bg); border-color: var(--c-warning); color: #6f4d0e; font-weight: 600; }
+  .btn-warn:hover { background: var(--c-warning-bg-hover); }
+  .btn-danger { background: var(--c-danger-bg); border-color: var(--c-danger); color: var(--c-danger); font-weight: 600; }
+  .btn-danger:hover { background: var(--c-danger-bg-hover); }
+  .btn-info { background: var(--c-info-bg); border-color: var(--c-info); color: var(--c-info); font-weight: 600; }
+  .btn-info:hover { background: var(--c-info-bg-hover); }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .btn-ghost:hover { background: rgba(42,31,18,0.07); }
+  /* Toast semantic variants (graphic-designer O3 + a11y). The bar carries errors, warnings, and
+     confirmations as one identical brown bar today; a left accent stripe + tint give the message
+     a visual meaning. Driven by .toast-success / .toast-warn / .toast-error via showToast(msg,ms,type). */
+  .toast-bar { border-left: 6px solid transparent; }
+  .toast-bar.toast-success { border-left-color: var(--c-success); }
+  .toast-bar.toast-warn    { border-left-color: var(--c-warning); }
+  .toast-bar.toast-error   { border-left-color: var(--c-danger);  background: #3a1414 !important; }
 </style>
 </head>
 <body class="parchment ink" x-data="domainApp()" x-cloak style="min-height:100vh; padding-top:2.25rem;">
@@ -254,11 +302,11 @@ document.addEventListener('alpine:init', () => {
   <div class="flex flex-wrap items-center gap-2" style="padding-top:1.25rem; padding-bottom:1rem; padding-left:1rem; padding-right:1rem; margin-left:-1rem; margin-right:-1rem; border-bottom: 2px solid #2a1f12;">
     <h1 class="text-4xl font-black mr-2">ACKS God Mode</h1>
     <span class="flex-grow"></span>
-    <button @click="showWelcomeScreen()" class="px-3 py-1 border border-ink rounded bg-emerald-200 hover:bg-emerald-300 font-semibold" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
-    <button @click="newCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">＋ New campaign</button>
-    <button @click="openCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
-    <button @click="saveCampaign()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
-    <button @click="saveCampaignAs()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :disabled="!currentCampaign" title="Save the campaign to a new file. Use this to fork a campaign or to save a template-derived campaign for the first time.">💾 Save as…</button>
+    <button @click="showWelcomeScreen()" class="btn btn-success" title="Return to the welcome screen — the demo, the starter templates, Open, and Start blank all live there. Prompts first if you have unsaved changes.">🏠 Welcome</button>
+    <button @click="newCampaign()" class="btn">＋ New campaign</button>
+    <button @click="openCampaign()" class="btn" title="Pick a single .acks.json campaign file">📂 Open campaign…</button>
+    <button @click="saveCampaign()" class="btn btn-primary" :disabled="!currentCampaign" title="Write the campaign back to its bound .acks.json file. If no file is bound yet (template or fresh campaign), prompts for a location.">💾 Save campaign</button>
+    <button @click="saveCampaignAs()" class="btn text-sm" :disabled="!currentCampaign" title="Save the campaign to a new file. Use this to fork a campaign or to save a template-derived campaign for the first time.">💾 Save as…</button>
     <input type="file" x-ref="campaignFileInput" accept=".json,.acks.json" class="hidden" @change="importCampaignFile($event.target.files[0])">
   </div>
 
@@ -3352,7 +3400,7 @@ document.addEventListener('alpine:init', () => {
               <p class="text-sm opacity-70">The best way to feel the whole tool. Loading the demo won't overwrite the template file — Save will prompt for a new location.</p>
             </div>
             <button @click="loadDemoTemplate()"
-                    class="px-4 py-2 border-2 border-ink rounded bg-yellow-300 hover:bg-yellow-400 font-semibold whitespace-nowrap">
+                    class="btn btn-primary whitespace-nowrap" style="padding:0.5rem 1rem;">
               🎲 Load demo campaign
             </button>
           </div>
@@ -11263,7 +11311,7 @@ document.addEventListener('alpine:init', () => {
      the viewport so it stays visible regardless of page scroll position). Spans
      left:0 to right:0 for a true edge-to-edge bar; centered text within. Inline-
      styled so the Tailwind Play CDN's JIT scanner can't fail to compile classes. -->
-<div x-show="toast" x-cloak class="no-print"
+<div x-show="toast" x-cloak class="no-print toast-bar" :class="toastType ? ('toast-' + toastType) : ''"
      style="position:fixed; top:0; left:0; right:0; padding:0.75rem 1.5rem; z-index:9999; background:#2a1f12; color:#fff; font-weight:500; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.3);">
   <span x-text="toast" style="color:#fff"></span>
 </div>
@@ -12408,7 +12456,7 @@ return {
   turnEventProposals:null, // Turn Cycle v2 — per-turn pending event proposals (accept/edit/reject), set in proposeMonthlyTurn
   dayTickProposal:null, // Phase 2.95 — active proposed day-tick (null when none pending)
   dayTickError:null,    // Phase 2.95 — last day-tick error string for inline display
-  rawJsonError:'',toast:'',_toastTimer:null,
+  rawJsonError:'',toast:'',toastType:'',_toastTimer:null,
 
   init(){
     // Expose the root Alpine proxy on `window.acksApp` so reusable sub-components
@@ -21286,12 +21334,23 @@ return {
     return n + ' ' + (n === 1 ? sing : (plur || sing + 's'));
   },
 
-  showToast(msg,ms=2200){
+  showToast(msg,ms=2200,type){
     this.toast=msg;
+    // Semantic variant (graphic-designer O3, 2026-06-14): an optional 'success'|'warn'|'error'
+    // tints the bar (left accent stripe; error darkens it). Back-compatible — existing 2-arg
+    // calls pass no type and keep the neutral brown bar. When unspecified, a light heuristic
+    // infers 'error' from failure phrasing so the many existing error toasts read as errors
+    // without touching every call site; pass an explicit type to override.
+    this.toastType = type || this._inferToastType(msg);
     clearTimeout(this._toastTimer);
     // Joachim 2026-05-30 — toasts felt too quick to read. Bump every call by +4s.
     // Defaults: 2200ms → 6200ms; explicit ms=5000 (commit-turn) → 9000ms; ms=8000 (commit-fail) → 12000ms.
-    this._toastTimer=setTimeout(()=>this.toast='',ms+4000);
+    this._toastTimer=setTimeout(()=>{ this.toast=''; this.toastType=''; },ms+4000);
+  },
+  _inferToastType(msg){
+    const m = String(msg || '').toLowerCase();
+    if(/\b(fail|failed|error|could not|couldn't|cannot|can't|invalid|required|denied|not allowed|no .* to|unable|missing)\b/.test(m)) return 'error';
+    return '';
   },
 
   newCampaign(){
