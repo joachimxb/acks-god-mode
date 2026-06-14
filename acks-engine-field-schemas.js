@@ -776,8 +776,75 @@
         { name: 'lastTributeTurn',  type: 'number', readonly: true, group: 'History', description: 'Last monthly tribute collection' },
         { name: 'history',          type: 'history', readonly: true, group: 'History' }
       ]
-    }
+    },
     // === end Hijinks HJ-2 ===
+
+    // === Delves D2 (burst4) — Dungeon + Delve (Phase_3.5_Delves_Plan.md §4; the RECONCILED shape,
+    // Data_Dictionary §13.2). Every field is a key the matching factory emits (the global schema⊆
+    // factory invariant, tests/smoke.js). The Dungeon schema covers the BASE + delve-target facet
+    // ONLY; the arcane facet (levels/areaSqFtPerLevel/sovereignCharacterId/arcanePowerThisMonth/…)
+    // is reserved-null on blankDungeon and ADDED to this schema by Phase 4 Sanctums (AD-A). owned +
+    // attuned are NOT status values (Q1) — they're derived via dungeonLifecycleLabel() off
+    // ownerCharacterId + the attunement relation. adminCreate:'schemaForm' = the generic Admin form. ──
+    'dungeon': {
+      factory: 'blankDungeon',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Placement', 'Delve Target', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                type: 'string', group: 'Identity', default: '', description: 'GM label, e.g. "the Ruined Fort of Aelnoth"' },
+        { name: 'origin',              type: 'enum', enumValues: ['constructed','natural','found','conquered','lair-promoted'], group: 'Identity', default: 'found' },
+        { name: 'knownToPlayers',      type: 'boolean', group: 'Placement', description: 'Discovered by the players?' },
+        { name: 'hexId',               type: 'id', idKind: 'hex', group: 'Placement', description: 'The hex it sits in — null = unplaced / unknown distance' },
+        { name: 'precisePlacement',    type: 'string', group: 'Placement', description: 'e.g. "the old quarry on the north slope"' },
+        { name: 'domainId',            type: 'id', idKind: 'domain', group: 'Placement', description: 'The domain whose territory it lies in (when known)' },
+        { name: 'size',                type: 'enum', enumValues: ['small','medium','large','mega'], group: 'Delve Target', default: 'small', description: 'Drives the encounter count (JJ p.275)' },
+        { name: 'dungeonLevel',        type: 'number', min: 1, group: 'Delve Target', default: 1, description: 'Difficulty 1..6 (JJ p.275)' },
+        { name: 'encountersTotal',     type: 'number', min: 0, group: 'Delve Target', description: 'Rolled from size, or counted from a stocked map' },
+        { name: 'encountersRemaining', type: 'number', min: 0, group: 'Delve Target', description: 'Authored for an abstract dungeon; derived from living lairs for a stocked one (dungeonEncountersRemaining)' },
+        { name: 'encountersCleared',   type: 'number', min: 0, readonly: true, group: 'Delve Target', description: 'Running, for the treasure/XP tally' },
+        { name: 'sizeKnown',           type: 'boolean', group: 'Delve Target', description: 'false ⇒ Unknown Size & Level rule (JJ p.279) — players must scout' },
+        { name: 'levelKnown',          type: 'boolean', group: 'Delve Target' },
+        { name: 'multiLevel',          type: 'boolean', group: 'Delve Target', description: 'RAW: treat each level as a separate Dungeon' },
+        { name: 'parentDungeonId',     type: 'id', idKind: 'dungeon', group: 'Delve Target', description: 'For a multi-level complex — this level\'s parent' },
+        { name: 'restockDie',          type: 'string', group: 'Delve Target', description: 'Restock dice (JJ p.276), e.g. "1d3-2"; derived from size' },
+        { name: 'status',              type: 'enum', enumValues: ['undiscovered','known','being-cleared','cleared','sealed','abandoned','destroyed'], group: 'Lifecycle', default: 'known', description: 'The single lifecycle axis (Q1); owned/attuned are DERIVED, not stored here' },
+        { name: 'ownerCharacterId',    type: 'id', idKind: 'character', group: 'Lifecycle', description: 'Who owns/operates it (RR p.386); set ⇒ the derived "Owned" overlay' },
+        { name: 'lastForayAtDayInMonth', type: 'number', readonly: true, group: 'Lifecycle', description: 'Restocking clock' },
+        { name: 'lastForayAtTurn',     type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'establishedAtTurn',   type: 'number', group: 'Lifecycle' },
+        { name: 'notes',               type: 'longText', group: 'History' },
+        { name: 'history',             type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // Delve — the multi-foray clear-a-dungeon operation. foraysResolved[] is an engine-managed
+    // deep log (the journey.days[] precedent) — omitted from the schema, raw-JSON-edited; the D3
+    // Foray Wizard owns it. Every field below is a blankDelve key.
+    'delve': {
+      factory: 'blankDelve',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Participants', 'Progress', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                      type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                    type: 'string', group: 'Identity', description: 'Auto: "Delve into <dungeon name>"' },
+        { name: 'dungeonId',               type: 'id', idKind: 'dungeon', required: true, group: 'Identity' },
+        { name: 'status',                  type: 'enum', enumValues: ['in-progress','withdrawn','cleared','wiped'], group: 'Identity', default: 'in-progress' },
+        { name: 'partyId',                 type: 'id', idKind: 'party', group: 'Participants', description: 'Optional — participantCharacterIds is the source of truth' },
+        { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants', description: 'The delvers (a foray draws ≤8 from these)' },
+        { name: 'isHenchmanDelve',         type: 'boolean', group: 'Participants', description: 'RAW XP/treasure split (JJ p.277)' },
+        { name: 'runningEncountersCleared', type: 'number', min: 0, readonly: true, group: 'Progress' },
+        { name: 'runningTreasureGp',       type: 'gp', readonly: true, group: 'Progress', description: 'Gross; the ¼-withdraw / full-clear multiplier applies at realize (D3)' },
+        { name: 'runningXp',               type: 'number', min: 0, readonly: true, group: 'Progress' },
+        { name: 'casualtyCharacterIds',    type: 'idArray', idKind: 'character', group: 'Progress', description: 'Mortally wounded / slain this delve' },
+        { name: 'magicItemRollsPending',   type: 'number', min: 0, readonly: true, group: 'Progress', description: 'Computed at clear (Treasure-Type rolls per GP/Roll)' },
+        { name: 'startedAtTurn',           type: 'number', group: 'Lifecycle' },
+        { name: 'startedAtDayInMonth',     type: 'number', group: 'Lifecycle' },
+        { name: 'notes',                   type: 'longText', group: 'History' },
+        { name: 'history',                 type: 'history', readonly: true, group: 'History' }
+      ]
+    }
+    // === end Delves D2 ===
   };
 
   // ─── 4. Public API ───

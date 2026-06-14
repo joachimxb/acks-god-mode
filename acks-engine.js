@@ -150,7 +150,10 @@ const ID_PREFIXES = Object.freeze({
   siege:                'sie',
   // === Voyages V1 (burst4) — Phase 3 Voyages (#145): Vessel (RR Ch.7 Seafarers & Voyages,
   // the RR p.316 Sea Vessels classes; resolved by acks-engine-voyages.js). ===
-  vessel:               'vsl'
+  vessel:               'vsl',
+  // === Delves D2 (burst4) — the multi-foray clear-a-dungeon operation (Phase_3.5_Delves_Plan.md
+  // §4.2). The Dungeon prefix 'dun' is already registered above (since 2026-05-30); this adds Delve. ===
+  delve:                'dlv'
 });
 
 function newId(prefix){

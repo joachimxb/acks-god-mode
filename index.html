@@ -42,6 +42,7 @@
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
 <script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
+<script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -901,6 +902,51 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- ───── Sub-tab: LAIRS (#476 M7 — Plan §12) ───── -->
+<!-- === Delves D2 (burst4) — World ▸ Dungeons sub-view (campaign.dungeons[]): a light read table
+     + an author button. The 🔍 Inspector (Browse/Inspect/Create) is the full editor; the abstract-
+     foray resolution + the Foray Wizard land in D3. Lifecycle overlays Attuned/Owned (derived) onto
+     the stored status; Encounters-left = the authored count, or the living-lair count if stocked. === -->
+<div x-show="currentView === 'world' && worldSubView === 'dungeons'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🕳️ Dungeons <span class="text-sm opacity-70 font-normal" x-text="'· ' + worldDungeons().length + ' recorded'"></span></h3>
+      <div class="flex gap-2 items-center text-sm flex-wrap">
+        <input type="text" x-model="dungeonsSearch" placeholder="Search name, hex…" class="w-56">
+        <span class="text-sm opacity-70" x-text="filteredDungeons().length + ' shown'"></span>
+        <button @click="inspectorOpenCreate('dungeon')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a dungeon (free-form Inspector form)">＋ Author a dungeon</button>
+      </div>
+    </div>
+    <template x-if="worldDungeons().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No dungeons recorded. Author one here, or via the 🔍 Inspector (Create ▸ Dungeon). A dungeon is a multi-encounter delve target (and, later, an arcane source a mage can own + attune — Phase 4 Sanctums).</p>
+    </template>
+    <template x-if="worldDungeons().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Lifecycle</th><th>Hex</th><th>Size · Level</th>
+          <th class="text-right">Encounters left</th><th>Known</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="d in filteredDungeons()" :key="d.id">
+            <tr>
+              <td><button @click="inspectorOpen('dungeon', d.id)" class="underline font-semibold text-left" x-text="d.name || '(unnamed)'"></button></td>
+              <td x-text="dungeonLifecycle(d)"></td>
+              <td>
+                <template x-if="d.hexId"><button @click="openHexDetailById(d.hexId)" class="underline" x-text="dungeonHexLabel(d)"></button></template>
+                <template x-if="!d.hexId"><span class="opacity-60 italic">— unplaced</span></template>
+              </td>
+              <td x-text="dungeonSizeLevelLabel(d)"></td>
+              <td class="text-right font-mono" x-text="dungeonEncountersLeft(d)"></td>
+              <td x-text="d.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="d.knownToPlayers ? '' : 'opacity-60'"></td>
+              <td class="text-right"><button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">First-class delve targets in <code>campaign.dungeons[]</code> (Phase 3.5). <em>Lifecycle</em> overlays <em>Attuned</em> / <em>Owned</em> onto the stored status (derived — <code>dungeonLifecycleLabel</code>). <em>Encounters left</em> is the authored count, or — for a dungeon stocked with lairs (<code>lair.dungeonId</code>) — the living-lair count. The abstract-foray resolver + the Foray Wizard land in D3.</p>
+  </div>
+</div>
+<!-- === end Delves D2 sub-view === -->
 <div x-show="currentView === 'world' && worldSubView === 'lairs'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
@@ -12328,6 +12374,10 @@ return {
       case 'army':      return () => this.inspectorCreateBlankArmy();  // Phase 3 Military — Admin verb (free-form blank); the 🎖 Muster modal on a character/domain is the guided Action verb
       case 'lair':      return () => this.openLairWizard('author');  // #476 M1 — the manual Lair Wizard (§12.5); the schemaForm edit sits under it for admin tweaks
       case 'vessel':    return () => this.inspectorCreateBlankVessel();  // === Voyages V1 (burst4) — Phase 3 #145 Admin verb (free-form blank → schemaForm edit; pick a class) ===
+      // === Delves D2 (burst4) — Admin-verb create (blank + open the schemaForm edit). The guided
+      // Action verb (the Foray Wizard) is D3; for D2 these spawn a blank entity for free-form authoring. ===
+      case 'dungeon':   return () => this.inspectorCreateBlankDungeon();
+      case 'delve':     return () => this.inspectorCreateBlankDelve();
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -14188,7 +14238,7 @@ return {
 
 
   // Phase 2.7 World — UI state for the World view
-  worldSubView:'domains', // 'map' | 'domains' | 'hexes' | 'rumors' | 'stashes' | 'lairs' (default Domains — the heart of the tool + first-run welcome)
+  worldSubView:'domains', // 'map' | 'domains' | 'hexes' | 'rumors' | 'stashes' | 'lairs' | 'dungeons' (default Domains — the heart of the tool + first-run welcome)
   // ── 📋 Review tab (2026-06-13) — the GM work queue: sub-view + the Pending Events cursors ──
   reviewSubView: 'pending-events',   // 'pending-events' | 'domain-review' | 'encounters' | 'battles'
   reviewDayOffset: 0,                // Daily Events calendar cursor — days relative to today
@@ -14946,6 +14996,8 @@ return {
     // internal sub-view id stays 'lairs' (session-restore + deep-links unchanged); the count
     // = recorded lairs + bands abroad.
     tabs.push({ id:'lairs', label:'🐉 Monsters', count: ((this.currentCampaign && this.currentCampaign.lairs ? this.currentCampaign.lairs.length : 0) + this.monsterLooseBandRows().length) || null });
+    // === Delves D2 (burst4) — Dungeons sub-view (delve targets / arcane sources; campaign.dungeons[]). ===
+    tabs.push({ id:'dungeons', label:'🕳️ Dungeons', count: (this.currentCampaign && this.currentCampaign.dungeons ? this.currentCampaign.dungeons.length : 0) || null });
     // Phase 3 Military W4 — armies moved into the merged Characters ▸ Parties view (§12
     // Group model): parties, armies, and loose units live together there. No World tab.
     // 2026-06-13 — Encounters + Battles moved to the 📋 Review tab (the GM work queue);
@@ -21161,7 +21213,9 @@ return {
       // Phase 3 Military W6 (2026-06-13, burst3) — Siege records (RR pp.473–485)
       'sieges',
       // === Voyages V1 (burst4 — 2026-06-14) — Vessels (Phase 3 Voyages #145; §8.9 importer mandate) ===
-      'vessels'
+      'vessels',
+      // === Delves D2 (burst4) — Delve operations (dungeons already listed above) ===
+      'delves'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -23317,6 +23371,63 @@ return {
     return name + ' · ' + klass + ' · SHP ' + shp + ' · ' + (v.condition || 'seaworthy');
   },
   // burst4 agent-5 (Delves D2 — world-dungeons sub-view / Inspector helpers):
+  dungeonsSearch: '',
+  // The campaign's dungeons (read defensively — campaign.delves is not lazy-injected; dungeons is).
+  worldDungeons(){ return (this.currentCampaign && this.currentCampaign.dungeons) || []; },
+  filteredDungeons(){
+    const q = (this.dungeonsSearch || '').trim().toLowerCase();
+    const all = this.worldDungeons();
+    if(!q) return all;
+    return all.filter(d => {
+      if(!d) return false;
+      const hx = (this.dungeonHexLabel(d) || '').toLowerCase();
+      return ((d.name || '').toLowerCase().includes(q)) || hx.includes(q) || ((d.id || '').toLowerCase().includes(q));
+    });
+  },
+  // Lifecycle overlay (attuned > owned > stored status) — derived (dungeonLifecycleLabel).
+  dungeonLifecycle(d){
+    return (window.ACKS && window.ACKS.dungeonLifecycleLabel) ? window.ACKS.dungeonLifecycleLabel(this.currentCampaign, d) : (d && d.status) || '';
+  },
+  // Encounters remaining — authored count, or the living-lair count for a stocked dungeon.
+  dungeonEncountersLeft(d){
+    return (window.ACKS && window.ACKS.dungeonEncountersRemaining) ? window.ACKS.dungeonEncountersRemaining(this.currentCampaign, d) : ((d && d.encountersRemaining) || 0);
+  },
+  dungeonHexLabel(d){
+    if(!d || !d.hexId) return '— unplaced';
+    const h = this.currentCampaign && ((this.currentCampaign.hexes || []).find(x => x && x.id === d.hexId));
+    if(!h) return d.hexId;
+    return (window.ACKS && window.ACKS.hexName) ? window.ACKS.hexName(h) : (h.coord ? ('(' + h.coord.q + ',' + h.coord.r + ')') : d.hexId);
+  },
+  dungeonSizeLevelLabel(d){
+    const size = (d && d.size) || 'small';
+    const lvl = (d && d.dungeonLevel) || 1;
+    return size.charAt(0).toUpperCase() + size.slice(1) + ' · L' + lvl;
+  },
+  // Admin-verb create: spawn a blank Dungeon (both facets; arcane reserved-null) + open the
+  // schemaForm edit. The guided Foray Wizard (the Action verb) is D3.
+  inspectorCreateBlankDungeon(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.dungeons)) this.currentCampaign.dungeons = [];
+    const d = window.ACKS.blankDungeon({ name: 'New Dungeon' });
+    this.currentCampaign.dungeons.push(d);
+    this.markDirty(); this.schedulePersist();
+    this.currentView = 'inspector';   // jump to the editor (Author from the World ▸ Dungeons sub-view too)
+    this.inspectorOpenInspect('dungeon', d.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Dungeon created — set its hex, size, level, and encounter count. (The abstract-foray resolver + Foray Wizard land in D3.)');
+  },
+  // Admin-verb create: spawn a blank Delve (init-on-writes campaign.delves[] — it isn't lazy-injected).
+  inspectorCreateBlankDelve(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.delves)) this.currentCampaign.delves = [];
+    const dl = window.ACKS.blankDelve({ name: 'New Delve' });
+    this.currentCampaign.delves.push(dl);
+    this.markDirty(); this.schedulePersist();
+    this.currentView = 'inspector';   // jump to the editor (Author from the World ▸ Dungeons sub-view too)
+    this.inspectorOpenInspect('delve', dl.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Delve created — link it to a dungeon + add participants. The multi-foray resolution is D3.');
+  },
 };
 }
 </script>
