@@ -5287,6 +5287,34 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
+
+          <!-- CHRONICLE — the derived world-memory for this domain (T3). The ledger above is the stored
+               monthly-turn record; this is every eventLog entry that NAMES this domain in its context
+               envelope — incursions, banditry, advancement, warfare, wealth moves — many of which never
+               land in domain.history. Newest-first; the full stream lives in the Campaign Log. -->
+          <template x-if="selectedDomain && selectedDomain.id">
+            <div class="vellum border border-ink p-3 rounded mt-3" x-data="{ chrKind:'domain' }">
+              <div class="flex justify-between items-baseline mb-2">
+                <h2 class="font-bold text-lg">📜 Chronicle</h2>
+                <span class="text-sm opacity-70" x-text="entityChronicleCount(chrKind, selectedDomain.id) + ' events'"></span>
+              </div>
+              <template x-if="entityChronicleCount(chrKind, selectedDomain.id) === 0">
+                <p class="text-sm italic opacity-60">Nothing recorded yet. As events name this domain — incursions, banditry, classification advancement, warfare, wealth — they appear here automatically from the campaign event log.</p>
+              </template>
+              <template x-if="entityChronicleCount(chrKind, selectedDomain.id) > 0">
+                <div class="text-sm max-h-96 overflow-y-auto pr-1">
+                  <template x-for="(row,ri) in entityChronicle(chrKind, selectedDomain.id)" :key="ri">
+                    <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                      <div class="flex justify-between items-baseline gap-2">
+                        <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                        <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
 
         <div x-show="activeTab==='raw'">
@@ -7674,6 +7702,29 @@ document.addEventListener('alpine:init', () => {
               <p class="text-sm italic opacity-60">Edits emit gm-fiat events via the standard audit pipeline (see 📜 Events > Event Log).</p>
             </div>
           </template>
+
+          <!-- CHRONICLE — the derived world-memory for ANY inspected entity (T3). Shown for every kind
+               that has a history accessor (group / lair-bound bands / domain / hex / party / character /
+               settlement / journey / …); kinds without one render nothing. This is the group/lair-
+               inspector surface df-lens C1 asked for — every eventLog entry naming this entity. -->
+          <template x-if="entityChronicleCount(inspectorSelectedKind, inspectorSelectedId) > 0">
+            <div class="border border-ink/40 rounded p-3">
+              <div class="flex justify-between items-baseline mb-1">
+                <div class="wizard-step-header">📜 Chronicle</div>
+                <span class="text-xs opacity-70" x-text="entityChronicleCount(inspectorSelectedKind, inspectorSelectedId) + ' events'"></span>
+              </div>
+              <div class="text-sm max-h-80 overflow-y-auto pr-1">
+                <template x-for="(row,ri) in entityChronicle(inspectorSelectedKind, inspectorSelectedId)" :key="ri">
+                  <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                    <div class="flex justify-between items-baseline gap-2">
+                      <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                      <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
         </div>
       </template>
     </div>
@@ -8242,6 +8293,30 @@ document.addEventListener('alpine:init', () => {
                   </div>
                 </template>
                 <template x-if="!camp"><p class="text-xs italic opacity-60 mt-1">No camp yet.</p></template>
+
+                <!-- CHRONICLE — the party's world-memory (T3): every eventLog entry that names this
+                     party in its context envelope (travel days, survival, camp, anything party-tagged). -->
+                <div class="border-t border-ink/30 pt-2 mt-1">
+                  <div class="flex justify-between items-baseline mb-1">
+                    <span class="text-sm uppercase tracking-wide opacity-70">📜 Chronicle</span>
+                    <span class="text-xs opacity-70" x-text="entityChronicleCount('party', pt.id) + ' events'"></span>
+                  </div>
+                  <template x-if="entityChronicleCount('party', pt.id) === 0">
+                    <p class="text-xs italic opacity-60">Nothing recorded yet. Party-tagged events (travel, survival, camp) appear here from the campaign log.</p>
+                  </template>
+                  <template x-if="entityChronicleCount('party', pt.id) > 0">
+                    <div class="text-sm max-h-72 overflow-y-auto pr-1">
+                      <template x-for="(row,ri) in entityChronicle('party', pt.id)" :key="ri">
+                        <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                          <div class="flex justify-between items-baseline gap-2">
+                            <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                            <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
               </div>
             </div>
           </template>
@@ -10305,6 +10380,34 @@ document.addEventListener('alpine:init', () => {
             </div>
           </template>
         </div>
+
+        <!-- CHRONICLE — the full per-entity world-memory (T3). Every eventLog entry that names this
+             character in its context envelope (not just journey-* — recruitment, loyalty, calamities,
+             survival, battles, wealth, level-ups …). The narrative Personal-history box above is the
+             curated story; this is the complete derived audit, newest-first. -->
+        <template x-if="characterEditing && characterEditing.id">
+          <div class="vellum border border-ink p-3 rounded" x-data="{ chrKind:'character' }">
+            <div class="flex justify-between items-baseline mb-2">
+              <h4 class="font-semibold">📜 Chronicle</h4>
+              <span class="text-sm opacity-70" x-text="entityChronicleCount(chrKind, characterEditing.id) + ' events'"></span>
+            </div>
+            <template x-if="entityChronicleCount(chrKind, characterEditing.id) === 0">
+              <p class="text-sm italic opacity-60">Nothing recorded yet. As events name this character — recruitment, loyalty rolls, travel, battles, level-ups, wealth — they appear here automatically, drawn from the campaign event log.</p>
+            </template>
+            <template x-if="entityChronicleCount(chrKind, characterEditing.id) > 0">
+              <div class="text-sm max-h-96 overflow-y-auto pr-1">
+                <template x-for="(row,ri) in entityChronicle(chrKind, characterEditing.id)" :key="ri">
+                  <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                    <div class="flex justify-between items-baseline gap-2">
+                      <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                      <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
       </div>
 
       <div class="flex justify-between gap-2 pt-2 border-t border-ink/20">
@@ -11094,6 +11197,33 @@ document.addEventListener('alpine:init', () => {
           </template>
         </span>
       </div>
+
+      <!-- CHRONICLE — the hex's world-memory (T3). Every eventLog entry whose context envelope names
+           this hex (primary OR crossed-through): camps, encounters, incursions, banditry, lairs
+           settling, journeys passing through. The engine's hexHistory accessor, newest-first. -->
+      <template x-if="worldHexEditingHex() && worldHexEditingHex().id">
+        <div class="vellum border border-ink/40 rounded p-2" x-data="{ chrKind:'hex' }">
+          <div class="flex justify-between items-baseline mb-1">
+            <h4 class="font-semibold text-sm">📜 Chronicle</h4>
+            <span class="text-xs opacity-70" x-text="entityChronicleCount(chrKind, worldHexEditingHex().id) + ' events'"></span>
+          </div>
+          <template x-if="entityChronicleCount(chrKind, worldHexEditingHex().id) === 0">
+            <p class="text-sm italic opacity-60">Nothing recorded here yet. As parties camp, encounters fire, monsters den, or journeys cross this hex, those events appear here from the campaign log.</p>
+          </template>
+          <template x-if="entityChronicleCount(chrKind, worldHexEditingHex().id) > 0">
+            <div class="text-sm max-h-72 overflow-y-auto pr-1">
+              <template x-for="(row,ri) in entityChronicle(chrKind, worldHexEditingHex().id)" :key="ri">
+                <div class="border-l-2 pl-2 py-1 mb-1" :class="row.hidden ? 'opacity-60' : ''" style="border-color:#8a7a5a">
+                  <div class="flex justify-between items-baseline gap-2">
+                    <span><span x-text="row.icon"></span> <span x-text="row.summary"></span></span>
+                    <span class="opacity-70 text-xs" style="white-space:nowrap" x-text="row.date"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
 
       <div class="flex justify-end gap-2 pt-2 border-t border-ink/20">
         <button @click="closeHexDetail()" class="px-4 py-2 border border-ink rounded hover:bg-yellow-100">Close</button>
@@ -12525,6 +12655,22 @@ return {
   // changes not yet written to the bound .acks.json file. Drives the header indicator +
   // the beforeunload guard. _persistTimer backs the debounced localStorage session cache.
   dirty:false, _persistTimer:null, _ignoreMutations:false,
+  // Frame-scoped memo (perf T11). A getter Alpine re-runs several times within ONE synchronous
+  // render pass (e.g. activityDashboardRows is read by the loop + the badge + the count text =
+  // 3×/render, each O(characters × cost-events)) caches its result here and clears it on the next
+  // microtask — so the duplicate calls in one pass share one computation, but a later reactive
+  // update always recomputes fresh (zero staleness risk; the cache never survives across ticks).
+  _frameMemo:{}, _frameMemoScheduled:false,
+  _memoFrame(key, fn){
+    if(key in this._frameMemo) return this._frameMemo[key];
+    const v = fn();
+    this._frameMemo[key] = v;
+    if(!this._frameMemoScheduled){
+      this._frameMemoScheduled = true;
+      Promise.resolve().then(() => { this._frameMemo = {}; this._frameMemoScheduled = false; });
+    }
+    return v;
+  },
   currentCampaign:null,selectedDomainId:null,
   // Single home for domains (refactor 2026-06-05, audit T3): domains live on
   // currentCampaign.domains — there is no separate copy. `domains` is a getter/setter view over
@@ -12651,11 +12797,24 @@ return {
     if(this._persistTimer){ clearTimeout(this._persistTimer); this._persistTimer = null; this.persistSession(); }
   },
 
+  // The localStorage recovery cache caps the eventLog tail (perf T11) so a multi-year campaign can't
+  // blow the ~5 MB per-origin quota and silently stop crash-recovering. The CACHE is the only thing
+  // capped — the bound .acks.json (💾 Save → serializedCampaign) always writes the FULL log, so no
+  // committed history is ever lost. A shallow spread swaps only eventLog for its last N entries; every
+  // other collection (and the live in-memory campaign) is untouched.
+  CACHE_EVENTLOG_MAX: 2000,
+  _campaignForCache(){
+    const c = this.currentCampaign;
+    if(!c) return c;
+    const log = Array.isArray(c.eventLog) ? c.eventLog : null;
+    if(!log || log.length <= this.CACHE_EVENTLOG_MAX) return c;
+    return { ...c, eventLog: log.slice(-this.CACHE_EVENTLOG_MAX) };   // shallow — only the log tail differs from the live campaign
+  },
   persistSession(){
     let json;
     try{
       json = JSON.stringify({
-        currentCampaign:this.currentCampaign,   // domains live inside it now (single home)
+        currentCampaign:this._campaignForCache(),   // domains live inside it now (single home); eventLog tail-capped for the cache only
         selectedDomainId:this.selectedDomainId,fileName:this.fileName,
         currentView:this.currentView, worldSubView:this.worldSubView, reviewSubView:this.reviewSubView,
         // #225 Map Mode — ephemeral viewport + layer prefs only. Never part of the .acks.json
@@ -16242,7 +16401,8 @@ return {
   // Architecture §7 / §3.13 — derive-don't-store). Reactive on currentDayInMonth/currentTurn/
   // eventLog/journeys/magistracies, so it refreshes when the Day Clock advances. Ventures are
   // intentionally NOT a quick-action here (complex multi-step understructure — its own sub-tab).
-  activityDashboardRows(){
+  activityDashboardRows(){ return this._memoFrame('activityDashboardRows', () => this._computeActivityDashboardRows()); },
+  _computeActivityDashboardRows(){
     const camp = this.currentCampaign;
     if(!camp || !Array.isArray(camp.characters)) return [];
     const A = window.ACKS || {};
@@ -17086,6 +17246,85 @@ return {
     // Month-granularity in the GM view; day omitted since monthly advance always lands on day 1.
     // Specific events that explicitly track day-level detail will include it in their own summary.
     return 'Year ' + year + ', ' + monthName;
+  },
+
+  // ── Entity Chronicle (T3, audit 2026-06-14) ──────────────────────────────────────────
+  // The world-memory surface. The engine computes a per-entity event history for every kind
+  // (hexHistory / domainHistory / groupHistory / partyHistory / characterHistory / …) off the
+  // eventLog's context envelope, but until now the UI called only characterHistory (the Travel
+  // box). This is the ONE generic renderer the hex / domain / group / party / character detail
+  // views all use to show "everything that ever happened to this thing", newest-first. Pure read
+  // — no new engine logic; it just formats what the accessors return. (df-lens C1; the highest-
+  // leverage build change — "a world you can click into and read the life of".)
+  // Maps a chronicle "kind" → the engine's history accessor. Keys cover BOTH the entity-registry
+  // ids the Inspector passes (e.g. 'notableItem', camelCase) AND the context-envelope relatedEntity
+  // kinds the detail panels pass (e.g. 'notable-item', kebab) — so the same renderer serves both.
+  _CHRONICLE_ACCESSOR: {
+    hex: 'hexHistory', domain: 'domainHistory', group: 'groupHistory', party: 'partyHistory',
+    character: 'characterHistory', settlement: 'settlementHistory', constructible: 'constructibleHistory',
+    'notable-item': 'notableItemHistory', notableItem: 'notableItemHistory',
+    journey: 'journeyHistory', outpost: 'outpostHistory', congregation: 'congregationHistory',
+  },
+  // A small icon for a chronicle row, by event kind (best-effort flavour; '•' fallback). The
+  // kinds here are the high-volume emergent streams a GM most wants to skim by shape.
+  _chronicleIcon(kind){
+    const k = kind || '';
+    if(/^journey-/.test(k))            return '⛺';
+    if(/encounter/.test(k))            return '⚔';
+    if(/incursion/.test(k))            return '🏰';
+    if(/banditry/.test(k))             return '🏴';
+    if(/battle|siege|warfare|army/.test(k)) return '🎌';
+    if(/wealth|treasury|market|item-transfer|trade/.test(k)) return '💰';
+    if(/survival|mortal|wound|aging|death/.test(k)) return '🩸';
+    if(/rumor/.test(k))                return '📣';
+    if(/loyalty|calamity|recruit|hireling/.test(k)) return '🤝';
+    if(/religion|divine|congregation/.test(k)) return '⛪';
+    if(/construction|construct/.test(k)) return '🏗';
+    if(/level-up|xp|domain-advanced/.test(k)) return '📈';
+    if(/gm-fiat/.test(k))              return '✏';
+    if(/gm-narrative|note/.test(k))    return '📝';
+    return '•';
+  },
+  // Build the chronicle rows for an entity. kind ∈ _CHRONICLE_ACCESSOR keys; id = the entity id.
+  // Returns newest-first { icon, summary, date, kind, hidden } rows. `hidden` flags the rows the
+  // narrative Campaign Log suppresses (routine/audit-only) — shown here (this IS the audit view)
+  // but visually de-emphasized. limit caps the rows rendered (default 60; the entity-detail panels
+  // want a recent dossier, not the whole log — the full stream lives in the Campaign Log).
+  entityChronicle(kind, id, limit){
+    if(!kind || !id || !this.currentCampaign) return [];
+    const accessor = this._CHRONICLE_ACCESSOR[kind];
+    const fn = accessor && window.ACKS && window.ACKS[accessor];
+    if(typeof fn !== 'function') return [];
+    let evs;
+    try { evs = fn(this.currentCampaign, id) || []; }
+    catch(e){ return []; }
+    const out = [];
+    for(const e of evs){
+      const ev = (e && e.event) || e;
+      if(!ev) continue;
+      const summary = (e.result && e.result.narrativeSummary)
+        || (ev.payload && ev.payload.narrativeSummary)
+        || (ev.payload && ev.payload.narrative)
+        || (ev.kind + (ev.status && ev.status !== 'applied' ? (' [' + ev.status + ']') : ''));
+      const turn = (e.appliedAtTurn != null) ? e.appliedAtTurn : (ev.appliedAtTurn || ev.targetTurn || null);
+      out.push({
+        icon: this._chronicleIcon(ev.kind),
+        summary,
+        date: (ev.gameTimeAt ? this._travelEventDate(ev) : (turn != null ? ('Turn ' + turn + (this.gameDateFromTurn(turn) ? (' · ' + this.gameDateFromTurn(turn)) : '')) : '(date unknown)')),
+        kind: ev.kind,
+        hidden: !!e.campaignLogHidden,
+      });
+    }
+    out.reverse();   // newest-first, like the Personal-history + Travel boxes
+    const n = (typeof limit === 'number' && limit > 0) ? limit : 60;
+    return out.length > n ? out.slice(0, n) : out;
+  },
+  entityChronicleCount(kind, id){
+    if(!kind || !id || !this.currentCampaign) return 0;
+    const accessor = this._CHRONICLE_ACCESSOR[kind];
+    const fn = accessor && window.ACKS && window.ACKS[accessor];
+    if(typeof fn !== 'function') return 0;
+    try { return (fn(this.currentCampaign, id) || []).length; } catch(e){ return 0; }
   },
 
   // ── Per-person Travel log (2026-06-04) ───────────────────────────────────────────────
@@ -21979,7 +22218,8 @@ return {
   // becomes a row; the date is the appliedAtTurn. Reverse-chronological (newest first).
   // Engine emits + manual emits + GM-fiat audits + treasury edits all land in eventLog
   // so this view covers every meaningful campaign moment without any parallel string list.
-  campaignLogEntries(){
+  campaignLogEntries(){ return this._memoFrame('campaignLogEntries', () => this._computeCampaignLogEntries()); },
+  _computeCampaignLogEntries(){
     if(!this.currentCampaign) return [];
     const eventLog = this.currentCampaign.eventLog || [];
     // Operational knob-turns (journey pace/mode/speed-override) are flagged campaignLogHidden when
