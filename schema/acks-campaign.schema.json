@@ -4548,6 +4548,7 @@
                 "divine-power-accrued",
                 "consecration",
                 "divine-favor-changed",
+                "blood-sacrifice",
                 "hijink-attempted",
                 "hijink-resolved",
                 "mortal-wound",
@@ -4650,7 +4651,7 @@
     "schemaVersion": 2,
     "entityKinds": 44,
     "typedKinds": 26,
-    "eventKinds": 73,
+    "eventKinds": 74,
     "nestedSubEntityKinds": [
       "garrison-unit",
       "stronghold-component"
