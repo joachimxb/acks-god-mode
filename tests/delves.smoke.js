@@ -1,5 +1,6 @@
 // =============================================================================
-// delves.smoke.js — Delves D2 (the Dungeon + Delve entities). Phase 3.5 (Milestone B).
+// delves.smoke.js — Delves D2 (the Dungeon + Delve entities) + D3 (the Abstract Dungeon
+// foray resolver — JJ ch.12, locked against the four worked examples). Phase 3.5 (Milestone B).
 // Covers: the dun- (registered) / dlv- (new) prefixes; the blankDungeon (RECONCILED shape,
 // Data_Dictionary §13.2 — both facets, single status axis, arcane reserved-null) + blankDelve
 // factories; the derived overlays dungeonLifecycleLabel (Q1: attuned > owned > stored status)
@@ -319,11 +320,221 @@ ok('migrate did NOT inject campaign.delves on the demo', !('delves' in ACKS.migr
 })();
 
 // =============================================================================
+// D3 — Abstract Dungeon foray resolver (JJ ch.12). Locked against the four worked examples.
+// =============================================================================
+// A deterministic rng: dispenses the supplied 0..1 values in order, then 0.5 forever.
+// rFor(k, sides) is the value that yields roll k on _rollOne (floor(r*sides)+1) — the midpoint.
+function rngOf(vals){ let i = 0; return () => (i < vals.length ? vals[i++] : 0.5); }
+const rFor = (k, sides) => (k - 0.5) / sides;
+
+section('D3 — exports + catalogs present');
+['partyLevelFor','partySizeBonus','encountersAttemptedModifier','baseResolutionModifier','dungeonResolutionBand',
+ 'dungeonForayResolutionModifier','rollDungeonEncounters','resolveDungeonForay','commitDungeonForay','realizeDelve',
+ 'restockDungeon','rollRandomDungeon','startDelve'].forEach(fn => ok('ACKS.' + fn + ' is a function', typeof ACKS[fn] === 'function'));
+ok('ENCOUNTERS_BY_DUNGEON_SIZE small 1d3', ACKS.ENCOUNTERS_BY_DUNGEON_SIZE.small === '1d3' && ACKS.ENCOUNTERS_BY_DUNGEON_SIZE.mega === '10d6');
+ok('DUNGEON_RESTOCK_DIE medium 2d3-4', ACKS.DUNGEON_RESTOCK_DIE.medium === '2d3-4');
+ok('TREASURE_XP D1 = {90,360}', ACKS.TREASURE_XP_BY_DUNGEON_LEVEL[1].xp === 90 && ACKS.TREASURE_XP_BY_DUNGEON_LEVEL[1].gp === 360);
+ok('TREASURE_XP D6 = {4795,19180}', ACKS.TREASURE_XP_BY_DUNGEON_LEVEL[6].xp === 4795 && ACKS.TREASURE_XP_BY_DUNGEON_LEVEL[6].gp === 19180);
+ok('DUNGEON_MAGIC_ITEMS D1 1000/D', ACKS.DUNGEON_MAGIC_ITEMS[1].gpPerRoll === 1000 && ACKS.DUNGEON_MAGIC_ITEMS[1].type === 'D');
+ok('DUNGEON_DIFFICULTY_BANDS = [-8..8]', JSON.stringify(ACKS.DUNGEON_DIFFICULTY_BANDS) === JSON.stringify([-8,-4,-2,0,2,4,8]));
+
+section('D3 — partyLevelFor (JJ p.275 worked examples)');
+(function(){
+  const c = ACKS.blankCampaign({ name:'PL' });
+  const mk = (id, level) => ({ id, name:id, level });
+  c.characters = [ mk('a',4), mk('b',3), mk('cc',4), mk('d',2),  // the Claws of the Lioness
+                   mk('m',9),                                     // Moruvai alone
+                   mk('m1',14), mk('m2',14), mk('m3',14), mk('m4',14) ];
+  ok('Claws (4,3,4,2)/4 = 3.25 → 3', ACKS.partyLevelFor(c, ['a','b','cc','d']) === 3);
+  ok('Moruvai alone (9)/4 = 2.25 → 2', ACKS.partyLevelFor(c, ['m']) === 2);
+  ok('single 14th alone (14)/4 = 3.5 → 4', ACKS.partyLevelFor(c, ['m1']) === 4);
+  ok('four 14th /4 = 14', ACKS.partyLevelFor(c, ['m1','m2','m3','m4']) === 14);
+  c.characters.push({id:'h1',name:'h1',level:1},{id:'h2',name:'h2',level:1},{id:'h3',name:'h3',level:1},{id:'h4',name:'h4',level:2},{id:'h5',name:'h5',level:2},{id:'h6',name:'h6',level:5});
+  ok('Marcus henchmen (1,1,1,2,2,5)/6 = 2', ACKS.partyLevelFor(c, ['h1','h2','h3','h4','h5','h6']) === 2);
+  ok('no participants → 0', ACKS.partyLevelFor(c, []) === 0);
+})();
+
+section('D3 — partySizeBonus + encountersAttemptedModifier (JJ p.276)');
+ok('size 4 → 0', ACKS.partySizeBonus(4) === 0);
+ok('size 5 → +1', ACKS.partySizeBonus(5) === 1);
+ok('size 7 → +1', ACKS.partySizeBonus(7) === 1);
+ok('size 8 → +2', ACKS.partySizeBonus(8) === 2);
+ok('enc 1 → +1', ACKS.encountersAttemptedModifier(1) === 1);
+ok('enc 2 → 0', ACKS.encountersAttemptedModifier(2) === 0);
+ok('enc 5 → -1', ACKS.encountersAttemptedModifier(5) === -1);
+ok('enc 8 → -2', ACKS.encountersAttemptedModifier(8) === -2);
+ok('enc 11 → -3 (14th-level example)', ACKS.encountersAttemptedModifier(11) === -3);
+ok('enc 12 → -3', ACKS.encountersAttemptedModifier(12) === -3);
+ok('enc 13 → -4 (each additional 3)', ACKS.encountersAttemptedModifier(13) === -4);
+ok('enc 16 → -5', ACKS.encountersAttemptedModifier(16) === -5);
+
+section('D3 — baseResolutionModifier (the grid + off-table rule, JJ p.275)');
+const bm = (pl, dl) => ACKS.baseResolutionModifier(pl, dl).modifier;
+ok('(3,1) → +2 Easy [Claws in the Buried Temple]', bm(3,1) === 2 && ACKS.baseResolutionModifier(3,1).difficultyLabel === 'Easy');
+ok('(2,1) → +2 [Marcus henchmen]', bm(2,1) === 2);
+ok('(1,1) → 0 Accessible', bm(1,1) === 0);
+ok('(6,1) → +8 Effortless (on-table)', bm(6,1) === 8);
+ok('(14,1) → +8 off-table-right, no bonus [14th-level example]', bm(14,1) === 8 && ACKS.baseResolutionModifier(14,1).offRight === true);
+ok('(1,2) → -2 Dangerous', bm(1,2) === -2);
+ok('(2,5) → -8 Apocalyptic (on-table)', bm(2,5) === -8);
+ok('(14,5) → +8 Effortless (single cell)', bm(14,5) === 8);
+ok('(14,6) → +4 Simple (Effortless blank on D6)', bm(14,6) === 4);
+ok('(3,6) → -16 off-table-left [Claws in Zahar: up 1 row, 1 col off left]', bm(3,6) === -16);
+ok('(1,6) → -24 deep off-table-left', bm(1,6) === -24);
+
+section('D3 — dungeonForayResolutionModifier (composed; the named examples)');
+(function(){
+  const dunD1 = ACKS.blankDungeon({ dungeonLevel:1 });
+  const m1 = ACKS.dungeonForayResolutionModifier(dunD1, { partyLevel:2, attemptedEncounters:2, adventurerCount:6 });
+  ok('Marcus foray 1: +2 base + 0 enc + 1 size = +3', m1.modifier === 3, 'got ' + m1.modifier);
+  const m2 = ACKS.dungeonForayResolutionModifier(dunD1, { partyLevel:14, attemptedEncounters:11, adventurerCount:4 });
+  ok('14th-level: +8 base + (-3) enc + 0 size = +5', m2.modifier === 5, 'got ' + m2.modifier);
+  const m3 = ACKS.dungeonForayResolutionModifier(dunD1, { partyLevel:2, attemptedEncounters:1, adventurerCount:4 });
+  ok('Marcus foray 2 (flat interp): +2 base + 1 enc + 0 size = +3 (RAW prose says +4 via column-shift; outcome unchanged)', m3.modifier === 3, 'got ' + m3.modifier);
+  // situational mods are flat
+  const m4 = ACKS.dungeonForayResolutionModifier(dunD1, { partyLevel:2, attemptedEncounters:2, adventurerCount:4, situationalKeys:['well-prepared','poorly-prepared'] });
+  ok('situational +2 + (-2) nets 0 (base +2, enc 0, size 0)', m4.modifier === 2, 'got ' + m4.modifier);
+})();
+
+section('D3 — dungeonResolutionBand (JJ p.276)');
+ok('2 → catastrophic', ACKS.dungeonResolutionBand(2).result === 'catastrophic');
+ok('5 → dreadful', ACKS.dungeonResolutionBand(5).result === 'dreadful');
+ok('8 → unsatisfactory', ACKS.dungeonResolutionBand(8).result === 'unsatisfactory');
+ok('12 → indifferent', ACKS.dungeonResolutionBand(12).result === 'indifferent');
+ok('16 → satisfactory', ACKS.dungeonResolutionBand(16).result === 'satisfactory');
+ok('19 → excellent', ACKS.dungeonResolutionBand(19).result === 'excellent');
+ok('20 → stupendous', ACKS.dungeonResolutionBand(20).result === 'stupendous');
+ok('25 → stupendous', ACKS.dungeonResolutionBand(25).result === 'stupendous');
+ok('catastrophic woundsDie "all", clears false', ACKS.dungeonResolutionBand(2).woundsDie === 'all' && ACKS.dungeonResolutionBand(2).clears === false);
+ok('unsatisfactory treasurePct 50', ACKS.dungeonResolutionBand(8).treasurePct === 50);
+ok('stupendous treasurePct 200, no wounds', ACKS.dungeonResolutionBand(20).treasurePct === 200 && ACKS.dungeonResolutionBand(20).woundsDie === 0);
+
+section('D3 — startDelve (init-on-write; NO migrate inject)');
+(function(){
+  const c = ACKS.blankCampaign({ name:'Start' });
+  ok('fresh campaign has no delves[] yet', !Array.isArray(c.delves) || c.delves.length === 0);
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-rf', name:'Ruined Fort', size:'small', dungeonLevel:1, encountersTotal:3, encountersRemaining:3 }) ];
+  const dl = ACKS.startDelve(c, { dungeonId:'dun-rf', participantCharacterIds:['x','y'], isHenchmanDelve:true });
+  ok('startDelve created + registered a Delve', Array.isArray(c.delves) && c.delves.length === 1 && c.delves[0] === dl);
+  ok('auto name "Delve into Ruined Fort"', dl.name === 'Delve into Ruined Fort');
+  ok('status in-progress', dl.status === 'in-progress');
+  ok('isHenchmanDelve carried', dl.isHenchmanDelve === true);
+})();
+
+section('D3 — the FULL Marcus ruined-fort henchman delve, end-to-end (JJ pp.277–278)');
+(function(){
+  const c = ACKS.blankCampaign({ name:'Marcus' });
+  c.eventLog = [];
+  c.currentTurn = 5; c.currentDayInMonth = 1;
+  const mkH = (id, level) => ({ id, name:id, level, abilities:{ CON:10 }, hp:{ hitDice:'1d8', current:5 }, xp:0, coins:{pp:0,gp:0,ep:0,sp:0,cp:0}, lifecycleState:'active', alive:true });
+  c.characters = [ mkH('h1',1), mkH('h2',1), mkH('h3',1), mkH('h4',2), mkH('h5',2), mkH('h6',5) ];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-rf', name:'Ruined Fort', size:'small', dungeonLevel:1, encountersTotal:3, encountersRemaining:3, status:'known' }) ];
+  const dl = ACKS.startDelve(c, { dungeonId:'dun-rf', participantCharacterIds:['h1','h2','h3','h4','h5','h6'], isHenchmanDelve:true });
+
+  // FORAY 1 — attempt 2 of 3. d8=1,d12=4 → 5; +3 mod → 8 = Unsatisfactory. (rest 0.5 → 1d4=3 → 2 wounded.)
+  const f1 = ACKS.resolveDungeonForay(c, dl, { attemptedEncounters:2, rng: rngOf([rFor(1,8), rFor(4,12)]) });
+  ok('foray1 partyLevel 2', f1.partyLevel === 2, 'got ' + f1.partyLevel);
+  ok('foray1 modifier +3', f1.modifier === 3, 'got ' + f1.modifier);
+  ok('foray1 roll total 8', f1.roll.total === 8, 'got ' + f1.roll.total);
+  ok('foray1 result Unsatisfactory', f1.result === 'unsatisfactory');
+  ok('foray1 cleared 2', f1.encountersCleared === 2);
+  ok('foray1 xpGross 180 (2×90 full)', f1.xpGross === 180, 'got ' + f1.xpGross);
+  ok('foray1 treasureGpGross 360 (2×360×50%)', f1.treasureGpGross === 360, 'got ' + f1.treasureGpGross);
+  ok('foray1 2 casualties (1d4-1 = 2)', f1.casualtyCount === 2, 'got ' + f1.casualtyCount);
+  ok('foray1 each casualty has a Mortal Wound result', f1.casualties.every(x => x.wound && x.wound.conditionLabel));
+  const commit1 = ACKS.commitDungeonForay(c, dl.id, f1);
+  ok('after foray1: dungeon encountersRemaining 3→1', c.dungeons[0].encountersRemaining === 1, 'got ' + c.dungeons[0].encountersRemaining);
+  ok('after foray1: dungeon status being-cleared', c.dungeons[0].status === 'being-cleared');
+  ok('after foray1: delve runningXp 180', dl.runningXp === 180);
+  ok('after foray1: delve runningTreasureGp 360', dl.runningTreasureGp === 360);
+  ok('after foray1: 2 wounded removed from participants (6→4)', dl.participantCharacterIds.length === 4, 'got ' + dl.participantCharacterIds.length);
+  ok('after foray1: casualtyCharacterIds length 2', dl.casualtyCharacterIds.length === 2);
+  ok('after foray1: survivors are exactly h1,h2,h5,h6 (lvls 1,1,2,5)', JSON.stringify(dl.participantCharacterIds.slice().sort()) === JSON.stringify(['h1','h2','h5','h6']));
+  ok('after foray1: a delve-foray event logged', c.eventLog.some(e => e.event && e.event.kind === 'delve-foray'));
+  ok('after foray1: wounded chars are incapacitated', c.characters.filter(x => x.lifecycleState === 'incapacitated').length === 2);
+  ok('after foray1: foraysResolved has 1 record with eventId', dl.foraysResolved.length === 1 && !!dl.foraysResolved[0].eventId);
+
+  // FORAY 2 — attempt the last encounter. Survivors (1,1,2,5)/4 = 2. d8=7,d12=8 → 15; +3 → 18 = Excellent.
+  const f2 = ACKS.resolveDungeonForay(c, dl, { attemptedEncounters:1, rng: rngOf([rFor(7,8), rFor(8,12)]) });
+  ok('foray2 partyLevel 2 (survivors)', f2.partyLevel === 2, 'got ' + f2.partyLevel);
+  ok('foray2 modifier +3', f2.modifier === 3, 'got ' + f2.modifier);
+  ok('foray2 result Excellent (roll 15 +3 = 18)', f2.result === 'excellent', 'got ' + f2.result + ' total ' + f2.roll.total);
+  ok('foray2 cleared 1', f2.encountersCleared === 1);
+  ok('foray2 xpGross 90', f2.xpGross === 90);
+  ok('foray2 treasureGpGross 540 (1×360×150%)', f2.treasureGpGross === 540, 'got ' + f2.treasureGpGross);
+  ok('foray2 0 casualties (1d6-5 = -1 → 0)', f2.casualtyCount === 0, 'got ' + f2.casualtyCount);
+  ACKS.commitDungeonForay(c, dl.id, f2);
+  ok('after foray2: dungeon cleared out (encountersRemaining 0)', c.dungeons[0].encountersRemaining === 0);
+  ok('after foray2: running totals 270 XP / 900 gp', dl.runningXp === 270 && dl.runningTreasureGp === 900);
+
+  // REALIZE — fully cleared. magic items: floor(900/1000) = 0. Henchman split: ½ → 450 gp, 135 XP.
+  const real = ACKS.realizeDelve(c, dl.id, { outcome:'cleared' });
+  ok('realize fullyCleared true', real.fullyCleared === true);
+  ok('realize magicItemRolls 0 (900 < 1000gp/roll)', real.magicItemRolls === 0, 'got ' + real.magicItemRolls);
+  ok('realize partyTreasure 450 (henchman ½ of 900)', real.partyTreasure === 450, 'got ' + real.partyTreasure);
+  ok('realize partyCombatXp 135 (henchman ½ of 270)', real.partyCombatXp === 135, 'got ' + real.partyCombatXp);
+  ok('realize delve status cleared', dl.status === 'cleared');
+  ok('realize dungeon status cleared', c.dungeons[0].status === 'cleared');
+  // disbursement via adventure-result: treasure → first survivor's purse; combat XP split among survivors.
+  const h1 = c.characters.find(x => x.id === 'h1');
+  ok('realize deposited 450gp into the recipient purse (adventure-result)', h1.coins.gp === 450, 'got ' + h1.coins.gp);
+  ok('realize awarded combat XP to a survivor (135/4 = 33 each)', h1.xp === 33, 'got ' + h1.xp);
+  ok('realize logged an adventure-result event', c.eventLog.some(e => e.event && e.event.kind === 'adventure-result'));
+  ok('realize logged a delve-foray realized event', c.eventLog.some(e => e.event && e.event.kind === 'delve-foray' && e.event.payload && e.event.payload.phase === 'realized'));
+})();
+
+section('D3 — withdraw (¼ treasure, no magic items) + restock + random dungeon');
+(function(){
+  const c = ACKS.blankCampaign({ name:'Withdraw' });
+  c.eventLog = []; c.currentTurn = 1; c.currentDayInMonth = 1;
+  c.characters = [{ id:'p1', name:'p1', level:5, abilities:{CON:13}, hp:{hitDice:'1d8'}, xp:0, coins:{pp:0,gp:0,ep:0,sp:0,cp:0}, lifecycleState:'active', alive:true }];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-w', name:'Deep Vault', size:'medium', dungeonLevel:2, encountersTotal:5, encountersRemaining:5 }) ];
+  const dl = ACKS.startDelve(c, { dungeonId:'dun-w', participantCharacterIds:['p1'] });
+  dl.runningTreasureGp = 2000; dl.runningXp = 280;   // pretend two forays banked this
+  const real = ACKS.realizeDelve(c, dl.id, { outcome:'withdrawn' });
+  ok('withdraw not fullyCleared (encounters remain)', real.fullyCleared === false);
+  ok('withdraw treasure ¼ of 2000 = 500', real.finalTreasure === 500, 'got ' + real.finalTreasure);
+  ok('withdraw partyTreasure 500 (PC delve, no split)', real.partyTreasure === 500);
+  ok('withdraw XP is FULL (280)', real.partyCombatXp === 280);
+  ok('withdraw magicItemRolls 0 (not fully cleared)', real.magicItemRolls === 0);
+  ok('withdraw delve status withdrawn', dl.status === 'withdrawn');
+
+  // restock: medium 2d3-4 over 3 days. day1 (2+2=4 → 0), day2 (2+3=5 → 1), day3 (1+1=2 → -2 → 0). added 1.
+  const c2 = ACKS.blankCampaign({ name:'Restock' });
+  c2.dungeons = [ ACKS.blankDungeon({ id:'dun-r', size:'medium', encountersTotal:5, encountersRemaining:2 }) ];
+  const rs = ACKS.restockDungeon(c2, 'dun-r', 3, { rng: rngOf([rFor(2,3),rFor(2,3), rFor(2,3),rFor(3,3), rFor(1,3),rFor(1,3)]) });
+  ok('restock added 1 over 3 days [JJ p.277 example]', rs.restocked === 1, 'got ' + rs.restocked);
+  ok('restock encountersRemaining 2→3', c2.dungeons[0].encountersRemaining === 3);
+  ok('restock caps at encountersTotal', (function(){ const c3=ACKS.blankCampaign({name:'cap'}); c3.dungeons=[ACKS.blankDungeon({id:'dx',size:'large',encountersTotal:4,encountersRemaining:3})]; ACKS.restockDungeon(c3,'dx',10,{rng:rngOf([rFor(3,6),rFor(3,6)])}); return c3.dungeons[0].encountersRemaining <= 4; })());
+
+  // rollRandomDungeon: lvlRoll 1 (→1), sizeRoll 1 (→small), encounters 1d3 (0.5 → 2).
+  const rd = ACKS.rollRandomDungeon({ rng: rngOf([rFor(1,100), rFor(1,100)]) });
+  ok('rollRandomDungeon → small D1', rd.size === 'small' && rd.dungeonLevel === 1);
+  ok('rollRandomDungeon has a dun- id + encounters', /^dun-/.test(rd.id) && rd.encountersTotal >= 1);
+})();
+
+section('D3 — catastrophic wipes the delve');
+(function(){
+  const c = ACKS.blankCampaign({ name:'Wipe' });
+  c.eventLog = []; c.currentTurn = 1; c.currentDayInMonth = 1;
+  c.characters = [{id:'w1',name:'w1',level:1,abilities:{CON:9},hp:{hitDice:'1d6'},lifecycleState:'active',alive:true},{id:'w2',name:'w2',level:1,abilities:{CON:9},hp:{hitDice:'1d6'},lifecycleState:'active',alive:true}];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-x', name:'Doom', size:'small', dungeonLevel:6, encountersTotal:3, encountersRemaining:3 }) ];
+  const dl = ACKS.startDelve(c, { dungeonId:'dun-x', participantCharacterIds:['w1','w2'] });
+  // PL 1 (2×lvl1 /4 = 0.5 → 1... actually (1+1)/4 = 0.5 → round 1), D6 → deeply negative; force roll low → ≤2 catastrophic.
+  const f = ACKS.resolveDungeonForay(c, dl, { attemptedEncounters:1, rng: rngOf([rFor(1,8), rFor(1,12)]) });
+  ok('catastrophic result', f.result === 'catastrophic', 'got ' + f.result + ' (mod ' + f.modifier + ', total ' + f.roll.total + ')');
+  ok('catastrophic clears 0', f.encountersCleared === 0);
+  ok('catastrophic wounds ALL adventurers', f.casualtyCount === 2);
+  ACKS.commitDungeonForay(c, dl.id, f);
+  ok('delve status wiped', dl.status === 'wiped');
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Delves D2 smoke checks passed.');
+  console.log('\nAll Delves D2 + D3 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

@@ -228,7 +228,14 @@ const EVENT_KINDS = Object.freeze([
   // hooked into commitTurn); these keep the eventLog well-formed + carry the Event.context envelope
   // (the aging character as subject). 'death-from-old-age' carries the Death-save result (died bool).
   'aging-milestone',
-  'death-from-old-age'
+  'death-from-old-age',
+  // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
+  // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
+  // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
+  // the GP Wave B adventure-result disbursement); this keeps the eventLog well-formed on replay.
+  // Carries the Event.context envelope (the dungeon as site + the delve + the casualties). Event
+  // Wizard opt-out below — the GM runs a foray via the Foray Wizard, not the Event Wizard.
+  'delve-foray'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -741,6 +748,15 @@ const EVENT_SCHEMAS = Object.freeze({
   'death-from-old-age': {
     R: { characterId: 'string', died: 'boolean' },
     O: { threshold: 'string', save: 'number', target: 'number', narrative: 'string' }
+  },
+  // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
+  // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
+  // carries the final disbursement (outcome cleared|withdrawn + magic-item rolls).
+  'delve-foray': {
+    R: { delveId: 'string' },
+    O: { dungeonId: 'string', phase: 'string', forayIndex: 'number', result: 'string',
+         outcome: 'string', encountersCleared: 'number', treasureGp: 'number', xp: 'number',
+         magicItemRolls: 'number', casualties: 'array', narrative: 'string' }
   }
 });
 
@@ -2272,6 +2288,14 @@ function applyEvent_agingAudit(campaign, event){
 }
 registerEventHandler('aging-milestone', applyEvent_agingAudit);
 registerEventHandler('death-from-old-age', applyEvent_agingAudit);
+// === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
+// already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
+// disbursement); this handler keeps the event well-formed on replay (records the narrative only).
+function applyEvent_delveAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'delve foray' } };
+}
+registerEventHandler('delve-foray', applyEvent_delveAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5279,7 +5303,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Character Lifecycle CL-1 (burst4) === — owned by ACKS.processAgingForTurn (the monthly pass);
   // a raw emit would narrate an aging/death the character's age/lifecycleState don't show. The GM sets
   // an age via the character sheet, not the Event Wizard.
-  'aging-milestone', 'death-from-old-age'
+  'aging-milestone', 'death-from-old-age',
+  // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
+  // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
+  'delve-foray'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
