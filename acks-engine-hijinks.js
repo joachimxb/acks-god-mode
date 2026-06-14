@@ -365,7 +365,16 @@ function startHijink(campaign, opts){
 
   // the throw — rolled now, outcome locked but hidden until the hijink completes.
   const profile = hijinkThrowProfile(campaign, perp, opts.type, { victimLevel, gmModifier: opts.gmModifier });
-  const die = _d(rng, 20);
+  // PT-5 — the hijink d20 now comes from the canonical Layer-1 roller (ACKS.rollProficiencyThrow)
+  // instead of a re-inlined _d(rng,20). Byte-identical: _d(rng,20) === 1+floor(rng()*20) === the
+  // resolver's natural — one rng consumption at the same point in the stream, so every downstream
+  // roll (reward/charge/durations) is unchanged. The hijink's bespoke THREE-way outcome
+  // (success/fail/CAUGHT on a nat-1 or a fail-by-14, RR p.360) stays in hijinkResolveThrow — that
+  // is hijink resolution, not the die. (proficiencies.js loads before hijinks.js, so the call resolves;
+  // the _d fallback is byte-identical insurance — both consume exactly one rng().)
+  const die = (typeof ACKS.rollProficiencyThrow === 'function')
+    ? ACKS.rollProficiencyThrow({ target: profile.target, modifiers: [{ value: profile.bonus || 0 }], autoFailBand: 1, proficient: false, rng }).natural
+    : _d(rng, 20);
   const res = hijinkResolveThrow(die, profile);
   const reward = (res.outcome === 'success') ? _hijinkComputeReward(def, effectiveLevel, victimLevel, rng) : { gp:0, unit: (def.reward||{}).unit || 'gp', raw:0, text:'' };
   const charge = (res.outcome === 'caught') ? _hijinkRollCharge(def, rng) : null;

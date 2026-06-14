@@ -322,11 +322,48 @@ section('PT-6 — ad-hoc resolver fold onto Layer 1 (byte-identical delegation)'
 })();
 
 // =============================================================================
+section('PT-5 — ford + hijink fold onto Layer 1 (byte-identical)');
+// =============================================================================
+// The last two ad-hoc 1d20 resolvers fold onto rollProficiencyThrow. journeyFordingThrow
+// (RR p.271 Swimming) keeps its EXACT shipped behaviour — autoFailBand:0, NO nat-1 auto-fail —
+// so the fold is byte-identical (the RR pp.9–10 nat-1 rule is a separate question, not changed
+// here). The hijink throw (RR p.360) sources its d20 from Layer 1; its three-way outcome stays in
+// hijinkResolveThrow. Recon is a 2d6 banded roll (RR p.452) — NOT a proficiency throw (DQ7) — and
+// is deliberately NOT folded.
+
+// journeyFordingThrow (RR p.271) — delegates to Layer 1; autoFailBand:0 (no nat-1 rule) preserved.
+(() => {
+  const camp = ACKS.blankCampaign({ name: 'pt5-ford' });
+  camp.characters = [ACKS.blankCharacter({ id: 'sw', name: 'Swimmer', proficiencies: [{ key: 'swimming', ranks: 1 }] })];
+  const jr = { participantCharacterIds: ['sw'] };
+  const f = ACKS.journeyFordingThrow(camp, jr, { rng: fixedRng(0.5) });   // natural 11, +2 Swimming → 13 ≥ 11
+  ok('journeyFordingThrow: rng 0.5, +2 Swimming vs 11+ → 11 / total 13 / success', f.rolled === 11 && f.bonus === 2 && f.total === 13 && f.success === true);
+  const l1 = ACKS.rollProficiencyThrow({ target: 11, modifiers: [{ value: 2 }], autoFailBand: 0, proficient: false, rng: fixedRng(0.5) });
+  ok('journeyFordingThrow delegates to Layer 1 (same natural/total/success)', f.rolled === l1.natural && f.total === l1.total && f.success === l1.success);
+  const f1 = ACKS.journeyFordingThrow(camp, jr, { rng: fixedRng(0) });    // natural 1: fails the COMPARE (3<11), not an auto-fail
+  ok('journeyFordingThrow: natural 1 fails by compare, not auto-fail (autoFailBand:0 preserved)', f1.rolled === 1 && f1.total === 3 && f1.success === false && f1.botch === undefined);
+  const coldF = ACKS.journeyFordingThrow(camp, jr, { rng: fixedRng(0.95), coldWater: true });
+  ok('journeyFordingThrow cold water raises the target 11→13', coldF.target === 13);
+})();
+
+// hijink d20-source equivalence the fold relies on: _d(rng,20) === rollProficiencyThrow natural.
+[0, 0.1, 0.37, 0.5, 0.999].forEach(v => {
+  ok('hijink die equivalence at rng ' + v + ': Layer-1 natural === 1+floor(rng*20)',
+    ACKS.rollProficiencyThrow({ target: 11, rng: fixedRng(v) }).natural === (Math.floor(v * 20) + 1));
+});
+// hijinkResolveThrow's bespoke THREE-way outcome is unchanged (the die is sourced from Layer 1 at the
+// startHijink roll site; the byte-identical hijinks.smoke seeds startHijink + asserts exact outcomes).
+ok('hijinkResolveThrow: nat-1 = caught', ACKS.hijinkResolveThrow(1, { target: 11, bonus: 20 }).outcome === 'caught');
+ok('hijinkResolveThrow: fail-by-14 = caught', ACKS.hijinkResolveThrow(2, { target: 18, bonus: 0 }).outcome === 'caught');
+ok('hijinkResolveThrow: total>=target = success', ACKS.hijinkResolveThrow(11, { target: 11, bonus: 0 }).outcome === 'success');
+ok('hijinkResolveThrow: total<target (no caught band) = fail', ACKS.hijinkResolveThrow(8, { target: 14, bonus: 0 }).outcome === 'fail');
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Proficiency Throws PT-0 + PT-1 + PT-6 smoke checks passed.');
+  console.log('\nAll Proficiency Throws PT-0 + PT-1 + PT-5 + PT-6 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

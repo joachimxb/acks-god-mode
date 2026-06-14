@@ -1791,9 +1791,15 @@ function journeyFordingThrow(campaign, journey, opts){
   if(opts.coldWater)  target += 2;   // a −2 to the throw is a +2 to the target
   if(opts.roughWater) target += 4;
   const bonus = _journeyFordBonus(campaign, journey);
-  const rolled = 1 + Math.floor(rng() * 20);
-  const total = rolled + bonus;
-  return { rolled, bonus, target, total, success: total >= target, coldWater: !!opts.coldWater, roughWater: !!opts.roughWater };
+  // PT-5 — folded onto Layer 1 (ACKS.rollProficiencyThrow), the last of the 1d20 fold sweep.
+  // autoFailBand:0 preserves the EXACT behaviour this shipped with — RR p.271 Swimming as coded
+  // here has no nat-1 auto-fail (a high Swimming bonus can carry a natural 1). The RR pp.9–10
+  // nat-1 rule is a separate RAW question, deliberately NOT changed inside a byte-identical fold.
+  // proficient:false (no nat-20 rule). Same single rng consumption + same compare → byte-identical;
+  // the legacy {rolled,bonus,target,total,success} shape is preserved. (proficiencies.js loads after
+  // subsystems.js — resolves at runtime via the _jACKS() handle, like rollNavigation above.)
+  const r = _jACKS().rollProficiencyThrow({ target, modifiers: [{ source: 'swimming', value: bonus || 0 }], autoFailBand: 0, proficient: false, rng });
+  return { rolled: r.natural, bonus, target, total: r.total, success: r.success, coldWater: !!opts.coldWater, roughWater: !!opts.roughWater };
 }
 
 // §7 — navigation throw (1d20 + party proficiency bonus ≥ terrain target). RR p.275: an unmodified
