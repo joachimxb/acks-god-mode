@@ -51,6 +51,8 @@ One caveat in the interest of honesty: the page itself loads its two UI librarie
 
 To back up a campaign: copy the `.acks.json` file. To share a campaign or a single domain: send the file to another GM. To version-control your campaign: commit the file to your own git repo.
 
+That openness is also a **building block**: the `.acks.json` file is a documented, self-describing world-state layer, and the engine that reads and advances it runs headless in Node with no dependencies — so a companion tool, a Discord bot, or an AI GM-assistant can read from and write to the same campaign state. If you want to build against it, see [`INTEGRATION.md`](INTEGRATION.md) (the contract, the headless engine, and a JSON Schema at [`schema/acks-campaign.schema.json`](schema/acks-campaign.schema.json)).
+
 ## Templates
 
 Six starter `.acks.json` templates ship with the tool. On the hosted site they load in one click from the welcome screen; you can also **📂 Open** them directly, or **📥 Import** a domain from one into an existing campaign.

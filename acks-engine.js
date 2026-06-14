@@ -72,6 +72,23 @@ function migrateRemoveTributePct(campaign){
 
 const SCHEMA_VERSION = 2;
 
+// ENGINE_VERSION — the engine's release/generation tag, equal to package.json's "version".
+//
+// Why this exists, separate from SCHEMA_VERSION: SCHEMA_VERSION is the BREAKING save-format
+// version (a clean break at 2; bumped only when old saves can no longer load). It has been 2
+// across every release, evolved forward by the idempotent reconcilers in migrateCampaign — so
+// it cannot tell a consumer WHICH generation of the tool wrote a file (a `schemaVersion: 2`
+// save might predate or postdate `units`/`armies`/`encounters`). ENGINE_VERSION fills that gap:
+// stamped onto saved campaigns (at SAVE time — see stampCampaignForSave, NOT in migrateCampaign,
+// so loading a template stays a byte-identical no-op and the field is absent from the shipped
+// templates), it lets a third-party reader version-detect across releases. See INTEGRATION.md.
+//
+// No build step (CLAUDE §4), so this is a hand-kept constant, NOT read from package.json at
+// runtime (package.json isn't reachable from a file:// browser load). tests/schema.smoke.js
+// asserts it equals package.json's "version" — the same release-checklist guard that pins the
+// README version (T1-C); bump both together on release.
+const ENGINE_VERSION = '0.24.0';
+
 // ID prefix scheme — three-letter where possible, lowercased, dash-separated.
 // When in doubt, look up via ID_PREFIXES rather than hardcoding.
 const ID_PREFIXES = Object.freeze({
@@ -863,6 +880,37 @@ function migrateCampaign(raw){
   // a no-op on party-less campaigns (e.g. the templates). Idempotent.
   syncAllPartyCampStashes(current);
   return current;
+}
+
+// stampCampaignForSave(campaign, opts?) — return a SAVE-READY deep clone of a campaign with the
+// generation/version metadata stamped: engineVersion = ENGINE_VERSION, savedAt = today, and the
+// canonical lastModifiedAt (campaign + each domain). PURE — never mutates the input.
+//
+// This is the headless serializer the data-layer contract documents (INTEGRATION.md): a Node bot
+// or companion tool writes `JSON.stringify(ACKS.stampCampaignForSave(campaign))` and the file
+// carries the engineVersion a later reader version-detects on. The in-app File-System-Access save
+// path (index.html serializedCampaign()) should route through this too so app-written and tool-
+// written files agree — that wiring is a one-liner gated on the index.html owner.
+//
+// Deliberately NOT called by migrateCampaign: stamping engineVersion on load would make every
+// shipped template gain the field, breaking the migrate-no-op invariant (migrations.smoke P3.6:
+// on-disk template === migrate(template)). engineVersion is a SAVE-time artifact, not a load-time
+// one — so it's absent from the templates (loading one changes nothing) and present only on files
+// a human or tool actually saved. A reader treats its absence as "pre-engineVersion" (≤ v0.24).
+function stampCampaignForSave(campaign, opts){
+  opts = opts || {};
+  const c = _deepCloneCampaignForSave(campaign);
+  const today = opts.savedAt || new Date().toISOString().slice(0, 10);
+  c.engineVersion = ENGINE_VERSION;
+  c.savedAt = today;
+  c.lastModifiedAt = today;
+  if(Array.isArray(c.domains)){ for(const d of c.domains){ if(d) d.lastModifiedAt = today; } }
+  delete c.domainIds; // legacy field (index.html serializedCampaign drops it too)
+  return c;
+}
+function _deepCloneCampaignForSave(c){
+  try { if(typeof structuredClone === 'function') return structuredClone(c); } catch(e){}
+  return JSON.parse(JSON.stringify(c));
 }
 
 // 2026-05-30 — Lazy backfill of additive optional fields reserved during the
@@ -10337,7 +10385,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
   constructionSupervisorCapForCharacter, computeAgriculturalDrip,
   // Schema + identity
-  SCHEMA_VERSION, ID_PREFIXES, newId, slugify,
+  SCHEMA_VERSION, ENGINE_VERSION, ID_PREFIXES, newId, slugify,
+  // Save-time serializer — stamps engineVersion/savedAt (the data-layer contract; INTEGRATION.md).
+  stampCampaignForSave,
 
   // Core constants
   DEFAULT_TAX_RATES, REQUIRED_GARRISON_PER_FAMILY, HEX_CLASSIFICATIONS,

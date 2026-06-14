@@ -1,0 +1,4660 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://joachimxb.github.io/acks-god-mode/schema/acks-campaign.schema.json",
+  "title": "ACKS God Mode — campaign (.acks.json)",
+  "description": "Structural schema for an ACKS God Mode campaign file, GENERATED from the engine metadata (scripts/build-schema.js). Lenient by design (objects allow extra properties; only id-class discriminators are required) so it accepts any valid save the engine writes. See INTEGRATION.md for the consumer contract, the canonical-home rule, and the eventLog wrapper trap. schemaVersion 2 · generated against engine 0.24.0.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "name"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2,
+      "description": "Breaking save-format version (clean break at 2)"
+    },
+    "engineVersion": {
+      "type": "string",
+      "description": "Engine release that SAVED the file (ACKS.ENGINE_VERSION). Absent ⇒ written before engineVersion (≤ v0.24); feature-detect, do not assume."
+    },
+    "kind": {
+      "const": "campaign"
+    },
+    "id": {
+      "type": "string",
+      "description": "campaign id — prefix \"cmp-\""
+    },
+    "name": {
+      "type": "string"
+    },
+    "currentTurn": {
+      "type": "number"
+    },
+    "currentDayInMonth": {
+      "type": "number"
+    },
+    "houseRules": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "kebab-case rule key → { enabled: bool } (absent ⇒ the registry default)"
+    },
+    "eventLog": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/eventLogEntry"
+      }
+    },
+    "armies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/army"
+      }
+    },
+    "attunements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attunement"
+      }
+    },
+    "banks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
+    },
+    "battles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/battle"
+      }
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/character"
+      }
+    },
+    "congregations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/congregation"
+      }
+    },
+    "constructibles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/constructible"
+      }
+    },
+    "deities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/deity"
+      }
+    },
+    "delves": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/delve"
+      }
+    },
+    "divineFavors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/divineFavor"
+      }
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/domain"
+      }
+    },
+    "dungeons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dungeon"
+      }
+    },
+    "encounters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/encounter"
+      }
+    },
+    "factions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/faction"
+      }
+    },
+    "favorDutyObligations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/favorDutyObligation"
+      }
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/group"
+      }
+    },
+    "henchmanships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/henchmanship"
+      }
+    },
+    "hexes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hex"
+      }
+    },
+    "hijinks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hijink"
+      }
+    },
+    "hirelingContracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hirelingContract"
+      }
+    },
+    "itemCustody": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
+    },
+    "journeys": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/journey"
+      }
+    },
+    "lairs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lair"
+      }
+    },
+    "loans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
+    },
+    "magistracies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/magistracy"
+      }
+    },
+    "notableItems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/notableItem"
+      }
+    },
+    "oaths": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/oath"
+      }
+    },
+    "outposts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/outpost"
+      }
+    },
+    "parties": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/party"
+      }
+    },
+    "passiveInvestments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
+    },
+    "pendingEvents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/project"
+      }
+    },
+    "rumors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rumor"
+      }
+    },
+    "senates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/senate"
+      }
+    },
+    "senatorships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/senatorship"
+      }
+    },
+    "settlementVisits": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/settlementVisit"
+      }
+    },
+    "settlements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/settlement"
+      }
+    },
+    "sieges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/siege"
+      }
+    },
+    "specialistContracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/specialistContract"
+      }
+    },
+    "stashes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stash"
+      }
+    },
+    "syndicates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/syndicate"
+      }
+    },
+    "tributaryAgreements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tributaryAgreement"
+      }
+    },
+    "units": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/unit"
+      }
+    },
+    "vagaryOfIncursionEvents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "reserved / un-typed collection"
+    },
+    "vassalages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/vassalage"
+      }
+    },
+    "ventures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/venture"
+      }
+    },
+    "vessels": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/vessel"
+      }
+    }
+  },
+  "$defs": {
+    "character": {
+      "title": "Character",
+      "description": "\"character\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "party": {
+      "title": "Party",
+      "description": "\"party\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "group": {
+      "title": "Group",
+      "description": "\"group\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "groupTemplate": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "monsterCatalogKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "creatureTypes": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "humanoid",
+                  "beastman-humanoid",
+                  "animal",
+                  "construct",
+                  "giant",
+                  "incarnation",
+                  "monstrosity",
+                  "ooze",
+                  "plant",
+                  "undead",
+                  "vermin"
+                ]
+              }
+            },
+            "hitDice": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "count": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "casualties": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "socialTier": {
+          "enum": [
+            "independent",
+            "henchman",
+            "hireling",
+            "mercenary",
+            "specialist",
+            "follower",
+            null
+          ]
+        },
+        "lifecycleState": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "currentHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "currentDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "commanderCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "banditryDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "hex": {
+      "title": "Hex",
+      "description": "\"hex\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "settlement": {
+      "title": "Settlement",
+      "description": "\"settlement\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "domain": {
+      "title": "Domain",
+      "description": "\"domain\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "project": {
+      "title": "Project",
+      "description": "\"project\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "constructibleKind": {
+          "enum": [
+            "stronghold-component",
+            "agricultural-improvement",
+            "vessel",
+            "war-machine",
+            "settlement-building",
+            "sanctum",
+            "dungeon",
+            "mine",
+            "vault",
+            "hideout",
+            "civic-monument",
+            "trap",
+            "field-fortification",
+            "road",
+            null
+          ]
+        },
+        "constructibleSubtype": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "siteHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "siteSettlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "siteConstructibleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "constructible id — prefix \"cst-\""
+        },
+        "ownerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "ownerDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "isRepair": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "repairTargetConstructibleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "constructible id — prefix \"cst-\""
+        },
+        "totalCost": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "gpSpent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "laborInvested": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "laborRequired": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "workerCapPerDay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "supervisorCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "requiredSupervisorRating": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "magicAssist": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "ditches": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "mire": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "walls": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "lifecycleState": {
+          "enum": [
+            "planning",
+            "under-construction",
+            "paused",
+            "complete",
+            "abandoned",
+            null
+          ]
+        },
+        "startedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "completedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "estimatedCompletionTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "daysElapsed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "constructible": {
+      "title": "Constructible (completed building)",
+      "description": "\"constructible\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "constructibleKind": {
+          "enum": [
+            "stronghold-component",
+            "agricultural-improvement",
+            "vessel",
+            "war-machine",
+            "settlement-building",
+            "sanctum",
+            "dungeon",
+            "mine",
+            "vault",
+            "hideout",
+            "civic-monument",
+            "trap",
+            "field-fortification",
+            "road",
+            null
+          ]
+        },
+        "constructibleSubtype": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "constructionState": {
+          "enum": [
+            "planning",
+            "under-construction",
+            "complete",
+            "in-repair",
+            "being-demolished",
+            null
+          ]
+        },
+        "damageState": {
+          "enum": [
+            "intact",
+            "damaged",
+            "breached",
+            "ruined",
+            "destroyed",
+            null
+          ]
+        },
+        "ownership": {
+          "enum": [
+            "domain",
+            "character",
+            "settlement-civic",
+            "abandoned",
+            "contested",
+            null
+          ]
+        },
+        "siteType": {
+          "enum": [
+            "wilderness-hex",
+            "settlement-embedded",
+            "stronghold-courtyard",
+            "sub-structure",
+            "naval",
+            "special",
+            null
+          ]
+        },
+        "operationalState": {
+          "enum": [
+            "operational",
+            "understaffed",
+            "abandoned",
+            "contested",
+            null
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "settlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "parentConstructibleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "constructible id — prefix \"cst-\""
+        },
+        "ownerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "ownerDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "buildValue": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "monthlyMaintenance": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "maxShp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "currentShp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "armorClass": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "subStructures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "maxShp": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "currentShp": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "damageState": {
+                "enum": [
+                  "intact",
+                  "damaged",
+                  "breached",
+                  "ruined",
+                  "destroyed",
+                  null
+                ]
+              },
+              "level": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "completedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "outpost": {
+      "title": "Outpost",
+      "description": "\"outpost\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "watchtower",
+            "waypoint",
+            "trading-post",
+            "forward-camp",
+            "signal-station",
+            null
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "controllingDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "commanderCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "garrisonGroupId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "group id — prefix \"grp-\""
+        },
+        "foundedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "lair": {
+      "title": "Lair",
+      "description": "\"lair\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "cleared",
+            "abandoned",
+            "destroyed",
+            "unknown",
+            "dynamic",
+            null
+          ]
+        },
+        "monsterCatalogKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "precisePlacement": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knownToPlayers": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hiddenDC": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "groupIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "group id — prefix \"grp-\""
+          }
+        },
+        "leaderCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "totalInhabitantCount": {
+          "description": "derived / read-only (not authored)"
+        },
+        "treasureType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "treasureCustodyId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lairType": {
+          "enum": [
+            "lair",
+            "lair-large",
+            "hideout",
+            "ruin",
+            "natural-cave",
+            "dungeon-level",
+            null
+          ]
+        },
+        "terrain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasFortifications": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "lairPct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "factionKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "establishedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "establishedBy": {
+          "enum": [
+            "genesis",
+            "hex-seeding",
+            "dynamic-reveal",
+            "persistent-wanderer",
+            "gm-fiat",
+            null
+          ]
+        },
+        "lastVisitedTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "clearedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "repopulationChance": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "encounter": {
+      "title": "Encounter",
+      "description": "\"encounter\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scale": {
+          "enum": [
+            "wilderness",
+            "dungeon",
+            "sea",
+            "settlement",
+            "domain",
+            null
+          ]
+        },
+        "trigger": {
+          "enum": [
+            "journey-travel",
+            "hex-search",
+            "rest-night",
+            "hunt",
+            "domain-incursion",
+            "gm-authored",
+            "pursuit",
+            "lair-assault",
+            null
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "category": {
+          "enum": [
+            "monster",
+            "civilized",
+            null
+          ]
+        },
+        "rarity": {
+          "enum": [
+            "common",
+            "uncommon",
+            "rare",
+            "very-rare",
+            null
+          ]
+        },
+        "monsterSide": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "monsterCatalogKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "count": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "encounterKind": {
+              "enum": [
+                "at-lair",
+                "wandering-fragment",
+                "wandering",
+                null
+              ]
+            },
+            "lairId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "lair id — prefix \"lai-\""
+            },
+            "pursuitEncounterId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "encounter id — prefix \"enc-\""
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "active",
+            "resolved",
+            null
+          ]
+        },
+        "phase": {
+          "enum": [
+            "setup",
+            "surprise",
+            "evasion",
+            "interaction",
+            "pursuit",
+            null
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "no-encounter",
+            "evaded",
+            "parleyed",
+            "dispersed",
+            "combat",
+            "settled-as-lair",
+            "dismissed",
+            null
+          ]
+        },
+        "occurredAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "occurredOnDayInMonth": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "resolvedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "dungeon": {
+      "title": "Dungeon",
+      "description": "\"dungeon\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "constructed",
+            "natural",
+            "found",
+            "conquered",
+            "lair-promoted",
+            null
+          ]
+        },
+        "knownToPlayers": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "precisePlacement": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "size": {
+          "enum": [
+            "small",
+            "medium",
+            "large",
+            "mega",
+            null
+          ]
+        },
+        "dungeonLevel": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "encountersTotal": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "encountersRemaining": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "encountersCleared": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sizeKnown": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "levelKnown": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "multiLevel": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "parentDungeonId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "dungeon id — prefix \"dun-\""
+        },
+        "restockDie": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "undiscovered",
+            "known",
+            "being-cleared",
+            "cleared",
+            "sealed",
+            "abandoned",
+            "destroyed",
+            null
+          ]
+        },
+        "ownerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "lastForayAtDayInMonth": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lastForayAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "establishedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "delve": {
+      "title": "Delve",
+      "description": "\"delve\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dungeonId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "dungeon id — prefix \"dun-\""
+        },
+        "status": {
+          "enum": [
+            "in-progress",
+            "withdrawn",
+            "cleared",
+            "wiped",
+            null
+          ]
+        },
+        "partyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "party id — prefix \"prt-\""
+        },
+        "participantCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "isHenchmanDelve": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "runningEncountersCleared": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "runningTreasureGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "runningXp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "casualtyCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "magicItemRollsPending": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "startedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "startedAtDayInMonth": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "stash": {
+      "title": "Stash",
+      "description": "\"stash\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "personal",
+            "party",
+            "domain-treasury",
+            "cache",
+            null
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "ownerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "ownerPartyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "party id — prefix \"prt-\""
+        },
+        "ownerDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "isHidden": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "facets": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "coin",
+                    "valuable",
+                    "gear",
+                    "bulk",
+                    "magical",
+                    "readable",
+                    "container"
+                  ]
+                }
+              },
+              "qty": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "denomination": {
+                "enum": [
+                  "cp",
+                  "sp",
+                  "ep",
+                  "gp",
+                  "pp",
+                  null
+                ]
+              },
+              "valuableType": {
+                "enum": [
+                  "gem",
+                  "jewelry",
+                  "special-treasure",
+                  null
+                ]
+              },
+              "valuableTier": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "unitValueGp": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "gp amount"
+              },
+              "encumbranceSt": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notableItemId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "notableItem id — prefix \"itm-\""
+              },
+              "containerStashId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "stash id — prefix \"stash-\""
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "notableItem": {
+      "title": "Notable Item",
+      "description": "\"notableItem\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "magic-weapon",
+            "magic-armor",
+            "potion",
+            "scroll",
+            "wand",
+            "rod",
+            "staff",
+            "misc-magic",
+            "book",
+            "relic",
+            "regalia",
+            "masterwork",
+            null
+          ]
+        },
+        "baseCatalogKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provenance": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "makerCharacterId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "character id — prefix \"chr-\""
+            },
+            "createdAtTurn": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "originLore": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "knownMakeAndAuthenticity": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "active",
+            "destroyed",
+            "lost",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "venture": {
+      "title": "Mercantile Venture",
+      "description": "\"venture\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "rumor": {
+      "title": "Rumor",
+      "description": "\"rumor\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "journey": {
+      "title": "Journey",
+      "description": "\"journey\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "planning",
+            "in-transit",
+            "resting",
+            "arrived",
+            "aborted",
+            "lost",
+            null
+          ]
+        },
+        "purpose": {
+          "enum": [
+            "expedition",
+            "commercial-venture",
+            "pilgrimage",
+            "embassy",
+            "patrol",
+            "rescue",
+            "courier",
+            "hijink-travel",
+            "other",
+            null
+          ]
+        },
+        "mode": {
+          "enum": [
+            "foot",
+            "mounted-light",
+            "mounted-medium",
+            "mounted-heavy",
+            "wagon",
+            "voyage-row",
+            "voyage-sail",
+            "voyage-galley",
+            "voyage-longship",
+            "aerial-mount",
+            "aerial-spell",
+            "mixed",
+            null
+          ]
+        },
+        "pace": {
+          "enum": [
+            "forced-march",
+            "normal",
+            "half-speed",
+            null
+          ]
+        },
+        "speedOverrideMilesPerDay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "partyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "party id — prefix \"prt-\""
+        },
+        "participantCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "armyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "army id — prefix \"army-\""
+        },
+        "shipId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "vessel id — prefix \"vsl-\""
+        },
+        "startHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "destinationHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "currentHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "waypoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "hexId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "hex id — prefix \"hex-\""
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "plannedPurpose": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "currentDayIndex": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "startedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "isLost": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fatigueDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "supplies": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "rations": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "waterRations": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "animalFeed": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "animalWater": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "shipStores": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "event": {
+      "title": "Event",
+      "description": "\"event\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "henchmanship": {
+      "title": "Henchmanship",
+      "description": "\"henchmanship\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "specialistContract": {
+      "title": "Specialist Contract",
+      "description": "\"specialistContract\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "hirelingContract": {
+      "title": "Hireling Contract",
+      "description": "\"hirelingContract\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "magistracy": {
+      "title": "Magistracy",
+      "description": "\"magistracy\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "enum": [
+            "captain-of-the-guard",
+            "chaplain",
+            "munerator",
+            "steward",
+            null
+          ]
+        },
+        "magistrateCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "domainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "appointedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "endedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "isActive": {
+          "description": "derived / read-only (not authored)"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "vassalage": {
+      "title": "Vassalage",
+      "description": "\"vassalage\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "tributaryAgreement": {
+      "title": "Tributary Agreement",
+      "description": "\"tributaryAgreement\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "favorDutyObligation": {
+      "title": "Favor / Duty Obligation",
+      "description": "\"favorDutyObligation\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "liegeCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "vassalDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "vassalRulerCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "kind": {
+          "enum": [
+            "construction",
+            "scutage",
+            "call-to-council",
+            "call-to-arms",
+            "loan",
+            "charter-of-monopoly",
+            "gift",
+            "office",
+            "troops",
+            "grant-of-land",
+            "custom",
+            null
+          ]
+        },
+        "customLabel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "councilHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "officeTitle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isFavor": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "isOngoing": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "musterTitle": {
+          "enum": [
+            "",
+            "emperor",
+            "king",
+            "prince",
+            "duke",
+            "count",
+            "viscount",
+            "baron",
+            null
+          ]
+        },
+        "gpPerMonth": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "constructionSpentGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "constructionOrders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "hexId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "hex id — prefix \"hex-\""
+              },
+              "type": {
+                "enum": [
+                  "generic",
+                  "bridge",
+                  "road",
+                  "fort",
+                  "tower",
+                  "structure",
+                  "vessel",
+                  null
+                ]
+              }
+            }
+          }
+        },
+        "roll": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "revoked",
+            "one-time-spent",
+            null
+          ]
+        },
+        "grantedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "loanGivenAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scutageAutoPay": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "scutageLastPaidTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scutageGpPerFamily": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "revokedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "deity": {
+      "title": "Deity",
+      "description": "\"deity\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "alignment": {
+          "enum": [
+            "Lawful",
+            "Neutral",
+            "Chaotic",
+            null
+          ]
+        },
+        "portfolio": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "codeOfBehavior": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "acceptsBloodSacrifice": {
+          "enum": [
+            "none",
+            "animals-only",
+            "sapient",
+            null
+          ]
+        },
+        "sacrificeAsDevotion": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "dormant",
+            null
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "congregation": {
+      "title": "Congregation",
+      "description": "\"congregation\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deityId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "deity id — prefix \"dei-\""
+        },
+        "highPriestCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "personalCongregants": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "domainWorshipDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "proselytizingValueThisMonthGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "maintainedWeeksThisMonth": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lastMaintainedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "foundedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "declining",
+            "abandoned",
+            "suppressed",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "divineFavor": {
+      "title": "Divine Favor",
+      "description": "\"divineFavor\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "characterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "deityId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "deity id — prefix \"dei-\""
+        },
+        "standing": {
+          "enum": [
+            "good-standing",
+            "lapsed",
+            "excommunicate",
+            null
+          ]
+        },
+        "codeOfBehaviorAck": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "sinceTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lastSacrificeAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lastWorshipAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "attunement": {
+      "title": "Attunement",
+      "description": "\"attunement\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "settlementVisit": {
+      "title": "Settlement Visit",
+      "description": "\"settlementVisit\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "oath": {
+      "title": "Oath",
+      "description": "\"oath\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "hijink": {
+      "title": "Hijink",
+      "description": "\"hijink\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "syndicate": {
+      "title": "Syndicate",
+      "description": "\"syndicate\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bossCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "baseSettlementId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "settlement id — prefix \"set-\""
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "marketClass": {
+          "enum": [
+            "I",
+            "II",
+            "III",
+            "IV",
+            "V",
+            "VI",
+            null
+          ]
+        },
+        "hideoutType": {
+          "enum": [
+            "hideout",
+            "guildhouse",
+            null
+          ]
+        },
+        "hideoutValueGp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "level": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "count": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "active",
+            "disbanded",
+            null
+          ]
+        },
+        "foundedTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lastTributeTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "unit": {
+      "title": "Unit",
+      "description": "\"unit\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "displayName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unitTypeKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "race": {
+          "enum": [
+            "man",
+            "dwarf",
+            "elf",
+            "kobold",
+            "goblin",
+            "orc",
+            "hobgoblin",
+            "gnoll",
+            "lizardman",
+            "bugbear",
+            "ogre",
+            null
+          ]
+        },
+        "loadout": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "veteran": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "elite": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "count": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "casualties": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scale": {
+          "enum": [
+            "platoon",
+            "company",
+            "battalion",
+            "brigade",
+            null
+          ]
+        },
+        "source": {
+          "enum": [
+            "mercenary",
+            "conscript",
+            "militia",
+            "clanhold",
+            "follower",
+            "vassal",
+            "slave",
+            null
+          ]
+        },
+        "monthlyWage": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "gp amount"
+        },
+        "brPerSoldier": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stationedAt": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "kind": {
+              "enum": [
+                "domain-garrison",
+                "character",
+                "army",
+                "hex",
+                "constructible",
+                null
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "stationedAtHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "homeHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "homeDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "commanderCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "lieutenantCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "loyalty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "moraleAdjustment": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "supplyState": {
+          "enum": [
+            "supplied",
+            "underfed",
+            "starving",
+            "dehydrated",
+            null
+          ]
+        },
+        "calamities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "routed",
+                  "casualties-25",
+                  "unsupplied-week",
+                  "unpaid-month",
+                  "militia-season-campaigning",
+                  "carnivore-atrocity",
+                  "other",
+                  null
+                ]
+              },
+              "atDay": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "trainingState": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "targetTroopType": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "startedAtDay": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "completesAtDay": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "army": {
+      "title": "Army",
+      "description": "\"army\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "leaderCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "divisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "commanderCharacterId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "character id — prefix \"chr-\""
+              },
+              "adjutantCharacterId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "character id — prefix \"chr-\""
+              },
+              "unitIds": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "unit id — prefix \"unit-\""
+                }
+              },
+              "role": {
+                "enum": [
+                  "vanguard",
+                  "main",
+                  "rear-guard",
+                  null
+                ]
+              }
+            }
+          }
+        },
+        "strategicStance": {
+          "enum": [
+            "offensive",
+            "defensive",
+            "evasive",
+            null
+          ]
+        },
+        "currentHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "journeyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "journey id — prefix \"jrn-\""
+        },
+        "lastInitiative": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "supplyBaseIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "settlement id — prefix \"set-\""
+          }
+        },
+        "supplySimplified": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reconModifier": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "concealmentModifier": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "alliedLeaderCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "permittedDomainIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "domain id — prefix \"dom-\""
+          }
+        },
+        "prisoners": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "battle": {
+      "title": "Battle",
+      "description": "\"battle\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "scale": {
+          "enum": [
+            "platoon",
+            "company",
+            "battalion",
+            "brigade",
+            null
+          ]
+        },
+        "awareness": {
+          "enum": [
+            "mutual",
+            "mutual-unawareness",
+            "unilateral-a",
+            "unilateral-b",
+            null
+          ]
+        },
+        "situation": {
+          "enum": [
+            "pitched-battle",
+            "meeting-engagement",
+            "rear-guard-action",
+            "skirmish",
+            "ambush",
+            "envelopment",
+            "deep-envelopment",
+            "rear-guard-envelopment",
+            null
+          ]
+        },
+        "attackerSide": {
+          "enum": [
+            "a",
+            "b",
+            null
+          ]
+        },
+        "surprisedSide": {
+          "enum": [
+            "a",
+            "b",
+            null
+          ]
+        },
+        "options": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "armySizeAsymmetry": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "advantageousTerrain": {
+              "enum": [
+                "a",
+                "b",
+                null
+              ]
+            },
+            "cannotRetreat": {
+              "enum": [
+                "a",
+                "b",
+                "both",
+                null
+              ]
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "setup",
+            "fighting",
+            "ended",
+            "resolved",
+            null
+          ]
+        },
+        "turnNumber": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "siege": {
+      "title": "Siege",
+      "description": "\"siege\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "investing",
+            "resolved",
+            null
+          ]
+        },
+        "resolutionMode": {
+          "enum": [
+            "simplified",
+            "detailed",
+            null
+          ]
+        },
+        "besiegerArmyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "army id — prefix \"army-\""
+        },
+        "defenderDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "defenderArmyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "army id — prefix \"army-\""
+        },
+        "hexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "stronghold": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "material": {
+              "enum": [
+                "stone",
+                "wood",
+                null
+              ]
+            },
+            "strongholdShp": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "shpDamage": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "unitCapacity": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "siteType": {
+              "enum": [
+                "normal",
+                "riverbank",
+                "peninsula",
+                "island",
+                "mountain",
+                null
+              ]
+            }
+          }
+        },
+        "blockade": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "inPlace": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "circumvallationFeet": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "weeksPrep": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "storedSuppliesGp": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "suppliesExhausted": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "daysRequired": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "captureReady": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "assaultBattleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "battle id — prefix \"btl-\""
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "vessel": {
+      "title": "Vessel",
+      "description": "\"vessel\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "catalogKey": {
+          "enum": [
+            "barge-small",
+            "barge-large",
+            "barge-huge",
+            "boat-row",
+            "boat-sail",
+            "canoe",
+            "galley-1-rower",
+            "galley-1.5-rower",
+            "galley-2-rower",
+            "galley-2.5-rower",
+            "galley-3-rower",
+            "galley-4-rower",
+            "galley-5-rower",
+            "galley-6-rower",
+            "galley-8-rower",
+            "longship",
+            "raft",
+            "sailing-ship-small",
+            "sailing-ship-large",
+            "sailing-ship-huge",
+            null
+          ]
+        },
+        "shp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ownerId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "currentHexId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "hex id — prefix \"hex-\""
+        },
+        "crewComplement": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "sailors": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rowers": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "marines": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "crewGroupIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "group id — prefix \"grp-\""
+          }
+        },
+        "officerCharacterIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "character id — prefix \"chr-\""
+          }
+        },
+        "holdStashId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "stash id — prefix \"stash-\""
+        },
+        "warMachines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "naval-ram",
+                  "boarding-bridge",
+                  "boarding-ramp",
+                  "fire-pot-pole",
+                  "harpoon-ballista",
+                  "large-tower",
+                  "small-tower",
+                  "ballista",
+                  "catapult",
+                  "other",
+                  null
+                ]
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "condition": {
+          "enum": [
+            "seaworthy",
+            "damaged",
+            "sinking",
+            "beached",
+            "wrecked",
+            null
+          ]
+        },
+        "constructionState": {
+          "enum": [
+            "planned",
+            "under-construction",
+            "complete",
+            "in-repair",
+            null
+          ]
+        },
+        "createdAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "senate": {
+      "title": "Senate",
+      "description": "\"senate\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "realmDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "kind": {
+          "enum": [
+            "senate",
+            "eldermoot",
+            "council",
+            null
+          ]
+        },
+        "seats": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "minSenatorLevel": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "independentMinorSenatorVotes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "requirementsOfOffice": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "minLevel": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "netWorthGp": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            },
+            "landDescription": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "families": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "bribeCostDay": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            },
+            "bribeCostWeek": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            },
+            "bribeCostMonth": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            },
+            "bribeCostYear": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            }
+          }
+        },
+        "establishedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "honeymoonUntilTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dispute": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "defiedTopic": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sinceTurn": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "attempts": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "active",
+            "in-dispute",
+            "dissolved",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "faction": {
+      "title": "Faction",
+      "description": "\"faction\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "senateId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "senate id — prefix \"sen-\""
+        },
+        "realmDomainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "domain id — prefix \"dom-\""
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policyObjectives": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "overland-trade-routes",
+              "maritime-trade-routes",
+              "increase-army",
+              "decrease-army",
+              "increase-navy",
+              "decrease-navy",
+              "replace-ruler",
+              "preserve-ruler",
+              "conquer-neighbor",
+              "make-peace",
+              "build-border-strongholds",
+              "decrease-peasant-taxes",
+              "increase-peasant-taxes",
+              "eliminate-or-institute-slavery",
+              "redistribute-land-to-peasants",
+              "support-existing-faith",
+              "introduce-new-faith",
+              "grow-urban-settlements",
+              "grow-personal-realm",
+              "gain-merchandise-monopolies"
+            ]
+          }
+        },
+        "kind": {
+          "enum": [
+            "ruling",
+            "leading",
+            "opposition",
+            "minor",
+            null
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "dissolved",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "senatorship": {
+      "title": "Senatorship",
+      "description": "\"senatorship\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "senatorCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "senateId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "senate id — prefix \"sen-\""
+        },
+        "factionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "faction id — prefix \"fac-\""
+        },
+        "rank": {
+          "enum": [
+            "leading",
+            "minor",
+            null
+          ]
+        },
+        "votes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "policyObjectives": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "overland-trade-routes",
+              "maritime-trade-routes",
+              "increase-army",
+              "decrease-army",
+              "increase-navy",
+              "decrease-navy",
+              "replace-ruler",
+              "preserve-ruler",
+              "conquer-neighbor",
+              "make-peace",
+              "build-border-strongholds",
+              "decrease-peasant-taxes",
+              "increase-peasant-taxes",
+              "eliminate-or-institute-slavery",
+              "redistribute-land-to-peasants",
+              "support-existing-faith",
+              "introduce-new-faith",
+              "grow-urban-settlements",
+              "grow-personal-realm",
+              "gain-merchandise-monopolies"
+            ]
+          }
+        },
+        "attitudeTowardRuler": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "isSecretInfluence": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "bribeCostByPeriod": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "day": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            },
+            "week": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            },
+            "month": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            },
+            "year": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "gp amount"
+            }
+          }
+        },
+        "influenceModifiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sinceTurn": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "byCharacterId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "character id — prefix \"chr-\""
+              }
+            }
+          }
+        },
+        "seatedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vacatedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "vacated",
+            null
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "garrison-unit": {
+      "title": "Garrison Unit",
+      "description": "\"garrison-unit\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "stronghold-component": {
+      "title": "Stronghold Component",
+      "description": "\"stronghold-component\" entity (no field schema yet — id-bearing object, fields open)",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "eventLogEntry": {
+      "title": "Event log entry (wrapper)",
+      "description": "WRAPPER: the typed event is at .event (so the kind is entry.event.kind, NOT entry.kind). result holds the applied outcome. See INTEGRATION.md \"The typed event log\".",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "event"
+      ],
+      "properties": {
+        "event": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "player-plan",
+                "gm-fiat",
+                "treasury-grant",
+                "treasury-debit",
+                "character-update",
+                "adventure-result",
+                "daw-result",
+                "claude-event",
+                "rumor-emit",
+                "venture-result",
+                "population-shock",
+                "domain-transfer",
+                "engine-standard-turn",
+                "recruit-hireling",
+                "loyalty-check",
+                "hireling-calamity",
+                "hireling-restored",
+                "character-level-up",
+                "character-death",
+                "passive-investment-create",
+                "passive-investment-delete",
+                "venture-launch",
+                "construction-project-started",
+                "construction-progress",
+                "construction-completed",
+                "construction-vagary",
+                "construction-damaged",
+                "construction-repair-started",
+                "construction-demolished",
+                "journey-start",
+                "journey-day-tick",
+                "journey-arrived",
+                "journey-lost",
+                "journey-resupply",
+                "journey-encounter",
+                "journey-aborted",
+                "journey-rerouted",
+                "provisioning-activity",
+                "survival-day",
+                "hex-search",
+                "lair-discovered",
+                "domain-banditry",
+                "domain-incursion",
+                "battle-started",
+                "battle-turn",
+                "battle-resolved",
+                "army-contact",
+                "domain-warfare",
+                "army-supply",
+                "siege-started",
+                "siege-progress",
+                "siege-resolved",
+                "encounter-resolved",
+                "encounter-influence",
+                "favor-duty",
+                "gm-narrative",
+                "wealth-transfer",
+                "item-transfer",
+                "market-transaction",
+                "proficiency-throw",
+                "domain-advanced",
+                "divine-power-accrued",
+                "consecration",
+                "divine-favor-changed",
+                "hijink-attempted",
+                "hijink-resolved",
+                "mortal-wound",
+                "wound-recovery",
+                "hijink-syndicate-formed",
+                "hijink-tribute",
+                "hijink-trial",
+                "aging-milestone",
+                "death-from-old-age"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "status": {
+              "type": "string"
+            },
+            "targetTurn": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "appliedAtTurn": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "appliedAtDay": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "gameTimeAt": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "parentEventId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cadence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "context": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "subdayContext": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "appliedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "appliedAtDay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "appliedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  },
+  "x-acks-meta": {
+    "generatedBy": "scripts/build-schema.js",
+    "engineVersionAtGeneration": "0.24.0",
+    "schemaVersion": 2,
+    "entityKinds": 44,
+    "typedKinds": 26,
+    "eventKinds": 73,
+    "nestedSubEntityKinds": [
+      "garrison-unit",
+      "stronghold-component"
+    ],
+    "note": "Regenerate with `node scripts/build-schema.js` after any change to ENTITY_KINDS_LIST / FIELD_SCHEMAS / EVENT_KINDS."
+  }
+}
