@@ -29,6 +29,11 @@ There are no runtime dependencies; the suites load the engine modules headless i
 
 Releases are the maintainer's action. The maintainer merges `main → release` — **this merge is the deploy** (GitHub Pages rebuilds `release`) — tags the release commit `vMAJOR.MINOR.PATCH`, and cuts a GitHub Release whose notes are the matching `CHANGELOG.md` section (stable builds marked **Latest**).
 
+**Release checklist** (per release):
+- Bump `package.json` `version` — it is the single source of truth for the version.
+- Move the `## [Unreleased]` changelog entries under a new `## [x.y.z] - YYYY-MM-DD` heading.
+- Sanity-check the front door: the `README.md` feature list and the in-app welcome banner describe the *current* surface (no shipped subsystem listed as unbuilt). The README and banner are kept **version-agnostic** on purpose — they point at the changelog / Releases rather than naming a number — and `npm test` (`tests/front-door.smoke.js`) fails closed if a hard-coded `vX.Y.Z` string sneaks back in, but the feature description is still a human check.
+
 Builds meant for someone else to test are cut as **pre-releases** (`-beta` / `-rc`, e.g. `v0.10.0-rc.1`) with GitHub's "pre-release" box checked, and are **not** merged to `release` (that would make them public).
 
 ## Versioning
