@@ -9913,30 +9913,90 @@ function constructiblesForDomain(campaign, domainId){
 // []. The `(e.event)||e` unwrap also tolerates a bare event object, should one ever be stored flat.)
 function _eventContextOf(e){ const ev = (e && e.event) || e; return (ev && ev.context) || null; }
 
+// ── eventLog index (perf audit 2026-06-14, T11) ──────────────────────────────
+// A once-per-build inverted index over the eventLog's context envelope, so the
+// derived-history accessors + characterActivityBudget read an O(1) keyed slice
+// instead of a full O(N) scan each. Built lazily and MEMOIZED in a module-level
+// WeakMap keyed by the campaign (dirty-keyed by eventLog.length, so it never
+// serializes into a save and rebuilds when entries are appended). The eventLog is
+// effectively append-only between renders, so length is a sufficient dirty key —
+// the day-tick / monthly machinery only ever pushes; on the rare in-place edit a
+// callsite can pass {fresh:true} to force a rebuild.
+//
+//   byHex          Map<hexId, entry[]>         primaryHexId ∪ involvedHexIds
+//   bySettlement   Map<settlementId, entry[]>  context.settlementId
+//   byRelated      Map<"kind:id", entry[]>     context.relatedEntities (covers
+//                                              character/group/domain/party/journey/…)
+//   activityCost   entry[]                     only entries whose payload carries an
+//                                              activityCost.slot (the tiny subset the
+//                                              activity budget scans for, RR p.272/#346)
+function _buildEventLogIndex(campaign){
+  const idx = { byHex: new Map(), bySettlement: new Map(), byRelated: new Map(), activityCost: [], len: 0 };
+  const log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
+  idx.len = log.length;
+  const push = (map, key, entry) => { let a = map.get(key); if(!a){ a = []; map.set(key, a); } a.push(entry); };
+  for(const entry of log){
+    const ev = (entry && entry.event) || entry;
+    const c = (ev && ev.context) || null;
+    if(c){
+      if(c.primaryHexId) push(idx.byHex, c.primaryHexId, entry);
+      if(Array.isArray(c.involvedHexIds)){
+        for(const h of c.involvedHexIds){ if(h && h !== c.primaryHexId) push(idx.byHex, h, entry); }
+      }
+      if(c.settlementId) push(idx.bySettlement, c.settlementId, entry);
+      const rels = c.relatedEntities;
+      if(Array.isArray(rels)){
+        const seen = new Set();
+        for(const r of rels){
+          if(r && r.kind && r.id){
+            const k = r.kind + ':' + r.id;
+            if(!seen.has(k)){ seen.add(k); push(idx.byRelated, k, entry); }   // an entry that names an entity twice still lists once
+          }
+        }
+      }
+    }
+    if(ev && ev.payload && ev.payload.activityCost && ev.payload.activityCost.slot) idx.activityCost.push(entry);
+  }
+  return idx;
+}
+
+// Memoized accessor — rebuilds only when the eventLog grows (or fresh:true).
+// The cache lives in a module-level WeakMap keyed by the campaign object, NOT on the
+// campaign itself. Storing it on the campaign breaks under Alpine: currentCampaign is a
+// reactive Proxy, so writing a property here either retriggers the very render that read it
+// (a reactive loop) or makes Alpine deep-proxy the whole index (Maps of thousands of entries)
+// — the app hangs on load with a large eventLog. A WeakMap is invisible to the reactive graph
+// (no dependency tracked, no trigger fired, no deep-wrap) and still never serializes into a save.
+const _eventLogIndexCache = new WeakMap();   // campaign → { ...idx, len }
+function _eventLogIndexFor(campaign, opts){
+  if(!campaign || typeof campaign !== 'object') return _buildEventLogIndex(campaign || null);
+  const len = Array.isArray(campaign.eventLog) ? campaign.eventLog.length : 0;
+  const cached = _eventLogIndexCache.get(campaign);
+  if(!(opts && opts.fresh) && cached && cached.len === len) return cached;
+  const idx = _buildEventLogIndex(campaign);
+  try { _eventLogIndexCache.set(campaign, idx); } catch(e){ /* non-extensible/non-object key — skip caching */ }
+  return idx;
+}
+
+// The accessors return a COPY of the per-entity slice (the old .filter() contract: a fresh array
+// the caller may .reverse()/.sort() in place). The slice is one entity's events — small — so the
+// copy is cheap, and it keeps the shared index array uncorrupted.
 function hexHistory(campaign, hexId){
   if(!campaign || !hexId || !Array.isArray(campaign.eventLog)) return [];
-  return campaign.eventLog.filter(e => {
-    const c = _eventContextOf(e);
-    if(!c) return false;
-    if(c.primaryHexId === hexId) return true;
-    if(Array.isArray(c.involvedHexIds) && c.involvedHexIds.indexOf(hexId) >= 0) return true;
-    return false;
-  });
+  const a = _eventLogIndexFor(campaign).byHex.get(hexId);
+  return a ? a.slice() : [];
 }
 
 function settlementHistory(campaign, settlementId){
   if(!campaign || !settlementId || !Array.isArray(campaign.eventLog)) return [];
-  return campaign.eventLog.filter(e => { const c = _eventContextOf(e); return c && c.settlementId === settlementId; });
+  const a = _eventLogIndexFor(campaign).bySettlement.get(settlementId);
+  return a ? a.slice() : [];
 }
 
 function _filterByRelatedEntity(campaign, kind, id){
   if(!campaign || !id || !Array.isArray(campaign.eventLog)) return [];
-  return campaign.eventLog.filter(e => {
-    const c = _eventContextOf(e);
-    const rels = c && c.relatedEntities;
-    if(!Array.isArray(rels)) return false;
-    return rels.some(r => r && r.kind === kind && r.id === id);
-  });
+  const a = _eventLogIndexFor(campaign).byRelated.get(kind + ':' + id);
+  return a ? a.slice() : [];
 }
 
 function constructibleHistory(campaign, id){ return _filterByRelatedEntity(campaign, 'constructible', id); }
@@ -10130,8 +10190,12 @@ function characterActivityBudget(campaign, charId, opts){
   // (marketUnitsTransactedThisMonth, RR p.124) — don't conflate the two windows.
   const _turnWindow = (campaign && campaign.currentTurn) || 1;
   const _dayWindow  = (campaign && campaign.currentDayInMonth) || 1;
-  const _log = (campaign && Array.isArray(campaign.eventLog)) ? campaign.eventLog : [];
-  for(const entry of _log){
+  // Read the pre-indexed activity-cost entries (perf T11) instead of full-scanning the eventLog per
+  // character. The index holds only the tiny subset of events that carry payload.activityCost.slot,
+  // so this loop is O(cost-tagged events) not O(eventLog) — collapsing the dashboard from
+  // O(characters × eventLog) to ~O(characters + eventLog). Same per-entry filtering below.
+  const _costEntries = _eventLogIndexFor(campaign).activityCost;
+  for(const entry of _costEntries){
     const ev = entry && entry.event; if(!ev) continue;
     if(ev.payload && ev.payload.reversed) continue;   // a refunded/unwound transaction is no longer today's activity (reverseMarketTransaction)
     const ac = ev.payload && ev.payload.activityCost; if(!ac || !ac.slot) continue;
@@ -10368,6 +10432,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   hexHistory, settlementHistory, constructibleHistory, groupHistory, notableItemHistory,
   domainHistory, partyHistory, journeyHistory, outpostHistory, congregationHistory, characterHistory,
   setEventContext,
+  // eventLog index (perf T11, 2026-06-14) — the memoized once-per-build inverted index the
+  // history accessors + activity budget read; exported for tests + UI cache invalidation.
+  buildEventLogIndex: _buildEventLogIndex, eventLogIndexFor: _eventLogIndexFor,
   // Phase 2.95 Activity Budget (#346 / AB-1) — derived per-character daily activity budget.
   characterActivityBudget, activityRejectAffordance,
   // Travel pace ↔ budget: the day's activities cap the achievable pace (Joachim 2026-06-05).
