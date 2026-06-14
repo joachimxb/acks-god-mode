@@ -20,7 +20,8 @@ global.ACKS_DEMO_TEMPLATE = {
   },
   "houseRules": {
     "families-per-hex-tracking": true,
-    "vagaries-of-incursion": true
+    "vagaries-of-incursion": true,
+    "persistent-wandering-monsters": true
   },
   "campaignContext": {
     "theme": "Established march with vassal baronies",
@@ -1796,7 +1797,22 @@ global.ACKS_DEMO_TEMPLATE = {
         "Pathfinding",
         "Animal Reflexes"
       ],
-      "inventory": [],
+      "inventory": [
+        {
+          "name": "Rations, Iron (one week)",
+          "catalogId": "rations-iron-week",
+          "rationType": "iron",
+          "daysRemaining": 40,
+          "stone": 6.666666666666666,
+          "notes": "a season's waystation stores"
+        },
+        {
+          "name": "Waterskin",
+          "catalogId": "waterskin",
+          "stone": 0,
+          "notes": ""
+        }
+      ],
       "background": "A pass-village man, bow-legged from a lifetime on the switchbacks. Guides caravans over the Saltspur Pass for a fee and patches the Auran road each spring. Will not set foot in the Deepwood for any price.",
       "currentHexId": "hex-the-pass",
       "history": [],
@@ -1838,7 +1854,8 @@ global.ACKS_DEMO_TEMPLATE = {
       "earningsLedger": [],
       "partyId": null,
       "travelDestination": null,
-      "deceasedTurn": null
+      "deceasedTurn": null,
+      "waterDaysCarried": 0.2
     },
     {
       "schemaVersion": 2,
@@ -3792,7 +3809,9 @@ global.ACKS_DEMO_TEMPLATE = {
         0,
         3
       ],
-      "riverSides": [],
+      "riverSides": [
+        1
+      ],
       "crossingSides": [],
       "elevationFt": 0,
       "groundCondition": "clear",

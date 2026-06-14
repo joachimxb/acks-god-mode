@@ -116,7 +116,12 @@ ok('demo migrate is idempotent (no-op on 2nd pass)', JSON.stringify(demo1) === J
 const legacyNoLakeIds = (DEMO.hexes || []).filter(h => !('hasLake' in h)).map(h => h.id);
 ok('migrate does NOT stamp hasLake onto legacy hexes (defensive reads)',
   legacyNoLakeIds.length > 0 && legacyNoLakeIds.every(id => !('hasLake' in (demo1.hexes.find(h => h.id === id) || {}))));
-ok('migrate does NOT stamp waterDaysCarried onto legacy chars (defensive reads)', (demo1.characters || []).every(c => !('waterDaysCarried' in c)));
+// The demo now PROVISIONS its field character (the Warden of the Pass carries rations + a filled
+// waterskin), so "every demo char lacks waterDaysCarried" no longer holds. Assert the real invariant:
+// migrate must not BACKFILL the key onto a char that didn't already carry it.
+const legacyNoWaterIds = (DEMO.characters || []).filter(c => !('waterDaysCarried' in c)).map(c => c.id);
+ok('migrate does NOT stamp waterDaysCarried onto legacy chars (defensive reads)',
+  legacyNoWaterIds.length > 0 && legacyNoWaterIds.every(id => !('waterDaysCarried' in (demo1.characters.find(c => c.id === id) || {}))));
 
 // =============================================================================
 // V2/V3 — per-member daily survival resolution (§4 / §6)
