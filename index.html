@@ -2479,6 +2479,87 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Garrison reaction (2026-06-14) — ⚔ Deploy a force to meet a domain threat (an incursion
+     band). Reuses the muster machinery; the slot-88 military day consumer resolves the meeting
+     on arrival (JJ pp.104–106). Engine: ACKS.deployGarrisonReaction / garrisonReactionPreview. -->
+<div x-show="garrisonDeployOpen" class="fixed inset-0 flex items-start justify-center overflow-y-auto py-8" style="z-index:62; background:rgba(0,0,0,.4)" x-cloak @click.self="garrisonDeployOpen = false" @keydown.escape.window="if(garrisonDeployOpen){ garrisonDeployOpen = false; $event.preventDefault() }">
+  <template x-if="garrisonDeployOpen && garrisonDeployBand()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-2 p-4 space-y-3">
+    <div class="flex justify-between items-start border-b border-ink/20 pb-2">
+      <div>
+        <h3 class="font-bold text-lg">⚔ Deploy garrison <span class="text-sm font-normal opacity-70">· JJ pp.104–106</span></h3>
+        <p class="text-sm opacity-70 italic">Send a force from the garrison to meet the incursion in the field. The chosen units march to the band, the fight resolves there, and you Recall them home afterward.</p>
+      </div>
+      <button @click="garrisonDeployOpen = false" class="text-xl px-2 leading-none">×</button>
+    </div>
+
+    <!-- the threat -->
+    <div class="p-2 rounded border" style="background:#f3ead8; border-color:#8a6d1f">
+      <p class="text-sm font-bold">The threat — <span x-text="(Math.max(0,(garrisonDeployBand().count||0)-(garrisonDeployBand().casualties||0))) + ' × ' + (garrisonDeployBand().name || 'monsters')"></span></p>
+      <p class="text-xs mt-0.5" x-text="'Attitude: ' + ((garrisonDeployBand().incursion && garrisonDeployBand().incursion.attitude) || 'unknown') + ' · ' + ((garrisonDeployBand().incursion && garrisonDeployBand().incursion.disposition) || '') + (garrisonDeployBand().currentHexId ? (' · at ' + hexLabelById(garrisonDeployBand().currentHexId)) : '')"></p>
+      <p class="text-xs mt-0.5 accent-red" x-show="garrisonDeployBand().incursion && garrisonDeployBand().incursion.rulerAware === false">⚠ The ruler only just learned of it (it had gone undetected — JJ p.103).</p>
+    </div>
+
+    <label class="block text-sm">
+      <span class="font-semibold">Commander</span> <span class="text-xs opacity-60">— the ruler may lead in person (RR p.435)</span>
+      <select x-model="garrisonDeployForm.commanderId" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
+        <option value="">— none (set later) —</option>
+        <template x-for="c in musterCommanderOptions()" :key="'gd-'+c.id"><option :value="c.id" x-text="c.name + (c.class ? ' · ' + c.class + ' ' + (c.level||1) : '')"></option></template>
+      </select>
+    </label>
+
+    <div class="grid sm:grid-cols-2 gap-3">
+      <label class="block text-sm"><span class="font-semibold">Rally point</span> <span class="text-xs opacity-60">— default the seat (JJ p.103)</span>
+        <select x-model="garrisonDeployForm.rallyHexId" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
+          <template x-for="h in garrisonDeployHexOptions()" :key="'gdh-'+h.id"><option :value="h.id" x-text="h.label"></option></template>
+        </select></label>
+      <label class="block text-sm"><span class="font-semibold">Stance</span>
+        <select x-model="garrisonDeployForm.stance" class="block w-full mt-1 text-sm border border-ink rounded px-2 py-1">
+          <option value="offensive">Offensive — attack the threat</option><option value="defensive">Defensive</option><option value="evasive">Evasive</option>
+        </select></label>
+    </div>
+
+    <!-- choose the force -->
+    <div>
+      <div class="flex items-baseline justify-between">
+        <span class="font-semibold text-sm">Choose the force</span>
+        <span class="text-xs opacity-60" x-text="garrisonDeployForm.unitIds.length + ' selected'"></span>
+      </div>
+      <p class="text-xs opacity-60 italic">Units at the rally point fall in now; troops elsewhere are called up — they march to the rally point.</p>
+      <template x-if="garrisonDeployUnits().length === 0">
+        <p class="text-sm italic opacity-60 py-2">No free units to deploy — the garrison is empty or already committed.</p>
+      </template>
+      <div class="max-h-44 overflow-y-auto border border-ink/20 rounded mt-1" x-show="garrisonDeployUnits().length > 0">
+        <template x-for="row in garrisonDeployUnits()" :key="'gdu-'+row.unit.id">
+          <label class="flex items-center gap-2 px-2 py-1 text-sm hover:bg-yellow-50 cursor-pointer border-b border-ink/10">
+            <input type="checkbox" :value="row.unit.id" x-model="garrisonDeployForm.unitIds">
+            <span class="flex-1" x-text="(row.unit.displayName || row.unit.unitTypeKey || 'unit') + ' · ' + Math.max(0,(row.unit.count||0)-(row.unit.casualties||0)) + ' troops'"></span>
+            <span class="text-xs" :class="row.atRally ? 'opacity-60' : 'text-sky-700'" x-text="row.atRally ? (row.home + ' · at the rally point') : ('🚶 from ' + row.home + (row.days != null ? (' · ~' + row.days + 'd') : ''))"></span>
+          </label>
+        </template>
+      </div>
+    </div>
+
+    <!-- BR preview + predicted outcome (JJ p.104) -->
+    <template x-if="garrisonDeployPreview()">
+    <div class="text-sm border-t border-ink/20 pt-2">
+      <p>⚖ Your force <span class="font-mono font-semibold" x-text="garrisonDeployPreview().forceBr.toFixed(2)"></span>
+        <span class="opacity-70">vs the band</span> <span class="font-mono font-semibold" x-text="garrisonDeployPreview().bandBr != null ? garrisonDeployPreview().bandBr.toFixed(2) : '(GM prices)'"></span>
+        <span class="opacity-60">· platoon scale (JJ p.105)</span></p>
+      <template x-for="(l, li) in garrisonDeployPreview().lines" :key="'gdl-'+li">
+        <p class="text-xs" :class="/DRIVEN OFF/.test(l) ? 'text-green-700' : (/FIGHT|battle/.test(l) ? 'accent-red' : 'opacity-80')" x-text="'• ' + l"></p>
+      </template>
+    </div>
+    </template>
+
+    <div class="flex justify-end gap-2 border-t border-ink/20 pt-2">
+      <button @click="garrisonDeployOpen = false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+      <button @click="garrisonDeploySubmit()" :disabled="!garrisonDeployCanSubmit()" :class="!garrisonDeployCanSubmit() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-100 hover:bg-yellow-200 font-semibold'" class="px-3 py-1 border border-ink rounded">⚔ Deploy</button>
+    </div>
+  </div>
+  </template>
+</div>
+
 <!-- Carry ⇄ stash transfer modal (Items I1 Step 3) — the character's actor verb: cache carry
      items/coins into a co-located stash, or draw them back. Layered above the character editor
      (z-50) at z-70. Engine: ACKS.cacheToStash / drawFromStash (purse + Phase-2.6 carry shapes). -->
@@ -3776,8 +3857,11 @@ document.addEventListener('alpine:init', () => {
                   ⚔ <span x-text="(Math.max(0, (g.count || 0) - (g.casualties || 0))) + ' × ' + (g.name || 'monsters')"></span>
                   — <span x-text="((g.incursion && g.incursion.attitude) || 'unknown') + ', ' + ((g.incursion && g.incursion.disposition) || '')"></span><span x-show="g.incursion && g.incursion.rulerAware === false" class="accent-red font-bold"> · the ruler is UNAWARE</span>
                   — <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
-                  <!-- W3 — bring it to blows: prefill the battle launcher with the garrison vs the
-                       band (platoon scale, asymmetry on; an unaware ruler = only the band is aware). -->
+                  <!-- Garrison reaction (JJ pp.104–106): the full sally — deploy a force, march to
+                       the band, resolve there, march home. The ⚔ Deploy flow (vs the instant 🎌 battle). -->
+                  · <button @click="openGarrisonDeploy({ groupId: g.id })" class="underline accent-red font-semibold">⚔ Deploy garrison</button>
+                  <!-- W3 — bring it to blows directly: prefill the battle launcher with the garrison
+                       vs the band (platoon scale, asymmetry on; an unaware ruler = only the band aware). -->
                   · <button @click="openBattleWizard({ hexId: g.currentHexId || '', sourceA: 'garrison:' + selectedDomain.id, sourceB: 'group:' + g.id,
                         stanceA: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'defensive' : 'offensive',
                         stanceB: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'offensive' : 'defensive',
@@ -4269,7 +4353,7 @@ document.addEventListener('alpine:init', () => {
           <div class="vellum border border-ink p-3 rounded">
             <h2 class="font-bold text-lg mb-2">Garrison Units</h2>
             <table class="bookkeeping text-sm">
-              <thead><tr><th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th><th>BR/sol</th><th>Total BR</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th><th>BR/sol</th><th>Total BR</th><th title="Default garrison hex — where this unit returns when a mission ends (must be a hex in this domain)">Home</th><th></th></tr></thead>
               <tbody>
                 <template x-for="(u, i) in selectedDomain.garrison.units" :key="i">
                   <tr>
@@ -4300,11 +4384,19 @@ document.addEventListener('alpine:init', () => {
                       </span>
                     </td>
                     <td x-text="((u.count||0)*(u.brPerSoldier||0)).toFixed(3)"></td>
+                    <td>
+                      <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
+                        <option value="" :selected="!u.homeHexId">— no home —</option>
+                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="h.id">
+                          <option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option>
+                        </template>
+                      </select>
+                    </td>
                     <td class="whitespace-nowrap"><button @click="splitGarrisonUnit(selectedDomain, u)" class="px-1 text-xs underline" title="Split N soldiers into a new unit">Split</button> <button @click="mergeGarrisonUnit(selectedDomain, u)" :disabled="!canMergeGarrisonUnit(selectedDomain, u)" :class="canMergeGarrisonUnit(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1 text-xs" title="Merge into a same-type sibling">Merge</button> <button @click="selectedDomain.garrison.units.splice(i,1)" class="accent-red px-2" title="Remove this unit">×</button></td>
                   </tr>
                 </template>
                 <tr class="total"><td>Totals</td><td></td><td x-text="garrisonHeadcount(selectedDomain).toLocaleString()"></td><td></td>
-                  <td x-text="garrisonCost(selectedDomain).toLocaleString() + ' gp'"></td><td></td><td x-text="garrisonBR(selectedDomain).toFixed(3)"></td><td></td></tr>
+                  <td x-text="garrisonCost(selectedDomain).toLocaleString() + ' gp'"></td><td></td><td x-text="garrisonBR(selectedDomain).toFixed(3)"></td><td></td><td></td></tr>
               </tbody>
             </table>
             <div class="flex items-center gap-3 mt-2">
@@ -4318,6 +4410,29 @@ document.addEventListener('alpine:init', () => {
                       :title="'Muster a field army — ' + (rulerCharacter(selectedDomain) ? (rulerCharacter(selectedDomain).name + ' leads, this garrison is pre-selected') : 'pick a commander') + ' (RR pp.435–437)'"
                       class="px-2 py-1 border border-ink rounded text-sm font-semibold hover:bg-yellow-100">🎖 Muster field army</button>
             </div>
+          </div>
+
+          <!-- Active Threats / Reactions (2026-06-14, JJ pp.104–106) — the live incursion bands
+               the ruler may deploy a force against. The deferred-reaction surface: a threat not
+               answered at trigger time is dealt with here later. ⚔ Deploy opens the sally flow. -->
+          <div class="vellum border border-ink p-3 rounded mt-4" x-show="incursionBands(selectedDomain).length > 0">
+            <h2 class="font-bold text-lg mb-2">⚔ Active Threats</h2>
+            <p class="text-xs opacity-60 italic mb-2">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
+            <table class="bookkeeping text-sm">
+              <thead><tr><th>Band</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
+              <tbody>
+                <template x-for="g in incursionBands(selectedDomain)" :key="'thr-'+g.id">
+                  <tr>
+                    <td x-text="(Math.max(0,(g.count||0)-(g.casualties||0))) + ' × ' + (g.name || 'monsters')"></td>
+                    <td><span x-text="(g.incursion && g.incursion.attitude) || '—'"></span><span x-show="g.incursion && g.incursion.rulerAware === false" class="accent-red" title="The ruler was unaware until it began pillaging (JJ p.103)"> ⚠</span></td>
+                    <td x-text="(g.incursion && g.incursion.disposition) || '—'"></td>
+                    <td class="font-mono" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.forceBr.toFixed(2) + ' vs ' + (p.bandBr != null ? p.bandBr.toFixed(2) : 'GM')) : '—'; })()"></td>
+                    <td><span :class="(() => { const p = threatReactionPreview(g); return p && p.outcome === 'driven-off' ? 'text-green-700' : (p && p.outcome === 'battle' ? 'accent-red' : ''); })()" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.outcome === 'battle' ? 'they fight' : (p.outcome === 'driven-off' ? 'driven off' : 'GM prices')) : '—'; })()"></span></td>
+                    <td class="whitespace-nowrap"><button @click="openGarrisonDeploy({ groupId: g.id })" class="px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100" title="Deploy a force to meet this band (JJ pp.104–106)">⚔ Deploy</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -8091,6 +8206,20 @@ document.addEventListener('alpine:init', () => {
           </template>
         </div>
 
+        <!-- garrison reaction (2026-06-14, JJ pp.104–106) — the sally's target + the D3 controls -->
+        <template x-if="armySelected() && armySelected().reactionTargetGroupId">
+          <div class="border-t border-ink/20 pt-2 mt-2">
+            <p class="font-semibold text-xs uppercase tracking-wide opacity-70">⚔ Garrison reaction</p>
+            <p class="text-sm" x-text="armyReactionStatusText()"></p>
+            <div class="flex flex-wrap gap-2 mt-1">
+              <template x-if="armyReactionCanReRoute()">
+                <button @click="armyReactionReRoute()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-target the march to the band's current hex (JJ p.104 — the band may have moved)">🧭 Re-route to the band</button>
+              </template>
+              <button @click="armyReactionRecall()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Recall the force — its units march home to their garrisons">🏠 Recall (march home)</button>
+            </div>
+          </div>
+        </template>
+
         <!-- stance + war machines -->
         <div class="border-t border-ink/20 pt-2 mt-2 flex flex-wrap gap-4 items-baseline">
           <label>Stance (RR p.448)
@@ -8206,7 +8335,18 @@ document.addEventListener('alpine:init', () => {
               <button x-show="u.commanderCharacterId || u.lieutenantCharacterId" @click="openCharacterEditor(u.commanderCharacterId || u.lieutenantCharacterId)" class="text-xs underline">officer ›</button>
             </div>
             <p class="text-xs"><span class="opacity-70">Stationed:</span> <span x-text="unitStationLabel(u)"></span></p>
+            <p class="text-xs flex items-center gap-1 flex-wrap"><span class="opacity-70">🏠 Home:</span>
+              <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when its mission ends (a hex inside its domain)">
+                <option value="" :selected="!u.homeHexId">— no home —</option>
+                <template x-for="h in unitHomeHexOptions(u)" :key="h.id">
+                  <option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option>
+                </template>
+              </select>
+              <span class="opacity-60" x-show="u.homeHexId">— returns here when its task ends</span>
+              <span class="opacity-50 italic" x-show="!u.homeHexId && unitHomeHexOptions(u).length === 0">no domain hexes — station it to a domain first</span>
+            </p>
             <p class="text-xs" x-show="u.rallyingToArmyId"><span class="text-sky-700 font-semibold">🚶 Marching to its muster point</span> — <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the march</button></p>
+            <p class="text-xs" x-show="u.returnJourneyId"><span class="text-emerald-700 font-semibold">🚶 Marching home to its garrison</span> — <button @click="currentView='activities'; activitiesSubView='journeys'" class="underline">open the march</button></p>
             <p class="text-xs mt-1"><span class="opacity-70">Wage:</span> <span class="font-mono" x-text="(window.ACKS.unitWageMonthly ? Math.round(window.ACKS.unitWageMonthly(currentCampaign, u)).toLocaleString() : (u.monthlyWage||0)) + ' gp/mo'"></span>
               · <span class="opacity-70">BR:</span> <span class="font-mono" x-text="window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(currentCampaign, u) : '—'"></span>
               · <span class="opacity-70">Supply:</span> <span x-text="u.supplyState || 'supplied'"></span></p>
@@ -14316,6 +14456,130 @@ return {
   // pre-checked), and the Armies view header. Engine: ACKS.createArmy stations the
   // roster + a Main Body division (RR p.435); validateArmyOrganization's findings show
   // as advisory hints. The Inspector Create ▸ Army is the free-form ADMIN-verb sibling.
+  // ─── Garrison reaction (2026-06-14) — deploy a force to meet a domain incursion (JJ pp.104–106) ───
+  // The ⚔ Deploy modal: pick the force + a commander (the ruler may lead) + a rally point (the
+  // domain seat by default), see a live force-vs-band BR preview + the predicted RAW outcome, and
+  // muster + march via ACKS.deployGarrisonReaction. Launched from the domain incursion box + the
+  // Military-tab Active-Threats table.
+  openGarrisonDeploy(opts={}){
+    if(!this.currentCampaign){ alert('Open a campaign first.'); return; }
+    const camp = this.currentCampaign;
+    const band = (camp.groups || []).find(g => g && g.id === opts.groupId);
+    if(!band || !band.incursion){ if(this.showToast) this.showToast('No live band to deploy against.'); return; }
+    const domainId = band.incursion.domainId;
+    const dom = (camp.domains || []).find(d => d && d.id === domainId) || null;
+    const rallyHexId = (window.ACKS.domainSeatHexId ? window.ACKS.domainSeatHexId(camp, dom) : '') || '';
+    const commanderId = (dom && dom.rulerCharacterId) || '';
+    // pre-check the domain's garrison units that have living troops (the default sally)
+    const preIds = (camp.units || []).filter(u => u && u.stationedAt && u.stationedAt.kind === 'domain-garrison'
+      && u.stationedAt.id === domainId && Math.max(0, (u.count || 0) - (u.casualties || 0)) > 0).map(u => u.id);
+    this.garrisonDeployForm = { groupId: opts.groupId, domainId, commanderId, rallyHexId, stance: 'offensive', unitIds: preIds };
+    this.garrisonDeployOpen = true;
+  },
+  garrisonDeployBand(){ return (this.currentCampaign && (this.currentCampaign.groups || []).find(g => g && g.id === this.garrisonDeployForm.groupId)) || null; },
+  garrisonDeployHexOptions(){
+    const camp = this.currentCampaign, did = this.garrisonDeployForm.domainId;
+    return ((camp && camp.hexes) || []).filter(h => h && h.domainId === did)
+      .map(h => ({ id: h.id, label: (window.ACKS.hexName ? window.ACKS.hexName(h) : (h.name || h.id)) }));
+  },
+  // Free units the GM may field, each marked at-the-rally (falls in now) or marching-in (called up).
+  garrisonDeployUnits(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const rally = this.garrisonDeployForm.rallyHexId || null;
+    return ((camp.units) || []).filter(u => u && Math.max(0, (u.count || 0) - (u.casualties || 0)) > 0
+        && !(u.stationedAt && u.stationedAt.kind === 'army') && !u.rallyingToArmyId)
+      .map(u => {
+        const origin = window.ACKS.unitCurrentHexId ? window.ACKS.unitCurrentHexId(camp, u) : null;
+        const atRally = !origin || !rally || origin === rally;
+        let days = null;
+        if(!atRally && window.ACKS.computeJourneyDistance){
+          try {
+            const d = window.ACKS.computeJourneyDistance(camp, { startHexId: origin, destinationHexId: rally, participantCharacterIds: [], covered: 0, currentDayIndex: 0 });
+            const spd = window.ACKS.unitMarchMilesPerDay ? window.ACKS.unitMarchMilesPerDay(u) : 24;
+            days = spd > 0 ? Math.ceil((d.total || 0) * (window.ACKS.JOURNEY_MILES_PER_HEX || 6) / spd) : null;
+          } catch(e){ days = null; }
+        }
+        return { unit: u, home: this._unitHomeLabel(u), atRally, days };
+      });
+  },
+  garrisonDeployPresentIds(){ const ids = this.garrisonDeployForm.unitIds || []; return this.garrisonDeployUnits().filter(r => ids.includes(r.unit.id) && r.atRally).map(r => r.unit.id); },
+  garrisonDeployCallUpIds(){ const ids = this.garrisonDeployForm.unitIds || []; return this.garrisonDeployUnits().filter(r => ids.includes(r.unit.id) && !r.atRally).map(r => r.unit.id); },
+  garrisonDeployPreview(){
+    if(!this.currentCampaign || !this.garrisonDeployForm.groupId || !window.ACKS.garrisonReactionPreview) return null;
+    return window.ACKS.garrisonReactionPreview(this.currentCampaign, this.garrisonDeployForm.groupId, this.garrisonDeployForm.unitIds || []);
+  },
+  garrisonDeployCanSubmit(){ return !!(this.garrisonDeployForm.rallyHexId && (this.garrisonDeployForm.unitIds || []).length); },
+  garrisonDeploySubmit(){
+    if(!this.garrisonDeployCanSubmit()) return;
+    const f = this.garrisonDeployForm;
+    const band = this.garrisonDeployBand();
+    const dom = (this.currentCampaign.domains || []).find(d => d && d.id === f.domainId) || null;
+    const r = window.ACKS.deployGarrisonReaction(this.currentCampaign, {
+      groupId: f.groupId, unitIds: this.garrisonDeployPresentIds(), callUpUnitIds: this.garrisonDeployCallUpIds(),
+      commanderCharacterId: f.commanderId || null, rallyHexId: f.rallyHexId || null, stance: f.stance || 'offensive',
+      name: ((dom && dom.name) || 'Domain') + ' reaction force'
+    });
+    if(!r || !r.ok){ if(this.showToast) this.showToast('Could not deploy — ' + ((r && r.reason) || 'check the force')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.garrisonDeployOpen = false;
+    this.currentView = 'characters'; this.charactersSubView = 'parties'; this.selectGroup('army', r.army.id);
+    if(this.showToast) this.showToast('⚔ Deployed against ' + (band ? band.name : 'the band') + (r.journey ? ' — marching to meet them.' : ' — engaging.'));
+  },
+  // The Military-tab threats-table preview: the band vs the domain's whole garrison (the default
+  // force), → the likely outcome at a glance (JJ p.104).
+  domainGarrisonUnitIds(d){
+    const camp = this.currentCampaign; if(!camp || !d) return [];
+    return ((camp.units) || []).filter(u => u && u.stationedAt && u.stationedAt.kind === 'domain-garrison'
+      && u.stationedAt.id === d.id && Math.max(0, (u.count || 0) - (u.casualties || 0)) > 0).map(u => u.id);
+  },
+  threatReactionPreview(g){
+    if(!this.currentCampaign || !g || !g.incursion || !window.ACKS.garrisonReactionPreview) return null;
+    const d = (this.currentCampaign.domains || []).find(x => x && x.id === g.incursion.domainId) || null;
+    if(!d) return null;
+    return window.ACKS.garrisonReactionPreview(this.currentCampaign, g.id, this.domainGarrisonUnitIds(d));
+  },
+  // The army-card reaction block (R-1c + D3): the sally's status + re-route / recall.
+  armyReactionTargetBand(){
+    const a = this.armySelected(); if(!a || !a.reactionTargetGroupId || !this.currentCampaign) return null;
+    return (this.currentCampaign.groups || []).find(g => g && g.id === a.reactionTargetGroupId) || null;
+  },
+  armyReactionStatusText(){
+    const a = this.armySelected(); if(!a) return '';
+    const band = this.armyReactionTargetBand();
+    const alive = band && (window.ACKS.groupActiveCount ? window.ACKS.groupActiveCount(band) > 0 : true);
+    if(!band || !alive) return 'The target band is gone — recall the force.';
+    const name = band.name || 'the band';
+    if(a.reactionBattleId && (this.currentCampaign.battles || []).some(b => b && b.id === a.reactionBattleId))
+      return 'In battle with ' + name + ' — resolve it in Review ▸ 🎌 Battles, then recall.';
+    const marching = a.journeyId && (this.currentCampaign.journeys || []).some(j => j && j.id === a.journeyId && j.status === 'in-transit');
+    if(marching) return 'Marching to meet ' + name + (band.currentHexId ? (' at ' + this.hexLabelById(band.currentHexId)) : '') + '.';
+    if(a.currentHexId && band.currentHexId && a.currentHexId === band.currentHexId)
+      return 'In position against ' + name + ' — the meeting resolves on the next day tick.';
+    return 'The band has moved' + (band.currentHexId ? (' to ' + this.hexLabelById(band.currentHexId)) : '') + ' — re-route to the band, or recall.';
+  },
+  armyReactionCanReRoute(){
+    const a = this.armySelected(); if(!a) return false;
+    const band = this.armyReactionTargetBand();
+    if(!band || !band.currentHexId) return false;
+    if(a.reactionBattleId && (this.currentCampaign.battles || []).some(b => b && b.id === a.reactionBattleId)) return false;
+    return a.currentHexId !== band.currentHexId;
+  },
+  armyReactionReRoute(){
+    const a = this.armySelected(); const band = this.armyReactionTargetBand();
+    if(!a || !band || !band.currentHexId) return;
+    if(a.journeyId && window.ACKS.reRouteJourney) window.ACKS.reRouteJourney(this.currentCampaign, a.journeyId, { destinationHexId: band.currentHexId });
+    else if(window.ACKS.startArmyMarch) window.ACKS.startArmyMarch(this.currentCampaign, a.id, { destinationHexId: band.currentHexId });
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('🧭 Re-routing to ' + (band.name || 'the band') + '.');
+  },
+  armyReactionRecall(){
+    const a = this.armySelected(); if(!a) return;
+    if(!confirm('Recall this force? Its units march home to their garrisons.')) return;
+    if(window.ACKS.recallReactionForce) window.ACKS.recallReactionForce(this.currentCampaign, a.id);
+    this.markDirty(); this.schedulePersist();
+    this.armiesSelectedId = null;
+    if(this.showToast) this.showToast('🏠 Force recalled — the units march home.');
+  },
   openMusterArmy(opts={}){
     if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
     const camp = this.currentCampaign;
@@ -18136,6 +18400,7 @@ return {
   // A loose unit's station label: marching to an army, a domain garrison, a company, a hex.
   unitStationLabel(u){
     if(!u) return '—';
+    if(u.returnJourneyId){ const d = window.ACKS.unitHomeDomainId ? (this.currentCampaign?.domains||[]).find(x => x && x.id === window.ACKS.unitHomeDomainId(this.currentCampaign, u)) : null; return '🚶 marching home' + (d ? (' to ' + (d.name || d.id)) : ''); }
     if(u.rallyingToArmyId){ const a = window.ACKS.findArmy(this.currentCampaign, u.rallyingToArmyId); return '🚶 marching to ' + (a ? (a.name || 'an army') : 'an army'); }
     const st = u.stationedAt;
     if(!st) return 'unassigned';
@@ -18144,6 +18409,28 @@ return {
     if(st.kind === 'hex') return 'at ' + this.journeyHexLabel(st.id);
     if(st.kind === 'army') return 'in an army';
     return st.kind;
+  },
+  // ── Unit home garrison (2026-06-14) — the hex a unit defaults to + returns to on task-end ──
+  // The hexes of a given domain (the garrison-table picker — home must be a hex in THIS domain).
+  domainHomeHexOptions(domain){
+    if(!domain || !this.currentCampaign) return [];
+    return (this.currentCampaign.hexes || []).filter(h => h && h.domainId === domain.id);
+  },
+  // The hexes a unit may call home: its own domain's hexes (homeDomainId / current garrison),
+  // or — for a domain-less unit — any domain hex (picking one assigns the home domain).
+  unitHomeHexOptions(unit){
+    const camp = this.currentCampaign; if(!camp || !unit) return [];
+    const homeDomId = window.ACKS.unitHomeDomainId ? window.ACKS.unitHomeDomainId(camp, unit) : null;
+    const inDomain = (camp.hexes || []).filter(h => h && h.domainId);
+    return homeDomId ? inDomain.filter(h => h.domainId === homeDomId) : inDomain;
+  },
+  // Set/clear a unit's home garrison (routes through the engine setter — validates the hex is
+  // inside a domain, syncs homeDomainId, stamps unit.history). Mirrors the W7 levy handlers.
+  setUnitHomeUi(unit, hexId){
+    const r = window.ACKS.setUnitHome(this.currentCampaign, unit, hexId || null);
+    if(!r || !r.ok){ if(this.showToast) this.showToast('Could not set home: ' + ((r && r.reason) || 'unknown'), 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast(hexId ? 'Home garrison set.' : 'Home garrison cleared.');
   },
   // An army's individuated members (officers) — reuses the engine accessor so an army
   // shows its people exactly like a party shows its members.
@@ -19752,6 +20039,10 @@ return {
   musterArmyOpen: false,
   musterArmyForm: { commanderId: '', name: '', hexId: '', stance: 'defensive', unitIds: [], _domainId: '' },
   armyCallUpOpen: false,   // the army card's inline "call up reinforcements" picker
+  // Garrison reaction (2026-06-14) — the ⚔ Deploy garrison modal (JJ pp.104–106). Targets an
+  // incursion band; musters a sally force at a rally point + marches it (ACKS.deployGarrisonReaction).
+  garrisonDeployOpen: false,
+  garrisonDeployForm: { groupId: '', domainId: '', commanderId: '', rallyHexId: '', stance: 'offensive', unitIds: [] },
   battleHeroDraft: null,         // the add-hero-unit form (null = closed)
   // Set while the per-domain "+ add hex" flow is sending the GM to the Map to place a hex: holds
   // { domainId } to pre-select on the create picker and to return to when they create/cancel.

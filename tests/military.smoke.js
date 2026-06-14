@@ -151,6 +151,7 @@ ok('blankUnit id uses the unit- prefix', /^unit-/.test(u1.id));
 ok('blankUnit military fields', u1.race === 'man' && u1.veteran === false && u1.elite === false && u1.casualties === 0 &&
    u1.source === 'mercenary' && u1.scale === 'company' && u1.supplyState === 'supplied' &&
    Array.isArray(u1.calamities) && u1.loyalty === 0 && u1.moraleAdjustment === 0 && u1.stationedAt === null);
+ok('blankUnit home fields default null (lazy — old units read null)', u1.homeHexId === null && u1.homeDomainId === null);
 ok('explicit opts win over the catalog', ACKS.blankUnit({ unitTypeKey: 'heavy-infantry', monthlyWage: 99 }).monthlyWage === 99);
 const gu = ACKS.blankGarrisonUnit({ unitTypeKey: 'light-infantry' });
 ok('blankGarrisonUnit delegates (superset shape + catalog defaults, not the old 0.034)',
@@ -404,7 +405,10 @@ section('createArmy / muster / disbandArmy (the Action + Admin verb engine)');
   const before = camp.armies.length;
   ACKS.disbandArmy(camp, army.id);
   ok('disbandArmy removes the army', camp.armies.length === before - 1 && !ACKS.findArmy(camp, army.id));
-  ok('disbanded units SURVIVE unstationed (re-musterable)', camp.units.some(u => u.id === 'unit-1') && camp.units.find(u => u.id === 'unit-1').stationedAt === null);
+  ok('disbanded units RETURN to their auto-captured home garrison (mustered from dom-a → back to dom-a)', (() => {
+    const u = camp.units.find(x => x.id === 'unit-1');
+    return !!u && u.homeDomainId === 'dom-a' && u.stationedAt && u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-a';
+  })());
 }
 
 section('call-up / rally-to-muster (the hard-constraint reinforcement — units march in, no teleport)');
@@ -439,6 +443,202 @@ section('call-up / rally-to-muster (the hard-constraint reinforcement — units 
   ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-far2', displayName: 'Far Horse', unitTypeKey: 'light-cavalry', count: 30 }), { kind: 'domain-garrison', id: 'dom-far' });
   const army2 = ACKS.createArmy(c, { name: 'Second Host', leaderCharacterId: 'chr-y', currentHexId: 'hex-muster', callUpUnitIds: ['unit-far2'] });
   ok('createArmy callUpUnitIds marches distant units in (incoming, not present)', ACKS.armyIncomingUnits(c, army2).length === 1 && ACKS.armyUnits(c, army2).length === 0);
+}
+
+section('unit home garrison (2026-06-14) — default station + return-on-task-end');
+{
+  const c = { currentTurn: 5, currentDayInMonth: 1,
+    characters: [{ schemaVersion: 2, id: 'chr-r', name: 'Roric', alive: true }],
+    domains: [{ id: 'dom-h', name: 'Hold', rulerCharacterId: 'chr-r', garrison: { units: [] } },
+              { id: 'dom-o', name: 'Other', garrison: { units: [] } }],
+    journeys: [], armies: [], units: [],
+    hexes: [{ id: 'hex-seat', domainId: 'dom-h', coord: { q: 0, r: 0 }, terrain: 'grassland' },
+            { id: 'hex-keep', domainId: 'dom-h', coord: { q: 1, r: 0 }, terrain: 'hills' },
+            { id: 'hex-free', domainId: null,   coord: { q: 5, r: 0 }, terrain: 'grassland' }] };
+
+  // setUnitHome — validation, set, clear
+  const u = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-h', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-h' });
+  const sr = ACKS.setUnitHome(c, 'unit-h', 'hex-keep');
+  ok('setUnitHome accepts a hex inside a domain', sr.ok === true && u.homeHexId === 'hex-keep' && u.homeDomainId === 'dom-h');
+  ok('setUnitHome stamps a home-set history entry', u.history.some(h => h.type === 'home-set'));
+  ok('setUnitHome snaps the map hint to the home when not in the field', u.stationedAtHexId === 'hex-keep');
+  const bad = ACKS.setUnitHome(c, u, 'hex-free');
+  ok('setUnitHome rejects a hex NOT inside a domain', bad.ok === false && bad.reason === 'hex-not-in-domain');
+  ok('setUnitHome rejects an unknown hex', ACKS.setUnitHome(c, u, 'hex-nope').reason === 'no-hex');
+  ok('setUnitHome(null) clears the home', ACKS.setUnitHome(c, u, null).cleared === true && u.homeHexId === null);
+
+  // unitHomeDomainId resolution order
+  ok('unitHomeDomainId reads homeDomainId first', ACKS.unitHomeDomainId(c, { homeDomainId: 'dom-o' }) === 'dom-o');
+  ok('unitHomeDomainId falls back to the garrison station', ACKS.unitHomeDomainId(c, { stationedAt: { kind: 'domain-garrison', id: 'dom-h' } }) === 'dom-h');
+  ok('unitHomeDomainId derives from the home hex', ACKS.unitHomeDomainId(c, { homeHexId: 'hex-keep' }) === 'dom-h');
+  ok('unitHomeDomainId is null for a domain-less unit', ACKS.unitHomeDomainId(c, { stationedAt: { kind: 'hex', id: 'hex-free' } }) === null);
+
+  // auto-capture on leaving the garrison, then return on disband
+  const army = ACKS.createArmy(c, { name: 'Sortie', leaderCharacterId: 'chr-r', currentHexId: 'hex-seat', unitIds: ['unit-h'] });
+  ok('mustering auto-captures the garrison as home (homeHexId = the seat hex)', u.homeHexId === 'hex-seat' && u.homeDomainId === 'dom-h' && u.stationedAt.kind === 'army');
+  ACKS.disbandArmy(c, army.id);
+  ok('disband AT home returns the unit to its garrison instantly (stationed + hint snapped)', u.stationedAt.kind === 'domain-garrison' && u.stationedAt.id === 'dom-h' && u.stationedAtHexId === 'hex-seat');
+  ok('disband stamps a returned-home history entry', u.history.some(h => h.type === 'returned-home'));
+
+  // return MARCH — disbanded AWAY from home, the unit marches back (not a teleport)
+  const exped = ACKS.createArmy(c, { name: 'Expedition', leaderCharacterId: 'chr-r', currentHexId: 'hex-free' });
+  const w = ACKS.blankUnit({ id: 'unit-w', displayName: 'Wardens', unitTypeKey: 'light-infantry', count: 50, homeHexId: 'hex-keep', homeDomainId: 'dom-h' });
+  ACKS.stationUnit(c, w, { kind: 'army', id: exped.id });           // campaigning with the expedition at hex-free; home is hex-keep
+  ACKS.disbandArmy(c, exped.id);
+  const wj = (c.journeys || []).find(j => j && j.unitId === 'unit-w' && j.unitReturnHome);
+  ok('disband AWAY from home plots a return MARCH (a unit journey home), not a teleport',
+     !!wj && wj.destinationHexId === 'hex-keep' && wj.status === 'in-transit' && w.stationedAt === null && w.returnJourneyId === wj.id);
+  ok('the unit stamps a marching-home history entry', w.history.some(h => h.type === 'marching-home'));
+  let guard = 0;
+  while(w.returnJourneyId && guard++ < 15){ ACKS.commitDayTick(c, ACKS.proposeDayTick(c, {})); }
+  ok('on arrival the unit falls into its home garrison (it marched home, not teleported)',
+     w.stationedAt && w.stationedAt.kind === 'domain-garrison' && w.stationedAt.id === 'dom-h' && w.stationedAtHexId === 'hex-keep' && w.returnJourneyId === null);
+
+  // a unit mustered from no garrison keeps the prior homeless-on-disband behaviour
+  const v = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-merc', displayName: 'Sellswords', unitTypeKey: 'light-infantry', count: 40 }), { kind: 'hex', id: 'hex-free' });
+  const army2 = ACKS.createArmy(c, { name: 'Free Company', leaderCharacterId: 'chr-r', currentHexId: 'hex-free', unitIds: ['unit-merc'] });
+  ok('a unit mustered from no garrison captures no home', !v.homeHexId && !v.homeDomainId);
+  ACKS.disbandArmy(c, army2.id);
+  ok('a home-less unit disbands UNSTATIONED (re-musterable, as before)', v.stationedAt === null);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('garrison reaction (2026-06-14) — deploy a force to meet a domain incursion (JJ pp.104–106)');
+{
+  // A threatened realm: a seat hex (the default rally) + the hex the band stands on, both in
+  // dom-r; vagaries + persistent-wandering OFF so only the army marches (slot 30) and the
+  // military consumer resolves (slot 88). The band is a real catalog monster (orc) so it has
+  // a priced platoon BR. light-infantry ×120 platoon BR = 4.8; orc ×8 = 0.25 (weak); ×400 = 16.
+  function mkReaction(o){
+    o = o || {};
+    const bandHexId = o.bandHexId || 'hex-band';
+    const c = { currentTurn: 3, currentDayInMonth: 1, eventLog: [],
+      houseRules: { 'persistent-wandering-monsters': { enabled: false }, 'vagaries-of-incursion': { enabled: false } },
+      characters: [{ schemaVersion: 2, id: 'chr-cap', name: 'Captain Vael', alive: true, currentHexId: 'hex-seat' }],
+      domains: [{ id: 'dom-r', name: 'March', rulerCharacterId: 'chr-cap', garrison: { units: [] }, demographics: { peasantFamilies: 500, morale: 0 } }],
+      journeys: [], armies: [], units: [], battles: [], groups: [],
+      hexes: [{ id: 'hex-seat', domainId: 'dom-r', coord: { q: 0, r: 0 }, terrain: 'grassland' },
+              { id: 'hex-band', domainId: 'dom-r', coord: { q: 1, r: 0 }, terrain: 'hills' },
+              { id: 'hex-far',  domainId: 'dom-r', coord: { q: 7, r: 0 }, terrain: 'grassland' }] };
+    const n = (o.garrisonUnits != null) ? o.garrisonUnits : 1;
+    for(let i = 0; i < n; i++){
+      ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-g' + i, displayName: 'Foot ' + i, unitTypeKey: 'light-infantry',
+        count: (o.garrisonCount != null) ? o.garrisonCount : 120, homeHexId: 'hex-seat', homeDomainId: 'dom-r' }),
+        { kind: 'domain-garrison', id: 'dom-r' });
+    }
+    const band = ACKS.blankGroup({ id: 'grp-threat', name: 'Orc raiders',
+      groupTemplate: { monsterCatalogKey: (o.catalogKey !== undefined ? o.catalogKey : 'orc'), creatureTypes: ['beastman', 'humanoid'], hitDice: '1' },
+      count: (o.count != null) ? o.count : 8, currentHexId: bandHexId, currentDomainId: 'dom-r', lifecycleState: 'wild' });
+    band.incursion = { domainId: 'dom-r', attitude: o.attitude || 'unfriendly', disposition: (o.lingering === false ? 'migrating' : 'lingering'),
+      fullStrength: false, treasureType: '', rulerAware: true, monstersIntel: false, arrivedAtTurn: 3 };
+    band.wanderState = { coord: null, lastCoord: null, mileRemainder: 0, mode: null, destLairId: null, dissolveOnArrival: false, lastDomainId: 'dom-r', halted: true };
+    c.groups.push(band);
+    return c;
+  }
+  const allIds = n => Array.from({ length: n }, (_, i) => 'unit-g' + i);
+
+  // ── garrisonReactionPreview (pure BR + RAW outcome) ──
+  const cWeak = mkReaction({ attitude: 'unfriendly', count: 8, garrisonUnits: 1 });
+  const pWeak = ACKS.garrisonReactionPreview(cWeak, 'grp-threat', ['unit-g0']);
+  ok('preview: forceBr = the chosen units’ platoon BR (light-inf ×120 → 4.8)', Math.abs(pWeak.forceBr - 4.8) < 0.001, JSON.stringify(pWeak));
+  ok('preview: bandBr = orc ×8 platoon (0.25)', Math.abs(pWeak.bandBr - 0.25) < 0.001);
+  ok('preview: weak unfriendly band → driven-off', pWeak.outcome === 'driven-off' && pWeak.effectiveAttitude === 'unfriendly' && pWeak.flips === false);
+  ok('preview: attitudeLabel resolves to a label', typeof pWeak.attitudeLabel === 'string' && pWeak.attitudeLabel.length > 0);
+  ok('preview: lines explain the verdict', Array.isArray(pWeak.lines) && pWeak.lines.some(l => /DRIVEN OFF/.test(l)));
+
+  const cStrong = mkReaction({ attitude: 'unfriendly', count: 400, garrisonUnits: 1 });
+  const pStrong = ACKS.garrisonReactionPreview(cStrong, 'grp-threat', ['unit-g0']);
+  ok('preview: strong unfriendly band (BR ≥ force) → battle', pStrong.outcome === 'battle' && pStrong.bandBr >= pStrong.forceBr);
+
+  const cHost = mkReaction({ attitude: 'hostile', count: 8, garrisonUnits: 1 });
+  const pHost = ACKS.garrisonReactionPreview(cHost, 'grp-threat', ['unit-g0']);
+  ok('preview: hostile band → always battle (even when weak)', pHost.outcome === 'battle' && pHost.flips === false);
+
+  const cNeu = mkReaction({ attitude: 'neutral', count: 8, garrisonUnits: 1 });
+  const pNeu = ACKS.garrisonReactionPreview(cNeu, 'grp-threat', ['unit-g0']);
+  ok('preview: neutral band flips to unfriendly (JJ p.104), then by BR', pNeu.flips === true && pNeu.effectiveAttitude === 'unfriendly' && pNeu.outcome === 'driven-off' && pNeu.lines.some(l => /UNFRIENDLY/.test(l)));
+
+  const cMerc = mkReaction({ attitude: 'mercantilist', count: 400, garrisonUnits: 1 });
+  ok('preview: mercantilist + strong → flips, then battle', (() => { const p = ACKS.garrisonReactionPreview(cMerc, 'grp-threat', ['unit-g0']); return p.flips === true && p.outcome === 'battle'; })());
+
+  const cGm = mkReaction({ attitude: 'unfriendly', count: 8, catalogKey: '__nope__' });
+  const pGm = ACKS.garrisonReactionPreview(cGm, 'grp-threat', ['unit-g0']);
+  ok('preview: unpriced band (no catalog BR) → priced-by-gm, bandBr null', pGm.outcome === 'priced-by-gm' && pGm.bandBr === null);
+  ok('preview: null for a non-incursion group', ACKS.garrisonReactionPreview(cWeak, 'grp-nope', ['unit-g0']) === null);
+
+  // ── deployGarrisonReaction (muster + march) ──
+  const cDep = mkReaction({ bandHexId: 'hex-band', attitude: 'unfriendly', count: 8, garrisonUnits: 1 });
+  const dep = ACKS.deployGarrisonReaction(cDep, { groupId: 'grp-threat', unitIds: ['unit-g0'], commanderCharacterId: 'chr-cap', rallyHexId: 'hex-seat', stance: 'offensive' });
+  ok('deploy: musters a reaction army marked against the band', dep.ok && dep.army && dep.army.reactionTargetGroupId === 'grp-threat' && dep.army.strategicStance === 'offensive');
+  ok('deploy: stations the chosen units to the sally army', (ACKS.findUnit(cDep, 'unit-g0').stationedAt || {}).kind === 'army');
+  ok('deploy: plots a march to the band when the rally ≠ the band hex', !!dep.journey && dep.journey.armyId === dep.army.id && dep.journey.destinationHexId === 'hex-band' && dep.journey.status === 'in-transit');
+  ok('deploy: stamps a deployed-reaction history entry', dep.army.history.some(h => h.type === 'deployed-reaction'));
+
+  const cCo = mkReaction({ bandHexId: 'hex-seat', attitude: 'unfriendly', count: 8 });
+  const depCo = ACKS.deployGarrisonReaction(cCo, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat' });
+  ok('deploy: co-located (rally == band hex) → no march', depCo.ok && !depCo.journey);
+  ok('domainSeatHexId: the ruler’s seat when he stands in the domain', ACKS.domainSeatHexId(cCo, cCo.domains[0]) === 'hex-seat');
+  const depDef = ACKS.deployGarrisonReaction(mkReaction({ bandHexId: 'hex-band' }), { groupId: 'grp-threat', unitIds: ['unit-g0'] });
+  ok('deploy: defaults the rally to the domain seat', depDef.ok && depDef.rallyHexId === 'hex-seat');
+  ok('deploy: no units → {ok:false, no-units}', ACKS.deployGarrisonReaction(mkReaction({}), { groupId: 'grp-threat', unitIds: [] }).reason === 'no-units');
+  ok('deploy: unknown band → {ok:false, no-band}', ACKS.deployGarrisonReaction(mkReaction({}), { groupId: 'grp-nope', unitIds: ['unit-g0'] }).reason === 'no-band');
+
+  // ── arrival resolution (the §6 engine gap) — driven off ──
+  const cDrive = mkReaction({ bandHexId: 'hex-seat', attitude: 'unfriendly', count: 8, garrisonUnits: 1, garrisonCount: 120 });
+  ACKS.deployGarrisonReaction(cDrive, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat', commanderCharacterId: 'chr-cap' });
+  const propD = ACKS.proposeDayTick(cDrive, {});
+  const recD = (propD.pendingRecords || []).find(r => r.kind === 'army-band-contact');
+  ok('arrival: a co-located reaction proposes an army-band-contact record', !!recD && recD.groupId === 'grp-threat' && recD.outcome === 'driven-off');
+  ok('arrival: the record carries the BR comparison', recD && Math.abs(recD.forceBr - 4.8) < 0.001 && Math.abs(recD.bandBr - 0.25) < 0.001);
+  ACKS.commitDayTick(cDrive, propD);
+  const bandD = cDrive.groups.find(g => g.id === 'grp-threat');
+  ok('driven-off: the band is repelled — off the hex, outcome stamped', bandD.currentHexId === null && bandD.wanderState === null && bandD.incursion.outcome === 'driven-off');
+  ok('driven-off: army.reactionTargetGroupId cleared (mission done)', cDrive.armies[0].reactionTargetGroupId === null);
+  ok('driven-off: the band no longer stands in the domain', ACKS.incursionBandsForDomain(cDrive, 'dom-r').length === 0);
+  ok('driven-off: a domain-warfare event was logged', (cDrive.eventLog || []).some(e => e && e.event && e.event.kind === 'domain-warfare' && e.event.payload && e.event.payload.action === 'reaction-driven-off'));
+
+  // ── arrival resolution — a real battle (hostile) ──
+  const cBat = mkReaction({ bandHexId: 'hex-seat', attitude: 'hostile', count: 40, garrisonUnits: 1, garrisonCount: 60 });
+  const depBat = ACKS.deployGarrisonReaction(cBat, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat', commanderCharacterId: 'chr-cap', stance: 'offensive' });
+  const propBat = ACKS.proposeDayTick(cBat, {});
+  const recBat = (propBat.pendingRecords || []).find(r => r.kind === 'army-band-contact');
+  ok('arrival: hostile band → outcome battle, with a pre-minted battle id', recBat && recBat.outcome === 'battle' && !!recBat.battleProposalId);
+  ACKS.commitDayTick(cBat, propBat);
+  const battle = (cBat.battles || []).find(b => b.id === recBat.battleProposalId);
+  ok('battle: a W3 battle is created at platoon scale', !!battle && battle.scale === 'platoon');
+  ok('battle: side A is the reaction army, side B is the band (groups)', battle && battle.sides.a.armyId === depBat.army.id && (battle.sides.b.groupIds || []).includes('grp-threat'));
+  ok('battle: army.reactionBattleId stamps the re-fire guard', cBat.armies[0].reactionBattleId === recBat.battleProposalId);
+  const propBat2 = ACKS.proposeDayTick(cBat, {});
+  ok('battle: the reaction does not re-fire (one battle per reaction)', !(propBat2.pendingRecords || []).some(r => r.kind === 'army-band-contact'));
+
+  // ── arrival resolution — neutral flips to unfriendly on deploy ──
+  const cFlip = mkReaction({ bandHexId: 'hex-seat', attitude: 'neutral', count: 8, garrisonUnits: 1 });
+  ACKS.deployGarrisonReaction(cFlip, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat' });
+  ACKS.commitDayTick(cFlip, ACKS.proposeDayTick(cFlip, {}));
+  ok('neutral band: deploying flips it to unfriendly (JJ p.104)', cFlip.groups.find(g => g.id === 'grp-threat').incursion.attitude === 'unfriendly');
+
+  // ── the full march path — sally marches over days, resolves on arrival (band 7 hexes off) ──
+  const cMarch = mkReaction({ bandHexId: 'hex-far', attitude: 'unfriendly', count: 8, garrisonUnits: 1, garrisonCount: 120 });
+  ACKS.deployGarrisonReaction(cMarch, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat', commanderCharacterId: 'chr-cap' });
+  const propM1 = ACKS.proposeDayTick(cMarch, {});
+  ok('march path: tick 1 — still en route, no resolution yet', !(propM1.pendingRecords || []).some(r => r.kind === 'army-band-contact'));
+  ACKS.commitDayTick(cMarch, propM1);
+  let resolved = false, guard = 0;
+  while(!resolved && guard++ < 20){
+    const p = ACKS.proposeDayTick(cMarch, {});
+    if((p.pendingRecords || []).some(r => r.kind === 'army-band-contact')) resolved = true;
+    ACKS.commitDayTick(cMarch, p);
+  }
+  ok('march path: the sally marches to the band and resolves on arrival', resolved);
+  ok('march path: the band is dealt with (driven off)', cMarch.groups.find(g => g.id === 'grp-threat').currentHexId === null);
+
+  // ── recall → the units march home (the §7 foundation) ──
+  const cRec = mkReaction({ bandHexId: 'hex-seat', attitude: 'unfriendly', count: 8, garrisonUnits: 1 });
+  const depRec = ACKS.deployGarrisonReaction(cRec, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat' });
+  ACKS.commitDayTick(cRec, ACKS.proposeDayTick(cRec, {}));   // band driven off
+  ACKS.recallReactionForce(cRec, depRec.army.id);
+  ok('recall: disbands the sally force', !cRec.armies.some(a => a.id === depRec.army.id));
+  ok('recall: returns the unit to its home garrison (it deployed from home)', (ACKS.findUnit(cRec, 'unit-g0').stationedAt || {}).kind === 'domain-garrison' && ACKS.findUnit(cRec, 'unit-g0').stationedAt.id === 'dom-r');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

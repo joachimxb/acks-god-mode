@@ -579,13 +579,16 @@ const EVENT_SCHEMAS = Object.freeze({
          narrative: 'string' }
   },
   // domain-warfare: action ∈ invaded | occupied | occupation-ended | conquered | pillaged |
-  // requisitioned | looted (the W5 requisition/loot verbs).
+  // requisitioned | looted (the W5 requisition/loot verbs) | reaction-battle |
+  // reaction-driven-off (the garrison-reaction resolution, JJ pp.104–106, 2026-06-14).
   'domain-warfare': {
     R: { action: 'string', domainId: 'string' },
     O: { armyId: 'string', hexId: 'string', occupierLeaderId: 'string', months: 'number',
          moraleRoll: 'object', math: 'object', mode: 'string', newRulerCharacterId: 'string',
          saltTheEarth: 'boolean', results: 'object',
          requisitionedGp: 'number', lootedGp: 'number', familiesLost: 'number', gp: 'number',
+         groupId: 'string', battleId: 'string', forceBr: 'number', bandBr: 'number',
+         attitude: 'string', effectiveAttitude: 'string',
          narrative: 'string' }
   },
   // army-supply (W5): the weekly supply check outcome.

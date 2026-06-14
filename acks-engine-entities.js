@@ -528,6 +528,14 @@ function blankUnit(opts={}){
     // The §5.5 Outpost demotion — stationing is a field, not a container entity.
     stationedAt: opts.stationedAt || null,
     stationedAtHexId: opts.stationedAtHexId || null,   // legacy geographic hint (kept; map reads it)
+    // Home garrison (2026-06-14): the unit's DEFAULT station — a hex inside its domain. Where
+    // it sits when not on a mission, and where it returns when a task ends (an army disbands).
+    // homeDomainId is the owning domain (W7 levies already set it on the instance; formalized
+    // here). Both additive + lazy-null → old units read null = "no home set" (a graceful fall
+    // back to the prior homeless behavior). setUnitHome validates the hex is inside a domain;
+    // stationUnit auto-captures the garrison a unit leaves so it knows where to march back to.
+    homeHexId: opts.homeHexId || null,
+    homeDomainId: opts.homeDomainId || null,
     loyalty: opts.loyalty != null ? opts.loyalty : 0,  // unit loyalty score (RR p.429; ± employer CHA at hire)
     moraleAdjustment: opts.moraleAdjustment != null ? opts.moraleAdjustment : 0,  // one-time levy ±1 + GM tweaks
     calamities: opts.calamities || [],             // [{kind, atTurn|atDay, note}] — RR p.430 loyalty-roll triggers
@@ -537,6 +545,9 @@ function blankUnit(opts={}){
     // rallyJourneyId is its rally march. Both null when present/at home (lazy — old saves read null).
     rallyingToArmyId: opts.rallyingToArmyId || null,
     rallyJourneyId: opts.rallyJourneyId || null,
+    // The unit's active RETURN MARCH home (returnUnitHome → a journey with unitReturnHome).
+    // On arrival it falls into its home garrison. null when home / not marching (lazy).
+    returnJourneyId: opts.returnJourneyId || null,
     history: opts.history || [],
     notes: opts.notes || ''
   };
@@ -587,6 +598,12 @@ function blankArmy(opts={}){
     invasions: opts.invasions || {},                        // {domainId: worldOrd} — the once-per-domain invasion stamp (RR p.458)
     pillage: opts.pillage || null,                          // {domainId, startedOrd, daysRequired, saltTheEarth, unitsProportion} | null
     prisoners: opts.prisoners != null ? opts.prisoners : 0, // held prisoners (ransom 40gp/head or Construction labor, RR p.458)
+    // ── Garrison reaction (2026-06-14) — a sally force deployed to meet a domain threat (an
+    //    incursion band). The army marches to the band's hex (W4); the slot-88 military day
+    //    consumer fires the resolution on co-location — abstract drive-off or a W3 battle
+    //    (RAW JJ pp.104–106). Both lazy (older armies read undefined → null = a plain army). ──
+    reactionTargetGroupId: opts.reactionTargetGroupId || null,  // the threat band this force was deployed against
+    reactionBattleId: opts.reactionBattleId || null,            // the W3 battle the resolution created (the re-fire guard)
     history: opts.history || [],
     notes: opts.notes || ''
   };
@@ -1701,6 +1718,10 @@ function blankJourney(opts={}){
     // march, the party-grain machinery stands down; speed = the unit's own troop-type pace.
     // On arrival the unit is stationed to the army. Lazy field.
     unitId: opts.unitId || null,
+    // The unit's march is a RETURN HOME (returnUnitHome — the symmetric counterpart of the
+    // call-up rally): on arrival the unit falls back into its home-domain garrison rather than
+    // joining an army. Lazy field (default false; old saves read falsy). Set with journey.unitId.
+    unitReturnHome: opts.unitReturnHome || false,
     // Origin / destination / route
     startedAtTurn: opts.startedAtTurn || null,
     startedAtDayInMonth: opts.startedAtDayInMonth || null,

@@ -3189,15 +3189,29 @@ function commitJourneyRecord(campaign, record){
       }
     }
   }
-  // A rallying UNIT (journey.unitId): on arrival it falls in — stationed to the army it
-  // was called up to, its rally markers cleared (it now counts in the army's strength).
+  // A marching UNIT (journey.unitId) on arrival. Two cases:
+  //  • RETURN HOME (journey.unitReturnHome) — it falls back into its home-domain garrison.
+  //  • RALLY (the call-up) — it joins the army it was called up to, its strength now counted.
   if(j.unitId && record.newStatus === 'arrived'){
     const unit = (campaign.units || []).find(u => u && u.id === j.unitId);
-    if(unit){
+    const A = global.ACKS;
+    if(unit && (j.unitReturnHome || unit.returnJourneyId === j.id)){
+      const homeDomId = (A && typeof A.unitHomeDomainId === 'function') ? A.unitHomeDomainId(campaign, unit) : (unit.homeDomainId || null);
+      if(A && typeof A.stationUnit === 'function'){
+        if(homeDomId && (campaign.domains || []).some(d => d && d.id === homeDomId)){
+          A.stationUnit(campaign, unit, { kind: 'domain-garrison', id: homeDomId });
+          if(unit.homeHexId) unit.stationedAtHexId = unit.homeHexId;
+        } else {
+          A.stationUnit(campaign, unit, { kind: 'hex', id: j.destinationHexId || record.newCurrentHexId || null });   // home vanished — hold at the arrival hex
+        }
+      }
+      unit.returnJourneyId = null;
+      (unit.history = unit.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'returned-home', text: 'Marched home and fell back into the garrison.' });
+    } else if(unit){
       const armyId = unit.rallyingToArmyId;
       const army = armyId ? (campaign.armies || []).find(a => a && a.id === armyId) : null;
-      if(army && global.ACKS && typeof global.ACKS.stationUnit === 'function'){
-        global.ACKS.stationUnit(campaign, unit, { kind: 'army', id: army.id });
+      if(army && A && typeof A.stationUnit === 'function'){
+        A.stationUnit(campaign, unit, { kind: 'army', id: army.id });
         (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'reinforcement-arrived', narrative: (unit.displayName || unit.unitTypeKey || 'A unit') + ' marched in and joined ' + (army.name || 'the army') + '.' });
       }
       unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
@@ -5989,6 +6003,57 @@ function proposeMilitaryDay(campaign, ctx){
     });
   }
 
+  // ── 2b. garrison reaction (JJ pp.104–106) — a sally army deployed against an incursion
+  //        band resolves the moment it stands on the band's hex: an abstract drive-off (a
+  //        weak Unfriendly), or a W3 battle (Hostile / strong-Unfriendly; the GM may play
+  //        out any in the panel). The army-vs-army contact above is army-only; this is the
+  //        army-vs-band detector (the §6 engine gap). "Band moved / band gone" are surfaced
+  //        live on the army card (re-route / recall — D3), not as daily records. ──
+  for(const army of active){
+    if(!army.reactionTargetGroupId) continue;
+    if(army.reactionBattleId && (campaign.battles || []).some(b => b && b.id === army.reactionBattleId)) continue;  // a battle already fired
+    const band = (campaign.groups || []).find(g => g && g.id === army.reactionTargetGroupId) || null;
+    const bandAlive = band && (typeof A.groupActiveCount === 'function' ? A.groupActiveCount(band) > 0 : true);
+    if(!band || !bandAlive) continue;                              // gone — the army card prompts a recall
+    const armyHex = effHex(army);
+    if(!armyHex || armyHex !== band.currentHexId) continue;        // not co-located (en route, or the band moved)
+    const unitIds = (typeof A.armyUnits === 'function') ? A.armyUnits(campaign, army).map(u => u.id) : [];
+    const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
+    if(!prev) continue;
+    // band strategic stance (JJ p.104): Hostile → offensive; Unfriendly → offensive if its BR
+    // tops the force, else evasive (retreating).
+    const bandStance = (prev.effectiveAttitude === 'hostile' || (prev.bandBr != null && prev.bandBr > prev.forceBr)) ? 'offensive' : 'evasive';
+    const battle = (prev.outcome === 'battle' || prev.outcome === 'priced-by-gm');  // GM-priced → offer the panel (a weak band can still be dismissed there)
+    const battleProposalId = battle ? _mintBattleProposalId(rng) : null;
+    const domainId = (band.incursion && band.incursion.domainId) || null;
+    const label = '\u{2694} ' + armyName(army) + ' meets ' + (band.name || 'the band') + (armyHex ? ' at ' + armyHex : '')
+      + ' — ' + (battle ? 'they give battle' : 'driven off') + (prev.flips ? ' (deploying turned them unfriendly)' : '');
+    pendingRecords.push({
+      kind: 'army-band-contact', armyId: army.id, groupId: band.id, domainId,
+      hexId: armyHex || null, name: armyName(army) + ' \u{2194} ' + (band.name || 'band'),
+      forceBr: prev.forceBr, bandBr: prev.bandBr, attitude: prev.attitude, attitudeLabel: prev.attitudeLabel,
+      effectiveAttitude: prev.effectiveAttitude, flips: prev.flips, lingering: prev.lingering,
+      outcome: battle ? 'battle' : 'driven-off', lines: prev.lines,
+      battleProposalId, scale: 'platoon', bandStance, armyStance: army.strategicStance || 'offensive',
+      label, status: 'pending'
+    });
+    notableEvents.push({
+      kind: 'domain-warfare', type: battle ? 'reaction-battle' : 'reaction-driven-off',
+      pauseTrigger: battle ? 'encounter' : null,
+      primaryHexId: armyHex || null, domainId,
+      relatedEntities: [
+        { kind: 'army', id: army.id, role: 'subject' }, { kind: 'group', id: band.id, role: 'target' },
+        army.leaderCharacterId ? { kind: 'character', id: army.leaderCharacterId, role: 'commander' } : null
+      ].filter(Boolean),
+      label: label + (battle ? ' — committing creates the battle (Review \u{25B8} \u{1F38C} Battles)' : ' — the band is driven off'),
+      payload: { action: battle ? 'reaction-battle' : 'reaction-driven-off',
+                 armyId: army.id, groupId: band.id, domainId: domainId || '', hexId: armyHex || '',
+                 forceBr: prev.forceBr, bandBr: (prev.bandBr != null ? prev.bandBr : undefined),
+                 attitude: prev.attitude, effectiveAttitude: prev.effectiveAttitude,
+                 battleId: battleProposalId || undefined, narrative: label }
+    });
+  }
+
   // ── 3. invasions (RR p.458) — marches that entered an unfriendly domain today ──
   for(const army of active){
     const m = stash.moves[army.id];
@@ -6187,6 +6252,46 @@ function commitMilitaryRecord(campaign, record){
           sideB: { kind: 'army', armyId: other.id, stance: record.otherStance || 'defensive' }
         });
       }
+    }
+  } else if(record.kind === 'army-band-contact'){
+    // Garrison reaction (JJ pp.104–106): the sally force has reached the band.
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId) || null;
+    const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+    if(!army || !band) return;
+    const dom = (campaign.domains || []).find(d => d && d.id === record.domainId) || null;
+    const turn = campaign.currentTurn || 1;
+    // neutral / mercantilist / friendly bands turn UNFRIENDLY when deployed against (JJ p.104).
+    if(record.flips && band.incursion){
+      band.incursion.attitude = 'unfriendly';
+      (band.history = band.history || []).push({ turn, type: 'incursion',
+        reason: 'turned unfriendly — the garrison deployed against it (JJ p.104)' });
+    }
+    if(record.outcome === 'battle'){
+      if(record.battleProposalId && typeof A.createBattle === 'function'
+         && !(campaign.battles || []).some(b => b && b.id === record.battleProposalId)){
+        A.createBattle(campaign, {
+          id: record.battleProposalId,
+          name: (army.name || 'Reaction force') + ' vs ' + (band.name || 'the band'),
+          hexId: record.hexId || null,
+          scale: record.scale || 'platoon',
+          awareness: 'mutual',
+          sideA: { kind: 'army', armyId: army.id, stance: record.armyStance || 'offensive' },
+          sideB: { kind: 'groups', groupIds: [band.id], stance: record.bandStance || 'offensive' },
+          options: { armySizeAsymmetry: true }
+        });
+        army.reactionBattleId = record.battleProposalId;     // the re-fire guard (one battle per reaction)
+        (army.history = army.history || []).push({ turn, type: 'reaction-battle',
+          text: 'Gave battle to ' + (band.name || 'the band') + (dom ? (' in ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
+      }
+    } else {   // driven off (JJ p.104) — the band is repelled and leaves the field
+      if(band.incursion){ band.incursion.outcome = 'driven-off'; band.incursion.drivenOffAtTurn = turn; }
+      band.currentHexId = null;                              // out of the hex — off the active map (no longer the domain's problem)
+      band.wanderState = null;
+      (band.history = band.history || []).push({ turn, type: 'incursion',
+        reason: 'driven off by ' + (army.name || 'the garrison') + ' (JJ p.104) — repelled from ' + (dom ? (dom.name || dom.id) : 'the domain') });
+      army.reactionTargetGroupId = null;                     // mission accomplished — the GM recalls the force
+      (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
+        text: 'Drove off ' + (band.name || 'the band') + (dom ? (' from ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
     }
   } else if(record.kind === 'domain-invasion'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
