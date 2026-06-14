@@ -40,6 +40,7 @@
 <!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
 <script src="acks-engine-politics.js?v=2026-06-13-a"></script>
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
+<script src="acks-engine-lifecycle.js?v=2026-06-14-a"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
 <script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
@@ -8776,6 +8777,18 @@ document.addEventListener('alpine:init', () => {
               <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="human / dwarf / elf / …"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
             </span>
           </div>
+          <!-- === Character Lifecycle CL-1 (burst4) — Age readout (RR p.19) === -->
+          <div class="block text-sm flex items-center gap-2"
+               title="ACKS RR p.19: age advances with the monthly turn; crossing into Middle Aged / Old / Ancient adjusts attributes, and Old / Ancient / maximum age bring a death-from-old-age save. Elves & Nobirans are ageless. Leave unset to skip aging for this character.">
+            <span class="w-20">Age</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'age', label:'Age', kind:'number', min:0, formatter(v){ return (typeof v === 'number') ? (v + ' yrs') : '— not set —'; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+            <button x-show="characterEditing && characterEditing.age == null" @click="rollCharacterStartingAge(characterEditing)" class="ed-edit" title="Roll a starting age for this character's class (RR p.19)">🎲</button>
+            <span class="text-xs opacity-70" x-text="characterAgingLine(characterEditing)"></span>
+          </div>
+          <!-- === end Character Lifecycle CL-1 === -->
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">XP</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'xp', label:'XP', kind:'number', min:0})">
@@ -23391,6 +23404,27 @@ return {
     return ent;
   },
   // burst4 agent-3 (Character Lifecycle CL-1 — char-sheet aging readout):
+  characterAgingLine(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.characterAgingInfo !== 'function') return '';
+    const info = A.characterAgingInfo(ch);
+    if(info.age == null) return '';
+    if(info.ageless) return (info.categoryLabel || 'Adult') + ' · ageless';
+    let s = info.categoryLabel || '';
+    if(info.pendingSave){
+      s += ' · ⚠ death-from-old-age save (' + info.pendingSave.thresholdKey + ') due in ' + info.pendingSave.dueInMonths + ' mo';
+    } else if(info.nextOldAgeSave){
+      s += ' · next old-age save at ' + info.nextOldAgeSave.age;
+    }
+    return s;
+  },
+  rollCharacterStartingAge(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.rollStartingAge !== 'function') return;
+    const age = A.rollStartingAge(ch.class || '');
+    this.commitStatEdit({ entityType:'character', entityId:ch.id, entity:ch, fieldPath:'age', label:'Age', oldValue:(ch.age == null ? null : ch.age), newValue:age });
+    this.showToast('🎲 Rolled starting age ' + age + ' (' + A.startingAgeSpecFor(ch.class || '') + ')', 4000);
+  },
   // burst4 agent-4 (Voyages V1 — vessels panel / Inspector helpers):
   // Phase 3 Voyages (#145) — Admin verb: spawn a blank Vessel + open it in the Inspector edit form
   // (mirrors inspectorCreateBlankJourney/Army). init-on-write campaign.vessels (no migrate injector →

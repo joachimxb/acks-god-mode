@@ -222,7 +222,13 @@ const EVENT_KINDS = Object.freeze([
   // engine-emitted by formSyndicate / collectSyndicateTribute / resolveHijinkTrial. Record-only.
   'hijink-syndicate-formed',
   'hijink-tribute',
-  'hijink-trial'
+  'hijink-trial',
+  // === Character Lifecycle CL-1 (burst4) === — aging (RR p.19). Record-only audit: the age/category
+  // /attribute state is applied by ACKS.processAgingForTurn (acks-engine-lifecycle.js, the monthly pass
+  // hooked into commitTurn); these keep the eventLog well-formed + carry the Event.context envelope
+  // (the aging character as subject). 'death-from-old-age' carries the Death-save result (died bool).
+  'aging-milestone',
+  'death-from-old-age'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -718,6 +724,20 @@ const EVENT_SCHEMAS = Object.freeze({
   'hijink-trial': {
     R: { hijinkId: 'string', crime: 'string', punishmentLevel: 'string' },
     O: { charge: 'string', band: 'string', fineGp: 'number', indentureGp: 'number', damagesGp: 'number', acquitted: 'boolean', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-1 (burst4) === (RR p.19; engine-emitted by processAgingForTurn, record-only)
+  // A character crosses into a new age category (the progressive attribute adjustment) — or, with
+  // thresholdArmed, enters a death-from-old-age window.
+  'aging-milestone': {
+    R: { characterId: 'string' },
+    O: { fromCategory: 'string', toCategory: 'string', ageNow: 'number', attributeDeltas: 'object',
+         thresholdArmed: 'string', dueInMonths: 'number', narrative: 'string' }
+  },
+  // The death-from-old-age Death save result (died ∈ true|false). On death the pass sets
+  // lifecycleState 'deceased'. threshold ∈ old|ancient|max.
+  'death-from-old-age': {
+    R: { characterId: 'string', died: 'boolean' },
+    O: { threshold: 'string', save: 'number', target: 'number', narrative: 'string' }
   }
 });
 
@@ -2240,6 +2260,15 @@ registerEventHandler('wound-recovery', applyEvent_mortalWoundAudit);
 registerEventHandler('hijink-syndicate-formed', applyEvent_hijinkAudit);
 registerEventHandler('hijink-tribute', applyEvent_hijinkAudit);
 registerEventHandler('hijink-trial', applyEvent_hijinkAudit);
+// === Character Lifecycle CL-1 (burst4) === — aging events share the record-only audit posture:
+// ACKS.processAgingForTurn already advanced the age/category/attributes; the handler keeps the event
+// well-formed on replay (records the narrative only). Mirrors mortal-wound / survival / banditry.
+function applyEvent_agingAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'aging' } };
+}
+registerEventHandler('aging-milestone', applyEvent_agingAudit);
+registerEventHandler('death-from-old-age', applyEvent_agingAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5215,7 +5244,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'mortal-wound', 'wound-recovery',
   // Phase 3 Military W6 (burst3) — owned by acks-engine-sieges.js (the setters + the slot-90
   // consumer write the Siege state); a raw emit would narrate an investment the entity doesn't hold.
-  'siege-started', 'siege-progress', 'siege-resolved'
+  'siege-started', 'siege-progress', 'siege-resolved',
+  // === Character Lifecycle CL-1 (burst4) === — owned by ACKS.processAgingForTurn (the monthly pass);
+  // a raw emit would narrate an aging/death the character's age/lifecycleState don't show. The GM sets
+  // an age via the character sheet, not the Event Wizard.
+  'aging-milestone', 'death-from-old-age'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

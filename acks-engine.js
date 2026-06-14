@@ -7733,12 +7733,23 @@ function proposeMonthlyTurn(campaign, options){
   // CoL-2 — preview the end-of-month living-expenses + henchman-wage debits (read-only; dryRun).
   const livingExpenseProposal = processLivingExpensesForTurn(campaign, { dryRun: true });
 
+  // CL-1 (burst4) — preview the monthly aging advance (age ticks, category crossings + their attribute
+  // deltas, death-from-old-age saves due/entering). Read-only (dryRun rolls no dice, mutates nothing);
+  // late-bound (the lifecycle module loads after this file). The propose half of the propose-ratify gate.
+  let agingProposal = { ran: false };
+  try {
+    if(typeof global.ACKS.processAgingForTurn === 'function'){
+      agingProposal = global.ACKS.processAgingForTurn(campaign, { dryRun: true }) || agingProposal;
+    }
+  } catch(e){ /* never let the aging preview fail the turn proposal */ }
+
   return {
     error: null,
     turnEventProposals,
     turnVentureProposals,
     turnProposal,
-    livingExpenseProposal
+    livingExpenseProposal,
+    agingProposal
   };
 }
 
@@ -8401,6 +8412,23 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let Religion fail the monthly commit */ }
   }
 
+  // === CHARACTER LIFECYCLE CL-1 — AGING (RR p.19 — #7 / burst4) ===
+  // The monthly aging pass: advance each seeded character's age with the calendar, apply the RR p.19
+  // progressive attribute adjustment on a category crossing, and resolve the death-from-old-age Death
+  // saves in the 1d12-month window. Skips age:null + ageless races + the deceased. Gated on committed > 0
+  // (a real month rolled) — the GM reviewed the agingProposal in proposeMonthlyTurn (propose-ratify, Plan
+  // §7). Late-bound (acks-engine-lifecycle.js loads after this file) + try-guarded (the DC-2 / Religion
+  // precedent), so neither aging nor a missing module can fail the core monthly commit.
+  let agingResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processAgingForTurn === 'function'){
+        agingResult = global.ACKS.processAgingForTurn(campaign, { rng }) || agingResult;
+        (agingResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let aging fail the monthly commit */ }
+  }
+
   // === RUMOR AUTO-EMIT ===
   if(isHouseRuleEnabled(campaign, 'rumors-auto-emit')){
     const upcomingTurn = (campaign.currentTurn || 1) + 1;
@@ -8490,6 +8518,7 @@ function commitTurn(campaign, proposal, options){
     levelUpResults,
     livingExpenseResult,
     favorDutyResult,
+    agingResult,                 // CL-1 (burst4) — the monthly aging pass result
     loyaltyDrifts,
     rumorDrifts,
     newCurrentTurn: campaign.currentTurn,
