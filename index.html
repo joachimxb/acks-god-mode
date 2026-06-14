@@ -79,6 +79,7 @@
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<script src="acks-engine-gladiators.js?v=2026-06-14-b5"></script>
 <!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -13007,6 +13008,12 @@ return {
       // Action verb (the Foray Wizard) is D3; for D2 these spawn a blank entity for free-form authoring. ===
       case 'dungeon':   return () => this.inspectorCreateBlankDungeon();
       case 'delve':     return () => this.inspectorCreateBlankDelve();
+      // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — Admin-verb create (blank + schemaForm
+      // edit). The guided Action verbs (school/games/bout wizards) are G2–G6. (Lead: union with the
+      // other burst5 lanes' dispatch cases at integration — this switch is shared + unmarked.) ===
+      case 'bout':             return () => this.inspectorCreateBlankBout();
+      case 'gladiator-school': return () => this.inspectorCreateBlankGladiatorSchool();
+      case 'game':             return () => this.inspectorCreateBlankGame();
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -22140,7 +22147,8 @@ return {
       // === Politics P-1 (burst4 2026-06-13) — senate/faction/senatorship (§8.9 importer mandate)
       'senates', 'factions', 'senatorships',
       // ===== TEAM BURST5 — new collections · each builder appends its quoted strings after its own line (mind the trailing comma) =====
-      // b5-gladiators (#150): 'bouts', 'gladiatorSchools', 'games'
+      // b5-gladiators (#150): Gladiators G1 — Bouts + Schools + Games (§8.9 importer mandate)
+      'bouts', 'gladiatorSchools', 'games',
       // b5-custom-classes (#154): 'customClasses', 'customRaces'
       // ===== end TEAM BURST5 collections =====
     ];
@@ -24599,6 +24607,40 @@ return {
   // COMMA-terminated (a trailing comma before }; is legal). Disjoint anchors → clean merge.
   // Inspector-only lanes (gladiators, custom-classes) usually add nothing here.
   // --- b5-gladiators (#150): ---
+  // Gladiators G1 (AXIOMS 4) — Admin-verb create for the 3 entities (init-on-write the collection,
+  // which isn't lazy-injected, then open the generic schemaForm edit). Ungated (the createVessel/
+  // createArmy precedent — the Inspector is the admin escape hatch; the gladiator-games rule gates
+  // the resolver, not authoring). The guided Action verbs (school/game/bout wizards) are G2–G6.
+  inspectorCreateBlankBout(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.bouts)) this.currentCampaign.bouts = [];
+    const b = window.ACKS.blankBout({});
+    this.currentCampaign.bouts.push(b);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('bout', b.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Bout created — set its sides + kind. (Enable the “Gladiatorial games” house rule to resolve it.)');
+  },
+  inspectorCreateBlankGladiatorSchool(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.gladiatorSchools)) this.currentCampaign.gladiatorSchools = [];
+    const s = window.ACKS.blankGladiatorSchool({ name: 'New Gladiator School' });
+    this.currentCampaign.gladiatorSchools.push(s);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('gladiator-school', s.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Gladiator School created — set the lanista, settlement, and roster.');
+  },
+  inspectorCreateBlankGame(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.games)) this.currentCampaign.games = [];
+    const g = window.ACKS.blankGame({ name: 'New Game' });
+    this.currentCampaign.games.push(g);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('game', g.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Game created — set the munerator, venue, and budget, then add bouts.');
+  },
   // --- b5-custom-classes (#154): ---
   // --- b5-treasure (#142): ---
   // --- b5-sages (#147): ---
