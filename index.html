@@ -4360,7 +4360,7 @@ document.addEventListener('alpine:init', () => {
           <div class="vellum border border-ink p-3 rounded">
             <h2 class="font-bold text-lg mb-2">Garrison Units</h2>
             <table class="bookkeeping text-sm">
-              <thead><tr><th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th><th>BR/sol</th><th>Total BR</th><th title="Default garrison hex — where this unit returns when a mission ends (must be a hex in this domain)">Home</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th><th>BR/sol</th><th>Total BR</th><th title="Default garrison hex — where this unit returns when a mission ends (must be a hex in this domain)">Home</th><th title="Where the unit is now — its post in the domain, or away with a field army / marching to muster">Location</th><th></th></tr></thead>
               <tbody>
                 <template x-for="(u, i) in selectedDomain.garrison.units" :key="i">
                   <tr>
@@ -4399,11 +4399,12 @@ document.addEventListener('alpine:init', () => {
                         </template>
                       </select>
                     </td>
+                    <td class="whitespace-nowrap text-xs" x-text="unitLocationLabel(u)"></td>
                     <td class="whitespace-nowrap"><button @click="splitGarrisonUnit(selectedDomain, u)" class="px-1 text-xs underline" title="Split N soldiers into a new unit">Split</button> <button @click="mergeGarrisonUnit(selectedDomain, u)" :disabled="!canMergeGarrisonUnit(selectedDomain, u)" :class="canMergeGarrisonUnit(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1 text-xs" title="Merge into a same-type sibling">Merge</button> <button @click="selectedDomain.garrison.units.splice(i,1)" class="accent-red px-2" title="Remove this unit">×</button></td>
                   </tr>
                 </template>
                 <tr class="total"><td>Totals</td><td></td><td x-text="garrisonHeadcount(selectedDomain).toLocaleString()"></td><td></td>
-                  <td x-text="garrisonCost(selectedDomain).toLocaleString() + ' gp'"></td><td></td><td x-text="garrisonBR(selectedDomain).toFixed(3)"></td><td></td><td></td></tr>
+                  <td x-text="garrisonCost(selectedDomain).toLocaleString() + ' gp'"></td><td></td><td x-text="garrisonBR(selectedDomain).toFixed(3)"></td><td></td><td></td><td></td></tr>
               </tbody>
             </table>
             <div class="flex items-center gap-3 mt-2">
@@ -14825,6 +14826,25 @@ return {
   hexLabelById(hexId){
     const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === hexId);
     return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (hexId || '—');
+  },
+  // The hex a garrison unit currently occupies — the read-only Location column (Domains ▸
+  // Military). A posted garrison unit sits at its home hex (its specific post within the domain),
+  // else the domain seat; a unit deployed to an army or marching to muster reads its away status.
+  unitLocationLabel(unit){
+    const camp = this.currentCampaign; if(!camp || !unit) return '—';
+    if(unit.rallyingToArmyId){
+      const a = (camp.armies || []).find(x => x && x.id === unit.rallyingToArmyId);
+      return '🚶 to ' + (a ? (a.name || 'muster') : 'muster');
+    }
+    const st = unit.stationedAt || null;
+    if(st && st.kind === 'army'){
+      const a = (camp.armies || []).find(x => x && x.id === st.id);
+      return '🎖 ' + (a ? (a.name || 'an army') : 'an army');
+    }
+    const hexId = (st && st.kind === 'domain-garrison' && unit.homeHexId)
+      ? unit.homeHexId
+      : (window.ACKS.unitCurrentHexId ? window.ACKS.unitCurrentHexId(camp, unit) : null);
+    return hexId ? this.hexLabelById(hexId) : '—';
   },
   armyMarchGo(){
     const a = this.armySelected(); if(!a || !this.armyMarchDest) return;
