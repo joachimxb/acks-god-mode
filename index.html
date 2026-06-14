@@ -85,6 +85,7 @@
 <!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-treasure.js?v=2026-06-14-b5"></script>
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<script src="acks-engine-sages.js?v=2026-06-14-b5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
@@ -9758,7 +9759,10 @@ document.addEventListener('alpine:init', () => {
         <div x-data="{ newProf: '' }">
           <div class="flex items-center justify-between mb-1">
             <h4 class="font-semibold text-sm">Proficiencies <span class="text-sm font-normal opacity-60">(RR ch.4)</span></h4>
-            <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
+            <span class="flex gap-2">
+              <button @click="openProficiencyThrowModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Roll a proficiency throw (RR pp.9–10)">🎲 Roll a throw</button>
+              <button @click="openSageConsultModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold" title="Consult a sage — a lore/knowledge query resolved on the proficiency throw (RR p.171). A character with a specialty, or Knowledge/Loremastery, is a sage.">🔮 Consult a sage</button>
+            </span>
           </div>
           <p class="text-sm opacity-70 mb-2">Class + general proficiencies. Add one at a time; every add/edit/remove is logged.</p>
           <template x-if="(characterEditing.proficiencies||[]).length === 0">
@@ -12373,6 +12377,116 @@ document.addEventListener('alpine:init', () => {
   </template>
 </div>
 <!-- b5-sages (#147): Sage-consultation modal here -->
+<div x-show="sageConsult.open" @keydown.escape.window="if(sageConsult.open && !$event.defaultPrevented){ closeSageConsultModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSageConsultModal()">
+  <template x-if="sageConsult.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🔮 Consult a Sage <span class="text-sm font-normal opacity-70">· RR p.171 / p.112</span></h2>
+      <button @click="closeSageConsultModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- Sage + client -->
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <label class="block"><span class="opacity-70">Sage</span>
+          <select class="w-full text-sm mt-0.5" @change="sageConsultSetSage($event.target.value)">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" :selected="a.id===sageConsult.sageId" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="block"><span class="opacity-70">Inquirer</span>
+          <select class="w-full text-sm mt-0.5" x-model="sageConsult.clientId" @change="sageConsult.result=null">
+            <template x-for="a in sageConsultActors()" :key="a.id">
+              <option :value="a.id" x-text="a.label"></option>
+            </template>
+          </select>
+        </label>
+      </div>
+
+      <!-- Resolved mode -->
+      <template x-if="sageConsultForecastUI()">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" style="background:#f4ecd2">
+          <template x-if="sageConsultForecastUI().available">
+            <div>
+              <template x-if="sageConsultForecastUI().mode==='npc-specialist'">
+                <span><span class="font-semibold">Hired sage</span> — specialty <span class="italic" x-text="sageConsultForecastUI().specialty || '(set one below)'"></span> · <span x-text="sageConsultForecastUI().inSpecialty ? 'in-specialty 3+' : 'out-of-specialty 18+'"></span></span>
+              </template>
+              <template x-if="sageConsultForecastUI().mode==='pc-scholar'">
+                <span><span class="font-semibold">Scholar</span> — <span x-text="(sageConsultForecastUI().label || 'own learning')"></span><span class="opacity-70" x-text="sageConsultForecastUI().proficiency ? (' · ' + sageConsultForecastUI().proficiency.key + ' rank ' + sageConsultForecastUI().proficiency.ranks) : ''"></span> · target <span x-text="sageConsultForecastUI().target + '+'"></span></span>
+              </template>
+            </div>
+          </template>
+          <template x-if="!sageConsultForecastUI().available">
+            <span class="opacity-80">This character is not yet a sage — give them a <span class="font-semibold">specialty</span> below to consult them as a hired specialist, or add the Knowledge / Loremastery proficiency.</span>
+          </template>
+        </div>
+      </template>
+
+      <!-- Specialty (drives the hired-sage path) -->
+      <label class="block text-sm"><span class="opacity-70">Specialty subject</span> <span class="opacity-50 text-xs">— set to consult as a hired sage (3+/18+); leave blank to use the character's own Knowledge/Loremastery throw</span>
+        <input type="text" class="w-full text-sm mt-0.5" x-model="sageConsult.specialty" @input="sageConsult.result=null" placeholder="e.g. history · geography · metaphysics">
+      </label>
+
+      <!-- Subject + in-specialty (for a hired sage) -->
+      <div class="text-sm">
+        <label class="block"><span class="opacity-70">Query subject</span>
+          <input type="text" class="w-full text-sm mt-0.5" x-model="sageConsult.subject" @input="sageConsult.result=null; sageConsult.inSpecialtyOverride=null" placeholder="what is the query about?">
+        </label>
+        <template x-if="sageConsultForecastUI() && sageConsultForecastUI().mode==='npc-specialist'">
+          <label class="flex items-center gap-1 text-xs mt-1"><input type="checkbox" :checked="sageConsultForecastUI().inSpecialty" @change="sageConsult.inSpecialtyOverride = $event.target.checked; sageConsult.result=null"> In the sage's specialty (3+) <span class="opacity-50">— auto-derived from the subject; tick to override</span></label>
+        </template>
+      </div>
+
+      <!-- Query text -->
+      <label class="block text-sm"><span class="opacity-70">The question (GM)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.query" placeholder="What do you know about…?"></textarea>
+      </label>
+
+      <!-- Fee + secret -->
+      <div class="flex items-center gap-4 text-sm flex-wrap">
+        <label class="flex items-center gap-1">Fee <input type="number" min="0" class="w-24 text-sm" x-model.number="sageConsult.feeGp" @input="sageConsult.result=null"> gp <span class="opacity-50 text-xs">(GM-set; paid by the inquirer — RR has only the 500gp/mo wage)</span></label>
+        <label class="flex items-center gap-1"><input type="checkbox" x-model="sageConsult.secret"> Secret (GM rolls)</label>
+      </div>
+
+      <!-- Answer the GM supplies (the content; the engine resolves only WHETHER the sage knows) -->
+      <label class="block text-sm"><span class="opacity-70">The answer, on success (GM supplies)</span>
+        <textarea rows="2" class="w-full text-sm mt-0.5" x-model="sageConsult.answerText" placeholder="The content of what the sage knows — the engine resolves only whether he knows it."></textarea>
+      </label>
+
+      <!-- Forecast -->
+      <template x-if="sageConsultForecastUI() && sageConsultForecastUI().available">
+        <div class="wizard-forecast-row" :class="(sageConsultForecastUI().successChance===0) ? 'wizard-no-chance' : ''">
+          <div class="w-full text-sm">
+            <span class="font-semibold" x-text="'Target ' + sageConsultForecastUI().target + '+'"></span>
+            <span class="opacity-75" x-text="' · success chance ' + Math.round((sageConsultForecastUI().successChance||0)*100) + '%' + (sageConsult.feeGp>0 ? (' · fee ' + sageConsult.feeGp + 'gp') : '') + ' · 1 ancillary (#346)'"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Consult + result -->
+      <div class="vellum border border-ink p-3 rounded" style="background:#f4ecd2">
+        <button @click="sageConsultSubmit()" :disabled="!(sageConsultForecastUI() && sageConsultForecastUI().available)"
+                :class="(sageConsultForecastUI() && sageConsultForecastUI().available) ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'"
+                class="px-4 py-2 border-2 border-ink rounded font-semibold" x-text="sageConsult.result ? '🔮 Consult again' : '🔮 Consult'"></button>
+        <template x-if="sageConsult.result && sageConsult.result.ok">
+          <div class="mt-2 space-y-1">
+            <div class="text-sm font-mono" x-show="!sageConsult.result.throw.secret && sageConsult.result.throw.natural != null"
+                 x-text="'1d20 ' + sageConsult.result.throw.natural + ' = ' + sageConsult.result.throw.total + ' vs ' + sageConsult.result.target + '+'"></div>
+            <div class="text-xs italic opacity-70" x-show="sageConsult.result.throw.secret">Secret — the GM rolled.</div>
+            <div class="text-sm font-semibold" :class="sageConsult.result.success ? 'text-green-800' : 'text-red-800'"
+                 x-text="sageConsult.result.success ? '✓ The sage answers.' : '✗ The sage cannot answer.'"></div>
+            <div class="text-sm" x-show="sageConsult.result.success && sageConsult.result.answerText" x-text="sageConsult.result.answerText"></div>
+          </div>
+        </template>
+        <template x-if="sageConsult.result && !sageConsult.result.ok">
+          <div class="mt-2 text-sm text-red-800" x-text="sageConsult.result.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot consult: ' + sageConsult.result.error)"></div>
+        </template>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- b5-politics (P-2): Senate-vote modal (if any) here · the Senate tab/sub-view markup goes in the World/governance region -->
 <!-- b5-religion (R2): blood-sacrifice modal (if any) here · the ⛪ Religion tab body extends in place -->
 <!-- b5-delves (D3): Foray Wizard modal here · the 🕳️ Dungeons sub-view extends in place -->
@@ -24823,6 +24937,56 @@ return {
     return parts.join(' · ') + (w.hexId ? (' · at hex ' + w.hexId) : '') + '.';
   },
   // --- b5-sages (#147): ---
+  // Sages SG-1 — the Consult-a-Sage modal (a thin surface over ACKS.consultSage). Launched from a
+  // character sheet's Skills tab (🔮 Consult a sage). Adds no state/collection to the campaign.
+  sageConsult: { open:false, sageId:null, clientId:null, subject:'', query:'', specialty:'', feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null },
+  openSageConsultModal(ch){
+    const actors = this.sageConsultActors();
+    const def = (ch && actors.some(a => a.id === ch.id)) ? ch.id : (actors[0] ? actors[0].id : null);
+    if(!def){ if(this.showToast) this.showToast('No active character to consult.'); return; }
+    const sageCh = (this.currentCampaign.characters||[]).find(c => c && c.id === def);
+    this.sageConsult = { open:true, sageId:def, clientId:def, subject:'', query:'', specialty:(sageCh && sageCh.sageSpecialty) || '', feeGp:0, answerText:'', inSpecialtyOverride:null, secret:false, result:null };
+  },
+  closeSageConsultModal(){ this.sageConsult.open = false; this.sageConsult.result = null; },
+  sageConsultActors(){
+    const A = window.ACKS;
+    return ((this.currentCampaign && this.currentCampaign.characters) || [])
+      .filter(c => c && (A.isActive ? A.isActive(c) : (c.alive !== false)))
+      .map(c => ({ id:c.id, label:(c.name || c.id) + (c.class ? (' · ' + c.class + ' L' + (c.level||1)) : '') }));
+  },
+  sageConsultSetSage(id){
+    const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id);
+    this.sageConsult.sageId = id;
+    if(!this.sageConsult.clientId) this.sageConsult.clientId = id;
+    this.sageConsult.specialty = (ch && ch.sageSpecialty) || '';
+    this.sageConsult.inSpecialtyOverride = null;
+    this.sageConsult.result = null;
+  },
+  sageConsultSage(){
+    const id = this.sageConsult.sageId;
+    return id ? ((this.currentCampaign && this.currentCampaign.characters) || []).find(c => c && c.id === id) : null;
+  },
+  sageConsultForecastUI(){
+    const sage = this.sageConsultSage();
+    if(!sage || !window.ACKS.sageConsultForecast) return null;
+    return window.ACKS.sageConsultForecast(this.currentCampaign, sage, {
+      subject: this.sageConsult.subject, specialty: this.sageConsult.specialty,
+      inSpecialty: this.sageConsult.inSpecialtyOverride
+    });
+  },
+  sageConsultSubmit(){
+    const sage = this.sageConsultSage();
+    if(!sage) return;
+    const r = window.ACKS.consultSage(this.currentCampaign, {
+      sageId: this.sageConsult.sageId, clientId: this.sageConsult.clientId || this.sageConsult.sageId,
+      subject: this.sageConsult.subject, query: this.sageConsult.query, specialty: this.sageConsult.specialty,
+      inSpecialty: this.sageConsult.inSpecialtyOverride, feeGp: Number(this.sageConsult.feeGp) || 0,
+      answerText: this.sageConsult.answerText, secret: this.sageConsult.secret
+    });
+    this.sageConsult.result = r;
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); if(this.showToast) this.showToast(r.success ? 'The sage answers.' : 'The sage cannot answer.'); }
+    else if(r && this.showToast){ this.showToast(r.error === 'insufficient-funds' ? 'The inquirer cannot afford the fee.' : ('Cannot consult: ' + r.error)); }
+  },
   // --- b5-politics (P-2): ---
   // --- b5-religion (R2): ---
   // --- b5-delves (D3): ---

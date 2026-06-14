@@ -234,7 +234,13 @@ const EVENT_KINDS = Object.freeze([
   // setters (depositToStash / promoteLineToNotableItem) + minted captive Characters; this keeps the
   // eventLog well-formed + carries the Event.context envelope (primaryHexId = the hoard's hex,
   // relatedEntities = the lair + any captives). Treasure generation is GM authoring, never a character activity.
-  'treasure-generated'
+  'treasure-generated',
+  // === Sages SG-1 (burst5 b5-sages, #147) === — a sage consultation (RR p.171 / p.112): a lore
+  // query resolved on the shipped Proficiency-Throws Layer-1 die (in-specialty 3+ / out 18+, or a
+  // PC-sage's Knowledge/Loremastery throw), the fee via GP Wave B. Record-only (the consultSage
+  // verb already rolled + debited the fee); chronicle-visible (the answer narrates). Carries the
+  // §528 envelope (sage = source, client = beneficiary) + payload.activityCost (the #346 day).
+  'sage-consultation'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -754,6 +760,15 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { mode: 'string', totalGp: 'number', totalStone: 'number', stashId: 'string', lairId: 'string',
          coins: 'object', gemCount: 'number', jewelryCount: 'number', magicSlotCount: 'number',
          captiveCount: 'number', narrative: 'string' }
+  },
+  // === Sages SG-1 (burst5 b5-sages, #147) === — a sage consultation (consultSage; RR p.171 / p.112).
+  // Record-only (the verb already rolled the throw + debited the fee); the answer narrates. throw =
+  // { natural, total, target, success, margin, secret }; activityCost = the #346 day tag.
+  'sage-consultation': {
+    R: { sageCharacterId: 'string', clientCharacterId: 'string' },
+    O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
+         inSpecialty: 'boolean', target: 'number', throw: 'object', feeGp: 'number',
+         answerText: 'string', loreId: 'string', activityCost: 'object' }
   }
 });
 
@@ -5305,7 +5320,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Treasure Generation #142 (burst5 2026-06-14) === — owned by ACKS.materializeHoard (the
   // Treasure Wizard); a raw emit would record a hoard the stashes/notables/captives don't show. The
   // GM rolls + places a hoard via the wizard, not the Event Wizard.
-  'treasure-generated'
+  'treasure-generated',
+  // === Sages SG-1 (burst5 b5-sages, #147) === — owned by consultSage (the consult modal); a raw
+  // emit would carry no real throw/fee breakdown. The GM consults a sage via the modal, not here.
+  'sage-consultation'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
