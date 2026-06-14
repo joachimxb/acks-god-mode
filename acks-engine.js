@@ -175,7 +175,13 @@ const ID_PREFIXES = Object.freeze({
   // (RR pp.355–360; acks-engine-politics.js). Wave D (Architecture §3.5).
   senate:               'sen',
   faction:              'fac',
-  senatorship:          'snr'
+  senatorship:          'snr',
+  // === Gladiators G1 (b5-gladiators, burst5 2026-06-14) — AXIOMS 4 (#150). Bout / Gladiator
+  // School / Game/Munus first-class entities (Phase_4_Gladiators_Plan.md §3). Arena → a
+  // Constructible + Sponsor → a field (NOT entities — arn-/spo- dropped, survey §4). ===
+  bout:                 'bot',
+  gladiatorSchool:      'gld',
+  game:                 'gam'
 });
 
 function newId(prefix){
