@@ -279,11 +279,54 @@ ok('Siege Engineering {key:siege-engineering} -> 25,000gp (hyphen fix)', ACKS.co
 ok('read layer still works on loose string proficiencies', ACKS.proficiencyRanks({ proficiencies: ['Theology (2)', 'Healing', 'Diplomacy'] }, 'theology') === 2);
 
 // =============================================================================
+section('PT-6 — ad-hoc resolver fold onto Layer 1 (byte-identical delegation)');
+// =============================================================================
+// The shipped 1d20-vs-target resolvers — rollNavigation (RR p.275), trackingFindThrow (RR p.120),
+// forage/hunt/hexSearch (RR pp.276-278, incl. their reroll siblings + the Land-Surveying throw) —
+// now route their die + success through rollProficiencyThrow (Layer 1). Same SINGLE rng consumption
+// (1 + floor(rng()*20)) + same RAW math = byte-identical. The full byte-identical proof is the
+// characterization suites that seed these resolvers (journeys / provisioning / cost-of-living /
+// encounters / monster-persistence); these are the targeted delegation + RAW-nuance assertions.
+
+// rollNavigation (RR p.275) — nat-1 auto-fail; the party bonus itemized; folds to Layer 1.
+(() => {
+  const nv = ACKS.rollNavigation(8, 4, fixedRng(0.5));   // natural 11, +4 → total 15 ≥ 8
+  ok('rollNavigation values: rng 0.5 vs 8+ with +4 → 11 / total 15 / success', nv.rolled === 11 && nv.total === 15 && nv.success === true && nv.naturalOne === false);
+  const l1 = ACKS.rollProficiencyThrow({ target: 8, modifiers: [{ value: 4 }], autoFailBand: 1, proficient: false, rng: fixedRng(0.5) });
+  ok('rollNavigation delegates to Layer 1 (same natural/total/success)', nv.rolled === l1.natural && nv.total === l1.total && nv.success === l1.success);
+  const n1 = ACKS.rollNavigation(6, 8, fixedRng(0));     // natural 1 → fail despite +8
+  ok('rollNavigation: natural 1 auto-fails even at +8 vs 6+ (autoFailBand:1 preserved)', n1.success === false && n1.naturalOne === true);
+})();
+
+// trackingFindThrow (RR p.120) — nat-1 auto-fail; count-band / extra-ranks / ground / age / rain / light itemized.
+(() => {
+  const tk = ACKS.trackingFindThrow({ ranks: 1, countTracked: 3, rng: fixedRng(0.5) });  // natural 11, count-band +2 → total 13 ≥ 11
+  ok('trackingFindThrow values: 3 tracked (+2 band), rng 0.5 → 11 / total 13 / success', tk.natural === 11 && tk.total === 13 && tk.success === true);
+  ok('trackingFindThrow itemizes the count band (+2)', Array.isArray(tk.modifiers) && tk.modifiers.some(m => m.source === 'count-band' && m.value === 2));
+  const tl1 = ACKS.rollProficiencyThrow({ target: 11, modifiers: [{ source: 'count-band', value: 2 }], autoFailBand: 1, proficient: false, rng: fixedRng(0.5) });
+  ok('trackingFindThrow delegates to Layer 1 (same natural/total/success)', tk.natural === tl1.natural && tk.total === tl1.total && tk.success === tl1.success);
+  const t1 = ACKS.trackingFindThrow({ ranks: 3, countTracked: 17, rng: fixedRng(0) });   // natural 1 → fail despite +8 ranks +8 band
+  ok('trackingFindThrow: natural 1 auto-fails despite +16 of bonuses (autoFailBand:1 preserved)', t1.natural === 1 && t1.success === false);
+})();
+
+// forageActivity (RR p.278) — NO auto-fail (autoFailBand:0): the riskiest nuance the fold must
+// preserve. Firewood in forest (3+) with Survival (+4) on a natural 1 must SUCCEED.
+(() => {
+  const fc = ACKS.blankCampaign({ name: 'pt6-forage' });
+  fc.hexes = [{ id: 'hx-forest', terrain: 'forest', domainId: null }];
+  fc.characters = [ACKS.blankCharacter({ id: 'fgr', name: 'Forager', currentHexId: 'hx-forest', proficiencies: [{ key: 'survival', ranks: 1 }] })];
+  const fr = ACKS.forageActivity(fc, { actorCharacterId: 'fgr', forageKind: 'firewood', rng: fixedRng(0) });   // natural 1, +4 vs 3+ → 5 ≥ 3
+  ok('forageActivity: firewood (forest, Survival), natural 1 → SUCCESS — RR p.278 forage has NO auto-fail (autoFailBand:0 preserved)', !!fr.ok && fr.rolled === 1 && fr.success === true);
+  const fr2 = ACKS.forageActivity(fc, { actorCharacterId: 'fgr', forageKind: 'water', rng: fixedRng(0.3) });    // natural 7, +4 vs 14+ → 11 < 14
+  ok('forageActivity: water (no source) 7+4 vs 14+ → fail (compare preserved)', !!fr2.ok && fr2.rolled === 7 && fr2.success === false);
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Proficiency Throws PT-0 + PT-1 smoke checks passed.');
+  console.log('\nAll Proficiency Throws PT-0 + PT-1 + PT-6 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

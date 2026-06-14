@@ -1799,11 +1799,13 @@ function journeyFordingThrow(campaign, journey, opts){
 // §7 — navigation throw (1d20 + party proficiency bonus ≥ terrain target). RR p.275: an unmodified
 // natural 1 ALWAYS fails, regardless of bonus. Pure given rng.
 function rollNavigation(navTarget, bonus, rng){
-  rng = rng || Math.random;
-  const rolled = 1 + Math.floor(rng() * 20);
-  const total = rolled + (bonus || 0);
-  const naturalOne = (rolled === 1);
-  return { rolled, target: navTarget, bonus: bonus || 0, total, naturalOne, success: !naturalOne && total >= navTarget };
+  // PT-6 — folded onto Layer 1 (ACKS.rollProficiencyThrow): nat-1 auto-fail (autoFailBand 1), no
+  // nat-20 rule (proficient false). Byte-identical to the inline 1d20 it replaces (same single rng
+  // consumption + same RAW math); the legacy {rolled,target,bonus,total,naturalOne,success} shape is
+  // preserved for the journey day-log + journeys smoke. (proficiencies.js loads after subsystems.js,
+  // so this resolves at runtime — the same cross-module pattern as the _jACKS().trackingFindThrow call.)
+  const r = _jACKS().rollProficiencyThrow({ target: navTarget, modifiers: [{ source: 'party', value: bonus || 0 }], autoFailBand: 1, proficient: false, rng: rng || Math.random });
+  return { rolled: r.natural, target: navTarget, bonus: bonus || 0, total: r.total, naturalOne: r.natural === 1, success: r.success };
 }
 
 // §7 navigation-throw bonus (RR p.275): +4 if any traveller has the Navigation proficiency OR the
