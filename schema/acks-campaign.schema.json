@@ -4438,9 +4438,9 @@
         "id"
       ]
     },
-    "bout": {
-      "title": "Bout",
-      "description": "\"bout\" entity",
+    "custom-class": {
+      "title": "Class Template",
+      "description": "\"custom-class\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
@@ -4450,104 +4450,203 @@
             "null"
           ]
         },
-        "gameId": {
+        "key": {
           "type": [
             "string",
             "null"
-          ],
-          "description": "game id — prefix \"gam-\""
-        },
-        "kind": {
-          "enum": [
-            "to-incapacitation",
-            "to-death",
-            null
           ]
         },
-        "sideA": {
+        "displayName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raceTemplateKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "buildPoints": {
           "type": [
             "object",
             "null"
           ],
           "additionalProperties": true,
           "properties": {
-            "combatantIds": {
-              "type": "array",
-              "items": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "character id — prefix \"chr-\""
-              }
+            "hd": {
+              "type": [
+                "number",
+                "null"
+              ]
             },
-            "kind": {
-              "enum": [
-                "gladiator",
-                "creature",
-                "prisoner",
-                null
+            "fighting": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "thievery": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "divine": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "arcane": {
+              "type": [
+                "number",
+                "null"
               ]
             }
           }
         },
-        "sideB": {
+        "fightingSubtype": {
+          "enum": [
+            "1a",
+            "1b",
+            null
+          ]
+        },
+        "choices": {
           "type": [
             "object",
             "null"
           ],
           "additionalProperties": true,
           "properties": {
-            "combatantIds": {
-              "type": "array",
-              "items": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "character id — prefix \"chr-\""
-              }
-            },
-            "kind": {
+            "primeRequisite": {
               "enum": [
-                "gladiator",
-                "creature",
-                "prisoner",
+                "STR",
+                "INT",
+                "WIL",
+                "DEX",
+                "CON",
+                "CHA",
                 null
+              ]
+            },
+            "coreClassMapping": {
+              "enum": [
+                "fighter",
+                "crusader",
+                "thief",
+                "mage",
+                "explorer",
+                "venturer",
+                null
+              ]
+            },
+            "strongholdType": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "armorTradeOff": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "saveProgressionTieBreak": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "spellListKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "weaponTradeOffPowerCount": {
+              "type": [
+                "number",
+                "null"
               ]
             }
           }
         },
-        "rentPaidGp": {
+        "customPowers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "powerWeight": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "levelUnlocked": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "pageRef": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "customDrawbacks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "powerWeight": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "maxLevel": {
           "type": [
             "number",
             "null"
-          ],
-          "description": "gp amount"
+          ]
         },
-        "resolutionMode": {
+        "rarity": {
           "enum": [
-            "abstract",
-            "combat",
+            "common",
+            "uncommon",
+            "rare",
+            "legendary",
             null
           ]
         },
-        "status": {
-          "enum": [
-            "scheduled",
-            "resolved",
-            null
-          ]
-        },
-        "createdAtTurn": {
+        "isSeed": {
           "type": [
-            "number",
-            "null"
-          ]
-        },
-        "notes": {
-          "type": [
-            "string",
+            "boolean",
             "null"
           ]
         },
@@ -4564,9 +4663,9 @@
         "id"
       ]
     },
-    "gladiator-school": {
-      "title": "Gladiator School",
-      "description": "\"gladiator-school\" entity",
+    "custom-race": {
+      "title": "Race Template",
+      "description": "\"custom-race\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
@@ -4576,173 +4675,87 @@
             "null"
           ]
         },
-        "name": {
+        "key": {
           "type": [
             "string",
             "null"
           ]
         },
-        "lanistaCharacterId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "character id — prefix \"chr-\""
-        },
-        "settlementId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "settlement id — prefix \"set-\""
-        },
-        "gladiatorCharacterIds": {
-          "type": "array",
-          "items": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "character id — prefix \"chr-\""
-          }
-        },
-        "staffCharacterIds": {
-          "type": "array",
-          "items": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "character id — prefix \"chr-\""
-          }
-        },
-        "structureConstructibleIds": {
-          "type": "array",
-          "items": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "constructible id — prefix \"cst-\""
-          }
-        },
-        "treasuryStashId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "stash id — prefix \"stash-\""
-        },
-        "status": {
-          "enum": [
-            "active",
-            "disbanded",
-            null
-          ]
-        },
-        "foundedAtTurn": {
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "notes": {
+        "displayName": {
           "type": [
             "string",
             "null"
           ]
         },
-        "history": {
+        "racialValueTable": {
           "type": "array",
           "items": {
             "type": "object",
-            "additionalProperties": true
-          },
-          "description": "append-only event/log entries"
-        }
-      },
-      "required": [
-        "id"
-      ]
-    },
-    "game": {
-      "title": "Gladiatorial Game",
-      "description": "\"game\" entity",
-      "type": "object",
-      "additionalProperties": true,
-      "properties": {
-        "id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "name": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "muneratorCharacterId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "character id — prefix \"chr-\""
-        },
-        "settlementId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "settlement id — prefix \"set-\""
-        },
-        "amphitheaterConstructibleId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "constructible id — prefix \"cst-\""
-        },
-        "budgetGp": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "description": "gp amount"
-        },
-        "scheduledTurn": {
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "boutIds": {
-          "type": "array",
-          "items": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "bout id — prefix \"bot-\""
+            "additionalProperties": true,
+            "properties": {
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "xpCost": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
           }
         },
-        "status": {
-          "enum": [
-            "planned",
-            "held",
-            null
-          ]
-        },
-        "createdAtTurn": {
+        "hitDiceByCombatantStatus": {
           "type": [
-            "number",
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "noncombatant": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "commoner": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "militia": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fighter": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "ageModifierDice": {
+          "type": [
+            "string",
             "null"
           ]
         },
-        "notes": {
+        "isMonstrous": {
           "type": [
-            "string",
+            "boolean",
+            "null"
+          ]
+        },
+        "isSeed": {
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -4969,13 +4982,12 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 47,
-    "typedKinds": 29,
+    "entityKinds": 46,
+    "typedKinds": 28,
     "eventKinds": 73,
     "nestedSubEntityKinds": [
-      "bout",
-      "gladiator-school",
-      "game",
+      "custom-class",
+      "custom-race",
       "garrison-unit",
       "stronghold-component"
     ],

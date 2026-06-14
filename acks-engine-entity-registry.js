@@ -359,6 +359,21 @@
       find: (c, id) => ((c && c.games) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
     // === end Gladiators G1 ===
+    // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154. The two catalog/template
+    // entities (acks-engine-custom-classes.js). Read defensively (campaign.customClasses/customRaces) —
+    // no migrateCampaign injector, so templates stay migrate-no-ops. displayName reads only blankX keys
+    // (the registry⊆factory invariant). Inspector-only first slice (the Class/Race Builder is W4). ──
+    { kind: 'custom-class', label: 'Class Template', pluralLabel: 'Class Templates', icon: '🛠',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.customClasses) || [],
+      find: (c, id) => ((c && c.customClasses) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.displayName || obj.key || obj.id)) || '' },
+
+    { kind: 'custom-race', label: 'Race Template', pluralLabel: 'Race Templates', icon: '🧬',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.customRaces) || [],
+      find: (c, id) => ((c && c.customRaces) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.displayName || obj.key || obj.id)) || '' },
 
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',

@@ -1007,8 +1007,84 @@
         { name: 'notes',                       type: 'string', group: 'History' },
         { name: 'history',                     type: 'history', readonly: true, group: 'History' }
       ]
-    }
+    },
     // === end Gladiators G1 ===
+    // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154 / Phase_6_Custom_Classes_Plan.md §3.
+    // The two catalog/template entities (acks-engine-custom-classes.js). adminCreate:'schemaForm' = the
+    // generic Inspector Admin form (the two-verb Admin path; the point-buy Class/Race Builder is W4). Every
+    // field is a blankClassTemplate / blankRaceTemplate key (the global schema⊆factory invariant); the
+    // _derived stat-block cache + the array choices (weaponSelection/thiefSkills) + the dynamic-key race maps
+    // are Raw-JSON-edited in W1 (omitted here — schema⊆factory allows omission). The derived stat block is
+    // read via ACKS.deriveClassFromTemplate (the Builder surfaces it live in W4). ──
+    'custom-class': {
+      factory: 'blankClassTemplate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Build Points', 'Choices', 'Powers', 'Meta', 'History'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'key',             type: 'string', group: 'Identity', description: 'Stable key (e.g. "fighter"); resolves character.class strings (W5)' },
+        { name: 'displayName',     type: 'string', required: true, group: 'Identity', description: 'Class name — a renameable display string (IP: campaign-class names trend toward Product Identity)' },
+        { name: 'raceTemplateKey', type: 'id', idKind: 'custom-race', group: 'Identity', description: 'A RaceTemplate.key, or null for a human class' },
+        { name: 'buildPoints',     type: 'object', group: 'Build Points', description: 'The point-buy allocation across the five core categories (JJ pp.290–296). A racial value is buildPoints[raceKey] (Raw JSON in W1).', fields: [
+          { name: 'hd',       type: 'number', min: 0, max: 4, description: 'Hit Dice value (d4–d12)' },
+          { name: 'fighting', type: 'number', min: 0, max: 4, description: 'Fighting value (1 splits 1a/1b via fightingSubtype)' },
+          { name: 'thievery', type: 'number', min: 0, max: 4 },
+          { name: 'divine',   type: 'number', min: 0, max: 4 },
+          { name: 'arcane',   type: 'number', min: 0, max: 4 }
+        ] },
+        { name: 'fightingSubtype', type: 'enum', enumValues: ['1a', '1b'], group: 'Build Points', description: 'Only at Fighting 1: 1a = crusader-style (narrow + heavy), 1b = thief-style (broad + light)' },
+        { name: 'choices',         type: 'object', group: 'Choices', fields: [
+          { name: 'primeRequisite',           type: 'enum', enumValues: ['STR', 'INT', 'WIL', 'DEX', 'CON', 'CHA'] },
+          { name: 'coreClassMapping',         type: 'enum', enumValues: ['fighter', 'crusader', 'thief', 'mage', 'explorer', 'venturer'], description: 'Generators bucket (JJ p.214) — OVERRIDE; else derives from the save progression' },
+          { name: 'strongholdType',           type: 'string', description: 'Castle / Sanctum / Hideout / Vault / Fastness / Cloister / Fortified-Church (JJ p.298)' },
+          { name: 'armorTradeOff',            type: 'string' },
+          { name: 'saveProgressionTieBreak',  type: 'string' },
+          { name: 'spellListKey',             type: 'string', description: 'A magic category selects a spell list (→ the Magic-layer Spells lane #151)' },
+          { name: 'weaponTradeOffPowerCount', type: 'number', min: 0, description: 'Powers gained from weapon trade-offs (+250 XP each at Fighting ≥2)' }
+        ] },
+        { name: 'customPowers',    type: 'array', group: 'Powers', description: 'Custom powers (free-text names + weight + unlock level — survey §8)', itemSchema: { fields: [
+          { name: 'name',         type: 'string' },
+          { name: 'powerWeight',  type: 'number' },
+          { name: 'levelUnlocked', type: 'number' },
+          { name: 'pageRef',      type: 'string' }
+        ] } },
+        { name: 'customDrawbacks', type: 'array', group: 'Powers', description: 'Custom drawbacks — negative powers that buy extra powers (JJ p.329; W2)', itemSchema: { fields: [
+          { name: 'name',        type: 'string' },
+          { name: 'powerWeight', type: 'number' }
+        ] } },
+        { name: 'maxLevel',        type: 'number', min: 1, group: 'Meta', description: 'RAW level cap (humans 14; racials per the build-points→cap table — W3)' },
+        { name: 'rarity',          type: 'enum', enumValues: ['common', 'uncommon', 'rare', 'legendary'], group: 'Meta', description: 'Henchman-availability + generator frequency (the Generators seam)' },
+        { name: 'isSeed',          type: 'boolean', readonly: true, group: 'Meta', description: 'A shipped RAW seed class vs a GM-authored one' },
+        { name: 'history',         type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'custom-race': {
+      factory: 'blankRaceTemplate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Build', 'Generators', 'Meta', 'History'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'key',             type: 'string', group: 'Identity', description: 'Stable key (e.g. "dwarf")' },
+        { name: 'displayName',     type: 'string', required: true, group: 'Identity' },
+        { name: 'racialValueTable', type: 'array', group: 'Build', description: 'Value 0–4 → racial powers + XP cost (JJ pp.299–305; sparse in W1 — the full table + deriveRaceCost is W3)', itemSchema: { fields: [
+          { name: 'value',  type: 'number' },
+          { name: 'xpCost', type: 'number' }
+        ] } },
+        { name: 'hitDiceByCombatantStatus', type: 'object', group: 'Generators', description: 'The ¼/½/1-1/1 ladder (JJ p.252 — the NPC-Generator seam)', fields: [
+          { name: 'noncombatant', type: 'number' },
+          { name: 'commoner',     type: 'number' },
+          { name: 'militia',      type: 'string' },
+          { name: 'fighter',      type: 'number' }
+        ] },
+        { name: 'ageModifierDice', type: 'string', group: 'Generators', description: 'e.g. "+2d8" (dwarf), "+2d20" (elf), "ageless" (nobiran) — the NPC-Generator seam' },
+        { name: 'isMonstrous',     type: 'boolean', group: 'Meta' },
+        { name: 'isSeed',          type: 'boolean', readonly: true, group: 'Meta' },
+        { name: 'history',         type: 'history', readonly: true, group: 'History' }
+        // abilityRequirements / categoryModifiers / afterEighthIncrement are dynamic-key maps —
+        // Raw-JSON-edited in W1 (the Race Builder W3 surfaces them); omitted here (schema⊆factory).
+      ]
+    }
   };
 
   // ─── 4. Public API ───

@@ -378,7 +378,18 @@ const HOUSERULES_REGISTRY = Object.freeze([
   // ride it. In G1 the rule gates the live mechanic — the abstract bout resolver refuses when off. ===
   { id:'gladiator-games', category:'cultural', name:'Gladiatorial games (AXIOMS 4)',
     source:'AXIOMS Issue 4 "Morituri Te Salutant" pp.20–31 (Phase_4_Gladiators_Plan.md / Gladiators_RAW_Survey.md)',
-    description:"Master toggle for the gladiatorial-school + games subsystem: gladiator schools, bouts, games/munera, the amphitheater, training, rents + prizes, uprisings, and the abstract bout resolver. When OFF (default), the school/bout/game collections + their resolver are non-functional. The gladiator-socialTier DATA is NOT gated — a GM may mark an NPC a gladiator for flavor regardless; only the AXIOMS-4 mechanics ride this toggle. Default off (a supplement, like BTA / dwarven / Auran content)." }
+    description:"Master toggle for the gladiatorial-school + games subsystem: gladiator schools, bouts, games/munera, the amphitheater, training, rents + prizes, uprisings, and the abstract bout resolver. When OFF (default), the school/bout/game collections + their resolver are non-functional. The gladiator-socialTier DATA is NOT gated — a GM may mark an NPC a gladiator for flavor regardless; only the AXIOMS-4 mechanics ride this toggle. Default off (a supplement, like BTA / dwarven / Auran content)." },
+  // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154 / Phase_6_Custom_Classes_Plan.md §6.
+  // The class-BUILDING SYSTEM ships default-ON with NO master toggle (a GM-authoring tool is core —
+  // gating "can you build a class?" behind an opt-in is the §6 anti-pattern, the NPC-Generator precedent).
+  // This is the one W1 rule: the default-OFF, excisable custom-power-compendium content pack (survey §8 tier 3,
+  // the IP-heaviest slice). The HFH Eldritch/Ceremonial + BTA Gnostic category content (custom-class-supplement-content)
+  // is a W6 deliverable — NOT registered yet (registering an inert toggle whose mechanic isn't built is against
+  // the no-inert-toggle doctrine). ===
+  { id:'custom-power-compendium', category:'characters', name:'Custom-power compendium (names + page-refs)',
+    source:'ACKS II JJ pp.306–328 Custom Power Index (HFH-OGL Open Game Content; the IP-heaviest slice — survey §8 tier 3)',
+    default:false,
+    description:"OFF by default. When ON, the Custom Classes lane exposes a reference list of named custom powers (names + an index page-ref + a terse mechanical one-liner — NOT transcribed descriptions) for the Class Builder + the Inspector. The build SYSTEM itself is always available; this only surfaces the optional power-name pack. W1 ships a representative seed; the full ~250-power index is W6. ⚠ Autarch courtesy heads-up before the public site (§13.9 ckpt 3)." }
 ]);
 const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'domain',       label:'🏰 Domain',         description:'Hex tracking, vassal structure, geography, land/lordship.' },
