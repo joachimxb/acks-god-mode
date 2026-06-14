@@ -21908,6 +21908,10 @@ return {
     // Domains live on currentCampaign (single home), so the deep clone already includes them — no
     // re-stitch. Stamp lastModifiedAt on the campaign + each domain, drop the legacy field.
     const c=JSON.parse(JSON.stringify(this.currentCampaign));
+    // T6 — make the dual-homed nested mirrors (geography.hexes / hex.settlement / garrison.units /
+    // mercenaryCompany.units) exact projections of the canonical top-level collections, so the saved
+    // file never carries divergent copies (audit 2026-06-14 integration C1). Runs on the clone above.
+    if(window.ACKS.projectNestedMirrors) window.ACKS.projectNestedMirrors(c);
     const today=new Date().toISOString().slice(0,10);
     c.lastModifiedAt=today;
     (c.domains||[]).forEach(dc=>{ dc.lastModifiedAt=today; });
