@@ -77,6 +77,12 @@
 <script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
+<!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
+<!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<!-- b5-custom-classes (#154): add the acks-engine-custom-classes.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<!-- b5-treasure (#142): add the acks-engine-treasure.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
+<!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
@@ -12250,6 +12256,14 @@ document.addEventListener('alpine:init', () => {
 <!-- ── agent-3 (Hex Scales HW-4): the scale-switcher extends the World▸Map render in place — usually nothing here ── -->
 <!-- ── agent-4 (DC-3): extends the domain panel in place — usually nothing here ── -->
 <!-- ── agent-5 (Hijinks HJ-2): your syndicate modal goes below (the sub-view itself is the existing Activities▸Hijinks) ── -->
+<!-- ===== TEAM BURST5 — modal / body-HTML tail · each UI builder adds ITS modal markup after its own line (inside x-data on <body>, so it binds) ===== -->
+<!-- b5-treasure (#142): Treasure Wizard modal here -->
+<!-- b5-sages (#147): Sage-consultation modal here -->
+<!-- b5-politics (P-2): Senate-vote modal (if any) here · the Senate tab/sub-view markup goes in the World/governance region -->
+<!-- b5-religion (R2): blood-sacrifice modal (if any) here · the ⛪ Religion tab body extends in place -->
+<!-- b5-delves (D3): Foray Wizard modal here · the 🕳️ Dungeons sub-view extends in place -->
+<!-- b5-cl2 (disease): disease/health modal (if any) here · the character-sheet health readout extends in place -->
+<!-- ===== end TEAM BURST5 modal tail ===== -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -22124,7 +22138,11 @@ return {
       // === Delves D2 (burst4) — Delve operations (dungeons already listed above) ===
       'delves',
       // === Politics P-1 (burst4 2026-06-13) — senate/faction/senatorship (§8.9 importer mandate)
-      'senates', 'factions', 'senatorships'
+      'senates', 'factions', 'senatorships',
+      // ===== TEAM BURST5 — new collections · each builder appends its quoted strings after its own line (mind the trailing comma) =====
+      // b5-gladiators (#150): 'bouts', 'gladiatorSchools', 'games'
+      // b5-custom-classes (#154): 'customClasses', 'customRaces'
+      // ===== end TEAM BURST5 collections =====
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -24575,6 +24593,20 @@ return {
     this.inspectorEditMode = true;
     if(this.showToast) this.showToast('New Delve created — link it to a dungeon + add participants. The multi-foray resolution is D3.');
   },
+
+  // ========================= TEAM BURST5 — per-agent Alpine state + methods =========================
+  // Each builder adds its state vars + methods AFTER its own agent line below, each property
+  // COMMA-terminated (a trailing comma before }; is legal). Disjoint anchors → clean merge.
+  // Inspector-only lanes (gladiators, custom-classes) usually add nothing here.
+  // --- b5-gladiators (#150): ---
+  // --- b5-custom-classes (#154): ---
+  // --- b5-treasure (#142): ---
+  // --- b5-sages (#147): ---
+  // --- b5-politics (P-2): ---
+  // --- b5-religion (R2): ---
+  // --- b5-delves (D3): ---
+  // --- b5-cl2 (disease): ---
+  // ========================= end TEAM BURST5 state + methods =========================
 };
 }
 </script>
