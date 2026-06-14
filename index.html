@@ -4420,6 +4420,30 @@ document.addEventListener('alpine:init', () => {
             </div>
           </div>
 
+          <!-- Active Field Armies (2026-06-14) — armies in the field drawing on this domain: a
+               unit home-stationed here, the ruler leading in person, or a reaction sally defending
+               it. The read complement to the Garrison table; rows open the army (Characters ▸ Parties). -->
+          <div class="vellum border border-ink p-3 rounded mt-4" x-show="domainFieldArmyRows(selectedDomain).length > 0">
+            <h2 class="font-bold text-lg mb-2">🎖 Active Field Armies</h2>
+            <p class="text-xs opacity-60 italic mb-2">Field armies raised from or commanded by this domain — mustered forces and reaction sallies now afield. Click one to manage it (Characters ▸ Parties).</p>
+            <table class="bookkeeping text-sm">
+              <thead><tr><th>Army</th><th>Commander</th><th>Location</th><th>Troops</th><th title="Battle rating">BR</th><th title="Miles per day">Speed</th><th>Status</th></tr></thead>
+              <tbody>
+                <template x-for="row in domainFieldArmyRows(selectedDomain)" :key="'fa-'+row.army.id">
+                  <tr class="cursor-pointer hover:bg-yellow-50/60" @click="currentView='characters'; charactersSubView='parties'; selectGroup('army', row.army.id)" title="Open in Characters ▸ Parties">
+                    <td class="whitespace-nowrap"><span x-text="row.icon"></span> <span class="underline" x-text="row.army.name || 'Army'"></span></td>
+                    <td x-text="row.leaderName"></td>
+                    <td class="whitespace-nowrap text-xs" x-text="row.location"></td>
+                    <td x-text="row.troops.toLocaleString()"></td>
+                    <td class="font-mono" x-text="row.br.toFixed(2)"></td>
+                    <td class="text-xs whitespace-nowrap" x-text="row.speed + ' mi/day'"></td>
+                    <td class="text-xs"><span x-text="row.state"></span><span x-show="row.fatigued" class="accent-red" title="Fatigued (RR p.448)"> · tired</span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
           <!-- Active Threats / Reactions (2026-06-14, JJ pp.104–106) — the live incursion bands
                the ruler may deploy a force against. The deferred-reaction surface: a threat not
                answered at trigger time is dealt with here later. ⚔ Deploy opens the sally flow. -->
@@ -14801,6 +14825,24 @@ return {
         fatigued: A.armyFatigued(camp, a).fatigued
       };
     });
+  },
+  // Active field armies of THIS domain (Domains ▸ Military) — armies in the field that draw on it:
+  // a unit home-stationed here (unitHomeDomainId), the ruler commanding in person, or a reaction
+  // force defending one of the domain's incursion bands. Reuses armiesRows() so the columns match
+  // the Characters ▸ Parties Armies table; filtered to genuinely-fielded forces (husks hidden).
+  domainFieldArmyRows(domain){
+    if(!domain || !this.currentCampaign) return [];
+    const camp = this.currentCampaign, A = window.ACKS;
+    const rulerId = (this.rulerCharacter(domain) || {}).id || null;
+    const bandIds = new Set((this.incursionBands(domain) || []).map(g => g.id));
+    const belongs = (a) => {
+      if(!a) return false;
+      if(rulerId && a.leaderCharacterId === rulerId) return true;
+      if(a.reactionTargetGroupId && bandIds.has(a.reactionTargetGroupId)) return true;
+      const units = (A.armyUnits ? A.armyUnits(camp, a) : []);
+      return units.some(u => u && A.unitHomeDomainId && A.unitHomeDomainId(camp, u) === domain.id);
+    };
+    return this.armiesRows().filter(r => belongs(r.army) && (r.troops > 0 || r.army.journeyId || r.army.reactionTargetGroupId));
   },
   armySelected(){
     const camp = this.currentCampaign; if(!camp || !this.armiesSelectedId) return null;
