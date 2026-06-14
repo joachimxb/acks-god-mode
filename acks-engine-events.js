@@ -579,13 +579,16 @@ const EVENT_SCHEMAS = Object.freeze({
          narrative: 'string' }
   },
   // domain-warfare: action ∈ invaded | occupied | occupation-ended | conquered | pillaged |
-  // requisitioned | looted (the W5 requisition/loot verbs).
+  // requisitioned | looted (the W5 requisition/loot verbs) | reaction-battle |
+  // reaction-driven-off (the garrison-reaction resolution, JJ pp.104–106, 2026-06-14).
   'domain-warfare': {
     R: { action: 'string', domainId: 'string' },
     O: { armyId: 'string', hexId: 'string', occupierLeaderId: 'string', months: 'number',
          moraleRoll: 'object', math: 'object', mode: 'string', newRulerCharacterId: 'string',
          saltTheEarth: 'boolean', results: 'object',
          requisitionedGp: 'number', lootedGp: 'number', familiesLost: 'number', gp: 'number',
+         groupId: 'string', battleId: 'string', forceBr: 'number', bandBr: 'number',
+         attitude: 'string', effectiveAttitude: 'string',
          narrative: 'string' }
   },
   // army-supply (W5): the weekly supply check outcome.
@@ -2990,7 +2993,9 @@ function reverseMarketTransaction(campaign, eventId, opts){
 // the audit record of a move the verb already made.
 
 function _provHasProf(ch, re){
-  return !!(ch && Array.isArray(ch.proficiencies)) && ch.proficiencies.some(p => re.test(typeof p === 'string' ? p : (p && p.name) || ''));
+  // PT-0: read the canonical {key} (slug) as well as legacy strings / {name}; the single-word
+  // forage/hunt regexes (/survival/i, /hunting/i) match the slug keys directly.
+  return !!(ch && Array.isArray(ch.proficiencies)) && ch.proficiencies.some(p => re.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''));
 }
 // Territory class for forage/hunt modifiers: a hex's domain classification, else 'Unsettled' (wilderness).
 function _provTerritoryClass(campaign, hex){
@@ -3001,7 +3006,6 @@ function _provTerritoryClass(campaign, hex){
   }
   return 'Unsettled';
 }
-function _provD20(rng){ return 1 + Math.floor((rng || Math.random)() * 20); }
 // Apply the SUCCESS yield for `kind`, tagging any added inventory line with `evId` so a reroll can
 // surgically reverse JUST this attempt (independent of other stacked forages). Returns
 // { yieldDays, yieldStone, pre } — `pre` (water only) is the snapshot a reverse restores.
@@ -3109,14 +3113,17 @@ function forageActivity(campaign, opts){
       return { ok: true, success: true, auto: true, event: ev, newWaterDays: ch.waterDaysCarried };
     }
     const target = dry ? 18 : 14;
-    const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
+    // PT-6 → Layer 1: autoFailBand 0 — RR p.278 forage has NO natural-1 auto-fail (must be preserved).
+    const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }], autoFailBand: 0, proficient: false, rng: rng });
+    const rolled = fr.natural, success = fr.success;
     const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'water', rolled, target, bonus, terrMod: 0, success });
     return { ok: true, success, rolled, target, bonus, event: ev, newWaterDays: ch.waterDaysCarried };
   }
 
   if(kind === 'firewood'){
     const target = forest ? 3 : 14;
-    const rolled = _provD20(rng); const success = (rolled + bonus) >= target;
+    const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }], autoFailBand: 0, proficient: false, rng: rng });  // PT-6 → Layer 1 (no auto-fail, RR p.278)
+    const rolled = fr.natural, success = fr.success;
     const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'firewood', rolled, target, bonus, terrMod: 0, success });
     return { ok: true, success, rolled, target, bonus, event: ev };
   }
@@ -3127,7 +3134,9 @@ function forageActivity(campaign, opts){
   if(dry) terrMod -= 4;
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Borderlands') terrMod -= 2;
   const target = 18;
-  const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
+  // PT-6 → Layer 1: bonus (Survival) + terrMod (terrain/territory) itemized; autoFailBand 0 (no auto-fail, RR p.278).
+  const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }, { source: 'territory', value: terrMod }], autoFailBand: 0, proficient: false, rng: rng });
+  const rolled = fr.natural, success = fr.success;
   const ev = _provCommit(campaign, ch, hex, { activity: 'forage', forageKind: 'food', rolled, target, bonus, terrMod, success });
   return { ok: true, success, rolled, target, bonus, terrMod, event: ev };
 }
@@ -3188,7 +3197,10 @@ function huntActivity(campaign, opts){
   let terrMod = 0;
   if(territory === 'Civilized') terrMod -= 4; else if(territory === 'Outlands') terrMod += 2; else if(territory === 'Unsettled') terrMod += 4;
   const target = 14;
-  const rolled = _provD20(rng); const success = (rolled + bonus + terrMod) >= target;
+  // PT-6 → Layer 1: Survival/Hunting bonus + territory terrMod itemized; autoFailBand 0 (no auto-fail,
+  // RR p.278). The throw consumes ONE rng BEFORE the wandering draw — order preserved (byte-identical).
+  const fr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'survival', value: bonus }, { source: 'territory', value: terrMod }], autoFailBand: 0, proficient: false, rng: rng });
+  const rolled = fr.natural, success = fr.success;
   const encounter = _huntWanderingDraw(campaign, ch, hex, rng);
   const ev = _provCommit(campaign, ch, hex, { activity: 'hunt', rolled, target, bonus, terrMod, success, wanderingMonsterRisk: true, encounter: encounter });
   return { ok: true, success, rolled, target, bonus, terrMod, wanderingMonsterRisk: true, encounter: encounter, event: ev };
@@ -3214,8 +3226,10 @@ function rerollProvisioningActivity(campaign, eventId, opts){
   const bonus = Number(ev.payload.bonus) || 0;
   const terrMod = Number(ev.payload.terrMod) || 0;
   const target = Number(ev.payload.target) || 14;
-  const rolled = _provD20(opts.rng || Math.random);
-  const success = (rolled + bonus + terrMod) >= target;
+  // PT-6 → Layer 1 (the forage/hunt reroll re-throws the same throw): autoFailBand 0, no auto-fail (RR p.278).
+  const fr = _gpwACKS().rollProficiencyThrow({ target: target, modifiers: [{ source: 'bonus', value: bonus }, { source: 'territory', value: terrMod }], autoFailBand: 0, proficient: false, rng: opts.rng || Math.random });
+  const rolled = fr.natural;
+  const success = fr.success;
   if(oldSuccess && !success){
     _provReverseYield(campaign, ch, ev);
   } else if(!oldSuccess && success){
@@ -3364,9 +3378,11 @@ function rerollHexSearch(campaign, eventId, opts){
   // state with the success (no lair pool here). Defensive — the flip applies only when the
   // journey still holds the expected state (a same-session affordance, like the lair reverse).
   if(ev.payload.method === 'landmark-search'){
-    const lRolled = _provD20(rng);
-    const lScore = lRolled + bonus + mod;
-    const lSuccess = (lRolled !== 1) && (lScore >= target);
+    // PT-6 → Layer 1 (the landmark-search reroll, RR p.285): nat-1 auto-fail (autoFailBand 1).
+    const lr = _gpwACKS().rollProficiencyThrow({ target: target, modifiers: [{ source: 'tracking', value: bonus }, { source: 'specific', value: mod }], autoFailBand: 1, proficient: false, rng: rng });
+    const lRolled = lr.natural;
+    const lScore = lr.total;
+    const lSuccess = lr.success;
     const lj = (campaign.journeys || []).find(x => x && x.id === ev.payload.landmarkJourneyId) || null;
     if(lj){
       if(lSuccess && !ev.payload.landmarkFound && lj.status === 'lost'){
@@ -3384,9 +3400,11 @@ function rerollHexSearch(campaign, eventId, opts){
              found: null, landmarkFound: lSuccess, event: ev };
   }
   if(ev.payload.foundLairId) _reverseSearchDiscovery(campaign, ev);   // the old find returns to the pool before the re-pick
-  const rolled = _provD20(rng);
-  const score = rolled + bonus + mod;
-  const success = (rolled !== 1) && (score >= target);
+  // PT-6 → Layer 1 (the search reroll): nat-1 auto-fail (autoFailBand 1).
+  const sr = _gpwACKS().rollProficiencyThrow({ target: target, modifiers: [{ source: 'tracking', value: bonus }, { source: 'specific', value: mod }], autoFailBand: 1, proficient: false, rng: rng });
+  const rolled = sr.natural;
+  const score = sr.total;
+  const success = sr.success;
   let found = null;
   if(success){
     let pool = _undiscoveredLairsAt(campaign, ev.payload.hexId).filter(l => score >= target + (Number(l.hiddenDC) || 0));
@@ -3423,9 +3441,12 @@ function hexSearchActivity(campaign, opts){
   const target = (typeof A.wildernessSearchTargetForSpeed === 'function') ? A.wildernessSearchTargetForSpeed(sp.speed) : 18;
   const bonus = _cohortHasProf(sp.cohort, /tracking/i) ? 4 : 0;   // any member with Tracking → +4 (extra ranks do NOT add here — RR p.120)
   const mod = (opts.specific || landmarkJourney) ? -4 : 0;        // the landmark IS a specific point of interest (RR p.285 ¶3)
-  const rolled = _provD20(rng);
-  const score = rolled + bonus + mod;
-  const throwSuccess = (rolled !== 1) && (score >= target);        // unmodified 1 always fails (ACKS-general)
+  // PT-6 → Layer 1 (the search throw, RR pp.276–277): nat-1 auto-fail (autoFailBand 1); the Tracking
+  // +4 and specific/landmark −4 carry as itemized modifiers. Byte-identical to the inline 1d20.
+  const sr = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'tracking', value: bonus }, { source: 'specific', value: mod }], autoFailBand: 1, proficient: false, rng: rng });
+  const rolled = sr.natural;
+  const score = sr.total;
+  const throwSuccess = sr.success;                                 // unmodified 1 always fails (ACKS-general)
   // What a successful throw finds: an undiscovered lair whose hiddenDC the score also clears
   // (hiddenDC raises that one lair's bar — well-hidden). The Judge picks among qualifiers (RR
   // p.276 "the Judge will decide which one"); v1 picks randomly. In landmark mode the hour
@@ -3493,14 +3514,17 @@ function hexSearchActivity(campaign, opts){
     const prior = (campaign.eventLog || []).filter(e => e && e.event && e.event.kind === 'hex-search'
       && e.event.payload && e.event.payload.hexId === hexId && e.event.payload.success
       && e.event.payload.method !== 'track-home').length;
-    const sRoll = _provD20(rng);
     const sBonus = prior * 4;
+    // PT-6 → Layer 1 (RR p.277 Land Surveying): nat-1 (sr.botch) → a false reading; else sr.success
+    // (≥ 18). sBonus is rng-free so moving it before the roll preserves rng order → byte-identical.
+    const sr = A.rollProficiencyThrow({ target: 18, modifiers: [{ source: 'prior-searches', value: sBonus }], autoFailBand: 1, proficient: false, fumbleEffect: 'false-reading', rng: rng });
+    const sRoll = sr.natural;
     const trueCount = ((typeof A.lairsAtHex === 'function') ? (A.lairsAtHex(campaign, hexId) || []) : []).filter(l => l && l.status !== 'dynamic').length;
-    if(sRoll === 1){
+    if(sr.botch){
       let fake = trueCount + ((rng() < 0.5 ? 1 : -1) * (1 + Math.floor(rng() * 3)));
       if(fake < 0 || fake === trueCount) fake = trueCount + 1;
       survey = { assessed: true, falseReading: true, count: fake, rolled: sRoll, target: 18, bonus: sBonus };
-    } else if(sRoll + sBonus >= 18){
+    } else if(sr.success){
       survey = { assessed: true, falseReading: false, count: trueCount, rolled: sRoll, target: 18, bonus: sBonus };
     } else {
       survey = { assessed: false, rolled: sRoll, target: 18, bonus: sBonus };
@@ -3586,11 +3610,12 @@ function trackingFindThrow(opts){
   if(rainH)               mods.push({ source: 'rain-snow',   value: -4 * rainH });
   if(o.dimLight)          mods.push({ source: 'dim-light',   value: -4 });
   if(Number(o.gmMod))     mods.push({ source: 'gm',          value: Number(o.gmMod) });
-  const natural = _provD20(rng);
-  const total = mods.reduce((s, m) => s + m.value, natural);
-  const target = 11;
-  return { natural: natural, target: target, modifiers: mods, total: total,
-           success: (natural !== 1) && (total >= target) };
+  // PT-6 — folded onto Layer 1 (ACKS.rollProficiencyThrow): nat-1 auto-fail (autoFailBand 1, the
+  // house convention on these throws), no nat-20 rule (proficient false), target 11. The itemized
+  // mods carry through unchanged → the {natural,target,modifiers,total,success} shape is byte-
+  // identical to the inline 1d20 it replaces (this resolver was already the unified shape).
+  const r = _gpwACKS().rollProficiencyThrow({ target: 11, modifiers: mods, autoFailBand: 1, proficient: false, rng: rng });
+  return { natural: r.natural, target: r.target, modifiers: mods, total: r.total, success: r.success };
 }
 
 // Begin a follow. opts: { encounterId? OR lairId? (a fragment row's den — resolved to its
@@ -3635,7 +3660,11 @@ function beginTracking(campaign, opts){
     return { ok: false, error: 'already-tracking' };
   // The tracker: Tracking proficiency (RR p.120 — the throw IS a Tracking throw), standing
   // where the trail starts. A party that moved on must return to the meeting hex first.
-  const ranks = ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && p.name) || ''))).length;
+  // PT-0: the canonical rank count (merges ["Tracking","Tracking"] AND {key:'tracking',ranks:2} → 2,
+  // matching the pre-migration count-entries value). Fallback: shape-aware count-entries.
+  const ranks = (typeof A.proficiencyRanks === 'function')
+    ? A.proficiencyRanks(ch, 'tracking')
+    : ((ch.proficiencies || []).filter(p => /tracking/i.test(typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || ''))).length;
   if(ranks < 1) return { ok: false, error: 'no-tracking' };
   if(ch.currentHexId !== enc.hexId) return { ok: false, error: 'not-at-trail-hex' };
   const meetHex = (typeof A.findHex === 'function') ? A.findHex(campaign, enc.hexId) : null;
@@ -3933,8 +3962,8 @@ function _evasionNavAndCarry(campaign, enc, rng){
   const target = (A.JOURNEY_NAV_THROWS && A.JOURNEY_NAV_THROWS[terrain] != null) ? A.JOURNEY_NAV_THROWS[terrain] : 6;
   const ids = (enc.partySide && enc.partySide.characterIds) || [];
   let hasNav = false, hasPath = false;
-  const scan = (entry) => {
-    const name = (typeof entry === 'string') ? entry : ((entry && (entry.name || entry.id || entry.proficiency)) || '');
+  const scan = (entry) => {       // PT-0: read the canonical {key} slug as well as legacy strings / {name}
+    const name = (typeof entry === 'string') ? entry : ((entry && (entry.key || entry.name || entry.label || entry.id || entry.proficiency)) || '');
     if(/\bnavigation\b/i.test(name)) hasNav = true;
     if(/\bpathfinding\b/i.test(name)) hasPath = true;
   };
@@ -4533,8 +4562,10 @@ function encounterToneRows(campaign, encounterId, tone, opts){
     else if(mHd - fLvl >= 3) gapKey = 'down';
   }
 
+  // PT-0: read the canonical {key} slug as well as legacy strings / {name}; de-hyphenate so a
+  // 'Mystic Aura' needle matches the slug key 'mystic-aura' under the substring indexOf below.
   const profs = face ? [].concat(face.proficiencies || [], face.classPowers || [])
-    .map(p => String((p && p.name) || p || '').toLowerCase()) : [];
+    .map(p => String((p && (p.key || p.name || p.label)) || p || '').toLowerCase().replace(/-/g, ' ')) : [];
   const hasProf = name => profs.some(p => p.indexOf(name.toLowerCase()) >= 0);
 
   let rel = (enc.reaction && enc.reaction.current) || null;

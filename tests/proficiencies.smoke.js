@@ -7,9 +7,11 @@
 // (roster completeness, every task's prof + every throw-modifier target exists, the RAW worked
 // targets Alchemy 11/7/3 · Acrobatics 18-lvl · Dungeonbashing 4xSTR · JJ p.94 rows); Layer 3
 // characterProficiencyThrow + characterAvailableThrows (rank/level reduction, throw-modifiers,
-// ability x multiplier, min-rank gating, improvised, forecast); throwSuccessChance; and the
-// LOAD-BEARING ADDITIVE GUARD — migrateCampaign does NOT reshape character.proficiencies (the
-// 6 templates + demo stay migrate-no-ops; PT-0's on-disk migration is DEFERRED).
+// ability x multiplier, min-rank gating, improvised, forecast); throwSuccessChance; and PT-0 — the
+// ON-DISK migration (migrateCharacterProficiencies materializes the loose strings to {key,ranks},
+// idempotent, custom labels preserved; the 6 templates + demo now carry {key,ranks} and stay
+// migrate-no-ops) + the reader sweep (engine officers / magistrate gate / nav / forage read the
+// canonical {key,ranks} shape).
 // =============================================================================
 const fs = require('fs');
 const path = require('path');
@@ -28,6 +30,7 @@ section('Module loads + exports present');
 // =============================================================================
 ['PROFICIENCY_CATALOG','PROFICIENCY_TASKS','PROFICIENCY_THROW_MODIFIERS','IMPROVISED_THROW_DIFFICULTY','PROFICIENCY_ALIASES','PROFICIENCY_LISTS',
  'parseProficiencyEntry','characterProficiencies','proficiencyRanks','hasProficiency','canonicalProficiencyKey','proficiencyLabel',
+ 'migrateCharacterProficiencies','migrateAllCharacterProficiencies',
  'rollProficiencyThrow','throwSuccessChance','characterProficiencyThrow','characterAvailableThrows','recordProficiencyThrow']
  .forEach(k => ok('ACKS.' + k + ' exported', ACKS[k] != null));
 
@@ -204,35 +207,126 @@ ok('proficiency-throw is Event-Wizard opt-out', ACKS.EVENT_WIZARD_OPTOUT && ACKS
 })();
 
 // =============================================================================
-section('ADDITIVE GUARD — migrateCampaign does NOT reshape proficiencies (templates stay no-ops)');
+section('PT-0 — migrateCharacterProficiencies (legacy strings -> canonical {key,ranks})');
 // =============================================================================
+const MC = ACKS.migrateCharacterProficiencies;
 ok('blankCharacter still seeds proficiencies: []', (() => { const c = ACKS.blankCharacter ? ACKS.blankCharacter() : { proficiencies: [] }; return Array.isArray(c.proficiencies) && c.proficiencies.length === 0; })());
+ok('materializes every legacy form to {key,ranks(,spec)}', (() => {
+  const c = { proficiencies: ['Theology (2)', 'Tracking', 'Tracking', 'Craft (smithing)', 'Heraldry', 'Diplomacy'] };
+  const changed = MC(c);
+  return changed === true && JSON.stringify(c.proficiencies) === JSON.stringify([
+    { key: 'theology', ranks: 2 }, { key: 'tracking', ranks: 2 },
+    { key: 'craft', ranks: 1, spec: 'smithing' }, { key: 'manual-of-arms', ranks: 1 }, { key: 'diplomacy', ranks: 1 }
+  ]);
+})());
+ok('idempotent — second run is a no-op (returns false)', (() => {
+  const c = { proficiencies: ['Theology (2)', 'Tracking', 'Tracking'] }; MC(c); return MC(c) === false;
+})());
+ok('already-canonical {key,ranks} is a no-op', MC({ proficiencies: [{ key: 'diplomacy', ranks: 1 }, { key: 'theology', ranks: 2 }] }) === false);
+ok('legacy object {name} migrates', (() => { const c = { proficiencies: [{ name: 'Tracking' }] }; MC(c); return c.proficiencies[0].key === 'tracking' && c.proficiencies[0].ranks === 1; })());
+ok('bare {key} (no ranks) -> ranks 1', (() => { const c = { proficiencies: [{ key: 'alchemy' }] }; MC(c); return c.proficiencies[0].ranks === 1; })());
+ok('custom off-catalog key preserves human label + idempotent', (() => {
+  const c = { proficiencies: ['Goat Yoga'] }; MC(c);
+  return JSON.stringify(c.proficiencies) === JSON.stringify([{ key: 'goat-yoga', ranks: 1, label: 'Goat Yoga' }]) && MC(c) === false;
+})());
+ok('migrateAllCharacterProficiencies counts only changed characters', (() => {
+  const camp = { characters: [{ proficiencies: ['Diplomacy'] }, { proficiencies: [{ key: 'theology', ranks: 1 }] }, { proficiencies: [] }] };
+  return ACKS.migrateAllCharacterProficiencies(camp) === 1;
+})());
+
+// =============================================================================
+section('PT-0 — on-disk migration: templates carry {key,ranks} + stay migrate-no-ops');
+// =============================================================================
 (() => {
   const tdir = path.join(REPO, 'Templates');
-  let templatesChecked = 0;
+  let checked = 0, hadProfs = 0;
   for(const f of fs.readdirSync(tdir).filter(x => x.endsWith('.acks.json'))){
     const raw = JSON.parse(fs.readFileSync(path.join(tdir, f), 'utf8'));
-    // any character with a string proficiency entry pre-migration?
     const before = (raw.characters || []).flatMap(c => c.proficiencies || []);
-    const hadString = before.some(p => typeof p === 'string');
-    const migrated = ACKS.migrateCampaign ? ACKS.migrateCampaign(JSON.parse(JSON.stringify(raw))) : JSON.parse(JSON.stringify(raw));
+    // every stored proficiency is now the canonical {key,ranks} object — no strings on disk
+    ok('template proficiencies are canonical {key,ranks}: ' + f,
+       before.every(p => p && typeof p === 'object' && typeof p.key === 'string' && typeof p.ranks === 'number'));
+    // and migrate is a no-op on the proficiencies field
+    const migrated = ACKS.migrateCampaign(JSON.parse(JSON.stringify(raw)));
     const after = (migrated.characters || []).flatMap(c => c.proficiencies || []);
-    // PT-1 is ADDITIVE — string entries must REMAIN strings (not reshaped to {key,ranks})
-    const stillStrings = after.every(p => typeof p === 'string' || (p && typeof p === 'object' && !('ranks' in p && 'key' in p && !p.name)));
-    if(hadString){ ok('template proficiencies NOT reshaped by migrate: ' + f, after.some(p => typeof p === 'string')); templatesChecked++; }
+    ok('template proficiencies are a migrate-no-op: ' + f, JSON.stringify(before) === JSON.stringify(after));
+    checked++; if(before.length) hadProfs++;
   }
-  ok('at least one template had string proficiencies to guard', templatesChecked >= 1);
+  ok('all 6 templates checked, with proficiencies present', checked === 6 && hadProfs >= 4);
 })();
 
-// the read layer parses the stored strings WITHOUT the field being reshaped
-ok('read layer works on un-reshaped (string) proficiencies', ACKS.proficiencyRanks({ proficiencies: ['Theology (2)', 'Healing', 'Diplomacy'] }, 'theology') === 2);
+// =============================================================================
+section('PT-0 — reader sweep: engine readers consume the canonical {key,ranks} shape');
+// =============================================================================
+// officer table (acks-engine.js) — proficiencyRanks/hasProficiencyNamed delegate to the canonical accessor
+ok('officer SA reads {key,ranks} Military Strategy', ACKS.proficiencyRanks({ proficiencies: [{ key: 'military-strategy', ranks: 2 }] }, 'Military Strategy') === 2);
+ok('officer SA still reads legacy string Military Strategy 2', ACKS.proficiencyRanks({ proficiencies: ['Military Strategy 2'] }, 'Military Strategy') === 2);
+ok('strategicAbility picks up migrated ranks', ACKS.strategicAbility({ abilities: { INT: 10, WIL: 10, CHA: 10 }, proficiencies: [{ key: 'military-strategy', ranks: 3 }] }) === 3);
+ok('hasProficiencyNamed(Leadership) on {key,ranks}', ACKS.hasProficiencyNamed({ proficiencies: [{ key: 'leadership', ranks: 1 }] }, 'Leadership') === true);
+ok('Commanding Presence != Command on {key,ranks}', ACKS.proficiencyRanks({ proficiencies: [{ key: 'commanding-presence', ranks: 1 }] }, 'Command') === 0);
+// magistrate gate (acks-engine-entities.js) — canonical, multi-word + alias aware
+ok('isCharacterQualifiedForRole(chaplain): {key:theology} + divine class', ACKS.isCharacterQualifiedForRole({ class: 'Cleric', proficiencies: [{ key: 'theology', ranks: 1 }] }, 'chaplain') === true);
+ok('chaplain rejected without the Theology proficiency', ACKS.isCharacterQualifiedForRole({ class: 'Cleric', proficiencies: [{ key: 'diplomacy', ranks: 1 }] }, 'chaplain') === false);
+ok('captainOfGuard needs Command + Manual of Arms ({key,ranks})',
+   ACKS.isCharacterQualifiedForRole({ proficiencies: [{ key: 'command', ranks: 1 }, { key: 'manual-of-arms', ranks: 1 }] }, 'captainOfGuard') === true
+   && ACKS.isCharacterQualifiedForRole({ proficiencies: [{ key: 'command', ranks: 1 }] }, 'captainOfGuard') === false);
+ok('steward Bargaining + any(Craft/Profession), spec-tolerant',
+   ACKS.isCharacterQualifiedForRole({ proficiencies: [{ key: 'bargaining', ranks: 1 }, { key: 'craft', ranks: 1, spec: 'smithing' }] }, 'steward') === true);
+// construction supervisor cap (acks-engine.js) — the hyphenated key must still resolve
+ok('Engineering {key} -> 100,000gp supervisor cap', ACKS.constructionSupervisorCapForCharacter({ proficiencies: [{ key: 'engineering', ranks: 1 }] }) === 100000);
+ok('Siege Engineering {key:siege-engineering} -> 25,000gp (hyphen fix)', ACKS.constructionSupervisorCapForCharacter({ proficiencies: [{ key: 'siege-engineering', ranks: 1 }] }) === 25000);
+// the read layer still parses loose strings (defensive — pre-migration / external data)
+ok('read layer still works on loose string proficiencies', ACKS.proficiencyRanks({ proficiencies: ['Theology (2)', 'Healing', 'Diplomacy'] }, 'theology') === 2);
+
+// =============================================================================
+section('PT-6 — ad-hoc resolver fold onto Layer 1 (byte-identical delegation)');
+// =============================================================================
+// The shipped 1d20-vs-target resolvers — rollNavigation (RR p.275), trackingFindThrow (RR p.120),
+// forage/hunt/hexSearch (RR pp.276-278, incl. their reroll siblings + the Land-Surveying throw) —
+// now route their die + success through rollProficiencyThrow (Layer 1). Same SINGLE rng consumption
+// (1 + floor(rng()*20)) + same RAW math = byte-identical. The full byte-identical proof is the
+// characterization suites that seed these resolvers (journeys / provisioning / cost-of-living /
+// encounters / monster-persistence); these are the targeted delegation + RAW-nuance assertions.
+
+// rollNavigation (RR p.275) — nat-1 auto-fail; the party bonus itemized; folds to Layer 1.
+(() => {
+  const nv = ACKS.rollNavigation(8, 4, fixedRng(0.5));   // natural 11, +4 → total 15 ≥ 8
+  ok('rollNavigation values: rng 0.5 vs 8+ with +4 → 11 / total 15 / success', nv.rolled === 11 && nv.total === 15 && nv.success === true && nv.naturalOne === false);
+  const l1 = ACKS.rollProficiencyThrow({ target: 8, modifiers: [{ value: 4 }], autoFailBand: 1, proficient: false, rng: fixedRng(0.5) });
+  ok('rollNavigation delegates to Layer 1 (same natural/total/success)', nv.rolled === l1.natural && nv.total === l1.total && nv.success === l1.success);
+  const n1 = ACKS.rollNavigation(6, 8, fixedRng(0));     // natural 1 → fail despite +8
+  ok('rollNavigation: natural 1 auto-fails even at +8 vs 6+ (autoFailBand:1 preserved)', n1.success === false && n1.naturalOne === true);
+})();
+
+// trackingFindThrow (RR p.120) — nat-1 auto-fail; count-band / extra-ranks / ground / age / rain / light itemized.
+(() => {
+  const tk = ACKS.trackingFindThrow({ ranks: 1, countTracked: 3, rng: fixedRng(0.5) });  // natural 11, count-band +2 → total 13 ≥ 11
+  ok('trackingFindThrow values: 3 tracked (+2 band), rng 0.5 → 11 / total 13 / success', tk.natural === 11 && tk.total === 13 && tk.success === true);
+  ok('trackingFindThrow itemizes the count band (+2)', Array.isArray(tk.modifiers) && tk.modifiers.some(m => m.source === 'count-band' && m.value === 2));
+  const tl1 = ACKS.rollProficiencyThrow({ target: 11, modifiers: [{ source: 'count-band', value: 2 }], autoFailBand: 1, proficient: false, rng: fixedRng(0.5) });
+  ok('trackingFindThrow delegates to Layer 1 (same natural/total/success)', tk.natural === tl1.natural && tk.total === tl1.total && tk.success === tl1.success);
+  const t1 = ACKS.trackingFindThrow({ ranks: 3, countTracked: 17, rng: fixedRng(0) });   // natural 1 → fail despite +8 ranks +8 band
+  ok('trackingFindThrow: natural 1 auto-fails despite +16 of bonuses (autoFailBand:1 preserved)', t1.natural === 1 && t1.success === false);
+})();
+
+// forageActivity (RR p.278) — NO auto-fail (autoFailBand:0): the riskiest nuance the fold must
+// preserve. Firewood in forest (3+) with Survival (+4) on a natural 1 must SUCCEED.
+(() => {
+  const fc = ACKS.blankCampaign({ name: 'pt6-forage' });
+  fc.hexes = [{ id: 'hx-forest', terrain: 'forest', domainId: null }];
+  fc.characters = [ACKS.blankCharacter({ id: 'fgr', name: 'Forager', currentHexId: 'hx-forest', proficiencies: [{ key: 'survival', ranks: 1 }] })];
+  const fr = ACKS.forageActivity(fc, { actorCharacterId: 'fgr', forageKind: 'firewood', rng: fixedRng(0) });   // natural 1, +4 vs 3+ → 5 ≥ 3
+  ok('forageActivity: firewood (forest, Survival), natural 1 → SUCCESS — RR p.278 forage has NO auto-fail (autoFailBand:0 preserved)', !!fr.ok && fr.rolled === 1 && fr.success === true);
+  const fr2 = ACKS.forageActivity(fc, { actorCharacterId: 'fgr', forageKind: 'water', rng: fixedRng(0.3) });    // natural 7, +4 vs 14+ → 11 < 14
+  ok('forageActivity: water (no source) 7+4 vs 14+ → fail (compare preserved)', !!fr2.ok && fr2.rolled === 7 && fr2.success === false);
+})();
 
 // =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Proficiency Throws PT-1 smoke checks passed.');
+  console.log('\nAll Proficiency Throws PT-0 + PT-1 + PT-6 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

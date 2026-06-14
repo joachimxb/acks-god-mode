@@ -341,10 +341,22 @@
         "spells": 13
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Mounted Combat",
-        "Land Surveying"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "mounted-combat",
+          "ranks": 1
+        },
+        {
+          "key": "land-surveying",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 5,
@@ -433,8 +445,14 @@
         "spells": 15
       },
       "proficiencies": [
-        "Manual of Arms",
-        "Endurance"
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "endurance",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 3,

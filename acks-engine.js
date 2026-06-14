@@ -805,6 +805,15 @@ function migrateCampaign(raw){
   // / hitDice fields. Legacy c.kind is preserved through stage 1 for display-string
   // compat; stage 2 will land the deletion after the index.html sweep.
   migrateAllCharacterClassification(current);
+  // Phase 3.6 Proficiency Throws PT-0 — materialize the loose character.proficiencies[] into the
+  // canonical { key, ranks (, spec) } shape on disk (idempotent). The proficiencies module's read
+  // layer already parses every legacy string form on the fly; this writes that view back so the
+  // stored field is canonical for the engine officer readers + integrators reading the .acks.json.
+  // Guarded: a no-op when the proficiencies module isn't loaded (standalone engine use). Runs after
+  // the five-axis classification migration. See Phase_3.6_Proficiency_Throws_Plan.md §5.2.
+  if(global.ACKS && typeof global.ACKS.migrateAllCharacterProficiencies === 'function'){
+    global.ACKS.migrateAllCharacterProficiencies(current);
+  }
   // Items I1 — character coin purse. Idempotent. Ensures every character has a
   // coins:{pp,gp,ep,sp,cp} object (folding a legacy personalGp scalar into coins.gp)
   // and keeps the personalGp mirror in lockstep (canonical-setter rule #10).
@@ -1120,11 +1129,14 @@ function agriculturalConstructionRatePerDay(campaign, domain, hex){
 // -> <=25,000gp (siege engineer), per RR p.174. A manually-set character.constructionSupervisorCap is
 // honored as a fallback/override (NPCs entered without proficiency detail). 0 = not a supervisor.
 // NOTE: RR p.174 says one rank of Siege Engineering counts as a skilled laborer, not a siege engineer;
-// a ranks check is a future refinement once the proficiency model tracks ranks (it stores names today).
+// a ranks check is a future refinement (the PT-0 model now tracks ranks via ACKS.proficiencyRanks).
 function constructionSupervisorCapForCharacter(character){
   if(!character) return 0;
   const manual = character.constructionSupervisorCap || 0;
-  const profs = (character.proficiencies || []).map(p => (typeof p === 'string' ? p : (p && p.key) || '').toLowerCase());
+  // PT-0: read the canonical {key} (or a legacy string / {name}); de-hyphenate so the slug key
+  // 'siege-engineering' still matches the 'siege engineering' substring needle below.
+  const profs = (character.proficiencies || []).map(p =>
+    (typeof p === 'string' ? p : (p && (p.key || p.name || p.label)) || '').toLowerCase().replace(/-/g, ' '));
   let derived = 0;
   if(profs.some(p => p.includes('engineering') && !p.includes('siege'))) derived = 100000;      // Engineer
   else if(profs.some(p => p.includes('siege engineering'))) derived = 25000;                     // Siege Engineer
@@ -3058,11 +3070,22 @@ function _isMonsterOfficer(c){ return !(c && c.abilities && typeof c.abilities.C
 // tracking-ranks convention — count entries — generalized for the officer table's
 // single-entry-with-rank style).
 function proficiencyRanks(character, name){
+  // PT-0: the canonical accessor lives in acks-engine-proficiencies.js — it reads the {key,ranks}
+  // shape AND legacy strings, alias-folds the name, and folds class-power equivalents. Delegate to it
+  // when loaded; the trailing-number parser below is the standalone-engine fallback. (The guard
+  // canon !== proficiencyRanks prevents self-recursion when this engine's own export is the one on ACKS.)
+  const canon = global.ACKS && global.ACKS.proficiencyRanks;
+  if(typeof canon === 'function' && canon !== proficiencyRanks) return canon(character, name);
   if(!character || !Array.isArray(character.proficiencies) || !name) return 0;
-  const want = String(name).toLowerCase();
+  const want = String(name).toLowerCase().replace(/-/g, ' ');
   let ranks = 0;
   for(const p of character.proficiencies){
-    const s = (typeof p === 'string' ? p : (p && p.name) || '').trim().toLowerCase();
+    if(p && typeof p === 'object' && typeof p.ranks === 'number'){       // canonical {key,ranks} entry
+      const k = String(p.key || p.name || p.label || '').toLowerCase().replace(/-/g, ' ');
+      if(k === want) ranks += p.ranks;
+      continue;
+    }
+    const s = (typeof p === 'string' ? p : (p && (p.name || p.key)) || '').trim().toLowerCase().replace(/-/g, ' ');
     if(!s.startsWith(want)) continue;
     const rest = s.slice(want.length).trim();
     if(rest && !/^\d+$/.test(rest)) continue;       // "Command" must not match "Commanding Presence"
@@ -3396,6 +3419,20 @@ function stationUnit(campaign, unitOrId, stationedAt){
   const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !unit) return null;
   if(!Array.isArray(campaign.units)) campaign.units = [];
+  // Home-on-leaving-garrison capture (2026-06-14): the first time a unit leaves its domain
+  // garrison for the field (mustered into an army, called up, sent to a hex), remember that
+  // garrison as its home so it knows where to return when its task ends. Only when no home is
+  // recorded yet; reads the unit's CURRENT (pre-move) station, so it must run before the move.
+  if(!unit.homeHexId){
+    const cur = unit.stationedAt;
+    const leavingGarrison = cur && cur.kind === 'domain-garrison' && cur.id
+      && !(stationedAt && stationedAt.kind === 'domain-garrison' && stationedAt.id === cur.id);
+    if(leavingGarrison){
+      if(!unit.homeDomainId) unit.homeDomainId = cur.id;
+      const hx = unitCurrentHexId(campaign, unit);   // the domain's seat hex (station is still the garrison)
+      if(hx) unit.homeHexId = hx;
+    }
+  }
   const idx = campaign.units.findIndex(u => u && u.id === unit.id);
   if(idx < 0) campaign.units.push(unit);
   else if(campaign.units[idx] !== unit) campaign.units[idx] = unit;
@@ -3462,6 +3499,99 @@ function disbandUnit(campaign, unitOrId){
   return unit;
 }
 
+// ─── Unit home garrison (2026-06-14) ─────────────────────────────────────────
+// A unit's HOME is a hex inside its domain — its default garrison station and the place it
+// returns to when a task ends (an army disbands). homeDomainId names the owning domain. All
+// three read defensively (old units → null = no home set; the prior homeless behavior stands).
+
+// Resolve the domain a unit belongs to: its explicit homeDomainId, else the domain it is
+// garrison-stationed at, else the domain owning its home hex. null for a domain-less unit
+// (a free mercenary band). Used to scope the home-hex picker + drive the return.
+function unitHomeDomainId(campaign, unit){
+  if(!campaign || !unit) return null;
+  if(unit.homeDomainId) return unit.homeDomainId;
+  const st = unit.stationedAt;
+  if(st && st.kind === 'domain-garrison' && st.id) return st.id;
+  if(unit.homeHexId){
+    const h = (campaign.hexes || []).find(x => x && x.id === unit.homeHexId);
+    if(h && h.domainId) return h.domainId;
+  }
+  return null;
+}
+
+// Set (hexId) or clear (hexId=null) a unit's home garrison hex. The hex MUST be inside a domain
+// ("a hex inside the Domain") — homeDomainId follows the hex's domain. When the unit is sitting
+// at home / unassigned (not in an army, not marching) the map hint (stationedAtHexId) snaps to
+// the home. Stamps a unit.history entry (the sibling-setter convention — levyConscripts /
+// trainLevyUnit stamp history, not a campaign event). Returns {ok, reason, unit}.
+function setUnitHome(campaign, unitOrId, hexId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return { ok: false, reason: 'no-unit' };
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  unit.history = unit.history || [];
+  if(!hexId){
+    unit.homeHexId = null;
+    unit.history.push({ turn, type: 'home-cleared', text: 'Home garrison cleared' });
+    return { ok: true, unit, cleared: true };
+  }
+  const hex = (campaign.hexes || []).find(h => h && h.id === hexId);
+  if(!hex) return { ok: false, reason: 'no-hex' };
+  if(!hex.domainId) return { ok: false, reason: 'hex-not-in-domain' };   // must be inside a domain
+  unit.homeHexId = hexId;
+  unit.homeDomainId = hex.domainId;
+  const st = unit.stationedAt;
+  const active = unit.rallyingToArmyId || (st && st.kind === 'army');
+  if(!active) unit.stationedAtHexId = hexId;
+  const d = (campaign.domains || []).find(x => x && x.id === hex.domainId);
+  const hexLabel = (global.ACKS && typeof global.ACKS.hexName === 'function') ? global.ACKS.hexName(hex) : hexId;
+  unit.history.push({ turn, type: 'home-set', text: 'Home garrison set to ' + hexLabel + (d ? (' (' + (d.name || d.id) + ')') : '') });
+  return { ok: true, unit };
+}
+
+// Send a unit back to its home garrison — the "task ends" return (disbandArmy + the W2
+// incursion sally + any future mission-end hook). The symmetric counterpart of callUpUnit:
+// when the unit is AWAY from home and a route is plottable, it MARCHES home (a journey with
+// unitReturnHome — the same unit-pace march machinery the call-up uses; on arrival
+// commitJourneyRecord falls it back into the garrison). When it is already at home, has no
+// home hex, or no current hex (can't plot a march), it falls in INSTANTLY. With NO home domain
+// at all it is left unstationed (the prior homeless behaviour — backward compatible). Pass
+// opts.instant to force the instant return (skip the march). Returns the unit.
+function returnUnitHome(campaign, unitOrId, opts){
+  opts = opts || {};
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return null;
+  unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+  const homeDomainId = unitHomeDomainId(campaign, unit);
+  const hasDomain = homeDomainId && (campaign.domains || []).some(d => d && d.id === homeDomainId);
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  if(!hasDomain){ unit.stationedAt = null; unit.returnJourneyId = null; return unit; }   // no home → homeless
+  const homeHexId = unit.homeHexId || (((campaign.hexes || []).find(h => h && h.domainId === homeDomainId)) || {}).id || null;
+  const currentHexId = unitCurrentHexId(campaign, unit);
+  const A = global.ACKS;
+  if(!opts.instant && homeHexId && currentHexId && currentHexId !== homeHexId
+     && A && typeof A.blankJourney === 'function'){
+    // March home — un-station (the troops take the road) and plot a unit journey to the home hex.
+    stationUnit(campaign, unit, null);
+    const dName = ((campaign.domains || []).find(d => d && d.id === homeDomainId) || {}).name || 'home';
+    const journey = A.blankJourney({ unitId: unit.id, unitReturnHome: true,
+      name: (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + dName,
+      startHexId: currentHexId, destinationHexId: homeHexId, participantCharacterIds: [] });
+    if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
+    campaign.journeys.push(journey);
+    if(typeof A.startJourney === 'function') A.startJourney(campaign, journey);
+    else journey.status = 'in-transit';
+    unit.returnJourneyId = journey.id;
+    (unit.history = unit.history || []).push({ turn, type: 'marching-home', text: 'Marching home to its garrison' });
+    return unit;
+  }
+  // Already home / no route / instant → fall in at once.
+  stationUnit(campaign, unit, { kind: 'domain-garrison', id: homeDomainId });
+  if(unit.homeHexId) unit.stationedAtHexId = unit.homeHexId;
+  unit.returnJourneyId = null;
+  (unit.history = unit.history || []).push({ turn, type: 'returned-home', text: 'Returned to its home garrison' });
+  return unit;
+}
+
 // ─── Phase 3 Military — army muster / disband (the canonical CRUD both verbs route
 //     through; the in-fiction Muster modal on a character/domain AND the Inspector
 //     Admin-verb Create) ──────────────────────────────────────────────────────────
@@ -3513,14 +3643,15 @@ function createArmy(campaign, opts={}){
   return army;
 }
 
-// Disband an army: un-station its units (they SURVIVE in campaign.units, homeless until
-// re-stationed — the next muster's available-units list surfaces them, closing the loop),
-// stop its march (the journey is marked disbanded), and splice it from campaign.armies.
-// Returns the removed army or null. The counterpart of createArmy.
+// Disband an army: send its units home (returnUnitHome — they return to their home garrison
+// when one is recorded, else SURVIVE in campaign.units unstationed; either way the next
+// muster's available-units list surfaces them, closing the loop), stop its march (the journey
+// is marked disbanded), and splice it from campaign.armies. Returns the removed army or null.
+// The counterpart of createArmy.
 function disbandArmy(campaign, armyOrId){
   const army = (typeof armyOrId === 'string') ? findArmy(campaign, armyOrId) : armyOrId;
   if(!campaign || !army) return null;
-  for(const u of armyUnits(campaign, army)){ if(u) u.stationedAt = null; }
+  for(const u of armyUnits(campaign, army)){ if(u) returnUnitHome(campaign, u); }
   if(army.journeyId && Array.isArray(campaign.journeys)){
     const j = campaign.journeys.find(x => x && x.id === army.journeyId);
     if(j) j.status = 'disbanded';
@@ -3581,6 +3712,159 @@ function armyIncomingUnits(campaign, army){
     }
     return { unit: u, journey: j, hexesRemaining: hexes, milesRemaining: miles, daysRemaining: days, fromHexId: j ? j.startHexId : null };
   });
+}
+
+// ─── Garrison reaction — deploy a force to meet a domain threat (2026-06-14) ──────────────
+// RAW JJ pp.104–106: a domain facing a violent encounter (an incursion band) may deploy a
+// force from the garrison to meet it in the field — "not every encounter requires the ruler
+// to sally forth… that's what garrisons are for!" The chosen force MARCHES to the band (W4),
+// the fight is resolved AT THE BAND'S LOCATION, and the force MARCHES HOME (returnUnitHome,
+// the §7 foundation). The sally force is a temporary Army — the cleanest reuse: createArmy +
+// the W4 march + (for a real fight) the W3 battle + disbandArmy → the return march, all
+// shipped. The slot-88 military day consumer fires the arrival resolution on co-location.
+
+// The domain's seat/stronghold hex — the default rally point (JJ p.103: "assume the garrison
+// is in the domain's stronghold if the ruler has not made other arrangements"). The ruler's
+// seat if he stands within the domain, else the hex bearing the largest settlement, else the
+// first domain hex. Pure.
+function domainSeatHexId(campaign, dom){
+  if(!campaign || !dom) return null;
+  const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === dom.id);
+  if(!domHexes.length) return null;
+  const ruler = dom.rulerCharacterId ? (campaign.characters || []).find(c => c && c.id === dom.rulerCharacterId) : null;
+  if(ruler && ruler.currentHexId && domHexes.some(h => h.id === ruler.currentHexId)) return ruler.currentHexId;
+  let best = null, bestPop = -1;
+  for(const h of domHexes){
+    const s = h.settlement || null;
+    const pop = s ? (s.families || s.population || 0) : 0;
+    if(pop > bestPop){ bestPop = pop; best = h; }
+  }
+  return (best || domHexes[0]).id;
+}
+
+// The platoon-scale BR (JJ p.105) of an incursion band — its catalog per-creature BR × the
+// platoon factor, by LIVING count. null when the band has no priced catalog BR (GM prices it).
+function reactionBandPlatoonBr(campaign, group){
+  if(!campaign || !group) return null;
+  const key = group.groupTemplate && group.groupTemplate.monsterCatalogKey;
+  const entry = (key && global.ACKS && typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(key) : null;
+  const count = groupActiveCount(group);
+  if(!entry || typeof entry.battleRating !== 'number' || !count) return null;
+  return monsterPlatoonBr(entry.battleRating, count);
+}
+
+// The platoon-scale BR a set of units would field (the sally force).
+function reactionForcePlatoonBr(campaign, unitIds){
+  if(!campaign || !Array.isArray(unitIds)) return 0;
+  let br = 0;
+  for(const uid of unitIds){
+    const u = (typeof uid === 'string') ? findUnit(campaign, uid) : uid;
+    if(u) br += unitPlatoonScaleBr(u) || 0;
+  }
+  return Math.round(br * 100) / 100;
+}
+
+// Predict deploying `unitIds` against the band, by the RAW attitude+BR rules (JJ p.104). Pure
+// — drives the BR preview in the deploy modal AND the Military-tab threats table. Returns
+// {forceBr, bandBr, attitude, attitudeLabel, lingering, effectiveAttitude, flips, outcome,
+//  lines}. outcome ∈ 'battle' | 'driven-off' | 'priced-by-gm'.
+function garrisonReactionPreview(campaign, groupOrId, unitIds){
+  const group = (typeof groupOrId === 'string') ? findGroup(campaign, groupOrId) : groupOrId;
+  if(!campaign || !group || !group.incursion) return null;
+  const forceBr = reactionForcePlatoonBr(campaign, unitIds || []);
+  const bandBr = reactionBandPlatoonBr(campaign, group);
+  const attitude = group.incursion.attitude || 'neutral';
+  const lingering = group.incursion.disposition === 'lingering';
+  // neutral / mercantilist / friendly bands turn UNFRIENDLY when deployed against (JJ p.104).
+  const flips = (attitude === 'neutral' || attitude === 'mercantilist' || attitude === 'friendly');
+  const effectiveAttitude = flips ? 'unfriendly' : attitude;
+  const bandRow = ((global.ACKS && global.ACKS.DOMAIN_REACTION_BANDS) || []).find(b => b && b.key === attitude);
+  const attitudeLabel = (bandRow && bandRow.label) || (attitude.charAt(0).toUpperCase() + attitude.slice(1));
+  const lines = [];
+  if(flips) lines.push('deploying turns them UNFRIENDLY (JJ p.104)');
+  let outcome;
+  if(bandBr == null){
+    outcome = 'priced-by-gm';
+    lines.push('the fight vs a drive-off is the Judge’s call — the band has no priced BR');
+  } else if(effectiveAttitude === 'hostile'){
+    outcome = 'battle';
+    lines.push('they FIGHT — hostile monsters always give battle (JJ p.104)');
+  } else {   // unfriendly (including the flipped bands)
+    if(bandBr >= forceBr){ outcome = 'battle'; lines.push('they FIGHT — the band’s BR ' + bandBr + ' ≥ your force ' + forceBr + ' (JJ p.104)'); }
+    else { outcome = 'driven-off'; lines.push('DRIVEN OFF — your force ' + forceBr + ' > the band’s BR ' + bandBr + ' (JJ p.104)'); }
+  }
+  return { forceBr, bandBr, attitude, attitudeLabel, lingering, effectiveAttitude, flips, outcome, lines };
+}
+
+// The army-organization advisory (RR pp.435–437) a freshly-mustered reaction force WOULD carry,
+// computed from the chosen units + commander BEFORE deploying — the deploy modal's up-front twin of
+// the army card's validateArmyOrganization. createArmy musters one "Main Body" division of all the
+// units under the commander, so this reproduces exactly the findings that army would report: no
+// commander, under-3-units (the headline — RR p.435), the commander's scale qualification (RR p.437)
+// and his leadership-ability cap (RR p.435). Advisory + GM-overridable — a one-unit sally is a
+// legitimate if sub-strength choice (RAW's waiver clause), so it never blocks the deploy. Counts the
+// full committed force (present + called-up), matching the BR preview. Pure. Returns [{code, text}].
+function reactionForceOrgFindings(campaign, opts){
+  opts = opts || {};
+  const findings = [];
+  const unitIds = (Array.isArray(opts.unitIds) ? opts.unitIds : []).filter(Boolean);
+  const cmdr = (campaign && opts.commanderCharacterId) ? _findCharacterById(campaign, opts.commanderCharacterId) : null;
+  if(!cmdr) findings.push({ code: 'no-leader', text: 'No commander yet — the ruler may lead in person (RR p.435)' });
+  if(unitIds.length < 3) findings.push({ code: 'under-3-units', text: 'An army must have at least 3 units (RR p.435) — has ' + unitIds.length });
+  if(cmdr){
+    const units = unitIds.map(id => findUnit(campaign, id)).filter(Boolean);
+    const totalTroops = units.reduce((s, u) => s + unitActiveCount(u), 0);
+    const scale = (global.ACKS && global.ACKS.armyScaleForSize) ? global.ACKS.armyScaleForSize(totalTroops) : 'company';
+    if(qualifiesAsCommander(cmdr, scale) === false) findings.push({ code: 'commander-unqualified', text: (cmdr.name || 'The commander') + ' does not qualify to command at ' + scale + ' scale (RR p.437)' });
+    if(unitIds.length > leadershipAbility(cmdr)) findings.push({ code: 'commander-over-leadership', text: unitIds.length + ' units exceed ' + (cmdr.name || 'the commander') + '’s leadership ability ' + leadershipAbility(cmdr) + ' (RR p.435)' });
+  }
+  return findings;
+}
+
+// Deploy a sally force against an incursion band. Muster a temporary Army at the rally point
+// (default the domain seat — JJ p.103) with the chosen units (co-located fall in; distant ones
+// are called up — they march in), mark it as reacting to the band, and march it to the band's
+// hex (W4). The slot-88 military day consumer resolves the meeting on arrival; the GM Recalls
+// afterward (recallReactionForce → the units march home). opts: {groupId, unitIds[],
+// callUpUnitIds[], commanderCharacterId, rallyHexId, name, stance, pace}. Returns
+// {ok, army, journey?, reason?}.
+function deployGarrisonReaction(campaign, opts){
+  opts = opts || {};
+  if(!campaign) return { ok: false, reason: 'no-campaign' };
+  const group = findGroup(campaign, opts.groupId);
+  if(!group || !group.incursion) return { ok: false, reason: 'no-band' };
+  const dom = (campaign.domains || []).find(d => d && d.id === group.incursion.domainId) || null;
+  let rallyHexId = opts.rallyHexId || (dom ? domainSeatHexId(campaign, dom) : null);
+  const unitIds = (Array.isArray(opts.unitIds) ? opts.unitIds : []).filter(Boolean);
+  const callUpUnitIds = (Array.isArray(opts.callUpUnitIds) ? opts.callUpUnitIds : []).filter(Boolean);
+  if(!unitIds.length && !callUpUnitIds.length) return { ok: false, reason: 'no-units' };
+  const army = createArmy(campaign, {
+    name: opts.name || (((dom && dom.name) || 'Domain') + ' reaction force'),
+    leaderCharacterId: opts.commanderCharacterId || null,
+    currentHexId: rallyHexId || null,
+    strategicStance: opts.stance || 'offensive',
+    unitIds, callUpUnitIds
+  });
+  army.reactionTargetGroupId = group.id;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  (army.history = army.history || []).push({ turn, type: 'deployed-reaction',
+    text: 'Deployed to meet ' + (group.name || 'a band') + (dom ? (' threatening ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
+  // March to the band's hex (W4). If the band is AT the rally point already, no march — the
+  // consumer resolves on the spot next tick (the army stands on the band).
+  let journey = null;
+  const bandHexId = group.currentHexId || null;
+  if(bandHexId && rallyHexId && bandHexId !== rallyHexId && global.ACKS && typeof global.ACKS.startArmyMarch === 'function'){
+    const r = global.ACKS.startArmyMarch(campaign, army.id, { destinationHexId: bandHexId, pace: opts.pace || 'normal' });
+    if(r && r.ok) journey = r.journey;
+  }
+  return { ok: true, army, journey, rallyHexId };
+}
+
+// Recall a sally force — the fight's done, or it's called off: disband it, sending every unit
+// MARCHING HOME (returnUnitHome — the §7 foundation). The reaction stamps fall away with the
+// army. A thin, named wrapper over disbandArmy. Returns the removed army or null.
+function recallReactionForce(campaign, armyOrId){
+  return disbandArmy(campaign, armyOrId);
 }
 
 // =============================================================================
@@ -10153,7 +10437,9 @@ const ACKS = Object.assign(global.ACKS || {}, {
   leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
-  validateArmyOrganization, stationUnit, disbandUnit, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
+  validateArmyOrganization, stationUnit, disbandUnit, setUnitHome, returnUnitHome, unitHomeDomainId, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
+  // Garrison reaction — deploy a force to meet a domain threat (JJ pp.104–106, 2026-06-14)
+  domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
   // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization
   conscriptLevyMax, militiaLevyMax, domainLevyUnits, conscriptCount, militiaCalledUpCount,
   militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,

@@ -543,10 +543,23 @@
         "spells": 11
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Magical Engineering",
-        "Craft (smithing)"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "magical-engineering",
+          "ranks": 1
+        },
+        {
+          "key": "craft",
+          "ranks": 1,
+          "spec": "smithing"
+        }
       ],
       "classPowers": [
         "Dwarven darkvision",
@@ -639,9 +652,19 @@
         "spells": 9
       },
       "proficiencies": [
-        "Craft (smithing)",
-        "Theology",
-        "Magical Engineering"
+        {
+          "key": "craft",
+          "ranks": 1,
+          "spec": "smithing"
+        },
+        {
+          "key": "theology",
+          "ranks": 1
+        },
+        {
+          "key": "magical-engineering",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Cast divine spells",
@@ -729,9 +752,19 @@
         "spells": 13
       },
       "proficiencies": [
-        "Craft (smithing)",
-        "Manual of Arms",
-        "Leadership"
+        {
+          "key": "craft",
+          "ranks": 1,
+          "spec": "smithing"
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "leadership",
+          "ranks": 1
+        }
       ],
       "classPowers": [
         "Dwarven darkvision",

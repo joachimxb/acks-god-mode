@@ -226,9 +226,18 @@
         "spells": 16
       },
       "proficiencies": [
-        "Leadership",
-        "Manual of Arms",
-        "Survival"
+        {
+          "key": "leadership",
+          "ranks": 1
+        },
+        {
+          "key": "manual-of-arms",
+          "ranks": 1
+        },
+        {
+          "key": "survival",
+          "ranks": 1
+        }
       ],
       "classPowers": [],
       "henchmanCap": 4,
