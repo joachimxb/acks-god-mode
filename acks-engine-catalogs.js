@@ -278,6 +278,16 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II RR p.173 (RAW marks it OPTIONAL; default-ON per community norm — honest gating, CLAUDE §6)',
     default:true,
     description:"DEFAULT ON. At the end of each game month, every self-supporting character pays living expenses equal to the henchman wage of their level (RR p.173 — 1→25 … 6→800 … 9→7,250 gp). You may dial a character's lifestyle target down on their sheet; actual spend = min(target, funds on hand), so short funds force a lower spend and there is no debt. Underspending lowers your APPARENT level to NPCs (RR p.170), which feeds the henchman hiring cap and loyalty. A liege also pays his henchmen's/specialists' monthly wages in the same pass (a vassal-ruling henchman whose domain income ≥ his wage owes nothing). Pay comes from the coin purse, or — for a ruler with 'pay keep from the domain treasury' set — from that treasury. When OFF, no monthly keep is charged and everyone is taken at their true level." },
+  // ----- Proficiency throws (Phase 3.6 — PT-5). RAW-default polarity (§6): the throw machinery is
+  // core / always-on; these two opt-ins change only the modal's UX, never the RAW result. The third
+  // planned rule (proficiency-training-downtime, RR p.102) is intentionally NOT registered until its
+  // downtime mechanic lands — registering an inert toggle is against the no-inert-toggle doctrine. -----
+  { id:'gm-fiat-proficiency-throws', category:'characters', name:'Proficiency throws — GM fiat (narrate, not roll)',
+    source:'ACKS II RR pp.9–10 (RAW default = roll the die; this opt-in is a narrative-table simplification — §6 polarity)',
+    description:"OFF by default = roll the die. When ON, the Proficiency Throw modal lets the GM declare the outcome (force success / force failure, with an audit line) instead of rolling — the forecast (resolved target + itemized modifiers + success chance) is still computed for reference. For narrative-style tables that prefer GM judgement over dice." },
+  { id:'auto-resolve-trivial-throws', category:'characters', name:'Proficiency throws — auto-resolve trivial throws',
+    source:'ACKS II RR pp.9–10 (a convenience opt-in; RAW default = always make the throw)',
+    description:"OFF by default = every throw is shown. When ON, a throw whose resolved chance is a foregone conclusion — only a natural 1 can fail (≥0.95) or only a natural 20 can succeed (≤0.05) — is resolved automatically without opening the modal, saving clicks on routine outcomes. The GM can still open any throw explicitly." },
   // ----- Hijinks (Phase 2.7) -----
   { id:'detailed-hijink-tracking', category:'hijinks', name:'Detailed hijink tracking',
     source:'ACKS II RR pp.360-370 (Phase 2.7 — not yet implemented)',
