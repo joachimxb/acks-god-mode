@@ -1,7 +1,7 @@
 // =============================================================================
-// politics.smoke.js — Politics & Power P-1 (the senate/faction/senatorship data layer).
-// Wave D (Phase_4_Politics_Plan.md §4 + §14 P-1; Politics_RAW_Survey.md §4 + §7).
-// Covers: the sen-/fac-/snr- prefixes; the blankSenate/blankFaction/blankSenatorship factories;
+// politics.smoke.js — Politics & Power, P-1 (the data layer) + P-2 (the senate engine).
+// Wave D (Phase_4_Politics_Plan.md §4–§5 + §10 + §14; Politics_RAW_Survey.md §4 + §7).
+// P-1 covers: the sen-/fac-/snr- prefixes; the blankSenate/blankFaction/blankSenatorship factories;
 // the lookups; the Domain.governance sub-tree (defensive-read default + setDomainGovernance);
 // the derived accessors (§4.4 — factionTotalInfluence / senateTotalVotes / ruling+leading faction /
 // factionStanding / senateBenefitsActive / oligarchyDerivedStats); the realm-apex resolver; the
@@ -9,6 +9,13 @@
 // taxonomy; the importer wiring; and the LOAD-BEARING guard — every shipped template + the demo
 // STAY migrate-no-ops (P-1 added NOTHING to migrateCampaign/blankCampaign; the three collections
 // are read defensively, never lazy-injected).
+// P-2 (burst5 2026-06-14) covers: the senate-auto-vote rule + the 2 events; senateVotingBand
+// (the RR p.358 2d6 table); the restricted matters; the itemized senatorVoteModifiers stack;
+// senateVote (per-senator + by-faction + bewitched auto-vote + controlled independents + the
+// rule-OFF GM-narrate path + the stop-at-majority logic + the record emit); senateBenefits (the
+// structured RR p.355 read); the dispute lifecycle (set/clear); enactPolicy (the restriction →
+// dispute gate, RR p.359); and the F&D Office → senate-seat hook end-to-end (§10 — senatorial
+// auto-seats, feudal is a no-op, revoke vacates, idempotent).
 // =============================================================================
 const fs = require('fs');
 const path = require('path');
@@ -259,6 +266,240 @@ ok('faction policyObjectives enum mirrors POLICY_OBJECTIVES', facObj && facObj.t
   && facObj.enumValues.length === 20 && facObj.enumValues.every(v => ACKS.POLICY_OBJECTIVES.includes(v)));
 
 // =============================================================================
+// P-2 — the senate engine (burst5 2026-06-14): voting + benefits/restrictions +
+// disputes + the F&D Office→seat hook. RR p.358 voting / p.355 benefits / p.359 disputes.
+// =============================================================================
+const rngConst = v => () => v;          // a deterministic rng: 0.99 → 2d6=12 (for), 0.01 → 2d6=2 (against), 0.5 → 8 (trend)
+
+section('P-2 — house rule + events registered');
+(function(){
+  const r = ACKS.lookupHouseRule('senate-auto-vote');
+  ok('senate-auto-vote rule registered, category domain, default true', !!r && r.category === 'domain' && r.default === true);
+  ok('senate-auto-vote reads ON on a politics-free campaign (registry default → no template churn)',
+    ACKS.isHouseRuleEnabled({ houseRules: {} }, 'senate-auto-vote') === true);
+  ok('senate-vote + policy-enacted in EVENT_KINDS', ACKS.EVENT_KINDS.includes('senate-vote') && ACKS.EVENT_KINDS.includes('policy-enacted'));
+  ok('senate-vote + policy-enacted have schemas', !!ACKS.EVENT_SCHEMAS['senate-vote'] && !!ACKS.EVENT_SCHEMAS['policy-enacted']);
+  ok('senate events are Wizard-opt-out (engine-owned)', !ACKS.isWizardEmittable('senate-vote') && !ACKS.isWizardEmittable('policy-enacted'));
+})();
+
+section('P-2 — senateVotingBand (the 2d6 table, RR p.358)');
+(function(){
+  ok('≤2 → against + condemn', ACKS.senateVotingBand(2).vote === 'against' && ACKS.senateVotingBand(2).cascade === 'condemn');
+  ok('1 (negative-adjusted) → against + condemn', ACKS.senateVotingBand(-3).vote === 'against' && ACKS.senateVotingBand(-3).cascade === 'condemn');
+  ok('3 → against, no cascade', ACKS.senateVotingBand(3).vote === 'against' && ACKS.senateVotingBand(3).cascade === null);
+  ok('5 → against', ACKS.senateVotingBand(5).vote === 'against');
+  ok('6 → trend', ACKS.senateVotingBand(6).vote === 'trend');
+  ok('8 → trend', ACKS.senateVotingBand(8).vote === 'trend');
+  ok('9 → for', ACKS.senateVotingBand(9).vote === 'for' && ACKS.senateVotingBand(9).cascade === null);
+  ok('11 → for', ACKS.senateVotingBand(11).vote === 'for');
+  ok('12 → for + endorse', ACKS.senateVotingBand(12).vote === 'for' && ACKS.senateVotingBand(12).cascade === 'endorse');
+  ok('15 → for + endorse', ACKS.senateVotingBand(15).vote === 'for' && ACKS.senateVotingBand(15).cascade === 'endorse');
+})();
+
+section('P-2 — restricted matters (RR p.359)');
+(function(){
+  ok('SENATE_RESTRICTED_MATTERS has the 6 RAW matters', ACKS.SENATE_RESTRICTED_MATTERS.length === 6
+    && ACKS.SENATE_RESTRICTED_MATTERS.includes('change-taxes') && ACKS.SENATE_RESTRICTED_MATTERS.includes('invade-realm'));
+  ok('isSenateConsultationRequired(change-taxes) true', ACKS.isSenateConsultationRequired('change-taxes') === true);
+  ok('isSenateConsultationRequired(throw-a-feast) false', ACKS.isSenateConsultationRequired('throw-a-feast') === false);
+})();
+
+section('P-2 — senatorVoteModifiers (the itemized stack, RR p.358)');
+(function(){
+  const c = fixture();
+  c.characters.push({ id: 'chr-x', socialTier: 'aristocrat' });               // a non-henchman senator
+  const ctx = { rulerId: 'chr-r', domainMorale: 3, hasDiplomacy: false, hasMysticAura: true, lawfulClean: true,
+    rulerFactionId: 'fac-a', policyHelps: ['preserve-ruler'], policyHinders: [], militaryLoyalty: 'all', controlledIndependentVotes: 0 };
+  const sA = { senatorCharacterId: 'chr-x', factionId: 'fac-a', policyObjectives: ['preserve-ruler'], influenceModifiers: [{ kind: 'bribe', value: 2 }] };
+  const m = ACKS.senatorVoteModifiers(c, c.senates[0], sA, ctx, {}, false);
+  // 3 (morale) −2 (no diplomacy) +1 (mystic) +1 (lawful) +2 (military all) +1 (same faction) +1 (helps) +2 (bribe) = 9
+  ok('full per-senator modifier total = 9', m.total === 9, 'got ' + m.total + ' :: ' + JSON.stringify(m.modifiers));
+  ok('itemized rows include the bribe (+2)', m.modifiers.some(x => x.label === 'bribe' && x.value === 2));
+  ok('itemized rows include policy-helps (+1)', m.modifiers.some(x => /helps/.test(x.label) && x.value === 1));
+  // opposed faction → −2
+  const sB = { senatorCharacterId: 'chr-x', factionId: 'fac-b', policyObjectives: [], influenceModifiers: [] };
+  const mB = ACKS.senatorVoteModifiers(c, c.senates[0], sB, ctx, {}, false);
+  ok('opposed-faction row = −2', mB.modifiers.some(x => x.label === 'opposed faction' && x.value === -2));
+  // henchman of the ruler → +5
+  c.characters.push({ id: 'chr-h', socialTier: 'henchman', liegeCharacterId: 'chr-r' });
+  const sH = { senatorCharacterId: 'chr-h', factionId: 'fac-a', policyObjectives: [], influenceModifiers: [] };
+  const mH = ACKS.senatorVoteModifiers(c, c.senates[0], sH, ctx, {}, false);
+  ok('ruler’s-henchman row = +5', mH.modifiers.some(x => /henchman/.test(x.label) && x.value === 5));
+  // policy hinders → −2 per objective
+  const sHin = { senatorCharacterId: 'chr-x', factionId: 'fac-a', policyObjectives: ['increase-army'], influenceModifiers: [] };
+  const ctxHin = Object.assign({}, ctx, { policyHelps: [], policyHinders: ['increase-army'] });
+  const mHin = ACKS.senatorVoteModifiers(c, c.senates[0], sHin, ctxHin, {}, false);
+  ok('policy-hinders row = −2', mHin.modifiers.some(x => /hinders/.test(x.label) && x.value === -2));
+  // endorse/condemn cascade (same faction)
+  const mCas = ACKS.senatorVoteModifiers(c, c.senates[0], sA, ctx, { 'fac-a': { endorsements: 2, condemnations: 1 } }, false);
+  ok('cascade rows: +2 endorsements, −1 condemnation', mCas.modifiers.some(x => x.value === 2 && /endorsement/.test(x.label))
+    && mCas.modifiers.some(x => x.value === -1 && /condemnation/.test(x.label)));
+  // by-faction (factionWide) drops the per-senator rows (henchman/policy/bribe/cascade)
+  const mFW = ACKS.senatorVoteModifiers(c, c.senates[0], sA, ctx, { 'fac-a': { endorsements: 2, condemnations: 0 } }, true);
+  ok('factionWide drops the per-senator bribe/helps/cascade rows', !mFW.modifiers.some(x => x.label === 'bribe' || /helps/.test(x.label) || /endorsement/.test(x.label)));
+  ok('factionWide keeps the ruler-wide rows (morale/mystic/military/faction)', mFW.modifiers.some(x => x.label === 'domain morale') && mFW.modifiers.some(x => x.label === 'same faction as ruler'));
+})();
+
+section('P-2 — senateVote (the consultation, RR p.358)');
+(function(){
+  // ALL-FOR (high rng): seats sorted by influence 12,10,8,6,5; total 50, threshold 26.
+  // 12 + 10 + 8 = 30 ≥ 26 → stops after 3 senators, approved.
+  const c = fixture();
+  const rFor = ACKS.senateVote(c, { senateId: 'sen-1', matter: 'change-taxes', rng: rngConst(0.99) });
+  ok('all-for → approved', rFor.approved === true && rFor.outcome === 'approved');
+  ok('stops at majority (3 of 5 senators rolled)', rFor.rolls.length === 3, 'rolled ' + rFor.rolls.length);
+  ok('forVotes ≥ threshold', rFor.forVotes >= rFor.majorityThreshold && rFor.majorityThreshold === 26);
+  ok('rolls in descending influence order (12 first)', rFor.rolls[0].votes === 12);
+  // the fixture ruler lacks Diplomacy (−2) and is Lawful & clean (+1) → a −1 baseline; natural 12 → adjusted 11 → for.
+  ok('each roll is itemized (d1=6,d2=6,natural=12,adjusted,band,vote=for)',
+    rFor.rolls[0].roll && rFor.rolls[0].roll.d1 === 6 && rFor.rolls[0].roll.d2 === 6 && rFor.rolls[0].roll.natural === 12
+    && typeof rFor.rolls[0].adjusted === 'number' && rFor.rolls[0].vote === 'for' && Array.isArray(rFor.rolls[0].modifiers));
+  ok('a senate-vote event was emitted (record-only)', (c.eventLog || []).some(e => e.event && e.event.kind === 'senate-vote'));
+  ok('emitted event carries the context envelope (apex domain in relatedEntities)',
+    (c.eventLog.find(e => e.event.kind === 'senate-vote').event.context.relatedEntities || []).some(r => r.kind === 'domain'));
+
+  // ALL-AGAINST (low rng): 12+10+8 = 30 against ≥ 26 → rejected after 3.
+  const c2 = fixture();
+  const rAg = ACKS.senateVote(c2, { senateId: 'sen-1', matter: 'invade-realm', rng: rngConst(0.01) });
+  ok('all-against → rejected', rAg.approved === false && rAg.outcome === 'rejected' && rAg.againstVotes >= 26);
+
+  // ALL-TREND (rng 0.5 → adjusted 8), no controlled independents → everyone abstains (nobody ahead yet).
+  const c3 = fixture();
+  const rTr = ACKS.senateVote(c3, { senateId: 'sen-1', matter: 'change-religion', rng: rngConst(0.5) });
+  ok('all-trend, no lead → all abstain → no majority', rTr.outcome === 'no-majority' && rTr.forVotes === 0 && rTr.abstainVotes > 0);
+
+  // controlled independents start FOR and count toward the majority (RR p.359 §4.7).
+  const c4 = fixture();
+  const rInd = ACKS.senateVote(c4, { senateId: 'sen-1', matter: 'change-taxes', controlledIndependentVotes: 9, rng: rngConst(0.99) });
+  ok('controlled independents seed the FOR side', rInd.controlledIndependentVotes === 9 && rInd.forVotes >= 9);
+  ok('controlled independents reach majority faster (2 senators)', rInd.rolls.length === 2, 'rolled ' + rInd.rolls.length);
+
+  // bewitched senator auto-votes (no roll), regardless of a low rng.
+  const c5 = fixture();
+  c5.senatorships.find(s => s.id === 'snr-4').influenceModifiers = [{ kind: 'bewitched', value: 1 }];  // snr-4 has the most votes → first
+  const rBew = ACKS.senateVote(c5, { senateId: 'sen-1', matter: 'change-taxes', rng: rngConst(0.01) });
+  ok('bewitched senator auto-votes for, no roll', rBew.rolls[0].bewitched === true && rBew.rolls[0].vote === 'for' && rBew.rolls[0].roll === null);
+
+  // by-faction shortcut: one roll per faction (2 factions), high rng → both for.
+  const c6 = fixture();
+  const rBF = ACKS.senateVote(c6, { senateId: 'sen-1', matter: 'change-taxes', mode: 'by-faction', rng: rngConst(0.99) });
+  ok('by-faction → ≤ 2 rolls (one per faction), each a faction', rBF.rolls.length <= 2 && rBF.rolls[0].factionId && rBF.rolls[0].votes > 0);
+  ok('by-faction → approved (both factions for)', rBF.approved === true);
+
+  // senate-auto-vote OFF → GM narrates (no dice), gmOutcome recorded.
+  const c7 = fixture();
+  const rGm = ACKS.senateVote(c7, { senateId: 'sen-1', matter: 'change-taxes', autoRoll: false, gmOutcome: 'approved' });
+  ok('rule OFF → no dice, GM outcome recorded', rGm.autoRolled === false && rGm.rolls.length === 0 && rGm.approved === true);
+  const rGm2 = ACKS.senateVote(fixture(), { senateId: 'sen-1', autoRoll: false, gmOutcome: 'rejected' });
+  ok('rule OFF, gmOutcome rejected → rejected', rGm2.approved === false && rGm2.outcome === 'rejected');
+
+  ok('senateVote on a missing senate → null', ACKS.senateVote(fixture(), { senateId: 'sen-none' }) === null);
+  // emit:false suppresses the record (a pure preview)
+  const c8 = fixture();
+  ACKS.senateVote(c8, { senateId: 'sen-1', rng: rngConst(0.99), emit: false });
+  ok('emit:false → no event logged', !(c8.eventLog || []).some(e => e.event && e.event.kind === 'senate-vote'));
+})();
+
+section('P-2 — senateBenefits (the structured read, RR p.355)');
+(function(){
+  const c = fixture();
+  const b = ACKS.senateBenefits(c, c.domains[0]);
+  ok('benefits active on a senatorial realm', b.active === true && b.isSenatorial === true && b.inDispute === false);
+  ok('benefit values: +1 morale, vassal loyalty 0, free first duty, free militia',
+    b.benefits.moraleBonus === 1 && b.benefits.vassalBaseLoyalty === 0 && b.benefits.freeFirstExtraDuty === true && b.benefits.freeMilitiaLevy === true);
+  // dispute suspends the benefits
+  c.senates[0].dispute = { defiedTopic: 'change-taxes', sinceTurn: 1, attempts: 1 };
+  const bd = ACKS.senateBenefits(c, c.domains[0]);
+  ok('dispute → inactive, +0 morale, vassal loyalty −2', bd.active === false && bd.inDispute === true && bd.benefits.moraleBonus === 0 && bd.benefits.vassalBaseLoyalty === -2);
+})();
+
+section('P-2 — disputes (set/clear, RR p.359)');
+(function(){
+  const c = fixture();
+  const s = ACKS.setSenateDispute(c, 'sen-1', { topic: 'change-taxes', turn: 5 });
+  ok('setSenateDispute sets dispute + status in-dispute', s.dispute && s.dispute.defiedTopic === 'change-taxes' && s.status === 'in-dispute');
+  ok('setSenateDispute records sinceTurn + attempts=1 + history', s.dispute.sinceTurn === 5 && s.dispute.attempts === 1 && s.history.some(h => h.type === 'dispute'));
+  ok('dispute suspends benefits (the §5.1 guard)', ACKS.senateBenefitsActive(c, c.domains[0]) === false);
+  // a fresh defiance bumps attempts, keeps sinceTurn
+  const s2 = ACKS.setSenateDispute(c, 'sen-1', { topic: 'invade-realm', turn: 7 });
+  ok('re-defiance bumps attempts (2), keeps sinceTurn (5)', s2.dispute.attempts === 2 && s2.dispute.sinceTurn === 5);
+  const cl = ACKS.clearSenateDispute(c, 'sen-1', { turn: 9, resolution: 'approved' });
+  ok('clearSenateDispute clears dispute + status active', cl.dispute === null && cl.status === 'active');
+  ok('benefits restored after clear', ACKS.senateBenefitsActive(c, c.domains[0]) === true);
+  ok('clear on a non-disputed senate → no-op (no throw)', ACKS.clearSenateDispute(c, 'sen-1', {}) === cl);
+})();
+
+section('P-2 — enactPolicy (the restriction → dispute gate, RR p.359)');
+(function(){
+  // a restricted matter enacted WITHOUT approval → dispute
+  const c = fixture();
+  const r1 = ACKS.enactPolicy(c, { senateId: 'sen-1', matter: 'change-taxes', consulted: false });
+  ok('restricted + not consulted → defied + disputed', r1.outcome === 'defied' && r1.disputed === true);
+  ok('the realm is in dispute after defiance', ACKS.findSenate(c, 'sen-1').dispute != null);
+  ok('a policy-enacted event was emitted', (c.eventLog || []).some(e => e.event && e.event.kind === 'policy-enacted'));
+  // a restricted matter consulted + approved → enacted cleanly (no new dispute)
+  const c2 = fixture();
+  const r2 = ACKS.enactPolicy(c2, { senateId: 'sen-1', matter: 'change-taxes', consulted: true, approved: true });
+  ok('restricted + approved → enacted, no dispute', r2.outcome === 'enacted' && r2.disputed === false && ACKS.findSenate(c2, 'sen-1').dispute == null);
+  // an unrestricted matter → always clean
+  const c3 = fixture();
+  const r3 = ACKS.enactPolicy(c3, { senateId: 'sen-1', matter: 'throw-a-feast', consulted: false });
+  ok('unrestricted matter → enacted, never disputed', r3.outcome === 'enacted' && r3.disputed === false);
+  // a retroactive-approval enactment clears an existing dispute
+  const c4 = fixture();
+  ACKS.setSenateDispute(c4, 'sen-1', { topic: 'change-taxes', turn: 1 });
+  const r4 = ACKS.enactPolicy(c4, { senateId: 'sen-1', matter: 'change-taxes', consulted: true, approved: true });
+  ok('retroactive approval clears the dispute', r4.cleared === true && r4.outcome === 'dispute-cleared' && ACKS.findSenate(c4, 'sen-1').dispute == null);
+})();
+
+section('P-2 — F&D Office → senate-seat hook (Phase_4_Politics_Plan.md §10)');
+(function(){
+  // a complete senatorial realm with one vassalage
+  function realmFixture(governanceMode){
+    return {
+      currentTurn: 5, eventLog: [],
+      domains: [
+        { id: 'dom-apex', name: 'Aura', liegeId: null, rulerCharacterId: 'chr-lord',
+          demographics: { peasantFamilies: 100, urbanFamilies: 0 }, governance: { mode: governanceMode, senateId: 'sen-1' } },
+        { id: 'dom-vassal', name: 'Tyros', liegeId: 'dom-apex', rulerCharacterId: 'chr-holder',
+          demographics: { peasantFamilies: 80, urbanFamilies: 0 } }
+      ],
+      characters: [{ id: 'chr-lord', name: 'Consul' }, { id: 'chr-holder', name: 'Marshal' }],
+      vassalages: [{ id: 'vas-1', status: 'active', vassalDomainId: 'dom-vassal', suzerainDomainId: 'dom-apex',
+        suzerainCharacterId: 'chr-lord', vassalRulerCharacterId: 'chr-holder' }],
+      senates: [ACKS.blankSenate({ id: 'sen-1', realmDomainId: 'dom-apex', seats: 15 })],
+      factions: [], senatorships: [], favorDutyObligations: []
+    };
+  }
+  // SENATORIAL: granting an Office favor auto-seats the holder as a leading senator
+  const c = realmFixture('senatorial');
+  const snap = ACKS.applyFavorDutyEdictByKind(c, { vassalDomainId: 'dom-vassal', kind: 'office', officeTitle: 'Knight Marshal' });
+  ok('Office favor granted (the obligation exists)', !!snap && snap.obligation && snap.obligation.kind === 'office');
+  const seat = c.senatorships.find(s => s.senatorCharacterId === 'chr-holder' && s.senateId === 'sen-1');
+  ok('Office on a senatorial realm → a leading senatorship for the holder', !!seat && seat.rank === 'leading' && seat.status === 'active');
+  ok('the seat is tagged with the source obligation (so revoke finds it)', seat && seat.sourceObligationId === snap.obligation.id);
+  // direct unit-test of the hook: idempotent grant (no double-seat)
+  ACKS.syncOfficeSenateSeat(c, snap.obligation, 'grant');
+  ok('grant is idempotent (still one seat for the holder)', c.senatorships.filter(s => s.senatorCharacterId === 'chr-holder' && ACKS.senatorshipsForSenate(c, 'sen-1').includes(s)).length === 1);
+  // revoking the Office vacates the seat
+  ACKS.revokeFavorDutyEdict(c, snap.obligation.id);
+  const vacated = c.senatorships.find(s => s.senatorCharacterId === 'chr-holder');
+  ok('revoking the Office vacates the seat', vacated && vacated.status === 'vacated' && vacated.vacatedAtTurn != null);
+  ok('the vacated seat drops from active senatorshipsForSenate', ACKS.senatorshipsForSenate(c, 'sen-1').length === 0);
+
+  // FEUDAL: the Office favor behaves as shipped — no seat
+  const cf = realmFixture('feudal');
+  const snapF = ACKS.applyFavorDutyEdictByKind(cf, { vassalDomainId: 'dom-vassal', kind: 'office', officeTitle: 'Chamberlain' });
+  ok('Office granted on a feudal realm', !!snapF && snapF.obligation.kind === 'office');
+  ok('feudal realm → NO senate seat created (no-op)', cf.senatorships.length === 0);
+
+  // a NON-office edict never touches the senate
+  const cn = realmFixture('senatorial');
+  ACKS.applyFavorDutyEdictByKind(cn, { vassalDomainId: 'dom-vassal', kind: 'gift', gpPerMonth: 0 });
+  ok('a non-office edict creates no senatorship', cn.senatorships.length === 0);
+})();
+
+// =============================================================================
 section('Importer wiring (index.html SIMPLE_ID_COLLECTIONS — §8.9 mandate)');
 // =============================================================================
 (function(){
@@ -307,7 +548,7 @@ section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Politics P-1 smoke checks passed.');
+  console.log('\nAll Politics P-1 + P-2 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));
