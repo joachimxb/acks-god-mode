@@ -370,7 +370,18 @@ const HOUSERULES_REGISTRY = Object.freeze([
   // team-session integration per Phase_2.5_Hex_Scales_and_Weather_Plan.md §6.5/Q3.) ===
   { id:'gm-set-weather', category:'world', name:'GM-set weather',
     source:'Phase 2.5 Hex Scales & Weather §6.5 (RAW-default polarity — the opt-out)',
-    description:"Opt out of the RAW daily-weather generator (JJ pp.40–41) and narrate weather by hand. RAW weather generation is the default (it only rolls on an expedition and any day is GM-overridable); this turns the generator off so the GM sets each day's weather. Default off." }
+    description:"Opt out of the RAW daily-weather generator (JJ pp.40–41) and narrate weather by hand. RAW weather generation is the default (it only rolls on an expedition and any day is GM-overridable); this turns the generator off so the GM sets each day's weather. Default off." },
+  // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154 / Phase_6_Custom_Classes_Plan.md §6.
+  // The class-BUILDING SYSTEM ships default-ON with NO master toggle (a GM-authoring tool is core —
+  // gating "can you build a class?" behind an opt-in is the §6 anti-pattern, the NPC-Generator precedent).
+  // This is the one W1 rule: the default-OFF, excisable custom-power-compendium content pack (survey §8 tier 3,
+  // the IP-heaviest slice). The HFH Eldritch/Ceremonial + BTA Gnostic category content (custom-class-supplement-content)
+  // is a W6 deliverable — NOT registered yet (registering an inert toggle whose mechanic isn't built is against
+  // the no-inert-toggle doctrine). ===
+  { id:'custom-power-compendium', category:'characters', name:'Custom-power compendium (names + page-refs)',
+    source:'ACKS II JJ pp.306–328 Custom Power Index (HFH-OGL Open Game Content; the IP-heaviest slice — survey §8 tier 3)',
+    default:false,
+    description:"OFF by default. When ON, the Custom Classes lane exposes a reference list of named custom powers (names + an index page-ref + a terse mechanical one-liner — NOT transcribed descriptions) for the Class Builder + the Inspector. The build SYSTEM itself is always available; this only surfaces the optional power-name pack. W1 ships a representative seed; the full ~250-power index is W6. ⚠ Autarch courtesy heads-up before the public site (§13.9 ckpt 3)." }
 ]);
 const HOUSERULE_CATEGORIES = Object.freeze([
   { id:'domain',       label:'🏰 Domain',         description:'Hex tracking, vassal structure, geography, land/lordship.' },

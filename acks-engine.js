@@ -175,7 +175,12 @@ const ID_PREFIXES = Object.freeze({
   // (RR pp.355–360; acks-engine-politics.js). Wave D (Architecture §3.5).
   senate:               'sen',
   faction:              'fac',
-  senatorship:          'snr'
+  senatorship:          'snr',
+  // === Custom Classes & Races W1 (b5-custom-classes, team burst5) — #154.
+  // ClassTemplate (the point-buy class DEFINITION) + RaceTemplate (the +racial-build-point
+  // race); catalog/template tier. Resolved by acks-engine-custom-classes.js (Phase 6 W1). ===
+  customClass:          'ccl',
+  customRace:           'crc'
 });
 
 function newId(prefix){
