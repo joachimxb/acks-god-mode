@@ -28,7 +28,7 @@ const fixedRng = v => () => v;  // deterministic d20: natural = 1 + floor(v*20)
 // =============================================================================
 section('Module loads + exports present');
 // =============================================================================
-['PROFICIENCY_CATALOG','PROFICIENCY_TASKS','PROFICIENCY_THROW_MODIFIERS','IMPROVISED_THROW_DIFFICULTY','PROFICIENCY_ALIASES','PROFICIENCY_LISTS',
+['PROFICIENCY_CATALOG','PROFICIENCY_TASKS','PROFICIENCY_THROW_MODIFIERS','PROFICIENCY_THROWS_DEFERRED','IMPROVISED_THROW_DIFFICULTY','PROFICIENCY_ALIASES','PROFICIENCY_LISTS',
  'parseProficiencyEntry','characterProficiencies','proficiencyRanks','hasProficiency','canonicalProficiencyKey','proficiencyLabel',
  'migrateCharacterProficiencies','migrateAllCharacterProficiencies',
  'rollProficiencyThrow','throwSuccessChance','characterProficiencyThrow','characterAvailableThrows','recordProficiencyThrow']
@@ -120,6 +120,24 @@ ok('every throw-modifier target task exists',
 ok('every throw-modifier proficiency exists in catalog',
   Object.keys(ACKS.PROFICIENCY_THROW_MODIFIERS).every(k => !!ACKS.PROFICIENCY_CATALOG[k]));
 ok('general-list entries flagged general', ACKS.PROFICIENCY_CATALOG['theology'].general === true && ACKS.PROFICIENCY_CATALOG['acrobatics'].general === false);
+
+// PT-5 — roster completeness LOCK + throw-completeness invariant + tracked deferrals.
+// The catalog was already complete at PT-1 (118 profs, all typed + page-cited); PT-5 locks it as a
+// tested invariant and tracks the 3 throw-task deferrals (consumer-owned, §7.1) so a throw prof can
+// never silently ship with no throw + no reason.
+ok('roster: no entry on the generic backstop fallback (every prof has accurate metadata)',
+  Object.values(ACKS.PROFICIENCY_CATALOG).every(e => e.rawPage && e.rawPage !== 'RR ch.4 (Proficiencies)'),
+  Object.values(ACKS.PROFICIENCY_CATALOG).filter(e => e.rawPage === 'RR ch.4 (Proficiencies)').map(e => e.key).join(', '));
+(() => {
+  const cat = ACKS.PROFICIENCY_CATALOG, tasks = ACKS.PROFICIENCY_TASKS, mods = ACKS.PROFICIENCY_THROW_MODIFIERS, deferred = ACKS.PROFICIENCY_THROWS_DEFERRED || {};
+  const taskProfs = new Set(Object.values(tasks).map(t => t.proficiency));
+  const gaps = Object.values(cat).filter(e => e.type === 'throw' || e.type === 'mixed')
+    .filter(e => !taskProfs.has(e.key) && !mods[e.key] && !deferred[e.key]);
+  ok('throw-completeness: every throw/mixed prof has a task, is a throw-modifier, or is tracked deferred', gaps.length === 0, gaps.map(e => e.key).join(', '));
+  ok('PROFICIENCY_THROWS_DEFERRED tracks seafaring/poisoning/lip-reading w/ reason + owning phase + rawPage',
+    ['seafaring','poisoning','lip-reading'].every(k => deferred[k] && deferred[k].reason && deferred[k].owningPhase && deferred[k].rawPage));
+  ok('every deferred throw-prof exists in the catalog', Object.keys(deferred).every(k => !!cat[k]));
+})();
 
 // RAW worked targets (transcribed RR pp.105-121)
 const T = ACKS.PROFICIENCY_TASKS;
