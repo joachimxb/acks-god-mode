@@ -514,7 +514,7 @@ section('garrison reaction (2026-06-14) — deploy a force to meet a domain incu
     const bandHexId = o.bandHexId || 'hex-band';
     const c = { currentTurn: 3, currentDayInMonth: 1, eventLog: [],
       houseRules: { 'persistent-wandering-monsters': { enabled: false }, 'vagaries-of-incursion': { enabled: false } },
-      characters: [{ schemaVersion: 2, id: 'chr-cap', name: 'Captain Vael', alive: true, currentHexId: 'hex-seat' }],
+      characters: [{ schemaVersion: 2, id: 'chr-cap', name: 'Captain Vael', alive: true, currentHexId: 'hex-seat', class: 'Fighter', level: 9, abilities: { STR: 13, INT: 10, WIL: 10, DEX: 12, CON: 12, CHA: 13 } }],
       domains: [{ id: 'dom-r', name: 'March', rulerCharacterId: 'chr-cap', garrison: { units: [] }, demographics: { peasantFamilies: 500, morale: 0 } }],
       journeys: [], armies: [], units: [], battles: [], groups: [],
       hexes: [{ id: 'hex-seat', domainId: 'dom-r', coord: { q: 0, r: 0 }, terrain: 'grassland' },
@@ -565,6 +565,25 @@ section('garrison reaction (2026-06-14) — deploy a force to meet a domain incu
   const pGm = ACKS.garrisonReactionPreview(cGm, 'grp-threat', ['unit-g0']);
   ok('preview: unpriced band (no catalog BR) → priced-by-gm, bandBr null', pGm.outcome === 'priced-by-gm' && pGm.bandBr === null);
   ok('preview: null for a non-incursion group', ACKS.garrisonReactionPreview(cWeak, 'grp-nope', ['unit-g0']) === null);
+
+  // ── reactionForceOrgFindings (the deploy modal's up-front army-org advisory, RR pp.435–437) ──
+  const cOrg = mkReaction({ garrisonUnits: 3 });
+  const f1 = ACKS.reactionForceOrgFindings(cOrg, { unitIds: ['unit-g0'], commanderCharacterId: 'chr-cap' });
+  ok('org: 1 unit → under-3-units "has 1" (the headline)', f1.some(x => x.code === 'under-3-units' && /has 1/.test(x.text)), JSON.stringify(f1));
+  const f3 = ACKS.reactionForceOrgFindings(cOrg, { unitIds: allIds(3), commanderCharacterId: 'chr-cap' });
+  ok('org: 3 units → no under-3-units finding', !f3.some(x => x.code === 'under-3-units'));
+  ok('org: a commander clears the no-leader finding', !f3.some(x => x.code === 'no-leader'));
+  ok('org: no commander → no-leader finding', ACKS.reactionForceOrgFindings(cOrg, { unitIds: allIds(3), commanderCharacterId: null }).some(x => x.code === 'no-leader'));
+  ok('org: no units + no commander → both findings (has 0)', (() => {
+    const f = ACKS.reactionForceOrgFindings(cOrg, { unitIds: [], commanderCharacterId: null });
+    return f.some(x => x.code === 'no-leader') && f.some(x => x.code === 'under-3-units' && /has 0/.test(x.text));
+  })());
+  // The proof that the modal twin matches the army card: deploy a 1-unit force, then
+  // validateArmyOrganization on the mustered army reports the SAME under-3-units text.
+  const cOrgDep = mkReaction({ bandHexId: 'hex-seat', garrisonUnits: 1 });
+  const preText = ACKS.reactionForceOrgFindings(cOrgDep, { unitIds: ['unit-g0'], commanderCharacterId: 'chr-cap' }).find(x => x.code === 'under-3-units').text;
+  const depOrg = ACKS.deployGarrisonReaction(cOrgDep, { groupId: 'grp-threat', unitIds: ['unit-g0'], commanderCharacterId: 'chr-cap', rallyHexId: 'hex-seat' });
+  ok('org: modal twin matches the army card (same under-3-units text)', ACKS.validateArmyOrganization(cOrgDep, depOrg.army).map(x => x.text).includes(preText));
 
   // ── deployGarrisonReaction (muster + march) ──
   const cDep = mkReaction({ bandHexId: 'hex-band', attitude: 'unfriendly', count: 8, garrisonUnits: 1 });

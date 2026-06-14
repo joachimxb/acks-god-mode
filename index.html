@@ -2552,6 +2552,13 @@ document.addEventListener('alpine:init', () => {
     </div>
     </template>
 
+    <!-- army-organization advisory (RR pp.435–437; GM-overridable — never blocks the deploy) -->
+    <template x-if="garrisonDeployOrgFindings().length > 0">
+      <div class="text-xs text-amber-700 border-t border-ink/20 pt-2">
+        <template x-for="f in garrisonDeployOrgFindings()" :key="f"><span class="block">⚠ <span x-text="f"></span></span></template>
+      </div>
+    </template>
+
     <div class="flex justify-end gap-2 border-t border-ink/20 pt-2">
       <button @click="garrisonDeployOpen = false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">Cancel</button>
       <button @click="garrisonDeploySubmit()" :disabled="!garrisonDeployCanSubmit()" :class="!garrisonDeployCanSubmit() ? 'opacity-50 cursor-not-allowed' : 'bg-yellow-100 hover:bg-yellow-200 font-semibold'" class="px-3 py-1 border border-ink rounded">⚔ Deploy</button>
@@ -14507,6 +14514,15 @@ return {
   garrisonDeployPreview(){
     if(!this.currentCampaign || !this.garrisonDeployForm.groupId || !window.ACKS.garrisonReactionPreview) return null;
     return window.ACKS.garrisonReactionPreview(this.currentCampaign, this.garrisonDeployForm.groupId, this.garrisonDeployForm.unitIds || []);
+  },
+  // The army-organization advisory for the force being assembled (RR pp.435–437) — the up-front
+  // twin of the army card's armyOrgFindings, so a sub-strength sally is flagged before deploying.
+  garrisonDeployOrgFindings(){
+    if(!this.currentCampaign || !this.garrisonDeployForm.groupId || !window.ACKS.reactionForceOrgFindings) return [];
+    return window.ACKS.reactionForceOrgFindings(this.currentCampaign, {
+      unitIds: this.garrisonDeployForm.unitIds || [],
+      commanderCharacterId: this.garrisonDeployForm.commanderId || null
+    }).map(f => f.text);
   },
   garrisonDeployCanSubmit(){ return !!(this.garrisonDeployForm.rallyHexId && (this.garrisonDeployForm.unitIds || []).length); },
   garrisonDeploySubmit(){

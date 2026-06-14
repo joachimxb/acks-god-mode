@@ -3796,6 +3796,31 @@ function garrisonReactionPreview(campaign, groupOrId, unitIds){
   return { forceBr, bandBr, attitude, attitudeLabel, lingering, effectiveAttitude, flips, outcome, lines };
 }
 
+// The army-organization advisory (RR pp.435–437) a freshly-mustered reaction force WOULD carry,
+// computed from the chosen units + commander BEFORE deploying — the deploy modal's up-front twin of
+// the army card's validateArmyOrganization. createArmy musters one "Main Body" division of all the
+// units under the commander, so this reproduces exactly the findings that army would report: no
+// commander, under-3-units (the headline — RR p.435), the commander's scale qualification (RR p.437)
+// and his leadership-ability cap (RR p.435). Advisory + GM-overridable — a one-unit sally is a
+// legitimate if sub-strength choice (RAW's waiver clause), so it never blocks the deploy. Counts the
+// full committed force (present + called-up), matching the BR preview. Pure. Returns [{code, text}].
+function reactionForceOrgFindings(campaign, opts){
+  opts = opts || {};
+  const findings = [];
+  const unitIds = (Array.isArray(opts.unitIds) ? opts.unitIds : []).filter(Boolean);
+  const cmdr = (campaign && opts.commanderCharacterId) ? _findCharacterById(campaign, opts.commanderCharacterId) : null;
+  if(!cmdr) findings.push({ code: 'no-leader', text: 'No commander yet — the ruler may lead in person (RR p.435)' });
+  if(unitIds.length < 3) findings.push({ code: 'under-3-units', text: 'An army must have at least 3 units (RR p.435) — has ' + unitIds.length });
+  if(cmdr){
+    const units = unitIds.map(id => findUnit(campaign, id)).filter(Boolean);
+    const totalTroops = units.reduce((s, u) => s + unitActiveCount(u), 0);
+    const scale = (global.ACKS && global.ACKS.armyScaleForSize) ? global.ACKS.armyScaleForSize(totalTroops) : 'company';
+    if(qualifiesAsCommander(cmdr, scale) === false) findings.push({ code: 'commander-unqualified', text: (cmdr.name || 'The commander') + ' does not qualify to command at ' + scale + ' scale (RR p.437)' });
+    if(unitIds.length > leadershipAbility(cmdr)) findings.push({ code: 'commander-over-leadership', text: unitIds.length + ' units exceed ' + (cmdr.name || 'the commander') + '’s leadership ability ' + leadershipAbility(cmdr) + ' (RR p.435)' });
+  }
+  return findings;
+}
+
 // Deploy a sally force against an incursion band. Muster a temporary Army at the rally point
 // (default the domain seat — JJ p.103) with the chosen units (co-located fall in; distant ones
 // are called up — they march in), mark it as reacting to the band, and march it to the band's
@@ -10414,7 +10439,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
   validateArmyOrganization, stationUnit, disbandUnit, setUnitHome, returnUnitHome, unitHomeDomainId, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
   // Garrison reaction — deploy a force to meet a domain threat (JJ pp.104–106, 2026-06-14)
-  domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, deployGarrisonReaction, recallReactionForce,
+  domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
   // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization
   conscriptLevyMax, militiaLevyMax, domainLevyUnits, conscriptCount, militiaCalledUpCount,
   militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,
