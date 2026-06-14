@@ -342,8 +342,17 @@ const SAVE_TABLES = Object.freeze({
   ]
 });
 
+// Class → save-progression archetype. The (X) in each class's "Class (X) Attack and Saving Throws"
+// table title IS the RAW archetype — assassins and bards advance "as fighters" (RR: "Assassin (Fighter)…",
+// "Bard (Fighter)…"), so both take the fighter row, not the thief row.
+// ⚠ Race-variant classes (dwarven vaultguard/craftpriest, elven spellsword/nightblade, Nobiran
+// wonderworker) print their OWN tables with the racial save bonus baked in (dwarven Hardy +3 Blast/+4
+// other; Nobiran Favor +2 all; the elven tables are bespoke). The engine approximates them with the
+// base human archetype here — a known simplification (it does NOT apply the racial adjustment); the
+// four BASE class tables (fighter/mage/cleric/thief) are RAW-exact and pinned by tests/save-tables.smoke.js.
 const CLASS_TO_SAVE_ARCHETYPE = Object.freeze({
   'fighter':'fighter','barbarian':'fighter','paladin':'fighter','explorer':'fighter',
+  'assassin':'fighter','bard':'fighter',
   'dwarven vaultguard':'fighter','vaultguard':'fighter',
   'elven spellsword':'fighter','spellsword':'fighter',
   'mage':'mage','wizard':'mage','warlock':'mage',
@@ -351,9 +360,8 @@ const CLASS_TO_SAVE_ARCHETYPE = Object.freeze({
   'cleric':'cleric','crusader':'cleric','priestess':'cleric','priest':'cleric',
   'shaman':'cleric','bladedancer':'cleric',
   'dwarven craftpriest':'cleric','craftpriest':'cleric',
-  'thief':'thief','assassin':'thief','venturer':'thief',
-  'elven nightblade':'thief','nightblade':'thief',
-  'bard':'thief'
+  'thief':'thief','venturer':'thief',
+  'elven nightblade':'thief','nightblade':'thief'
 });
 
 function classKey(className){return String(className||'').toLowerCase().trim();}
