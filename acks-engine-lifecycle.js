@@ -411,5 +411,369 @@ Object.assign(ACKS, {
   processAgingForTurn
 });
 
+// =============================================================================
+// === Character Lifecycle CL-2 (burst5) — disease (JJ p.84) ===================
+// The disease engine — persistent-character-state class #8 (Character_Lifecycle_Plan §11 CL-2).
+// A self-contained, timer-driven model: contraction (a 1d100 Disease Type + a Death save) →
+// infected (onset) → symptomatic (incapacitated) → recover / die. The DAY-TICK counterpart of
+// CL-1's monthly aging pass (disease timers are in days): a slot-57 'disease' day-consumer
+// advances every infected/symptomatic character one day. Supersedes the `magical-disease`
+// hireling-calamity STUB with a real progression engine.
+//
+// SHAPE (the §2 persistent-state model): stored — character.diseases[] (init-on-write, like
+//   mortalWounds[]; NO blankCharacter seed, so the 6 templates + demo stay migrate-no-ops, the
+//   team-session discipline); driver — the slot-57 day-consumer; resolver — the JJ p.84 Disease
+//   Type table + the Death save; propose→ratify — the day-tick review; history — the two events.
+// Shares Delves D1's `incapacitated` lifecycleState (a symptomatic disease sets it; recovery
+//   clears it only if no wound bed-rest / other symptomatic disease still holds it).
+//
+// Polarity (CLAUDE §6): disease is CORE RAW — default-on, no master house-rule gate. Dormant
+//   until a character is exposed (the GM's "expose to disease" action / the `magical-disease`
+//   calamity in v1; terrain-encounter + diseased-monster triggers wire later — Plan §11 / §10).
+// =============================================================================
+const DISEASE_CITE = 'JJ p.84';
+
+// The Disease Type table (JJ p.84). 1d100 (context modifiers apply — e.g. −10 in a jungle hex; a
+// LOWER roll is a WORSE disease, so a negative modifier worsens it). `max` = inclusive upper bound
+// of the band; `saveBonus` = the Death-save bonus; `onset`/`symptom` = duration specs in DAYS
+// resolved by _rollDuration ('NdM' = NdM days; 'NdMw' = NdM weeks ×7; a number = that many days);
+// `deathThreshold` = the margin of failure (target − total) at/above which the disease KILLS
+// (Infinity = only a natural 1 kills — Bloody Flux); `disfiguring` = a permanent cosmetic effect
+// (Spotted Pox — flagged for a future scarring/appearance tie; NOT wired here, scarring is D1).
+const DISEASE_TYPES = Object.freeze([
+  { id:'plague',        label:'Plague',        max:5,   saveBonus:0, onset:'1d4', symptom:'1d8',  deathThreshold:6 },
+  { id:'putrid-fever',  label:'Putrid Fever',  max:15,  saveBonus:0, onset:'2d4', symptom:14,     deathThreshold:7 },
+  { id:'spotted-pox',   label:'Spotted Pox',   max:30,  saveBonus:1, onset:'2d6', symptom:21,     deathThreshold:8, disfiguring:true },
+  { id:'bilious-fever', label:'Bilious Fever', max:50,  saveBonus:2, onset:'2d6', symptom:28,     deathThreshold:8 },
+  { id:'ague',          label:'Ague',          max:75,  saveBonus:3, onset:'2d4', symptom:'1d4w', deathThreshold:10 },
+  { id:'bloody-flux',   label:'Bloody Flux',   max:100, saveBonus:4, onset:'1d4', symptom:7,      deathThreshold:Infinity }
+]);
+const DISEASE_BY_ID = Object.freeze(DISEASE_TYPES.reduce((m, d) => { m[d.id] = d; return m; }, {}));
+
+// Resolve a duration spec to a number of DAYS. A number → itself; 'NdM' → NdM days; 'NdMw' → NdM
+// weeks ×7. Reuses the module-local _d roller (defined above for the aging dice).
+function _rollDuration(spec, rng){
+  if(typeof spec === 'number') return spec;
+  const m = String(spec).trim().match(/^(\d+)d(\d+)(w)?$/i);
+  if(!m) return parseInt(spec, 10) || 1;
+  let total = 0; const count = parseInt(m[1], 10), sides = parseInt(m[2], 10);
+  for(let i = 0; i < count; i++) total += _d(sides, rng);
+  return m[3] ? total * 7 : total;
+}
+// 1d100 (+ context modifier) → the Disease Type band. The table is open at both ends: a modified
+// roll below 1 still reads Plague (the worst), above 100 still reads Bloody Flux (the gentlest).
+function diseaseTypeForRoll(roll){
+  let n = Number(roll); if(isNaN(n)) n = 1;
+  for(const d of DISEASE_TYPES){ if(n <= d.max) return d; }
+  return DISEASE_TYPES[DISEASE_TYPES.length - 1];
+}
+function diseaseTypeById(id){ return DISEASE_BY_ID[id] || null; }
+
+function _findCharacterLC(campaign, id){
+  return (campaign && Array.isArray(campaign.characters)) ? (campaign.characters.find(c => c && c.id === id) || null) : null;
+}
+function _findDisease(c, ref){
+  if(!c || !Array.isArray(c.diseases)) return null;
+  if(ref && typeof ref === 'object') return ref;
+  if(typeof ref === 'number') return c.diseases[ref] || null;
+  return c.diseases.find(d => d && d.id === ref) || null;
+}
+function _diseasePhaseLabel(phase, onsetRem, sympRem){
+  if(phase === 'infected')    return 'incubating — symptoms in ' + onsetRem + ' day' + (onsetRem === 1 ? '' : 's');
+  if(phase === 'symptomatic') return 'symptomatic — ' + sympRem + ' day' + (sympRem === 1 ? '' : 's') + ' left';
+  if(phase === 'recovered')   return 'recovered';
+  if(phase === 'died')        return 'died';
+  return String(phase || '');
+}
+
+// =============================================================================
+// contractDisease — the contraction verb (JJ p.84). A DIRECT call (a trigger, not the daily
+// advance): the GM's "expose to disease" action / the `magical-disease` calamity. Rolls 1d100 →
+// Disease Type (opts.modifier for context), then a Death save (1d20 + the disease's save bonus vs
+// the character's death save target). A natural 1 always fails (RR pp.9–10). Save succeeds → the
+// character shrugs it off (no infection). Save fails → infected: willDie is fixed NOW (a natural-1
+// failure OR a margin of failure ≥ the disease's death-threshold). Pushes a diseases[] record and
+// emits `disease-contracted`. Returns the record (or { infected:false, … } on a save).
+//   opts: { rng, modifier, diseaseType (force a type), forcedD100, forcedSave, saveTarget,
+//           forcedOnset, forcedSymptom }.
+// =============================================================================
+function contractDisease(campaign, characterId, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c) return null;
+  const rng = (typeof opts.rng === 'function') ? opts.rng : Math.random;
+
+  // 1d100 Disease Type (context modifier — a jungle hex is −10, worsening it).
+  const modifier = Number(opts.modifier) || 0;
+  const d100 = (opts.forcedD100 != null) ? Number(opts.forcedD100) : _d(100, rng);
+  const typeRoll = d100 + modifier;
+  const disease = opts.diseaseType ? (diseaseTypeById(opts.diseaseType) || diseaseTypeForRoll(typeRoll))
+                                   : diseaseTypeForRoll(typeRoll);
+
+  // The Death save: 1d20 + the disease's save bonus vs the character's death save target.
+  const saveTarget = (opts.saveTarget != null) ? Number(opts.saveTarget)
+                   : ((c.savingThrows && c.savingThrows.death != null) ? Number(c.savingThrows.death) : 15);
+  const saveRoll = (opts.forcedSave != null) ? Number(opts.forcedSave) : _d(20, rng);
+  const naturalOne = saveRoll === 1;
+  const saveTotal = saveRoll + (disease.saveBonus || 0);
+  const saved = (saveTotal >= saveTarget) && !naturalOne;   // a natural 1 always fails (RR pp.9–10)
+
+  if(saved){
+    return { infected:false, diseaseType:disease.id, diseaseLabel:disease.label,
+             saveRoll, saveBonus:disease.saveBonus, saveTotal, saveTarget, naturalOne, narrative:(c.name + ' resists ' + disease.label + ' (Death save ' + saveTotal + ' vs ' + saveTarget + '+).') };
+  }
+
+  // Infected. willDie is fixed at contraction (a natural-1 failure OR margin ≥ death-threshold).
+  const failedBy = saveTarget - saveTotal;
+  const willDie = naturalOne || (failedBy >= disease.deathThreshold);
+  const onsetDays   = (opts.forcedOnset   != null) ? Number(opts.forcedOnset)   : _rollDuration(disease.onset, rng);
+  const symptomDays = (opts.forcedSymptom != null) ? Number(opts.forcedSymptom) : _rollDuration(disease.symptom, rng);
+  const turn = (campaign && campaign.currentTurn) || 1;
+  const day  = (campaign && campaign.currentDayInMonth) || 1;
+  if(!Array.isArray(c.diseases)) c.diseases = [];   // init-on-write (no blankCharacter seed)
+  const rec = {
+    id: 'd' + turn + '_' + day + '_' + c.diseases.length,   // internal record id (no top-level prefix)
+    diseaseType: disease.id, diseaseLabel: disease.label,
+    contractedAtDay: day, contractedAtTurn: turn,
+    saveRoll, saveBonus: disease.saveBonus, saveTotal, saveTarget, failedBy, naturalOne,
+    onsetDays, symptomDays, onsetRemaining: onsetDays, symptomRemaining: symptomDays,
+    phase: 'infected', willDie, disfiguring: !!disease.disfiguring, deathThreshold: disease.deathThreshold,
+    identifiedLevel: null, prognosisKnown: false,
+    curedAtDay: null, resolved: false, eventId: null
+  };
+  c.diseases.push(rec);
+
+  const summary = c.name + ' contracts ' + disease.label + ' (Death save ' + saveTotal + ' vs ' + saveTarget + '+ — failed; symptoms in ' + onsetDays + ' day' + (onsetDays === 1 ? '' : 's') + ').';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'disease-contracted', summary, { diseaseType: disease.id }); } catch(_e){}
+  const ev = _emitDiseaseEvent(campaign, c, 'disease-contracted', {
+    characterId: c.id, diseaseType: disease.id, diseaseLabel: disease.label,
+    onsetDays, symptomDays, willDie, saveRoll, saveTotal, saveTarget, narrative: summary
+  }, summary);
+  if(ev) rec.eventId = ev.id;
+  return rec;
+}
+
+// =============================================================================
+// The day-tick consumer (slot 57 — beside D1's convalescence at 58; disease progresses before
+// bed-rest convalescence). PURE proposeDiseaseDay advances each infected/symptomatic disease one
+// day on the working copy (carrying ABSOLUTE after-values, like convalescence — safe under the
+// multi-day clone-commit); commitDiseaseRecord applies one ratified record. Meaningful transitions
+// (onset→symptomatic, the recover/die resolution) carry pauseTrigger:'disease' so a multi-day
+// advance stops for GM review (auto-pause-on-disease defaults ON); routine onset-countdown days do
+// not. The resolution rides a `disease-recovered` notable the pipeline emits (outcome ∈ recovered|
+// died — like death-from-old-age carrying died:bool; the eventLog narrative reads correctly either
+// way). Records carry a `label` so the day-tick review renders them cleanly.
+// =============================================================================
+function characterActiveDiseases(character){
+  if(!character || !Array.isArray(character.diseases)) return [];
+  return character.diseases.filter(d => d && !d.resolved && d.phase !== 'recovered' && d.phase !== 'died');
+}
+function anyDiseased(campaign){
+  return !!(campaign && Array.isArray(campaign.characters) && campaign.characters.some(c => characterActiveDiseases(c).length));
+}
+// Does anything still hold this character's `incapacitated` state? (a symptomatic disease OR a
+// wound still needing bed rest — D1's characterActiveWounds, read defensively across the module).
+function _diseaseStillIncapacitated(c){
+  if(characterActiveDiseases(c).some(d => d.phase === 'symptomatic')) return true;
+  try {
+    const A = global.ACKS;
+    if(A && typeof A.characterActiveWounds === 'function'){
+      return A.characterActiveWounds(c).some(w => (w.bedRestDaysRemaining || 0) > 0);
+    }
+  } catch(_e){}
+  return false;
+}
+
+function proposeDiseaseDay(campaign, ctx){
+  ctx = ctx || {};
+  const days = (typeof ctx.days === 'number' && ctx.days > 0) ? ctx.days : 1;
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  (campaign && campaign.characters || []).forEach(c => {
+    if(c.lifecycleState === 'deceased' || c.alive === false) return;
+    characterActiveDiseases(c).forEach((d, di) => {
+      // Compute the transition WITHOUT mutating (the pure-handler contract).
+      let phase = d.phase, onsetRem = d.onsetRemaining, sympRem = d.symptomRemaining;
+      let transition = 'advance', outcome = null, rem = days;
+      if(phase === 'infected'){
+        if(onsetRem > rem){ onsetRem -= rem; rem = 0; }
+        else { rem -= onsetRem; onsetRem = 0; phase = 'symptomatic'; transition = 'symptomatic'; }
+      }
+      if(phase === 'symptomatic' && rem > 0){
+        if(sympRem > rem){ sympRem -= rem; rem = 0; }
+        else { sympRem = 0; phase = d.willDie ? 'died' : 'recovered'; transition = 'resolve'; outcome = d.willDie ? 'died' : 'recovered'; }
+      }
+      const label = c.name + ' — ' + d.diseaseLabel + ' (' + _diseasePhaseLabel(phase, onsetRem, sympRem) + ')';
+      out.pendingRecords.push({
+        kind: 'disease', type: 'disease', characterId: c.id, characterName: c.name,
+        diseaseId: d.id, diseaseIndex: di, diseaseType: d.diseaseType, diseaseLabel: d.diseaseLabel,
+        transition, outcome, phaseAfter: phase, onsetRemainingAfter: onsetRem, symptomRemainingAfter: sympRem,
+        willDie: d.willDie, label
+      });
+      if(transition === 'symptomatic'){
+        const s = c.name + ' falls gravely ill with ' + d.diseaseLabel + ' — incapacitated (JJ p.84)';
+        out.notableEvents.push({ type:'disease', transient:true, pauseTrigger:'disease', label:s, summary:s,
+          payload:{ characterId:c.id, diseaseType:d.diseaseType, phase:'symptomatic' } });
+      } else if(transition === 'resolve'){
+        const died = outcome === 'died';
+        const s = died ? (c.name + ' dies of ' + d.diseaseLabel + ' (JJ p.84)') : (c.name + ' recovers from ' + d.diseaseLabel);
+        out.notableEvents.push({ kind:'disease-recovered', type:'disease', pauseTrigger:'disease', label:s, summary:s,
+          primaryHexId: c.currentHexId || null,
+          relatedEntities:[{ kind:'character', id:c.id, role:'subject' }],
+          payload:{ characterId:c.id, diseaseType:d.diseaseType, diseaseLabel:d.diseaseLabel, outcome, died, narrative:s } });
+      }
+    });
+  });
+  return out;
+}
+function commitDiseaseRecord(campaign, record){
+  if(!campaign || !record || record.type !== 'disease') return;
+  const c = _findCharacterLC(campaign, record.characterId);
+  if(!c || !Array.isArray(c.diseases)) return;
+  const d = c.diseases.find(x => x && x.id === record.diseaseId);
+  if(!d || d.resolved) return;
+  d.onsetRemaining = record.onsetRemainingAfter;
+  d.symptomRemaining = record.symptomRemainingAfter;
+  d.phase = record.phaseAfter;
+  if(record.transition === 'symptomatic'){
+    c.lifecycleState = 'incapacitated';                       // symptomatic ⇒ incapacitated (JJ p.84)
+  } else if(record.transition === 'resolve'){
+    d.resolved = true;
+    d.resolvedAtTurn = campaign.currentTurn || 1;
+    d.resolvedAtDay  = campaign.currentDayInMonth || 1;
+    if(record.outcome === 'died'){
+      d.phase = 'died';
+      c.lifecycleState = 'deceased'; c.alive = false; c.deceasedTurn = campaign.currentTurn || 1;
+    } else {
+      d.phase = 'recovered';
+      if(c.lifecycleState === 'incapacitated' && !_diseaseStillIncapacitated(c)) c.lifecycleState = 'active';
+    }
+    const s = record.outcome === 'died' ? (c.name + ' dies of ' + d.diseaseLabel) : (c.name + ' recovers from ' + d.diseaseLabel);
+    try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'disease-recovered', s, { diseaseType:d.diseaseType, outcome:record.outcome }); } catch(_e){}
+  }
+}
+// Direct (non-day-tick) advance — a GM "rest N days" / a future monthly subsume can call this.
+function advanceDiseases(campaign, days){
+  days = (typeof days === 'number' && days > 0) ? days : 1;
+  const prop = proposeDiseaseDay(campaign, { days });
+  prop.pendingRecords.forEach(r => commitDiseaseRecord(campaign, r));
+  return prop;
+}
+
+// =============================================================================
+// Healing-proficiency identification + cure (JJ p.84). v1: the GM rolls the Healing throw (or a
+// future Proficiency-Throws wire) and marks the result here — propose-ratify / GM-judgment-first.
+//   identifyDisease — on infected → 'sensed' ("coming down with something"); on symptomatic →
+//     'identified' (the exact disease); opts.level:'prognosis' adds the will-recover/will-die read.
+//     (GM-facing reads are always truthful; identifiedLevel tracks what the PARTY has worked out —
+//     for the player-facing / Portal view later.)
+//   cureDisease — Healing proficiency or `cure disease` magic, while infected or symptomatic.
+//     Resolves the disease as recovered, clears incapacitation if nothing else holds it, emits
+//     disease-recovered (outcome 'cured').
+// =============================================================================
+function identifyDisease(campaign, characterId, diseaseRef, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c) return null;
+  const d = _findDisease(c, diseaseRef);
+  if(!d || d.resolved) return null;
+  const level = opts.level || (d.phase === 'symptomatic' ? 'identified' : 'sensed');
+  d.identifiedLevel = level;
+  if(level === 'prognosis'){ d.identifiedLevel = 'prognosis'; d.prognosisKnown = true; }
+  return d;
+}
+function cureDisease(campaign, characterId, diseaseRef, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c) return null;
+  const d = _findDisease(c, diseaseRef);
+  if(!d || d.resolved) return null;
+  d.phase = 'recovered'; d.resolved = true; d.willDie = false;
+  d.curedAtDay = (campaign && campaign.currentDayInMonth) || 1;
+  d.resolvedAtTurn = (campaign && campaign.currentTurn) || 1;
+  if(c.lifecycleState === 'incapacitated' && !_diseaseStillIncapacitated(c)) c.lifecycleState = 'active';
+  const summary = c.name + ' is cured of ' + d.diseaseLabel + (opts.method ? (' (' + opts.method + ')') : '');
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'disease-recovered', summary, { diseaseType:d.diseaseType, cured:true }); } catch(_e){}
+  _emitDiseaseEvent(campaign, c, 'disease-recovered', {
+    characterId:c.id, diseaseType:d.diseaseType, diseaseLabel:d.diseaseLabel,
+    outcome:'cured', died:false, cured:true, narrative:summary
+  }, summary);
+  return d;
+}
+
+// A read accessor for the character-sheet Health panel — the active diseases, phase, days
+// remaining, prognosis (GM-truthful), and the worst phase. (the truth is always shown; the
+// identifiedLevel/prognosisKnown flags annotate what the party has diagnosed.)
+function characterDiseaseInfo(character){
+  const active = characterActiveDiseases(character);
+  return {
+    count: active.length,
+    symptomatic: active.some(d => d.phase === 'symptomatic'),
+    diseases: active.map(d => ({
+      id:d.id, diseaseType:d.diseaseType, diseaseLabel:d.diseaseLabel, phase:d.phase,
+      daysRemaining: d.phase === 'infected' ? d.onsetRemaining : (d.phase === 'symptomatic' ? d.symptomRemaining : 0),
+      phaseLabel: _diseasePhaseLabel(d.phase, d.onsetRemaining, d.symptomRemaining),
+      willDie:d.willDie, prognosisKnown:d.prognosisKnown, identifiedLevel:d.identifiedLevel, disfiguring:d.disfiguring
+    }))
+  };
+}
+
+// =============================================================================
+// Event emit — the record-only audit pattern (the aging / mortal-wounds idiom). For the DIRECT
+// verbs (contractDisease / cureDisease); the day-tick resolution rides the pipeline's emit via the
+// `disease-recovered` notable kind. cadence 'daily'; the character rides the context envelope.
+// =============================================================================
+function _emitDiseaseEvent(campaign, c, kind, payload, narrative){
+  const A = global.ACKS;
+  if(!A || typeof A.newEvent !== 'function') return null;
+  const cal = (campaign && campaign.calendar) || {};
+  let ev;
+  try {
+    ev = A.newEvent(kind, {
+      submittedBy:'engine', cadence:'daily', targetTurn:(campaign && campaign.currentTurn) || 1,
+      gameTimeAt:{ year:cal.year || 1, month:cal.month || 1, day:(campaign && campaign.currentDayInMonth) || 1 },
+      payload: Object.assign({ narrative }, payload || {})
+    });
+  } catch(_e){ return null; }
+  if(typeof A.setEventContext === 'function'){
+    A.setEventContext(ev, {
+      primaryHexId:(c && c.currentHexId) || null,
+      domainId:(c && c.currentDomainId) || null,
+      relatedEntities:[{ kind:'character', id:c && c.id, role:'subject' }]
+    });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = (campaign && campaign.currentTurn) || 1;
+  ev.appliedAtDay  = (campaign && campaign.currentDayInMonth) || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result:{ narrativeSummary:narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
+// ── self-register the slot-57 'disease' day-consumer (the weather/convalescence pattern;
+//    registerDayConsumer ships from acks-engine.js, loaded before this module) ──
+if(typeof ACKS.registerDayConsumer === 'function'){
+  ACKS.registerDayConsumer('disease', {
+    handler: proposeDiseaseDay,
+    order: 57,
+    pauseTriggers: ['disease'],
+    commit: commitDiseaseRecord
+  });
+}
+
+Object.assign(ACKS, {
+  // data
+  DISEASE_TYPES, DISEASE_CITE,
+  // catalog lookups
+  diseaseTypeForRoll, diseaseTypeById,
+  // verbs
+  contractDisease, cureDisease, identifyDisease,
+  // reads
+  characterActiveDiseases, anyDiseased, characterDiseaseInfo,
+  // the day-tick consumer (also self-registered above) + a direct advance
+  proposeDiseaseDay, commitDiseaseRecord, advanceDiseases
+});
+// === end Character Lifecycle CL-2 (burst5) ===================================
+
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
