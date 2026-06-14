@@ -12259,7 +12259,224 @@ document.addEventListener('alpine:init', () => {
 <!-- ===== TEAM BURST5 — modal / body-HTML tail · each UI builder adds ITS modal markup after its own line (inside x-data on <body>, so it binds) ===== -->
 <!-- b5-treasure (#142): Treasure Wizard modal here -->
 <!-- b5-sages (#147): Sage-consultation modal here -->
-<!-- b5-politics (P-2): Senate-vote modal (if any) here · the Senate tab/sub-view markup goes in the World/governance region -->
+<!-- b5-politics (P-2): the 🏛 Senate top-level view (a sibling of the ⛪ Religion view above; dormant-
+     until-used — the nav tab is gated on campaignHasSenate()). No modal needed — the consult result
+     renders inline. Thin Alpine layer over acks-engine-politics.js (senateVote / enactPolicy / the
+     derived tally + benefits). State + methods live at the b5-politics domainApp marker. -->
+<!-- ═══════════ VIEW: SENATE (P-2 — voting + benefits + disputes, RR pp.355–360) ═══════════ -->
+<div x-show="currentCampaign && currentView === 'senate'" class="p-4 space-y-4" x-cloak>
+
+  <!-- Intro + senate picker -->
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline gap-2">
+      <h3 class="font-bold text-lg">🏛 The Senate</h3>
+      <label class="text-sm" x-show="senateAllRows().length > 1">Senate
+        <select x-model="senateSelectedId" class="ml-1">
+          <template x-for="r in senateAllRows()" :key="r.id"><option :value="r.id" x-text="r.name"></option></template>
+        </select>
+      </label>
+    </div>
+    <p class="text-sm opacity-70 mt-1">A senatorial republic is a realm whose ruler is constrained by a senate he must consult before invading, taxing, conscripting, or changing his realm's religion (RR pp.355–360). Consulting rolls <strong>2d6 per leading senator</strong> in order of influence until a majority forms (RR p.358); defying or skipping a required consultation puts the realm <em>in dispute</em> and suspends its benefits. The ruling/leading faction is always derived from live influence — never stored.</p>
+    <template x-if="senateAllRows().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No senate yet. Make a realm's apex domain senatorial (set its <code>governance.mode</code> to <code>senatorial</code> via 🔍 Inspector ▸ a domain), then author a senate + factions + leading senators via 🔍 Inspector ▸ Create ▸ Senate. (The guided Senate Wizard is a later wave.) Granting an <strong>Office favor</strong> on a senatorial realm auto-seats the holder as a leading senator.</p>
+    </template>
+  </div>
+
+  <template x-if="senateSelected()">
+    <div class="space-y-4">
+
+      <!-- Composition + the derived tally -->
+      <div class="vellum border border-ink rounded p-4">
+        <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
+          <h3 class="font-bold text-lg"><span x-text="senateSelected().name"></span>
+            <span class="text-sm opacity-70 font-normal" x-text="'· ' + (senateSelected().kind || 'senate') + ' · ' + (senateSelected().seats || 0) + ' seats'"></span></h3>
+          <span class="text-sm opacity-70" x-text="'Ruler: ' + senateRulerName()"></span>
+        </div>
+        <div class="text-sm grid sm:grid-cols-2 gap-x-6 gap-y-1">
+          <div>Total votes (the majority denominator): <strong x-text="senateReadout().totalVotes"></strong>
+            <span class="opacity-60" x-text="'(majority needs ' + (Math.floor(senateReadout().totalVotes/2)+1) + ')'"></span></div>
+          <div>Independent minor votes: <strong x-text="senateReadout().independentVotes"></strong></div>
+          <div>Ruling faction:
+            <span x-text="senateFactionName(senateReadout().rulingFactionId)" :class="senateReadout().rulingFactionId ? 'font-semibold text-green-800' : 'opacity-60'"></span>
+            <span class="opacity-60" x-show="!senateReadout().rulingFactionId">(no majority)</span></div>
+          <div>Leading faction:
+            <span x-text="senateFactionName(senateReadout().leadingFactionId)" :class="senateReadout().leadingFactionId ? 'font-semibold' : 'opacity-60'"></span></div>
+        </div>
+      </div>
+
+      <!-- Benefits / dispute state (RR p.355 / p.359) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Benefits <span class="text-sm font-normal" :class="senateBenefitsView().active ? 'text-green-800' : 'text-red-800'"
+          x-text="senateBenefitsView().active ? '· active' : (senateBenefitsView().inDispute ? '· SUSPENDED (in dispute)' : '· inactive')"></span></h3>
+        <template x-if="senateBenefitsView().inDispute">
+          <div class="border border-red-400 bg-red-50 rounded p-2 mb-2 text-sm">
+            ⚠ The realm is <strong>in dispute</strong> over <em x-text="senateSelected().dispute.defiedTopic"></em>
+            (since turn <span x-text="senateSelected().dispute.sinceTurn"></span>, attempt <span x-text="senateSelected().dispute.attempts"></span>).
+            All senate benefits are suspended until the ruler wins the senate's retroactive approval.
+            <button @click="senateResolveDispute()" class="ml-2 px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-xs font-semibold">Resolve (retroactive approval)</button>
+          </div>
+        </template>
+        <ul class="text-sm space-y-0.5">
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">+<span x-text="senateBenefitsView().benefits.moraleBonus"></span> base morale to every domain in the realm (RR p.355)</li>
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">Non-henchman vassal base loyalty <strong x-text="senateBenefitsView().benefits.vassalBaseLoyalty"></strong> (instead of −2)</li>
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">The first extra duty each month skips the Loyalty check <span class="opacity-60">(if senate-approved — the Favors &amp; Duties seam)</span></li>
+          <li :class="senateBenefitsView().active ? '' : 'opacity-50 line-through'">Militia levy costs no realm morale <span class="opacity-60">(if approved)</span></li>
+        </ul>
+        <p class="text-xs opacity-60 mt-2">These read the live senatorial-realm state; the monthly-turn economy wiring of the +1 morale / loyalty-0 / free-duty paths is a later engine touch.</p>
+      </div>
+
+      <!-- Factions roster (derived influence + standing) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Factions <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateReadout().factions.length"></span></h3>
+        <template x-if="senateReadout().factions.length === 0">
+          <p class="text-sm italic opacity-60 py-2 text-center">No factions. Add them via 🔍 Inspector ▸ Create ▸ Faction (senateId = this senate), then seat leading senators in them.</p>
+        </template>
+        <template x-if="senateReadout().factions.length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Faction</th><th class="text-right">Influence</th><th>Standing</th></tr></thead>
+            <tbody>
+              <template x-for="f in senateReadout().factions" :key="f.id">
+                <tr>
+                  <td class="font-semibold" x-text="f.name"></td>
+                  <td class="text-right" x-text="f.influence"></td>
+                  <td><span x-text="f.standing" :class="f.standing === 'ruling' ? 'text-green-800 font-semibold' : f.standing === 'leading' ? 'font-semibold' : 'opacity-60'"></span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- Leading senators (the dossier — where an Office-seated senator appears) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Leading senators <span class="text-sm opacity-70 font-normal" x-text="'· ' + senateLeadingSenatorRows().length"></span></h3>
+        <template x-if="senateLeadingSenatorRows().length === 0">
+          <p class="text-sm italic opacity-60 py-2 text-center">No leading senators seated. Author them via 🔍 Inspector ▸ Create ▸ Senatorship, or grant an Office favor on this realm.</p>
+        </template>
+        <template x-if="senateLeadingSenatorRows().length > 0">
+          <table class="bookkeeping text-sm w-full">
+            <thead><tr><th>Senator</th><th>Faction</th><th class="text-right">Votes</th><th>Objectives</th><th>Attitude</th></tr></thead>
+            <tbody>
+              <template x-for="s in senateLeadingSenatorRows()" :key="s.id">
+                <tr>
+                  <td class="font-semibold"><span x-text="s.name"></span>
+                    <span x-show="s.viaOffice" class="ml-1 text-xs px-1 rounded bg-amber-200" title="Seated by an Office favor (RR p.355)">📜 office</span>
+                    <span x-show="s.bewitched" class="ml-1 text-xs px-1 rounded bg-purple-200" title="Bewitched — auto-votes as directed">✦ bewitched</span></td>
+                  <td x-text="s.factionName"></td>
+                  <td class="text-right" x-text="s.votes"></td>
+                  <td class="text-xs opacity-80" x-text="s.objectives"></td>
+                  <td x-text="s.attitude"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+
+      <!-- Consult the senate (the 2d6 vote) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Consult the senate</h3>
+        <div class="grid sm:grid-cols-2 gap-3 text-sm mb-3">
+          <label class="flex flex-col">Matter
+            <select x-model="senateConsult.matter" class="w-full">
+              <template x-for="m in senateMatterOptions()" :key="m.value"><option :value="m.value" x-text="m.label"></option></template>
+              <option value="__custom__">(other / custom…)</option>
+            </select>
+          </label>
+          <label class="flex flex-col" x-show="senateConsult.matter === '__custom__'">Custom matter
+            <input type="text" x-model="senateConsult.customMatter" placeholder="e.g. ratify the treaty" class="w-full">
+          </label>
+          <label class="flex flex-col">Resolution mode
+            <select x-model="senateConsult.mode" class="w-full">
+              <option value="per-senator">Per senator (roll each)</option>
+              <option value="by-faction">By faction (one roll each — the shortcut)</option>
+            </select>
+          </label>
+          <label class="flex flex-col">Ruler's domain morale score
+            <input type="number" x-model.number="senateConsult.domainMorale" class="w-full"></label>
+          <label class="flex flex-col">Ruler aligns with faction
+            <select x-model="senateConsult.rulerFactionId" class="w-full">
+              <option value="">— none —</option>
+              <template x-for="f in senateReadout().factions" :key="f.id"><option :value="f.id" x-text="f.name"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Military loyal to the ruler
+            <select x-model="senateConsult.militaryLoyalty" class="w-full">
+              <option value="none">None (+0)</option>
+              <option value="third">≥ ⅓ (+1)</option>
+              <option value="all">All (+2)</option>
+            </select>
+          </label>
+          <label class="flex flex-col">Controlled independent votes
+            <input type="number" min="0" x-model.number="senateConsult.controlledIndependentVotes" class="w-full">
+            <span class="text-xs opacity-60">independents the ruler directs (RR p.359 §4.7) — start on the FOR side</span></label>
+          <label class="flex flex-col" x-show="!senateAutoVoteOn()">GM outcome (auto-vote off)
+            <select x-model="senateConsult.gmOutcome" class="w-full"><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+        </div>
+        <details class="text-sm mb-3">
+          <summary class="cursor-pointer opacity-70">Policy helps / hinders senator objectives (RR p.358: +1 helps / −2 hinders, per objective)</summary>
+          <div class="grid sm:grid-cols-2 gap-3 mt-2">
+            <div><div class="font-semibold text-xs mb-1">Helps these objectives (+1 each)</div>
+              <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-32 overflow-y-auto border border-ink/20 rounded p-1">
+                <template x-for="o in policyObjectiveList()" :key="'h'+o">
+                  <label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="senateConsult.policyHelps"><span x-text="o"></span></label>
+                </template>
+              </div></div>
+            <div><div class="font-semibold text-xs mb-1">Hinders these objectives (−2 each)</div>
+              <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs max-h-32 overflow-y-auto border border-ink/20 rounded p-1">
+                <template x-for="o in policyObjectiveList()" :key="'x'+o">
+                  <label class="flex items-center gap-1"><input type="checkbox" :value="o" x-model="senateConsult.policyHinders"><span x-text="o"></span></label>
+                </template>
+              </div></div>
+          </div>
+        </details>
+        <button @click="senateRunConsult()" class="px-4 py-1.5 border-2 border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">🗳 Consult senate</button>
+      </div>
+
+      <!-- The vote result + enactment -->
+      <template x-if="senateConsultResult">
+        <div class="vellum border-2 rounded p-4" :class="senateConsultResult.approved ? 'border-green-500 bg-green-50' : senateConsultResult.outcome === 'rejected' ? 'border-red-500 bg-red-50' : 'border-yellow-500 bg-yellow-50'">
+          <div class="flex flex-wrap justify-between items-baseline gap-2 mb-2">
+            <h3 class="font-bold text-lg">
+              <span x-show="senateConsultResult.outcome === 'approved'" class="text-green-800">✓ Approved</span>
+              <span x-show="senateConsultResult.outcome === 'rejected'" class="text-red-800">✗ Rejected</span>
+              <span x-show="senateConsultResult.outcome === 'no-majority'" class="text-yellow-800">— No majority</span>
+              <span class="text-sm font-normal opacity-70" x-text="'on ' + (senateConsultResult.matter || 'the matter')"></span>
+            </h3>
+            <span class="text-sm" x-text="senateConsultResult.forVotes + ' for / ' + senateConsultResult.againstVotes + ' against / ' + senateConsultResult.abstainVotes + ' abstain — of ' + senateConsultResult.totalVotes + ' (majority ' + senateConsultResult.majorityThreshold + ')'"></span>
+          </div>
+          <p class="text-xs opacity-70 mb-2" x-show="!senateConsultResult.autoRolled">Auto-vote is OFF — the outcome was narrated by the GM, not rolled.</p>
+          <template x-if="senateConsultResult.rolls.length > 0">
+            <table class="bookkeeping text-xs w-full mb-3">
+              <thead><tr><th x-text="senateConsultResult.mode === 'by-faction' ? 'Faction' : 'Senator'"></th><th class="text-right">Votes</th><th class="text-right">2d6</th><th>Modifiers</th><th class="text-right">Adjusted</th><th>Vote</th></tr></thead>
+              <tbody>
+                <template x-for="(row, i) in senateConsultResult.rolls" :key="i">
+                  <tr>
+                    <td x-text="senateRollWho(row)"></td>
+                    <td class="text-right" x-text="row.votes"></td>
+                    <td class="text-right" x-text="row.bewitched ? '—' : (row.roll ? row.roll.natural : '—')"></td>
+                    <td class="opacity-80" x-text="senateRollModifiers(row)"></td>
+                    <td class="text-right" x-text="row.adjusted == null ? '—' : row.adjusted"></td>
+                    <td :class="row.vote === 'for' ? 'text-green-800 font-semibold' : row.vote === 'against' ? 'text-red-800 font-semibold' : 'opacity-60'"
+                        x-text="row.vote + (row.bewitched ? ' (bewitched)' : '')"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </template>
+          <div class="flex flex-wrap gap-2 items-center">
+            <span class="text-sm opacity-70">Enact the policy:</span>
+            <button @click="senateEnact(true)" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 text-sm font-semibold">Enact with the senate's sanction</button>
+            <button @click="senateEnact(false)" class="px-3 py-1 border border-ink rounded bg-red-200 hover:bg-red-300 text-sm font-semibold" x-show="senateMatterRestricted()">Defy the senate (→ dispute)</button>
+            <span class="text-xs opacity-60" x-show="senateMatterRestricted()">This matter is restricted — enacting it against the senate puts the realm in dispute.</span>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </template>
+</div>
+<!-- ═══════════ end VIEW: SENATE ═══════════ -->
 <!-- b5-religion (R2): blood-sacrifice modal (if any) here · the ⛪ Religion tab body extends in place -->
 <!-- b5-delves (D3): Foray Wizard modal here · the 🕳️ Dungeons sub-view extends in place -->
 <!-- b5-cl2 (disease): disease/health modal (if any) here · the character-sheet health readout extends in place -->
@@ -12937,7 +13154,9 @@ return {
       { id:'inspector',    label:'🔍 Inspector' },  // #555 Wave Inspector-B (2026-05-31)
       { id:'house-rules',  label:'⚙ House Rules',     count: enabledRules || null },
       // Future: { id:'syndicates', label:'🗡 Syndicates' },  (Phase 2.7)
-      // Future: { id:'senate',     label:'🏛 Senate' },      (Phase 4)
+      // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
+      // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
+      ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -24603,6 +24822,146 @@ return {
   // --- b5-treasure (#142): ---
   // --- b5-sages (#147): ---
   // --- b5-politics (P-2): ---
+  // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level view. A thin Alpine layer over
+  // acks-engine-politics.js (senateVote / enactPolicy / the §4.4 derived tally + benefits). The
+  // ruling/leading faction is always DERIVED — never read off a stored field. (P-1 left
+  // realmSenateOf / realmSenateReadout / politicsCreate above in the burst4 region.)
+  senateSelectedId: '',
+  senateConsult: { matter: 'change-taxes', customMatter: '', mode: 'per-senator', domainMorale: 0,
+    rulerFactionId: '', militaryLoyalty: 'none', controlledIndependentVotes: 0,
+    policyHelps: [], policyHinders: [], gmOutcome: 'approved' },
+  senateConsultResult: null,
+  // dormant-until-used: the nav tab + every panel gate on a senate existing.
+  campaignHasSenate(){ return !!(this.currentCampaign && Array.isArray(this.currentCampaign.senates) && this.currentCampaign.senates.some(s => s && s.status !== 'dissolved')); },
+  policyObjectiveList(){ return (window.ACKS && window.ACKS.POLICY_OBJECTIVES) || []; },
+  senateAutoVoteOn(){ const A = window.ACKS; return !(A && A.isHouseRuleEnabled && A.isHouseRuleEnabled(this.currentCampaign, 'senate-auto-vote') === false); },
+  senateAllRows(){
+    const c = this.currentCampaign;
+    if(!c || !Array.isArray(c.senates)) return [];
+    return c.senates.filter(s => s && s.status !== 'dissolved').map(s => ({ id: s.id, name: s.name || s.id }));
+  },
+  senateSelected(){
+    const c = this.currentCampaign, A = window.ACKS;
+    if(!c || !A) return null;
+    const rows = this.senateAllRows();
+    if(rows.length === 0) return null;
+    const id = this.senateSelectedId || rows[0].id;
+    return A.findSenate(c, id) || A.findSenate(c, rows[0].id);
+  },
+  _senateApex(senate){
+    const c = this.currentCampaign;
+    if(!c || !senate || !Array.isArray(c.domains)) return null;
+    return c.domains.find(d => d && d.id === senate.realmDomainId) || null;
+  },
+  // the derived tally (§4.4) for the selected senate — recomputed live, nothing cached.
+  senateReadout(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return { totalVotes: 0, independentVotes: 0, rulingFactionId: null, leadingFactionId: null, factions: [] };
+    const factions = (A.factionsForSenate(c, senate.id) || []).map(f => ({
+      id: f.id, name: f.name || f.id, influence: A.factionTotalInfluence(c, f), standing: A.factionStanding(c, f)
+    })).sort((a, b) => b.influence - a.influence);
+    return {
+      totalVotes: A.senateTotalVotes(c, senate),
+      independentVotes: senate.independentMinorSenatorVotes || 0,
+      rulingFactionId: A.senateRulingFactionId(c, senate),
+      leadingFactionId: A.senateLeadingFactionId(c, senate),
+      factions
+    };
+  },
+  senateRulerName(){
+    const apex = this._senateApex(this.senateSelected());
+    if(!apex) return '—';
+    const r = (this.currentCampaign.characters || []).find(ch => ch && ch.id === apex.rulerCharacterId);
+    return r ? (r.name || r.id) : '—';
+  },
+  senateFactionName(id){
+    if(!id) return '—';
+    const f = window.ACKS.findFaction(this.currentCampaign, id);
+    return f ? (f.name || f.id) : id;
+  },
+  senateBenefitsView(){
+    const A = window.ACKS, senate = this.senateSelected(), apex = this._senateApex(senate);
+    if(!A || !apex) return { active: false, inDispute: false, isSenatorial: false, benefits: { moraleBonus: 0, vassalBaseLoyalty: -2, freeFirstExtraDuty: false, freeMilitiaLevy: false } };
+    return A.senateBenefits(this.currentCampaign, apex);
+  },
+  senateLeadingSenatorRows(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return [];
+    return (A.senatorshipsForSenate(c, senate.id) || []).filter(s => s.rank !== 'minor').sort((a, b) => (b.votes || 0) - (a.votes || 0)).map(s => {
+      const ch = (c.characters || []).find(x => x && x.id === s.senatorCharacterId);
+      const f = s.factionId ? A.findFaction(c, s.factionId) : null;
+      return {
+        id: s.id, name: ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)'),
+        factionName: f ? (f.name || f.id) : '—', votes: s.votes || 0,
+        objectives: (Array.isArray(s.policyObjectives) && s.policyObjectives.length) ? s.policyObjectives.join(', ') : '—',
+        attitude: s.attitudeTowardRuler != null ? s.attitudeTowardRuler : '—',
+        viaOffice: !!s.sourceObligationId,
+        bewitched: Array.isArray(s.influenceModifiers) && s.influenceModifiers.some(m => m && m.kind === 'bewitched')
+      };
+    });
+  },
+  senateMatterOptions(){
+    const labels = { 'invade-realm': 'Invade another realm', 'demand-duty': 'Demand a duty of a vassal',
+      'appoint-vassal-manager': 'Appoint a vassal-domain manager', 'change-taxes': "Change the realm's taxes",
+      'change-religion': "Change the realm's religion", 'levy-troops': 'Levy conscripts or militia' };
+    return ((window.ACKS && window.ACKS.SENATE_RESTRICTED_MATTERS) || []).map(m => ({ value: m, label: labels[m] || m }));
+  },
+  _senateMatter(){
+    return this.senateConsult.matter === '__custom__' ? (this.senateConsult.customMatter || 'a custom matter') : this.senateConsult.matter;
+  },
+  senateMatterRestricted(){
+    const A = window.ACKS;
+    return !!(A && A.isSenateConsultationRequired && A.isSenateConsultationRequired(this._senateMatter()));
+  },
+  // the result-table render helpers (per-senator rows carry senatorCharacterId; by-faction rows carry factionName)
+  senateRollWho(row){
+    if(row.factionName) return row.factionName;
+    const ch = (this.currentCampaign.characters || []).find(x => x && x.id === row.senatorCharacterId);
+    return ch ? (ch.name || ch.id) : (row.senatorCharacterId || 'senator');
+  },
+  senateRollModifiers(row){
+    if(!row.modifiers || row.modifiers.length === 0) return row.bewitched ? 'auto (bewitched)' : '—';
+    return row.modifiers.map(m => (m.value >= 0 ? '+' : '') + m.value + ' ' + m.label).join(', ');
+  },
+  // run the 2d6 consultation (or record the GM narration when senate-auto-vote is off)
+  senateRunConsult(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return;
+    const res = A.senateVote(c, {
+      senateId: senate.id, matter: this._senateMatter(), mode: this.senateConsult.mode,
+      domainMorale: Number(this.senateConsult.domainMorale) || 0,
+      rulerFactionId: this.senateConsult.rulerFactionId || null,
+      militaryLoyalty: this.senateConsult.militaryLoyalty,
+      controlledIndependentVotes: Number(this.senateConsult.controlledIndependentVotes) || 0,
+      policyHelps: (this.senateConsult.policyHelps || []).slice(),
+      policyHinders: (this.senateConsult.policyHinders || []).slice(),
+      gmOutcome: this.senateConsult.gmOutcome
+    });
+    this.senateConsultResult = res;
+    this.markDirty(); this.schedulePersist();
+    if(res) this.showToast('🗳 The senate votes — ' + res.outcome + ' (' + res.forVotes + ' for / ' + res.againstVotes + ' against of ' + res.totalVotes + ')', 5000);
+  },
+  // the ruler acts on the matter: enact cleanly (approved) or defy the senate (→ dispute)
+  senateEnact(approved){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return;
+    const r = A.enactPolicy(c, { senateId: senate.id, matter: this._senateMatter(), consulted: true, approved: !!approved });
+    this.markDirty(); this.schedulePersist();
+    if(r){
+      if(r.disputed) this.showToast('⚠ The ruler defies the senate — the realm is in dispute.', 5000);
+      else if(r.cleared) this.showToast('✓ The dispute is resolved — benefits restored.', 5000);
+      else this.showToast("✓ Policy enacted with the senate's sanction.", 4000);
+    }
+    this.senateConsultResult = null;
+  },
+  // resolve an existing dispute via a retroactive-approval enactment on the defied topic
+  senateResolveDispute(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate || senate.dispute == null) return;
+    const r = A.enactPolicy(c, { senateId: senate.id, matter: senate.dispute.defiedTopic, consulted: true, approved: true, retroactiveApproval: true });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.cleared) this.showToast('✓ The senate grants retroactive approval — the dispute ends.', 5000);
+  },
   // --- b5-religion (R2): ---
   // --- b5-delves (D3): ---
   // --- b5-cl2 (disease): ---
