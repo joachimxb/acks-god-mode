@@ -48,12 +48,12 @@
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-05-31-a"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-12-b"></script>
-<script src="acks-engine-events.js?v=2026-06-14-pt6"></script>
+<script src="acks-engine-events.js?v=2026-06-14-r2"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-14-pt5"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
-<script src="acks-engine-religion.js?v=2026-06-13-a"></script>
+<script src="acks-engine-religion.js?v=2026-06-14-r2"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
 <script src="acks-engine-domain-completion.js?v=2026-06-13-a"></script>
 <!-- ════ TEAM SESSION (world-front 2026-06-13) — NEW engine-module script-src tags; Lead removes this comment block at integration ════ -->
@@ -11652,7 +11652,7 @@ document.addEventListener('alpine:init', () => {
       <label class="flex flex-col">High priest
         <select x-model="religionCongForm.highPriestCharacterId" class="w-44">
           <option value="">— pick —</option>
-          <template x-for="ch in (currentCampaign.characters||[])" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+          <template x-for="ch in ((currentCampaign && currentCampaign.characters)||[])" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
         </select>
       </label>
       <label class="flex flex-col">Domain worship (ruler/chaplain)
@@ -11751,6 +11751,73 @@ document.addEventListener('alpine:init', () => {
     </div>
     <p class="text-sm opacity-60 mt-3 italic">Divine power is spent on consecration or returned for XP. It cannot be hoarded — each accrual fades one month after it's received (RR p.422). Pray-and-sacrifice grants campaign XP for the month's returned power above your XP threshold, settled at Advance Month.</p>
   </div>
+
+  <!-- 🩸 Blood Sacrifice (R2 — the Chaotic path, RR pp.421–422) -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg">🩸 Blood Sacrifice <span class="text-sm opacity-70 font-normal">· the Chaotic path · RR pp.421–422</span></h3>
+    <p class="text-sm opacity-70 mt-1 mb-3">A divine caster spills a victim's life to earn divine power. The <em>base</em> (= the victim's component value, usually its XP value) is always earned; the victim-characteristic <em>multipliers</em> are added only on a successful magic-research throw. Lawful/Neutral casters can only sacrifice <em>helpless animals</em> — never sapient creatures (RR p.422); a Chaotic caster takes a willing victim. Warlock/demonologist <em>Power of Sacrifice</em> casters store arcane power ×2 instead.</p>
+    <template x-if="religionSacCasterOptions().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No divine or arcane casters in this campaign yet.</p>
+    </template>
+    <template x-if="religionSacCasterOptions().length > 0">
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-end gap-2 text-sm">
+          <label class="flex flex-col">Caster
+            <select x-model="religionSacForm.casterId" class="w-44">
+              <option value="">— pick —</option>
+              <template x-for="ch in religionSacCasterOptions()" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col">Victim (a character)
+            <select x-model="religionSacForm.victimCharacterId" class="w-44">
+              <option value="">— none / use value —</option>
+              <template x-for="ch in ((currentCampaign && currentCampaign.characters)||[])" :key="ch.id"><option :value="ch.id" x-text="(ch.name||ch.id) + ' · ' + (ch.xp||0).toLocaleString() + ' XP'"></option></template>
+            </select>
+          </label>
+          <label class="flex flex-col" x-show="!religionSacForm.victimCharacterId">Component value (gp)<input type="number" min="0" x-model.number="religionSacForm.componentValueGp" class="w-32"></label>
+          <label class="flex flex-col">Victim alignment
+            <select x-model="religionSacForm.victimAlignment" class="w-28"><option value="">—</option><option>Lawful</option><option>Neutral</option><option>Chaotic</option></select>
+          </label>
+        </div>
+        <div class="flex flex-wrap items-center gap-4 text-sm">
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="religionSacForm.victimSapient"> Sapient victim</label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="religionSacForm.victimWilling"> Willing</label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="religionSacForm.victimHelpless"> Helpless</label>
+        </div>
+        <div class="text-sm">
+          <span class="opacity-70">Multipliers (each ×component value, on a successful throw):</span>
+          <div class="flex flex-wrap gap-3 mt-1">
+            <template x-for="k in religionSacMultiplierKeys()" :key="k">
+              <label class="flex items-center gap-1"><input type="checkbox" :checked="!!religionSacForm.multipliers[k]" @change="religionSacToggleMult(k)">
+                <span x-text="k + ' (×' + religionSacMultValue(k) + ')'"></span></label>
+            </template>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <button @click="religionPerformSacrifice()" class="px-3 py-1 border border-ink rounded bg-red-200 hover:bg-red-300 font-semibold" :disabled="!religionSacForm.casterId">🩸 Perform sacrifice</button>
+          <span class="text-sm opacity-70" x-text="'base ' + religionSacComponentPreview().toLocaleString() + 'gp · multipliers ×' + religionSacMultSumPreview()"></span>
+        </div>
+        <template x-if="religionSacResult">
+          <div class="vellum border border-ink/40 rounded p-2 text-sm" :class="religionSacResult.ok ? '' : 'border-red-400'">
+            <template x-if="!religionSacResult.ok">
+              <span class="text-red-700" x-text="'✗ Blocked: ' + religionSacResult.reason"></span>
+            </template>
+            <template x-if="religionSacResult.ok">
+              <div>
+                <span x-show="religionSacResult.yieldsNothing" class="text-amber-700" x-text="'⚠ The act is done, but no power is earned (' + religionSacResult.yieldReason + ').'"></span>
+                <span x-show="!religionSacResult.yieldsNothing && religionSacResult.arcane" x-text="'🔮 Stored ' + (religionSacResult.arcaneStoredGp||0).toLocaleString() + 'gp arcane power (×2, indefinite).'"></span>
+                <span x-show="!religionSacResult.yieldsNothing && !religionSacResult.arcane" x-text="'🩸 Gained ' + (religionSacResult.divinePowerGained||0).toLocaleString() + 'gp divine power (base ' + (religionSacResult.base||0).toLocaleString() + ' + bonus ' + (religionSacResult.bonus||0).toLocaleString() + ').'"></span>
+                <span x-show="religionSacResult.throwResult" class="opacity-70" x-text="religionSacResult.throwResult ? (' · throw ' + religionSacResult.throwResult.roll + (religionSacResult.throwResult.success ? ' ✓ multipliers earned' : ' ✗ multipliers lost') ) : ''"></span>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  <!-- Weekly grain note (R1.5) -->
+  <p class="text-sm opacity-60 italic px-1">⏳ Advance the <strong>Day Clock</strong> to accrue divine power at its true <em>weekly</em> grain (one week each on days 7 / 14 / 21 / 28 of the month); the day-tick review lists each week's accrual. Otherwise it batches on <strong>Advance Month</strong> — the two cadences total the same power for the month (RR p.422; Plan §5.7).</p>
 </div>
 <!-- ═══════════ end VIEW: RELIGION ═══════════ -->
 <!-- ── agent-2 (DC-2): extends the existing Domain-Advancement panel in place — usually nothing here ── -->
@@ -25349,6 +25416,41 @@ return {
     if(r && r.cleared) this.showToast('✓ The senate grants retroactive approval — the dispute ends.', 5000);
   },
   // --- b5-religion (R2): ---
+  // --- b5-religion (R2): blood sacrifice (the Chaotic path) — thin Alpine layer over bloodSacrifice ---
+  religionSacForm: { casterId: '', componentValueGp: 0, victimCharacterId: '', victimSapient: false, victimWilling: false, victimHelpless: true, victimAlignment: '', multipliers: {} },
+  religionSacResult: null,
+  religionSacCasterOptions(){
+    const camp = this.currentCampaign; if(!camp) return [];
+    const A = window.ACKS; const priestIds = new Set((camp.congregations || []).map(c => c.highPriestCharacterId).filter(Boolean));
+    return (camp.characters || []).filter(ch => ch && (A.isDivineCaster(ch) || A.hasPowerOfSacrifice(ch) || priestIds.has(ch.id)));
+  },
+  religionSacMultiplierKeys(){ return Object.keys(window.ACKS.SACRIFICE_MULTIPLIERS || {}); },
+  religionSacMultValue(k){ return (window.ACKS.SACRIFICE_MULTIPLIERS || {})[k] || 0; },
+  religionSacToggleMult(k){ this.religionSacForm.multipliers[k] = !this.religionSacForm.multipliers[k]; },
+  religionSacComponentPreview(){
+    const f = this.religionSacForm;
+    if(f.victimCharacterId){ const v = (this.currentCampaign.characters || []).find(c => c.id === f.victimCharacterId); return v ? (Number(v.xp) || 0) : 0; }
+    return Number(f.componentValueGp) || 0;
+  },
+  religionSacMultSumPreview(){
+    const f = this.religionSacForm;
+    return window.ACKS.sacrificeMultiplierSum(Object.keys(f.multipliers).filter(k => f.multipliers[k]));
+  },
+  religionPerformSacrifice(){
+    const f = this.religionSacForm; if(!f.casterId) return;
+    const multipliers = Object.keys(f.multipliers).filter(k => f.multipliers[k]);
+    const opts = { casterId: f.casterId, multipliers, victimSapient: f.victimSapient,
+      victimWilling: f.victimWilling, victimHelpless: f.victimHelpless, victimAlignment: f.victimAlignment || null };
+    if(f.victimCharacterId) opts.victimCharacterId = f.victimCharacterId;
+    else opts.componentValueGp = Number(f.componentValueGp) || 0;
+    const r = window.ACKS.bloodSacrifice(this.currentCampaign, opts);
+    this.religionSacResult = r;
+    if(!r || !r.ok){ this.showToast('Sacrifice blocked: ' + ((r && r.reason) || 'failed')); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast(r.yieldsNothing ? ('Sacrifice performed — no power earned (' + r.yieldReason + ')')
+      : (r.arcane ? ('Stored ' + (r.arcaneStoredGp || 0).toLocaleString() + 'gp arcane power')
+        : ('Gained ' + (r.divinePowerGained || 0).toLocaleString() + 'gp divine power')));
+  },
   // --- b5-delves (D3): ---
   // --- b5-cl2 (disease): ---
   // ========================= end TEAM BURST5 state + methods =========================

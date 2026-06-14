@@ -205,6 +205,8 @@ const EVENT_KINDS = Object.freeze([
   'divine-power-accrued',   // a divine caster's expiring ledger gains DP (congregation / domain-worship / gm-grant)
   'consecration',           // DP spent on a consecration act (consecrate-fields / a generic divine spend)
   'divine-favor-changed',   // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
+  // === Religion R2 (team 2026-06-14) — blood sacrifice (the Chaotic path, RR pp.421–422) ===
+  'blood-sacrifice',        // a divine/arcane caster sacrifices a victim for divine/arcane power
   // === Hijinks HJ-1 (team) ===
   // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
@@ -709,6 +711,11 @@ const EVENT_SCHEMAS = Object.freeze({
   'divine-favor-changed': {
     R: { characterId: 'string', action: 'string' },
     O: { deityId: 'string', standing: 'string', previousStanding: 'string', reason: 'string', divinePowerReturnedGp: 'number' }
+  },
+  // === Religion R2 (team 2026-06-14) — blood sacrifice (RR pp.421–422) ===
+  'blood-sacrifice': {
+    R: { casterCharacterId: 'string', componentValueGp: 'number' },
+    O: { victimRef: 'object', multipliers: 'object', throwResult: 'object', divinePowerGained: 'number', arcaneStoredGp: 'number', yieldsNothing: 'boolean', deityId: 'string' }
   },
   // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
   'hijink-attempted': {
@@ -2286,6 +2293,9 @@ function applyEvent_religionAudit(campaign, event){
 registerEventHandler('divine-power-accrued', applyEvent_religionAudit);
 registerEventHandler('consecration', applyEvent_religionAudit);
 registerEventHandler('divine-favor-changed', applyEvent_religionAudit);
+// === Religion R2 (team 2026-06-14) — blood sacrifice shares the record-only audit posture
+// (bloodSacrifice already applied the ledger/arcane store; the handler keeps the event well-formed). ===
+registerEventHandler('blood-sacrifice', applyEvent_religionAudit);
 // === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
 // startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
 // handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
@@ -5318,6 +5328,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // + domain state don't show; the GM authors deities/congregations via Inspector Create + the
   // ⛪ Religion view's actions, not these raw events.
   'divine-power-accrued', 'consecration', 'divine-favor-changed',
+  // === Religion R2 (team 2026-06-14) — owned by bloodSacrifice (raw emit would record a sacrifice
+  // the divine/arcane ledgers don't show; the GM performs it via the ⛪ Religion view's action). ===
+  'blood-sacrifice',
   // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
   // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
   'hijink-attempted', 'hijink-resolved',
