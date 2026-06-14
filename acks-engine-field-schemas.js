@@ -554,6 +554,9 @@
         { name: 'partyId', type: 'id', idKind: 'party', group: 'Participants', description: 'Optional convenience pointer — participantCharacterIds is the source of truth' },
         { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants' },
         { name: 'armyId', type: 'id', idKind: 'army', group: 'Participants', description: 'W4 — an ARMY’s march: the army governs speed/weather; no nav throw, no encounter draws, no survival (RR p.448)' },
+        // === Voyages V1 (burst4 — 2026-06-14) — surface the reserved blankJourney.shipId (the carrying
+        // Vessel; voyage modes). The factory already emits shipId, so the schema⊆factory invariant holds. ===
+        { name: 'shipId', type: 'id', idKind: 'vessel', group: 'Participants', description: 'V1 — the carrying Vessel for a voyage-mode journey (Phase 3 Voyages #145); null on land journeys' },
         { name: 'startHexId',       type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'destinationHexId', type: 'id', idKind: 'hex', group: 'Route' },
         { name: 'currentHexId',     type: 'id', idKind: 'hex', group: 'Route', description: 'Advances to the destination on arrival (per-hex stepping is a later slice)' },
@@ -575,6 +578,41 @@
         ] },
         { name: 'notes',   type: 'longText', group: 'History' },
         { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // === Voyages V1 (burst4 — 2026-06-14) — Vessel (Phase 3 Voyages #145, RR Ch.7 Seafarers &
+    // Voyages). The Admin verb (Inspector ▸ Create ▸ Vessel → schemaForm + the inspectorCreateBlankVessel
+    // dispatch). catalogKey is the picker populated from the 20 RR p.316 VESSEL_CATALOG classes. Every
+    // field is a blankVessel key (global schema⊆factory invariant); schemaVersion is factory-only. ===
+    'vessel': {
+      factory: 'blankVessel',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Class', 'Crew', 'Cargo', 'Condition', 'History'],
+      fields: [
+        { name: 'id',         type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',       type: 'string', required: true,  group: 'Identity', description: 'Vessel name, e.g. "Sea Wolf"' },
+        { name: 'catalogKey', type: 'enum',   group: 'Class', description: 'The RR p.316 Sea Vessels class (immutable stats)',
+          enumValues: ['barge-small','barge-large','barge-huge','boat-row','boat-sail','canoe','galley-1-rower','galley-1.5-rower','galley-2-rower','galley-2.5-rower','galley-3-rower','galley-4-rower','galley-5-rower','galley-6-rower','galley-8-rower','longship','raft','sailing-ship-small','sailing-ship-large','sailing-ship-huge'] },
+        { name: 'shp',        type: 'number', min: 0, group: 'Class', description: 'Current structural hit points (≤ the class base SHP)' },
+        { name: 'ownerId',    type: 'id', idKind: 'character', group: 'Identity', description: 'Owner — a character (the picker) OR a domain (set a domain id via Raw JSON; vesselOwner resolves both)' },
+        { name: 'currentHexId', type: 'id', idKind: 'hex', group: 'Identity' },
+        { name: 'crewComplement', type: 'object', group: 'Crew', description: 'Current manning vs the class full crew (RR p.316)', fields: [
+          { name: 'sailors', type: 'number', min: 0 },
+          { name: 'rowers',  type: 'number', min: 0 },
+          { name: 'marines', type: 'number', min: 0 }
+        ] },
+        { name: 'crewGroupIds',        type: 'idArray', idKind: 'group', group: 'Crew', description: 'Counted crew (rowers/sailors/marine units) → campaign.groups[]' },
+        { name: 'officerCharacterIds', type: 'idArray', idKind: 'character', group: 'Crew', description: 'Named officers — captain / navigator / master mariner' },
+        { name: 'holdStashId', type: 'id', idKind: 'stash', group: 'Cargo', description: 'Cargo hold — a Stash (stashKind:"vessel-hold")' },
+        { name: 'warMachines', type: 'array', group: 'Condition', description: 'Fitted naval war machines (RR pp.155–156)', itemSchema: { fields: [
+          { name: 'kind', type: 'enum', enumValues: ['naval-ram','boarding-bridge','boarding-ramp','fire-pot-pole','harpoon-ballista','large-tower','small-tower','ballista','catapult','other'] },
+          { name: 'note', type: 'string' }
+        ] } },
+        { name: 'condition',         type: 'enum', enumValues: ['seaworthy','damaged','sinking','beached','wrecked'], group: 'Condition', default: 'seaworthy' },
+        { name: 'constructionState', type: 'enum', enumValues: ['planned','under-construction','complete','in-repair'], group: 'Condition', default: 'complete', description: 'complete when bought; a Construction Project drives the lifecycle (Wave D)' },
+        { name: 'createdAtTurn', type: 'number', readonly: true, group: 'History' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
       ]
     },
 
@@ -738,8 +776,165 @@
         { name: 'lastTributeTurn',  type: 'number', readonly: true, group: 'History', description: 'Last monthly tribute collection' },
         { name: 'history',          type: 'history', readonly: true, group: 'History' }
       ]
-    }
+    },
     // === end Hijinks HJ-2 ===
+
+    // === Delves D2 (burst4) — Dungeon + Delve (Phase_3.5_Delves_Plan.md §4; the RECONCILED shape,
+    // Data_Dictionary §13.2). Every field is a key the matching factory emits (the global schema⊆
+    // factory invariant, tests/smoke.js). The Dungeon schema covers the BASE + delve-target facet
+    // ONLY; the arcane facet (levels/areaSqFtPerLevel/sovereignCharacterId/arcanePowerThisMonth/…)
+    // is reserved-null on blankDungeon and ADDED to this schema by Phase 4 Sanctums (AD-A). owned +
+    // attuned are NOT status values (Q1) — they're derived via dungeonLifecycleLabel() off
+    // ownerCharacterId + the attunement relation. adminCreate:'schemaForm' = the generic Admin form. ──
+    'dungeon': {
+      factory: 'blankDungeon',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Placement', 'Delve Target', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                type: 'string', group: 'Identity', default: '', description: 'GM label, e.g. "the Ruined Fort of Aelnoth"' },
+        { name: 'origin',              type: 'enum', enumValues: ['constructed','natural','found','conquered','lair-promoted'], group: 'Identity', default: 'found' },
+        { name: 'knownToPlayers',      type: 'boolean', group: 'Placement', description: 'Discovered by the players?' },
+        { name: 'hexId',               type: 'id', idKind: 'hex', group: 'Placement', description: 'The hex it sits in — null = unplaced / unknown distance' },
+        { name: 'precisePlacement',    type: 'string', group: 'Placement', description: 'e.g. "the old quarry on the north slope"' },
+        { name: 'domainId',            type: 'id', idKind: 'domain', group: 'Placement', description: 'The domain whose territory it lies in (when known)' },
+        { name: 'size',                type: 'enum', enumValues: ['small','medium','large','mega'], group: 'Delve Target', default: 'small', description: 'Drives the encounter count (JJ p.275)' },
+        { name: 'dungeonLevel',        type: 'number', min: 1, group: 'Delve Target', default: 1, description: 'Difficulty 1..6 (JJ p.275)' },
+        { name: 'encountersTotal',     type: 'number', min: 0, group: 'Delve Target', description: 'Rolled from size, or counted from a stocked map' },
+        { name: 'encountersRemaining', type: 'number', min: 0, group: 'Delve Target', description: 'Authored for an abstract dungeon; derived from living lairs for a stocked one (dungeonEncountersRemaining)' },
+        { name: 'encountersCleared',   type: 'number', min: 0, readonly: true, group: 'Delve Target', description: 'Running, for the treasure/XP tally' },
+        { name: 'sizeKnown',           type: 'boolean', group: 'Delve Target', description: 'false ⇒ Unknown Size & Level rule (JJ p.279) — players must scout' },
+        { name: 'levelKnown',          type: 'boolean', group: 'Delve Target' },
+        { name: 'multiLevel',          type: 'boolean', group: 'Delve Target', description: 'RAW: treat each level as a separate Dungeon' },
+        { name: 'parentDungeonId',     type: 'id', idKind: 'dungeon', group: 'Delve Target', description: 'For a multi-level complex — this level\'s parent' },
+        { name: 'restockDie',          type: 'string', group: 'Delve Target', description: 'Restock dice (JJ p.276), e.g. "1d3-2"; derived from size' },
+        { name: 'status',              type: 'enum', enumValues: ['undiscovered','known','being-cleared','cleared','sealed','abandoned','destroyed'], group: 'Lifecycle', default: 'known', description: 'The single lifecycle axis (Q1); owned/attuned are DERIVED, not stored here' },
+        { name: 'ownerCharacterId',    type: 'id', idKind: 'character', group: 'Lifecycle', description: 'Who owns/operates it (RR p.386); set ⇒ the derived "Owned" overlay' },
+        { name: 'lastForayAtDayInMonth', type: 'number', readonly: true, group: 'Lifecycle', description: 'Restocking clock' },
+        { name: 'lastForayAtTurn',     type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'establishedAtTurn',   type: 'number', group: 'Lifecycle' },
+        { name: 'notes',               type: 'longText', group: 'History' },
+        { name: 'history',             type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    // Delve — the multi-foray clear-a-dungeon operation. foraysResolved[] is an engine-managed
+    // deep log (the journey.days[] precedent) — omitted from the schema, raw-JSON-edited; the D3
+    // Foray Wizard owns it. Every field below is a blankDelve key.
+    'delve': {
+      factory: 'blankDelve',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Participants', 'Progress', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                      type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                    type: 'string', group: 'Identity', description: 'Auto: "Delve into <dungeon name>"' },
+        { name: 'dungeonId',               type: 'id', idKind: 'dungeon', required: true, group: 'Identity' },
+        { name: 'status',                  type: 'enum', enumValues: ['in-progress','withdrawn','cleared','wiped'], group: 'Identity', default: 'in-progress' },
+        { name: 'partyId',                 type: 'id', idKind: 'party', group: 'Participants', description: 'Optional — participantCharacterIds is the source of truth' },
+        { name: 'participantCharacterIds', type: 'idArray', idKind: 'character', group: 'Participants', description: 'The delvers (a foray draws ≤8 from these)' },
+        { name: 'isHenchmanDelve',         type: 'boolean', group: 'Participants', description: 'RAW XP/treasure split (JJ p.277)' },
+        { name: 'runningEncountersCleared', type: 'number', min: 0, readonly: true, group: 'Progress' },
+        { name: 'runningTreasureGp',       type: 'gp', readonly: true, group: 'Progress', description: 'Gross; the ¼-withdraw / full-clear multiplier applies at realize (D3)' },
+        { name: 'runningXp',               type: 'number', min: 0, readonly: true, group: 'Progress' },
+        { name: 'casualtyCharacterIds',    type: 'idArray', idKind: 'character', group: 'Progress', description: 'Mortally wounded / slain this delve' },
+        { name: 'magicItemRollsPending',   type: 'number', min: 0, readonly: true, group: 'Progress', description: 'Computed at clear (Treasure-Type rolls per GP/Roll)' },
+        { name: 'startedAtTurn',           type: 'number', group: 'Lifecycle' },
+        { name: 'startedAtDayInMonth',     type: 'number', group: 'Lifecycle' },
+        { name: 'notes',                   type: 'longText', group: 'History' },
+        { name: 'history',                 type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+    // === end Delves D2 ===
+    // === Politics P-1 (burst4 2026-06-13) — senate / faction / senatorship (RR pp.355–360;
+    // Phase_4_Politics_Plan.md §4). Every field ⊆ the matching blankX keys (the global schema⊆
+    // factory invariant). rulingFactionId/leadingFactionId + faction ruling/leading standing are
+    // DERIVED (§4.4 — senateRulingFactionId / factionStanding) and so are NOT schema fields. ──
+    'senate': {
+      factory: 'blankSenate',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Composition', 'Requirements of Office', 'State', 'History'],
+      fields: [
+        { name: 'id',            type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',          type: 'string', group: 'Identity', description: 'e.g. "Senate of Aura"' },
+        { name: 'realmDomainId', type: 'id', idKind: 'domain', group: 'Identity', description: 'The realm apex (a domain with no liege) the senate sits on' },
+        { name: 'kind',          type: 'enum', enumValues: ['senate','eldermoot','council'], group: 'Identity', default: 'senate', description: 'Eldermoot reuses this scaffolding (Dwarven seam)' },
+        { name: 'seats',         type: 'number', min: 0, group: 'Composition', description: 'Total vote pool (RR p.357 size-of-the-senate table)' },
+        { name: 'minSenatorLevel', type: 'number', group: 'Composition', description: 'Min level to sit — inverse to seat count (RR p.357)' },
+        { name: 'independentMinorSenatorVotes', type: 'number', min: 0, group: 'Composition', description: 'Anonymous remainder — leading influence + this = seats (RR p.357)' },
+        { name: 'requirementsOfOffice', type: 'object', group: 'Requirements of Office', description: 'The in-world bar + the bribe-cost-by-period row (RR p.357)', fields: [
+          { name: 'minLevel',        type: 'number' },
+          { name: 'title',           type: 'string', description: 'Baron / Viscount / Count / Duke / Prince' },
+          { name: 'netWorthGp',      type: 'gp' },
+          { name: 'landDescription', type: 'string', description: 'e.g. "2 × 6-mile hexes"' },
+          { name: 'families',        type: 'number' },
+          { name: 'bribeCostDay',    type: 'gp' },
+          { name: 'bribeCostWeek',   type: 'gp' },
+          { name: 'bribeCostMonth',  type: 'gp' },
+          { name: 'bribeCostYear',   type: 'gp' }
+        ] },
+        { name: 'establishedAtTurn',  type: 'number', group: 'State' },
+        { name: 'honeymoonUntilTurn', type: 'number', group: 'State', description: 'RR p.357 — the 1d6-month all-vote-for window for an adventurer-established senate' },
+        { name: 'dispute', type: 'object', group: 'State', description: 'Non-null suspends all senate benefits until resolved (RR p.359)', fields: [
+          { name: 'defiedTopic', type: 'string' },
+          { name: 'sinceTurn',   type: 'number' },
+          { name: 'attempts',    type: 'number' }
+        ] },
+        { name: 'status',  type: 'enum', enumValues: ['active','in-dispute','dissolved'], group: 'State', default: 'active' },
+        { name: 'history', type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'faction': {
+      factory: 'blankFaction',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Platform', 'History'],
+      fields: [
+        { name: 'id',              type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',            type: 'string', group: 'Identity', description: 'e.g. "The Optimates"' },
+        { name: 'senateId',        type: 'id', idKind: 'senate', group: 'Identity', description: 'The senate this faction operates in (nullable — generic factions allowed)' },
+        { name: 'realmDomainId',   type: 'id', idKind: 'domain', group: 'Identity' },
+        { name: 'platform',        type: 'longText', group: 'Platform', description: 'Free-text platform summary' },
+        { name: 'policyObjectives', type: 'enumMulti', enumValues: ['overland-trade-routes','maritime-trade-routes','increase-army','decrease-army','increase-navy','decrease-navy','replace-ruler','preserve-ruler','conquer-neighbor','make-peace','build-border-strongholds','decrease-peasant-taxes','increase-peasant-taxes','eliminate-or-institute-slavery','redistribute-land-to-peasants','support-existing-faith','introduce-new-faith','grow-urban-settlements','grow-personal-realm','gain-merchandise-monopolies'], group: 'Platform', description: 'The 1d20 objective taxonomy (RR p.357)' },
+        { name: 'kind',            type: 'enum', enumValues: ['ruling','leading','opposition','minor'], group: 'Identity', default: 'minor', description: 'GM stance; the LIVE ruling/leading standing is derived (ACKS.factionStanding)' },
+        { name: 'status',          type: 'enum', enumValues: ['active','dissolved'], group: 'Identity', default: 'active' },
+        { name: 'history',         type: 'history', readonly: true, group: 'History' }
+      ]
+    },
+
+    'senatorship': {
+      factory: 'blankSenatorship',
+      adminCreate: 'schemaForm',
+      groups: ['Parties', 'Influence', 'Disposition', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                  type: 'string', readonly: true, group: 'Parties' },
+        { name: 'senatorCharacterId',  type: 'id', idKind: 'character', required: true, group: 'Parties', description: 'The senator' },
+        { name: 'senateId',            type: 'id', idKind: 'senate', required: true, group: 'Parties' },
+        { name: 'factionId',           type: 'id', idKind: 'faction', group: 'Parties', description: 'Nullable — an independent leading senator' },
+        { name: 'rank',                type: 'enum', enumValues: ['leading','minor'], group: 'Influence', default: 'leading', description: 'leading = named NPC; minor = usually anonymous (senate.independentMinorSenatorVotes)' },
+        { name: 'votes',               type: 'number', min: 0, group: 'Influence', description: 'Influence — the votes this seat controls (RR p.357)' },
+        { name: 'policyObjectives',    type: 'enumMulti', enumValues: ['overland-trade-routes','maritime-trade-routes','increase-army','decrease-army','increase-navy','decrease-navy','replace-ruler','preserve-ruler','conquer-neighbor','make-peace','build-border-strongholds','decrease-peasant-taxes','increase-peasant-taxes','eliminate-or-institute-slavery','redistribute-land-to-peasants','support-existing-faith','introduce-new-faith','grow-urban-settlements','grow-personal-realm','gain-merchandise-monopolies'], group: 'Influence', description: '1d3 secret objectives (RR p.357)' },
+        { name: 'attitudeTowardRuler', type: 'number', group: 'Disposition', description: '2–12 running disposition — the vote baseline' },
+        { name: 'isSecretInfluence',   type: 'boolean', group: 'Disposition', description: 'RAW: influence + objectives secret until revealed (RR p.357)' },
+        { name: 'bribeCostByPeriod',   type: 'object', group: 'Influence', description: 'Bribe cost per income period (from the requirements-of-office row, RR p.357)', fields: [
+          { name: 'day',   type: 'gp' },
+          { name: 'week',  type: 'gp' },
+          { name: 'month', type: 'gp' },
+          { name: 'year',  type: 'gp' }
+        ] },
+        { name: 'influenceModifiers',  type: 'array', group: 'Influence', description: 'Standing pre-vote modifiers — bribed/intimidated/seduced/owes-favor (P-4 writes these)', itemSchema: { fields: [
+          { name: 'source',        type: 'string', description: 'bribe | intimidate | seduce | gift | owes-favor' },
+          { name: 'kind',          type: 'string', description: 'favorable | unfavorable' },
+          { name: 'value',         type: 'number' },
+          { name: 'sinceTurn',     type: 'number' },
+          { name: 'byCharacterId', type: 'id', idKind: 'character' }
+        ] } },
+        { name: 'seatedAtTurn',  type: 'number', group: 'Lifecycle' },
+        { name: 'vacatedAtTurn', type: 'number', group: 'Lifecycle', description: 'Set on vacating — null while active' },
+        { name: 'status',        type: 'enum', enumValues: ['active','vacated'], group: 'Lifecycle', default: 'active' },
+        { name: 'history',       type: 'history', readonly: true, group: 'History' }
+      ]
+    }
+    // === end Politics P-1 ===
   };
 
   // ─── 4. Public API ───

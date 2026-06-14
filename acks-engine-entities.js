@@ -468,15 +468,8 @@ function blankEncounter(opts={}){
   };
 }
 
-function blankDungeon(opts={}){
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    id: opts.id || newId(ID_PREFIXES.dungeon),
-    name: opts.name || '',
-    levels: opts.levels || 1,
-    description: opts.description || ''
-  };
-}
+// blankDungeon — the reconciled two-facet factory lives in acks-engine-delves.js (Delves D2, burst4);
+// the vestigial stub that was here is superseded + removed (Data_Dictionary §13.2).
 
 function blankPointOfInterest(opts={}){
   return {
@@ -1167,6 +1160,28 @@ function blankCharacter(opts={}){
           reliquaryStoreGp: Number(opts.divinePower.reliquaryStoreGp) || 0 }
       : { entries: [], reliquaryStoreGp: 0 },
     // === end Religion R0 ===
+    // === Character Lifecycle CL-1 (burst4) === (RR p.19 — aging / attribute adjustments / death from old age)
+    // Run the person forward. The monthly aging pass (ACKS.processAgingForTurn — hooked into commitTurn
+    // like living-expenses) advances `age` with the calendar, applies the RR p.19 progressive attribute
+    // adjustment on a category crossing, and fires the death-from-old-age Death save inside the threshold
+    // window. All read DEFENSIVELY (absent ⇒ the default below) — NO migrateCampaign injector, so the 6
+    // templates + demo stay migrate-no-ops (the team-session discipline, CLAUDE §15 / Plan §13.4).
+    //   age:        years (number) | null. null ⇒ the aging pass SKIPS the character (opt-in seeding — the
+    //               GM sets it on the sheet for the characters he cares about; survey §14 Q1).
+    //   ageMonths:  0–11, the within-year accumulator the monthly turn advances (one turn = one month);
+    //               at 12 it rolls over → age++ (Q2: advance age monthly, no calendar-epoch coupling).
+    //   ageCategory: a display cache of ACKS.ageCategoryFor(c) (that derivation is canonical, rule #10);
+    //               the pass reconciles it. null until set/derived; ageless races (elf/nobiran) → 'adult'.
+    //   agingDeathSave: the death-from-old-age bookkeeping {dueInMonths,thresholdKey,resolved:[]} | null
+    //               (RR p.19 — a Death save within 1d12 months of Old+CON / Ancient+CON / max-age-&-yearly).
+    //   reserveXp:  the RAW Reserve XP fund (RR p.311) carried ON the character (survey §14 Q3 — inherited
+    //               by the successor); seeded now for CL-4a. Default 0.
+    age: (typeof opts.age === 'number' ? opts.age : null),
+    ageMonths: opts.ageMonths || 0,
+    ageCategory: opts.ageCategory || null,
+    agingDeathSave: opts.agingDeathSave || null,
+    reserveXp: opts.reserveXp || 0,
+    // === end Character Lifecycle CL-1 ===
     // Reserved for Phase 2.8 Rumors — Status tracking
     upkeepMonthly: opts.upkeepMonthly || 0,
     honor: opts.honor || [],
@@ -1929,7 +1944,7 @@ function blankDivineFavor(opts={}){
 // === end Religion R0 ===
 
 Object.assign(ACKS, {
-  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankDungeon, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
+  blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
   blankStash, blankStashItem, blankHenchmanship, blankSpecialistContract, blankHirelingContract, blankMagistracy, blankVassalage, blankTributaryAgreement, blankOutpost,
   // Favors & Duties (#230, F&D-1 — 2026-06-08) — liege↔vassal obligation relation factory

@@ -35,6 +35,16 @@
 <script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
 <!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
 <script src="acks-engine-hex-scales.js?v=2026-06-13-a"></script>
+<!-- ===== burst4 module loads — each builder adds its engine module tag on the line right after ITS comment below (loads after the engine core, like religion/weather). agent-1 adds none. ===== -->
+<!-- burst4 agent-1 (Military W7): no new module — extends acks-engine-troops.js / -maneuvers.js / -economy.js -->
+<!-- burst4 agent-2 (Politics P-1): add acks-engine-politics.js here -->
+<script src="acks-engine-politics.js?v=2026-06-13-a"></script>
+<!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
+<script src="acks-engine-lifecycle.js?v=2026-06-14-a"></script>
+<!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
+<script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
+<!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
+<script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
      crafted shared .acks.json can never poison it via a dotted write path. The engine's
@@ -894,6 +904,51 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- ───── Sub-tab: LAIRS (#476 M7 — Plan §12) ───── -->
+<!-- === Delves D2 (burst4) — World ▸ Dungeons sub-view (campaign.dungeons[]): a light read table
+     + an author button. The 🔍 Inspector (Browse/Inspect/Create) is the full editor; the abstract-
+     foray resolution + the Foray Wizard land in D3. Lifecycle overlays Attuned/Owned (derived) onto
+     the stored status; Encounters-left = the authored count, or the living-lair count if stocked. === -->
+<div x-show="currentView === 'world' && worldSubView === 'dungeons'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🕳️ Dungeons <span class="text-sm opacity-70 font-normal" x-text="'· ' + worldDungeons().length + ' recorded'"></span></h3>
+      <div class="flex gap-2 items-center text-sm flex-wrap">
+        <input type="text" x-model="dungeonsSearch" placeholder="Search name, hex…" class="w-56">
+        <span class="text-sm opacity-70" x-text="filteredDungeons().length + ' shown'"></span>
+        <button @click="inspectorOpenCreate('dungeon')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a dungeon (free-form Inspector form)">＋ Author a dungeon</button>
+      </div>
+    </div>
+    <template x-if="worldDungeons().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No dungeons recorded. Author one here, or via the 🔍 Inspector (Create ▸ Dungeon). A dungeon is a multi-encounter delve target (and, later, an arcane source a mage can own + attune — Phase 4 Sanctums).</p>
+    </template>
+    <template x-if="worldDungeons().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Lifecycle</th><th>Hex</th><th>Size · Level</th>
+          <th class="text-right">Encounters left</th><th>Known</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="d in filteredDungeons()" :key="d.id">
+            <tr>
+              <td><button @click="inspectorOpen('dungeon', d.id)" class="underline font-semibold text-left" x-text="d.name || '(unnamed)'"></button></td>
+              <td x-text="dungeonLifecycle(d)"></td>
+              <td>
+                <template x-if="d.hexId"><button @click="openHexDetailById(d.hexId)" class="underline" x-text="dungeonHexLabel(d)"></button></template>
+                <template x-if="!d.hexId"><span class="opacity-60 italic">— unplaced</span></template>
+              </td>
+              <td x-text="dungeonSizeLevelLabel(d)"></td>
+              <td class="text-right font-mono" x-text="dungeonEncountersLeft(d)"></td>
+              <td x-text="d.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="d.knownToPlayers ? '' : 'opacity-60'"></td>
+              <td class="text-right"><button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <p class="text-sm opacity-60 mt-3 italic">First-class delve targets in <code>campaign.dungeons[]</code> (Phase 3.5). <em>Lifecycle</em> overlays <em>Attuned</em> / <em>Owned</em> onto the stored status (derived — <code>dungeonLifecycleLabel</code>). <em>Encounters left</em> is the authored count, or — for a dungeon stocked with lairs (<code>lair.dungeonId</code>) — the living-lair count. The abstract-foray resolver + the Foray Wizard land in D3.</p>
+  </div>
+</div>
+<!-- === end Delves D2 sub-view === -->
 <div x-show="currentView === 'world' && worldSubView === 'lairs'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
@@ -4398,6 +4453,8 @@ document.addEventListener('alpine:init', () => {
                                   </div>
                                 </div>
                               </template>
+                              <!-- === Military W7 (burst4) — Call-to-Arms / Troops materialized force === -->
+                              <span class="block text-xs text-sky-800" x-show="fdIsTroopMuster(o) && fdMaterializedForce(o)" x-text="fdMaterializedForce(o) ? fdMaterializedForce(o).label : ''"></span>
                             </div>
                             <button @click="fdRevoke(o.id)" class="text-xs underline opacity-70 hover:opacity-100 shrink-0" :title="fdLoanGiven(o) ? 'Revoke — repays the loan to the vassal (RR p.348)' : 'Revoke this obligation'">revoke</button>
                           </li>
@@ -7933,6 +7990,42 @@ document.addEventListener('alpine:init', () => {
           </table>
         </div>
 
+        <!-- === Military W7 (burst4) — army troop-source depth + levy/train the realm's own troops (RR pp.430–433) === -->
+        <div class="border-t border-ink/20 pt-2 mt-2" x-data="{ levyCount: 30 }">
+          <div class="text-xs uppercase tracking-wide opacity-70 mb-1">🪖 Troop depth (RR pp.430–433)</div>
+          <template x-if="armyTroopDepthRows(armySelected()).length > 0">
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-sm">
+              <template x-for="r in armyTroopDepthRows(armySelected())" :key="'atd-'+r.source">
+                <span x-text="r.icon + ' ' + r.source + ' ' + r.soldiers.toLocaleString() + ((r.source==='conscript'||r.source==='militia') ? (' (trained ' + r.trained + ')') : '')"></span>
+              </template>
+            </div>
+          </template>
+          <template x-if="armyLeaderDomain()">
+            <div class="mt-1 text-sm">
+              <div class="flex flex-wrap items-baseline gap-2">
+                <span class="text-xs opacity-70" x-text="'Levy from ' + (armyLeaderDomain().name || 'the realm') + ' (max ⚒ ' + armyLevyMax('conscript') + ' / 🛡 ' + armyLevyMax('militia') + '):'"></span>
+                <input type="number" min="1" x-model.number="levyCount" class="w-16 text-sm border border-ink rounded px-1 py-0.5">
+                <button @click="armyLevyFrom('conscript', levyCount)" :disabled="!armyCanLevy() || armyLevyMax('conscript')<=0" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-50 disabled:opacity-40" title="Conscript peasants into the army — ≤1 per 10 families, no morale/revenue cost (RR p.430)">⚒ Conscripts</button>
+                <button @click="armyLevyFrom('militia', levyCount)" :disabled="!armyCanLevy() || armyLevyMax('militia')<=0" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-amber-50 disabled:opacity-40" title="Levy a militia — ≤2 per 10 families; each costs 1 family of revenue + domain morale −1/−2 until sent home (RR p.432)">🛡 Militia</button>
+                <span x-show="!armyCanLevy()" class="text-xs accent-red">— the realm is too unhappy to levy (RR p.432)</span>
+              </div>
+              <template x-for="u in armyUntrainedLevies()" :key="'aul-'+u.id">
+                <div class="flex flex-wrap items-baseline gap-2 mt-0.5 text-xs" x-data="{ trainType: '' }">
+                  <span class="opacity-70" x-text="'Train ' + (u.displayName || 'levy') + ' (' + u.count + ') as'"></span>
+                  <select x-model="trainType" class="text-xs border border-ink rounded px-1 py-0.5">
+                    <option value="">— troop type —</option>
+                    <template x-for="t in armyTrainableTypesFor(u)" :key="'att-'+u.id+'-'+t"><option :value="t" x-text="t"></option></template>
+                  </select>
+                  <button @click="armyTrainLevy(u.id, trainType); trainType=''" :disabled="!trainType" class="px-1.5 py-0.5 border border-ink rounded hover:bg-emerald-50 disabled:opacity-40" title="Train + equip into a professional troop type — debits the realm's treasury (RR p.431)">✓ Train</button>
+                </div>
+              </template>
+              <div class="mt-1" x-show="armyDomainCalledUpMilitia() > 0">
+                <button @click="armySendMilitiaHome()" class="text-xs underline" title="Trained militia go home and count toward the garrison even when not called up (RR p.341); untrained return to their farms. Ends the called-up morale/revenue penalty.">🏠 Send <span x-text="armyDomainCalledUpMilitia()"></span> militia home</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
         <!-- supply (RR pp.450–452) -->
         <div class="border-t border-ink/20 pt-2 mt-2" x-data="{ supplyBasesOpen: false }">
           <div class="flex items-baseline justify-between flex-wrap gap-2">
@@ -8722,6 +8815,18 @@ document.addEventListener('alpine:init', () => {
               <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())" placeholder="human / dwarf / elf / …"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
             </span>
           </div>
+          <!-- === Character Lifecycle CL-1 (burst4) — Age readout (RR p.19) === -->
+          <div class="block text-sm flex items-center gap-2"
+               title="ACKS RR p.19: age advances with the monthly turn; crossing into Middle Aged / Old / Ancient adjusts attributes, and Old / Ancient / maximum age bring a death-from-old-age save. Elves & Nobirans are ageless. Leave unset to skip aging for this character.">
+            <span class="w-20">Age</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'age', label:'Age', kind:'number', min:0, formatter(v){ return (typeof v === 'number') ? (v + ' yrs') : '— not set —'; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:6rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log">✓</button><button @click="cancel()" class="ed-btn" title="Cancel">×</button></span></template>
+            </span>
+            <button x-show="characterEditing && characterEditing.age == null" @click="rollCharacterStartingAge(characterEditing)" class="ed-edit" title="Roll a starting age for this character's class (RR p.19)">🎲</button>
+            <span class="text-xs opacity-70" x-text="characterAgingLine(characterEditing)"></span>
+          </div>
+          <!-- === end Character Lifecycle CL-1 === -->
           <div class="block text-sm flex items-center gap-2">
             <span class="w-20">XP</span>
             <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'xp', label:'XP', kind:'number', min:0})">
@@ -12320,6 +12425,11 @@ return {
       case 'journey':   return () => this.inspectorCreateBlankJourney();  // Phase 2.5 #475 — Admin verb (free-form); set status=in-transit + Tick Day to drive
       case 'army':      return () => this.inspectorCreateBlankArmy();  // Phase 3 Military — Admin verb (free-form blank); the 🎖 Muster modal on a character/domain is the guided Action verb
       case 'lair':      return () => this.openLairWizard('author');  // #476 M1 — the manual Lair Wizard (§12.5); the schemaForm edit sits under it for admin tweaks
+      case 'vessel':    return () => this.inspectorCreateBlankVessel();  // === Voyages V1 (burst4) — Phase 3 #145 Admin verb (free-form blank → schemaForm edit; pick a class) ===
+      // === Delves D2 (burst4) — Admin-verb create (blank + open the schemaForm edit). The guided
+      // Action verb (the Foray Wizard) is D3; for D2 these spawn a blank entity for free-form authoring. ===
+      case 'dungeon':   return () => this.inspectorCreateBlankDungeon();
+      case 'delve':     return () => this.inspectorCreateBlankDelve();
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -14180,7 +14290,7 @@ return {
 
 
   // Phase 2.7 World — UI state for the World view
-  worldSubView:'domains', // 'map' | 'domains' | 'hexes' | 'rumors' | 'stashes' | 'lairs' (default Domains — the heart of the tool + first-run welcome)
+  worldSubView:'domains', // 'map' | 'domains' | 'hexes' | 'rumors' | 'stashes' | 'lairs' | 'dungeons' (default Domains — the heart of the tool + first-run welcome)
   // ── 📋 Review tab (2026-06-13) — the GM work queue: sub-view + the Pending Events cursors ──
   reviewSubView: 'pending-events',   // 'pending-events' | 'domain-review' | 'encounters' | 'battles'
   reviewDayOffset: 0,                // Daily Events calendar cursor — days relative to today
@@ -14938,6 +15048,8 @@ return {
     // internal sub-view id stays 'lairs' (session-restore + deep-links unchanged); the count
     // = recorded lairs + bands abroad.
     tabs.push({ id:'lairs', label:'🐉 Monsters', count: ((this.currentCampaign && this.currentCampaign.lairs ? this.currentCampaign.lairs.length : 0) + this.monsterLooseBandRows().length) || null });
+    // === Delves D2 (burst4) — Dungeons sub-view (delve targets / arcane sources; campaign.dungeons[]). ===
+    tabs.push({ id:'dungeons', label:'🕳️ Dungeons', count: (this.currentCampaign && this.currentCampaign.dungeons ? this.currentCampaign.dungeons.length : 0) || null });
     // Phase 3 Military W4 — armies moved into the merged Characters ▸ Parties view (§12
     // Group model): parties, armies, and loose units live together there. No World tab.
     // 2026-06-13 — Encounters + Battles moved to the 📋 Review tab (the GM work queue);
@@ -21151,7 +21263,13 @@ return {
       // Phase 3 Military W3 (2026-06-12) — Battle engagement records
       'battles',
       // Phase 3 Military W6 (2026-06-13, burst3) — Siege records (RR pp.473–485)
-      'sieges'
+      'sieges',
+      // === Voyages V1 (burst4 — 2026-06-14) — Vessels (Phase 3 Voyages #145; §8.9 importer mandate) ===
+      'vessels',
+      // === Delves D2 (burst4) — Delve operations (dungeons already listed above) ===
+      'delves',
+      // === Politics P-1 (burst4 2026-06-13) — senate/faction/senatorship (§8.9 importer mandate)
+      'senates', 'factions', 'senatorships'
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -23274,7 +23392,236 @@ return {
     if (!res || !res.ok) { this.showToast('Trial not resolved: ' + ((res && (res.detail || res.error)) || 'unknown'), 4000); return; }
     this.showToast('⚖ ' + (res.narrative || (res.label + ' — ' + res.crime)), 5000);
     this.markDirty(); this.schedulePersist();
-  }
+  },
+  // ===== burst4 team-session — Alpine state + methods. Each builder adds its props/getters/methods after ITS marker, each ending in a trailing comma (valid JS). =====
+  // burst4 agent-1 (Military W7 — army-troops-depth + fd-troops-effects):
+  // === Military W7 (burst4) — conscripts/militia/training (RR pp.430–433) + the F&D
+  //     Call-to-Arms/Troops materialization readout. All read/mutate through window.ACKS. ===
+  armyTroopDepthRows(army){
+    if(!army || !this.currentCampaign) return [];
+    const rows = (window.ACKS.armyTroopSourceBreakdown(this.currentCampaign, army)) || [];
+    const icon = { mercenary:'💰', conscript:'⚒', militia:'🛡', vassal:'👑', clanhold:'⚔', follower:'🏰', slave:'⛓' };
+    return rows.map(r => ({ ...r, icon: icon[r.source] || '•' }));
+  },
+  // The domain the selected army's leader rules (the realm its levies are drawn from), or null.
+  armyLeaderDomain(){
+    const a = this.armySelected(); const camp = this.currentCampaign;
+    if(!a || !a.leaderCharacterId || !camp) return null;
+    return (camp.domains || []).find(d => d && d.rulerCharacterId === a.leaderCharacterId) || null;
+  },
+  armyCanLevy(){ const d = this.armyLeaderDomain(); return !!d && window.ACKS.canLevyFromDomain(d); },
+  // Remaining conscript/militia headroom for the leader's domain (cap − already levied).
+  armyLevyMax(source){
+    const camp = this.currentCampaign; const d = this.armyLeaderDomain(); if(!d) return 0;
+    const cap = source === 'militia' ? window.ACKS.militiaLevyMax(d) : window.ACKS.conscriptLevyMax(d);
+    const existing = (window.ACKS.domainLevyUnits(camp, d, source) || []).reduce((s, u) => s + Math.max(0, (u.count || 0) - (u.casualties || 0)), 0);
+    return Math.max(0, cap - existing);
+  },
+  // Levy conscripts/militia from the leader's realm INTO this army (the realm's own troops campaigning).
+  armyLevyFrom(source, count){
+    const a = this.armySelected(); const d = this.armyLeaderDomain(); if(!a || !d) return;
+    const n = Math.max(1, Math.floor(Number(count) || 0));
+    const u = source === 'militia'
+      ? window.ACKS.levyMilitia(this.currentCampaign, d.id, { count: n })
+      : window.ACKS.levyConscripts(this.currentCampaign, d.id, { count: n });
+    if(!u){ if(this.showToast) this.showToast('No room to levy more ' + source + ' from ' + (d.name || d.id) + ' (cap reached or the realm is too unhappy).', 4000); return; }
+    window.ACKS.stationUnit(this.currentCampaign, u, { kind: 'army', id: a.id });
+    if(!Array.isArray(a.divisions) || !a.divisions.length){
+      a.divisions = [{ name: 'Main Body', commanderCharacterId: a.leaderCharacterId, adjutantCharacterId: null, unitIds: [u.id], role: 'main' }];
+    } else if(!a.divisions[0].unitIds.includes(u.id)){ a.divisions[0].unitIds.push(u.id); }
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Levied ' + u.count + ' ' + source + ' from ' + (d.name || d.id) + ' into the army.');
+  },
+  // Untrained levy units in the selected army (the train-control targets).
+  armyUntrainedLevies(){
+    const a = this.armySelected(); if(!a) return [];
+    return (window.ACKS.armyUnits(this.currentCampaign, a) || [])
+      .filter(u => (u.source === 'conscript' || u.source === 'militia') && u.unitTypeKey === 'untrained-levy');
+  },
+  armyTrainableTypesFor(unit){ return window.ACKS.trainableTroopTypes((unit && unit.race) || 'man'); },
+  armyTrainLevy(unitId, type){
+    if(!type) return;
+    const r = window.ACKS.trainLevyUnit(this.currentCampaign, unitId, { targetTroopType: type });
+    if(!r || !r.ok){ if(this.showToast) this.showToast('Cannot train: ' + ((r && r.reason) || 'unknown'), 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Trained as ' + type + ' — ' + r.cost.toLocaleString() + 'gp, ' + r.months + 'mo.');
+  },
+  armyDomainCalledUpMilitia(){
+    const d = this.armyLeaderDomain(); if(!d) return 0;
+    return window.ACKS.militiaCalledUpCount(this.currentCampaign, d) || 0;
+  },
+  armySendMilitiaHome(){
+    const d = this.armyLeaderDomain(); if(!d) return;
+    const r = window.ACKS.sendMilitiaHome(this.currentCampaign, d.id);
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast('Sent ' + r.sentHome + ' trained militia home (they now credit the garrison, RR p.341); ' + r.disbanded + ' untrained returned to their farms.');
+  },
+  // F&D card — the materialized Call-to-Arms / Troops force (RR pp.433–434 + p.348).
+  fdIsTroopMuster(o){ return !!o && (o.kind === 'call-to-arms' || o.kind === 'troops'); },
+  fdMaterializedForce(o){
+    if(!o || !Array.isArray(o.materializedUnitIds) || !o.materializedUnitIds.length || !this.currentCampaign) return null;
+    const camp = this.currentCampaign;
+    const n = o.materializedUnitIds.map(id => (camp.units || []).find(u => u && u.id === id)).filter(Boolean).reduce((s, u) => s + (u.count || 0), 0);
+    if(o.kind === 'call-to-arms'){
+      const army = (camp.armies || []).find(a => a && a.id === o.materializedArmyId);
+      return { label: '🎖 Mustered ' + n.toLocaleString() + ' light infantry into ' + (army ? (army.name || 'the host') : 'the host'), armyId: army ? army.id : null };
+    }
+    return { label: '🛡 The lord stationed ' + n.toLocaleString() + ' light infantry under the vassal (no wages, RR p.348)', armyId: null };
+  },
+  // === end Military W7 (burst4) ===
+  // burst4 agent-2 (Politics P-1 — realm-senate panel):
+  // Politics P-1 — the realm-senate readout (data-layer surface; the visible Senate tab is P-5).
+  // Resolves the senate governing a domain's realm (at the apex) — null when none (dormant-until-used).
+  realmSenateOf(domain){
+    if(!domain || !this.currentCampaign || !window.ACKS || !window.ACKS.senateForDomain) return null;
+    return window.ACKS.senateForDomain(this.currentCampaign, domain);
+  },
+  // A compact, GM-facing summary of the realm's senate: seats, the live vote tally, ruling/leading
+  // faction (DERIVED), the factions with their live influence + standing, and the dispute/benefit
+  // state. Returns null when the realm has no senate. Browser-verify: acksApp.realmSenateReadout(d).
+  realmSenateReadout(domain){
+    const A = window.ACKS; const c = this.currentCampaign;
+    const senate = this.realmSenateOf(domain);
+    if(!senate || !A) return null;
+    const factions = (A.factionsForSenate(c, senate.id) || []).map(f => ({
+      id: f.id, name: f.name || f.id, influence: A.factionTotalInfluence(c, f), standing: A.factionStanding(c, f)
+    })).sort((a, b) => b.influence - a.influence);
+    const seated = A.senatorshipsForSenate(c, senate.id) || [];
+    return {
+      senate, name: senate.name || senate.id, kind: senate.kind, seats: senate.seats,
+      totalVotes: A.senateTotalVotes(c, senate),
+      inDispute: senate.dispute != null,
+      benefitsActive: A.senateBenefitsActive(c, domain),
+      rulingFactionId: A.senateRulingFactionId(c, senate),
+      leadingFactionId: A.senateLeadingFactionId(c, senate),
+      factions,
+      leadingSenators: seated.filter(s => s.rank === 'leading').length,
+      independentVotes: senate.independentMinorSenatorVotes || 0
+    };
+  },
+  // Admin-verb create for a Politics entity (senate/faction/senatorship): spawn a blank via the
+  // factory, push to the (defensively-ensured) collection, and open it in the Inspector edit form.
+  // The guided Senate Wizard (the Action verb) is P-5; this is the free-form Admin path.
+  politicsCreate(kind, opts){
+    const A = window.ACKS; const c = this.currentCampaign;
+    if(!c){ alert('Create or open a campaign first.'); return null; }
+    const map = { senate: ['senates', 'blankSenate'], faction: ['factions', 'blankFaction'], senatorship: ['senatorships', 'blankSenatorship'] };
+    const m = map[kind];
+    if(!m || !A || typeof A[m[1]] !== 'function') return null;
+    if(!Array.isArray(c[m[0]])) c[m[0]] = [];
+    const ent = A[m[1]](opts || {});
+    c[m[0]].push(ent);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect(kind, ent.id);
+    return ent;
+  },
+  // burst4 agent-3 (Character Lifecycle CL-1 — char-sheet aging readout):
+  characterAgingLine(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.characterAgingInfo !== 'function') return '';
+    const info = A.characterAgingInfo(ch);
+    if(info.age == null) return '';
+    if(info.ageless) return (info.categoryLabel || 'Adult') + ' · ageless';
+    let s = info.categoryLabel || '';
+    if(info.pendingSave){
+      s += ' · ⚠ death-from-old-age save (' + info.pendingSave.thresholdKey + ') due in ' + info.pendingSave.dueInMonths + ' mo';
+    } else if(info.nextOldAgeSave){
+      s += ' · next old-age save at ' + info.nextOldAgeSave.age;
+    }
+    return s;
+  },
+  rollCharacterStartingAge(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.rollStartingAge !== 'function') return;
+    const age = A.rollStartingAge(ch.class || '');
+    this.commitStatEdit({ entityType:'character', entityId:ch.id, entity:ch, fieldPath:'age', label:'Age', oldValue:(ch.age == null ? null : ch.age), newValue:age });
+    this.showToast('🎲 Rolled starting age ' + age + ' (' + A.startingAgeSpecFor(ch.class || '') + ')', 4000);
+  },
+  // burst4 agent-4 (Voyages V1 — vessels panel / Inspector helpers):
+  // Phase 3 Voyages (#145) — Admin verb: spawn a blank Vessel + open it in the Inspector edit form
+  // (mirrors inspectorCreateBlankJourney/Army). init-on-write campaign.vessels (no migrate injector →
+  // templates stay migrate-no-ops). The GM then picks a class (catalogKey) + crew + owner.
+  inspectorCreateBlankVessel() {
+    if (!this.currentCampaign) { alert('Create or open a campaign first.'); return; }
+    if (!Array.isArray(this.currentCampaign.vessels)) this.currentCampaign.vessels = [];
+    const v = window.ACKS.blankVessel({ name: 'New Vessel' });
+    this.currentCampaign.vessels.push(v);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('vessel', v.id);
+    this.inspectorEditMode = true;
+    if (this.showToast) this.showToast('New Vessel created — pick a class (catalogKey), set crew + owner.');
+  },
+  // panel:vessels — a light read surface backing a future "Vessels" card (the Inspector is the
+  // primary V1 UI; a visible card is a thin V6 follow-up). All catalog-backed, browser-verifiable now.
+  voyagesVessels() { return (this.currentCampaign && this.currentCampaign.vessels) || []; },
+  voyagesVesselCatalogOptions() { return (window.ACKS.vesselCatalogList ? window.ACKS.vesselCatalogList() : []).map(c => ({ key: c.key, label: c.label })); },
+  voyagesVesselClassLabel(key) { return window.ACKS.vesselClassLabel ? window.ACKS.vesselClassLabel(key) : (key || ''); },
+  voyagesVesselSummary(v) {
+    if (!v) return '';
+    const cls = window.ACKS.vesselClass ? window.ACKS.vesselClass(v) : null;
+    const name = v.name || (cls && cls.label) || v.id;
+    const klass = cls ? cls.label : (v.catalogKey || '—');
+    const shp = (v.shp != null ? v.shp : (cls ? cls.shp : '?')) + (cls ? '/' + cls.shp : '');
+    return name + ' · ' + klass + ' · SHP ' + shp + ' · ' + (v.condition || 'seaworthy');
+  },
+  // burst4 agent-5 (Delves D2 — world-dungeons sub-view / Inspector helpers):
+  dungeonsSearch: '',
+  // The campaign's dungeons (read defensively — campaign.delves is not lazy-injected; dungeons is).
+  worldDungeons(){ return (this.currentCampaign && this.currentCampaign.dungeons) || []; },
+  filteredDungeons(){
+    const q = (this.dungeonsSearch || '').trim().toLowerCase();
+    const all = this.worldDungeons();
+    if(!q) return all;
+    return all.filter(d => {
+      if(!d) return false;
+      const hx = (this.dungeonHexLabel(d) || '').toLowerCase();
+      return ((d.name || '').toLowerCase().includes(q)) || hx.includes(q) || ((d.id || '').toLowerCase().includes(q));
+    });
+  },
+  // Lifecycle overlay (attuned > owned > stored status) — derived (dungeonLifecycleLabel).
+  dungeonLifecycle(d){
+    return (window.ACKS && window.ACKS.dungeonLifecycleLabel) ? window.ACKS.dungeonLifecycleLabel(this.currentCampaign, d) : (d && d.status) || '';
+  },
+  // Encounters remaining — authored count, or the living-lair count for a stocked dungeon.
+  dungeonEncountersLeft(d){
+    return (window.ACKS && window.ACKS.dungeonEncountersRemaining) ? window.ACKS.dungeonEncountersRemaining(this.currentCampaign, d) : ((d && d.encountersRemaining) || 0);
+  },
+  dungeonHexLabel(d){
+    if(!d || !d.hexId) return '— unplaced';
+    const h = this.currentCampaign && ((this.currentCampaign.hexes || []).find(x => x && x.id === d.hexId));
+    if(!h) return d.hexId;
+    return (window.ACKS && window.ACKS.hexName) ? window.ACKS.hexName(h) : (h.coord ? ('(' + h.coord.q + ',' + h.coord.r + ')') : d.hexId);
+  },
+  dungeonSizeLevelLabel(d){
+    const size = (d && d.size) || 'small';
+    const lvl = (d && d.dungeonLevel) || 1;
+    return size.charAt(0).toUpperCase() + size.slice(1) + ' · L' + lvl;
+  },
+  // Admin-verb create: spawn a blank Dungeon (both facets; arcane reserved-null) + open the
+  // schemaForm edit. The guided Foray Wizard (the Action verb) is D3.
+  inspectorCreateBlankDungeon(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.dungeons)) this.currentCampaign.dungeons = [];
+    const d = window.ACKS.blankDungeon({ name: 'New Dungeon' });
+    this.currentCampaign.dungeons.push(d);
+    this.markDirty(); this.schedulePersist();
+    this.currentView = 'inspector';   // jump to the editor (Author from the World ▸ Dungeons sub-view too)
+    this.inspectorOpenInspect('dungeon', d.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Dungeon created — set its hex, size, level, and encounter count. (The abstract-foray resolver + Foray Wizard land in D3.)');
+  },
+  // Admin-verb create: spawn a blank Delve (init-on-writes campaign.delves[] — it isn't lazy-injected).
+  inspectorCreateBlankDelve(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.delves)) this.currentCampaign.delves = [];
+    const dl = window.ACKS.blankDelve({ name: 'New Delve' });
+    this.currentCampaign.delves.push(dl);
+    this.markDirty(); this.schedulePersist();
+    this.currentView = 'inspector';   // jump to the editor (Author from the World ▸ Dungeons sub-view too)
+    this.inspectorOpenInspect('delve', dl.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Delve created — link it to a dungeon + add participants. The multi-foray resolution is D3.');
+  },
 };
 }
 </script>

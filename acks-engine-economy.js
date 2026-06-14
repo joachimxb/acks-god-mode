@@ -126,8 +126,34 @@ function urbanCapacity(d){
 // Garrison (RR p.351)
 // =============================================================================
 function garrisonHeadcount(d){ return (d.garrison?.units||[]).reduce((s,u) => s + (u.count||0), 0); }
-function garrisonCost(d){ return (d.garrison?.units||[]).reduce((s,u) => s + (u.count||0)*(u.monthlyWage||0), 0); }
+// Military W7 (burst4) — a Troops-favor garrison the LORD provides is wageWaived: the vassal pays
+// nothing for it (RR p.348), so it never bills as the vassal's garrison expense (its adequacy credit
+// is added in garrisonAdequacySpend below). Demo units carry no flag → unchanged.
+function garrisonCost(d){ return (d.garrison?.units||[]).reduce((s,u) => u.wageWaived ? s : s + (u.count||0)*(u.monthlyWage||0), 0); }
 function garrisonBR(d){ return (d.garrison?.units||[]).reduce((s,u) => s + (u.count||0)*(u.brPerSoldier||0), 0); }
+// === Military W7 (burst4) — the gp the domain's garrison adequacy check sees (RR pp.341, 347). The
+// vassal's billed garrisonCost + scutage paid (counts as garrison, RR p.347) + the implicit wages of
+// trained militia kept at home (RR p.341) + lord-provided wage-waived troops that defend it (those
+// were excluded from garrisonCost but still garrison the realm). On the demo (no militia/scutage/
+// wage-waived troops) this equals garrisonCost, so the economy oracle is unchanged.
+function garrisonAdequacySpend(campaign, d){
+  let spend = garrisonCost(d) + scutagePaidThisMonth(campaign, d);
+  if(global.ACKS && typeof global.ACKS.domainTrainedMilitiaCredit === 'function'){
+    spend += global.ACKS.domainTrainedMilitiaCredit(campaign, d) || 0;   // RR p.341 — trained militia at home
+  }
+  spend += (d.garrison?.units||[]).reduce((s,u) => u.wageWaived ? s + (u.count||0)*(u.monthlyWage||0) : s, 0);
+  return spend;
+}
+// === Military W7 (burst4) — peasant families that produce REVENUE this month: the population minus
+// any called-up militia (RR p.432 "for each peasant levied, domain revenues are reduced by one
+// family"). Population itself (garrison requirement, morale, bandits) is unaffected. Demo: 0 militia
+// → equals peasantFamilies exactly, so income is byte-identical (the oracle holds).
+function effectivePeasantFamiliesForRevenue(campaign, d){
+  const fam = (d.demographics?.peasantFamilies) || 0;
+  const militia = (global.ACKS && typeof global.ACKS.militiaCalledUpCount === 'function')
+    ? (global.ACKS.militiaCalledUpCount(campaign, d) || 0) : 0;
+  return Math.max(0, fam - militia);
+}
 // Required garrison cost = peasant rate × peasant families + 2gp × urban families (urban flat, RR p.351).
 function requiredGarrison(campaign, d){
   const peasantReq = (REQUIRED_GARRISON_PER_FAMILY[effectiveDomainClassification(d)]||2) * (d.demographics.peasantFamilies||0);
@@ -283,7 +309,8 @@ function scutagePaidThisMonth(campaign, d){
 function incomeFactor(morale){ return INCOME_FACTOR_BY_MORALE[String(Math.max(-4, Math.min(4, morale||0)))] ?? 1; }
 
 function incomeBreakdown(campaign, d){
-  const fam = d.demographics.peasantFamilies || 0;
+  // Military W7 — called-up militia stop producing revenue (RR p.432). Demo: 0 militia → peasantFamilies.
+  const fam = effectivePeasantFamiliesForRevenue(campaign, d);
   const urb = effectiveUrbanFamilies(d);
   const taxRate = DEFAULT_TAX_RATES[d.taxPolicy?.rate] ?? (d.income.taxPerFamily||2);
   // Land revenue (RR p.339–340). DEFAULT (average effective value × peasantFamilies) IS the RAW model
@@ -435,10 +462,17 @@ function moraleModifiersFor(campaign, d){
   const taxRate = DEFAULT_TAX_RATES[d.taxPolicy?.rate] ?? 2;
   const liturgy = d.expenses.liturgyPerFamily ?? 1;
   const reqRate = REQUIRED_GARRISON_PER_FAMILY[effectiveDomainClassification(d)] || 2;
-  // Scutage paid this month counts as garrison expense for the vassal (RR p.347) → add it to the
-  // effective garrison spend the adequacy check sees, so a scutage-paying vassal isn't double-burdened.
-  const gpf = fam > 0 ? (garrisonCost(d) + scutagePaidThisMonth(campaign, d))/fam : reqRate;
+  // Scutage paid this month counts as garrison expense (RR p.347); Military W7 adds the trained-militia
+  // home credit (RR p.341) + lord-provided wage-waived troops — all folded into garrisonAdequacySpend.
+  const gpf = fam > 0 ? garrisonAdequacySpend(campaign, d)/fam : reqRate;
   if(gpf < reqRate && fam > 0) mods.push({ label: 'Garrison below required (' + reqRate + 'gp/family)', value: -Math.max(1, Math.ceil(reqRate - gpf)) });
+  // === Military W7 (burst4) — RR p.432: levying militia depresses domain morale (−1 by levying ≤1 per
+  // 10 families, −2 by levying 2 per 10) until they are sent home. RAW core (not rule-gated). Demo: no
+  // militia called up → 0, no row.
+  if(global.ACKS && typeof global.ACKS.militiaDomainMoralePenalty === 'function'){
+    const militiaPen = global.ACKS.militiaDomainMoralePenalty(campaign, d) || 0;
+    if(militiaPen < 0) mods.push({ label: 'Militia called up (RR p.432)', value: militiaPen });
+  }
   // RR p.349 — stronghold-adequacy penalty, emitted as a row so it flows through moraleModSum.
   const strongholdReq = strongholdRequired(d), strongholdVal = strongholdValue(campaign, d);
   const strongholdPen = strongholdMoralePenalty(strongholdVal, strongholdReq);
@@ -516,6 +550,8 @@ Object.assign(ACKS, {
   settlementMarketClass, settlementTradeRate, settlementCapacity, marketClassRow, marketClass, tradeRevenuePerFamily, urbanCapacity,
   // Garrison
   garrisonHeadcount, garrisonCost, garrisonBR, requiredGarrison, banditCount,
+  // Military W7 — adequacy spend (incl. trained-militia + lord-troops credit) + militia revenue reduction
+  garrisonAdequacySpend, effectivePeasantFamiliesForRevenue,
   // Stronghold
   strongholdRequired, strongholdValue,
   // Magistrates

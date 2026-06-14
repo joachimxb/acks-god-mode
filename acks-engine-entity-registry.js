@@ -101,6 +101,24 @@
       find: (c, id) => ((c && c.encounters) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && obj.name) || (obj && obj.monsterSide && obj.monsterSide.monsterCatalogKey) || (obj && obj.category) || (obj && obj.id) },
 
+    // === Delves D2 (burst4) — Dungeon (the delve target / arcane source) + Delve (the multi-foray
+    // operation). 🏯 clashes with siege + stronghold-component, so Dungeon uses 🕳️ (per the prompt's
+    // "confirm no icon clash"); ⛏ Delve is clash-free. campaign.dungeons[] (lazy-defaulted) +
+    // campaign.delves[] (read defensively). displayName reads only blank{Dungeon,Delve} keys
+    // (the registry⊆factory invariant). ===
+    { kind: 'dungeon', label: 'Dungeon', pluralLabel: 'Dungeons', icon: '🕳️',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.dungeons) || [],
+      find: (c, id) => ((c && c.dungeons) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
+    { kind: 'delve', label: 'Delve', pluralLabel: 'Delves', icon: '⛏',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.delves) || [],
+      find: (c, id) => ((c && c.delves) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+    // === end Delves D2 ===
+
     // ── WEALTH + INVENTORY ──
     { kind: 'stash', label: 'Stash', pluralLabel: 'Stashes', icon: '💰',
       addressable: true, chronicleable: true,
@@ -283,6 +301,38 @@
       list: (c) => (c && c.sieges) || [],
       find: (c, id) => ((c && c.sieges) || []).find(x => x && x.id === id),
       displayName: (c, obj) => (obj && (obj.name || obj.id)) || '' },
+
+    // === Voyages V1 (burst4 — 2026-06-14) — Vessel (Phase 3 Voyages #145, RR Ch.7).
+    // campaign.vessels[] (read defensively — no migrateCampaign injector, so templates stay
+    // migrate-no-ops). displayName reads only blankVessel keys (registry⊆factory invariant). ===
+    { kind: 'vessel', label: 'Vessel', pluralLabel: 'Vessels', icon: '🚢',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.vessels) || [],
+      find: (c, id) => ((c && c.vessels) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.catalogKey || obj.id)) || '' },
+
+    // === Politics P-1 (burst4 2026-06-13) — the senate/faction/senatorship data layer (RR pp.355–360;
+    // acks-engine-politics.js). Read defensively (campaign.senates/factions/senatorships) — no
+    // migrateCampaign injector, so the templates stay migrate-no-ops. displayName reads only the
+    // matching blankX-emitted keys (the registry⊆factory invariant). ──
+    { kind: 'senate', label: 'Senate', pluralLabel: 'Senates', icon: '🏛',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.senates) || [],
+      find: (c, id) => ((c && c.senates) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
+    { kind: 'faction', label: 'Faction', pluralLabel: 'Factions', icon: '⚖',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.factions) || [],
+      find: (c, id) => ((c && c.factions) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+
+    { kind: 'senatorship', label: 'Senatorship', pluralLabel: 'Senatorships', icon: '🗳',
+      addressable: true, chronicleable: false,
+      list: (c) => (c && c.senatorships) || [],
+      find: (c, id) => ((c && c.senatorships) || []).find(x => x && x.id === id),
+      // blankSenatorship emits senatorCharacterId + senateId (no `name`) — describe by the relation.
+      displayName: (c, obj) => obj ? ((obj.senatorCharacterId || '?') + ' in ' + (obj.senateId || '?')) : '' },
 
     // ── SUB-ENTITIES (nested inside parents, but addressable by id) ──
     { kind: 'garrison-unit', label: 'Garrison Unit', pluralLabel: 'Garrison Units', icon: '⚔',

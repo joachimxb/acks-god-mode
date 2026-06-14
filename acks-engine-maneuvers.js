@@ -72,6 +72,24 @@
     }
     return n;
   }
+  // Military W7 (burst4) — the army's troop composition by SOURCE (RR pp.427–433), for the
+  // army-detail "troop depth" readout: active soldiers per source (mercenary / conscript / militia /
+  // vassal / clanhold / follower / slave) with the trained/untrained split for levies. Pure read.
+  function armyTroopSourceBreakdown(campaign, army){
+    const Ax = A();
+    const out = {};
+    for(const u of Ax.armyUnits(campaign, army)){
+      const active = Math.max(0, (u.count || 0) - (u.casualties || 0));
+      if(active <= 0) continue;
+      const src = u.source || 'mercenary';
+      const row = out[src] || (out[src] = { source: src, soldiers: 0, units: 0, trained: 0, untrained: 0 });
+      row.soldiers += active; row.units += 1;
+      if(src === 'conscript' || src === 'militia'){
+        if(u.unitTypeKey && u.unitTypeKey !== 'untrained-levy') row.trained += active; else row.untrained += active;
+      }
+    }
+    return Object.keys(out).map(k => out[k]).sort((a, b) => b.soldiers - a.soldiers);
+  }
   // Brigade equivalents (RR p.448 counts brigades; RR p.437 scale ratios convert
   // sub-brigade units: battalion ¼, company 1/16, platoon 1/64 of a brigade).
   const _BRIGADE_FRACTION = { brigade: 1, battalion: 1 / 4, company: 1 / 16, platoon: 1 / 64 };
@@ -1341,7 +1359,7 @@
   // ── exports ─────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     // composition + movement
-    armyTroopCount, armyBrigadeEquivalents, armyCavalryCompanyEquivalents, armyOnCampaign,
+    armyTroopCount, armyTroopSourceBreakdown, armyBrigadeEquivalents, armyCavalryCompanyEquivalents, armyOnCampaign,
     armyMarchProfile, armyExpeditionSpeedMilesPerDay, armyDominantScale,
     recordArmyMarchDay, armyFatigued,
     // allegiance
