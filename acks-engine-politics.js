@@ -4,15 +4,22 @@
  * Spec: Phase_4_Politics_Plan.md §4 (data model) + §14 P-1; Politics_RAW_Survey.md §4 + §7.
  * Sources: RR pp.355–360 (the senate core); JJ pp.402–407 (oligarchies + land/lordship — read-only here).
  *
- * P-1 ships the data layer + derived reads ONLY:
+ * P-1 (burst4) shipped the data layer + derived reads:
  *   - blankSenate (sen-) / blankFaction (fac-) / blankSenatorship (snr-) factories,
  *   - lookups + the Domain.governance sub-tree (feudal/senatorial; defensive-read + a setter),
  *   - the derived accessors (§4.4): faction totalInfluence + standing, senate ruling/leading faction,
  *     senateBenefitsActive, the oligarchy reads.
- * It does NOT build (later P-waves): the benefits/restrictions WIRING + the dispute gates (P-2),
- * senate-consult / the 2d6 voting math (P-3), influence actions (P-4), the Senate tab + Wizard (P-5),
- * the F&D Office→senate-seat hook (P-6). NO house rule is registered — the senate is RAW core, no
- * master toggle (CLAUDE §6; the plan's §8 / survey §11 polarity, resolved Joachim 2026-06-13).
+ * P-2 (burst5 2026-06-14) adds the senate ENGINE: senateVote (the 2d6-per-leading-senator voting,
+ *   RR p.358, + the by-faction shortcut + bewitched auto-vote — the §4.4 tally stays DERIVED, never
+ *   cached), senateBenefits (the structured benefit read; the economy WIRING is a deferred later
+ *   touch — out of this lane), the dispute lifecycle (setSenateDispute/clearSenateDispute/enactPolicy),
+ *   and the F&D Office→senate-seat hook (syncOfficeSenateSeat — the deferred F&D-8 dependency, §10).
+ *   Two record-only events (senate-vote / policy-enacted; the verb applies state + emits, the events.js
+ *   handler is a record-only audit) + the senate-auto-vote UX rule (default ON, roll-vs-narrate).
+ * STILL queued (later P-waves): influence actions (bribe/intimidate/seduce — P-4), the Senate Wizard
+ *   (generation — P-5), Eldermoot reconcile (P-7), and the rule-of-the-few oligarchy slices. The senate
+ *   is RAW core, no master toggle (CLAUDE §6; the plan's §8 / survey §11 polarity, Joachim 2026-06-13);
+ *   senate-auto-vote is a UX preference (default ON, the favor-duty-auto-roll precedent), not a divergence.
  *
  * Loads LAST (the harness/glob + index.html load acks-engine-*.js after the canonical set), so every
  * other module is present at call time. Self-contained: pure reads/setters over a passed campaign;
@@ -339,9 +346,441 @@
     };
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // P-2 — the senate engine: voting + benefits/restrictions + disputes + the F&D
+  //       Office→seat hook (burst5 2026-06-14). Spec: Phase_4_Politics_Plan.md §5 +
+  //       §10; Politics_RAW_Survey.md §4.5 (RR p.358 voting) / §4.1–§4.2 (RR p.355) /
+  //       §4.6 (RR p.359 disputes). The §4.4 tally stays DERIVED — voting reads it,
+  //       never caches it. Two record-only events (senate-vote / policy-enacted): the
+  //       verb here applies state + emits the already-applied event; the events.js
+  //       handler is a record-only audit (the favor-duty / hijink precedent).
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // The six matters a senatorial ruler must consult the senate before doing (RR p.359;
+  // survey §4.2). "Particular republics vary" — this is the typical RAW set.
+  const SENATE_RESTRICTED_MATTERS = Object.freeze([
+    'invade-realm', 'demand-duty', 'appoint-vassal-manager',
+    'change-taxes', 'change-religion', 'levy-troops'
+  ]);
+  function isSenateConsultationRequired(matter){ return SENATE_RESTRICTED_MATTERS.indexOf(matter) >= 0; }
+
+  // The Senate Voting band table (2d6, adjusted — RR p.358). Maps an adjusted result to a
+  // vote + an optional faction cascade (endorse/condemn influences later same-faction rolls).
+  //   ≤2  → against AND condemn   ·  3–5 → against  ·  6–8 → with the current trend
+  //   9–11 → for                  ·  ≥12 → for AND endorse
+  function senateVotingBand(adjusted){
+    const a = Number(adjusted) || 0;
+    if(a <= 2)  return { band:'against-condemn', vote:'against', cascade:'condemn' };
+    if(a <= 5)  return { band:'against',          vote:'against', cascade:null };
+    if(a <= 8)  return { band:'trend',            vote:'trend',   cascade:null };
+    if(a <= 11) return { band:'for',              vote:'for',     cascade:null };
+    return        { band:'for-endorse',       vote:'for',     cascade:'endorse' };
+  }
+
+  // Does a character hold a proficiency matching re (canonical {key} shape — PT-0; defensive
+  // for the legacy string / {name} shapes). Used for the ruler's Diplomacy / Mystic Aura flags.
+  function _hasProf(ch, re){
+    const profs = (ch && Array.isArray(ch.proficiencies)) ? ch.proficiencies : [];
+    return profs.some(p => re.test(typeof p === 'string' ? p : (p && (p.key || p.name || ''))));
+  }
+  // A senatorship is "bewitched" when it carries an influenceModifier of kind 'bewitched'
+  // (RR p.358 — a bewitched senator always votes as the bewitcher directs; the Wave-C bonds
+  // layer isn't built, so v1 reads the shipped influenceModifiers[] shape). value ≥ 0 ⇒ votes
+  // FOR the bewitcher's policy, < 0 ⇒ against. Returns null when not bewitched.
+  function _bewitchedVote(senatorship){
+    const mods = (senatorship && Array.isArray(senatorship.influenceModifiers)) ? senatorship.influenceModifiers : [];
+    const b = mods.find(m => m && m.kind === 'bewitched');
+    if(!b) return null;
+    return (Number(b.value) || 0) < 0 ? 'against' : 'for';
+  }
+  // Is the senator the ruler's henchman (or his henchman's henchman — RR p.358 +5)? Reads the
+  // character's liege chain; uses the shipped isHenchman predicate when present (defensive fallback).
+  function _senatorIsRulerHenchman(campaign, senatorship, rulerId){
+    if(!rulerId || !senatorship) return false;
+    const ch = _findChar(campaign, senatorship.senatorCharacterId);
+    if(!ch) return false;
+    const A = _A();
+    const isHen = (typeof A.isHenchman === 'function') ? A.isHenchman(ch) : (ch.kind === 'henchman');
+    if(!isHen) return false;
+    // direct henchman, or up to one further link (henchman of the ruler's henchman)
+    let liege = ch.liegeCharacterId, seen = new Set();
+    for(let i = 0; i < 2 && liege && !seen.has(liege); i++){
+      if(liege === rulerId) return true;
+      seen.add(liege);
+      const lc = _findChar(campaign, liege);
+      liege = lc ? lc.liegeCharacterId : null;
+    }
+    return false;
+  }
+
+  // Resolve the consultation context off the senate + opts: the ruler, his realm-wide flags,
+  // and the policy/military/faction inputs the UI supplies. Pure; defensive defaults.
+  function _consultContext(campaign, senate, opts){
+    opts = opts || {};
+    const apex = senate && senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    const rulerId = opts.rulerCharacterId || (apex && apex.rulerCharacterId) || null;
+    const ruler = _findChar(campaign, rulerId);
+    return {
+      rulerId,
+      ruler,
+      domainMorale: Number(opts.domainMorale) || 0,                       // ruler's current Domain Morale score (RR p.358)
+      hasDiplomacy: !!(ruler && _hasProf(ruler, /diplomacy/i)),
+      hasMysticAura: !!(ruler && _hasProf(ruler, /mystic[\s-]?aura/i)),
+      lawfulClean: !!(ruler && /^law/i.test(ruler.alignment || '') && opts.rulerCleanRecord !== false),
+      rulerFactionId: opts.rulerFactionId || null,                         // the faction the ruler aligns with (RR p.358)
+      policyHelps: Array.isArray(opts.policyHelps) ? opts.policyHelps : [],
+      policyHinders: Array.isArray(opts.policyHinders) ? opts.policyHinders : [],
+      militaryLoyalty: opts.militaryLoyalty || 'none',                     // 'none' | 'third' | 'all' (RR p.359)
+      controlledIndependentVotes: Math.max(0, Number(opts.controlledIndependentVotes) || 0) // §4.7 ruler-directed bloc
+    };
+  }
+
+  // The itemized voting-roll modifier stack for one senator (RR p.358; survey §4.5). Returns
+  // { modifiers:[{label,value}], total }. `cascades` = the running per-faction {endorsements,
+  // condemnations} tally from earlier senators (for the endorse/condemn cascade). When
+  // factionWide is true (the by-faction shortcut) only ruler-and-faction-wide rows apply.
+  function senatorVoteModifiers(campaign, senate, senatorship, ctx, cascades, factionWide){
+    const mods = [];
+    const add = (label, value) => { if(value) mods.push({ label, value }); };
+    // ── ruler-wide rows (apply in both modes) ──
+    add('domain morale', ctx.domainMorale);
+    if(!ctx.hasDiplomacy) add('ruler lacks Diplomacy', -2);
+    if(ctx.hasMysticAura) add('ruler has Mystic Aura', +1);
+    if(ctx.lawfulClean) add('ruler Lawful & untainted', +1);
+    if(ctx.militaryLoyalty === 'all') add('all military loyal to ruler', +2);
+    else if(ctx.militaryLoyalty === 'third') add('≥⅓ military loyal to ruler', +1);
+    // ── faction alignment (ruler-and-faction-wide) ──
+    if(ctx.rulerFactionId && senatorship.factionId){
+      if(senatorship.factionId === ctx.rulerFactionId) add('same faction as ruler', +1);
+      else add('opposed faction', -2);
+    }
+    if(!factionWide){
+      // ── per-senator rows ──
+      if(_senatorIsRulerHenchman(campaign, senatorship, ctx.rulerId)) add('senator is ruler’s henchman', +5);
+      // endorse/condemn cascade from earlier same-faction senators
+      const fc = (senatorship.factionId && cascades && cascades[senatorship.factionId]) || null;
+      if(fc){
+        if(fc.endorsements) add(fc.endorsements + ' same-faction endorsement(s)', +1 * fc.endorsements);
+        if(fc.condemnations) add(fc.condemnations + ' same-faction condemnation(s)', -1 * fc.condemnations);
+      }
+      // policy helps/hinders the senator's objectives (RR p.358: +1 helps / −2 hinders, per objective)
+      const objs = Array.isArray(senatorship.policyObjectives) ? senatorship.policyObjectives : [];
+      const helps = objs.filter(o => ctx.policyHelps.indexOf(o) >= 0).length;
+      const hinders = objs.filter(o => ctx.policyHinders.indexOf(o) >= 0).length;
+      if(helps) add('policy helps ' + helps + ' objective(s)', +1 * helps);
+      if(hinders) add('policy hinders ' + hinders + ' objective(s)', -2 * hinders);
+      // standing influence (bribe / intimidate / seduce / owes-favor / rival-bribe), pre-summed in
+      // the senatorship's influenceModifiers[] as signed values (P-1's shape; survey §4.5).
+      const im = Array.isArray(senatorship.influenceModifiers) ? senatorship.influenceModifiers : [];
+      for(const m of im){
+        if(!m || m.kind === 'bewitched') continue;        // bewitched is resolved before the roll
+        const v = Number(m.value) || 0;
+        if(v) add((m.kind || 'influence'), v);
+      }
+    }
+    return { modifiers: mods, total: mods.reduce((s, m) => s + (Number(m.value) || 0), 0) };
+  }
+
+  // Resolve a 'trend' vote against the running tally (RR p.358 — with the side that has more
+  // votes so far; abstains if tied / none yet).
+  function _resolveTrend(forVotes, againstVotes){
+    if(forVotes > againstVotes) return 'for';
+    if(againstVotes > forVotes) return 'against';
+    return 'abstain';
+  }
+
+  // Consult the senate on a matter (RR p.358; survey §4.5). Rolls 2d6 per leading senator in
+  // descending influence order (or once per faction with the by-faction shortcut), applying the
+  // itemized modifier stack + the running endorse/condemn cascade, stopping at a vote majority.
+  // Bewitched senators auto-vote. Independents the ruler controls (§4.7) start on the FOR side.
+  // PURE compute + an already-applied 'senate-vote' record (the verb pattern). Returns the tally.
+  //   opts: { senateId | senate, matter, mode:'per-senator'|'by-faction', rulerCharacterId,
+  //           domainMorale, rulerFactionId, policyHelps[], policyHinders[], militaryLoyalty,
+  //           controlledIndependentVotes, rng, autoRoll, gmOutcome, emit:false }
+  // When autoRoll is false (the senate-auto-vote rule OFF, or an explicit override), no dice are
+  // rolled — the GM-narrated gmOutcome ('approved'|'rejected') is recorded as-is.
+  function senateVote(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return null;
+    const rng = opts.rng || Math.random;
+    const mode = opts.mode === 'by-faction' ? 'by-faction' : 'per-senator';
+    const ctx = _consultContext(campaign, senate, opts);
+    const totalVotes = senateTotalVotes(campaign, senate);
+    const majorityThreshold = totalVotes > 0 ? Math.floor(totalVotes / 2) + 1 : 1;
+
+    // Honor the senate-auto-vote UX rule (default ON) unless overridden. OFF ⇒ the GM narrates.
+    const ruleOn = (typeof opts.autoRoll === 'boolean')
+      ? opts.autoRoll
+      : !(_A().isHouseRuleEnabled && _A().isHouseRuleEnabled(campaign, 'senate-auto-vote') === false);
+
+    let forVotes = ctx.controlledIndependentVotes, againstVotes = 0, abstainVotes = 0;
+    const rolls = [];
+    const cascades = {};                                   // factionId → {endorsements, condemnations}
+    let outcome, approved;
+
+    if(!ruleOn){
+      // GM-narrated outcome (no dice). The breakdown still carries the threshold + controlled bloc.
+      approved = (opts.gmOutcome || 'approved') === 'approved';
+      outcome = approved ? 'approved' : 'rejected';
+      if(approved) forVotes = Math.max(forVotes, majorityThreshold);
+      else againstVotes = Math.max(againstVotes, majorityThreshold);
+    } else if(mode === 'by-faction'){
+      // One roll per faction, ruler-and-faction-wide modifiers only; the faction's whole influence votes.
+      const facs = factionsForSenate(campaign, senate.id)
+        .map(f => ({ f, votes: factionTotalInfluence(campaign, f) }))
+        .filter(x => x.votes > 0)
+        .sort((a, b) => b.votes - a.votes);
+      for(const { f, votes } of facs){
+        const stub = { factionId: f.id, policyObjectives: f.policyObjectives || [], influenceModifiers: [] };
+        const mod = senatorVoteModifiers(campaign, senate, stub, ctx, cascades, true);
+        const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
+        const adjusted = d1 + d2 + mod.total;
+        const band = senateVotingBand(adjusted);
+        let vote = band.vote === 'trend' ? _resolveTrend(forVotes, againstVotes) : band.vote;
+        if(vote === 'for') forVotes += votes; else if(vote === 'against') againstVotes += votes; else abstainVotes += votes;
+        rolls.push({ factionId: f.id, factionName: f.name || f.id, votes, roll:{ d1, d2, natural:d1+d2 },
+          modifiers: mod.modifiers, adjusted, band: band.band, vote });
+        if(forVotes >= majorityThreshold || againstVotes >= majorityThreshold) break;
+      }
+    } else {
+      // Per-senator: roll 2d6 for each leading senatorship in descending influence order.
+      const seats = senatorshipsForSenate(campaign, senate.id)
+        .filter(s => s.rank !== 'minor')
+        .sort((a, b) => (Number(b.votes) || 0) - (Number(a.votes) || 0));
+      for(const s of seats){
+        const votes = Number(s.votes) || 0;
+        const bew = _bewitchedVote(s);
+        let roll = null, adjusted = null, band = null, mod = { modifiers: [], total: 0 }, vote;
+        if(bew){
+          vote = bew;                                      // bewitched: auto-vote, no roll (RR p.358)
+          band = { band:'bewitched', cascade:null };
+        } else {
+          mod = senatorVoteModifiers(campaign, senate, s, ctx, cascades, false);
+          const d1 = 1 + Math.floor(rng() * 6), d2 = 1 + Math.floor(rng() * 6);
+          adjusted = d1 + d2 + mod.total;
+          roll = { d1, d2, natural: d1 + d2 };
+          band = senateVotingBand(adjusted);
+          vote = band.vote === 'trend' ? _resolveTrend(forVotes, againstVotes) : band.vote;
+          // record the endorse/condemn cascade for later same-faction senators
+          if(band.cascade && s.factionId){
+            const fc = cascades[s.factionId] || (cascades[s.factionId] = { endorsements: 0, condemnations: 0 });
+            if(band.cascade === 'endorse') fc.endorsements++; else fc.condemnations++;
+          }
+        }
+        if(vote === 'for') forVotes += votes; else if(vote === 'against') againstVotes += votes; else abstainVotes += votes;
+        rolls.push({ senatorshipId: s.id, senatorCharacterId: s.senatorCharacterId, factionId: s.factionId || null,
+          votes, bewitched: !!bew, roll, modifiers: mod.modifiers, adjusted, band: band.band, vote });
+        if(forVotes >= majorityThreshold || againstVotes >= majorityThreshold) break;
+      }
+      approved = forVotes >= majorityThreshold;
+      outcome = approved ? 'approved' : (againstVotes >= majorityThreshold ? 'rejected' : 'no-majority');
+    }
+    if(outcome === undefined){                             // by-faction path sets outcome here
+      approved = forVotes >= majorityThreshold;
+      outcome = approved ? 'approved' : (againstVotes >= majorityThreshold ? 'rejected' : 'no-majority');
+    }
+
+    const result = {
+      senateId: senate.id, matter: opts.matter || '', mode, autoRolled: ruleOn,
+      rolls, forVotes, againstVotes, abstainVotes,
+      controlledIndependentVotes: ctx.controlledIndependentVotes,
+      totalVotes, majorityThreshold, outcome, approved
+    };
+    // Emit the already-applied record (unless the caller suppresses it for a pure preview).
+    if(opts.emit !== false){
+      const matterLabel = result.matter || 'a policy';
+      _emitPoliticsEvent(campaign, 'senate-vote', {
+        senateId: senate.id, matter: result.matter, mode, outcome, approved,
+        forVotes, againstVotes, abstainVotes, totalVotes, majorityThreshold,
+        rollCount: rolls.length,
+        narrative: 'The ' + (senate.name || 'senate') + ' votes ' +
+          (outcome === 'approved' ? 'FOR' : outcome === 'rejected' ? 'AGAINST' : 'with no majority on') +
+          ' ' + matterLabel + ' (' + forVotes + ' for / ' + againstVotes + ' against of ' + totalVotes + ').'
+      }, senate, ctx.rulerId, result.rolls);
+    }
+    return result;
+  }
+
+  // ── Benefits / restrictions (the derived reads; survey §4.1) ──
+  // The structured senate-benefit view for a realm (RR p.355). active = senateBenefitsActive
+  // (mode senatorial + senate not in dispute). The four benefit values are RAW; wiring them
+  // into the monthly economy (the +1 morale row, the loyalty-0 base, the free first duty, the
+  // free militia levy) is a later economy touch (deferred — out of this lane; the Senate tab
+  // displays this, and it is the contract a future commitTurn wire reads).
+  function senateBenefits(campaign, domain){
+    const active = senateBenefitsActive(campaign, domain);
+    const senate = senateForDomain(campaign, domain);
+    return {
+      active,
+      inDispute: !!(senate && senate.dispute != null),
+      isSenatorial: isSenatorialRealm(campaign, domain),
+      benefits: {
+        moraleBonus: active ? 1 : 0,                 // +1 base morale realm-wide (RR p.355)
+        vassalBaseLoyalty: active ? 0 : -2,          // non-henchman vassal base loyalty 0 not −2 (RR p.355)
+        freeFirstExtraDuty: active,                  // first extra duty/mo skips the Loyalty check if approved (F&D seam)
+        freeMilitiaLevy: active                      // militia levy costs no realm morale if approved
+      }
+    };
+  }
+
+  // ── Disputes (RR p.359; survey §4.6) ──
+  // Set the realm into dispute (a defied/unconsulted restricted matter): suspends ALL benefits
+  // via the §5.1 guard until cleared. Idempotent-ish: a fresh defiance bumps `attempts`.
+  function setSenateDispute(campaign, senateId, opts){
+    opts = opts || {};
+    const senate = findSenate(campaign, senateId);
+    if(!senate) return null;
+    const turn = (opts.turn != null) ? opts.turn : (campaign.currentTurn || 1);
+    const prior = senate.dispute;
+    senate.dispute = {
+      defiedTopic: opts.topic || (prior && prior.defiedTopic) || 'unknown',
+      sinceTurn: (prior && prior.sinceTurn != null) ? prior.sinceTurn : turn,
+      attempts: ((prior && prior.attempts) || 0) + 1
+    };
+    senate.status = 'in-dispute';
+    if(!Array.isArray(senate.history)) senate.history = [];
+    senate.history.push({ turn, type: 'dispute', topic: senate.dispute.defiedTopic, attempts: senate.dispute.attempts });
+    return senate;
+  }
+  // Clear the dispute (a successful retroactive-approval consult, or GM resolution). Restores
+  // benefits (status → active). resolution ∈ 'approved' | 'gm-resolved' | 'abandoned'.
+  function clearSenateDispute(campaign, senateId, opts){
+    opts = opts || {};
+    const senate = findSenate(campaign, senateId);
+    if(!senate || senate.dispute == null) return senate || null;
+    const turn = (opts.turn != null) ? opts.turn : (campaign.currentTurn || 1);
+    senate.dispute = null;
+    senate.status = 'active';
+    if(!Array.isArray(senate.history)) senate.history = [];
+    senate.history.push({ turn, type: 'dispute-cleared', resolution: opts.resolution || 'approved' });
+    return senate;
+  }
+
+  // Enact a policy on a senatorial realm (the ruler's decision after consulting; survey §4.2/§4.6).
+  // A restricted matter (isSenateConsultationRequired) enacted WITHOUT senate approval — not
+  // consulted, or consulted-and-rejected then enacted anyway — puts the realm in DISPUTE. An
+  // approved or unrestricted matter enacts cleanly; if the realm was in dispute and this enactment
+  // carries a retroactive approval, the dispute clears. PURE state change + an already-applied
+  // 'policy-enacted' record (the verb pattern). Returns { outcome, disputed, cleared, senate }.
+  //   opts: { senateId | senate, matter, consulted:bool, approved:bool|null, retroactiveApproval:bool,
+  //           rulerCharacterId, turn, emit:false }
+  function enactPolicy(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return null;
+    const matter = opts.matter || '';
+    const restricted = isSenateConsultationRequired(matter);
+    const approved = opts.approved === true;
+    const consulted = opts.consulted === true;
+    const turn = (opts.turn != null) ? opts.turn : (campaign.currentTurn || 1);
+    let outcome = 'enacted', disputed = false, cleared = false;
+
+    if(restricted && !(consulted && approved)){
+      // Defied / skipped consultation on a restricted matter → dispute (RR p.359).
+      setSenateDispute(campaign, senate.id, { topic: matter, turn });
+      outcome = 'defied'; disputed = true;
+    } else {
+      // Clean enactment. A retroactive-approval enactment while in dispute clears it.
+      if(senate.dispute != null && (opts.retroactiveApproval || (restricted && approved))){
+        clearSenateDispute(campaign, senate.id, { turn, resolution: 'approved' });
+        outcome = 'dispute-cleared'; cleared = true;
+      }
+    }
+    if(opts.emit !== false){
+      const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+      const rulerId = opts.rulerCharacterId || (apex && apex.rulerCharacterId) || null;
+      const narrative = disputed
+        ? 'The ruler defies the ' + (senate.name || 'senate') + ' on ' + (matter || 'a restricted matter') + ' — the realm is in dispute.'
+        : cleared
+          ? 'The ruler wins the ' + (senate.name || 'senate') + '’s retroactive approval — the dispute ends.'
+          : 'The ruler enacts ' + (matter || 'a policy') + ' with the ' + (senate.name || 'senate') + '’s sanction.';
+      _emitPoliticsEvent(campaign, 'policy-enacted', {
+        senateId: senate.id, matter, restricted, consulted, approved,
+        outcome, disputed, cleared, narrative
+      }, senate, rulerId, []);
+    }
+    return { outcome, disputed, cleared, senate };
+  }
+
+  // ── The Favors & Duties Office → senate-seat hook (Phase_4_Politics_Plan.md §10; the deferred
+  //    F&D-8 dependency, RR p.348 + p.355) ──
+  // Granting an Office favor on a realm whose apex governance is SENATORIAL auto-seats the
+  // officeholder (obligation.vassalRulerCharacterId) as a LEADING senator of the apex's senate.
+  // Revoking the Office vacates that seat. Until the realm is senatorial, the Office favor behaves
+  // as shipped (title + the RR p.348 +1 vassal-loyalty; the seat is a no-op). Idempotent both ways.
+  // Called from acks-engine.js _applyFavorDutyEdict (grant) + revokeFavorDutyEdict (revoke), guarded.
+  //   action ∈ 'grant' | 'revoke'. Returns the senatorship (grant) / the vacated record (revoke) / null.
+  function syncOfficeSenateSeat(campaign, obligation, action){
+    if(!campaign || !obligation || obligation.kind !== 'office') return null;
+    const holderId = obligation.vassalRulerCharacterId;
+    if(!holderId) return null;
+    const turn = campaign.currentTurn || 1;
+    if(!Array.isArray(campaign.senatorships)) campaign.senatorships = [];
+
+    if(action === 'revoke'){
+      // Vacate the office-seat this obligation created (tagged by sourceObligationId), regardless of
+      // the realm's current governance mode — the office is being revoked, so clean up its seat.
+      const seat = campaign.senatorships.find(s => s && _isActiveSenatorship(s)
+        && s.senatorCharacterId === holderId && s.sourceObligationId === obligation.id);
+      if(!seat) return null;
+      seat.status = 'vacated';
+      seat.vacatedAtTurn = turn;
+      if(!Array.isArray(seat.history)) seat.history = [];
+      seat.history.push({ turn, type: 'office-vacated', obligationId: obligation.id });
+      return seat;
+    }
+    // grant — ONLY on a realm whose apex is SENATORIAL (mode senatorial; the presence of a senate
+    // pointer alone isn't enough — a feudal realm may carry a dormant senate). RR p.348 + p.355.
+    const vassalDomain = _findDomain(campaign, obligation.vassalDomainId);
+    if(!vassalDomain || !isSenatorialRealm(campaign, vassalDomain)) return null;   // no-op (shipped behavior)
+    const senate = senateForDomain(campaign, vassalDomain);
+    if(!senate) return null;
+    // idempotent: don't double-seat the same office.
+    const existing = campaign.senatorships.find(s => s && _isActiveSenatorship(s)
+      && s.senateId === senate.id && s.senatorCharacterId === holderId
+      && s.sourceObligationId === obligation.id);
+    if(existing) return existing;
+    const holder = _findChar(campaign, holderId);
+    const seat = blankSenatorship({
+      senatorCharacterId: holderId, senateId: senate.id, rank: 'leading',
+      votes: 0,                                            // the GM sets the office's influence (RR leaves it the Judge's)
+      seatedAtTurn: turn,
+      history: [{ turn, type: 'office-seated', obligationId: obligation.id, officeTitle: obligation.officeTitle || '' }]
+    });
+    seat.sourceObligationId = obligation.id;               // the F&D tag (so revoke finds exactly this seat)
+    campaign.senatorships.push(seat);
+    return seat;
+  }
+
+  // Emit an already-applied politics record (the favor-duty emit pattern, lifted into this module).
+  // Carries the Event.context envelope (apex hex + ruler + the voting senators). Guarded so a
+  // missing events module never breaks the pure computation above.
+  function _emitPoliticsEvent(campaign, kind, payload, senate, rulerId, rolls){
+    const A = _A();
+    if(typeof A.newEvent !== 'function' || typeof A.setEventContext !== 'function') return null;
+    let ev;
+    try { ev = A.newEvent(kind, { submittedBy: 'engine', targetTurn: campaign.currentTurn || 1,
+      cadence: 'monthly-turn', payload: payload }); }
+    catch(e){ return null; }                               // kind not registered (events module absent)
+    const apex = senate && senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    const hexId = apex ? (((campaign.hexes || []).find(h => h && h.domainId === apex.id)) || {}).id || null : null;
+    const related = [];
+    if(rulerId) related.push({ kind:'character', id: rulerId, role:'subject' });
+    if(apex) related.push({ kind:'domain', id: apex.id, role:'site' });
+    (rolls || []).forEach(r => { if(r && r.senatorCharacterId) related.push({ kind:'character', id: r.senatorCharacterId, role:'witness' }); });
+    A.setEventContext(ev, { primaryHexId: hexId, domainId: apex ? apex.id : null, relatedEntities: related });
+    if(A.EVENT_STATUS) ev.status = A.EVENT_STATUS.APPLIED;
+    ev.appliedAtTurn = campaign.currentTurn || 1;
+    if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+    campaign.eventLog.push({ event: ev, result: { narrativeSummary: payload.narrative || kind },
+      appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+    return ev;
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
-    POLICY_OBJECTIVES,
+    POLICY_OBJECTIVES, SENATE_RESTRICTED_MATTERS,
     // factories
     blankSenate, blankFaction, blankSenatorship,
     // lookups
@@ -352,7 +791,12 @@
     DEFAULT_GOVERNANCE, governanceFor, setDomainGovernance, realmApexDomain, isSenatorialRealm,
     // derived (§4.4)
     factionTotalInfluence, senateTotalVotes, senateRulingFactionId, senateLeadingFactionId,
-    factionStanding, senateBenefitsActive, oligarchyDerivedStats
+    factionStanding, senateBenefitsActive, oligarchyDerivedStats,
+    // P-2 — voting + benefits/restrictions + disputes + the F&D Office→seat hook (burst5)
+    senateVotingBand, senatorVoteModifiers, senateVote,
+    isSenateConsultationRequired, senateBenefits,
+    setSenateDispute, clearSenateDispute, enactPolicy,
+    syncOfficeSenateSeat
   });
 
 })(typeof window !== 'undefined' ? window : global);

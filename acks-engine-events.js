@@ -240,7 +240,13 @@ const EVENT_KINDS = Object.freeze([
   // PC-sage's Knowledge/Loremastery throw), the fee via GP Wave B. Record-only (the consultSage
   // verb already rolled + debited the fee); chronicle-visible (the answer narrates). Carries the
   // §528 envelope (sage = source, client = beneficiary) + payload.activityCost (the #346 day).
-  'sage-consultation'
+  'sage-consultation',
+  // === Politics P-2 (burst5 2026-06-14) === — the senate engine (RR pp.355–360, #147). Engine-emitted,
+  // record-only audit: senateVote / enactPolicy (acks-engine-politics.js) already applied state (the vote
+  // is a derived consultation; enactPolicy sets/clears senate.dispute). These keep the eventLog well-formed
+  // + carry the Event.context envelope (apex hex + ruler + the voting senators). Wizard opt-out below.
+  'senate-vote',
+  'policy-enacted'
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -769,6 +775,20 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { settlementId: 'string', query: 'string', subject: 'string', mode: 'string',
          inSpecialty: 'boolean', target: 'number', throw: 'object', feeGp: 'number',
          answerText: 'string', loreId: 'string', activityCost: 'object' }
+  },
+  // === Politics P-2 (burst5 2026-06-14) === (RR pp.355–360; engine-emitted, record-only)
+  // A senate consultation result (the 2d6-per-senator vote tally). outcome ∈ approved|rejected|no-majority.
+  'senate-vote': {
+    R: { senateId: 'string' },
+    O: { matter: 'string', mode: 'string', outcome: 'string', approved: 'boolean',
+         forVotes: 'number', againstVotes: 'number', abstainVotes: 'number',
+         totalVotes: 'number', majorityThreshold: 'number', rollCount: 'number', narrative: 'string' }
+  },
+  // The ruler's enactment of a policy (sets/clears senate.dispute). outcome ∈ enacted|defied|dispute-cleared.
+  'policy-enacted': {
+    R: { senateId: 'string' },
+    O: { matter: 'string', restricted: 'boolean', consulted: 'boolean', approved: 'boolean',
+         outcome: 'string', disputed: 'boolean', cleared: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2309,6 +2329,15 @@ function applyEvent_treasureAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'treasure generated' } };
 }
 registerEventHandler('treasure-generated', applyEvent_treasureAudit);
+// === Politics P-2 (burst5 2026-06-14) === — the senate events share the record-only audit posture:
+// ACKS.senateVote / ACKS.enactPolicy (acks-engine-politics.js) already computed the tally + set/cleared
+// senate.dispute; the handler keeps the event well-formed on replay (records the narrative only).
+function applyEvent_senateAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'senate event' } };
+}
+registerEventHandler('senate-vote', applyEvent_senateAudit);
+registerEventHandler('policy-enacted', applyEvent_senateAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5323,7 +5352,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'treasure-generated',
   // === Sages SG-1 (burst5 b5-sages, #147) === — owned by consultSage (the consult modal); a raw
   // emit would carry no real throw/fee breakdown. The GM consults a sage via the modal, not here.
-  'sage-consultation'
+  'sage-consultation',
+  // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
+  // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
+  'senate-vote', 'policy-enacted'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

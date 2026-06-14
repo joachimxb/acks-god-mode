@@ -6205,6 +6205,12 @@ function revokeFavorDutyObligation(campaign, obligationId, atTurn, reason){
   if(record.kind === 'call-to-arms' || record.kind === 'troops'){
     try { _favorDutyDematerializeTroops(campaign, record); } catch(e){ /* best-effort */ }
   }
+  // === Politics P-2 (burst5) — vacate the senate seat an Office favor materialized on a senatorial
+  //     realm (Phase_4_Politics_Plan.md §10). The single revoke chokepoint catches every path
+  //     (manual revoke, the 1d20 table-revocation, …); a no-op when not senatorial / never seated.
+  if(record.kind === 'office' && global.ACKS && typeof global.ACKS.syncOfficeSenateSeat === 'function'){
+    try { global.ACKS.syncOfficeSenateSeat(campaign, record, 'revoke'); } catch(e){ /* best-effort */ }
+  }
   return record;
 }
 
@@ -7586,7 +7592,7 @@ function _favorDutyResolveNote(entry, ctx){
     case 'troops':
       return base + ' GM: place the stationed garrison under the vassal (Phase 3 Military).';
     case 'office':
-      return base + ' The +1 to the holder’s vassals’ loyalty rolls applies automatically (RR p.348). GM: if the lord’s realm is senatorial, the holder is owed a senate seat (RR p.355 — deferred to the senatorial-realms phase).';
+      return base + ' The +1 to the holder’s vassals’ loyalty rolls applies automatically (RR p.348). On a senatorial realm the holder is automatically seated as a leading senator (RR p.355 — set the seat’s influence on the senatorship); on a non-senatorial realm the seat is a no-op.';
     case 'charter-of-monopoly':
       return base + ' GM: apply the merchandise monopoly in M&M (2× volume, +1 price step).';
     case 'grant-of-land':
@@ -7796,6 +7802,14 @@ function _applyFavorDutyEdict(campaign, ctx, rng){
   if(entry.kind === 'call-to-arms' || entry.kind === 'troops'){
     try { _favorDutyMaterializeTroops(campaign, obligation, { liegeId, vassalDomain, liegeDomain, race: 'man' }); }
     catch(e){ /* materialization is best-effort — never block the edict on a troop-muster hiccup */ }
+  }
+  // === Politics P-2 (burst5) — the F&D Office→senate-seat hook (the deferred F&D-8 dependency,
+  //     Phase_4_Politics_Plan.md §10; RR p.348 + p.355). Granting an Office favor on a realm whose
+  //     apex governance is senatorial auto-seats the officeholder as a leading senator. A no-op when
+  //     the realm isn't senatorial (the Office favor behaves as shipped — title + the +1 vassal-loyalty).
+  if(entry.kind === 'office' && global.ACKS && typeof global.ACKS.syncOfficeSenateSeat === 'function'){
+    try { global.ACKS.syncOfficeSenateSeat(campaign, obligation, 'grant'); }
+    catch(e){ /* best-effort — never block the edict on a seating hiccup */ }
   }
 
   // Balance + the excess-duty Loyalty roll (duties only — favors never over-demand).

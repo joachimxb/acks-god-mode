@@ -207,6 +207,13 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II RR pp.345–348 (RAW core; this toggle is a UX preference, not a RAW divergence)',
     default:true,
     description:"DEFAULT ON. Favors & Duties is RAW core: each month a vassal ruler rolls on the Favor/Duty table (RR p.348) for what his lord grants or demands. With this ON, the monthly turn auto-rolls one edict per active vassalage (recording a favorDutyObligation, applying the gp flows for Loan/Scutage/Gift, and firing the excess-duty Loyalty roll when the lord over-demands). When OFF, the engine never auto-generates edicts — the GM drives obligations by hand (Inspector Create) and resolves them in fiction. Either way the resulting obligation data is identical RAW; this only chooses who rolls the d20." },
+  // === Politics P-2 (burst5 team 2026-06-14) === — the senate is RAW core, default-ON, dormant-
+  // until-used (NO master toggle — the plan §8 / survey §11 polarity, Joachim 2026-06-13). This is
+  // the one senate rule: a UX preference (roll-vs-narrate), the favor-duty-auto-roll precedent.
+  { id:'senate-auto-vote', category:'domain', name:'Senate — auto-roll the consultation vote',
+    source:'ACKS II RR p.358 (RAW core; this toggle is a UX preference, not a RAW divergence)',
+    default:true,
+    description:"DEFAULT ON. Consulting a senate is RAW core: each leading senator rolls 2d6 on the Senate Voting table (RR p.358), adjusted by the ~20-row modifier stack, in influence order until a majority forms. With this ON, the Consult-Senate action rolls those dice and shows the itemized per-senator breakdown + the for/against tally. When OFF, the tool skips the dice and records the GM-narrated outcome (approved / rejected) — useful for a Judge who prefers to adjudicate the vote in fiction. Bribery / intimidation / seduction are always available either way; this only chooses roll-vs-narrate. (The rule-of-the-few oligarchy mode is a separate, later opt-in.)" },
   // ----- Construction & improvement -----
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',

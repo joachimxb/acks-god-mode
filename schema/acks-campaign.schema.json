@@ -4557,7 +4557,8 @@
                 "hijink-trial",
                 "aging-milestone",
                 "death-from-old-age",
-                "sage-consultation"
+                "senate-vote",
+                "policy-enacted"
               ]
             },
             "id": {
@@ -4651,7 +4652,7 @@
     "schemaVersion": 2,
     "entityKinds": 44,
     "typedKinds": 26,
-    "eventKinds": 74,
+    "eventKinds": 75,
     "nestedSubEntityKinds": [
       "garrison-unit",
       "stronghold-component"
