@@ -285,7 +285,10 @@ const EVENT_KINDS = Object.freeze([
   // === Phase 4 — Magic Research AD-M2 (the high-tier creature-minting kinds; RR pp.394–398) ===
   'construct-manufactured',   // manufacture a construct (a Group; mindless auto-controlled, else a reaction)
   'crossbreed-created',       // breed a new crossbreed creature (a Group; the progenitors are consumed)
-  'necromancy-performed'      // raise an intelligent undead (a Group; willing auto-loyal, else a reaction)
+  'necromancy-performed',     // raise an intelligent undead (a Group; willing auto-loyal, else a reaction)
+  // === Phase 4 — Magic Research AD-M3 (rituals; RR p.398) ===
+  'ritual-learned',           // learn a ritual spell → the caster's ritual repertoire (a magicFormula kind:'ritual')
+  'ritual-cast'               // cast a ritual → takes effect (GM-resolved) OR is stored as a single charge
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -914,6 +917,15 @@ const EVENT_SCHEMAS = Object.freeze({
   'necromancy-performed': {
     R: { projectId: 'string' },
     O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', willing: 'boolean', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research AD-M3 (rituals; RR p.398) ===
+  'ritual-learned': {
+    R: { projectId: 'string' },
+    O: { researcherCharacterId: 'string', ritualKey: 'string', ritualLevel: 'number', name: 'string', narrative: 'string' }
+  },
+  'ritual-cast': {
+    R: { projectId: 'string' },
+    O: { researcherCharacterId: 'string', ritualKey: 'string', ritualLevel: 'number', mode: 'string', notableItemId: 'string', storedForm: 'string', name: 'string', narrative: 'string' }
   }
 });
 
@@ -2514,6 +2526,8 @@ registerEventHandler('magic-item-created', applyEvent_researchAudit);
 registerEventHandler('construct-manufactured', applyEvent_researchAudit);
 registerEventHandler('crossbreed-created', applyEvent_researchAudit);
 registerEventHandler('necromancy-performed', applyEvent_researchAudit);
+registerEventHandler('ritual-learned', applyEvent_researchAudit);
+registerEventHandler('ritual-cast', applyEvent_researchAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5554,7 +5568,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'magic-research-started', 'magic-research-progress', 'magic-research-completed',
   'magic-research-failed', 'magic-item-created',
   // AD-M2 — owned by acks-engine-magic-research.js (the creature-minting result of a research throw).
-  'construct-manufactured', 'crossbreed-created', 'necromancy-performed'
+  'construct-manufactured', 'crossbreed-created', 'necromancy-performed',
+  // AD-M3 — owned by acks-engine-magic-research.js (the ritual learn/cast result of a research throw).
+  'ritual-learned', 'ritual-cast'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

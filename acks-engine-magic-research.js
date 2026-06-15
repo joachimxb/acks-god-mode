@@ -32,7 +32,16 @@
  *   crossbreed, else friendly/indifferent/neutral → controlled vs unfriendly/hostile → free-willed; +3
  *   record-only events (construct-manufactured / crossbreed-created / necromancy-performed).
  *
- * DEFERRED (later AD-M waves, stacked on this branch): AD-M3 (rituals — learn/cast + repertoire caps),
+ * AD-M3 (rituals — RR p.398): the two ritual kinds flipped available — LEARN (→ the caster's ritual
+ *   repertoire, a magicFormula kind:'ritual'; gated by the Ritual Spell Repertoire cap = base(level) + key-
+ *   attribute mod PER ritual level) + CAST (→ takes effect immediately, GM-resolved/deferred, OR is stored as
+ *   a single charge: a scroll / a ring·rod·staff·wand Notable Item). Cost = 50k/100k/200k by ritual level 7/8/9
+ *   (cast pays it again as the component, monster parts — never miscellaneous); throw +ritual level; learnable
+ *   /castable by arcane OR divine casters (the divine rituals + divine-power components are the Religion seam,
+ *   flagged in RITUAL_CATALOG, not blocked). +2 record-only events (ritual-learned / ritual-cast). RITUAL_CATALOG
+ *   seeds 15 sample rituals (RAW names + per-school levels + a terse gloss + the deferred-effect owner; §13.6 IP).
+ *
+ * DEFERRED (later AD-M waves, stacked on this branch):
  * AD-M4 (experimentation — advantages/methods/breakthroughs/mishaps), and the PER-DAY day-tick grain for
  * research accrual (the monthly model ships — the visible-planning-info path, consistent with the arcane
  * core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the Religion plan's
@@ -141,9 +150,9 @@
     'construct-manufacture': { label: 'Manufacture construct', icon: '⚙', minLevel: 11, facilityKind: 'workshop', available: true,  hdAbility: true, mintsCreature: true },
     'crossbreed':            { label: 'Crossbreed',            icon: '🧬', minLevel: 11, facilityKind: 'crossbreeding-lab', available: true, hdAbility: true, mintsCreature: true },
     'necromancy':            { label: 'Perform necromancy',    icon: '💀', minLevel: 11, facilityKind: 'mortuary', available: true,  hdAbility: true, mintsCreature: true },
-    // Rituals (AD-M3) — reserved, gated off until their wave lands.
-    'ritual-learn':          { label: 'Learn ritual',          icon: '✴', minLevel: 11, facilityKind: 'library',  available: false },
-    'ritual-cast':           { label: 'Cast ritual',           icon: '✴', minLevel: 11, facilityKind: 'workshop', available: false }
+    // Rituals (AD-M3; RR p.398) — L11+ arcane OR divine; cost 50k/100k/200k by ritual level; repertoire-capped.
+    'ritual-learn':          { label: 'Learn ritual',          icon: '✴', minLevel: 11, facilityKind: 'library',  available: true,  ritual: true },
+    'ritual-cast':           { label: 'Cast ritual',           icon: '✴', minLevel: 11, facilityKind: 'workshop', available: true,  ritual: true }
   });
 
   // Magic Item Creation cost (RR pp.391–393) — the base cost = component = material = research. Per RAW
@@ -168,6 +177,39 @@
     'black-lore-of-zahar': { throwPerRank: 2, ratePctPerRank: 10, domains: ['necromancy'], levelBonus: 2, label: 'Black Lore of Zahar' },
     'transmogrification':  { throwPerRank: 2, ratePctPerRank: 10, domains: ['crossbreed'], levelBonus: 2, label: 'Transmogrification' }
   });
+
+  // ── Rituals (AD-M3; RR p.398) ──
+  // Material & Research each = 50k/100k/200k for ritual level 7/8/9; ritual-cast pays that AGAIN as the
+  // component (in monster parts whose total XP value = the cost — never miscellaneous components, RR p.398).
+  const RITUAL_COST_BY_LEVEL = Object.freeze({ 7: 50000, 8: 100000, 9: 200000 });
+  // Ritual Spell Repertoire (RR p.398): base by caster level + the key-attribute modifier (INT arcane /
+  // WIL divine), counted PER ritual level (each of 7/8/9 independently).
+  const RITUAL_REPERTOIRE_BASE = Object.freeze({ 11: 1, 12: 2, 13: 3, 14: 4 });
+
+  // A seed of sample ritual spells (RR p.398 "Sample Ritual Spells"). RAW names + per-school levels + schools
+  // + a TERSE gloss in our own words + the deferred-effect owner — the effect content is NOT transcribed and
+  // lands per-ritual as its consuming subsystem matures (many touch domains/weather/cosmology; several are
+  // Religion-owned divine rituals — RR §13.6 IP). arcane/divine = the ritual level for that school (null = not
+  // available to it). powerOnly = the component must be paid with arcane/divine power, not monster parts;
+  // divinePowerOnly = specifically DIVINE power (a Religion-owned ritual the arcane wave only flags).
+  const RITUAL_CATALOG = Object.freeze([
+    { key: 'ranine-rain',         name: 'Ranine Rain',         arcane: 7,    divine: 7,    tags: ['summoning'],        gloss: 'Call down an unnatural rain of creatures over a vast area.',        deferredTo: 'weather' },
+    { key: 'seven-league-stride', name: 'Seven-League Stride', arcane: 7,    divine: 7,    tags: ['movement'],         gloss: 'Stride leagues across the world in a single step.',                 deferredTo: 'journeys' },
+    { key: 'spawn-of-the-deep',   name: 'Spawn of the Deep',   arcane: 7,    divine: 7,    tags: ['summoning'],        gloss: 'Summon monstrous spawn from the deep waters.' },
+    { key: 'magic-mushrooms',     name: 'Magic Mushrooms',     arcane: null, divine: 7,    tags: ['transmogrification'], gloss: 'Make magical mushrooms flourish across a region.',                 deferredTo: 'dwarven' },
+    { key: 'consonant-transit',   name: 'Consonant Transit',   arcane: 8,    divine: 8,    tags: ['movement'],         gloss: 'Travel instantly between linked locations across great distance.',  deferredTo: 'journeys' },
+    { key: 'consume-power',       name: 'Consume Power',       arcane: 8,    divine: 8,    tags: ['protection','transmogrification'], gloss: 'Devour a target’s magical power.',                  deferredTo: 'magic' },
+    { key: 'emissary',            name: 'Emissary',            arcane: 8,    divine: null, tags: [],                   gloss: 'Send forth a magical emissary in your stead.' },
+    { key: 'palace-of-sulaimon',  name: 'Palace of Sulaimon',  arcane: 8,    divine: null, tags: ['summoning'],        gloss: 'Conjure an extradimensional palace.' },
+    { key: 'permanency',          name: 'Permanency',          arcane: 8,    divine: 8,    tags: [],                   gloss: 'Make a temporary spell effect permanent.',                         deferredTo: 'magic' },
+    { key: 'apotheosis',          name: 'Apotheosis',          arcane: 9,    divine: 9,    tags: ['transmogrification'], powerOnly: true, gloss: 'Transfigure a living or undead creature into a deathless immortal.', deferredTo: 'religion' },
+    { key: 'cataclysm',           name: 'Cataclysm',           arcane: null, divine: 9,    tags: ['blast'], powerOnly: true, divinePowerOnly: true, gloss: 'Doom a target domain to ruin amid mounting portents.', deferredTo: 'religion' },
+    { key: 'flying-fortress',     name: 'Flying Fortress',     arcane: 9,    divine: null, tags: [],                   gloss: 'Raise a fortress that floats free and takes to the air.',          deferredTo: 'construction' },
+    { key: 'miracle',             name: 'Miracle',             arcane: null, divine: 9,    tags: [], powerOnly: true, divinePowerOnly: true, gloss: 'Petition a god to reshape reality.',                deferredTo: 'religion' },
+    { key: 'plague',              name: 'Plague',              arcane: 9,    divine: null, tags: ['death'],            gloss: 'Unleash a spreading plague over an unlimited range.',               deferredTo: 'disease' },
+    { key: 'shadeveil',           name: 'Shadeveil',           arcane: 9,    divine: null, tags: ['illusion','enchantment','transmogrification'], gloss: 'Veil a wide region in shadow and waking illusion.' }
+  ]);
+  const RITUAL_BY_KEY = Object.freeze(RITUAL_CATALOG.reduce((m, r) => { m[r.key] = r; return m; }, {}));
 
   // ════════════════════════════════════════════════════════════════════════════
   // Core machine — rate, eligibility, cost (RR p.388, p.390)
@@ -211,9 +253,15 @@
     if(!meta) return { ok: false, reason: 'unknown-kind' };
     if(!meta.available) return { ok: false, reason: 'kind-not-yet-available' };
     const isArcane = (typeof A.isArcaneCaster === 'function') ? A.isArcaneCaster(ch) : false;
+    const isDivine = (typeof A.isDivineCaster === 'function') ? A.isDivineCaster(ch) : false;
     const isConstruct = (kind === 'construct-design' || kind === 'construct-manufacture');
+    const isRitual = (kind === 'ritual-learn' || kind === 'ritual-cast');
     if(isConstruct){
       if(!isArcane && !_isCraftpriest(ch)) return { ok: false, reason: 'not-an-arcane-caster-or-craftpriest' };
+    } else if(isRitual){
+      // Rituals are learnable/castable by arcane OR divine casters (RR p.398; the divine rituals + divine-power
+      // components are the Religion seam, plan §14 Q3 — flagged in the catalog, not blocked here).
+      if(!isArcane && !isDivine) return { ok: false, reason: 'not-a-spellcaster' };
     } else if(!isArcane){
       return { ok: false, reason: 'not-an-arcane-caster' };
     }
@@ -221,7 +269,61 @@
     const min = researchEffectiveMinLevel(kind, cfg, ch);
     const effLevel = (Number(ch.level) || 0) + _eligibilityLevelBonus(ch, kind);   // RR p.389 proficiency level bonus
     if(effLevel < min) return { ok: false, reason: 'level-too-low', minLevel: min };
+    // Ritual-specific gates (RR p.398): cast needs the ritual in repertoire; learn needs repertoire space.
+    if(kind === 'ritual-cast'){
+      const key = cfg && cfg.ritualKey;
+      if(key && !ritualInRepertoire(campaign, ch, key)) return { ok: false, reason: 'ritual-not-in-repertoire' };
+    } else if(kind === 'ritual-learn'){
+      const rl = _clampRitualLevel(cfg && cfg.ritualLevel);
+      const cap = ritualRepertoireCap(campaign, ch);
+      if(ritualsKnown(campaign, ch, rl).length >= cap) return { ok: false, reason: 'ritual-repertoire-full', cap, ritualLevel: rl };
+    }
     return { ok: true };
+  }
+
+  // ── Rituals — repertoire + catalog (RR p.398) ──
+  function ritualCatalogEntry(key){ return RITUAL_BY_KEY[key] || null; }
+  // The key spellcasting attribute for ritual repertoire: WIL for a pure divine caster, else INT (arcane).
+  function ritualKeyAttributeFor(campaign, character){
+    const A = _A();
+    const ch = _findChar(campaign, character);
+    if(!ch) return 'INT';
+    const arcane = (typeof A.isArcaneCaster === 'function') && A.isArcaneCaster(ch);
+    const divine = (typeof A.isDivineCaster === 'function') && A.isDivineCaster(ch);
+    return (divine && !arcane) ? 'WIL' : 'INT';
+  }
+  function _abilityModOf(ch, attr){
+    const A = _A();
+    const fn = (typeof A.abilityMod === 'function') ? A.abilityMod : (s => Math.floor(((Number(s)||10)-10)/3));
+    return fn((ch && ch.abilities && ch.abilities[attr]) || 10);
+  }
+  // Ritual Spell Repertoire cap PER ritual level (RR p.398): base(caster level) + key-attribute modifier.
+  function ritualRepertoireCap(campaign, character){
+    const ch = _findChar(campaign, character);
+    if(!ch) return 0;
+    const lvl = Number(ch.level) || 0;
+    if(lvl < 11) return 0;
+    const base = (RITUAL_REPERTOIRE_BASE[lvl] != null) ? RITUAL_REPERTOIRE_BASE[lvl] : (lvl >= 14 ? 4 : 1);
+    return Math.max(0, base + _abilityModOf(ch, ritualKeyAttributeFor(campaign, ch)));
+  }
+  // The rituals a caster has learned (magicFormulas kind:'ritual'); filterable by ritual level.
+  function ritualsKnown(campaign, character, ritualLevel){
+    const ch = _findChar(campaign, character);
+    if(!ch || !Array.isArray(ch.magicFormulas)) return [];
+    return ch.magicFormulas.filter(f => f && f.kind === 'ritual' && (ritualLevel == null || Number(f.ritualLevel) === Number(ritualLevel)));
+  }
+  function ritualInRepertoire(campaign, character, ritualKey){
+    if(!ritualKey) return false;
+    const want = String(ritualKey).toLowerCase();
+    return ritualsKnown(campaign, character).some(f => f && (f.ritualKey === ritualKey || (f.name && f.name.toLowerCase() === want)));
+  }
+  // The ritual level a given caster casts a catalog ritual at (its school's level): WIL→divine else arcane;
+  // falls back to whichever school the ritual offers. null if the ritual key is unknown.
+  function ritualLevelFor(campaign, character, ritualKey){
+    const r = RITUAL_BY_KEY[ritualKey]; if(!r) return null;
+    const attr = ritualKeyAttributeFor(campaign, character);
+    const lvl = (attr === 'WIL') ? (r.divine != null ? r.divine : r.arcane) : (r.arcane != null ? r.arcane : r.divine);
+    return (lvl != null) ? lvl : null;
   }
 
   // Magic Item Creation cost (RR pp.391–393). Returns the base cost (gp). Permanent bonuses are cumulative.
@@ -268,9 +370,16 @@
       const c = _hdAbilityCost(cfg);
       return { componentCostGp: c, materialCostGp: c, researchCostGp: c, baseCost: c };
     }
-    // Rituals (AD-M3): reserved (returns 0 until their wave fills it).
+    // Rituals (AD-M3; RR p.398): Material & Research each = 50k/100k/200k for ritual level 7/8/9; ritual-cast
+    // ALSO pays that as the component (monster parts — never miscellaneous); ritual-learn has no component.
+    if(kind === 'ritual-learn' || kind === 'ritual-cast'){
+      const rl = _clampRitualLevel(cfg.ritualLevel);
+      const c = RITUAL_COST_BY_LEVEL[rl] || RITUAL_COST_BY_LEVEL[7];
+      return { componentCostGp: (kind === 'ritual-cast') ? c : 0, materialCostGp: c, researchCostGp: c, baseCost: c };
+    }
     return { componentCostGp: 0, materialCostGp: 0, researchCostGp: 0, baseCost: 0 };
   }
+  function _clampRitualLevel(lvl){ return Math.max(7, Math.min(9, Math.floor(Number(lvl) || 7))); }
 
   // The per-kind throw-target BUMP (RR p.388 + per-kind): spell research adds the spell level; identify
   // adds the spell-levels imbued; item creation adds the total spell-effect level (+1/+3/+6 for a +1/+2/+3
@@ -289,6 +398,10 @@
     }
     if(kind === 'necromancy'){
       return Math.floor(_hdAbilityCost(cfg) / 5000) * (cfg.willing ? 1 : 2);
+    }
+    // Rituals (AD-M3; RR p.398): the throw target is increased by the level of the ritual spell (7/8/9).
+    if(kind === 'ritual-learn' || kind === 'ritual-cast'){
+      return _clampRitualLevel(cfg.ritualLevel);
     }
     return 0;
   }
@@ -468,6 +581,7 @@
     let needsThrow = (opts.needsThrow != null) ? !!opts.needsThrow : true;
     if(opts.commonSpell || opts.fromFormula) needsThrow = false;
     if(kind === 'identify') needsThrow = true;     // identify always throws (RR p.393)
+    if(kind === 'ritual-cast') needsThrow = true;  // casting a ritual always throws (RR p.398)
     const project = blankResearchProject({
       kind, name: opts.name || (meta.label + (cfg.targetName ? (': ' + cfg.targetName) : '')),
       magicDomain: opts.magicDomain || null,
@@ -572,6 +686,8 @@
     const researcher = _findChar(campaign, project.researcherCharacterId);
     if(!researcher) return { ok: false, reason: 'no-researcher' };
     const plan = Object.assign({ arcanePowerGp: 0, specialItemValueGp: 0, miscGp: 0, inappropriateGp: 0, identifiedItemId: null, specialItemRefs: [] }, opts.componentPlan || {});
+    // Rituals never use miscellaneous components (RR p.398) — only special components / arcane power.
+    if(project.kind === 'ritual-learn' || project.kind === 'ritual-cast'){ plan.miscGp = 0; plan.inappropriateGp = 0; }
     const compCost = Math.max(0, Number(project.componentCostGp) || 0);
 
     // ── Pay the component cost (at the end, RR p.388) ──
@@ -825,6 +941,36 @@
         { projectId: project.id, groupId: r.group ? r.group.id : null, makerCharacterId: researcher ? researcher.id : null, controlled: r.controlled, disposition: r.band, count: r.count, willing },
         { narrative: (researcher && researcher.name || 'A necromancer') + ' raises ' + (r.count > 1 ? (r.count + '× ') : '') + (project.name || 'the dead') + (r.controlled ? '' : ' — but it rises hostile!'),
           relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(r.group ? [{ kind: 'group', id: r.group.id, role: 'produced' }] : []) });
+    } else if(project.kind === 'ritual-learn'){
+      // RR p.398 — learning a ritual adds it to the caster's ritual repertoire (a magicFormula kind:'ritual').
+      const rl = _clampRitualLevel(cfg.ritualLevel);
+      const name = cfg.targetName || project.name || ('ritual L' + rl);
+      _addMagicFormula(researcher, { kind: 'ritual', name, ritualKey: cfg.ritualKey || null, ritualLevel: rl, sourceProjectId: project.id, learnedAtTurn: _currentTurn(campaign) });
+      project.kindResult = { formula: 'ritual:' + name, ritualKey: cfg.ritualKey || null, ritualLevel: rl, note: 'Added to your ritual repertoire (RR p.398).' };
+      _recordResearchEvent(campaign, 'ritual-learned',
+        { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, ritualKey: cfg.ritualKey || null, ritualLevel: rl, name },
+        { narrative: (researcher && researcher.name || 'A mage') + ' learns the ritual of ' + name,
+          relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }] });
+    } else if(project.kind === 'ritual-cast'){
+      // RR p.398 — a cast ritual takes effect immediately OR is stored as a single charge (scroll / ring / rod
+      // / staff / wand). The effect itself is GM-resolved / deferred to its consuming subsystem (catalog content).
+      const rl = _clampRitualLevel(cfg.ritualLevel);
+      const name = cfg.targetName || project.name || ('ritual L' + rl);
+      if(cfg.mode === 'stored'){
+        const it = _mintStoredRitualItem(campaign, project, { name, ritualLevel: rl, form: cfg.storedForm || 'scroll' });
+        project.kindResult = { ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'stored', notableItemId: it ? it.id : null, storedForm: cfg.storedForm || 'scroll', note: 'Bound into ' + (it ? it.name : 'a single charge') + ' (RR p.398).' };
+        _recordResearchEvent(campaign, 'ritual-cast',
+          { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'stored', notableItemId: it ? it.id : null, storedForm: cfg.storedForm || 'scroll', name },
+          { narrative: (researcher && researcher.name || 'A mage') + ' casts ' + name + ' and binds it into ' + ((!cfg.storedForm || cfg.storedForm === 'scroll') ? 'a scroll' : ('a ' + cfg.storedForm)),
+            relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(it ? [{ kind: 'notableItem', id: it.id, role: 'produced' }] : []) });
+      } else {
+        const entry = ritualCatalogEntry(cfg.ritualKey);
+        project.kindResult = { ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'immediate', note: (entry && entry.gloss) ? ('Takes effect now (GM resolves): ' + entry.gloss) : 'The ritual takes effect now (GM resolves).' };
+        _recordResearchEvent(campaign, 'ritual-cast',
+          { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'immediate', name },
+          { narrative: (researcher && researcher.name || 'A mage') + ' performs the ritual of ' + name,
+            relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }] });
+      }
     }
   }
 
@@ -834,6 +980,31 @@
     if(!character) return;
     if(!Array.isArray(character.magicFormulas)) character.magicFormulas = [];
     character.magicFormulas.push(Object.assign({ schemaVersion: SCHEMA_VERSION, id: newId('frm') }, formula));
+  }
+
+  // Store a cast ritual as a single charge on a magic item (RR p.398 — a scroll, or one charge in a ring /
+  // rod / staff / wand; never activated/at-will/permanent). Mints a Notable Item + custody to the caster.
+  function _mintStoredRitualItem(campaign, project, spec){
+    const A = _A();
+    const researcher = _findChar(campaign, project.researcherCharacterId);
+    const form = ['scroll','ring','rod','staff','wand'].indexOf(spec.form) >= 0 ? spec.form : 'scroll';
+    const itemKind = (form === 'scroll') ? 'scroll' : 'misc-magic';
+    const label = (form === 'scroll') ? ('Scroll of ' + (spec.name || 'a ritual'))
+      : ((form.charAt(0).toUpperCase() + form.slice(1)) + ' of ' + (spec.name || 'a ritual'));
+    const item = (typeof A.blankNotableItem === 'function') ? A.blankNotableItem({
+      kind: itemKind, name: label,
+      intrinsic: { charges: 1, storedRitual: { ritualKey: (project.config && project.config.ritualKey) || null, ritualLevel: spec.ritualLevel, form }, properties: ['Holds a single casting of the ' + (spec.name || 'ritual') + ' ritual'] },
+      provenance: { makerCharacterId: researcher ? researcher.id : null, createdAtTurn: _currentTurn(campaign), originLore: 'A ritual spell bound into a single charge (RR p.398)', knownMakeAndAuthenticity: true }
+    }) : null;
+    if(item){
+      if(!Array.isArray(campaign.notableItems)) campaign.notableItems = [];
+      campaign.notableItems.push(item);
+      if(typeof A.blankItemCustody === 'function'){
+        if(!Array.isArray(campaign.itemCustody)) campaign.itemCustody = [];
+        campaign.itemCustody.push(A.blankItemCustody({ itemId: item.id, custodianKind: 'character', custodianId: researcher ? researcher.id : null, sinceTurn: _currentTurn(campaign) }));
+      }
+    }
+    return item;
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -871,6 +1042,9 @@
     // catalogs
     RESEARCH_RATE_BY_LEVEL, MAGIC_RESEARCH_KINDS, ITEM_ACTIVATION_MULT, ITEM_PERMANENT_MULT, ITEM_BONUS_COST,
     RESEARCH_PROFICIENCY_MODS, HIGH_TIER_RESEARCH_KINDS: HIGH_TIER_KINDS,
+    RITUAL_CATALOG, RITUAL_COST_BY_LEVEL, RITUAL_REPERTOIRE_BASE,
+    // rituals (AD-M3)
+    ritualCatalogEntry, ritualKeyAttributeFor, ritualRepertoireCap, ritualsKnown, ritualInRepertoire, ritualLevelFor,
     // core machine
     magicResearchKind, availableResearchKinds, researchRateForLevel, researchEffectiveMinLevel,
     isEligibleResearcher, magicItemCreationCost, researchProjectCosts, componentSubstitutionPenalty,

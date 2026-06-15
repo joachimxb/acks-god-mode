@@ -44,8 +44,8 @@ ok('L12 STAPLE rate caps at 1750 (footnote)', ACKS.researchRateForLevel(12, 'ite
 ok('L12 HIGH-TIER rate 2750 (ritual)', ACKS.researchRateForLevel(12, 'ritual-cast').rate === 2750);
 ok('L14 high-tier 14500 / throw 3+', ACKS.researchRateForLevel(14, 'crossbreed').rate === 14500 && ACKS.researchRateForLevel(14, 'crossbreed').throwTarget === 3);
 ok('level clamps above 14', ACKS.researchRateForLevel(20, 'ritual-cast').rate === 14500);
-ok('AD-M2 — 7 of 9 kinds available (staples + the 4 high-tier; rituals still gated)', JSON.stringify(ACKS.availableResearchKinds().sort()) === JSON.stringify(['construct-design','construct-manufacture','crossbreed','identify','item-creation','necromancy','spell-research']));
-ok('ritual kinds present but gated (ritual-learn unavailable → AD-M3)', ACKS.magicResearchKind('ritual-learn') && ACKS.magicResearchKind('ritual-learn').available === false);
+ok('AD-M3 — all 9 kinds available (staples + 4 high-tier + 2 rituals)', JSON.stringify(ACKS.availableResearchKinds().sort()) === JSON.stringify(['construct-design','construct-manufacture','crossbreed','identify','item-creation','necromancy','ritual-cast','ritual-learn','spell-research']));
+ok('ritual kinds now available (AD-M3)', ACKS.magicResearchKind('ritual-learn').available === true && ACKS.magicResearchKind('ritual-cast').available === true);
 ok('item-creation one-use min L5', ACKS.researchEffectiveMinLevel('item-creation', { effectType:'one-use' }) === 5);
 ok('item-creation non-one-use min L9', ACKS.researchEffectiveMinLevel('item-creation', { effectType:'permanent' }) === 9);
 ok('spell-research min L5', ACKS.researchEffectiveMinLevel('spell-research', {}) === 5);
@@ -91,7 +91,7 @@ section('Eligibility (RR p.386/p.391 — arcane caster ≥ the kind min level)')
   ok('arcane L5 → NOT eligible for a permanent item (needs L9)', ACKS.isEligibleResearcher(c5, m5, 'item-creation', { effectType:'permanent' }).ok === false);
   const { c: cf, m: mf } = mage({ level: 9, cls: 'Fighter' });
   ok('a Fighter (non-arcane) → not eligible', ACKS.isEligibleResearcher(cf, mf, 'spell-research', {}).reason === 'not-an-arcane-caster');
-  ok('a gated kind (ritual-learn) → not yet available', ACKS.isEligibleResearcher(c, m, 'ritual-learn', {}).reason === 'kind-not-yet-available');
+  ok('arcane L9 → too low to learn a ritual (needs L11)', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 7 }).reason === 'level-too-low');
 }
 
 // =============================================================================
@@ -260,7 +260,7 @@ section('AD-M2 — the high-tier kinds (RR pp.394–398): cost formula + throw b
 // =============================================================================
 {
   ok('4 high-tier kinds available', ['construct-design','construct-manufacture','crossbreed','necromancy'].every(k => ACKS.magicResearchKind(k).available === true));
-  ok('rituals still gated (AD-M3)', !ACKS.magicResearchKind('ritual-learn').available && !ACKS.magicResearchKind('ritual-cast').available);
+  ok('rituals now available + high-tier (AD-M3)', ACKS.magicResearchKind('ritual-learn').available === true && ACKS.magicResearchKind('ritual-cast').available === true && ACKS.HIGH_TIER_RESEARCH_KINDS.has('ritual-cast'));
   // cost = 2,000/HD + 625/minor + 5,000/major (RR pp.394–398)
   const cc = ACKS.researchProjectCosts('construct-manufacture', { hd: 6, minorAbilities: 2, majorAbilities: 1 });
   ok('construct 6×2000 + 2×625 + 1×5000 = 18250 (material+research; component 0)', cc.materialCostGp === 18250 && cc.researchCostGp === 18250 && cc.componentCostGp === 0 && cc.baseCost === 18250);
@@ -388,6 +388,89 @@ section('AD-M2 — construct DESIGN produces a formula (no creature); crossbreed
 }
 
 // =============================================================================
+section('AD-M3 — ritual catalog, cost, repertoire cap, throw bump, eligibility (RR p.398)');
+// =============================================================================
+{
+  ok('RITUAL_CATALOG seeds 15 sample rituals', Array.isArray(ACKS.RITUAL_CATALOG) && ACKS.RITUAL_CATALOG.length === 15);
+  ok('Apotheosis = arcane 9 / divine 9, power-only', (() => { const e = ACKS.ritualCatalogEntry('apotheosis'); return e && e.arcane === 9 && e.divine === 9 && e.powerOnly === true; })());
+  ok('Cataclysm = divine-only 9, divine-power-only', (() => { const e = ACKS.ritualCatalogEntry('cataclysm'); return e && e.arcane === null && e.divine === 9 && e.divinePowerOnly === true; })());
+  ok('RITUAL_COST_BY_LEVEL = 50k/100k/200k', ACKS.RITUAL_COST_BY_LEVEL[7] === 50000 && ACKS.RITUAL_COST_BY_LEVEL[8] === 100000 && ACKS.RITUAL_COST_BY_LEVEL[9] === 200000);
+
+  // Cost (RR p.398): learn has no component; cast pays the cost again as the component.
+  const cl = ACKS.researchProjectCosts('ritual-learn', { ritualLevel: 7 });
+  ok('ritual-learn L7: material+research 50000 each, component 0', cl.materialCostGp === 50000 && cl.researchCostGp === 50000 && cl.componentCostGp === 0);
+  const cc = ACKS.researchProjectCosts('ritual-cast', { ritualLevel: 9 });
+  ok('ritual-cast L9: material+research+component 200000 each', cc.materialCostGp === 200000 && cc.researchCostGp === 200000 && cc.componentCostGp === 200000);
+
+  // Repertoire cap (RR p.398 worked examples — Quintus + Balbus).
+  const { c, m } = mage({ level: 11, int: 16 });
+  ok('Quintus L11 INT16 → 3 rituals per level (the RAW example)', ACKS.ritualRepertoireCap(c, m) === 3);
+  ok('ritual key attribute = INT for an arcane caster', ACKS.ritualKeyAttributeFor(c, m) === 'INT');
+  const { c: c10, m: m10 } = mage({ level: 10 });
+  ok('L10 → no ritual repertoire (min L11)', ACKS.ritualRepertoireCap(c10, m10) === 0);
+  const { c: cd, m: md } = mage({ level: 14, name: 'Balbus', cls: 'Crusader' });
+  md.isArcaneCaster = false; md.isDivineCaster = true; md.abilities.WIL = 14;
+  ok('a divine caster keys ritual repertoire off WIL', ACKS.ritualKeyAttributeFor(cd, md) === 'WIL');
+  ok('Balbus L14 WIL14 → 5 rituals per level (the RAW example)', ACKS.ritualRepertoireCap(cd, md) === 5);
+  ok('a divine caster is eligible to learn a ritual', ACKS.isEligibleResearcher(cd, md, 'ritual-learn', { ritualLevel: 7 }).ok === true);
+
+  // Throw bump (+ ritual level).
+  const p = ACKS.blankResearchProject({ kind: 'ritual-learn', researcherCharacterId: m.id, config: { ritualLevel: 7 } });
+  ok('ritual-learn throw target = L11 throw (6) + ritual level 7 = 13', ACKS.researchThrowInfo(c, p).target === 13);
+
+  // Eligibility.
+  ok('arcane L11 → eligible to learn a ritual', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 7 }).ok === true);
+  const { c: c9, m: m9 } = mage({ level: 9 });
+  ok('arcane L9 → not eligible (level-too-low)', ACKS.isEligibleResearcher(c9, m9, 'ritual-learn', { ritualLevel: 7 }).ok === false);
+  ok('cast a ritual NOT in repertoire → ineligible', ACKS.isEligibleResearcher(c, m, 'ritual-cast', { ritualKey: 'permanency', ritualLevel: 8 }).reason === 'ritual-not-in-repertoire');
+}
+
+// =============================================================================
+section('AD-M3 — learn a ritual → repertoire (the cap gates a 4th); then cast it (RR p.398)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, int: 16, gp: 1000000 });   // repertoire cap 3 per level
+  const r = ACKS.startResearchProject(c, { kind: 'ritual-learn', researcherCharacterId: m.id, config: { ritualKey: 'ranine-rain', ritualLevel: 7, targetName: 'Ranine Rain' } });
+  ok('ritual-learn starts (material 50000 debited)', r.ok && m.coins.gp === 950000);
+  ACKS.processResearchForTurn(c, {});   // L11 1750×30 = 52500 ≥ 50000
+  ok('awaiting-throw after a month', r.project.status === 'awaiting-throw');
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { rng: () => 0.999 });   // no component; nat 20
+  ok('learn succeeds → the ritual is in repertoire', res.succeeded === true && ACKS.ritualInRepertoire(c, m, 'ranine-rain'));
+  ok('ritualsKnown at L7 = 1', ACKS.ritualsKnown(c, m, 7).length === 1);
+  ok('the formula is a kind:ritual magicFormula (L7)', (m.magicFormulas || []).some(f => f.kind === 'ritual' && f.ritualLevel === 7));
+  ok('a ritual-learned event landed', c.eventLog.some(e => e.event.kind === 'ritual-learned'));
+
+  // fill the L7 repertoire to the cap (3) → a 4th is gated; a different level stays open.
+  m.magicFormulas.push({ kind: 'ritual', name: 'A', ritualLevel: 7 }, { kind: 'ritual', name: 'B', ritualLevel: 7 });
+  ok('L7 full (3 known) → learning a 4th is gated', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 7 }).reason === 'ritual-repertoire-full');
+  ok('a different level (L8) is still open', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 8 }).ok === true);
+
+  // cast the learned ritual (immediate) — pays the component with special components.
+  const rc = ACKS.startResearchProject(c, { kind: 'ritual-cast', researcherCharacterId: m.id, config: { ritualKey: 'ranine-rain', ritualLevel: 7, targetName: 'Ranine Rain', mode: 'immediate' } });
+  ok('ritual-cast starts (in repertoire)', rc.ok);
+  ACKS.processResearchForTurn(c, {});
+  const resc = ACKS.payAndRollResearchThrow(c, rc.project.id, { componentPlan: { specialItemValueGp: 50000 }, rng: () => 0.999 });
+  ok('cast (immediate) succeeds; kindResult.mode immediate', resc.succeeded === true && rc.project.kindResult.mode === 'immediate');
+  ok('a ritual-cast event landed', c.eventLog.some(e => e.event.kind === 'ritual-cast'));
+}
+
+// =============================================================================
+section('AD-M3 — cast stored → a Notable Item; miscellaneous components disallowed (RR p.398)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 12, int: 16, gp: 2000000 });
+  m.magicFormulas = [{ kind: 'ritual', name: 'Permanency', ritualKey: 'permanency', ritualLevel: 8 }];   // already known
+  const rc = ACKS.startResearchProject(c, { kind: 'ritual-cast', researcherCharacterId: m.id, config: { ritualKey: 'permanency', ritualLevel: 8, targetName: 'Permanency', mode: 'stored', storedForm: 'ring' } });
+  ok('ritual-cast (stored) starts; component cost 100000', rc.ok && rc.project.componentCostGp === 100000);
+  while(rc.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }   // L8 = 100000; L12 invests 82500/mo
+  // pass miscGp — the engine ZEROS it for rituals (never miscellaneous); the special components cover the cost.
+  const resc = ACKS.payAndRollResearchThrow(c, rc.project.id, { componentPlan: { specialItemValueGp: 100000, miscGp: 99999 }, rng: () => 0.999 });
+  ok('stored cast succeeds; no substitution penalty (misc disallowed → 0)', resc.succeeded === true && (resc.penalty || 0) === 0);
+  ok('a Notable Item (the stored ring) is minted', (c.notableItems || []).some(it => /Ring of Permanency/.test(it.name)));
+  ok('kindResult: stored + notableItemId + storedForm ring', rc.project.kindResult.mode === 'stored' && !!rc.project.kindResult.notableItemId && rc.project.kindResult.storedForm === 'ring');
+}
+
+// =============================================================================
 section('commitTurn hook (the demo — a real month accrues research)');
 // =============================================================================
 {
@@ -418,7 +501,7 @@ section('Registration — prefix / entity-registry / field-schema / events / imp
     const keys = new Set(Object.keys(ACKS.blankResearchProject({})));
     return sc.fields.filter(f => f.type !== 'computed').every(f => keys.has(f.name));
   })());
-  const evKinds = ['magic-research-started','magic-research-progress','magic-research-completed','magic-research-failed','magic-item-created','construct-manufactured','crossbreed-created','necromancy-performed'];
+  const evKinds = ['magic-research-started','magic-research-progress','magic-research-completed','magic-research-failed','magic-item-created','construct-manufactured','crossbreed-created','necromancy-performed','ritual-learned','ritual-cast'];
   evKinds.forEach(k => {
     ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
     ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);

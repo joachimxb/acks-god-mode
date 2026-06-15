@@ -5481,7 +5481,9 @@
                 "magic-item-created",
                 "construct-manufactured",
                 "crossbreed-created",
-                "necromancy-performed"
+                "necromancy-performed",
+                "ritual-learned",
+                "ritual-cast"
               ]
             },
             "id": {
@@ -5575,7 +5577,7 @@
     "schemaVersion": 2,
     "entityKinds": 50,
     "typedKinds": 33,
-    "eventKinds": 95,
+    "eventKinds": 97,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
