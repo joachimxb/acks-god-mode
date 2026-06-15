@@ -1,7 +1,7 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces.
-// Regenerated 2026-06-14 — Phase 3.6 Proficiency Throws PT-0: character.proficiencies[]
-// materialized to the canonical { key, ranks (, spec) } shape. Content unchanged otherwise.
+// Regenerated 2026-06-15 — Phase 4 Magic Research AD-M1: campaign.researchProjects[]
+// materialized (empty) so the demo stays a migrate-no-op. Content unchanged otherwise.
 // migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
 global.ACKS_DEMO_TEMPLATE = {
@@ -5377,6 +5377,7 @@ global.ACKS_DEMO_TEMPLATE = {
     }
   ],
   "armies": [],
-  "battles": []
+  "battles": [],
+  "researchProjects": []
 };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

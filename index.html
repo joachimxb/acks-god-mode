@@ -79,6 +79,7 @@
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-15-arcane"></script>
+<script src="acks-engine-magic-research.js?v=2026-06-15-adm1"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
@@ -1934,6 +1935,115 @@ document.addEventListener('alpine:init', () => {
         </template>
       </div>
     </template>
+  </div>
+</div>
+
+<!-- New-research modal (Phase 4 Magic Research, AD-M1) — the in-fiction Action verb launched from a
+     character sheet's ⚗ Research panel. Pick a kind → configure → cost preview → assign assistants →
+     commit (ACKS.startResearchProject). z-77 (above the character editor at z-50). The component
+     payment + the throw happen later on the awaiting-throw project card (after the research accrues). -->
+<div x-show="researchModalOpen" @keydown.escape.window="if(researchModalOpen){ closeResearchModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeResearchModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-6">
+    <div class="flex items-center justify-between border-b border-ink/40 px-4 py-2">
+      <h3 class="font-semibold">⚗ New research project</h3>
+      <button @click="closeResearchModal()" class="text-2xl leading-none px-2 hover:opacity-60" title="Close">×</button>
+    </div>
+    <div class="p-4 space-y-3 text-sm" x-show="characterEditing">
+      <p class="text-xs opacity-70" x-text="'Researcher: ' + ((characterEditing && characterEditing.name) || '') + ' · L' + ((characterEditing && characterEditing.level) || 1)"></p>
+
+      <!-- kind -->
+      <label class="block">Project kind
+        <select class="ed-input w-full mt-0.5" x-model="researchNew.kind">
+          <template x-for="k in researchNewKinds()" :key="k.id"><option :value="k.id" x-text="k.label"></option></template>
+        </select>
+      </label>
+
+      <!-- spell-research config -->
+      <template x-if="researchNew.kind==='spell-research'">
+        <div class="space-y-1.5 border border-ink/20 rounded p-2">
+          <label class="flex items-center justify-between">Spell name <input type="text" class="ed-input w-44" x-model="researchNew.targetName" placeholder="e.g. Wall of Fire"></label>
+          <label class="flex items-center justify-between">Spell level <input type="number" min="1" max="9" class="ed-input w-16" x-model.number="researchNew.spellLevel"></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.commonSpell"> Common spell (gain the formula, no throw)</label>
+        </div>
+      </template>
+
+      <!-- identify config -->
+      <template x-if="researchNew.kind==='identify'">
+        <div class="space-y-1.5 border border-ink/20 rounded p-2">
+          <label class="block">Item to identify
+            <select class="ed-input w-full mt-0.5" x-model="researchNew.targetName">
+              <option value="">(name it — pick the item via the Inspector for a real link)</option>
+            </select>
+          </label>
+          <label class="flex items-center justify-between">Spell levels imbued (raises the target) <input type="number" min="0" class="ed-input w-16" x-model.number="researchNew.spellLevelsImbued"></label>
+          <p class="text-xs opacity-60">Requires the item in hand (a sample); always a throw (RR p.393). v1: link the specific item from the Inspector's project edit.</p>
+        </div>
+      </template>
+
+      <!-- item-creation config -->
+      <template x-if="researchNew.kind==='item-creation'">
+        <div class="space-y-1.5 border border-ink/20 rounded p-2">
+          <label class="flex items-center justify-between">Item name <input type="text" class="ed-input w-44" x-model="researchNew.targetName" placeholder="e.g. +1 Sword"></label>
+          <label class="block">Item kind
+            <select class="ed-input w-full mt-0.5" x-model="researchNew.itemKind">
+              <option value="potion">potion</option><option value="scroll">scroll</option><option value="wand">wand</option>
+              <option value="rod">rod</option><option value="staff">staff</option><option value="magic-weapon">magic weapon</option>
+              <option value="magic-armor">magic armor</option><option value="misc-magic">misc magic</option>
+            </select>
+          </label>
+          <label class="block">Effect type
+            <select class="ed-input w-full mt-0.5" x-model="researchNew.effectType">
+              <option value="one-use">one-use (potion/scroll · L5+)</option>
+              <option value="charged">charged (L9+)</option>
+              <option value="activated">activated (L9+)</option>
+              <option value="at-will">at-will (L9+)</option>
+              <option value="permanent">permanent (L9+)</option>
+              <option value="permanent-bonus">permanent bonus +N (weapon/armor · L9+)</option>
+            </select>
+          </label>
+          <label class="flex items-center justify-between" x-show="researchNew.effectType!=='permanent-bonus'">Spell level <input type="number" min="1" max="9" class="ed-input w-16" x-model.number="researchNew.spellLevel"></label>
+          <label class="flex items-center justify-between" x-show="researchNew.effectType==='charged'">Charges <input type="number" min="1" class="ed-input w-16" x-model.number="researchNew.charges"></label>
+          <label class="block" x-show="researchNew.effectType==='activated'">Activation rate
+            <select class="ed-input w-full mt-0.5" x-model="researchNew.activationRate"><option>1/week</option><option>1/day</option><option>2/day</option><option>3/day</option><option>1/hour</option><option>1/3-turns</option><option>1/turn</option></select>
+          </label>
+          <label class="block" x-show="researchNew.effectType==='permanent'">Permanent duration
+            <select class="ed-input w-full mt-0.5" x-model="researchNew.permanentDuration"><option>1-day</option><option>1-hour</option><option>3-turns</option><option>1-turn</option><option>by-caster-level</option></select>
+          </label>
+          <label class="flex items-center justify-between" x-show="researchNew.effectType==='permanent-bonus'">Bonus +N <input type="number" min="1" max="3" class="ed-input w-16" x-model.number="researchNew.enchantBonus"></label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.fromFormula"> Working from a formula (no throw)</label>
+          <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.fromSample"> Have a sample (+4 to the throw)</label>
+        </div>
+      </template>
+
+      <!-- cost preview -->
+      <div class="border border-amber-800/40 rounded p-2 text-xs" style="background:#efe6cf">
+        <div class="font-semibold mb-0.5">Cost preview (RR p.388):</div>
+        <div>Material (paid now): <span class="font-mono" x-text="researchNewCosts().materialCostGp.toLocaleString() + 'gp'"></span></div>
+        <div>Research (labor over time): <span class="font-mono" x-text="researchNewCosts().researchCostGp.toLocaleString() + 'gp'"></span></div>
+        <div>Components (paid at the throw): <span class="font-mono" x-text="researchNewCosts().componentCostGp > 0 ? (researchNewCosts().componentCostGp.toLocaleString() + 'gp') : '—'"></span></div>
+        <div class="opacity-60 mt-0.5" x-text="'Minimum caster level: ' + researchNewMinLevel()"></div>
+      </div>
+
+      <!-- assistants -->
+      <template x-if="researchNewAssistants().length">
+        <div class="border border-ink/20 rounded p-2 text-xs space-y-1">
+          <div class="font-semibold">Assign aiding assistants (add their research rate — RR p.390):</div>
+          <template x-for="a in researchNewAssistants()" :key="a.id">
+            <label class="flex items-center gap-2" :class="!a.eligible ? 'opacity-40' : ''"><input type="checkbox" :disabled="!a.eligible" :checked="researchNew.assistantIds.includes(a.id)" @change="researchToggleAssistant(a.id)"> <span x-text="a.label"></span></label>
+          </template>
+        </div>
+      </template>
+
+      <!-- eligibility + commit (guard characterEditing — x-if evaluates even while the modal is x-show-hidden) -->
+      <template x-if="characterEditing && !researchNewEligible().ok">
+        <p class="text-xs accent-red" x-text="'⚠ ' + characterEditing.name + ' cannot lead this: ' + researchNewEligible().reason + (researchNewEligible().minLevel ? (' (needs L' + researchNewEligible().minLevel + ')') : '')"></p>
+      </template>
+      <p class="text-xs accent-red" x-show="researchNewMsg" x-text="researchNewMsg"></p>
+      <div class="flex items-center justify-end gap-2 pt-1">
+        <button @click="closeResearchModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Cancel</button>
+        <button @click="researchNewCommit()" :disabled="!researchNewEligible().ok" class="px-3 py-1 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm" :class="!researchNewEligible().ok ? 'opacity-40 cursor-not-allowed' : ''">Begin research (pay material now)</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -9358,7 +9468,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <!-- Sub-tab bar inside the modal -->
     <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
-      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
+      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
         <button @click="characterEditorTab=tab.id" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
@@ -10429,6 +10539,110 @@ document.addEventListener('alpine:init', () => {
           <span class="font-mono font-bold text-base" x-text="ex.total.toLocaleString() + ' gp'"></span>
         </div>
         <p class="text-xs opacity-60" x-show="!ex.ruleOn">The <span class="font-semibold">Living Expenses</span> house rule is off, so lifestyle keep and wages aren't debited automatically at month end. Turn it on in ⚙ House Rules (RR p.173).</p>
+      </div>
+
+      <!-- ⚗ RESEARCH tab (Phase 4 Magic Research, AD-M1) — the arcane-caster's research projects.
+           Eligible: an arcane caster (the panel); per-kind level gate (5/9) is checked in the modal. -->
+      <div x-show="characterEditorTab==='research'" class="space-y-3">
+        <template x-if="!characterIsArcaneCaster(characterEditing)">
+          <p class="text-sm italic opacity-70 py-4">Only an arcane caster can perform magic research (RR p.386). Set this character's class to an arcane class (mage, warlock, …) or tick <code>isArcaneCaster</code> in the Inspector.</p>
+        </template>
+        <template x-if="characterIsArcaneCaster(characterEditing)">
+          <div class="space-y-3">
+            <!-- the Sanctums seam readout + the New-research launcher -->
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="text-xs opacity-80">
+                🔮 Arcane power available: <span class="font-mono font-semibold" x-text="researchArcaneAvailable(characterEditing).toLocaleString() + ' gp'"></span>
+                · 🦴 Special components held: <span class="font-mono font-semibold" x-text="researchComponentsHeld(characterEditing).length"></span>
+                <span class="opacity-50" x-text="researchComponentsHeld(characterEditing).length ? ('(' + researchComponentsHeld(characterEditing).reduce((s,c)=>s+(c.valueGp||0),0).toLocaleString() + 'gp)') : ''"></span>
+              </div>
+              <button @click="openResearchModal(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm" title="Start a new magic research project (RR pp.388–393)">＋ New research</button>
+            </div>
+
+            <template x-if="characterResearchProjects(characterEditing).length === 0">
+              <p class="text-sm italic opacity-60 py-4 text-center">No research projects yet. Spell research, identifying a magic item, and crafting one (potions/scrolls at L5, other items at L9) are available — click <strong>＋ New research</strong>.</p>
+            </template>
+
+            <!-- project cards -->
+            <template x-for="p in characterResearchProjects(characterEditing)" :key="p.id">
+              <div class="border border-ink/50 rounded p-3 space-y-2" style="background:#f7f1e1">
+                <div class="flex items-center justify-between flex-wrap gap-1">
+                  <div class="font-semibold text-sm"><span x-text="researchKindLabel(p.kind)"></span><span class="opacity-70 font-normal" x-text="p.name ? (' — ' + p.name) : ''"></span></div>
+                  <span class="text-xs px-2 py-0.5 rounded border border-ink/40"
+                        :class="{'bg-green-100':p.status==='completed','bg-red-100':p.status==='failed','bg-amber-100':p.status==='awaiting-throw','bg-sky-100':p.status==='in-progress','bg-gray-200':(p.status==='abandoned'||p.status==='planning')}"
+                        x-text="p.status"></span>
+                </div>
+
+                <!-- cost pools -->
+                <div class="grid grid-cols-3 gap-2 text-xs">
+                  <div class="border border-ink/20 rounded p-1.5">
+                    <div class="opacity-60">Material</div>
+                    <div class="font-mono" x-text="(p.materialCostGp||0).toLocaleString() + 'gp' + (p.materialPaid ? ' ✓' : '')"></div>
+                  </div>
+                  <div class="border border-ink/20 rounded p-1.5">
+                    <div class="opacity-60">Research (labor)</div>
+                    <div class="font-mono" x-text="Math.round(p.researchInvestedGp||0).toLocaleString() + '/' + (p.researchCostGp||0).toLocaleString() + 'gp'"></div>
+                  </div>
+                  <div class="border border-ink/20 rounded p-1.5">
+                    <div class="opacity-60">Components</div>
+                    <div class="font-mono" x-text="(p.componentCostGp||0) > 0 ? ((p.componentCostGp).toLocaleString() + 'gp' + (p.componentPaid?' ✓':'')) : '—'"></div>
+                  </div>
+                </div>
+
+                <!-- in-progress: rate + days -->
+                <template x-if="p.status==='in-progress'">
+                  <div class="text-xs opacity-80">Investing <span class="font-mono" x-text="researchProjectRate(p).toLocaleString()"></span> gp/day (the researcher + assistants) · <span class="font-mono" x-text="researchProjectDays(p)"></span> day(s) of research remaining. Advances each monthly turn.</div>
+                </template>
+
+                <!-- awaiting-throw: the component plan + the throw + the stakes -->
+                <template x-if="p.status==='awaiting-throw'">
+                  <div class="space-y-2 border-t border-ink/20 pt-2">
+                    <!-- component payment (only when there's a component cost) -->
+                    <template x-if="(p.componentCostGp||0) > 0">
+                      <div class="space-y-1 text-xs">
+                        <div class="font-semibold">Pay the component cost (<span x-text="(p.componentCostGp).toLocaleString()"></span> gp) — RR p.388:</div>
+                        <label class="flex items-center gap-1">🔮 Arcane power <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).arcanePowerGp"> <span class="opacity-50">(no penalty; vicinity-gated)</span></label>
+                        <label class="flex items-center gap-1">🦴 Special components (gp value) <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).specialItemValueGp"> <span class="opacity-50">(appropriate parts; no penalty)</span></label>
+                        <label class="flex items-center gap-1">🏪 Market / inappropriate <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).inappropriateGp"> <span class="opacity-50">(penalty applies)</span></label>
+                      </div>
+                    </template>
+                    <!-- the throw preview -->
+                    <template x-if="p.needsThrow">
+                      <div class="text-xs">
+                        <span class="font-semibold">Magic research throw:</span>
+                        1d20 <template x-for="m in researchProjectThrow(p).modifiers" :key="m.label"><span x-text="(m.value>=0?'+':'') + m.value + ' (' + m.label + ') '"></span></template>
+                        vs <span class="font-mono" x-text="researchProjectThrow(p).target + '+'"></span>
+                        <span class="opacity-60" x-text="researchProjectThrow(p).chance != null ? (' · ~' + Math.round(researchProjectThrow(p).chance*100) + '% before components') : ''"></span>
+                        <span class="opacity-60">(unmodified 1–3 always fail)</span>
+                      </div>
+                    </template>
+                    <template x-if="!p.needsThrow">
+                      <div class="text-xs opacity-70">No throw required (a common spell / working from a formula) — paying the components completes it.</div>
+                    </template>
+                    <div class="text-xs accent-red font-semibold">⚠ On failure, all time, money, materials, and components are lost (RR p.388).</div>
+                    <div class="flex items-center gap-2">
+                      <button @click="researchRoll(p)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200 text-sm" x-text="p.needsThrow ? '⚒ Pay components &amp; roll the research throw' : '⚒ Pay components &amp; complete'"></button>
+                      <button @click="researchAbandon(p)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-xs">Abandon</button>
+                    </div>
+                    <p class="text-xs" :class="(researchThrowMsg[p.id]||'').startsWith('✓')?'accent-green':((researchThrowMsg[p.id]||'').startsWith('✗')?'accent-red':'opacity-70')" x-text="researchThrowMsg[p.id]"></p>
+                  </div>
+                </template>
+
+                <!-- terminal states -->
+                <template x-if="p.status==='completed'">
+                  <div class="text-xs accent-green" x-text="'✓ Completed. ' + _researchResultText(p)"></div>
+                </template>
+                <template x-if="p.status==='failed'">
+                  <div class="text-xs accent-red">✗ Failed — the investment was lost (RR p.388).</div>
+                </template>
+                <template x-if="p.status==='in-progress'">
+                  <button @click="researchAbandon(p)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-xs">Abandon</button>
+                </template>
+              </div>
+            </template>
+            <p class="text-[11px] opacity-50 italic">Research advances each monthly turn (Advance Month). A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
+          </div>
+        </template>
       </div>
 
       <!-- LOCATION tab — pick hex only; domain is auto-derived from the hex's owning domain.
@@ -13939,6 +14153,9 @@ return {
       case 'bout':             return () => this.inspectorCreateBlankBout();
       case 'gladiator-school': return () => this.inspectorCreateBlankGladiatorSchool();
       case 'game':             return () => this.inspectorCreateBlankGame();
+      // === Magic Research (AD-M1) — Admin verb (blank planning project → schemaForm edit). The guided
+      // in-fiction Action verb is the character-sheet ⚗ Research panel (＋ New research). ===
+      case 'research-project': return () => this.inspectorCreateBlankResearchProject();
       // Future entries land here as wizards ship:
       //   case 'project':   return () => this.openConstructionWizard();  // Wave A.7 (#535) — launcher pending
       //   case 'venture':   return () => this.openLaunchVentureModal();
@@ -13962,6 +14179,20 @@ return {
     this.inspectorOpenInspect('journey', j.id);
     this.inspectorEditMode = true;
     if(this.showToast) this.showToast('New Journey created — set participants, start + destination hexes, then status = in-transit.');
+  },
+
+  // Magic Research (AD-M1) — Admin-verb create: spawn a blank planning project + open the schemaForm
+  // edit. The guided Action verb (the character-sheet ⚗ Research panel) is the in-fiction path; this
+  // is the free-form Admin path (the journey/dungeon precedent). No cost — the GM fills it in.
+  inspectorCreateBlankResearchProject(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    if(!Array.isArray(this.currentCampaign.researchProjects)) this.currentCampaign.researchProjects = [];
+    const p = window.ACKS.blankResearchProject({ name: 'New Research Project' });
+    this.currentCampaign.researchProjects.push(p);
+    this.markDirty(); this.schedulePersist();
+    this.inspectorOpenInspect('research-project', p.id);
+    this.inspectorEditMode = true;
+    if(this.showToast) this.showToast('New Research Project created — set the researcher, kind + costs, then status = in-progress (or use a character sheet’s ⚗ Research panel).');
   },
 
   // Phase 3 Military — Admin-verb create for an Army: spawn a blank army (via the canonical
@@ -14370,6 +14601,99 @@ return {
   arcaneDomainPaidGpf(){ const d = this.arcaneDungeon(); if(!d || !d.domainId) return 0; const dom = (this.domains || []).find(x => x && x.id === d.domainId); return dom ? (Number(dom.dungeonGarrisonPaidGpf) || 0) : 0; },
   arcaneSetGarrisonPaid(val){ const d = this.arcaneDungeon(); if(!d || !d.domainId) return; const dom = (this.domains || []).find(x => x && x.id === d.domainId); if(!dom) return; dom.dungeonGarrisonPaidGpf = Math.max(0, Number(val) || 0); this.markDirty(); this.schedulePersist(); },
   arcaneToggleMonsterGarrison(){ const d = this.arcaneDungeon(); if(!d) return; d.monsterGarrisonHired = !d.monsterGarrisonHired; this.markDirty(); this.schedulePersist(); },
+
+  // ── Phase 4 — Magic Research (AD-M1) · the character-sheet ⚗ Research panel ──
+  // Is this character an arcane caster (the Research tab shows for them)? Per-kind level eligibility is
+  // checked in the New-research modal (isEligibleResearcher).
+  characterIsArcaneCaster(ch){ return !!(ch && window.ACKS.isArcaneCaster && window.ACKS.isArcaneCaster(ch)); },
+  characterResearchProjects(ch){ return ch ? (window.ACKS.researchProjectsFor(this.currentCampaign, ch.id) || []) : []; },
+  researchKindLabel(kind){ const m = window.ACKS.magicResearchKind(kind); return m ? (m.icon + ' ' + m.label) : kind; },
+  // The New-research modal
+  openResearchModal(ch){
+    if(!ch) return;
+    this.researchNew = { kind: 'spell-research', spellLevel: 1, effectType: 'one-use', itemKind: 'potion',
+      charges: 10, activationRate: '1/day', permanentDuration: '1-day', enchantBonus: 1, spellLevelsImbued: 1,
+      targetName: '', commonSpell: false, fromFormula: false, fromSample: false, assistantIds: [], magicDomain: '' };
+    this.researchNewMsg = '';
+    this.researchModalOpen = true;
+  },
+  closeResearchModal(){ this.researchModalOpen = false; },
+  researchNewKinds(){ return (window.ACKS.availableResearchKinds() || []).map(k => ({ id: k, label: this.researchKindLabel(k) })); },
+  _researchNewConfig(){
+    const n = this.researchNew;
+    const cfg = { targetName: (n.targetName || '').trim() };
+    if(n.kind === 'spell-research'){ cfg.spellLevel = Number(n.spellLevel) || 1; }
+    else if(n.kind === 'identify'){ cfg.spellLevelsImbued = Number(n.spellLevelsImbued) || 0; }
+    else if(n.kind === 'item-creation'){
+      cfg.itemKind = n.itemKind; cfg.effectType = n.effectType; cfg.spellLevel = Number(n.spellLevel) || 1;
+      if(n.effectType === 'charged') cfg.charges = Number(n.charges) || 1;
+      if(n.effectType === 'activated') cfg.activationRate = n.activationRate;
+      if(n.effectType === 'permanent') cfg.permanentDuration = n.permanentDuration;
+      if(n.effectType === 'permanent-bonus') cfg.enchantBonus = Number(n.enchantBonus) || 1;
+    }
+    return cfg;
+  },
+  researchNewCosts(){ return window.ACKS.researchProjectCosts(this.researchNew.kind, this._researchNewConfig()); },
+  researchNewMinLevel(){ return window.ACKS.researchEffectiveMinLevel(this.researchNew.kind, this._researchNewConfig()); },
+  researchNewEligible(){
+    const ch = this.characterEditing; if(!ch) return { ok: false, reason: 'no-character' };
+    return window.ACKS.isEligibleResearcher(this.currentCampaign, ch, this.researchNew.kind, this._researchNewConfig());
+  },
+  researchNewAssistants(){
+    const ch = this.characterEditing; if(!ch) return [];
+    return (window.ACKS.researchAssistantsFor(this.currentCampaign, ch.id) || []).map(a => {
+      const c = (this.currentCampaign.characters || []).find(x => x && x.id === a.characterId);
+      return { id: a.characterId, label: ((c && c.name) || a.characterId) + ' · L' + a.level + ' ' + a.role, eligible: a.level >= 1 };
+    });
+  },
+  researchToggleAssistant(id){ const arr = this.researchNew.assistantIds; const i = arr.indexOf(id); if(i >= 0) arr.splice(i, 1); else arr.push(id); },
+  researchNewCommit(){
+    const ch = this.characterEditing; if(!ch) return;
+    const n = this.researchNew;
+    const r = window.ACKS.startResearchProject(this.currentCampaign, {
+      kind: n.kind, researcherCharacterId: ch.id, config: this._researchNewConfig(),
+      assistantCharacterIds: n.assistantIds.slice(), magicDomain: n.magicDomain || null,
+      commonSpell: !!n.commonSpell, fromFormula: !!n.fromFormula, fromSample: !!n.fromSample
+    });
+    if(r && r.ok){
+      this.markDirty(); this.schedulePersist();
+      this.researchModalOpen = false;
+      this.showToast('⚗ ' + this.researchKindLabel(n.kind) + ' begun' + (r.materialShort ? ' (⚠ material cost exceeds funds — purse is negative)' : '') + '.');
+    } else {
+      this.researchNewMsg = 'Cannot start: ' + ((r && r.reason) || 'unknown') + (r && r.minLevel ? (' (needs L' + r.minLevel + ')') : '');
+    }
+  },
+  // Per-project reads + the throw flow
+  researchProjectRate(p){ return p ? Math.round(window.ACKS.totalResearchRate(this.currentCampaign, p)) : 0; },
+  researchProjectDays(p){ const d = p ? window.ACKS.researchDaysRemaining(this.currentCampaign, p) : 0; return (d === Infinity) ? '∞' : d; },
+  researchProjectThrow(p){ return p ? window.ACKS.researchThrowInfo(this.currentCampaign, p) : null; },
+  researchArcaneAvailable(ch){ return (ch && window.ACKS.arcanePowerAvailable) ? window.ACKS.arcanePowerAvailable(this.currentCampaign, ch.id) : 0; },
+  researchComponentsHeld(ch){ return (ch && window.ACKS.specialComponentsHeldBy) ? (window.ACKS.specialComponentsHeldBy(this.currentCampaign, ch.id) || []) : []; },
+  researchPlanFor(p){ if(!this.researchThrowPlan[p.id]) this.researchThrowPlan[p.id] = { arcanePowerGp: 0, specialItemValueGp: 0, miscGp: 0, inappropriateGp: 0 }; return this.researchThrowPlan[p.id]; },
+  researchRoll(p){
+    if(!p) return;
+    const plan = this.researchPlanFor(p);
+    const r = window.ACKS.payAndRollResearchThrow(this.currentCampaign, p.id, { componentPlan: Object.assign({}, plan) });
+    if(r && r.ok){
+      this.markDirty(); this.schedulePersist();
+      const rolled = r.throwResult ? (r.throwResult.total + ' vs ' + r.throwResult.target) : 'no throw';
+      this.researchThrowMsg[p.id] = r.succeeded
+        ? ('✓ Success — ' + rolled + '. ' + this._researchResultText(p))
+        : ('✗ Failed — ' + rolled + '. All ' + (r.lostGp||0).toLocaleString() + 'gp lost.');
+      this.showToast(r.succeeded ? ('⚗ ' + (p.name || 'Research') + ' succeeds!') : ('💥 ' + (p.name || 'Research') + ' fails — ' + (r.lostGp||0).toLocaleString() + 'gp lost.'));
+    } else {
+      this.researchThrowMsg[p.id] = 'Cannot roll: ' + ((r && r.reason) || 'unknown') + (r && r.componentCostGp ? (' (need ' + r.componentCostGp.toLocaleString() + 'gp components, assembled ' + (r.assembled||0).toLocaleString() + ')') : '');
+    }
+  },
+  _researchResultText(p){
+    const kr = p && p.kindResult; if(!kr) return '';
+    if(kr.notableItemId) return 'A new magic item is crafted (see the maker’s Inventory / World items).';
+    if(kr.identified) return 'The item’s properties are now known.';
+    if(kr.formula) return 'Formula gained: ' + kr.formula + (kr.note ? (' — ' + kr.note) : '');
+    return '';
+  },
+  researchAbandon(p){ if(!p) return; if(!confirm('Abandon "' + (p.name || p.kind) + '"? Material + invested research are forfeit.')) return; window.ACKS.abandonResearchProject(this.currentCampaign, p.id, 'gm-action'); this.markDirty(); this.schedulePersist(); },
+
   lairDetailLair(){ return this.lairDetailId ? (window.ACKS.findLair(this.currentCampaign, this.lairDetailId) || null) : null; },
   lairDetailGroups(){
     const l = this.lairDetailLair(); if(!l) return [];
@@ -21592,6 +21916,15 @@ return {
   arcaneLastAttune: '', arcaneLastAttuneOk: false,
   arcaneLastSov: '', arcaneLastSovOk: false,
   arcaneLastHarvest: '', arcaneLastHarvestOk: false,
+  // Phase 4 — Magic Research (AD-M1) · the character-sheet ⚗ Research panel. Transient form state.
+  researchModalOpen: false,      // the New-research modal (null = closed)
+  researchNew: { kind: 'spell-research', spellLevel: 1, effectType: 'one-use', itemKind: 'potion',
+                 charges: 10, activationRate: '1/day', permanentDuration: '1-day', enchantBonus: 1,
+                 spellLevelsImbued: 1, targetName: '', commonSpell: false, fromFormula: false, fromSample: false,
+                 assistantIds: [], magicDomain: '' },
+  researchNewMsg: '',
+  researchThrowPlan: {},          // per-project component plan being assembled (keyed by project id)
+  researchThrowMsg: {},           // per-project last throw message
   encounterModalOpen: false,     // the resolution modal's visibility (#476 E2)
   encounterModalId: null,        // the encounter it shows — kept set on close so the mounted
                                  // subtree never re-evaluates against null during teardown (no Alpine warnings)
@@ -23173,6 +23506,8 @@ return {
       // b5-custom-classes (#154): 'customClasses', 'customRaces'
       'customClasses', 'customRaces',
       // ===== end TEAM BURST5 collections =====
+      // Magic Research (AD-M1, 2026-06-15) — the Arcane-Domain consumer's Research Projects (§8.9 importer mandate)
+      'researchProjects',
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 

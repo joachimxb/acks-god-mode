@@ -186,7 +186,10 @@ const ID_PREFIXES = Object.freeze({
   // ClassTemplate (the point-buy class DEFINITION) + RaceTemplate (the +racial-build-point
   // race); catalog/template tier. Resolved by acks-engine-custom-classes.js (Phase 6 W1). ===
   customClass:          'ccl',
-  customRace:           'crc'
+  customRace:           'crc',
+  // === Magic Research (AD-M1, 2026-06-15) — Phase 4 the Arcane-Domain consumer (RR pp.388–393).
+  // The Research Project entity (campaign.researchProjects[]); resolved by acks-engine-magic-research.js. ===
+  researchProject:      'rsp'
 });
 
 function newId(prefix){
@@ -1080,6 +1083,8 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!Array.isArray(campaign.armies)) campaign.armies = [];
   // Phase 3 Military W3 (2026-06-12) — Battles (RR pp.461–472 engagement records).
   if(!Array.isArray(campaign.battles)) campaign.battles = [];
+  // Magic Research (AD-M1, 2026-06-15) — the Arcane-Domain consumer (RR pp.388–393). Research Projects.
+  if(!Array.isArray(campaign.researchProjects)) campaign.researchProjects = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -9188,6 +9193,24 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let the arcane domain fail the monthly commit */ }
   }
 
+  // === MAGIC RESEARCH — the monthly research accrual (Phase 4 AD-M1; RR pp.388–393) ===
+  // Each in-progress Research Project accrues a month's research labor (the researcher + aiding
+  // assistants' rate × 30); a fully-invested project moves to 'awaiting-throw' (the throw is a
+  // GM/player action — total loss on failure, never auto-rolled) or auto-completes if it needs no
+  // throw + no components. Late-bound (acks-engine-magic-research.js loads after this file) +
+  // try-guarded (the Religion/arcane precedent), so it can never fail the core monthly commit. No
+  // house rule (RAW core, dormant — no researchProjects ⇒ a no-op). 🔧 v1: monthly grain (the
+  // per-day day-tick grain is deferred, consistent with the arcane core).
+  let researchResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processResearchForTurn === 'function'){
+        researchResult = global.ACKS.processResearchForTurn(campaign, { rng }) || researchResult;
+        (researchResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let magic research fail the monthly commit */ }
+  }
+
   // === RUMOR AUTO-EMIT ===
   if(isHouseRuleEnabled(campaign, 'rumors-auto-emit')){
     const upcomingTurn = (campaign.currentTurn || 1) + 1;
@@ -9278,6 +9301,7 @@ function commitTurn(campaign, proposal, options){
     livingExpenseResult,
     favorDutyResult,
     agingResult,                 // CL-1 (burst4) — the monthly aging pass result
+    researchResult,              // AD-M1 — the monthly magic-research accrual result
     loyaltyDrifts,
     rumorDrifts,
     newCurrentTurn: campaign.currentTurn,

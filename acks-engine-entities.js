@@ -134,7 +134,10 @@ function blankCampaign(opts={}){
     // === Hijinks HJ-2 (team 2026-06-13) === Phase 2.7 (RR pp.358–362) — criminal syndicates
     // (campaign.syndicates[]); a boss runs hijinks + collects tribute. Read defensively
     // everywhere (campaign.syndicates ?? []); NOT lazy-injected by migrateCampaign (no-op).
-    syndicates: opts.syndicates || []
+    syndicates: opts.syndicates || [],
+    // Magic Research (AD-M1, 2026-06-15) — Research Projects (the Arcane-Domain consumer; RR pp.388–393).
+    // Also lazy-defaulted on load (lazyDefaultV1ScopeReservations) so old saves backfill; the sibling of attunements.
+    researchProjects: opts.researchProjects || []
   };
 }
 
