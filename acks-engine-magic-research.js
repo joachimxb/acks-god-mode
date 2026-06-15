@@ -22,12 +22,23 @@
  *     failed-with-total-loss) → abandonResearchProject. Result application: spell formula (character.
  *     magicFormulas[]) / item identification (notableItem.identification) / a minted Notable Item.
  *
- * DEFERRED (later AD-M waves, stacked on this branch): AD-M2 (constructs / crossbreeds / necromancy —
- * L11, their facilities, the reaction-roll-on-completion), AD-M3 (rituals — learn/cast + repertoire caps),
+ * AD-M2 (the high-tier kinds — RR pp.394–398): the four HD/ability-costed kinds flipped available —
+ *   construct DESIGN (→ a formula) + MANUFACTURE, CROSSBREED, NECROMANCY (L11; craftpriest L9 for
+ *   constructs; necromancy requires a Chaotic caster). Cost = 2,000/HD + 625/minor + 5,000/major; throw
+ *   +1 per 5,000gp (necromancy +2/5,000 if unwilling); the Black-Lore-of-Zahar / Transmogrification
+ *   dark-research proficiencies (+2 levels eligibility, +2 throw, +10% rate). The manufacturing kinds MINT
+ *   a creature (a count-N Group via blankGroup) whose disposition is a 2d6 reaction (the shipped
+ *   rollEncounterReaction) — auto-controlled for a mindless construct / willing undead / preserved-memory
+ *   crossbreed, else friendly/indifferent/neutral → controlled vs unfriendly/hostile → free-willed; +3
+ *   record-only events (construct-manufactured / crossbreed-created / necromancy-performed).
+ *
+ * DEFERRED (later AD-M waves, stacked on this branch): AD-M3 (rituals — learn/cast + repertoire caps),
  * AD-M4 (experimentation — advantages/methods/breakthroughs/mishaps), and the PER-DAY day-tick grain for
- * research accrual (this slice ships the monthly model — the visible-planning-info path, consistent with
- * the arcane core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the
- * Religion plan's seam (plan §14 Q3). Facilities GATE softly until AD-B ships the Sanctum facility model.
+ * research accrual (the monthly model ships — the visible-planning-info path, consistent with the arcane
+ * core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the Religion plan's
+ * seam (plan §14 Q3). Facilities GATE softly until AD-B ships the Sanctum facility model. Per §6 polarity
+ * NO house rule — necromancy is core RAW (the blood-sacrifice precedent); a default-OFF disable-necromancy
+ * opt-out is the §6-correct way to add an off-switch if a table wants one.
  *
  * RAW-default polarity (§8): NO house rule — magic research is core RAW for arcane casters, dormant-until-
  * used (an empty campaign.researchProjects[] is a no-op, like the arcane domain with no dungeon). The
@@ -63,6 +74,31 @@
   function _intMod(ch){ const A = _A(); const fn = (typeof A.abilityMod === 'function') ? A.abilityMod : (s => Math.floor(((Number(s)||10) - 10) / 3)); return fn((ch && ch.abilities && ch.abilities.INT) || 10); }
   function _profRanks(ch, key){ const A = _A(); return (typeof A.proficiencyRanks === 'function') ? A.proficiencyRanks(ch, key) : 0; }
   function _round(n){ return Math.round(Number(n) || 0); }
+  function _chaMod(ch){ const A = _A(); const fn = (typeof A.abilityMod === 'function') ? A.abilityMod : (s => Math.floor(((Number(s)||10) - 10) / 3)); return fn((ch && ch.abilities && ch.abilities.CHA) || 10); }
+  function _findGroup(campaign, id){ const A = _A(); if(typeof A.findGroup === 'function') return A.findGroup(campaign, id); return (campaign && Array.isArray(campaign.groups) ? campaign.groups : []).find(g => g && g.id === id) || null; }
+  // AD-M2 eligibility helpers (RR pp.394–398).
+  function _isCraftpriest(ch){ return !!(ch && /craftpriest/i.test(ch.class || '')); }   // dwarven craftpriest builds constructs at L9
+  function _isChaotic(ch){ return !!(ch && /chaotic/i.test(ch.alignment || '')); }       // necromancy requires a Chaotic caster
+  // AD-M2 cost (RR pp.394–398): 2,000gp/HD + 625gp/minor ability + 5,000gp/major ability.
+  function _hdAbilityCost(cfg){
+    cfg = cfg || {};
+    const hd = Math.max(0, Math.floor(Number(cfg.hd) || 0));
+    const minor = Math.max(0, Math.floor(Number(cfg.minorAbilities) || 0));
+    const major = Math.max(0, Math.floor(Number(cfg.majorAbilities) || 0));
+    return 2000 * hd + 625 * minor + 5000 * major;
+  }
+  // The "eligibility as +N caster levels" bonus a held proficiency confers for a kind (RR p.389) —
+  // applied once per proficiency held (Black Lore → necromancy; Transmogrification → crossbreed).
+  function _eligibilityLevelBonus(ch, kind){
+    let bonus = 0;
+    for(const key of Object.keys(RESEARCH_PROFICIENCY_MODS)){
+      const m = RESEARCH_PROFICIENCY_MODS[key];
+      if(!m.levelBonus) continue;
+      if(m.domains !== 'all' && (!Array.isArray(m.domains) || m.domains.indexOf(kind) < 0)) continue;
+      if(_profRanks(ch, key) > 0) bonus += m.levelBonus;
+    }
+    return bonus;
+  }
 
   // ════════════════════════════════════════════════════════════════════════════
   // Catalogs (RR p.388, pp.391–393, p.389)
@@ -90,18 +126,22 @@
   ]);
   const HIGH_TIER_KINDS = Object.freeze(new Set(['construct-design','construct-manufacture','crossbreed','necromancy','ritual-learn','ritual-cast']));
 
-  // The ten project kinds (plan §4). AD-M1 ships the 3 staples (available:true); the 6 high-tier kinds
-  // are present-but-gated (available:false → AD-M2/M3 flip them). minLevel for item-creation is 5 for
-  // one-use (scroll/potion) / 9 otherwise — resolved live in researchEffectiveMinLevel.
+  // The ten project kinds (plan §4). AD-M1 shipped the 3 staples; AD-M2 adds the four HD/ability-costed
+  // high-tier kinds (construct design + manufacture, crossbreed, necromancy — L11, craftpriest L9 for
+  // constructs); the 2 ritual kinds stay present-but-gated until AD-M3. minLevel for item-creation is 5
+  // for one-use (scroll/potion) / 9 otherwise — resolved live in researchEffectiveMinLevel; the construct
+  // craftpriest L9 exception + the necromancy/crossbreed proficiency level bonus live in isEligibleResearcher.
+  // hdAbility:true marks the kinds whose cost = 2,000/HD + 625/minor + 5,000/major (RR pp.394–398).
   const MAGIC_RESEARCH_KINDS = Object.freeze({
     'spell-research':        { label: 'Spell research',        icon: '📜', minLevel: 5,  facilityKind: 'library',  available: true,  domainTagged: true },
     'identify':              { label: 'Identify magic item',   icon: '🔎', minLevel: 5,  facilityKind: 'library',  available: true,  needsSample: true },
     'item-creation':         { label: 'Create magic item',     icon: '🛠', minLevel: 5,  facilityKind: 'workshop', available: true,  domainTagged: true },
-    // High-tier (AD-M2 / AD-M3) — reserved, gated off until their wave lands.
-    'construct-design':      { label: 'Design construct',      icon: '⚗', minLevel: 11, facilityKind: 'library',  available: false },
-    'construct-manufacture': { label: 'Manufacture construct', icon: '⚗', minLevel: 11, facilityKind: 'workshop', available: false },
-    'crossbreed':            { label: 'Crossbreed',            icon: '🧬', minLevel: 11, facilityKind: 'crossbreeding-lab', available: false },
-    'necromancy':            { label: 'Perform necromancy',    icon: '💀', minLevel: 11, facilityKind: 'mortuary', available: false },
+    // High-tier (AD-M2; RR pp.394–398) — HD/ability-costed; throw +1 per 5,000gp; mint a creature/formula.
+    'construct-design':      { label: 'Design construct',      icon: '⚙', minLevel: 11, facilityKind: 'library',  available: true,  hdAbility: true, mintsFormula: true },
+    'construct-manufacture': { label: 'Manufacture construct', icon: '⚙', minLevel: 11, facilityKind: 'workshop', available: true,  hdAbility: true, mintsCreature: true },
+    'crossbreed':            { label: 'Crossbreed',            icon: '🧬', minLevel: 11, facilityKind: 'crossbreeding-lab', available: true, hdAbility: true, mintsCreature: true },
+    'necromancy':            { label: 'Perform necromancy',    icon: '💀', minLevel: 11, facilityKind: 'mortuary', available: true,  hdAbility: true, mintsCreature: true },
+    // Rituals (AD-M3) — reserved, gated off until their wave lands.
     'ritual-learn':          { label: 'Learn ritual',          icon: '✴', minLevel: 11, facilityKind: 'library',  available: false },
     'ritual-cast':           { label: 'Cast ritual',           icon: '✴', minLevel: 11, facilityKind: 'workshop', available: false }
   });
@@ -113,14 +153,20 @@
   const ITEM_PERMANENT_MULT  = Object.freeze({ '1-day': 15, '1-hour': 24, '3-turns': 38, '1-turn': 50, 'by-caster-level': 38 });
   const ITEM_BONUS_COST      = Object.freeze({ 1: 5000, 2: 15000, 3: 35000 });   // +1 / +1→+2 (=+10k) / +2→+3 (=+20k), cumulative
 
-  // ── Proficiency / power modifiers (RR p.389) — the staple-touching subset (AD-M1). Each entry:
-  // { throwPerRank, ratePctPerRank, domains:[kinds it applies to] | 'all' }. Read off the researcher's
-  // proficiencies[] (the canonical {key,ranks} reader) + the project kind. The full eligibility-as-+levels
-  // mods (Black Lore / Mastery / Transmogrification) land with their high-tier kinds (AD-M2). ──
+  // ── Proficiency / power modifiers (RR p.389). Each entry: { throwPerRank, ratePctPerRank,
+  // domains:[kinds it applies to] | 'all', levelBonus? }. Read off the researcher's proficiencies[]
+  // (the canonical {key,ranks} reader) + the project kind. levelBonus = "eligibility as +N caster levels"
+  // (RR p.389) — applied once when the proficiency is held (≥1 rank), lowering the kind's min level in
+  // isEligibleResearcher. AD-M2 adds the necromancy/crossbreed dark-research paths; the summoning/
+  // protection/enchantment masteries (domain-tagged for spell/item research) follow when magicDomain
+  // research is exercised. ──
   const RESEARCH_PROFICIENCY_MODS = Object.freeze({
-    'magical-engineering': { throwPerRank: 1, ratePctPerRank: 5, domains: 'all',                  label: 'Magical Engineering' },
-    'loremastery':         { throwPerRank: 2, ratePctPerRank: 0, domains: ['identify'],           label: 'Loremastery (identify)' },
-    'alchemy':             { throwPerRank: 1, ratePctPerRank: 5, domains: ['item-creation'],      label: 'Alchemy (potions)' }
+    'magical-engineering': { throwPerRank: 1, ratePctPerRank: 5,  domains: 'all',                 label: 'Magical Engineering' },
+    'loremastery':         { throwPerRank: 2, ratePctPerRank: 0,  domains: ['identify'],          label: 'Loremastery (identify)' },
+    'alchemy':             { throwPerRank: 1, ratePctPerRank: 5,  domains: ['item-creation'],     label: 'Alchemy (potions)' },
+    // AD-M2 high-tier paths (RR p.389): eligibility as +2 caster levels; +2 throw; +10% rate.
+    'black-lore-of-zahar': { throwPerRank: 2, ratePctPerRank: 10, domains: ['necromancy'], levelBonus: 2, label: 'Black Lore of Zahar' },
+    'transmogrification':  { throwPerRank: 2, ratePctPerRank: 10, domains: ['crossbreed'], levelBonus: 2, label: 'Transmogrification' }
   });
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -141,18 +187,22 @@
   }
 
   // The effective min caster level for a kind+config: item-creation = 5 for one-use (scroll/potion),
-  // 9 for any other item form (RR p.391); everything else = the catalog minLevel.
-  function researchEffectiveMinLevel(kind, cfg){
+  // 9 for any other item form (RR p.391); constructs = 9 for a dwarven craftpriest (RR p.394) else 11;
+  // everything else = the catalog minLevel. The optional `character` enables the craftpriest exception.
+  function researchEffectiveMinLevel(kind, cfg, character){
     cfg = cfg || {};
     const meta = MAGIC_RESEARCH_KINDS[kind];
     if(!meta) return 99;
     if(kind === 'item-creation') return (cfg.effectType === 'one-use') ? 5 : 9;
+    if((kind === 'construct-design' || kind === 'construct-manufacture') && _isCraftpriest(character)) return 9;
     return meta.minLevel;
   }
 
   // Is this character eligible to lead this research project? (arcane caster ≥ the effective min level).
-  // Divine-caster eligibility (+ "cannot research spells") is the Religion plan's seam (plan §14 Q3); v1
-  // gates on isArcaneCaster (reused from the sanctums module). Returns { ok, reason }.
+  // AD-M2: constructs may also be built by a dwarven craftpriest (RR p.394); necromancy requires a Chaotic
+  // caster (RR p.396); the Black-Lore / Transmogrification dark-research proficiencies confer eligibility
+  // as +2 caster levels (RR p.389). Divine-caster spell-research eligibility (+ "cannot research spells")
+  // is the Religion plan's seam (plan §14 Q3). Returns { ok, reason }.
   function isEligibleResearcher(campaign, character, kind, cfg){
     const A = _A();
     const ch = _findChar(campaign, character);
@@ -161,9 +211,16 @@
     if(!meta) return { ok: false, reason: 'unknown-kind' };
     if(!meta.available) return { ok: false, reason: 'kind-not-yet-available' };
     const isArcane = (typeof A.isArcaneCaster === 'function') ? A.isArcaneCaster(ch) : false;
-    if(!isArcane) return { ok: false, reason: 'not-an-arcane-caster' };
-    const min = researchEffectiveMinLevel(kind, cfg);
-    if((Number(ch.level) || 0) < min) return { ok: false, reason: 'level-too-low', minLevel: min };
+    const isConstruct = (kind === 'construct-design' || kind === 'construct-manufacture');
+    if(isConstruct){
+      if(!isArcane && !_isCraftpriest(ch)) return { ok: false, reason: 'not-an-arcane-caster-or-craftpriest' };
+    } else if(!isArcane){
+      return { ok: false, reason: 'not-an-arcane-caster' };
+    }
+    if(kind === 'necromancy' && !_isChaotic(ch)) return { ok: false, reason: 'not-chaotic' };
+    const min = researchEffectiveMinLevel(kind, cfg, ch);
+    const effLevel = (Number(ch.level) || 0) + _eligibilityLevelBonus(ch, kind);   // RR p.389 proficiency level bonus
+    if(effLevel < min) return { ok: false, reason: 'level-too-low', minLevel: min };
     return { ok: true };
   }
 
@@ -200,7 +257,18 @@
       const c = magicItemCreationCost(cfg);
       return { componentCostGp: c, materialCostGp: c, researchCostGp: c, baseCost: c };
     }
-    // High-tier kinds (AD-M2/M3): HD/ability-based — reserved (returns 0 until their wave fills it).
+    // High-tier kinds (AD-M2; RR pp.394–398) — HD/ability-costed. Material & Research each = the base;
+    // component = none for construct/crossbreed (paid in dead bodies / killed progenitors — a requirement,
+    // not gp) EXCEPT necromancy, whose component = monster parts of XP-value equal to the base cost.
+    if(kind === 'construct-design' || kind === 'construct-manufacture' || kind === 'crossbreed'){
+      const c = _hdAbilityCost(cfg);
+      return { componentCostGp: 0, materialCostGp: c, researchCostGp: c, baseCost: c };
+    }
+    if(kind === 'necromancy'){
+      const c = _hdAbilityCost(cfg);
+      return { componentCostGp: c, materialCostGp: c, researchCostGp: c, baseCost: c };
+    }
+    // Rituals (AD-M3): reserved (returns 0 until their wave fills it).
     return { componentCostGp: 0, materialCostGp: 0, researchCostGp: 0, baseCost: 0 };
   }
 
@@ -214,6 +282,13 @@
     if(kind === 'item-creation'){
       if(cfg.effectType === 'permanent-bonus'){ const b = Math.max(1, Math.min(3, Math.floor(Number(cfg.enchantBonus) || 1))); return ({1:1,2:3,3:6})[b] || 1; }
       return Math.max(0, Math.floor(Number(cfg.spellLevel) || 0));
+    }
+    // High-tier (AD-M2): +1 per 5,000gp of cost (RR pp.394–396); necromancy +2/5,000 if unwilling (RR p.396).
+    if(kind === 'construct-design' || kind === 'construct-manufacture' || kind === 'crossbreed'){
+      return Math.floor(_hdAbilityCost(cfg) / 5000);
+    }
+    if(kind === 'necromancy'){
+      return Math.floor(_hdAbilityCost(cfg) / 5000) * (cfg.willing ? 1 : 2);
     }
     return 0;
   }
@@ -229,9 +304,19 @@
       const a = _findChar(campaign, aid);
       if(a) total += researchRateForLevel(a.level, project.kind).rate;
     }
-    // Magical Engineering rate bonus (researcher's ranks; +5%/rank).
-    const me = researcher ? _profRanks(researcher, 'magical-engineering') : 0;
-    if(me > 0) total = total * (1 + 0.05 * me);
+    // Proficiency rate bonuses (researcher's ranks): Magical Engineering (all) +5%/rank; Alchemy
+    // (item-creation), Black Lore (necromancy), Transmogrification (crossbreed) at their ratePctPerRank.
+    if(researcher){
+      let pct = 0;
+      for(const key of Object.keys(RESEARCH_PROFICIENCY_MODS)){
+        const m = RESEARCH_PROFICIENCY_MODS[key];
+        if(!m.ratePctPerRank) continue;
+        if(m.domains !== 'all' && (!Array.isArray(m.domains) || m.domains.indexOf(project.kind) < 0)) continue;
+        const ranks = _profRanks(researcher, key);
+        if(ranks > 0) pct += m.ratePctPerRank * ranks;
+      }
+      if(pct > 0) total = total * (1 + pct / 100);
+    }
     return total;
   }
   function researchDaysRemaining(campaign, project){
@@ -546,7 +631,7 @@
     }
 
     if(succeeded){
-      _applyResearchResult(campaign, project);
+      _applyResearchResult(campaign, project, opts);
       project.status = 'completed'; project.completedOnTurn = _currentTurn(campaign);
       project.history.push({ turn: _currentTurn(campaign), type: 'completed', reason: throwResult ? ('throw ' + throwResult.total + ' vs ' + throwResult.target + ' ✓' + (penalty ? (' (penalty ' + penalty + ')') : '')) : 'no throw' });
       _recordResearchEvent(campaign, 'magic-research-completed',
@@ -598,9 +683,67 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // AD-M2 — minting manufactured creatures (constructs / undead / crossbreeds)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // Mint a manufactured creature as a count-N Group (the five-axis creature abstraction — a count-1 Group
+  // is a valid single creature). Disposition (RR p.395/p.396/p.398): a mindless construct / willing-subject
+  // undead / preserved-memory crossbreed is auto-controlled; otherwise a 2d6 reaction (the shipped
+  // rollEncounterReaction primitive + the maker's CHA) decides — friendly/indifferent/neutral → controlled
+  // (commanderCharacterId = the maker, socialTier 'minion'); unfriendly/hostile → FREE-WILLED (independent,
+  // no commander — the creation slips the maker's grasp). spec: { creatureTypes[], baseName, autoControlled,
+  // kindLabel }. opts.rng threads the throw's rng so previews/tests are deterministic.
+  function _mintCreature(campaign, project, spec, opts){
+    const A = _A();
+    const researcher = _findChar(campaign, project.researcherCharacterId);
+    const cfg = project.config || {};
+    const count = Math.max(1, Math.floor(Number(cfg.quantity) || 1));
+    let band = 'controlled', controlled = true, reactionRoll = null;
+    if(!spec.autoControlled){
+      const rng = (opts && typeof opts.rng === 'function') ? opts.rng : Math.random;
+      const chaMod = researcher ? _chaMod(researcher) : 0;
+      reactionRoll = (typeof A.rollEncounterReaction === 'function')
+        ? A.rollEncounterReaction({ chaMod, rng })
+        : { total: 7, band: 'neutral' };
+      band = reactionRoll.band;
+      controlled = (band === 'friendly' || band === 'indifferent' || band === 'neutral');
+    }
+    const creatureTypes = (Array.isArray(cfg.creatureTypes) && cfg.creatureTypes.length) ? cfg.creatureTypes.slice() : spec.creatureTypes.slice();
+    const group = (typeof A.blankGroup === 'function') ? A.blankGroup({
+      name: cfg.targetName || project.name || spec.baseName,
+      groupTemplate: { monsterCatalogKey: null, creatureTypes, hitDice: (cfg.hd != null && cfg.hd !== '') ? String(cfg.hd) : null },
+      count, casualties: 0,
+      socialTier: controlled ? 'minion' : 'independent',
+      commanderCharacterId: controlled ? (researcher ? researcher.id : null) : null,
+      currentHexId: researcher ? researcher.currentHexId : null,
+      notes: spec.kindLabel + ' created via magic research' + (reactionRoll ? (' — disposition: ' + band + (controlled ? ' (under the maker’s command)' : ' (FREE-WILLED — slipped control)')) : ' (controlled)')
+    }) : null;
+    if(group){
+      if(!Array.isArray(campaign.groups)) campaign.groups = [];
+      campaign.groups.push(group);
+      if(!Array.isArray(group.history)) group.history = [];
+      group.history.push({ turn: _currentTurn(campaign), type: 'created',
+        reason: spec.kindLabel + ' by ' + ((researcher && researcher.name) || project.researcherCharacterId) + (reactionRoll ? (' — 2d6 ' + reactionRoll.total + ' → ' + band + (controlled ? ' (controlled)' : ' (free-willed)')) : ' (auto-controlled)') });
+    }
+    return { group, controlled, band, reactionRoll, count };
+  }
+
+  // Consume the progenitor creatures a crossbreed is bred from (RR p.396). Optional: if the GM designated
+  // progenitor Groups (cfg.progenitorGroupIds), they're wiped (casualties = count); otherwise the
+  // requirement is GM-narrated. Returns the number of progenitor groups killed.
+  function _killProgenitors(campaign, ids){
+    let killed = 0;
+    for(const gid of (ids || [])){
+      const g = _findGroup(campaign, gid);
+      if(g){ g.casualties = Number(g.count) || 0; killed++; }
+    }
+    return killed;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // Per-kind result application (plan §4)
   // ════════════════════════════════════════════════════════════════════════════
-  function _applyResearchResult(campaign, project){
+  function _applyResearchResult(campaign, project, opts){
     const researcher = _findChar(campaign, project.researcherCharacterId);
     const cfg = project.config || {};
     if(project.kind === 'spell-research'){
@@ -641,6 +784,47 @@
           { projectId: project.id, notableItemId: item.id, makerCharacterId: researcher ? researcher.id : null, itemKind: item.kind },
           { narrative: (researcher && researcher.name || 'A mage') + ' crafts ' + (item.name || 'a magic item'), relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }, { kind: 'notableItem', id: item.id, role: 'produced' }] });
       }
+    } else if(project.kind === 'construct-design'){
+      // RR p.395 — design produces a construct FORMULA (manufacture it later from the formula).
+      const name = cfg.targetName || project.name || 'construct';
+      _addMagicFormula(researcher, { kind: 'construct', name, hd: Number(cfg.hd) || 0, sourceProjectId: project.id, learnedAtTurn: _currentTurn(campaign) });
+      project.kindResult = { formula: 'construct:' + name, hd: Number(cfg.hd) || 0, note: 'Manufacture the construct from this formula (RR p.395).' };
+    } else if(project.kind === 'construct-manufacture'){
+      // RR p.395 — manufacture a construct (a Group). Mindless → auto-controlled; sentient → a reaction roll.
+      const undead = !!cfg.undead;
+      const r = _mintCreature(campaign, project, {
+        creatureTypes: undead ? ['undead', 'construct'] : ['construct'], baseName: undead ? 'Undead construct' : 'Construct',
+        autoControlled: !cfg.sentient, kindLabel: (undead ? 'Undead construct' : 'Construct')
+      }, opts);
+      project.kindResult = { groupId: r.group ? r.group.id : null, controlled: r.controlled, disposition: r.band, count: r.count, undead };
+      _recordResearchEvent(campaign, 'construct-manufactured',
+        { projectId: project.id, groupId: r.group ? r.group.id : null, makerCharacterId: researcher ? researcher.id : null, controlled: r.controlled, disposition: r.band, count: r.count, undead },
+        { narrative: (researcher && researcher.name || 'A mage') + ' manufactures ' + (r.count > 1 ? (r.count + '× ') : '') + (project.name || (undead ? 'an undead construct' : 'a construct')) + (r.controlled ? '' : ' — but it slips control!'),
+          relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(r.group ? [{ kind: 'group', id: r.group.id, role: 'produced' }] : []) });
+    } else if(project.kind === 'crossbreed'){
+      // RR p.396 — crossbreed a new creature (a Group); the progenitors are consumed. Preserved memory →
+      // auto-controlled; otherwise a reaction roll.
+      const preserve = !!cfg.preserveMemory;
+      const r = _mintCreature(campaign, project, {
+        creatureTypes: ['monster'], baseName: 'Crossbreed', autoControlled: preserve, kindLabel: 'Crossbreed'
+      }, opts);
+      const killed = _killProgenitors(campaign, cfg.progenitorGroupIds);
+      project.kindResult = { groupId: r.group ? r.group.id : null, controlled: r.controlled, disposition: r.band, count: r.count, progenitorsKilled: killed };
+      _recordResearchEvent(campaign, 'crossbreed-created',
+        { projectId: project.id, groupId: r.group ? r.group.id : null, makerCharacterId: researcher ? researcher.id : null, controlled: r.controlled, disposition: r.band, count: r.count, progenitorsKilled: killed },
+        { narrative: (researcher && researcher.name || 'A mage') + ' crossbreeds ' + (project.name || 'a new creature') + (r.controlled ? '' : ' — but it is feral!'),
+          relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(r.group ? [{ kind: 'group', id: r.group.id, role: 'produced' }] : []) });
+    } else if(project.kind === 'necromancy'){
+      // RR p.398 — raise an intelligent undead (a Group). Willing subject → auto-loyal; else a reaction roll.
+      const willing = !!cfg.willing;
+      const r = _mintCreature(campaign, project, {
+        creatureTypes: ['undead'], baseName: 'Undead servant', autoControlled: willing, kindLabel: 'Undead'
+      }, opts);
+      project.kindResult = { groupId: r.group ? r.group.id : null, controlled: r.controlled, disposition: r.band, count: r.count, willing };
+      _recordResearchEvent(campaign, 'necromancy-performed',
+        { projectId: project.id, groupId: r.group ? r.group.id : null, makerCharacterId: researcher ? researcher.id : null, controlled: r.controlled, disposition: r.band, count: r.count, willing },
+        { narrative: (researcher && researcher.name || 'A necromancer') + ' raises ' + (r.count > 1 ? (r.count + '× ') : '') + (project.name || 'the dead') + (r.controlled ? '' : ' — but it rises hostile!'),
+          relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(r.group ? [{ kind: 'group', id: r.group.id, role: 'produced' }] : []) });
     }
   }
 

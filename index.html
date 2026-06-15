@@ -48,7 +48,7 @@
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-14-burst5"></script>
-<script src="acks-engine-events.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-events.js?v=2026-06-15-adm2"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-14-pt5"></script>
@@ -79,7 +79,7 @@
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-15-arcane"></script>
-<script src="acks-engine-magic-research.js?v=2026-06-15-adm1"></script>
+<script src="acks-engine-magic-research.js?v=2026-06-15-adm2"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
@@ -2012,6 +2012,34 @@ document.addEventListener('alpine:init', () => {
           <label class="flex items-center justify-between" x-show="researchNew.effectType==='permanent-bonus'">Bonus +N <input type="number" min="1" max="3" class="ed-input w-16" x-model.number="researchNew.enchantBonus"></label>
           <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.fromFormula"> Working from a formula (no throw)</label>
           <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.fromSample"> Have a sample (+4 to the throw)</label>
+        </div>
+      </template>
+
+      <!-- high-tier config (AD-M2): constructs / crossbreed / necromancy — HD + abilities cost (RR pp.394–398) -->
+      <template x-if="['construct-design','construct-manufacture','crossbreed','necromancy'].includes(researchNew.kind)">
+        <div class="space-y-1.5 border border-ink/20 rounded p-2">
+          <label class="flex items-center justify-between">Name <input type="text" class="ed-input w-44" x-model="researchNew.targetName" placeholder="e.g. Iron Golem"></label>
+          <div class="grid grid-cols-3 gap-2">
+            <label class="block text-xs">Hit Dice <input type="number" min="0" class="ed-input w-full mt-0.5" x-model.number="researchNew.hd"></label>
+            <label class="block text-xs">Minor abilities <input type="number" min="0" class="ed-input w-full mt-0.5" x-model.number="researchNew.minorAbilities"></label>
+            <label class="block text-xs">Major abilities <input type="number" min="0" class="ed-input w-full mt-0.5" x-model.number="researchNew.majorAbilities"></label>
+          </div>
+          <p class="text-[11px] opacity-60">Cost = 2,000gp/HD + 625gp/minor + 5,000gp/major; throw +1 per 5,000gp (RR pp.394–398).</p>
+          <label class="flex items-center justify-between" x-show="researchNew.kind!=='construct-design'">Quantity <input type="number" min="1" class="ed-input w-16" x-model.number="researchNew.quantity"></label>
+          <template x-if="researchNew.kind==='construct-manufacture'">
+            <div class="space-y-1">
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.undead"> Undead construct (needs dead bodies + a mortuary — RR p.398)</label>
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.sentient"> Sentient (roll its disposition; a mindless construct is auto-controlled)</label>
+            </div>
+          </template>
+          <template x-if="researchNew.kind==='crossbreed'">
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.preserveMemory"> Preserve a progenitor's memory (auto-controlled — no disposition roll)</label>
+          </template>
+          <template x-if="researchNew.kind==='necromancy'">
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.willing"> Willing subject (throw +1/5,000gp vs +2/5,000gp; auto-loyal)</label>
+          </template>
+          <p class="text-[11px] opacity-60" x-show="researchNew.kind==='construct-design'">Design produces a construct formula — manufacture it from the formula afterward (RR p.395).</p>
+          <p class="text-[11px] opacity-60" x-show="['construct-manufacture','crossbreed','necromancy'].includes(researchNew.kind)">On success, a creature is created (a Group). A poor reaction roll means it slips your control.</p>
         </div>
       </template>
 
@@ -10560,7 +10588,7 @@ document.addEventListener('alpine:init', () => {
             </div>
 
             <template x-if="characterResearchProjects(characterEditing).length === 0">
-              <p class="text-sm italic opacity-60 py-4 text-center">No research projects yet. Spell research, identifying a magic item, and crafting one (potions/scrolls at L5, other items at L9) are available — click <strong>＋ New research</strong>.</p>
+              <p class="text-sm italic opacity-60 py-4 text-center">No research projects yet. Spell research, identifying or crafting a magic item (potions/scrolls at L5, others at L9), and — at L11 — designing &amp; building constructs, crossbreeding, and necromancy (a Chaotic caster) are available. Click <strong>＋ New research</strong>.</p>
             </template>
 
             <!-- project cards -->
@@ -14613,7 +14641,8 @@ return {
     if(!ch) return;
     this.researchNew = { kind: 'spell-research', spellLevel: 1, effectType: 'one-use', itemKind: 'potion',
       charges: 10, activationRate: '1/day', permanentDuration: '1-day', enchantBonus: 1, spellLevelsImbued: 1,
-      targetName: '', commonSpell: false, fromFormula: false, fromSample: false, assistantIds: [], magicDomain: '' };
+      targetName: '', commonSpell: false, fromFormula: false, fromSample: false, assistantIds: [], magicDomain: '',
+      hd: 1, minorAbilities: 0, majorAbilities: 0, quantity: 1, undead: false, sentient: false, preserveMemory: false, willing: false };
     this.researchNewMsg = '';
     this.researchModalOpen = true;
   },
@@ -14630,6 +14659,13 @@ return {
       if(n.effectType === 'activated') cfg.activationRate = n.activationRate;
       if(n.effectType === 'permanent') cfg.permanentDuration = n.permanentDuration;
       if(n.effectType === 'permanent-bonus') cfg.enchantBonus = Number(n.enchantBonus) || 1;
+    }
+    else if(['construct-design','construct-manufacture','crossbreed','necromancy'].includes(n.kind)){
+      cfg.hd = Number(n.hd) || 0; cfg.minorAbilities = Number(n.minorAbilities) || 0; cfg.majorAbilities = Number(n.majorAbilities) || 0;
+      if(n.kind !== 'construct-design') cfg.quantity = Math.max(1, Number(n.quantity) || 1);
+      if(n.kind === 'construct-manufacture'){ cfg.undead = !!n.undead; cfg.sentient = !!n.sentient; }
+      if(n.kind === 'crossbreed') cfg.preserveMemory = !!n.preserveMemory;
+      if(n.kind === 'necromancy') cfg.willing = !!n.willing;
     }
     return cfg;
   },
@@ -14689,6 +14725,13 @@ return {
     const kr = p && p.kindResult; if(!kr) return '';
     if(kr.notableItemId) return 'A new magic item is crafted (see the maker’s Inventory / World items).';
     if(kr.identified) return 'The item’s properties are now known.';
+    if(kr.groupId){
+      const g = (this.currentCampaign.groups || []).find(x => x && x.id === kr.groupId);
+      const nm = (g && g.name) || 'The creature';
+      return (kr.count > 1 ? (kr.count + '× ') : '') + nm + (kr.controlled
+        ? ' is created under your command (see World ▸ 🐉 Monsters / Inspector).'
+        : ' is created — but it slipped your control (disposition: ' + (kr.disposition || 'hostile') + ').');
+    }
     if(kr.formula) return 'Formula gained: ' + kr.formula + (kr.note ? (' — ' + kr.note) : '');
     return '';
   },

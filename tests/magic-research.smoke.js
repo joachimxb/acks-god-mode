@@ -44,8 +44,8 @@ ok('L12 STAPLE rate caps at 1750 (footnote)', ACKS.researchRateForLevel(12, 'ite
 ok('L12 HIGH-TIER rate 2750 (ritual)', ACKS.researchRateForLevel(12, 'ritual-cast').rate === 2750);
 ok('L14 high-tier 14500 / throw 3+', ACKS.researchRateForLevel(14, 'crossbreed').rate === 14500 && ACKS.researchRateForLevel(14, 'crossbreed').throwTarget === 3);
 ok('level clamps above 14', ACKS.researchRateForLevel(20, 'ritual-cast').rate === 14500);
-ok('3 staple kinds available (spell-research/identify/item-creation)', JSON.stringify(ACKS.availableResearchKinds().sort()) === JSON.stringify(['identify','item-creation','spell-research']));
-ok('high-tier kinds present but gated (construct-design unavailable)', ACKS.magicResearchKind('construct-design') && ACKS.magicResearchKind('construct-design').available === false);
+ok('AD-M2 — 7 of 9 kinds available (staples + the 4 high-tier; rituals still gated)', JSON.stringify(ACKS.availableResearchKinds().sort()) === JSON.stringify(['construct-design','construct-manufacture','crossbreed','identify','item-creation','necromancy','spell-research']));
+ok('ritual kinds present but gated (ritual-learn unavailable → AD-M3)', ACKS.magicResearchKind('ritual-learn') && ACKS.magicResearchKind('ritual-learn').available === false);
 ok('item-creation one-use min L5', ACKS.researchEffectiveMinLevel('item-creation', { effectType:'one-use' }) === 5);
 ok('item-creation non-one-use min L9', ACKS.researchEffectiveMinLevel('item-creation', { effectType:'permanent' }) === 9);
 ok('spell-research min L5', ACKS.researchEffectiveMinLevel('spell-research', {}) === 5);
@@ -91,7 +91,7 @@ section('Eligibility (RR p.386/p.391 — arcane caster ≥ the kind min level)')
   ok('arcane L5 → NOT eligible for a permanent item (needs L9)', ACKS.isEligibleResearcher(c5, m5, 'item-creation', { effectType:'permanent' }).ok === false);
   const { c: cf, m: mf } = mage({ level: 9, cls: 'Fighter' });
   ok('a Fighter (non-arcane) → not eligible', ACKS.isEligibleResearcher(cf, mf, 'spell-research', {}).reason === 'not-an-arcane-caster');
-  ok('a gated kind (construct-design) → not yet available', ACKS.isEligibleResearcher(c, m, 'construct-design', {}).reason === 'kind-not-yet-available');
+  ok('a gated kind (ritual-learn) → not yet available', ACKS.isEligibleResearcher(c, m, 'ritual-learn', {}).reason === 'kind-not-yet-available');
 }
 
 // =============================================================================
@@ -256,6 +256,138 @@ section('§5 Sanctums seam — pay the component cost with arcane power + specia
 }
 
 // =============================================================================
+section('AD-M2 — the high-tier kinds (RR pp.394–398): cost formula + throw bump');
+// =============================================================================
+{
+  ok('4 high-tier kinds available', ['construct-design','construct-manufacture','crossbreed','necromancy'].every(k => ACKS.magicResearchKind(k).available === true));
+  ok('rituals still gated (AD-M3)', !ACKS.magicResearchKind('ritual-learn').available && !ACKS.magicResearchKind('ritual-cast').available);
+  // cost = 2,000/HD + 625/minor + 5,000/major (RR pp.394–398)
+  const cc = ACKS.researchProjectCosts('construct-manufacture', { hd: 6, minorAbilities: 2, majorAbilities: 1 });
+  ok('construct 6×2000 + 2×625 + 1×5000 = 18250 (material+research; component 0)', cc.materialCostGp === 18250 && cc.researchCostGp === 18250 && cc.componentCostGp === 0 && cc.baseCost === 18250);
+  const nc = ACKS.researchProjectCosts('necromancy', { hd: 8 });
+  ok('necromancy component = base cost (monster parts XP = cost)', nc.componentCostGp === 16000 && nc.materialCostGp === 16000 && nc.baseCost === 16000);
+  const xc = ACKS.researchProjectCosts('crossbreed', { hd: 4, minorAbilities: 1 });
+  ok('crossbreed 4×2000 + 1×625 = 8625, component 0', xc.baseCost === 8625 && xc.componentCostGp === 0);
+  // throw bump: +1 per 5,000gp; necromancy ×2 if unwilling
+  const { c, m } = mage({ level: 11 });   // L11 throw target 6 (INT etc. are itemized modifiers, not the target)
+  const pd = ACKS.blankResearchProject({ kind: 'construct-design', researcherCharacterId: m.id, config: { hd: 6, minorAbilities: 2, majorAbilities: 1 } });
+  ok('construct throw target = L11 (6) + floor(18250/5000)=3 = 9', ACKS.researchThrowInfo(c, pd).target === 9);
+  const pw = ACKS.blankResearchProject({ kind: 'necromancy', researcherCharacterId: m.id, config: { hd: 10, willing: true } });    // cost 20000 → +4
+  const pu = ACKS.blankResearchProject({ kind: 'necromancy', researcherCharacterId: m.id, config: { hd: 10, willing: false } });   // → +8
+  ok('necromancy willing target = 6 + 4 = 10', ACKS.researchThrowInfo(c, pw).target === 10);
+  ok('necromancy unwilling target = 6 + 8 = 14', ACKS.researchThrowInfo(c, pu).target === 14);
+}
+
+// =============================================================================
+section('AD-M2 — eligibility (L11; craftpriest L9; necromancy Chaotic; proficiency +2 levels)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11 });
+  ok('arcane L11 → eligible for construct design', ACKS.isEligibleResearcher(c, m, 'construct-design', {}).ok === true);
+  ok('arcane L11 → eligible for crossbreed', ACKS.isEligibleResearcher(c, m, 'crossbreed', {}).ok === true);
+  const { c: c9, m: m9 } = mage({ level: 9 });
+  ok('arcane L9 → NOT eligible for constructs (needs 11)', ACKS.isEligibleResearcher(c9, m9, 'construct-manufacture', {}).reason === 'level-too-low');
+  // dwarven craftpriest L9 → constructs at L9 (RR p.394)
+  const { c: cp, m: cpm } = mage({ level: 9, cls: 'Craftpriest' });
+  ok('craftpriest L9 → eligible for constructs', ACKS.isEligibleResearcher(cp, cpm, 'construct-manufacture', {}).ok === true);
+  ok('craftpriest construct min level = 9', ACKS.researchEffectiveMinLevel('construct-design', {}, cpm) === 9);
+  ok('non-craftpriest construct min level = 11', ACKS.researchEffectiveMinLevel('construct-design', {}, m) === 11);
+  // necromancy needs a Chaotic caster (RR p.396)
+  const { c: cn, m: mn } = mage({ level: 11 });   // default alignment Neutral
+  ok('necromancy by a Neutral mage → not-chaotic', ACKS.isEligibleResearcher(cn, mn, 'necromancy', {}).reason === 'not-chaotic');
+  mn.alignment = 'Chaotic';
+  ok('necromancy by a Chaotic L11 mage → eligible', ACKS.isEligibleResearcher(cn, mn, 'necromancy', {}).ok === true);
+  // Black Lore of Zahar → eligibility +2 levels for necromancy (RR p.389)
+  const { c: cb, m: mb } = mage({ level: 9 });
+  mb.alignment = 'Chaotic'; mb.proficiencies = [{ key: 'black-lore-of-zahar', ranks: 1 }];
+  ok('Black Lore L9 Chaotic → eligible for necromancy (+2 levels)', ACKS.isEligibleResearcher(cb, mb, 'necromancy', {}).ok === true);
+  // Transmogrification → crossbreed +2 levels
+  const { c: cx, m: mx } = mage({ level: 9 });
+  mx.proficiencies = [{ key: 'transmogrification', ranks: 1 }];
+  ok('Transmogrification L9 → eligible for crossbreed (+2 levels)', ACKS.isEligibleResearcher(cx, mx, 'crossbreed', {}).ok === true);
+}
+
+// =============================================================================
+section('AD-M2 — proficiency throw + rate mods (Black Lore on necromancy)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11 });
+  m.alignment = 'Chaotic'; m.proficiencies = [{ key: 'black-lore-of-zahar', ranks: 1 }];
+  const p = ACKS.blankResearchProject({ kind: 'necromancy', researcherCharacterId: m.id, config: { hd: 10, willing: true } });
+  ok('Black Lore +2 on a necromancy throw', ACKS.researchThrowInfo(c, p).modifiers.some(x => /black lore/i.test(x.label) && x.value === 2));
+  ok('Black Lore +10% research rate on necromancy (1750 → 1925)', Math.abs(ACKS.totalResearchRate(c, p) - 1925) < 0.001);
+  // a non-necromancy kind does NOT get the Black Lore mods
+  const pc = ACKS.blankResearchProject({ kind: 'construct-design', researcherCharacterId: m.id, config: { hd: 4 } });
+  ok('Black Lore does not apply to constructs', !ACKS.researchThrowInfo(c, pc).modifiers.some(x => /black lore/i.test(x.label)));
+}
+
+// =============================================================================
+section('AD-M2 — manufacture mints a construct (mindless = auto-controlled)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, gp: 100000 });
+  const r = ACKS.startResearchProject(c, { kind: 'construct-manufacture', researcherCharacterId: m.id, config: { hd: 6, targetName: 'Iron Golem', quantity: 1 } });
+  ok('construct-manufacture starts (material 12000 debited)', r.ok && m.coins.gp === 88000);
+  ACKS.processResearchForTurn(c, {});   // L11 1750×30 = 52500 ≥ 12000
+  ok('awaiting-throw after a month', r.project.status === 'awaiting-throw');
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { rng: () => 0.999 });   // no component cost; nat 20
+  ok('manufacture succeeds', res.ok && res.succeeded === true);
+  ok('a construct Group is minted', (c.groups || []).length === 1 && c.groups[0].name === 'Iron Golem' && c.groups[0].groupTemplate.creatureTypes.includes('construct'));
+  ok('a mindless construct is auto-controlled (commander = maker, socialTier minion)', c.groups[0].commanderCharacterId === m.id && c.groups[0].socialTier === 'minion');
+  ok('kindResult.groupId + controlled', r.project.kindResult.groupId === c.groups[0].id && r.project.kindResult.controlled === true);
+  ok('a construct-manufactured event landed', c.eventLog.some(e => e.event.kind === 'construct-manufactured'));
+}
+
+// =============================================================================
+section('AD-M2 — necromancy: components + willing auto-loyal; a sentient creation can slip control');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, gp: 100000 });
+  m.alignment = 'Chaotic';
+  const r = ACKS.startResearchProject(c, { kind: 'necromancy', researcherCharacterId: m.id, config: { hd: 8, willing: true, targetName: 'Skeletal Champion' } });
+  ok('necromancy component cost = 16000', r.project.componentCostGp === 16000);
+  ACKS.processResearchForTurn(c, {});
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { componentPlan: { miscGp: 16000 }, rng: () => 0.999 });
+  ok('necromancy succeeds', res.succeeded === true);
+  ok('an undead Group is minted (creatureTypes undead)', (c.groups || []).some(g => g.name === 'Skeletal Champion' && g.groupTemplate.creatureTypes.includes('undead')));
+  ok('a willing subject → auto-loyal (controlled, no reaction needed)', r.project.kindResult.controlled === true && r.project.kindResult.willing === true);
+  ok('a necromancy-performed event landed', c.eventLog.some(e => e.event.kind === 'necromancy-performed'));
+  // a SENTIENT construct: throw succeeds but a bad disposition reaction slips control (the rng stream:
+  // call 1 = the 1d20 throw [high → success], calls 2-3 = the 2d6 reaction [low → hostile → free-willed]).
+  const { c: c2, m: m2 } = mage({ level: 11, gp: 100000 });
+  const r2 = ACKS.startResearchProject(c2, { kind: 'construct-manufacture', researcherCharacterId: m2.id, config: { hd: 6, sentient: true, targetName: 'Awakened Statue' } });
+  ACKS.processResearchForTurn(c2, {});
+  let n = 0; const seqRng = () => { n++; return (n === 1) ? 0.95 : 0.0; };
+  const res2 = ACKS.payAndRollResearchThrow(c2, r2.project.id, { rng: seqRng });
+  ok('the throw succeeded but the sentient construct slipped control', res2.succeeded === true && r2.project.kindResult.controlled === false);
+  const g2 = (c2.groups || []).find(x => x.name === 'Awakened Statue');
+  ok('a free-willed creation has no commander + is independent', g2 && g2.commanderCharacterId === null && g2.socialTier === 'independent');
+}
+
+// =============================================================================
+section('AD-M2 — construct DESIGN produces a formula (no creature); crossbreed kills the progenitors');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, gp: 100000 });
+  const r = ACKS.startResearchProject(c, { kind: 'construct-design', researcherCharacterId: m.id, config: { hd: 6, targetName: 'Stone Guardian' } });
+  ACKS.processResearchForTurn(c, {});
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { rng: () => 0.999 });
+  ok('design succeeds → a formula (no Group minted)', res.succeeded === true && (c.groups || []).length === 0 && /^construct:/.test(r.project.kindResult.formula));
+  ok('the construct formula is recorded on the maker', (m.magicFormulas || []).some(f => f.kind === 'construct' && f.name === 'Stone Guardian'));
+  // crossbreed consumes designated progenitor Groups (RR p.396)
+  const { c: c2, m: m2 } = mage({ level: 11, gp: 100000 });
+  const prog = ACKS.blankGroup({ id: 'grp-prog', groupTemplate: { monsterCatalogKey: 'wolf' }, count: 6, casualties: 0 });
+  c2.groups = [prog];
+  const r2 = ACKS.startResearchProject(c2, { kind: 'crossbreed', researcherCharacterId: m2.id, config: { hd: 4, targetName: 'Wolf-thing', preserveMemory: true, progenitorGroupIds: ['grp-prog'] } });
+  ACKS.processResearchForTurn(c2, {});
+  const res2 = ACKS.payAndRollResearchThrow(c2, r2.project.id, { rng: () => 0.999 });
+  ok('crossbreed succeeds, mints a creature', res2.succeeded === true && (c2.groups || []).some(g => g.name === 'Wolf-thing'));
+  ok('preserved memory → auto-controlled', r2.project.kindResult.controlled === true);
+  ok('the progenitor group is consumed (casualties = count)', prog.casualties === 6 && r2.project.kindResult.progenitorsKilled === 1);
+  ok('a crossbreed-created event landed', c2.eventLog.some(e => e.event.kind === 'crossbreed-created'));
+}
+
+// =============================================================================
 section('commitTurn hook (the demo — a real month accrues research)');
 // =============================================================================
 {
@@ -286,7 +418,7 @@ section('Registration — prefix / entity-registry / field-schema / events / imp
     const keys = new Set(Object.keys(ACKS.blankResearchProject({})));
     return sc.fields.filter(f => f.type !== 'computed').every(f => keys.has(f.name));
   })());
-  const evKinds = ['magic-research-started','magic-research-progress','magic-research-completed','magic-research-failed','magic-item-created'];
+  const evKinds = ['magic-research-started','magic-research-progress','magic-research-completed','magic-research-failed','magic-item-created','construct-manufactured','crossbreed-created','necromancy-performed'];
   evKinds.forEach(k => {
     ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
     ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);

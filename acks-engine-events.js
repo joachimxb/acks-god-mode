@@ -281,7 +281,11 @@ const EVENT_KINDS = Object.freeze([
   'magic-research-progress',  // monthly research investment toward a project (campaignLogHidden — routine)
   'magic-research-completed', // the throw (or no-throw) succeeds → the result applied
   'magic-research-failed',    // the throw fails → all time, money, materials & components lost (RR p.388)
-  'magic-item-created'        // item creation mints a Notable Item (RR pp.391–393)
+  'magic-item-created',       // item creation mints a Notable Item (RR pp.391–393)
+  // === Phase 4 — Magic Research AD-M2 (the high-tier creature-minting kinds; RR pp.394–398) ===
+  'construct-manufactured',   // manufacture a construct (a Group; mindless auto-controlled, else a reaction)
+  'crossbreed-created',       // breed a new crossbreed creature (a Group; the progenitors are consumed)
+  'necromancy-performed'      // raise an intelligent undead (a Group; willing auto-loyal, else a reaction)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -897,6 +901,19 @@ const EVENT_SCHEMAS = Object.freeze({
   'magic-item-created': {
     R: { projectId: 'string', notableItemId: 'string' },
     O: { makerCharacterId: 'string', itemKind: 'string', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research AD-M2 (the high-tier creature-minting kinds; RR pp.394–398) ===
+  'construct-manufactured': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', undead: 'boolean', narrative: 'string' }
+  },
+  'crossbreed-created': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', progenitorsKilled: 'number', narrative: 'string' }
+  },
+  'necromancy-performed': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', willing: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2494,6 +2511,9 @@ registerEventHandler('magic-research-progress', applyEvent_researchAudit);
 registerEventHandler('magic-research-completed', applyEvent_researchAudit);
 registerEventHandler('magic-research-failed', applyEvent_researchAudit);
 registerEventHandler('magic-item-created', applyEvent_researchAudit);
+registerEventHandler('construct-manufactured', applyEvent_researchAudit);
+registerEventHandler('crossbreed-created', applyEvent_researchAudit);
+registerEventHandler('necromancy-performed', applyEvent_researchAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5532,7 +5552,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // + the character-sheet ⚗ Research panel); a raw emit would record a research started/progress/completed/
   // failed or an item creation the rsp- project + the minted item don't show.
   'magic-research-started', 'magic-research-progress', 'magic-research-completed',
-  'magic-research-failed', 'magic-item-created'
+  'magic-research-failed', 'magic-item-created',
+  // AD-M2 — owned by acks-engine-magic-research.js (the creature-minting result of a research throw).
+  'construct-manufactured', 'crossbreed-created', 'necromancy-performed'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

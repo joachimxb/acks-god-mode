@@ -5478,7 +5478,10 @@
                 "magic-research-progress",
                 "magic-research-completed",
                 "magic-research-failed",
-                "magic-item-created"
+                "magic-item-created",
+                "construct-manufactured",
+                "crossbreed-created",
+                "necromancy-performed"
               ]
             },
             "id": {
@@ -5572,7 +5575,7 @@
     "schemaVersion": 2,
     "entityKinds": 50,
     "typedKinds": 33,
-    "eventKinds": 92,
+    "eventKinds": 95,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
