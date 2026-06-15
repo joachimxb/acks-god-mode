@@ -1902,15 +1902,24 @@ section('E6 — the wander activity: migrants move on the Day Clock (half speed,
   }
   ok('the wander never steps directly back into the hex it just left (across days too)', backtracked === false);
 
-  // the GM's parking lever + the GM-move reseed
-  g.wanderState.halted = true;
-  ok('wanderState.halted parks the band (no record)', ACKS.proposeMonsterBandDay(c, { dayInMonth: 20 }).pendingRecords.length === 0);
-  g.wanderState.halted = false;
-  g.currentHexId = 'hex-0-0';   // the GM moved the band — the hex is the placement truth
-  res = ACKS.proposeMonsterBandDay(c, { dayInMonth: 21 });
-  rec = res.pendingRecords[0];
-  ok('a GM move reseeds the walk from the new hex (lastCoord cleared)',
-    rec && rec.newWanderState && (Math.abs(rec.path[0].q - 0) + Math.abs(rec.path[0].r - 0)) <= 2);
+  // the GM's parking lever + the GM-move reseed.
+  // Re-seed on a fresh wandering band: the wander loop above can settle the band (which
+  // nulls wanderState), so isolate these assertions from that run-order nondeterminism.
+  {
+    const parkC = mkWorld();
+    const parkG = ACKS.blankGroup({ name: 'The Grey Pack',
+      groupTemplate: { monsterCatalogKey: 'common-wolf', creatureTypes: ['animal'], hitDice: '2+2' },
+      count: 6, currentHexId: 'hex-1-1' });
+    parkC.groups.push(parkG);
+    ACKS.commitMonsterBandRecord(parkC, ACKS.proposeMonsterBandDay(parkC, { dayInMonth: 2 }).pendingRecords[0]);
+    parkG.wanderState.halted = true;
+    ok('wanderState.halted parks the band (no record)', ACKS.proposeMonsterBandDay(parkC, { dayInMonth: 20 }).pendingRecords.length === 0);
+    parkG.wanderState.halted = false;
+    parkG.currentHexId = 'hex-0-0';   // the GM moved the band — the hex is the placement truth
+    const parkRec = ACKS.proposeMonsterBandDay(parkC, { dayInMonth: 21 }).pendingRecords[0];
+    ok('a GM move reseeds the walk from the new hex (lastCoord cleared)',
+      parkRec && parkRec.newWanderState && (Math.abs(parkRec.path[0].q - 0) + Math.abs(parkRec.path[0].r - 0)) <= 2);
+  }
 
   // exclusions: housed, chase-side, rule OFF
   c = mkWorld();
