@@ -137,6 +137,8 @@ const ID_PREFIXES = Object.freeze({
   congregation:         'con',
   divineFavor:          'dfv',
   attunement:           'att',
+  // Sanctums AD-B (2026-06-15) — the apprenticeship relation (an L0 apprentice ↔ a sanctum master, RR p.386).
+  apprenticeship:       'apr',
   // Wave F (Architecture.md §3.5) — Settlement Adventures relation entity, reserved 2026-05-30
   settlementVisit:      'svt',
   // Wave D (Architecture.md §3.5) + Phase 6 Codes shared — Oath relation entity, reserved 2026-05-30
@@ -1085,6 +1087,8 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!Array.isArray(campaign.battles)) campaign.battles = [];
   // Magic Research (AD-M1, 2026-06-15) — the Arcane-Domain consumer (RR pp.388–393). Research Projects.
   if(!Array.isArray(campaign.researchProjects)) campaign.researchProjects = [];
+  // Sanctums AD-B (2026-06-15) — the apprenticeship relation (an L0 apprentice ↔ a sanctum master, RR p.386).
+  if(!Array.isArray(campaign.apprenticeships)) campaign.apprenticeships = [];
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -9209,6 +9213,23 @@ function commitTurn(campaign, proposal, options){
         (researchResult.logEntries || []).forEach(l => logEntries.push(l));
       }
     } catch(e){ /* never let magic research fail the monthly commit */ }
+  }
+
+  // === THE ARCANE DOMAIN — sanctum apprentices (Phase 4 Sanctums, AD-B; RR p.386) ===
+  // The monthly sanctum consumer advances each apprentice's study clock (Q5: 12 monthly turns ≈ 1 year);
+  // a full year of study earns a research throw (18+ ± INT) — success → advance to an L1 companion (a
+  // henchman), an unmodified 1–3 → discouraged + leaves. Each year also draws +1d6 fresh L0 apprentices
+  // (to the cap). Late-bound (acks-engine-sanctums.js loads after this file) + try-guarded (the Religion/
+  // arcane precedent), so it can never fail the core monthly commit. No house rule (RAW core, dormant —
+  // no sanctums ⇒ a no-op).
+  let sanctumResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processSanctumsForTurn === 'function'){
+        sanctumResult = global.ACKS.processSanctumsForTurn(campaign, { rng }) || sanctumResult;
+        (sanctumResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let the sanctum apprentice tick fail the monthly commit */ }
   }
 
   // === RUMOR AUTO-EMIT ===

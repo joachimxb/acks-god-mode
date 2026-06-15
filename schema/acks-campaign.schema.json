@@ -47,6 +47,12 @@
         "$ref": "#/$defs/eventLogEntry"
       }
     },
+    "apprenticeships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/apprenticeship"
+      }
+    },
     "armies": {
       "type": "array",
       "items": {
@@ -2947,6 +2953,84 @@
         "id"
       ]
     },
+    "apprenticeship": {
+      "title": "Apprenticeship",
+      "description": "\"apprenticeship\" entity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "apprenticeCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "masterCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "sanctumConstructibleId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "constructible id — prefix \"cst-\""
+        },
+        "enrolledAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "yearsStudied": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "studying",
+            "advanced",
+            "left",
+            null
+          ]
+        },
+        "endedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "research-project": {
       "title": "Research Project",
       "description": "\"research-project\" entity",
@@ -5474,6 +5558,10 @@
                 "sovereignty-lost",
                 "arcane-power-extracted",
                 "dungeon-harvested",
+                "sanctum-established",
+                "apprentice-attracted",
+                "apprentice-advanced",
+                "apprentice-discouraged",
                 "magic-research-started",
                 "magic-research-progress",
                 "magic-research-completed",
@@ -5577,9 +5665,9 @@
     "generatedBy": "scripts/build-schema.js",
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
-    "entityKinds": 50,
-    "typedKinds": 33,
-    "eventKinds": 99,
+    "entityKinds": 51,
+    "typedKinds": 34,
+    "eventKinds": 103,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",

@@ -238,6 +238,15 @@
       // relation (the divineFavor precedent).
       displayName: (c, obj) => obj ? ((obj.name) || ((obj.mageCharacterId || '?') + ' 🔮 ' + (obj.dungeonId || '?'))) : '' },
 
+    // === Phase 4 — Sanctums AD-B — the Apprenticeship relation (apr-, campaign.apprenticeships[]; RR p.386).
+    // An L0 apprentice studies under a sanctum-owning master toward an L1 companion. displayName reads only
+    // blankApprenticeship keys (name/apprenticeCharacterId/masterCharacterId) per the registry⊆factory invariant. ──
+    { kind: 'apprenticeship', label: 'Apprenticeship', pluralLabel: 'Apprenticeships', icon: '📖',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.apprenticeships) || [],
+      find: (c, id) => ((c && c.apprenticeships) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => obj ? ((obj.name) || ((obj.apprenticeCharacterId || '?') + ' 📖 ' + (obj.masterCharacterId || '?'))) : '' },
+
     // === Phase 4 — Magic Research (AD-M1) — the Research Project (rsp-, campaign.researchProjects[];
     // RR pp.388–393). A multi-day arcane undertaking (the Arcane-Domain consumer). displayName reads
     // only blankResearchProject keys (name/kind/id) per the registry⊆factory invariant. ──

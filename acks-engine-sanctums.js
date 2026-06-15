@@ -19,21 +19,26 @@
  *          month-residency+throw + the one-active-per-dungeon invariant + supersede/relinquish/lapse)
  *          + establishSovereignty (reaction 12+ / recruit-chieftain / slay-strongest / GM-fiat).
  *   AD-E — arcanePowerAvailable / spendArcanePower (vicinity-gated, monthly spent-reset) + the 5
- *          contract accessors (2 real + 3 graceful stubs — facilities/assistants fill at AD-B) +
+ *          contract accessors (now ALL real — researchFacilityFor/researchAssistantsFor fill at AD-B) +
  *          processArcaneForTurn (the monthly reset+cache+record, hooked into commitTurn) + harvestDungeon
  *          → special-component items + the peasants-and-dungeons garrison penalty (dungeonGarrison
  *          MoralePenalty, late-bound into moraleModifiersFor — the militia/banditry precedent).
+ *   AD-B — Sanctum Constructible (kind:'sanctum') completion → researchFacilities scaffold + the RR p.386
+ *          apprentice/companion attraction (1d6 companions + 2d6 apprentices on completion, +1d6 apprentices
+ *          per year, caps 6/12); the apprenticeship relation (apr-, blankApprenticeship + campaign.
+ *          apprenticeships[]); the yearly research-throw progression (processSanctumsForTurn, hooked into
+ *          commitTurn — advance→companion / discouraged→leaves); setSanctumFacility (the facilities editor).
+ *          Companions reuse henchmanships; closes the §5 facilities/assistants contract Magic Research reads.
  *
- * DEFERRED (later AD-waves, stacked on this branch): AD-B (Sanctum Constructible + apprentice/companion
- * attraction + the apprenticeship relation), AD-C (dungeon construction Project + the Vagaries-of-
- * Incursion auto-population), AD-M (Magic Research — the consumer of the §5 contract), the daily
- * day-tick grain for arcane power (this slice ships the monthly model — the visible-planning-info path,
- * §4.9), and the arcane↔divine co-extraction / become-a-god seam (D2, Religion-owned).
+ * DEFERRED (later AD-waves, stacked later): AD-C (dungeon construction Project + the Vagaries-of-Incursion
+ * auto-population), the daily day-tick grain for arcane power (this slice ships the monthly model — the
+ * visible-planning-info path, §4.9), and the arcane↔divine co-extraction / become-a-god seam (D2,
+ * Religion-owned). AD-M (Magic Research) is SHIPPED (acks-engine-magic-research.js, AD-M1→AD-M4).
  *
- * RAW-default polarity (D10, §7): NO house rule — sanctums/dungeons/attunement/sovereignty/arcane power
- * are core RAW, dormant-until-used (the data is simply empty until a GM builds/finds a dungeon, like the
- * warfare layer with no army). No new entity/prefix (att- is registered; Attunement is the att- entity;
- * no new house rule).
+ * RAW-default polarity (D10, §7): NO house rule — sanctums/dungeons/attunement/sovereignty/arcane power/
+ * apprentices are core RAW, dormant-until-used (the data is simply empty until a GM builds a sanctum/
+ * dungeon, like the warfare layer with no army). AD-B adds ONE prefix (apr-) + entity (apprenticeship);
+ * att- was already registered. No new house rule.
  *
  * Loads after acks-engine-delves.js (lairsInDungeon / dungeonActiveAttunement) + after the canonical set
  * (newId / ID_PREFIXES / findGroup / groupActiveCount / abilityMod / totalFamilies / MONSTER_CATALOG /
@@ -479,9 +484,10 @@
     return out;
   }
 
-  // §5 CONTRACT (graceful stub — facilities fill at AD-B) — the best accessible research facility of a
-  // kind (library / workshop / mortuary / crossbreeding-lab) on a sanctum (or a guild/temple) the caster
-  // can use. Reads constructible.kindSpecific.researchFacilities[]; returns the highest-value match or null.
+  // §5 CONTRACT (REAL as of AD-B — facilities are created by onSanctumConstructed + setSanctumFacility) —
+  // the best accessible research facility of a kind (library / workshop / mortuary / crossbreeding-lab) on a
+  // sanctum (or a guild/temple) the caster can use. Reads constructible.kindSpecific.researchFacilities[];
+  // returns the highest-value match or null.
   function researchFacilityFor(campaign, charId, kind){
     const constructibles = (campaign && Array.isArray(campaign.constructibles)) ? campaign.constructibles : [];
     let best = null;
@@ -499,9 +505,9 @@
     return best;
   }
 
-  // §5 CONTRACT (graceful stub — apprenticeships fill at AD-B) — the research assistants available to a
-  // master: his companions (henchmen — Architecture henchmanship) + apprentices (the apprenticeship
-  // relation, AD-B). Returns [{ characterId, level, role:'companion'|'apprentice' }].
+  // §5 CONTRACT (REAL as of AD-B — apprenticeships are created by attractToSanctum) — the research
+  // assistants available to a master: his companions (henchmen — Architecture henchmanship) + apprentices
+  // (the apprenticeship relation, AD-B). Returns [{ characterId, level, role:'companion'|'apprentice' }].
   function researchAssistantsFor(campaign, charId){
     const out = [];
     _chars(campaign).forEach(c => {
@@ -650,6 +656,256 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // AD-B — Sanctum establishment + apprentices & companions (RR p.386)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // RAW constants (RR p.386).
+  const SANCTUM_COMPANION_CAP = 6;        // max companions (L1+) attracted to a sanctum
+  const SANCTUM_APPRENTICE_CAP = 12;      // max apprentices (L0) studying at once
+  const APPRENTICE_THROW_TARGET = 18;     // a year of study → research throw 18+ ± INT
+  const APPRENTICE_MIN_INT = 9;           // apprentices have INT ≥ 9
+  const MONTHS_PER_YEAR = 12;             // Q5 — 12 monthly turns ≈ 1 year (the shared interim; OQ1)
+  const FACILITY_KINDS = ['library','workshop','mortuary','crossbreeding-lab'];  // §3.3
+  // A small arcane-flavored name pool for the generated thin shells (OQ5 — the NPC Generator fleshes
+  // them out later; a GM renames freely). Picked by the seeded rng.
+  const _SANCTUM_NAMES = ['Aldric','Belisaria','Cyrus','Delphine','Eudoxia','Faustus','Gwendor','Helena',
+    'Ilias','Junia','Kessian','Lucretia','Mordrin','Nerisse','Ovid','Phaedra','Quill','Rhea','Severin',
+    'Thessaly','Ulric','Vex','Wynne','Xanthe','Yorvic','Zephyra'];
+
+  function _abMod(ch, key){ const A = _A(); const v = (ch && ch.abilities && ch.abilities[key]) || 10; return (typeof A.abilityMod === 'function') ? A.abilityMod(v) : Math.floor((Number(v) - 10) / 3); }
+  function _3d6(rng){ return _d6(rng) + _d6(rng) + _d6(rng); }
+  function _rollAbilities(rng){ return { STR:_3d6(rng), INT:_3d6(rng), WIL:_3d6(rng), DEX:_3d6(rng), CON:_3d6(rng), CHA:_3d6(rng) }; }
+  function _pickName(rng){ const i = Math.floor((rng() || 0) * _SANCTUM_NAMES.length); return _SANCTUM_NAMES[Math.min(_SANCTUM_NAMES.length - 1, Math.max(0, i))]; }
+
+  function _constructibles(campaign){ return (campaign && Array.isArray(campaign.constructibles)) ? campaign.constructibles : []; }
+  function _findConstructible(campaign, id){ return _constructibles(campaign).find(c => c && c.id === id) || null; }
+  function _apprenticeships(campaign){ return (campaign && Array.isArray(campaign.apprenticeships)) ? campaign.apprenticeships : []; }
+  function isSanctum(cst){ return !!(cst && cst.constructibleKind === 'sanctum'); }
+  function _sanctumMasterId(cst){ return (cst && cst.kindSpecific && cst.kindSpecific.builderCharacterId) || (cst && cst.ownerCharacterId) || null; }
+
+  // The apprenticeship relation (apr-, campaign.apprenticeships[]). An L0 apprentice (INT ≥ 9) studies
+  // under a sanctum-owning master; after a year a research throw (18+ ± INT) advances him to an L1
+  // companion (a henchman) or discourages him (he leaves). Companions (L1+) reuse henchmanships — this is
+  // only the L0 schooling track (§3.5). A genuine §3.1 relation (lifetime, terms, first-class events).
+  function blankApprenticeship(opts={}){
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      id: opts.id || newId(ID_PREFIXES.apprenticeship),           // 'apr-' (engine-registered)
+      name: opts.name || '',
+      apprenticeCharacterId: opts.apprenticeCharacterId || null,  // subject — an L0 Character, INT ≥ 9
+      masterCharacterId: opts.masterCharacterId || null,          // the sanctum-owning arcane caster
+      sanctumConstructibleId: opts.sanctumConstructibleId || null,
+      enrolledAtTurn: (opts.enrolledAtTurn != null) ? opts.enrolledAtTurn : 1,
+      yearsStudied: opts.yearsStudied || 0,
+      lastResearchThrow: opts.lastResearchThrow || null,          // {roll, intMod, total, target, result, atTurn}
+      status: opts.status || 'studying',                          // studying | advanced | left
+      endedAtTurn: (opts.endedAtTurn === undefined ? null : opts.endedAtTurn),
+      history: opts.history || []
+    };
+  }
+
+  // ── Sanctum + apprenticeship lookups ──
+  function sanctumsOwnedBy(campaign, charId){ return _constructibles(campaign).filter(c => isSanctum(c) && (_sanctumMasterId(c) === charId)); }
+  function apprenticeshipsForSanctum(campaign, sanctumId){ return _apprenticeships(campaign).filter(a => a && a.sanctumConstructibleId === sanctumId); }
+  function apprenticeshipsForMaster(campaign, charId){ return _apprenticeships(campaign).filter(a => a && a.masterCharacterId === charId); }
+  function studyingApprenticeships(campaign, sanctumId){ return apprenticeshipsForSanctum(campaign, sanctumId).filter(a => a && (a.status == null || a.status === 'studying')); }
+  // Companions = henchmen/followers bound to the master (the research-assistant pool; §5).
+  function companionsForMaster(campaign, charId){ return _chars(campaign).filter(c => c && c.id !== charId && c.liegeCharacterId === charId && (c.socialTier === 'henchman' || c.socialTier === 'follower')); }
+  // The full sanctum roster for the 🔮 tab — facilities + companions (tagged to this sanctum) + studying apprentices.
+  function sanctumRoster(campaign, sanctumId){
+    const cst = _findConstructible(campaign, sanctumId);
+    const masterId = _sanctumMasterId(cst);
+    const apprentices = studyingApprenticeships(campaign, sanctumId).map(a => {
+      const ch = _findChar(campaign, a.apprenticeCharacterId);
+      return { apprenticeshipId: a.id, characterId: a.apprenticeCharacterId, name: (ch && ch.name) || a.apprenticeCharacterId,
+        intMod: ch ? _abMod(ch, 'INT') : 0, yearsStudied: a.yearsStudied || 0,
+        lastResearchThrow: a.lastResearchThrow || null, enrolledAtTurn: a.enrolledAtTurn };
+    });
+    const companions = _chars(campaign).filter(c => c && c.sanctumCompanionSanctumId === sanctumId)
+      .map(c => ({ characterId: c.id, name: c.name || c.id, level: Number(c.level) || 1, class: c.class || '' }));
+    return { sanctumId, masterId, facilities: (cst && cst.kindSpecific && cst.kindSpecific.researchFacilities) || [], companions, apprentices };
+  }
+
+  // Generate a thin-shell apprentice (L0, INT ≥ 9) or companion (L1–3 arcane caster) Character + push it.
+  function _generateSanctumCharacter(campaign, opts){
+    const A = _A(); opts = opts || {};
+    if(typeof A.blankCharacter !== 'function') return null;
+    const rng = _rng(opts);
+    const master = opts.master || {};
+    const isApprentice = opts.role === 'apprentice';
+    const abilities = _rollAbilities(rng);
+    if(isApprentice){ let tries = 0; while(abilities.INT < APPRENTICE_MIN_INT && tries < 12){ abilities.INT = _3d6(rng); tries++; } if(abilities.INT < APPRENTICE_MIN_INT) abilities.INT = APPRENTICE_MIN_INT; }
+    const ch = A.blankCharacter({
+      name: _pickName(rng),
+      class: isApprentice ? '' : (master.class || 'Mage'),
+      level: isApprentice ? 0 : (1 + Math.floor((rng() || 0) * 3)),   // companions L1–3
+      alignment: master.alignment || 'N',
+      race: master.race || 'human',
+      abilities,
+      controlledBy: 'gm',
+      socialTier: isApprentice ? 'independent' : 'henchman',
+      liegeCharacterId: master.id || null,
+      currentHexId: opts.hexId || master.currentHexId || null
+    });
+    if(!ch) return null;
+    if(isApprentice){ ch.level = 0; }   // blankCharacter coerces level:0 → 1 (0 is falsy); apprentices are 0th-level (RR p.386)
+    else { ch.isArcaneCaster = true; if(opts.sanctumId) ch.sanctumCompanionSanctumId = opts.sanctumId; }
+    if(!Array.isArray(campaign.characters)) campaign.characters = [];
+    campaign.characters.push(ch);
+    return ch;
+  }
+
+  // Attract followers to a sanctum (RR p.386). Initial = 1d6 companions + 2d6 apprentices; yearly = +1d6
+  // apprentices. Capped (6 companions / 12 apprentices studying). Companions bind via henchmanship; apprentices
+  // via the apprenticeship relation. opts: { sanctumId, masterId, isInitial, rng }
+  function attractToSanctum(campaign, opts){
+    opts = opts || {};
+    const A = _A();
+    const cst = _findConstructible(campaign, opts.sanctumId);
+    const masterId = opts.masterId || _sanctumMasterId(cst);
+    const master = _findChar(campaign, masterId);
+    if(!cst || !master) return { ok: false, reason: 'no-sanctum-or-master', companions: [], apprentices: [] };
+    const rng = _rng(opts);
+    const isInitial = opts.isInitial === true;
+    const hexId = cst.hexId || master.currentHexId || null;
+    const companionRoll = isInitial ? _d6(rng) : 0;                        // 1d6 companions (initial only)
+    const apprenticeRoll = isInitial ? (_d6(rng) + _d6(rng)) : _d6(rng);   // 2d6 initial / 1d6 yearly
+    const companionsHeld = _chars(campaign).filter(c => c && c.sanctumCompanionSanctumId === cst.id).length;
+    const nCompanions = Math.max(0, Math.min(companionRoll, SANCTUM_COMPANION_CAP - companionsHeld));
+    const nApprentices = Math.max(0, Math.min(apprenticeRoll, SANCTUM_APPRENTICE_CAP - studyingApprenticeships(campaign, cst.id).length));
+    const companions = [], apprentices = [];
+    for(let i = 0; i < nCompanions; i++){
+      const ch = _generateSanctumCharacter(campaign, { role: 'companion', master, hexId, sanctumId: cst.id, rng });
+      if(!ch) continue;
+      if(typeof A.createHenchmanship === 'function') A.createHenchmanship(campaign, { subjectCharacterId: ch.id, patronCharacterId: master.id, reason: 'sanctum-companion' });
+      companions.push(ch.id);
+    }
+    for(let i = 0; i < nApprentices; i++){
+      const ch = _generateSanctumCharacter(campaign, { role: 'apprentice', master, hexId, sanctumId: cst.id, rng });
+      if(!ch) continue;
+      const appr = blankApprenticeship({ apprenticeCharacterId: ch.id, masterCharacterId: master.id, sanctumConstructibleId: cst.id, enrolledAtTurn: _currentTurn(campaign) });
+      appr.history.push({ turn: _currentTurn(campaign), type: 'enrolled', reason: 'attracted to ' + (cst.name || 'the sanctum') });
+      if(!Array.isArray(campaign.apprenticeships)) campaign.apprenticeships = [];   // init-on-write
+      campaign.apprenticeships.push(appr);
+      apprentices.push(ch.id);
+    }
+    if(companions.length || apprentices.length){
+      const cBit = companions.length ? (companions.length + ' companion' + (companions.length === 1 ? '' : 's')) : '';
+      const aBit = apprentices.length ? (apprentices.length + ' apprentice' + (apprentices.length === 1 ? '' : 's')) : '';
+      _recordArcaneEvent(campaign, 'apprentice-attracted',
+        { sanctumConstructibleId: cst.id, masterCharacterId: master.id, companionCharacterIds: companions, apprenticeCharacterIds: apprentices, initial: isInitial },
+        { primaryHexId: hexId, narrative: (master.name || master.id) + "'s sanctum attracts " + [cBit, aBit].filter(Boolean).join(' + '),
+          relatedEntities: [{ kind: 'character', id: master.id, role: 'subject' }, { kind: 'constructible', id: cst.id, role: 'site' }] });
+    }
+    return { ok: true, companions, apprentices, companionRoll, apprenticeRoll };
+  }
+
+  // Called by applyEvent_constructionCompleted when a kind:'sanctum' Constructible is spawned (RR p.386).
+  // Scaffolds the kindSpecific facilities block (empty — facilities are separate investments, §4.1) + fires
+  // the one-time apprentice/companion attraction. Idempotent (the sanctumEstablished guard) — safe if the
+  // event applies more than once (a preview clone never persists; the real commit fires it once).
+  function onSanctumConstructed(campaign, cst, opts){
+    opts = opts || {};
+    if(!campaign || !cst || !isSanctum(cst)) return { ok: false, reason: 'not-a-sanctum' };
+    if(cst.kindSpecific && cst.kindSpecific.sanctumEstablished) return { ok: true, alreadyEstablished: true };
+    const masterId = (cst.kindSpecific && cst.kindSpecific.builderCharacterId) || cst.ownerCharacterId
+      || (opts.event && opts.event.payload && opts.event.payload.ownerCharacterId) || null;
+    const ks = cst.kindSpecific = cst.kindSpecific || {};
+    ks.builderCharacterId = masterId;
+    if(!Array.isArray(ks.researchFacilities)) ks.researchFacilities = [];
+    ks.apprenticeYears = ks.apprenticeYears || 0;
+    ks.lastApprenticeAttractionTurn = _currentTurn(campaign);
+    ks.sanctumEstablished = true;
+    const master = _findChar(campaign, masterId);
+    _recordArcaneEvent(campaign, 'sanctum-established',
+      { constructibleId: cst.id, builderCharacterId: masterId },
+      { primaryHexId: cst.hexId, narrative: (master ? ((master.name || master.id) + ' establishes ') : 'A sanctum is established: ') + (cst.name || 'a sanctum'),
+        relatedEntities: (masterId ? [{ kind: 'character', id: masterId, role: 'subject' }] : []).concat([{ kind: 'constructible', id: cst.id, role: 'site' }]) });
+    const attraction = attractToSanctum(campaign, { sanctumId: cst.id, masterId, isInitial: true, rng: opts.rng });
+    return { ok: true, masterId, attraction };
+  }
+
+  // Set/raise a research facility's value on a sanctum (or any host Constructible — a guild/temple later).
+  // Facilities are separate investments (§4.1); valueGp gates + bonuses the magic-research throw (the §5
+  // researchFacilityFor accessor reads them). opts: { constructibleId, kind, valueGp, sharedByCharacterIds? }
+  function setSanctumFacility(campaign, opts){
+    opts = opts || {};
+    const cst = _findConstructible(campaign, opts.constructibleId);
+    if(!cst) return { ok: false, reason: 'no-constructible' };
+    if(FACILITY_KINDS.indexOf(opts.kind) < 0) return { ok: false, reason: 'bad-facility-kind' };
+    const ks = cst.kindSpecific = cst.kindSpecific || {};
+    if(!Array.isArray(ks.researchFacilities)) ks.researchFacilities = [];
+    let fac = ks.researchFacilities.find(f => f && f.kind === opts.kind);
+    if(!fac){ fac = { kind: opts.kind, valueGp: 0, sharedByCharacterIds: [] }; ks.researchFacilities.push(fac); }
+    fac.valueGp = Math.max(0, Math.round(Number(opts.valueGp) || 0));
+    if(Array.isArray(opts.sharedByCharacterIds)) fac.sharedByCharacterIds = opts.sharedByCharacterIds.slice();
+    return { ok: true, facility: fac, constructible: cst };
+  }
+
+  // The monthly sanctum consumer (§4.2) — hooked into commitTurn (the arcane/religion precedent). For each
+  // sanctum: advance each studying apprentice's study clock (Q5: 12 turns ≈ 1 year); a completed year earns a
+  // research throw (18+ ± INT) — success → advance to an L1 companion (henchman), an unmodified 1–3 →
+  // discouraged + leaves, else continues. Each year also draws +1d6 fresh L0 apprentices (to the cap).
+  function processSanctumsForTurn(campaign, options){
+    const o = options || {};
+    const out = { ran: false, logEntries: [], advanced: 0, discouraged: 0, attracted: 0 };
+    if(!campaign) return out;
+    out.ran = true;
+    const A = _A();
+    const rng = _rng(o);
+    const turn = _currentTurn(campaign);
+    for(const cst of _constructibles(campaign)){
+      if(!isSanctum(cst) || !(cst.kindSpecific && cst.kindSpecific.builderCharacterId)) continue;
+      const masterId = cst.kindSpecific.builderCharacterId;
+      const master = _findChar(campaign, masterId);
+      // Apprentice progression — a full year of study earns one research throw.
+      for(const appr of studyingApprenticeships(campaign, cst.id)){
+        const elapsedYears = Math.floor((turn - (appr.enrolledAtTurn != null ? appr.enrolledAtTurn : turn)) / MONTHS_PER_YEAR);
+        if(elapsedYears <= (appr.yearsStudied || 0)) continue;    // not a year-boundary this turn
+        appr.yearsStudied = (appr.yearsStudied || 0) + 1;
+        const ch = _findChar(campaign, appr.apprenticeCharacterId);
+        const intMod = ch ? _abMod(ch, 'INT') : 0;
+        const roll = 1 + Math.floor((rng() || 0) * 20);
+        const total = roll + intMod;
+        const discouraged = roll <= 3;                              // unmodified 1–3 → discouraged (RR p.386)
+        const advanced = !discouraged && total >= APPRENTICE_THROW_TARGET;
+        const result = discouraged ? 'discouraged-left' : (advanced ? 'advanced' : 'continues');
+        appr.lastResearchThrow = { roll, intMod, total, target: APPRENTICE_THROW_TARGET, result, atTurn: turn };
+        appr.history.push({ turn, type: 'research-throw', reason: 'year ' + appr.yearsStudied + ': ' + roll + (intMod ? ((intMod > 0 ? '+' : '') + intMod) : '') + ' = ' + total + ' vs ' + APPRENTICE_THROW_TARGET + '+ → ' + result });
+        if(advanced){
+          appr.status = 'advanced'; appr.endedAtTurn = turn;
+          if(ch){ ch.level = Math.max(1, Number(ch.level) || 0); ch.class = ch.class || (master && master.class) || 'Mage'; ch.socialTier = 'henchman'; ch.isArcaneCaster = true; ch.sanctumCompanionSanctumId = cst.id; if(!ch.liegeCharacterId) ch.liegeCharacterId = masterId; }
+          if(typeof A.createHenchmanship === 'function' && ch) A.createHenchmanship(campaign, { subjectCharacterId: ch.id, patronCharacterId: masterId, reason: 'apprentice-advanced' });
+          out.advanced++;
+          out.logEntries.push('🎓 ' + ((ch && ch.name) || 'An apprentice') + ' completes their studies under ' + ((master && master.name) || 'the master') + ' and becomes a companion');
+          _recordArcaneEvent(campaign, 'apprentice-advanced',
+            { apprenticeshipId: appr.id, apprenticeCharacterId: appr.apprenticeCharacterId, masterCharacterId: masterId, roll, total, intMod },
+            { primaryHexId: cst.hexId, narrative: ((ch && ch.name) || 'An apprentice') + ' advances to a companion under ' + ((master && master.name) || 'the master'),
+              relatedEntities: [{ kind: 'character', id: appr.apprenticeCharacterId, role: 'subject' }].concat(masterId ? [{ kind: 'character', id: masterId, role: 'patron' }] : []) });
+        } else if(discouraged){
+          appr.status = 'left'; appr.endedAtTurn = turn;
+          if(ch) ch.lifecycleState = 'departed';
+          out.discouraged++;
+          out.logEntries.push('📖 ' + ((ch && ch.name) || 'An apprentice') + ' grows discouraged and leaves ' + ((master && master.name) || 'the master') + "'s sanctum");
+          _recordArcaneEvent(campaign, 'apprentice-discouraged',
+            { apprenticeshipId: appr.id, apprenticeCharacterId: appr.apprenticeCharacterId, masterCharacterId: masterId, roll },
+            { primaryHexId: cst.hexId, narrative: ((ch && ch.name) || 'An apprentice') + ' grows discouraged and leaves the sanctum',
+              relatedEntities: [{ kind: 'character', id: appr.apprenticeCharacterId, role: 'subject' }].concat(masterId ? [{ kind: 'character', id: masterId, role: 'patron' }] : []) });
+        }
+      }
+      // Per-year fresh attraction (+1d6 apprentices), capped (RR p.386).
+      const lastAttract = (cst.kindSpecific.lastApprenticeAttractionTurn != null) ? cst.kindSpecific.lastApprenticeAttractionTurn : turn;
+      if(turn - lastAttract >= MONTHS_PER_YEAR){
+        const att = attractToSanctum(campaign, { sanctumId: cst.id, masterId, isInitial: false, rng });
+        cst.kindSpecific.lastApprenticeAttractionTurn = turn;
+        cst.kindSpecific.apprenticeYears = (cst.kindSpecific.apprenticeYears || 0) + 1;
+        if(att && att.apprentices && att.apprentices.length){ out.attracted += att.apprentices.length; out.logEntries.push('📖 ' + ((master && master.name) || 'A master') + "'s sanctum draws " + att.apprentices.length + ' new apprentice' + (att.apprentices.length === 1 ? '' : 's')); }
+      }
+    }
+    return out;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // Event emit — record-only (mirror religion's _recordReligionEvent): newEvent + setEventContext +
   // status APPLIED + push the eventLog entry. The arcane events are record-only audits (the verbs above
   // already applied state); applyEvent_arcaneAudit (acks-engine-events.js) keeps them well-formed on replay.
@@ -696,7 +952,12 @@
     dungeonsForArcaneCaster, arcanePowerAvailable, spendArcanePower, processArcaneForTurn,
     specialComponentsHeldBy, researchFacilityFor, researchAssistantsFor,
     // AD-E — harvesting + domain effects
-    harvestDungeon, dungeonRequiredGarrisonGpf, dungeonGarrisonMoralePenalty
+    harvestDungeon, dungeonRequiredGarrisonGpf, dungeonGarrisonMoralePenalty,
+    // AD-B — Sanctum establishment + apprentices/companions
+    SANCTUM_COMPANION_CAP, SANCTUM_APPRENTICE_CAP, FACILITY_KINDS,
+    blankApprenticeship, isSanctum, sanctumsOwnedBy,
+    apprenticeshipsForSanctum, apprenticeshipsForMaster, companionsForMaster, sanctumRoster,
+    attractToSanctum, onSanctumConstructed, setSanctumFacility, processSanctumsForTurn
   });
 
 })(typeof window !== 'undefined' ? window : global);

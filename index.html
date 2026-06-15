@@ -43,12 +43,12 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-14-burst5"></script>
-<script src="acks-engine-entities.js?v=2026-06-14-pt0"></script>
+<script src="acks-engine.js?v=2026-06-15-adb"></script>
+<script src="acks-engine-entities.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
-<script src="acks-engine-entity-registry.js?v=2026-06-14-burst5"></script>
-<script src="acks-engine-field-schemas.js?v=2026-06-14-burst5"></script>
-<script src="acks-engine-events.js?v=2026-06-15-adm4"></script>
+<script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
+<script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
+<script src="acks-engine-events.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-14-pt5"></script>
@@ -78,7 +78,7 @@
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
-<script src="acks-engine-sanctums.js?v=2026-06-15-arcane"></script>
+<script src="acks-engine-sanctums.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -9555,7 +9555,7 @@ document.addEventListener('alpine:init', () => {
     </div>
     <!-- Sub-tab bar inside the modal -->
     <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
-      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
+      <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
         <button @click="characterEditorTab=tab.id" :class="characterEditorTab===tab.id ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 text-sm border-b-2" :style="characterEditorTab===tab.id ? 'border-color:#2a1f12' : 'border-color:transparent'" x-text="tab.label"></button>
       </template>
     </div>
@@ -10733,6 +10733,77 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
             <p class="text-[11px] opacity-50 italic">Research advances each monthly turn (Advance Month). A project's labor fills the research pool at the researcher + assistants' rate; once full, pay the components and roll. The arcane power + special components come from your attuned dungeons (World ▸ 🕳️ Dungeons ▸ 🔮 Arcane).</p>
+          </div>
+        </template>
+      </div>
+
+      <!-- 🔮 SANCTUM tab — Phase 4 Sanctums AD-B (RR p.386). A sanctum-owner's facilities (the magic-
+           research seam), apprentice + companion roster (the research-assistant pool), and the attraction.
+           A sanctum is normally built via a Construction Project (RAW-timed); until that UI lands the GM
+           establishes a completed one here (the Admin verb). -->
+      <div x-show="characterEditorTab==='sanctum'" class="space-y-3">
+        <template x-if="characterSanctums(characterEditing).length === 0">
+          <div class="space-y-2">
+            <p class="text-sm italic opacity-70 py-2">No sanctum. A sanctum (RR p.386 — a 15,000 gp stronghold) houses an arcane caster's research facilities and attracts apprentices &amp; companions who serve as research assistants.</p>
+            <template x-if="canBuildSanctumUI(characterEditing)">
+              <div>
+                <button @click="establishSanctum(characterEditing)" :disabled="!characterEditing.currentHexId" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm disabled:opacity-40" title="Establish a completed sanctum at this character's hex (the Admin verb; RAW-timed construction lands with the Construction Wizard)">✨ Establish a sanctum here</button>
+                <span class="text-xs opacity-50 ml-2" x-show="!characterEditing.currentHexId">Set this character's hex (Location tab) first.</span>
+              </div>
+            </template>
+            <template x-if="!canBuildSanctumUI(characterEditing)">
+              <p class="text-xs opacity-60">Only an arcane caster of 9th level or higher establishes a sanctum (RR p.386). Set the class to an arcane class + level ≥ 9 (or tick <code>isArcaneCaster</code> in the Inspector).</p>
+            </template>
+          </div>
+        </template>
+
+        <template x-for="s in characterSanctums(characterEditing)" :key="s.id">
+          <div class="border border-ink/50 rounded p-3 space-y-3" style="background:#f7f1e1">
+            <div class="font-semibold text-sm">🔮 <span x-text="s.name || 'Sanctum'"></span><span class="opacity-60 font-normal text-xs" x-text="s.hexId ? (' · ' + sanctumHexLabel(s)) : ''"></span></div>
+
+            <!-- Research facilities (the §5 magic-research seam) -->
+            <div class="space-y-1">
+              <div class="text-xs font-semibold opacity-80">Research facilities <span class="font-normal opacity-60">— invest gp to bonus the research throw (+1 per 10,000 gp over 4,000, max +3; RR p.391)</span></div>
+              <template x-for="f in sanctumFacilityRows(s)" :key="f.kind">
+                <div class="flex items-center gap-2 text-xs">
+                  <span class="w-44" x-text="f.label"></span>
+                  <input type="number" min="0" step="1000" class="ed-input w-28" :value="f.valueGp" @change="setSanctumFacilityValue(s.id, f.kind, $event.target.value)">
+                  <span class="opacity-60">gp</span>
+                  <span class="font-mono" :class="f.bonus>0 ? 'accent-green' : 'opacity-40'" x-text="f.bonus>0 ? ('throw +' + f.bonus) : '—'"></span>
+                </div>
+              </template>
+            </div>
+
+            <!-- Companions (research assistants) -->
+            <div class="space-y-1">
+              <div class="text-xs font-semibold opacity-80">Companions <span class="font-normal opacity-60" x-text="'(' + sanctumRosterFor(s.id).companions.length + ' / ' + sanctumCompanionCap() + ')'"></span></div>
+              <template x-if="sanctumRosterFor(s.id).companions.length === 0">
+                <p class="text-xs italic opacity-50">No companions yet.</p>
+              </template>
+              <template x-for="c in sanctumRosterFor(s.id).companions" :key="c.characterId">
+                <div class="text-xs flex items-center gap-2">
+                  <button @click="openCharacterById(c.characterId)" class="underline" x-text="c.name"></button>
+                  <span class="opacity-60" x-text="(c.class || 'caster') + ' · L' + c.level"></span>
+                </div>
+              </template>
+            </div>
+
+            <!-- Apprentices (studying toward L1) -->
+            <div class="space-y-1">
+              <div class="text-xs font-semibold opacity-80">Apprentices <span class="font-normal opacity-60" x-text="'(' + sanctumRosterFor(s.id).apprentices.length + ' / ' + sanctumApprenticeCap() + ', studying)'"></span></div>
+              <template x-if="sanctumRosterFor(s.id).apprentices.length === 0">
+                <p class="text-xs italic opacity-50">No apprentices studying.</p>
+              </template>
+              <template x-for="a in sanctumRosterFor(s.id).apprentices" :key="a.apprenticeshipId">
+                <div class="text-xs flex items-center gap-2 flex-wrap">
+                  <button @click="openCharacterById(a.characterId)" class="underline" x-text="a.name"></button>
+                  <span class="opacity-60" x-text="'INT ' + (a.intMod>=0?'+':'') + a.intMod + ' · year ' + a.yearsStudied"></span>
+                  <span class="opacity-50" x-show="a.lastResearchThrow" x-text="a.lastResearchThrow ? ('· last throw ' + a.lastResearchThrow.total + ' vs ' + a.lastResearchThrow.target + '+ → ' + a.lastResearchThrow.result) : ''"></span>
+                </div>
+              </template>
+            </div>
+
+            <p class="text-[11px] opacity-50 italic">Each completed year of study (12 monthly turns) an apprentice rolls 18+ ± INT — success advances them to a companion; an unmodified 1–3 discourages them. The sanctum draws +1d6 fresh apprentices each year. Companions + apprentices are the research-assistant pool the ⚗ Research panel offers (RR p.386).</p>
           </div>
         </template>
       </div>
@@ -14700,6 +14771,49 @@ return {
   characterIsArcaneCaster(ch){ return !!(ch && window.ACKS.isArcaneCaster && window.ACKS.isArcaneCaster(ch)); },
   characterResearchProjects(ch){ return ch ? (window.ACKS.researchProjectsFor(this.currentCampaign, ch.id) || []) : []; },
   researchKindLabel(kind){ const m = window.ACKS.magicResearchKind(kind); return m ? (m.icon + ' ' + m.label) : kind; },
+  // ── Phase 4 — Sanctums AD-B · the 🔮 Sanctum character-sheet tab ──
+  characterSanctums(ch){ return ch ? (window.ACKS.sanctumsOwnedBy(this.currentCampaign, ch.id) || []) : []; },
+  canBuildSanctumUI(ch){ return !!(ch && window.ACKS.canOperateDungeon && window.ACKS.canOperateDungeon(ch)); },
+  sanctumCompanionCap(){ return window.ACKS.SANCTUM_COMPANION_CAP || 6; },
+  sanctumApprenticeCap(){ return window.ACKS.SANCTUM_APPRENTICE_CAP || 12; },
+  sanctumRosterFor(id){ return window.ACKS.sanctumRoster(this.currentCampaign, id) || { companions: [], apprentices: [], facilities: [] }; },
+  sanctumHexLabel(s){ const h = (this.currentCampaign && (this.currentCampaign.hexes||[]).find(x => x && x.id === s.hexId)); return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : s.hexId; },
+  openCharacterById(id){ const c = (this.currentCampaign && (this.currentCampaign.characters||[]).find(x => x && x.id === id)); if(c) this.openCharacterEditor(c); },
+  // The 4 research-facility rows for a sanctum, with the magic-research throw bonus each grants (RR p.391 —
+  // +1 per 10,000 gp over the 4,000 gp minimum, max +3; mirrors acks-engine-magic-research.js _facilityBonus).
+  sanctumFacilityRows(s){
+    const labels = { 'library':'📚 Library', 'workshop':'🛠 Workshop', 'mortuary':'💀 Mortuary', 'crossbreeding-lab':'🧬 Crossbreeding lab' };
+    const facs = (s && s.kindSpecific && Array.isArray(s.kindSpecific.researchFacilities)) ? s.kindSpecific.researchFacilities : [];
+    return (window.ACKS.FACILITY_KINDS || ['library','workshop','mortuary','crossbreeding-lab']).map(kind => {
+      const f = facs.find(x => x && x.kind === kind);
+      const valueGp = f ? (Number(f.valueGp) || 0) : 0;
+      return { kind, label: labels[kind] || kind, valueGp, bonus: Math.min(3, Math.floor(Math.max(0, valueGp - 4000) / 10000)) };
+    });
+  },
+  setSanctumFacilityValue(sanctumId, kind, value){
+    const r = window.ACKS.setSanctumFacility(this.currentCampaign, { constructibleId: sanctumId, kind, valueGp: Number(value) || 0 });
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); this.showToast('🔮 ' + kind + ' facility set to ' + (Number(value)||0).toLocaleString() + ' gp.'); }
+  },
+  // Establish a completed sanctum at the character's hex (the Admin verb; RAW-timed construction lands with
+  // the Construction Wizard). Fires onSanctumConstructed → facilities scaffold + the first attraction.
+  establishSanctum(ch){
+    if(!ch || !ch.currentHexId) return;
+    const camp = this.currentCampaign;
+    if(!Array.isArray(camp.constructibles)) camp.constructibles = [];
+    const cst = window.ACKS.blankConstructible({
+      constructibleKind: 'sanctum', constructibleSubtype: 'sanctum',
+      name: (ch.name || 'A mage') + "'s Sanctum",
+      hexId: ch.currentHexId, ownerCharacterId: ch.id,
+      ownerDomainId: ch.currentDomainId || null, buildValue: 15000,
+      completedAtTurn: camp.currentTurn || 1
+    });
+    camp.constructibles.push(cst);
+    const r = window.ACKS.onSanctumConstructed(camp, cst, {});
+    this.markDirty(); this.schedulePersist();
+    const att = r && r.attraction;
+    const drew = att ? ((att.companions||[]).length + ' companion' + ((att.companions||[]).length===1?'':'s') + ' + ' + (att.apprentices||[]).length + ' apprentice' + ((att.apprentices||[]).length===1?'':'s')) : '';
+    this.showToast('🔮 Sanctum established' + (drew ? ' — drew ' + drew : '') + '.');
+  },
   // The New-research modal
   openResearchModal(ch){
     if(!ch) return;
@@ -17971,6 +18085,28 @@ return {
       acts.push({kind:'unit-lieutenant:' + u.id, icon:'🪖',
                  label:'lieutenant of ' + (u.displayName || u.unitTypeKey || 'a unit'),
                  priority:2, deepLinkTo:{entity:'unit', id:u.id}});
+    }
+
+    // ── Contributor 11: The Arcane Domain — sanctums + apprentices (Phase 4 Sanctums AD-B; §3.11/§8.9) ──
+    // 🏛 keeping a sanctum + 🎓 tutoring apprentices (the master) / 📖 studying as an apprentice. Standing
+    // engagements like role posts (RR p.386). The arcane-power / research descriptors are the Magic-Research
+    // panel's; this is the sanctum-keeping + schooling side.
+    const _Asanctum = window.ACKS || {};
+    if(typeof _Asanctum.sanctumsOwnedBy === 'function'){
+      for(const s of (_Asanctum.sanctumsOwnedBy(this.currentCampaign, c.id) || [])){
+        acts.push({kind:'sanctum:' + s.id, icon:'🏛', label:'keeping ' + (s.name || 'a sanctum'),
+                   priority:2, deepLinkTo:{entity:'constructible', id:s.id}});
+        const roster = (typeof _Asanctum.sanctumRoster === 'function') ? _Asanctum.sanctumRoster(this.currentCampaign, s.id) : { apprentices: [] };
+        const nA = (roster.apprentices || []).length;
+        if(nA > 0) acts.push({kind:'tutoring:' + s.id, icon:'🎓',
+                   label:'tutoring ' + nA + ' apprentice' + (nA === 1 ? '' : 's'),
+                   priority:2, deepLinkTo:{entity:'constructible', id:s.id}});
+      }
+    }
+    for(const a of ((this.currentCampaign?.apprenticeships) || [])){
+      if(a && a.apprenticeCharacterId === c.id && (a.status == null || a.status === 'studying')){
+        acts.push({kind:'apprentice:' + a.id, icon:'📖', label:'studying as an apprentice', priority:2});
+      }
     }
 
     // ── Future contributors land here. Each adds zero or more descriptors. ──
@@ -23692,6 +23828,8 @@ return {
       // ===== end TEAM BURST5 collections =====
       // Magic Research (AD-M1, 2026-06-15) — the Arcane-Domain consumer's Research Projects (§8.9 importer mandate)
       'researchProjects',
+      // Sanctums AD-B (2026-06-15) — the apprenticeship relation (L0 apprentice ↔ sanctum master) (§8.9 importer mandate)
+      'apprenticeships',
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -23786,7 +23924,8 @@ return {
       deities:'deity', congregations:'congregation', divineFavors:'divine favor',
       attunements:'attunement', settlementVisits:'settlement visit',
       oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry',
-      units:'unit', armies:'army'
+      units:'unit', armies:'army',
+      researchProjects:'research project', apprenticeships:'apprenticeship'
     };
     const parts = [];
     for(const [key, n] of Object.entries(counts)){

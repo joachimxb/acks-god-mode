@@ -366,6 +366,163 @@ section('No-migration invariant (the team-session enabler — RAW-default, dorma
 }
 
 // =============================================================================
+section('AD-B — apprenticeship relation + apr- prefix + registration');
+// =============================================================================
+{
+  ok('apr- prefix registered', ACKS.ID_PREFIXES.apprenticeship === 'apr');
+  const a = ACKS.blankApprenticeship({ apprenticeCharacterId:'chr-a', masterCharacterId:'chr-m', sanctumConstructibleId:'cst-s', enrolledAtTurn:1 });
+  ok('blankApprenticeship id apr-', /^apr-/.test(a.id));
+  ok('blankApprenticeship defaults: studying / yearsStudied 0', a.status === 'studying' && a.yearsStudied === 0);
+  ok('blankCampaign.apprenticeships []', Array.isArray(ACKS.blankCampaign().apprenticeships));
+  ok('entity registry has apprenticeship', (ACKS.ENTITY_KINDS_LIST || []).some(k => k.kind === 'apprenticeship'));
+  ok('field schema has apprenticeship (⊆ factory)', !!ACKS.fieldSchemaFor('apprenticeship'));
+}
+
+// A sanctum fixture: an arcane L9 master at hex-1 + a completed sanctum Constructible (not yet established).
+function sanctumFixture(opts){
+  opts = opts || {};
+  const c = ACKS.blankCampaign(); c.currentTurn = (opts.turn != null ? opts.turn : 1);
+  c.characters = [ ACKS.blankCharacter({ id:'chr-m', name:'Master', class:'Mage', level:9, currentHexId:'hex-1',
+    abilities:{ STR:9, INT:16, WIL:12, DEX:10, CON:10, CHA:13 } }) ];
+  const cst = ACKS.blankConstructible({ id:'cst-s', constructibleKind:'sanctum', constructibleSubtype:'sanctum',
+    name:"Master's Sanctum", hexId:'hex-1', ownerCharacterId:'chr-m', buildValue:15000 });
+  c.constructibles = [cst];
+  return { c, cst, master: c.characters[0] };
+}
+
+// =============================================================================
+section('AD-B — onSanctumConstructed: facilities scaffold + the RR p.386 attraction');
+// =============================================================================
+{
+  const { c, cst } = sanctumFixture();
+  // a constant rng → every d6 = 6: 1d6 companions = 6, 2d6 apprentices = 12 (the caps).
+  const r = ACKS.onSanctumConstructed(c, cst, { rng: () => 0.99 });
+  ok('onSanctumConstructed ok', r.ok === true && r.masterId === 'chr-m');
+  ok('facilities scaffolded (empty array)', Array.isArray(cst.kindSpecific.researchFacilities) && cst.kindSpecific.researchFacilities.length === 0);
+  ok('sanctumEstablished guard set + builderCharacterId', cst.kindSpecific.sanctumEstablished === true && cst.kindSpecific.builderCharacterId === 'chr-m');
+  ok('drew 6 companions (1d6 @ max → cap)', r.attraction.companions.length === 6);
+  ok('drew 12 apprentices (2d6 @ max → cap)', r.attraction.apprentices.length === 12);
+  ok('companions are henchmen of the master', c.characters.filter(x => x.liegeCharacterId === 'chr-m' && x.socialTier === 'henchman').length === 6);
+  ok('companions create henchmanships', (c.henchmanships || []).filter(h => h.patronCharacterId === 'chr-m' && h.status === 'active').length === 6);
+  ok('apprenticeships created (12 studying)', c.apprenticeships.filter(a => a.masterCharacterId === 'chr-m' && a.status === 'studying').length === 12);
+  ok('apprentices are L0, INT ≥ 9 (RR p.386)', c.apprenticeships.every(a => { const ch = c.characters.find(x => x.id === a.apprenticeCharacterId); return ch && ch.level === 0 && ch.abilities.INT >= 9; }));
+  ok('sanctum-established event emitted', c.eventLog.some(e => e.event && e.event.kind === 'sanctum-established'));
+  ok('apprentice-attracted event emitted', c.eventLog.some(e => e.event && e.event.kind === 'apprentice-attracted'));
+  const before = c.characters.length;
+  const r2 = ACKS.onSanctumConstructed(c, cst, { rng: () => 0.99 });
+  ok('onSanctumConstructed idempotent (alreadyEstablished, no new chars)', r2.alreadyEstablished === true && c.characters.length === before);
+}
+
+// =============================================================================
+section('AD-B — attraction min rolls + caps (6 companions / 12 apprentices)');
+// =============================================================================
+{
+  const { c, cst } = sanctumFixture();
+  const r = ACKS.onSanctumConstructed(c, cst, { rng: () => 0 });   // every d6 = 1 → 1 companion + 2 apprentices
+  ok('min attraction: 1 companion + 2 apprentices', r.attraction.companions.length === 1 && r.attraction.apprentices.length === 2);
+  ok('min companion is L1', c.characters.find(x => x.id === r.attraction.companions[0]).level === 1);
+}
+{
+  const { c, cst } = sanctumFixture();
+  ACKS.onSanctumConstructed(c, cst, { rng: () => 0.99 });          // fill to the caps
+  ok('apprentice cap respected at 12', c.apprenticeships.filter(a => a.status === 'studying').length === 12);
+  ok('companion cap respected at 6', c.characters.filter(x => x.sanctumCompanionSanctumId === 'cst-s').length === 6);
+  const r = ACKS.attractToSanctum(c, { sanctumId:'cst-s', masterId:'chr-m', isInitial:false, rng: () => 0.99 });
+  ok('a yearly attraction adds 0 when at the 12-cap', r.apprentices.length === 0 && c.apprenticeships.filter(a => a.status === 'studying').length === 12);
+}
+
+// =============================================================================
+section('AD-B — processSanctumsForTurn: the yearly apprentice research throw (RR p.386)');
+// =============================================================================
+function progressionFixture(){
+  const { c, cst } = sanctumFixture({ turn: 13 });
+  cst.kindSpecific = { builderCharacterId:'chr-m', researchFacilities:[], apprenticeYears:0, lastApprenticeAttractionTurn:13, sanctumEstablished:true };  // no fresh attraction this turn
+  c.characters.push(ACKS.blankCharacter({ id:'chr-app', name:'Pupil', level:0, socialTier:'independent', liegeCharacterId:'chr-m', currentHexId:'hex-1', abilities:{ STR:10, INT:13, WIL:10, DEX:10, CON:10, CHA:10 } }));
+  c.apprenticeships = [ ACKS.blankApprenticeship({ id:'apr-1', apprenticeCharacterId:'chr-app', masterCharacterId:'chr-m', sanctumConstructibleId:'cst-s', enrolledAtTurn:1 }) ];
+  return c;
+}
+{
+  const c = progressionFixture();                                 // throw 20 (rng .99) + INT 13 (+1) = 21 ≥ 18 → advanced
+  const out = ACKS.processSanctumsForTurn(c, { rng: () => 0.99 });
+  ok('processSanctumsForTurn ran + advanced 1', out.ran === true && out.advanced === 1);
+  const app = c.apprenticeships.find(a => a.id === 'apr-1');
+  ok('apprenticeship status advanced', app.status === 'advanced' && app.yearsStudied === 1);
+  const ch = c.characters.find(x => x.id === 'chr-app');
+  ok('apprentice promoted to L1 henchman', ch.level === 1 && ch.socialTier === 'henchman' && ch.isArcaneCaster === true);
+  ok('a henchmanship created on advance', (c.henchmanships || []).some(h => h.subjectCharacterId === 'chr-app' && h.patronCharacterId === 'chr-m'));
+  ok('apprentice-advanced event emitted', c.eventLog.some(e => e.event && e.event.kind === 'apprentice-advanced'));
+}
+{
+  const c = progressionFixture();                                 // throw natural 1 (rng 0) → unmodified 1–3 → discouraged
+  const out = ACKS.processSanctumsForTurn(c, { rng: () => 0 });
+  ok('apprentice discouraged (natural 1)', out.discouraged === 1);
+  ok('apprenticeship status left', c.apprenticeships.find(a => a.id === 'apr-1').status === 'left');
+  ok('apprentice departed', c.characters.find(x => x.id === 'chr-app').lifecycleState === 'departed');
+  ok('apprentice-discouraged event emitted', c.eventLog.some(e => e.event && e.event.kind === 'apprentice-discouraged'));
+}
+{
+  const c = progressionFixture();                                 // throw 10 (rng .47) + INT 13 (+1) = 11 < 18, not ≤3 → continues
+  const out = ACKS.processSanctumsForTurn(c, { rng: () => 0.47 });
+  ok('apprentice continues (11 < 18)', out.advanced === 0 && out.discouraged === 0);
+  const app = c.apprenticeships.find(a => a.id === 'apr-1');
+  ok('still studying, yearsStudied 1, throw recorded', app.status === 'studying' && app.yearsStudied === 1 && app.lastResearchThrow.result === 'continues');
+}
+{
+  const { c, cst } = sanctumFixture({ turn: 6 });                 // only 5 months elapsed → no throw
+  cst.kindSpecific = { builderCharacterId:'chr-m', researchFacilities:[], apprenticeYears:0, lastApprenticeAttractionTurn:6, sanctumEstablished:true };
+  c.characters.push(ACKS.blankCharacter({ id:'chr-app', level:0, liegeCharacterId:'chr-m', abilities:{ INT:13 } }));
+  c.apprenticeships = [ ACKS.blankApprenticeship({ id:'apr-1', apprenticeCharacterId:'chr-app', masterCharacterId:'chr-m', sanctumConstructibleId:'cst-s', enrolledAtTurn:1 }) ];
+  const out = ACKS.processSanctumsForTurn(c, { rng: () => 0 });
+  ok('no throw before a full year elapses', out.advanced === 0 && out.discouraged === 0 && c.apprenticeships[0].yearsStudied === 0);
+}
+
+// =============================================================================
+section('AD-B — the §5 contract closed: researchAssistantsFor + researchFacilityFor + setSanctumFacility');
+// =============================================================================
+{
+  const { c, cst } = sanctumFixture();
+  ACKS.onSanctumConstructed(c, cst, { rng: () => 0 });            // 1 companion + 2 apprentices
+  const assts = ACKS.researchAssistantsFor(c, 'chr-m');
+  ok('researchAssistantsFor pool = 1 companion + 2 apprentices', assts.length === 3 && assts.filter(a => a.role === 'companion').length === 1 && assts.filter(a => a.role === 'apprentice').length === 2);
+  ok('researchFacilityFor null before any facility is set', ACKS.researchFacilityFor(c, 'chr-m', 'library') === null);
+  ok('setSanctumFacility ok (library 24000)', ACKS.setSanctumFacility(c, { constructibleId:'cst-s', kind:'library', valueGp:24000 }).ok === true);
+  ok('researchFacilityFor now reads the library (24000)', (ACKS.researchFacilityFor(c, 'chr-m', 'library') || {}).valueGp === 24000);
+  ok('setSanctumFacility refuses a bad kind', ACKS.setSanctumFacility(c, { constructibleId:'cst-s', kind:'bogus', valueGp:1 }).ok === false);
+  ACKS.setSanctumFacility(c, { constructibleId:'cst-s', kind:'library', valueGp:30000 });   // raise, not duplicate
+  ok('setSanctumFacility raises (no dup) → 30000', cst.kindSpecific.researchFacilities.filter(f => f.kind === 'library').length === 1 && ACKS.researchFacilityFor(c,'chr-m','library').valueGp === 30000);
+}
+
+// =============================================================================
+section('AD-B — the construction-completed hook fires onSanctumConstructed (integration)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.characters = [ ACKS.blankCharacter({ id:'chr-m', name:'Master', class:'Mage', level:9, currentHexId:'hex-1', abilities:{ INT:16 } }) ];
+  c.projects = [ { id:'prj-1', constructibleKind:'sanctum', constructibleSubtype:'sanctum', name:'Tower', siteHexId:'hex-1', ownerCharacterId:'chr-m', totalCost:15000, lifecycleState:'under-construction', laborRequired:100, laborInvested:100 } ];
+  ACKS.applyEvent(c, ACKS.newEvent('construction-completed', { submittedBy:'engine', targetTurn:5, payload:{ projectId:'prj-1' } }));
+  const cst = (c.constructibles || []).find(x => x.constructibleKind === 'sanctum');
+  ok('construction-completed spawned a sanctum', !!cst);
+  ok('the hook established it (facilities + flag)', !!(cst && cst.kindSpecific && cst.kindSpecific.sanctumEstablished === true));
+  ok('the hook drew apprentices', c.apprenticeships.some(a => a.masterCharacterId === 'chr-m'));
+}
+
+// =============================================================================
+section('AD-B — the 4 sanctum event kinds registered + lookups');
+// =============================================================================
+{
+  ['sanctum-established','apprentice-attracted','apprentice-advanced','apprentice-discouraged'].forEach(k => {
+    ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
+    ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);
+    ok(k + ' is wizard-opt-out', ACKS.EVENT_WIZARD_OPTOUT.has(k));
+  });
+  const { c, cst } = sanctumFixture();
+  ACKS.onSanctumConstructed(c, cst, { rng: () => 0 });
+  ok('sanctumsOwnedBy finds the sanctum', ACKS.sanctumsOwnedBy(c, 'chr-m').length === 1);
+  const roster = ACKS.sanctumRoster(c, 'cst-s');
+  ok('sanctumRoster: master + 1 companion + 2 apprentices', roster.masterId === 'chr-m' && roster.companions.length === 1 && roster.apprentices.length === 2);
+}
+
+// =============================================================================
 console.log('\n=============================================');
 console.log('arcane-domain.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
