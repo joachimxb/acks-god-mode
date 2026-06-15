@@ -5483,7 +5483,9 @@
                 "crossbreed-created",
                 "necromancy-performed",
                 "ritual-learned",
-                "ritual-cast"
+                "ritual-cast",
+                "magic-experiment-breakthrough",
+                "magic-experiment-mishap"
               ]
             },
             "id": {
@@ -5577,7 +5579,7 @@
     "schemaVersion": 2,
     "entityKinds": 50,
     "typedKinds": 33,
-    "eventKinds": 97,
+    "eventKinds": 99,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",

@@ -288,7 +288,10 @@ const EVENT_KINDS = Object.freeze([
   'necromancy-performed',     // raise an intelligent undead (a Group; willing auto-loyal, else a reaction)
   // === Phase 4 — Magic Research AD-M3 (rituals; RR p.398) ===
   'ritual-learned',           // learn a ritual spell → the caster's ritual repertoire (a magicFormula kind:'ritual')
-  'ritual-cast'               // cast a ritual → takes effect (GM-resolved) OR is stored as a single charge
+  'ritual-cast',              // cast a ritual → takes effect (GM-resolved) OR is stored as a single charge
+  // === Phase 4 — Magic Research AD-M4 (experimentation; RR pp.408–411) ===
+  'magic-experiment-breakthrough', // a successful experiment exceeds its target → a minor/major/revolutionary breakthrough
+  'magic-experiment-mishap'        // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -926,6 +929,15 @@ const EVENT_SCHEMAS = Object.freeze({
   'ritual-cast': {
     R: { projectId: 'string' },
     O: { researcherCharacterId: 'string', ritualKey: 'string', ritualLevel: 'number', mode: 'string', notableItemId: 'string', storedForm: 'string', name: 'string', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research AD-M4 (experimentation; RR pp.408–411) ===
+  'magic-experiment-breakthrough': {
+    R: { projectId: 'string', level: 'string' },
+    O: { researcherCharacterId: 'string', kind: 'string', margin: 'number', xpBonus: 'number', result: 'object', narrative: 'string' }
+  },
+  'magic-experiment-mishap': {
+    R: { projectId: 'string', tier: 'string' },
+    O: { researcherCharacterId: 'string', kind: 'string', roll: 'number', assistantsTier: 'string', narrative: 'string' }
   }
 });
 
@@ -2528,6 +2540,8 @@ registerEventHandler('crossbreed-created', applyEvent_researchAudit);
 registerEventHandler('necromancy-performed', applyEvent_researchAudit);
 registerEventHandler('ritual-learned', applyEvent_researchAudit);
 registerEventHandler('ritual-cast', applyEvent_researchAudit);
+registerEventHandler('magic-experiment-breakthrough', applyEvent_researchAudit);
+registerEventHandler('magic-experiment-mishap', applyEvent_researchAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5570,7 +5584,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // AD-M2 — owned by acks-engine-magic-research.js (the creature-minting result of a research throw).
   'construct-manufactured', 'crossbreed-created', 'necromancy-performed',
   // AD-M3 — owned by acks-engine-magic-research.js (the ritual learn/cast result of a research throw).
-  'ritual-learned', 'ritual-cast'
+  'ritual-learned', 'ritual-cast',
+  // AD-M4 — owned by acks-engine-magic-research.js (the breakthrough/mishap of an experimental research throw).
+  'magic-experiment-breakthrough', 'magic-experiment-mishap'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

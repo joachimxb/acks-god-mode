@@ -41,10 +41,23 @@
  *   flagged in RITUAL_CATALOG, not blocked). +2 record-only events (ritual-learned / ritual-cast). RITUAL_CATALOG
  *   seeds 15 sample rituals (RAW names + per-school levels + a terse gloss + the deferred-effect owner; §13.6 IP).
  *
+ * AD-M4 (experimentation — RR pp.408–411): an OPTIONAL modality on any throw-requiring project. The
+ *   researcher picks a METHOD (conventional L5 / pioneering L9 / radical L11) granting 1/2/3 ADVANTAGES —
+ *   haste (×2/×3/×4 rate), efficiency (×2/×3/×4 special-component value), insight (+2/+4/+6 throw), lore
+ *   (esoteric spells). On a success that exceeds the target by 5+/10+/20+ (clamped by the method ceiling +
+ *   the caster level) it's a minor/major/revolutionary BREAKTHROUGH: the engine applies the mechanical
+ *   bonus (construct +HD; spell/ritual +power level) + records the GM-resolved part (item bonus effect; N
+ *   unexpected abilities, roll 3d6/2d10/1d20 — content NOT embedded, §13.6 IP) + awards bonus XP (½/1×/2×
+ *   the research cost, RR p.473) + runs the level-up sweep. On a FAILED experiment it's an additional
+ *   MISHAP (minor/major/catastrophic by method; the engine rolls the tier + a 1d10 row + cites the per-kind
+ *   Mishap table — body-horror content GM-resolved, not embedded). +2 record-only events (magic-experiment-
+ *   breakthrough / -mishap); the Art/Craft grandmaster bonus (+ranks to the breakthrough margin, +1
+ *   advantage). NO house rule — experimentation is core RAW (§6); the §6-correct off-switch for the mishap
+ *   content would be a default-OFF disable-magic-experimentation opt-out (flagged for the operator).
+ *
  * DEFERRED (later AD-M waves, stacked on this branch):
- * AD-M4 (experimentation — advantages/methods/breakthroughs/mishaps), and the PER-DAY day-tick grain for
- * research accrual (the monthly model ships — the visible-planning-info path, consistent with the arcane
- * core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the Religion plan's
+ * The PER-DAY day-tick grain for research accrual (the monthly model ships — the visible-planning-info path,
+ * consistent with the arcane core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the Religion plan's
  * seam (plan §14 Q3). Facilities GATE softly until AD-B ships the Sanctum facility model. Per §6 polarity
  * NO house rule — necromancy is core RAW (the blood-sacrifice precedent); a default-OFF disable-necromancy
  * opt-out is the §6-correct way to add an off-switch if a table wants one.
@@ -210,6 +223,47 @@
     { key: 'shadeveil',           name: 'Shadeveil',           arcane: 9,    divine: null, tags: ['illusion','enchantment','transmogrification'], gloss: 'Veil a wide region in shadow and waking illusion.' }
   ]);
   const RITUAL_BY_KEY = Object.freeze(RITUAL_CATALOG.reduce((m, r) => { m[r.key] = r; return m; }, {}));
+
+  // ── Magic Experimentation (AD-M4; RR pp.408–411) ──
+  // An optional modality on ANY project that requires a throw. The researcher picks a METHOD (which sets
+  // how many ADVANTAGES he gains, the mishap tier on failure, and the breakthrough ceiling) and chooses
+  // that many advantages. Core RAW — no house rule (§6: experimentation is RAW, on by default; the §6-
+  // correct off-switch for the body-horror mishap content would be a default-OFF `disable-magic-
+  // experimentation` opt-out, flagged for the operator, not a default-ON toggle).
+  const EXPERIMENT_ADVANTAGES = Object.freeze({
+    haste:      { label: 'Haste',      effect: 'Doubles the research rate (×3 if taken twice, ×4 thrice).' },
+    efficiency: { label: 'Efficiency', effect: 'Doubles the value of special components expended (×3 twice, ×4 thrice).' },
+    insight:    { label: 'Insight',    effect: '+2 to the magic research throw (cumulative: +4 twice, +6 thrice).' },
+    lore:       { label: 'Lore',       effect: 'Research esoteric spells of 1st–2nd level (twice → 4th, thrice → 6th; or a bonus > +3 vs a monster type).' }
+  });
+  // Method (RR p.409): advantages granted, the mishap tier on a failed experiment, the min caster level,
+  // and the breakthrough ceiling the method permits (regardless of the throw margin).
+  const EXPERIMENT_METHODS = Object.freeze({
+    conventional: { label: 'Conventional', advantages: 1, mishapTier: 'minor',        minLevel: 5,  maxBreakthrough: 'minor' },
+    pioneering:   { label: 'Pioneering',   advantages: 2, mishapTier: 'major',        minLevel: 9,  maxBreakthrough: 'major' },
+    radical:      { label: 'Radical',      advantages: 3, mishapTier: 'catastrophic', minLevel: 11, maxBreakthrough: 'revolutionary' }
+  });
+  // Breakthrough (RR p.410): the throw must exceed its target by the threshold; the level is also capped by
+  // the method (above) AND the caster's level. xpFactor = the bonus XP as a multiple of the research cost
+  // (RR p.473 — minor ½, major 1×, revolutionary 2×). order = the ranking for "highest permitted" clamping.
+  const BREAKTHROUGH_LEVELS = Object.freeze([
+    { key: 'minor',         threshold: 5,  minLevel: 5,  xpFactor: 0.5, order: 1 },
+    { key: 'major',         threshold: 10, minLevel: 9,  xpFactor: 1,   order: 2 },
+    { key: 'revolutionary', threshold: 20, minLevel: 11, xpFactor: 2,   order: 3 }
+  ]);
+  const _BREAKTHROUGH_ORDER = Object.freeze({ minor: 1, major: 2, revolutionary: 3 });
+  // Per-kind breakthrough RESULT (RR pp.410–411). The mechanical parts the engine applies directly:
+  //   construct-design → +HD on the formula; spell-research / ritual-* → +power level (½/1/2; the spell's
+  //   power, NOT its actual level). The GM-resolved parts (content — the engine rolls the count + die and
+  //   notes "GM, resolve"): item-creation → a bonus effect; crossbreed / manufacture / necromancy → N
+  //   unexpected abilities (roll 3d6 / 2d10 / 1d20 on the Unexpected Abilities table — JJ; not transcribed).
+  const BREAKTHROUGH_HD_BONUS    = Object.freeze({ minor: 2, major: 6, revolutionary: 12 });
+  const BREAKTHROUGH_POWER_BONUS = Object.freeze({ minor: 0.5, major: 1, revolutionary: 2 });
+  const BREAKTHROUGH_ABILITY     = Object.freeze({ minor: { count: 1, die: '3d6' }, major: { count: 2, die: '2d10' }, revolutionary: { count: 3, die: '1d20' } });
+  // The kinds whose breakthrough grants N unexpected abilities rolled on the JJ Unexpected Abilities table
+  // (RR p.411). Item-creation instead grants a "bonus effect" worth ≤50%/100%/200% of the item cost (RR p.410).
+  const _ABILITY_BREAKTHROUGH_KINDS = Object.freeze(new Set(['crossbreed', 'construct-manufacture', 'necromancy']));
+  const BREAKTHROUGH_ITEM_WORTH_PCT = Object.freeze({ minor: 50, major: 100, revolutionary: 200 });
 
   // ════════════════════════════════════════════════════════════════════════════
   // Core machine — rate, eligibility, cost (RR p.388, p.390)
@@ -430,6 +484,8 @@
       }
       if(pct > 0) total = total * (1 + pct / 100);
     }
+    // Haste experiment advantage (RR p.409) — ×2/×3/×4 the research rate.
+    if(project.experiment) total = total * _hasteFactor(project.experiment);
     return total;
   }
   function researchDaysRemaining(campaign, project){
@@ -453,6 +509,72 @@
     const pct = Math.min(1, penalized / compCost);
     const lvl = Math.max(1, Math.floor(Number(effectLevel) || 1));
     return -Math.max(1, Math.ceil(lvl * pct));
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // Magic Experimentation (AD-M4; RR pp.408–411) — methods / advantages / breakthroughs / mishaps
+  // ════════════════════════════════════════════════════════════════════════════
+
+  function experimentMethod(key){ return EXPERIMENT_METHODS[key] || null; }
+  // Count how many times each advantage was chosen (cumulative selection, RR p.409).
+  function _advantageCounts(experiment){
+    const out = { haste: 0, efficiency: 0, insight: 0, lore: 0 };
+    if(experiment && Array.isArray(experiment.advantages)){
+      for(const a of experiment.advantages){ if(out[a] != null) out[a]++; }
+    }
+    return out;
+  }
+  // Haste / efficiency cumulative multiplier: ×2 once → ×3 twice → ×4 thrice (factor = count + 1, min ×1).
+  function _hasteFactor(experiment){ const n = _advantageCounts(experiment).haste; return n > 0 ? (n + 1) : 1; }
+  function _efficiencyFactor(experiment){ const n = _advantageCounts(experiment).efficiency; return n > 0 ? (n + 1) : 1; }
+  // Insight: +2 to the throw per selection (RR p.409).
+  function _insightBonus(experiment){ return _advantageCounts(experiment).insight * 2; }
+  // The researcher's best Art/Craft rank (RR p.401/p.408 — added ONLY to the breakthrough margin, and a
+  // grandmaster (4 ranks) gains one extra advantage when the experiment relates to his Art/Craft).
+  function _artCraftRanks(researcher){ return Math.max(_profRanks(researcher, 'art'), _profRanks(researcher, 'craft')); }
+  // How many advantages a method permits for this researcher (method count + the Art/Craft grandmaster +1).
+  function experimentAllowedAdvantages(campaign, character, method, experiment){
+    const meta = EXPERIMENT_METHODS[method]; if(!meta) return 0;
+    const ch = _findChar(campaign, character);
+    let allowed = meta.advantages;
+    if(experiment && experiment.artCraftRelated && ch && _artCraftRanks(ch) >= 4) allowed += 1;
+    return allowed;
+  }
+  // Can this researcher use this method of experimentation? (RR p.409 — minimum caster level by method).
+  // Returns { ok, reason, minLevel, maxAdvantages }. (The min-level gate is the researcher's own level —
+  // an aiding assistant doesn't need it, RR p.409; that's automatic since the researcher is the experimenter.)
+  function experimentEligibility(campaign, character, method, experiment){
+    const meta = EXPERIMENT_METHODS[method];
+    if(!meta) return { ok: false, reason: 'unknown-method' };
+    const ch = _findChar(campaign, character);
+    if(!ch) return { ok: false, reason: 'no-character' };
+    if((Number(ch.level) || 0) < meta.minLevel) return { ok: false, reason: 'experiment-level-too-low', minLevel: meta.minLevel };
+    return { ok: true, maxAdvantages: experimentAllowedAdvantages(campaign, ch, method, experiment) };
+  }
+
+  // Determine the breakthrough level a successful experiment achieved (RR p.410). The throw must exceed its
+  // target by the threshold (5/10/20); the level is then clamped by the method ceiling AND the caster level.
+  // The Art/Craft ranks add to the margin ONLY here (RR p.408 — "exclusively for purposes of determining
+  // whether he has achieved a breakthrough"). Returns { level, margin, threshold, xpBonus } or null.
+  function determineBreakthrough(campaign, project, throwResult){
+    const exp = project && project.experiment;
+    if(!exp || !exp.method || !throwResult || !throwResult.succeeded) return null;
+    const method = EXPERIMENT_METHODS[exp.method]; if(!method) return null;
+    const researcher = _findChar(campaign, project.researcherCharacterId);
+    const level = Number(researcher && researcher.level) || 0;
+    const artCraft = (exp.artCraftRelated && researcher) ? _artCraftRanks(researcher) : 0;
+    const margin = (Number(throwResult.total) || 0) - (Number(throwResult.target) || 0) + artCraft;
+    const methodCap = _BREAKTHROUGH_ORDER[method.maxBreakthrough] || 1;
+    let best = null;
+    for(const b of BREAKTHROUGH_LEVELS){
+      if(margin < b.threshold) continue;
+      if(level < b.minLevel) continue;
+      if(b.order > methodCap) continue;          // the method ceiling clamps (RR p.410)
+      if(!best || b.order > best.order) best = b;
+    }
+    if(!best) return null;
+    const xpBonus = _round((Number(project.researchCostGp) || 0) * best.xpFactor);
+    return { level: best.key, margin, threshold: best.threshold, xpBonus };
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -487,6 +609,8 @@
     if(fac > 0) modifiers.push({ label: 'facility', value: fac });
     // Working from a sample (+4) — item creation reverse-engineer / identify with the item in hand.
     if(project && project.fromSample) modifiers.push({ label: 'sample', value: 4 });
+    // Insight experiment advantage (RR p.409) — +2 per selection (cumulative).
+    if(project && project.experiment){ const ins = _insightBonus(project.experiment); if(ins) modifiers.push({ label: 'insight', value: ins }); }
     // Component substitution penalty (negative), if a component plan is attached.
     const pen = Number(project && project.substitutionPenalty) || 0;
     if(pen) modifiers.push({ label: 'inappropriate components', value: pen });
@@ -542,6 +666,11 @@
       fromSample: opts.fromSample || false,
       throwResult: opts.throwResult || null,               // {roll, total, target, succeeded, atTurn}
 
+      // Experimentation (AD-M4; RR pp.408–411) — optional on any throw-requiring project
+      experiment: opts.experiment || null,                 // {method, advantages[], artCraftRelated}
+      breakthrough: opts.breakthrough || null,             // {level, margin, threshold, xpBonus} — set on a successful experiment
+      mishap: opts.mishap || null,                         // {tier, roll, assistantsTier, kind} — set on a failed experiment
+
       // Facility (the Sanctums seam; resolved live)
       facilityKind: opts.facilityKind || (MAGIC_RESEARCH_KINDS[opts.kind || 'spell-research'] || {}).facilityKind || 'library',
 
@@ -582,6 +711,21 @@
     if(opts.commonSpell || opts.fromFormula) needsThrow = false;
     if(kind === 'identify') needsThrow = true;     // identify always throws (RR p.393)
     if(kind === 'ritual-cast') needsThrow = true;  // casting a ritual always throws (RR p.398)
+    // Experimentation (AD-M4; RR pp.408–411) — optional, but ONLY on a throw-requiring project, and only at
+    // or above the method's minimum caster level; the advantage count is capped by the method (+1 for an
+    // Art/Craft grandmaster). Validated up front; attached to the project for the rate/throw/breakthrough wiring.
+    let experiment = null;
+    if(opts.experiment && opts.experiment.method){
+      if(!needsThrow) return { ok: false, reason: 'experiment-needs-throw' };
+      const advantages = Array.isArray(opts.experiment.advantages) ? opts.experiment.advantages.filter(a => EXPERIMENT_ADVANTAGES[a]) : [];
+      const expDraft = { method: opts.experiment.method, advantages, artCraftRelated: !!opts.experiment.artCraftRelated };
+      if(!opts.gmOverride){
+        const ee = experimentEligibility(campaign, researcher, expDraft.method, expDraft);
+        if(!ee.ok) return { ok: false, reason: ee.reason, minLevel: ee.minLevel };
+        if(advantages.length > ee.maxAdvantages) return { ok: false, reason: 'too-many-advantages', maxAdvantages: ee.maxAdvantages };
+      }
+      experiment = expDraft;
+    }
     const project = blankResearchProject({
       kind, name: opts.name || (meta.label + (cfg.targetName ? (': ' + cfg.targetName) : '')),
       magicDomain: opts.magicDomain || null,
@@ -591,6 +735,7 @@
       baseCost: costs.baseCost, componentCostGp: costs.componentCostGp,
       materialCostGp: costs.materialCostGp, researchCostGp: costs.researchCostGp,
       needsThrow, fromFormula: !!opts.fromFormula, fromSample: !!opts.fromSample,
+      experiment,
       facilityKind: meta.facilityKind,
       status: 'in-progress', startedOnTurn: _currentTurn(campaign)
     });
@@ -689,6 +834,7 @@
     // Rituals never use miscellaneous components (RR p.398) — only special components / arcane power.
     if(project.kind === 'ritual-learn' || project.kind === 'ritual-cast'){ plan.miscGp = 0; plan.inappropriateGp = 0; }
     const compCost = Math.max(0, Number(project.componentCostGp) || 0);
+    const effFactor = _efficiencyFactor(project.experiment);   // efficiency experiment advantage ×special-component value (RR p.409)
 
     // ── Pay the component cost (at the end, RR p.388) ──
     let assembled = 0;
@@ -702,11 +848,12 @@
         else return { ok: false, reason: 'arcane-power-unavailable', wanted: wantArcane, available: (typeof A.arcanePowerAvailable === 'function') ? A.arcanePowerAvailable(campaign, researcher.id) : 0 };
       }
       // 2. Special components (appropriate monster parts; penalty-free). Consume the chosen item lines.
+      // The efficiency advantage (RR p.409) multiplies the value the special components count for.
       if(Array.isArray(plan.specialItemRefs) && plan.specialItemRefs.length){
         const got = _consumeSpecialComponents(campaign, researcher, plan.specialItemRefs);
-        assembled += got.valueGp; consumed.specialItems = got.consumed;
+        assembled += got.valueGp * effFactor; consumed.specialItems = got.consumed;
       } else if((Number(plan.specialItemValueGp) || 0) > 0){
-        assembled += Math.max(0, Number(plan.specialItemValueGp) || 0);   // GM-asserted value (no specific items)
+        assembled += Math.max(0, Number(plan.specialItemValueGp) || 0) * effFactor;   // GM-asserted value (no specific items)
       }
       // 3. Miscellaneous / inappropriate components (penalty applies) — gp paid from the purse.
       const miscGp = Math.max(0, Math.round(Number(plan.miscGp) || 0));
@@ -747,13 +894,27 @@
     }
 
     if(succeeded){
+      // Experiment breakthrough (RR p.410) — computed BEFORE the result so the per-kind bonus (construct
+      // +HD, spell/ritual +power, the unexpected-ability count) applies inside _applyResearchResult.
+      const breakthrough = determineBreakthrough(campaign, project, throwResult);
+      if(breakthrough) project.breakthrough = breakthrough;
       _applyResearchResult(campaign, project, opts);
       project.status = 'completed'; project.completedOnTurn = _currentTurn(campaign);
-      project.history.push({ turn: _currentTurn(campaign), type: 'completed', reason: throwResult ? ('throw ' + throwResult.total + ' vs ' + throwResult.target + ' ✓' + (penalty ? (' (penalty ' + penalty + ')') : '')) : 'no throw' });
+      project.history.push({ turn: _currentTurn(campaign), type: 'completed', reason: (throwResult ? ('throw ' + throwResult.total + ' vs ' + throwResult.target + ' ✓' + (penalty ? (' (penalty ' + penalty + ')') : '')) : 'no throw') + (breakthrough ? (' — ' + breakthrough.level + ' breakthrough!') : '') });
       _recordResearchEvent(campaign, 'magic-research-completed',
         { projectId: project.id, kind: project.kind, researcherCharacterId: researcher.id, kindResult: project.kindResult, throwResult },
         { narrative: (researcher.name || researcher.id) + ' completes ' + (project.name || project.kind), relatedEntities: [{ kind: 'character', id: researcher.id, role: 'subject' }] });
-      return { ok: true, succeeded: true, throwResult, result: project.kindResult, penalty, usedPenalized };
+      if(breakthrough){
+        // Bonus XP (RR p.473: minor ½ / major 1× / revolutionary 2× the research cost) + the record-only
+        // breakthrough event; run the level-up sweep so a breakthrough can immediately advance the mage.
+        if(researcher) researcher.xp = (Number(researcher.xp) || 0) + (Number(breakthrough.xpBonus) || 0);
+        project.history.push({ turn: _currentTurn(campaign), type: 'breakthrough', reason: breakthrough.level + ' breakthrough (margin ' + breakthrough.margin + ') — +' + _round(breakthrough.xpBonus).toLocaleString() + ' XP' });
+        _recordResearchEvent(campaign, 'magic-experiment-breakthrough',
+          { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, kind: project.kind, level: breakthrough.level, margin: breakthrough.margin, xpBonus: breakthrough.xpBonus, result: (project.kindResult && project.kindResult.breakthrough) || null },
+          { narrative: (researcher && researcher.name || 'A researcher') + ' achieves a ' + breakthrough.level + ' breakthrough on ' + (project.name || project.kind) + '!', relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }] });
+        if(typeof A.checkAllCharacterLevelUps === 'function'){ try { A.checkAllCharacterLevelUps(campaign); } catch(_e){} }
+      }
+      return { ok: true, succeeded: true, throwResult, result: project.kindResult, penalty, usedPenalized, breakthrough: breakthrough || null };
     }
     // Failure — ALL time, money, materials, and components are lost (RR p.388).
     const lostGp = (Number(project.materialCostGp) || 0) + (Number(project.researchInvestedGp) || 0) + assembled;
@@ -762,7 +923,25 @@
     _recordResearchEvent(campaign, 'magic-research-failed',
       { projectId: project.id, kind: project.kind, researcherCharacterId: researcher.id, lostGp: _round(lostGp), throwResult },
       { narrative: (researcher.name || researcher.id) + '’s ' + (project.name || project.kind) + ' fails — ' + _round(lostGp).toLocaleString() + 'gp lost', relatedEntities: [{ kind: 'character', id: researcher.id, role: 'subject' }] });
-    return { ok: true, succeeded: false, throwResult, lostGp: _round(lostGp), penalty };
+    // A failed EXPERIMENT additionally triggers a MISHAP (RR p.409) — ON TOP of the total loss. The engine
+    // rolls the tier (by method) + a 1d10 row and cites the per-kind Mishap table; the body-horror content
+    // (insanity / mutation / mortal wounds — RR pp.412+) is GM-resolved, not embedded (§13.6 IP). Aiding
+    // assistants suffer the next-lower tier (RR p.409).
+    let mishap = null;
+    if(project.experiment && project.experiment.method){
+      const method = EXPERIMENT_METHODS[project.experiment.method];
+      const tier = (method && method.mishapTier) || 'minor';
+      const d10 = 1 + Math.floor((_rng(opts)() || 0) * 10);
+      const assistantsTier = (tier === 'catastrophic') ? 'major' : (tier === 'major' ? 'minor' : 'none');
+      const meta = MAGIC_RESEARCH_KINDS[project.kind];
+      mishap = { tier, roll: d10, kind: project.kind, assistantsTier, hasAssistants: (project.assistantCharacterIds || []).length > 0 };
+      project.mishap = mishap;
+      project.history.push({ turn: _currentTurn(campaign), type: 'mishap', reason: tier + ' mishap (1d10 ' + d10 + ') — GM resolves the ' + (meta ? meta.label : project.kind) + ' Mishap table (RR pp.412+)' });
+      _recordResearchEvent(campaign, 'magic-experiment-mishap',
+        { projectId: project.id, researcherCharacterId: researcher.id, kind: project.kind, tier, roll: d10, assistantsTier },
+        { narrative: (researcher.name || researcher.id) + ' suffers a ' + tier + ' magical mishap — GM, resolve (RR pp.412+)', relatedEntities: [{ kind: 'character', id: researcher.id, role: 'subject' }] });
+    }
+    return { ok: true, succeeded: false, throwResult, lostGp: _round(lostGp), penalty, mishap };
   }
 
   function _fallbackThrow(target, modTotal, rng){
@@ -972,6 +1151,42 @@
             relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }] });
       }
     }
+    // Apply an experiment breakthrough's per-kind bonus to the result (RR pp.410–411).
+    if(project.breakthrough && project.breakthrough.level) _applyBreakthroughResult(campaign, project);
+  }
+
+  // Augment a completed project's kindResult with its breakthrough bonus (RR pp.410–411). The mechanical
+  // parts apply directly — construct-design adds HD to the formula; spell/ritual research adds effective
+  // POWER (not actual level). The GM-resolved parts are recorded as a count + die + a "GM resolves" note:
+  // item-creation gets a bonus effect (worth ≤50/100/200% of the item cost); a crossbreed / manufactured
+  // construct / undead gets N unexpected abilities (roll 3d6 / 2d10 / 1d20 on the JJ Unexpected Abilities
+  // table — content, not embedded, §13.6 IP).
+  function _applyBreakthroughResult(campaign, project){
+    const lvl = project.breakthrough.level;
+    const kr = project.kindResult || (project.kindResult = {});
+    const researcher = _findChar(campaign, project.researcherCharacterId);
+    const lastFormula = (researcher && Array.isArray(researcher.magicFormulas))
+      ? researcher.magicFormulas.slice().reverse().find(f => f && f.sourceProjectId === project.id) : null;
+    if(project.kind === 'construct-design'){
+      const hdBonus = BREAKTHROUGH_HD_BONUS[lvl] || 0;
+      const baseHd = Number(kr.hd) || 0;
+      kr.hd = baseHd + hdBonus;
+      if(lastFormula) lastFormula.hd = kr.hd;
+      kr.breakthrough = { level: lvl, hdBonus, baseHd, finalHd: kr.hd, note: '+' + hdBonus + ' HD (manufacturable by the original caster level — RR p.411).' };
+    } else if(project.kind === 'spell-research' || project.kind === 'ritual-learn' || project.kind === 'ritual-cast'){
+      const power = BREAKTHROUGH_POWER_BONUS[lvl] || 0;
+      if(lastFormula) lastFormula.powerLevelBonus = power;
+      kr.breakthrough = { level: lvl, powerLevelBonus: power, note: '+' + power + ' effective level of power, same actual level (RR pp.410–411)' + (project.kind === 'ritual-cast' ? ' — this casting only.' : '.') };
+    } else if(project.kind === 'item-creation'){
+      const pct = BREAKTHROUGH_ITEM_WORTH_PCT[lvl] || 50;
+      kr.breakthrough = { level: lvl, bonusEffectWorthPct: pct, gmResolve: true, note: 'An unexpected bonus effect worth up to ' + pct + '% of the item cost — GM resolves (RR p.410).' };
+    } else if(_ABILITY_BREAKTHROUGH_KINDS.has(project.kind)){
+      const ab = BREAKTHROUGH_ABILITY[lvl] || BREAKTHROUGH_ABILITY.minor;
+      kr.breakthrough = { level: lvl, abilityCount: ab.count, abilityDie: ab.die, gmResolve: true,
+        note: ab.count + ' unexpected special abilit' + (ab.count > 1 ? 'ies' : 'y') + ' — GM resolves (roll ' + ab.die + ' on the Unexpected Abilities table).' };
+    } else {
+      kr.breakthrough = { level: lvl, note: 'A breakthrough — GM resolves the benefit (RR pp.410–411).' };
+    }
   }
 
   // The magic-formula library (additive, init-on-write — no migration; templates stay no-ops). The future
@@ -1043,8 +1258,11 @@
     RESEARCH_RATE_BY_LEVEL, MAGIC_RESEARCH_KINDS, ITEM_ACTIVATION_MULT, ITEM_PERMANENT_MULT, ITEM_BONUS_COST,
     RESEARCH_PROFICIENCY_MODS, HIGH_TIER_RESEARCH_KINDS: HIGH_TIER_KINDS,
     RITUAL_CATALOG, RITUAL_COST_BY_LEVEL, RITUAL_REPERTOIRE_BASE,
+    EXPERIMENT_ADVANTAGES, EXPERIMENT_METHODS, BREAKTHROUGH_LEVELS,
     // rituals (AD-M3)
     ritualCatalogEntry, ritualKeyAttributeFor, ritualRepertoireCap, ritualsKnown, ritualInRepertoire, ritualLevelFor,
+    // experimentation (AD-M4)
+    experimentMethod, experimentEligibility, experimentAllowedAdvantages, determineBreakthrough,
     // core machine
     magicResearchKind, availableResearchKinds, researchRateForLevel, researchEffectiveMinLevel,
     isEligibleResearcher, magicItemCreationCost, researchProjectCosts, componentSubstitutionPenalty,
