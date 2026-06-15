@@ -847,6 +847,28 @@
       ]
     },
     // === end Delves D2 ===
+    // === Phase 4 — The Arcane Domain (Sanctums AD-D) — the Attunement relation (att-,
+    // campaign.attunements[]; RR p.387). mage ↔ dungeon, one ACTIVE per dungeon. Every field is a
+    // blankAttunement key (the schema⊆factory invariant). adminCreate:'schemaForm' = the generic form;
+    // the in-fiction verb is ACKS.attuneToDungeon (the 🔮 Arcane panel). attunementThrow is the conquered-
+    // throw record (raw-JSON edited). ──
+    'attunement': {
+      factory: 'blankAttunement',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Relation', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                   type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                 type: 'string', group: 'Identity', description: 'Optional label (the relation describes itself)' },
+        { name: 'mageCharacterId',      type: 'id', idKind: 'character', required: true, group: 'Relation', description: 'The attuned arcane caster (subject)' },
+        { name: 'dungeonId',            type: 'id', idKind: 'dungeon', required: true, group: 'Relation', description: 'The dungeon (the other end)' },
+        { name: 'method',               type: 'enum', enumValues: ['built','conquered'], group: 'Relation', default: 'built', description: 'Auto on completion if built; else the month-residency + throw (RR p.387)' },
+        { name: 'ancillaryHoursPerDay', type: 'number', min: 0, group: 'Relation', description: 'RR p.387 — ≥1 hr per 30,000 sq ft each day during the qualifying month' },
+        { name: 'attunedAtTurn',        type: 'number', group: 'Lifecycle' },
+        { name: 'status',               type: 'enum', enumValues: ['active','relinquished','superseded','lapsed','ended-on-death'], group: 'Lifecycle', default: 'active' },
+        { name: 'endedAtTurn',          type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'history',              type: 'history', readonly: true, group: 'History' }
+      ]
+    },
     // === Politics P-1 (burst4 2026-06-13) — senate / faction / senatorship (RR pp.355–360;
     // Phase_4_Politics_Plan.md §4). Every field ⊆ the matching blankX keys (the global schema⊆
     // factory invariant). rulingFactionId/leadingFactionId + faction ruling/leading standing are

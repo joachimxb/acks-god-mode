@@ -2863,12 +2863,78 @@
     },
     "attunement": {
       "title": "Attunement",
-      "description": "\"attunement\" entity (no field schema yet — id-bearing object, fields open)",
+      "description": "\"attunement\" entity",
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mageCharacterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "character id — prefix \"chr-\""
+        },
+        "dungeonId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "dungeon id — prefix \"dun-\""
+        },
+        "method": {
+          "enum": [
+            "built",
+            "conquered",
+            null
+          ]
+        },
+        "ancillaryHoursPerDay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "attunedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "relinquished",
+            "superseded",
+            "lapsed",
+            "ended-on-death",
+            null
+          ]
+        },
+        "endedAtTurn": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": "append-only event/log entries"
         }
       },
       "required": [
@@ -5219,7 +5285,13 @@
                 "policy-enacted",
                 "delve-foray",
                 "disease-contracted",
-                "disease-recovered"
+                "disease-recovered",
+                "dungeon-attuned",
+                "attunement-ended",
+                "sovereignty-established",
+                "sovereignty-lost",
+                "arcane-power-extracted",
+                "dungeon-harvested"
               ]
             },
             "id": {
@@ -5312,8 +5384,8 @@
     "engineVersionAtGeneration": "0.24.0",
     "schemaVersion": 2,
     "entityKinds": 49,
-    "typedKinds": 31,
-    "eventKinds": 81,
+    "typedKinds": 32,
+    "eventKinds": 87,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
