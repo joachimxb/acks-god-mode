@@ -234,7 +234,9 @@
       addressable: true, chronicleable: true,
       list: (c) => (c && c.attunements) || [],
       find: (c, id) => ((c && c.attunements) || []).find(x => x && x.id === id),
-      displayName: (c, obj) => (obj && obj.name) || (obj && obj.id) },
+      // blankAttunement emits mageCharacterId + dungeonId (a relation; no `name`) — describe by the
+      // relation (the divineFavor precedent).
+      displayName: (c, obj) => obj ? ((obj.name) || ((obj.mageCharacterId || '?') + ' 🔮 ' + (obj.dungeonId || '?'))) : '' },
 
     { kind: 'settlementVisit', label: 'Settlement Visit', pluralLabel: 'Settlement Visits', icon: '🛤',
       addressable: true, chronicleable: true,

@@ -77,6 +77,8 @@
 <script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
+<!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
+<script src="acks-engine-sanctums.js?v=2026-06-15-arcane"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
@@ -1123,6 +1125,7 @@ document.addEventListener('alpine:init', () => {
               <td x-text="d.knownToPlayers ? '👁 known' : '🙈 hidden'" :class="d.knownToPlayers ? '' : 'opacity-60'"></td>
               <td class="text-right whitespace-nowrap">
                 <template x-if="dungeonForayable(d)"><button @click="openForayWizard(d.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 mr-1" title="Run an abstract foray (JJ ch.12)">⚔ Foray</button></template>
+                <button @click="openArcaneModal(d.id)" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 mr-1" title="The arcane domain — attune, establish sovereignty, extract arcane power, harvest (Phase 4 Sanctums)">🔮 Arcane</button>
                 <button @click="inspectorOpen('dungeon', d.id)" class="underline">open</button>
               </td>
             </tr>
@@ -1156,6 +1159,155 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 <!-- === end Delves D2 sub-view === -->
+
+<!-- === Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E; RR pp.386–388). Opened from
+     World ▸ 🕳️ Dungeons (🔮 Arcane). Attune → establish sovereignty → extract arcane power → harvest;
+     the peasants-and-dungeons garrison cost. z-77 (a peek, like the lair detail). === -->
+<div x-show="arcaneDungeonId" @keydown.escape.window="if(arcaneDungeonId){ closeArcaneModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="closeArcaneModal()">
+  <template x-if="arcaneDungeon()">
+    <div class="vellum border border-ink rounded shadow-lg p-4 my-6 w-full max-w-2xl">
+      <div class="flex justify-between items-start mb-3 gap-2">
+        <div>
+          <h3 class="font-bold text-lg">🔮 <span x-text="arcaneDungeon().name || '(unnamed dungeon)'"></span></h3>
+          <p class="text-xs opacity-70" x-text="dungeonLifecycle(arcaneDungeon()) + (arcaneDungeon().hexId ? (' · ' + dungeonHexLabel(arcaneDungeon())) : ' · unplaced') + (arcaneDungeon().domainId ? (' · ' + arcaneDomainLabel()) : '')"></p>
+        </div>
+        <button @click="closeArcaneModal()" class="text-2xl leading-none px-2 hover:opacity-60" title="Close">×</button>
+      </div>
+
+      <!-- Population -->
+      <div class="border border-ink/20 rounded p-2 mb-2 text-sm">
+        <div class="font-semibold mb-1">🐉 Population</div>
+        <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+          <span>Monster XP: <span class="font-mono" x-text="dungeonMonsterXpV(arcaneDungeon())"></span></span>
+          <span>Lairs here: <span class="font-mono" x-text="arcaneDungeonLairCount()"></span> / cap <span class="font-mono" x-text="dungeonLairCapacityV(arcaneDungeon())"></span></span>
+          <span x-show="dungeonIsFullV(arcaneDungeon())" class="text-red-700 font-semibold">FULL</span>
+        </div>
+        <p x-show="arcaneDungeonLairCount() === 0" class="text-xs italic opacity-60 mt-1">No lairs anchored to this dungeon yet. Anchor a lair to it (the 🏚 Lairs view / Inspector — set <code>lair.dungeonId</code>) to stock the monster farm.</p>
+      </div>
+
+      <!-- Attunement -->
+      <div class="border border-ink/20 rounded p-2 mb-2 text-sm">
+        <div class="font-semibold mb-1">🔗 Attunement <span class="font-normal opacity-70">(RR p.387 — one caster per dungeon)</span></div>
+        <template x-if="arcaneAttunedName()">
+          <div class="flex items-center justify-between gap-2">
+            <span>Attuned: <span class="font-semibold" x-text="arcaneAttunedName()"></span></span>
+            <button @click="arcaneEndAttunement()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">End attunement</button>
+          </div>
+        </template>
+        <template x-if="!arcaneAttunedName()">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="opacity-70">Not attuned.</span>
+            <select x-model="arcaneAttuneCasterId" class="text-sm">
+              <option value="">— pick an arcane caster —</option>
+              <template x-for="c in arcaneCasterOptions()" :key="c.id"><option :value="c.id" x-text="c.label"></option></template>
+            </select>
+            <select x-model="arcaneAttuneMethod" class="text-sm">
+              <option value="built">Built (auto)</option>
+              <option value="conquered">Conquered (throw)</option>
+            </select>
+            <button @click="arcaneAttune()" :disabled="!arcaneAttuneCasterId" class="text-xs px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 disabled:opacity-40">Attune</button>
+          </div>
+        </template>
+        <p x-show="arcaneLastAttune" class="text-xs mt-1" :class="arcaneLastAttuneOk ? 'text-green-800' : 'text-red-700'" x-text="arcaneLastAttune"></p>
+      </div>
+
+      <!-- Sovereignty -->
+      <div class="border border-ink/20 rounded p-2 mb-2 text-sm">
+        <div class="font-semibold mb-1">👑 Sovereignty <span class="font-normal opacity-70">(RR p.388 — extract requires it)</span></div>
+        <template x-if="arcaneSovereignName()">
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <span>Sovereign: <span class="font-semibold" x-text="arcaneSovereignName()"></span> · subjugated XP <span class="font-mono" x-text="dungeonSubjugatedXpV(arcaneDungeon())"></span></span>
+            <button @click="arcaneReleaseSovereignty()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Release</button>
+          </div>
+        </template>
+        <div class="flex flex-wrap items-center gap-2">
+          <select x-model="arcaneSovCasterId" class="text-sm">
+            <option value="">— pick a caster —</option>
+            <template x-for="c in arcaneCasterOptions()" :key="c.id"><option :value="c.id" x-text="c.label"></option></template>
+          </select>
+          <select x-model="arcaneSovMethod" class="text-sm">
+            <option value="gm-fiat">GM fiat (grant)</option>
+            <option value="reaction">Reaction 12+ (Intimidation/Aura)</option>
+            <option value="recruit">Recruit the chieftain</option>
+            <option value="slay">Slay the strongest</option>
+          </select>
+          <template x-if="arcaneSovMethod === 'recruit'">
+            <select x-model="arcaneSovChieftainId" class="text-sm">
+              <option value="">— chieftain —</option>
+              <template x-for="c in arcaneAllCharacterOptions()" :key="c.id"><option :value="c.id" x-text="c.label"></option></template>
+            </select>
+          </template>
+          <template x-if="arcaneSovMethod === 'slay'">
+            <input type="number" min="0" x-model.number="arcaneSovSlainHd" class="text-sm w-20" placeholder="slain HD">
+          </template>
+          <button @click="arcaneEstablishSovereignty()" :disabled="!arcaneSovCasterId" class="text-xs px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 disabled:opacity-40">Establish</button>
+        </div>
+        <p x-show="arcaneLastSov" class="text-xs mt-1" :class="arcaneLastSovOk ? 'text-green-800' : 'text-red-700'" x-text="arcaneLastSov"></p>
+      </div>
+
+      <!-- Arcane power -->
+      <div class="border border-ink/20 rounded p-2 mb-2 text-sm" :class="dungeonArcanePerMonthV(arcaneDungeon()) > 0 ? 'bg-purple-50' : ''">
+        <div class="font-semibold mb-1">🧪 Arcane power <span class="font-normal opacity-70">(RR p.388 — 2%/day of subjugated XP)</span></div>
+        <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+          <span><span class="font-mono" x-text="dungeonArcanePerDayV(arcaneDungeon())"></span> gp/day</span>
+          <span><span class="font-mono" x-text="dungeonArcanePerMonthV(arcaneDungeon())"></span> gp/month</span>
+          <span>spent: <span class="font-mono" x-text="arcaneDungeon().arcanePowerSpentThisMonth || 0"></span></span>
+          <template x-if="arcaneDungeon().sovereignCharacterId">
+            <span :class="arcaneSovInVicinity() ? 'text-green-800' : 'text-red-700'" x-text="arcaneSovInVicinity() ? 'vicinity ✓' : 'vicinity ✗ (sovereign not at the dungeon\'s hex)'"></span>
+          </template>
+        </div>
+        <p class="text-xs opacity-60 mt-1">Ephemeral — refreshed each monthly turn; unspent power is lost (RR p.388). Magic Research draws this as a component-cost payment (the §5 seam).</p>
+      </div>
+
+      <!-- Harvest -->
+      <div class="border border-ink/20 rounded p-2 mb-2 text-sm" x-show="arcaneDungeonGroups().length > 0">
+        <div class="font-semibold mb-1">🦴 Harvest for components <span class="font-normal opacity-70">(RR p.387)</span></div>
+        <div class="flex flex-wrap items-center gap-2">
+          <select x-model="arcaneHarvestGroupId" class="text-sm">
+            <option value="">— monster group —</option>
+            <template x-for="g in arcaneDungeonGroups()" :key="g.id"><option :value="g.id" x-text="g.label"></option></template>
+          </select>
+          <input type="number" min="1" x-model.number="arcaneHarvestQty" class="text-sm w-20" placeholder="qty">
+          <select x-model="arcaneHarvestMethod" class="text-sm">
+            <option value="cull">Cull (needs sovereignty)</option>
+            <option value="bounty">Bounty (hire adventurers)</option>
+          </select>
+          <template x-if="arcaneHarvestMethod === 'bounty'">
+            <input type="number" min="0" x-model.number="arcaneHarvestBounty" class="text-sm w-24" placeholder="bounty gp">
+          </template>
+          <button @click="arcaneHarvest()" :disabled="!arcaneHarvestGroupId" class="text-xs px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 disabled:opacity-40">Harvest</button>
+        </div>
+        <p x-show="arcaneLastHarvest" class="text-xs mt-1" :class="arcaneLastHarvestOk ? 'text-green-800' : 'text-red-700'" x-text="arcaneLastHarvest"></p>
+      </div>
+
+      <!-- Peasants & dungeons (garrison) -->
+      <div class="border border-ink/20 rounded p-2 text-sm" x-show="arcaneDungeon().domainId">
+        <div class="font-semibold mb-1">🏰 Peasants &amp; dungeons <span class="font-normal opacity-70">(RR p.387)</span></div>
+        <template x-if="arcaneGarrisonInfo()">
+          <div>
+            <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+              <span>Required garrison increase: <span class="font-mono" x-text="arcaneGarrisonInfo().required"></span> gp/family</span>
+              <span :class="arcaneGarrisonInfo().penalty < 0 ? 'text-red-700' : 'text-green-800'" x-text="arcaneGarrisonInfo().penalty < 0 ? ('domain morale ' + arcaneGarrisonInfo().penalty) : 'no morale penalty'"></span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 mt-1">
+              <label class="flex items-center gap-1">paid gp/family:
+                <input type="number" min="0" :value="arcaneDomainPaidGpf()" @change="arcaneSetGarrisonPaid($event.target.value)" class="text-sm w-20">
+              </label>
+              <label class="flex items-center gap-1">
+                <input type="checkbox" :checked="arcaneDungeon().monsterGarrisonHired" @change="arcaneToggleMonsterGarrison()">
+                hire the monsters as garrison (−2 morale)
+              </label>
+            </div>
+          </div>
+        </template>
+        <template x-if="!arcaneGarrisonInfo()"><span class="opacity-60 italic">No garrison burden (no living monster XP, or fully paid).</span></template>
+      </div>
+
+      <p class="text-xs opacity-60 mt-3 italic">The arcane economy core (Phase 4 Sanctums AD-D/AD-E). Sanctums + apprentices + auto-population + Magic Research land in later waves.</p>
+    </div>
+  </template>
+</div>
+
 <div x-show="currentView === 'world' && worldSubView === 'lairs'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
@@ -14130,6 +14282,94 @@ return {
   },
   openLairDetail(id){ this.lairDetailId = id; this.lairDetailPopulateKey = ''; this.lairDetailRevealHexId = ''; },
   closeLairDetail(){ this.lairDetailId = null; },
+
+  // ── Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E) ──────────────
+  openArcaneModal(id){
+    this.arcaneDungeonId = id;
+    this.arcaneAttuneCasterId = ''; this.arcaneAttuneMethod = 'built';
+    this.arcaneSovCasterId = ''; this.arcaneSovMethod = 'gm-fiat'; this.arcaneSovChieftainId = ''; this.arcaneSovSlainHd = 0;
+    this.arcaneHarvestGroupId = ''; this.arcaneHarvestQty = 1; this.arcaneHarvestMethod = 'cull'; this.arcaneHarvestBounty = 0;
+    this.arcaneLastAttune = ''; this.arcaneLastSov = ''; this.arcaneLastHarvest = '';
+  },
+  closeArcaneModal(){ this.arcaneDungeonId = null; },
+  arcaneDungeon(){ return this.arcaneDungeonId ? (window.ACKS.findDungeon(this.currentCampaign, this.arcaneDungeonId) || null) : null; },
+  arcaneDomainLabel(){ const d = this.arcaneDungeon(); if(!d || !d.domainId) return ''; const dom = (this.domains || []).find(x => x && x.id === d.domainId); return dom ? (dom.name || dom.id) : d.domainId; },
+  // Pickers
+  arcaneCasterOptions(){
+    return ((this.currentCampaign && this.currentCampaign.characters) || []).filter(c => c && window.ACKS.isArcaneCaster(c))
+      .map(c => ({ id: c.id, label: (c.name || c.id) + ' · ' + (c.class || 'arcane') + ' L' + (c.level || 1) + (window.ACKS.canOperateDungeon(c) ? '' : ' (⚠ L<9)') }));
+  },
+  arcaneAllCharacterOptions(){
+    return ((this.currentCampaign && this.currentCampaign.characters) || []).map(c => ({ id: c.id, label: (c.name || c.id) + (c.class ? (' · ' + c.class) : '') }));
+  },
+  arcaneDungeonGroups(){
+    const d = this.arcaneDungeon(); if(!d) return [];
+    const groups = (this.currentCampaign && this.currentCampaign.groups) || [];
+    const lairs = window.ACKS.lairsInDungeon(this.currentCampaign, d);
+    const ids = []; lairs.forEach(l => (l.groupIds || []).forEach(gid => { if(!ids.includes(gid)) ids.push(gid); }));
+    return ids.map(gid => groups.find(g => g && g.id === gid)).filter(Boolean)
+      .map(g => ({ id: g.id, label: ((g.groupTemplate && g.groupTemplate.monsterCatalogKey) || g.name || 'group') + ' ×' + window.ACKS.groupActiveCount(g) }));
+  },
+  arcaneDungeonLairCount(){ const d = this.arcaneDungeon(); return d ? window.ACKS.lairsInDungeon(this.currentCampaign, d).filter(l => l && (l.status === 'active' || l.status === 'unknown')).length : 0; },
+  // Live-derived read wrappers (the engine takes (campaign, dungeon))
+  dungeonMonsterXpV(d){ return d ? window.ACKS.dungeonMonsterXp(this.currentCampaign, d) : 0; },
+  dungeonSubjugatedXpV(d){ return d ? window.ACKS.dungeonSubjugatedXp(this.currentCampaign, d) : 0; },
+  dungeonArcanePerDayV(d){ return d ? window.ACKS.dungeonArcanePowerPerDay(this.currentCampaign, d) : 0; },
+  dungeonArcanePerMonthV(d){ return d ? window.ACKS.dungeonArcanePowerPerMonth(this.currentCampaign, d) : 0; },
+  dungeonLairCapacityV(d){ return d ? window.ACKS.dungeonLairCapacity(this.currentCampaign, d) : 0; },
+  dungeonIsFullV(d){ return d ? window.ACKS.dungeonIsFull(this.currentCampaign, d) : false; },
+  arcaneAttunedName(){ const d = this.arcaneDungeon(); if(!d) return ''; const id = window.ACKS.dungeonAttunedCharacterId(this.currentCampaign, d); if(!id) return ''; const c = (this.currentCampaign.characters || []).find(x => x && x.id === id); return c ? (c.name || c.id) : id; },
+  arcaneSovereignName(){ const d = this.arcaneDungeon(); if(!d || !d.sovereignCharacterId) return ''; const c = (this.currentCampaign.characters || []).find(x => x && x.id === d.sovereignCharacterId); return c ? (c.name || c.id) : d.sovereignCharacterId; },
+  arcaneSovInVicinity(){ const d = this.arcaneDungeon(); if(!d || !d.sovereignCharacterId) return false; const c = (this.currentCampaign.characters || []).find(x => x && x.id === d.sovereignCharacterId); if(!c) return false; return (c.currentHexId == null || d.hexId == null || c.currentHexId === d.hexId); },
+  // Actions
+  arcaneAttune(){
+    const d = this.arcaneDungeon(); if(!d || !this.arcaneAttuneCasterId) return;
+    const r = window.ACKS.attuneToDungeon(this.currentCampaign, { dungeonId: d.id, mageCharacterId: this.arcaneAttuneCasterId, method: this.arcaneAttuneMethod });
+    this.arcaneLastAttuneOk = !!(r && r.ok);
+    if(r && r.ok){ this.arcaneLastAttune = r.alreadyAttuned ? 'Already attuned.' : ('Attuned (' + (r.method || this.arcaneAttuneMethod) + ').'); this.markDirty(); this.schedulePersist(); this.showToast('🔗 Attuned to ' + (d.name || 'the dungeon') + '.'); }
+    else { this.arcaneLastAttune = 'Could not attune: ' + ((r && r.reason) || 'unknown') + (r && r.throwResult ? (' (throw ' + r.throwResult.total + ' vs ' + r.throwResult.target + ')') : '') + (r && r.byCharacterId ? (' — held by ' + r.byCharacterId) : ''); }
+  },
+  arcaneEndAttunement(){
+    const d = this.arcaneDungeon(); if(!d) return;
+    const att = window.ACKS.dungeonActiveAttunement(this.currentCampaign, d); if(!att) return;
+    window.ACKS.endAttunement(this.currentCampaign, att.id, 'relinquished', 'gm-action');
+    this.markDirty(); this.schedulePersist(); this.showToast('Attunement ended.');
+  },
+  arcaneEstablishSovereignty(){
+    const d = this.arcaneDungeon(); if(!d || !this.arcaneSovCasterId) return;
+    const r = window.ACKS.establishSovereignty(this.currentCampaign, { dungeonId: d.id, casterId: this.arcaneSovCasterId,
+      method: this.arcaneSovMethod, chieftainCharacterId: this.arcaneSovChieftainId || null, slainHd: this.arcaneSovSlainHd || 0, displace: true });
+    this.arcaneLastSovOk = !!(r && r.ok);
+    if(r && r.ok){ this.arcaneLastSov = 'Sovereignty established (' + (r.method || this.arcaneSovMethod) + ', ' + (r.subjugatedGroupIds || []).length + ' group(s); subjugated XP ' + (r.subjugatedXp || 0) + ').'; this.markDirty(); this.schedulePersist(); this.showToast('👑 Sovereignty over ' + (d.name || 'the dungeon') + '.'); }
+    else { this.arcaneLastSov = 'Could not establish: ' + ((r && r.reason) || 'unknown') + (r && r.throwResult && r.throwResult.total != null ? (' (roll ' + r.throwResult.total + ' vs ' + (r.throwResult.target || 12) + ')') : ''); }
+  },
+  arcaneReleaseSovereignty(){
+    const d = this.arcaneDungeon(); if(!d) return;
+    window.ACKS.loseSovereignty(this.currentCampaign, d.id, { reason: 'gm-action' });
+    this.markDirty(); this.schedulePersist(); this.showToast('Sovereignty released.');
+  },
+  arcaneHarvest(){
+    const d = this.arcaneDungeon(); if(!d || !this.arcaneHarvestGroupId) return;
+    const casterId = d.sovereignCharacterId || (window.ACKS.dungeonAttunedCharacterId(this.currentCampaign, d)) || this.arcaneSovCasterId || this.arcaneAttuneCasterId;
+    if(!casterId){ this.arcaneLastHarvest = 'Pick/establish a caster first (sovereign for a cull, anyone for a bounty).'; this.arcaneLastHarvestOk = false; return; }
+    const r = window.ACKS.harvestDungeon(this.currentCampaign, { dungeonId: d.id, casterId, groupId: this.arcaneHarvestGroupId,
+      quantity: this.arcaneHarvestQty || 1, method: this.arcaneHarvestMethod, bountyGp: this.arcaneHarvestBounty || 0 });
+    this.arcaneLastHarvestOk = !!(r && r.ok);
+    if(r && r.ok){ this.arcaneLastHarvest = 'Harvested ' + r.quantity + '× ' + (r.item && r.item.specialComponent && r.item.specialComponent.monsterKey) + ' → ' + r.componentValueGp + 'gp of components' + (r.bountyGp ? (', ' + r.bountyGp + 'gp bounty') : '') + '.'; this.markDirty(); this.schedulePersist(); this.showToast('🦴 Harvested ' + r.componentValueGp + 'gp of components.'); }
+    else { this.arcaneLastHarvest = 'Could not harvest: ' + ((r && r.reason) || 'unknown'); }
+  },
+  // Peasants & dungeons (garrison) — a GM planning lever (direct field, like monsterGarrisonHired)
+  arcaneGarrisonInfo(){
+    const d = this.arcaneDungeon(); if(!d || !d.domainId) return null;
+    const dom = (this.domains || []).find(x => x && x.id === d.domainId); if(!dom) return null;
+    const required = window.ACKS.dungeonRequiredGarrisonGpf(this.currentCampaign, dom);
+    const pen = window.ACKS.dungeonGarrisonMoralePenalty(this.currentCampaign, dom);
+    if(!required && !pen) return null;
+    return { required: required, penalty: pen ? pen.value : 0 };
+  },
+  arcaneDomainPaidGpf(){ const d = this.arcaneDungeon(); if(!d || !d.domainId) return 0; const dom = (this.domains || []).find(x => x && x.id === d.domainId); return dom ? (Number(dom.dungeonGarrisonPaidGpf) || 0) : 0; },
+  arcaneSetGarrisonPaid(val){ const d = this.arcaneDungeon(); if(!d || !d.domainId) return; const dom = (this.domains || []).find(x => x && x.id === d.domainId); if(!dom) return; dom.dungeonGarrisonPaidGpf = Math.max(0, Number(val) || 0); this.markDirty(); this.schedulePersist(); },
+  arcaneToggleMonsterGarrison(){ const d = this.arcaneDungeon(); if(!d) return; d.monsterGarrisonHired = !d.monsterGarrisonHired; this.markDirty(); this.schedulePersist(); },
   lairDetailLair(){ return this.lairDetailId ? (window.ACKS.findLair(this.currentCampaign, this.lairDetailId) || null) : null; },
   lairDetailGroups(){
     const l = this.lairDetailLair(); if(!l) return [];
@@ -21344,6 +21584,14 @@ return {
   lairWizardSeed: { hexId:'', count:0 },
   // #476 M7 — World ▸ Lairs view + lair detail panel (Plan §12).
   lairDetailId: null,            // open lair in the detail modal (null = closed)
+  // Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E). Transient form state.
+  arcaneDungeonId: null,         // open dungeon in the arcane modal (null = closed)
+  arcaneAttuneCasterId: '', arcaneAttuneMethod: 'built',
+  arcaneSovCasterId: '', arcaneSovMethod: 'gm-fiat', arcaneSovChieftainId: '', arcaneSovSlainHd: 0,
+  arcaneHarvestGroupId: '', arcaneHarvestQty: 1, arcaneHarvestMethod: 'cull', arcaneHarvestBounty: 0,
+  arcaneLastAttune: '', arcaneLastAttuneOk: false,
+  arcaneLastSov: '', arcaneLastSovOk: false,
+  arcaneLastHarvest: '', arcaneLastHarvestOk: false,
   encounterModalOpen: false,     // the resolution modal's visibility (#476 E2)
   encounterModalId: null,        // the encounter it shows — kept set on close so the mounted
                                  // subtree never re-evaluates against null during teardown (no Alpine warnings)

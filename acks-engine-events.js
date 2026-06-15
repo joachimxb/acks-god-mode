@@ -261,7 +261,18 @@ const EVENT_KINDS = Object.freeze([
   // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
   // death-from-old-age carrying died:bool); the eventLog narrative reads correctly either way.
   'disease-contracted',
-  'disease-recovered'
+  'disease-recovered',
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
+  // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
+  // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
+  // the arcanePowerSpentThisMonth wallet, the harvested components). These keep the eventLog well-formed
+  // on replay + carry the Event.context envelope (the caster as subject + the dungeon as site).
+  'dungeon-attuned',          // a caster attunes to a dungeon (built-auto / conquered-throw)
+  'attunement-ended',         // an attunement lapses (relinquished / superseded / left-vicinity / death)
+  'sovereignty-established',  // a caster cows (some of) a dungeon's inhabitants (reaction / recruit / slay / fiat)
+  'sovereignty-lost',         // sovereignty relinquished or the monsters departed
+  'arcane-power-extracted',   // the monthly arcane-power yield is refreshed (campaignLogHidden — routine)
+  'dungeon-harvested'         // monster parts culled for special components (RR p.387)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -831,6 +842,31 @@ const EVENT_SCHEMAS = Object.freeze({
   'disease-recovered': {
     R: { characterId: 'string', diseaseType: 'string' },
     O: { diseaseLabel: 'string', outcome: 'string', died: 'boolean', cured: 'boolean', narrative: 'string' }
+  },
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
+  'dungeon-attuned': {
+    R: { dungeonId: 'string', mageCharacterId: 'string', method: 'string' },
+    O: { attunementId: 'string', throwResult: 'object', narrative: 'string' }
+  },
+  'attunement-ended': {
+    R: { attunementId: 'string', dungeonId: 'string' },
+    O: { mageCharacterId: 'string', status: 'string', reason: 'string', narrative: 'string' }
+  },
+  'sovereignty-established': {
+    R: { dungeonId: 'string', characterId: 'string', method: 'string' },
+    O: { groupIds: 'object', leaderCharacterIds: 'object', throwResult: 'object', narrative: 'string' }
+  },
+  'sovereignty-lost': {
+    R: { dungeonId: 'string', characterId: 'string' },
+    O: { reason: 'string', narrative: 'string' }
+  },
+  'arcane-power-extracted': {
+    R: { dungeonId: 'string', characterId: 'string', gpValue: 'number' },
+    O: { subjugatedXp: 'number', narrative: 'string' }
+  },
+  'dungeon-harvested': {
+    R: { dungeonId: 'string', casterCharacterId: 'string', monsterKey: 'string', quantity: 'number' },
+    O: { componentValueGp: 'number', method: 'string', bountyGp: 'number', narrative: 'string' }
   }
 });
 
@@ -2400,6 +2436,21 @@ function applyEvent_diseaseAudit(campaign, event){
 }
 registerEventHandler('disease-contracted', applyEvent_diseaseAudit);
 registerEventHandler('disease-recovered', applyEvent_diseaseAudit);
+// === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
+// attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
+// state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
+// wallet, the harvested components); these handlers keep the events well-formed on replay (records the
+// narrative only). Mirrors religion / delve / aging.
+function applyEvent_arcaneAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'arcane domain event' } };
+}
+registerEventHandler('dungeon-attuned', applyEvent_arcaneAudit);
+registerEventHandler('attunement-ended', applyEvent_arcaneAudit);
+registerEventHandler('sovereignty-established', applyEvent_arcaneAudit);
+registerEventHandler('sovereignty-lost', applyEvent_arcaneAudit);
+registerEventHandler('arcane-power-extracted', applyEvent_arcaneAudit);
+registerEventHandler('dungeon-harvested', applyEvent_arcaneAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5427,7 +5478,13 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
   // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
   // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
-  'disease-contracted', 'disease-recovered'
+  'disease-contracted', 'disease-recovered',
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
+  // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
+  // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
+  // att- relation + dungeon state don't show.
+  'dungeon-attuned', 'attunement-ended', 'sovereignty-established', 'sovereignty-lost',
+  'arcane-power-extracted', 'dungeon-harvested'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

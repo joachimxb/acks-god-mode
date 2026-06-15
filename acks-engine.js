@@ -9172,6 +9172,22 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let aging fail the monthly commit */ }
   }
 
+  // === THE ARCANE DOMAIN — arcane power (Phase 4 Sanctums, AD-E; RR p.388) ===
+  // The monthly arcane consumer refreshes each attuned+sovereign dungeon's arcane-power display cache to
+  // the new month's yield (2%/day × subjugated XP × 30) and RESETS the per-month spend window (the prior
+  // month's unspent power is lost — "cannot be stored", RR p.388). Late-bound (acks-engine-sanctums.js loads
+  // after this file) + try-guarded (the Religion/aging precedent), so it can never fail the core monthly
+  // commit. No house rule (RAW core, dormant — no dungeons ⇒ a no-op).
+  let arcaneResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processArcaneForTurn === 'function'){
+        arcaneResult = global.ACKS.processArcaneForTurn(campaign, { rng }) || arcaneResult;
+        (arcaneResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let the arcane domain fail the monthly commit */ }
+  }
+
   // === RUMOR AUTO-EMIT ===
   if(isHouseRuleEnabled(campaign, 'rumors-auto-emit')){
     const upcomingTurn = (campaign.currentTurn || 1) + 1;

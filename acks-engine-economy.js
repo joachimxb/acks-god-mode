@@ -473,6 +473,13 @@ function moraleModifiersFor(campaign, d){
     const militiaPen = global.ACKS.militiaDomainMoralePenalty(campaign, d) || 0;
     if(militiaPen < 0) mods.push({ label: 'Militia called up (RR p.432)', value: militiaPen });
   }
+  // === Phase 4 Sanctums AD-E — Peasants and dungeons (RR p.387): a stocked dungeon demoralizes the
+  // peasants unless the ruler pays a heavier garrison. RAW core (not rule-gated; dormant — no owned
+  // dungeon ⇒ null ⇒ no row). Late-bound (acks-engine-sanctums.js loads after this module).
+  if(global.ACKS && typeof global.ACKS.dungeonGarrisonMoralePenalty === 'function'){
+    const dunPen = global.ACKS.dungeonGarrisonMoralePenalty(campaign, d);
+    if(dunPen && dunPen.value < 0) mods.push({ label: dunPen.label, value: dunPen.value });
+  }
   // RR p.349 — stronghold-adequacy penalty, emitted as a row so it flows through moraleModSum.
   const strongholdReq = strongholdRequired(d), strongholdVal = strongholdValue(campaign, d);
   const strongholdPen = strongholdMoralePenalty(strongholdVal, strongholdReq);

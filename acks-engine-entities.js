@@ -392,6 +392,12 @@ function blankLair(opts={}){
     precisePlacement: opts.precisePlacement || '',   // GM narrative: "cave on the eastern slope"
     knownToPlayers: opts.knownToPlayers === true,    // discovered via search/tracking? (§6)
     hiddenDC: (opts.hiddenDC === undefined ? null : opts.hiddenDC),  // hex-search modifier
+    // Phase 4 Sanctums AD-A — a lair is hex-anchored (wilderness) OR dungeon-anchored (a room in a
+    // monster-farm dungeon). dungeonId null for every shipped lair (additive; the arcane overlay sets it
+    // via ACKS.anchorLairToDungeon). areaIndex/depthRank = the room ordinal + the deeper-is-stronger rank.
+    dungeonId: opts.dungeonId || null,
+    areaIndex: (opts.areaIndex === undefined ? null : opts.areaIndex),
+    depthRank: (opts.depthRank === undefined ? null : opts.depthRank),
     // Content — the STRUCTURED population (survey §5; NOT a flat count).
     monsterCatalogKey: opts.monsterCatalogKey || '', // → MONSTER_CATALOG (M2); free string until then
     lairPct: (opts.lairPct === undefined ? null : opts.lairPct),     // the monster's Lair % (0 = never lairs)
