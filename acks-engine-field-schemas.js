@@ -869,6 +869,27 @@
         { name: 'history',              type: 'history', readonly: true, group: 'History' }
       ]
     },
+    // === Phase 4 — Sanctums AD-B — the Apprenticeship relation (apr-, campaign.apprenticeships[]; RR p.386).
+    // Every field is a blankApprenticeship key (the schema⊆factory invariant); lastResearchThrow is a nested
+    // object raw-JSON edited + OMITTED here (the attunement-attunementThrow precedent). adminCreate:'schemaForm'
+    // = the free-form Admin verb; apprentices normally arrive via attractToSanctum (the Sanctum tab). ──
+    'apprenticeship': {
+      factory: 'blankApprenticeship',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Relation', 'Study', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                    type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                  type: 'string', group: 'Identity', description: 'Optional label (the relation describes itself)' },
+        { name: 'apprenticeCharacterId', type: 'id', idKind: 'character', required: true, group: 'Relation', description: 'The L0 apprentice (INT ≥ 9, subject)' },
+        { name: 'masterCharacterId',     type: 'id', idKind: 'character', required: true, group: 'Relation', description: 'The sanctum-owning arcane caster' },
+        { name: 'sanctumConstructibleId', type: 'id', idKind: 'constructible', group: 'Relation', description: 'The sanctum the apprentice studies at' },
+        { name: 'enrolledAtTurn',        type: 'number', group: 'Study' },
+        { name: 'yearsStudied',          type: 'number', min: 0, group: 'Study', description: 'A research throw (18+ ± INT) is made each completed year (RR p.386)' },
+        { name: 'status',                type: 'enum', enumValues: ['studying','advanced','left'], group: 'Lifecycle', default: 'studying' },
+        { name: 'endedAtTurn',           type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'history',               type: 'history', readonly: true, group: 'History' }
+      ]
+    },
     // === Phase 4 — Magic Research (AD-M1) — the Research Project (rsp-, campaign.researchProjects[];
     // RR pp.388–393). Every field is a blankResearchProject key (the schema⊆factory invariant); the
     // complex nested objects (config / componentPlan / throwResult / kindResult) are raw-JSON edited +

@@ -273,6 +273,13 @@ const EVENT_KINDS = Object.freeze([
   'sovereignty-lost',         // sovereignty relinquished or the monsters departed
   'arcane-power-extracted',   // the monthly arcane-power yield is refreshed (campaignLogHidden — routine)
   'dungeon-harvested',        // monster parts culled for special components (RR p.387)
+  // === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits emitted by acks-engine-sanctums.js
+  // (onSanctumConstructed / attractToSanctum / processSanctumsForTurn already applied state — the kindSpecific
+  // facilities scaffold, the generated Character + henchmanship/apprenticeship records, the yearly throw).
+  'sanctum-established',      // a kind:'sanctum' Constructible completes → facilities + the first attraction
+  'apprentice-attracted',     // a sanctum draws companions (L1–3) + apprentices (L0)
+  'apprentice-advanced',      // an apprentice's yearly research throw succeeds → an L1 companion (henchman)
+  'apprentice-discouraged',   // an apprentice rolls an unmodified 1–3 → discouraged, leaves the sanctum
   // === Phase 4 — Magic Research (the Arcane-Domain consumer, AD-M1; RR pp.388–393) ===
   // Record-only audits emitted by acks-engine-magic-research.js (the startResearchProject / process
   // ResearchForTurn / payAndRollResearchThrow verbs already applied state — the rsp- project, the cost
@@ -886,6 +893,23 @@ const EVENT_SCHEMAS = Object.freeze({
   'dungeon-harvested': {
     R: { dungeonId: 'string', casterCharacterId: 'string', monsterKey: 'string', quantity: 'number' },
     O: { componentValueGp: 'number', method: 'string', bountyGp: 'number', narrative: 'string' }
+  },
+  // === Phase 4 — Sanctums AD-B (RR p.386) ===
+  'sanctum-established': {
+    R: { constructibleId: 'string' },
+    O: { builderCharacterId: 'string', narrative: 'string' }
+  },
+  'apprentice-attracted': {
+    R: { sanctumConstructibleId: 'string', masterCharacterId: 'string' },
+    O: { companionCharacterIds: 'object', apprenticeCharacterIds: 'object', initial: 'boolean', narrative: 'string' }
+  },
+  'apprentice-advanced': {
+    R: { apprenticeshipId: 'string', apprenticeCharacterId: 'string', masterCharacterId: 'string' },
+    O: { roll: 'number', total: 'number', intMod: 'number', narrative: 'string' }
+  },
+  'apprentice-discouraged': {
+    R: { apprenticeshipId: 'string', apprenticeCharacterId: 'string', masterCharacterId: 'string' },
+    O: { roll: 'number', narrative: 'string' }
   },
   // === Phase 4 — Magic Research (AD-M1; RR pp.388–393) ===
   'magic-research-started': {
@@ -2227,6 +2251,12 @@ function applyEvent_constructionCompleted(campaign, event){
     narrative: p.narrative || ('Constructed: ' + (cst ? cst.name : proj.name) + ' (' + (cst ? cst.buildValue : proj.totalCost) + ' gp)')
   });
   _pushConstructionHistory(proj, { turn: campaign.currentTurn || null, type: 'completed', narrative: 'Spawned Constructible ' + (cst ? cst.id : '') });
+  // Sanctums AD-B (RR p.386) — a completed kind:'sanctum' Constructible scaffolds its research facilities
+  // and draws its first apprentices/companions. Idempotent (the sanctumEstablished guard) + try-guarded
+  // (late-bound; a missing module can never fail construction completion). The arcane/religion precedent.
+  if(cst && cst.constructibleKind === 'sanctum' && A && typeof A.onSanctumConstructed === 'function'){
+    try { A.onSanctumConstructed(campaign, cst, { event: event }); } catch(_e){ /* never let the sanctum hook fail construction */ }
+  }
   return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, narrativeSummary: 'Completed construction of ' + (cst ? cst.name : proj.name) + ' — ' + ((cst && cst.buildValue) || 0).toLocaleString() + ' gp value.' } };
 }
 registerEventHandler('construction-completed', applyEvent_constructionCompleted);
@@ -2522,6 +2552,12 @@ registerEventHandler('sovereignty-established', applyEvent_arcaneAudit);
 registerEventHandler('sovereignty-lost', applyEvent_arcaneAudit);
 registerEventHandler('arcane-power-extracted', applyEvent_arcaneAudit);
 registerEventHandler('dungeon-harvested', applyEvent_arcaneAudit);
+// === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits (onSanctumConstructed / attractToSanctum /
+// processSanctumsForTurn in acks-engine-sanctums.js already applied state); same audit posture as the arcane events.
+registerEventHandler('sanctum-established', applyEvent_arcaneAudit);
+registerEventHandler('apprentice-attracted', applyEvent_arcaneAudit);
+registerEventHandler('apprentice-advanced', applyEvent_arcaneAudit);
+registerEventHandler('apprentice-discouraged', applyEvent_arcaneAudit);
 // === Phase 4 — Magic Research (AD-M1) === — record-only audit posture: the startResearchProject /
 // processResearchForTurn / payAndRollResearchThrow verbs in acks-engine-magic-research.js already applied
 // state (the rsp- project + cost pools, the spent arcane power + consumed components, the minted Notable
@@ -5576,6 +5612,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // att- relation + dungeon state don't show.
   'dungeon-attuned', 'attunement-ended', 'sovereignty-established', 'sovereignty-lost',
   'arcane-power-extracted', 'dungeon-harvested',
+  // === Phase 4 — Sanctums AD-B === — owned by acks-engine-sanctums.js (onSanctumConstructed fires from the
+  // construction-completed handler; attractToSanctum + the yearly processSanctumsForTurn tick); a raw emit
+  // would record a sanctum/attraction/advancement the kindSpecific facilities + apprenticeship records don't show.
+  'sanctum-established', 'apprentice-attracted', 'apprentice-advanced', 'apprentice-discouraged',
   // === Phase 4 — Magic Research (AD-M1) === — owned by acks-engine-magic-research.js (the project verbs
   // + the character-sheet ⚗ Research panel); a raw emit would record a research started/progress/completed/
   // failed or an item creation the rsp- project + the minted item don't show.
