@@ -238,6 +238,15 @@
       // relation (the divineFavor precedent).
       displayName: (c, obj) => obj ? ((obj.name) || ((obj.mageCharacterId || '?') + ' 🔮 ' + (obj.dungeonId || '?'))) : '' },
 
+    // === Phase 4 — Magic Research (AD-M1) — the Research Project (rsp-, campaign.researchProjects[];
+    // RR pp.388–393). A multi-day arcane undertaking (the Arcane-Domain consumer). displayName reads
+    // only blankResearchProject keys (name/kind/id) per the registry⊆factory invariant. ──
+    { kind: 'research-project', label: 'Research Project', pluralLabel: 'Research Projects', icon: '⚗',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.researchProjects) || [],
+      find: (c, id) => ((c && c.researchProjects) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && (obj.name || obj.kind)) || (obj && obj.id) },
+
     { kind: 'settlementVisit', label: 'Settlement Visit', pluralLabel: 'Settlement Visits', icon: '🛤',
       addressable: true, chronicleable: true,
       list: (c) => (c && c.settlementVisits) || [],

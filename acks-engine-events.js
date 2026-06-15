@@ -272,7 +272,20 @@ const EVENT_KINDS = Object.freeze([
   'sovereignty-established',  // a caster cows (some of) a dungeon's inhabitants (reaction / recruit / slay / fiat)
   'sovereignty-lost',         // sovereignty relinquished or the monsters departed
   'arcane-power-extracted',   // the monthly arcane-power yield is refreshed (campaignLogHidden — routine)
-  'dungeon-harvested'         // monster parts culled for special components (RR p.387)
+  'dungeon-harvested',        // monster parts culled for special components (RR p.387)
+  // === Phase 4 — Magic Research (the Arcane-Domain consumer, AD-M1; RR pp.388–393) ===
+  // Record-only audits emitted by acks-engine-magic-research.js (the startResearchProject / process
+  // ResearchForTurn / payAndRollResearchThrow verbs already applied state — the rsp- project, the cost
+  // pools, the spent arcane power, the minted Notable Item / written identification / gained formula).
+  'magic-research-started',   // a caster begins a research project (material paid at the start)
+  'magic-research-progress',  // monthly research investment toward a project (campaignLogHidden — routine)
+  'magic-research-completed', // the throw (or no-throw) succeeds → the result applied
+  'magic-research-failed',    // the throw fails → all time, money, materials & components lost (RR p.388)
+  'magic-item-created',       // item creation mints a Notable Item (RR pp.391–393)
+  // === Phase 4 — Magic Research AD-M2 (the high-tier creature-minting kinds; RR pp.394–398) ===
+  'construct-manufactured',   // manufacture a construct (a Group; mindless auto-controlled, else a reaction)
+  'crossbreed-created',       // breed a new crossbreed creature (a Group; the progenitors are consumed)
+  'necromancy-performed'      // raise an intelligent undead (a Group; willing auto-loyal, else a reaction)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -867,6 +880,40 @@ const EVENT_SCHEMAS = Object.freeze({
   'dungeon-harvested': {
     R: { dungeonId: 'string', casterCharacterId: 'string', monsterKey: 'string', quantity: 'number' },
     O: { componentValueGp: 'number', method: 'string', bountyGp: 'number', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research (AD-M1; RR pp.388–393) ===
+  'magic-research-started': {
+    R: { projectId: 'string', kind: 'string', researcherCharacterId: 'string' },
+    O: { baseCost: 'number', materialCostGp: 'number', narrative: 'string' }
+  },
+  'magic-research-progress': {
+    R: { projectId: 'string', researcherCharacterId: 'string' },
+    O: { kind: 'string', investedGp: 'number', researchCostGp: 'number', narrative: 'string' }
+  },
+  'magic-research-completed': {
+    R: { projectId: 'string', kind: 'string', researcherCharacterId: 'string' },
+    O: { kindResult: 'object', throwResult: 'object', narrative: 'string' }
+  },
+  'magic-research-failed': {
+    R: { projectId: 'string', kind: 'string', researcherCharacterId: 'string' },
+    O: { lostGp: 'number', throwResult: 'object', narrative: 'string' }
+  },
+  'magic-item-created': {
+    R: { projectId: 'string', notableItemId: 'string' },
+    O: { makerCharacterId: 'string', itemKind: 'string', narrative: 'string' }
+  },
+  // === Phase 4 — Magic Research AD-M2 (the high-tier creature-minting kinds; RR pp.394–398) ===
+  'construct-manufactured': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', undead: 'boolean', narrative: 'string' }
+  },
+  'crossbreed-created': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', progenitorsKilled: 'number', narrative: 'string' }
+  },
+  'necromancy-performed': {
+    R: { projectId: 'string' },
+    O: { groupId: 'string', makerCharacterId: 'string', controlled: 'boolean', disposition: 'string', count: 'number', willing: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2451,6 +2498,22 @@ registerEventHandler('sovereignty-established', applyEvent_arcaneAudit);
 registerEventHandler('sovereignty-lost', applyEvent_arcaneAudit);
 registerEventHandler('arcane-power-extracted', applyEvent_arcaneAudit);
 registerEventHandler('dungeon-harvested', applyEvent_arcaneAudit);
+// === Phase 4 — Magic Research (AD-M1) === — record-only audit posture: the startResearchProject /
+// processResearchForTurn / payAndRollResearchThrow verbs in acks-engine-magic-research.js already applied
+// state (the rsp- project + cost pools, the spent arcane power + consumed components, the minted Notable
+// Item / written identification / gained formula); these handlers keep the events well-formed on replay.
+function applyEvent_researchAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'magic research event' } };
+}
+registerEventHandler('magic-research-started', applyEvent_researchAudit);
+registerEventHandler('magic-research-progress', applyEvent_researchAudit);
+registerEventHandler('magic-research-completed', applyEvent_researchAudit);
+registerEventHandler('magic-research-failed', applyEvent_researchAudit);
+registerEventHandler('magic-item-created', applyEvent_researchAudit);
+registerEventHandler('construct-manufactured', applyEvent_researchAudit);
+registerEventHandler('crossbreed-created', applyEvent_researchAudit);
+registerEventHandler('necromancy-performed', applyEvent_researchAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5484,7 +5547,14 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
   // att- relation + dungeon state don't show.
   'dungeon-attuned', 'attunement-ended', 'sovereignty-established', 'sovereignty-lost',
-  'arcane-power-extracted', 'dungeon-harvested'
+  'arcane-power-extracted', 'dungeon-harvested',
+  // === Phase 4 — Magic Research (AD-M1) === — owned by acks-engine-magic-research.js (the project verbs
+  // + the character-sheet ⚗ Research panel); a raw emit would record a research started/progress/completed/
+  // failed or an item creation the rsp- project + the minted item don't show.
+  'magic-research-started', 'magic-research-progress', 'magic-research-completed',
+  'magic-research-failed', 'magic-item-created',
+  // AD-M2 — owned by acks-engine-magic-research.js (the creature-minting result of a research throw).
+  'construct-manufactured', 'crossbreed-created', 'necromancy-performed'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

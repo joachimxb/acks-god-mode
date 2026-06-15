@@ -869,6 +869,40 @@
         { name: 'history',              type: 'history', readonly: true, group: 'History' }
       ]
     },
+    // === Phase 4 — Magic Research (AD-M1) — the Research Project (rsp-, campaign.researchProjects[];
+    // RR pp.388–393). Every field is a blankResearchProject key (the schema⊆factory invariant); the
+    // complex nested objects (config / componentPlan / throwResult / kindResult) are raw-JSON edited +
+    // OMITTED here (the attunement-attunementThrow precedent). adminCreate:'schemaForm' = the free-form
+    // Admin verb; the guided Action verb is the character-sheet ⚗ Research panel (ACKS.startResearchProject). ──
+    'research-project': {
+      factory: 'blankResearchProject',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Costs', 'Throw', 'Lifecycle', 'History'],
+      fields: [
+        { name: 'id',                    type: 'string', readonly: true, group: 'Identity' },
+        { name: 'name',                  type: 'string', group: 'Identity', description: 'e.g. "Wand of Fireball"' },
+        { name: 'kind',                  type: 'enum', enumValues: ['spell-research','identify','item-creation','construct-design','construct-manufacture','crossbreed','necromancy','ritual-learn','ritual-cast'], group: 'Identity', default: 'spell-research', description: 'AD-M1 ships spell-research / identify / item-creation; the rest land with AD-M2/M3' },
+        { name: 'magicDomain',           type: 'enum', enumValues: ['evocation','summoning','enchantment','protection','death','transmog'], group: 'Identity', description: 'For proficiency mods (RR p.389) — nullable' },
+        { name: 'researcherCharacterId', type: 'id', idKind: 'character', required: true, group: 'Identity', description: 'The arcane caster leading the project' },
+        { name: 'assistantCharacterIds', type: 'idArray', idKind: 'character', group: 'Identity', description: 'Directly-aiding assistants (add their research rate) — RR p.390' },
+        { name: 'facilityKind',          type: 'enum', enumValues: ['library','workshop','mortuary','crossbreeding-lab'], group: 'Identity', default: 'library' },
+        { name: 'baseCost',              type: 'gp', group: 'Costs' },
+        { name: 'componentCostGp',       type: 'gp', group: 'Costs', description: 'Paid at the end in special components (the Sanctums seam, §3)' },
+        { name: 'materialCostGp',        type: 'gp', group: 'Costs', description: 'Paid at the start (coin / precious materials)' },
+        { name: 'researchCostGp',        type: 'gp', group: 'Costs', description: 'Paid by labor over the duration at the research rate' },
+        { name: 'materialPaid',          type: 'boolean', group: 'Costs' },
+        { name: 'researchInvestedGp',    type: 'gp', group: 'Costs', description: 'Accrues monthly at the total research rate' },
+        { name: 'componentPaid',         type: 'boolean', group: 'Costs' },
+        { name: 'substitutionPenalty',   type: 'number', readonly: true, group: 'Throw', description: 'Derived from the component plan (RR p.388)' },
+        { name: 'needsThrow',            type: 'boolean', group: 'Throw', default: true, description: 'False = duplicating a common spell / working from a formula' },
+        { name: 'fromFormula',           type: 'boolean', group: 'Throw' },
+        { name: 'fromSample',            type: 'boolean', group: 'Throw', description: '+4 to the throw (RR p.388)' },
+        { name: 'status',                type: 'enum', enumValues: ['planning','in-progress','awaiting-throw','completed','failed','abandoned'], group: 'Lifecycle', default: 'planning' },
+        { name: 'startedOnTurn',         type: 'number', group: 'Lifecycle' },
+        { name: 'completedOnTurn',       type: 'number', readonly: true, group: 'Lifecycle' },
+        { name: 'history',               type: 'history', readonly: true, group: 'History' }
+      ]
+    },
     // === Politics P-1 (burst4 2026-06-13) — senate / faction / senatorship (RR pp.355–360;
     // Phase_4_Politics_Plan.md §4). Every field ⊆ the matching blankX keys (the global schema⊆
     // factory invariant). rulingFactionId/leadingFactionId + faction ruling/leading standing are
