@@ -48,7 +48,7 @@
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-14-burst5"></script>
-<script src="acks-engine-events.js?v=2026-06-15-adm2"></script>
+<script src="acks-engine-events.js?v=2026-06-15-adm4"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-14-pt5"></script>
@@ -79,7 +79,7 @@
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
 <script src="acks-engine-sanctums.js?v=2026-06-15-arcane"></script>
-<script src="acks-engine-magic-research.js?v=2026-06-15-adm2"></script>
+<script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-gladiators.js?v=2026-06-14-burst5"></script>
@@ -2043,6 +2043,65 @@ document.addEventListener('alpine:init', () => {
         </div>
       </template>
 
+      <!-- ritual config (AD-M3): learn / cast a ritual spell (RR p.398) -->
+      <template x-if="['ritual-learn','ritual-cast'].includes(researchNew.kind)">
+        <div class="space-y-1.5 border border-ink/20 rounded p-2">
+          <label class="block">Ritual
+            <select class="ed-input w-full mt-0.5" x-model="researchNew.ritualKey">
+              <option value="">— pick a sample ritual —</option>
+              <template x-for="r in researchRitualOptions()" :key="r.key"><option :value="r.key" x-text="r.label"></option></template>
+              <option value="custom">Custom ritual (set the level)</option>
+            </select>
+          </label>
+          <label class="flex items-center justify-between" x-show="researchNew.ritualKey==='custom' || !researchNew.ritualKey">Name <input type="text" class="ed-input w-44" x-model="researchNew.targetName" placeholder="e.g. World-Ender"></label>
+          <label class="flex items-center justify-between" x-show="researchNew.ritualKey==='custom' || !researchNew.ritualKey">Ritual level <input type="number" min="7" max="9" class="ed-input w-16" x-model.number="researchNew.ritualLevel"></label>
+          <template x-if="researchRitualInfo()">
+            <p class="text-[11px] opacity-70" x-text="'L' + researchRitualLevel() + ' · ' + researchRitualInfo().gloss + (researchRitualInfo().powerOnly ? ' · component: arcane/divine power only' : '') + (researchRitualInfo().divinePowerOnly ? ' (requires DIVINE power — Religion)' : '') + (researchRitualInfo().deferredTo ? ' · effect resolved by the GM (' + researchRitualInfo().deferredTo + ')' : '')"></p>
+          </template>
+          <template x-if="researchNew.kind==='ritual-learn'">
+            <div class="space-y-1">
+              <label class="flex items-center gap-2"><input type="checkbox" x-model="researchNew.fromFormula"> Have the formula (no throw — still pay material + research)</label>
+              <p class="text-[11px] opacity-70" x-show="characterEditing" x-text="'Repertoire at L' + researchRitualLevel() + ': ' + researchRitualRepertoire().known + ' / ' + researchRitualRepertoire().cap + ' known (RR p.398).'"></p>
+            </div>
+          </template>
+          <template x-if="researchNew.kind==='ritual-cast'">
+            <div class="space-y-1">
+              <label class="block">On success
+                <select class="ed-input w-full mt-0.5" x-model="researchNew.mode"><option value="immediate">Takes effect immediately (GM resolves)</option><option value="stored">Store as a single charge</option></select>
+              </label>
+              <label class="block" x-show="researchNew.mode==='stored'">Stored as
+                <select class="ed-input w-full mt-0.5" x-model="researchNew.storedForm"><option value="scroll">Scroll</option><option value="ring">Ring</option><option value="rod">Rod</option><option value="staff">Staff</option><option value="wand">Wand</option></select>
+              </label>
+              <p class="text-[11px] opacity-60">Casting needs the ritual in your repertoire; component = monster parts (never miscellaneous). Storing = one charge (RR p.398).</p>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- experiment config (AD-M4): risk a mishap for advantages + a chance at a breakthrough (RR pp.408–411) -->
+      <template x-if="researchExperimentAvailable()">
+        <div class="space-y-1.5 border rounded p-2" style="border-color:#6b21a833; background:#f4eefb">
+          <label class="flex items-center gap-2 font-semibold text-sm"><input type="checkbox" x-model="researchNew.experimentOn"> 🧪 Experiment <span class="opacity-60 font-normal text-[11px]">(RR pp.408–411 — risk a mishap for an advantage + a chance at a breakthrough)</span></label>
+          <template x-if="researchNew.experimentOn">
+            <div class="space-y-1.5">
+              <label class="block">Method
+                <select class="ed-input w-full mt-0.5" x-model="researchNew.experimentMethod">
+                  <template x-for="me in researchExperimentMethods()" :key="me.key"><option :value="me.key" :disabled="me.disabled" x-text="me.label + (me.disabled ? (' — needs L' + me.minLevel) : '')"></option></template>
+                </select>
+              </label>
+              <div class="text-[11px] opacity-70" x-text="'Grants ' + researchExperimentAllowed() + ' advantage' + (researchExperimentAllowed()===1?'':'s') + '; a failed experiment → a ' + researchExperimentMishapTier() + ' mishap.'"></div>
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                <template x-for="adv in ['haste','efficiency','insight','lore']" :key="adv">
+                  <label class="flex items-center justify-between gap-1 text-[11px]"><span x-text="researchAdvLabel(adv)" :title="researchAdvEffect(adv)"></span><input type="number" min="0" :max="researchExperimentAllowed()" class="ed-input w-12" x-model.number="researchNew.experimentAdv[adv]"></label>
+                </template>
+              </div>
+              <label class="flex items-center gap-2 text-[11px]"><input type="checkbox" x-model="researchNew.experimentArtCraft"> Relates to my Art/Craft (grandmaster → +1 advantage; ranks aid the breakthrough — RR p.408)</label>
+              <p class="text-[11px]" :class="researchExperimentUsed() > researchExperimentAllowed() ? 'accent-red' : 'opacity-70'" x-text="researchExperimentUsed() + ' / ' + researchExperimentAllowed() + ' advantages chosen' + researchExperimentPreview() + (researchExperimentUsed() > researchExperimentAllowed() ? ' — too many for this method' : '')"></p>
+            </div>
+          </template>
+        </div>
+      </template>
+
       <!-- cost preview -->
       <div class="border border-amber-800/40 rounded p-2 text-xs" style="background:#efe6cf">
         <div class="font-semibold mb-0.5">Cost preview (RR p.388):</div>
@@ -2069,7 +2128,7 @@ document.addEventListener('alpine:init', () => {
       <p class="text-xs accent-red" x-show="researchNewMsg" x-text="researchNewMsg"></p>
       <div class="flex items-center justify-end gap-2 pt-1">
         <button @click="closeResearchModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100 text-sm">Cancel</button>
-        <button @click="researchNewCommit()" :disabled="!researchNewEligible().ok" class="px-3 py-1 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm" :class="!researchNewEligible().ok ? 'opacity-40 cursor-not-allowed' : ''">Begin research (pay material now)</button>
+        <button @click="researchNewCommit()" :disabled="!researchNewEligible().ok || !researchExperimentOk()" class="px-3 py-1 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm" :class="(!researchNewEligible().ok || !researchExperimentOk()) ? 'opacity-40 cursor-not-allowed' : ''">Begin research (pay material now)</button>
       </div>
     </div>
   </div>
@@ -10583,12 +10642,13 @@ document.addEventListener('alpine:init', () => {
                 🔮 Arcane power available: <span class="font-mono font-semibold" x-text="researchArcaneAvailable(characterEditing).toLocaleString() + ' gp'"></span>
                 · 🦴 Special components held: <span class="font-mono font-semibold" x-text="researchComponentsHeld(characterEditing).length"></span>
                 <span class="opacity-50" x-text="researchComponentsHeld(characterEditing).length ? ('(' + researchComponentsHeld(characterEditing).reduce((s,c)=>s+(c.valueGp||0),0).toLocaleString() + 'gp)') : ''"></span>
+                <template x-if="characterRitualsKnown(characterEditing).length"><span> · ✴ Rituals known: <span class="font-mono font-semibold" x-text="characterRitualsKnown(characterEditing).length"></span></span></template>
               </div>
               <button @click="openResearchModal(characterEditing)" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200 text-sm" title="Start a new magic research project (RR pp.388–393)">＋ New research</button>
             </div>
 
             <template x-if="characterResearchProjects(characterEditing).length === 0">
-              <p class="text-sm italic opacity-60 py-4 text-center">No research projects yet. Spell research, identifying or crafting a magic item (potions/scrolls at L5, others at L9), and — at L11 — designing &amp; building constructs, crossbreeding, and necromancy (a Chaotic caster) are available. Click <strong>＋ New research</strong>.</p>
+              <p class="text-sm italic opacity-60 py-4 text-center">No research projects yet. Spell research, identifying or crafting a magic item (potions/scrolls at L5, others at L9), and — at L11 — designing &amp; building constructs, crossbreeding, necromancy (a Chaotic caster), and learning &amp; casting ritual spells are available. Click <strong>＋ New research</strong>.</p>
             </template>
 
             <!-- project cards -->
@@ -10625,13 +10685,17 @@ document.addEventListener('alpine:init', () => {
                 <!-- awaiting-throw: the component plan + the throw + the stakes -->
                 <template x-if="p.status==='awaiting-throw'">
                   <div class="space-y-2 border-t border-ink/20 pt-2">
+                    <template x-if="p.experiment">
+                      <div class="text-[11px]" style="color:#6b21a8" x-text="'🧪 Experiment: ' + p.experiment.method + ' — ' + (p.experiment.advantages||[]).length + ' advantage' + ((p.experiment.advantages||[]).length===1?'':'s') + ' · a failed throw → a ' + researchMethodMishap(p.experiment.method) + ' mishap, but a big margin is a breakthrough.'"></div>
+                    </template>
                     <!-- component payment (only when there's a component cost) -->
                     <template x-if="(p.componentCostGp||0) > 0">
                       <div class="space-y-1 text-xs">
                         <div class="font-semibold">Pay the component cost (<span x-text="(p.componentCostGp).toLocaleString()"></span> gp) — RR p.388:</div>
                         <label class="flex items-center gap-1">🔮 Arcane power <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).arcanePowerGp"> <span class="opacity-50">(no penalty; vicinity-gated)</span></label>
                         <label class="flex items-center gap-1">🦴 Special components (gp value) <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).specialItemValueGp"> <span class="opacity-50">(appropriate parts; no penalty)</span></label>
-                        <label class="flex items-center gap-1">🏪 Market / inappropriate <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).inappropriateGp"> <span class="opacity-50">(penalty applies)</span></label>
+                        <label class="flex items-center gap-1" x-show="!['ritual-learn','ritual-cast'].includes(p.kind)">🏪 Market / inappropriate <input type="number" min="0" class="ed-input w-20" x-model.number="researchPlanFor(p).inappropriateGp"> <span class="opacity-50">(penalty applies)</span></label>
+                        <p class="text-[11px] opacity-50" x-show="['ritual-learn','ritual-cast'].includes(p.kind)">Rituals pay components with special components or arcane power only — never miscellaneous (RR p.398).</p>
                       </div>
                     </template>
                     <!-- the throw preview -->
@@ -10661,7 +10725,7 @@ document.addEventListener('alpine:init', () => {
                   <div class="text-xs accent-green" x-text="'✓ Completed. ' + _researchResultText(p)"></div>
                 </template>
                 <template x-if="p.status==='failed'">
-                  <div class="text-xs accent-red">✗ Failed — the investment was lost (RR p.388).</div>
+                  <div class="text-xs accent-red">✗ Failed — the investment was lost (RR p.388).<template x-if="p.mishap"><span x-text="' ⚠ ' + p.mishap.tier + ' experiment mishap — GM resolves (RR pp.412+).'"></span></template></div>
                 </template>
                 <template x-if="p.status==='in-progress'">
                   <button @click="researchAbandon(p)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-xs">Abandon</button>
@@ -14642,12 +14706,30 @@ return {
     this.researchNew = { kind: 'spell-research', spellLevel: 1, effectType: 'one-use', itemKind: 'potion',
       charges: 10, activationRate: '1/day', permanentDuration: '1-day', enchantBonus: 1, spellLevelsImbued: 1,
       targetName: '', commonSpell: false, fromFormula: false, fromSample: false, assistantIds: [], magicDomain: '',
-      hd: 1, minorAbilities: 0, majorAbilities: 0, quantity: 1, undead: false, sentient: false, preserveMemory: false, willing: false };
+      hd: 1, minorAbilities: 0, majorAbilities: 0, quantity: 1, undead: false, sentient: false, preserveMemory: false, willing: false,
+      ritualKey: '', ritualLevel: 7, mode: 'immediate', storedForm: 'scroll',
+      experimentOn: false, experimentMethod: 'conventional', experimentAdv: { haste: 0, efficiency: 0, insight: 0, lore: 0 }, experimentArtCraft: false };
     this.researchNewMsg = '';
     this.researchModalOpen = true;
   },
   closeResearchModal(){ this.researchModalOpen = false; },
   researchNewKinds(){ return (window.ACKS.availableResearchKinds() || []).map(k => ({ id: k, label: this.researchKindLabel(k) })); },
+  // Rituals (AD-M3) — the sample-ritual picker + repertoire readouts.
+  researchRitualOptions(){
+    const cat = window.ACKS.RITUAL_CATALOG || []; const ch = this.characterEditing;
+    return cat.map(r => {
+      const L = (ch ? window.ACKS.ritualLevelFor(this.currentCampaign, ch, r.key) : null) || (r.arcane != null ? r.arcane : r.divine);
+      return { key: r.key, label: r.name + ' (L' + L + ')', level: L };
+    });
+  },
+  researchRitualInfo(){ const k = this.researchNew.ritualKey; return (!k || k === 'custom') ? null : window.ACKS.ritualCatalogEntry(k); },
+  researchRitualLevel(){ return this._researchNewConfig().ritualLevel || Number(this.researchNew.ritualLevel) || 7; },
+  researchRitualRepertoire(){
+    const ch = this.characterEditing; const lvl = this.researchRitualLevel();
+    if(!ch) return { cap: 0, known: 0, level: lvl };
+    return { cap: window.ACKS.ritualRepertoireCap(this.currentCampaign, ch), known: window.ACKS.ritualsKnown(this.currentCampaign, ch, lvl).length, level: lvl };
+  },
+  characterRitualsKnown(ch){ return (ch && window.ACKS.ritualsKnown) ? (window.ACKS.ritualsKnown(this.currentCampaign, ch) || []) : []; },
   _researchNewConfig(){
     const n = this.researchNew;
     const cfg = { targetName: (n.targetName || '').trim() };
@@ -14667,6 +14749,15 @@ return {
       if(n.kind === 'crossbreed') cfg.preserveMemory = !!n.preserveMemory;
       if(n.kind === 'necromancy') cfg.willing = !!n.willing;
     }
+    else if(['ritual-learn','ritual-cast'].includes(n.kind)){
+      const key = (n.ritualKey && n.ritualKey !== 'custom') ? n.ritualKey : null;
+      cfg.ritualKey = key;
+      const entry = key ? window.ACKS.ritualCatalogEntry(key) : null;
+      const lvl = entry ? (window.ACKS.ritualLevelFor(this.currentCampaign, this.characterEditing, key) || entry.arcane || entry.divine) : (Number(n.ritualLevel) || 7);
+      cfg.ritualLevel = Math.max(7, Math.min(9, Number(lvl) || 7));
+      if(entry && !cfg.targetName) cfg.targetName = entry.name;
+      if(n.kind === 'ritual-cast'){ cfg.mode = (n.mode === 'stored') ? 'stored' : 'immediate'; if(cfg.mode === 'stored') cfg.storedForm = n.storedForm || 'scroll'; }
+    }
     return cfg;
   },
   researchNewCosts(){ return window.ACKS.researchProjectCosts(this.researchNew.kind, this._researchNewConfig()); },
@@ -14683,13 +14774,55 @@ return {
     });
   },
   researchToggleAssistant(id){ const arr = this.researchNew.assistantIds; const i = arr.indexOf(id); if(i >= 0) arr.splice(i, 1); else arr.push(id); },
+  // Experimentation (AD-M4; RR pp.408–411) — the modal's experiment config.
+  researchExperimentAvailable(){
+    const ch = this.characterEditing; if(!ch || (Number(ch.level) || 0) < 5) return false;
+    const n = this.researchNew;
+    return !n.commonSpell && !n.fromFormula;   // a no-throw project can't be experimented (RR p.408)
+  },
+  researchExperimentMethods(){
+    const ch = this.characterEditing; const lvl = ch ? (Number(ch.level) || 0) : 0;
+    const M = window.ACKS.EXPERIMENT_METHODS || {};
+    return Object.keys(M).map(k => ({ key: k, label: M[k].label, minLevel: M[k].minLevel, disabled: lvl < M[k].minLevel }));
+  },
+  researchExperimentAllowed(){
+    const ch = this.characterEditing; if(!ch) return 0;
+    return window.ACKS.experimentAllowedAdvantages(this.currentCampaign, ch, this.researchNew.experimentMethod, { artCraftRelated: this.researchNew.experimentArtCraft });
+  },
+  researchExperimentMishapTier(){ const m = (window.ACKS.EXPERIMENT_METHODS || {})[this.researchNew.experimentMethod]; return m ? m.mishapTier : 'minor'; },
+  researchExperimentUsed(){ const a = this.researchNew.experimentAdv || {}; return (Number(a.haste)||0) + (Number(a.efficiency)||0) + (Number(a.insight)||0) + (Number(a.lore)||0); },
+  researchAdvLabel(adv){ const A = (window.ACKS.EXPERIMENT_ADVANTAGES || {})[adv]; return A ? A.label : adv; },
+  researchAdvEffect(adv){ const A = (window.ACKS.EXPERIMENT_ADVANTAGES || {})[adv]; return A ? A.effect : ''; },
+  researchExperimentPreview(){
+    const a = this.researchNew.experimentAdv || {}; const parts = [];
+    if((Number(a.haste)||0) > 0) parts.push('rate ×' + ((Number(a.haste)||0) + 1));
+    if((Number(a.efficiency)||0) > 0) parts.push('components ×' + ((Number(a.efficiency)||0) + 1));
+    if((Number(a.insight)||0) > 0) parts.push('+' + ((Number(a.insight)||0) * 2) + ' throw');
+    if((Number(a.lore)||0) > 0) parts.push('esoteric spells');
+    return parts.length ? (' · ' + parts.join(' · ')) : '';
+  },
+  researchExperimentOk(){
+    const n = this.researchNew;
+    if(!this.researchExperimentAvailable() || !n.experimentOn) return true;
+    const ee = window.ACKS.experimentEligibility(this.currentCampaign, this.characterEditing, n.experimentMethod, { artCraftRelated: n.experimentArtCraft });
+    return !!ee.ok && this.researchExperimentUsed() <= this.researchExperimentAllowed();
+  },
+  _researchExperiment(){
+    const n = this.researchNew;
+    if(!this.researchExperimentAvailable() || !n.experimentOn || !n.experimentMethod) return null;
+    const a = n.experimentAdv || {}; const advantages = [];
+    ['haste','efficiency','insight','lore'].forEach(k => { for(let i = 0; i < (Number(a[k]) || 0); i++) advantages.push(k); });
+    return { method: n.experimentMethod, advantages, artCraftRelated: !!n.experimentArtCraft };
+  },
+  researchMethodMishap(method){ const m = (window.ACKS.EXPERIMENT_METHODS || {})[method]; return m ? m.mishapTier : 'minor'; },
   researchNewCommit(){
     const ch = this.characterEditing; if(!ch) return;
     const n = this.researchNew;
     const r = window.ACKS.startResearchProject(this.currentCampaign, {
       kind: n.kind, researcherCharacterId: ch.id, config: this._researchNewConfig(),
       assistantCharacterIds: n.assistantIds.slice(), magicDomain: n.magicDomain || null,
-      commonSpell: !!n.commonSpell, fromFormula: !!n.fromFormula, fromSample: !!n.fromSample
+      commonSpell: !!n.commonSpell, fromFormula: !!n.fromFormula, fromSample: !!n.fromSample,
+      experiment: this._researchExperiment()
     });
     if(r && r.ok){
       this.markDirty(); this.schedulePersist();
@@ -14715,25 +14848,32 @@ return {
       const rolled = r.throwResult ? (r.throwResult.total + ' vs ' + r.throwResult.target) : 'no throw';
       this.researchThrowMsg[p.id] = r.succeeded
         ? ('✓ Success — ' + rolled + '. ' + this._researchResultText(p))
-        : ('✗ Failed — ' + rolled + '. All ' + (r.lostGp||0).toLocaleString() + 'gp lost.');
-      this.showToast(r.succeeded ? ('⚗ ' + (p.name || 'Research') + ' succeeds!') : ('💥 ' + (p.name || 'Research') + ' fails — ' + (r.lostGp||0).toLocaleString() + 'gp lost.'));
+        : ('✗ Failed — ' + rolled + '. All ' + (r.lostGp||0).toLocaleString() + 'gp lost.' + (r.mishap ? (' ⚠ ' + r.mishap.tier + ' mishap — GM resolves (RR pp.412+).') : ''));
+      this.showToast(r.succeeded
+        ? ('⚗ ' + (p.name || 'Research') + ' succeeds!' + (r.breakthrough ? (' 🌟 ' + r.breakthrough.level + ' breakthrough!') : ''))
+        : ('💥 ' + (p.name || 'Research') + ' fails — ' + (r.lostGp||0).toLocaleString() + 'gp lost.' + (r.mishap ? (' A ' + r.mishap.tier + ' mishap!') : '')));
     } else {
       this.researchThrowMsg[p.id] = 'Cannot roll: ' + ((r && r.reason) || 'unknown') + (r && r.componentCostGp ? (' (need ' + r.componentCostGp.toLocaleString() + 'gp components, assembled ' + (r.assembled||0).toLocaleString() + ')') : '');
     }
   },
   _researchResultText(p){
     const kr = p && p.kindResult; if(!kr) return '';
-    if(kr.notableItemId) return 'A new magic item is crafted (see the maker’s Inventory / World items).';
-    if(kr.identified) return 'The item’s properties are now known.';
-    if(kr.groupId){
+    let base = '';
+    if(kr.mode === 'immediate') base = kr.note || 'The ritual takes effect (GM resolves).';
+    else if(kr.mode === 'stored') base = (kr.note || 'The ritual is stored as a single charge.') + ' (see the maker’s Inventory / World items).';
+    else if(kr.notableItemId) base = 'A new magic item is crafted (see the maker’s Inventory / World items).';
+    else if(kr.identified) base = 'The item’s properties are now known.';
+    else if(kr.groupId){
       const g = (this.currentCampaign.groups || []).find(x => x && x.id === kr.groupId);
       const nm = (g && g.name) || 'The creature';
-      return (kr.count > 1 ? (kr.count + '× ') : '') + nm + (kr.controlled
+      base = (kr.count > 1 ? (kr.count + '× ') : '') + nm + (kr.controlled
         ? ' is created under your command (see World ▸ 🐉 Monsters / Inspector).'
         : ' is created — but it slipped your control (disposition: ' + (kr.disposition || 'hostile') + ').');
     }
-    if(kr.formula) return 'Formula gained: ' + kr.formula + (kr.note ? (' — ' + kr.note) : '');
-    return '';
+    else if(kr.formula) base = 'Formula gained: ' + kr.formula + (kr.note ? (' — ' + kr.note) : '');
+    // Experiment breakthrough (AD-M4) — appended to whatever the base result is.
+    const bt = kr.breakthrough ? (' 🌟 ' + kr.breakthrough.level + ' breakthrough — ' + (kr.breakthrough.note || '')) : '';
+    return base + bt;
   },
   researchAbandon(p){ if(!p) return; if(!confirm('Abandon "' + (p.name || p.kind) + '"? Material + invested research are forfeit.')) return; window.ACKS.abandonResearchProject(this.currentCampaign, p.id, 'gm-action'); this.markDirty(); this.schedulePersist(); },
 
@@ -21964,7 +22104,8 @@ return {
   researchNew: { kind: 'spell-research', spellLevel: 1, effectType: 'one-use', itemKind: 'potion',
                  charges: 10, activationRate: '1/day', permanentDuration: '1-day', enchantBonus: 1,
                  spellLevelsImbued: 1, targetName: '', commonSpell: false, fromFormula: false, fromSample: false,
-                 assistantIds: [], magicDomain: '' },
+                 assistantIds: [], magicDomain: '', ritualKey: '', ritualLevel: 7, mode: 'immediate', storedForm: 'scroll',
+                 experimentOn: false, experimentMethod: 'conventional', experimentAdv: { haste: 0, efficiency: 0, insight: 0, lore: 0 }, experimentArtCraft: false },
   researchNewMsg: '',
   researchThrowPlan: {},          // per-project component plan being assembled (keyed by project id)
   researchThrowMsg: {},           // per-project last throw message

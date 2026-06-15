@@ -44,8 +44,8 @@ ok('L12 STAPLE rate caps at 1750 (footnote)', ACKS.researchRateForLevel(12, 'ite
 ok('L12 HIGH-TIER rate 2750 (ritual)', ACKS.researchRateForLevel(12, 'ritual-cast').rate === 2750);
 ok('L14 high-tier 14500 / throw 3+', ACKS.researchRateForLevel(14, 'crossbreed').rate === 14500 && ACKS.researchRateForLevel(14, 'crossbreed').throwTarget === 3);
 ok('level clamps above 14', ACKS.researchRateForLevel(20, 'ritual-cast').rate === 14500);
-ok('AD-M2 — 7 of 9 kinds available (staples + the 4 high-tier; rituals still gated)', JSON.stringify(ACKS.availableResearchKinds().sort()) === JSON.stringify(['construct-design','construct-manufacture','crossbreed','identify','item-creation','necromancy','spell-research']));
-ok('ritual kinds present but gated (ritual-learn unavailable → AD-M3)', ACKS.magicResearchKind('ritual-learn') && ACKS.magicResearchKind('ritual-learn').available === false);
+ok('AD-M3 — all 9 kinds available (staples + 4 high-tier + 2 rituals)', JSON.stringify(ACKS.availableResearchKinds().sort()) === JSON.stringify(['construct-design','construct-manufacture','crossbreed','identify','item-creation','necromancy','ritual-cast','ritual-learn','spell-research']));
+ok('ritual kinds now available (AD-M3)', ACKS.magicResearchKind('ritual-learn').available === true && ACKS.magicResearchKind('ritual-cast').available === true);
 ok('item-creation one-use min L5', ACKS.researchEffectiveMinLevel('item-creation', { effectType:'one-use' }) === 5);
 ok('item-creation non-one-use min L9', ACKS.researchEffectiveMinLevel('item-creation', { effectType:'permanent' }) === 9);
 ok('spell-research min L5', ACKS.researchEffectiveMinLevel('spell-research', {}) === 5);
@@ -91,7 +91,7 @@ section('Eligibility (RR p.386/p.391 — arcane caster ≥ the kind min level)')
   ok('arcane L5 → NOT eligible for a permanent item (needs L9)', ACKS.isEligibleResearcher(c5, m5, 'item-creation', { effectType:'permanent' }).ok === false);
   const { c: cf, m: mf } = mage({ level: 9, cls: 'Fighter' });
   ok('a Fighter (non-arcane) → not eligible', ACKS.isEligibleResearcher(cf, mf, 'spell-research', {}).reason === 'not-an-arcane-caster');
-  ok('a gated kind (ritual-learn) → not yet available', ACKS.isEligibleResearcher(c, m, 'ritual-learn', {}).reason === 'kind-not-yet-available');
+  ok('arcane L9 → too low to learn a ritual (needs L11)', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 7 }).reason === 'level-too-low');
 }
 
 // =============================================================================
@@ -260,7 +260,7 @@ section('AD-M2 — the high-tier kinds (RR pp.394–398): cost formula + throw b
 // =============================================================================
 {
   ok('4 high-tier kinds available', ['construct-design','construct-manufacture','crossbreed','necromancy'].every(k => ACKS.magicResearchKind(k).available === true));
-  ok('rituals still gated (AD-M3)', !ACKS.magicResearchKind('ritual-learn').available && !ACKS.magicResearchKind('ritual-cast').available);
+  ok('rituals now available + high-tier (AD-M3)', ACKS.magicResearchKind('ritual-learn').available === true && ACKS.magicResearchKind('ritual-cast').available === true && ACKS.HIGH_TIER_RESEARCH_KINDS.has('ritual-cast'));
   // cost = 2,000/HD + 625/minor + 5,000/major (RR pp.394–398)
   const cc = ACKS.researchProjectCosts('construct-manufacture', { hd: 6, minorAbilities: 2, majorAbilities: 1 });
   ok('construct 6×2000 + 2×625 + 1×5000 = 18250 (material+research; component 0)', cc.materialCostGp === 18250 && cc.researchCostGp === 18250 && cc.componentCostGp === 0 && cc.baseCost === 18250);
@@ -388,6 +388,240 @@ section('AD-M2 — construct DESIGN produces a formula (no creature); crossbreed
 }
 
 // =============================================================================
+section('AD-M3 — ritual catalog, cost, repertoire cap, throw bump, eligibility (RR p.398)');
+// =============================================================================
+{
+  ok('RITUAL_CATALOG seeds 15 sample rituals', Array.isArray(ACKS.RITUAL_CATALOG) && ACKS.RITUAL_CATALOG.length === 15);
+  ok('Apotheosis = arcane 9 / divine 9, power-only', (() => { const e = ACKS.ritualCatalogEntry('apotheosis'); return e && e.arcane === 9 && e.divine === 9 && e.powerOnly === true; })());
+  ok('Cataclysm = divine-only 9, divine-power-only', (() => { const e = ACKS.ritualCatalogEntry('cataclysm'); return e && e.arcane === null && e.divine === 9 && e.divinePowerOnly === true; })());
+  ok('RITUAL_COST_BY_LEVEL = 50k/100k/200k', ACKS.RITUAL_COST_BY_LEVEL[7] === 50000 && ACKS.RITUAL_COST_BY_LEVEL[8] === 100000 && ACKS.RITUAL_COST_BY_LEVEL[9] === 200000);
+
+  // Cost (RR p.398): learn has no component; cast pays the cost again as the component.
+  const cl = ACKS.researchProjectCosts('ritual-learn', { ritualLevel: 7 });
+  ok('ritual-learn L7: material+research 50000 each, component 0', cl.materialCostGp === 50000 && cl.researchCostGp === 50000 && cl.componentCostGp === 0);
+  const cc = ACKS.researchProjectCosts('ritual-cast', { ritualLevel: 9 });
+  ok('ritual-cast L9: material+research+component 200000 each', cc.materialCostGp === 200000 && cc.researchCostGp === 200000 && cc.componentCostGp === 200000);
+
+  // Repertoire cap (RR p.398 worked examples — Quintus + Balbus).
+  const { c, m } = mage({ level: 11, int: 16 });
+  ok('Quintus L11 INT16 → 3 rituals per level (the RAW example)', ACKS.ritualRepertoireCap(c, m) === 3);
+  ok('ritual key attribute = INT for an arcane caster', ACKS.ritualKeyAttributeFor(c, m) === 'INT');
+  const { c: c10, m: m10 } = mage({ level: 10 });
+  ok('L10 → no ritual repertoire (min L11)', ACKS.ritualRepertoireCap(c10, m10) === 0);
+  const { c: cd, m: md } = mage({ level: 14, name: 'Balbus', cls: 'Crusader' });
+  md.isArcaneCaster = false; md.isDivineCaster = true; md.abilities.WIL = 14;
+  ok('a divine caster keys ritual repertoire off WIL', ACKS.ritualKeyAttributeFor(cd, md) === 'WIL');
+  ok('Balbus L14 WIL14 → 5 rituals per level (the RAW example)', ACKS.ritualRepertoireCap(cd, md) === 5);
+  ok('a divine caster is eligible to learn a ritual', ACKS.isEligibleResearcher(cd, md, 'ritual-learn', { ritualLevel: 7 }).ok === true);
+
+  // Throw bump (+ ritual level).
+  const p = ACKS.blankResearchProject({ kind: 'ritual-learn', researcherCharacterId: m.id, config: { ritualLevel: 7 } });
+  ok('ritual-learn throw target = L11 throw (6) + ritual level 7 = 13', ACKS.researchThrowInfo(c, p).target === 13);
+
+  // Eligibility.
+  ok('arcane L11 → eligible to learn a ritual', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 7 }).ok === true);
+  const { c: c9, m: m9 } = mage({ level: 9 });
+  ok('arcane L9 → not eligible (level-too-low)', ACKS.isEligibleResearcher(c9, m9, 'ritual-learn', { ritualLevel: 7 }).ok === false);
+  ok('cast a ritual NOT in repertoire → ineligible', ACKS.isEligibleResearcher(c, m, 'ritual-cast', { ritualKey: 'permanency', ritualLevel: 8 }).reason === 'ritual-not-in-repertoire');
+}
+
+// =============================================================================
+section('AD-M3 — learn a ritual → repertoire (the cap gates a 4th); then cast it (RR p.398)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, int: 16, gp: 1000000 });   // repertoire cap 3 per level
+  const r = ACKS.startResearchProject(c, { kind: 'ritual-learn', researcherCharacterId: m.id, config: { ritualKey: 'ranine-rain', ritualLevel: 7, targetName: 'Ranine Rain' } });
+  ok('ritual-learn starts (material 50000 debited)', r.ok && m.coins.gp === 950000);
+  ACKS.processResearchForTurn(c, {});   // L11 1750×30 = 52500 ≥ 50000
+  ok('awaiting-throw after a month', r.project.status === 'awaiting-throw');
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { rng: () => 0.999 });   // no component; nat 20
+  ok('learn succeeds → the ritual is in repertoire', res.succeeded === true && ACKS.ritualInRepertoire(c, m, 'ranine-rain'));
+  ok('ritualsKnown at L7 = 1', ACKS.ritualsKnown(c, m, 7).length === 1);
+  ok('the formula is a kind:ritual magicFormula (L7)', (m.magicFormulas || []).some(f => f.kind === 'ritual' && f.ritualLevel === 7));
+  ok('a ritual-learned event landed', c.eventLog.some(e => e.event.kind === 'ritual-learned'));
+
+  // fill the L7 repertoire to the cap (3) → a 4th is gated; a different level stays open.
+  m.magicFormulas.push({ kind: 'ritual', name: 'A', ritualLevel: 7 }, { kind: 'ritual', name: 'B', ritualLevel: 7 });
+  ok('L7 full (3 known) → learning a 4th is gated', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 7 }).reason === 'ritual-repertoire-full');
+  ok('a different level (L8) is still open', ACKS.isEligibleResearcher(c, m, 'ritual-learn', { ritualLevel: 8 }).ok === true);
+
+  // cast the learned ritual (immediate) — pays the component with special components.
+  const rc = ACKS.startResearchProject(c, { kind: 'ritual-cast', researcherCharacterId: m.id, config: { ritualKey: 'ranine-rain', ritualLevel: 7, targetName: 'Ranine Rain', mode: 'immediate' } });
+  ok('ritual-cast starts (in repertoire)', rc.ok);
+  ACKS.processResearchForTurn(c, {});
+  const resc = ACKS.payAndRollResearchThrow(c, rc.project.id, { componentPlan: { specialItemValueGp: 50000 }, rng: () => 0.999 });
+  ok('cast (immediate) succeeds; kindResult.mode immediate', resc.succeeded === true && rc.project.kindResult.mode === 'immediate');
+  ok('a ritual-cast event landed', c.eventLog.some(e => e.event.kind === 'ritual-cast'));
+}
+
+// =============================================================================
+section('AD-M3 — cast stored → a Notable Item; miscellaneous components disallowed (RR p.398)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 12, int: 16, gp: 2000000 });
+  m.magicFormulas = [{ kind: 'ritual', name: 'Permanency', ritualKey: 'permanency', ritualLevel: 8 }];   // already known
+  const rc = ACKS.startResearchProject(c, { kind: 'ritual-cast', researcherCharacterId: m.id, config: { ritualKey: 'permanency', ritualLevel: 8, targetName: 'Permanency', mode: 'stored', storedForm: 'ring' } });
+  ok('ritual-cast (stored) starts; component cost 100000', rc.ok && rc.project.componentCostGp === 100000);
+  while(rc.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }   // L8 = 100000; L12 invests 82500/mo
+  // pass miscGp — the engine ZEROS it for rituals (never miscellaneous); the special components cover the cost.
+  const resc = ACKS.payAndRollResearchThrow(c, rc.project.id, { componentPlan: { specialItemValueGp: 100000, miscGp: 99999 }, rng: () => 0.999 });
+  ok('stored cast succeeds; no substitution penalty (misc disallowed → 0)', resc.succeeded === true && (resc.penalty || 0) === 0);
+  ok('a Notable Item (the stored ring) is minted', (c.notableItems || []).some(it => /Ring of Permanency/.test(it.name)));
+  ok('kindResult: stored + notableItemId + storedForm ring', rc.project.kindResult.mode === 'stored' && !!rc.project.kindResult.notableItemId && rc.project.kindResult.storedForm === 'ring');
+}
+
+// =============================================================================
+section('AD-M4 — experimentation catalogs + eligibility (RR pp.408–411)');
+// =============================================================================
+{
+  ok('EXPERIMENT_METHODS: conventional 1 adv / minor / L5', (() => { const e = ACKS.EXPERIMENT_METHODS.conventional; return e.advantages === 1 && e.mishapTier === 'minor' && e.minLevel === 5 && e.maxBreakthrough === 'minor'; })());
+  ok('EXPERIMENT_METHODS: pioneering 2 adv / major / L9', (() => { const e = ACKS.EXPERIMENT_METHODS.pioneering; return e.advantages === 2 && e.mishapTier === 'major' && e.minLevel === 9 && e.maxBreakthrough === 'major'; })());
+  ok('EXPERIMENT_METHODS: radical 3 adv / catastrophic / L11', (() => { const e = ACKS.EXPERIMENT_METHODS.radical; return e.advantages === 3 && e.mishapTier === 'catastrophic' && e.minLevel === 11 && e.maxBreakthrough === 'revolutionary'; })());
+  ok('EXPERIMENT_ADVANTAGES: haste / efficiency / insight / lore', ['haste','efficiency','insight','lore'].every(k => !!ACKS.EXPERIMENT_ADVANTAGES[k]));
+  ok('BREAKTHROUGH_LEVELS: minor 5+/L5, major 10+/L9, revolutionary 20+/L11', (() => { const b = ACKS.BREAKTHROUGH_LEVELS; return b[0].threshold===5 && b[0].minLevel===5 && b[1].threshold===10 && b[1].minLevel===9 && b[2].threshold===20 && b[2].minLevel===11; })());
+
+  const { c, m } = mage({ level: 11, int: 16 });
+  ok('L11 → conventional eligible, maxAdvantages 1', (() => { const e = ACKS.experimentEligibility(c, m, 'conventional'); return e.ok && e.maxAdvantages === 1; })());
+  ok('L11 → radical eligible, maxAdvantages 3', (() => { const e = ACKS.experimentEligibility(c, m, 'radical'); return e.ok && e.maxAdvantages === 3; })());
+  const { c: c5, m: m5 } = mage({ level: 5 });
+  ok('L5 → conventional eligible', ACKS.experimentEligibility(c5, m5, 'conventional').ok === true);
+  ok('L5 → pioneering ineligible (needs L9)', (() => { const e = ACKS.experimentEligibility(c5, m5, 'pioneering'); return e.ok === false && e.reason === 'experiment-level-too-low' && e.minLevel === 9; })());
+  ok('L5 → radical ineligible (needs L11)', ACKS.experimentEligibility(c5, m5, 'radical').minLevel === 11);
+}
+
+// =============================================================================
+section('AD-M4 — advantages wire into rate (haste) / throw (insight) / components (efficiency)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 9 });   // base research rate 600/day
+  const base = ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2 } });
+  ok('no experiment → rate 600', Math.round(ACKS.totalResearchRate(c, base)) === 600);
+  const haste1 = ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2 }, experiment: { method: 'conventional', advantages: ['haste'] } });
+  ok('haste ×1 → rate doubles to 1200', Math.round(ACKS.totalResearchRate(c, haste1)) === 1200);
+  const haste2 = ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2 }, experiment: { method: 'radical', advantages: ['haste','haste'] } });
+  ok('haste ×2 → rate triples to 1800', Math.round(ACKS.totalResearchRate(c, haste2)) === 1800);
+  const insight1 = ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2 }, experiment: { method: 'conventional', advantages: ['insight'] } });
+  ok('insight ×1 → +2 throw modifier', ACKS.researchThrowInfo(c, insight1).modifiers.some(mo => mo.label === 'insight' && mo.value === 2));
+  const insight2 = ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2 }, experiment: { method: 'pioneering', advantages: ['insight','insight'] } });
+  ok('insight ×2 → +4 throw modifier', ACKS.researchThrowInfo(c, insight2).modifiers.some(mo => mo.label === 'insight' && mo.value === 4));
+}
+
+// =============================================================================
+section('AD-M4 — efficiency lets fewer special components cover the cost (RR p.409)');
+// =============================================================================
+{
+  // item-creation permanent +1 = 5000gp component cost; 2500gp of components, doubled by efficiency, covers it.
+  const { c, m } = mage({ level: 9, gp: 100000 });
+  const r = ACKS.startResearchProject(c, { kind: 'item-creation', researcherCharacterId: m.id, config: { effectType: 'permanent-bonus', enchantBonus: 1, targetName: 'Sword +1' }, experiment: { method: 'conventional', advantages: ['efficiency'] } });
+  ok('efficiency project starts (component cost 5000)', r.ok && r.project.componentCostGp === 5000);
+  while(r.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { componentPlan: { specialItemValueGp: 2500 }, rng: () => 0.999 });
+  ok('2500gp special components ×2 efficiency → covers 5000; the throw succeeds', res.ok && res.succeeded === true);
+  // Without efficiency, 2500 < 5000 → insufficient.
+  const { c: c2, m: m2 } = mage({ level: 9, gp: 100000 });
+  const r2 = ACKS.startResearchProject(c2, { kind: 'item-creation', researcherCharacterId: m2.id, config: { effectType: 'permanent-bonus', enchantBonus: 1 } });
+  while(r2.project.status === 'in-progress'){ ACKS.processResearchForTurn(c2, {}); }
+  const res2 = ACKS.payAndRollResearchThrow(c2, r2.project.id, { componentPlan: { specialItemValueGp: 2500 }, rng: () => 0.999 });
+  ok('no efficiency → 2500 < 5000 → insufficient-components', res2.reason === 'insufficient-components');
+}
+
+// =============================================================================
+section('AD-M4 — breakthrough determination: margin, method ceiling, XP bonus (RR p.410, p.473)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, int: 16 });
+  const mk = (method) => ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m.id, researchCostGp: 1000, experiment: { method, advantages: [] } });
+  const tr = (margin) => ({ total: 10 + margin, target: 10, succeeded: true });
+  ok('radical, margin 22 → revolutionary', ACKS.determineBreakthrough(c, mk('radical'), tr(22)).level === 'revolutionary');
+  ok('radical, margin 12 → major', ACKS.determineBreakthrough(c, mk('radical'), tr(12)).level === 'major');
+  ok('radical, margin 7 → minor', ACKS.determineBreakthrough(c, mk('radical'), tr(7)).level === 'minor');
+  ok('radical, margin 4 → no breakthrough', ACKS.determineBreakthrough(c, mk('radical'), tr(4)) === null);
+  ok('conventional caps at minor (margin 22 → minor)', ACKS.determineBreakthrough(c, mk('conventional'), tr(22)).level === 'minor');
+  ok('pioneering caps at major (margin 22 → major)', ACKS.determineBreakthrough(c, mk('pioneering'), tr(22)).level === 'major');
+  ok('a non-experiment success → no breakthrough', ACKS.determineBreakthrough(c, ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m.id }), tr(22)) === null);
+  ok('a failed throw → no breakthrough', ACKS.determineBreakthrough(c, mk('radical'), { total: 30, target: 10, succeeded: false }) === null);
+  ok('minor xpBonus = ½ research cost (500)', ACKS.determineBreakthrough(c, mk('conventional'), tr(7)).xpBonus === 500);
+  ok('revolutionary xpBonus = 2× research cost (2000)', ACKS.determineBreakthrough(c, mk('radical'), tr(22)).xpBonus === 2000);
+  const { c: c9, m: m9 } = mage({ level: 9 });   // L9 → major reachable with pioneering
+  ok('L9 pioneering, margin 12 → major (level gate met)', ACKS.determineBreakthrough(c9, ACKS.blankResearchProject({ kind: 'spell-research', researcherCharacterId: m9.id, researchCostGp: 1000, experiment: { method: 'pioneering' } }), tr(12)).level === 'major');
+}
+
+// =============================================================================
+section('AD-M4 — a successful experiment applies the per-kind breakthrough + bonus XP + the event');
+// =============================================================================
+{
+  // construct-design at L14 (low target) + radical insight → margin 21 → revolutionary; +12 HD on the formula.
+  const { c, m } = mage({ level: 14, int: 16, gp: 200000 });
+  const beforeXp = m.xp || 0;
+  const r = ACKS.startResearchProject(c, { kind: 'construct-design', researcherCharacterId: m.id, config: { hd: 1, targetName: 'Iron Golem' }, experiment: { method: 'radical', advantages: ['insight'] } });
+  ok('construct-design experiment starts (radical)', r.ok && r.project.experiment && r.project.experiment.method === 'radical');
+  while(r.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { rng: () => 0.999 });   // nat 20; target 3 +INT2 +insight2 = 24 → margin 21
+  ok('construct-design succeeds with a revolutionary breakthrough', res.succeeded === true && res.breakthrough && res.breakthrough.level === 'revolutionary');
+  ok('breakthrough +12 HD applied (1 → 13)', r.project.kindResult.hd === 13 && r.project.kindResult.breakthrough.hdBonus === 12);
+  ok('the construct formula HD reflects the breakthrough', (m.magicFormulas || []).some(f => f.kind === 'construct' && f.hd === 13));
+  ok('revolutionary awards 2× research cost XP (research 2000 → +4000)', (m.xp || 0) === beforeXp + 4000);
+  ok('a magic-experiment-breakthrough event landed', c.eventLog.some(e => e.event.kind === 'magic-experiment-breakthrough'));
+}
+
+// =============================================================================
+section('AD-M4 — per-kind breakthrough results (item bonus effect / spell power / unexpected abilities)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 14, int: 16, gp: 1000000 });
+  // item-creation revolutionary → a GM-resolved bonus effect worth ≤200% of cost.
+  const ri = ACKS.startResearchProject(c, { kind: 'item-creation', researcherCharacterId: m.id, config: { effectType: 'one-use', spellLevel: 1, targetName: 'Potion' }, experiment: { method: 'radical', advantages: ['insight'] } });
+  while(ri.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }
+  const resi = ACKS.payAndRollResearchThrow(c, ri.project.id, { componentPlan: { specialItemValueGp: 500 }, rng: () => 0.999 });
+  ok('item-creation breakthrough → GM-resolved bonus effect (200% worth)', resi.succeeded && ri.project.kindResult.breakthrough && ri.project.kindResult.breakthrough.bonusEffectWorthPct === 200 && ri.project.kindResult.breakthrough.gmResolve === true);
+  // spell-research revolutionary → +2 power level (not actual level).
+  const rs = ACKS.startResearchProject(c, { kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 1, targetName: 'Sleep+' }, experiment: { method: 'radical', advantages: ['insight'] } });
+  while(rs.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }
+  const ress = ACKS.payAndRollResearchThrow(c, rs.project.id, { rng: () => 0.999 });
+  ok('spell-research breakthrough → +2 power level', ress.succeeded && rs.project.kindResult.breakthrough.powerLevelBonus === 2);
+  // crossbreed revolutionary → 3 unexpected abilities (roll 1d20), GM-resolved.
+  const rx = ACKS.startResearchProject(c, { kind: 'crossbreed', researcherCharacterId: m.id, config: { hd: 1, quantity: 1, preserveMemory: true }, experiment: { method: 'radical', advantages: ['insight'] } });
+  while(rx.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }
+  const resx = ACKS.payAndRollResearchThrow(c, rx.project.id, { rng: () => 0.999 });
+  ok('crossbreed breakthrough → 3 unexpected abilities (1d20), GM-resolved', resx.succeeded && rx.project.kindResult.breakthrough.abilityCount === 3 && rx.project.kindResult.breakthrough.abilityDie === '1d20' && rx.project.kindResult.breakthrough.gmResolve === true);
+}
+
+// =============================================================================
+section('AD-M4 — a failed experiment triggers a mishap on top of the total loss (RR p.409)');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, int: 16, gp: 100000 });
+  const r = ACKS.startResearchProject(c, { kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 2 }, experiment: { method: 'radical', advantages: ['haste'] } });
+  while(r.project.status === 'in-progress'){ ACKS.processResearchForTurn(c, {}); }
+  const res = ACKS.payAndRollResearchThrow(c, r.project.id, { rng: () => 0.0 });   // nat 1 → auto-fail
+  ok('the experiment fails', res.succeeded === false);
+  ok('catastrophic mishap (radical), 1d10 row, assistants → major', res.mishap && res.mishap.tier === 'catastrophic' && res.mishap.roll >= 1 && res.mishap.roll <= 10 && res.mishap.assistantsTier === 'major');
+  ok('the failure still forfeits all investment', res.lostGp > 0);
+  ok('a magic-experiment-mishap event landed', c.eventLog.some(e => e.event.kind === 'magic-experiment-mishap'));
+  ok('the project records the mishap', r.project.mishap && r.project.mishap.tier === 'catastrophic');
+  // A non-experiment failure → no mishap.
+  const { c: c2, m: m2 } = mage({ level: 11, gp: 100000 });
+  const r2 = ACKS.startResearchProject(c2, { kind: 'spell-research', researcherCharacterId: m2.id, config: { spellLevel: 2 } });
+  while(r2.project.status === 'in-progress'){ ACKS.processResearchForTurn(c2, {}); }
+  const res2 = ACKS.payAndRollResearchThrow(c2, r2.project.id, { rng: () => 0.0 });
+  ok('a non-experiment failure → no mishap', res2.succeeded === false && !res2.mishap);
+}
+
+// =============================================================================
+section('AD-M4 — validation: advantage count capped by method; experiment needs a throw');
+// =============================================================================
+{
+  const { c, m } = mage({ level: 11, gp: 100000 });
+  const tooMany = ACKS.startResearchProject(c, { kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 1 }, experiment: { method: 'conventional', advantages: ['haste','insight'] } });
+  ok('conventional + 2 advantages → too-many-advantages', tooMany.ok === false && tooMany.reason === 'too-many-advantages');
+  const low = mage({ level: 5 });
+  const radLow = ACKS.startResearchProject(low.c, { kind: 'spell-research', researcherCharacterId: low.m.id, config: { spellLevel: 1 }, experiment: { method: 'radical', advantages: ['haste'] } });
+  ok('L5 + radical → experiment-level-too-low', radLow.ok === false && radLow.reason === 'experiment-level-too-low');
+  const noThrow = ACKS.startResearchProject(c, { kind: 'spell-research', researcherCharacterId: m.id, config: { spellLevel: 1 }, commonSpell: true, experiment: { method: 'conventional', advantages: ['haste'] } });
+  ok('a no-throw project + experiment → experiment-needs-throw', noThrow.ok === false && noThrow.reason === 'experiment-needs-throw');
+}
+
+// =============================================================================
 section('commitTurn hook (the demo — a real month accrues research)');
 // =============================================================================
 {
@@ -418,7 +652,7 @@ section('Registration — prefix / entity-registry / field-schema / events / imp
     const keys = new Set(Object.keys(ACKS.blankResearchProject({})));
     return sc.fields.filter(f => f.type !== 'computed').every(f => keys.has(f.name));
   })());
-  const evKinds = ['magic-research-started','magic-research-progress','magic-research-completed','magic-research-failed','magic-item-created','construct-manufactured','crossbreed-created','necromancy-performed'];
+  const evKinds = ['magic-research-started','magic-research-progress','magic-research-completed','magic-research-failed','magic-item-created','construct-manufactured','crossbreed-created','necromancy-performed','ritual-learned','ritual-cast'];
   evKinds.forEach(k => {
     ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
     ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);

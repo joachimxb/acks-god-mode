@@ -32,10 +32,32 @@
  *   crossbreed, else friendly/indifferent/neutral → controlled vs unfriendly/hostile → free-willed; +3
  *   record-only events (construct-manufactured / crossbreed-created / necromancy-performed).
  *
- * DEFERRED (later AD-M waves, stacked on this branch): AD-M3 (rituals — learn/cast + repertoire caps),
- * AD-M4 (experimentation — advantages/methods/breakthroughs/mishaps), and the PER-DAY day-tick grain for
- * research accrual (the monthly model ships — the visible-planning-info path, consistent with the arcane
- * core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the Religion plan's
+ * AD-M3 (rituals — RR p.398): the two ritual kinds flipped available — LEARN (→ the caster's ritual
+ *   repertoire, a magicFormula kind:'ritual'; gated by the Ritual Spell Repertoire cap = base(level) + key-
+ *   attribute mod PER ritual level) + CAST (→ takes effect immediately, GM-resolved/deferred, OR is stored as
+ *   a single charge: a scroll / a ring·rod·staff·wand Notable Item). Cost = 50k/100k/200k by ritual level 7/8/9
+ *   (cast pays it again as the component, monster parts — never miscellaneous); throw +ritual level; learnable
+ *   /castable by arcane OR divine casters (the divine rituals + divine-power components are the Religion seam,
+ *   flagged in RITUAL_CATALOG, not blocked). +2 record-only events (ritual-learned / ritual-cast). RITUAL_CATALOG
+ *   seeds 15 sample rituals (RAW names + per-school levels + a terse gloss + the deferred-effect owner; §13.6 IP).
+ *
+ * AD-M4 (experimentation — RR pp.408–411): an OPTIONAL modality on any throw-requiring project. The
+ *   researcher picks a METHOD (conventional L5 / pioneering L9 / radical L11) granting 1/2/3 ADVANTAGES —
+ *   haste (×2/×3/×4 rate), efficiency (×2/×3/×4 special-component value), insight (+2/+4/+6 throw), lore
+ *   (esoteric spells). On a success that exceeds the target by 5+/10+/20+ (clamped by the method ceiling +
+ *   the caster level) it's a minor/major/revolutionary BREAKTHROUGH: the engine applies the mechanical
+ *   bonus (construct +HD; spell/ritual +power level) + records the GM-resolved part (item bonus effect; N
+ *   unexpected abilities, roll 3d6/2d10/1d20 — content NOT embedded, §13.6 IP) + awards bonus XP (½/1×/2×
+ *   the research cost, RR p.473) + runs the level-up sweep. On a FAILED experiment it's an additional
+ *   MISHAP (minor/major/catastrophic by method; the engine rolls the tier + a 1d10 row + cites the per-kind
+ *   Mishap table — body-horror content GM-resolved, not embedded). +2 record-only events (magic-experiment-
+ *   breakthrough / -mishap); the Art/Craft grandmaster bonus (+ranks to the breakthrough margin, +1
+ *   advantage). NO house rule — experimentation is core RAW (§6); the §6-correct off-switch for the mishap
+ *   content would be a default-OFF disable-magic-experimentation opt-out (flagged for the operator).
+ *
+ * DEFERRED (later AD-M waves, stacked on this branch):
+ * The PER-DAY day-tick grain for research accrual (the monthly model ships — the visible-planning-info path,
+ * consistent with the arcane core's deferral; §2.2). Divine research (eligibility + divine-power-as-component) is the Religion plan's
  * seam (plan §14 Q3). Facilities GATE softly until AD-B ships the Sanctum facility model. Per §6 polarity
  * NO house rule — necromancy is core RAW (the blood-sacrifice precedent); a default-OFF disable-necromancy
  * opt-out is the §6-correct way to add an off-switch if a table wants one.
@@ -141,9 +163,9 @@
     'construct-manufacture': { label: 'Manufacture construct', icon: '⚙', minLevel: 11, facilityKind: 'workshop', available: true,  hdAbility: true, mintsCreature: true },
     'crossbreed':            { label: 'Crossbreed',            icon: '🧬', minLevel: 11, facilityKind: 'crossbreeding-lab', available: true, hdAbility: true, mintsCreature: true },
     'necromancy':            { label: 'Perform necromancy',    icon: '💀', minLevel: 11, facilityKind: 'mortuary', available: true,  hdAbility: true, mintsCreature: true },
-    // Rituals (AD-M3) — reserved, gated off until their wave lands.
-    'ritual-learn':          { label: 'Learn ritual',          icon: '✴', minLevel: 11, facilityKind: 'library',  available: false },
-    'ritual-cast':           { label: 'Cast ritual',           icon: '✴', minLevel: 11, facilityKind: 'workshop', available: false }
+    // Rituals (AD-M3; RR p.398) — L11+ arcane OR divine; cost 50k/100k/200k by ritual level; repertoire-capped.
+    'ritual-learn':          { label: 'Learn ritual',          icon: '✴', minLevel: 11, facilityKind: 'library',  available: true,  ritual: true },
+    'ritual-cast':           { label: 'Cast ritual',           icon: '✴', minLevel: 11, facilityKind: 'workshop', available: true,  ritual: true }
   });
 
   // Magic Item Creation cost (RR pp.391–393) — the base cost = component = material = research. Per RAW
@@ -168,6 +190,80 @@
     'black-lore-of-zahar': { throwPerRank: 2, ratePctPerRank: 10, domains: ['necromancy'], levelBonus: 2, label: 'Black Lore of Zahar' },
     'transmogrification':  { throwPerRank: 2, ratePctPerRank: 10, domains: ['crossbreed'], levelBonus: 2, label: 'Transmogrification' }
   });
+
+  // ── Rituals (AD-M3; RR p.398) ──
+  // Material & Research each = 50k/100k/200k for ritual level 7/8/9; ritual-cast pays that AGAIN as the
+  // component (in monster parts whose total XP value = the cost — never miscellaneous components, RR p.398).
+  const RITUAL_COST_BY_LEVEL = Object.freeze({ 7: 50000, 8: 100000, 9: 200000 });
+  // Ritual Spell Repertoire (RR p.398): base by caster level + the key-attribute modifier (INT arcane /
+  // WIL divine), counted PER ritual level (each of 7/8/9 independently).
+  const RITUAL_REPERTOIRE_BASE = Object.freeze({ 11: 1, 12: 2, 13: 3, 14: 4 });
+
+  // A seed of sample ritual spells (RR p.398 "Sample Ritual Spells"). RAW names + per-school levels + schools
+  // + a TERSE gloss in our own words + the deferred-effect owner — the effect content is NOT transcribed and
+  // lands per-ritual as its consuming subsystem matures (many touch domains/weather/cosmology; several are
+  // Religion-owned divine rituals — RR §13.6 IP). arcane/divine = the ritual level for that school (null = not
+  // available to it). powerOnly = the component must be paid with arcane/divine power, not monster parts;
+  // divinePowerOnly = specifically DIVINE power (a Religion-owned ritual the arcane wave only flags).
+  const RITUAL_CATALOG = Object.freeze([
+    { key: 'ranine-rain',         name: 'Ranine Rain',         arcane: 7,    divine: 7,    tags: ['summoning'],        gloss: 'Call down an unnatural rain of creatures over a vast area.',        deferredTo: 'weather' },
+    { key: 'seven-league-stride', name: 'Seven-League Stride', arcane: 7,    divine: 7,    tags: ['movement'],         gloss: 'Stride leagues across the world in a single step.',                 deferredTo: 'journeys' },
+    { key: 'spawn-of-the-deep',   name: 'Spawn of the Deep',   arcane: 7,    divine: 7,    tags: ['summoning'],        gloss: 'Summon monstrous spawn from the deep waters.' },
+    { key: 'magic-mushrooms',     name: 'Magic Mushrooms',     arcane: null, divine: 7,    tags: ['transmogrification'], gloss: 'Make magical mushrooms flourish across a region.',                 deferredTo: 'dwarven' },
+    { key: 'consonant-transit',   name: 'Consonant Transit',   arcane: 8,    divine: 8,    tags: ['movement'],         gloss: 'Travel instantly between linked locations across great distance.',  deferredTo: 'journeys' },
+    { key: 'consume-power',       name: 'Consume Power',       arcane: 8,    divine: 8,    tags: ['protection','transmogrification'], gloss: 'Devour a target’s magical power.',                  deferredTo: 'magic' },
+    { key: 'emissary',            name: 'Emissary',            arcane: 8,    divine: null, tags: [],                   gloss: 'Send forth a magical emissary in your stead.' },
+    { key: 'palace-of-sulaimon',  name: 'Palace of Sulaimon',  arcane: 8,    divine: null, tags: ['summoning'],        gloss: 'Conjure an extradimensional palace.' },
+    { key: 'permanency',          name: 'Permanency',          arcane: 8,    divine: 8,    tags: [],                   gloss: 'Make a temporary spell effect permanent.',                         deferredTo: 'magic' },
+    { key: 'apotheosis',          name: 'Apotheosis',          arcane: 9,    divine: 9,    tags: ['transmogrification'], powerOnly: true, gloss: 'Transfigure a living or undead creature into a deathless immortal.', deferredTo: 'religion' },
+    { key: 'cataclysm',           name: 'Cataclysm',           arcane: null, divine: 9,    tags: ['blast'], powerOnly: true, divinePowerOnly: true, gloss: 'Doom a target domain to ruin amid mounting portents.', deferredTo: 'religion' },
+    { key: 'flying-fortress',     name: 'Flying Fortress',     arcane: 9,    divine: null, tags: [],                   gloss: 'Raise a fortress that floats free and takes to the air.',          deferredTo: 'construction' },
+    { key: 'miracle',             name: 'Miracle',             arcane: null, divine: 9,    tags: [], powerOnly: true, divinePowerOnly: true, gloss: 'Petition a god to reshape reality.',                deferredTo: 'religion' },
+    { key: 'plague',              name: 'Plague',              arcane: 9,    divine: null, tags: ['death'],            gloss: 'Unleash a spreading plague over an unlimited range.',               deferredTo: 'disease' },
+    { key: 'shadeveil',           name: 'Shadeveil',           arcane: 9,    divine: null, tags: ['illusion','enchantment','transmogrification'], gloss: 'Veil a wide region in shadow and waking illusion.' }
+  ]);
+  const RITUAL_BY_KEY = Object.freeze(RITUAL_CATALOG.reduce((m, r) => { m[r.key] = r; return m; }, {}));
+
+  // ── Magic Experimentation (AD-M4; RR pp.408–411) ──
+  // An optional modality on ANY project that requires a throw. The researcher picks a METHOD (which sets
+  // how many ADVANTAGES he gains, the mishap tier on failure, and the breakthrough ceiling) and chooses
+  // that many advantages. Core RAW — no house rule (§6: experimentation is RAW, on by default; the §6-
+  // correct off-switch for the body-horror mishap content would be a default-OFF `disable-magic-
+  // experimentation` opt-out, flagged for the operator, not a default-ON toggle).
+  const EXPERIMENT_ADVANTAGES = Object.freeze({
+    haste:      { label: 'Haste',      effect: 'Doubles the research rate (×3 if taken twice, ×4 thrice).' },
+    efficiency: { label: 'Efficiency', effect: 'Doubles the value of special components expended (×3 twice, ×4 thrice).' },
+    insight:    { label: 'Insight',    effect: '+2 to the magic research throw (cumulative: +4 twice, +6 thrice).' },
+    lore:       { label: 'Lore',       effect: 'Research esoteric spells of 1st–2nd level (twice → 4th, thrice → 6th; or a bonus > +3 vs a monster type).' }
+  });
+  // Method (RR p.409): advantages granted, the mishap tier on a failed experiment, the min caster level,
+  // and the breakthrough ceiling the method permits (regardless of the throw margin).
+  const EXPERIMENT_METHODS = Object.freeze({
+    conventional: { label: 'Conventional', advantages: 1, mishapTier: 'minor',        minLevel: 5,  maxBreakthrough: 'minor' },
+    pioneering:   { label: 'Pioneering',   advantages: 2, mishapTier: 'major',        minLevel: 9,  maxBreakthrough: 'major' },
+    radical:      { label: 'Radical',      advantages: 3, mishapTier: 'catastrophic', minLevel: 11, maxBreakthrough: 'revolutionary' }
+  });
+  // Breakthrough (RR p.410): the throw must exceed its target by the threshold; the level is also capped by
+  // the method (above) AND the caster's level. xpFactor = the bonus XP as a multiple of the research cost
+  // (RR p.473 — minor ½, major 1×, revolutionary 2×). order = the ranking for "highest permitted" clamping.
+  const BREAKTHROUGH_LEVELS = Object.freeze([
+    { key: 'minor',         threshold: 5,  minLevel: 5,  xpFactor: 0.5, order: 1 },
+    { key: 'major',         threshold: 10, minLevel: 9,  xpFactor: 1,   order: 2 },
+    { key: 'revolutionary', threshold: 20, minLevel: 11, xpFactor: 2,   order: 3 }
+  ]);
+  const _BREAKTHROUGH_ORDER = Object.freeze({ minor: 1, major: 2, revolutionary: 3 });
+  // Per-kind breakthrough RESULT (RR pp.410–411). The mechanical parts the engine applies directly:
+  //   construct-design → +HD on the formula; spell-research / ritual-* → +power level (½/1/2; the spell's
+  //   power, NOT its actual level). The GM-resolved parts (content — the engine rolls the count + die and
+  //   notes "GM, resolve"): item-creation → a bonus effect; crossbreed / manufacture / necromancy → N
+  //   unexpected abilities (roll 3d6 / 2d10 / 1d20 on the Unexpected Abilities table — JJ; not transcribed).
+  const BREAKTHROUGH_HD_BONUS    = Object.freeze({ minor: 2, major: 6, revolutionary: 12 });
+  const BREAKTHROUGH_POWER_BONUS = Object.freeze({ minor: 0.5, major: 1, revolutionary: 2 });
+  const BREAKTHROUGH_ABILITY     = Object.freeze({ minor: { count: 1, die: '3d6' }, major: { count: 2, die: '2d10' }, revolutionary: { count: 3, die: '1d20' } });
+  // The kinds whose breakthrough grants N unexpected abilities rolled on the JJ Unexpected Abilities table
+  // (RR p.411). Item-creation instead grants a "bonus effect" worth ≤50%/100%/200% of the item cost (RR p.410).
+  const _ABILITY_BREAKTHROUGH_KINDS = Object.freeze(new Set(['crossbreed', 'construct-manufacture', 'necromancy']));
+  const BREAKTHROUGH_ITEM_WORTH_PCT = Object.freeze({ minor: 50, major: 100, revolutionary: 200 });
 
   // ════════════════════════════════════════════════════════════════════════════
   // Core machine — rate, eligibility, cost (RR p.388, p.390)
@@ -211,9 +307,15 @@
     if(!meta) return { ok: false, reason: 'unknown-kind' };
     if(!meta.available) return { ok: false, reason: 'kind-not-yet-available' };
     const isArcane = (typeof A.isArcaneCaster === 'function') ? A.isArcaneCaster(ch) : false;
+    const isDivine = (typeof A.isDivineCaster === 'function') ? A.isDivineCaster(ch) : false;
     const isConstruct = (kind === 'construct-design' || kind === 'construct-manufacture');
+    const isRitual = (kind === 'ritual-learn' || kind === 'ritual-cast');
     if(isConstruct){
       if(!isArcane && !_isCraftpriest(ch)) return { ok: false, reason: 'not-an-arcane-caster-or-craftpriest' };
+    } else if(isRitual){
+      // Rituals are learnable/castable by arcane OR divine casters (RR p.398; the divine rituals + divine-power
+      // components are the Religion seam, plan §14 Q3 — flagged in the catalog, not blocked here).
+      if(!isArcane && !isDivine) return { ok: false, reason: 'not-a-spellcaster' };
     } else if(!isArcane){
       return { ok: false, reason: 'not-an-arcane-caster' };
     }
@@ -221,7 +323,61 @@
     const min = researchEffectiveMinLevel(kind, cfg, ch);
     const effLevel = (Number(ch.level) || 0) + _eligibilityLevelBonus(ch, kind);   // RR p.389 proficiency level bonus
     if(effLevel < min) return { ok: false, reason: 'level-too-low', minLevel: min };
+    // Ritual-specific gates (RR p.398): cast needs the ritual in repertoire; learn needs repertoire space.
+    if(kind === 'ritual-cast'){
+      const key = cfg && cfg.ritualKey;
+      if(key && !ritualInRepertoire(campaign, ch, key)) return { ok: false, reason: 'ritual-not-in-repertoire' };
+    } else if(kind === 'ritual-learn'){
+      const rl = _clampRitualLevel(cfg && cfg.ritualLevel);
+      const cap = ritualRepertoireCap(campaign, ch);
+      if(ritualsKnown(campaign, ch, rl).length >= cap) return { ok: false, reason: 'ritual-repertoire-full', cap, ritualLevel: rl };
+    }
     return { ok: true };
+  }
+
+  // ── Rituals — repertoire + catalog (RR p.398) ──
+  function ritualCatalogEntry(key){ return RITUAL_BY_KEY[key] || null; }
+  // The key spellcasting attribute for ritual repertoire: WIL for a pure divine caster, else INT (arcane).
+  function ritualKeyAttributeFor(campaign, character){
+    const A = _A();
+    const ch = _findChar(campaign, character);
+    if(!ch) return 'INT';
+    const arcane = (typeof A.isArcaneCaster === 'function') && A.isArcaneCaster(ch);
+    const divine = (typeof A.isDivineCaster === 'function') && A.isDivineCaster(ch);
+    return (divine && !arcane) ? 'WIL' : 'INT';
+  }
+  function _abilityModOf(ch, attr){
+    const A = _A();
+    const fn = (typeof A.abilityMod === 'function') ? A.abilityMod : (s => Math.floor(((Number(s)||10)-10)/3));
+    return fn((ch && ch.abilities && ch.abilities[attr]) || 10);
+  }
+  // Ritual Spell Repertoire cap PER ritual level (RR p.398): base(caster level) + key-attribute modifier.
+  function ritualRepertoireCap(campaign, character){
+    const ch = _findChar(campaign, character);
+    if(!ch) return 0;
+    const lvl = Number(ch.level) || 0;
+    if(lvl < 11) return 0;
+    const base = (RITUAL_REPERTOIRE_BASE[lvl] != null) ? RITUAL_REPERTOIRE_BASE[lvl] : (lvl >= 14 ? 4 : 1);
+    return Math.max(0, base + _abilityModOf(ch, ritualKeyAttributeFor(campaign, ch)));
+  }
+  // The rituals a caster has learned (magicFormulas kind:'ritual'); filterable by ritual level.
+  function ritualsKnown(campaign, character, ritualLevel){
+    const ch = _findChar(campaign, character);
+    if(!ch || !Array.isArray(ch.magicFormulas)) return [];
+    return ch.magicFormulas.filter(f => f && f.kind === 'ritual' && (ritualLevel == null || Number(f.ritualLevel) === Number(ritualLevel)));
+  }
+  function ritualInRepertoire(campaign, character, ritualKey){
+    if(!ritualKey) return false;
+    const want = String(ritualKey).toLowerCase();
+    return ritualsKnown(campaign, character).some(f => f && (f.ritualKey === ritualKey || (f.name && f.name.toLowerCase() === want)));
+  }
+  // The ritual level a given caster casts a catalog ritual at (its school's level): WIL→divine else arcane;
+  // falls back to whichever school the ritual offers. null if the ritual key is unknown.
+  function ritualLevelFor(campaign, character, ritualKey){
+    const r = RITUAL_BY_KEY[ritualKey]; if(!r) return null;
+    const attr = ritualKeyAttributeFor(campaign, character);
+    const lvl = (attr === 'WIL') ? (r.divine != null ? r.divine : r.arcane) : (r.arcane != null ? r.arcane : r.divine);
+    return (lvl != null) ? lvl : null;
   }
 
   // Magic Item Creation cost (RR pp.391–393). Returns the base cost (gp). Permanent bonuses are cumulative.
@@ -268,9 +424,16 @@
       const c = _hdAbilityCost(cfg);
       return { componentCostGp: c, materialCostGp: c, researchCostGp: c, baseCost: c };
     }
-    // Rituals (AD-M3): reserved (returns 0 until their wave fills it).
+    // Rituals (AD-M3; RR p.398): Material & Research each = 50k/100k/200k for ritual level 7/8/9; ritual-cast
+    // ALSO pays that as the component (monster parts — never miscellaneous); ritual-learn has no component.
+    if(kind === 'ritual-learn' || kind === 'ritual-cast'){
+      const rl = _clampRitualLevel(cfg.ritualLevel);
+      const c = RITUAL_COST_BY_LEVEL[rl] || RITUAL_COST_BY_LEVEL[7];
+      return { componentCostGp: (kind === 'ritual-cast') ? c : 0, materialCostGp: c, researchCostGp: c, baseCost: c };
+    }
     return { componentCostGp: 0, materialCostGp: 0, researchCostGp: 0, baseCost: 0 };
   }
+  function _clampRitualLevel(lvl){ return Math.max(7, Math.min(9, Math.floor(Number(lvl) || 7))); }
 
   // The per-kind throw-target BUMP (RR p.388 + per-kind): spell research adds the spell level; identify
   // adds the spell-levels imbued; item creation adds the total spell-effect level (+1/+3/+6 for a +1/+2/+3
@@ -289,6 +452,10 @@
     }
     if(kind === 'necromancy'){
       return Math.floor(_hdAbilityCost(cfg) / 5000) * (cfg.willing ? 1 : 2);
+    }
+    // Rituals (AD-M3; RR p.398): the throw target is increased by the level of the ritual spell (7/8/9).
+    if(kind === 'ritual-learn' || kind === 'ritual-cast'){
+      return _clampRitualLevel(cfg.ritualLevel);
     }
     return 0;
   }
@@ -317,6 +484,8 @@
       }
       if(pct > 0) total = total * (1 + pct / 100);
     }
+    // Haste experiment advantage (RR p.409) — ×2/×3/×4 the research rate.
+    if(project.experiment) total = total * _hasteFactor(project.experiment);
     return total;
   }
   function researchDaysRemaining(campaign, project){
@@ -340,6 +509,72 @@
     const pct = Math.min(1, penalized / compCost);
     const lvl = Math.max(1, Math.floor(Number(effectLevel) || 1));
     return -Math.max(1, Math.ceil(lvl * pct));
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // Magic Experimentation (AD-M4; RR pp.408–411) — methods / advantages / breakthroughs / mishaps
+  // ════════════════════════════════════════════════════════════════════════════
+
+  function experimentMethod(key){ return EXPERIMENT_METHODS[key] || null; }
+  // Count how many times each advantage was chosen (cumulative selection, RR p.409).
+  function _advantageCounts(experiment){
+    const out = { haste: 0, efficiency: 0, insight: 0, lore: 0 };
+    if(experiment && Array.isArray(experiment.advantages)){
+      for(const a of experiment.advantages){ if(out[a] != null) out[a]++; }
+    }
+    return out;
+  }
+  // Haste / efficiency cumulative multiplier: ×2 once → ×3 twice → ×4 thrice (factor = count + 1, min ×1).
+  function _hasteFactor(experiment){ const n = _advantageCounts(experiment).haste; return n > 0 ? (n + 1) : 1; }
+  function _efficiencyFactor(experiment){ const n = _advantageCounts(experiment).efficiency; return n > 0 ? (n + 1) : 1; }
+  // Insight: +2 to the throw per selection (RR p.409).
+  function _insightBonus(experiment){ return _advantageCounts(experiment).insight * 2; }
+  // The researcher's best Art/Craft rank (RR p.401/p.408 — added ONLY to the breakthrough margin, and a
+  // grandmaster (4 ranks) gains one extra advantage when the experiment relates to his Art/Craft).
+  function _artCraftRanks(researcher){ return Math.max(_profRanks(researcher, 'art'), _profRanks(researcher, 'craft')); }
+  // How many advantages a method permits for this researcher (method count + the Art/Craft grandmaster +1).
+  function experimentAllowedAdvantages(campaign, character, method, experiment){
+    const meta = EXPERIMENT_METHODS[method]; if(!meta) return 0;
+    const ch = _findChar(campaign, character);
+    let allowed = meta.advantages;
+    if(experiment && experiment.artCraftRelated && ch && _artCraftRanks(ch) >= 4) allowed += 1;
+    return allowed;
+  }
+  // Can this researcher use this method of experimentation? (RR p.409 — minimum caster level by method).
+  // Returns { ok, reason, minLevel, maxAdvantages }. (The min-level gate is the researcher's own level —
+  // an aiding assistant doesn't need it, RR p.409; that's automatic since the researcher is the experimenter.)
+  function experimentEligibility(campaign, character, method, experiment){
+    const meta = EXPERIMENT_METHODS[method];
+    if(!meta) return { ok: false, reason: 'unknown-method' };
+    const ch = _findChar(campaign, character);
+    if(!ch) return { ok: false, reason: 'no-character' };
+    if((Number(ch.level) || 0) < meta.minLevel) return { ok: false, reason: 'experiment-level-too-low', minLevel: meta.minLevel };
+    return { ok: true, maxAdvantages: experimentAllowedAdvantages(campaign, ch, method, experiment) };
+  }
+
+  // Determine the breakthrough level a successful experiment achieved (RR p.410). The throw must exceed its
+  // target by the threshold (5/10/20); the level is then clamped by the method ceiling AND the caster level.
+  // The Art/Craft ranks add to the margin ONLY here (RR p.408 — "exclusively for purposes of determining
+  // whether he has achieved a breakthrough"). Returns { level, margin, threshold, xpBonus } or null.
+  function determineBreakthrough(campaign, project, throwResult){
+    const exp = project && project.experiment;
+    if(!exp || !exp.method || !throwResult || !throwResult.succeeded) return null;
+    const method = EXPERIMENT_METHODS[exp.method]; if(!method) return null;
+    const researcher = _findChar(campaign, project.researcherCharacterId);
+    const level = Number(researcher && researcher.level) || 0;
+    const artCraft = (exp.artCraftRelated && researcher) ? _artCraftRanks(researcher) : 0;
+    const margin = (Number(throwResult.total) || 0) - (Number(throwResult.target) || 0) + artCraft;
+    const methodCap = _BREAKTHROUGH_ORDER[method.maxBreakthrough] || 1;
+    let best = null;
+    for(const b of BREAKTHROUGH_LEVELS){
+      if(margin < b.threshold) continue;
+      if(level < b.minLevel) continue;
+      if(b.order > methodCap) continue;          // the method ceiling clamps (RR p.410)
+      if(!best || b.order > best.order) best = b;
+    }
+    if(!best) return null;
+    const xpBonus = _round((Number(project.researchCostGp) || 0) * best.xpFactor);
+    return { level: best.key, margin, threshold: best.threshold, xpBonus };
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -374,6 +609,8 @@
     if(fac > 0) modifiers.push({ label: 'facility', value: fac });
     // Working from a sample (+4) — item creation reverse-engineer / identify with the item in hand.
     if(project && project.fromSample) modifiers.push({ label: 'sample', value: 4 });
+    // Insight experiment advantage (RR p.409) — +2 per selection (cumulative).
+    if(project && project.experiment){ const ins = _insightBonus(project.experiment); if(ins) modifiers.push({ label: 'insight', value: ins }); }
     // Component substitution penalty (negative), if a component plan is attached.
     const pen = Number(project && project.substitutionPenalty) || 0;
     if(pen) modifiers.push({ label: 'inappropriate components', value: pen });
@@ -429,6 +666,11 @@
       fromSample: opts.fromSample || false,
       throwResult: opts.throwResult || null,               // {roll, total, target, succeeded, atTurn}
 
+      // Experimentation (AD-M4; RR pp.408–411) — optional on any throw-requiring project
+      experiment: opts.experiment || null,                 // {method, advantages[], artCraftRelated}
+      breakthrough: opts.breakthrough || null,             // {level, margin, threshold, xpBonus} — set on a successful experiment
+      mishap: opts.mishap || null,                         // {tier, roll, assistantsTier, kind} — set on a failed experiment
+
       // Facility (the Sanctums seam; resolved live)
       facilityKind: opts.facilityKind || (MAGIC_RESEARCH_KINDS[opts.kind || 'spell-research'] || {}).facilityKind || 'library',
 
@@ -468,6 +710,22 @@
     let needsThrow = (opts.needsThrow != null) ? !!opts.needsThrow : true;
     if(opts.commonSpell || opts.fromFormula) needsThrow = false;
     if(kind === 'identify') needsThrow = true;     // identify always throws (RR p.393)
+    if(kind === 'ritual-cast') needsThrow = true;  // casting a ritual always throws (RR p.398)
+    // Experimentation (AD-M4; RR pp.408–411) — optional, but ONLY on a throw-requiring project, and only at
+    // or above the method's minimum caster level; the advantage count is capped by the method (+1 for an
+    // Art/Craft grandmaster). Validated up front; attached to the project for the rate/throw/breakthrough wiring.
+    let experiment = null;
+    if(opts.experiment && opts.experiment.method){
+      if(!needsThrow) return { ok: false, reason: 'experiment-needs-throw' };
+      const advantages = Array.isArray(opts.experiment.advantages) ? opts.experiment.advantages.filter(a => EXPERIMENT_ADVANTAGES[a]) : [];
+      const expDraft = { method: opts.experiment.method, advantages, artCraftRelated: !!opts.experiment.artCraftRelated };
+      if(!opts.gmOverride){
+        const ee = experimentEligibility(campaign, researcher, expDraft.method, expDraft);
+        if(!ee.ok) return { ok: false, reason: ee.reason, minLevel: ee.minLevel };
+        if(advantages.length > ee.maxAdvantages) return { ok: false, reason: 'too-many-advantages', maxAdvantages: ee.maxAdvantages };
+      }
+      experiment = expDraft;
+    }
     const project = blankResearchProject({
       kind, name: opts.name || (meta.label + (cfg.targetName ? (': ' + cfg.targetName) : '')),
       magicDomain: opts.magicDomain || null,
@@ -477,6 +735,7 @@
       baseCost: costs.baseCost, componentCostGp: costs.componentCostGp,
       materialCostGp: costs.materialCostGp, researchCostGp: costs.researchCostGp,
       needsThrow, fromFormula: !!opts.fromFormula, fromSample: !!opts.fromSample,
+      experiment,
       facilityKind: meta.facilityKind,
       status: 'in-progress', startedOnTurn: _currentTurn(campaign)
     });
@@ -572,7 +831,10 @@
     const researcher = _findChar(campaign, project.researcherCharacterId);
     if(!researcher) return { ok: false, reason: 'no-researcher' };
     const plan = Object.assign({ arcanePowerGp: 0, specialItemValueGp: 0, miscGp: 0, inappropriateGp: 0, identifiedItemId: null, specialItemRefs: [] }, opts.componentPlan || {});
+    // Rituals never use miscellaneous components (RR p.398) — only special components / arcane power.
+    if(project.kind === 'ritual-learn' || project.kind === 'ritual-cast'){ plan.miscGp = 0; plan.inappropriateGp = 0; }
     const compCost = Math.max(0, Number(project.componentCostGp) || 0);
+    const effFactor = _efficiencyFactor(project.experiment);   // efficiency experiment advantage ×special-component value (RR p.409)
 
     // ── Pay the component cost (at the end, RR p.388) ──
     let assembled = 0;
@@ -586,11 +848,12 @@
         else return { ok: false, reason: 'arcane-power-unavailable', wanted: wantArcane, available: (typeof A.arcanePowerAvailable === 'function') ? A.arcanePowerAvailable(campaign, researcher.id) : 0 };
       }
       // 2. Special components (appropriate monster parts; penalty-free). Consume the chosen item lines.
+      // The efficiency advantage (RR p.409) multiplies the value the special components count for.
       if(Array.isArray(plan.specialItemRefs) && plan.specialItemRefs.length){
         const got = _consumeSpecialComponents(campaign, researcher, plan.specialItemRefs);
-        assembled += got.valueGp; consumed.specialItems = got.consumed;
+        assembled += got.valueGp * effFactor; consumed.specialItems = got.consumed;
       } else if((Number(plan.specialItemValueGp) || 0) > 0){
-        assembled += Math.max(0, Number(plan.specialItemValueGp) || 0);   // GM-asserted value (no specific items)
+        assembled += Math.max(0, Number(plan.specialItemValueGp) || 0) * effFactor;   // GM-asserted value (no specific items)
       }
       // 3. Miscellaneous / inappropriate components (penalty applies) — gp paid from the purse.
       const miscGp = Math.max(0, Math.round(Number(plan.miscGp) || 0));
@@ -631,13 +894,27 @@
     }
 
     if(succeeded){
+      // Experiment breakthrough (RR p.410) — computed BEFORE the result so the per-kind bonus (construct
+      // +HD, spell/ritual +power, the unexpected-ability count) applies inside _applyResearchResult.
+      const breakthrough = determineBreakthrough(campaign, project, throwResult);
+      if(breakthrough) project.breakthrough = breakthrough;
       _applyResearchResult(campaign, project, opts);
       project.status = 'completed'; project.completedOnTurn = _currentTurn(campaign);
-      project.history.push({ turn: _currentTurn(campaign), type: 'completed', reason: throwResult ? ('throw ' + throwResult.total + ' vs ' + throwResult.target + ' ✓' + (penalty ? (' (penalty ' + penalty + ')') : '')) : 'no throw' });
+      project.history.push({ turn: _currentTurn(campaign), type: 'completed', reason: (throwResult ? ('throw ' + throwResult.total + ' vs ' + throwResult.target + ' ✓' + (penalty ? (' (penalty ' + penalty + ')') : '')) : 'no throw') + (breakthrough ? (' — ' + breakthrough.level + ' breakthrough!') : '') });
       _recordResearchEvent(campaign, 'magic-research-completed',
         { projectId: project.id, kind: project.kind, researcherCharacterId: researcher.id, kindResult: project.kindResult, throwResult },
         { narrative: (researcher.name || researcher.id) + ' completes ' + (project.name || project.kind), relatedEntities: [{ kind: 'character', id: researcher.id, role: 'subject' }] });
-      return { ok: true, succeeded: true, throwResult, result: project.kindResult, penalty, usedPenalized };
+      if(breakthrough){
+        // Bonus XP (RR p.473: minor ½ / major 1× / revolutionary 2× the research cost) + the record-only
+        // breakthrough event; run the level-up sweep so a breakthrough can immediately advance the mage.
+        if(researcher) researcher.xp = (Number(researcher.xp) || 0) + (Number(breakthrough.xpBonus) || 0);
+        project.history.push({ turn: _currentTurn(campaign), type: 'breakthrough', reason: breakthrough.level + ' breakthrough (margin ' + breakthrough.margin + ') — +' + _round(breakthrough.xpBonus).toLocaleString() + ' XP' });
+        _recordResearchEvent(campaign, 'magic-experiment-breakthrough',
+          { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, kind: project.kind, level: breakthrough.level, margin: breakthrough.margin, xpBonus: breakthrough.xpBonus, result: (project.kindResult && project.kindResult.breakthrough) || null },
+          { narrative: (researcher && researcher.name || 'A researcher') + ' achieves a ' + breakthrough.level + ' breakthrough on ' + (project.name || project.kind) + '!', relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }] });
+        if(typeof A.checkAllCharacterLevelUps === 'function'){ try { A.checkAllCharacterLevelUps(campaign); } catch(_e){} }
+      }
+      return { ok: true, succeeded: true, throwResult, result: project.kindResult, penalty, usedPenalized, breakthrough: breakthrough || null };
     }
     // Failure — ALL time, money, materials, and components are lost (RR p.388).
     const lostGp = (Number(project.materialCostGp) || 0) + (Number(project.researchInvestedGp) || 0) + assembled;
@@ -646,7 +923,25 @@
     _recordResearchEvent(campaign, 'magic-research-failed',
       { projectId: project.id, kind: project.kind, researcherCharacterId: researcher.id, lostGp: _round(lostGp), throwResult },
       { narrative: (researcher.name || researcher.id) + '’s ' + (project.name || project.kind) + ' fails — ' + _round(lostGp).toLocaleString() + 'gp lost', relatedEntities: [{ kind: 'character', id: researcher.id, role: 'subject' }] });
-    return { ok: true, succeeded: false, throwResult, lostGp: _round(lostGp), penalty };
+    // A failed EXPERIMENT additionally triggers a MISHAP (RR p.409) — ON TOP of the total loss. The engine
+    // rolls the tier (by method) + a 1d10 row and cites the per-kind Mishap table; the body-horror content
+    // (insanity / mutation / mortal wounds — RR pp.412+) is GM-resolved, not embedded (§13.6 IP). Aiding
+    // assistants suffer the next-lower tier (RR p.409).
+    let mishap = null;
+    if(project.experiment && project.experiment.method){
+      const method = EXPERIMENT_METHODS[project.experiment.method];
+      const tier = (method && method.mishapTier) || 'minor';
+      const d10 = 1 + Math.floor((_rng(opts)() || 0) * 10);
+      const assistantsTier = (tier === 'catastrophic') ? 'major' : (tier === 'major' ? 'minor' : 'none');
+      const meta = MAGIC_RESEARCH_KINDS[project.kind];
+      mishap = { tier, roll: d10, kind: project.kind, assistantsTier, hasAssistants: (project.assistantCharacterIds || []).length > 0 };
+      project.mishap = mishap;
+      project.history.push({ turn: _currentTurn(campaign), type: 'mishap', reason: tier + ' mishap (1d10 ' + d10 + ') — GM resolves the ' + (meta ? meta.label : project.kind) + ' Mishap table (RR pp.412+)' });
+      _recordResearchEvent(campaign, 'magic-experiment-mishap',
+        { projectId: project.id, researcherCharacterId: researcher.id, kind: project.kind, tier, roll: d10, assistantsTier },
+        { narrative: (researcher.name || researcher.id) + ' suffers a ' + tier + ' magical mishap — GM, resolve (RR pp.412+)', relatedEntities: [{ kind: 'character', id: researcher.id, role: 'subject' }] });
+    }
+    return { ok: true, succeeded: false, throwResult, lostGp: _round(lostGp), penalty, mishap };
   }
 
   function _fallbackThrow(target, modTotal, rng){
@@ -825,6 +1120,72 @@
         { projectId: project.id, groupId: r.group ? r.group.id : null, makerCharacterId: researcher ? researcher.id : null, controlled: r.controlled, disposition: r.band, count: r.count, willing },
         { narrative: (researcher && researcher.name || 'A necromancer') + ' raises ' + (r.count > 1 ? (r.count + '× ') : '') + (project.name || 'the dead') + (r.controlled ? '' : ' — but it rises hostile!'),
           relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(r.group ? [{ kind: 'group', id: r.group.id, role: 'produced' }] : []) });
+    } else if(project.kind === 'ritual-learn'){
+      // RR p.398 — learning a ritual adds it to the caster's ritual repertoire (a magicFormula kind:'ritual').
+      const rl = _clampRitualLevel(cfg.ritualLevel);
+      const name = cfg.targetName || project.name || ('ritual L' + rl);
+      _addMagicFormula(researcher, { kind: 'ritual', name, ritualKey: cfg.ritualKey || null, ritualLevel: rl, sourceProjectId: project.id, learnedAtTurn: _currentTurn(campaign) });
+      project.kindResult = { formula: 'ritual:' + name, ritualKey: cfg.ritualKey || null, ritualLevel: rl, note: 'Added to your ritual repertoire (RR p.398).' };
+      _recordResearchEvent(campaign, 'ritual-learned',
+        { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, ritualKey: cfg.ritualKey || null, ritualLevel: rl, name },
+        { narrative: (researcher && researcher.name || 'A mage') + ' learns the ritual of ' + name,
+          relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }] });
+    } else if(project.kind === 'ritual-cast'){
+      // RR p.398 — a cast ritual takes effect immediately OR is stored as a single charge (scroll / ring / rod
+      // / staff / wand). The effect itself is GM-resolved / deferred to its consuming subsystem (catalog content).
+      const rl = _clampRitualLevel(cfg.ritualLevel);
+      const name = cfg.targetName || project.name || ('ritual L' + rl);
+      if(cfg.mode === 'stored'){
+        const it = _mintStoredRitualItem(campaign, project, { name, ritualLevel: rl, form: cfg.storedForm || 'scroll' });
+        project.kindResult = { ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'stored', notableItemId: it ? it.id : null, storedForm: cfg.storedForm || 'scroll', note: 'Bound into ' + (it ? it.name : 'a single charge') + ' (RR p.398).' };
+        _recordResearchEvent(campaign, 'ritual-cast',
+          { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'stored', notableItemId: it ? it.id : null, storedForm: cfg.storedForm || 'scroll', name },
+          { narrative: (researcher && researcher.name || 'A mage') + ' casts ' + name + ' and binds it into ' + ((!cfg.storedForm || cfg.storedForm === 'scroll') ? 'a scroll' : ('a ' + cfg.storedForm)),
+            relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }].concat(it ? [{ kind: 'notableItem', id: it.id, role: 'produced' }] : []) });
+      } else {
+        const entry = ritualCatalogEntry(cfg.ritualKey);
+        project.kindResult = { ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'immediate', note: (entry && entry.gloss) ? ('Takes effect now (GM resolves): ' + entry.gloss) : 'The ritual takes effect now (GM resolves).' };
+        _recordResearchEvent(campaign, 'ritual-cast',
+          { projectId: project.id, researcherCharacterId: researcher ? researcher.id : null, ritualKey: cfg.ritualKey || null, ritualLevel: rl, mode: 'immediate', name },
+          { narrative: (researcher && researcher.name || 'A mage') + ' performs the ritual of ' + name,
+            relatedEntities: [{ kind: 'character', id: researcher ? researcher.id : null, role: 'subject' }] });
+      }
+    }
+    // Apply an experiment breakthrough's per-kind bonus to the result (RR pp.410–411).
+    if(project.breakthrough && project.breakthrough.level) _applyBreakthroughResult(campaign, project);
+  }
+
+  // Augment a completed project's kindResult with its breakthrough bonus (RR pp.410–411). The mechanical
+  // parts apply directly — construct-design adds HD to the formula; spell/ritual research adds effective
+  // POWER (not actual level). The GM-resolved parts are recorded as a count + die + a "GM resolves" note:
+  // item-creation gets a bonus effect (worth ≤50/100/200% of the item cost); a crossbreed / manufactured
+  // construct / undead gets N unexpected abilities (roll 3d6 / 2d10 / 1d20 on the JJ Unexpected Abilities
+  // table — content, not embedded, §13.6 IP).
+  function _applyBreakthroughResult(campaign, project){
+    const lvl = project.breakthrough.level;
+    const kr = project.kindResult || (project.kindResult = {});
+    const researcher = _findChar(campaign, project.researcherCharacterId);
+    const lastFormula = (researcher && Array.isArray(researcher.magicFormulas))
+      ? researcher.magicFormulas.slice().reverse().find(f => f && f.sourceProjectId === project.id) : null;
+    if(project.kind === 'construct-design'){
+      const hdBonus = BREAKTHROUGH_HD_BONUS[lvl] || 0;
+      const baseHd = Number(kr.hd) || 0;
+      kr.hd = baseHd + hdBonus;
+      if(lastFormula) lastFormula.hd = kr.hd;
+      kr.breakthrough = { level: lvl, hdBonus, baseHd, finalHd: kr.hd, note: '+' + hdBonus + ' HD (manufacturable by the original caster level — RR p.411).' };
+    } else if(project.kind === 'spell-research' || project.kind === 'ritual-learn' || project.kind === 'ritual-cast'){
+      const power = BREAKTHROUGH_POWER_BONUS[lvl] || 0;
+      if(lastFormula) lastFormula.powerLevelBonus = power;
+      kr.breakthrough = { level: lvl, powerLevelBonus: power, note: '+' + power + ' effective level of power, same actual level (RR pp.410–411)' + (project.kind === 'ritual-cast' ? ' — this casting only.' : '.') };
+    } else if(project.kind === 'item-creation'){
+      const pct = BREAKTHROUGH_ITEM_WORTH_PCT[lvl] || 50;
+      kr.breakthrough = { level: lvl, bonusEffectWorthPct: pct, gmResolve: true, note: 'An unexpected bonus effect worth up to ' + pct + '% of the item cost — GM resolves (RR p.410).' };
+    } else if(_ABILITY_BREAKTHROUGH_KINDS.has(project.kind)){
+      const ab = BREAKTHROUGH_ABILITY[lvl] || BREAKTHROUGH_ABILITY.minor;
+      kr.breakthrough = { level: lvl, abilityCount: ab.count, abilityDie: ab.die, gmResolve: true,
+        note: ab.count + ' unexpected special abilit' + (ab.count > 1 ? 'ies' : 'y') + ' — GM resolves (roll ' + ab.die + ' on the Unexpected Abilities table).' };
+    } else {
+      kr.breakthrough = { level: lvl, note: 'A breakthrough — GM resolves the benefit (RR pp.410–411).' };
     }
   }
 
@@ -834,6 +1195,31 @@
     if(!character) return;
     if(!Array.isArray(character.magicFormulas)) character.magicFormulas = [];
     character.magicFormulas.push(Object.assign({ schemaVersion: SCHEMA_VERSION, id: newId('frm') }, formula));
+  }
+
+  // Store a cast ritual as a single charge on a magic item (RR p.398 — a scroll, or one charge in a ring /
+  // rod / staff / wand; never activated/at-will/permanent). Mints a Notable Item + custody to the caster.
+  function _mintStoredRitualItem(campaign, project, spec){
+    const A = _A();
+    const researcher = _findChar(campaign, project.researcherCharacterId);
+    const form = ['scroll','ring','rod','staff','wand'].indexOf(spec.form) >= 0 ? spec.form : 'scroll';
+    const itemKind = (form === 'scroll') ? 'scroll' : 'misc-magic';
+    const label = (form === 'scroll') ? ('Scroll of ' + (spec.name || 'a ritual'))
+      : ((form.charAt(0).toUpperCase() + form.slice(1)) + ' of ' + (spec.name || 'a ritual'));
+    const item = (typeof A.blankNotableItem === 'function') ? A.blankNotableItem({
+      kind: itemKind, name: label,
+      intrinsic: { charges: 1, storedRitual: { ritualKey: (project.config && project.config.ritualKey) || null, ritualLevel: spec.ritualLevel, form }, properties: ['Holds a single casting of the ' + (spec.name || 'ritual') + ' ritual'] },
+      provenance: { makerCharacterId: researcher ? researcher.id : null, createdAtTurn: _currentTurn(campaign), originLore: 'A ritual spell bound into a single charge (RR p.398)', knownMakeAndAuthenticity: true }
+    }) : null;
+    if(item){
+      if(!Array.isArray(campaign.notableItems)) campaign.notableItems = [];
+      campaign.notableItems.push(item);
+      if(typeof A.blankItemCustody === 'function'){
+        if(!Array.isArray(campaign.itemCustody)) campaign.itemCustody = [];
+        campaign.itemCustody.push(A.blankItemCustody({ itemId: item.id, custodianKind: 'character', custodianId: researcher ? researcher.id : null, sinceTurn: _currentTurn(campaign) }));
+      }
+    }
+    return item;
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -871,6 +1257,12 @@
     // catalogs
     RESEARCH_RATE_BY_LEVEL, MAGIC_RESEARCH_KINDS, ITEM_ACTIVATION_MULT, ITEM_PERMANENT_MULT, ITEM_BONUS_COST,
     RESEARCH_PROFICIENCY_MODS, HIGH_TIER_RESEARCH_KINDS: HIGH_TIER_KINDS,
+    RITUAL_CATALOG, RITUAL_COST_BY_LEVEL, RITUAL_REPERTOIRE_BASE,
+    EXPERIMENT_ADVANTAGES, EXPERIMENT_METHODS, BREAKTHROUGH_LEVELS,
+    // rituals (AD-M3)
+    ritualCatalogEntry, ritualKeyAttributeFor, ritualRepertoireCap, ritualsKnown, ritualInRepertoire, ritualLevelFor,
+    // experimentation (AD-M4)
+    experimentMethod, experimentEligibility, experimentAllowedAdvantages, determineBreakthrough,
     // core machine
     magicResearchKind, availableResearchKinds, researchRateForLevel, researchEffectiveMinLevel,
     isEligibleResearcher, magicItemCreationCost, researchProjectCosts, componentSubstitutionPenalty,
