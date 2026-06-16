@@ -288,6 +288,48 @@ function formatExpectedCount(v){
   return String(Math.round(n));
 }
 
+// ── PLACEMENT (SD-2, JJ Step 4 p.217) — where in the settlement an NPC belongs ───────────────────
+// v1 is a lightweight role string. The rich civic-POI model (Tower of Knowledge / Thieves' Quarter
+// / Temple / Emporium as real entities) is Settlement Adventures (Phase 3.5 §5), unshipped — so
+// placementRole is a string now and upgrades to a POI id when that lands (plan §6, the project's
+// lightweight-now/rich-later path). Auto-suggested from the demographic bucket; a domain ruler sits
+// at the municipal seat; the GM override (character.placementRole) wins.
+const PLACEMENT_ROLES = Object.freeze([
+  'municipal-seat','tower-of-knowledge','temple','thieves-quarter',
+  'mercenary-guildhouse','emporium','gatehouse','none'
+]);
+const PLACEMENT_ROLE_LABELS = Object.freeze({
+  'municipal-seat':'Municipal seat', 'tower-of-knowledge':'Tower of Knowledge',
+  'temple':'Temple', 'thieves-quarter':"Thieves' Quarter",
+  'mercenary-guildhouse':'Mercenary Guildhouse', 'emporium':'Emporium',
+  'gatehouse':'Gatehouse / wilds-ward', 'none':'(unassigned)'
+});
+// Bucket → suggested civic POI (JJ Step 4 p.217: mages→Tower of Knowledge, divine→temple,
+// thieves→thieves' quarter, venturers→emporium). The two buckets RAW leaves unnamed get a
+// best-effort: fighter→mercenary-guildhouse (the fighting-hireling venue), explorer→gatehouse
+// (the wilds-ward — explorers have no named civic POI in RAW).
+const BUCKET_PLACEMENT = Object.freeze({
+  mage:'tower-of-knowledge', crusader:'temple', thief:'thieves-quarter',
+  venturer:'emporium', fighter:'mercenary-guildhouse', explorer:'gatehouse'
+});
+
+// The RAW Step-4 default placement for a character: a domain ruler → the municipal seat; else the
+// bucket's civic POI; else 'none' (unbucketed). Pure suggestion — character.placementRole overrides.
+function suggestedPlacementRole(campaign, character){
+  if(!character) return 'none';
+  if(campaign && Array.isArray(campaign.domains) && campaign.domains.some(d => d && d.rulerCharacterId === character.id)) return 'municipal-seat';
+  const bucket = coreBucketForCharacter(campaign, character);
+  return (bucket && BUCKET_PLACEMENT[bucket]) || 'none';
+}
+// The effective placement = the GM override (character.placementRole, when a known role) else the
+// suggestion. The one accessor the UI + consumers read.
+function effectivePlacementRole(campaign, character){
+  const stored = character && character.placementRole;
+  if(stored && PLACEMENT_ROLES.indexOf(stored) >= 0) return stored;
+  return suggestedPlacementRole(campaign, character);
+}
+function placementRoleLabel(role){ return PLACEMENT_ROLE_LABELS[role] || role || '(unassigned)'; }
+
 Object.assign(ACKS, {
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
@@ -295,7 +337,10 @@ Object.assign(ACKS, {
   // the derived-accessor family (plan §4)
   demographicMarketClass, coreBucketForCharacter,
   expectedDemographics, realizedDemographics, demographicDelta, settlementDemographics,
-  formatExpectedCount
+  formatExpectedCount,
+  // SD-2 — placement (JJ Step 4 p.217)
+  PLACEMENT_ROLES, PLACEMENT_ROLE_LABELS,
+  suggestedPlacementRole, effectivePlacementRole, placementRoleLabel
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

@@ -150,6 +150,51 @@ ok('blankCharacter emits homeSettlementId (default null)', ACKS.blankCharacter({
 ok('blankSettlement emits demographicOverrides (default null)', ACKS.blankSettlement({}).demographicOverrides === null);
 ok('blankCharacter honors opts.homeSettlementId', ACKS.blankCharacter({ homeSettlementId:'set-x' }).homeSettlementId === 'set-x');
 
+// ── 8. SD-2 — placement (JJ Step 4 p.217) + recruit wires the home (plan §6/§7) ───────────────────
+section('SD-2 — placement + recruit-home wiring');
+['PLACEMENT_ROLES','PLACEMENT_ROLE_LABELS','suggestedPlacementRole','effectivePlacementRole','placementRoleLabel'].forEach(n =>
+  ok('ACKS.' + n + ' exported', ACKS[n] !== undefined));
+ok('blankCharacter emits placementRole (default null)', ACKS.blankCharacter({}).placementRole === null);
+ok('blankCharacter honors opts.placementRole', ACKS.blankCharacter({ placementRole:'temple' }).placementRole === 'temple');
+
+// suggested placement by demographic bucket (JJ Step 4 p.217)
+const sug = cls => ACKS.suggestedPlacementRole(null, { class: cls });
+ok('mage → tower-of-knowledge',                  sug('Mage') === 'tower-of-knowledge');
+ok('cleric (crusader) → temple',                 sug('Cleric') === 'temple');
+ok('thief → thieves-quarter',                    sug('Thief') === 'thieves-quarter');
+ok('venturer → emporium',                        sug('Venturer') === 'emporium');
+ok('fighter → mercenary-guildhouse',             sug('Fighter') === 'mercenary-guildhouse');
+ok('explorer → gatehouse',                       sug('Explorer') === 'gatehouse');
+ok('assassin (thief bucket, OQ-9) → thieves-quarter', sug('Assassin') === 'thieves-quarter');
+ok('unbucketed class → none',                    sug('Goblin Thing') === 'none');
+ok('null character → none',                      ACKS.suggestedPlacementRole(null, null) === 'none');
+
+// a domain ruler sits at the municipal seat (overrides the bucket)
+const pc = ACKS.blankCampaign({ name:'placement' });
+const king = ACKS.blankCharacter({ name:'The King', class:'Fighter', level:9 });
+pc.characters.push(king);
+pc.domains.push({ id:'dom-1', name:'Realm', rulerCharacterId: king.id });
+ok('a domain ruler → municipal-seat (overrides fighter→mercenary-guildhouse)', ACKS.suggestedPlacementRole(pc, king) === 'municipal-seat');
+
+// effectivePlacementRole — the GM override wins; an unknown stored role falls through; null → suggestion
+ok('effective: stored override wins',                   ACKS.effectivePlacementRole(null, { class:'Mage', placementRole:'temple' }) === 'temple');
+ok('effective: null → the suggestion',                  ACKS.effectivePlacementRole(null, { class:'Mage', placementRole:null }) === 'tower-of-knowledge');
+ok('effective: unknown stored role → falls through',    ACKS.effectivePlacementRole(null, { class:'Mage', placementRole:'bogus' }) === 'tower-of-knowledge');
+ok('placementRoleLabel maps the role', ACKS.placementRoleLabel('thieves-quarter') === "Thieves' Quarter");
+
+// recruit-hireling wires homeSettlementId to the recruitment market (plan §7) + does not clobber a GM-set home
+const rc = ACKS.blankCampaign({ name:'recruit' });
+const patron = ACKS.blankCharacter({ name:'Lord Patron', class:'Fighter', level:5 });
+rc.characters.push(patron);
+const candA = ACKS.blankCharacter({ name:'Hench A', class:'Thief', level:1, socialTier:'candidate', lifecycleState:'candidate' });
+rc.characters.push(candA);
+ACKS.applyEvent(rc, ACKS.newEvent('recruit-hireling', { payload: { patronCharacterId:patron.id, hireCategory:'henchman', hireTypeId:'henchman-thief', candidateIds:[candA.id], settlementId:'set-market', monthlyOffer:25 } }));
+ok('recruit sets the hireling home = the recruitment market', candA.homeSettlementId === 'set-market');
+const candB = ACKS.blankCharacter({ name:'Hench B', class:'Mage', level:1, homeSettlementId:'set-original', socialTier:'candidate', lifecycleState:'candidate' });
+rc.characters.push(candB);
+ACKS.applyEvent(rc, ACKS.newEvent('recruit-hireling', { payload: { patronCharacterId:patron.id, hireCategory:'henchman', hireTypeId:'henchman-mage', candidateIds:[candB.id], settlementId:'set-market', monthlyOffer:25 } }));
+ok('recruit does not clobber a GM-set home', candB.homeSettlementId === 'set-original');
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');

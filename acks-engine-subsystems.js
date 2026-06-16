@@ -584,6 +584,12 @@ function applyEvent_recruitHireling(campaign, event){
     if(p.reactionBandKey === 'accept-elan') loy += 1;
     cand.loyalty = Math.max(-4, Math.min(4, loy));
 
+    // Settlement Demographics SD-2 — a hired hireling is "from" the market it was solicited in
+    // (the recruitment settlement): tag its home so it fills that settlement's Step-3 roster
+    // (ACKS.realizedDemographics reconciles it against the expectation, plan §7). Don't clobber a
+    // GM-set home.
+    if(p.settlementId && !cand.homeSettlementId) cand.homeSettlementId = p.settlementId;
+
     // Candidate history.
     if(!Array.isArray(cand.history)) cand.history = [];
     cand.history.push({
