@@ -271,6 +271,84 @@ farmage.lifecycleState = null;
 ok('find: includeVassals on a vassal-less domain = the base set (no crash)',
   ACKS.findResidents(wc, { domainId:'dom-march', bucket:'mage', minLevel:3, includeVassals:true }).length === domMages.length);
 
+// ── 10. SD-5b — grounding the civilized encounter (the census becomes who you meet, plan §8) ──────
+section('SD-5b — civilized-encounter grounding');
+['CIVILIZED_CELL_BUCKET','bucketForCivilizedCell','groundCivilizedEncounter'].forEach(n =>
+  ok('ACKS.' + n + ' exported', ACKS[n] !== undefined));
+
+// the cell→bucket map — conservative: only cells that denote a leveled townsperson
+ok('map: merchant → venturer',  ACKS.bucketForCivilizedCell('merchant')  === 'venturer');
+ok('map: patroller → fighter',  ACKS.bucketForCivilizedCell('patroller') === 'fighter');
+ok('map: pilgrim → crusader',   ACKS.bucketForCivilizedCell('pilgrim')   === 'crusader');
+ok('map: commoner → null (the population base, not a class bucket)', ACKS.bucketForCivilizedCell('commoner') === null);
+ok('map: bandit → null (an outlaw, not a resident)',  ACKS.bucketForCivilizedCell('bandit') === null);
+ok('map: elf → null (a demi-human, not grounded)',    ACKS.bucketForCivilizedCell('elf') === null);
+ok('map: blank/undefined cell → null', ACKS.bucketForCivilizedCell('') === null && ACKS.bucketForCivilizedCell(undefined) === null);
+ok('map: exactly the three reachable buckets', Object.keys(ACKS.CIVILIZED_CELL_BUCKET).length === 3);
+ok('map: mage/thief/explorer have NO civilized cell (RAW: you don\'t road-meet a wizard)',
+  !Object.values(ACKS.CIVILIZED_CELL_BUCKET).some(b => b === 'mage' || b === 'thief' || b === 'explorer'));
+
+// a small civilized world: a town with a trader/guard/cleric/mage, a thinner town with only a guard,
+// an empty hex between them, and far wilderness.
+const gc = ACKS.blankCampaign({ name:'grounding' });
+gc.hexes.push({ id:'hex-town', coord:{q:0,r:0},  domainId:'dom-x' });
+gc.hexes.push({ id:'hex-thin', coord:{q:2,r:0},  domainId:'dom-x' });
+gc.hexes.push({ id:'hex-near', coord:{q:1,r:0},  domainId:'dom-x' });  // no co-located settlement
+gc.hexes.push({ id:'hex-wild', coord:{q:20,r:0}, domainId:null     }); // far, settlement-less
+gc.settlements.push({ id:'set-town', name:'Bellhaven', hexId:'hex-town', families:1000 });
+gc.settlements.push({ id:'set-thin', name:'Crook',     hexId:'hex-thin', families:200  });
+gc.domains.push({ id:'dom-x', name:'Marches', rulerCharacterId:null });
+const gmk = (name, cls, lvl, sid) => { const c = ACKS.blankCharacter({ name, class:cls, level:lvl, homeSettlementId:sid }); gc.characters.push(c); return c; };
+const goss = gmk('Master Trader Goss', 'Venturer', 5, 'set-town');
+const borr = gmk('Captain Borr',       'Fighter',  6, 'set-town');
+const ans  = gmk('Sister Ans',          'Cleric',   4, 'set-town');
+gmk('Ymir the Adept',  'Mage',    8, 'set-town');   // a mage lives here — civilized never grounds to her
+const tace = gmk('Tace the Sentry',   'Fighter', 3, 'set-thin');
+
+// co-located at the town → its most-notable resident of the profession
+ok('ground: merchant @ town → the venturer Goss', (ACKS.groundCivilizedEncounter(gc, { hexId:'hex-town', cellKey:'merchant' }) || {}).characterId === goss.id);
+ok('ground: patroller @ town → the fighter Borr', (ACKS.groundCivilizedEncounter(gc, { hexId:'hex-town', cellKey:'patroller' }) || {}).characterId === borr.id);
+ok('ground: pilgrim @ town → the cleric Ans',     (ACKS.groundCivilizedEncounter(gc, { hexId:'hex-town', cellKey:'pilgrim' }) || {}).characterId === ans.id);
+const gm = ACKS.groundCivilizedEncounter(gc, { hexId:'hex-town', cellKey:'merchant' });
+ok('ground: carries settlementId + bucket + distance 0', gm.settlementId === 'set-town' && gm.bucket === 'venturer' && gm.distance === 0);
+ok('ground: a non-mapped cell (commoner) → null', ACKS.groundCivilizedEncounter(gc, { hexId:'hex-town', cellKey:'commoner' }) === null);
+ok('ground: no hexId → null', ACKS.groundCivilizedEncounter(gc, { cellKey:'merchant' }) === null);
+
+// a town that lacks the profession → no grounding (the generic label stands)
+ok('ground: merchant @ a town with no venturer → null', ACKS.groundCivilizedEncounter(gc, { hexId:'hex-thin', cellKey:'merchant' }) === null);
+ok('ground: patroller @ the thin town → its fighter Tace', (ACKS.groundCivilizedEncounter(gc, { hexId:'hex-thin', cellKey:'patroller' }) || {}).characterId === tace.id);
+
+// near-fallback: an empty hex draws on a town within N hexes
+const near = ACKS.groundCivilizedEncounter(gc, { hexId:'hex-near', cellKey:'merchant' });   // default within 2
+ok('ground: near an empty hex → the nearby town\'s venturer (distance 1)', near && near.characterId === goss.id && near.distance === 1);
+ok('ground: withinHexes 0 from the empty hex → null (town is 1 away)', ACKS.groundCivilizedEncounter(gc, { hexId:'hex-near', cellKey:'merchant', withinHexes:0 }) === null);
+ok('ground: far wilderness (no town in range) → null', ACKS.groundCivilizedEncounter(gc, { hexId:'hex-wild', cellKey:'merchant' }) === null);
+
+// createEncounterFromDraw INTEGRATION — a civilized draw at the town grounds the monster side
+const cdraw = { category:'civilized', hexId:'hex-town', identity:'table',
+  identityRoll: { key:'merchant', label:'Man, Merchant', natural:50, columnKey:'temperate', page:43 },
+  binding: { mode:'wandering', inLair:false, count:1, lairPct:0, lairRoll:99 }, proposal:null };
+const cenc = ACKS.createEncounterFromDraw(gc, cdraw, { id:'enc-g1', trigger:'rest-night', partySide:{}, atTurn:1, rng:()=>0.5 });
+ok('integration: a civilized merchant draw materializes an encounter', cenc && cenc.monsterSide);
+ok('integration: monsterSide.residentCharacterId = Goss', cenc.monsterSide.residentCharacterId === goss.id);
+ok('integration: monsterSide.residentSettlementId = set-town', cenc.monsterSide.residentSettlementId === 'set-town');
+ok('integration: the table label/key are preserved', cenc.monsterSide.monsterCatalogKey === 'merchant');
+const ndraw = { category:'civilized', hexId:'hex-town', identity:'table',
+  identityRoll: { key:'commoner', label:'Man, Commoner', natural:40, columnKey:'temperate', page:43 },
+  binding: { mode:'wandering', inLair:false, count:3, lairPct:0, lairRoll:99 }, proposal:null };
+const nenc = ACKS.createEncounterFromDraw(gc, ndraw, { id:'enc-g2', trigger:'rest-night', partySide:{}, atTurn:1, rng:()=>0.5 });
+ok('integration: a non-mapped civilized cell (commoner) is NOT grounded', nenc.monsterSide.residentCharacterId === null);
+const wdraw = { category:'civilized', hexId:'hex-wild', identity:'table',
+  identityRoll: { key:'merchant', label:'Man, Merchant', natural:50, columnKey:'temperate', page:43 },
+  binding: { mode:'wandering', inLair:false, count:1, lairPct:0, lairRoll:99 }, proposal:null };
+const wenc = ACKS.createEncounterFromDraw(gc, wdraw, { id:'enc-g3', trigger:'rest-night', partySide:{}, atTurn:1, rng:()=>0.5 });
+ok('integration: a civilized merchant in town-less wilderness is NOT grounded', wenc.monsterSide.residentCharacterId === null);
+
+// the factory carries the two new fields (schema⊆factory + defensive read on old saves)
+const be = ACKS.blankEncounter().monsterSide;
+ok('blankEncounter monsterSide has residentCharacterId (null)', 'residentCharacterId' in be && be.residentCharacterId === null);
+ok('blankEncounter monsterSide has residentSettlementId (null)', 'residentSettlementId' in be && be.residentSettlementId === null);
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');

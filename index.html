@@ -92,7 +92,7 @@
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-16-sd5"></script>
+<script src="acks-engine-demographics.js?v=2026-06-16-sd5b"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -2366,6 +2366,15 @@ document.addEventListener('alpine:init', () => {
                   <span x-text="encBandLink().text"></span>
                   <button x-show="encBandLink().encounterId" @click="openEncounterModal(encBandLink().encounterId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open the chase this band is running (switches this panel)">⚔ chase</button>
                   <button x-show="encBandLink().groupId" @click="inspectorOpen('group', encBandLink().groupId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Inspect the band's Group entity">🔍 band</button>
+                </p>
+              </template>
+              <!-- SD-5b — a CIVILIZED encounter near a settlement is the actual person who lives
+                   there (the realized census). GM-facing: name them + open their sheet. The census
+                   stops being a panel and becomes who you meet. -->
+              <template x-if="encResidentLink()">
+                <p class="text-xs mt-1 opacity-80">
+                  <span x-text="encResidentLink().text"></span>
+                  <button @click="openCharacterEditor(encResidentLink().character)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open this resident's character sheet">🔍 sheet</button>
                 </p>
               </template>
               <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rolls/rerolls on the
@@ -15478,6 +15487,23 @@ return {
       || ms.label || '';   // E4: a null-key table identity (Dragon, Genie…) displays its printed label
     const what = mName || (enc.category === 'civilized' ? 'civilized folk (GM identifies)' : enc.category === 'monster' ? 'monsters (GM identifies)' : '(unidentified)');
     return (ms.count ? ms.count + ' × ' : '') + what;
+  },
+  // ── SD-5b — a civilized encounter GROUNDED to the actual townsperson who lives nearby (the
+  // realized census): name them, link their sheet. Derived live (the stored id resolves to the
+  // current character); null when not a grounded civilized meeting. ──
+  encResidentLink(){
+    const enc = this.encModalEnc(); if(!enc || !enc.monsterSide) return null;
+    const cid = enc.monsterSide.residentCharacterId; if(!cid) return null;
+    const c = (this.currentCampaign?.characters || []).find(x => x && x.id === cid);
+    if(!c) return null;
+    const sid = enc.monsterSide.residentSettlementId;
+    const s = (sid && window.ACKS.findSettlement) ? window.ACKS.findSettlement(this.currentCampaign, sid) : null;
+    const lvl = Number(c.level) || 1;
+    const text = '🏛 This is ' + (c.name || 'a local')
+      + (c.class ? ', ' + c.class + ' L' + lvl : ' (L' + lvl + ')')
+      + (s && s.name ? ' — lives in ' + s.name : '')
+      + ' (drawn from the settlement census)';
+    return { text: text, character: c, characterId: cid };
   },
   // ── E4 — the table identity line + the 6a binding verdict + ⟳/pick affordances ──
   // E4n — the table this side rolls/picks on: the stored identity, or (identity-less —

@@ -476,6 +476,53 @@ function mostNotableResident(campaign, opts){
   return list.length ? list[0] : null;
 }
 
+// ── SD-5b: GROUNDING THE CIVILIZED ENCOUNTER — the census becomes who you meet (plan §8) ─────────
+// The Encounter layer's JJ civilized identity tables (acks-engine-encounter-tables.js) name a
+// PROFESSION (the catalog/cell key — "Man, Merchant" → 'merchant', "Man, Patroller" → 'patroller',
+// …). When that profession maps to a census bucket AND a settlement at/near the hex has a realized
+// resident of it, the encounter is GROUNDED to that actual person: not "a merchant," but the
+// notable trader who lives in the town you're passing. The map is conservative — only the civilized
+// cells that genuinely denote a leveled townsperson who resides nearby:
+//   • merchant  → venturer  (the market's notable trader / Venturer)
+//   • patroller → fighter   (the town guard / cavalry — a Fighter captain)
+//   • pilgrim   → crusader  (🔧 soft: a pilgrim near a temple town reads as the local divine-caster)
+// The JJ civilized tables have NO "Man, Mage" / "Man, Thief" / scout cell, so mage/thief/explorer
+// residents are NOT reachable via civilized encounters — RAW-faithful (you don't randomly road-meet
+// a wizard or a guild thief). bandit/brigand/nomad/tribal-warrior/raider/berserker = outlaws and
+// wilderness folk (not residents); commoner/animals/demi-humans/lycanthropes = unmapped → null.
+const CIVILIZED_CELL_BUCKET = Object.freeze({
+  merchant: 'venturer',
+  patroller: 'fighter',
+  pilgrim: 'crusader'
+});
+function bucketForCivilizedCell(cellKey){ return CIVILIZED_CELL_BUCKET[cellKey] || null; }
+
+// groundCivilizedEncounter(campaign, {hexId, cellKey, withinHexes=2}) → the grounded resident
+// {characterId, settlementId, name, level, class, bucket, distance} or null. PURE + DETERMINISTIC
+// (🔧 v1: the MOST-NOTABLE resident of the bucket — co-located settlement first, else the nearest
+// within N hexes; so the preview + commit agree byte-for-byte and the GM may override on the
+// entity). A future refinement could weight by level or vary the pick.
+function groundCivilizedEncounter(campaign, opts){
+  opts = opts || {};
+  const bucket = bucketForCivilizedCell(opts.cellKey);
+  if(!bucket || !campaign) return null;
+  const hexId = opts.hexId || null;
+  if(!hexId) return null;
+  const within = (opts.withinHexes != null) ? Number(opts.withinHexes) : 2;
+  const here = (typeof ACKS.settlementForHex === 'function') ? ACKS.settlementForHex(campaign, hexId) : null;
+  // At a settlement's own hex its roster is AUTHORITATIVE — meet its most-notable resident of the
+  // profession, or no one (a profession the town lacks reads as a nameless stranger, not an imported
+  // neighbour). On the open road (no co-located settlement) → the most-notable of the profession
+  // living within N hexes (a townsperson abroad).
+  const match = (here && here.id)
+    ? (findResidents(campaign, { settlementId: here.id, bucket: bucket })[0] || null)
+    : (findResidents(campaign, { nearHexId: hexId, withinHexes: within, bucket: bucket })[0] || null);
+  if(!match) return null;
+  return { characterId: match.id, settlementId: match.settlementId, name: match.name,
+           level: match.level, class: match.class, bucket: bucket,
+           distance: (match.distance != null) ? match.distance : 0 };
+}
+
 Object.assign(ACKS, {
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
@@ -490,7 +537,9 @@ Object.assign(ACKS, {
   // SD-5a — the emergent reads (plan §8: the world's people as a queryable index)
   BUCKET_SERVICE,
   settlementResidents, topResidentByBucket, settlementServices,
-  findResidents, mostNotableResident
+  findResidents, mostNotableResident,
+  // SD-5b — grounding the civilized encounter (plan §8: the census becomes who you meet)
+  CIVILIZED_CELL_BUCKET, bucketForCivilizedCell, groundCivilizedEncounter
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

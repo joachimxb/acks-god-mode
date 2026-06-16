@@ -681,7 +681,9 @@
           { name: 'count',              type: 'number', description: 'Number encountered' },
           { name: 'encounterKind',      type: 'enum', enumValues: ['at-lair','wandering-fragment','wandering'], description: 'at-lair = met at the den; fragment = a band out from a local den; wandering = unbound' },
           { name: 'lairId',             type: 'id', idKind: 'lair', description: 'The den this side belongs to (when bound)' },
-          { name: 'pursuitEncounterId', type: 'id', idKind: 'encounter', description: 'E4m — the chase this band IS (a pursuing band met by a third party); dispersing the meeting ends the chase' }
+          { name: 'pursuitEncounterId', type: 'id', idKind: 'encounter', description: 'E4m — the chase this band IS (a pursuing band met by a third party); dispersing the meeting ends the chase' },
+          { name: 'residentCharacterId', type: 'id', idKind: 'character', description: 'SD-5b — a civilized encounter grounded to the actual townsperson who lives nearby (the census); GM-overridable' },
+          { name: 'residentSettlementId', type: 'id', idKind: 'settlement', description: 'SD-5b — the settlement the grounded resident lives in' }
         ] },
         { name: 'status',               type: 'enum', enumValues: ['active','resolved'], group: 'Lifecycle', default: 'active' },
         { name: 'phase',                type: 'enum', enumValues: ['setup','surprise','evasion','interaction','pursuit'], group: 'Lifecycle', default: 'setup' },

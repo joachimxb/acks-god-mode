@@ -1373,6 +1373,20 @@
                 "null"
               ],
               "description": "encounter id — prefix \"enc-\""
+            },
+            "residentCharacterId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "character id — prefix \"chr-\""
+            },
+            "residentSettlementId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "settlement id — prefix \"set-\""
             }
           }
         },
