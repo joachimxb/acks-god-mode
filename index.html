@@ -48,7 +48,7 @@
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-16-adc"></script>
+<script src="acks-engine-events.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-16-sd2"></script>
@@ -78,7 +78,7 @@
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
-<script src="acks-engine-sanctums.js?v=2026-06-16-adc"></script>
+<script src="acks-engine-sanctums.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -1313,7 +1313,45 @@ document.addEventListener('alpine:init', () => {
         <template x-if="!arcaneGarrisonInfo()"><span class="opacity-60 italic">No garrison burden (no living monster XP, or fully paid).</span></template>
       </div>
 
-      <p class="text-xs opacity-60 mt-3 italic">The arcane domain (Phase 4 Sanctums AD-C/AD-D/AD-E). 🏗 Build a dungeon, attune, establish sovereignty, extract arcane power, harvest; monsters auto-arrive + lair within it via Vagaries of Incursion. Sanctums + apprentices (AD-B) live on the character sheet; Magic Research (AD-M) on the ⚗ Research tab.</p>
+      <!-- AD-F — Arcane usurpation (the arcane↔divine seam; RR p.388, D2 — a Religion-consumed STUB). A
+           caster designates a human/demi-human settlement a "dungeon" + terrifies its peasants for arcane
+           power; the gods take notice. The divine response (wrath + the 10/10/80 co-extraction) lands with
+           the Religion subsystem — this only FLAGS it (record-only). Settlement-scoped, surfaced in the
+           arcane hub. -->
+      <div class="border border-red-300 rounded p-2 mt-2 text-sm" style="background:rgba(254,226,226,.35)">
+        <div class="font-semibold mb-1">⚖️ Usurp a settlement <span class="font-normal opacity-70">(RR p.388 — the divine seam, a stub)</span></div>
+        <p class="text-xs opacity-70 mb-1">Designate a human/demi-human settlement a "dungeon" and terrify its peasants to extract arcane power. The gods take notice — the divine response (wrath + co-extraction) lands with the Religion subsystem. This flags it for that consequence (record-only here).</p>
+        <template x-if="arcaneUsurpedSettlements().length">
+          <div class="mb-1 text-xs flex flex-wrap gap-x-3 gap-y-1">
+            <template x-for="u in arcaneUsurpedSettlements()" :key="u.id">
+              <span class="inline-flex items-center gap-1">⚖️ <span class="font-semibold" x-text="u.name"></span> — usurped by <span x-text="u.usurperName"></span> (<span class="font-mono" x-text="u.familiesXp.toLocaleString()"></span> XP)
+                <button @click="arcaneClearUsurp(u.id)" class="px-1 border border-ink rounded hover:bg-yellow-100" title="Release the settlement">Release</button>
+              </span>
+            </template>
+          </div>
+        </template>
+        <div class="flex flex-wrap items-center gap-2">
+          <select x-model="arcaneUsurpCasterId" class="text-sm">
+            <option value="">— arcane caster —</option>
+            <template x-for="c in arcaneCasterOptions()" :key="c.id"><option :value="c.id" x-text="c.label"></option></template>
+          </select>
+          <select x-model="arcaneUsurpSettlementId" class="text-sm">
+            <option value="">— settlement —</option>
+            <template x-for="s in arcaneUsurpSettlementOptions()" :key="s.id"><option :value="s.id" x-text="s.label"></option></template>
+          </select>
+          <button @click="arcaneUsurp()" :disabled="!arcaneUsurpCasterId || !arcaneUsurpSettlementId" class="text-xs px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200 disabled:opacity-40">Usurp</button>
+        </div>
+        <p x-show="arcaneLastUsurp" class="text-xs mt-1" :class="arcaneLastUsurpOk ? 'text-red-800' : 'text-red-700'" x-text="arcaneLastUsurp"></p>
+      </div>
+
+      <!-- AD-F — Dungeon Builder deep-link reservation (Phase 4.8 Generators). The entry point exists,
+           wired to a reserved no-op; the room-by-room stocking wizard (JJ ch.10) lands in Phase 4.8. -->
+      <div class="mt-2 text-xs opacity-70 flex flex-wrap items-center gap-2">
+        <button @click="openDungeonBuilder(arcaneDungeon() && arcaneDungeon().id)" class="px-2 py-0.5 border border-ink/40 rounded hover:bg-ink/5" title="The Dungeon Builder — room-by-room stocking (JJ ch.10) — lands in Phase 4.8 Generators">🗺 Build out the rooms</button>
+        <span class="italic">Room-by-room stocking — the Dungeon Builder — arrives in Phase 4.8.</span>
+      </div>
+
+      <p class="text-xs opacity-60 mt-3 italic">The arcane domain (Phase 4 Sanctums AD-C/AD-D/AD-E/AD-F). 🏗 Build a dungeon, attune, establish sovereignty, extract arcane power, harvest; monsters auto-arrive + lair within it via Vagaries of Incursion. ⚖️ Usurping a settlement flags the arcane↔divine seam for the Religion subsystem. Sanctums + apprentices (AD-B) live on the character sheet; Magic Research (AD-M) on the ⚗ Research tab.</p>
     </div>
   </template>
 </div>
@@ -15053,6 +15091,7 @@ return {
     this.arcaneAttuneCasterId = ''; this.arcaneAttuneMethod = 'built';
     this.arcaneSovCasterId = ''; this.arcaneSovMethod = 'gm-fiat'; this.arcaneSovChieftainId = ''; this.arcaneSovSlainHd = 0;
     this.arcaneHarvestGroupId = ''; this.arcaneHarvestQty = 1; this.arcaneHarvestMethod = 'cull'; this.arcaneHarvestBounty = 0;
+    this.arcaneUsurpCasterId = ''; this.arcaneUsurpSettlementId = ''; this.arcaneLastUsurp = '';
     this.arcaneLastAttune = ''; this.arcaneLastSov = ''; this.arcaneLastHarvest = '';
   },
   closeArcaneModal(){ this.arcaneDungeonId = null; },
@@ -15169,6 +15208,32 @@ return {
       this.openArcaneModal(r.dungeon.id);
     } else { this.showToast('Could not build the dungeon: ' + ((r && r.reason) || 'unknown') + '.'); }
   },
+  // AD-F — Arcane usurpation (the arcane↔divine seam stub; RR p.388, D2). Settlement-scoped, surfaced in
+  // the arcane hub. flagArcaneUsurpation stamps the settlement + emits the rumor-grade arcane-usurpation
+  // event Religion (Wave E) consumes; clearArcaneUsurpation releases it. No divine consequence here.
+  arcaneUsurpSettlementOptions(){
+    return ((this.currentCampaign && this.currentCampaign.settlements) || []).map(s => ({
+      id: s.id, label: (s.name || s.id) + ' · ' + (Number(s.families) || 0) + ' families' + (s.arcaneUsurpedByCharacterId ? ' (usurped)' : '') }));
+  },
+  arcaneUsurpedSettlements(){
+    const list = window.ACKS.usurpedSettlements(this.currentCampaign) || [];
+    return list.map(s => {
+      const uid = s.arcaneUsurpedByCharacterId;
+      const c = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === uid);
+      return { id: s.id, name: s.name || s.id, usurperName: c ? (c.name || c.id) : uid, familiesXp: window.ACKS.settlementFamiliesXp(this.currentCampaign, s) };
+    });
+  },
+  arcaneUsurp(){
+    if(!this.arcaneUsurpCasterId || !this.arcaneUsurpSettlementId) return;
+    const r = window.ACKS.flagArcaneUsurpation(this.currentCampaign, { characterId: this.arcaneUsurpCasterId, settlementId: this.arcaneUsurpSettlementId });
+    this.arcaneLastUsurpOk = !!(r && r.ok);
+    if(r && r.ok){ this.arcaneLastUsurp = r.alreadyFlagged ? 'Already usurped by this caster.' : ('Usurped — flagged for the divine response (' + (r.familiesXp || 0).toLocaleString() + ' families-XP). The gods take notice.'); this.markDirty(); this.schedulePersist(); if(!r.alreadyFlagged) this.showToast('⚖️ Settlement usurped (the divine seam — Religion will respond).'); }
+    else { this.arcaneLastUsurp = 'Could not usurp: ' + ((r && r.reason) || 'unknown') + (r && r.reason === 'caster-not-arcane' ? ' (the usurper must be an arcane caster)' : ''); }
+  },
+  arcaneClearUsurp(settlementId){ window.ACKS.clearArcaneUsurpation(this.currentCampaign, settlementId); this.markDirty(); this.schedulePersist(); this.showToast('Usurpation released.'); },
+  // AD-F — Dungeon Builder deep-link reservation (Phase 4.8 Generators). The entry point exists; the
+  // room-by-room stocking wizard (JJ ch.10) lands in Phase 4.8. Reserved no-op for now.
+  openDungeonBuilder(dungeonId){ this.showToast('🗺 The Dungeon Builder (room-by-room stocking) arrives in Phase 4.8 Generators.'); },
 
   // ── Phase 4 — Magic Research (AD-M1) · the character-sheet ⚗ Research panel ──
   // Is this character an arcane caster (the Research tab shows for them)? Per-kind level eligibility is
@@ -22658,6 +22723,7 @@ return {
   arcaneLastAttune: '', arcaneLastAttuneOk: false,
   arcaneLastSov: '', arcaneLastSovOk: false,
   arcaneLastHarvest: '', arcaneLastHarvestOk: false,
+  arcaneUsurpCasterId: '', arcaneUsurpSettlementId: '', arcaneLastUsurp: '', arcaneLastUsurpOk: false,  // AD-F — the divine-seam stub
   // Phase 4 — Magic Research (AD-M1) · the character-sheet ⚗ Research panel. Transient form state.
   researchModalOpen: false,      // the New-research modal (null = closed)
   researchNew: { kind: 'spell-research', spellLevel: 1, effectType: 'one-use', itemKind: 'potion',

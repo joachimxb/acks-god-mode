@@ -749,6 +749,97 @@ section('AD-C — JJ p.102 neighbour effect: a stocked dungeon makes the domain 
 }
 
 // =============================================================================
+section('AD-F — the arcane↔divine seam stub (RR p.388, D2): the arcane-usurpation event');
+// =============================================================================
+// Event registration (KINDS / SCHEMAS / wizard-opt-out) — the seam payload Religion consumes.
+{
+  const k = 'arcane-usurpation';
+  ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
+  ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);
+  const sc = ACKS.EVENT_SCHEMAS[k] || {};
+  ok(k + ' schema R = {characterId, settlementId} (the pinned seam shape)', sc.R && sc.R.characterId === 'string' && sc.R.settlementId === 'string');
+  ok(k + ' schema O carries familiesXp', sc.O && sc.O.familiesXp === 'number');
+  ok(k + ' is wizard-opt-out (engine-emitted)', ACKS.EVENT_WIZARD_OPTOUT.has(k));
+}
+
+// settlementFamiliesXp — families × 5 (RAW treats a peasant levy as 0-level Men, Common = 5 XP).
+{
+  const c = ACKS.blankCampaign();
+  const s = ACKS.blankSettlement({ id:'set-1', name:'Tarrytown', families: 1100 });
+  c.settlements = [s];
+  ok('settlementFamiliesXp = families × 5 (Man, Common = 5 XP)', ACKS.settlementFamiliesXp(c, s) === 5500);
+  ok('settlementFamiliesXp by id resolves', ACKS.settlementFamiliesXp(c, 'set-1') === 5500);
+  ok('settlementFamiliesXp of a missing settlement = 0', ACKS.settlementFamiliesXp(c, 'nope') === 0);
+}
+
+// flagArcaneUsurpation — eligibility, the flag, the emitted event + payload + Event.context envelope.
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.characters = [
+    ACKS.blankCharacter({ id:'chr-mage', name:'Vex', class:'Mage', level: 11 }),
+    ACKS.blankCharacter({ id:'chr-ftr', name:'Brann', class:'Fighter', level: 9 })
+  ];
+  c.hexes = [{ id:'hex-s', coord:{q:2,r:3}, terrain:'grassland', settlement:{ id:'set-x' } }];
+  c.settlements = [ ACKS.blankSettlement({ id:'set-x', name:'Greenford', families: 300 }) ];
+
+  ok('a non-arcane caster cannot usurp', ACKS.flagArcaneUsurpation(c, { characterId:'chr-ftr', settlementId:'set-x' }).ok === false);
+  ok('a missing settlement is refused', ACKS.flagArcaneUsurpation(c, { characterId:'chr-mage', settlementId:'nope' }).ok === false);
+  ok('a missing caster is refused', ACKS.flagArcaneUsurpation(c, { characterId:'nope', settlementId:'set-x' }).ok === false);
+
+  const r = ACKS.flagArcaneUsurpation(c, { characterId:'chr-mage', settlementId:'set-x' });
+  ok('flagArcaneUsurpation ok (arcane caster)', r.ok === true && r.alreadyFlagged === false);
+  ok('familiesXp returned = 300 × 5 = 1500', r.familiesXp === 1500);
+  const s = c.settlements[0];
+  ok('settlement flagged with the usurper id', s.arcaneUsurpedByCharacterId === 'chr-mage');
+  ok('settlementArcaneUsurperId reads it back', ACKS.settlementArcaneUsurperId(c, s) === 'chr-mage');
+  ok('usurpedSettlements lists it', (ACKS.usurpedSettlements(c) || []).some(x => x.id === 'set-x'));
+
+  const ev = c.eventLog.find(e => e.event && e.event.kind === 'arcane-usurpation');
+  ok('an arcane-usurpation event emitted', !!ev);
+  ok('event payload {characterId, settlementId, familiesXp} (the seam shape)',
+    ev && ev.event.payload && ev.event.payload.characterId === 'chr-mage' && ev.event.payload.settlementId === 'set-x' && ev.event.payload.familiesXp === 1500);
+  ok('event context tags the caster (subject) + settlement (site)',
+    ev && ev.event.context && ev.event.context.relatedEntities
+    && ev.event.context.relatedEntities.some(re => re.kind === 'character' && re.role === 'subject')
+    && ev.event.context.relatedEntities.some(re => re.kind === 'settlement' && re.role === 'site'));
+  ok('event primaryHexId resolved via the embedding hex', ev && ev.event.context && ev.event.context.primaryHexId === 'hex-s');
+
+  // Idempotency: re-flagging by the same caster does not re-emit.
+  const before = c.eventLog.length;
+  const r2 = ACKS.flagArcaneUsurpation(c, { characterId:'chr-mage', settlementId:'set-x' });
+  ok('re-flag by the same caster is a no-op (alreadyFlagged)', r2.ok === true && r2.alreadyFlagged === true);
+  ok('re-flag emits no new event', c.eventLog.length === before);
+
+  // A different caster supersedes + re-emits.
+  c.characters.push(ACKS.blankCharacter({ id:'chr-warlock', name:'Mordrin', class:'Warlock', level: 9 }));
+  const r3 = ACKS.flagArcaneUsurpation(c, { characterId:'chr-warlock', settlementId:'set-x' });
+  ok('a different caster supersedes the flag', r3.ok === true && r3.alreadyFlagged === false && s.arcaneUsurpedByCharacterId === 'chr-warlock');
+  ok('superseding re-emits an event', c.eventLog.length === before + 1);
+
+  // clearArcaneUsurpation releases the flag (no event — the divine lifecycle is Religion's).
+  const evCountBeforeClear = c.eventLog.length;
+  const rc = ACKS.clearArcaneUsurpation(c, 'set-x');
+  ok('clearArcaneUsurpation releases the flag', rc.ok === true && rc.wasFlagged === true && s.arcaneUsurpedByCharacterId == null);
+  ok('clear emits no event (Religion owns the divine lifecycle)', c.eventLog.length === evCountBeforeClear);
+  ok('usurpedSettlements is now empty', (ACKS.usurpedSettlements(c) || []).length === 0);
+  ok('clearing an un-flagged settlement is a safe no-op', ACKS.clearArcaneUsurpation(c, 'set-x').wasFlagged === false);
+}
+
+// The derived settlementHistory surfaces the usurpation (the Event-context envelope — no stored array).
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 3;
+  c.characters = [ ACKS.blankCharacter({ id:'chr-m2', name:'Cyrus', class:'Mage', level: 9 }) ];
+  c.settlements = [ ACKS.blankSettlement({ id:'set-h', name:'Hollowmere', families: 200 }) ];
+  ACKS.flagArcaneUsurpation(c, { characterId:'chr-m2', settlementId:'set-h' });
+  const hist = ACKS.settlementHistory(c, 'set-h') || [];
+  ok('derived settlementHistory surfaces the usurpation', hist.some(h => (h.event && h.event.kind === 'arcane-usurpation') || h.kind === 'arcane-usurpation'));
+  ok('no stored settlement.history[] array was created (derived doctrine)', c.settlements[0].history === undefined);
+}
+
+// No save migration: blankSettlement carries no usurpation field (the flag is written only on usurp).
+ok('blankSettlement carries no arcaneUsurpedByCharacterId (additive flag, no migration)', ACKS.blankSettlement().arcaneUsurpedByCharacterId === undefined);
+
+// =============================================================================
 console.log('\n=============================================');
 console.log('arcane-domain.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
