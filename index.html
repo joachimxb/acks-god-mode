@@ -5397,7 +5397,6 @@ document.addEventListener('alpine:init', () => {
                   </tr>
                 </template>
                 <template x-if="garrisonStandingUnits(selectedDomain).length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No mercenary units. Recruit or + add one.</td></tr></template>
-                <template x-if="garrisonStandingUnits(selectedDomain).length > 0"><tr class="total"><td class="pl-2">— mercenaries</td><td></td><td x-text="unitListTotals(garrisonStandingUnits(selectedDomain)).count.toLocaleString()"></td><td></td><td x-text="unitListTotals(garrisonStandingUnits(selectedDomain)).cost.toLocaleString()+' gp'"></td><td></td><td x-text="unitListTotals(garrisonStandingUnits(selectedDomain)).br.toFixed(3)"></td><td></td><td></td><td></td><td></td></tr></template>
               </tbody>
 
               <!-- ⚒ Conscripts (RR pp.430–431) — sticky casualties + 5%/yr replenish -->
@@ -5492,8 +5491,21 @@ document.addEventListener('alpine:init', () => {
                 </template>
                 <template x-if="domainLevyRows(selectedDomain,'militia').length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No militia levied.</td></tr></template>
               </tbody>
+
+              <!-- Grand total — the whole garrison (mercenaries + conscripts + militia), each summed by
+                   living count to match the rows above. Replaces the old standalone "Full garrison" line. -->
+              <tbody>
+                <template x-if="garrisonStandingUnits(selectedDomain).length || domainLevyRows(selectedDomain,'conscript').length || domainLevyRows(selectedDomain,'militia').length">
+                  <tr class="total" title="All garrison forces — mercenaries, conscripts and militia (living counts)">
+                    <td class="pl-2">— full garrison</td><td></td>
+                    <td x-text="garrisonAllTotals(selectedDomain).count.toLocaleString()"></td><td></td>
+                    <td x-text="garrisonAllTotals(selectedDomain).cost.toLocaleString()+' gp'"></td><td></td>
+                    <td x-text="garrisonAllTotals(selectedDomain).br.toFixed(3)"></td>
+                    <td></td><td></td><td></td><td></td>
+                  </tr>
+                </template>
+              </tbody>
             </table>
-            <p class="text-xs opacity-60 mt-1" x-text="'Full garrison incl. called-up conscripts/militia: ' + garrisonHeadcount(selectedDomain).toLocaleString() + ' troops · ' + garrisonCost(selectedDomain).toLocaleString() + 'gp · BR ' + garrisonBR(selectedDomain).toFixed(2) + ' (counts toward garrison adequacy)'"></p>
           </div>
 
           <!-- Active Field Armies (2026-06-14) — armies in the field drawing on this domain: a
@@ -16818,6 +16830,9 @@ return {
   unitMoraleText(u){ const m = (window.ACKS.unitMoraleScore) ? window.ACKS.unitMoraleScore(this.currentCampaign, u) : ((u.unitTypeKey === 'untrained-levy' ? -2 : 0) + (u.moraleAdjustment || 0)); return (m > 0 ? '+' : '') + m; },
   // Living-count subtotal for a garrison section (the dead collect no wage / carry no BR).
   unitListTotals(units){ const us = units || []; const liv = u => Math.max(0, (u.count || 0) - (u.casualties || 0)); return { count: us.reduce((s,u)=>s+liv(u),0), cost: us.reduce((s,u)=>s+liv(u)*(u.monthlyWage||0),0), br: us.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
+  // Grand total over the whole garrison as displayed — mercenaries (standing) + conscripts + militia,
+  // each summed by living count (count - casualties) so the foot row equals the sum of the rows above.
+  garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; return this.unitListTotals([ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia') ]); },
   // The domain that owns the sheet's unit (for the garrison-context Split/Merge/Release ops).
   unitSheetDomain(){ const u = this.unitSheetUnit(); if(!u) return null; const id = u.homeDomainId || ((u.stationedAt && u.stationedAt.kind === 'domain-garrison') ? u.stationedAt.id : null); return id ? (this.domains || []).find(d => d && d.id === id) : null; },
   openUnitSheet(u){ if(u && u.id) this.unitSheetUnitId = u.id; },
