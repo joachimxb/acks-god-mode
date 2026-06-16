@@ -5830,8 +5830,8 @@ document.addEventListener('alpine:init', () => {
                living-census house rule. Expected leveled offices reconciled against the realm's actual
                holders (ruler + magistrates + homeDomainId entourage). -->
           <template x-if="realmCensusOn() && realmCensus()">
-            <div class="vellum border border-ink rounded p-3" style="background:#f4ecd2">
-              <h3 class="font-bold">🏛 Realm command structure — <span x-text="(selectedDomain&&selectedDomain.name)||'(realm)'"></span></h3>
+            <div class="vellum border border-ink p-3 rounded mt-4">
+              <h3 class="font-bold text-lg">🏛 Realm command structure — <span x-text="(selectedDomain&&selectedDomain.name)||'(realm)'"></span></h3>
               <p class="text-sm opacity-70 mb-2">
                 <span x-text="realmCensus().titleLabel"></span>-tier realm (JJ Ch.9 + RR domain rules) — the leveled offices a realm of this title staffs, reconciled against its actual holders.
                 <span class="font-semibold" x-text="realmCensus().filledCount"></span> of <span x-text="realmCensus().officeCount"></span> filled.
