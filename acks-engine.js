@@ -4098,6 +4098,19 @@ function conscriptCount(campaign, d){ return _levyActiveCount(campaign, d, 'cons
 // Militia CALLED UP from a domain (in the garrison/army, billed — drives the revenue/morale penalty).
 function militiaCalledUpCount(campaign, d){ return _levyActiveCount(campaign, d, 'militia', u => u.calledUp !== false); }
 
+// RR p.430 (the Marcus example) — total levies EVER raised from a domain (Σ count, INCLUDING the dead).
+// Casualties are "sticky": a fallen levy keeps its family slot, so it can't be instantly re-levied —
+// only population growth (raising the cap) or the 5%/yr replenishment refills. This is the basis for
+// the available pool, NOT the living count.
+function levyEverRaised(campaign, d, source){
+  return domainLevyUnits(campaign, d, source).reduce((s, u) => s + Math.max(0, (u.count || 0)), 0);
+}
+// RR p.430/432 — how many more conscripts/militia a domain can still levy now (cap − ever-raised, ≥0).
+function levyAvailable(campaign, d, source){
+  const cap = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
+  return Math.max(0, cap - levyEverRaised(campaign, d, source));
+}
+
 // RR p.432 — domain morale penalty while militia are called up: −1 by levying ≤1 per 10 families,
 // −2 by levying 2 per 10 families. Returns ≤ 0 (0 when none called up). Reads the called-up count.
 function militiaDomainMoralePenalty(campaign, d){
@@ -4157,7 +4170,7 @@ function _createLevyUnit(campaign, d, source, count, opts){
   if(!canLevyFromDomain(d)) return null;                          // RR p.432 — morale ≤ −2 blocks levying
   if(!Array.isArray(campaign.units)) campaign.units = [];
   const max = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
-  const existing = _levyActiveCount(campaign, d, source);
+  const existing = levyEverRaised(campaign, d, source);          // RR p.430 — sticky casualties: the dead count against the cap
   const room = Math.max(0, max - existing);
   const n = Math.min(Math.max(0, Math.floor(count || 0)), room);
   if(n <= 0) return null;
@@ -4236,6 +4249,74 @@ function sendMilitiaHome(campaign, domainOrId){
     }
   }
   return { sentHome, disbanded };
+}
+
+// RR p.432 — send a SINGLE militia unit home (the per-unit version of sendMilitiaHome): a trained
+// militia leaves the garrison but stays in the world at home (calledUp → false; credits the garrison,
+// RR p.341); an untrained militia disbands (returns to the farms). Returns { sentHome, disbanded }.
+function sendMilitiaUnitHome(campaign, unitOrId){
+  const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !u || u.source !== 'militia') return { sentHome: 0, disbanded: 0 };
+  if(_isTrainedLevy(u)){
+    const homeId = u.homeDomainId;
+    stationUnit(campaign, u, null);                              // leaves the garrison; stays in campaign.units
+    u.calledUp = false; u.homeDomainId = homeId;                 // at home — credits the garrison (RR p.341)
+    return { sentHome: 1, disbanded: 0 };
+  }
+  disbandUnit(campaign, u);                                      // untrained militia return to their farms
+  return { sentHome: 0, disbanded: 1 };
+}
+// RR p.432 — call an at-home (trained) militia unit back up: re-station it to its home domain's
+// garrison and mark it called up, so the revenue/morale penalty resumes. Returns the unit or null.
+function callUpMilitia(campaign, unitOrId){
+  const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !u || u.source !== 'militia') return null;
+  const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
+  if(d) stationUnit(campaign, u, { kind: 'domain-garrison', id: d.id });
+  u.calledUp = true;
+  return u;
+}
+// RR p.430/432 — release a conscript/militia unit from service: untrained return to their farms,
+// trained conscripts become mercenaries/brigands (v1: the unit disbands either way, freeing the levy
+// slot — a released levy no longer counts against the cap). Returns true if released.
+function releaseLevyUnit(campaign, unitOrId){
+  const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !u || !_isLevyUnit(u)) return false;
+  disbandUnit(campaign, u);
+  return true;
+}
+
+// RR p.430 (designer's note) — replenish levy casualties over time at 5% of the recruitable cap per
+// YEAR, pro-rated each monthly turn via a fractional carry per domain+source (so a cap-100 conscript
+// pool heals exactly 5/year). Reduces unit.casualties (restoring living) on the domain's levy units
+// that have losses, capped at the casualties present. Both conscripts AND militia (the conscript-
+// section rule applied to militia for parity). Always on — no house rule. Returns total healed.
+function processLevyReplenishmentForTurn(campaign){
+  if(!campaign || !Array.isArray(campaign.domains)) return 0;
+  let healedTotal = 0;
+  for(const d of campaign.domains){
+    if(!d) continue;
+    if(!d.levyReplenishCarry || typeof d.levyReplenishCarry !== 'object') d.levyReplenishCarry = { conscript: 0, militia: 0 };
+    for(const source of ['conscript', 'militia']){
+      const units = domainLevyUnits(campaign, d, source);
+      const casualties = units.reduce((s, u) => s + Math.max(0, (u.casualties || 0)), 0);
+      if(casualties <= 0){ d.levyReplenishCarry[source] = 0; continue; }   // nothing to heal — reset the carry
+      const cap = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
+      if(cap <= 0) continue;
+      const carry = (d.levyReplenishCarry[source] || 0) + (cap * 0.05) / 12;
+      let heal = Math.min(casualties, Math.floor(carry));
+      d.levyReplenishCarry[source] = carry - heal;               // keep the fractional remainder
+      // distribute the heal across the units that took losses (most-wounded first)
+      const wounded = units.filter(u => (u.casualties || 0) > 0).sort((a, b) => (b.casualties || 0) - (a.casualties || 0));
+      for(const u of wounded){
+        if(heal <= 0) break;
+        const take = Math.min(heal, u.casualties || 0);
+        u.casualties = (u.casualties || 0) - take;
+        heal -= take; healedTotal += take;
+      }
+    }
+  }
+  return healedTotal;
 }
 
 // ─── F&D Call-to-Arms / Troops-favor materialization (RR pp.433–434 + #230) ──
@@ -9197,6 +9278,17 @@ function commitTurn(campaign, proposal, options){
     } catch(e){ /* never let aging fail the monthly commit */ }
   }
 
+  // === CONSCRIPT/MILITIA REPLENISHMENT (RR p.430 designer's note) ===
+  // Replenish levy casualties over time at 5%/yr of the recruitable cap (pro-rated monthly via a
+  // per-domain carry). Always on (no house rule). Defined in this file (not late-bound). Gated on
+  // committed > 0 (a real month rolled); try-guarded for parity with the other monthly processors.
+  if(committed > 0){
+    try {
+      const healed = processLevyReplenishmentForTurn(campaign);
+      if(healed > 0) logEntries.push('Conscript/militia replenishment: ' + healed + ' recovered (RR p.430)');
+    } catch(e){ /* never let levy replenishment fail the monthly commit */ }
+  }
+
   // === THE ARCANE DOMAIN — arcane power (Phase 4 Sanctums, AD-E; RR p.388) ===
   // The monthly arcane consumer refreshes each attuned+sovereign dungeon's arcane-power display cache to
   // the new month's yield (2%/day × subjugated XP × 30) and RESETS the per-month spend window (the prior
@@ -10789,6 +10881,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,
   levyMoraleAdjustmentForDomain, canLevyFromDomain, domainMilitiaTroopTypeKey,
   levyConscripts, levyMilitia, trainLevyUnit, sendMilitiaHome,
+  levyEverRaised, levyAvailable, sendMilitiaUnitHome, callUpMilitia, releaseLevyUnit, processLevyReplenishmentForTurn,
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
   groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
   groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,

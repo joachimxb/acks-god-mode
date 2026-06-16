@@ -237,6 +237,62 @@ function mkFeudal(opts){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Sticky casualties + the available pool (RR p.430 — the Marcus example)');
+{
+  const d = mkDomain(1000, 1, 'dom-sticky'); const camp = mkCamp([d], 1);
+  const con = A.levyConscripts(camp, 'dom-sticky', { count: 100 });
+  ok('raised 100 → everRaised 100, available 0', A.levyEverRaised(camp, d, 'conscript') === 100 && A.levyAvailable(camp, d, 'conscript') === 0);
+  con.casualties = 50;   // lost 50 in battle
+  ok('after 50 casualties: living 50 but everRaised still 100 (sticky)', Math.max(0, (con.count || 0) - (con.casualties || 0)) === 50 && A.levyEverRaised(camp, d, 'conscript') === 100);
+  ok('casualties do NOT free a levy slot (available still 0)', A.levyAvailable(camp, d, 'conscript') === 0);
+  ok('cannot instantly re-levy the dead', A.levyConscripts(camp, 'dom-sticky', { count: 50 }) === null);
+  d.demographics.peasantFamilies = 1200;   // the domain grows
+  ok('grown to 1,200 → cap 120 → available 20 (only the new families, RR p.430)', A.levyAvailable(camp, d, 'conscript') === 20);
+  const more = A.levyConscripts(camp, 'dom-sticky', { count: 99 });
+  ok('a fresh levy clamps to the 20 available', more && more.count === 20);
+  ok('now at cap → available 0, no more', A.levyAvailable(camp, d, 'conscript') === 0 && A.levyConscripts(camp, 'dom-sticky', { count: 1 }) === null);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section("Casualty replenishment over time — 5%/yr of the cap (RR p.430 designer's note)");
+{
+  const d = mkDomain(1000, 1, 'dom-repl'); const camp = mkCamp([d], 1);
+  const con = A.levyConscripts(camp, 'dom-repl', { count: 100 }); con.casualties = 50;
+  ok('one month does not yet heal (carry < 1)', A.processLevyReplenishmentForTurn(camp) === 0 && con.casualties === 50);
+  let healed = 0; for(let i = 0; i < 11; i++) healed += A.processLevyReplenishmentForTurn(camp);   // 12 total with the one above
+  ok('a year (12 turns) heals 5 conscript casualties (cap 100 × 5%)', con.casualties === 45, 'casualties=' + con.casualties);
+  ok('living recovered 50 → 55', Math.max(0, (con.count || 0) - (con.casualties || 0)) === 55);
+  con.casualties = 0;
+  ok('no casualties → replenishment is a no-op (carry resets)', A.processLevyReplenishmentForTurn(camp) === 0);
+  // militia heal too (parity): cap 200 × 5% = 10/yr
+  const md = mkDomain(1000, 1, 'dom-replm'); const mc = mkCamp([md], 1);
+  const mil = A.levyMilitia(mc, 'dom-replm', { count: 100 }); mil.casualties = 40;
+  for(let i = 0; i < 12; i++) A.processLevyReplenishmentForTurn(mc);
+  ok('militia replenish too — cap 200 × 5% = 10/yr (40 → 30)', mil.casualties === 30, 'casualties=' + mil.casualties);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Per-unit militia send-home / call-up + release (RR pp.430–432)');
+{
+  const d = mkDomain(1200, 1, 'dom-set'); const camp = mkCamp([d], 1);
+  const mil = A.levyMilitia(camp, 'dom-set', { count: 60 });
+  A.trainLevyUnit(camp, mil, { targetTroopType: 'heavy-infantry' });
+  ok('called-up militia counts before send-home', A.militiaCalledUpCount(camp, d) === 60);
+  const sh = A.sendMilitiaUnitHome(camp, mil);
+  ok('sendMilitiaUnitHome: trained → sentHome, stays in campaign.units, calledUp false', sh.sentHome === 1 && mil.calledUp === false && camp.units.some(u => u.id === mil.id) && !mil.stationedAt);
+  ok('called-up count now 0; the at-home trained credit reads 720gp (60×12)', A.militiaCalledUpCount(camp, d) === 0 && A.domainTrainedMilitiaCredit(camp, d) === 720);
+  A.callUpMilitia(camp, mil);
+  ok('callUpMilitia: calledUp true, re-stationed to garrison, billed again', mil.calledUp === true && mil.stationedAt && mil.stationedAt.kind === 'domain-garrison' && A.militiaCalledUpCount(camp, d) === 60);
+  const raw = A.levyMilitia(camp, 'dom-set', { count: 40 });
+  const sh2 = A.sendMilitiaUnitHome(camp, raw);
+  ok('untrained militia send-home → disbanded (returns to farms)', sh2.disbanded === 1 && !camp.units.some(u => u.id === raw.id));
+  const con = A.levyConscripts(camp, 'dom-set', { count: 30 });
+  const before = A.levyEverRaised(camp, d, 'conscript');
+  ok('releaseLevyUnit removes it + frees the slot', A.releaseLevyUnit(camp, con) === true && !camp.units.some(u => u.id === con.id) && A.levyEverRaised(camp, d, 'conscript') === before - 30);
+  ok('releaseLevyUnit on a non-levy → false', A.releaseLevyUnit(camp, A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 10 })) === false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log(fail === 0 ? ('PASS troops-depth.smoke.js — ' + pass + ' assertions') : ('FAIL troops-depth.smoke.js — ' + fail + ' of ' + (pass + fail) + ' failed'));
 if(fail > 0){ failures.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }
