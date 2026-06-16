@@ -273,6 +273,13 @@ const EVENT_KINDS = Object.freeze([
   'sovereignty-lost',         // sovereignty relinquished or the monsters departed
   'arcane-power-extracted',   // the monthly arcane-power yield is refreshed (campaignLogHidden — routine)
   'dungeon-harvested',        // monster parts culled for special components (RR p.387)
+  // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-C; RR pp.386–387) ===
+  // Record-only audits emitted by acks-engine-sanctums.js (onDungeonConstructed mints the dun- entity
+  // + auto-attunes; the incursion/wander commit paths anchor a settled lair into a dungeon; the
+  // adventurers-arrive GM prompt). They carry the Event.context envelope (the dungeon as site).
+  'dungeon-established',       // a kind:'dungeon' Construction Project completes → a Dungeon entity is minted (auto-attuned if arcane L9+)
+  'dungeon-populated',        // a wandering/arriving band lairs WITHIN a dungeon (RR p.386 — Vagaries-of-Incursion reuse)
+  'dungeon-invaded',          // an incursion draw of men/dwarves/elves at an owned dungeon = adventurers come to clear it (RR p.387 — Phase 3.5 hook)
   // === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits emitted by acks-engine-sanctums.js
   // (onSanctumConstructed / attractToSanctum / processSanctumsForTurn already applied state — the kindSpecific
   // facilities scaffold, the generated Character + henchmanship/apprenticeship records, the yearly throw).
@@ -893,6 +900,19 @@ const EVENT_SCHEMAS = Object.freeze({
   'dungeon-harvested': {
     R: { dungeonId: 'string', casterCharacterId: 'string', monsterKey: 'string', quantity: 'number' },
     O: { componentValueGp: 'number', method: 'string', bountyGp: 'number', narrative: 'string' }
+  },
+  // === Phase 4 — The Arcane Domain (AD-C; RR pp.386–387) ===
+  'dungeon-established': {
+    R: { dungeonId: 'string', origin: 'string' },
+    O: { builtByProjectId: 'string', ownerCharacterId: 'string', buildValueGp: 'number', narrative: 'string' }
+  },
+  'dungeon-populated': {
+    R: { dungeonId: 'string', lairId: 'string' },
+    O: { monsterKey: 'string', count: 'number', via: 'string', narrative: 'string' }
+  },
+  'dungeon-invaded': {
+    R: { dungeonId: 'string' },
+    O: { groupId: 'string', monsterKey: 'string', partyDescription: 'string', via: 'string', narrative: 'string' }
   },
   // === Phase 4 — Sanctums AD-B (RR p.386) ===
   'sanctum-established': {
@@ -2227,8 +2247,10 @@ function applyEvent_constructionCompleted(campaign, event){
   // Wave C+ populates per-kind functionData + subStructures.
   const A = (typeof global !== 'undefined' && global.ACKS) || (typeof window !== 'undefined' && window.ACKS) || null;
   const factory = (A && A.blankConstructible) || null;
+  // AD-C (RR p.386) — a kind:'dungeon' Project mints a first-class Dungeon (dun-), NOT a generic cst-.
+  const isDungeonProject = proj.constructibleKind === 'dungeon';
   let cst = p.constructibleId ? _findConstructibleInternal(campaign, p.constructibleId) : null;
-  if(!cst && factory){
+  if(!cst && factory && !isDungeonProject){
     cst = factory({
       id: p.constructibleId,
       constructibleKind: proj.constructibleKind,
@@ -2245,19 +2267,28 @@ function applyEvent_constructionCompleted(campaign, event){
     campaign.constructibles = campaign.constructibles || [];
     campaign.constructibles.push(cst);
   }
-  _pushConstructionHistory(cst, {
+  if(cst) _pushConstructionHistory(cst, {
     turn: campaign.currentTurn || null,
     type: 'completed',
-    narrative: p.narrative || ('Constructed: ' + (cst ? cst.name : proj.name) + ' (' + (cst ? cst.buildValue : proj.totalCost) + ' gp)')
+    narrative: p.narrative || ('Constructed: ' + cst.name + ' (' + cst.buildValue + ' gp)')
   });
-  _pushConstructionHistory(proj, { turn: campaign.currentTurn || null, type: 'completed', narrative: 'Spawned Constructible ' + (cst ? cst.id : '') });
+  // AD-C (RR p.386) — a completed kind:'dungeon' Project mints a first-class Dungeon entity (dun-),
+  // auto-attuning the arcane-L9+ owner. Try-guarded + late-bound (a missing module can never fail
+  // construction completion); idempotent (onDungeonConstructed returns an existing build). Mirrors the sanctum hook.
+  let dungeon = null;
+  if(isDungeonProject && A && typeof A.onDungeonConstructed === 'function'){
+    try { const r = A.onDungeonConstructed(campaign, proj, { event: event }); dungeon = (r && r.dungeon) || null; } catch(_e){ /* never let the dungeon hook fail construction */ }
+  }
+  _pushConstructionHistory(proj, { turn: campaign.currentTurn || null, type: 'completed', narrative: 'Spawned ' + (isDungeonProject ? 'Dungeon' : 'Constructible') + ' ' + (dungeon ? dungeon.id : (cst ? cst.id : '')) });
   // Sanctums AD-B (RR p.386) — a completed kind:'sanctum' Constructible scaffolds its research facilities
   // and draws its first apprentices/companions. Idempotent (the sanctumEstablished guard) + try-guarded
   // (late-bound; a missing module can never fail construction completion). The arcane/religion precedent.
   if(cst && cst.constructibleKind === 'sanctum' && A && typeof A.onSanctumConstructed === 'function'){
     try { A.onSanctumConstructed(campaign, cst, { event: event }); } catch(_e){ /* never let the sanctum hook fail construction */ }
   }
-  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, narrativeSummary: 'Completed construction of ' + (cst ? cst.name : proj.name) + ' — ' + ((cst && cst.buildValue) || 0).toLocaleString() + ' gp value.' } };
+  const builtName = dungeon ? dungeon.name : (cst ? cst.name : proj.name);
+  const builtValue = (dungeon ? dungeon.buildValueGp : (cst && cst.buildValue)) || 0;
+  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, dungeonId: dungeon ? dungeon.id : null, narrativeSummary: 'Completed construction of ' + builtName + ' — ' + builtValue.toLocaleString() + ' gp value.' } };
 }
 registerEventHandler('construction-completed', applyEvent_constructionCompleted);
 
@@ -2552,6 +2583,11 @@ registerEventHandler('sovereignty-established', applyEvent_arcaneAudit);
 registerEventHandler('sovereignty-lost', applyEvent_arcaneAudit);
 registerEventHandler('arcane-power-extracted', applyEvent_arcaneAudit);
 registerEventHandler('dungeon-harvested', applyEvent_arcaneAudit);
+// === Phase 4 — The Arcane Domain (AD-C; RR pp.386–387) === record-only audits (onDungeonConstructed mints
+// the dun- entity; the incursion/wander settle paths anchor a lair into a dungeon; the adventurers-arrive prompt).
+registerEventHandler('dungeon-established', applyEvent_arcaneAudit);
+registerEventHandler('dungeon-populated', applyEvent_arcaneAudit);
+registerEventHandler('dungeon-invaded', applyEvent_arcaneAudit);
 // === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits (onSanctumConstructed / attractToSanctum /
 // processSanctumsForTurn in acks-engine-sanctums.js already applied state); same audit posture as the arcane events.
 registerEventHandler('sanctum-established', applyEvent_arcaneAudit);
@@ -5612,6 +5648,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // att- relation + dungeon state don't show.
   'dungeon-attuned', 'attunement-ended', 'sovereignty-established', 'sovereignty-lost',
   'arcane-power-extracted', 'dungeon-harvested',
+  // AD-C — onDungeonConstructed mints the dun- entity; the incursion/wander settle paths anchor a lair
+  // into a dungeon; the adventurers-arrive prompt. A raw emit would record state the entities don't show.
+  'dungeon-established', 'dungeon-populated', 'dungeon-invaded',
   // === Phase 4 — Sanctums AD-B === — owned by acks-engine-sanctums.js (onSanctumConstructed fires from the
   // construction-completed handler; attractToSanctum + the yearly processSanctumsForTurn tick); a raw emit
   // would record a sanctum/attraction/advancement the kindSpecific facilities + apprenticeship records don't show.

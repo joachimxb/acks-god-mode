@@ -3492,7 +3492,13 @@ function domainBorderConfiguration(campaign, d){
         if(n && n.domainId === d.id) continue;                 // internal face
         total++;
         let secure = false;
-        if(n && n.domainId) secure = true;                     // a neighbouring domain holds it
+        if(n && n.domainId){
+          secure = true;                                       // a neighbouring domain holds it
+          // JJ p.102 (AD-C) — but a neighbour whose domain harbours a stocked dungeon counts as
+          // UNSETTLED (a monster-farm radiates danger). Late-bound (sanctums.js loads after this).
+          const ddf = A.domainIsDungeonDangerousForNeighbours;
+          if(typeof ddf === 'function' && ddf(campaign, n.domainId)) secure = false;
+        }
         else if(n){
           const base = (typeof A.terrainBase === 'function') ? A.terrainBase(n.terrain) : n.terrain;
           if(base === 'water') secure = true;                  // impassable terrain

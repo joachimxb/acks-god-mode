@@ -5558,6 +5558,9 @@
                 "sovereignty-lost",
                 "arcane-power-extracted",
                 "dungeon-harvested",
+                "dungeon-established",
+                "dungeon-populated",
+                "dungeon-invaded",
                 "sanctum-established",
                 "apprentice-attracted",
                 "apprentice-advanced",
@@ -5667,7 +5670,7 @@
     "schemaVersion": 2,
     "entityKinds": 51,
     "typedKinds": 34,
-    "eventKinds": 103,
+    "eventKinds": 106,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
