@@ -370,6 +370,11 @@ function blankSettlement(opts={}){
     // #522 (2026-05-30) M&M depth — default to arrays so settlement.entryways[] / .regulatedAssets[] are always iterable from UI without null-guards.
     entryways: Array.isArray(opts.entryways) ? opts.entryways : [],
     regulatedAssets: Array.isArray(opts.regulatedAssets) ? opts.regulatedAssets : [],
+    // Settlement Demographics SD-1 (2026-06-16) — the RAW p.214 GM override on the derived
+    // Step-3 roster. null = pure RAW expectation; else per-bucket multipliers, e.g. the
+    // "city of wizards" = { mage: 3 } or "denuded" = { all: 0.5 }. Read by ACKS.expectedDemographics;
+    // additive + defensive (migration-free; templates stay migrate-no-ops). See Settlement_Demographics_Plan.md.
+    demographicOverrides: opts.demographicOverrides || null,
     notes: opts.notes || ''
   };
 }
@@ -1118,6 +1123,11 @@ function blankCharacter(opts={}){
     // Location — v2 uses stable hex ID, not (q,r) coord
     currentHexId: opts.currentHexId || null,
     currentDomainId: opts.currentDomainId || null,
+    // Settlement Demographics SD-1 (2026-06-16) — the home pointer: the settlement this NPC is
+    // rostered in (the realized side of ACKS.realizedDemographics). Distinct from currentHexId
+    // (where it stands now). null = unplaced. Additive + defensive; SD-2 wires the auto-set
+    // sources (recruit/generate/encounter) + placementRole. See Settlement_Demographics_Plan.md.
+    homeSettlementId: opts.homeSettlementId || null,
     partyId: opts.partyId || null,
     travelDestination: opts.travelDestination || null,
     travelPace: opts.travelPace || 'walking',

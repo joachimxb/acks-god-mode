@@ -91,6 +91,8 @@
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
+<!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
+<script src="acks-engine-demographics.js?v=2026-06-16-sd1"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -4501,7 +4503,7 @@ document.addEventListener('alpine:init', () => {
             </template>
             <template x-if="hexSettlements(selectedDomain).length > 0">
               <table class="bookkeeping text-sm">
-                <thead><tr><th>Settlement</th><th>Hex</th><th>Type</th><th>Families</th><th>Class</th><th>Capacity</th><th>Investment</th><th title="Demand modifiers per RR p.371">📊 Market</th></tr></thead>
+                <thead><tr><th>Settlement</th><th>Hex</th><th>Type</th><th>Families</th><th>Class</th><th>Capacity</th><th>Investment</th><th title="Demand modifiers per RR p.371">📊 Market</th><th title="JJ Step 3 demographic roster (pp.214–217)">📋 Roster</th></tr></thead>
                 <tbody>
                   <template x-for="entry in hexSettlements(selectedDomain)" :key="entry.hexIndex">
                     <tr>
@@ -4530,6 +4532,9 @@ document.addEventListener('alpine:init', () => {
                           <span x-text="settlementNonZeroDMCount(entry.settlement)"></span> DMs · edit
                         </button>
                       </td>
+                      <td>
+                        <button @click="demoSettlementId = (demoSettlementId===entry.settlement.id ? null : entry.settlement.id)" class="text-sm underline" :title="'Step 3 demographic roster for ' + (entry.settlement.name||'this settlement')" x-text="demoSettlementId===entry.settlement.id ? 'hide' : 'view'"></button>
+                      </td>
                     </tr>
                   </template>
                   <tr class="total">
@@ -4538,9 +4543,69 @@ document.addEventListener('alpine:init', () => {
                     <td colspan="2"></td>
                     <td x-text="totalUrbanInvestmentFromHexes(selectedDomain).toLocaleString()+' gp'"></td>
                     <td></td>
+                    <td></td>
                   </tr>
                 </tbody>
               </table>
+            </template>
+
+            <!-- Settlement Demographics SD-1 — the derived JJ Step-3 census roster read (expected · residents · open · exceptional).
+                 Pure RAW tooling (always-on); set an NPC's home on its character sheet to fill the realized side. -->
+            <template x-if="demoSettlementId && demographicRoster()">
+              <div class="mt-3 vellum border border-ink rounded p-3" style="background:#f4ecd2">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                  <h3 class="font-bold">📋 Demographics — <span x-text="(demoSettlement()&&demoSettlement().name) || '(settlement)'"></span></h3>
+                  <button @click="demoSettlementId=null" class="text-sm underline">close</button>
+                </div>
+                <p class="text-sm opacity-70 mb-2">
+                  JJ Step 3 (pp.214–217) — Class <span x-text="demographicRoster().expected.marketClass"></span>,
+                  <span x-text="(demographicRoster().expected.families||0).toLocaleString()"></span> families
+                  (×<span x-text="Math.round(demographicRoster().expected.scale*100)/100"></span> the reference table).
+                  Each cell shows <em>residents / expected</em>.
+                </p>
+                <div class="overflow-x-auto">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Level</th>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                    </tr></thead>
+                    <tbody>
+                      <template x-for="r in demoRosterRows()" :key="r.level">
+                        <tr>
+                          <td class="font-semibold" x-text="'L'+r.level"></td>
+                          <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                            <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
+                                :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+')').join(', ') : ''">
+                              <template x-if="r[b].realized>0 || r[b].expected>=0.5">
+                                <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
+                              </template>
+                              <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
+                            </td>
+                          </template>
+                        </tr>
+                      </template>
+                      <tr class="total">
+                        <td>Totals</td>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                          <td><span x-text="demographicRoster().realized.totals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(demographicRoster().expected.totals[b])"></span></span></td>
+                        </template>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-sm mt-2">
+                  <span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered residents
+                  (of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected) ·
+                  <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots
+                  <span class="accent-red" x-show="demographicRoster().exceptionalTotal>0"> · <span x-text="demographicRoster().exceptionalTotal"></span> exceptional</span>
+                </p>
+                <template x-if="demographicRoster().realized.otherCount>0">
+                  <p class="text-sm opacity-70" x-text="demographicRoster().realized.otherCount + ' unclassed resident(s): ' + demographicRoster().realized.other.map(o=>o.name).join(', ')"></p>
+                </template>
+                <template x-if="demographicRoster().expected.overrides">
+                  <p class="text-sm opacity-70">⚙ GM demographic override active (RR p.214) — applied to the expectation above.</p>
+                </template>
+                <p class="text-sm opacity-60 italic mt-1">Set an NPC's <strong>home settlement</strong> on its character sheet (Location tab) to fill the residents column. Auto-placement, the reconciliation workspace, and the realm/rural tiers arrive with SD-2+.</p>
+              </div>
             </template>
           </div>
           </div>
@@ -10947,6 +11012,26 @@ document.addEventListener('alpine:init', () => {
               <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button>
             </span></template>
           </span>
+        </div>
+
+        <!-- Home settlement (Settlement Demographics SD-1) — the roster home; audited via editableStat(select).
+             Distinct from the current hex (where the NPC stands now). Reconciled by ACKS.realizedDemographics. -->
+        <div class="text-sm flex items-center gap-2">
+          <span class="w-32">Home settlement</span>
+          <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeSettlementId', label:'Home settlement', kind:'select', formatter(v){ if(!v) return '— unplaced —'; const s = (window.acksApp?.currentCampaign?.settlements||[]).find(ss => ss.id === v); return s ? (s.name||'(unnamed)') : v; }})">
+            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit home settlement (logged)'">✏</button></span></template>
+            <template x-if="editing"><span class="ed-stat">
+              <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
+                <option :value="null">— unplaced —</option>
+                <template x-for="s in (window.acksApp?.currentCampaign?.settlements||[])" :key="s.id">
+                  <option :value="s.id" x-text="(s.name||'(unnamed)') + ' · Class ' + settlementMarketClass(s)"></option>
+                </template>
+              </select>
+              <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save home settlement'">✓</button>
+              <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing home settlement'">×</button>
+            </span></template>
+          </span>
+          <span class="text-sm opacity-60 italic">where this NPC is rostered (Step 3 census)</span>
         </div>
 
         <p class="text-sm opacity-70 italic mt-2">Map rendering of character positions and party movement mechanics arrive with Phase 2.5 (map mode). For now these fields are tracked but not visualized; the data is captured so the eventual map can reconstruct movement.</p>
@@ -24428,6 +24513,12 @@ return {
   // Settlements live per-hex (hex.settlement) as named entities. Legacy aggregate at demographics.urbanFamilies
   // is only used when no hex has a settlement yet.
   hexSettlements(d){return window.ACKS.hexSettlements(d);},
+  // Settlement Demographics SD-1 — the per-settlement Step-3 census roster read (Settlement_Demographics_Plan.md).
+  demoSettlementId: null,   // the settlement whose demographic roster is expanded (scoped to selectedDomain)
+  demoSettlement(){ const id=this.demoSettlementId; if(!id) return null; const e=(this.hexSettlements(this.selectedDomain)||[]).find(x=>x.settlement&&x.settlement.id===id); return e?e.settlement:null; },
+  demographicRoster(){ const s=this.demoSettlement(); return s ? window.ACKS.settlementDemographics(this.currentCampaign, s) : null; },
+  demoRosterRows(){ const d=this.demographicRoster(); if(!d) return []; return d.byLevel.filter((r,i)=>{ const e=d.expected.byLevel[i], real=d.realized.byLevel[i]; return e.all>=0.5 || real.all>0; }); },
+  fmtExpected(v){ return window.ACKS.formatExpectedCount(v); },
   totalUrbanFamiliesFromHexes(d){return window.ACKS.totalUrbanFamiliesFromHexes(d);},
   totalUrbanInvestmentFromHexes(d){return window.ACKS.totalUrbanInvestmentFromHexes(d);},
   // Effective urban family count for calculations. Per-hex settlements take precedence; falls back to legacy aggregate.
