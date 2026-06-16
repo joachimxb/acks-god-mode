@@ -2343,6 +2343,160 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Levy modal (Domain ▸ Military, RR pp.430–433) — count + home hex for a conscript/militia levy. -->
+<div x-show="levyModal.open" @keydown.escape.window="if(levyModal.open){ closeLevyModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:72; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLevyModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-12">
+    <template x-if="levyModalDomain()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <h3 class="font-bold text-lg" x-text="(levyModal.source==='militia' ? '🛡 Levy militia' : '⚒ Levy conscripts') + ' — ' + (levyModalDomain().name || '')"></h3>
+          <button @click="closeLevyModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <p class="text-xs opacity-70" x-text="levyModal.source==='militia' ? '≤2 per 10 families. Each called-up militiaman costs 1 family of revenue + domain morale −1/−2 until sent home (RR pp.432–433).' : '≤1 per 10 families; no morale or revenue cost (RR pp.430–431).'"></p>
+          <label class="flex items-center gap-2 flex-wrap">Number to levy:
+            <input type="number" min="1" :max="levyModalAvailable()" x-model.number="levyModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
+            <span class="text-xs opacity-60" x-text="'(available ' + levyModalAvailable() + ' / cap ' + domainLevyCap(levyModalDomain(), levyModal.source) + ')'"></span>
+          </label>
+          <label class="flex items-center gap-2 flex-wrap">Home (garrison hex):
+            <select x-model="levyModal.homeHexId" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="">— no home —</option>
+              <template x-for="h in domainHomeHexOptions(levyModalDomain())" :key="'lvh-'+h.id"><option :value="h.id" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+            </select>
+          </label>
+          <span x-show="!domainCanLevy(levyModalDomain())" class="text-xs accent-red block">The realm is too unhappy to levy (RR p.432).</span>
+        </div>
+        <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+          <button @click="closeLevyModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+          <button @click="submitLevy()" :disabled="!levyModalCanSubmit()" :class="levyModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!levyModalCanSubmit() ? 'Set a number from 1 to the available count (and the realm must be content)' : ''" x-text="(levyModal.source==='militia' ? '🛡 Levy ' : '⚒ Levy ') + (Math.floor(levyModal.count)||0)"></button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- Unit Sheet modal (Domain ▸ Military / Characters ▸ Parties) — the clickable per-unit detail +
+     edit surface (RR pp.427–433). Field edits live here (Type is read-only — set by recruiting /
+     training; the 🔍 Inspector is the raw/admin path). z-72: a peek over the domain/parties view. -->
+<div x-show="unitSheetUnitId" @keydown.escape.window="if(unitSheetUnitId){ closeUnitSheet(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:72; background:rgba(0,0,0,.45)" x-cloak @click.self="closeUnitSheet()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-xl my-6">
+    <template x-for="u in unitSheetList()" :key="'usheet-'+u.id">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30 gap-2">
+          <div>
+            <h3 class="font-bold text-lg flex items-center gap-2">🪖
+              <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'displayName', label:'Unit name', kind:'text', placeholder:'(unnamed)'})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue || '(unnamed)'" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:14rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+            </h3>
+            <p class="text-sm opacity-70" x-text="unitTypeLabelFor(u) + (u.race && u.race!=='man' ? (' · ' + u.race) : '') + (u.veteran ? ' · veteran' : '') + (u.elite ? ' · elite' : '') + ' · ' + (u.source || 'mercenary')"></p>
+          </div>
+          <button @click="closeUnitSheet()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <div class="flex flex-wrap gap-x-6 gap-y-1 items-center">
+            <span><span class="opacity-70">Living:</span> <span class="font-semibold" x-text="Math.max(0,(u.count||0)-(u.casualties||0)).toLocaleString()"></span></span>
+            <span class="ed-stat"><span class="opacity-70">Count:</span>
+              <span x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'count', label:'Unit count', kind:'number', min:0})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+            </span>
+            <span class="ed-stat"><span class="opacity-70">Casualties:</span>
+              <span x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'casualties', label:'Unit casualties', kind:'number', min:0})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" :class="(currentValue||0)>0?'accent-red':''" x-text="(currentValue||0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+            </span>
+          </div>
+          <div class="flex flex-wrap gap-x-6 gap-y-1 items-center">
+            <span class="ed-stat"><span class="opacity-70">Wage/soldier:</span>
+              <span x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'monthlyWage', label:'Unit wage', kind:'number', min:0})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0)"></span><button @click="start()" class="ed-edit">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.5" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+              <span class="opacity-60 text-xs" x-text="'· ' + (window.ACKS.unitWageMonthly ? Math.round(window.ACKS.unitWageMonthly(currentCampaign,u)).toLocaleString() : ((Math.max(0,(u.count||0)-(u.casualties||0)))*(u.monthlyWage||0)).toLocaleString()) + ' gp/mo'"></span>
+            </span>
+            <span class="ed-stat"><span class="opacity-70">BR/soldier:</span>
+              <span x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'brPerSoldier', label:'Unit BR/soldier', kind:'number', min:0})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0)"></span><button @click="start()" class="ed-edit">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.001" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+              <span class="opacity-60 text-xs" x-text="'· total ' + (window.ACKS.unitBattleRating ? window.ACKS.unitBattleRating(currentCampaign,u) : ((Math.max(0,(u.count||0)-(u.casualties||0)))*(u.brPerSoldier||0)).toFixed(3))"></span>
+            </span>
+          </div>
+          <div class="flex flex-wrap gap-x-6 gap-y-1 items-center">
+            <span class="inline-flex items-center gap-1"><span class="opacity-70">Morale:</span> <span class="font-semibold" x-text="unitMoraleText(u)"></span>
+              <span class="ed-stat text-xs opacity-80"><span class="opacity-70">(adj</span>
+                <span x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'moraleAdjustment', label:'Unit morale adjustment', kind:'number'})">
+                  <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0)"></span><button @click="start()" class="ed-edit">✏</button></span></template>
+                  <template x-if="editing"><span class="ed-stat"><input type="number" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+                </span><span class="opacity-70">)</span>
+              </span>
+            </span>
+            <span class="ed-stat"><span class="opacity-70">Loyalty:</span>
+              <span x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'loyalty', label:'Unit loyalty', kind:'number'})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue||0)"></span><button @click="start()" class="ed-edit">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+            </span>
+            <span><span class="opacity-70">Supply:</span> <span x-text="u.supplyState || 'supplied'"></span></span>
+          </div>
+          <div class="border-t border-ink/20 pt-2" x-data="{ trainType: '' }">
+            <template x-if="u.unitTypeKey === 'untrained-levy'">
+              <p class="flex flex-wrap items-center gap-1"><span class="opacity-70">Train as:</span>
+                <select x-model="trainType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— pick a troop type —</option><template x-for="t in domainTrainableTypesFor(u)" :key="'ust-'+t"><option :value="t" x-text="t"></option></template></select>
+                <button @click="domainTrainLevy(u, trainType); trainType=''" :disabled="!trainType" :class="trainType ? 'underline' : 'opacity-40'" class="px-1" title="Train + equip into a professional troop type — debits the realm treasury (RR p.431)">Train</button>
+                <span class="text-xs opacity-60">— RAW qualifying types for the unit's race</span>
+              </p>
+            </template>
+            <template x-if="u.unitTypeKey !== 'untrained-levy'"><p class="text-xs"><span class="opacity-70">Training:</span> trained as <span x-text="unitTypeLabelFor(u)"></span><span x-show="u.trainingState" class="opacity-60"> · in training</span></p></template>
+          </div>
+          <p class="text-xs"><span class="opacity-70">Stationed:</span> <span x-text="unitStationLabel(u)"></span></p>
+          <p class="text-xs flex items-center gap-1 flex-wrap"><span class="opacity-70">🏠 Home:</span>
+            <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where it returns when its task ends">
+              <option value="" :selected="!u.homeHexId">— no home —</option>
+              <template x-for="h in unitSheetHexOptions()" :key="'ush-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+            </select>
+            <span class="opacity-50 italic" x-show="unitSheetHexOptions().length === 0">no domain hexes</span>
+          </p>
+          <p class="text-xs" x-show="u.rallyingToArmyId"><span class="text-sky-700 font-semibold">🚶 Marching to its muster point</span></p>
+          <p class="text-xs" x-show="u.returnJourneyId"><span class="text-emerald-700 font-semibold">🚶 Marching home to its garrison</span></p>
+          <p class="text-xs" x-show="u.commanderCharacterId || u.lieutenantCharacterId"><span class="opacity-70">Officer:</span> <button @click="closeUnitSheet(); openCharacterEditor(u.commanderCharacterId || u.lieutenantCharacterId)" class="underline">view ›</button></p>
+          <div x-show="(u.calamities||[]).length" class="text-xs">
+            <span class="opacity-70">Calamities (RR p.430):</span>
+            <ul class="list-disc ml-5"><template x-for="(c,ci) in (u.calamities||[])" :key="'uc-'+ci"><li x-text="(c.kind || 'calamity') + (c.note ? (' — ' + c.note) : '')"></li></template></ul>
+          </div>
+          <div x-show="(u.history||[]).length" class="text-xs">
+            <span class="opacity-70">History:</span>
+            <ul class="space-y-0.5 max-h-32 overflow-y-auto"><template x-for="(h,hi) in (u.history||[]).slice().reverse()" :key="'uh-'+hi"><li><span class="opacity-60" x-text="'turn ' + (h.turn==null?'—':h.turn) + ' · '"></span><span class="font-semibold" x-text="h.type"></span><span class="opacity-70" x-text="h.text ? (' — ' + h.text) : ''"></span></li></template></ul>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 p-4 border-t border-ink/30">
+          <template x-if="(u.source==='conscript' || u.source==='militia') && unitSheetDomain()">
+            <span class="inline-flex flex-wrap gap-2">
+              <button @click="domainSplitLevy(unitSheetDomain(), u)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Divide N soldiers into a new unit">Split</button>
+              <button @click="domainMergeLevy(unitSheetDomain(), u)" :disabled="!canMergeLevy(unitSheetDomain(), u)" :class="canMergeLevy(unitSheetDomain(), u) ? 'hover:bg-yellow-100' : 'opacity-40 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded">Merge</button>
+              <template x-if="u.source==='militia' && u.calledUp !== false"><button @click="domainSendMilitiaUnitHome(u)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Send home (RR p.341/432)">🏠 Send home</button></template>
+              <template x-if="u.source==='militia' && u.calledUp === false"><button @click="domainCallUpMilitia(u)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Call back up (RR p.432)">Call up</button></template>
+              <button @click="domainReleaseLevy(u); closeUnitSheet()" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Release from service (RR p.430/432)">Release</button>
+            </span>
+          </template>
+          <template x-if="u.source!=='conscript' && u.source!=='militia' && unitSheetDomain()">
+            <span class="inline-flex flex-wrap gap-2">
+              <button @click="splitGarrisonUnit(unitSheetDomain(), u)" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Split N soldiers into a new unit">Split</button>
+              <button @click="mergeGarrisonUnit(unitSheetDomain(), u)" :disabled="!canMergeGarrisonUnit(unitSheetDomain(), u)" :class="canMergeGarrisonUnit(unitSheetDomain(), u) ? 'hover:bg-yellow-100' : 'opacity-40 cursor-not-allowed'" class="px-2 py-0.5 border border-ink rounded">Merge</button>
+              <button @click="removeGarrisonUnit(unitSheetDomain(), u); closeUnitSheet()" class="px-2 py-0.5 border border-ink rounded hover:bg-red-50 accent-red" title="Remove this unit">× Remove</button>
+            </span>
+          </template>
+          <button @click="inspectorOpenInspect('unit', u.id); closeUnitSheet()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 ml-auto" title="Edit every field (type, loadout, scale, …) via the Inspector">🔍 Open in Inspector</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- Encounter resolution modal (#476 E2) — the step-walking surface over the E1 verbs (RR pp.280–287):
      awareness/surprise → evasion → reaction → influence → resolution, engine-proposed / GM-ratified.
      z-77: above its opener surfaces (search/track 75, hex card 50, journey panel) and BELOW the lair
@@ -5190,147 +5344,142 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <div x-show="activeTab==='military'">
+          <!-- ───── Garrison (RR pp.427–433) — ONE table, three sources: 🪖 Mercenaries (recruited),
+               ⚒ Conscripts (≤1/10 families, no morale/revenue cost), 🛡 Militia (≤2/10, −1 family +
+               morale each, until sent home). Shared columns. Type is read-only (set by recruiting /
+               training — change it via the 🔍 Inspector). Click a unit's NAME for its sheet (where
+               field-editing lives); Home stays inline. Levies arrive via the ⚒/🛡 Levy modal. ───── -->
           <div class="vellum border border-ink p-3 rounded">
-            <h2 class="font-bold text-lg mb-2">Garrison Units</h2>
+            <h2 class="font-bold text-lg mb-2">Garrison</h2>
             <table class="bookkeeping text-sm">
-              <thead><tr><th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th><th>BR/sol</th><th>Total BR</th><th title="Default garrison hex — where this unit returns when a mission ends (must be a hex in this domain)">Home</th><th title="Where the unit is now — its post in the domain, or away with a field army / marching to muster">Location</th><th></th></tr></thead>
+              <thead><tr>
+                <th>Name</th><th>Type</th><th>Count</th><th>Wage</th><th>Sub</th>
+                <th title="Battle rating per soldier">BR/sol</th><th>Total BR</th>
+                <th title="Unit morale score (RR p.429)">Morale</th>
+                <th title="Default garrison hex — where this unit returns when a mission ends (a hex in this domain)">Home</th>
+                <th title="Where the unit is now — its post, away with a field army, marching to muster, or (militia) at home">Location</th>
+                <th></th>
+              </tr></thead>
+
+              <!-- 🪖 Mercenaries — recruited units; Type via Recruit, not editable here -->
               <tbody>
+                <tr style="background:#ece0c0"><td colspan="11" class="py-1">
+                  <span class="font-semibold">🪖 Mercenaries</span>
+                  <button @click="addGarrisonUnit(selectedDomain)" class="text-xs underline ml-3">+ add unit</button>
+                  <button @click="recruitDeepLink({ patronId: rulerCharacter(selectedDomain)?.id, category: 'mercenary' })"
+                          :disabled="!rulerCharacter(selectedDomain)"
+                          :title="!rulerCharacter(selectedDomain) ? 'No ruler to recruit as patron' : 'Open the Recruit workflow for mercenary hires'"
+                          :class="!rulerCharacter(selectedDomain) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-100'"
+                          class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2">+ Recruit unit</button>
+                </td></tr>
                 <template x-for="(u, i) in garrisonStandingUnits(selectedDomain)" :key="u.id || ('gu-'+i)">
                   <tr>
-                    <td>
-                      <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'displayName', label:'Unit #'+(i+1)+' name', kind:'text', placeholder:'(unnamed)'})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue || '(unnamed)'" style="font-family:inherit"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="text" class="ed-input" style="width:12rem" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                      </span>
-                    </td>
-                    <td><select :value="u.unitTypeKey" @change="onGarrisonUnitTypeChange(u, i, $event.target.value)" class="text-sm border border-ink/50 rounded px-2 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer"><template x-for="row in ((window.ACKS && window.ACKS.HIRELING_MERCENARIES) || [])" :key="row.id"><option :value="row.id" x-text="row.label" :selected="row.id === u.unitTypeKey"></option></template></select></td>
-                    <td>
-                      <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'count', label:'Unit #'+(i+1)+' count', kind:'number', min:0})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                      </span>
-                    </td>
-                    <td>
-                      <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'monthlyWage', label:'Unit #'+(i+1)+' wage', kind:'number', min:0})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.5" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                      </span>
-                    </td>
-                    <td x-text="((u.count||0)*(u.monthlyWage||0)).toLocaleString()"></td>
-                    <td>
-                      <span class="ed-stat" x-data="editableStat({entityType:'garrison-unit', entity:u, fieldPath:'brPerSoldier', label:'Unit #'+(i+1)+' BR/soldier', kind:'number', min:0})">
-                        <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="(currentValue || 0)"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit ' + (cfg.label || 'value') + ' (logged)'">✏</button></span></template>
-                        <template x-if="editing"><span class="ed-stat"><input type="number" :min="cfg.min ?? null" step="0.001" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(() => $el.focus())"><button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save ' + (cfg.label || 'value')">✓</button><button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing ' + (cfg.label || 'value')">×</button></span></template>
-                      </span>
-                    </td>
-                    <td x-text="((u.count||0)*(u.brPerSoldier||0)).toFixed(3)"></td>
+                    <td><button @click="openUnitSheet(u)" class="underline text-left" :title="'Open ' + (u.displayName || unitTypeLabelFor(u)) + ' — detail & edit'" x-text="u.displayName || unitTypeLabelFor(u)"></button></td>
+                    <td x-text="unitTypeLabelFor(u)"></td>
+                    <td x-text="levyUnitLiving(u).toLocaleString()"></td>
+                    <td x-text="(u.monthlyWage||0)"></td>
+                    <td x-text="(levyUnitLiving(u)*(u.monthlyWage||0)).toLocaleString()"></td>
+                    <td x-text="(u.brPerSoldier||0)"></td>
+                    <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
+                    <td x-text="unitMoraleText(u)"></td>
                     <td>
                       <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
                         <option value="" :selected="!u.homeHexId">— no home —</option>
-                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="h.id">
-                          <option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option>
-                        </template>
+                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
                       </select>
                     </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitLocationLabel(u)"></td>
-                    <td class="whitespace-nowrap"><button @click="splitGarrisonUnit(selectedDomain, u)" class="px-1 text-xs underline" title="Split N soldiers into a new unit">Split</button> <button @click="mergeGarrisonUnit(selectedDomain, u)" :disabled="!canMergeGarrisonUnit(selectedDomain, u)" :class="canMergeGarrisonUnit(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1 text-xs" title="Merge into a same-type sibling">Merge</button> <button @click="removeGarrisonUnit(selectedDomain, u)" class="accent-red px-2" title="Remove this unit">×</button></td>
+                    <td class="whitespace-nowrap text-xs">
+                      <button @click="splitGarrisonUnit(selectedDomain, u)" class="px-1 underline" title="Split N soldiers into a new unit">Split</button>
+                      <button @click="mergeGarrisonUnit(selectedDomain, u)" :disabled="!canMergeGarrisonUnit(selectedDomain, u)" :class="canMergeGarrisonUnit(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
+                      <button @click="removeGarrisonUnit(selectedDomain, u)" class="accent-red px-1" title="Remove this unit">×</button>
+                    </td>
                   </tr>
                 </template>
-                <tr class="total"><td>Totals</td><td></td><td x-text="garrisonStandingTotals(selectedDomain).count.toLocaleString()"></td><td></td>
-                  <td x-text="garrisonStandingTotals(selectedDomain).cost.toLocaleString() + ' gp'"></td><td></td><td x-text="garrisonStandingTotals(selectedDomain).br.toFixed(3)"></td><td></td><td></td><td></td></tr>
+                <template x-if="garrisonStandingUnits(selectedDomain).length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No mercenary units. Recruit or + add one.</td></tr></template>
+                <template x-if="garrisonStandingUnits(selectedDomain).length > 0"><tr class="total"><td class="pl-2">— mercenaries</td><td></td><td x-text="unitListTotals(garrisonStandingUnits(selectedDomain)).count.toLocaleString()"></td><td></td><td x-text="unitListTotals(garrisonStandingUnits(selectedDomain)).cost.toLocaleString()+' gp'"></td><td></td><td x-text="unitListTotals(garrisonStandingUnits(selectedDomain)).br.toFixed(3)"></td><td></td><td></td><td></td><td></td></tr></template>
               </tbody>
-            </table>
-            <p class="text-xs opacity-60 mt-1" x-text="'Full garrison incl. called-up conscripts/militia: ' + garrisonHeadcount(selectedDomain).toLocaleString() + ' troops · ' + garrisonCost(selectedDomain).toLocaleString() + 'gp · BR ' + garrisonBR(selectedDomain).toFixed(2) + ' (counts toward garrison adequacy)'"></p>
-            <div class="flex items-center gap-3 mt-2">
-              <button @click="addGarrisonUnit(selectedDomain)" class="text-sm underline">+ add unit</button>
-              <button @click="recruitDeepLink({ patronId: rulerCharacter(selectedDomain)?.id, category: 'mercenary' })"
-                      :disabled="!rulerCharacter(selectedDomain)"
-                      :title="!rulerCharacter(selectedDomain) ? 'No ruler to recruit as patron' : 'Open Recruit workflow for mercenary hires'"
-                      :class="!rulerCharacter(selectedDomain) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-100'"
-                      class="px-2 py-1 border border-ink rounded text-sm">+ Recruit unit</button>
-              <button @click="openMusterArmy({ commanderId: rulerCharacter(selectedDomain)?.id, domainId: selectedDomain.id })"
-                      :title="'Muster a field army — ' + (rulerCharacter(selectedDomain) ? (rulerCharacter(selectedDomain).name + ' leads, this garrison is pre-selected') : 'pick a commander') + ' (RR pp.435–437)'"
-                      class="px-2 py-1 border border-ink rounded text-sm font-semibold hover:bg-yellow-100">🎖 Muster field army</button>
-            </div>
-          </div>
 
-          <!-- ⚒ Conscripts (RR pp.430–431) — the domain's standing levy. Available = cap − ever-raised
-               (sticky casualties, RR p.430); casualties recover 5%/yr of cap each monthly turn. Levy is a
-               DOMAIN act here (the army's old Troop-depth panel is gone); armies call these up at muster. -->
-          <div class="vellum border border-ink p-3 rounded mt-4" x-data="{ n: 1 }">
-            <h2 class="font-bold text-lg mb-1">⚒ Conscripts <span class="text-sm opacity-70 font-normal" x-text="'· available ' + domainLevyAvailable(selectedDomain, 'conscript') + ' / cap ' + domainLevyCap(selectedDomain, 'conscript') + ' (raised ' + domainLevyEverRaised(selectedDomain, 'conscript') + ')'"></span></h2>
-            <p class="text-xs opacity-70 mb-2">≤1 per 10 families; no morale or revenue cost. Casualties are sticky — the fallen hold their family slot — and recover 5%/yr of the cap (RR pp.430–431).</p>
-            <div class="flex flex-wrap items-baseline gap-2 mb-2">
-              <input type="number" min="1" x-model.number="n" class="w-16 text-sm border border-ink rounded px-1 py-0.5">
-              <button @click="domainLevyFrom(selectedDomain, 'conscript', n)" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-sm px-2 py-0.5 border border-ink rounded" title="Conscript peasants — ≤1 per 10 families, no morale/revenue cost (RR p.430)">⚒ Levy conscripts</button>
-              <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red">— the realm is too unhappy to levy (RR p.432)</span>
-              <span x-show="domainLevyEverRaised(selectedDomain,'conscript') > domainLevyCap(selectedDomain,'conscript')" class="text-xs accent-red">⚠ over cap — the population fell; release some (RR p.430)</span>
-            </div>
-            <template x-if="domainLevyRows(selectedDomain, 'conscript').length > 0">
-              <table class="bookkeeping text-sm">
-                <thead><tr><th>Name</th><th>Type</th><th>Living</th><th>Casualties</th><th>Wage</th><th>Morale</th><th></th></tr></thead>
-                <tbody>
-                  <template x-for="u in domainLevyRows(selectedDomain, 'conscript')" :key="u.id">
-                    <tr x-data="{ trainType: '' }">
-                      <td x-text="u.displayName || 'Conscripts'"></td>
-                      <td x-text="levyUnitTypeLabel(u)"></td>
-                      <td x-text="levyUnitLiving(u).toLocaleString()"></td>
-                      <td><span :class="(u.casualties||0)>0 ? 'accent-red' : ''" x-text="(u.casualties||0).toLocaleString()"></span></td>
-                      <td x-text="(u.monthlyWage||0)"></td>
-                      <td x-text="levyUnitMoraleText(u)"></td>
-                      <td class="whitespace-nowrap text-xs">
+              <!-- ⚒ Conscripts (RR pp.430–431) — sticky casualties + 5%/yr replenish -->
+              <tbody>
+                <tr style="background:#ece0c0"><td colspan="11" class="py-1">
+                  <span class="font-semibold">⚒ Conscripts</span>
+                  <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'conscript') + ' / cap ' + domainLevyCap(selectedDomain,'conscript') + ' (raised ' + domainLevyEverRaised(selectedDomain,'conscript') + ')'"></span>
+                  <button @click="openLevyModal(selectedDomain,'conscript')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'conscript')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Conscript peasants — ≤1 per 10 families, no morale/revenue cost (RR p.430)">⚒ Levy conscripts</button>
+                  <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— the realm is too unhappy to levy (RR p.432)</span>
+                  <span x-show="domainLevyEverRaised(selectedDomain,'conscript') > domainLevyCap(selectedDomain,'conscript')" class="text-xs accent-red ml-1">⚠ over cap — the population fell; release some</span>
+                  <div class="text-xs opacity-60 font-normal mt-0.5">≤1 per 10 families; no morale/revenue cost. Casualties are sticky and recover 5%/yr of cap (RR pp.430–431).</div>
+                </td></tr>
+                <template x-for="u in domainLevyRows(selectedDomain,'conscript')" :key="u.id">
+                  <tr>
+                    <td><button @click="openUnitSheet(u)" class="underline text-left" title="Open the unit sheet — detail & edit" x-text="u.displayName || 'Conscripts'"></button></td>
+                    <td x-text="unitTypeLabelFor(u)"></td>
+                    <td x-text="levyUnitLiving(u).toLocaleString()"></td>
+                    <td x-text="(u.monthlyWage||0)"></td>
+                    <td x-text="(levyUnitLiving(u)*(u.monthlyWage||0)).toLocaleString()"></td>
+                    <td x-text="(u.brPerSoldier||0)"></td>
+                    <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
+                    <td x-text="unitMoraleText(u)"></td>
+                    <td>
+                      <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
+                        <option value="" :selected="!u.homeHexId">— no home —</option>
+                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+                      </select>
+                    </td>
+                    <td class="whitespace-nowrap text-xs" x-text="unitLocationLabel(u)"></td>
+                    <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy'">
-                          <span class="inline-flex items-center gap-1">
+                          <span class="inline-flex items-center gap-1" x-data="{ trainType: '' }">
                             <select x-model="trainType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— train as —</option><template x-for="t in domainTrainableTypesFor(u)" :key="t"><option :value="t" x-text="t"></option></template></select>
                             <button @click="domainTrainLevy(u, trainType); trainType=''" :disabled="!trainType" :class="trainType ? 'underline' : 'opacity-40'" class="px-1" title="Train + equip into a professional troop type — debits the realm treasury (RR p.431)">Train</button>
                           </span>
                         </template>
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
                         <button @click="domainMergeLevy(selectedDomain, u)" :disabled="!canMergeLevy(selectedDomain, u)" :class="canMergeLevy(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
-                        <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — RR p.430 (trained → mercenaries/brigands, untrained → farms); frees the levy slot">Release</button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </template>
-            <template x-if="domainLevyRows(selectedDomain, 'conscript').length === 0"><p class="text-xs italic opacity-60">No conscripts levied.</p></template>
-          </div>
+                        <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — RR p.430 (trained → mercenaries/brigands, untrained → farms)">Release</button>
+                    </td>
+                  </tr>
+                </template>
+                <template x-if="domainLevyRows(selectedDomain,'conscript').length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No conscripts levied.</td></tr></template>
+              </tbody>
 
-          <!-- 🛡 Militia (RR pp.432–433) — ≤2 per 10 families; each called-up militiaman costs a family of
-               revenue + domain morale until sent home. Trained militia sent home credit the garrison. -->
-          <div class="vellum border border-ink p-3 rounded mt-4" x-data="{ n: 1 }">
-            <h2 class="font-bold text-lg mb-1">🛡 Militia <span class="text-sm opacity-70 font-normal" x-text="'· available ' + domainLevyAvailable(selectedDomain, 'militia') + ' / cap ' + domainLevyCap(selectedDomain, 'militia') + ' (raised ' + domainLevyEverRaised(selectedDomain, 'militia') + ')'"></span></h2>
-            <p class="text-xs opacity-70 mb-1">≤2 per 10 families. Each called-up militiaman costs 1 family of revenue; calling up costs −1 (≤1/10) or −2 (2/10) domain morale until sent home. Casualties recover 5%/yr of cap (RR pp.432–433).</p>
-            <p class="text-xs mb-2">
-              <span x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="accent-red" x-text="'Called up: ' + domainMilitiaCalledUp(selectedDomain) + ' — revenue −' + domainMilitiaRevenuePenalty(selectedDomain) + ' families, morale ' + domainMilitiaMoralePenalty(selectedDomain)"></span>
-              <span class="opacity-70" x-show="domainTrainedMilitiaCreditText(selectedDomain)" x-text="(domainMilitiaCalledUp(selectedDomain) > 0 ? ' · ' : '') + domainTrainedMilitiaCreditText(selectedDomain)"></span>
-            </p>
-            <div class="flex flex-wrap items-baseline gap-2 mb-2">
-              <input type="number" min="1" x-model.number="n" class="w-16 text-sm border border-ink rounded px-1 py-0.5">
-              <button @click="domainLevyFrom(selectedDomain, 'militia', n)" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-sm px-2 py-0.5 border border-ink rounded" title="Levy a peasant militia — ≤2 per 10 families (RR p.432)">🛡 Levy militia</button>
-              <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red">— the realm is too unhappy to levy (RR p.432)</span>
-              <button @click="domainSendAllMilitiaHome(selectedDomain)" x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="text-xs underline" title="Send all militia home — trained credit the garrison (RR p.341); untrained return to farms; ends the penalty">🏠 Send all home</button>
-              <span x-show="domainLevyEverRaised(selectedDomain,'militia') > domainLevyCap(selectedDomain,'militia')" class="text-xs accent-red">⚠ over cap — the population fell; release some (RR p.432)</span>
-            </div>
-            <template x-if="domainLevyRows(selectedDomain, 'militia').length > 0">
-              <table class="bookkeeping text-sm">
-                <thead><tr><th>Name</th><th>Type</th><th>Living</th><th>Casualties</th><th>Wage</th><th>Morale</th><th>Status</th><th></th></tr></thead>
-                <tbody>
-                  <template x-for="u in domainLevyRows(selectedDomain, 'militia')" :key="u.id">
-                    <tr x-data="{ trainType: '' }">
-                      <td x-text="u.displayName || 'Militia'"></td>
-                      <td x-text="levyUnitTypeLabel(u)"></td>
-                      <td x-text="levyUnitLiving(u).toLocaleString()"></td>
-                      <td><span :class="(u.casualties||0)>0 ? 'accent-red' : ''" x-text="(u.casualties||0).toLocaleString()"></span></td>
-                      <td x-text="(u.monthlyWage||0)"></td>
-                      <td x-text="levyUnitMoraleText(u)"></td>
-                      <td class="text-xs" x-text="u.calledUp === false ? '🏠 at home' : '⚔ called up'"></td>
-                      <td class="whitespace-nowrap text-xs">
+              <!-- 🛡 Militia (RR pp.432–433) — −1 family + morale each while called up; trained value counts vs garrison (p.341) -->
+              <tbody>
+                <tr style="background:#ece0c0"><td colspan="11" class="py-1">
+                  <span class="font-semibold">🛡 Militia</span>
+                  <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'militia') + ' / cap ' + domainLevyCap(selectedDomain,'militia') + ' (raised ' + domainLevyEverRaised(selectedDomain,'militia') + ')'"></span>
+                  <button @click="openLevyModal(selectedDomain,'militia')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Levy a peasant militia — ≤2 per 10 families (RR p.432)">🛡 Levy militia</button>
+                  <button @click="domainSendAllMilitiaHome(selectedDomain)" x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="text-xs underline ml-2" title="Send all militia home — trained credit the garrison (RR p.341); untrained return to farms; ends the penalty">🏠 Send all home</button>
+                  <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— too unhappy to levy (RR p.432)</span>
+                  <span x-show="domainLevyEverRaised(selectedDomain,'militia') > domainLevyCap(selectedDomain,'militia')" class="text-xs accent-red ml-1">⚠ over cap</span>
+                  <div class="text-xs font-normal mt-0.5">
+                    <span x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="accent-red" x-text="'Called up: ' + domainMilitiaCalledUp(selectedDomain) + ' — revenue −' + domainMilitiaRevenuePenalty(selectedDomain) + ' families, morale ' + domainMilitiaMoralePenalty(selectedDomain)"></span>
+                    <span class="opacity-60" x-show="domainTrainedMilitiaCreditText(selectedDomain)" x-text="(domainMilitiaCalledUp(selectedDomain) > 0 ? ' · ' : '') + domainTrainedMilitiaCreditText(selectedDomain)"></span>
+                    <span class="opacity-60" x-show="!domainTrainedMilitiaCreditText(selectedDomain) && domainMilitiaCalledUp(selectedDomain)===0">≤2 per 10 families; each called-up costs 1 family of revenue + domain morale −1/−2 until sent home (RR pp.432–433).</span>
+                  </div>
+                </td></tr>
+                <template x-for="u in domainLevyRows(selectedDomain,'militia')" :key="u.id">
+                  <tr>
+                    <td><button @click="openUnitSheet(u)" class="underline text-left" title="Open the unit sheet — detail & edit" x-text="u.displayName || 'Militia'"></button></td>
+                    <td x-text="unitTypeLabelFor(u)"></td>
+                    <td x-text="levyUnitLiving(u).toLocaleString()"></td>
+                    <td x-text="(u.monthlyWage||0)"></td>
+                    <td x-text="(levyUnitLiving(u)*(u.monthlyWage||0)).toLocaleString()"></td>
+                    <td x-text="(u.brPerSoldier||0)"></td>
+                    <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
+                    <td x-text="unitMoraleText(u)"></td>
+                    <td>
+                      <select :value="u.homeHexId || ''" @change="setUnitHomeUi(u, $event.target.value)" class="text-xs border border-ink/40 rounded px-1 py-0.5 bg-yellow-50 hover:bg-yellow-100 cursor-pointer" title="Default garrison hex — where this unit returns when a mission ends">
+                        <option value="" :selected="!u.homeHexId">— no home —</option>
+                        <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
+                      </select>
+                    </td>
+                    <td class="whitespace-nowrap text-xs" x-text="unitLocationLabel(u)"></td>
+                    <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy'">
-                          <span class="inline-flex items-center gap-1">
+                          <span class="inline-flex items-center gap-1" x-data="{ trainType: '' }">
                             <select x-model="trainType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— train as —</option><template x-for="t in domainTrainableTypesFor(u)" :key="t"><option :value="t" x-text="t"></option></template></select>
-                            <button @click="domainTrainLevy(u, trainType); trainType=''" :disabled="!trainType" :class="trainType ? 'underline' : 'opacity-40'" class="px-1" title="Train + equip into a professional troop type — debits the realm treasury (RR p.432)">Train</button>
+                            <button @click="domainTrainLevy(u, trainType); trainType=''" :disabled="!trainType" :class="trainType ? 'underline' : 'opacity-40'" class="px-1" title="Train + equip into a professional troop type — debits the realm treasury (RR p.431)">Train</button>
                           </span>
                         </template>
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
@@ -5338,22 +5487,28 @@ document.addEventListener('alpine:init', () => {
                         <template x-if="u.calledUp !== false"><button @click="domainSendMilitiaUnitHome(u)" class="px-1 underline" title="Send this militia home — trained credit the garrison (RR p.341); untrained return to farms">🏠 Home</button></template>
                         <template x-if="u.calledUp === false"><button @click="domainCallUpMilitia(u)" class="px-1 underline" title="Call this militia back up (RR p.432) — resumes the revenue/morale penalty">Call up</button></template>
                         <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — untrained return to farms (RR p.432)">Release</button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </template>
-            <template x-if="domainLevyRows(selectedDomain, 'militia').length === 0"><p class="text-xs italic opacity-60">No militia levied.</p></template>
+                    </td>
+                  </tr>
+                </template>
+                <template x-if="domainLevyRows(selectedDomain,'militia').length === 0"><tr><td colspan="11" class="text-xs italic opacity-60 pl-2">No militia levied.</td></tr></template>
+              </tbody>
+            </table>
+            <p class="text-xs opacity-60 mt-1" x-text="'Full garrison incl. called-up conscripts/militia: ' + garrisonHeadcount(selectedDomain).toLocaleString() + ' troops · ' + garrisonCost(selectedDomain).toLocaleString() + 'gp · BR ' + garrisonBR(selectedDomain).toFixed(2) + ' (counts toward garrison adequacy)'"></p>
           </div>
 
           <!-- Active Field Armies (2026-06-14) — armies in the field drawing on this domain: a
                unit home-stationed here, the ruler leading in person, or a reaction sally defending
                it. The read complement to the Garrison table; rows open the army (Characters ▸ Parties). -->
-          <div class="vellum border border-ink p-3 rounded mt-4" x-show="domainFieldArmyRows(selectedDomain).length > 0">
-            <h2 class="font-bold text-lg mb-2">🎖 Active Field Armies</h2>
+          <div class="vellum border border-ink p-3 rounded mt-4">
+            <div class="flex justify-between items-baseline gap-2 mb-2">
+              <h2 class="font-bold text-lg">🎖 Active Field Armies</h2>
+              <button @click="openMusterArmy({ commanderId: rulerCharacter(selectedDomain)?.id, domainId: selectedDomain.id })"
+                      :title="'Muster a field army — ' + (rulerCharacter(selectedDomain) ? (rulerCharacter(selectedDomain).name + ' leads, this garrison is pre-selected') : 'pick a commander') + ' (RR pp.435–437)'"
+                      class="px-2 py-1 border border-ink rounded text-sm font-semibold hover:bg-yellow-100">🎖 Muster field army</button>
+            </div>
             <p class="text-xs opacity-60 italic mb-2">Field armies raised from or commanded by this domain — mustered forces and reaction sallies now afield. Click one to manage it (Characters ▸ Parties).</p>
-            <table class="bookkeeping text-sm">
+            <template x-if="domainFieldArmyRows(selectedDomain).length === 0"><p class="text-sm italic opacity-60">No field armies afield. 🎖 Muster one to take troops into the field.</p></template>
+            <table class="bookkeeping text-sm" x-show="domainFieldArmyRows(selectedDomain).length > 0">
               <thead><tr><th>Army</th><th>Commander</th><th>Location</th><th>Troops</th><th title="Battle rating">BR</th><th title="Miles per day">Speed</th><th>Status</th></tr></thead>
               <tbody>
                 <template x-for="row in domainFieldArmyRows(selectedDomain)" :key="'fa-'+row.army.id">
@@ -9444,7 +9599,7 @@ document.addEventListener('alpine:init', () => {
         <template x-for="u in selectedUnitList()" :key="'udet-'+u.id">
           <div class="mt-3 border-2 rounded p-3 text-sm" style="background:#f3ead8; border-color:#5a4632">
             <div class="flex flex-wrap justify-between items-baseline gap-2 mb-1">
-              <p class="font-bold">🪖 <span x-text="u.displayName || u.unitTypeKey || 'Unit'"></span>
+              <p class="font-bold"><button @click="openUnitSheet(u)" class="underline text-left" title="Open the unit sheet">🪖 <span x-text="u.displayName || u.unitTypeKey || 'Unit'"></span></button>
                 <span class="font-normal opacity-70" x-text="' · ' + Math.max(0,(u.count||0)-(u.casualties||0)).toLocaleString() + ' soldiers' + (u.unitTypeKey ? (' · ' + u.unitTypeKey) : '') + (u.race && u.race !== 'man' ? (' · ' + u.race) : '') + (u.veteran ? ' · veteran' : '')"></span></p>
               <button x-show="u.commanderCharacterId || u.lieutenantCharacterId" @click="openCharacterEditor(u.commanderCharacterId || u.lieutenantCharacterId)" class="text-xs underline">officer ›</button>
             </div>
@@ -16649,62 +16804,51 @@ return {
       return (b.appliedAt||'').localeCompare(a.appliedAt||'');
     });
   },
-  // ─── #550 Garrison-unit Type cascade: wage + BR auto-update (2026-05-30; W1 2026-06-12:
-  //      the interim hardcoded MERCENARY_UNIT_DEFAULTS map is retired — defaults now read
-  //      TROOP_CATALOG (RR pp.438–441), race/veteran-aware via the unit's own fields) ───
-  mercenaryUnitDefaults(typeId, unit){
+  // ─── Military unit helpers + the clickable Unit Sheet + the Levy modal (RR pp.427–433) ───
+  // Type is set by recruiting/training and is READ-ONLY in the table; clicking a unit's NAME opens
+  // its sheet (where field-editing happens), and the 🔍 Inspector is the admin/raw path.
+  unitTypeLabelFor(u){
+    if(!u || u.unitTypeKey === 'untrained-levy') return 'untrained';
     const A = window.ACKS;
-    const row = (A && A.findTroopType)
-      ? A.findTroopType(typeId, { race: (unit && unit.race) || 'man', veteran: !!(unit && unit.veteran), loadout: (unit && unit.loadout) || null })
-      : null;
-    return row ? { wage: row.wageGpMonth, br: row.brPerCreature, label: row.label } : null;
+    const row = (A && A.findTroopType) ? A.findTroopType(u.unitTypeKey, { race: u.race, veteran: !!u.veteran, loadout: u.loadout || null }) : null;
+    if(row && row.label) return row.label;
+    const merc = ((A && A.HIRELING_MERCENARIES) || []).find(r => r.id === u.unitTypeKey);
+    return (merc && merc.label) || u.unitTypeKey || '—';
   },
-  onGarrisonUnitTypeChange(u, i, newTypeId){
-    if(!u || !newTypeId || newTypeId === u.unitTypeKey) return;
-    const oldTypeId = u.unitTypeKey;
-    const oldDefaults = this.mercenaryUnitDefaults(oldTypeId, u);
-    const newDefaults = this.mercenaryUnitDefaults(newTypeId, u);
-    // 1. Commit Type — always logged.
-    this.commitStatEdit({
-      entityType: 'garrison-unit', entityId: u.id, entity: u,
-      fieldPath: 'unitTypeKey', oldValue: oldTypeId, newValue: newTypeId,
-      label: 'Unit #' + (i + 1) + ' type'
-    });
-    if(!newDefaults) return;  // unknown type — leave wage/BR alone
-    // 2. Cascade wage if it matched the old type's default OR was zero (so user-custom values are preserved).
-    const wageIsDefault = (oldDefaults && Math.abs((u.monthlyWage || 0) - oldDefaults.wage) < 0.5) || !u.monthlyWage;
-    if(wageIsDefault && u.monthlyWage !== newDefaults.wage){
-      this.commitStatEdit({
-        entityType: 'garrison-unit', entityId: u.id, entity: u,
-        fieldPath: 'monthlyWage', oldValue: u.monthlyWage || 0, newValue: newDefaults.wage,
-        label: 'Unit #' + (i + 1) + ' wage (auto-updated for new type)'
-      });
-    }
-    // 3. Cascade BR/soldier if it matched the old type's default OR was zero.
-    const brIsDefault = (oldDefaults && Math.abs((u.brPerSoldier || 0) - oldDefaults.br) < 0.001) || !u.brPerSoldier;
-    if(brIsDefault && u.brPerSoldier !== newDefaults.br){
-      this.commitStatEdit({
-        entityType: 'garrison-unit', entityId: u.id, entity: u,
-        fieldPath: 'brPerSoldier', oldValue: u.brPerSoldier || 0, newValue: newDefaults.br,
-        label: 'Unit #' + (i + 1) + ' BR/soldier (auto-updated for new type)'
-      });
-    }
-    // 4. Cascade displayName ONLY if it still matches the old type's label (i.e. wasn't
-    //    customized). A default name can be the market label ("Light Infantry") or the
-    //    TROOP_CATALOG row label blankUnit assigns ("Light Infantry A") — accept either.
+  unitMoraleText(u){ const m = (window.ACKS.unitMoraleScore) ? window.ACKS.unitMoraleScore(this.currentCampaign, u) : ((u.unitTypeKey === 'untrained-levy' ? -2 : 0) + (u.moraleAdjustment || 0)); return (m > 0 ? '+' : '') + m; },
+  // Living-count subtotal for a garrison section (the dead collect no wage / carry no BR).
+  unitListTotals(units){ const us = units || []; const liv = u => Math.max(0, (u.count || 0) - (u.casualties || 0)); return { count: us.reduce((s,u)=>s+liv(u),0), cost: us.reduce((s,u)=>s+liv(u)*(u.monthlyWage||0),0), br: us.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
+  // The domain that owns the sheet's unit (for the garrison-context Split/Merge/Release ops).
+  unitSheetDomain(){ const u = this.unitSheetUnit(); if(!u) return null; const id = u.homeDomainId || ((u.stationedAt && u.stationedAt.kind === 'domain-garrison') ? u.stationedAt.id : null); return id ? (this.domains || []).find(d => d && d.id === id) : null; },
+  openUnitSheet(u){ if(u && u.id) this.unitSheetUnitId = u.id; },
+  closeUnitSheet(){ this.unitSheetUnitId = null; },
+  unitSheetUnit(){
+    const id = this.unitSheetUnitId, c = this.currentCampaign;
+    if(!id || !c) return null;
     const A = window.ACKS;
-    const cat = (A && A.HIRELING_MERCENARIES) || [];
-    const oldLabel = (cat.find(r => r.id === oldTypeId) || {}).label;
-    const newLabel = ((newDefaults && newDefaults.label) || (cat.find(r => r.id === newTypeId) || {}).label);
-    const cur = (u.displayName || '').trim();
-    const wasDefaultName = cur === oldLabel || (oldDefaults && cur === oldDefaults.label);
-    if(wasDefaultName && newLabel){
-      this.commitStatEdit({
-        entityType: 'garrison-unit', entityId: u.id, entity: u,
-        fieldPath: 'displayName', oldValue: u.displayName, newValue: newLabel,
-        label: 'Unit #' + (i + 1) + ' name (auto-updated for new type)'
-      });
-    }
+    let u = (A && A.findUnit) ? A.findUnit(c, id) : null;
+    if(u) return u;
+    for(const d of (this.domains || [])){ const m = (((d.garrison && d.garrison.units) || [])).find(x => x && x.id === id); if(m) return m; }
+    for(const ch of ((c.characters) || [])){ const m = (((ch.mercenaryCompany && ch.mercenaryCompany.units) || [])).find(x => x && x.id === id); if(m) return m; }
+    return null;
+  },
+  unitSheetList(){ const u = this.unitSheetUnit(); return u ? [u] : []; },
+  unitSheetHexOptions(){ const u = this.unitSheetUnit(); return u ? this.unitHomeHexOptions(u) : []; },
+  // Levy modal — count + home hex (RR pp.430–433). Materializes the levy, then sets its home.
+  openLevyModal(domain, source){ if(domain) this.levyModal = { open: true, domainId: domain.id, source, count: 1, homeHexId: '' }; },
+  closeLevyModal(){ this.levyModal.open = false; },
+  levyModalDomain(){ const id = this.levyModal && this.levyModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
+  levyModalAvailable(){ const d = this.levyModalDomain(); return d ? this.domainLevyAvailable(d, this.levyModal.source) : 0; },
+  levyModalCanSubmit(){ const d = this.levyModalDomain(); if(!d) return false; const n = Math.floor(Number(this.levyModal.count) || 0); return this.domainCanLevy(d) && n >= 1 && n <= this.levyModalAvailable(); },
+  submitLevy(){
+    const d = this.levyModalDomain(); if(!d || !this.levyModalCanSubmit()) return;
+    const n = Math.floor(Number(this.levyModal.count) || 0); const src = this.levyModal.source; const A = window.ACKS;
+    const u = src === 'militia' ? A.levyMilitia(this.currentCampaign, d.id, { count: n }) : A.levyConscripts(this.currentCampaign, d.id, { count: n });
+    if(!u){ this.showToast && this.showToast('No room to levy more ' + src + ' (available ' + this.domainLevyAvailable(d, src) + ').', 4000); return; }
+    if(this.levyModal.homeHexId) this.setUnitHomeUi(u, this.levyModal.homeHexId);
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Levied ' + u.count + ' ' + src + ' from ' + (d.name || d.id) + '.');
+    this.closeLevyModal();
   },
 
   // ─── #549 Add garrison unit with audit event (2026-05-30; W1: catalog defaults +
@@ -16854,12 +16998,6 @@ return {
   domainMilitiaMoralePenalty(domain){ return window.ACKS.militiaDomainMoralePenalty(this.currentCampaign, domain) || 0; },
   domainTrainedMilitiaCreditText(domain){ const c = window.ACKS.domainTrainedMilitiaCredit(this.currentCampaign, domain) || 0; return c > 0 ? ('garrison credit ' + c.toLocaleString() + 'gp (trained militia at home, RR p.341)') : ''; },
   levyUnitLiving(u){ return Math.max(0, (u.count || 0) - (u.casualties || 0)); },
-  levyUnitTypeLabel(u){
-    if(!u || u.unitTypeKey === 'untrained-levy') return 'untrained';
-    const row = (window.ACKS.findTroopType) ? window.ACKS.findTroopType(u.unitTypeKey, { race: u.race }) : null;
-    return (row && row.label) || u.unitTypeKey;
-  },
-  levyUnitMoraleText(u){ const m = (window.ACKS.unitMoraleScore) ? window.ACKS.unitMoraleScore(u) : ((u.unitTypeKey === 'untrained-levy' ? -2 : 0) + (u.moraleAdjustment || 0)); return (m > 0 ? '+' : '') + m; },
   // Divide a levy into units (organize for training) — proportional casualty split; keeps source/home/calledUp.
   domainSplitLevy(domain, unit){
     if(!domain || !unit) return;
@@ -16903,10 +17041,6 @@ return {
   },
   // Garrison table — standing (non-levy) units only; levies live in the Conscript/Militia tables below.
   garrisonStandingUnits(domain){ return ((domain && domain.garrison && domain.garrison.units) || []).filter(u => u && u.source !== 'conscript' && u.source !== 'militia'); },
-  garrisonStandingTotals(domain){
-    const us = this.garrisonStandingUnits(domain);
-    return { count: us.reduce((s, u) => s + (u.count || 0), 0), cost: us.reduce((s, u) => s + (u.count || 0) * (u.monthlyWage || 0), 0), br: us.reduce((s, u) => s + (u.count || 0) * (u.brPerSoldier || 0), 0) };
-  },
   removeGarrisonUnit(domain, u){
     const arr = (domain && domain.garrison && domain.garrison.units) || [];
     const idx = arr.indexOf(u); if(idx >= 0) arr.splice(idx, 1);
@@ -17600,6 +17734,9 @@ return {
     if(unit.rallyingToArmyId){
       const a = (camp.armies || []).find(x => x && x.id === unit.rallyingToArmyId);
       return '🚶 to ' + (a ? (a.name || 'muster') : 'muster');
+    }
+    if(unit.source === 'militia' && unit.calledUp === false){
+      return '🏠 at home' + (unit.homeHexId ? (' (' + this.hexLabelById(unit.homeHexId) + ')') : '');
     }
     const st = unit.stationedAt || null;
     if(st && st.kind === 'army'){
@@ -22906,6 +23043,8 @@ return {
   lairWizardSeed: { hexId:'', count:0 },
   // #476 M7 — World ▸ Lairs view + lair detail panel (Plan §12).
   lairDetailId: null,            // open lair in the detail modal (null = closed)
+  unitSheetUnitId: null,         // the clickable unit detail/edit modal (null = closed)
+  levyModal: { open: false, domainId: null, source: 'conscript', count: 1, homeHexId: '' },  // ⚒/🛡 Levy modal
   // Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E). Transient form state.
   arcaneDungeonId: null,         // open dungeon in the arcane modal (null = closed)
   dungeonBuild: { open: false, name: '', ownerCharacterId: '', hexId: '', buildValueGp: 30000, areaSqFt: 60000, areaCount: 24, treasureSeededGp: 0 },  // AD-C — the 🏗 Build a dungeon modal
