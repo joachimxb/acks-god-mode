@@ -5308,6 +5308,21 @@ function commitMonsterBandRecord(campaign, record){
   // Linger → the band settles AS a den at the entry hex (JJ p.103; the E4m adopt — the
   // den binds THE Group, no second population; full strength gathers it to the lair count).
   if(record.settle && record.settle.hexId){
+    const s = record.settle;
+    const entry = (s.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(s.monsterCatalogKey) : null;
+    // AD-C (RR p.386) — a dungeon at this hex captures the band to lair WITHIN it, BEFORE the JJ p.69
+    // hex cap (a dungeon concentrates lairs — its own 1/3-full cap governs).
+    if(typeof A.settleBandIntoDungeon === 'function'){
+      const r = A.settleBandIntoDungeon(campaign, { hexId: s.hexId, groupId: g.id,
+        monsterKey: (entry && entry.key) || s.monsterCatalogKey || '', fullStrength: !!s.fullStrength, count: s.count, turn, via: 'wander' });
+      if(r && r.ok){
+        const alive0 = (typeof A.groupActiveCount === 'function') ? A.groupActiveCount(g) : Math.max(0, (g.count || 0) - (g.casualties || 0));
+        if(s.fullStrength && s.count > alive0) g.count = (g.count || 0) + (s.count - alive0);
+        g.currentHexId = s.hexId; g.wanderState = null;
+        g.history.push({ turn, type: 'settled', reason: 'lured into ' + ((r.dungeon && r.dungeon.name) || 'a dungeon') + ' — ' + ((r.lair && (r.lair.name || r.lair.id)) || 'a lair') });
+        return;
+      }
+    }
     // E9 — re-check the JJ p.69 cap at commit (another band may have denned this hex the
     // same day, or the GM authored a lair since the propose pass): full ⇒ the band moves on.
     const capNow = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, record.settle.hexId) : null;
@@ -5316,8 +5331,6 @@ function commitMonsterBandRecord(campaign, record){
         reason: 'the hex filled to its lair cap (' + capNow.count + ' of ' + capNow.max + ', JJ p.69) before the band could den — it moves on' });
       return;
     }
-    const s = record.settle;
-    const entry = (s.monsterCatalogKey && typeof A.findMonster === 'function') ? A.findMonster(s.monsterCatalogKey) : null;
     const lair = (typeof A.createLair === 'function') ? A.createLair(campaign, {
       hexId: s.hexId, monsterCatalogKey: (entry && entry.key) || s.monsterCatalogKey || '',
       status: 'active', establishedBy: 'wander-settle', establishedAtTurn: turn,
@@ -5534,7 +5547,13 @@ function proposeIncursionDay(campaign, ctx){
       }));
       if(!candidates.length) candidates = domHexes;
     }
-    const entryHex = candidates.length ? candidates[Math.floor(rng() * candidates.length)] : null;
+    let entryHex = candidates.length ? candidates[Math.floor(rng() * candidates.length)] : null;
+    // AD-C (RR p.386) — a stocked dungeon LURES the arrival to its hex (its whole purpose is to draw
+    // wandering monsters in). When the domain holds a live, not-full dungeon, the incursion lands there.
+    if(typeof A.dungeonForArrival === 'function'){
+      const lure = A.dungeonForArrival(campaign, d);
+      if(lure && lure.hexId){ const lh = (campaign.hexes || []).find(h => h && h.id === lure.hexId); if(lh) entryHex = lh; }
+    }
     // ── identity: rarity (JJ p.72, the effective classification) → the terrain table ──
     const rar = (typeof A.rollEncounterRarity === 'function') ? A.rollEncounterRarity(chance.effective, rng) : { roll: null, rarity: 'common' };
     let identity = null;
@@ -5549,8 +5568,12 @@ function proposeIncursionDay(campaign, ctx){
     const idLabel = (entry && entry.name) || (identity && identity.label) || 'monsters (GM identifies)';
     // ── linger or migrate (JJ p.103) + the number encountered ──
     const lairPct = (entry && typeof entry.lairPct === 'number') ? entry.lairPct : 0;
+    // AD-C (RR p.386) — a dungeon seeded with treasure ≥ the monster's Treasure-Type average DOUBLES its
+    // Lair %. The full-strength roll stays against the PLAIN Lair % ("1d100 again against its Lair characteristic").
+    const lairBonus = (entryHex && typeof A.dungeonLairBonus === 'function') ? A.dungeonLairBonus(campaign, entryHex.id, entry) : 1;
+    const effLairPct = Math.min(100, lairPct * lairBonus);
     const lingerRoll = 1 + Math.floor(rng() * 100);
-    const lingering = lairPct > 0 && lingerRoll <= lairPct;
+    const lingering = effLairPct > 0 && lingerRoll <= effLairPct;
     const strengthRoll = lingering ? (1 + Math.floor(rng() * 100)) : null;
     const fullStrength = !!(lingering && strengthRoll <= lairPct);
     let count = null, countSpec = null;
@@ -5672,9 +5695,19 @@ function commitIncursionRecord(campaign, record){
                       destLairId: null, dissolveOnArrival: false, lastDomainId: record.domainId, halted: true };
   }
   campaign.groups.push(g);
+  // AD-C (RR p.386) — a dungeon at the entry hex LURES the lingering band to lair WITHIN it (any
+  // attitude — it dens in the dungeon, it does not ally with the domain), gated by the dungeon's own
+  // 1/3-full cap. Falls through to the JJ p.103 bare-hex settle when no dungeon captured the band.
+  let denned = false;
+  if(record.lingering && record.hexId && typeof A.settleBandIntoDungeon === 'function'){
+    const r = A.settleBandIntoDungeon(campaign, { hexId: record.hexId, groupId: g.id,
+      monsterKey: (entry && entry.key) || (record.identity && record.identity.key) || '',
+      fullStrength: !!record.fullStrength, count: record.count, turn, via: 'incursion' });
+    if(r && r.ok){ denned = true; g.wanderState = null; }
+  }
   // a lingering NEUTRAL band looks for a place to settle at once (JJ p.103); the E9 hex
   // cap can refuse it ("simply too crowded" — it holds as a loose band instead).
-  if(record.lingering && att === 'neutral' && record.hexId){
+  if(!denned && record.lingering && att === 'neutral' && record.hexId){
     const capNow = (typeof A.hexLairCapacity === 'function') ? A.hexLairCapacity(campaign, record.hexId) : null;
     if(capNow && capNow.full){
       g.history.push({ turn, type: 'wander',
@@ -5698,6 +5731,11 @@ function commitIncursionRecord(campaign, record){
         g.history.push({ turn, type: 'settled', reason: 'lingered and denned — ' + (lair.name || lair.id) });
       }
     }
+  }
+  // AD-C (RR p.387) — a migrating band of men / dwarves / elves past an OWNED dungeon = adventurers come
+  // to clear it (a GM one-off-delve prompt; non-blocking, fired only when no dungeon captured the band).
+  if(!denned && !record.lingering && record.hexId && typeof A.noteDungeonInvaders === 'function'){
+    A.noteDungeonInvaders(campaign, { hexId: record.hexId, groupId: g.id, monsterKey: (entry && entry.key) || '', via: 'incursion' });
   }
   // JJ p.103 — peasants distrust a NEUTRAL band the garrison is not deployed against:
   // −1 on the NEXT domain morale roll. One-shot; the monthly turn consumes the flag

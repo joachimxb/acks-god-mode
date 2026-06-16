@@ -906,6 +906,176 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // AD-C — Dungeon construction + Vagaries-of-Incursion auto-population (RR pp.386–387)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // A dungeon that can still take part in the world (capture arrivals / radiate danger): not
+  // cleared / sealed / abandoned / destroyed.
+  const _DUNGEON_LIVE_STATUS = { undiscovered: 1, known: 1, 'being-cleared': 1 };
+  function _dungeonIsLive(d){ return !!(d && _DUNGEON_LIVE_STATUS[d.status || 'known']); }
+
+  // Called by applyEvent_constructionCompleted when a kind:'dungeon' Construction Project completes
+  // (RR p.386 — built through Structure Costs). Mints a first-class Dungeon (dun-) — NOT a generic cst-
+  // Constructible — carrying buildValueGp + builtByProjectId, fires dungeon-established, and AUTO-ATTUNES
+  // the owner if he is an arcane L9+ caster (RR p.387 — the funder/overseer is attuned on completion, no
+  // throw). Idempotent (a dungeon already built for this project → return it). Mirrors onSanctumConstructed.
+  function onDungeonConstructed(campaign, proj, opts){
+    opts = opts || {};
+    const A = _A();
+    if(!campaign || !proj) return { ok: false, reason: 'no-project' };
+    const existing = _dungeons(campaign).find(d => d && d.builtByProjectId === proj.id);
+    if(existing) return { ok: true, alreadyBuilt: true, dungeon: existing };
+    if(typeof A.blankDungeon !== 'function') return { ok: false, reason: 'no-dungeon-factory' };
+    const turn = _currentTurn(campaign);
+    const fd = proj.functionData || {};
+    const dungeon = A.blankDungeon({
+      name: proj.name || proj.constructibleSubtype || 'Dungeon',
+      hexId: proj.siteHexId || null,
+      domainId: proj.ownerDomainId || null,
+      ownerCharacterId: proj.ownerCharacterId || null,
+      origin: 'constructed', status: 'known', knownToPlayers: true,
+      builtByProjectId: proj.id,
+      buildValueGp: (opts.event && opts.event.payload && opts.event.payload.buildValue) || proj.totalCost || 0,
+      levels: proj.levels || fd.levels || 1,
+      areaSqFtPerLevel: (Array.isArray(proj.areaSqFtPerLevel) && proj.areaSqFtPerLevel.length) ? proj.areaSqFtPerLevel.slice()
+        : (Array.isArray(fd.areaSqFtPerLevel) ? fd.areaSqFtPerLevel.slice() : []),
+      areaCount: (proj.areaCount != null) ? proj.areaCount : ((fd.areaCount != null) ? fd.areaCount : null),
+      treasureSeededGp: (proj.treasureSeededGp != null) ? proj.treasureSeededGp : ((fd.treasureSeededGp != null) ? fd.treasureSeededGp : null),
+      establishedAtTurn: turn
+    });
+    if(!Array.isArray(campaign.dungeons)) campaign.dungeons = [];
+    campaign.dungeons.push(dungeon);
+    dungeon.history = dungeon.history || [];
+    dungeon.history.push({ turn, type: 'built', reason: 'construction completed (' + ((dungeon.buildValueGp || 0)).toLocaleString() + 'gp)' });
+    const owner = _findChar(campaign, dungeon.ownerCharacterId);
+    _recordArcaneEvent(campaign, 'dungeon-established',
+      { dungeonId: dungeon.id, origin: 'constructed', builtByProjectId: proj.id, ownerCharacterId: dungeon.ownerCharacterId, buildValueGp: dungeon.buildValueGp },
+      { primaryHexId: dungeon.hexId, domainId: dungeon.domainId,
+        narrative: (owner ? ((owner.name || owner.id) + ' completes ') : 'A dungeon is completed: ') + (dungeon.name || 'a dungeon'),
+        relatedEntities: (dungeon.ownerCharacterId ? [{ kind: 'character', id: dungeon.ownerCharacterId, role: 'subject' }] : []).concat([{ kind: 'dungeon', id: dungeon.id, role: 'site' }]) });
+    // RR p.387 — the funder/overseer is auto-attuned on completion (arcane L9+ only; a non-mage's
+    // built dungeon simply exists until an eligible caster attunes to it).
+    let attunement = null;
+    if(owner && canOperateDungeon(owner)){
+      try { const r = attuneToDungeon(campaign, { dungeonId: dungeon.id, mageCharacterId: owner.id, method: 'built' }); attunement = (r && r.attunement) || null; } catch(_e){ /* attunement is a bonus; never fail the build */ }
+    }
+    return { ok: true, dungeon, attunement, masterId: dungeon.ownerCharacterId };
+  }
+
+  // The live, not-yet-full dungeon in a domain that LURES the day's incursion arrival to its hex
+  // (RR p.386 — a stocked dungeon's whole purpose is to draw wandering monsters in). The incursion
+  // consumer redirects entryHex to dungeon.hexId. 🔧 v1: the lure is absolute (an incursion in a
+  // dungeon-bearing domain lands at the dungeon); a future refinement weights it vs the border draw.
+  function dungeonForArrival(campaign, domain){
+    if(!campaign || !domain) return null;
+    const hexes = (campaign.hexes || []);
+    return _dungeons(campaign).find(d => d && _dungeonIsLive(d) && d.hexId && !dungeonIsFull(campaign, d) && (
+      d.domainId === domain.id || hexes.some(h => h && h.id === d.hexId && h.domainId === domain.id)
+    )) || null;
+  }
+
+  // The MM Treasure-Type average gp (late-bound to the Treasure module, loaded after this one).
+  function _treasureTypeAverageGp(type){
+    const A = _A();
+    if(type && typeof A.treasureTypeAvgGp === 'function'){ const v = A.treasureTypeAvgGp(type); if(typeof v === 'number' && v > 0) return v; }
+    return Infinity;   // unknown (module absent) → seeding never meets it ⇒ no doubling
+  }
+  // RR p.386 — a dungeon seeded with treasure ≥ the average for the monster's Treasure Type DOUBLES its
+  // Lair %. Returns the linger-roll multiplier (2 or 1) for a monster arriving at the dungeon's hex.
+  function dungeonLairBonus(campaign, hexId, monsterEntry){
+    if(!hexId || !monsterEntry || !monsterEntry.treasureType) return 1;   // no Treasure Type → seeding doesn't help
+    for(const d of _dungeons(campaign)){
+      if(!d || d.hexId !== hexId || !_dungeonIsLive(d)) continue;
+      const seeded = Math.max(0, Number(d.treasureSeededGp) || 0);
+      if(seeded > 0 && seeded >= _treasureTypeAverageGp(monsterEntry.treasureType)) return 2;
+    }
+    return 1;
+  }
+
+  // Settle an arriving/wandering band as a Lair WITHIN a dungeon at its hex (RR p.386 — "monsters lair
+  // within the dungeon"). The dungeon-aware seam the incursion + wander commit paths call before the
+  // bare-hex settle: finds a live, NOT-full dungeon at hexId, creates the lair (the shipped createLair
+  // path), binds the group, and ANCHORS it to a dungeon room (lair.dungeonId + ordinal). Gated on the
+  // dungeon's own 1/3-full cap (dungeonIsFull), NOT the JJ p.69 hex cap (a dungeon concentrates lairs —
+  // that is its point). Returns { ok, lair, dungeon } / { ok:false, reason }. The caller owns group-side
+  // bookkeeping (count-gather, currentHexId, wanderState). opts: { hexId, groupId, monsterKey, fullStrength, count, turn, via }
+  function settleBandIntoDungeon(campaign, opts){
+    opts = opts || {};
+    const A = _A();
+    const hexId = opts.hexId, groupId = opts.groupId;
+    if(!hexId || !groupId) return { ok: false, reason: 'missing-args' };
+    const here = _dungeons(campaign).filter(d => d && d.hexId === hexId && _dungeonIsLive(d));
+    if(!here.length) return { ok: false, reason: 'no-dungeon' };
+    const dungeon = here.find(d => !dungeonIsFull(campaign, d)) || null;
+    if(!dungeon) return { ok: false, reason: 'dungeon-full' };
+    if(typeof A.createLair !== 'function') return { ok: false, reason: 'no-createLair' };
+    const entry = _findMonster(opts.monsterKey);
+    const turn = (opts.turn != null) ? opts.turn : _currentTurn(campaign);
+    const lair = A.createLair(campaign, {
+      hexId, monsterCatalogKey: (entry && entry.key) || opts.monsterKey || '',
+      status: 'active', establishedBy: 'dungeon-settle', establishedAtTurn: turn,
+      knownToPlayers: false, name: ((entry && entry.name) || 'Monster') + ' lair'
+    });
+    if(!lair) return { ok: false, reason: 'createLair-failed' };
+    if(lair.lairPct == null && entry) lair.lairPct = entry.lairPct;
+    lair.treasureType = opts.fullStrength ? ((entry && entry.treasureType) || '') : '';
+    lair.groupIds = [groupId];
+    lair.totalInhabitantCount = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : null;
+    lair.history = lair.history || [];
+    lair.history.push({ turn, type: 'settled',
+      reason: 'lured into ' + (dungeon.name || 'a dungeon') + ' (RR p.386) — ' + (opts.fullStrength ? ('full lair strength' + (opts.count ? (' (' + opts.count + ')') : '')) : 'wandering numbers (no hoard yet)') });
+    anchorLairToDungeon(campaign, lair.id, dungeon.id);
+    if(!Array.isArray(dungeon.history)) dungeon.history = [];
+    dungeon.history.push({ turn, type: 'populated',
+      reason: (opts.count != null ? (opts.count + '× ') : '') + ((entry && entry.name) || 'monsters') + ' settled (' + (opts.via || 'arrival') + ')' });
+    _recordArcaneEvent(campaign, 'dungeon-populated',
+      { dungeonId: dungeon.id, lairId: lair.id, monsterKey: (entry && entry.key) || opts.monsterKey || '', count: (opts.count != null ? opts.count : null), via: opts.via || 'arrival' },
+      { primaryHexId: hexId, domainId: dungeon.domainId,
+        narrative: ((entry && entry.name) || 'Monsters') + ' lair within ' + (dungeon.name || 'the dungeon'),
+        relatedEntities: [{ kind: 'dungeon', id: dungeon.id, role: 'site' }, { kind: 'group', id: groupId, role: 'subject' }] });
+    return { ok: true, lair, dungeon };
+  }
+
+  // RR p.387 — when an incursion draw at an OWNED dungeon's hex is a passing band of men / dwarves /
+  // elves, it means an adventuring party has come to clear the dungeon. Fires a record-only
+  // dungeon-invaded GM prompt (the resolution is a one-off delve — Phase 3.5). 🔧 v1 heuristic: any
+  // migrating humanoid man/demi-human band is FLAGGED for the GM's call (bandits vs delvers is a judgement).
+  function _isAdventurerBand(entry){
+    if(!entry) return false;
+    const types = entry.creatureTypes || [];
+    if(!types.includes('humanoid')) return false;
+    const key = (entry.key || '').toLowerCase();
+    return /^(man|dwarf|elf|gnome|halfling|nobiran|zaharan|thrassian)\b/.test(key) || /\bman,|adventurer/.test((entry.name || '').toLowerCase());
+  }
+  function noteDungeonInvaders(campaign, opts){
+    opts = opts || {};
+    const hexId = opts.hexId;
+    if(!hexId) return { ok: false, reason: 'no-hex' };
+    const dungeon = _dungeons(campaign).find(d => d && d.hexId === hexId && _dungeonIsLive(d) && d.ownerCharacterId);
+    if(!dungeon) return { ok: false, reason: 'no-owned-dungeon' };
+    const entry = _findMonster(opts.monsterKey);
+    if(!_isAdventurerBand(entry)) return { ok: false, reason: 'not-adventurers' };
+    _recordArcaneEvent(campaign, 'dungeon-invaded',
+      { dungeonId: dungeon.id, groupId: opts.groupId || null, monsterKey: opts.monsterKey || '', partyDescription: (entry && entry.name) || 'an adventuring party', via: opts.via || 'incursion' },
+      { primaryHexId: hexId, domainId: dungeon.domainId,
+        narrative: 'Adventurers (' + ((entry && entry.name) || 'a party') + ') arrive to clear ' + (dungeon.name || 'the dungeon') + ' (RR p.387) — the GM runs a one-off delve',
+        relatedEntities: [{ kind: 'dungeon', id: dungeon.id, role: 'site' }].concat(opts.groupId ? [{ kind: 'group', id: opts.groupId, role: 'subject' }] : []) });
+    return { ok: true, dungeon };
+  }
+
+  // JJ p.102 — a domain that harbours a stocked dungeon (≥1 owned live dungeon with monster population)
+  // radiates danger: its neighbours treat the shared border as UNSETTLED (dangerous, not secure). Read
+  // late-bound by domainBorderConfiguration (acks-engine.js, loaded before this module). The Military
+  // §13.3 effect, now wireable since Dungeon entities exist (AD-E left it ⬜).
+  function domainIsDungeonDangerousForNeighbours(campaign, domainId){
+    if(!campaign || !domainId) return false;
+    const d = (campaign.domains || []).find(x => x && x.id === domainId);
+    if(!d) return false;
+    for(const dn of _domainOwnedDungeons(campaign, d)){ if(dungeonMonsterXp(campaign, dn) > 0) return true; }
+    return false;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // Event emit — record-only (mirror religion's _recordReligionEvent): newEvent + setEventContext +
   // status APPLIED + push the eventLog entry. The arcane events are record-only audits (the verbs above
   // already applied state); applyEvent_arcaneAudit (acks-engine-events.js) keeps them well-formed on replay.
@@ -953,6 +1123,9 @@
     specialComponentsHeldBy, researchFacilityFor, researchAssistantsFor,
     // AD-E — harvesting + domain effects
     harvestDungeon, dungeonRequiredGarrisonGpf, dungeonGarrisonMoralePenalty,
+    // AD-C — dungeon construction (the completion hook) + Vagaries auto-population + the JJ p.102 neighbour effect
+    onDungeonConstructed, dungeonForArrival, dungeonLairBonus, settleBandIntoDungeon,
+    noteDungeonInvaders, domainIsDungeonDangerousForNeighbours,
     // AD-B — Sanctum establishment + apprentices/companions
     SANCTUM_COMPANION_CAP, SANCTUM_APPRENTICE_CAP, FACILITY_KINDS,
     blankApprenticeship, isSanctum, sanctumsOwnedBy,

@@ -523,6 +523,232 @@ section('AD-B — the 4 sanctum event kinds registered + lookups');
 }
 
 // =============================================================================
+section('AD-C — the 3 event kinds registered (KINDS / SCHEMAS / wizard-opt-out)');
+// =============================================================================
+['dungeon-established','dungeon-populated','dungeon-invaded'].forEach(k => {
+  ok('EVENT_KINDS has ' + k, ACKS.EVENT_KINDS.indexOf(k) >= 0);
+  ok('EVENT_SCHEMAS has ' + k, !!ACKS.EVENT_SCHEMAS[k]);
+  ok(k + ' is wizard-opt-out', ACKS.EVENT_WIZARD_OPTOUT.has(k));
+});
+
+// =============================================================================
+section('AD-C — onDungeonConstructed: mint a Dungeon from a kind:dungeon Project + auto-attune (RR p.386–387)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 7;
+  c.characters = [ ACKS.blankCharacter({ id:'chr-q', name:'Quintus', class:'Mage', level:9, currentHexId:'hex-1', abilities:{ INT:16 } }) ];
+  c.domains = [{ id:'dom-1', name:'D' }];
+  c.hexes = [{ id:'hex-1', domainId:'dom-1', coord:{q:0,r:0} }];
+  const proj = { id:'prj-d', constructibleKind:'dungeon', name:'The Vault', siteHexId:'hex-1',
+    ownerCharacterId:'chr-q', ownerDomainId:'dom-1', totalCost:30000, areaSqFtPerLevel:[60000], areaCount:18 };
+  const r = ACKS.onDungeonConstructed(c, proj, {});
+  ok('onDungeonConstructed mints a dungeon', r.ok === true && !!r.dungeon);
+  const d = r.dungeon;
+  ok('the dungeon is in campaign.dungeons', (c.dungeons || []).indexOf(d) >= 0);
+  ok('id is dun- prefixed', /^dun-/.test(d.id));
+  ok('origin constructed', d.origin === 'constructed');
+  ok('buildValueGp from the project totalCost', d.buildValueGp === 30000);
+  ok('builtByProjectId set', d.builtByProjectId === 'prj-d');
+  ok('hexId / domainId / owner carried', d.hexId === 'hex-1' && d.domainId === 'dom-1' && d.ownerCharacterId === 'chr-q');
+  ok('areaSqFtPerLevel carried from the project', JSON.stringify(d.areaSqFtPerLevel) === '[60000]');
+  ok('areaCount carried from the project', d.areaCount === 18);
+  ok('status known + knownToPlayers (a built dungeon is known)', d.status === 'known' && d.knownToPlayers === true);
+  ok('dungeon-established event fired', c.eventLog.some(e => e.event && e.event.kind === 'dungeon-established'));
+  // RR p.387 — the funder/overseer (arcane L9+) is AUTO-ATTUNED on completion (no throw).
+  ok('auto-attuned the L9 owner (built method)', !!r.attunement && ACKS.dungeonAttunedCharacterId(c, d) === 'chr-q');
+  // idempotent — the same project never mints a second dungeon (a preview replay is safe).
+  const r2 = ACKS.onDungeonConstructed(c, proj, {});
+  ok('idempotent (same project → no second dungeon)', r2.alreadyBuilt === true && (c.dungeons || []).length === 1);
+}
+{
+  // A NON-mage owner → the dungeon is minted but NOT auto-attuned (attunement needs arcane L9+).
+  const c = ACKS.blankCampaign(); c.currentTurn = 7;
+  c.characters = [ ACKS.blankCharacter({ id:'chr-f', name:'Sir Brun', class:'Fighter', level:9, currentHexId:'hex-1' }) ];
+  c.hexes = [{ id:'hex-1', coord:{q:0,r:0} }];
+  const proj = { id:'prj-f', constructibleKind:'dungeon', name:'Pit', siteHexId:'hex-1', ownerCharacterId:'chr-f', totalCost:30000 };
+  const r = ACKS.onDungeonConstructed(c, proj, {});
+  ok('non-mage owner: dungeon minted', r.ok === true && !!r.dungeon);
+  ok('non-mage owner: NOT auto-attuned', !r.attunement && ACKS.dungeonAttunedCharacterId(c, r.dungeon) == null);
+}
+
+// =============================================================================
+section('AD-C — the construction-completed hook mints a dun- (NOT a generic cst-) (integration)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.characters = [ ACKS.blankCharacter({ id:'chr-q', name:'Quintus', class:'Mage', level:9, currentHexId:'hex-1', abilities:{ INT:16 } }) ];
+  c.hexes = [{ id:'hex-1', coord:{q:0,r:0} }];
+  c.projects = [ { id:'prj-1', constructibleKind:'dungeon', constructibleSubtype:'dungeon', name:'The Maze', siteHexId:'hex-1',
+    ownerCharacterId:'chr-q', totalCost:30000, lifecycleState:'under-construction', laborRequired:100, laborInvested:100 } ];
+  const cstBefore = (c.constructibles || []).length;
+  ACKS.applyEvent(c, ACKS.newEvent('construction-completed', { submittedBy:'engine', targetTurn:5, payload:{ projectId:'prj-1' } }));
+  ok('construction-completed minted a Dungeon (dun-)', (c.dungeons || []).some(d => d.builtByProjectId === 'prj-1'));
+  ok('NO generic constructible spawned for a dungeon project', (c.constructibles || []).length === cstBefore);
+  ok('the built dungeon auto-attuned the L9 owner', ACKS.dungeonAttunedCharacterId(c, (c.dungeons || []).find(d => d.builtByProjectId === 'prj-1')) === 'chr-q');
+  ok('the project is marked complete', c.projects[0].lifecycleState === 'complete');
+}
+
+// =============================================================================
+section('AD-C — dungeonForArrival (the lure target): live + not-full + in-domain');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign();
+  c.domains = [{ id:'dom-1', name:'D' }];
+  c.hexes = [{ id:'hex-d', domainId:'dom-1', coord:{q:0,r:0} }];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-1', hexId:'hex-d', domainId:'dom-1', status:'known', areaCount:6 }) ];   // cap ceil(6/3)=2
+  ok('dungeonForArrival finds the live not-full dungeon in the domain', (ACKS.dungeonForArrival(c, c.domains[0]) || {}).id === 'dun-1');
+  c.lairs = [ ACKS.blankLair({ id:'l1', hexId:'hex-d', status:'active', dungeonId:'dun-1' }),
+              ACKS.blankLair({ id:'l2', hexId:'hex-d', status:'active', dungeonId:'dun-1' }) ];   // fills cap (2)
+  ok('dungeonForArrival null when the dungeon is full', ACKS.dungeonForArrival(c, c.domains[0]) === null);
+  c.lairs = []; c.dungeons[0].status = 'cleared';
+  ok('dungeonForArrival null for a cleared dungeon', ACKS.dungeonForArrival(c, c.domains[0]) === null);
+}
+
+// =============================================================================
+section('AD-C — settleBandIntoDungeon: the dungeon-aware settle seam (createLair + anchor + event)');
+// =============================================================================
+{
+  const { c } = fixture();   // dun-1 at hex-1 (cap 8) already holds the orc lair (areaIndex 0)
+  c.groups.push(ACKS.blankGroup({ id:'grp-new', groupTemplate:{ monsterCatalogKey:'orc' }, count:12, currentHexId:'hex-1' }));
+  const r = ACKS.settleBandIntoDungeon(c, { hexId:'hex-1', groupId:'grp-new', monsterKey:'orc', fullStrength:true, count:12, turn:5, via:'incursion' });
+  ok('settleBandIntoDungeon ok', r.ok === true);
+  ok('a lair was created + anchored to the dungeon', r.lair && r.lair.dungeonId === 'dun-1');
+  ok('the lair binds the band (groupIds)', r.lair.groupIds.indexOf('grp-new') >= 0);
+  ok('establishedBy dungeon-settle', r.lair.establishedBy === 'dungeon-settle');
+  ok('dungeon-populated event fired', c.eventLog.some(e => e.event && e.event.kind === 'dungeon-populated'));
+  ok('settleBandIntoDungeon refuses with no dungeon at the hex', ACKS.settleBandIntoDungeon(c, { hexId:'nowhere', groupId:'grp-new' }).reason === 'no-dungeon');
+}
+{
+  // the dungeon's own 1/3-full cap gates it (NOT the JJ p.69 hex cap — a dungeon concentrates lairs)
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.hexes = [{ id:'hex-1', coord:{q:0,r:0} }];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-1', hexId:'hex-1', status:'known', areaCount:3 }) ];   // cap ceil(3/3)=1
+  c.lairs = [ ACKS.blankLair({ id:'l1', hexId:'hex-1', status:'active', dungeonId:'dun-1' }) ];       // fills cap (1)
+  c.groups = [ ACKS.blankGroup({ id:'g2', groupTemplate:{ monsterCatalogKey:'orc' }, count:5, currentHexId:'hex-1' }) ];
+  const r = ACKS.settleBandIntoDungeon(c, { hexId:'hex-1', groupId:'g2', monsterKey:'orc' });
+  ok('settleBandIntoDungeon refuses a FULL dungeon (1/3-full cap)', r.ok === false && r.reason === 'dungeon-full');
+}
+
+// =============================================================================
+section('AD-C — dungeonLairBonus: treasure-seeding doubles the Lair % (RR p.386)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign();
+  c.hexes = [{ id:'hex-d', coord:{q:0,r:0} }];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-1', hexId:'hex-d', status:'known', treasureSeededGp: 0 }) ];
+  const orc = ACKS.findMonster('orc');
+  ok('dungeonLairBonus 1 with no seeding', ACKS.dungeonLairBonus(c, 'hex-d', orc) === 1);
+  const avg = (orc && orc.treasureType) ? ACKS.treasureTypeAvgGp(orc.treasureType) : 0;
+  if(orc && orc.treasureType && avg > 0 && isFinite(avg)){
+    c.dungeons[0].treasureSeededGp = avg;
+    ok('dungeonLairBonus 2 when seeded ≥ the Treasure-Type average', ACKS.dungeonLairBonus(c, 'hex-d', orc) === 2);
+    c.dungeons[0].treasureSeededGp = Math.max(0, avg - 1);
+    ok('dungeonLairBonus 1 when seeded < the average', ACKS.dungeonLairBonus(c, 'hex-d', orc) === 1);
+  }
+  // a monster with no Treasure Type → seeding doesn't help (RR p.386)
+  c.dungeons[0].treasureSeededGp = 1000000;
+  ok('dungeonLairBonus 1 for a monster with no Treasure Type', ACKS.dungeonLairBonus(c, 'hex-d', { key:'x', name:'X', treasureType:'' }) === 1);
+}
+
+// =============================================================================
+section('AD-C — noteDungeonInvaders: men/dwarves/elves at an owned dungeon = adventurers (RR p.387)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.hexes = [{ id:'hex-1', coord:{q:0,r:0} }];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-own', hexId:'hex-1', status:'known', ownerCharacterId:'chr-o' }) ];
+  ok('refuses a non-adventurer band (orcs are not men/dwarves/elves)', ACKS.noteDungeonInvaders(c, { hexId:'hex-1', monsterKey:'orc' }).reason === 'not-adventurers');
+  ok('refuses when no owned dungeon at the hex', ACKS.noteDungeonInvaders(c, { hexId:'elsewhere', monsterKey:'dwarf' }).reason === 'no-owned-dungeon');
+  c.dungeons[0].ownerCharacterId = null;
+  ok('refuses an UNOWNED dungeon', ACKS.noteDungeonInvaders(c, { hexId:'hex-1', monsterKey:'dwarf' }).reason === 'no-owned-dungeon');
+  c.dungeons[0].ownerCharacterId = 'chr-o';
+  const dwarf = ACKS.findMonster('dwarf');
+  if(dwarf && (dwarf.creatureTypes || []).includes('humanoid')){
+    const r = ACKS.noteDungeonInvaders(c, { hexId:'hex-1', monsterKey:'dwarf', groupId:'grp-x' });
+    ok('fires a dungeon-invaded prompt for a demi-human band', r.ok === true && c.eventLog.some(e => e.event && e.event.kind === 'dungeon-invaded'));
+  }
+}
+
+// =============================================================================
+section('AD-C — incursion integration: the lure captures a lingering band INTO the dungeon (any attitude)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.domains = [{ id:'dom-1', name:'Marlands', demographics:{ peasantFamilies:1000 } }];
+  c.hexes = [{ id:'hex-d', domainId:'dom-1', coord:{q:0,r:0}, terrain:'forest' }];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-1', name:'The Pit', hexId:'hex-d', domainId:'dom-1', status:'known', areaSqFtPerLevel:[60000], areaCount:24 }) ];
+  // a HOSTILE lingering band — the existing neutral-only path would NOT settle it; the dungeon lures it in.
+  const rec = { kind:'incursion', label:'x', groupId:'grp-arr', domainId:'dom-1', hexId:'hex-d',
+    identity:{ key:'orc', label:'Orc', rarity:'common' }, lairPct:35, lingerRoll:10, lingering:true,
+    strengthRoll:10, fullStrength:true, count:30, treasureType:'',
+    reaction:{ roll:5, total:5, attitude:'hostile', attitudeLabel:'Hostile', mods:[] },
+    recon:{ rulerAware:true, monstersIntel:false, ruler:{}, monsters:{} }, dayInMonth:6 };
+  ACKS.commitIncursionRecord(c, rec);
+  const grp = (c.groups || []).find(g => g.id === 'grp-arr');
+  ok('the arriving band materialized', !!grp);
+  const lair = (c.lairs || []).find(l => l.dungeonId === 'dun-1');
+  ok('a HOSTILE lingering band STILL lairs in the dungeon (the lure, any attitude)', !!lair);
+  ok('the lair is anchored to the dungeon', lair && lair.dungeonId === 'dun-1');
+  ok('the band is housed (wanderState cleared)', grp && grp.wanderState == null);
+  ok('dungeon-populated event fired', c.eventLog.some(e => e.event && e.event.kind === 'dungeon-populated'));
+}
+{
+  // the no-dungeon incursion path is UNCHANGED — a neutral band settles bare-hex (no dungeonId).
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.domains = [{ id:'dom-1', name:'D', demographics:{ peasantFamilies:1000 } }];
+  c.hexes = [{ id:'hex-n', domainId:'dom-1', coord:{q:0,r:0}, terrain:'forest' }];   // NO dungeon
+  const rec = { kind:'incursion', groupId:'grp-n', domainId:'dom-1', hexId:'hex-n',
+    identity:{ key:'orc', label:'Orc', rarity:'common' }, lairPct:35, lingerRoll:10, lingering:true,
+    strengthRoll:50, fullStrength:false, count:20, treasureType:'',
+    reaction:{ attitude:'neutral', attitudeLabel:'Neutral', mods:[] },
+    recon:{ rulerAware:true, monstersIntel:false, ruler:{}, monsters:{} }, dayInMonth:6 };
+  ACKS.commitIncursionRecord(c, rec);
+  const lair = (c.lairs || []).find(l => l.groupIds && l.groupIds.indexOf('grp-n') >= 0);
+  ok('no-dungeon path unchanged: a neutral band settles bare-hex (no dungeonId, incursion-settle)',
+    !!lair && lair.dungeonId == null && lair.establishedBy === 'incursion-settle');
+}
+
+// =============================================================================
+section('AD-C — wander integration: a wandering band lairs in a dungeon at its hex (commitMonsterBandRecord)');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign(); c.currentTurn = 5;
+  c.hexes = [{ id:'hex-w', coord:{q:0,r:0}, terrain:'mountains' }];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-w', name:'Deephold', hexId:'hex-w', status:'known', areaSqFtPerLevel:[30000], areaCount:12 }) ];
+  const g = ACKS.blankGroup({ id:'grp-w', groupTemplate:{ monsterCatalogKey:'orc' }, count:8, currentHexId:'hex-w' });
+  g.wanderState = { coord:{q:0,r:0}, lastCoord:null, mileRemainder:0, mode:null, halted:false };
+  c.groups = [g];
+  const rec = { kind:'monster-band-day', groupId:'grp-w', newHexId:'hex-w',
+    settle:{ hexId:'hex-w', monsterCatalogKey:'orc', fullStrength:false, count:8 } };
+  ACKS.commitMonsterBandRecord(c, rec);
+  const lair = (c.lairs || []).find(l => l.dungeonId === 'dun-w');
+  ok('a wandering band lairs in the dungeon at its hex', !!lair && lair.dungeonId === 'dun-w');
+  ok('the band is housed (wanderState cleared)', g.wanderState == null);
+}
+
+// =============================================================================
+section('AD-C — JJ p.102 neighbour effect: a stocked dungeon makes the domain dangerous to neighbours');
+// =============================================================================
+{
+  const c = ACKS.blankCampaign();
+  c.domains = [{ id:'dom-A', name:'A' }, { id:'dom-B', name:'B', rulerCharacterId:'chr-b' }];
+  c.hexes = [
+    { id:'hxA', domainId:'dom-A', coord:{q:0,r:0}, terrain:'grassland' },
+    { id:'hxB', domainId:'dom-B', coord:{q:1,r:0}, terrain:'grassland' }   // shares the east face of hxA
+  ];
+  c.dungeons = [ ACKS.blankDungeon({ id:'dun-b', hexId:'hxB', domainId:'dom-B', status:'known' }) ];
+  c.groups = [ ACKS.blankGroup({ id:'grp-b', groupTemplate:{ monsterCatalogKey:'orc' }, count:50, currentHexId:'hxB' }) ];
+  c.lairs = [ ACKS.blankLair({ id:'lai-b', hexId:'hxB', status:'active', monsterCatalogKey:'orc', groupIds:['grp-b'], dungeonId:'dun-b' }) ];
+  ok('dom-B is dungeon-dangerous (stocked dungeon)', ACKS.domainIsDungeonDangerousForNeighbours(c, 'dom-B') === true);
+  ok('dom-A is NOT dungeon-dangerous (no dungeon)', ACKS.domainIsDungeonDangerousForNeighbours(c, 'dom-A') === false);
+  const before = ACKS.domainBorderConfiguration(c, c.domains[0]).dangerousFaces;
+  c.lairs[0].status = 'cleared';   // empty the dungeon (its monster XP → 0)
+  const after = ACKS.domainBorderConfiguration(c, c.domains[0]).dangerousFaces;
+  ok('JJ p.102: a stocked-dungeon neighbour adds exactly 1 dangerous border face', before === after + 1);
+  ok('after clearing: dom-B no longer dangerous to neighbours', ACKS.domainIsDungeonDangerousForNeighbours(c, 'dom-B') === false);
+}
+
+// =============================================================================
 console.log('\n=============================================');
 console.log('arcane-domain.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');

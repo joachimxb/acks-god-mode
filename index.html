@@ -43,15 +43,15 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-15-adb"></script>
+<script src="acks-engine.js?v=2026-06-16-adc"></script>
 <script src="acks-engine-entities.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-15-adb"></script>
+<script src="acks-engine-events.js?v=2026-06-16-adc"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-14-pt5"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-16-adc"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
@@ -78,7 +78,7 @@
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
-<script src="acks-engine-sanctums.js?v=2026-06-15-adb"></script>
+<script src="acks-engine-sanctums.js?v=2026-06-16-adc"></script>
 <script src="acks-engine-magic-research.js?v=2026-06-15-adm4"></script>
 <!-- ===== TEAM BURST5 — new-module script tags · each builder adds ONLY its own engine module here, after its line (load before player-view, which must stay last) ===== -->
 <!-- b5-gladiators (#150): add the acks-engine-gladiators.js script tag here (cache-bust ?v=2026-06-14-b5) -->
@@ -1101,6 +1101,7 @@ document.addEventListener('alpine:init', () => {
         <input type="text" x-model="dungeonsSearch" placeholder="Search name, hex…" class="w-56">
         <span class="text-sm opacity-70" x-text="filteredDungeons().length + ' shown'"></span>
         <button @click="inspectorOpenCreate('dungeon')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a dungeon (free-form Inspector form)">＋ Author a dungeon</button>
+        <button @click="openBuildDungeon()" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200" title="Build a dungeon (RR p.386) — a Construction Project that mints a Dungeon entity + auto-attunes an arcane L9+ owner; monsters then auto-arrive + lair within it via Vagaries of Incursion">🏗 Build a dungeon</button>
       </div>
     </div>
     <template x-if="worldDungeons().length === 0">
@@ -1183,7 +1184,13 @@ document.addEventListener('alpine:init', () => {
           <span>Lairs here: <span class="font-mono" x-text="arcaneDungeonLairCount()"></span> / cap <span class="font-mono" x-text="dungeonLairCapacityV(arcaneDungeon())"></span></span>
           <span x-show="dungeonIsFullV(arcaneDungeon())" class="text-red-700 font-semibold">FULL</span>
         </div>
-        <p x-show="arcaneDungeonLairCount() === 0" class="text-xs italic opacity-60 mt-1">No lairs anchored to this dungeon yet. Anchor a lair to it (the 🏚 Lairs view / Inspector — set <code>lair.dungeonId</code>) to stock the monster farm.</p>
+        <div class="flex flex-wrap items-center gap-2 mt-1">
+          <label class="flex items-center gap-1">💰 Treasure seeded (gp):
+            <input type="number" min="0" :value="arcaneDungeon().treasureSeededGp || 0" @change="arcaneSetTreasureSeeded($event.target.value)" class="text-sm w-28">
+          </label>
+          <span class="text-xs opacity-60">lures monsters; ≥ the Treasure-Type avg doubles the Lair % (RR p.386)</span>
+        </div>
+        <p x-show="arcaneDungeonLairCount() === 0" class="text-xs italic opacity-60 mt-1">No lairs anchored yet. Monsters auto-arrive + lair within the dungeon via <strong>Vagaries of Incursion</strong> (when that rule is on) — seed treasure above to lure them. Or anchor a lair by hand (the 🏚 Lairs view / Inspector — <code>lair.dungeonId</code>).</p>
       </div>
 
       <!-- Attunement -->
@@ -1304,9 +1311,47 @@ document.addEventListener('alpine:init', () => {
         <template x-if="!arcaneGarrisonInfo()"><span class="opacity-60 italic">No garrison burden (no living monster XP, or fully paid).</span></template>
       </div>
 
-      <p class="text-xs opacity-60 mt-3 italic">The arcane economy core (Phase 4 Sanctums AD-D/AD-E). Sanctums + apprentices + auto-population + Magic Research land in later waves.</p>
+      <p class="text-xs opacity-60 mt-3 italic">The arcane domain (Phase 4 Sanctums AD-C/AD-D/AD-E). 🏗 Build a dungeon, attune, establish sovereignty, extract arcane power, harvest; monsters auto-arrive + lair within it via Vagaries of Incursion. Sanctums + apprentices (AD-B) live on the character sheet; Magic Research (AD-M) on the ⚗ Research tab.</p>
     </div>
   </template>
+</div>
+
+<!-- === AD-C — Build a dungeon (the construction Admin verb; RR p.386). Creates a kind:'dungeon'
+     Construction Project + mints the Dungeon entity, auto-attuning an arcane L9+ owner. z-77. === -->
+<div x-show="dungeonBuild.open" @keydown.escape.window="if(dungeonBuild.open){ dungeonBuild.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:77; background:rgba(0,0,0,.45)" x-cloak @click.self="dungeonBuild.open=false">
+  <div class="vellum border border-ink rounded shadow-lg p-4 my-6 w-full max-w-lg">
+    <div class="flex justify-between items-start mb-3 gap-2">
+      <h3 class="font-bold text-lg">🏗 Build a dungeon <span class="text-sm font-normal opacity-70">(RR p.386)</span></h3>
+      <button @click="dungeonBuild.open=false" class="text-2xl leading-none px-2 hover:opacity-60" title="Close">×</button>
+    </div>
+    <div class="space-y-2 text-sm">
+      <label class="block">Name <input type="text" x-model="dungeonBuild.name" class="w-full" placeholder="The Maze of Djarghul"></label>
+      <label class="block">Owner <span class="opacity-60">(an arcane L9+ owner is auto-attuned on completion)</span>
+        <select x-model="dungeonBuild.ownerCharacterId" class="w-full">
+          <option value="">— pick an owner (optional) —</option>
+          <template x-for="c in arcaneAllCharacterOptions()" :key="c.id"><option :value="c.id" x-text="c.label"></option></template>
+        </select>
+      </label>
+      <label class="block">Hex <span class="opacity-60">(the dungeon's site)</span>
+        <select x-model="dungeonBuild.hexId" class="w-full">
+          <option value="">— pick a hex —</option>
+          <template x-for="h in buildDungeonHexOptions()" :key="h.id"><option :value="h.id" x-text="h.label"></option></template>
+        </select>
+      </label>
+      <div class="flex flex-wrap gap-3">
+        <label class="block">Build value (gp) <input type="number" min="0" x-model.number="dungeonBuild.buildValueGp" class="w-28 block"></label>
+        <label class="block">Area (sq ft) <input type="number" min="0" x-model.number="dungeonBuild.areaSqFt" class="w-28 block"></label>
+        <label class="block">Areas (rooms) <input type="number" min="1" x-model.number="dungeonBuild.areaCount" class="w-24 block"></label>
+      </div>
+      <label class="block">💰 Treasure seeded (gp) <span class="opacity-60">— lures monsters; ≥ the Treasure-Type avg doubles the Lair %</span>
+        <input type="number" min="0" x-model.number="dungeonBuild.treasureSeededGp" class="w-32 block"></label>
+      <p class="text-xs opacity-60 italic">Mints a first-class Dungeon — the construction completes now (the RAW-timed Construction Wizard lands later). Monsters then auto-arrive + lair within it via <strong>Vagaries of Incursion</strong> (when that rule is on). An arcane L9+ owner is auto-attuned.</p>
+    </div>
+    <div class="flex justify-end gap-2 mt-3">
+      <button @click="dungeonBuild.open=false" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50 text-sm">Cancel</button>
+      <button @click="buildDungeonSubmit()" :disabled="!dungeonBuild.hexId" class="px-3 py-1 border border-ink rounded bg-purple-100 hover:bg-purple-200 disabled:opacity-40 text-sm">🏗 Build</button>
+    </div>
+  </div>
 </div>
 
 <div x-show="currentView === 'world' && worldSubView === 'lairs'" class="p-4" x-cloak>
@@ -14764,6 +14809,41 @@ return {
   arcaneDomainPaidGpf(){ const d = this.arcaneDungeon(); if(!d || !d.domainId) return 0; const dom = (this.domains || []).find(x => x && x.id === d.domainId); return dom ? (Number(dom.dungeonGarrisonPaidGpf) || 0) : 0; },
   arcaneSetGarrisonPaid(val){ const d = this.arcaneDungeon(); if(!d || !d.domainId) return; const dom = (this.domains || []).find(x => x && x.id === d.domainId); if(!dom) return; dom.dungeonGarrisonPaidGpf = Math.max(0, Number(val) || 0); this.markDirty(); this.schedulePersist(); },
   arcaneToggleMonsterGarrison(){ const d = this.arcaneDungeon(); if(!d) return; d.monsterGarrisonHired = !d.monsterGarrisonHired; this.markDirty(); this.schedulePersist(); },
+  // AD-C — treasure-seeding (RR p.386): a dungeon seeded with treasure ≥ a monster's Treasure-Type
+  // average doubles its Lair %, so a seeded dungeon lures wandering monsters more readily.
+  arcaneSetTreasureSeeded(val){ const d = this.arcaneDungeon(); if(!d) return; d.treasureSeededGp = Math.max(0, Number(val) || 0); this.markDirty(); this.schedulePersist(); this.showToast('💰 Treasure seeded: ' + (d.treasureSeededGp).toLocaleString() + ' gp.'); },
+  // AD-C — Build a dungeon (the construction Admin verb; RR p.386). Mirrors establishSanctum: creates a
+  // kind:'dungeon' Construction Project (completed now — the RAW-timed Construction Wizard lands later) and
+  // calls onDungeonConstructed, which mints the dun- entity + auto-attunes an arcane L9+ owner.
+  openBuildDungeon(){ this.dungeonBuild = { open: true, name: '', ownerCharacterId: '', hexId: '', buildValueGp: 30000, areaSqFt: 60000, areaCount: 24, treasureSeededGp: 0 }; },
+  buildDungeonHexOptions(){
+    return ((this.currentCampaign && this.currentCampaign.hexes) || []).map(h => ({
+      id: h.id, label: (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) + (h.domainId ? '' : ' · unclaimed') }));
+  },
+  buildDungeonSubmit(){
+    const b = this.dungeonBuild; if(!b || !b.hexId) return;
+    const camp = this.currentCampaign;
+    const hex = (camp.hexes || []).find(h => h && h.id === b.hexId) || null;
+    if(!Array.isArray(camp.projects)) camp.projects = [];
+    const proj = window.ACKS.blankProject({
+      constructibleKind: 'dungeon', constructibleSubtype: 'dungeon',
+      name: b.name || 'Dungeon', siteHexId: b.hexId,
+      ownerCharacterId: b.ownerCharacterId || null, ownerDomainId: (hex && hex.domainId) || null,
+      totalCost: Math.max(0, Number(b.buildValueGp) || 0), lifecycleState: 'complete',
+      completedAtTurn: camp.currentTurn || 1
+    });
+    proj.areaSqFtPerLevel = [Math.max(0, Number(b.areaSqFt) || 0)];
+    proj.areaCount = Math.max(1, Number(b.areaCount) || 1);
+    proj.treasureSeededGp = Math.max(0, Number(b.treasureSeededGp) || 0);
+    camp.projects.push(proj);
+    const r = window.ACKS.onDungeonConstructed(camp, proj, {});
+    this.markDirty(); this.schedulePersist();
+    b.open = false;
+    if(r && r.ok && r.dungeon){
+      this.showToast('🏗 Built ' + (r.dungeon.name || 'a dungeon') + (r.attunement ? ' — auto-attuned the owner.' : '.'));
+      this.openArcaneModal(r.dungeon.id);
+    } else { this.showToast('Could not build the dungeon: ' + ((r && r.reason) || 'unknown') + '.'); }
+  },
 
   // ── Phase 4 — Magic Research (AD-M1) · the character-sheet ⚗ Research panel ──
   // Is this character an arcane caster (the Research tab shows for them)? Per-kind level eligibility is
@@ -22229,6 +22309,7 @@ return {
   lairDetailId: null,            // open lair in the detail modal (null = closed)
   // Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E). Transient form state.
   arcaneDungeonId: null,         // open dungeon in the arcane modal (null = closed)
+  dungeonBuild: { open: false, name: '', ownerCharacterId: '', hexId: '', buildValueGp: 30000, areaSqFt: 60000, areaCount: 24, treasureSeededGp: 0 },  // AD-C — the 🏗 Build a dungeon modal
   arcaneAttuneCasterId: '', arcaneAttuneMethod: 'built',
   arcaneSovCasterId: '', arcaneSovMethod: 'gm-fiat', arcaneSovChieftainId: '', arcaneSovSlainHd: 0,
   arcaneHarvestGroupId: '', arcaneHarvestQty: 1, arcaneHarvestMethod: 'cull', arcaneHarvestBounty: 0,
