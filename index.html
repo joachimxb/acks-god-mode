@@ -5357,7 +5357,7 @@ document.addEventListener('alpine:init', () => {
                 <th title="Battle rating per soldier">BR/sol</th><th>Total BR</th>
                 <th title="Unit morale score (RR p.429)">Morale</th>
                 <th title="Default garrison hex — where this unit returns when a mission ends (a hex in this domain)">Home</th>
-                <th title="Where the unit is now — its post, away with a field army, marching to muster, or (militia) at home">Location</th>
+                <th title="Where the unit is deployed — its garrison post, away with a field army (and where), marching to muster, or (militia) at home">Deployment</th>
                 <th></th>
               </tr></thead>
 
@@ -5388,7 +5388,7 @@ document.addEventListener('alpine:init', () => {
                         <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
                       </select>
                     </td>
-                    <td class="whitespace-nowrap text-xs" x-text="unitLocationLabel(u)"></td>
+                    <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                       <button @click="splitGarrisonUnit(selectedDomain, u)" class="px-1 underline" title="Split N soldiers into a new unit">Split</button>
                       <button @click="mergeGarrisonUnit(selectedDomain, u)" :disabled="!canMergeGarrisonUnit(selectedDomain, u)" :class="canMergeGarrisonUnit(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
@@ -5425,7 +5425,7 @@ document.addEventListener('alpine:init', () => {
                         <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
                       </select>
                     </td>
-                    <td class="whitespace-nowrap text-xs" x-text="unitLocationLabel(u)"></td>
+                    <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy'">
                           <span class="inline-flex items-center gap-1" x-data="{ trainType: '' }">
@@ -5473,7 +5473,7 @@ document.addEventListener('alpine:init', () => {
                         <template x-for="h in domainHomeHexOptions(selectedDomain)" :key="'gh-'+(u.id||'x')+'-'+h.id"><option :value="h.id" :selected="h.id === u.homeHexId" x-text="(window.ACKS.hexName ? window.ACKS.hexName(h) : h.id)"></option></template>
                       </select>
                     </td>
-                    <td class="whitespace-nowrap text-xs" x-text="unitLocationLabel(u)"></td>
+                    <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy'">
                           <span class="inline-flex items-center gap-1" x-data="{ trainType: '' }">
@@ -16910,11 +16910,13 @@ return {
   // ─── #547 Garrison unit interim split + merge (2026-05-30) ───
   canMergeGarrisonUnit(domain, unit){
     if(!domain || !unit) return false;
-    const sibs = (domain.garrison && domain.garrison.units || []).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey);
+    if(this.unitIsDeployed(unit)) return false;   // a deployed unit is managed through its army
+    const sibs = (domain.garrison && domain.garrison.units || []).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !this.unitIsDeployed(u));
     return sibs.length > 0;
   },
   splitGarrisonUnit(domain, unit){
     if(!domain || !unit) return;
+    if(this.unitIsDeployed(unit)){ this.showToast && this.showToast('This unit is with a field army — manage it through the army (Characters ▸ Parties).', 3500); return; }
     const cur = Number(unit.count || 0);
     if(cur <= 1){ alert('Cannot split a unit with fewer than 2 soldiers.'); return; }
     const ans = prompt('How many soldiers to split off into a new unit?\n(Currently ' + cur + ' soldiers; new unit gets N, original keeps ' + cur + '−N)', '1');
@@ -16937,7 +16939,8 @@ return {
   },
   mergeGarrisonUnit(domain, unit){
     if(!domain || !unit) return;
-    const sibs = (domain.garrison && domain.garrison.units || []).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey);
+    if(this.unitIsDeployed(unit)){ this.showToast && this.showToast('This unit is with a field army — manage it through the army (Characters ▸ Parties).', 3500); return; }
+    const sibs = (domain.garrison && domain.garrison.units || []).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !this.unitIsDeployed(u));
     if(sibs.length === 0){ alert('No same-type sibling unit to merge into.'); return; }
     let target;
     if(sibs.length === 1){ target = sibs[0]; }
@@ -17054,11 +17057,25 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast('Merged into ' + (target.displayName || target.unitTypeKey) + '.', 3000);
   },
-  // Garrison table — standing (non-levy) units only; levies live in the Conscript/Militia tables below.
-  garrisonStandingUnits(domain){ return ((domain && domain.garrison && domain.garrison.units) || []).filter(u => u && u.source !== 'conscript' && u.source !== 'militia'); },
+  // Garrison table — ALL of the domain's standing (non-levy) military units, in a field army or not
+  // (2026-06-16): the master campaign.units[] resolving to this domain (so a unit mustered or marching
+  // to an army still shows) ∪ the nested garrison mirror (belt-and-suspenders), deduped by id. Levies
+  // live in the Conscript/Militia tables below. The engine garrison-adequacy helpers stay mirror-only.
+  garrisonStandingUnits(domain){
+    const camp = this.currentCampaign; if(!domain) return [];
+    const A = window.ACKS; const byId = new Map();
+    if(camp && Array.isArray(camp.units) && A && A.unitHomeDomainId){
+      for(const u of camp.units){ if(u && u.source !== 'conscript' && u.source !== 'militia' && A.unitHomeDomainId(camp, u) === domain.id) byId.set(u.id, u); }
+    }
+    for(const u of ((domain.garrison && domain.garrison.units) || [])){ if(u && u.source !== 'conscript' && u.source !== 'militia' && !byId.has(u.id)) byId.set(u.id, u); }
+    return [...byId.values()];
+  },
   removeGarrisonUnit(domain, u){
-    const arr = (domain && domain.garrison && domain.garrison.units) || [];
-    const idx = arr.indexOf(u); if(idx >= 0) arr.splice(idx, 1);
+    if(this.unitIsDeployed(u)){ this.showToast && this.showToast('This unit is with a field army — remove it through the army (Characters ▸ Parties).', 3500); return; }
+    // Full removal from BOTH homes (master campaign.units[] + the garrison mirror) — else the unit
+    // lingers in the master and the Garrison table (which now reads the master) would re-show it.
+    if(window.ACKS && window.ACKS.disbandUnit) window.ACKS.disbandUnit(this.currentCampaign, u);
+    else { const arr = (domain && domain.garrison && domain.garrison.units) || []; const idx = arr.indexOf(u); if(idx >= 0) arr.splice(idx, 1); }
     this.markDirty(); this.schedulePersist();
   },
 
@@ -17741,10 +17758,11 @@ return {
     const h = ((this.currentCampaign && this.currentCampaign.hexes) || []).find(x => x && x.id === hexId);
     return h ? (window.ACKS.hexName ? window.ACKS.hexName(h) : h.id) : (hexId || '—');
   },
-  // The hex a garrison unit currently occupies — the read-only Location column (Domains ▸
-  // Military). A posted garrison unit sits at its home hex (its specific post within the domain),
-  // else the domain seat; a unit deployed to an army or marching to muster reads its away status.
-  unitLocationLabel(unit){
+  // The unit's DEPLOYMENT — the read-only column (Domains ▸ Military). When NOT in a field army it
+  // reads its garrison post (its home hex within the domain, else the domain seat); when IN an army
+  // it names the army AND where the army is; rallying reads the muster it marches to; a militia sent
+  // home reads "at home". (2026-06-16: was unitLocationLabel; the army branch gained the location.)
+  unitDeploymentLabel(unit){
     const camp = this.currentCampaign; if(!camp || !unit) return '—';
     if(unit.rallyingToArmyId){
       const a = (camp.armies || []).find(x => x && x.id === unit.rallyingToArmyId);
@@ -17756,13 +17774,18 @@ return {
     const st = unit.stationedAt || null;
     if(st && st.kind === 'army'){
       const a = (camp.armies || []).find(x => x && x.id === st.id);
-      return '🎖 ' + (a ? (a.name || 'an army') : 'an army');
+      const where = (a && a.currentHexId) ? (' (' + this.hexLabelById(a.currentHexId) + ')') : '';
+      return '🎖 ' + (a ? (a.name || 'an army') : 'an army') + where;
     }
     const hexId = (st && st.kind === 'domain-garrison' && unit.homeHexId)
       ? unit.homeHexId
       : (window.ACKS.unitCurrentHexId ? window.ACKS.unitCurrentHexId(camp, unit) : null);
     return hexId ? this.hexLabelById(hexId) : '—';
   },
+  // A unit is "deployed" (away from its domain garrison) when it sits in a field army or is marching
+  // to muster — managed through its army (Characters ▸ Parties), not the garrison table; its Split /
+  // Merge / × actions are guarded so they can't dangle an army division's unit reference.
+  unitIsDeployed(unit){ return !!(unit && (unit.rallyingToArmyId || (unit.stationedAt && unit.stationedAt.kind === 'army'))); },
   armyMarchGo(){
     const a = this.armySelected(); if(!a || !this.armyMarchDest) return;
     const r = window.ACKS.startArmyMarch(this.currentCampaign, a.id, { destinationHexId: this.armyMarchDest, pace: this.armyMarchPace });
