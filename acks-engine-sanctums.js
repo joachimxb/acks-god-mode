@@ -1076,6 +1076,94 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // AD-F — The arcane↔divine seam stub (RR p.388, D2 — deferred to Religion / Wave E)
+  //
+  // RR p.388 lets a caster designate a HUMAN/DEMI-HUMAN settlement as his "dungeon," terrify the peasants,
+  // and extract arcane power from them — the "become a god" content — which invokes the arcane↔divine
+  // power conflict (angry gods + their servants; a crusader can co-extract divine power from the same
+  // creatures: crusader 10% / 10% remains / god-or-arcane 80%). The full mechanic — divine wrath, the
+  // co-extraction split, apotheosis upkeep — is DEFERRED TO RELIGION (Phase_4_Religion_Plan.md, Wave E;
+  // _handoffs/Arcane_Divine_Seam.md, touchpoint 3). This plan ships ONLY the SEAM: a rumor-grade
+  // `arcane-usurpation` flag + event Religion consumes to drive the consequence. No divine mechanics here,
+  // and the engine does not REWARD the human-extraction path (no peasant arcane-power model) — it just
+  // records that it happened so the divine response can fire when Religion lands.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // A peasant family's monster-XP value — RAW treats a peasant levy as 0-level normal men (a "Man, Common"
+  // = 5 XP, MM). v1: one able-bodied adult per family counted as a normal man (🔧 documented; Religion may
+  // refine the exact familiesXp basis when it owns the consequence).
+  const FAMILY_XP = 5;
+
+  function _settlements(campaign){ return (campaign && Array.isArray(campaign.settlements)) ? campaign.settlements : []; }
+  function _findSettlement(campaign, id){ if(id && typeof id === 'object') return id; const A = _A(); return (typeof A.findSettlement === 'function') ? A.findSettlement(campaign, id) : (_settlements(campaign).find(s => s && s.id === id) || null); }
+  // Settlements don't store a hexId — resolve it via the embedding hex (hex.settlement / hex.settlementId)
+  // for the event's Event.context envelope. Null when the settlement sits in no authored hex.
+  function _settlementHexId(campaign, settlement){
+    if(settlement && settlement.hexId) return settlement.hexId;
+    const sid = settlement && settlement.id;
+    if(!sid || !campaign || !Array.isArray(campaign.hexes)) return null;
+    const h = campaign.hexes.find(x => x && ((x.settlement && x.settlement.id === sid) || x.settlementId === sid));
+    return h ? h.id : null;
+  }
+
+  // The XP value of a settlement's peasant families (the arcane-power base IF a caster usurps them, RR
+  // p.388). = families × FAMILY_XP. The settlement-as-dungeon path is not rewarded here; this is only the
+  // value Religion reads to size the divine response.
+  function settlementFamiliesXp(campaign, settlement){
+    const s = (typeof settlement === 'string') ? _findSettlement(campaign, settlement) : settlement;
+    if(!s) return 0;
+    return Math.max(0, Math.round((Number(s.families) || 0) * FAMILY_XP));
+  }
+
+  // Who (if anyone) currently usurps this settlement. Derived from the defensively-read flag (absent = not
+  // usurped — no save migration; the flag is written only by flagArcaneUsurpation).
+  function settlementArcaneUsurperId(campaign, settlement){
+    const s = (typeof settlement === 'string') ? _findSettlement(campaign, settlement) : settlement;
+    return (s && s.arcaneUsurpedByCharacterId) || null;
+  }
+  // All currently-usurped settlements (the surface Religion reads for the divine-wrath response).
+  function usurpedSettlements(campaign){ return _settlements(campaign).filter(s => s && s.arcaneUsurpedByCharacterId); }
+
+  // Flag a human/demi-human settlement as arcane-usurped (RR p.388 — designate it a "dungeon," terrify the
+  // peasants, extract arcane power). A GM-driven STUB: stamps the queryable flag (settlement.
+  // arcaneUsurpedByCharacterId — defensive, no migration) + emits the rumor-grade `arcane-usurpation` event
+  // {characterId, settlementId, familiesXp} (the seam payload, _handoffs/Arcane_Divine_Seam.md) that
+  // Religion (Wave E) consumes for divine wrath + the 10/10/80 co-extraction. NO divine consequence here.
+  // Gated only on the usurper being an arcane caster (RR p.388 — a mage). Idempotent: re-flagging by the
+  // same caster no-ops (no event spam); a different caster supersedes + re-emits.
+  // opts: { characterId, settlementId }
+  function flagArcaneUsurpation(campaign, opts){
+    opts = opts || {};
+    const caster = _findChar(campaign, opts.characterId);
+    const settlement = _findSettlement(campaign, opts.settlementId);
+    if(!caster) return { ok: false, reason: 'no-caster' };
+    if(!settlement) return { ok: false, reason: 'no-settlement' };
+    if(!isArcaneCaster(caster)) return { ok: false, reason: 'caster-not-arcane' };
+    const familiesXp = settlementFamiliesXp(campaign, settlement);
+    const already = settlement.arcaneUsurpedByCharacterId === caster.id;
+    settlement.arcaneUsurpedByCharacterId = caster.id;
+    if(!already){
+      _recordArcaneEvent(campaign, 'arcane-usurpation',
+        { characterId: caster.id, settlementId: settlement.id, familiesXp },
+        { primaryHexId: _settlementHexId(campaign, settlement), settlementId: settlement.id,
+          narrative: (caster.name || caster.id) + ' usurps ' + (settlement.name || 'a settlement') + ' — terrifying its ' + ((Number(settlement.families) || 0)).toLocaleString() + ' families to extract arcane power (RR p.388; the gods take notice)',
+          relatedEntities: [{ kind: 'character', id: caster.id, role: 'subject' }, { kind: 'settlement', id: settlement.id, role: 'site' }] });
+    }
+    return { ok: true, settlement, characterId: caster.id, familiesXp, alreadyFlagged: already };
+  }
+
+  // Release an arcane-usurped settlement (the caster relents, or the GM corrects the fiction). Unsets the
+  // flag; emits NO event — the divine lifecycle (wrath resolution, the families recovering) is Religion's.
+  function clearArcaneUsurpation(campaign, settlementId){
+    const settlement = _findSettlement(campaign, settlementId);
+    if(!settlement) return { ok: false, reason: 'no-settlement' };
+    if(!settlement.arcaneUsurpedByCharacterId) return { ok: true, settlement, wasFlagged: false };
+    const prior = settlement.arcaneUsurpedByCharacterId;
+    settlement.arcaneUsurpedByCharacterId = null;
+    return { ok: true, settlement, wasFlagged: true, priorCharacterId: prior };
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // Event emit — record-only (mirror religion's _recordReligionEvent): newEvent + setEventContext +
   // status APPLIED + push the eventLog entry. The arcane events are record-only audits (the verbs above
   // already applied state); applyEvent_arcaneAudit (acks-engine-events.js) keeps them well-formed on replay.
@@ -1094,7 +1182,7 @@
       });
     } catch(_e){ return null; }
     if(typeof A.setEventContext === 'function'){
-      A.setEventContext(ev, { primaryHexId: opts.primaryHexId || null, relatedEntities: opts.relatedEntities || [] });
+      A.setEventContext(ev, { primaryHexId: opts.primaryHexId || null, settlementId: opts.settlementId || null, domainId: opts.domainId || null, relatedEntities: opts.relatedEntities || [] });
     }
     if(opts.campaignLogHidden) ev.campaignLogHidden = true;
     ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
@@ -1126,6 +1214,9 @@
     // AD-C — dungeon construction (the completion hook) + Vagaries auto-population + the JJ p.102 neighbour effect
     onDungeonConstructed, dungeonForArrival, dungeonLairBonus, settleBandIntoDungeon,
     noteDungeonInvaders, domainIsDungeonDangerousForNeighbours,
+    // AD-F — the arcane↔divine seam stub (RR p.388, D2 — Religion-consumed)
+    settlementFamiliesXp, settlementArcaneUsurperId, usurpedSettlements,
+    flagArcaneUsurpation, clearArcaneUsurpation,
     // AD-B — Sanctum establishment + apprentices/companions
     SANCTUM_COMPANION_CAP, SANCTUM_APPRENTICE_CAP, FACILITY_KINDS,
     blankApprenticeship, isSanctum, sanctumsOwnedBy,

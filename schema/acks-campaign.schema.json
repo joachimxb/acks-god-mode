@@ -5561,6 +5561,7 @@
                 "dungeon-established",
                 "dungeon-populated",
                 "dungeon-invaded",
+                "arcane-usurpation",
                 "sanctum-established",
                 "apprentice-attracted",
                 "apprentice-advanced",
@@ -5670,7 +5671,7 @@
     "schemaVersion": 2,
     "entityKinds": 51,
     "typedKinds": 34,
-    "eventKinds": 106,
+    "eventKinds": 107,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",

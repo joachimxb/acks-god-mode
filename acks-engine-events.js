@@ -280,6 +280,11 @@ const EVENT_KINDS = Object.freeze([
   'dungeon-established',       // a kind:'dungeon' Construction Project completes → a Dungeon entity is minted (auto-attuned if arcane L9+)
   'dungeon-populated',        // a wandering/arriving band lairs WITHIN a dungeon (RR p.386 — Vagaries-of-Incursion reuse)
   'dungeon-invaded',          // an incursion draw of men/dwarves/elves at an owned dungeon = adventurers come to clear it (RR p.387 — Phase 3.5 hook)
+  // === Phase 4 — The Arcane Domain (AD-F; RR p.388, D2) === the arcane↔divine seam STUB. A caster
+  // designates a human/demi-human settlement a "dungeon" + extracts arcane power from its peasants → a
+  // rumor-grade flag emitted by acks-engine-sanctums.js (flagArcaneUsurpation) for Religion (Wave E) to
+  // consume (divine wrath + the 10/10/80 co-extraction). No divine mechanics here — record only.
+  'arcane-usurpation',        // a caster usurps a settlement's families to extract arcane power (RR p.388 — Religion-consumed)
   // === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits emitted by acks-engine-sanctums.js
   // (onSanctumConstructed / attractToSanctum / processSanctumsForTurn already applied state — the kindSpecific
   // facilities scaffold, the generated Character + henchmanship/apprenticeship records, the yearly throw).
@@ -913,6 +918,11 @@ const EVENT_SCHEMAS = Object.freeze({
   'dungeon-invaded': {
     R: { dungeonId: 'string' },
     O: { groupId: 'string', monsterKey: 'string', partyDescription: 'string', via: 'string', narrative: 'string' }
+  },
+  // === Phase 4 — The Arcane Domain (AD-F; RR p.388, D2 — the divine seam stub) ===
+  'arcane-usurpation': {
+    R: { characterId: 'string', settlementId: 'string' },
+    O: { familiesXp: 'number', narrative: 'string' }
   },
   // === Phase 4 — Sanctums AD-B (RR p.386) ===
   'sanctum-established': {
@@ -2588,6 +2598,9 @@ registerEventHandler('dungeon-harvested', applyEvent_arcaneAudit);
 registerEventHandler('dungeon-established', applyEvent_arcaneAudit);
 registerEventHandler('dungeon-populated', applyEvent_arcaneAudit);
 registerEventHandler('dungeon-invaded', applyEvent_arcaneAudit);
+// === Phase 4 — The Arcane Domain (AD-F; RR p.388, D2) === the divine-seam stub (flagArcaneUsurpation in
+// acks-engine-sanctums.js already stamped the settlement flag); Religion consumes it when Wave E lands.
+registerEventHandler('arcane-usurpation', applyEvent_arcaneAudit);
 // === Phase 4 — Sanctums AD-B (RR p.386) === record-only audits (onSanctumConstructed / attractToSanctum /
 // processSanctumsForTurn in acks-engine-sanctums.js already applied state); same audit posture as the arcane events.
 registerEventHandler('sanctum-established', applyEvent_arcaneAudit);
@@ -5651,6 +5664,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // AD-C — onDungeonConstructed mints the dun- entity; the incursion/wander settle paths anchor a lair
   // into a dungeon; the adventurers-arrive prompt. A raw emit would record state the entities don't show.
   'dungeon-established', 'dungeon-populated', 'dungeon-invaded',
+  // AD-F — owned by acks-engine-sanctums.js (flagArcaneUsurpation + the 🔮 Arcane modal); a raw emit would
+  // record a usurpation the settlement flag + the Religion seam don't show.
+  'arcane-usurpation',
   // === Phase 4 — Sanctums AD-B === — owned by acks-engine-sanctums.js (onSanctumConstructed fires from the
   // construction-completed handler; attractToSanctum + the yearly processSanctumsForTurn tick); a raw emit
   // would record a sanctum/attraction/advancement the kindSpecific facilities + apprenticeship records don't show.
