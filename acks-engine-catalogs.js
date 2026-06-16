@@ -214,6 +214,13 @@ const HOUSERULES_REGISTRY = Object.freeze([
     source:'ACKS II RR p.358 (RAW core; this toggle is a UX preference, not a RAW divergence)',
     default:true,
     description:"DEFAULT ON. Consulting a senate is RAW core: each leading senator rolls 2d6 on the Senate Voting table (RR p.358), adjusted by the ~20-row modifier stack, in influence order until a majority forms. With this ON, the Consult-Senate action rolls those dice and shows the itemized per-senator breakdown + the for/against tally. When OFF, the tool skips the dice and records the GM-narrated outcome (approved / rejected) — useful for a Judge who prefers to adjudicate the vote in fiction. Bribery / intimidation / seduction are always available either way; this only chooses roll-vs-narrate. (The rule-of-the-few oligarchy mode is a separate, later opt-in.)" },
+  // === Settlement Demographics SD-3 (2026-06-16) === — the DEEP census reach. The urban Step-3
+  // roster (a settlement's expected NPCs by class-bucket × level, the Demographics tab) is always-on
+  // RAW tooling (no rule). This opt-in adds the realm tier (+ the queued rural tier): default OFF so
+  // RAW-only / hand-authored-setting (Tyr, Auran) campaigns are untouched. (Plan §9; CLAUDE §6.)
+  { id:'living-census', category:'domain', name:'Living census (realm command structure + rural population)',
+    source:'JJ Ch.8 Step 3 pp.214–217 + Ch.9 pp.245–260 (RAW tooling deepened — the God-Mode "everything" census; default OFF, CLAUDE §6)',
+    description:"OFF by default. The urban demographic roster (a settlement's expected NPCs by class-bucket × level — the always-on Demographics tab) is unaffected by this toggle. When ON, the census adds the DEEP tier: the realm command structure — a domain's expected leveled office-holders (ruler · the four magistrates · court magister · merchant guildmaster · annalist) scaled by realm title, reconciled against the realm's ACTUAL office-holders (the assigned ruler + magistrates) and its entourage NPCs (characters homed to the domain) + a roster of its vassal lords — and (queued, SD-4) the rural population tier. Strongly encouraged — it plays to God Mode's world-modelling — but default OFF so a hand-authored-setting campaign is never told who its realm 'should' staff." },
   // ----- Construction & improvement -----
   { id:'stronghold-by-buildings', category:'construction', name:'Stronghold composed of buildings',
     source:'ACKS II RR p.339 (variant)',

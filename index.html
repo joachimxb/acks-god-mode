@@ -44,14 +44,14 @@
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
 <script src="acks-engine.js?v=2026-06-16-adc"></script>
-<script src="acks-engine-entities.js?v=2026-06-15-adb"></script>
+<script src="acks-engine-entities.js?v=2026-06-16-sd2"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-events.js?v=2026-06-16-adc"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-16-adc"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-16-sd2"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
@@ -91,6 +91,8 @@
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
+<!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
+<script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -2366,6 +2368,15 @@ document.addEventListener('alpine:init', () => {
                   <button x-show="encBandLink().groupId" @click="inspectorOpen('group', encBandLink().groupId)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Inspect the band's Group entity">🔍 band</button>
                 </p>
               </template>
+              <!-- SD-5b — a CIVILIZED encounter near a settlement is the actual person who lives
+                   there (the realized census). GM-facing: name them + open their sheet. The census
+                   stops being a panel and becomes who you meet. -->
+              <template x-if="encResidentLink()">
+                <p class="text-xs mt-1 opacity-80">
+                  <span x-text="encResidentLink().text"></span>
+                  <button @click="openCharacterEditor(encResidentLink().character)" class="px-1.5 border border-ink rounded hover:bg-yellow-100 ml-1" title="Open this resident's character sheet">🔍 sheet</button>
+                </p>
+              </template>
               <!-- E4 — the 1d100 table identity + the 6a Lair % verdict. ⟳ rolls/rerolls on the
                    hex's OWN table; “pick from table” lists the appropriate column (rarity
                    switchable). Both lock once surprise is rolled — the side IS who you met.
@@ -4501,7 +4512,7 @@ document.addEventListener('alpine:init', () => {
             </template>
             <template x-if="hexSettlements(selectedDomain).length > 0">
               <table class="bookkeeping text-sm">
-                <thead><tr><th>Settlement</th><th>Hex</th><th>Type</th><th>Families</th><th>Class</th><th>Capacity</th><th>Investment</th><th title="Demand modifiers per RR p.371">📊 Market</th></tr></thead>
+                <thead><tr><th>Settlement</th><th>Hex</th><th>Type</th><th>Families</th><th>Class</th><th>Capacity</th><th>Investment</th><th title="Demand modifiers per RR p.371">📊 Market</th><th title="JJ Step 3 demographic roster (pp.214–217)">📋 Roster</th></tr></thead>
                 <tbody>
                   <template x-for="entry in hexSettlements(selectedDomain)" :key="entry.hexIndex">
                     <tr>
@@ -4530,6 +4541,9 @@ document.addEventListener('alpine:init', () => {
                           <span x-text="settlementNonZeroDMCount(entry.settlement)"></span> DMs · edit
                         </button>
                       </td>
+                      <td>
+                        <button @click="demoSettlementId = (demoSettlementId===entry.settlement.id ? null : entry.settlement.id)" class="text-sm underline" :title="'Step 3 demographic roster for ' + (entry.settlement.name||'this settlement')" x-text="demoSettlementId===entry.settlement.id ? 'hide' : 'view'"></button>
+                      </td>
                     </tr>
                   </template>
                   <tr class="total">
@@ -4538,9 +4552,184 @@ document.addEventListener('alpine:init', () => {
                     <td colspan="2"></td>
                     <td x-text="totalUrbanInvestmentFromHexes(selectedDomain).toLocaleString()+' gp'"></td>
                     <td></td>
+                    <td></td>
                   </tr>
                 </tbody>
               </table>
+            </template>
+
+            <!-- Settlement Demographics SD-1 — the derived JJ Step-3 census roster read (expected · residents · open · exceptional).
+                 Pure RAW tooling (always-on); set an NPC's home on its character sheet to fill the realized side. -->
+            <template x-if="demoSettlementId && demographicRoster()">
+              <div class="mt-3 vellum border border-ink rounded p-3" style="background:#f4ecd2">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                  <h3 class="font-bold">📋 Demographics — <span x-text="(demoSettlement()&&demoSettlement().name) || '(settlement)'"></span></h3>
+                  <button @click="demoSettlementId=null" class="text-sm underline">close</button>
+                </div>
+                <p class="text-sm opacity-70 mb-2">
+                  JJ Step 3 (pp.214–217) — Class <span x-text="demographicRoster().expected.marketClass"></span>,
+                  <span x-text="(demographicRoster().expected.families||0).toLocaleString()"></span> families
+                  (×<span x-text="Math.round(demographicRoster().expected.scale*100)/100"></span> the reference table).
+                  Each cell shows <em>residents / expected</em>.
+                </p>
+                <div class="overflow-x-auto">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Level</th>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                    </tr></thead>
+                    <tbody>
+                      <template x-for="r in demoRosterRows()" :key="r.level">
+                        <tr>
+                          <td class="font-semibold" x-text="'L'+r.level"></td>
+                          <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                            <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
+                                :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+')').join(', ') : ''">
+                              <template x-if="r[b].realized>0 || r[b].expected>=0.5">
+                                <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
+                              </template>
+                              <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
+                            </td>
+                          </template>
+                        </tr>
+                      </template>
+                      <tr class="total">
+                        <td>Totals</td>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                          <td><span x-text="demographicRoster().realized.totals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(demographicRoster().expected.totals[b])"></span></span></td>
+                        </template>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-sm mt-2">
+                  <span class="font-semibold" x-text="demographicRoster().realized.totals.all"></span> rostered residents
+                  (of ~<span x-text="Math.round(demographicRoster().expected.totals.all).toLocaleString()"></span> expected) ·
+                  <span x-text="demographicRoster().openTotal.toLocaleString()"></span> open slots
+                  <span class="accent-red" x-show="demographicRoster().exceptionalTotal>0"> · <span x-text="demographicRoster().exceptionalTotal"></span> exceptional</span>
+                </p>
+                <template x-if="demographicRoster().realized.otherCount>0">
+                  <p class="text-sm opacity-70" x-text="demographicRoster().realized.otherCount + ' unclassed resident(s): ' + demographicRoster().realized.other.map(o=>o.name).join(', ')"></p>
+                </template>
+                <template x-if="demographicRoster().expected.overrides">
+                  <p class="text-sm opacity-70">⚙ GM demographic override active (RR p.214) — applied to the expectation above.</p>
+                </template>
+
+                <!-- SD-2 reconciliation workspace — the residents homed here (name → sheet, bucket,
+                     civic placement, un-home) + an assign-an-unplaced-NPC control. -->
+                <div class="mt-3 pt-2 border-t border-ink/30">
+                  <h4 class="font-semibold text-sm mb-1">Residents <span class="opacity-60 font-normal" x-text="'(' + demoResidents().length + ')'"></span></h4>
+                  <template x-if="demoResidents().length===0">
+                    <p class="text-sm opacity-60 italic">No NPC is rostered here yet — assign one below, or set a home on a character sheet.</p>
+                  </template>
+                  <template x-if="demoResidents().length>0">
+                    <div class="overflow-x-auto">
+                      <table class="bookkeeping text-sm">
+                        <thead><tr><th>Name</th><th>Class</th><th>Bucket</th><th>Civic placement</th><th></th></tr></thead>
+                        <tbody>
+                          <template x-for="c in demoResidents()" :key="c.id">
+                            <tr>
+                              <td><button class="underline" @click="openCharacterEditor(c)" x-text="(c.name||'(unnamed)') + ' · L' + (c.level||1)"></button></td>
+                              <td x-text="c.class||'—'"></td>
+                              <td class="capitalize" x-text="demoBucketLabel(c)"></td>
+                              <td>
+                                <select class="ed-input text-sm" style="width:14rem"
+                                        @change="commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'placementRole', label:'Civic placement', oldValue:(c.placementRole||null), newValue:($event.target.value||null)})">
+                                  <option :value="null" :selected="!c.placementRole" x-text="'auto — ' + window.ACKS.placementRoleLabel(window.ACKS.suggestedPlacementRole(currentCampaign, c))"></option>
+                                  <template x-for="role in window.ACKS.PLACEMENT_ROLES" :key="role">
+                                    <option :value="role" :selected="c.placementRole===role" x-text="window.ACKS.placementRoleLabel(role)"></option>
+                                  </template>
+                                </select>
+                              </td>
+                              <td><button class="text-sm underline accent-red" @click="demoRemoveResident(c)" title="Remove this NPC's home (un-roster it)">× un-home</button></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </template>
+                  <div class="flex items-center gap-2 mt-2 flex-wrap">
+                    <span class="text-sm font-semibold">Assign a resident:</span>
+                    <select class="ed-input text-sm" style="width:16rem" x-model="demoAssignPick">
+                      <option value="">— pick an unplaced NPC —</option>
+                      <template x-for="c in demoUnhomedCandidates()" :key="c.id">
+                        <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                      </template>
+                    </select>
+                    <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="!demoAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!demoAssignPick" @click="demoAssignResident()">🏠 Home here</button>
+                  </div>
+                  <p class="text-sm opacity-60 italic mt-1">Recruited hirelings auto-home to the market they're hired in. The realm/rural tiers + opt-in auto-fill (needs the NPC generator) arrive with SD-3+.</p>
+                </div>
+
+                <!-- SD-5a — the emergent reads: service legibility + the world-people query (plan §8). -->
+                <div class="mt-3 pt-2 border-t border-ink/30">
+                  <h4 class="font-semibold text-sm mb-1">🛠 Services &amp; notable residents</h4>
+                  <template x-if="demoMostNotable()">
+                    <p class="text-sm mb-1">Most notable in <span x-text="(selectedDomain&&selectedDomain.name)||'the realm'"></span>:
+                      <button class="underline font-semibold" @click="demoOpenResident(demoMostNotable().id)" x-text="demoMostNotable().name + ' · ' + (demoMostNotable().class||'?') + ' L' + demoMostNotable().level"></button>
+                      <span class="opacity-60" x-text="'(at ' + (demoMostNotable().settlementName||'—') + ')'"></span>
+                    </p>
+                  </template>
+                  <div class="overflow-x-auto">
+                    <table class="bookkeeping text-sm">
+                      <thead><tr><th>Bucket</th><th>Top resident</th><th>Affords</th></tr></thead>
+                      <tbody>
+                        <template x-for="row in (demoServices() ? demoServices().rows : [])" :key="row.bucket">
+                          <tr>
+                            <td class="capitalize" x-text="row.bucket"></td>
+                            <td>
+                              <template x-if="row.topResident"><button class="underline" @click="demoOpenResident(row.topResident.id)" x-text="row.topResident.name + ' · L' + row.topResident.level"></button></template>
+                              <template x-if="!row.topResident"><span class="opacity-50">—</span></template>
+                            </td>
+                            <td>
+                              <template x-if="row.topResident"><span x-text="row.service + ' · trains to L' + row.trainsUpToLevel"></span></template>
+                              <template x-if="!row.topResident"><span class="opacity-50 italic">no one here</span></template>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Find people — the queryable index (this settlement / this domain / within N hexes). -->
+                  <div class="mt-2 pt-2 border-t border-ink/20">
+                    <div class="flex items-center gap-2 flex-wrap text-sm">
+                      <span class="font-semibold">🔎 Find people:</span>
+                      <select class="ed-input text-sm" x-model="demoFindBucket">
+                        <option value="">any class</option>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><option :value="b" x-text="b"></option></template>
+                      </select>
+                      <label>L≥ <input type="number" min="1" class="ed-input text-sm" style="width:4rem" x-model.number="demoFindMinLevel"></label>
+                      <select class="ed-input text-sm" x-model="demoFindScope">
+                        <option value="settlement">in this settlement</option>
+                        <option value="domain">in this domain</option>
+                        <option value="near">within N hexes</option>
+                      </select>
+                      <label x-show="demoFindScope==='near'">N= <input type="number" min="0" class="ed-input text-sm" style="width:4rem" x-model.number="demoFindWithin"></label>
+                      <span class="opacity-60" x-text="'(' + demoFindResults().length + ' found)'"></span>
+                    </div>
+                    <template x-if="demoFindResults().length>0">
+                      <div class="overflow-x-auto mt-1">
+                        <table class="bookkeeping text-sm">
+                          <thead><tr><th>Name</th><th>Class · Level</th><th>Settlement</th><th x-show="demoFindScope==='near'">Dist</th></tr></thead>
+                          <tbody>
+                            <template x-for="r in demoFindResults()" :key="r.id">
+                              <tr>
+                                <td><button class="underline" @click="demoOpenResident(r.id)" x-text="r.name"></button></td>
+                                <td x-text="(r.class||'?') + ' · L' + r.level"></td>
+                                <td x-text="r.settlementName||'—'"></td>
+                                <td x-show="demoFindScope==='near'" x-text="r.distance!=null ? r.distance : '—'"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                    </template>
+                    <template x-if="demoFindResults().length===0">
+                      <p class="text-sm opacity-60 italic mt-1">No one matches — widen the level or scope.</p>
+                    </template>
+                  </div>
+                </div>
+              </div>
             </template>
           </div>
           </div>
@@ -5635,6 +5824,80 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
+
+          <!-- Settlement Demographics SD-3 — the realm command structure (T1). Domain-scoped: it lives at
+               the bottom of the Officers tab (the realm's offices, not a settlement's roster); gated on the
+               living-census house rule. Expected leveled offices reconciled against the realm's actual
+               holders (ruler + magistrates + homeDomainId entourage). -->
+          <template x-if="realmCensusOn() && realmCensus()">
+            <div class="vellum border border-ink p-3 rounded mt-4">
+              <h3 class="font-bold text-lg">🏛 Realm command structure — <span x-text="(selectedDomain&&selectedDomain.name)||'(realm)'"></span></h3>
+              <p class="text-sm opacity-70 mb-2">
+                <span x-text="realmCensus().titleLabel"></span>-tier realm (JJ Ch.9 + RR domain rules) — the leveled offices a realm of this title staffs, reconciled against its actual holders.
+                <span class="font-semibold" x-text="realmCensus().filledCount"></span> of <span x-text="realmCensus().officeCount"></span> filled.
+              </p>
+              <div class="overflow-x-auto">
+                <table class="bookkeeping text-sm">
+                  <thead><tr><th>Office</th><th>Source</th><th>Expected</th><th>Holder</th></tr></thead>
+                  <tbody>
+                    <template x-for="o in realmCensus().offices" :key="o.key">
+                      <tr :class="!o.filled ? 'opacity-60' : ''">
+                        <td class="font-semibold" x-text="o.label"></td>
+                        <td class="capitalize opacity-70" x-text="o.mapsTo"></td>
+                        <td x-text="'L'+o.expectedLevel"></td>
+                        <td>
+                          <template x-if="o.holder">
+                            <span :class="o.underLevel ? 'accent-red' : 'text-green-800'">
+                              <button class="underline font-semibold" @click="demoOpenResident(o.holder.id)" x-text="o.holder.name + ' · L' + o.holder.level"></button>
+                              <span x-show="o.underLevel" title="Below the expected level for this office"> ⚠ under</span>
+                            </span>
+                          </template>
+                          <template x-if="!o.holder"><span class="opacity-50 italic">— open —</span></template>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <div class="flex items-center gap-2 mt-2 flex-wrap">
+                <span class="text-sm font-semibold">Assign to the court:</span>
+                <select class="ed-input text-sm" style="width:16rem" x-model="realmAssignPick">
+                  <option value="">— pick an NPC —</option>
+                  <template x-for="c in realmEntourageCandidates()" :key="c.id">
+                    <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                  </template>
+                </select>
+                <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="!realmAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!realmAssignPick" @click="realmAssignEntourage()">🏛 Home to realm</button>
+              </div>
+              <p class="text-sm opacity-60 italic mt-1">The ruler + magistrates fill from the domain's assignments; the magister / guildmaster / annalist fill from NPCs homed to the realm. Rank-and-file (guards, apprentices) stay counts.</p>
+              <template x-if="realmCensus().entourageOther.length>0">
+                <div class="mt-1 text-sm">
+                  <span class="font-semibold">Additional retainers:</span>
+                  <template x-for="e in realmCensus().entourageOther" :key="e.id">
+                    <span class="ml-1">
+                      <button class="underline" @click="demoOpenResident(e.id)" x-text="e.name + ' · ' + (e.class||'?') + ' L' + e.level"></button>
+                      <button class="underline accent-red" @click="realmRemoveEntourage(e)" title="Un-home from the realm">×</button>
+                    </span>
+                  </template>
+                </div>
+              </template>
+              <template x-if="realmCensus().vassalLords.length>0">
+                <div class="mt-2 pt-2 border-t border-ink/20">
+                  <h4 class="font-semibold text-sm mb-1">Vassal lords <span class="opacity-60 font-normal" x-text="'(' + realmCensus().vassalLords.length + ')'"></span></h4>
+                  <ul class="text-sm">
+                    <template x-for="v in realmCensus().vassalLords" :key="v.domainId">
+                      <li>
+                        <span class="font-semibold" x-text="v.domainName"></span>
+                        <span class="opacity-70 capitalize" x-text="' — ' + (v.title||'lord') + ': '"></span>
+                        <template x-if="v.rulerId"><button class="underline" @click="demoOpenResident(v.rulerId)" x-text="v.rulerName + ' · L' + v.rulerLevel"></button></template>
+                        <template x-if="!v.rulerId"><span class="opacity-50 italic">(no lord set)</span></template>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
 
         <div x-show="activeTab==='history'">
@@ -10949,6 +11212,68 @@ document.addEventListener('alpine:init', () => {
           </span>
         </div>
 
+        <!-- Home settlement (Settlement Demographics SD-1) — the roster home; audited via editableStat(select).
+             Distinct from the current hex (where the NPC stands now). Reconciled by ACKS.realizedDemographics. -->
+        <div class="text-sm flex items-center gap-2">
+          <span class="w-32">Home settlement</span>
+          <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeSettlementId', label:'Home settlement', kind:'select', formatter(v){ if(!v) return '— unplaced —'; const s = (window.acksApp?.currentCampaign?.settlements||[]).find(ss => ss.id === v); return s ? (s.name||'(unnamed)') : v; }})">
+            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit home settlement (logged)'">✏</button></span></template>
+            <template x-if="editing"><span class="ed-stat">
+              <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
+                <option :value="null">— unplaced —</option>
+                <template x-for="s in (window.acksApp?.currentCampaign?.settlements||[])" :key="s.id">
+                  <option :value="s.id" x-text="(s.name||'(unnamed)') + ' · Class ' + settlementMarketClass(s)"></option>
+                </template>
+              </select>
+              <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save home settlement'">✓</button>
+              <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing home settlement'">×</button>
+            </span></template>
+          </span>
+          <span class="text-sm opacity-60 italic">where this NPC is rostered (Step 3 census)</span>
+        </div>
+
+        <!-- Home domain (Settlement Demographics SD-3) — the realm-service home; gm-fiat. Gated on the
+             living-census house rule (the realm tier). Reconciled by ACKS.realmCommandStructure. -->
+        <template x-if="isHouseRuleEnabled('living-census')">
+          <div class="text-sm flex items-center gap-2">
+            <span class="w-32">Home domain</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeDomainId', label:'Home domain', kind:'select', formatter(v){ if(!v) return '— none —'; const d=(window.acksApp?.domains||[]).find(dd => dd.id === v); return d ? (d.name||'(unnamed)') : v; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit home domain (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat">
+                <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
+                  <option :value="null">— none —</option>
+                  <template x-for="d in (window.acksApp?.domains||[])" :key="d.id">
+                    <option :value="d.id" x-text="(d.name||'(unnamed)')"></option>
+                  </template>
+                </select>
+                <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save home domain'">✓</button>
+                <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing home domain'">×</button>
+              </span></template>
+            </span>
+            <span class="text-sm opacity-60 italic">the realm this NPC serves at court (SD-3)</span>
+          </div>
+        </template>
+
+        <!-- Civic placement (Settlement Demographics SD-2) — JJ Step-4 role; gm-fiat. Blank = the
+             bucket-suggested default (ACKS.suggestedPlacementRole). -->
+        <div class="text-sm flex items-center gap-2">
+          <span class="w-32">Civic placement</span>
+          <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'placementRole', label:'Civic placement', kind:'select', formatter(v){ const c=window.acksApp?.characterEditing; const lab=window.ACKS.placementRoleLabel(window.ACKS.effectivePlacementRole(window.acksApp?.currentCampaign, c)); return v ? lab : (lab + ' (auto)'); }})">
+            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit civic placement (logged)'">✏</button></span></template>
+            <template x-if="editing"><span class="ed-stat">
+              <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
+                <option :value="null">— auto (by class) —</option>
+                <template x-for="role in window.ACKS.PLACEMENT_ROLES" :key="role">
+                  <option :value="role" x-text="window.ACKS.placementRoleLabel(role)"></option>
+                </template>
+              </select>
+              <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save civic placement'">✓</button>
+              <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing civic placement'">×</button>
+            </span></template>
+          </span>
+          <span class="text-sm opacity-60 italic">where in the settlement they belong (Step 4)</span>
+        </div>
+
         <p class="text-sm opacity-70 italic mt-2">Map rendering of character positions and party movement mechanics arrive with Phase 2.5 (map mode). For now these fields are tracked but not visualized; the data is captured so the eventual map can reconstruct movement.</p>
       </div>
 
@@ -15258,6 +15583,23 @@ return {
       || ms.label || '';   // E4: a null-key table identity (Dragon, Genie…) displays its printed label
     const what = mName || (enc.category === 'civilized' ? 'civilized folk (GM identifies)' : enc.category === 'monster' ? 'monsters (GM identifies)' : '(unidentified)');
     return (ms.count ? ms.count + ' × ' : '') + what;
+  },
+  // ── SD-5b — a civilized encounter GROUNDED to the actual townsperson who lives nearby (the
+  // realized census): name them, link their sheet. Derived live (the stored id resolves to the
+  // current character); null when not a grounded civilized meeting. ──
+  encResidentLink(){
+    const enc = this.encModalEnc(); if(!enc || !enc.monsterSide) return null;
+    const cid = enc.monsterSide.residentCharacterId; if(!cid) return null;
+    const c = (this.currentCampaign?.characters || []).find(x => x && x.id === cid);
+    if(!c) return null;
+    const sid = enc.monsterSide.residentSettlementId;
+    const s = (sid && window.ACKS.findSettlement) ? window.ACKS.findSettlement(this.currentCampaign, sid) : null;
+    const lvl = Number(c.level) || 1;
+    const text = '🏛 This is ' + (c.name || 'a local')
+      + (c.class ? ', ' + c.class + ' L' + lvl : ' (L' + lvl + ')')
+      + (s && s.name ? ' — lives in ' + s.name : '')
+      + ' (drawn from the settlement census)';
+    return { text: text, character: c, characterId: cid };
   },
   // ── E4 — the table identity line + the 6a binding verdict + ⟳/pick affordances ──
   // E4n — the table this side rolls/picks on: the stored identity, or (identity-less —
@@ -24428,6 +24770,42 @@ return {
   // Settlements live per-hex (hex.settlement) as named entities. Legacy aggregate at demographics.urbanFamilies
   // is only used when no hex has a settlement yet.
   hexSettlements(d){return window.ACKS.hexSettlements(d);},
+  // Settlement Demographics SD-1 — the per-settlement Step-3 census roster read (Settlement_Demographics_Plan.md).
+  demoSettlementId: null,   // the settlement whose demographic roster is expanded (scoped to selectedDomain)
+  demoSettlement(){ const id=this.demoSettlementId; if(!id) return null; const e=(this.hexSettlements(this.selectedDomain)||[]).find(x=>x.settlement&&x.settlement.id===id); return e?e.settlement:null; },
+  demographicRoster(){ const s=this.demoSettlement(); return s ? window.ACKS.settlementDemographics(this.currentCampaign, s) : null; },
+  demoRosterRows(){ const d=this.demographicRoster(); if(!d) return []; return d.byLevel.filter((r,i)=>{ const e=d.expected.byLevel[i], real=d.realized.byLevel[i]; return e.all>=0.5 || real.all>0; }); },
+  fmtExpected(v){ return window.ACKS.formatExpectedCount(v); },
+  // SD-2 — the reconciliation workspace (residents homed here + assign/remove home; civic placement).
+  demoAssignPick: '',
+  demoResidents(){ const id=this.demoSettlementId; if(!id) return []; return (this.currentCampaign?.characters||[]).filter(c => c.homeSettlementId===id && c.lifecycleState!=='deceased'); },
+  demoUnhomedCandidates(){ return (this.currentCampaign?.characters||[]).filter(c => !c.homeSettlementId && c.lifecycleState!=='deceased').sort((a,b)=>(a.name||'').localeCompare(b.name||'')); },
+  demoBucketLabel(c){ return window.ACKS.coreBucketForCharacter(this.currentCampaign, c) || '—'; },
+  demoAssignResident(){ const id=this.demoAssignPick; if(!id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeSettlementId', label:'Home settlement', oldValue:(c.homeSettlementId||null), newValue:this.demoSettlementId}); this.demoAssignPick=''; },
+  demoRemoveResident(c){ if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeSettlementId', label:'Home settlement', oldValue:(c.homeSettlementId||null), newValue:null}); },
+  // SD-5a — the emergent reads (service legibility + the world-people query, plan §8).
+  demoServices(){ const id=this.demoSettlementId; return id ? window.ACKS.settlementServices(this.currentCampaign, id) : null; },
+  demoMostNotable(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.mostNotableResident(this.currentCampaign, {domainId:d.id}) : null; },
+  demoFindBucket: '', demoFindMinLevel: 1, demoFindScope: 'domain', demoFindWithin: 3,
+  demoFindResults(){
+    const C=this.currentCampaign; if(!C) return [];
+    const q={ minLevel: Math.max(1, Number(this.demoFindMinLevel)||1) };
+    if(this.demoFindBucket) q.bucket=this.demoFindBucket;
+    if(this.demoFindScope==='settlement'){ q.settlementId=this.demoSettlementId; }
+    else if(this.demoFindScope==='near'){ const s=this.demoSettlement(); if(s&&s.hexId){ q.nearHexId=s.hexId; q.withinHexes=Math.max(0, Number(this.demoFindWithin)||0); } else { const d=this.selectedDomain; q.domainId=d&&d.id; } }
+    else { const d=this.selectedDomain; q.domainId=d&&d.id; }
+    return window.ACKS.findResidents(C, q);
+  },
+  demoOpenResident(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(c) this.openCharacterEditor(c); },
+  // SD-3 — the realm command structure (T1; gated on the living-census house rule). Domain-scoped:
+  // the realm's expected leveled offices reconciled against its actual holders (ruler + magistrates +
+  // homeDomainId entourage + vassal lords). The accessor is pure; the UI shows it only when the rule is on.
+  realmCensusOn(){ return this.isHouseRuleEnabled('living-census'); },
+  realmCensus(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.realmCommandStructure(this.currentCampaign, d.id) : null; },
+  realmAssignPick: '',
+  realmEntourageCandidates(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.characters||[]).filter(c => c.homeDomainId!==d.id && c.lifecycleState!=='deceased').sort((a,b)=>(b.level||1)-(a.level||1)||(a.name||'').localeCompare(b.name||'')); },
+  realmAssignEntourage(){ const id=this.realmAssignPick; const d=this.selectedDomain; if(!id||!d||!d.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:d.id}); this.realmAssignPick=''; },
+  realmRemoveEntourage(e){ if(!e||!e.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===e.id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:null}); },
   totalUrbanFamiliesFromHexes(d){return window.ACKS.totalUrbanFamiliesFromHexes(d);},
   totalUrbanInvestmentFromHexes(d){return window.ACKS.totalUrbanInvestmentFromHexes(d);},
   // Effective urban family count for calculations. Per-hex settlements take precedence; falls back to legacy aggregate.

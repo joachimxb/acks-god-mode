@@ -370,6 +370,11 @@ function blankSettlement(opts={}){
     // #522 (2026-05-30) M&M depth — default to arrays so settlement.entryways[] / .regulatedAssets[] are always iterable from UI without null-guards.
     entryways: Array.isArray(opts.entryways) ? opts.entryways : [],
     regulatedAssets: Array.isArray(opts.regulatedAssets) ? opts.regulatedAssets : [],
+    // Settlement Demographics SD-1 (2026-06-16) — the RAW p.214 GM override on the derived
+    // Step-3 roster. null = pure RAW expectation; else per-bucket multipliers, e.g. the
+    // "city of wizards" = { mage: 3 } or "denuded" = { all: 0.5 }. Read by ACKS.expectedDemographics;
+    // additive + defensive (migration-free; templates stay migrate-no-ops). See Settlement_Demographics_Plan.md.
+    demographicOverrides: opts.demographicOverrides || null,
     notes: opts.notes || ''
   };
 }
@@ -465,7 +470,7 @@ function blankEncounter(opts={}){
     // E4m adds pursuitEncounterId — the chase encounter this band IS, when a third party
     // meets a band that is mid-hunt (dispersing the meeting ends the chase; D9 recalls).
     partySide: Object.assign({ partyId: null, journeyId: null, characterIds: [], faceCharacterId: null, sizeCount: null }, opts.partySide || {}),
-    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null }, opts.monsterSide || {}),
+    monsterSide: Object.assign({ source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, pursuitEncounterId: null, residentCharacterId: null, residentSettlementId: null }, opts.monsterSide || {}),
     // Step state (each null until its step runs; shapes documented in Data_Dictionary §4):
     distance: opts.distance || null,                  // { rolledFt, capFt, distanceFt, light, detectedBy, terrainRow }
     surprise: opts.surprise || null,                  // { party:{...}, monsters:{...}, evadeEligibility, noEncounter }
@@ -1118,6 +1123,20 @@ function blankCharacter(opts={}){
     // Location — v2 uses stable hex ID, not (q,r) coord
     currentHexId: opts.currentHexId || null,
     currentDomainId: opts.currentDomainId || null,
+    // Settlement Demographics SD-1 (2026-06-16) — the home pointer: the settlement this NPC is
+    // rostered in (the realized side of ACKS.realizedDemographics). Distinct from currentHexId
+    // (where it stands now). null = unplaced. Additive + defensive; SD-2 wires the auto-set
+    // sources (recruit/generate/encounter) + placementRole. See Settlement_Demographics_Plan.md.
+    homeSettlementId: opts.homeSettlementId || null,
+    // Settlement Demographics SD-3 (2026-06-16) — the realm home pointer: the DOMAIN this NPC serves
+    // in (the realized side of ACKS.realmCommandStructure — an entourage office-holder of a realm).
+    // Distinct from homeSettlementId (an urban resident) and currentHexId. null = not a realm retainer.
+    // The realm tier is gated by the `living-census` house rule. Additive + defensive; migration-free.
+    homeDomainId: opts.homeDomainId || null,
+    // Settlement Demographics SD-2 (2026-06-16) — the civic placement role (JJ Step 4, p.217):
+    // which part of the settlement this NPC belongs to (tower-of-knowledge / temple / …). null =
+    // use the bucket-derived suggestion (ACKS.effectivePlacementRole). Additive + defensive.
+    placementRole: opts.placementRole || null,
     partyId: opts.partyId || null,
     travelDestination: opts.travelDestination || null,
     travelPace: opts.travelPace || 'walking',

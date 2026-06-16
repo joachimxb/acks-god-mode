@@ -5827,7 +5827,7 @@ function createEncounterFromDraw(campaign, draw, opts){
   if(draw.category !== 'monster' && draw.category !== 'civilized') return null;
   const o = opts || {};
   const A = global.ACKS;
-  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null };
+  const monsterSide = { source: 'fresh', lairId: null, groupIds: [], monsterCatalogKey: '', count: null, encounterKind: null, label: '', identity: null, binding: null, minted: null, residentCharacterId: null, residentSettlementId: null };
   const prop = draw.proposal;
   if(draw.identityRoll){
     // E4 — the table named the creature; the 6a binding rides the draw verbatim
@@ -5850,6 +5850,16 @@ function createEncounterFromDraw(campaign, draw, opts){
     monsterSide.source = 'seeded-shell';                // GM populates one of the hex's shells
   } else if(prop && prop.source === 'dynamic-pool'){
     monsterSide.source = 'dynamic';
+  }
+  // SD-5b — a CIVILIZED result near a settlement is grounded to the actual person who lives there
+  // (the realized census, plan §8): merchant→venturer / patroller→fighter / pilgrim→crusader. The
+  // census stops being a panel and becomes who you meet. Deterministic (the most-notable resident
+  // of the bucket) → the preview + commit agree; GM-overridable on the entity. No nearby resident
+  // of the profession → no grounding (the generic table label stands). Late-bound — demographics
+  // loads after this module; the read is pure.
+  if(draw.category === 'civilized' && monsterSide.monsterCatalogKey && typeof A.groundCivilizedEncounter === 'function'){
+    const g = A.groundCivilizedEncounter(campaign, { hexId: draw.hexId || null, cellKey: monsterSide.monsterCatalogKey });
+    if(g){ monsterSide.residentCharacterId = g.characterId; monsterSide.residentSettlementId = g.settlementId; }
   }
   const createOpts = {
     scale: 'wilderness',
