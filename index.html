@@ -3147,7 +3147,7 @@ document.addEventListener('alpine:init', () => {
     <div class="p-2 rounded border" style="background:#f3ead8; border-color:#8a6d1f">
       <p class="text-sm font-bold">The threat — <span x-text="(Math.max(0,(garrisonDeployBand().count||0)-(garrisonDeployBand().casualties||0))) + ' × ' + (garrisonDeployBand().name || 'monsters')"></span></p>
       <p class="text-xs mt-0.5" x-text="'Attitude: ' + ((garrisonDeployBand().incursion && garrisonDeployBand().incursion.attitude) || 'unknown') + ' · ' + ((garrisonDeployBand().incursion && garrisonDeployBand().incursion.disposition) || '') + (garrisonDeployBand().currentHexId ? (' · at ' + hexLabelById(garrisonDeployBand().currentHexId)) : '')"></p>
-      <p class="text-xs mt-0.5 accent-red" x-show="garrisonDeployBand().incursion && garrisonDeployBand().incursion.rulerAware === false">⚠ The ruler only just learned of it (it had gone undetected — JJ p.103).</p>
+      <p class="text-xs mt-0.5 accent-red font-semibold" x-show="rulerUnawareOfBand(garrisonDeployBand())">⚠ The ruler hasn’t detected this band — no deliberate sally until reconnaissance locates it (JJ p.103, RR p.452). Deploy is disabled.</p>
     </div>
 
     <label class="block text-sm">
@@ -4220,14 +4220,20 @@ document.addEventListener('alpine:init', () => {
                   — <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
                   <!-- Garrison reaction (JJ pp.104–106): the full sally — deploy a force, march to
                        the band, resolve there, march home. The ⚔ Deploy flow (vs the instant 🎌 battle). -->
-                  · <button @click="openGarrisonDeploy({ groupId: g.id })" class="underline accent-red font-semibold">⚔ Deploy garrison</button>
+                  · <button @click="!rulerUnawareOfBand(g) && openGarrisonDeploy({ groupId: g.id })" :disabled="rulerUnawareOfBand(g)"
+                      :class="rulerUnawareOfBand(g) ? 'italic opacity-50 cursor-not-allowed' : 'underline accent-red font-semibold'"
+                      :title="rulerUnawareOfBand(g) ? 'The ruler hasn’t detected this band — no sally until reconnaissance locates it (JJ p.103, RR p.452)' : 'Deploy a force to meet this band (JJ pp.104–106)'">⚔ Deploy garrison</button>
                   <!-- W3 — bring it to blows directly: prefill the battle launcher with the garrison
-                       vs the band (platoon scale, asymmetry on; an unaware ruler = only the band aware). -->
-                  · <button @click="openBattleWizard({ hexId: g.currentHexId || '', sourceA: 'garrison:' + selectedDomain.id, sourceB: 'group:' + g.id,
+                       vs the band (platoon scale, asymmetry on). Like Deploy, this stages the garrison
+                       AT the band's hex (active interception), so it's gated on the ruler having
+                       detected it (JJ p.103, RR p.452); awareness is then mutual. The generic
+                       ⚔ New-battle launcher stays unrestricted as the GM override. -->
+                  · <button @click="!rulerUnawareOfBand(g) && openBattleWizard({ hexId: g.currentHexId || '', sourceA: 'garrison:' + selectedDomain.id, sourceB: 'group:' + g.id,
                         stanceA: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'defensive' : 'offensive',
                         stanceB: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'offensive' : 'defensive',
-                        awareness: (g.incursion && g.incursion.rulerAware === false) ? 'unilateral-b' : 'mutual',
-                        scale: 'platoon', asymmetry: true, scoped: true })" class="underline accent-red">🎌 battle</button>
+                        awareness: 'mutual', scale: 'platoon', asymmetry: true, scoped: true })" :disabled="rulerUnawareOfBand(g)"
+                        :class="rulerUnawareOfBand(g) ? 'italic opacity-50 cursor-not-allowed' : 'underline accent-red'"
+                        :title="rulerUnawareOfBand(g) ? 'The ruler hasn’t detected this band — locate it by reconnaissance first (JJ p.103, RR p.452)' : 'Stage a battle against this band now'">🎌 battle</button>
                 </p>
               </template>
               <p class="text-xs mt-1 opacity-80" x-show="isHouseRuleEnabled('vagaries-of-incursion') && incursionBands(selectedDomain).length === 0">No incursion bands stand in the domain.</p>
@@ -5293,7 +5299,7 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="(g.incursion && g.incursion.disposition) || '—'"></td>
                     <td class="font-mono" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.forceBr.toFixed(2) + ' vs ' + (p.bandBr != null ? p.bandBr.toFixed(2) : 'GM')) : '—'; })()"></td>
                     <td><span :class="(() => { const p = threatReactionPreview(g); return p && p.outcome === 'driven-off' ? 'text-green-700' : (p && p.outcome === 'battle' ? 'accent-red' : ''); })()" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.outcome === 'battle' ? 'they fight' : (p.outcome === 'driven-off' ? 'driven off' : 'GM prices')) : '—'; })()"></span></td>
-                    <td class="whitespace-nowrap"><button @click="openGarrisonDeploy({ groupId: g.id })" class="px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100" title="Deploy a force to meet this band (JJ pp.104–106)">⚔ Deploy</button></td>
+                    <td class="whitespace-nowrap"><button @click="!rulerUnawareOfBand(g) && openGarrisonDeploy({ groupId: g.id })" :disabled="rulerUnawareOfBand(g)" :class="rulerUnawareOfBand(g) ? 'px-2 py-0.5 border border-ink/40 rounded text-xs opacity-50 cursor-not-allowed' : 'px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100'" :title="rulerUnawareOfBand(g) ? 'Undetected — the ruler can’t sally until reconnaissance locates this band (JJ p.103, RR p.452)' : 'Deploy a force to meet this band (JJ pp.104–106)'">⚔ Deploy</button></td>
                   </tr>
                 </template>
               </tbody>
@@ -17080,7 +17086,11 @@ return {
       commanderCharacterId: this.garrisonDeployForm.commanderId || null
     }).map(f => f.text);
   },
-  garrisonDeployCanSubmit(){ return !!(this.garrisonDeployForm.rallyHexId && (this.garrisonDeployForm.unitIds || []).length); },
+  // RAW (JJ p.103, RR p.452): a deliberate sally requires the ruler to have DETECTED the band.
+  // An undetected incursion (rulerAware===false; undefined defaults to aware) offers no Deploy /
+  // 🎌-battle affordance — the garrison can't march on a threat it hasn't located.
+  rulerUnawareOfBand(g){ return !!(g && g.incursion && g.incursion.rulerAware === false); },
+  garrisonDeployCanSubmit(){ return !this.rulerUnawareOfBand(this.garrisonDeployBand()) && !!(this.garrisonDeployForm.rallyHexId && (this.garrisonDeployForm.unitIds || []).length); },
   garrisonDeploySubmit(){
     if(!this.garrisonDeployCanSubmit()) return;
     const f = this.garrisonDeployForm;

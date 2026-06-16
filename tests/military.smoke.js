@@ -602,6 +602,21 @@ section('garrison reaction (2026-06-14) — deploy a force to meet a domain incu
   ok('deploy: no units → {ok:false, no-units}', ACKS.deployGarrisonReaction(mkReaction({}), { groupId: 'grp-threat', unitIds: [] }).reason === 'no-units');
   ok('deploy: unknown band → {ok:false, no-band}', ACKS.deployGarrisonReaction(mkReaction({}), { groupId: 'grp-nope', unitIds: ['unit-g0'] }).reason === 'no-band');
 
+  // ── awareness gate (RAW: a deliberate sally requires the ruler to have DETECTED the band — JJ p.103, RR p.452) ──
+  const cUnaware = mkReaction({ bandHexId: 'hex-band', attitude: 'unfriendly', count: 8, garrisonUnits: 1 });
+  cUnaware.groups.find(g => g.id === 'grp-threat').incursion.rulerAware = false;
+  const depUnaware = ACKS.deployGarrisonReaction(cUnaware, { groupId: 'grp-threat', unitIds: ['unit-g0'], commanderCharacterId: 'chr-cap', rallyHexId: 'hex-seat' });
+  ok('deploy: ruler unaware → {ok:false, ruler-unaware}', depUnaware.ok === false && depUnaware.reason === 'ruler-unaware', JSON.stringify(depUnaware));
+  ok('deploy: ruler unaware → no army mustered', (cUnaware.armies || []).length === 0);
+  ok('deploy: ruler unaware → the units stay home (not stationed to a sally army)', (ACKS.findUnit(cUnaware, 'unit-g0').stationedAt || {}).kind === 'domain-garrison');
+  // aware (the fixture default) still deploys — the gate is specific to undetected bands
+  const cAware = mkReaction({ bandHexId: 'hex-band', attitude: 'unfriendly', count: 8, garrisonUnits: 1 });
+  ok('deploy: ruler aware → still deploys (ok)', ACKS.deployGarrisonReaction(cAware, { groupId: 'grp-threat', unitIds: ['unit-g0'], commanderCharacterId: 'chr-cap', rallyHexId: 'hex-seat' }).ok === true);
+  // an unset rulerAware (pre-recon / GM-authored band) defaults to aware → not blocked (matches the display === false convention)
+  const cUndef = mkReaction({ bandHexId: 'hex-band', attitude: 'unfriendly', count: 8, garrisonUnits: 1 });
+  delete cUndef.groups.find(g => g.id === 'grp-threat').incursion.rulerAware;
+  ok('deploy: rulerAware undefined → not blocked (defaults to aware)', ACKS.deployGarrisonReaction(cUndef, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat' }).ok === true);
+
   // ── arrival resolution (the §6 engine gap) — driven off ──
   const cDrive = mkReaction({ bandHexId: 'hex-seat', attitude: 'unfriendly', count: 8, garrisonUnits: 1, garrisonCount: 120 });
   ACKS.deployGarrisonReaction(cDrive, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hex-seat', commanderCharacterId: 'chr-cap' });
