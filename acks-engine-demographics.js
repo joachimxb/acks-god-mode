@@ -330,6 +330,152 @@ function effectivePlacementRole(campaign, character){
 }
 function placementRoleLabel(role){ return PLACEMENT_ROLE_LABELS[role] || role || '(unassigned)'; }
 
+// ── SD-5a: THE EMERGENT READS — the world's people as a queryable index (plan §8) ─────────────────
+// Pure derived reads over the realized roster (realizedDemographics): service legibility + the
+// world-people query surface. No new stored surface — every downstream consumer (Sages #147,
+// Spellcasting Services, recruitment grounding, and the SD-5b civilized-encounter grounding)
+// reads these. The census stops being a panel you look at and becomes something the world uses.
+
+// A flat, level-sorted list of a settlement's named residents — the query base over the roster.
+function settlementResidents(campaign, settlementId){
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  const out = [];
+  for(const c of chars){
+    if(!_isResident(c, settlementId)) continue;
+    out.push({ id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1,
+               class: c.class || '', bucket: coreBucketForCharacter(campaign, c) });
+  }
+  out.sort((a, b) => b.level - a.level || (a.name || '').localeCompare(b.name || ''));
+  return out;
+}
+
+// The highest-level resident in each of the six buckets (or null) — substrate for service
+// legibility + "notable residents". → { fighter:{id,name,level,class}|null, crusader:…, … }.
+function topResidentByBucket(campaign, settlementId){
+  const top = {}; DEMOGRAPHIC_BUCKETS.forEach(b => { top[b] = null; });
+  for(const r of settlementResidents(campaign, settlementId)){
+    if(r.bucket && (!top[r.bucket] || r.level > top[r.bucket].level)) top[r.bucket] = r;
+  }
+  return top;
+}
+
+// What each bucket's presence affords (service legibility — plan §8: "is there a caster high enough
+// to Remove Curse / a trainer for this class / a sage here?"). v1 reports the top caster/trainer
+// level per bucket + a plain-language service note; the precise per-class spell-level / training
+// math belongs to the CONSUMING subsystem (Spellcasting Services / Sages #147 / Training) — this
+// layer answers "who's here, and how capable," not the rules engine.
+const BUCKET_SERVICE = Object.freeze({
+  mage:'arcane spellcasting & research assistance',
+  crusader:'divine spellcasting (healing, Remove Curse)',
+  thief:'thieving services & a fence',
+  venturer:'mercantile dealing & sage lore',
+  fighter:'weapon training & mercenary captaincy',
+  explorer:'guides & wilderness lore'
+});
+function settlementServices(campaign, settlementId){
+  const top = topResidentByBucket(campaign, settlementId);
+  const rows = DEMOGRAPHIC_BUCKETS.map(b => {
+    const r = top[b];
+    return { bucket: b, topResident: r, level: r ? r.level : 0,
+             service: BUCKET_SERVICE[b] || '',
+             // ACKS mentor convention — a teacher trains a student of strictly lower level (RR p.122).
+             trainsUpToLevel: r ? Math.max(0, r.level - 1) : 0 };
+  });
+  return { settlementId, rows,
+           arcaneCasterLevel: top.mage ? top.mage.level : 0,
+           divineCasterLevel: top.crusader ? top.crusader.level : 0 };
+}
+
+// A settlement's home-hex coord (defensive — top store first), or null. For near/within-hexes queries.
+function _settlementCoord(campaign, settlementId){
+  const s = (typeof ACKS.findSettlement === 'function') ? ACKS.findSettlement(campaign, settlementId) : null;
+  const hexId = s && s.hexId;
+  if(!hexId || !campaign || !Array.isArray(campaign.hexes)) return null;
+  const h = campaign.hexes.find(x => x && x.id === hexId);
+  return (h && h.coord) ? h.coord : null;
+}
+
+// The settlement-id set for a scope — a domain (optionally its whole realm: the domain + its
+// sub-vassal chain, RAW realm = ruler + sub-vassals). Defensive over the shipped primitives.
+function _settlementIdsForScope(campaign, domainId, includeVassals){
+  const ids = new Set();
+  const addDomain = dId => {
+    const list = (typeof ACKS.settlementsForDomain === 'function') ? ACKS.settlementsForDomain(campaign, dId) : [];
+    list.forEach(s => { if(s && s.id) ids.add(s.id); });
+  };
+  addDomain(domainId);
+  if(includeVassals && campaign && Array.isArray(campaign.domains)){
+    const dom = campaign.domains.find(d => d && d.id === domainId);
+    const rulerId = dom && dom.rulerCharacterId;
+    if(rulerId && typeof ACKS.derivedVassalDomainsOf === 'function'){
+      (ACKS.derivedVassalDomainsOf(campaign, rulerId) || []).forEach(vd => { if(vd && vd.id) addDomain(vd.id); });
+    }
+  }
+  return ids;
+}
+
+// THE QUERY — the named residents matching {bucket, classKey, minLevel, maxLevel} within a scope:
+//   settlementId → that settlement; domainId (+includeVassals → the realm) → the domain's settlements;
+//   nearHexId + withinHexes → settlements within K hexes of an anchor; else campaign-wide.
+// → [{id,name,level,class,bucket,settlementId,settlementName,distance?}] sorted by level desc.
+// The "every Mage-9+ within N hexes" / "which settlement could train my thief?" surface.
+function findResidents(campaign, query){
+  query = query || {};
+  const chars = (campaign && Array.isArray(campaign.characters)) ? campaign.characters : [];
+  let scopeSet = null;                 // null = unrestricted by scope (campaign-wide)
+  let anchorCoord = null, withinHexes = null;
+  if(query.settlementId){ scopeSet = new Set([query.settlementId]); }
+  else if(query.domainId){ scopeSet = _settlementIdsForScope(campaign, query.domainId, !!query.includeVassals); }
+  else if(query.nearHexId && query.withinHexes != null){
+    withinHexes = Number(query.withinHexes);
+    if(campaign && Array.isArray(campaign.hexes)){
+      const ah = campaign.hexes.find(h => h && h.id === query.nearHexId);
+      anchorCoord = (ah && ah.coord) ? ah.coord : null;
+    }
+  }
+  const bucket   = query.bucket || null;
+  const classKey = query.classKey ? _normClassName(query.classKey) : null;
+  const minLevel = (query.minLevel != null) ? Number(query.minLevel) : null;
+  const maxLevel = (query.maxLevel != null) ? Number(query.maxLevel) : null;
+  const nameCache = {}, coordCache = {};
+  const settleName  = sid => { if(!(sid in nameCache)){ const s = (typeof ACKS.findSettlement === 'function') ? ACKS.findSettlement(campaign, sid) : null; nameCache[sid] = (s && s.name) || ''; } return nameCache[sid]; };
+  const settleCoord = sid => { if(!(sid in coordCache)) coordCache[sid] = _settlementCoord(campaign, sid); return coordCache[sid]; };
+  const out = [];
+  for(const c of chars){
+    if(!c || !c.homeSettlementId || c.lifecycleState === 'deceased') continue;
+    const sid = c.homeSettlementId;
+    if(scopeSet && !scopeSet.has(sid)) continue;
+    let distance = null;
+    if(anchorCoord){
+      const cc = settleCoord(sid);
+      if(!cc) continue;
+      distance = (typeof ACKS.hexAxialDistance === 'function') ? ACKS.hexAxialDistance(anchorCoord, cc) : Infinity;
+      if(distance > withinHexes) continue;
+    }
+    const cb = coreBucketForCharacter(campaign, c);
+    if(bucket && cb !== bucket) continue;
+    if(classKey && _normClassName(c.class) !== classKey) continue;
+    const lvl = Number(c.level) || 1;
+    if(minLevel != null && lvl < minLevel) continue;
+    if(maxLevel != null && lvl > maxLevel) continue;
+    const row = { id: c.id, name: c.name || '(unnamed)', level: lvl, class: c.class || '',
+                  bucket: cb, settlementId: sid, settlementName: settleName(sid) };
+    if(distance != null) row.distance = distance;
+    out.push(row);
+  }
+  out.sort((a, b) => (b.level - a.level)
+    || ((a.distance != null && b.distance != null) ? (a.distance - b.distance) : 0)
+    || (a.name || '').localeCompare(b.name || ''));
+  return out;
+}
+
+// The single most-notable (highest-level) resident across a scope — "the most powerful person here
+// / in this domain / realm." opts: {settlementId} | {domainId[, includeVassals]} | {} (anywhere).
+function mostNotableResident(campaign, opts){
+  const list = findResidents(campaign, opts || {});
+  return list.length ? list[0] : null;
+}
+
 Object.assign(ACKS, {
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
@@ -340,7 +486,11 @@ Object.assign(ACKS, {
   formatExpectedCount,
   // SD-2 — placement (JJ Step 4 p.217)
   PLACEMENT_ROLES, PLACEMENT_ROLE_LABELS,
-  suggestedPlacementRole, effectivePlacementRole, placementRoleLabel
+  suggestedPlacementRole, effectivePlacementRole, placementRoleLabel,
+  // SD-5a — the emergent reads (plan §8: the world's people as a queryable index)
+  BUCKET_SERVICE,
+  settlementResidents, topResidentByBucket, settlementServices,
+  findResidents, mostNotableResident
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

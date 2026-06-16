@@ -195,6 +195,82 @@ rc.characters.push(candB);
 ACKS.applyEvent(rc, ACKS.newEvent('recruit-hireling', { payload: { patronCharacterId:patron.id, hireCategory:'henchman', hireTypeId:'henchman-mage', candidateIds:[candB.id], settlementId:'set-market', monthlyOffer:25 } }));
 ok('recruit does not clobber a GM-set home', candB.homeSettlementId === 'set-original');
 
+// ── 9. SD-5a — the emergent reads (the world's people as a queryable index, plan §8) ──────────────
+section('SD-5a — service legibility + world-people queries');
+['settlementResidents','topResidentByBucket','settlementServices','findResidents','mostNotableResident','BUCKET_SERVICE'].forEach(n =>
+  ok('ACKS.' + n + ' exported', ACKS[n] !== undefined));
+
+// A small world: two settlements in dom-march (hexes 3 apart), one in dom-vassal (8 hexes off).
+const wc = ACKS.blankCampaign({ name:'world-reads' });
+wc.hexes.push({ id:'hex-cap',  coord:{q:0,r:0}, domainId:'dom-march' });
+wc.hexes.push({ id:'hex-port', coord:{q:3,r:0}, domainId:'dom-march' });
+wc.hexes.push({ id:'hex-far',  coord:{q:8,r:0}, domainId:'dom-vassal' });
+wc.settlements.push({ id:'set-cap',  name:'Saltspur',  hexId:'hex-cap',  families:2500 });
+wc.settlements.push({ id:'set-port', name:'Tidewrack', hexId:'hex-port', families:250  });
+wc.settlements.push({ id:'set-far',  name:'Farhold',   hexId:'hex-far',  families:80   });
+wc.domains.push({ id:'dom-march',  name:'March',  rulerCharacterId:null });
+wc.domains.push({ id:'dom-vassal', name:'Vassal', rulerCharacterId:null });
+const mk = (name, cls, lvl, sid) => { const c = ACKS.blankCharacter({ name, class:cls, level:lvl, homeSettlementId:sid }); wc.characters.push(c); return c; };
+const archmage = mk('Vextra the Wise', 'Mage',   11, 'set-cap');  // the realm's top caster
+mk('Brother Cael',     'Cleric',  7, 'set-cap');                  // top divine
+mk('Sgt. Borin',       'Fighter', 6, 'set-cap');
+mk('Quill the Fence',  'Thief',   4, 'set-cap');
+const mab = mk('Hedge-Witch Mab', 'Mage', 3, 'set-port');         // a lesser caster at the port (d3)
+mk('Old Tom',          'Fighter', 2, 'set-port');
+const farmage = mk('Distant Dabbler', 'Mage', 9, 'set-far');      // a Mage-9 a domain (8 hexes) away
+
+// settlementResidents — flat, level-sorted
+const capRes = ACKS.settlementResidents(wc, 'set-cap');
+ok('settlementResidents counts the 4 homed at the capital', capRes.length === 4, 'got ' + capRes.length);
+ok('settlementResidents is level-sorted desc (top = the archmage)', capRes[0].id === archmage.id && capRes[0].level === 11);
+ok('settlementResidents tags the bucket', capRes[0].bucket === 'mage');
+
+// topResidentByBucket
+const top = ACKS.topResidentByBucket(wc, 'set-cap');
+ok('topResidentByBucket.mage = the archmage',  top.mage && top.mage.id === archmage.id);
+ok('topResidentByBucket.crusader = Cael (L7)', top.crusader && top.crusader.level === 7);
+ok('topResidentByBucket.venturer = null (none here)', top.venturer === null);
+
+// settlementServices — service legibility
+const svc = ACKS.settlementServices(wc, 'set-cap');
+ok('services: arcaneCasterLevel = 11', svc.arcaneCasterLevel === 11, 'got ' + svc.arcaneCasterLevel);
+ok('services: divineCasterLevel = 7',  svc.divineCasterLevel === 7);
+const mageRow = svc.rows.find(r => r.bucket === 'mage');
+ok('services: mage row trainsUpToLevel = 10 (mentor − 1)', mageRow.trainsUpToLevel === 10);
+ok('services: mage row carries the service note', /arcane/.test(mageRow.service));
+const venRow = svc.rows.find(r => r.bucket === 'venturer');
+ok('services: an empty bucket row → level 0 / null resident', venRow.level === 0 && venRow.topResident === null);
+
+// findResidents — scopes + filters
+ok('find: settlement+bucket → just the archmage', (() => { const r = ACKS.findResidents(wc, { settlementId:'set-cap', bucket:'mage' }); return r.length === 1 && r[0].id === archmage.id; })());
+ok('find: settlement+bucket+minLevel excludes below', ACKS.findResidents(wc, { settlementId:'set-cap', bucket:'fighter', minLevel:7 }).length === 0);
+const domMages = ACKS.findResidents(wc, { domainId:'dom-march', bucket:'mage', minLevel:3 });
+ok('find: domain scope spans both settlements (2 mages), sorted desc', domMages.length === 2 && domMages[0].id === archmage.id && domMages[1].id === mab.id);
+ok('find: domain scope excludes the other domain (no farmage)', !domMages.some(r => r.id === farmage.id));
+ok('find: domain rows carry the settlement name', domMages[1].settlementName === 'Tidewrack');
+const near3 = ACKS.findResidents(wc, { nearHexId:'hex-cap', withinHexes:3, bucket:'mage' });
+ok('find: within 3 hexes → capital + port mages (d0 + d3), with distance', near3.length === 2 && near3.every(r => typeof r.distance === 'number'));
+ok('find: the port mage is at distance 3', (near3.find(r => r.id === mab.id) || {}).distance === 3);
+ok('find: within 2 hexes drops the port (d3>2)', ACKS.findResidents(wc, { nearHexId:'hex-cap', withinHexes:2, bucket:'mage' }).length === 1);
+ok('find: within 8 hexes reaches the far mage', ACKS.findResidents(wc, { nearHexId:'hex-cap', withinHexes:8, bucket:'mage' }).length === 3);
+ok('find: classKey filter (cleric) campaign-wide → just Cael', (() => { const r = ACKS.findResidents(wc, { classKey:'Cleric' }); return r.length === 1 && r[0].name === 'Brother Cael'; })());
+ok('find: campaign-wide (no scope) returns every homed resident', ACKS.findResidents(wc, {}).length === 7);
+
+// mostNotableResident
+ok('mostNotable: settlement scope = the archmage', (ACKS.mostNotableResident(wc, { settlementId:'set-cap' }) || {}).id === archmage.id);
+ok('mostNotable: domain scope = the archmage',      (ACKS.mostNotableResident(wc, { domainId:'dom-march' }) || {}).id === archmage.id);
+ok('mostNotable: campaign-wide = the L11 archmage',  (ACKS.mostNotableResident(wc, {}) || {}).id === archmage.id);
+ok('mostNotable: an empty settlement → null',        ACKS.mostNotableResident(wc, { settlementId:'set-nobody' }) === null);
+
+// deceased residents are excluded
+farmage.lifecycleState = 'deceased';
+ok('find: a deceased resident drops out of the query', ACKS.findResidents(wc, { settlementId:'set-far' }).length === 0);
+farmage.lifecycleState = null;
+
+// includeVassals is additive + non-crashing (no vassalage relation here → equals the base domain set)
+ok('find: includeVassals on a vassal-less domain = the base set (no crash)',
+  ACKS.findResidents(wc, { domainId:'dom-march', bucket:'mage', minLevel:3, includeVassals:true }).length === domMages.length);
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');
