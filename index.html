@@ -5378,7 +5378,7 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="unitTypeLabelFor(u)"></td>
                     <td x-text="levyUnitLiving(u).toLocaleString()"></td>
                     <td x-text="(u.monthlyWage||0)"></td>
-                    <td x-text="(levyUnitLiving(u)*(u.monthlyWage||0)).toLocaleString()"></td>
+                    <td x-text="levyUnitCurrentCost(u).toLocaleString()"></td>
                     <td x-text="(u.brPerSoldier||0)"></td>
                     <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
                     <td x-text="unitMoraleText(u)"></td>
@@ -5415,7 +5415,7 @@ document.addEventListener('alpine:init', () => {
                     <td x-text="unitTypeLabelFor(u)"></td>
                     <td x-text="levyUnitLiving(u).toLocaleString()"></td>
                     <td x-text="(u.monthlyWage||0)"></td>
-                    <td x-text="(levyUnitLiving(u)*(u.monthlyWage||0)).toLocaleString()"></td>
+                    <td x-text="levyUnitCurrentCost(u).toLocaleString()"></td>
                     <td x-text="(u.brPerSoldier||0)"></td>
                     <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
                     <td x-text="unitMoraleText(u)"></td>
@@ -5448,7 +5448,7 @@ document.addEventListener('alpine:init', () => {
                   <span class="font-semibold">🛡 Militia</span>
                   <span class="text-xs opacity-70" x-text="'· available ' + domainLevyAvailable(selectedDomain,'militia') + ' / cap ' + domainLevyCap(selectedDomain,'militia') + ' (raised ' + domainLevyEverRaised(selectedDomain,'militia') + ')'"></span>
                   <button @click="openLevyModal(selectedDomain,'militia')" :disabled="!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0" :class="(!domainCanLevy(selectedDomain) || domainLevyAvailable(selectedDomain,'militia')<=0) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-50'" class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2" title="Levy a peasant militia — ≤2 per 10 families (RR p.432)">🛡 Levy militia</button>
-                  <button @click="domainSendAllMilitiaHome(selectedDomain)" x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="text-xs underline ml-2" title="Send all militia home — trained credit the garrison (RR p.341); untrained return to farms; ends the penalty">🏠 Send all home</button>
+                  <button @click="domainSendAllMilitiaHome(selectedDomain)" x-show="domainMilitiaCalledUp(selectedDomain) > 0" class="text-xs underline ml-2" title="Stand all militia down to the rolls — no wages while home (RR p.432); trained+equipped credit the garrison (RR p.341); call up again without re-levying; ends the penalty">🏠 Send all home</button>
                   <span x-show="!domainCanLevy(selectedDomain)" class="text-xs accent-red ml-1">— too unhappy to levy (RR p.432)</span>
                   <span x-show="domainLevyEverRaised(selectedDomain,'militia') > domainLevyCap(selectedDomain,'militia')" class="text-xs accent-red ml-1">⚠ over cap</span>
                   <div class="text-xs font-normal mt-0.5">
@@ -5458,12 +5458,12 @@ document.addEventListener('alpine:init', () => {
                   </div>
                 </td></tr>
                 <template x-for="u in domainLevyRows(selectedDomain,'militia')" :key="u.id">
-                  <tr>
+                  <tr :class="u.calledUp === false ? 'opacity-50' : ''" :title="u.calledUp === false ? 'Standing down at home — drawing no wages; call up again without re-levying' : ''">
                     <td><button @click="openUnitSheet(u)" class="underline text-left" title="Open the unit sheet — detail & edit" x-text="u.displayName || 'Militia'"></button></td>
                     <td x-text="unitTypeLabelFor(u)"></td>
                     <td x-text="levyUnitLiving(u).toLocaleString()"></td>
                     <td x-text="(u.monthlyWage||0)"></td>
-                    <td x-text="(levyUnitLiving(u)*(u.monthlyWage||0)).toLocaleString()"></td>
+                    <td x-text="levyUnitCurrentCost(u).toLocaleString()"></td>
                     <td x-text="(u.brPerSoldier||0)"></td>
                     <td x-text="(levyUnitLiving(u)*(u.brPerSoldier||0)).toFixed(3)"></td>
                     <td x-text="unitMoraleText(u)"></td>
@@ -5483,9 +5483,9 @@ document.addEventListener('alpine:init', () => {
                         </template>
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
                         <button @click="domainMergeLevy(selectedDomain, u)" :disabled="!canMergeLevy(selectedDomain, u)" :class="canMergeLevy(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
-                        <template x-if="u.calledUp !== false"><button @click="domainSendMilitiaUnitHome(u)" class="px-1 underline" title="Send this militia home — trained credit the garrison (RR p.341); untrained return to farms">🏠 Home</button></template>
+                        <template x-if="u.calledUp !== false"><button @click="domainSendMilitiaUnitHome(u)" class="px-1 underline" title="Stand this militia down to the rolls — no wages while at home (RR p.432); trained+equipped credit the garrison (RR p.341); call up again without re-levying">🏠 Home</button></template>
                         <template x-if="u.calledUp === false"><button @click="domainCallUpMilitia(u)" class="px-1 underline" title="Call this militia back up (RR p.432) — resumes the revenue/morale penalty">Call up</button></template>
-                        <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — untrained return to farms (RR p.432)">Release</button>
+                        <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — disband and return to the population, freeing the levy slot (RR p.432)">Release</button>
                     </td>
                   </tr>
                 </template>
@@ -16832,7 +16832,7 @@ return {
   unitListTotals(units){ const us = units || []; const liv = u => Math.max(0, (u.count || 0) - (u.casualties || 0)); return { count: us.reduce((s,u)=>s+liv(u),0), cost: us.reduce((s,u)=>s+liv(u)*(u.monthlyWage||0),0), br: us.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
   // Grand total over the whole garrison as displayed — mercenaries (standing) + conscripts + militia,
   // each summed by living count (count - casualties) so the foot row equals the sum of the rows above.
-  garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; return this.unitListTotals([ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia') ]); },
+  garrisonAllTotals(domain){ if(!domain) return { count:0, cost:0, br:0 }; const all = [ ...this.garrisonStandingUnits(domain), ...this.domainLevyRows(domain,'conscript'), ...this.domainLevyRows(domain,'militia') ]; const liv = u => this.levyUnitLiving(u); return { count: all.reduce((s,u)=>s+liv(u),0), cost: all.reduce((s,u)=>s+this.levyUnitCurrentCost(u),0), br: all.reduce((s,u)=>s+liv(u)*(u.brPerSoldier||0),0) }; },
   // The domain that owns the sheet's unit (for the garrison-context Split/Merge/Release ops).
   unitSheetDomain(){ const u = this.unitSheetUnit(); if(!u) return null; const id = u.homeDomainId || ((u.stationedAt && u.stationedAt.kind === 'domain-garrison') ? u.stationedAt.id : null); return id ? (this.domains || []).find(d => d && d.id === id) : null; },
   openUnitSheet(u){ if(u && u.id) this.unitSheetUnitId = u.id; },
@@ -16995,12 +16995,12 @@ return {
   domainSendMilitiaUnitHome(unit){
     const r = window.ACKS.sendMilitiaUnitHome(this.currentCampaign, unit);
     this.markDirty(); this.schedulePersist();
-    this.showToast && this.showToast(r.sentHome ? 'Militia sent home — now credits the garrison (RR p.341).' : 'Untrained militia returned to their farms.');
+    this.showToast && this.showToast('Militia stood down — at home, drawing no wages; call up again without re-levying (RR p.432).');
   },
   domainSendAllMilitiaHome(domain){
     const r = window.ACKS.sendMilitiaHome(this.currentCampaign, domain.id);
     this.markDirty(); this.schedulePersist();
-    this.showToast && this.showToast('Sent ' + r.sentHome + ' trained militia home; ' + r.disbanded + ' untrained returned to their farms.');
+    this.showToast && this.showToast('Stood ' + r.sentHome + ' militia down — now at home, drawing no wages.');
   },
   domainCallUpMilitia(unit){
     window.ACKS.callUpMilitia(this.currentCampaign, unit);
@@ -17016,6 +17016,10 @@ return {
   domainMilitiaMoralePenalty(domain){ return window.ACKS.militiaDomainMoralePenalty(this.currentCampaign, domain) || 0; },
   domainTrainedMilitiaCreditText(domain){ const c = window.ACKS.domainTrainedMilitiaCredit(this.currentCampaign, domain) || 0; return c > 0 ? ('garrison credit ' + c.toLocaleString() + 'gp (trained militia at home, RR p.341)') : ''; },
   levyUnitLiving(u){ return Math.max(0, (u.count || 0) - (u.casualties || 0)); },
+  // The unit's CURRENT monthly wage cost: a militia standing down at home draws no wages (RR p.432),
+  // so it costs 0 while home (its trained+equipped gp value still credits the garrison separately —
+  // RR p.341, see domainTrainedMilitiaCredit). Everything else costs living × wage.
+  levyUnitCurrentCost(u){ if(!u) return 0; if(u.calledUp === false) return 0; return this.levyUnitLiving(u) * (u.monthlyWage || 0); },
   // Divide a levy into units (organize for training) — proportional casualty split; keeps source/home/calledUp.
   domainSplitLevy(domain, unit){
     if(!domain || !unit) return;

@@ -4231,40 +4231,37 @@ function trainLevyUnit(campaign, unitOrId, opts){
   return { ok: true, cost, months: costRow.months, unit: u };
 }
 
-// RR p.432 — send militia home: trained militia leave the garrison but stay in the world (at home,
-// crediting the garrison; calledUp → false), untrained militia disband (return to their farms). This
-// ends the called-up morale + revenue penalty. Returns { sentHome, disbanded }.
+// RR p.432 — stand ALL of a domain's militia DOWN to the rolls: they leave the garrison but stay in the
+// world at home (calledUp → false), drawing no wages and ending the called-up morale + revenue penalty,
+// and can be called up again without re-levying. Trained+equipped militia still credit the garrison
+// (RR p.341). (To return militia to the population + free the slot, RELEASE them instead.) Returns
+// { sentHome, disbanded } — disbanded always 0 (standing down never dissolves).
 function sendMilitiaHome(campaign, domainOrId){
   const d = _resolveDomain(campaign, domainOrId);
   if(!d) return { sentHome: 0, disbanded: 0 };
-  let sentHome = 0, disbanded = 0;
+  let sentHome = 0;
   for(const u of domainLevyUnits(campaign, d, 'militia').slice()){
-    if(_isTrainedLevy(u)){
-      stationUnit(campaign, u, null);                            // leaves the garrison; stays in campaign.units
-      u.calledUp = false; u.homeDomainId = d.id;                 // at home — credits garrison (RR p.341)
-      sentHome++;
-    } else {
-      disbandUnit(campaign, u);                                  // untrained militia return to their farms
-      disbanded++;
-    }
+    if(u.calledUp === false) continue;                          // already standing down
+    stationUnit(campaign, u, null);                             // leaves the garrison; stays in campaign.units
+    u.calledUp = false; u.homeDomainId = d.id;                  // at home — no wages; trained+equipped credit garrison (RR p.341)
+    sentHome++;
   }
-  return { sentHome, disbanded };
+  return { sentHome, disbanded: 0 };
 }
 
-// RR p.432 — send a SINGLE militia unit home (the per-unit version of sendMilitiaHome): a trained
-// militia leaves the garrison but stays in the world at home (calledUp → false; credits the garrison,
-// RR p.341); an untrained militia disbands (returns to the farms). Returns { sentHome, disbanded }.
+// RR p.432 — stand a SINGLE militia unit DOWN to the rolls (the per-unit version of sendMilitiaHome):
+// the militia leaves the garrison but stays in the world at home (calledUp → false), drawing no wages
+// and ending the called-up penalty; a trained+equipped militia still credits the garrison (RR p.341).
+// It can be called up again WITHOUT re-levying; to return militia to the population (and free the levy
+// slot) the ruler RELEASES them instead (releaseLevyUnit). Returns { sentHome, disbanded } — disbanded
+// is always 0 (standing down never dissolves a unit).
 function sendMilitiaUnitHome(campaign, unitOrId){
   const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !u || u.source !== 'militia') return { sentHome: 0, disbanded: 0 };
-  if(_isTrainedLevy(u)){
-    const homeId = u.homeDomainId;
-    stationUnit(campaign, u, null);                              // leaves the garrison; stays in campaign.units
-    u.calledUp = false; u.homeDomainId = homeId;                 // at home — credits the garrison (RR p.341)
-    return { sentHome: 1, disbanded: 0 };
-  }
-  disbandUnit(campaign, u);                                      // untrained militia return to their farms
-  return { sentHome: 0, disbanded: 1 };
+  const homeId = u.homeDomainId;
+  stationUnit(campaign, u, null);                               // stands down — leaves the garrison, stays in campaign.units
+  u.calledUp = false; u.homeDomainId = homeId;                  // at home: no wages (RR p.432); trained+equipped credit the garrison (RR p.341)
+  return { sentHome: 1, disbanded: 0 };
 }
 // RR p.432 — call an at-home (trained) militia unit back up: re-station it to its home domain's
 // garrison and mark it called up, so the revenue/morale penalty resumes. Returns the unit or null.
