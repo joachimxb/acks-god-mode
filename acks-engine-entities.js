@@ -1128,6 +1128,11 @@ function blankCharacter(opts={}){
     // (where it stands now). null = unplaced. Additive + defensive; SD-2 wires the auto-set
     // sources (recruit/generate/encounter) + placementRole. See Settlement_Demographics_Plan.md.
     homeSettlementId: opts.homeSettlementId || null,
+    // Settlement Demographics SD-3 (2026-06-16) — the realm home pointer: the DOMAIN this NPC serves
+    // in (the realized side of ACKS.realmCommandStructure — an entourage office-holder of a realm).
+    // Distinct from homeSettlementId (an urban resident) and currentHexId. null = not a realm retainer.
+    // The realm tier is gated by the `living-census` house rule. Additive + defensive; migration-free.
+    homeDomainId: opts.homeDomainId || null,
     // Settlement Demographics SD-2 (2026-06-16) — the civic placement role (JJ Step 4, p.217):
     // which part of the settlement this NPC belongs to (tower-of-knowledge / temple / …). null =
     // use the bucket-derived suggestion (ACKS.effectivePlacementRole). Additive + defensive.

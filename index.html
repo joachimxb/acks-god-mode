@@ -92,7 +92,7 @@
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
-<script src="acks-engine-demographics.js?v=2026-06-16-sd5b"></script>
+<script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -4556,6 +4556,79 @@ document.addEventListener('alpine:init', () => {
                   </tr>
                 </tbody>
               </table>
+            </template>
+
+            <!-- Settlement Demographics SD-3 — the realm command structure (T1). Domain-scoped (not tied
+                 to a selected settlement); gated on the living-census house rule. Expected leveled offices
+                 reconciled against the realm's actual holders (ruler + magistrates + homeDomainId entourage). -->
+            <template x-if="realmCensusOn() && realmCensus()">
+              <div class="mt-3 vellum border border-ink rounded p-3" style="background:#f4ecd2">
+                <h3 class="font-bold">🏛 Realm command structure — <span x-text="(selectedDomain&&selectedDomain.name)||'(realm)'"></span></h3>
+                <p class="text-sm opacity-70 mb-2">
+                  <span x-text="realmCensus().titleLabel"></span>-tier realm (JJ Ch.9 + RR domain rules) — the leveled offices a realm of this title staffs, reconciled against its actual holders.
+                  <span class="font-semibold" x-text="realmCensus().filledCount"></span> of <span x-text="realmCensus().officeCount"></span> filled.
+                </p>
+                <div class="overflow-x-auto">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Office</th><th>Source</th><th>Expected</th><th>Holder</th></tr></thead>
+                    <tbody>
+                      <template x-for="o in realmCensus().offices" :key="o.key">
+                        <tr :class="!o.filled ? 'opacity-60' : ''">
+                          <td class="font-semibold" x-text="o.label"></td>
+                          <td class="capitalize opacity-70" x-text="o.mapsTo"></td>
+                          <td x-text="'L'+o.expectedLevel"></td>
+                          <td>
+                            <template x-if="o.holder">
+                              <span :class="o.underLevel ? 'accent-red' : 'text-green-800'">
+                                <button class="underline font-semibold" @click="demoOpenResident(o.holder.id)" x-text="o.holder.name + ' · L' + o.holder.level"></button>
+                                <span x-show="o.underLevel" title="Below the expected level for this office"> ⚠ under</span>
+                              </span>
+                            </template>
+                            <template x-if="!o.holder"><span class="opacity-50 italic">— open —</span></template>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                  <span class="text-sm font-semibold">Assign to the court:</span>
+                  <select class="ed-input text-sm" style="width:16rem" x-model="realmAssignPick">
+                    <option value="">— pick an NPC —</option>
+                    <template x-for="c in realmEntourageCandidates()" :key="c.id">
+                      <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                    </template>
+                  </select>
+                  <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="!realmAssignPick ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!realmAssignPick" @click="realmAssignEntourage()">🏛 Home to realm</button>
+                </div>
+                <p class="text-sm opacity-60 italic mt-1">The ruler + magistrates fill from the domain's assignments; the magister / guildmaster / annalist fill from NPCs homed to the realm. Rank-and-file (guards, apprentices) stay counts.</p>
+                <template x-if="realmCensus().entourageOther.length>0">
+                  <div class="mt-1 text-sm">
+                    <span class="font-semibold">Additional retainers:</span>
+                    <template x-for="e in realmCensus().entourageOther" :key="e.id">
+                      <span class="ml-1">
+                        <button class="underline" @click="demoOpenResident(e.id)" x-text="e.name + ' · ' + (e.class||'?') + ' L' + e.level"></button>
+                        <button class="underline accent-red" @click="realmRemoveEntourage(e)" title="Un-home from the realm">×</button>
+                      </span>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="realmCensus().vassalLords.length>0">
+                  <div class="mt-2 pt-2 border-t border-ink/20">
+                    <h4 class="font-semibold text-sm mb-1">Vassal lords <span class="opacity-60 font-normal" x-text="'(' + realmCensus().vassalLords.length + ')'"></span></h4>
+                    <ul class="text-sm">
+                      <template x-for="v in realmCensus().vassalLords" :key="v.domainId">
+                        <li>
+                          <span class="font-semibold" x-text="v.domainName"></span>
+                          <span class="opacity-70 capitalize" x-text="' — ' + (v.title||'lord') + ': '"></span>
+                          <template x-if="v.rulerId"><button class="underline" @click="demoOpenResident(v.rulerId)" x-text="v.rulerName + ' · L' + v.rulerLevel"></button></template>
+                          <template x-if="!v.rulerId"><span class="opacity-50 italic">(no lord set)</span></template>
+                        </li>
+                      </template>
+                    </ul>
+                  </div>
+                </template>
+              </div>
             </template>
 
             <!-- Settlement Demographics SD-1 — the derived JJ Step-3 census roster read (expected · residents · open · exceptional).
@@ -11157,6 +11230,28 @@ document.addEventListener('alpine:init', () => {
           </span>
           <span class="text-sm opacity-60 italic">where this NPC is rostered (Step 3 census)</span>
         </div>
+
+        <!-- Home domain (Settlement Demographics SD-3) — the realm-service home; gm-fiat. Gated on the
+             living-census house rule (the realm tier). Reconciled by ACKS.realmCommandStructure. -->
+        <template x-if="isHouseRuleEnabled('living-census')">
+          <div class="text-sm flex items-center gap-2">
+            <span class="w-32">Home domain</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeDomainId', label:'Home domain', kind:'select', formatter(v){ if(!v) return '— none —'; const d=(window.acksApp?.domains||[]).find(dd => dd.id === v); return d ? (d.name||'(unnamed)') : v; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit home domain (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat">
+                <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
+                  <option :value="null">— none —</option>
+                  <template x-for="d in (window.acksApp?.domains||[])" :key="d.id">
+                    <option :value="d.id" x-text="(d.name||'(unnamed)')"></option>
+                  </template>
+                </select>
+                <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save home domain'">✓</button>
+                <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing home domain'">×</button>
+              </span></template>
+            </span>
+            <span class="text-sm opacity-60 italic">the realm this NPC serves at court (SD-3)</span>
+          </div>
+        </template>
 
         <!-- Civic placement (Settlement Demographics SD-2) — JJ Step-4 role; gm-fiat. Blank = the
              bucket-suggested default (ACKS.suggestedPlacementRole). -->
@@ -24701,6 +24796,15 @@ return {
     return window.ACKS.findResidents(C, q);
   },
   demoOpenResident(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(c) this.openCharacterEditor(c); },
+  // SD-3 — the realm command structure (T1; gated on the living-census house rule). Domain-scoped:
+  // the realm's expected leveled offices reconciled against its actual holders (ruler + magistrates +
+  // homeDomainId entourage + vassal lords). The accessor is pure; the UI shows it only when the rule is on.
+  realmCensusOn(){ return this.isHouseRuleEnabled('living-census'); },
+  realmCensus(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.realmCommandStructure(this.currentCampaign, d.id) : null; },
+  realmAssignPick: '',
+  realmEntourageCandidates(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.characters||[]).filter(c => c.homeDomainId!==d.id && c.lifecycleState!=='deceased').sort((a,b)=>(b.level||1)-(a.level||1)||(a.name||'').localeCompare(b.name||'')); },
+  realmAssignEntourage(){ const id=this.realmAssignPick; const d=this.selectedDomain; if(!id||!d||!d.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:d.id}); this.realmAssignPick=''; },
+  realmRemoveEntourage(e){ if(!e||!e.id) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===e.id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeDomainId', label:'Home domain', oldValue:(c.homeDomainId||null), newValue:null}); },
   totalUrbanFamiliesFromHexes(d){return window.ACKS.totalUrbanFamiliesFromHexes(d);},
   totalUrbanInvestmentFromHexes(d){return window.ACKS.totalUrbanInvestmentFromHexes(d);},
   // Effective urban family count for calculations. Per-hex settlements take precedence; falls back to legacy aggregate.

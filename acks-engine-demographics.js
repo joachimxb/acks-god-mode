@@ -523,6 +523,124 @@ function groundCivilizedEncounter(campaign, opts){
            distance: (match.distance != null) ? match.distance : 0 };
 }
 
+// ── SD-3: THE REALM COMMAND STRUCTURE (T1) — the realm's expected leveled offices, reconciled ──────
+// against its ACTUAL office-holders (plan §5 T1, §11). SD-1 is per-settlement; this is per-DOMAIN: a
+// realm staffs a command structure — a ruler + the four magistrates + a court entourage — whose levels
+// scale with the realm's title (RAW: the Econometrics "A Typical Legature", JJ Ch.9 ruler/entourage
+// counts + RR domain rules — a count-tier legate L7–8 keeps a Captain of the Guard L5, a Magister L5–6,
+// a Merchant Guildmaster L4, an Annalist L3…). This READS the realm's SHIPPED office-holders
+// (domain.rulerCharacterId + domain.magistrates + the homeDomainId entourage + the vassal lords) and
+// reconciles them against the expectation — it does NOT re-model them (OQ-4: a view over F&D, not a
+// parallel store). Gated by the `living-census` house rule in the UI; the accessor is a pure derived
+// read (the SD-1/SD-5a pattern). The rank-and-file (guards / regulars / apprentices, 0th–1st) stay
+// COUNTS — they are the urban/rural roster, not named command offices.
+
+// Expected ruler level by realm title — a ruler accrues XP from realm income until he stops leveling,
+// so higher titles → higher-level lords (the Econometrics ruler distribution + RR title thresholds).
+// realmTitleForDomain returns one of these seven; office levels scale off this floor.
+const TITLE_RULER_LEVEL = Object.freeze({ baron:6, viscount:7, count:8, duke:10, prince:11, king:12, emperor:14 });
+const TITLE_LABELS = Object.freeze({ baron:'Baron', viscount:'Viscount', count:'Count', duke:'Duke', prince:'Prince', king:'King', emperor:'Emperor' });
+
+// The named leveled offices of a realm's command structure (the Econometrics "A Typical Legature" §5 +
+// the four shipped magistracies). relLevel = the office's level relative to the ruler's (clamped ≥1).
+// mapsTo: 'ruler' → domain.rulerCharacterId; {magistrate} → the shipped magistracy slot; null →
+// entourage (filled by a homeDomainId NPC of the bucket, greedily highest-level first).
+const REALM_OFFICES = Object.freeze([
+  Object.freeze({ key:'ruler',          label:'Ruler',                         bucket:null,       relLevel:0,  mapsTo:'ruler' }),
+  Object.freeze({ key:'captainOfGuard', label:'Captain of the Guard',          bucket:'fighter',  relLevel:-3, mapsTo:{ magistrate:'captainOfGuard' } }),
+  Object.freeze({ key:'chaplain',       label:'Chaplain (chief hospitalist)',  bucket:'crusader', relLevel:-2, mapsTo:{ magistrate:'chaplain' } }),
+  Object.freeze({ key:'steward',        label:'Steward (household)',           bucket:'venturer', relLevel:-4, mapsTo:{ magistrate:'steward' } }),
+  Object.freeze({ key:'munerator',      label:'Munerator (games & liturgies)', bucket:'venturer', relLevel:-4, mapsTo:{ magistrate:'munerator' } }),
+  Object.freeze({ key:'magister',       label:'Magister (court mage)',         bucket:'mage',     relLevel:-2, mapsTo:null }),
+  Object.freeze({ key:'guildmaster',    label:'Merchant Guildmaster',          bucket:'venturer', relLevel:-3, mapsTo:null }),
+  Object.freeze({ key:'annalist',       label:'Annalist (court chronicler)',   bucket:'thief',    relLevel:-4, mapsTo:null })
+]);
+
+function realmRulerLevel(title){ return TITLE_RULER_LEVEL[String(title || '').toLowerCase()] || TITLE_RULER_LEVEL.baron; }
+function realmOfficeLevel(office, rulerLevel){ return Math.max(1, (Number(rulerLevel) || 1) + ((office && office.relLevel) || 0)); }
+
+function _findCharacterById(campaign, id){
+  if(!id || !campaign || !Array.isArray(campaign.characters)) return null;
+  return campaign.characters.find(c => c && c.id === id) || null;
+}
+function _holderRow(c){
+  return c ? { id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1, class: c.class || '' } : null;
+}
+
+// realmCommandStructure(campaign, domainId) → the realm's expected vs actual command structure.
+// PURE derived read (the UI gates on `living-census`). → { domainId, title, titleLabel, rulerLevel,
+// titleLevel, offices:[{key,label,bucket,expectedLevel,mapsTo,holder,filled,underLevel}],
+// entourageOther:[…], vassalLords:[…], filledCount, openCount, officeCount }.
+function realmCommandStructure(campaign, domainId){
+  if(!campaign || !Array.isArray(campaign.domains)) return null;
+  const domain = campaign.domains.find(d => d && d.id === domainId);
+  if(!domain) return null;
+  const title = (typeof ACKS.realmTitleForDomain === 'function') ? ACKS.realmTitleForDomain(domain) : 'baron';
+  const rulerChar = _findCharacterById(campaign, domain.rulerCharacterId);
+  // Office levels scale off the ruler's level, floored at the title's expected level — so a high-level
+  // lord lifts his whole court, but an under-level (or vacant) lord never drops the court below the floor.
+  const titleLevel = realmRulerLevel(title);
+  const rulerLevel = Math.max(titleLevel, rulerChar ? (Number(rulerChar.level) || 1) : 0);
+
+  // The entourage pool: homeDomainId NPCs that are NOT the ruler or a magistrate (so an office-holder
+  // also homed here isn't double-counted). Highest-level first.
+  const assignedIds = new Set();
+  if(domain.rulerCharacterId) assignedIds.add(domain.rulerCharacterId);
+  const mags = domain.magistrates || {};
+  Object.keys(mags).forEach(rk => { const cid = mags[rk] && mags[rk].characterId; if(cid) assignedIds.add(cid); });
+  const pool = (Array.isArray(campaign.characters) ? campaign.characters : [])
+    .filter(c => c && c.homeDomainId === domainId && c.lifecycleState !== 'deceased' && !assignedIds.has(c.id))
+    .sort((a, b) => (Number(b.level) || 1) - (Number(a.level) || 1));
+  const usedEntourage = new Set();
+
+  const offices = REALM_OFFICES.map(off => {
+    const expectedLevel = realmOfficeLevel(off, rulerLevel);
+    let holder = null, kind;
+    if(off.mapsTo === 'ruler'){ kind = 'ruler'; holder = _holderRow(rulerChar); }
+    else if(off.mapsTo && off.mapsTo.magistrate){
+      kind = 'magistrate';
+      const slot = mags[off.mapsTo.magistrate];
+      holder = _holderRow(_findCharacterById(campaign, slot && slot.characterId));
+    } else {
+      kind = 'entourage';
+      const pick = pool.find(c => !usedEntourage.has(c.id) && coreBucketForCharacter(campaign, c) === off.bucket);
+      if(pick){ usedEntourage.add(pick.id); holder = _holderRow(pick); }
+    }
+    return { key: off.key, label: off.label, bucket: off.bucket, expectedLevel, mapsTo: kind,
+             holder, filled: !!holder, underLevel: !!holder && holder.level < expectedLevel };
+  });
+
+  // Leftover homed NPCs not slotted into a command office — additional retainers.
+  const entourageOther = pool.filter(c => !usedEntourage.has(c.id)).map(c => ({
+    id: c.id, name: c.name || '(unnamed)', level: Number(c.level) || 1, class: c.class || '',
+    bucket: coreBucketForCharacter(campaign, c)
+  }));
+
+  // The realm's direct vassal lords (informational — leveled NPCs the realm expects).
+  const vassalLords = [];
+  if(domain.rulerCharacterId && typeof ACKS.derivedVassalDomainsOf === 'function'){
+    (ACKS.derivedVassalDomainsOf(campaign, domain.rulerCharacterId) || []).forEach(vid => {
+      const vd = campaign.domains.find(d => d && d.id === vid);
+      if(!vd) return;
+      const vr = _findCharacterById(campaign, vd.rulerCharacterId);
+      vassalLords.push({
+        domainId: vd.id, domainName: vd.name || '(domain)',
+        rulerId: vr ? vr.id : null, rulerName: vr ? (vr.name || '(unnamed)') : null,
+        rulerLevel: vr ? (Number(vr.level) || 1) : null,
+        title: (typeof ACKS.realmTitleForDomain === 'function') ? ACKS.realmTitleForDomain(vd) : null
+      });
+    });
+  }
+
+  const filledCount = offices.filter(o => o.filled).length;
+  return {
+    domainId, title, titleLabel: TITLE_LABELS[title] || title,
+    rulerLevel, titleLevel,
+    offices, entourageOther, vassalLords,
+    filledCount, openCount: offices.length - filledCount, officeCount: offices.length
+  };
+}
+
 Object.assign(ACKS, {
   // constants (exported for the smoke + consumers)
   DEMOGRAPHIC_BUCKETS, STARTING_SETTLEMENT_ALL, STARTING_SETTLEMENT_REF_FAMILIES,
@@ -539,7 +657,10 @@ Object.assign(ACKS, {
   settlementResidents, topResidentByBucket, settlementServices,
   findResidents, mostNotableResident,
   // SD-5b — grounding the civilized encounter (plan §8: the census becomes who you meet)
-  CIVILIZED_CELL_BUCKET, bucketForCivilizedCell, groundCivilizedEncounter
+  CIVILIZED_CELL_BUCKET, bucketForCivilizedCell, groundCivilizedEncounter,
+  // SD-3 — the realm command structure (T1, plan §5/§11; gated by `living-census`)
+  TITLE_RULER_LEVEL, TITLE_LABELS, REALM_OFFICES,
+  realmRulerLevel, realmOfficeLevel, realmCommandStructure
 });
 
 if(typeof module !== 'undefined' && module.exports){ module.exports = ACKS; }

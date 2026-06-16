@@ -349,6 +349,91 @@ const be = ACKS.blankEncounter().monsterSide;
 ok('blankEncounter monsterSide has residentCharacterId (null)', 'residentCharacterId' in be && be.residentCharacterId === null);
 ok('blankEncounter monsterSide has residentSettlementId (null)', 'residentSettlementId' in be && be.residentSettlementId === null);
 
+// ── 11. SD-3 — the realm command structure (T1) ───────────────────────────────────────────────────
+section('SD-3 — the realm command structure (T1)');
+
+['realmCommandStructure','realmRulerLevel','realmOfficeLevel'].forEach(fn =>
+  ok('ACKS.' + fn + ' exported', typeof ACKS[fn] === 'function'));
+ok('REALM_OFFICES = 8 named offices', Array.isArray(ACKS.REALM_OFFICES) && ACKS.REALM_OFFICES.length === 8);
+ok('living-census registered (domain category, default OFF)', (() => {
+  const r = ACKS.lookupHouseRule && ACKS.lookupHouseRule('living-census');
+  return !!r && r.category === 'domain' && r.default !== true;
+})());
+ok('blankCharacter carries homeDomainId (null)', ACKS.blankCharacter().homeDomainId === null);
+
+// title → ruler level
+ok('realmRulerLevel: count = 8',         ACKS.realmRulerLevel('count')   === 8);
+ok('realmRulerLevel: baron = 6',         ACKS.realmRulerLevel('baron')   === 6);
+ok('realmRulerLevel: emperor = 14',      ACKS.realmRulerLevel('emperor') === 14);
+ok('realmRulerLevel: unknown → baron 6', ACKS.realmRulerLevel('xyz')     === 6);
+
+// office-level scaling (relLevel off the ruler, clamped ≥1)
+const capOff = ACKS.REALM_OFFICES.find(o => o.key === 'captainOfGuard');
+ok('realmOfficeLevel: captain at ruler 8 = 5 (−3)', ACKS.realmOfficeLevel(capOff, 8) === 5);
+ok('realmOfficeLevel: clamps ≥ 1',                   ACKS.realmOfficeLevel(capOff, 2) === 1);
+
+// reconciliation fixture — a count-tier march with ruler + 2 magistrates + 3 homed entourage + a vassal
+const rcm = {
+  domains: [
+    { id:'dom-march', name:'March of Saltspur', rulerCharacterId:'chr-aelric',
+      magistrates: { captainOfGuard:{ characterId:'chr-cap', administersThisMonth:false },
+                     chaplain:{ characterId:'chr-chap', administersThisMonth:false },
+                     steward:{ characterId:null }, munerator:{ characterId:null } } },
+    { id:'dom-north', name:'Barony of Northwatch', rulerCharacterId:'chr-yorick', magistrates:{} }
+  ],
+  characters: [
+    { id:'chr-aelric', name:'Aelric',       class:'Fighter',  level:8 },
+    { id:'chr-cap',    name:'Sir Borrim',   class:'Fighter',  level:4 },                          // captain — under L5
+    { id:'chr-chap',   name:'Mother Cael',  class:'Cleric',   level:6 },                          // chaplain (crusader)
+    { id:'chr-magus',  name:'Vexil',        class:'Mage',     level:6, homeDomainId:'dom-march' },// → magister
+    { id:'chr-guild',  name:'Tace',         class:'Venturer', level:5, homeDomainId:'dom-march' },// → guildmaster
+    { id:'chr-extra',  name:'Odo',          class:'Fighter',  level:2, homeDomainId:'dom-march' },// → entourageOther
+    { id:'chr-yorick', name:'Baron Yorick', class:'Fighter',  level:6 }
+  ],
+  vassalages: []
+};
+ACKS.createVassalage(rcm, { suzerainCharacterId:'chr-aelric', vassalRulerCharacterId:'chr-yorick',
+                            vassalDomainId:'dom-north', suzerainDomainId:'dom-march' });
+
+const rcs = ACKS.realmCommandStructure(rcm, 'dom-march');
+const byKey = k => rcs.offices.find(o => o.key === k);
+ok('realm: title count (read from "March")',           rcs.title === 'count' && rcs.titleLabel === 'Count');
+ok('realm: ruler L8 lifts the court (≥ count floor 8)', rcs.rulerLevel === 8);
+ok('realm: ruler office filled by Aelric',             byKey('ruler').holder && byKey('ruler').holder.id === 'chr-aelric');
+ok('realm: captain expected L5, held by L4 → underLevel',
+   byKey('captainOfGuard').expectedLevel === 5 && byKey('captainOfGuard').holder.level === 4 && byKey('captainOfGuard').underLevel === true);
+ok('realm: chaplain filled from the magistracy slot, not under (L6)',
+   byKey('chaplain').mapsTo === 'magistrate' && byKey('chaplain').holder.id === 'chr-chap' && byKey('chaplain').underLevel === false);
+ok('realm: steward office open (slot vacant)',         byKey('steward').filled === false && byKey('steward').mapsTo === 'magistrate');
+ok('realm: magister filled by the homed mage (entourage)',
+   byKey('magister').mapsTo === 'entourage' && byKey('magister').holder.id === 'chr-magus');
+ok('realm: guildmaster filled by the homed venturer',  byKey('guildmaster').holder.id === 'chr-guild');
+ok('realm: annalist open (no homed thief)',            byKey('annalist').filled === false);
+ok('realm: filled 5 / open 3 of 8 offices',            rcs.filledCount === 5 && rcs.openCount === 3 && rcs.officeCount === 8);
+ok('realm: entourageOther = the unslotted homed fighter (Odo)',
+   rcs.entourageOther.length === 1 && rcs.entourageOther[0].id === 'chr-extra');
+ok('realm: vassal lords list Northwatch under Baron Yorick',
+   rcs.vassalLords.length === 1 && rcs.vassalLords[0].rulerId === 'chr-yorick' && rcs.vassalLords[0].domainId === 'dom-north' && rcs.vassalLords[0].title === 'baron');
+
+// a homed magistrate isn't double-counted in the entourage
+rcm.characters.find(c => c.id === 'chr-chap').homeDomainId = 'dom-march';
+const rcs2 = ACKS.realmCommandStructure(rcm, 'dom-march');
+ok('realm: a homed magistrate is NOT double-counted in entourageOther',
+   !rcs2.entourageOther.some(e => e.id === 'chr-chap') && rcs2.offices.find(o => o.key === 'chaplain').holder.id === 'chr-chap');
+
+// a deceased homed NPC is excluded
+rcm.characters.find(c => c.id === 'chr-extra').lifecycleState = 'deceased';
+ok('realm: a deceased homed NPC is excluded from the entourage',
+   !ACKS.realmCommandStructure(rcm, 'dom-march').entourageOther.some(e => e.id === 'chr-extra'));
+
+// a vacant baron realm uses the title floor
+const rcs4 = ACKS.realmCommandStructure(
+  { domains:[{ id:'dom-b', name:'Barony of X', rulerCharacterId:null, magistrates:{} }], characters:[], vassalages:[] }, 'dom-b');
+ok('realm: a vacant baron realm uses the title floor (ruler level 6)',
+   rcs4.rulerLevel === 6 && rcs4.offices.find(o => o.key === 'ruler').filled === false);
+ok('realm: baron captain expected L3 (6−3)', rcs4.offices.find(o => o.key === 'captainOfGuard').expectedLevel === 3);
+ok('realm: unknown domainId → null', ACKS.realmCommandStructure(rcm, 'dom-nope') === null);
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');
