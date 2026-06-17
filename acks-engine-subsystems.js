@@ -2451,6 +2451,17 @@ function tickJourneyDay(campaign, journey, ctx){
   // the substitution is value-identical for armies and parties (zero regression).
   const isUnit = !!(journey.unitId);
   const standDown = isArmy || isUnit;
+  // Voyages V2 — a journey riding a Vessel (shipId). The SEA speed model (vessel voyage speed ×
+  // wind strength × point of sail × pace, oar-vs-sail, the 24h doubling — A.voyageDayMiles)
+  // REPLACES the land base × weather × temperature below; and the party-grain LAND machinery
+  // stands down for v2: no getting-lost throw (sea navigation is V3), no ration survival (ship
+  // stores / scurvy / fishing are V3), no per-hex wandering encounter (sea encounters are V4),
+  // no party fatigue (crewing is unstrenuous, RR p.318). Per-hex movement still runs — water hexes
+  // pace at ×1 (water is absent from JOURNEY_TERRAIN_SPEED), so the budget governs hexes covered.
+  // A voyage is never an army/unit march (those are standDown), so the gates are independent.
+  const _voyageVessel = (!standDown && journey.shipId && typeof A.vesselForJourney === 'function')
+    ? A.vesselForJourney(campaign, journey) : null;
+  const isVoyage = !!_voyageVessel;
   const dist = computeJourneyDistance(campaign, journey);
   const startHex = dist.startHex;
   const newDayIndex = (journey.currentDayIndex || 0) + 1;
@@ -2532,7 +2543,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // surfaced, never auto-rested: the GM rests the column). ──
   const simplifiedFatigue = A.isHouseRuleEnabled(campaign, 'simplified-fatigue');
   const strenuousPace = (pace === 'normal' || pace === 'forced-march');
-  const restDay = (!simplifiedFatigue && !standDown && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
+  const restDay = (!simplifiedFatigue && !standDown && !isVoyage && strenuousPace && fatigueDays >= A.JOURNEY_FATIGUE_CYCLE_DAYS);
 
   // Route position = hexes already covered; the next hex to ENTER is pos+1.
   const startPos = dist.covered;
@@ -2548,6 +2559,25 @@ function tickJourneyDay(campaign, journey, ctx){
   const curCoord = (curStep && curStep.coord) ? { q: curStep.coord.q, r: curStep.coord.r }
                  : (startHex && startHex.coord) ? { q: startHex.coord.q, r: startHex.coord.r } : { q: 0, r: 0 };
 
+  // ── Voyages V2 (RR pp.318–322): for a journey riding a Vessel, the SEA speed model replaces the
+  // land base × weather × temperature × pace milesBudget computed above. The vessel's travel heading
+  // is derived from the route (current hex → the next route step, else → the destination), so the
+  // point of sail reads heading vs the day's wind direction (HW-3 / ctx.weather). voyageDayMiles
+  // resolves wind strength × point of sail (sail) / wind-oar, the oar-vs-sail pick, crew/damage
+  // reduction, pace, and the 24h doubling. The §26 override still flows through (as a base rate). ──
+  let voyageInfo = null;
+  if(isVoyage){
+    const _fromC = (curStep && curStep.coord) ? curStep.coord : curCoord;
+    let _toC = (nextStep && nextStep.coord) ? nextStep.coord : null;
+    if(!_toC && journey.destinationHexId && typeof A.findHex === 'function'){
+      const _dh = A.findHex(campaign, journey.destinationHexId);
+      if(_dh && _dh.coord) _toC = _dh.coord;
+    }
+    const _headingDeg = (_toC && typeof A.vesselBearingDeg === 'function') ? A.vesselBearingDeg(_fromC, _toC) : null;
+    voyageInfo = A.voyageDayMiles(campaign, journey, _voyageVessel, { weather, pace, overrideMiles, headingDeg: _headingDeg });
+    milesBudget = voyageInfo.miles;
+  }
+
   // ── navigation (§7 / RR p.275): one Navigation throw per travel day. Skipped only when NOT lost and
   // following a road/trail (those routes are safe); a LOST party always throws — that's its chance to
   // re-orient. +4 for the Navigation proficiency OR the Pathfinding class power, +8 for both; an
@@ -2558,7 +2588,7 @@ function tickJourneyDay(campaign, journey, ctx){
   let navRecord = null;
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
-  if(!restDay && !halted && !standDown && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
+  if(!restDay && !halted && !standDown && !isVoyage && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
     // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
     const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
     const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
@@ -2720,7 +2750,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // skipSurvival (rerollJourneyNav): re-roll navigation / movement only and leave provisioning entirely
   // untouched — reuses the proven ignore-rations "ignored" shape, so the record carries no survival and
   // no forage throw, and rerollJourneyNav restores the held water/food outcome afterward.
-  const survival = ((ctx && ctx.skipSurvival) || standDown)
+  const survival = ((ctx && ctx.skipSurvival) || standDown || isVoyage)
     ? { ignored: true, members: {}, notableEvents: [], waterForage: null }
     : journeyDaySurvival(campaign, journey, curHex, { rng });
   if(!survival.ignored){
@@ -2738,8 +2768,9 @@ function tickJourneyDay(campaign, journey, ctx){
   // Armies skip the party streak — commitJourneyRecord stamps marchedOrds and the
   // RR p.448 3-of-7 rule derives fatigue from the window (armyFatigued).
   let fatigueAccumulated = 0;
-  if(standDown){
-    // no party fatigue machinery for a marching column (army or rallying unit)
+  if(standDown || isVoyage){
+    // no party fatigue machinery for a marching column (army or rallying unit) or a voyage
+    // (crewing a vessel is unstrenuous — RR p.318; under-crew/rest is a vessel-state concern, V3)
   } else if(restDay){
     fatigueDays = 0; // a dedicated rest day clears the streak (RR p.279)
     notableEvents.push({ kind: 'journey-day-tick', type: 'forced-rest', primaryHexId: journey.startHexId || null, label: (journey.name || 'Journey') + ': forced rest — party was fatigued (RR p.279)', payload: { journeyId: journey.id, dayIndex: newDayIndex } });
@@ -2765,8 +2796,10 @@ function tickJourneyDay(campaign, journey, ctx){
   const _encTaken = {};   // proposal-id mints shared across the day's hexes (collision-proof)
   // W4 — a marching column (army or rallying unit) draws no per-hex wandering encounters
   // (armies meet the world through the military layer: contact, invasion, the incursion
-  // machinery; a single rallying detachment we leave alone for v1) 🔧.
-  for(const _ph of (standDown ? [] : hexPath)){
+  // machinery; a single rallying detachment we leave alone for v1) 🔧. Voyages V2 — a sea voyage
+  // draws no per-hex LAND wandering encounter either; the sea-encounter tables are V4 (gated on the
+  // Monster Catalog's sea entries, the same way the land E-layer was pre-E4).
+  for(const _ph of ((standDown || isVoyage) ? [] : hexPath)){
     if(!_ph) continue;
     // An UNauthored hex (hexId null — the sparse-campaign norm) still gets its RAW throw:
     // unsettled territory, no pool, the start-hex environment for distance (§24 fallback).
@@ -2825,7 +2858,7 @@ function tickJourneyDay(campaign, journey, ctx){
   else if(armyContactRecord)
                             summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then met ' + (armyContactRecord.opposingArmyName || 'an opposing army') + ' (day ' + newDayIndex + ')';
   else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — strayed ' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' ' + (HEX_FACE_LABELS[strayHeading] || '') + ', unaware (day ' + newDayIndex + ')';
-  else                      summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi)' + (fordingRecord && fordingRecord.result === 'forded-swim' ? ', forded a river' : '') + ', day ' + newDayIndex;
+  else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '')) : '') + '), day ' + newDayIndex;
 
   // ── §4.2 Day record ──
   // Provisioning — a COMPACT per-member post-day survival snapshot (only the fields
@@ -2849,6 +2882,12 @@ function tickJourneyDay(campaign, journey, ctx){
     weather: { condition: weather.condition, temperature: weather.temperature || 'moderate', rolledOrSet: weather.rolledOrSet || 'gm-fiat' },
     pace: restDay ? 'rest' : pace,
     speedOverrideMilesPerDay: (overrideMiles != null && !restDay) ? overrideMiles : null,  // §26 — GM speed override in effect this day (null ⇒ pace governed)
+    voyage: voyageInfo ? {                                   // Voyages V2 — the day's sailing/rowing breakdown (null on a land day)
+      propulsion: voyageInfo.propulsion, windLabel: voyageInfo.windLabel, windDirectionLabel: voyageInfo.windDirectionLabel,
+      pointOfSail: voyageInfo.pointOfSail, pointOfSailLabel: voyageInfo.pointOfSailLabel, masterMariner: voyageInfo.masterMariner,
+      continuousSailing: voyageInfo.continuousSailing, gale: voyageInfo.gale, crewDamageFactor: voyageInfo.crewDamageFactor,
+      sailMiles: voyageInfo.sailMiles, oarMiles: voyageInfo.oarMiles
+    } : null,
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,
     hexPath,                                                 // §24 — [{hexId, q, r}] hexes entered this day (in order); last = current position

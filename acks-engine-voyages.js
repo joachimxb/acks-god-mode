@@ -244,6 +244,221 @@
   // True when the vessel is below its class base SHP (took damage).
   function vesselIsDamaged(vessel){ const c = vesselClass(vessel); return !!(c && vessel && vessel.shp < c.shp); }
 
+  // ===========================================================================
+  // V2 — the wind + sailing-speed model (RR pp.318–322). Pure functions: the
+  // wind-strength × point-of-sail × pace × crew/damage product the journeys
+  // day-tick consumer applies when a journey rides a Vessel (the voyage branch).
+  // Maritime_Voyages_RAW_Survey.md §5–§6 / §10; Phase_3_Voyages_Plan.md §66 (V2).
+  // ===========================================================================
+
+  // (a) Wind STRENGTH → propulsion multipliers (RR p.319). Keyed by the SHIPPED
+  // Weather wind vocabulary (acks-engine-weather.js): Still/Gentle/Moderate/Strong/
+  // Windy/Stormy — where "Windy" = RR's Very Strong and "Stormy" = RR's Gale (so the
+  // Weather wind axis IS the RR p.319 wind-strength axis; we consume it, never re-roll).
+  // sail = the sail-speed multiplier; oar = the oar-speed multiplier (oars row on
+  // regardless of wind DIRECTION — the whole strategic point of a galley). tackNeedsMaster:
+  // in Strong+ wind a vessel can only beat to windward (tack) with a master mariner.
+  const WIND_STRENGTH_VOYAGE = Object.freeze({
+    Still:    Object.freeze({ sail: 0,   oar: 1,   label: 'Still',       rawBand: 'Still' }),
+    Gentle:   Object.freeze({ sail: 1/2, oar: 1,   label: 'Gentle',      rawBand: 'Gentle' }),
+    Moderate: Object.freeze({ sail: 1,   oar: 1,   label: 'Moderate',    rawBand: 'Moderate' }),
+    Strong:   Object.freeze({ sail: 3/2, oar: 1,   label: 'Strong',      rawBand: 'Strong',      tackNeedsMaster: true }),
+    Windy:    Object.freeze({ sail: 2/3, oar: 2/3, label: 'Very Strong', rawBand: 'Very Strong', tackNeedsMaster: true }),
+    Stormy:   Object.freeze({ sail: 2/3, oar: 2/3, label: 'Gale',        rawBand: 'Gale',        tackNeedsMaster: true, gale: true })
+  });
+  function windStrengthVoyage(weatherWindName){ return WIND_STRENGTH_VOYAGE[weatherWindName] || WIND_STRENGTH_VOYAGE.Moderate; }
+
+  // (b) POINT OF SAIL (RR p.318) — the sail multiplier by the bow's angle to the wind.
+  // Ordered worst→best (index 0..4). Close-hauled tacks, so only 66% of distance counts
+  // toward the goal; into-the-wind makes no headway directly (must tack as close-hauled).
+  const POINT_OF_SAIL_BANDS = Object.freeze([
+    Object.freeze({ key:'into-wind',    label:'Into the wind', sail:0,   progress:1,    beating:true,  index:0 }),
+    Object.freeze({ key:'close-hauled', label:'Close-hauled',  sail:1/3, progress:0.66, beating:true,  index:1 }),
+    Object.freeze({ key:'beam-reach',   label:'Beam reach',    sail:1/2, progress:1,    beating:false, index:2 }),
+    Object.freeze({ key:'broad-reach',  label:'Broad reach',   sail:2/3, progress:1,    beating:false, index:3 }),
+    Object.freeze({ key:'running',      label:'Running',       sail:1,   progress:1,    beating:false, index:4 })
+  ]);
+  // pointOfSail(headingDeg, windFromDeg, {masterMariner}) → the band for a vessel heading
+  // headingDeg with the wind blowing FROM windFromDeg (both compass bearings, N=0° CW).
+  // θ = the angle between the bow and where the wind comes from (0 = dead ahead = into the
+  // wind; 180 = dead behind = running). Master mariner shifts one step more favorable (RR p.319).
+  function pointOfSail(headingDeg, windFromDeg, opts){
+    opts = opts || {};
+    let theta = Math.abs((((Number(headingDeg) - Number(windFromDeg)) % 360) + 540) % 360 - 180);
+    if(!isFinite(theta)) theta = 90;   // no heading/direction data → beam reach (neutral)
+    let idx;
+    if(theta < 22.5) idx = 0;          // into the wind
+    else if(theta < 67.5) idx = 1;     // close-hauled
+    else if(theta < 112.5) idx = 2;    // beam reach
+    else if(theta < 157.5) idx = 3;    // broad reach
+    else idx = 4;                       // running
+    if(opts.masterMariner) idx = Math.min(4, idx + 1);
+    const b = POINT_OF_SAIL_BANDS[idx];
+    return { band:b.key, label:b.label, sailMult:b.sail, progressFraction:b.progress, beating:b.beating, index:idx, angleDeg:Math.round(theta) };
+  }
+
+  // (c) Hex axial coord → compass bearing (degrees, N=0° CW). The map is flat-top with
+  // HEX_EDGE_DELTAS faces [SE,S,SW,NW,N,NE] = bearings [120,180,240,300,0,60]; this affine
+  // axial→cartesian (x east, y north) reproduces those exactly, so a vessel's travel heading
+  // can be derived from its route (current hex → next/destination). Returns null for a zero delta.
+  function vesselBearingDeg(fromCoord, toCoord){
+    if(!fromCoord || !toCoord) return null;
+    const dq = (Number(toCoord.q) || 0) - (Number(fromCoord.q) || 0);
+    const dr = (Number(toCoord.r) || 0) - (Number(fromCoord.r) || 0);
+    if(dq === 0 && dr === 0) return null;
+    const east  = (Math.sqrt(3) / 2) * dq;
+    const north = (-0.5 * dq) - dr;
+    let deg = Math.atan2(east, north) * 180 / Math.PI;   // compass bearing, CW from north
+    if(deg < 0) deg += 360;
+    return deg;
+  }
+
+  // (d) Officer proficiency scan over the canonical PT-0 {key,ranks} shape (also tolerant of a
+  // bare-string legacy proficiency). Used to find a master mariner (Seafaring 3 ranks, RR p.315)
+  // and a navigator (Navigation, or any Seafaring) aboard.
+  function _voyOfficerProfRanks(officer, re){
+    const profs = (officer && officer.proficiencies) || [];
+    let best = 0;
+    for(const p of profs){
+      const key = (p && typeof p === 'object') ? String(p.key || p.name || '') : String(p || '');
+      if(re.test(key)){
+        const r = (p && typeof p === 'object' && typeof p.ranks === 'number') ? p.ranks : 1;
+        if(r > best) best = r;
+      }
+    }
+    return best;
+  }
+  // A master mariner aboard? (RR p.315 — 3 ranks Seafaring). Shifts the point of sail + enables
+  // tacking in heavy wind.
+  function vesselHasMasterMariner(campaign, vessel){
+    const officers = vesselOfficers(campaign, vessel);
+    return officers.some(o => _voyOfficerProfRanks(o, /seafaring/i) >= 3);
+  }
+  // A navigator aboard? (RR p.315 — Navigation, or a master mariner). Gates the 24h sail.
+  function vesselHasNavigator(campaign, vessel){
+    const officers = vesselOfficers(campaign, vessel);
+    return officers.some(o => _voyOfficerProfRanks(o, /navigation/i) >= 1 || _voyOfficerProfRanks(o, /seafaring/i) >= 1);
+  }
+
+  // (e) Crew-loss + damage → proportional voyage-speed factor (RR p.322). Damage: speed ∝ SHP
+  // remaining. Crew: speed ∝ the manning the chosen propulsion needs (rowers for oar, sailors for
+  // sail). RAW: the two are NOT cumulative — use whichever is worse. An UNSET crew complement (all
+  // zeros, the blankVessel default) reads as fully manned (the GM hasn't tracked manning → no
+  // penalty); only a GM-set partial crew reduces. (Crew-from-Groups reconciliation is a later refinement.)
+  function vesselVoyageSpeedFactor(campaign, vessel, propulsion){
+    const cls = vesselClass(vessel);
+    if(!cls || !vessel) return 1;
+    const damageFactor = (cls.shp > 0) ? Math.max(0, Math.min(1, (vessel.shp != null ? vessel.shp : cls.shp) / cls.shp)) : 1;
+    const cc = vessel.crewComplement || {};
+    const ccSet = (Number(cc.sailors) || 0) + (Number(cc.rowers) || 0) + (Number(cc.marines) || 0) > 0;
+    let crewFactor = 1;
+    if(ccSet){
+      if(propulsion === 'oar' && cls.rowers > 0)      crewFactor = Math.max(0, Math.min(1, (Number(cc.rowers) || 0) / cls.rowers));
+      else if(propulsion === 'sail' && cls.sailors > 0) crewFactor = Math.max(0, Math.min(1, (Number(cc.sailors) || 0) / cls.sailors));
+    }
+    return Math.min(damageFactor, crewFactor);
+  }
+
+  // (f) 24-hour open-sea sailing eligibility (RR p.318): a sail-capable vessel with a navigator
+  // and a full crew may sail through the night (×2 distance). The GM TOGGLES the choice
+  // (journey.continuousSailing); this gates whether the toggle has effect. v2: the "open sea"
+  // requirement (distance-from-shore) is deferred to V4's territory classification — here it is
+  // sail-capable + navigator + full-or-unset crew.
+  function voyageContinuousSailEligible(campaign, journey, vessel){
+    const cls = vesselClass(vessel);
+    if(!cls || cls.sailFt == null) return false;          // must be able to sail
+    if(!vesselHasNavigator(campaign, vessel)) return false;
+    const cc = vessel.crewComplement || {};
+    const ccSet = (Number(cc.sailors) || 0) + (Number(cc.rowers) || 0) > 0;
+    const fullCrew = !ccSet || ((Number(cc.sailors) || 0) >= cls.sailors && (Number(cc.rowers) || 0) >= cls.rowers);
+    return fullCrew;
+  }
+
+  // (g) voyageDayMiles — the day's voyage distance (miles). The product the journeys day-loop
+  // reads as its mile BUDGET (replacing the land base × weather × temperature × pace):
+  //   sail: voyageSailMi × windStrength.sail × pointOfSail.sail × progressFraction × crew/damage × pace
+  //   oar:  voyageOarMi  × windStrength.oar                                       × crew/damage × pace
+  // 'auto' picks the faster available mode; the §26 GM override replaces the wind model as a base
+  // rate (× pace still applies). The 24h doubling (×2) lands when continuousSailing is toggled +
+  // eligible. opts: { weather, pace, overrideMiles, headingDeg, propulsion }.
+  function voyageDayMiles(campaign, journey, vessel, opts){
+    opts = opts || {};
+    const cls = vesselClass(vessel);
+    const A = global.ACKS || ACKS;
+    const weather = opts.weather || {};
+    const pace = opts.pace || (journey && journey.pace) || 'normal';
+    const paceMult = (A.JOURNEY_PACE_SPEED && A.JOURNEY_PACE_SPEED[pace] != null) ? A.JOURNEY_PACE_SPEED[pace] : 1;
+
+    // §26 GM override — a positive miles/day REPLACES the wind/sail model as the base rate
+    // (× pace; the sea modifiers do not apply). The escape hatch outranks everything.
+    const ov = opts.overrideMiles;
+    if(typeof ov === 'number' && isFinite(ov) && ov > 0){
+      return { miles: Math.max(0, ov * paceMult), propulsion: 'override', overrideMiles: ov, paceMult,
+               windName: weather.wind || null, sailMiles: null, oarMiles: null, crewDamageFactor: 1,
+               continuousSailing: false, notes: ['GM speed override (' + ov + ' mi/day base)'] };
+    }
+
+    // Wind strength (from the shipped Weather wind axis) — gm-fiat default = Moderate (fair sailing).
+    const windName = weather.wind || 'Moderate';
+    const ws = windStrengthVoyage(windName);
+    // Wind direction (HW-3) + the vessel's heading → point of sail. Missing data → beam-reach neutral.
+    const windFromDeg = (typeof weather.windDirection === 'number') ? weather.windDirection : null;
+    const headingDeg  = (typeof opts.headingDeg === 'number') ? opts.headingDeg : null;
+    const masterMariner = vesselHasMasterMariner(campaign, vessel);
+    // Point of sail needs BOTH the heading and the wind direction. When the day's wind DIRECTION is
+    // unknown (gm-fiat "fair sailing" weather — no roll), assume a FAVORABLE point of sail (running)
+    // so a vessel makes its rated voyage speed (the intuitive default). With a direction known, the
+    // real bearing-vs-wind model applies (an unknown heading falls to the function's beam-reach neutral).
+    const pos = (windFromDeg == null)
+      ? { band:'running', label:'Running', sailMult:1, progressFraction:1, beating:false, index:4, angleDeg:180 }
+      : pointOfSail(headingDeg != null ? headingDeg : NaN, windFromDeg, { masterMariner });
+
+    // sail miles
+    const sailBase = cls ? cls.voyageSailMi : null;
+    let sailMiles = 0;
+    if(sailBase != null && ws.sail > 0){
+      let sailMult = pos.sailMult, progress = pos.progressFraction;
+      if(pos.index <= 1){                                  // beating to windward (close-hauled / into the wind)
+        if(ws.tackNeedsMaster && !masterMariner){ sailMult = 0; }            // can't tack in Strong+ wind without a master mariner
+        else if(pos.index === 0){ sailMult = POINT_OF_SAIL_BANDS[1].sail; progress = POINT_OF_SAIL_BANDS[1].progress; } // into the wind → tack as close-hauled
+      }
+      sailMiles = sailBase * ws.sail * sailMult * progress;
+    }
+    // oar miles (oars ignore wind DIRECTION; only the wind-strength oar multiplier)
+    const oarBase = cls ? cls.voyageOarMi : null;
+    let oarMiles = 0;
+    if(oarBase != null && ws.oar > 0){ oarMiles = oarBase * ws.oar; }
+
+    // propulsion: 'auto' takes the faster available mode; 'sail'/'oar' force it (falling back if absent).
+    const canSail = sailBase != null, canOar = oarBase != null;
+    let want = opts.propulsion || (journey && journey.propulsion) || 'auto';
+    if(want === 'sail' && !canSail) want = 'auto';
+    if(want === 'oar'  && !canOar)  want = 'auto';
+    let propulsion, rawMiles;
+    if(want === 'sail'){ propulsion = 'sail'; rawMiles = sailMiles; }
+    else if(want === 'oar'){ propulsion = 'oar'; rawMiles = oarMiles; }
+    else if(canSail && (!canOar || sailMiles >= oarMiles)){ propulsion = 'sail'; rawMiles = sailMiles; }
+    else { propulsion = 'oar'; rawMiles = oarMiles; }
+
+    // crew + damage reduction (RR p.322), worse of the two.
+    const reduction = vesselVoyageSpeedFactor(campaign, vessel, propulsion);
+    let miles = Math.max(0, rawMiles) * reduction * paceMult;
+
+    // 24-hour open-sea sailing (RR p.318) — GM toggle gated on eligibility → ×2.
+    const continuous = !!(journey && journey.continuousSailing) && propulsion === 'sail' && voyageContinuousSailEligible(campaign, journey, vessel);
+    if(continuous) miles *= 2;
+
+    return {
+      miles: Math.max(0, miles), propulsion, paceMult,
+      windName, windLabel: ws.label, gale: !!ws.gale,
+      windStrengthSailMult: ws.sail, windStrengthOarMult: ws.oar,
+      windFromDeg, windDirectionLabel: weather.windDirectionLabel || null, headingDeg,
+      pointOfSail: pos.band, pointOfSailLabel: pos.label, pointOfSailMult: pos.sailMult,
+      progressFraction: pos.progressFraction, angleDeg: pos.angleDeg, beating: pos.beating,
+      masterMariner, sailMiles, oarMiles, crewDamageFactor: reduction, continuousSailing: continuous
+    };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     VESSEL_CATALOG,
@@ -251,7 +466,11 @@
     blankVessel, createVessel,
     findVessel, vesselsOwnedBy, vesselsAtHex, vesselForJourney, journeysForVessel,
     vesselClass, vesselOwner, vesselCrewGroups, vesselOfficers, vesselHold, ensureVesselHold,
-    vesselCargoCapacitySt, vesselFullCrew, vesselDraftFt, vesselBaseVoyageSpeedMi, vesselIsDamaged
+    vesselCargoCapacitySt, vesselFullCrew, vesselDraftFt, vesselBaseVoyageSpeedMi, vesselIsDamaged,
+    // V2 — the wind + sailing-speed model
+    WIND_STRENGTH_VOYAGE, POINT_OF_SAIL_BANDS, windStrengthVoyage, pointOfSail, vesselBearingDeg,
+    vesselHasMasterMariner, vesselHasNavigator, vesselVoyageSpeedFactor, voyageContinuousSailEligible,
+    voyageDayMiles
   });
 
 })(typeof window !== 'undefined' ? window : global);

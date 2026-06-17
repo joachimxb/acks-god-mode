@@ -245,6 +245,160 @@ if(fs.existsSync(tplDir)){
 }
 
 // =============================================================================
+section('V2 — wind STRENGTH table (RR p.319; keyed by the Weather wind axis)');
+// =============================================================================
+const WSV = ACKS.WIND_STRENGTH_VOYAGE;
+ok('WIND_STRENGTH_VOYAGE frozen + has the 6 Weather wind bands', Object.isFrozen(WSV)
+  && ['Still','Gentle','Moderate','Strong','Windy','Stormy'].every(k => WSV[k]));
+ok('Still: sail ×0, oar ×1 (becalmed → rows)', WSV.Still.sail === 0 && WSV.Still.oar === 1);
+ok('Gentle: sail ×½', WSV.Gentle.sail === 1/2 && WSV.Gentle.oar === 1);
+ok('Moderate: sail ×1', WSV.Moderate.sail === 1 && WSV.Moderate.oar === 1);
+ok('Strong: sail ×3/2, tack needs a master', WSV.Strong.sail === 3/2 && WSV.Strong.tackNeedsMaster === true);
+ok('Windy = RR Very Strong (sail+oar ×2/3)', WSV.Windy.sail === 2/3 && WSV.Windy.oar === 2/3 && WSV.Windy.rawBand === 'Very Strong');
+ok('Stormy = RR Gale (×2/3, gale flag)', WSV.Stormy.sail === 2/3 && WSV.Stormy.gale === true && WSV.Stormy.rawBand === 'Gale');
+ok('windStrengthVoyage(unknown) → Moderate default', ACKS.windStrengthVoyage('zzz') === WSV.Moderate);
+
+// =============================================================================
+section('V2 — point of sail (RR p.318) + master-mariner shift');
+// =============================================================================
+// heading vs where the wind blows FROM; θ = 0 dead ahead (into the wind), 180 dead behind (running).
+ok('wind dead ahead → into the wind (×0)', ACKS.pointOfSail(0, 0).band === 'into-wind' && ACKS.pointOfSail(0, 0).sailMult === 0);
+ok('45° off → close-hauled (×1/3, 66% progress)', (() => { const p = ACKS.pointOfSail(45, 0); return p.band === 'close-hauled' && p.sailMult === 1/3 && p.progressFraction === 0.66; })());
+ok('90° off → beam reach (×1/2)', ACKS.pointOfSail(90, 0).band === 'beam-reach' && ACKS.pointOfSail(90, 0).sailMult === 1/2);
+ok('135° off → broad reach (×2/3)', ACKS.pointOfSail(135, 0).band === 'broad-reach' && ACKS.pointOfSail(135, 0).sailMult === 2/3);
+ok('wind dead behind → running (×1)', ACKS.pointOfSail(180, 0).band === 'running' && ACKS.pointOfSail(180, 0).sailMult === 1);
+// the angle is symmetric + wraps (heading 0 / wind 180 = running)
+ok('symmetric: heading 0, wind FROM 180 → running', ACKS.pointOfSail(0, 180).band === 'running');
+ok('wrap-around: heading 350, wind FROM 10 → into the wind (θ=20)', ACKS.pointOfSail(350, 10).band === 'into-wind');
+// master mariner shifts ONE step more favorable
+ok('master mariner: beam reach → broad reach', ACKS.pointOfSail(90, 0, { masterMariner: true }).band === 'broad-reach');
+ok('master mariner: into the wind → close-hauled', ACKS.pointOfSail(0, 0, { masterMariner: true }).band === 'close-hauled');
+ok('master mariner caps at running', ACKS.pointOfSail(180, 0, { masterMariner: true }).band === 'running');
+ok('no heading/direction data → beam-reach neutral', ACKS.pointOfSail(NaN, NaN).band === 'beam-reach');
+
+// =============================================================================
+section('V2 — vesselBearingDeg (hex axial → compass bearing; flat-top frame)');
+// =============================================================================
+// HEX_EDGE_DELTAS = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]] = faces [SE,S,SW,NW,N,NE]
+//                 = bearings                                    [120,180,240,300,0,60].
+const O = { q: 0, r: 0 };
+ok('N face [0,-1] → 0°',   ACKS.vesselBearingDeg(O, { q: 0,  r: -1 }) === 0);
+ok('S face [0,1] → 180°',  ACKS.vesselBearingDeg(O, { q: 0,  r: 1 })  === 180);
+ok('SE face [1,0] → 120°', Math.round(ACKS.vesselBearingDeg(O, { q: 1, r: 0 }))  === 120);
+ok('NW face [-1,0] → 300°',Math.round(ACKS.vesselBearingDeg(O, { q: -1, r: 0 })) === 300);
+ok('NE face [1,-1] → 60°', Math.round(ACKS.vesselBearingDeg(O, { q: 1, r: -1 })) === 60);
+ok('SW face [-1,1] → 240°',Math.round(ACKS.vesselBearingDeg(O, { q: -1, r: 1 })) === 240);
+ok('a multi-hex S leg still reads 180°', Math.round(ACKS.vesselBearingDeg(O, { q: 0, r: 5 })) === 180);
+ok('zero delta → null', ACKS.vesselBearingDeg(O, O) === null);
+
+// =============================================================================
+section('V2 — crew/damage speed factor (RR p.322, worse-of-two; unset crew = full)');
+// =============================================================================
+const fc = ACKS.blankCampaign({ name: 'speedfactor' });
+ok('undamaged + unset crew → ×1 (assume full)', ACKS.vesselVoyageSpeedFactor(fc, ACKS.blankVessel({ catalogKey: 'galley-2-rower' }), 'oar') === 1);
+// galley-2-rower base SHP 25 → at 12 SHP, damageFactor 12/25 = 0.48
+ok('damaged → speed ∝ SHP remaining', Math.abs(ACKS.vesselVoyageSpeedFactor(fc, ACKS.blankVessel({ catalogKey: 'galley-2-rower', shp: 12 }), 'oar') - 12/25) < 1e-9);
+// galley-2-rower full rowers 90 → at 45 rowers, crewFactor 0.5 (oar); worse-of-two with full SHP → 0.5
+ok('partial rowers → oar crewFactor (worse-of-two)', ACKS.vesselVoyageSpeedFactor(fc, ACKS.blankVessel({ catalogKey: 'galley-2-rower', crewComplement: { sailors: 5, rowers: 45, marines: 0 } }), 'oar') === 0.5);
+// the partial rower crew does NOT slow the SAIL mode (sailors full) — propulsion-specific
+ok('partial rowers do not slow sail (full sailors)', ACKS.vesselVoyageSpeedFactor(fc, ACKS.blankVessel({ catalogKey: 'galley-2-rower', crewComplement: { sailors: 5, rowers: 45, marines: 0 } }), 'sail') === 1);
+// worse of damage vs crew: 12/25 SHP (0.48) vs 45/90 rowers (0.5) → 0.48
+ok('damage + crew not cumulative → the worse one', Math.abs(ACKS.vesselVoyageSpeedFactor(fc, ACKS.blankVessel({ catalogKey: 'galley-2-rower', shp: 12, crewComplement: { sailors: 5, rowers: 45, marines: 0 } }), 'oar') - 12/25) < 1e-9);
+
+// =============================================================================
+section('V2 — master mariner / navigator aboard + 24h-sail eligibility');
+// =============================================================================
+const mc2 = ACKS.blankCampaign({ name: 'crewprofs' });
+mc2.characters = [
+  { id: 'chr-mm',  name: 'Old Salt',  proficiencies: [{ key: 'seafaring', ranks: 3 }] },
+  { id: 'chr-nav', name: 'Wayfinder', proficiencies: [{ key: 'navigation', ranks: 1 }] },
+  { id: 'chr-hand', name: 'Deckhand', proficiencies: [] }
+];
+const mmShip = ACKS.createVessel(mc2, { name: 'Triton', catalogKey: 'sailing-ship-large', officerCharacterIds: ['chr-mm'] });
+const navShip = ACKS.createVessel(mc2, { name: 'Compass', catalogKey: 'sailing-ship-large', officerCharacterIds: ['chr-nav'] });
+const plainShip = ACKS.createVessel(mc2, { name: 'Drift', catalogKey: 'sailing-ship-large', officerCharacterIds: ['chr-hand'] });
+ok('master mariner detected (Seafaring 3)', ACKS.vesselHasMasterMariner(mc2, mmShip) === true);
+ok('a Seafaring-1 hand is not a master mariner', ACKS.vesselHasMasterMariner(mc2, navShip) === false);
+ok('master mariner counts as a navigator', ACKS.vesselHasNavigator(mc2, mmShip) === true);
+ok('Navigation-1 is a navigator', ACKS.vesselHasNavigator(mc2, navShip) === true);
+ok('no nav/seafaring officer → no navigator', ACKS.vesselHasNavigator(mc2, plainShip) === false);
+// 24h sail eligibility: sail-capable + navigator + full-or-unset crew
+ok('24h eligible: sail + navigator + unset crew', ACKS.voyageContinuousSailEligible(mc2, ACKS.blankJourney({}), navShip) === true);
+ok('24h NOT eligible without a navigator', ACKS.voyageContinuousSailEligible(mc2, ACKS.blankJourney({}), plainShip) === false);
+ok('24h NOT eligible for an oar-only craft', ACKS.voyageContinuousSailEligible(mc2, ACKS.blankJourney({}), ACKS.blankVessel({ catalogKey: 'boat-row' })) === false);
+
+// =============================================================================
+section('V2 — voyageDayMiles (the day distance: RR pp.318–322)');
+// =============================================================================
+const vc = ACKS.blankCampaign({ name: 'voydm' });
+const shipL = ACKS.blankVessel({ catalogKey: 'sailing-ship-large' });   // voyageSailMi 72, no oars
+const galley = ACKS.blankVessel({ catalogKey: 'galley-1-rower' });      // voyageSailMi 96, voyageOarMi 30
+const W_RUN  = { wind: 'Moderate', windDirection: 0 };                  // heading 180 (S) = running
+function vdm(camp, j, v, weather, headingDeg, extra){ return ACKS.voyageDayMiles(camp, j || {}, v, Object.assign({ weather, headingDeg }, extra || {})); }
+// sailing ship, Moderate wind, running → full voyage speed 72
+ok('sailing ship · Moderate · running → 72', vdm(vc, {}, shipL, W_RUN, 180).miles === 72);
+ok('  → propulsion sail, point of sail running', (() => { const r = vdm(vc, {}, shipL, W_RUN, 180); return r.propulsion === 'sail' && r.pointOfSail === 'running'; })());
+// Gentle wind halves the sail → 36
+ok('sailing ship · Gentle · running → 36', vdm(vc, {}, shipL, { wind: 'Gentle', windDirection: 0 }, 180).miles === 36);
+// Still wind: sail ×0, no oars → becalmed (0 miles)
+ok('sailing ship · Still → becalmed 0', vdm(vc, {}, shipL, { wind: 'Still', windDirection: 0 }, 180).miles === 0);
+// galley becalmed → rows (oar 30) — the strategic point of oars
+ok('galley · Still → rows at 30 (oar)', (() => { const r = vdm(vc, {}, galley, { wind: 'Still', windDirection: 0 }, 180); return r.miles === 30 && r.propulsion === 'oar'; })());
+// galley Moderate running → sail 96 beats oar 30 (auto)
+ok('galley · Moderate · running → sails at 96', (() => { const r = vdm(vc, {}, galley, W_RUN, 180); return r.miles === 96 && r.propulsion === 'sail'; })());
+// headwind: sailing ship into the wind, Moderate → tacks as close-hauled (72 × 1/3 × 0.66)
+ok('sailing ship · headwind (Moderate) → tacks ≈15.84', Math.abs(vdm(vc, {}, shipL, { wind: 'Moderate', windDirection: 180 }, 180).miles - (72 * (1/3) * 0.66)) < 1e-9);
+// headwind in STRONG wind without a master → can't tack → sail 0
+ok('sailing ship · headwind (Strong, no master) → 0 (can\'t beat to windward)', vdm(vc, {}, shipL, { wind: 'Strong', windDirection: 180 }, 180).miles === 0);
+// a galley in that same Strong headwind just rows (30)
+ok('galley · Strong headwind → rows at 30', (() => { const r = vdm(vc, {}, galley, { wind: 'Strong', windDirection: 180 }, 180); return r.miles === 30 && r.propulsion === 'oar'; })());
+// pace: half-speed halves; halted = 0
+ok('half-speed pace halves the day', vdm(vc, {}, shipL, W_RUN, 180, { pace: 'half-speed' }).miles === 36);
+ok('halted pace → 0 miles', vdm(vc, {}, shipL, W_RUN, 180, { pace: 'halted' }).miles === 0);
+// damage: a half-SHP sailing ship makes half distance
+ok('damaged sailing ship (½ SHP) → ½ distance', vdm(vc, {}, ACKS.blankVessel({ catalogKey: 'sailing-ship-large', shp: 100 }), W_RUN, 180).miles === 36);
+// §26 override replaces the wind model (× pace), bypassing sail mechanics
+ok('§26 override → base rate × pace', (() => { const r = vdm(vc, {}, shipL, { wind: 'Still', windDirection: 0 }, 0, { overrideMiles: 50 }); return r.miles === 50 && r.propulsion === 'override'; })());
+ok('§26 override honours pace', vdm(vc, {}, shipL, W_RUN, 180, { overrideMiles: 50, pace: 'half-speed' }).miles === 25);
+// 24h doubling: continuousSailing + navigator + full crew → ×2
+const j24 = ACKS.blankJourney({ continuousSailing: true });
+ok('24h sail (eligible) doubles distance', ACKS.voyageDayMiles(mc2, j24, navShip, { weather: W_RUN, headingDeg: 180 }).miles === 144);
+ok('24h toggle without a navigator does NOT double', ACKS.voyageDayMiles(mc2, j24, plainShip, { weather: W_RUN, headingDeg: 180 }).miles === 72);
+// gm-fiat weather (no wind data) → Moderate + favorable default → makes base speed
+ok('no wind data → Moderate default (sails)', vdm(vc, {}, shipL, { condition: 'fair' }, 180).miles === 72);
+
+// =============================================================================
+section('V2 — integration: tickJourneyDay sails a Vessel (sea model governs, land machinery off)');
+// =============================================================================
+const ic = ACKS.blankCampaign({ name: 'voyage-int' });
+ic.characters = [ACKS.blankCharacter({ id: 'chr-cap', name: 'Captain' })];
+ic.hexes = [];
+for(let r = 0; r <= 13; r++) ic.hexes.push(ACKS.blankHex({ id: 'sea-' + r, coord: { q: 0, r: r }, terrain: 'water' }));  // a S-bearing open-sea lane
+const iv = ACKS.createVessel(ic, { name: 'Strait Runner', catalogKey: 'sailing-ship-large' });    // voyageSailMi 72
+const ij = ACKS.blankJourney({ name: 'Across the Strait', mode: 'voyage-sail', shipId: iv.id,
+  participantCharacterIds: ['chr-cap'], startHexId: 'sea-0', destinationHexId: 'sea-13', currentHexId: 'sea-0' });
+ic.journeys = [ij];
+ACKS.startJourney(ic, ij);
+// Moderate wind from the N (0°); the lane heads S (180°) → running → 72 mi/day → 12 six-mile hexes.
+const idr = ACKS.tickJourneyDay(ic, ij, { rng: () => 0.5, weather: { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' } });
+const iDay = idr.record.dayRecord;
+ok('voyage day record carries the voyage breakdown', !!iDay.voyage && iDay.voyage.propulsion === 'sail' && iDay.voyage.pointOfSail === 'running');
+ok('the SEA speed model governs (72 mi, not the land 24)', iDay.milesTraveled === 72 && iDay.hexesTraveled === 12);
+ok('still in transit (12 of 13 hexes)', idr.record.newStatus === 'in-transit');
+ok('NO getting-lost throw on a voyage (sea nav is V3)', iDay.navigationThrow === null);
+ok('NO ration survival on a voyage (ship stores are V3)', idr.record.survival === null && iDay.rationsConsumed.food === 0);
+ok('NO per-hex wandering encounter on a voyage (sea encounters are V4)', (idr.record.encounterProposals || []).length === 0);
+ok('NO party fatigue on a voyage (crewing is unstrenuous)', iDay.fatigueAccumulated === 0);
+// and a LAND journey is unchanged — voyage record is null
+const lc = ACKS.blankCampaign({ name: 'land-ctrl' });
+lc.characters = [ACKS.blankCharacter({ id: 'chr-1', name: 'Walker' })];
+lc.hexes = [ACKS.blankHex({ id: 'l0', coord: { q: 0, r: 0 }, terrain: 'grassland', hasRoad: true }), ACKS.blankHex({ id: 'l1', coord: { q: 6, r: 0 }, terrain: 'grassland', hasRoad: true })];
+const lj = ACKS.blankJourney({ name: 'Overland', participantCharacterIds: ['chr-1'], startHexId: 'l0', destinationHexId: 'l1', currentHexId: 'l0' });
+lc.journeys = [lj]; ACKS.startJourney(lc, lj);
+const ldr = ACKS.tickJourneyDay(lc, lj, { rng: () => 0.5, weather: { condition: 'fair', temperature: 'moderate' } });
+ok('a land journey is unaffected (voyage record null)', ldr.record.dayRecord.voyage === null);
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
