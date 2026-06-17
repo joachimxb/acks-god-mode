@@ -4256,12 +4256,14 @@ function conscriptCount(campaign, d){ return _levyActiveCount(campaign, d, 'cons
 // Militia CALLED UP from a domain (in the garrison/army, billed — drives the revenue/morale penalty).
 function militiaCalledUpCount(campaign, d){ return _levyActiveCount(campaign, d, 'militia', u => u.calledUp !== false); }
 
-// RR p.430 (the Marcus example) — total levies EVER raised from a domain (Σ count, INCLUDING the dead).
-// Casualties are "sticky": a fallen levy keeps its family slot, so it can't be instantly re-levied —
-// only population growth (raising the cap) or the 5%/yr replenishment refills. This is the basis for
+// RR p.430 (the Marcus example) — total levies EVER raised from a domain (Σ count, INCLUDING the dead
+// AND the still-mustering). Casualties are "sticky": a fallen levy keeps its family slot, so it can't
+// be instantly re-levied — only population growth (raising the cap) or the 5%/yr replenishment refills.
+// A still-mustering levy (W7 levy-arrival staging) reserves the cap for its full commit too — `count`
+// holds only the soldiers who've ARRIVED, so `musterPending` is added back here. This is the basis for
 // the available pool, NOT the living count.
 function levyEverRaised(campaign, d, source){
-  return domainLevyUnits(campaign, d, source).reduce((s, u) => s + Math.max(0, (u.count || 0)), 0);
+  return domainLevyUnits(campaign, d, source).reduce((s, u) => s + Math.max(0, (u.count || 0) + (u.musterPending || 0)), 0);
 }
 // RR p.430/432 — how many more conscripts/militia a domain can still levy now (cap − ever-raised, ≥0).
 function levyAvailable(campaign, d, source){
@@ -4319,22 +4321,46 @@ function _resolveDomain(campaign, domainOrId){
   if(domainOrId && typeof domainOrId === 'object') return domainOrId;
   return (campaign.domains || []).find(d => d && d.id === domainOrId) || null;
 }
+// RR p.430 — the levy MUSTER schedule (W7 levy-arrival staging). Levied troops arrive in stages:
+// ½ (round up) in the first time period, ¼ (round down, min 1) in the second, the remainder in the
+// third. A domain levy is "from his personal domain alone" → treat as a barony → the time period is a
+// WEEK (RR p.434, Vassal Troops by Realm Size). (The Month/Season realm-scale periods are for a
+// multi-domain CALL TO ARMS — a different mechanic, the deferred F&D duty.) Returns [{atOrd, count}]
+// (non-zero batches only), the batches landing at startOrd+7/+14/+21.
+function _levyMusterSchedule(total, startOrd){
+  const n = Math.max(0, Math.floor(total || 0));
+  if(n <= 0) return [];
+  const week1 = Math.ceil(n / 2);                                // ½, rounded up
+  const rem1 = n - week1;
+  const week2 = Math.min(rem1, Math.max(1, Math.floor(n / 4)));  // ¼, rounded down, min 1 (capped at what's left)
+  const week3 = n - week1 - week2;                               // the remainder
+  const PERIOD = 7;                                              // barony time period — a week (RR p.434)
+  return [{ atOrd: startOrd + PERIOD, count: week1 },
+          { atOrd: startOrd + PERIOD * 2, count: week2 },
+          { atOrd: startOrd + PERIOD * 3, count: week3 }].filter(b => b.count > 0);
+}
+
 // Internal: create + station a levy unit (conscript/militia), clamped to its RAW cap. Returns the
 // unit, or null when the cap leaves no room / the domain can't levy. The one-time domain-morale
 // levy adjustment (RR p.431/433) is baked into the unit's moraleAdjustment + loyalty at creation.
+// RR p.430 — LEVYING TAKES TIME (W7 levy-arrival staging): by default the troops arrive over 3 weeks
+// (½/¼/remainder; the 'levy-muster' day-consumer tops up `count` as each batch lands, while
+// `musterPending` reserves the cap for the full commit from levy-time). `opts.instant` gives the whole
+// levy at once (tests / a GM expedite / pre-built template data) — the legacy immediate behaviour.
 function _createLevyUnit(campaign, d, source, count, opts){
   opts = opts || {};
   if(!campaign || !d) return null;
   if(!canLevyFromDomain(d)) return null;                          // RR p.432 — morale ≤ −2 blocks levying
   if(!Array.isArray(campaign.units)) campaign.units = [];
   const max = source === 'militia' ? militiaLevyMax(d) : conscriptLevyMax(d);
-  const existing = levyEverRaised(campaign, d, source);          // RR p.430 — sticky casualties: the dead count against the cap
+  const existing = levyEverRaised(campaign, d, source);          // RR p.430 — sticky casualties + still-mustering count against the cap
   const room = Math.max(0, max - existing);
   const n = Math.min(Math.max(0, Math.floor(count || 0)), room);
   if(n <= 0) return null;
   const race = opts.race || 'man';
   const A = global.ACKS;
-  const u = A.blankUnit({ unitTypeKey: 'untrained-levy', race, count: n, source,
+  const staged = !opts.instant;
+  const u = A.blankUnit({ unitTypeKey: 'untrained-levy', race, count: staged ? 0 : n, source,
     displayName: (d.name ? d.name + ' ' : '') + (source === 'militia' ? 'Militia' : 'Conscripts') });
   // lazy instance fields (blankUnit doesn't emit them — additive, no migration)
   u.homeDomainId = d.id;
@@ -4343,7 +4369,17 @@ function _createLevyUnit(campaign, d, source, count, opts){
   u.moraleAdjustment = (u.moraleAdjustment || 0) + adj;
   u.loyalty = (u.loyalty || 0) + adj;
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  u.history.push({ turn, type: 'levied', text: 'Levied as ' + (source === 'militia' ? 'militia' : 'conscripts') + (adj ? ' (' + (adj > 0 ? '+' : '') + adj + ' morale from domain morale)' : '') });
+  const moraleNote = adj ? ' (' + (adj > 0 ? '+' : '') + adj + ' morale from domain morale)' : '';
+  if(staged){
+    // RR p.430 — the troops arrive over 3 weeks; `count` starts at 0 (none have shown up yet) and the
+    // 'levy-muster' day-consumer tops it up at each batch. musterPending reserves the cap meanwhile.
+    const startOrd = _levyDayOrd(campaign);
+    u.musterPending = n;
+    u.musterState = { total: n, startedAtOrd: startOrd, arrivedSoFar: 0, schedule: _levyMusterSchedule(n, startOrd) };
+    u.history.push({ turn, type: 'levied', text: 'Levying ' + n + ' ' + (source === 'militia' ? 'militia' : 'conscripts') + ' — arriving over 3 weeks (½/¼/remainder, RR p.430)' + moraleNote });
+  } else {
+    u.history.push({ turn, type: 'levied', text: 'Levied as ' + (source === 'militia' ? 'militia' : 'conscripts') + moraleNote });
+  }
   stationUnit(campaign, u, { kind: 'domain-garrison', id: d.id });
   return u;
 }
@@ -4418,6 +4454,15 @@ function unitTrainingDaysLeft(campaign, unit){
   return Math.max(0, ts.completesAtOrd - _levyDayOrd(campaign));
 }
 
+// Days left before a mustering levy fully assembles (RR p.430; W7 levy-arrival staging). Returns null
+// when not mustering, ≥0 otherwise (0 the day the last batch is due).
+function unitMusterDaysLeft(campaign, unit){
+  const ms = unit && unit.musterState;
+  if(!ms || (unit.musterPending || 0) <= 0) return null;
+  const last = (ms.schedule || []).reduce((m, b) => Math.max(m, b.atOrd), ms.startedAtOrd || 0);
+  return Math.max(0, last - _levyDayOrd(campaign));
+}
+
 // Complete an in-training levy → convert it to its target troop type (catalog wage/BR/morale + name),
 // clear trainingState, and stamp the 'trained' history entry. Shared by trainLevyUnit's instant path and
 // the 'levy-training' day-consumer's commit. No-op when the unit isn't in training. Returns the unit|null.
@@ -4456,6 +4501,7 @@ function trainLevyUnit(campaign, unitOrId, opts){
   if(!_isLevyUnit(u)) return { ok: false, reason: 'not-a-levy' };
   if(_isTrainedLevy(u)) return { ok: false, reason: 'already-trained' };
   if(u.trainingState) return { ok: false, reason: 'already-in-training' };   // W7 — one training at a time
+  if((u.musterPending || 0) > 0) return { ok: false, reason: 'still-mustering' };   // W7 — wait for the full muster (RR p.430)
   const A = global.ACKS;
   const target = opts.targetTroopType;
   const race = u.race || 'man';
@@ -10370,6 +10416,59 @@ function commitConstructionRecord(campaign, record){
   }
 }
 
+// ── 'levy-muster' day-consumer (RR p.430; W7 levy-arrival staging) ──────────────────────────────────
+// PURE peek: one record per mustering levy with batch(es) arriving on/before the simulated day; the
+// commit tops up the unit's arrived `count` from `musterPending`. A domain levy arrives ½/¼/remainder
+// over 3 weeks (the batches landing at +7/+14/+21 days — the barony time period, RR pp.430/434). Reads
+// ctx.dayInMonth like the training consumer. Routine (no pauseTrigger). order 46 — after recruitment
+// (45), before training (48): you muster, THEN train. commitTurn drives it to month end via
+// runDayTickToMonthEnd, so a levy musters across Advance-Months. Records carry the per-batch DELTA
+// (arriving), so applying them in day order to the real campaign reproduces the work-clone's progression.
+function proposeLevyMusterDay(campaign, ctx){
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  if(!campaign || !Array.isArray(campaign.units)) return out;
+  const dayInMonth = (ctx && ctx.dayInMonth) || (campaign.currentDayInMonth || 1);
+  const dayOrd = (((campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
+  for(const u of campaign.units){
+    const ms = u && u.musterState;
+    if(!ms || (u.musterPending || 0) <= 0) continue;
+    let target = 0;
+    for(const b of (ms.schedule || [])){ if(b.atOrd <= dayOrd) target += b.count; }
+    const arriving = target - (ms.arrivedSoFar || 0);
+    if(arriving <= 0) continue;
+    const complete = (target >= ms.total);
+    const noun = (u.source === 'militia') ? 'militia' : 'conscripts';
+    out.pendingRecords.push({ kind: 'levy-muster', unitId: u.id, arriving });
+    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-muster', transient: true, primaryHexId: u.homeHexId || null,
+      label: (u.displayName || 'A levy') + ': ' + arriving + ' ' + noun + ' arrive' + (complete ? ' — muster complete (' + ms.total + ')' : ' (' + (ms.total - target) + ' still mustering)'),
+      payload: { unitId: u.id } });
+  }
+  return out;
+}
+function commitLevyMusterRecord(campaign, record){
+  if(!record || record.kind !== 'levy-muster') return;
+  const u = findUnit(campaign, record.unitId);
+  const ms = u && u.musterState;
+  if(!ms) return;
+  const arriving = Math.max(0, record.arriving || 0);
+  u.count = (u.count || 0) + arriving;
+  u.musterPending = Math.max(0, (u.musterPending || 0) - arriving);
+  ms.arrivedSoFar = (ms.arrivedSoFar || 0) + arriving;
+  if((u.musterPending || 0) <= 0 || ms.arrivedSoFar >= ms.total){
+    // Fully mustered → a normal untrained levy (now trainable / marchable / mergeable).
+    u.musterPending = 0;
+    u.musterState = null;
+    const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+    u.history.push({ turn, type: 'mustered', text: 'Muster complete — ' + unitActiveCount(u) + ' ' + ((u.source === 'militia') ? 'militia' : 'conscripts') + ' assembled' });
+  }
+}
+registerDayConsumer('levy-muster', {
+  handler: proposeLevyMusterDay,
+  order: 46,
+  pauseTriggers: [],
+  commit: commitLevyMusterRecord
+});
+
 // ── 'levy-training' day-consumer (RR p.431; W7 training timer) ───────────────────────────────────────
 // PURE peek: one record per in-training levy whose training completes on/before the simulated day; the
 // commit converts it to its trained troop type via _completeTraining. Reads ctx.dayInMonth (the simulated
@@ -11202,6 +11301,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   levyEverRaised, levyAvailable, sendMilitiaUnitHome, callUpMilitia, releaseLevyUnit, processLevyReplenishmentForTurn,
   // W7-continuation — the training timer (RR p.431): training takes its months; a day-consumer completes it
   unitTrainingDaysLeft, proposeLevyTrainingDay, commitLevyTrainingRecord,
+  // W7-continuation — the levy-arrival timer (RR p.430): levied troops arrive ½/¼/remainder over 3 weeks
+  unitMusterDaysLeft, proposeLevyMusterDay, commitLevyMusterRecord,
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
   groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
   groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,
