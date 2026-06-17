@@ -2072,6 +2072,62 @@ function rollEncounter(campaign, journey, opts){
   return { encounterRecord, notableEvent };
 }
 
+// Voyages V4 — the maritime mirror of rollEncounter: build {encounterRecord, notableEvent} from a
+// SEA draw (ACKS.seaEncounterDraw). A meeting (monster/civilized) → an Encounter entity record (the
+// commit materializes it via createEncounterFromDraw, which reads draw.atSea/seaZone/evasion + uses
+// the sea distance); a NAUTICAL result → a GM-resolve notable, no entity (the sea terrain-encounter,
+// the land dangerous/valuable/unique precedent); no-encounter → null. The draw is seeded (preview
+// byte-stable); the id is minted collision-proof; nothing is materialized until commit.
+function _seaEncounterRecord(campaign, journey, draw, opts){
+  opts = opts || {};
+  if(!draw || draw.category === 'no-encounter') return null;
+  const rng = opts.rng || Math.random;
+  const jName = (journey && journey.name) || 'Voyage';
+  const hexId = opts.hexId || null;
+  if(draw.category === 'nautical'){
+    const n = draw.nautical || {};
+    return { encounterRecord: null, notableEvent: {
+      kind: 'journey-encounter', type: 'sea-nautical', pauseTrigger: 'encounter', primaryHexId: hexId,
+      label: jName + ': nautical encounter — ' + (n.name || 'something at sea') + (n.effect ? (' — ' + n.effect) : '') + ' (GM resolves)' + (n.persistent ? ' — mark it on the map' : ''),
+      payload: { journeyId: journey && journey.id, dayIndex: opts.dayIndex, hexId, encounterId: null,
+                 category: 'nautical', nauticalType: n.type || null, nauticalName: n.name || null, persistent: !!n.persistent }
+    } };
+  }
+  const encId = _mintEncounterProposalId(campaign, rng, opts.takenIds);
+  const ir = draw.identityRoll || null, bind = draw.binding || null;
+  const mName = (ir && ir.key && typeof ACKS.monsterDisplayName === 'function' && ACKS.monsterDisplayName(ir.key)) || (ir && ir.label) || 'creatures';
+  const n = bind && bind.count;
+  const evadeNote = (draw.evasion && draw.evasion.canEvade) ? ' (vessels can try to evade)' : (draw.category === 'monster' ? ' (vessels cannot evade a sea creature)' : '');
+  let label;
+  if(draw.category === 'civilized'){
+    label = jName + ': sea encounter — ' + mName + evadeNote + ' — GM, resolve';
+  } else if(bind && bind.mode === 'fresh-lair'){
+    label = jName + ': sea encounter — ' + mName + ' at their lair here (islet/reef/wreck/underwater)' + (n ? ' (' + n + ')' : '') + ' — GM, resolve';
+  } else {
+    label = jName + ': sea encounter — ' + (n ? n + ' ' : '') + mName.toLowerCase() + (n === 1 ? '' : 's') + ' at sea' + evadeNote + ' — GM, resolve';
+  }
+  const encounterRecord = {
+    id: encId, dayIndex: opts.dayIndex, hexId, coord: opts.coord || null,
+    triggeredBy: 'sea-wandering-roll', encounterTableUsed: draw.columnKey,
+    category: draw.category, rarity: draw.rarity || null,
+    monsters: [], lairId: (bind && bind.lairId) || null, rivalJourneyId: null, outcome: 'unresolved', survivorsCarriedOver: [],
+    partyCasualtiesSummary: null, treasureGained: null, resolvedByEventId: null,
+    // The whole sea draw rides verbatim (seeded — byte-stable); the commit's createEncounterFromDraw
+    // reads draw.atSea/seaZone/evasion + the identity/binding and uses draw.distance (the sea distance).
+    draw: draw,
+    distance: draw.distance || null
+  };
+  const notableEvent = {
+    kind: 'journey-encounter', type: 'sea-encounter', pauseTrigger: 'encounter', primaryHexId: hexId,
+    label: label,
+    payload: { journeyId: journey && journey.id, dayIndex: opts.dayIndex, hexId, encounterId: encId,
+               category: draw.category, rarity: draw.rarity || null, atSea: true, seaZone: draw.seaZone || null,
+               identityLabel: ir ? ir.label : null, monsterKey: ir ? (ir.key || null) : null,
+               bindingMode: bind ? bind.mode : null }
+  };
+  return { encounterRecord, notableEvent };
+}
+
 // ─── Phase 2.5 Provisioning (RR p.278 "Surviving the Wild") — per-member food/water ───────────────
 // V2/V3: the daily survival resolution. Replaces the old first-participant-only hunger/dehydration read.
 // Food is discrete ration items in a member's carry inventory and (when sharing) the party camp stash;
@@ -2944,6 +3000,30 @@ function tickJourneyDay(campaign, journey, ctx){
     if(enc){
       if(enc.encounterRecord) encounters.push(enc.encounterRecord);
       notableEvents.push(enc.notableEvent);
+    }
+  }
+  // Voyages V4 — the maritime E-layer (JJ pp.71–78). A sea voyage was stood down from the LAND
+  // encounter loop above; here it makes the SEA encounter throw instead — once per 24-mile region
+  // crossed (every ~4th 6-mile hex 🔧), or once per 6-mile hex on a trade route (the JJ p.71 Sea
+  // Encounter Throw Frequency for sailing). 24-hour open-sea sailing uses the night column (more
+  // dangerous). A meeting (monster/civilized) rides `encounters` → the commit materializes the
+  // Encounter entity exactly as the land path does; a nautical result is a GM-resolve notable.
+  if(isVoyage && !standDown && !restDay && hexPath.length && typeof ACKS.seaEncounterDraw === 'function'){
+    const _seaTrade = !!journey.tradeRoute;
+    const _seaNight = !!(voyageInfo && voyageInfo.continuousSailing);
+    const _seaCond = (voyageInfo && voyageInfo.weathering) ? String(voyageInfo.weathering).toLowerCase() : 'clear';
+    const _seaPartySide = { partyId: (journey && journey.partyId) || null, characterIds: ((journey && journey.participantCharacterIds) || []).slice() };
+    let _seaHex = 0;
+    for(const _ph of hexPath){
+      if(!_ph) continue;
+      _seaHex++;
+      if(!_seaTrade && (_seaHex % 4 !== 1)) continue;   // per 24-mile region (every 4th 6-mile hex); trade route = every hex
+      const _sdraw = ACKS.seaEncounterDraw(campaign, _ph.hexId || null, {
+        seaZone: _voyageSeaZone, tradeRoute: _seaTrade, night: _seaNight, weatherCondition: _seaCond,
+        rng, partySide: _seaPartySide
+      });
+      const _srec = _seaEncounterRecord(campaign, journey, _sdraw, { hexId: _ph.hexId || null, coord: { q: _ph.q, r: _ph.r }, dayIndex: newDayIndex, rng, takenIds: _encTaken });
+      if(_srec){ if(_srec.encounterRecord) encounters.push(_srec.encounterRecord); notableEvents.push(_srec.notableEvent); }
     }
   }
 
