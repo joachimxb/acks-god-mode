@@ -5534,6 +5534,9 @@
                 "army-contact",
                 "domain-warfare",
                 "army-supply",
+                "vagary-of-recruitment",
+                "vagary-of-war",
+                "vagary-of-battle",
                 "siege-started",
                 "siege-progress",
                 "siege-resolved",
@@ -5685,7 +5688,7 @@
     "schemaVersion": 2,
     "entityKinds": 51,
     "typedKinds": 34,
-    "eventKinds": 107,
+    "eventKinds": 110,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",

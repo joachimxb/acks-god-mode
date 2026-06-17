@@ -6519,6 +6519,45 @@ function proposeMilitaryDay(campaign, ctx){
     });
   }
 
+  // ── 3c. Vagaries of War (JJ pp.113–115, W8) — each on-campaign army rolls weekly, AFTER the
+  //        supply check, behind the vagaries-of-war rule (twice/week in a siege → take the worse).
+  //        An Army entity IS a mustered field force, so every active army counts as "on campaign"
+  //        (RAW's finer "in enemy territory / >1 month" gating is a 🔧 v1 simplification). The
+  //        rolled vagary is a GM-resolve record + a vagary-of-war event; the self-contained Good/
+  //        Ill Omen ±10-to-next-roll modifier is applied on commit. Weekly cadence via
+  //        army.lastWarVagaryOrd (the supply check's lastSupplyCheckOrd convention). ──
+  if(typeof A.rollWarVagary === 'function' && typeof A.isHouseRuleEnabled === 'function'
+     && A.isHouseRuleEnabled(campaign, 'vagaries-of-war')){
+    for(const army of active){
+      if(typeof A.warVagaryDue === 'function' && !A.warVagaryDue(campaign, army, ord)) continue;
+      const v = A.rollWarVagary(campaign, army, { rng });
+      if(!v || !v.row) continue;
+      const leaderDomain = army.leaderCharacterId ? (campaign.domains || []).find(d => d && d.rulerCharacterId === army.leaderCharacterId) || null : null;
+      const unit = (typeof A.vagaryRealmUnitSize === 'function') ? A.vagaryRealmUnitSize(campaign, leaderDomain) : null;
+      const isNone = !!(v.row.effect && v.row.effect.category === 'none');
+      const detail = (v.siege ? ' [siege — worst of ' + v.draws.length + ']' : '') + (v.mod ? ' [' + (v.mod > 0 ? '+' : '') + v.mod + ' carried]' : '');
+      const label = '\u{1F3B2} ' + armyName(army) + ' — Vagary of War: ' + v.row.name + ' (' + v.row.brief + ')' + detail;
+      pendingRecords.push({
+        kind: 'army-vagary', armyId: army.id, name: armyName(army),
+        vagaryKey: v.row.key, vagaryName: v.row.name, brief: v.row.brief, effect: v.row.effect,
+        roll: v.roll, mod: v.mod, total: v.total, siege: v.siege, nextMod: v.nextMod,
+        realmUnitScale: unit ? unit.scale : null, ord,
+        label, status: 'pending'
+      });
+      notableEvents.push({
+        kind: 'vagary-of-war', type: 'vagary-of-war',
+        pauseTrigger: isNone ? null : 'encounter',                        // a consequential vagary halts a multi-day advance for GM review
+        campaignLogHidden: isNone,                                        // "All Quiet" stays out of the chronicle (Event Log only)
+        primaryHexId: effHex(army) || null,
+        relatedEntities: [{ kind: 'army', id: army.id, role: 'subject' }].concat(army.leaderCharacterId ? [{ kind: 'character', id: army.leaderCharacterId, role: 'commander' }] : []),
+        label,
+        payload: { armyId: army.id, vagaryKey: v.row.key, name: v.row.name, brief: v.row.brief,
+                   roll: v.roll, mod: v.mod, total: v.total, pickBest: v.pickBest, pickWorst: v.pickWorst,
+                   siege: v.siege, realmUnitScale: unit ? unit.scale : null, effect: v.row.effect, narrative: label }
+      });
+    }
+  }
+
   // ── 4. occupation flips + endings (RR p.458, the wages math checked daily) ──
   const overrides = {};
   for(const a of active){ const m = stash.moves[a.id]; if(m && m.endHexId) overrides[a.id] = m.endHexId; }
@@ -6702,6 +6741,16 @@ function commitMilitaryRecord(campaign, record){
         dehydrated: record.dehydrated, payGold: record.payGold, ord: record.ord
       });
     }
+  } else if(record.kind === 'army-vagary'){
+    // Phase 3 Military W8 — the Vagaries of War (JJ pp.113–115). The vagary-of-war EVENT was emitted
+    // by the orchestrator (the notable); here we only advance the weekly cadence + carry the self-
+    // contained Good/Ill Omen ±10-to-next-roll modifier. The GM applies the rest. (Reject = the
+    // cadence does NOT advance, so the army is re-rolled the next tick.)
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
+    if(!army) return;
+    army.lastWarVagaryOrd = record.ord;
+    army.vagaryWarNextMod = record.nextMod || 0;     // overwrites the consumed carried mod + sets the new omen mod (0 if none)
+    (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'vagary-of-war', text: 'Vagary of War: ' + (record.vagaryName || record.vagaryKey) });
   } else if(record.kind === 'pillage-complete'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
     const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);

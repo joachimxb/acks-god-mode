@@ -9293,6 +9293,17 @@ function commitTurn(campaign, proposal, options){
     try {
       (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
     } catch(e){ /* never let the flag clear fail the monthly commit */ }
+    // === Phase 3 Military W8 — the Vagaries of Recruitment (JJ pp.110–112) ===
+    // One 1d100 roll per domain ruler recruiting this month (mercenaries / conscripts / militia /
+    // vassal troops); each rolled vagary lands as a record-only GM-resolve event. Behind the
+    // vagaries-of-recruitment rule (default OFF) — the helper no-ops when the rule is off. Wrapped
+    // so a vagary error never breaks the monthly commit (the F&D / banditry pattern).
+    try {
+      if(typeof global.ACKS.processRecruitmentVagariesForTurn === 'function'){
+        const vr = global.ACKS.processRecruitmentVagariesForTurn(campaign, { rng }) || {};
+        (vr.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let a recruitment vagary fail the monthly commit */ }
   }
 
   // === DC-2 + Religion R1 (team 2026-06-13) — two monthly-turn processors under one committed>0 gate ===

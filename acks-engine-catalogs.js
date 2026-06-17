@@ -370,6 +370,19 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'elite-troops', category:'military', name:'Elite troops',
     source:'ACKS II RR p.434 (detail: AXIOMS 4: War)',
     description:"Units flagged elite cost +1gp/month per 6gp of regular wage (minimum +3gp) and gain +1 to their attack throws in battles. RAW points the full unit-characteristic detail at AXIOMS 4 / D@W:B — this is RR's own simple version. The wage surcharge is live on the unit wage reads; the attack bonus lands with the battle engine (W3)." },
+  // === Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). JJ p.100
+  // calls the whole Vagaries chapter "strictly optional", so all three default OFF (the §6 polarity:
+  // the warfare layer is RAW core, default-ON; these gate optional RAW). Each fires at its RAW cadence
+  // and surfaces the rolled vagary as a GM-resolve event/record (the F&D auto-roll + note pattern). ===
+  { id:'vagaries-of-recruitment', category:'military', name:'Vagaries of Recruitment',
+    source:'JJ pp.110–112 / Phase 3 Military W8',
+    description:"Each month a domain ruler is recruiting mercenaries, conscripts, militia, or vassal troops, roll 1d100 on the Vagaries of Recruitment table (JJ pp.110–112) — bidding wars, treacherous mercenaries, bold captains, tribute, war declared, and so on. The roll is automated at the monthly turn and surfaced as a GM-resolve event with the mechanical instruction; the effect is the GM's to apply. Default off (the whole Vagaries chapter is strictly optional, JJ p.100)." },
+  { id:'vagaries-of-war', category:'military', name:'Vagaries of War',
+    source:'JJ pp.113–115 / Phase 3 Military W8',
+    description:"Each week an army is on campaign, after the supply check, roll 1d100 on the Vagaries of War table (JJ pp.113–115) — disease, desertion, brigands on the supply lines, good/ill omens, friendly lords, plans discovered, and so on (twice weekly during a siege, taking the worse). The roll is automated by the day-clock military consumer and surfaced as a GM-resolve record; the self-contained Good/Ill Omen ±10-to-next-roll modifier is applied automatically. Default off (strictly optional, JJ p.100)." },
+  { id:'vagaries-of-battle', category:'military', name:'Vagaries of Battle',
+    source:'JJ pp.116–117 / Phase 3 Military W8',
+    description:"Each time the adventurers make a heroic foray in a battle, roll 1d4 vagaries on the Vagaries of Battle table (JJ pp.116–117) — ambush, fire, fog, monsters drawn to the slaughter, reinforcements, a volley of arrows, and so on. The vagaries are rolled when the foray is declared, shown on the foray card as GM-resolve complications, and recorded as an event. Default off (strictly optional, JJ p.100)." },
   { id:'elven-civilization', category:'cultural', name:'Elven civilization (Cyclopedia of Elven Civ — future supplement)',
     source:'Future Autarch supplement (Phase 4.7 placeholder)',
     description:"Architectural placeholder for elven-specific domain features: fastnesses, elven family/follower mechanics, mythic groves, and elven realm politics." },
@@ -508,7 +521,7 @@ function musterSchedule(title, totalAmount){
 // county-equivalent). Defaults to 'baron' (the fastest muster) when nothing matches — titles are
 // not a canonical field, so this is a sensible default the GM can override on the obligation.
 const _TITLE_WORDS = Object.freeze([
-  ['emperor','emperor'], ['empress','emperor'], ['imperial','emperor'],
+  ['emperor','emperor'], ['empress','emperor'], ['imperial','emperor'], ['empire','emperor'],
   ['king','king'], ['queen','king'], ['kingdom','king'], ['royal','king'],
   ['prince','prince'], ['princess','prince'], ['principality','prince'],
   ['duke','duke'], ['duchess','duke'], ['duchy','duke'], ['archduke','duke'],
