@@ -4182,6 +4182,12 @@ function deployGarrisonReaction(campaign, opts){
   if(!campaign) return { ok: false, reason: 'no-campaign' };
   const group = findGroup(campaign, opts.groupId);
   if(!group || !group.incursion) return { ok: false, reason: 'no-band' };
+  // Awareness gate (JJ p.103, RR p.452): a deliberate sally requires the ruler to have DETECTED
+  // the band. An undetected incursion (failed reconnaissance, rulerAware===false) offers no target
+  // to march on — the garrison can't intercept a threat it hasn't located. Passive stronghold
+  // defence (the band reaching the seat) is a separate path and needs no prior knowledge. An unset
+  // rulerAware defaults to aware (pre-recon / GM-authored bands), matching the display convention.
+  if(group.incursion.rulerAware === false) return { ok: false, reason: 'ruler-unaware' };
   const dom = (campaign.domains || []).find(d => d && d.id === group.incursion.domainId) || null;
   let rallyHexId = opts.rallyHexId || (dom ? domainSeatHexId(campaign, dom) : null);
   const unitIds = (Array.isArray(opts.unitIds) ? opts.unitIds : []).filter(Boolean);
@@ -6167,6 +6173,10 @@ function createEncounterFromDraw(campaign, draw, opts){
   if(o.onDayInMonth !== undefined) createOpts.occurredOnDayInMonth = o.onDayInMonth;
   const enc = createEncounter(campaign, createOpts);
   if(!enc) return null;
+  // Voyages V4 — a sea draw carries its maritime context; attach it defensively so the resolution
+  // panel reads "at sea" + the sea evasion (vessels can't evade monsters → combat handoff). No
+  // blankEncounter change / no migration — a land encounter lacks draw.atSea, so enc.atSea stays falsy.
+  if(draw.atSea){ enc.atSea = true; enc.seaZone = draw.seaZone || null; enc.evasion = draw.evasion || null; }
   // A trigger that pre-rolled the distance with its SEEDED rng (the journey preview) hands it
   // in verbatim — the entity matches the reviewed proposal byte-for-byte.
   if(o.distance && enc.distance == null){
@@ -9441,6 +9451,17 @@ function commitTurn(campaign, proposal, options){
     try {
       (campaign.domains || []).forEach(d => { if(d && d.postOccupationPenaltyMonths) d.postOccupationPenaltyMonths = 0; });
     } catch(e){ /* never let the flag clear fail the monthly commit */ }
+    // === Phase 3 Military W8 — the Vagaries of Recruitment (JJ pp.110–112) ===
+    // One 1d100 roll per domain ruler recruiting this month (mercenaries / conscripts / militia /
+    // vassal troops); each rolled vagary lands as a record-only GM-resolve event. Behind the
+    // vagaries-of-recruitment rule (default OFF) — the helper no-ops when the rule is off. Wrapped
+    // so a vagary error never breaks the monthly commit (the F&D / banditry pattern).
+    try {
+      if(typeof global.ACKS.processRecruitmentVagariesForTurn === 'function'){
+        const vr = global.ACKS.processRecruitmentVagariesForTurn(campaign, { rng }) || {};
+        (vr.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let a recruitment vagary fail the monthly commit */ }
   }
 
   // === DC-2 + Religion R1 (team 2026-06-13) — two monthly-turn processors under one committed>0 gate ===

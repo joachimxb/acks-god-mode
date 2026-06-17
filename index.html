@@ -43,15 +43,15 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-17-march"></script>
-<script src="acks-engine-entities.js?v=2026-06-16-sd2"></script>
+<script src="acks-engine.js?v=2026-06-17-garrison"></script>
+<script src="acks-engine-entities.js?v=2026-06-17-garrison"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-events.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-17-march"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-17-garrison"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
@@ -74,7 +74,9 @@
 <!-- burst4 agent-3 (Character Lifecycle CL-1): add acks-engine-lifecycle.js here -->
 <script src="acks-engine-lifecycle.js?v=2026-06-14-burst5"></script>
 <!-- burst4 agent-4 (Voyages V1): add acks-engine-voyages.js here -->
-<script src="acks-engine-voyages.js?v=2026-06-14-a"></script>
+<script src="acks-engine-voyages.js?v=2026-06-17-voyages-v5"></script>
+<!-- Voyages V4 — the maritime Encounter layer (JJ pp.71–78); loads after voyages (vessel helpers) + the core (encounterDraw/binding); late-bound from subsystems' voyage branch -->
+<script src="acks-engine-sea-encounters.js?v=2026-06-17-voyages-v4"></script>
 <!-- burst4 agent-5 (Delves D2): add acks-engine-delves.js here -->
 <script src="acks-engine-delves.js?v=2026-06-14-a"></script>
 <!-- Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-A/AD-D/AD-E): loads after delves (lairsInDungeon / dungeonActiveAttunement) -->
@@ -91,6 +93,8 @@
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
+<!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
+<script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
@@ -635,6 +639,13 @@ document.addEventListener('alpine:init', () => {
                   <template x-if="r.kind === 'army-supply' && !r.inSupply && !r.rejected">
                     <div class="ml-3 pb-1">
                       <div class="text-xs opacity-80 leading-snug" x-text="'📦 cost ' + (r.cost || 0).toLocaleString() + 'gp/wk · base value ' + (r.baseValue != null ? r.baseValue.toLocaleString() + 'gp' : '—') + (r.line ? ' · line ' + r.line.status : '') + ' → ' + r.condition + ' (RR p.452)'"></div>
+                    </div>
+                  </template>
+                  <!-- W8 VAGARY-OF-WAR records (JJ pp.113–115): the rolled vagary's GM instruction. The
+                       self-contained omen ±10-to-next-roll mod is applied on commit; the rest the GM acts on. -->
+                  <template x-if="r.kind === 'army-vagary' && !r.rejected">
+                    <div class="ml-3 pb-1">
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🎲 ' + r.vagaryName + ' — ' + (r.effect && r.effect.detail ? r.effect.detail : r.brief) + (r.siege ? ' [siege — worst of 2]' : '') + (r.nextMod ? ' · (' + (r.nextMod > 0 ? '+' : '') + r.nextMod + ' to this army\'s next Vagary of War roll, applied on commit)' : '')"></div>
                     </div>
                   </template>
                   <!-- SURVIVAL records (CoL-1): a per-member detail row — name + conditions (hunger/thirst
@@ -1936,6 +1947,15 @@ document.addEventListener('alpine:init', () => {
                     <p>They arrive in <span x-text="f.groups.length"></span> group(s): <span x-text="f.groups.map(g => g.creatures + ' at ' + g.distanceFt + 'ft').join(' · ')"></span> <span class="opacity-60" x-text="f.groups[0] && f.groups[0].diceLabel ? '(' + f.groups[0].diceLabel + ')' : ''"></span></p>
                   </template>
                   <p x-show="f.note" class="italic opacity-80" x-text="f.note"></p>
+                  <!-- W8 — Vagaries of Battle (JJ pp.116–117): the 1d4 complications rolled when this foray was declared (vagaries-of-battle rule). GM-resolve guidance for the at-the-table fight. -->
+                  <template x-if="f.vagaries && f.vagaries.length">
+                    <div class="mt-1 border-t border-ink/20 pt-1">
+                      <p class="font-semibold accent-red" x-text="'🎲 Vagaries of Battle (' + f.vagaries.length + ') — the GM resolves these at the table:'"></p>
+                      <template x-for="(v, vi) in f.vagaries" :key="vi">
+                        <p class="pl-3" x-text="'• ' + v.name + ' — ' + (v.effect && v.effect.detail ? v.effect.detail : v.brief)"></p>
+                      </template>
+                    </div>
+                  </template>
                   <p class="italic opacity-70">Resolve at the table under the standard combat rules — max 10 rounds; fleeing or withdrawing foes count as defeated.</p>
                   <div x-show="f.status === 'pending'" class="mt-1 flex flex-wrap gap-2 items-baseline">
                     <template x-if="!f.opposed">
@@ -2223,6 +2243,132 @@ document.addEventListener('alpine:init', () => {
      stays the no-frills field editor underneath (Open in Inspector). z-78: ABOVE the hex card (50)
      and the search/track modals (75) — their "→ lair" buttons open this as a peek you close to drop
      back into the session beneath — and below the notable-item modal (80). -->
+<!-- ════════ V6 — Vessel detail (Phase 3 Voyages #145) ════════
+     The post-combat write-back surface: edit SHP / crew / condition / owner / hex / stores via gm-fiat.
+     Opened from the 🚢 Vessels card or a journey's voyage block. z-55 (above the character sheet 50,
+     BELOW the stash modal 60 so the hold opens on top). Tactical sea combat is the GM's table (RR p.323);
+     the result is recorded here. -->
+<div x-show="vesselDetailId" @keydown.escape.window="if(vesselDetailId && !stashDetailId && !notableModalId && !$event.defaultPrevented){ closeVesselDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:55; background:rgba(0,0,0,.45)" x-cloak @click.self="closeVesselDetail()">
+  <template x-if="vesselDetail()">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-2xl w-full my-8 p-4 space-y-3">
+      <!-- header -->
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <h2 class="font-bold text-xl">🚢 <span x-text="vesselDetail().name || (vesselDetailClass() && vesselDetailClass().label) || 'Vessel'"></span></h2>
+          <p class="text-sm opacity-70" x-text="(vesselDetailClass() ? vesselDetailClass().label : (vesselDetail().catalogKey||'— no class set')) + (vesselDetailClass() ? (' · RR p.' + vesselDetailClass().page) : '')"></p>
+        </div>
+        <button @click="closeVesselDetail()" class="text-sm px-2 py-0.5 border border-ink rounded hover:bg-gray-100">✕ Close</button>
+      </div>
+
+      <!-- class stats (read-only) -->
+      <template x-if="vesselDetailClass()">
+        <div class="vellum border border-ink/40 rounded p-2 text-xs grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-0.5">
+          <span x-text="'Full crew: ' + vesselDetailClass().sailors + ' sail · ' + vesselDetailClass().rowers + ' row · ' + vesselDetailClass().marines + ' mar'"></span>
+          <span x-show="vesselDetailClass().voyageSailMi!=null" x-text="'Sail: ' + vesselDetailClass().voyageSailMi + ' mi/day'"></span>
+          <span x-show="vesselDetailClass().voyageOarMi!=null" x-text="'Oar: ' + vesselDetailClass().voyageOarMi + ' mi/day'"></span>
+          <span x-text="'Draft: ' + vesselDetailClass().draftFt + ' ft'"></span>
+          <span x-text="'Cargo: ' + vesselDetailClass().cargoSt.toLocaleString() + ' st'"></span>
+          <span x-text="'AC ' + vesselDetailClass().ac + ' · base SHP ' + vesselDetailClass().shp"></span>
+        </div>
+      </template>
+
+      <!-- editable instance fields -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+        <div class="flex items-center gap-2"><span class="w-24 opacity-70 text-xs">Name</span>
+          <span class="ed-stat" x-data="editableStat({entityType:'vessel', getEntity(){ return window.acksApp?.vesselDetail(); }, fieldPath:'name', label:'Name', kind:'text'})">
+            <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+            <template x-if="editing"><span class="ed-stat"><input class="ed-input" x-model="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(()=>$el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+          </span>
+        </div>
+        <div class="flex items-center gap-2"><span class="w-24 opacity-70 text-xs">Class</span>
+          <select class="text-sm border border-ink rounded px-1 py-0.5" @change="commitStatEdit({entityType:'vessel', entityId:vesselDetail().id, entity:vesselDetail(), fieldPath:'catalogKey', label:'Class', oldValue:vesselDetail().catalogKey||'', newValue:$event.target.value})" title="The vessel's class (RR p.316) — drives its immutable stats">
+            <option value="" :selected="!vesselDetail().catalogKey">— none —</option>
+            <template x-for="c in voyagesVesselCatalogOptions()" :key="'dvc-'+c.key"><option :value="c.key" :selected="vesselDetail().catalogKey===c.key" x-text="c.label"></option></template>
+          </select>
+        </div>
+        <div class="flex items-center gap-2"><span class="w-24 opacity-70 text-xs">SHP</span>
+          <span class="ed-stat" x-data="editableStat({entityType:'vessel', getEntity(){ return window.acksApp?.vesselDetail(); }, fieldPath:'shp', label:'SHP', kind:'number', min:0})">
+            <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)">✏</button></span></template>
+            <template x-if="editing"><span class="ed-stat"><input type="number" :min="0" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(()=>$el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+          </span>
+          <span class="text-xs opacity-50" x-show="vesselDetailClass()" x-text="'/ ' + (vesselDetailClass() ? vesselDetailClass().shp : '')"></span>
+        </div>
+        <div class="flex items-center gap-2"><span class="w-24 opacity-70 text-xs">Condition</span>
+          <select class="text-sm border border-ink rounded px-1 py-0.5" @change="commitStatEdit({entityType:'vessel', entityId:vesselDetail().id, entity:vesselDetail(), fieldPath:'condition', label:'Condition', oldValue:vesselDetail().condition||'seaworthy', newValue:$event.target.value})">
+            <template x-for="cn in ['seaworthy','damaged','sinking','beached','wrecked']" :key="'cn-'+cn"><option :value="cn" :selected="(vesselDetail().condition||'seaworthy')===cn" x-text="cn"></option></template>
+          </select>
+        </div>
+        <div class="flex items-center gap-2"><span class="w-24 opacity-70 text-xs">Owner</span>
+          <select class="text-sm border border-ink rounded px-1 py-0.5" @change="commitStatEdit({entityType:'vessel', entityId:vesselDetail().id, entity:vesselDetail(), fieldPath:'ownerId', label:'Owner', oldValue:vesselDetail().ownerId||'', newValue:$event.target.value||null})">
+            <option value="" :selected="!vesselDetail().ownerId">— none —</option>
+            <template x-for="o in voyagesOwnerOptions()" :key="'vo-'+o.id"><option :value="o.id" :selected="vesselDetail().ownerId===o.id" x-text="o.label"></option></template>
+          </select>
+        </div>
+        <div class="flex items-center gap-2"><span class="w-24 opacity-70 text-xs">Current hex</span>
+          <select class="text-sm border border-ink rounded px-1 py-0.5" @change="commitStatEdit({entityType:'vessel', entityId:vesselDetail().id, entity:vesselDetail(), fieldPath:'currentHexId', label:'Current hex', oldValue:vesselDetail().currentHexId||'', newValue:$event.target.value||null})">
+            <option value="" :selected="!vesselDetail().currentHexId">— none —</option>
+            <template x-for="h in voyagesHexOptions()" :key="'vh-'+h.id"><option :value="h.id" :selected="vesselDetail().currentHexId===h.id" x-text="h.label"></option></template>
+          </select>
+        </div>
+      </div>
+
+      <!-- crew complement (current vs full) + officers -->
+      <div class="vellum border border-ink/40 rounded p-2">
+        <div class="text-xs font-semibold mb-1">Crew complement <span class="opacity-50">— current vs full; all-zero = full assumed (no speed penalty)</span></div>
+        <div class="flex flex-wrap gap-4 text-sm">
+          <template x-for="role in ['sailors','rowers','marines']" :key="'crew-'+role">
+            <div class="flex items-center gap-1.5"><span class="opacity-70 text-xs capitalize" x-text="role"></span>
+              <span class="ed-stat" x-data="editableStat({entityType:'vessel', getEntity(){ return window.acksApp?.vesselDetail(); }, fieldPath:('crewComplement.'+role), label:('Crew '+role), kind:'number', min:0})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" x-text="displayValue"></span><button @click="start()" class="ed-edit">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="0" class="ed-input" style="width:4rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(()=>$el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+              <span class="text-xs opacity-50" x-show="vesselDetailClass()" x-text="'/ ' + (vesselDetailClass() ? vesselDetailClass()[role] : '')"></span>
+            </div>
+          </template>
+        </div>
+        <div class="text-xs mt-1" x-show="vesselDetailOfficers().length || vesselDetailHasMaster() || vesselDetailHasNavigator()">
+          <span class="opacity-70">Officers:</span>
+          <template x-for="o in vesselDetailOfficers()" :key="'off-'+o.id"><span class="ml-1" x-text="o.name||o.id"></span></template>
+          <span x-show="vesselDetailHasMaster()" class="ml-1 text-emerald-800" title="Seafaring 3+ — shifts the point of sail, tacks in heavy wind, gale +4">⚓ master mariner</span>
+          <span x-show="vesselDetailHasNavigator() && !vesselDetailHasMaster()" class="ml-1 text-sky-800" title="Navigation — gates 24h sailing + the sea-nav bonus">🧭 navigator</span>
+        </div>
+      </div>
+
+      <!-- ship stores (V3c opt-in) + fishing -->
+      <div class="vellum border border-ink/40 rounded p-2 flex flex-wrap items-center gap-3 text-sm">
+        <span class="text-xs font-semibold">🍖 Ship stores</span>
+        <span class="ed-stat" x-data="editableStat({entityType:'vessel', getEntity(){ return window.acksApp?.vesselDetail(); }, fieldPath:'shipStores', label:'Ship stores', kind:'number', min:0, formatter(v){ return (v==null||v==='') ? '— untracked' : (v + ' crew-days'); }})">
+          <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" :class="(currentValue==null)?'opacity-50 italic':''" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
+          <template x-if="editing"><span class="ed-stat"><input type="number" :min="0" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(()=>$el.focus())"><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+        </span>
+        <button @click="vesselFishUI()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-sky-100" title="Fish for the crew (Survival 14+, +4 with a Survival/Fishing officer) — +1 day of stores on a success (RR p.321)">🎣 Fish</button>
+        <span class="text-xs opacity-70" x-show="vesselDetailScurvyLine()" x-text="vesselDetailScurvyLine()"></span>
+        <span class="text-[11px] opacity-50">Set a number to track provisioning (deprivation slows the voyage; scurvy at 30 days at sea).</span>
+      </div>
+
+      <!-- hold -->
+      <div class="vellum border border-ink/40 rounded p-2 text-sm flex flex-wrap items-center gap-3">
+        <span class="text-xs font-semibold">📦 Hold</span>
+        <template x-if="vesselDetailHold()"><button @click="openStashDetail(vesselDetailHold().id)" class="underline text-sky-800 text-xs" x-text="(vesselDetailHold().name||'cargo hold')"></button></template>
+        <template x-if="!vesselDetailHold()"><button @click="vesselDetailEnsureHold()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">+ Create cargo hold</button></template>
+        <span class="text-[11px] opacity-50" x-show="vesselDetailClass()" x-text="'Cargo capacity ' + (vesselDetailClass() ? vesselDetailClass().cargoSt.toLocaleString() : '') + ' st'"></span>
+      </div>
+
+      <!-- history -->
+      <template x-if="(vesselDetail().history||[]).length">
+        <div class="text-xs">
+          <div class="font-semibold mb-0.5">History</div>
+          <ul class="space-y-0.5 max-h-32 overflow-y-auto">
+            <template x-for="(h,hi) in vesselDetail().history.slice().reverse()" :key="'vhh-'+hi"><li class="opacity-70" x-text="'• ' + (h.narrative || h.type || '')"></li></template>
+          </ul>
+        </div>
+      </template>
+
+      <p class="text-[11px] opacity-50">Edits log as GM-fiat (the post-combat write-back). The fight itself happens at the table (RR p.323) — record SHP / crew losses here, then sail on.</p>
+    </div>
+  </template>
+</div>
+
 <div x-show="lairDetailId" @keydown.escape.window="if(lairDetailId){ closeLairDetail(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:78; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLairDetail()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-6">
     <template x-if="lairDetailLair()">
@@ -3419,7 +3565,7 @@ document.addEventListener('alpine:init', () => {
     <div class="p-2 rounded border" style="background:#f3ead8; border-color:#8a6d1f">
       <p class="text-sm font-bold">The threat — <span x-text="(Math.max(0,(garrisonDeployBand().count||0)-(garrisonDeployBand().casualties||0))) + ' × ' + (garrisonDeployBand().name || 'monsters')"></span></p>
       <p class="text-xs mt-0.5" x-text="'Attitude: ' + ((garrisonDeployBand().incursion && garrisonDeployBand().incursion.attitude) || 'unknown') + ' · ' + ((garrisonDeployBand().incursion && garrisonDeployBand().incursion.disposition) || '') + (garrisonDeployBand().currentHexId ? (' · at ' + hexLabelById(garrisonDeployBand().currentHexId)) : '')"></p>
-      <p class="text-xs mt-0.5 accent-red" x-show="garrisonDeployBand().incursion && garrisonDeployBand().incursion.rulerAware === false">⚠ The ruler only just learned of it (it had gone undetected — JJ p.103).</p>
+      <p class="text-xs mt-0.5 accent-red font-semibold" x-show="rulerUnawareOfBand(garrisonDeployBand())">⚠ The ruler hasn’t detected this band — no deliberate sally until reconnaissance locates it (JJ p.103, RR p.452). Deploy is disabled.</p>
     </div>
 
     <label class="block text-sm">
@@ -4492,14 +4638,20 @@ document.addEventListener('alpine:init', () => {
                   — <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
                   <!-- Garrison reaction (JJ pp.104–106): the full sally — deploy a force, march to
                        the band, resolve there, march home. The ⚔ Deploy flow (vs the instant 🎌 battle). -->
-                  · <button @click="openGarrisonDeploy({ groupId: g.id })" class="underline accent-red font-semibold">⚔ Deploy garrison</button>
+                  · <button @click="!rulerUnawareOfBand(g) && openGarrisonDeploy({ groupId: g.id })" :disabled="rulerUnawareOfBand(g)"
+                      :class="rulerUnawareOfBand(g) ? 'italic opacity-50 cursor-not-allowed' : 'underline accent-red font-semibold'"
+                      :title="rulerUnawareOfBand(g) ? 'The ruler hasn’t detected this band — no sally until reconnaissance locates it (JJ p.103, RR p.452)' : 'Deploy a force to meet this band (JJ pp.104–106)'">⚔ Deploy garrison</button>
                   <!-- W3 — bring it to blows directly: prefill the battle launcher with the garrison
-                       vs the band (platoon scale, asymmetry on; an unaware ruler = only the band aware). -->
-                  · <button @click="openBattleWizard({ hexId: g.currentHexId || '', sourceA: 'garrison:' + selectedDomain.id, sourceB: 'group:' + g.id,
+                       vs the band (platoon scale, asymmetry on). Like Deploy, this stages the garrison
+                       AT the band's hex (active interception), so it's gated on the ruler having
+                       detected it (JJ p.103, RR p.452); awareness is then mutual. The generic
+                       ⚔ New-battle launcher stays unrestricted as the GM override. -->
+                  · <button @click="!rulerUnawareOfBand(g) && openBattleWizard({ hexId: g.currentHexId || '', sourceA: 'garrison:' + selectedDomain.id, sourceB: 'group:' + g.id,
                         stanceA: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'defensive' : 'offensive',
                         stanceB: (g.incursion && (g.incursion.attitude === 'hostile' || g.incursion.attitude === 'unfriendly')) ? 'offensive' : 'defensive',
-                        awareness: (g.incursion && g.incursion.rulerAware === false) ? 'unilateral-b' : 'mutual',
-                        scale: 'platoon', asymmetry: true, scoped: true })" class="underline accent-red">🎌 battle</button>
+                        awareness: 'mutual', scale: 'platoon', asymmetry: true, scoped: true })" :disabled="rulerUnawareOfBand(g)"
+                        :class="rulerUnawareOfBand(g) ? 'italic opacity-50 cursor-not-allowed' : 'underline accent-red'"
+                        :title="rulerUnawareOfBand(g) ? 'The ruler hasn’t detected this band — locate it by reconnaissance first (JJ p.103, RR p.452)' : 'Stage a battle against this band now'">🎌 battle</button>
                 </p>
               </template>
               <p class="text-xs mt-1 opacity-80" x-show="isHouseRuleEnabled('vagaries-of-incursion') && incursionBands(selectedDomain).length === 0">No incursion bands stand in the domain.</p>
@@ -5669,16 +5821,17 @@ document.addEventListener('alpine:init', () => {
             <h2 class="font-bold text-lg mb-2">⚔ Active Threats</h2>
             <p class="text-xs opacity-60 italic mb-2">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
             <table class="bookkeeping text-sm">
-              <thead><tr><th>Band</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
+              <thead><tr><th>Band</th><th title="Whether the ruler’s reconnaissance has detected this band — a deliberate sally requires detection (JJ p.103, RR p.452)">Aware?</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
               <tbody>
                 <template x-for="g in incursionBands(selectedDomain)" :key="'thr-'+g.id">
                   <tr>
                     <td x-text="(Math.max(0,(g.count||0)-(g.casualties||0))) + ' × ' + (g.name || 'monsters')"></td>
-                    <td><span x-text="(g.incursion && g.incursion.attitude) || '—'"></span><span x-show="g.incursion && g.incursion.rulerAware === false" class="accent-red" title="The ruler was unaware until it began pillaging (JJ p.103)"> ⚠</span></td>
+                    <td><span :class="rulerUnawareOfBand(g) ? 'accent-red font-semibold' : 'text-green-700'" x-text="rulerUnawareOfBand(g) ? '⚠ Unaware' : '✓ Aware'" :title="rulerUnawareOfBand(g) ? 'The ruler hasn’t detected this band — reconnaissance must locate it before a deliberate sally (JJ p.103, RR p.452)' : 'The ruler has detected this band and may sally against it (JJ p.103)'"></span></td>
+                    <td><span x-text="(g.incursion && g.incursion.attitude) || '—'"></span></td>
                     <td x-text="(g.incursion && g.incursion.disposition) || '—'"></td>
                     <td class="font-mono" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.forceBr.toFixed(2) + ' vs ' + (p.bandBr != null ? p.bandBr.toFixed(2) : 'GM')) : '—'; })()"></td>
                     <td><span :class="(() => { const p = threatReactionPreview(g); return p && p.outcome === 'driven-off' ? 'text-green-700' : (p && p.outcome === 'battle' ? 'accent-red' : ''); })()" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.outcome === 'battle' ? 'they fight' : (p.outcome === 'driven-off' ? 'driven off' : 'GM prices')) : '—'; })()"></span></td>
-                    <td class="whitespace-nowrap"><button @click="openGarrisonDeploy({ groupId: g.id })" class="px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100" title="Deploy a force to meet this band (JJ pp.104–106)">⚔ Deploy</button></td>
+                    <td class="whitespace-nowrap"><button @click="!rulerUnawareOfBand(g) && openGarrisonDeploy({ groupId: g.id })" :disabled="rulerUnawareOfBand(g)" :class="rulerUnawareOfBand(g) ? 'px-2 py-0.5 border border-ink/40 rounded text-xs opacity-50 cursor-not-allowed' : 'px-2 py-0.5 border border-ink rounded text-xs font-semibold hover:bg-yellow-100'" :title="rulerUnawareOfBand(g) ? 'Undetected — the ruler can’t sally until reconnaissance locates this band (JJ p.103, RR p.452)' : 'Deploy a force to meet this band (JJ pp.104–106)'">⚔ Deploy</button></td>
                   </tr>
                 </template>
               </tbody>
@@ -7790,6 +7943,45 @@ document.addEventListener('alpine:init', () => {
           </div>
         </div>
 
+        <!-- V6 — Vessel (voyage): a chosen vessel makes this a VOYAGE (the day-tick runs the wind +
+             sailing-speed model instead of overland travel). The trigger is journey.shipId. Author the
+             water itself (sea zone / depth / hazards / fresh food) on each hex card's 🌊 Water section. -->
+        <div>
+          <div class="wizard-step-header"><span class="font-semibold">🚢 Vessel</span> <span class="text-xs opacity-60">— optional; a vessel makes this a sea/river voyage (RR Ch.7)</span></div>
+          <div class="flex flex-wrap gap-3 items-end text-sm">
+            <div>
+              <label class="opacity-70 block text-xs">Vessel</label>
+              <select x-model="journeyWizard.shipId" class="border border-ink rounded px-2 py-0.5" title="Pick a vessel to make this a voyage; leave at — none — for an overland journey">
+                <option value="">— none (overland) —</option>
+                <template x-for="v in voyagesVessels()" :key="'wv-'+v.id"><option :value="v.id" x-text="voyagesVesselSummary(v)"></option></template>
+              </select>
+            </div>
+            <template x-if="voyageWizardVessel()">
+              <div>
+                <label class="opacity-70 block text-xs">Propulsion</label>
+                <select x-model="journeyWizard.propulsion" class="border border-ink rounded px-2 py-0.5" title="Auto takes the faster of sail/oar each day (a galley rows when becalmed)">
+                  <option value="auto">Auto (faster of sail/oar)</option>
+                  <option value="sail">Sail</option>
+                  <option value="oar">Oar</option>
+                </select>
+              </div>
+            </template>
+            <template x-if="voyageWizardVessel()">
+              <label class="flex items-center gap-1.5 text-xs cursor-pointer" :class="voyageWizardContinuousEligible() ? '' : 'opacity-40'" :title="voyageWizardContinuousEligible() ? 'Sail through the night (×2 distance) — RR p.318' : 'Needs a sail-capable vessel with a navigator aboard and a full crew'">
+                <input type="checkbox" x-model="journeyWizard.continuousSailing" :disabled="!voyageWizardContinuousEligible()">
+                🌙 24-hour sailing
+              </label>
+            </template>
+            <span class="text-xs italic opacity-50" x-show="voyagesVessels().length===0">No vessels yet — create one in the 🚢 Vessels card (the Travel list).</span>
+          </div>
+          <template x-if="voyageWizardVessel()">
+            <p class="text-xs opacity-70 mt-1"><span x-text="voyageWizardSpeedLine()"></span> · <span x-text="voyageWizardCrewLine()"></span></p>
+          </template>
+          <template x-if="voyageWizardVessel()">
+            <p class="text-xs opacity-50">A voyage runs the wind + sailing-speed model. Set each hex's <em>sea zone / depth / hazards / fresh food</em> on its hex card (🌊 Water); set the river current on the journey after starting.</p>
+          </template>
+        </div>
+
         <!-- Forecast + submit gate -->
         <template x-if="journeyForecast()">
           <div class="wizard-forecast-row" :class="journeyForecast().totalHexes===0 ? 'wizard-no-chance' : ''">
@@ -7998,6 +8190,56 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- V6 — Voyage: a party journey that rides a Vessel runs the sea/river travel model (the
+             day-tick branches on journey.shipId). Assign/change the vessel + its voyage settings
+             (propulsion · 24h sailing · river current) here; the sea zone / depth / hazards are
+             authored per-hex on the hex card's 🌊 Water section. Not shown for army/unit marches. -->
+        <template x-if="journeyGroupKind(journeyDetail())!=='army' && journeyGroupKind(journeyDetail())!=='unit' && ['planning','in-transit','resting','lost'].includes(journeyDetail().status)">
+          <div class="border border-dashed border-sky-700/50 rounded p-2 text-sm space-y-1.5" style="background:rgba(186,230,253,0.12)">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="opacity-70 block text-xs">🚢 Vessel (voyage)</label>
+                <select class="border border-ink rounded px-2 py-0.5" @change="journeyAssignVessel(journeyDetail(), $event.target.value)" title="Assign a vessel to make this a voyage; — none — sails it back to an overland journey">
+                  <option value="" :selected="!journeyDetail().shipId">— none (overland) —</option>
+                  <template x-for="v in journeyVoyageVesselOptions()" :key="'jv-'+v.id"><option :value="v.id" :selected="journeyDetail().shipId===v.id" x-text="voyagesVesselSummary(v)"></option></template>
+                </select>
+              </div>
+              <template x-if="journeyVessel()">
+                <div>
+                  <label class="opacity-70 block text-xs">Propulsion</label>
+                  <select class="border border-ink rounded px-2 py-0.5" @change="setJourneyPropulsion(journeyDetail(), $event.target.value)" title="Auto takes the faster of sail/oar each day (a galley rows when becalmed)">
+                    <option value="auto" :selected="(journeyDetail().propulsion||'auto')==='auto'">Auto</option>
+                    <option value="sail" :selected="journeyDetail().propulsion==='sail'">Sail</option>
+                    <option value="oar" :selected="journeyDetail().propulsion==='oar'">Oar</option>
+                  </select>
+                </div>
+              </template>
+              <template x-if="journeyVessel()">
+                <label class="flex items-center gap-1.5 text-xs cursor-pointer" :class="journeyContinuousEligible(journeyDetail()) ? '' : 'opacity-40'" :title="journeyContinuousEligible(journeyDetail()) ? 'Sail through the night (×2 distance) — RR p.318' : 'Needs a sail-capable vessel with a navigator aboard + a full crew'">
+                  <input type="checkbox" :checked="!!journeyDetail().continuousSailing" :disabled="!journeyContinuousEligible(journeyDetail())" @change="toggleJourneyContinuous(journeyDetail())">
+                  🌙 24-hour sailing
+                </label>
+              </template>
+            </div>
+            <template x-if="journeyVessel()">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <button @click="openVesselDetail(journeyVessel().id)" class="underline text-sky-800 hover:text-sky-600 font-semibold" x-text="'🚢 ' + voyagesVesselSummary(journeyVessel())" title="Open the vessel — SHP, crew, hold, condition, stores"></button>
+                <span class="opacity-60">· River current</span>
+                <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentSpeed(journeyDetail(), $event.target.value)" title="A river voyage's current — applies on a hex whose sea zone is 'river' (RR p.331). Downriver carries the hull; upriver fights it.">
+                  <option value="" :selected="!journeyDetail().riverCurrent">— none —</option>
+                  <template x-for="s in ['placid','gentle','slow','moderate','swift','rapid']" :key="'rc-'+s"><option :value="s" :selected="journeyDetail().riverCurrent && journeyDetail().riverCurrent.speed===s" x-text="s"></option></template>
+                </select>
+                <template x-if="journeyDetail().riverCurrent">
+                  <select class="text-xs border border-ink rounded px-1 py-0.5" @change="setJourneyRiverCurrentHeading(journeyDetail(), $event.target.value)" title="Downriver adds the current to the day's miles; upriver subtracts it">
+                    <option value="downriver" :selected="(journeyDetail().riverCurrent.heading||'downriver')==='downriver'">downriver +</option>
+                    <option value="upriver" :selected="journeyDetail().riverCurrent.heading==='upriver'">upriver −</option>
+                  </select>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+
         <!-- pace + mode — live on the journey, changeable mid-journey (logged). Label-above-control,
              side by side (the old Start-wizard "Pace & mode" layout). §26 — a GM "Override" tick ARMS the
              override (no value/event); off shows nothing beside the tick. The value is set/edited via the
@@ -8046,7 +8288,7 @@ document.addEventListener('alpine:init', () => {
               <label class="opacity-70 block text-xs">Mode</label>
               <select class="text-sm border border-ink rounded px-2 py-0.5" @change="setJourneyMode(journeyDetail(), $event.target.value)" title="Travel mode (logged)">
                 <option value="foot" :selected="journeyDetail().mode==='foot'">On foot / overland</option>
-                <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'" disabled>Voyage — coming (Phase 3 Voyages)</option>
+                <option value="voyage-sail" :selected="journeyDetail().mode==='voyage-sail'">⛵ Voyage (set by assigning a vessel above)</option>
                 <option value="aerial-mount" :selected="journeyDetail().mode==='aerial-mount'" disabled>Aerial — coming</option>
               </select>
             </div>
@@ -8129,6 +8371,13 @@ document.addEventListener('alpine:init', () => {
                   <template x-for="(st,si) in journeyDayPath(journeyDetail(),d,di)" :key="'hp-'+di+'-'+si"><span><span x-show="si>0" class="opacity-40"> → </span><span :class="(di===(journeyDetail().days.length-1) && si===(journeyDayPath(journeyDetail(),d,di).length-1)) ? 'font-semibold text-emerald-800' : ''" x-text="journeyStepLabel(st)"></span></span></template>
                   <span x-show="di===(journeyDetail().days.length-1)" class="text-emerald-800" title="The party is here now"> 📍 here now</span>
                 </div>
+                <!-- Row 5 — V6 voyage: the day's sailing/rowing breakdown (wind · point of sail · speed
+                     factors · river current · weathering · provisioning), then any hull hazard / gale /
+                     grounding / scurvy. Only on a voyage day (d.voyage present). -->
+                <div class="flex flex-wrap gap-x-2 items-baseline pl-3" x-show="d.voyage">
+                  <span class="font-mono text-sky-800" x-text="voyageDayLine(d)"></span>
+                  <span class="font-mono text-red-700" x-show="voyageDayHazardLine(d)" x-text="voyageDayHazardLine(d)"></span>
+                </div>
               </div>
             </template>
             <!-- (No separate "next day" preview row — the journey's current state IS its latest committed
@@ -8190,6 +8439,47 @@ document.addEventListener('alpine:init', () => {
               </template>
             </div>
           </template>
+        </div>
+
+        <!-- V6 — Vessels (Phase 3 Voyages #145): the campaign's ships. Build + manage here; assign one to
+             a journey (the Start-a-Journey wizard, or the journey's voyage block) to sail. RR p.316 / RR Ch.7.
+             The 🔍 Inspector is the raw-edit path; this is the management surface. -->
+        <div class="vellum border border-ink rounded">
+          <div class="px-3 py-2 border-b border-ink font-semibold text-sm flex items-center justify-between">
+            <span>🚢 Vessels <span class="opacity-60" x-text="'· ' + voyagesVessels().length"></span></span>
+            <span class="text-xs opacity-50">RR Ch.7 — sea & river voyages</span>
+          </div>
+          <div class="p-3 space-y-2">
+            <!-- create -->
+            <div class="flex flex-wrap items-end gap-2 text-sm pb-2 border-b border-dashed border-gray-300">
+              <div><label class="opacity-70 block text-xs">Name</label><input x-model="voyagesNewVessel.name" placeholder="e.g. The Grey Gull" class="border border-ink rounded px-2 py-0.5 w-44"></div>
+              <div>
+                <label class="opacity-70 block text-xs">Class</label>
+                <select x-model="voyagesNewVessel.catalogKey" class="border border-ink rounded px-2 py-0.5" title="RR p.316 Sea Vessels — galleys, sailing ships, longships, barges, boats">
+                  <option value="">— pick a class —</option>
+                  <template x-for="c in voyagesVesselCatalogOptions()" :key="'nvc-'+c.key"><option :value="c.key" x-text="c.label"></option></template>
+                </select>
+              </div>
+              <button @click="voyagesCreateVesselSubmit()" :disabled="!voyagesNewVessel.catalogKey" :class="voyagesNewVessel.catalogKey ? 'bg-yellow-300 hover:bg-yellow-400' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold text-sm">+ Build vessel</button>
+            </div>
+            <!-- list -->
+            <template x-if="voyagesVessels().length===0"><p class="text-xs italic opacity-60">No vessels yet. Pick a class above to build one (RR p.316: galleys, sailing ships, longships, barges, boats), then assign it to a journey to set sail.</p></template>
+            <template x-for="v in voyagesVessels()" :key="'vl-'+v.id">
+              <div class="flex items-center gap-2 hover:bg-yellow-50 rounded px-1 py-1 cursor-pointer border-b border-dashed border-gray-200" @click="openVesselDetail(v.id)">
+                <span class="text-lg shrink-0">🚢</span>
+                <div class="flex-grow min-w-0">
+                  <div class="text-sm font-semibold truncate" x-text="voyagesVesselRow(v).name + ' · ' + voyagesVesselRow(v).classLabel"></div>
+                  <div class="text-xs opacity-70 truncate">
+                    <span x-text="'SHP ' + voyagesVesselRow(v).shp + (voyagesVesselRow(v).maxShp!=null ? '/'+voyagesVesselRow(v).maxShp : '')"></span>
+                    · <span x-text="voyagesVesselRow(v).condition"></span>
+                    · <span x-text="voyagesVesselRow(v).crewLine"></span>
+                    <span x-show="voyagesVesselRow(v).draft!=null" x-text="' · draft ' + voyagesVesselRow(v).draft + 'ft'"></span>
+                  </div>
+                </div>
+                <span class="text-xs px-2 py-0.5 rounded shrink-0" :class="voyagesVesselRow(v).damaged ? 'bg-red-200 text-red-800' : 'bg-sky-100'" x-text="voyagesVesselRow(v).damaged ? 'damaged' : (voyagesVesselRow(v).condition||'seaworthy')"></span>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
     </template>
@@ -12184,6 +12474,52 @@ document.addEventListener('alpine:init', () => {
           <span x-text="weatherHexCardLine(worldHexEditingHex())" title="Generated from this hex's Köppen climate + the calendar season (JJ pp.40–41). Rolls on the Day Clock where a journey is in flight; shown here for the current day."></span>
         </div>
       </template>
+
+      <!-- V6 — Water (voyages): author this hex's sea/river conditions the voyage day-tick reads —
+           the V3a sea zone (+ weathering nav target), V3b nautical hazards, V3c fresh-food scurvy cure,
+           and V5 river depth-vs-draft. All gm-fiat; absent ⇒ a land hex. RR Ch.7 / p.320 / p.331.
+           Guarded on worldHexEditingHex() so the subtree unmounts on close (no teardown null-warnings —
+           the card's Terrain/Weather-block convention). -->
+      <template x-if="worldHexEditingHex()"><div class="vellum border border-ink/40 rounded p-2 space-y-1">
+        <div class="block text-sm flex items-center gap-2 flex-wrap">
+          <span class="w-20 font-semibold">🌊 Water</span>
+          <select :value="worldHexEditingHex().seaZone || ''"
+                  @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'seaZone', label:'Sea zone', oldValue:worldHexEditingHex().seaZone||'', newValue:$event.target.value||null})"
+                  class="text-sm" style="width:12rem" title="Marks this hex as water for voyages — lake/river are safe inland water, coast/open sea raise the navigation target (RR p.320)">
+            <option value="">— land (no zone) —</option>
+            <option value="lake">Lake (nav 4+)</option>
+            <option value="river">River (nav 4+)</option>
+            <option value="coast">Coast (nav 7+)</option>
+            <option value="open-sea">Open sea (nav 11+)</option>
+          </select>
+        </div>
+        <template x-if="worldHexEditingHex().seaZone">
+          <div class="space-y-1 pl-2 border-l-2 border-sky-700/30">
+            <div class="block text-sm flex items-center gap-2 flex-wrap">
+              <span class="w-24 opacity-70 text-xs">Hazard</span>
+              <select :value="worldHexEditingHex().nauticalHazard || ''"
+                      @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'nauticalHazard', label:'Nautical hazard', oldValue:worldHexEditingHex().nauticalHazard||'', newValue:$event.target.value||null})"
+                      class="text-sm" style="width:12rem" title="A sailing vessel must throw Seafaring to clear it (RR p.320) — a failure holes the hull or grounds the ship">
+                <option value="">— none —</option>
+                <template x-for="h in hexNauticalHazardOptions()" :key="'nh-'+h.key"><option :value="h.key" :selected="worldHexEditingHex().nauticalHazard===h.key" x-text="h.label"></option></template>
+              </select>
+            </div>
+            <div class="block text-sm flex items-center gap-2 flex-wrap" x-show="worldHexEditingHex().seaZone==='river'">
+              <span class="w-24 opacity-70 text-xs">River depth</span>
+              <span class="ed-stat" x-data="editableStat({entityType:'hex', getEntity(){ return window.acksApp?.worldHexEditingHex(); }, fieldPath:'riverDepth', label:'River depth (ft)', kind:'number', min:0, formatter(v){ return (v==null||v==='') ? '— unset (passable)' : (v + ' ft'); }})">
+                <template x-if="!editing"><span class="ed-stat"><span class="ed-val font-mono" :class="(currentValue==null)?'opacity-50 italic':''" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Set / edit (logged)">✏</button></span></template>
+                <template x-if="editing"><span class="ed-stat"><input type="number" :min="0" class="ed-input" style="width:5rem" x-model.number="draft" @keyup.enter="save()" @keyup.escape="cancel()" x-init="$nextTick(()=>$el.focus())"><span class="text-xs opacity-60">ft</span><button @click="save()" class="ed-btn">✓</button><button @click="cancel()" class="ed-btn">×</button></span></template>
+              </span>
+              <span class="text-[11px] opacity-50">a hull drafting deeper than this runs aground (RR p.331)</span>
+            </div>
+            <label class="block text-sm flex items-center gap-2 cursor-pointer" title="A port / landfall with fresh food — a voyaging crew eats ashore (clears the ration deficit + cures scurvy, RR p.321). A hex with a settlement counts automatically.">
+              <span class="w-24 opacity-70 text-xs">Fresh food</span>
+              <input type="checkbox" :checked="!!worldHexEditingHex().freshFood" @change="commitStatEdit({entityType:'hex', entityId:worldHexEditingHex().id, entity:worldHexEditingHex(), fieldPath:'freshFood', label:'Fresh food', oldValue:!!worldHexEditingHex().freshFood, newValue:$event.target.checked})">
+              <span class="text-xs">🍊 port / landfall (cures scurvy)</span>
+            </label>
+          </div>
+        </template>
+      </div></template>
 
       <!-- Journeys passing through this hex (Phase 2.5 #475 — J2) -->
       <div class="vellum border border-ink/40 rounded p-2">
@@ -17609,7 +17945,11 @@ return {
       commanderCharacterId: this.garrisonDeployForm.commanderId || null
     }).map(f => f.text);
   },
-  garrisonDeployCanSubmit(){ return !!(this.garrisonDeployForm.rallyHexId && (this.garrisonDeployForm.unitIds || []).length); },
+  // RAW (JJ p.103, RR p.452): a deliberate sally requires the ruler to have DETECTED the band.
+  // An undetected incursion (rulerAware===false; undefined defaults to aware) offers no Deploy /
+  // 🎌-battle affordance — the garrison can't march on a threat it hasn't located.
+  rulerUnawareOfBand(g){ return !!(g && g.incursion && g.incursion.rulerAware === false); },
+  garrisonDeployCanSubmit(){ return !this.rulerUnawareOfBand(this.garrisonDeployBand()) && !!(this.garrisonDeployForm.rallyHexId && (this.garrisonDeployForm.unitIds || []).length); },
   garrisonDeploySubmit(){
     if(!this.garrisonDeployCanSubmit()) return;
     const f = this.garrisonDeployForm;
@@ -18811,7 +19151,7 @@ return {
   // Start Journey is the ACTION verb (this wizard, in the Recruiting-Wizard shape).
   // Inspector › Create is the ADMIN verb (J1 — free-form authoring). journeyDetailId
   // opens the Detail panel; journeyWizard.open shows the wizard; neither ⇒ the lists.
-  journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null },
+  journeyWizard: { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, shipId:'', propulsion:'auto', continuousSailing:false, origin:null },
   journeyDetailId: null,
   // §26 — transient: the GM ticked "Override" but hasn't set a value yet (armed, null state — no event).
   // Reset whenever the open journey changes; a journey with a committed value reads as overridden on its own.
@@ -19808,7 +20148,7 @@ return {
     return out.sort((a,b)=> a.q-b.q || a.r-b.r);
   },
   // ── Wizard (Action verb) ──
-  _journeyResetWizard(){ this.journeyWizard = { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, origin:null }; },
+  _journeyResetWizard(){ this.journeyWizard = { open:false, name:'', participantIds:[], partyId:'', startHexId:'', destinationHexId:'', waypointIds:[], pace:'normal', mode:'foot', rations:0, waterRations:0, shipId:'', propulsion:'auto', continuousSailing:false, origin:null }; },
   journeyToggleParticipant(id){ const a=this.journeyWizard.participantIds; const i=a.indexOf(id); if(i>=0)a.splice(i,1); else a.push(id); },
   // Add an individual traveller from the picker + default the start hex to their current location
   // (RAW: a journey sets out from where the traveller is). Only fills the start hex if unset, so a
@@ -19891,6 +20231,10 @@ return {
       pace: w.pace || 'normal',
       supplies: { rations:Number(w.rations)||0, waterRations:Number(w.waterRations)||0, animalFeed:0, animalWater:0, shipStores:0 }
     });
+    // V6 — a chosen vessel makes this a voyage (the day-tick branches on journey.shipId). mode is the
+    // cosmetic ⛵ label; propulsion/continuousSailing are defensive-read voyage settings (not blankJourney
+    // factory fields → set directly, the V5 journey.riverCurrent precedent).
+    if(w.shipId){ j.shipId = w.shipId; j.mode = 'voyage-sail'; j.propulsion = w.propulsion || 'auto'; j.continuousSailing = !!w.continuousSailing; }
     this.currentCampaign.journeys.push(j);
     // Set out — the party stands AT THE START HEX, day 0, nothing travelled yet (Joachim 2026-06-05:
     // "before pressing the button the group is in the hex where they started — this determines initial
@@ -27370,6 +27714,128 @@ return {
     const shp = (v.shp != null ? v.shp : (cls ? cls.shp : '?')) + (cls ? '/' + cls.shp : '');
     return name + ' · ' + klass + ' · SHP ' + shp + ' · ' + (v.condition || 'seaworthy');
   },
+
+  // ============================ Voyages V6 (2026-06-17) — the Vessel/voyage UI ============================
+  // The first user-facing surface over the V1–V5 engine: a Vessels card (Travel sub-view) + the voyage
+  // Start-a-Journey branch + the journey-detail voyage block + the hex-card Water section. Pure UI over the
+  // shipped accessors (createVessel / vesselClass / vesselFullCrew / vesselForJourney / voyageContinuousSailEligible
+  // / fishActivity …); every edit routes through gm-fiat (commitStatEdit). No engine change.
+
+  // -- Vessels card --
+  voyagesNewVessel: { name:'', catalogKey:'' },
+  voyagesVesselRow(v){
+    const A = window.ACKS; const cls = (v && A.vesselClass) ? A.vesselClass(v) : null;
+    const cc = (v && v.crewComplement) || {};
+    const full = (v && A.vesselFullCrew) ? A.vesselFullCrew(v) : { sailors:0, rowers:0, marines:0 };
+    const ccSet = (Number(cc.sailors)||0) + (Number(cc.rowers)||0) + (Number(cc.marines)||0) > 0;
+    return {
+      name: (v && v.name) || (cls && cls.label) || (v && v.id) || '',
+      classLabel: cls ? cls.label : ((v && v.catalogKey) || '— pick a class'),
+      shp: (v && v.shp != null) ? v.shp : (cls ? cls.shp : '?'), maxShp: cls ? cls.shp : null,
+      condition: (v && v.condition) || 'seaworthy',
+      draft: cls ? cls.draftFt : null,
+      sailMi: cls ? cls.voyageSailMi : null, oarMi: cls ? cls.voyageOarMi : null,
+      crewLine: ccSet ? ((cc.sailors||0)+'/'+full.sailors+' sail · '+(cc.rowers||0)+'/'+full.rowers+' row · '+(cc.marines||0)+'/'+full.marines+' mar')
+                      : ('full assumed ('+full.sailors+' sail · '+full.rowers+' row)'),
+      damaged: !!(v && A.vesselIsDamaged && A.vesselIsDamaged(v))
+    };
+  },
+  voyagesCreateVesselSubmit(){
+    if(!this.currentCampaign){ alert('Create or open a campaign first.'); return; }
+    const A = window.ACKS; const nv = this.voyagesNewVessel;
+    const v = A.createVessel(this.currentCampaign, { name:(nv.name||'').trim()||'New Vessel', catalogKey:nv.catalogKey||'', createdAtTurn:this.currentCampaign.currentTurn||null });
+    this.voyagesNewVessel = { name:'', catalogKey:'' };
+    this.markDirty(); this.schedulePersist();
+    this.openVesselDetail(v.id);
+    this.showToast('🚢 Vessel created — set crew, owner & hex; assign it to a journey to sail.');
+  },
+
+  // -- Vessel detail modal --
+  vesselDetailId: null,
+  vesselDetail(){ const A=window.ACKS; return (A && A.findVessel) ? A.findVessel(this.currentCampaign, this.vesselDetailId) : null; },
+  openVesselDetail(id){ this.vesselDetailId = id; },
+  closeVesselDetail(){ this.vesselDetailId = null; },
+  vesselDetailClass(){ const A=window.ACKS; const v=this.vesselDetail(); return (v && A.vesselClass) ? A.vesselClass(v) : null; },
+  vesselDetailOfficers(){ const A=window.ACKS; const v=this.vesselDetail(); return (v && A.vesselOfficers) ? A.vesselOfficers(this.currentCampaign, v) : []; },
+  vesselDetailHasMaster(){ const A=window.ACKS; const v=this.vesselDetail(); return !!(v && A.vesselHasMasterMariner && A.vesselHasMasterMariner(this.currentCampaign, v)); },
+  vesselDetailHasNavigator(){ const A=window.ACKS; const v=this.vesselDetail(); return !!(v && A.vesselHasNavigator && A.vesselHasNavigator(this.currentCampaign, v)); },
+  vesselDetailHold(){ const A=window.ACKS; const v=this.vesselDetail(); return (v && A.vesselHold) ? A.vesselHold(this.currentCampaign, v) : null; },
+  vesselDetailEnsureHold(){ const A=window.ACKS; const v=this.vesselDetail(); if(!v||!A.ensureVesselHold) return; A.ensureVesselHold(this.currentCampaign, v); this.markDirty(); this.schedulePersist(); this.showToast('Cargo hold created (a vessel-hold Stash).'); },
+  vesselDetailOwnerLabel(){ const A=window.ACKS; const v=this.vesselDetail(); if(!v) return '— none'; const o = A.vesselOwner ? A.vesselOwner(this.currentCampaign, v) : null; return o ? ((o.entity.name||o.entity.id)+' ('+o.kind+')') : '— none'; },
+  voyagesOwnerOptions(){
+    const c = this.currentCampaign; if(!c) return [];
+    const chars = (c.characters||[]).map(x=>({ id:x.id, label:(x.name||x.id)+' · character' }));
+    const doms  = (this.domains||c.domains||[]).map(d=>({ id:d.id, label:(d.name||d.id)+' · domain' }));
+    return chars.concat(doms);
+  },
+  voyagesHexOptions(){ return this.journeyHexOptions ? this.journeyHexOptions() : []; },
+  vesselDetailScurvyLine(){ const v=this.vesselDetail(); if(!v||typeof v.shipStores!=='number') return ''; const d=v.daysAtSeaWithoutFreshFood||0; const bits=[]; if(v.scurvy) bits.push('⚠ scurvy aboard'); if(d) bits.push(d+' day'+(d===1?'':'s')+' since fresh food (onset at 30)'); return bits.join(' · '); },
+  vesselFishUI(){
+    const A=window.ACKS; const v=this.vesselDetail(); if(!v) return;
+    if(!A.shipStoresTracked(v)){ this.showToast('Set "Ship stores" to a number first — the crew-provisioning layer is opt-in.', 4500); return; }
+    const r = A.fishActivity(this.currentCampaign, v, {});
+    this.markDirty(); this.schedulePersist();
+    this.showToast(r.success ? ('🎣 Fished — +1 day of stores (Survival '+r.rolled+(r.bonus?('+'+r.bonus):'')+' vs 14+). Stores now '+r.newStores+'.')
+                             : ('🎣 No catch (Survival '+r.rolled+(r.bonus?('+'+r.bonus):'')+' vs 14+).'), 4500);
+  },
+
+  // -- voyage Start-a-Journey wizard branch --
+  voyageWizardVessel(){ const A=window.ACKS; return (this.journeyWizard.shipId && A.findVessel) ? A.findVessel(this.currentCampaign, this.journeyWizard.shipId) : null; },
+  voyageWizardCrewLine(){
+    const A=window.ACKS; const v=this.voyageWizardVessel(); if(!v) return '';
+    const cc=v.crewComplement||{}; const full=A.vesselFullCrew(v);
+    const set=(Number(cc.sailors)||0)+(Number(cc.rowers)||0)+(Number(cc.marines)||0)>0;
+    if(!set) return 'crew: full complement assumed ('+full.sailors+' sail · '+full.rowers+' row)';
+    const under=((cc.sailors||0)<full.sailors)||((cc.rowers||0)<full.rowers);
+    return (under?'⚠ undercrewed — ':'crew ')+(cc.sailors||0)+'/'+full.sailors+' sail · '+(cc.rowers||0)+'/'+full.rowers+' row';
+  },
+  voyageWizardSpeedLine(){
+    const A=window.ACKS; const v=this.voyageWizardVessel(); if(!v) return ''; const cls=A.vesselClass(v); if(!cls) return '';
+    const parts=[]; if(cls.voyageSailMi!=null) parts.push('sail '+cls.voyageSailMi+' mi/day'); if(cls.voyageOarMi!=null) parts.push('oar '+cls.voyageOarMi+' mi/day');
+    return parts.join(' · ')+' base — wind & point of sail modify it';
+  },
+  voyageWizardContinuousEligible(){ const A=window.ACKS; const v=this.voyageWizardVessel(); return !!(v && A.voyageContinuousSailEligible && A.voyageContinuousSailEligible(this.currentCampaign, {}, v)); },
+
+  // -- journey-detail voyage block --
+  journeyVessel(j){ const A=window.ACKS; return (A && A.vesselForJourney) ? A.vesselForJourney(this.currentCampaign, j||this.journeyDetail()) : null; },
+  journeyVoyageVesselOptions(){ return (this.currentCampaign && this.currentCampaign.vessels) || []; },
+  journeyAssignVessel(j, vesselId){
+    if(!j) return; const id = vesselId || '';
+    this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'shipId', label:'Vessel', oldValue:j.shipId||null, newValue:id||null, suppressFromCampaignLog:true });
+    if(id && (j.mode||'foot')==='foot') this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode||'foot', newValue:'voyage-sail', suppressFromCampaignLog:true });
+    if(!id && (j.mode||'').startsWith('voyage-')) this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'mode', label:'Mode', oldValue:j.mode, newValue:'foot', suppressFromCampaignLog:true });
+  },
+  setJourneyPropulsion(j, val){ if(!j) return; this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'propulsion', label:'Propulsion', oldValue:j.propulsion||'auto', newValue:val||'auto', suppressFromCampaignLog:true }); },
+  toggleJourneyContinuous(j){ if(!j) return; this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'continuousSailing', label:'Continuous sailing', oldValue:!!j.continuousSailing, newValue:!j.continuousSailing, suppressFromCampaignLog:true }); },
+  journeyContinuousEligible(j){ const A=window.ACKS; const v=this.journeyVessel(j); return !!(v && A.voyageContinuousSailEligible && A.voyageContinuousSailEligible(this.currentCampaign, j||{}, v)); },
+  setJourneyRiverCurrentSpeed(j, speed){ if(!j) return; const next = speed ? Object.assign({ heading:'downriver' }, j.riverCurrent||{}, { speed }) : null; this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'riverCurrent', label:'River current', oldValue:j.riverCurrent||null, newValue:next, suppressFromCampaignLog:true }); },
+  setJourneyRiverCurrentHeading(j, heading){ if(!j||!j.riverCurrent) return; const next = Object.assign({}, j.riverCurrent, { heading:heading||'downriver' }); this.commitStatEdit({ entityType:'journey', entityId:j.id, entity:j, fieldPath:'riverCurrent', label:'River current', oldValue:j.riverCurrent, newValue:next, suppressFromCampaignLog:true }); },
+  voyageDayLine(d){
+    const vo = d && d.voyage; if(!vo) return '';
+    const parts = ['⛵ ' + (vo.propulsion||'sail')];
+    if(vo.windLabel) parts.push(vo.windLabel + ' wind');
+    if(vo.pointOfSailLabel) parts.push(vo.pointOfSailLabel);
+    if(vo.masterMariner) parts.push('master mariner');
+    if(vo.continuousSailing) parts.push('24h sailing ×2');
+    if(vo.riverCurrent && vo.riverCurrent.mi) parts.push('current ' + (vo.riverCurrent.mi>0?'+':'') + vo.riverCurrent.mi + ' mi (' + vo.riverCurrent.speed + ', ' + vo.riverCurrent.heading + ')');
+    if(vo.weathering) parts.push(vo.weathering + (vo.weatheringSpeedMult<1 ? (' ×'+vo.weatheringSpeedMult) : ''));
+    if(vo.provision && vo.provision.level && vo.provision.level!=='fed') parts.push(vo.provision.level + (vo.provision.speedMult<1 ? (' ×'+(Math.round(vo.provision.speedMult*100)/100)) : ''));
+    if(vo.crewDamageFactor!=null && vo.crewDamageFactor<1) parts.push('crew/damage ×'+(Math.round(vo.crewDamageFactor*100)/100));
+    return parts.join(' · ');
+  },
+  voyageDayHazardLine(d){
+    const vo = d && d.voyage; if(!vo) return '';
+    const out = [];
+    if(vo.hazards) for(const h of vo.hazards){ out.push(h.success ? ('cleared '+h.hazard) : ('✗ '+h.hazard+(h.shpDamage?(' — '+h.shpDamage+' SHP'):'')+(h.grounded?' — grounded':''))); }
+    if(vo.gale) out.push('gale damage '+vo.gale.shpDamage+' SHP ('+vo.gale.hoursCaught+'h caught)');
+    if(vo.grounded) out.push(vo.grounded==='too-shallow' ? '⚓ aground — too shallow for its draft' : ('⚓ aground: '+vo.grounded));
+    if(vo.provision && vo.provision.scurvyOnset) out.push('⚠ scurvy breaks out');
+    if(vo.provision && vo.provision.scurvyCured) out.push('scurvy cured (fresh food)');
+    return out.join(' · ');
+  },
+
+  // -- hex-card Water section --
+  hexNauticalHazardOptions(){ const A=window.ACKS; const HZ=(A && A.NAUTICAL_HAZARDS)||{}; return Object.keys(HZ).map(k=>({ key:k, label:HZ[k].label||k })); },
   // burst4 agent-5 (Delves D2 — world-dungeons sub-view / Inspector helpers):
   dungeonsSearch: '',
   // The campaign's dungeons (read defensively — campaign.delves is not lazy-injected; dungeons is).

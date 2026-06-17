@@ -157,6 +157,12 @@ const EVENT_KINDS = Object.freeze([
   // army-out-of-supply). Owned by the slot-88 military consumer's commit (applyArmySupplyOutcome
   // pays the cost / sets the RR p.452 ladder); routine "in supply" records are campaign-log-hidden.
   'army-supply',
+  // Phase 3 Military W8 (2026-06-17) — the Vagaries of Recruitment / War / Battle (JJ pp.110–117),
+  // record-only GM-resolve audits owned by acks-engine-vagaries.js. Each carries the rolled vagary's
+  // name + brief + a structured effect descriptor (ready for a future auto-apply wave). Behind the
+  // three vagaries-of-* rules (default OFF). recruitment = monthly per recruiting ruler; war = weekly
+  // per army on campaign; battle = the 1d4 complications rolled per heroic foray.
+  'vagary-of-recruitment', 'vagary-of-war', 'vagary-of-battle',
   // Phase 3 Military W6 (2026-06-13, burst3 team session) — the siege lifecycle (RR pp.473–485),
   // record-only audits owned by acks-engine-sieges.js (the Siege entity + the slot-90 consumer
   // hold the state). siege-started: the investment begins (chronicle-visible). siege-progress:
@@ -678,6 +684,25 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { armyId: 'string', inSupply: 'boolean' },
     O: { cost: 'number', baseValue: 'number', lineStatus: 'string', reasons: 'object',
          condition: 'string', narrative: 'string' }
+  },
+  // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Record-only;
+  // `effect` is the structured descriptor (effect.category + params). recruitment is keyed to the
+  // recruiting ruler; war to the army; battle to a (battle, foray) pair carrying the 1d4 vagaries.
+  'vagary-of-recruitment': {
+    R: { rulerCharacterId: 'string', vagaryKey: 'string' },
+    O: { name: 'string', brief: 'string', domainId: 'string', roll: 'number', mod: 'number',
+         pickBest: 'boolean', pickWorst: 'boolean', recruitingKinds: 'object', realmUnitScale: 'string',
+         effect: 'object', narrative: 'string' }
+  },
+  'vagary-of-war': {
+    R: { armyId: 'string', vagaryKey: 'string' },
+    O: { name: 'string', brief: 'string', roll: 'number', mod: 'number', total: 'number',
+         pickBest: 'boolean', pickWorst: 'boolean', siege: 'boolean', realmUnitScale: 'string',
+         effect: 'object', narrative: 'string' }
+  },
+  'vagary-of-battle': {
+    R: { battleId: 'string', forayId: 'string' },
+    O: { count: 'number', vagaries: 'object', narrative: 'string' }
   },
   // Phase 3 Military W6 — the siege audits (RR pp.473–485). acks-engine-sieges.js owns the state.
   'siege-started': {
@@ -2466,6 +2491,16 @@ function applyEvent_warfareAudit(campaign, event){
 registerEventHandler('army-contact', applyEvent_warfareAudit);
 registerEventHandler('domain-warfare', applyEvent_warfareAudit);
 registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
+// Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) share the audit
+// posture: acks-engine-vagaries.js rolls them + (for the self-contained omen mod) the consumer commit
+// applies; these handlers only keep the events well-formed on replay (the GM applies the rest).
+function applyEvent_vagaryAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'vagary' } };
+}
+registerEventHandler('vagary-of-recruitment', applyEvent_vagaryAudit);
+registerEventHandler('vagary-of-war', applyEvent_vagaryAudit);
+registerEventHandler('vagary-of-battle', applyEvent_vagaryAudit);
 // Phase 3 Military W6 — the siege audits share the posture: acks-engine-sieges.js (the Siege
 // entity + the slot-90 consumer + the setters) owns the world state; these handlers only keep
 // the events well-formed on replay.
@@ -5626,6 +5661,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
   'army-contact', 'domain-warfare', 'army-supply',
+  // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) are AUTO-ROLLED
+  // at their RAW cadence (the monthly turn / the slot-88 weekly check / declareForay), not authored
+  // raw — a hand emit would carry no real roll. Owned by acks-engine-vagaries.js + the consumers.
+  'vagary-of-recruitment', 'vagary-of-war', 'vagary-of-battle',
   // === Delves D1 — Mortal Wounds (team burst3 2026-06-13) === — owned by ACKS.applyMortalWound +
   // the slot-58 convalescence consumer (raw emit would narrate a wound/recovery the character's
   // mortalWounds[] + lifecycleState don't show). The GM records a wound via the character-sheet

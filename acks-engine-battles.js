@@ -915,8 +915,40 @@
       heroes, stakedBr: staked,
       stakeLabel: (Ax.FORAY_STAKES || []).slice().reverse().find(s => s.br <= staked / Math.max(1, heroes.length)),
       foes, groups, opposed: !!opposing, note,
+      vagaries: [],
       status: 'pending', outcome: null, applied: false
     };
+    // Phase 3 Military W8 — the Vagaries of Battle (JJ pp.116–117): each heroic foray rolls 1d4
+    // complications (ambush, fire, fog, monsters drawn to the slaughter, …) when the vagaries-of-
+    // battle rule is on. They are GM-resolve guidance shown on the foray card + a vagary-of-battle
+    // audit; the foray itself is fought at the table.
+    if(typeof Ax.isHouseRuleEnabled === 'function' && Ax.isHouseRuleEnabled(campaign, 'vagaries-of-battle')
+       && typeof Ax.rollBattleVagaries === 'function'){
+      foray.vagaries = Ax.rollBattleVagaries(campaign, { rng }) || [];
+      if(foray.vagaries.length && typeof Ax.newEvent === 'function'){
+        try {
+          const names = foray.vagaries.map(v => v.name).join(', ');
+          const narrative = 'Vagaries of Battle (' + foray.vagaries.length + '): ' + names;
+          const ev = Ax.newEvent('vagary-of-battle', {
+            submittedBy: 'engine',
+            status: (Ax.EVENT_STATUS && Ax.EVENT_STATUS.APPLIED) || 'applied',
+            cadence: 'battle-turn',
+            targetTurn: campaign.currentTurn || 1,
+            subdayContext: { cadence: 'battle-turn', battleId: battle.id, turnNumber: t },
+            payload: { battleId: battle.id, forayId: foray.id, count: foray.vagaries.length, vagaries: foray.vagaries, narrative }
+          });
+          if(typeof Ax.setEventContext === 'function'){
+            Ax.setEventContext(ev, {
+              primaryHexId: battle.hexId || null,
+              relatedEntities: heroes.map(h => ({ kind: 'character', id: h.characterId, role: 'subject' }))
+            });
+          }
+          ev.appliedAtTurn = campaign.currentTurn || 1;
+          if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+          campaign.eventLog.push({ event: ev, result: { narrativeSummary: narrative }, appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+        } catch(e){ /* never let a battle-vagary emit break the foray */ }
+      }
+    }
     battle.forays.push(foray);
     return foray;
   }
