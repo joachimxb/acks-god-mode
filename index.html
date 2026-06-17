@@ -2441,6 +2441,15 @@ document.addEventListener('alpine:init', () => {
         <div class="p-4 space-y-3 text-sm">
           <p class="text-xs opacity-70">Once levied, conscripts &amp; militia can be trained + equipped as professional troops (RR p.431). Not every recruit qualifies for every type — the <span class="font-semibold">Qualifying Number</span> caps how many of this <span x-text="trainModalActive()"></span>-strong levy can become each type (the unqualified rest stay an untrained levy). Race: <span class="font-semibold" x-text="trainModalUnit().race || 'man'"></span>.</p>
 
+          <template x-if="trainModalBudget()">
+            <div class="border border-ink/30 rounded p-2 text-xs space-y-1" style="background:rgba(0,0,0,.04)">
+              <p class="font-semibold" x-text="'Realm levy budget — ' + trainModalBudget().domainName + ' · ' + trainModalBudget().sourceLabel"></p>
+              <p><span class="opacity-70">Manpower:</span> <span class="font-semibold" x-text="trainModalBudget().pool"></span> levied (<span x-text="trainModalBudget().trained"></span> trained · <span class="font-semibold" x-text="trainModalBudget().untrained"></span> raw recruits) — training draws from the raw recruits; the per-type Qualifying Numbers below divide the whole pool (RR p.431).</p>
+              <p><span class="opacity-70">Treasury:</span> <span class="font-semibold" x-text="trainModalBudget().treasury.toLocaleString()"></span> gp to spend on training.</p>
+              <p><span class="opacity-70">Levy capacity:</span> <span class="font-semibold" x-text="trainModalBudget().available"></span> more <span x-text="trainModalBudget().sourceLabel"></span> still levy-able (cap <span x-text="trainModalBudget().cap"></span>, <span x-text="trainModalBudget().everRaised"></span> raised; RR p.430).</p>
+            </div>
+          </template>
+
           <label class="flex items-center gap-2 flex-wrap">Train as:
             <select x-model="trainModal.type" @change="trainModalOnTypeChange()" class="border border-ink rounded px-1 py-0.5 text-sm">
               <option value="">— pick a troop type —</option>
@@ -17107,6 +17116,25 @@ return {
   closeTrainModal(){ this.trainModal.open = false; },
   trainModalUnit(){ return this.trainModal.unitId ? window.ACKS.findUnit(this.currentCampaign, this.trainModal.unitId) : null; },
   trainModalActive(){ const u = this.trainModalUnit(); return u ? window.ACKS.unitActiveCount(u) : 0; },
+  // The realm-wide budgets the training action spends against (RR pp.430–432), shown "in general" at the
+  // modal head above the per-type rows: the levied MANPOWER pool for this source (trained + raw recruits —
+  // the talent pool the per-type Qualifying Numbers divide; training draws from the raw recruits), the realm
+  // TREASURY (the gp the per-troop cost is paid from), and the LEVY capacity still un-raised (cap − ever-raised).
+  trainModalBudget(){
+    const u = this.trainModalUnit(); if(!u || !u.homeDomainId) return null;
+    const A = window.ACKS; const src = u.source;
+    const d = (this.domains || []).find(x => x && x.id === u.homeDomainId) || null;
+    const pool = A.domainLevyPoolCount(this.currentCampaign, u.homeDomainId, src);
+    let untrained = 0;
+    for(const x of (A.domainLevyUnits(this.currentCampaign, u.homeDomainId, src) || [])){ if(x && x.unitTypeKey === 'untrained-levy') untrained += A.unitActiveCount(x); }
+    return { source: src, sourceLabel: src === 'militia' ? 'militia' : 'conscripts',
+      domainName: (d && d.name) || 'the realm',
+      pool, untrained, trained: Math.max(0, pool - untrained),
+      treasury: d ? Math.round((d.treasury && d.treasury.gp) || 0) : 0,
+      cap: src === 'militia' ? A.militiaLevyMax(d) : A.conscriptLevyMax(d),
+      everRaised: A.levyEverRaised(this.currentCampaign, d, src),
+      available: A.levyAvailable(this.currentCampaign, d, src) };
+  },
   // Per-type rows for the chosen levy: label, qualifying %, the max this levy can field, time, cost, stats.
   trainModalTypeRows(){
     const u = this.trainModalUnit(); if(!u) return [];
