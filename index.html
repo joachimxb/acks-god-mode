@@ -2400,7 +2400,7 @@ document.addEventListener('alpine:init', () => {
           <template x-if="trainModalChosen()">
             <div class="border border-ink/30 rounded p-2 space-y-1.5" style="background:rgba(0,0,0,.03)">
               <p class="font-semibold" x-text="trainModalChosen().label + ' — ' + trainModalChosen().pctText + ' qualify'"></p>
-              <p class="text-xs opacity-80" x-text="'Max from this levy: ' + trainModalChosen().max + ' of ' + trainModalActive() + (trainModalChosen().max < trainModalActive() ? ' (the other ' + (trainModalActive() - trainModalChosen().max) + ' can’t make ' + trainModalChosen().label.toLowerCase() + ')' : ' — all qualify')"></p>
+              <p class="text-xs opacity-80" x-text="'Of your ' + trainModalChosen().poolTotal + ' ' + (trainModalChosen().source === 'militia' ? 'militia' : 'conscripts') + ', up to ' + trainModalChosen().poolAllowance + ' qualify as ' + trainModalChosen().label.toLowerCase() + ' (RR p.431)' + (trainModalChosen().already > 0 ? ' — ' + trainModalChosen().already + ' already trained, ' + trainModalChosen().remaining + ' left' : '') + '. This unit can train ' + trainModalChosen().max + ' of ' + trainModalActive() + ' now.'"></p>
               <label class="flex items-center gap-2 flex-wrap text-xs">Train how many:
                 <input type="number" min="1" :max="trainModalChosen().max" x-model.number="trainModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
                 <span class="opacity-60" x-text="'(1–' + trainModalChosen().max + ')'"></span>
@@ -17048,12 +17048,17 @@ return {
   trainModalTypeRows(){
     const u = this.trainModalUnit(); if(!u) return [];
     const A = window.ACKS; const race = u.race || 'man'; const active = A.unitActiveCount(u);
+    const pool = A.domainLevyPoolCount(this.currentCampaign, u.homeDomainId, u.source);   // RR p.431 — the cap is pool-wide
     return (A.trainableTroopTypes(race) || []).map(key => {
       const q = A.conscriptQualifyingNumber(key, race);
       const cost = A.trainingCostFor(key, race) || { months: 0, perTroopGp: 0 };
       const row = A.findTroopType(key, { race });
+      const allowance = A.conscriptQualifyingMax(pool, key, race);                         // of the WHOLE pool, not this unit
+      const already = A.domainLevyTrainedOfType(this.currentCampaign, u.homeDomainId, u.source, key);
+      const remaining = Math.max(0, allowance - already);                                  // pool-wide allowance still left
       return { key, label: (row && row.label) || key, qualNum: q, pctText: Math.round(q / 120 * 100) + '%',
-        max: A.conscriptQualifyingMax(active, key, race), months: cost.months, perTroopGp: cost.perTroopGp,
+        max: Math.min(active, remaining), poolTotal: pool, poolAllowance: allowance, already, remaining, source: u.source,
+        months: cost.months, perTroopGp: cost.perTroopGp,
         wage: A.trainedTroopWage(key, race), br: row ? row.brPerCreature : 0, morale: row ? row.morale : 0 };
     });
   },

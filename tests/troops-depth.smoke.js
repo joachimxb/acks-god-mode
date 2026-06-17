@@ -155,10 +155,39 @@ section('Militia — penalty + revenue + the RR p.433 Marcus garrison credit (2,
   const u = A.levyConscripts(camp, 'dom-pay', { count: 60 });
   A.trainLevyUnit(camp, u, { targetTroopType: 'heavy-infantry' });   // 60 conscripts → 50% = 30 qualify → 30 × 122 = 3,660gp
   ok('training debits the home domain treasury (cap 30 × 122 = 3,660)', d.treasury.gp === 100000 - 3660);
-  ok('a pool too small to yield even one of a type is refused (5 → heavy cavalry, Q=10)', A.trainLevyUnit(camp, A.levyConscripts(camp, 'dom-pay', { count: 5 }), { targetTroopType: 'heavy-cavalry' }).reason === 'too-few-qualify');
+  // the cap is pool-wide (RR p.431) — a domain whose WHOLE conscript pool is too small yields 0 of a type
+  const tiny = mkCamp([mkDomain(1200, 1, 'dom-tiny')], 1);
+  ok('a 5-conscript pool yields 0 heavy cavalry (Q=10) → refused', A.trainLevyUnit(tiny, A.levyConscripts(tiny, 'dom-tiny', { count: 5 }), { targetTroopType: 'heavy-cavalry' }).reason === 'too-few-qualify');
   const orcCamp = mkCamp([mkDomain(1000, 1, 'dom-orc')], 1);
   const ou = A.levyConscripts(orcCamp, 'dom-orc', { count: 10, race: 'orc' });
   ok('orc conscript cannot train as cataphract (qualifying 0)', A.trainLevyUnit(orcCamp, ou, { targetTroopType: 'cataphract-cavalry' }).ok === false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Training qualifying cap is POOL-WIDE, not per-unit (RR p.431, 2026-06-17)');
+{
+  // Splitting a levy before training must NOT change how many of a type the domain can ultimately field.
+  const camp = mkCamp([mkDomain(1200, 1, 'dom-split')], 1);
+  const a = A.levyConscripts(camp, 'dom-split', { count: 60 });   // a 120 levy split into two 60-units up front
+  const b = A.levyConscripts(camp, 'dom-split', { count: 60 });
+  ok('pool = 120 conscripts across two units', A.domainLevyPoolCount(camp, 'dom-split', 'conscript') === 120);
+  ok('heavy-infantry allowance from the 120 pool = 60', A.conscriptQualifyingRemaining(camp, 'dom-split', 'conscript', 'heavy-infantry', 'man') === 60);
+  const ra = A.trainLevyUnit(camp, a, { targetTroopType: 'heavy-infantry' });
+  ok('train unit A (60) as heavy: all 60 qualify against the 120 pool (NOT 30 per-unit)', ra.ok && ra.trained === 60 && A.unitActiveCount(a) === 60);
+  ok('no remainder split from unit A — all 60 fit the pool allowance', ra.remainder === null);
+  ok('heavy already trained from the pool = 60', A.domainLevyTrainedOfType(camp, 'dom-split', 'conscript', 'heavy-infantry') === 60);
+  const rb = A.trainLevyUnit(camp, b, { targetTroopType: 'heavy-infantry' });
+  ok('train unit B (60) as heavy: refused — the pool’s 60 heavy slots are used up', rb.ok === false && rb.reason === 'too-few-qualify');
+  ok('unit B can still train as light infantry (Q=120, uncapped)', A.trainLevyUnit(camp, b, { targetTroopType: 'light-infantry' }).trained === 60);
+  // the cap is SHARED across units: 30+30 heavy from two units = 60 total ≤ the 120-pool cap (never 120)
+  const camp2 = mkCamp([mkDomain(1200, 1, 'dom-share')], 1);
+  const x = A.levyConscripts(camp2, 'dom-share', { count: 60 });
+  const y = A.levyConscripts(camp2, 'dom-share', { count: 60 });
+  const rx = A.trainLevyUnit(camp2, x, { targetTroopType: 'heavy-infantry', count: 30 });
+  const ry = A.trainLevyUnit(camp2, y, { targetTroopType: 'heavy-infantry', count: 30 });
+  ok('two units 30+30 heavy = 60 total fits the shared 120-pool cap', rx.trained === 30 && ry.trained === 30 && A.domainLevyTrainedOfType(camp2, 'dom-share', 'conscript', 'heavy-infantry') === 60);
+  const leftover = camp2.units.find(u => u.homeDomainId === 'dom-share' && u.unitTypeKey === 'untrained-levy');
+  ok('a leftover untrained unit can’t add more heavy (pool cap 60 reached)', leftover && A.trainLevyUnit(camp2, leftover, { targetTroopType: 'heavy-infantry' }).reason === 'too-few-qualify');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

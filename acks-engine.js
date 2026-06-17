@@ -4223,6 +4223,27 @@ function _splitLevyRemainder(campaign, u, keepLiving){
   return nu;
 }
 
+// RR p.431/432 — a domain's full levied pool of a source ('conscript'|'militia'): living, trained +
+// untrained. The Qualifying Number is a fraction of THIS pool (the talent distribution of the levied
+// peasants — RR p.431 "of a pool of 120 conscripts"; RR p.432 the 240-militia example), NOT of any one
+// unit; so the cap is computed pool-wide and shared across every unit split from the levy (splitting a
+// levy before training can't dodge or shrink it). Per-domain, per-source — conscripts and militia are
+// separate pools (each its own levy), as are different domains' levies.
+function domainLevyPoolCount(campaign, domainOrId, source){
+  return _levyActiveCount(campaign, domainOrId, source);
+}
+// Living count already trained as `typeKey` from a domain's `source` levy (this counts against the cap).
+function domainLevyTrainedOfType(campaign, domainOrId, source, typeKey){
+  return _levyActiveCount(campaign, domainOrId, source, u => _isTrainedLevy(u) && u.unitTypeKey === typeKey);
+}
+// RR p.431 — how many MORE of a domain's `source` levy can still be trained as `typeKey`:
+// floor(pool × QualifyingNumber / 120) − the number already trained as that type. Always ≥ 0.
+function conscriptQualifyingRemaining(campaign, domainOrId, source, typeKey, race){
+  const A = global.ACKS;
+  const allowance = A.conscriptQualifyingMax(domainLevyPoolCount(campaign, domainOrId, source), typeKey, race);
+  return Math.max(0, allowance - domainLevyTrainedOfType(campaign, domainOrId, source, typeKey));
+}
+
 // RR p.431 — train a levy unit into a professional troop type. v1 trains IMMEDIATELY (the day-tick
 // training timer is deferred): the unit becomes the target type (catalog wage/BR/morale) and the home
 // domain treasury is debited perTroopGp × the number trained (RR p.431). The Qualifying Number caps how
@@ -4244,9 +4265,13 @@ function trainLevyUnit(campaign, unitOrId, opts){
   if(!costRow) return { ok: false, reason: 'not-trainable' };
   const active = unitActiveCount(u);
   if(active <= 0) return { ok: false, reason: 'no-soldiers' };
-  // RR p.431 — the Qualifying Number caps how many of this pool can become the type.
-  const qualMax = A.conscriptQualifyingMax(active, target, race);
-  if(qualMax <= 0) return { ok: false, reason: 'too-few-qualify' };   // e.g. 5 conscripts → 0 heavy cavalry
+  // RR p.431 — the Qualifying Number is a fraction of the WHOLE levied pool, not this unit: of the
+  // domain's total conscripts/militia only floor(pool × QN / 120) can ever be this type, and the number
+  // already trained as it counts against that. So the allowance is computed pool-wide (splitting a levy
+  // before training can't dodge or shrink the cap), then capped to the soldiers in THIS unit.
+  const remaining = conscriptQualifyingRemaining(campaign, u.homeDomainId, u.source, target, race);
+  const qualMax = Math.min(active, remaining);                        // most of THIS unit trainable as the type now
+  if(qualMax <= 0) return { ok: false, reason: 'too-few-qualify' };   // pool exhausted, or e.g. a 5-conscript pool → 0 heavy cavalry
   let trainN = (opts.count != null) ? Math.floor(Number(opts.count)) : qualMax;
   trainN = Math.max(1, Math.min(trainN, qualMax));
   // Split the unqualified remainder off as an untrained levy (leaves u with trainN living).
@@ -10911,6 +10936,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
   // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization
   conscriptLevyMax, militiaLevyMax, domainLevyUnits, conscriptCount, militiaCalledUpCount,
+  domainLevyPoolCount, domainLevyTrainedOfType, conscriptQualifyingRemaining,
   militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,
   levyMoraleAdjustmentForDomain, canLevyFromDomain, domainMilitiaTroopTypeKey,
   levyConscripts, levyMilitia, trainLevyUnit, sendMilitiaHome,
