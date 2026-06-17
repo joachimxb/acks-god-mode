@@ -2375,10 +2375,69 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- Train modal (Domain ▸ Military) — turn an untrained conscript/militia levy into a professional
+     troop type. Shows the RR p.431 procedure: the Qualifying-Number cap per type, training time + cost,
+     and the trained stats for the chosen type. ENFORCE — the count is capped to the qualifying max and
+     the unqualified remainder splits off as an untrained levy. z-74: over the unit sheet (z-72). -->
+<div x-show="trainModal.open" @keydown.escape.window="if(trainModal.open){ closeTrainModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:74; background:rgba(0,0,0,.45)" x-cloak @click.self="closeTrainModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-10">
+    <template x-if="trainModalUnit()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <h3 class="font-bold text-lg" x-text="'🎓 Train — ' + (trainModalUnit().displayName || 'Levy') + ' (' + trainModalActive() + ' untrained)'"></h3>
+          <button @click="closeTrainModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <p class="text-xs opacity-70">Once levied, conscripts &amp; militia can be trained + equipped as professional troops (RR p.431). Not every recruit qualifies for every type — the <span class="font-semibold">Qualifying Number</span> caps how many of this <span x-text="trainModalActive()"></span>-strong levy can become each type (the unqualified rest stay an untrained levy). Race: <span class="font-semibold" x-text="trainModalUnit().race || 'man'"></span>.</p>
+
+          <label class="flex items-center gap-2 flex-wrap">Train as:
+            <select x-model="trainModal.type" @change="trainModalOnTypeChange()" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <option value="">— pick a troop type —</option>
+              <template x-for="row in trainModalTypeRows()" :key="'tmt-'+row.key"><option :value="row.key" :disabled="row.max < 1" x-text="row.label + ' — ' + row.pctText + (row.max < 1 ? ' (too few qualify)' : ' · max ' + row.max)"></option></template>
+            </select>
+          </label>
+
+          <template x-if="trainModalChosen()">
+            <div class="border border-ink/30 rounded p-2 space-y-1.5" style="background:rgba(0,0,0,.03)">
+              <p class="font-semibold" x-text="trainModalChosen().label + ' — ' + trainModalChosen().pctText + ' qualify'"></p>
+              <p class="text-xs opacity-80" x-text="'Max from this levy: ' + trainModalChosen().max + ' of ' + trainModalActive() + (trainModalChosen().max < trainModalActive() ? ' (the other ' + (trainModalActive() - trainModalChosen().max) + ' can’t make ' + trainModalChosen().label.toLowerCase() + ')' : ' — all qualify')"></p>
+              <label class="flex items-center gap-2 flex-wrap text-xs">Train how many:
+                <input type="number" min="1" :max="trainModalChosen().max" x-model.number="trainModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
+                <span class="opacity-60" x-text="'(1–' + trainModalChosen().max + ')'"></span>
+              </label>
+              <p class="text-xs"><span class="opacity-70">Procedure (RR p.431):</span> <span x-text="trainModalChosen().months + (trainModalChosen().months === 1 ? ' month' : ' months') + ' · ' + trainModalChosen().perTroopGp.toLocaleString() + ' gp/troop'"></span></p>
+              <p class="text-xs"><span class="opacity-70">Trained stats:</span> <span x-text="'BR ' + (trainModalChosen().br * trainModalCount()).toFixed(2) + '/unit (' + trainModalChosen().br + '/soldier) · wage ' + trainModalChosen().wage + ' gp/mo · morale ' + (trainModalChosen().morale >= 0 ? '+' : '') + trainModalChosen().morale"></span></p>
+              <p class="text-sm font-semibold" x-text="'Cost: ' + trainModalCount() + ' × ' + trainModalChosen().perTroopGp.toLocaleString() + ' = ' + trainModalCost().toLocaleString() + ' gp'"></p>
+              <p class="text-xs" :class="trainModalCost() > trainModalTreasury() ? 'accent-red' : 'opacity-60'" x-text="'Realm treasury: ' + trainModalTreasury().toLocaleString() + ' gp' + (trainModalCost() > trainModalTreasury() ? ' — short by ' + (trainModalCost() - trainModalTreasury()).toLocaleString() + ' gp (the realm will run a deficit)' : '')"></p>
+              <p class="text-xs opacity-60" x-show="trainModalCount() < trainModalActive()" x-text="'The remaining ' + (trainModalActive() - trainModalCount()) + ' stay an untrained levy.'"></p>
+            </div>
+          </template>
+
+          <details class="text-xs">
+            <summary class="cursor-pointer opacity-70">All qualifying types for this race + costs (RR p.431)</summary>
+            <table class="w-full mt-1 border-collapse">
+              <thead><tr class="text-left opacity-70"><th class="pr-2">Type</th><th class="pr-2">Qualify</th><th class="pr-2">Max</th><th class="pr-2">Time</th><th class="pr-2">gp/troop</th><th>Wage</th></tr></thead>
+              <tbody>
+                <template x-for="row in trainModalTypeRows()" :key="'tmr-'+row.key">
+                  <tr class="border-t border-ink/10" :class="row.max < 1 ? 'opacity-40' : ''"><td class="pr-2" x-text="row.label"></td><td class="pr-2" x-text="row.pctText"></td><td class="pr-2" x-text="row.max"></td><td class="pr-2" x-text="row.months + 'mo'"></td><td class="pr-2" x-text="row.perTroopGp.toLocaleString()"></td><td x-text="row.wage + 'gp'"></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </details>
+        </div>
+        <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+          <button @click="closeTrainModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+          <button @click="submitTrain()" :disabled="!trainModalCanSubmit()" :class="trainModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!trainModalCanSubmit() ? 'Pick a troop type at least one of this levy qualifies for' : ''" x-text="trainModalChosen() ? ('🎓 Train ' + trainModalCount()) : '🎓 Train'"></button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- Unit Sheet modal (Domain ▸ Military / Characters ▸ Parties) — the clickable per-unit detail +
      edit surface (RR pp.427–433). Field edits live here (Type is read-only — set by recruiting /
      training; the 🔍 Inspector is the raw/admin path). z-72: a peek over the domain/parties view. -->
-<div x-show="unitSheetUnitId" @keydown.escape.window="if(unitSheetUnitId){ closeUnitSheet(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:72; background:rgba(0,0,0,.45)" x-cloak @click.self="closeUnitSheet()">
+<div x-show="unitSheetUnitId" @keydown.escape.window="if(unitSheetUnitId && !$event.defaultPrevented){ closeUnitSheet(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:72; background:rgba(0,0,0,.45)" x-cloak @click.self="closeUnitSheet()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-xl my-6">
     <template x-for="u in unitSheetList()" :key="'usheet-'+u.id">
       <div>
@@ -2443,12 +2502,11 @@ document.addEventListener('alpine:init', () => {
             </span>
             <span><span class="opacity-70">Supply:</span> <span x-text="u.supplyState || 'supplied'"></span></span>
           </div>
-          <div class="border-t border-ink/20 pt-2" x-data="{ trainType: '' }">
+          <div class="border-t border-ink/20 pt-2">
             <template x-if="u.unitTypeKey === 'untrained-levy'">
-              <p class="flex flex-wrap items-center gap-1"><span class="opacity-70">Train as:</span>
-                <select x-model="trainType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— pick a troop type —</option><template x-for="t in domainTrainableTypesFor(u)" :key="'ust-'+t"><option :value="t" x-text="t"></option></template></select>
-                <button @click="domainTrainLevy(u, trainType); trainType=''" :disabled="!trainType" :class="trainType ? 'underline' : 'opacity-40'" class="px-1" title="Train + equip into a professional troop type — debits the realm treasury (RR p.431)">Train</button>
-                <span class="text-xs opacity-60">— RAW qualifying types for the unit's race</span>
+              <p class="flex flex-wrap items-center gap-2"><span class="opacity-70">Training:</span>
+                <button @click="openTrainModal(u)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-amber-50" title="Train + equip this levy into a professional troop type (RR p.431)">🎓 Train…</button>
+                <span class="text-xs opacity-60">— turn this untrained levy into a professional troop type (RR p.431)</span>
               </p>
             </template>
             <template x-if="u.unitTypeKey !== 'untrained-levy'"><p class="text-xs"><span class="opacity-70">Training:</span> trained as <span x-text="unitTypeLabelFor(u)"></span><span x-show="u.trainingState" class="opacity-60"> · in training</span></p></template>
@@ -5428,10 +5486,7 @@ document.addEventListener('alpine:init', () => {
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy'">
-                          <span class="inline-flex items-center gap-1" x-data="{ trainType: '' }">
-                            <select x-model="trainType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— train as —</option><template x-for="t in domainTrainableTypesFor(u)" :key="t"><option :value="t" x-text="t"></option></template></select>
-                            <button @click="domainTrainLevy(u, trainType); trainType=''" :disabled="!trainType" :class="trainType ? 'underline' : 'opacity-40'" class="px-1" title="Train + equip into a professional troop type — debits the realm treasury (RR p.431)">Train</button>
-                          </span>
+                          <button @click="openTrainModal(u)" class="px-1 underline" title="Train + equip into a professional troop type (RR p.431)">🎓 Train</button>
                         </template>
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
                         <button @click="domainMergeLevy(selectedDomain, u)" :disabled="!canMergeLevy(selectedDomain, u)" :class="canMergeLevy(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
@@ -5476,10 +5531,7 @@ document.addEventListener('alpine:init', () => {
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
                         <template x-if="u.unitTypeKey === 'untrained-levy'">
-                          <span class="inline-flex items-center gap-1" x-data="{ trainType: '' }">
-                            <select x-model="trainType" class="text-xs border border-ink rounded px-1 py-0.5"><option value="">— train as —</option><template x-for="t in domainTrainableTypesFor(u)" :key="t"><option :value="t" x-text="t"></option></template></select>
-                            <button @click="domainTrainLevy(u, trainType); trainType=''" :disabled="!trainType" :class="trainType ? 'underline' : 'opacity-40'" class="px-1" title="Train + equip into a professional troop type — debits the realm treasury (RR p.431)">Train</button>
-                          </span>
+                          <button @click="openTrainModal(u)" class="px-1 underline" title="Train + equip into a professional troop type (RR p.431)">🎓 Train</button>
                         </template>
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
                         <button @click="domainMergeLevy(selectedDomain, u)" :disabled="!canMergeLevy(selectedDomain, u)" :class="canMergeLevy(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
@@ -16984,13 +17036,43 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast && this.showToast('Levied ' + u.count + ' ' + source + ' from ' + (domain.name || domain.id) + '.');
   },
-  domainTrainableTypesFor(unit){ return window.ACKS.trainableTroopTypes((unit && unit.race) || 'man'); },
-  domainTrainLevy(unit, type){
-    if(!type || !unit) return;
-    const r = window.ACKS.trainLevyUnit(this.currentCampaign, unit.id, { targetTroopType: type });
+  // 🎓 Train modal (Domain ▸ Military) — turn an untrained conscript/militia levy into a professional
+  // troop type. RR p.431: the Qualifying Number caps how many of the levy qualify for each type; the
+  // unqualified remainder splits off as an untrained levy (the engine enforces it). Replaces the old
+  // inline train select; opened from the conscript/militia table rows + the unit sheet.
+  openTrainModal(unit){ if(unit && unit.id){ this.trainModal = { open: true, unitId: unit.id, type: '', count: null }; } },
+  closeTrainModal(){ this.trainModal.open = false; },
+  trainModalUnit(){ return this.trainModal.unitId ? window.ACKS.findUnit(this.currentCampaign, this.trainModal.unitId) : null; },
+  trainModalActive(){ const u = this.trainModalUnit(); return u ? window.ACKS.unitActiveCount(u) : 0; },
+  // Per-type rows for the chosen levy: label, qualifying %, the max this levy can field, time, cost, stats.
+  trainModalTypeRows(){
+    const u = this.trainModalUnit(); if(!u) return [];
+    const A = window.ACKS; const race = u.race || 'man'; const active = A.unitActiveCount(u);
+    return (A.trainableTroopTypes(race) || []).map(key => {
+      const q = A.conscriptQualifyingNumber(key, race);
+      const cost = A.trainingCostFor(key, race) || { months: 0, perTroopGp: 0 };
+      const row = A.findTroopType(key, { race });
+      return { key, label: (row && row.label) || key, qualNum: q, pctText: Math.round(q / 120 * 100) + '%',
+        max: A.conscriptQualifyingMax(active, key, race), months: cost.months, perTroopGp: cost.perTroopGp,
+        wage: A.trainedTroopWage(key, race), br: row ? row.brPerCreature : 0, morale: row ? row.morale : 0 };
+    });
+  },
+  trainModalChosen(){ if(!this.trainModal.type) return null; return this.trainModalTypeRows().find(r => r.key === this.trainModal.type) || null; },
+  trainModalOnTypeChange(){ const c = this.trainModalChosen(); this.trainModal.count = c ? c.max : null; },
+  trainModalCount(){ const c = this.trainModalChosen(); if(!c) return 0; let n = Math.floor(Number(this.trainModal.count) || 0); if(n < 1) n = c.max; return Math.max(1, Math.min(n, c.max)); },
+  trainModalCost(){ const c = this.trainModalChosen(); return c ? this.trainModalCount() * c.perTroopGp : 0; },
+  trainModalTreasury(){ const u = this.trainModalUnit(); if(!u || !u.homeDomainId) return 0; const d = (this.domains || []).find(x => x && x.id === u.homeDomainId); return d ? Math.round((d.treasury && d.treasury.gp) || 0) : 0; },
+  trainModalCanSubmit(){ const c = this.trainModalChosen(); return !!c && c.max >= 1 && this.trainModalCount() >= 1; },
+  submitTrain(){
+    const u = this.trainModalUnit(); const c = this.trainModalChosen();
+    if(!u || !c || !this.trainModalCanSubmit()) return;
+    const n = this.trainModalCount(); const before = this.trainModalActive();
+    const r = window.ACKS.trainLevyUnit(this.currentCampaign, u.id, { targetTroopType: c.key, count: n });
     if(!r || !r.ok){ this.showToast && this.showToast('Cannot train: ' + ((r && r.reason) || 'unknown'), 4000); return; }
     this.markDirty(); this.schedulePersist();
-    this.showToast && this.showToast('Trained as ' + type + ' — ' + r.cost.toLocaleString() + 'gp, ' + r.months + 'mo.');
+    const rem = Math.max(0, before - r.trained);
+    this.showToast && this.showToast('Trained ' + r.trained + ' as ' + c.label + ' — ' + r.cost.toLocaleString() + 'gp, ' + r.months + 'mo' + (rem > 0 ? ' · ' + rem + ' stayed an untrained levy' : '') + '.', 4500);
+    this.closeTrainModal();
   },
   domainSendMilitiaUnitHome(unit){
     const r = window.ACKS.sendMilitiaUnitHome(this.currentCampaign, unit);
@@ -23087,6 +23169,7 @@ return {
   lairDetailId: null,            // open lair in the detail modal (null = closed)
   unitSheetUnitId: null,         // the clickable unit detail/edit modal (null = closed)
   levyModal: { open: false, domainId: null, source: 'conscript', count: 1, homeHexId: '' },  // ⚒/🛡 Levy modal
+  trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
   // Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E). Transient form state.
   arcaneDungeonId: null,         // open dungeon in the arcane modal (null = closed)
   dungeonBuild: { open: false, name: '', ownerCharacterId: '', hexId: '', buildValueGp: 30000, areaSqFt: 60000, areaCount: 24, treasureSeededGp: 0 },  // AD-C — the 🏗 Build a dungeon modal

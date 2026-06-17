@@ -4198,11 +4198,38 @@ function levyMilitia(campaign, domainOrId, opts){
   return _createLevyUnit(campaign, _resolveDomain(campaign, domainOrId), 'militia', (opts || {}).count, opts);
 }
 
+// RR p.431 — split off the soldiers of a levy `u` beyond `keepLiving` into a NEW untrained levy of the
+// same source/home (the recruits who can't qualify for the type being trained), leaving `u` with exactly
+// `keepLiving` living. Casualties split proportionally (mirrors the UI domainSplitLevy). The new unit is
+// stationed like `u` (garrison if called up, at-home if standing down). Returns it (null if nothing to split).
+function _splitLevyRemainder(campaign, u, keepLiving){
+  const A = global.ACKS;
+  const active = unitActiveCount(u);
+  const remLiving = Math.max(0, active - Math.max(0, keepLiving));
+  if(remLiving <= 0) return null;
+  const cas = Math.max(0, u.casualties || 0);
+  const remCas = active > 0 ? Math.round(cas * remLiving / active) : 0;
+  const remRaw = remLiving + remCas;
+  const nu = A.blankUnit({ displayName: u.displayName, unitTypeKey: 'untrained-levy', race: u.race,
+    source: u.source, count: remRaw, monthlyWage: u.monthlyWage });
+  nu.casualties = remCas;
+  nu.homeDomainId = u.homeDomainId; nu.calledUp = u.calledUp;
+  nu.moraleAdjustment = u.moraleAdjustment; nu.loyalty = u.loyalty;
+  u.count = (u.count || 0) - remRaw; u.casualties = cas - remCas;   // u now keeps exactly keepLiving living
+  if(u.calledUp === false) stationUnit(campaign, nu, null);
+  else stationUnit(campaign, nu, { kind: 'domain-garrison', id: u.homeDomainId });
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  nu.history.push({ turn, type: 'split', text: 'Split off as an untrained levy — the recruits who could not qualify for training' });
+  return nu;
+}
+
 // RR p.431 — train a levy unit into a professional troop type. v1 trains IMMEDIATELY (the day-tick
-// training timer is deferred): the unit becomes the target type (catalog wage/BR/morale), the home
-// domain treasury is debited perTroopGp × count (RR p.431), and a 'trained' history entry is stamped.
-// Returns { ok, cost, months, unit, reason }. Fails when the unit isn't an untrained levy or the
-// race can't field the type.
+// training timer is deferred): the unit becomes the target type (catalog wage/BR/morale) and the home
+// domain treasury is debited perTroopGp × the number trained (RR p.431). The Qualifying Number caps how
+// many of the levy can become the type (RR p.431) — opts.count (default = the cap) sets how many to train,
+// clamped to [1, the cap]; the unqualified remainder splits off as an untrained levy. Returns { ok, cost,
+// months, unit, trained, qualMax, remainder (the new untrained unit's id|null), reason }. Fails when the
+// unit isn't an untrained levy, the race can't field the type, or too few qualify to field even one.
 function trainLevyUnit(campaign, unitOrId, opts){
   opts = opts || {};
   const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
@@ -4215,7 +4242,16 @@ function trainLevyUnit(campaign, unitOrId, opts){
   if(!target || A.conscriptQualifyingNumber(target, race) <= 0) return { ok: false, reason: 'cannot-qualify' };
   const costRow = A.trainingCostFor(target, race);
   if(!costRow) return { ok: false, reason: 'not-trainable' };
-  const n = unitActiveCount(u);
+  const active = unitActiveCount(u);
+  if(active <= 0) return { ok: false, reason: 'no-soldiers' };
+  // RR p.431 — the Qualifying Number caps how many of this pool can become the type.
+  const qualMax = A.conscriptQualifyingMax(active, target, race);
+  if(qualMax <= 0) return { ok: false, reason: 'too-few-qualify' };   // e.g. 5 conscripts → 0 heavy cavalry
+  let trainN = (opts.count != null) ? Math.floor(Number(opts.count)) : qualMax;
+  trainN = Math.max(1, Math.min(trainN, qualMax));
+  // Split the unqualified remainder off as an untrained levy (leaves u with trainN living).
+  const remainder = (trainN < active) ? _splitLevyRemainder(campaign, u, trainN) : null;
+  const n = unitActiveCount(u);                                   // == trainN after the split
   const cost = costRow.perTroopGp * n;                            // RR p.431 — per-troop cost × number trained
   const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
   if(d && cost > 0) _applyDomainTreasuryDelta(campaign, d, -cost, { reason: 'troop-training', label: 'train ' + n + ' as ' + target });
@@ -4227,8 +4263,8 @@ function trainLevyUnit(campaign, unitOrId, opts){
   u.trainingState = null;
   if(row) u.displayName = (d && d.name ? d.name + ' ' : '') + (u.source === 'militia' ? 'Militia ' : 'Conscript ') + row.label;
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  u.history.push({ turn, type: 'trained', text: 'Trained as ' + (row ? row.label : target) + ' (' + cost.toLocaleString() + 'gp, ' + costRow.months + 'mo)' });
-  return { ok: true, cost, months: costRow.months, unit: u };
+  u.history.push({ turn, type: 'trained', text: 'Trained ' + n + ' as ' + (row ? row.label : target) + ' (' + cost.toLocaleString() + 'gp, ' + costRow.months + 'mo)' + (remainder ? '; ' + unitActiveCount(remainder) + ' unqualified stayed an untrained levy' : '') });
+  return { ok: true, cost, months: costRow.months, unit: u, trained: n, qualMax, remainder: remainder ? remainder.id : null };
 }
 
 // RR p.432 — stand ALL of a domain's militia DOWN to the rolls: they leave the garrison but stay in the
