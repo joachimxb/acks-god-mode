@@ -21,6 +21,16 @@ let pass = 0, fail = 0; const failures = [];
 function ok(label, cond, detail){ if(cond){ pass++; } else { fail++; failures.push(label + (detail ? ' — ' + detail : '')); console.log('  FAIL ' + label + (detail ? ' — ' + detail : '')); } }
 function section(t){ console.log('— ' + t); }
 
+// W7 levy-arrival staging (RR p.430): A.levyConscripts / A.levyMilitia now DEFER by default — the
+// levied troops arrive ½/¼/remainder over 3 weeks via the 'levy-muster' day-consumer. The suites
+// below assert the levy's END-STATE mechanics (caps, training, casualties, send-home, the F&D
+// materialization), not the muster TIMING, so they go through these instant:true wrappers (the whole
+// levy at once — the legacy path). The staging contract itself is exercised with the real deferred
+// A.levyConscripts / A.levyMilitia in the "Levying takes TIME" section below.
+const _origLevyC = A.levyConscripts, _origLevyM = A.levyMilitia;
+const levyC = (c, id, opts) => _origLevyC(c, id, Object.assign({ instant: true }, opts || {}));
+const levyM = (c, id, opts) => _origLevyM(c, id, Object.assign({ instant: true }, opts || {}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 section('Conscript Qualifying Number (RR p.431) — the human column + demi-human cells');
 ok('light infantry: any conscript (120) for every race', A.conscriptQualifyingNumber('light-infantry', 'man') === 120 && A.conscriptQualifyingNumber('light-infantry', 'orc') === 120 && A.conscriptQualifyingNumber('light-infantry', 'dwarf') === 120);
@@ -78,7 +88,7 @@ section('Levy setters — conscripts/militia as Units (RR pp.430–433)');
 {
   const d = mkDomain(1200, 3, 'dom-c');   // Steadfast (+3) → +1 levy morale
   const camp = mkCamp([d], 5);
-  const con = A.levyConscripts(camp, 'dom-c', { count: 100 });
+  const con = levyC(camp, 'dom-c', { count: 100 });
   ok('levied 100 conscripts', con && con.count === 100 && con.source === 'conscript');
   ok('conscript untrained: 3gp wage, type untrained-levy', con.monthlyWage === 3 && con.unitTypeKey === 'untrained-levy');
   ok('conscript morale: −2 base + steadfast +1 (moraleAdjustment +1, loyalty +1)', con.moraleAdjustment === 1 && con.loyalty === 1);
@@ -86,21 +96,21 @@ section('Levy setters — conscripts/militia as Units (RR pp.430–433)');
   ok('conscriptCount reads it back', A.conscriptCount(camp, d) === 100);
   ok('in campaign.units AND the garrison mirror', camp.units.some(u => u.id === con.id) && (d.garrison.units || []).some(u => u.id === con.id));
   // over-cap clamps to remaining room (120 cap − 100 = 20), never rejects
-  const more = A.levyConscripts(camp, 'dom-c', { count: 50 });
+  const more = levyC(camp, 'dom-c', { count: 50 });
   ok('over-cap levy clamps to remaining 20', more && more.count === 20);
-  ok('no room → null', A.levyConscripts(camp, 'dom-c', { count: 5 }) === null);
+  ok('no room → null', levyC(camp, 'dom-c', { count: 5 }) === null);
 }
 {
   const d = mkDomain(1200, 0, 'dom-a');   // Apathetic (0) → −1 levy morale
   const camp = mkCamp([d], 1);
-  const con = A.levyConscripts(camp, 'dom-a', { count: 10 });
+  const con = levyC(camp, 'dom-a', { count: 10 });
   ok('apathetic domain → −1 levy morale', con.moraleAdjustment === -1 && con.loyalty === -1);
 }
 {
   const turbulent = mkDomain(1200, -2, 'dom-t');   // Turbulent → cannot levy (RR p.432)
   const camp = mkCamp([turbulent], 1);
-  ok('Turbulent (morale −2) blocks levying conscripts', A.levyConscripts(camp, 'dom-t', { count: 10 }) === null);
-  ok('Turbulent (morale −2) blocks levying militia', A.levyMilitia(camp, 'dom-t', { count: 10 }) === null);
+  ok('Turbulent (morale −2) blocks levying conscripts', levyC(camp, 'dom-t', { count: 10 }) === null);
+  ok('Turbulent (morale −2) blocks levying militia', levyM(camp, 'dom-t', { count: 10 }) === null);
   ok('canLevyFromDomain false at morale −2', A.canLevyFromDomain(turbulent) === false);
 }
 
@@ -109,7 +119,7 @@ section('Militia — penalty + revenue + the RR p.433 Marcus garrison credit (2,
 {
   const d = mkDomain(1200, 1, 'dom-mil');
   const camp = mkCamp([d], 1);
-  const mil = A.levyMilitia(camp, 'dom-mil', { count: 240 });   // 2 per 10
+  const mil = levyM(camp, 'dom-mil', { count: 240 });   // 2 per 10
   ok('levied 240 militia', mil && mil.count === 240 && mil.source === 'militia');
   ok('militiaCalledUpCount = 240', A.militiaCalledUpCount(camp, d) === 240);
   ok('militia morale penalty −2 (2 per 10)', A.militiaDomainMoralePenalty(camp, d) === -2);
@@ -120,20 +130,20 @@ section('Militia — penalty + revenue + the RR p.433 Marcus garrison credit (2,
   // (instant:true asserts the converted END-STATE — type/wage/garrison-credit; the W7 training TIMER —
   // training deferred to the 'levy-training' day-consumer — is exercised in its own section below.)
   const camp2 = mkCamp([mkDomain(1200, 1, 'dom-mil')], 1);
-  const mh = A.levyMilitia(camp2, 'dom-mil', { count: 120 }); const rh = A.trainLevyUnit(camp2, mh, { targetTroopType: 'heavy-infantry', instant: true });
+  const mh = levyM(camp2, 'dom-mil', { count: 120 }); const rh = A.trainLevyUnit(camp2, mh, { targetTroopType: 'heavy-infantry', instant: true });
   ok('train 120 militia as heavy: capped at 60 (50%), cost 60×122 = 7,320gp', rh.ok && rh.trained === 60 && rh.cost === 7320 && rh.months === 1);
   ok('the trained unit is 60 heavy @ wage 12', mh.unitTypeKey === 'heavy-infantry' && A.unitActiveCount(mh) === 60 && mh.monthlyWage === 12);
   ok('the unqualified 60 split off as an untrained levy', rh.remainder && A.findUnit(camp2, rh.remainder).unitTypeKey === 'untrained-levy' && A.unitActiveCount(A.findUnit(camp2, rh.remainder)) === 60);
-  const ml = A.levyMilitia(camp2, 'dom-mil', { count: 120 }); const rl = A.trainLevyUnit(camp2, ml, { targetTroopType: 'light-infantry', instant: true });
+  const ml = levyM(camp2, 'dom-mil', { count: 120 }); const rl = A.trainLevyUnit(camp2, ml, { targetTroopType: 'light-infantry', instant: true });
   ok('train 120 militia as light: all qualify (Q=120), cost 120×88.5 = 10,620gp, no remainder', rl.ok && rl.trained === 120 && rl.cost === 10620 && rl.remainder === null);
   ok('trained light now wage 6 / type light-infantry', ml.monthlyWage === 6 && ml.unitTypeKey === 'light-infantry' && A.unitActiveCount(ml) === 120);
   // an explicit count ≤ the qualifying max trains exactly that many; a count above it is clamped to it
   const campC = mkCamp([mkDomain(1200, 1, 'dom-cap')], 1);
-  const cc = A.levyConscripts(campC, 'dom-cap', { count: 120 });
+  const cc = levyC(campC, 'dom-cap', { count: 120 });
   const rcc = A.trainLevyUnit(campC, cc, { targetTroopType: 'heavy-cavalry', count: 5 });   // Q=10 → max 10; train 5
   ok('explicit count 5 (≤ qualifying max 10): trains 5 heavy cavalry', rcc.ok && rcc.trained === 5 && rcc.qualMax === 10 && A.unitActiveCount(cc) === 5);
   const campD = mkCamp([mkDomain(1200, 1, 'dom-clamp')], 1);
-  const cd = A.levyConscripts(campD, 'dom-clamp', { count: 120 });
+  const cd = levyC(campD, 'dom-clamp', { count: 120 });
   ok('a count above the qualifying max is clamped to it', A.trainLevyUnit(campD, cd, { targetTroopType: 'heavy-cavalry', count: 999 }).trained === 10);
   // while called up the trained militia are billed in garrisonCost; the credit is the at-home set
   const d2 = camp2.domains[0];
@@ -147,21 +157,21 @@ section('Militia — penalty + revenue + the RR p.433 Marcus garrison credit (2,
   // 1 per 10 → −1 (RR p.432)
   const d = mkDomain(1000, 1, 'dom-1per');
   const camp = mkCamp([d], 1);
-  A.levyMilitia(camp, 'dom-1per', { count: 100 });   // 100 / (1000/10=100) = 1 per 10 → −1
+  levyM(camp, 'dom-1per', { count: 100 });   // 100 / (1000/10=100) = 1 per 10 → −1
   ok('militia morale penalty −1 (1 per 10)', A.militiaDomainMoralePenalty(camp, d) === -1);
 }
 {
   // a training cost actually debits the home domain treasury (RR p.431), capped by the qualifying number
   const d = mkDomain(1200, 1, 'dom-pay'); d.treasury = { gp: 100000 };
   const camp = mkCamp([d], 1);
-  const u = A.levyConscripts(camp, 'dom-pay', { count: 60 });
+  const u = levyC(camp, 'dom-pay', { count: 60 });
   A.trainLevyUnit(camp, u, { targetTroopType: 'heavy-infantry' });   // 60 conscripts → 50% = 30 qualify → 30 × 122 = 3,660gp
   ok('training debits the home domain treasury (cap 30 × 122 = 3,660)', d.treasury.gp === 100000 - 3660);
   // the cap is pool-wide (RR p.431) — a domain whose WHOLE conscript pool is too small yields 0 of a type
   const tiny = mkCamp([mkDomain(1200, 1, 'dom-tiny')], 1);
-  ok('a 5-conscript pool yields 0 heavy cavalry (Q=10) → refused', A.trainLevyUnit(tiny, A.levyConscripts(tiny, 'dom-tiny', { count: 5 }), { targetTroopType: 'heavy-cavalry' }).reason === 'too-few-qualify');
+  ok('a 5-conscript pool yields 0 heavy cavalry (Q=10) → refused', A.trainLevyUnit(tiny, levyC(tiny, 'dom-tiny', { count: 5 }), { targetTroopType: 'heavy-cavalry' }).reason === 'too-few-qualify');
   const orcCamp = mkCamp([mkDomain(1000, 1, 'dom-orc')], 1);
-  const ou = A.levyConscripts(orcCamp, 'dom-orc', { count: 10, race: 'orc' });
+  const ou = levyC(orcCamp, 'dom-orc', { count: 10, race: 'orc' });
   ok('orc conscript cannot train as cataphract (qualifying 0)', A.trainLevyUnit(orcCamp, ou, { targetTroopType: 'cataphract-cavalry' }).ok === false);
 }
 
@@ -170,8 +180,8 @@ section('Training qualifying cap is POOL-WIDE, not per-unit (RR p.431, 2026-06-1
 {
   // Splitting a levy before training must NOT change how many of a type the domain can ultimately field.
   const camp = mkCamp([mkDomain(1200, 1, 'dom-split')], 1);
-  const a = A.levyConscripts(camp, 'dom-split', { count: 60 });   // a 120 levy split into two 60-units up front
-  const b = A.levyConscripts(camp, 'dom-split', { count: 60 });
+  const a = levyC(camp, 'dom-split', { count: 60 });   // a 120 levy split into two 60-units up front
+  const b = levyC(camp, 'dom-split', { count: 60 });
   ok('pool = 120 conscripts across two units', A.domainLevyPoolCount(camp, 'dom-split', 'conscript') === 120);
   ok('heavy-infantry allowance from the 120 pool = 60', A.conscriptQualifyingRemaining(camp, 'dom-split', 'conscript', 'heavy-infantry', 'man') === 60);
   const ra = A.trainLevyUnit(camp, a, { targetTroopType: 'heavy-infantry' });
@@ -183,8 +193,8 @@ section('Training qualifying cap is POOL-WIDE, not per-unit (RR p.431, 2026-06-1
   ok('unit B can still train as light infantry (Q=120, uncapped)', A.trainLevyUnit(camp, b, { targetTroopType: 'light-infantry' }).trained === 60);
   // the cap is SHARED across units: 30+30 heavy from two units = 60 total ≤ the 120-pool cap (never 120)
   const camp2 = mkCamp([mkDomain(1200, 1, 'dom-share')], 1);
-  const x = A.levyConscripts(camp2, 'dom-share', { count: 60 });
-  const y = A.levyConscripts(camp2, 'dom-share', { count: 60 });
+  const x = levyC(camp2, 'dom-share', { count: 60 });
+  const y = levyC(camp2, 'dom-share', { count: 60 });
   const rx = A.trainLevyUnit(camp2, x, { targetTroopType: 'heavy-infantry', count: 30 });
   const ry = A.trainLevyUnit(camp2, y, { targetTroopType: 'heavy-infantry', count: 30 });
   ok('two units 30+30 heavy = 60 total fits the shared 120-pool cap', rx.trained === 30 && ry.trained === 30 && A.domainLevyTrainedOfType(camp2, 'dom-share', 'conscript', 'heavy-infantry') === 60);
@@ -201,7 +211,7 @@ section('Training takes TIME (RR p.431; W7 training timer)');
   // unit stays an untrained levy (can't fight or be re-trained) until the 'levy-training' day-consumer
   // completes it after the type's training months (heavy infantry = 1 month = 30 days).
   const camp = mkCamp([mkDomain(1200, 1, 'dom-tt')], 1); const d = camp.domains[0]; d.treasury = { gp: 100000 };
-  const u = A.levyConscripts(camp, 'dom-tt', { count: 120 });
+  const u = levyC(camp, 'dom-tt', { count: 120 });
   const r = A.trainLevyUnit(camp, u, { targetTroopType: 'heavy-infantry' });   // 60 qualify · heavy = 1 month
   ok('train defers: inTraining true, trained 60, months 1', r.ok && r.inTraining === true && r.trained === 60 && r.months === 1);
   ok('the unit is STILL an untrained levy @ wage 3 (not yet converted)', u.unitTypeKey === 'untrained-levy' && u.monthlyWage === 3);
@@ -225,13 +235,13 @@ section('Training takes TIME (RR p.431; W7 training timer)');
 
   // opts.instant completes immediately (the legacy/expedite path the end-state tests above use)
   const ci = mkCamp([mkDomain(1200, 1, 'dom-ti')], 1); ci.domains[0].treasury = { gp: 100000 };
-  const ui = A.levyConscripts(ci, 'dom-ti', { count: 120 });
+  const ui = levyC(ci, 'dom-ti', { count: 120 });
   const ri = A.trainLevyUnit(ci, ui, { targetTroopType: 'light-infantry', instant: true });
   ok('instant:true converts at once (inTraining false, light @ wage 6, no trainingState)', ri.ok && ri.inTraining === false && ui.unitTypeKey === 'light-infantry' && ui.monthlyWage === 6 && ui.trainingState === null);
 
   // a longer training carries the right completion ordinal: cataphract = 12 months = 360 days
   const cl = mkCamp([mkDomain(2400, 1, 'dom-tl')], 1); cl.domains[0].treasury = { gp: 1000000 };
-  const ul = A.levyConscripts(cl, 'dom-tl', { count: 120 });   // cataphract Q=6 → 6 qualify
+  const ul = levyC(cl, 'dom-tl', { count: 120 });   // cataphract Q=6 → 6 qualify
   const rl2 = A.trainLevyUnit(cl, ul, { targetTroopType: 'cataphract-cavalry' });
   ok('cataphract (12 mo): completesAtOrd = start + 360, months 12', rl2.ok && rl2.months === 12 && rl2.completesAtOrd === ul.trainingState.startedAtOrd + 360);
 }
@@ -252,7 +262,7 @@ section('Economy wiring — oracle-safety + the W7 morale/adequacy/revenue terms
   ok('wage-waived lord troops counted in garrisonAdequacySpend', A.garrisonAdequacySpend(camp, d) === 60 * 12 + 96 * 6);
   // moraleModifiersFor surfaces the militia term when militia are called up
   const md = mkDomain(1200, 2, 'dom-mm'); const mcamp = mkCamp([md], 1);
-  A.levyMilitia(mcamp, 'dom-mm', { count: 240 });
+  levyM(mcamp, 'dom-mm', { count: 240 });
   const mods = A.moraleModifiersFor(mcamp, md);
   ok('moraleModifiersFor lists the militia-called-up penalty (−2)', mods.some(m => /Militia called up/.test(m.label) && m.value === -2));
 }
@@ -323,24 +333,24 @@ function mkFeudal(opts){
 section('Sticky casualties + the available pool (RR p.430 — the Marcus example)');
 {
   const d = mkDomain(1000, 1, 'dom-sticky'); const camp = mkCamp([d], 1);
-  const con = A.levyConscripts(camp, 'dom-sticky', { count: 100 });
+  const con = levyC(camp, 'dom-sticky', { count: 100 });
   ok('raised 100 → everRaised 100, available 0', A.levyEverRaised(camp, d, 'conscript') === 100 && A.levyAvailable(camp, d, 'conscript') === 0);
   con.casualties = 50;   // lost 50 in battle
   ok('after 50 casualties: living 50 but everRaised still 100 (sticky)', Math.max(0, (con.count || 0) - (con.casualties || 0)) === 50 && A.levyEverRaised(camp, d, 'conscript') === 100);
   ok('casualties do NOT free a levy slot (available still 0)', A.levyAvailable(camp, d, 'conscript') === 0);
-  ok('cannot instantly re-levy the dead', A.levyConscripts(camp, 'dom-sticky', { count: 50 }) === null);
+  ok('cannot instantly re-levy the dead', levyC(camp, 'dom-sticky', { count: 50 }) === null);
   d.demographics.peasantFamilies = 1200;   // the domain grows
   ok('grown to 1,200 → cap 120 → available 20 (only the new families, RR p.430)', A.levyAvailable(camp, d, 'conscript') === 20);
-  const more = A.levyConscripts(camp, 'dom-sticky', { count: 99 });
+  const more = levyC(camp, 'dom-sticky', { count: 99 });
   ok('a fresh levy clamps to the 20 available', more && more.count === 20);
-  ok('now at cap → available 0, no more', A.levyAvailable(camp, d, 'conscript') === 0 && A.levyConscripts(camp, 'dom-sticky', { count: 1 }) === null);
+  ok('now at cap → available 0, no more', A.levyAvailable(camp, d, 'conscript') === 0 && levyC(camp, 'dom-sticky', { count: 1 }) === null);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 section("Casualty replenishment over time — 5%/yr of the cap (RR p.430 designer's note)");
 {
   const d = mkDomain(1000, 1, 'dom-repl'); const camp = mkCamp([d], 1);
-  const con = A.levyConscripts(camp, 'dom-repl', { count: 100 }); con.casualties = 50;
+  const con = levyC(camp, 'dom-repl', { count: 100 }); con.casualties = 50;
   ok('one month does not yet heal (carry < 1)', A.processLevyReplenishmentForTurn(camp) === 0 && con.casualties === 50);
   let healed = 0; for(let i = 0; i < 11; i++) healed += A.processLevyReplenishmentForTurn(camp);   // 12 total with the one above
   ok('a year (12 turns) heals 5 conscript casualties (cap 100 × 5%)', con.casualties === 45, 'casualties=' + con.casualties);
@@ -349,7 +359,7 @@ section("Casualty replenishment over time — 5%/yr of the cap (RR p.430 designe
   ok('no casualties → replenishment is a no-op (carry resets)', A.processLevyReplenishmentForTurn(camp) === 0);
   // militia heal too (parity): cap 200 × 5% = 10/yr
   const md = mkDomain(1000, 1, 'dom-replm'); const mc = mkCamp([md], 1);
-  const mil = A.levyMilitia(mc, 'dom-replm', { count: 100 }); mil.casualties = 40;
+  const mil = levyM(mc, 'dom-replm', { count: 100 }); mil.casualties = 40;
   for(let i = 0; i < 12; i++) A.processLevyReplenishmentForTurn(mc);
   ok('militia replenish too — cap 200 × 5% = 10/yr (40 → 30)', mil.casualties === 30, 'casualties=' + mil.casualties);
 }
@@ -358,7 +368,7 @@ section("Casualty replenishment over time — 5%/yr of the cap (RR p.430 designe
 section('Per-unit militia send-home / call-up + release (RR pp.430–432)');
 {
   const d = mkDomain(1200, 1, 'dom-set'); const camp = mkCamp([d], 1);
-  const mil = A.levyMilitia(camp, 'dom-set', { count: 60 });
+  const mil = levyM(camp, 'dom-set', { count: 60 });
   A.trainLevyUnit(camp, mil, { targetTroopType: 'light-infantry', instant: true });   // light: Q=120, all 60 qualify (instant — this block tests send-home + the trained at-home credit, not the timer)
   ok('called-up militia counts before send-home', A.militiaCalledUpCount(camp, d) === 60);
   const sh = A.sendMilitiaUnitHome(camp, mil);
@@ -366,15 +376,70 @@ section('Per-unit militia send-home / call-up + release (RR pp.430–432)');
   ok('called-up count now 0; the at-home trained credit reads 360gp (60×6 light)', A.militiaCalledUpCount(camp, d) === 0 && A.domainTrainedMilitiaCredit(camp, d) === 360);
   A.callUpMilitia(camp, mil);
   ok('callUpMilitia: calledUp true, re-stationed to garrison, billed again', mil.calledUp === true && mil.stationedAt && mil.stationedAt.kind === 'domain-garrison' && A.militiaCalledUpCount(camp, d) === 60);
-  const raw = A.levyMilitia(camp, 'dom-set', { count: 40 });
+  const raw = levyM(camp, 'dom-set', { count: 40 });
   const sh2 = A.sendMilitiaUnitHome(camp, raw);
   ok('untrained militia send-home → stands DOWN (stays on the rolls, calledUp false, not disbanded)', sh2.sentHome === 1 && sh2.disbanded === 0 && camp.units.some(u => u.id === raw.id) && raw.calledUp === false && !raw.stationedAt);
   ok('an untrained militia at home gets NO garrison credit — only trained+equipped does (RR p.341)', A.domainTrainedMilitiaCredit(camp, d) === 0);
   ok('a stood-down militia still occupies its levy slot until released (sticky cap)', A.levyEverRaised(camp, d, 'militia') === 100);
-  const con = A.levyConscripts(camp, 'dom-set', { count: 30 });
+  const con = levyC(camp, 'dom-set', { count: 30 });
   const before = A.levyEverRaised(camp, d, 'conscript');
   ok('releaseLevyUnit removes it + frees the slot', A.releaseLevyUnit(camp, con) === true && !camp.units.some(u => u.id === con.id) && A.levyEverRaised(camp, d, 'conscript') === before - 30);
   ok('releaseLevyUnit on a non-levy → false', A.releaseLevyUnit(camp, A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 10 })) === false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Levying takes TIME (RR p.430; W7 levy-arrival staging)');
+{
+  ok('the levy-arrival helpers are exported', typeof A.unitMusterDaysLeft === 'function' && typeof A.proposeLevyMusterDay === 'function' && typeof A.commitLevyMusterRecord === 'function');
+
+  // The DEFAULT levy DEFERS: count starts at 0 (none arrived yet), musterPending holds the full commit,
+  // and a 3-batch schedule lands ½/¼/remainder at +7/+14/+21 days (the barony WEEK period, RR pp.430/434).
+  const camp = mkCamp([mkDomain(1200, 1, 'dom-mus')], 5);
+  const u = A.levyConscripts(camp, 'dom-mus', { count: 48 });
+  ok('a staged levy starts with 0 arrived (it takes time)', A.unitActiveCount(u) === 0 && u.count === 0);
+  ok('musterPending holds the full commit (48)', u.musterPending === 48);
+  ok('musterState: total 48, 3 batches ½/¼/remainder = 24/12/12', u.musterState && u.musterState.total === 48 && u.musterState.schedule.length === 3 && u.musterState.schedule[0].count === 24 && u.musterState.schedule[1].count === 12 && u.musterState.schedule[2].count === 12);
+  ok('the batches land at +7 / +14 / +21 days', (() => { const s = u.musterState, st = s.startedAtOrd; return s.schedule[0].atOrd === st + 7 && s.schedule[1].atOrd === st + 14 && s.schedule[2].atOrd === st + 21; })());
+  ok('still an untrained levy, called up, stationed in the garrison', u.unitTypeKey === 'untrained-levy' && u.calledUp === true && u.stationedAt && u.stationedAt.kind === 'domain-garrison');
+  ok('days left at levy-time = 21', A.unitMusterDaysLeft(camp, u) === 21);
+
+  // the FULL commit reserves the cap even though none have arrived (everRaised counts musterPending)
+  ok('everRaised counts the still-mustering commit (48); available = conscript cap 120 − 48 = 72', A.levyEverRaised(camp, camp.domains[0], 'conscript') === 48 && A.levyAvailable(camp, camp.domains[0], 'conscript') === 120 - 48);
+
+  // can't train, and the training pool counts only the ARRIVED soldiers while mustering
+  ok('a still-mustering levy cannot be trained yet', A.trainLevyUnit(camp, u, { targetTroopType: 'heavy-infantry' }).reason === 'still-mustering');
+  ok('the training pool counts only arrived soldiers (0 so far)', A.domainLevyPoolCount(camp, 'dom-mus', 'conscript') === 0);
+
+  // advance the Day Clock to month end — the 'levy-muster' consumer tops up `count` as each weekly batch lands
+  A.runDayTickToMonthEnd(camp);   // ticks days 2..30 of turn 5 → batches at days 8 (½) / 15 (¼) / 22 (rest)
+  ok('after a full month the levy is fully mustered (48 arrived, musterState cleared)', A.unitActiveCount(u) === 48 && u.count === 48 && u.musterPending === 0 && u.musterState === null);
+  ok('days left after full muster = null', A.unitMusterDaysLeft(camp, u) === null);
+  ok('fully mustered → now trainable', A.trainLevyUnit(camp, u, { targetTroopType: 'light-infantry' }).ok === true);
+
+  // partial muster across ONE week: only the first batch (½) has arrived — and the pure peek doesn't mutate
+  const camp2 = mkCamp([mkDomain(1200, 1, 'dom-mus2')], 5);
+  const u2 = A.levyConscripts(camp2, 'dom-mus2', { count: 48 });
+  A.proposeDayTick(camp2, 7);   // PURE peek (no commit) — must not mutate the real campaign
+  ok('a pure proposeDayTick peek does not mutate the real levy', A.unitActiveCount(u2) === 0 && u2.musterPending === 48);
+  A.commitDayTick(camp2, A.proposeDayTick(camp2, 7, { force: true }));   // advance to day 8 (batch 1)
+  ok('after week 1 (day 8): ½ = 24 arrived, 24 still mustering', A.unitActiveCount(u2) === 24 && u2.musterPending === 24 && u2.musterState && u2.musterState.arrivedSoFar === 24);
+  ok('after week 1: days left = 14 (to the +21 batch)', A.unitMusterDaysLeft(camp2, u2) === 14);
+  ok('the 24 arrived count toward the pool; everRaised stays the full 48', A.domainLevyPoolCount(camp2, 'dom-mus2', 'conscript') === 24 && A.levyEverRaised(camp2, camp2.domains[0], 'conscript') === 48);
+
+  // a tiny levy: the whole of it (½ rounded up = 1) lands in the first batch
+  const camp3 = mkCamp([mkDomain(20, 1, 'dom-one')], 5);   // cap 2
+  const u3 = A.levyConscripts(camp3, 'dom-one', { count: 1 });
+  ok('a 1-conscript levy schedules a single batch of 1', u3.musterState.schedule.length === 1 && u3.musterState.schedule[0].count === 1);
+
+  // militia stage too ("Militia arrive at the same rate as conscripts" — RR p.432)
+  const camp4 = mkCamp([mkDomain(1200, 1, 'dom-musm')], 5);
+  const m = A.levyMilitia(camp4, 'dom-musm', { count: 100 });
+  ok('a staged militia levy: 0 arrived, schedule 50/25/25', A.unitActiveCount(m) === 0 && m.musterState.schedule[0].count === 50 && m.musterState.schedule[1].count === 25 && m.musterState.schedule[2].count === 25);
+
+  // opts.instant skips staging (the legacy/expedite path the wrapper'd suites above use)
+  const camp5 = mkCamp([mkDomain(1200, 1, 'dom-inst')], 5);
+  const u5 = A.levyConscripts(camp5, 'dom-inst', { count: 30, instant: true });
+  ok('instant:true skips staging — 30 arrive at once, no musterState', A.unitActiveCount(u5) === 30 && u5.count === 30 && !u5.musterState && !(u5.musterPending > 0));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

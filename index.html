@@ -43,7 +43,7 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-17-w7train"></script>
+<script src="acks-engine.js?v=2026-06-17-w7muster"></script>
 <script src="acks-engine-entities.js?v=2026-06-17-garrison"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
@@ -2551,6 +2551,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="p-4 space-y-3 text-sm">
           <p class="text-xs opacity-70" x-text="levyModal.source==='militia' ? '≤2 per 10 families. Each called-up militiaman costs 1 family of revenue + domain morale −1/−2 until sent home (RR pp.432–433).' : '≤1 per 10 families; no morale or revenue cost (RR pp.430–431).'"></p>
+          <p class="text-xs opacity-70 italic">Levying takes time — ½ arrive the first week, ¼ the second, the rest the third (RR p.430). Advance the Day Clock to muster them in; you can train them once fully assembled.</p>
           <label class="flex items-center gap-2 flex-wrap">Number to levy:
             <input type="number" min="1" :max="levyModalAvailable()" x-model.number="levyModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
             <span class="text-xs opacity-60" x-text="'(available ' + levyModalAvailable() + ' / cap ' + domainLevyCap(levyModalDomain(), levyModal.source) + ')'"></span>
@@ -2709,13 +2710,14 @@ document.addEventListener('alpine:init', () => {
             <span><span class="opacity-70">Supply:</span> <span x-text="u.supplyState || 'supplied'"></span></span>
           </div>
           <div class="border-t border-ink/20 pt-2">
-            <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u)">
+            <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u) && !unitIsMustering(u)">
               <p class="flex flex-wrap items-center gap-2"><span class="opacity-70">Training:</span>
                 <button @click="openTrainModal(u)" class="px-2 py-0.5 border border-ink rounded text-xs hover:bg-amber-50" title="Train + equip this levy into a professional troop type (RR p.431)">🎓 Train…</button>
                 <span class="text-xs opacity-60">— turn this untrained levy into a professional troop type (RR p.431)</span>
               </p>
             </template>
             <template x-if="unitIsTraining(u)"><p class="text-xs"><span class="opacity-70">Training:</span> 🎓 <span x-text="unitTrainingText(u)"></span> <span class="opacity-50">(it stays an untrained levy until training completes)</span></p></template>
+            <template x-if="unitIsMustering(u)"><p class="text-xs"><span class="opacity-70">Mustering:</span> ⏳ <span x-text="unitMusterText(u)"></span> <span class="opacity-50">(levied troops arrive over 3 weeks — RR p.430; advance the Day Clock)</span></p></template>
             <template x-if="u.unitTypeKey !== 'untrained-levy'"><p class="text-xs"><span class="opacity-70">Training:</span> trained as <span x-text="unitTypeLabelFor(u)"></span></p></template>
           </div>
           <p class="text-xs"><span class="opacity-70">Stationed:</span> <span x-text="unitStationLabel(u)"></span></p>
@@ -5666,7 +5668,7 @@ document.addEventListener('alpine:init', () => {
                       <button @click="removeGarrisonUnit(selectedDomain, u)" class="accent-red px-1" title="Remove this unit">×</button>
                       <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
                       <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
-                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
+                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u) && !unitIsMustering(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
                       <template x-if="unitIsMarching(u)"><button @click="stopUnitMarchUi(u)" class="px-1 underline accent-red" title="Halt the march where the unit stands">🛑 Stop march</button></template>
                     </td>
                   </tr>
@@ -5702,7 +5704,7 @@ document.addEventListener('alpine:init', () => {
                     </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
-                        <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u)">
+                        <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u) && !unitIsMustering(u)">
                           <button @click="openTrainModal(u)" class="px-1 underline" title="Train + equip into a professional troop type (RR p.431)">🎓 Train</button>
                         </template>
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
@@ -5710,7 +5712,7 @@ document.addEventListener('alpine:init', () => {
                         <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — RR p.430 (trained → mercenaries/brigands, untrained → farms)">Release</button>
                         <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
                         <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
-                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
+                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u) && !unitIsMustering(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
                       <template x-if="unitIsMarching(u)"><button @click="stopUnitMarchUi(u)" class="px-1 underline accent-red" title="Halt the march where the unit stands">🛑 Stop march</button></template>
                     </td>
                   </tr>
@@ -5751,7 +5753,7 @@ document.addEventListener('alpine:init', () => {
                     </td>
                     <td class="whitespace-nowrap text-xs" x-text="unitDeploymentLabel(u)"></td>
                     <td class="whitespace-nowrap text-xs">
-                        <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u)">
+                        <template x-if="u.unitTypeKey === 'untrained-levy' && !unitIsTraining(u) && !unitIsMustering(u)">
                           <button @click="openTrainModal(u)" class="px-1 underline" title="Train + equip into a professional troop type (RR p.431)">🎓 Train</button>
                         </template>
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
@@ -5761,7 +5763,7 @@ document.addEventListener('alpine:init', () => {
                         <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — disband and return to the population, freeing the levy slot (RR p.432)">Release</button>
                         <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
                         <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
-                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
+                      <template x-if="!unitIsDeployed(u) && !unitIsMarching(u) && !unitIsTraining(u) && !unitIsMustering(u)"><button @click="openMarchModal(u)" class="px-1 underline" title="Send this unit on a march to any hex (a Journey at unit scale — no supply line)">🚶 March</button></template>
                       <template x-if="unitIsMarching(u)"><button @click="stopUnitMarchUi(u)" class="px-1 underline accent-red" title="Halt the march where the unit stands">🛑 Stop march</button></template>
                     </td>
                   </tr>
@@ -17323,7 +17325,9 @@ return {
     if(!u){ this.showToast && this.showToast('No room to levy more ' + src + ' (available ' + this.domainLevyAvailable(d, src) + ').', 4000); return; }
     if(this.levyModal.homeHexId) this.setUnitHomeUi(u, this.levyModal.homeHexId);
     this.markDirty(); this.schedulePersist();
-    this.showToast && this.showToast('Levied ' + u.count + ' ' + src + ' from ' + (d.name || d.id) + '.');
+    this.showToast && this.showToast(u.musterState
+      ? 'Began levying ' + u.musterState.total + ' ' + src + ' from ' + (d.name || d.id) + ' — they arrive over 3 weeks (RR p.430). Advance the Day Clock.'
+      : 'Levied ' + u.count + ' ' + src + ' from ' + (d.name || d.id) + '.');
     this.closeLevyModal();
   },
 
@@ -17443,7 +17447,9 @@ return {
       : window.ACKS.levyConscripts(this.currentCampaign, domain.id, { count: n });
     if(!u){ this.showToast && this.showToast('No room to levy more ' + source + ' (available ' + this.domainLevyAvailable(domain, source) + ', or the realm is too unhappy).', 4000); return; }
     this.markDirty(); this.schedulePersist();
-    this.showToast && this.showToast('Levied ' + u.count + ' ' + source + ' from ' + (domain.name || domain.id) + '.');
+    this.showToast && this.showToast(u.musterState
+      ? 'Began levying ' + u.musterState.total + ' ' + source + ' from ' + (domain.name || domain.id) + ' — they arrive over 3 weeks (RR p.430).'
+      : 'Levied ' + u.count + ' ' + source + ' from ' + (domain.name || domain.id) + '.');
   },
   // 🎓 Train modal (Domain ▸ Military) — turn an untrained conscript/militia levy into a professional
   // troop type. RR p.431: the Qualifying Number caps how many of the levy qualify for each type; the
@@ -17558,9 +17564,9 @@ return {
   },
   levyMergeSiblings(domain, unit){
     // exclude in-training units (their cohort is fixed until it completes — RR p.431; W7 timer)
-    return this.domainLevyRows(domain, unit.source).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !u.trainingState && ((u.calledUp === false) === (unit.calledUp === false)));
+    return this.domainLevyRows(domain, unit.source).filter(u => u !== unit && u.unitTypeKey === unit.unitTypeKey && !u.trainingState && !((u.musterPending || 0) > 0) && ((u.calledUp === false) === (unit.calledUp === false)));
   },
-  canMergeLevy(domain, unit){ return !unit.trainingState && this.levyMergeSiblings(domain, unit).length > 0; },
+  canMergeLevy(domain, unit){ return !unit.trainingState && !((unit.musterPending || 0) > 0) && this.levyMergeSiblings(domain, unit).length > 0; },
   domainMergeLevy(domain, unit){
     const sibs = this.levyMergeSiblings(domain, unit);
     if(!sibs.length){ alert('No same-type sibling unit to merge into.'); return; }
@@ -18298,6 +18304,13 @@ return {
       const j = (camp.journeys || []).find(x => x && x.id === unit.marchJourneyId);
       if(j && j.status === 'in-transit') return '🚶 marching to ' + this.hexLabelById(j.destinationHexId);
     }
+    if(unit.musterState && (unit.musterPending || 0) > 0){   // W7 — levied troops arriving over 3 weeks (RR p.430)
+      const A = window.ACKS;
+      const left = (A && A.unitMusterDaysLeft) ? A.unitMusterDaysLeft(camp, unit) : null;
+      const total = unit.musterState.total || 0;
+      const here = Math.max(0, (unit.count || 0) - (unit.casualties || 0));
+      return '⏳ mustering — ' + here + ' of ' + total + ' arrived' + (left != null ? ' (' + left + 'd left)' : '');
+    }
     if(unit.trainingState && unit.trainingState.targetTroopType){   // W7 — drilling until the type's months elapse (RR p.431)
       const A = window.ACKS;
       const left = (A && A.unitTrainingDaysLeft) ? A.unitTrainingDaysLeft(camp, unit) : null;
@@ -18332,6 +18345,19 @@ return {
     const left = (A && A.unitTrainingDaysLeft) ? A.unitTrainingDaysLeft(this.currentCampaign, unit) : null;
     const row = (A && A.findTroopType) ? A.findTroopType(unit.trainingState.targetTroopType, { race: unit.race || 'man' }) : null;
     return 'in training as ' + ((row && row.label) || unit.trainingState.targetTroopType) + (left != null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '');
+  },
+  // A levy is "mustering" until the 'levy-muster' day-consumer finishes assembling it (RR p.430; W7
+  // levy-arrival staging). While mustering it can't be trained, marched, or merged — its 🎓 Train /
+  // 🚶 March / Merge actions are gated, like an in-training unit.
+  unitIsMustering(unit){ return !!(unit && (unit.musterPending || 0) > 0); },
+  // "12 of 48 arrived — 13 days left" (RR p.430; W7). '' when not mustering.
+  unitMusterText(unit){
+    if(!this.unitIsMustering(unit)) return '';
+    const A = window.ACKS;
+    const left = (A && A.unitMusterDaysLeft) ? A.unitMusterDaysLeft(this.currentCampaign, unit) : null;
+    const total = (unit.musterState && unit.musterState.total) || 0;
+    const here = Math.max(0, (unit.count || 0) - (unit.casualties || 0));
+    return here + ' of ' + total + ' arrived' + (left != null ? ' — ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '');
   },
   // ── Add / remove a garrison unit from a field army (the Garrison-table membership verbs, 2026-06-17) ──
   // Field armies standing at this unit's current hex — the "Add to army" candidates (RAW: a unit
