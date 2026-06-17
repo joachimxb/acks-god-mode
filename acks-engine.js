@@ -6015,6 +6015,10 @@ function createEncounterFromDraw(campaign, draw, opts){
   if(o.onDayInMonth !== undefined) createOpts.occurredOnDayInMonth = o.onDayInMonth;
   const enc = createEncounter(campaign, createOpts);
   if(!enc) return null;
+  // Voyages V4 — a sea draw carries its maritime context; attach it defensively so the resolution
+  // panel reads "at sea" + the sea evasion (vessels can't evade monsters → combat handoff). No
+  // blankEncounter change / no migration — a land encounter lacks draw.atSea, so enc.atSea stays falsy.
+  if(draw.atSea){ enc.atSea = true; enc.seaZone = draw.seaZone || null; enc.evasion = draw.evasion || null; }
   // A trigger that pre-rolled the distance with its SEEDED rng (the journey preview) hands it
   // in verbatim — the entity matches the reviewed proposal byte-for-byte.
   if(o.distance && enc.distance == null){

@@ -126,6 +126,23 @@ const WEATHER_GAMEPLAY_FLAGS = Object.freeze({
 });
 function _isPrevailing(axis, value){ return WEATHER_GAMEPLAY_FLAGS[axis] && WEATHER_GAMEPLAY_FLAGS[axis].indexOf(value) >= 0; }
 
+// =============================================================================
+// HW-3 wind DIRECTION (RR p.318 — the reserved wind-direction axis, made real for
+// Voyages V2). RAW rolls 1d12/12h → 8 compass points (+ a prevailing bias by
+// locale/season). v1: 8 compass points, uniform — the prevailing-wind weighting +
+// the day-to-day momentum are deferred Voyages augmentations (Maritime survey §18 OQ2).
+// Wind DIRECTION is the bearing the wind blows FROM (a "north wind" comes from the
+// north). Degrees are compass bearings (N=0° clockwise); Voyages owns the point-of-sail
+// function that reads heading vs this. Direction is independent of the weather-front
+// shift (no prevailing momentum in v1). Stored on the weather result so the map's
+// reserved wind-arrow layer (HW-3) + the journeys voyage branch both read one home.
+// =============================================================================
+const WIND_DIRECTION_LABELS = Object.freeze(['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']);
+function _rollWindDirection(rng){
+  const i = Math.floor(rng() * 8) % 8;            // 8 compass points, 45° apart
+  return { deg: i * 45, label: WIND_DIRECTION_LABELS[i] };
+}
+
 // ── PRNG: local FNV-1a + mulberry32 (the same shape the subsystems day-consumers
 // use for seeded deterministic previews; kept local so the module is self-contained). ──
 function _wHash32(str){
@@ -242,11 +259,18 @@ function rollDailyWeather(koppen, season, opts){
   if(_isPrevailing('precipitation', precipitation)) prevailing.push(precipitation);
   if(_isPrevailing('wind', wind)) prevailing.push(wind);
 
+  // 7) wind DIRECTION (HW-3 / RR p.318) — one extra draw AFTER the three 2d6 rolls,
+  // so existing weather outputs (temperature/precip/wind) are unchanged. Not front-
+  // shifted (no prevailing momentum in v1). The bearing the wind blows FROM.
+  const windDir = _rollWindDirection(rng);
+
   return {
     temperature: dayCell.band, temperatureF: [dayCell.lo, dayCell.hi],
     nightTemperature: nightCell.band, nightTemperatureF: [nightCell.lo, nightCell.hi],
     precipitation: precipitation,
     wind: wind,
+    windDirection: windDir.deg,            // bearing the wind blows FROM, compass degrees (N=0°, CW)
+    windDirectionLabel: windDir.label,     // N | NE | E | SE | S | SW | W | NW
     condition: _conditionKey(precipitation, wind),       // JOURNEY_WEATHER_SPEED key
     temperatureBand: _temperatureBandKey(dayCell.band),  // JOURNEY_TEMPERATURE_SPEED key
     prevailing: prevailing,
@@ -396,6 +420,7 @@ function _consumerWeather(result){
     condition: result.condition, temperature: result.temperatureBand,
     rolledOrSet: 'rolled',
     precipitation: result.precipitation, wind: result.wind, band: result.temperature,
+    windDirection: result.windDirection, windDirectionLabel: result.windDirectionLabel,  // HW-3 — Voyages V2 reads these
     prevailing: result.prevailing || [], result: result
   };
 }
@@ -568,7 +593,7 @@ if(typeof ACKS.registerDayConsumer === 'function'){
 
 Object.assign(ACKS, {
   WEATHER_BY_CLIMATE_SEASON, DAILY_WEATHER_TABLE, WEATHER_GAMEPLAY_FLAGS, WEATHER_FILL_COLORS,
-  DEFAULT_WEATHER_KOPPEN,
+  WIND_DIRECTION_LABELS, DEFAULT_WEATHER_KOPPEN,
   rollDailyWeather, weatherConditionEffects,
   hexParentCoord, regionKeyForCoord, journeyRegionKey,
   proposeWeatherDay, commitWeatherRecord,

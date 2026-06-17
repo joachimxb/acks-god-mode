@@ -83,6 +83,10 @@ section('HW-1 — JJ worked examples (computed by hand from the tables)');
   ok('Cfa spring 8/8/8 → Moderate wind', r.wind === 'Moderate');
   ok('Cfa spring 8/8/8 → condition fair, band moderate, no prevailing', r.condition === 'fair' && r.temperatureBand === 'moderate' && r.prevailing.length === 0);
   ok('Cfa spring 8/8/8 → mods recorded', r.mods.tempDay === 2 && r.mods.tempNight === 0 && r.mods.precip === -2 && r.mods.wind === 0);
+  // HW-3 (Voyages V2): a 4th roll — wind DIRECTION (8 compass points, 45° apart), drawn AFTER the
+  // three 2d6 rolls so temperature/precip/wind above are unchanged. const(0.5) → idx 4 = S / 180°.
+  ok('Cfa spring → wind direction S 180° (HW-3 / V2)', r.windDirection === 180 && r.windDirectionLabel === 'S');
+  ok('windDirection is one of the 8 compass points', ACKS.WIND_DIRECTION_LABELS.length === 8 && r.windDirection % 45 === 0 && r.windDirection >= 0 && r.windDirection < 360);
 
   // fast-travel / climate-changed re-roll (§3.3 rule 4): SAME climate + SAME seed → identical;
   // a DIFFERENT climate (rain shadow crossed) → a different result.
@@ -111,13 +115,13 @@ section('HW-1 — §3.3 interaction rules');
 
   // still + Drizzly → Misty (no game effect). Am summer (td+6, p+4, w+0); temp=8, precip=4, wind=2.
   //   day idx 8+6=14 col2 → Sweltering (warm, not cold) ; precip idx 4+4=8 → Drizzly ; wind idx 2 → Still → Misty
-  const misty = ACKS.rollDailyWeather('Am', 'summer', { rng: seqRng([0.5, 0.5, 0.3, 0.3, 0.05, 0.05]) });
+  const misty = ACKS.rollDailyWeather('Am', 'summer', { rng: seqRng([0.5, 0.5, 0.3, 0.3, 0.05, 0.05, 0.5]) });  // +7th = the wind-direction draw (HW-3)
   ok('still + Drizzly → Misty (Am summer)', misty.wind === 'Still' && misty.precipitation === 'Misty');
   ok('Misty is NOT prevailing (no game effect)', misty.prevailing.indexOf('Misty') < 0 && misty.condition === 'fair');
 
   // still + Rainy → Foggy. Am summer; temp=8, precip=6, wind=2.
   //   precip idx 6+4=10 → Rainy ; wind Still → Foggy
-  const foggy = ACKS.rollDailyWeather('Am', 'summer', { rng: seqRng([0.5, 0.5, 0.4, 0.4, 0.05, 0.05]) });
+  const foggy = ACKS.rollDailyWeather('Am', 'summer', { rng: seqRng([0.5, 0.5, 0.4, 0.4, 0.05, 0.05, 0.5]) });  // +7th = the wind-direction draw (HW-3)
   ok('still + Rainy → Foggy (Am summer)', foggy.wind === 'Still' && foggy.precipitation === 'Foggy');
   ok('Foggy is prevailing + condition foggy', foggy.prevailing.indexOf('Foggy') >= 0 && foggy.condition === 'foggy');
 }

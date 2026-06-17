@@ -331,6 +331,12 @@ function blankHex(opts={}){
     // grants no drinking water. Additive optional flags — no coordinate migration (Provisioning §3.1).
     hasLake:    opts.hasLake === true,
     freshWater: opts.freshWater === true,
+    // Phase 3 Voyages (#145) V3a — the sea-navigation zone (RR p.320), meaningful only when
+    // terrain==='water': 'lake'|'river'|'coast'|'open-sea' → the staying-on-course target
+    // (4+/4+/7+/11+, ACKS.SEA_NAV_THROWS) + the fog/snow weathering ½. null = unset → read as
+    // 'coast' (the forgiving default; auto-derivation from distance-to-shore is V4). Additive
+    // optional — NOT lazy-injected into migrateCampaign, so the 6 templates + demo stay migrate-no-ops.
+    seaZone: (opts.seaZone === 'lake' || opts.seaZone === 'river' || opts.seaZone === 'coast' || opts.seaZone === 'open-sea') ? opts.seaZone : null,
     primaryStructure: opts.primaryStructure || '',
     settlement: opts.settlement || null,
     lairs: opts.lairs || [],
@@ -1788,8 +1794,14 @@ function blankJourney(opts={}){
     lastTravelWorldOrd: opts.lastTravelWorldOrd != null ? opts.lastTravelWorldOrd : null,
     daysRemainingEstimate: opts.daysRemainingEstimate != null ? opts.daysRemainingEstimate : null,
     // Mode + pace
-    mode: opts.mode || 'foot',                          // J1: land modes only; enum reserves sea/air (§13)
+    mode: opts.mode || 'foot',                          // J1: land modes; voyage-* modes ride a Vessel via shipId (§13)
     pace: opts.pace || 'normal',                        // forced-march | normal | cautious | half-ancillary
+    // Voyages V2 (voyage modes only — a journey with a shipId): the propulsion the captain runs
+    // ('auto' takes the faster of sail/oar given the wind; 'sail'/'oar' force it) + the GM toggle for
+    // 24-hour open-sea sailing (×2 distance, gated on navigator + full crew + sail-capable). Lazy
+    // fields, read defensively (journey.propulsion || 'auto') — no migration; land journeys ignore them.
+    propulsion: opts.propulsion || 'auto',              // auto | sail | oar
+    continuousSailing: opts.continuousSailing || false, // 24h open-sea sail toggle (RR p.318)
     // GM speed override (§26) — a positive number sets the day's mile BUDGET directly, bypassing
     // base × weather × temperature × pace (per-hex terrain/ground/road still apply, §24). null = pace
     // governs (the default). The grayed-in-UI pace value is preserved and still drives fatigue.
