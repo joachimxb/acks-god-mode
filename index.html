@@ -43,7 +43,7 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-16-adc"></script>
+<script src="acks-engine.js?v=2026-06-17-army"></script>
 <script src="acks-engine-entities.js?v=2026-06-16-sd2"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
@@ -2344,6 +2344,25 @@ document.addEventListener('alpine:init', () => {
 </div>
 
 <!-- Levy modal (Domain ▸ Military, RR pp.430–433) — count + home hex for a conscript/militia levy. -->
+<!-- 🎖 Add-to-army chooser (2026-06-17) — when ≥2 field armies stand at a garrison unit's hex,
+     pick which one it joins (a single co-located army joins without this dialog). -->
+<div x-show="addToArmyModal.open" @keydown.escape.window="if(addToArmyModal.open){ addToArmyModal.open=false; $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:76; background:rgba(0,0,0,.45)" x-cloak @click.self="addToArmyModal.open=false">
+  <div class="vellum border border-ink rounded shadow-lg p-4 mt-16 w-full max-w-md" @click.stop>
+    <h3 class="font-bold text-lg mb-1">🎖 Add to which army?</h3>
+    <p class="text-xs opacity-70 mb-3" x-text="(addToArmyUnit() ? (addToArmyUnit().displayName || 'The unit') : 'The unit') + ' will join a field army standing here.'"></p>
+    <div class="space-y-1">
+      <template x-for="a in addToArmyChoices()" :key="'a2a-'+a.id">
+        <button @click="confirmAddToArmy(a.id)" class="block w-full text-left px-3 py-2 border border-ink rounded hover:bg-yellow-100">
+          <span class="font-semibold" x-text="a.name || 'an army'"></span>
+          <span class="text-xs opacity-70" x-text="' — ' + armyRosterCount(a) + ' unit' + (armyRosterCount(a)===1 ? '' : 's')"></span>
+        </button>
+      </template>
+      <template x-if="addToArmyChoices().length === 0"><p class="text-xs italic opacity-60">No army stands here any more.</p></template>
+    </div>
+    <div class="mt-3 text-right"><button @click="addToArmyModal.open=false" class="px-3 py-1 border border-ink rounded text-sm">Cancel</button></div>
+  </div>
+</div>
+
 <div x-show="levyModal.open" @keydown.escape.window="if(levyModal.open){ closeLevyModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:72; background:rgba(0,0,0,.45)" x-cloak @click.self="closeLevyModal()">
   <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-12">
     <template x-if="levyModalDomain()">
@@ -5451,6 +5470,8 @@ document.addEventListener('alpine:init', () => {
                       <button @click="splitGarrisonUnit(selectedDomain, u)" class="px-1 underline" title="Split N soldiers into a new unit">Split</button>
                       <button @click="mergeGarrisonUnit(selectedDomain, u)" :disabled="!canMergeGarrisonUnit(selectedDomain, u)" :class="canMergeGarrisonUnit(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
                       <button @click="removeGarrisonUnit(selectedDomain, u)" class="accent-red px-1" title="Remove this unit">×</button>
+                      <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
+                      <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
                     </td>
                   </tr>
                 </template>
@@ -5491,6 +5512,8 @@ document.addEventListener('alpine:init', () => {
                         <button @click="domainSplitLevy(selectedDomain, u)" class="px-1 underline" title="Divide N soldiers into a new unit (e.g. to train different types)">Split</button>
                         <button @click="domainMergeLevy(selectedDomain, u)" :disabled="!canMergeLevy(selectedDomain, u)" :class="canMergeLevy(selectedDomain, u) ? 'underline' : 'opacity-40'" class="px-1" title="Merge into a same-type sibling">Merge</button>
                         <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — RR p.430 (trained → mercenaries/brigands, untrained → farms)">Release</button>
+                        <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
+                        <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
                     </td>
                   </tr>
                 </template>
@@ -5538,6 +5561,8 @@ document.addEventListener('alpine:init', () => {
                         <template x-if="u.calledUp !== false"><button @click="domainSendMilitiaUnitHome(u)" class="px-1 underline" title="Stand this militia down to the rolls — no wages while at home (RR p.432); trained+equipped credit the garrison (RR p.341); call up again without re-levying">🏠 Home</button></template>
                         <template x-if="u.calledUp === false"><button @click="domainCallUpMilitia(u)" class="px-1 underline" title="Call this militia back up (RR p.432) — resumes the revenue/morale penalty">Call up</button></template>
                         <button @click="domainReleaseLevy(u)" class="px-1 accent-red" title="Release from service — disband and return to the population, freeing the levy slot (RR p.432)">Release</button>
+                        <template x-if="armiesAtUnitHex(u).length > 0"><button @click="addUnitToArmyUi(u)" class="px-1 underline" title="Add this unit to a field army standing at its location (JJ pp.104–106)">🎖 Add to army</button></template>
+                        <template x-if="unitIsDeployed(u)"><button @click="removeUnitFromArmyUi(u)" class="px-1 underline accent-red" title="Remove this unit from its army — it's left where the army stands">🏸 Leave army</button></template>
                     </td>
                   </tr>
                 </template>
@@ -17877,6 +17902,60 @@ return {
   // to muster — managed through its army (Characters ▸ Parties), not the garrison table; its Split /
   // Merge / × actions are guarded so they can't dangle an army division's unit reference.
   unitIsDeployed(unit){ return !!(unit && (unit.rallyingToArmyId || (unit.stationedAt && unit.stationedAt.kind === 'army'))); },
+  // ── Add / remove a garrison unit from a field army (the Garrison-table membership verbs, 2026-06-17) ──
+  // Field armies standing at this unit's current hex — the "Add to army" candidates (RAW: a unit
+  // joins an army it's co-located with; troops don't teleport — the army-card call-up marches
+  // distant ones in). Empty when the unit is already in an army or no army is here, so the row
+  // only shows "Add to army" when it's actually doable.
+  armiesAtUnitHex(u){
+    const camp = this.currentCampaign, A = window.ACKS;
+    if(!camp || !u || !A || !A.armiesAtHex || !A.unitCurrentHexId || this.unitIsDeployed(u)) return [];
+    const hex = A.unitCurrentHexId(camp, u);
+    return hex ? A.armiesAtHex(camp, hex) : [];
+  },
+  armyRosterCount(a){
+    const camp = this.currentCampaign, A = window.ACKS;
+    return (camp && a && A && A.armyUnits) ? A.armyUnits(camp, a).length : 0;
+  },
+  // "🎖 Add to army": one co-located army → join now; several → the chooser modal; none → not offered.
+  addUnitToArmyUi(u){
+    const armies = this.armiesAtUnitHex(u);
+    if(!armies.length){ this.showToast && this.showToast('No field army stands here to join.', 3000); return; }
+    if(armies.length === 1){ this._doAddUnitToArmy(u, armies[0].id); return; }
+    this.addToArmyModal = { open: true, unitId: u.id, hexId: window.ACKS.unitCurrentHexId(this.currentCampaign, u) };
+  },
+  addToArmyChoices(){
+    const camp = this.currentCampaign, m = this.addToArmyModal, A = window.ACKS;
+    return (camp && m && m.open && A && A.armiesAtHex) ? A.armiesAtHex(camp, m.hexId) : [];
+  },
+  addToArmyUnit(){
+    const camp = this.currentCampaign, m = this.addToArmyModal;
+    if(!camp || !m || !m.unitId) return null;
+    return (window.ACKS && window.ACKS.findUnit) ? window.ACKS.findUnit(camp, m.unitId) : ((camp.units || []).find(u => u && u.id === m.unitId) || null);
+  },
+  confirmAddToArmy(armyId){
+    const u = this.addToArmyUnit();
+    this.addToArmyModal = { open: false, unitId: null, hexId: null };
+    if(u) this._doAddUnitToArmy(u, armyId);
+  },
+  _doAddUnitToArmy(u, armyId){
+    const A = window.ACKS; if(!A || !A.addUnitToArmy) return;
+    const r = A.addUnitToArmy(this.currentCampaign, u, armyId);
+    if(r && r.ok){ this.markDirty(); this.schedulePersist(); this.showToast && this.showToast('🎖 ' + (u.displayName || 'Unit') + ' joined ' + ((r.army && r.army.name) || 'the army') + '.', 3000); }
+    else { this.showToast && this.showToast('Could not add to army' + (r && r.reason ? ' (' + r.reason + ')' : '') + '.', 3000); }
+  },
+  // "🏸 Leave army": detach the unit where the army stands (or cancel its call-up if still marching in).
+  removeUnitFromArmyUi(u){
+    const A = window.ACKS; if(!A || !A.removeUnitFromArmy) return;
+    const r = A.removeUnitFromArmy(this.currentCampaign, u);
+    if(r && r.ok){
+      this.markDirty(); this.schedulePersist();
+      const msg = r.cancelledRally
+        ? ('Call-up cancelled — ' + (u.displayName || 'unit') + ' returned home.')
+        : ('🏸 ' + (u.displayName || 'Unit') + ' left ' + ((r.army && r.army.name) || 'the army') + (r.leftAtHexId ? ' (now at ' + this.hexLabelById(r.leftAtHexId) + ')' : '') + '.');
+      this.showToast && this.showToast(msg, 3500);
+    } else { this.showToast && this.showToast('Could not remove from army' + (r && r.reason ? ' (' + r.reason + ')' : '') + '.', 3000); }
+  },
   armyMarchGo(){
     const a = this.armySelected(); if(!a || !this.armyMarchDest) return;
     const r = window.ACKS.startArmyMarch(this.currentCampaign, a.id, { destinationHexId: this.armyMarchDest, pace: this.armyMarchPace });
@@ -23175,6 +23254,7 @@ return {
   unitSheetUnitId: null,         // the clickable unit detail/edit modal (null = closed)
   levyModal: { open: false, domainId: null, source: 'conscript', count: 1, homeHexId: '' },  // ⚒/🛡 Levy modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
+  addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
   // Phase 4 — The Arcane Domain · dungeon arcane panel (AD-D/AD-E). Transient form state.
   arcaneDungeonId: null,         // open dungeon in the arcane modal (null = closed)
   dungeonBuild: { open: false, name: '', ownerCharacterId: '', hexId: '', buildValueGp: 30000, areaSqFt: 60000, areaCount: 24, treasureSeededGp: 0 },  // AD-C — the 🏗 Build a dungeon modal
