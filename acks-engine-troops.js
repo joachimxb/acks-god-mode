@@ -1887,6 +1887,13 @@
     const v = row[race || 'man'];
     return typeof v === 'number' ? v : 0;
   }
+  /** RR p.431 — the MAX of `typeKey` a levy of `count` (living) recruits of `race` can yield:
+   *  floor(count × QualifyingNumber / 120). 0 = the pool is too small to field even one (e.g. 5
+   *  conscripts → 0 heavy cavalry). The cap the Train action enforces; the unqualified rest stay levy. */
+  function conscriptQualifyingMax(count, typeKey, race){
+    const q = conscriptQualifyingNumber(typeKey, race);
+    return Math.floor(Math.max(0, Number(count) || 0) * q / 120);
+  }
   /** RR p.431 — {months, perTroopGp, unitGp} to train + equip one conscript/militiaman as
    *  `typeKey` (unitGp = perTroopGp × the type's unitSize). null when the type isn't trainable. */
   function trainingCostFor(typeKey, race){
@@ -1931,7 +1938,7 @@
     unitScaleSupplyCost, unitLoyaltyBand,
     // W7 — conscripts/militia/training
     CONSCRIPT_QUALIFYING, TRAINING_COSTS,
-    conscriptQualifyingNumber, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes
+    conscriptQualifyingNumber, conscriptQualifyingMax, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = ACKS;
