@@ -4390,9 +4390,14 @@ function _splitLevyRemainder(campaign, u, keepLiving){
 function domainLevyPoolCount(campaign, domainOrId, source){
   return _levyActiveCount(campaign, domainOrId, source);
 }
-// Living count already trained as `typeKey` from a domain's `source` levy (this counts against the cap).
+// Living count already trained as `typeKey` — OR currently in training toward it — from a domain's
+// `source` levy. Both count against the pool cap, so a second training of the same type can't exceed
+// the Qualifying Number while the first is still under way (RR p.431; the W7 training timer reserves
+// in-training cohorts so deferred training can't over-fill a type's allowance).
 function domainLevyTrainedOfType(campaign, domainOrId, source, typeKey){
-  return _levyActiveCount(campaign, domainOrId, source, u => _isTrainedLevy(u) && u.unitTypeKey === typeKey);
+  return _levyActiveCount(campaign, domainOrId, source,
+    u => (_isTrainedLevy(u) && u.unitTypeKey === typeKey) ||
+         (u && u.trainingState && u.trainingState.targetTroopType === typeKey));
 }
 // RR p.431 — how many MORE of a domain's `source` levy can still be trained as `typeKey`:
 // floor(pool × QualifyingNumber / 120) − the number already trained as that type. Always ≥ 0.
@@ -4402,19 +4407,55 @@ function conscriptQualifyingRemaining(campaign, domainOrId, source, typeKey, rac
   return Math.max(0, allowance - domainLevyTrainedOfType(campaign, domainOrId, source, typeKey));
 }
 
-// RR p.431 — train a levy unit into a professional troop type. v1 trains IMMEDIATELY (the day-tick
-// training timer is deferred): the unit becomes the target type (catalog wage/BR/morale) and the home
-// domain treasury is debited perTroopGp × the number trained (RR p.431). The Qualifying Number caps how
-// many of the levy can become the type (RR p.431) — opts.count (default = the cap) sets how many to train,
-// clamped to [1, the cap]; the unqualified remainder splits off as an untrained levy. Returns { ok, cost,
-// months, unit, trained, qualMax, remainder (the new untrained unit's id|null), reason }. Fails when the
-// unit isn't an untrained levy, the race can't field the type, or too few qualify to field even one.
+// Absolute campaign day ordinal (1-based; 30-day months). Mirrors subsystems' _campaignDayOrd, which is
+// module-local there — the levy/training timer (engine-side) needs it too. The day consumers advance it.
+function _levyDayOrd(campaign){ return (((campaign && campaign.currentTurn) || 1) - 1) * 30 + (((campaign && campaign.currentDayInMonth) || 1)); }
+
+// Days left before an in-training unit completes (RR p.431; W7). Returns null when not in training, ≥0 otherwise.
+function unitTrainingDaysLeft(campaign, unit){
+  const ts = unit && unit.trainingState;
+  if(!ts || ts.completesAtOrd == null) return null;
+  return Math.max(0, ts.completesAtOrd - _levyDayOrd(campaign));
+}
+
+// Complete an in-training levy → convert it to its target troop type (catalog wage/BR/morale + name),
+// clear trainingState, and stamp the 'trained' history entry. Shared by trainLevyUnit's instant path and
+// the 'levy-training' day-consumer's commit. No-op when the unit isn't in training. Returns the unit|null.
+function _completeTraining(campaign, u){
+  const ts = u && u.trainingState;
+  if(!ts || !ts.targetTroopType) return null;
+  const A = global.ACKS;
+  const target = ts.targetTroopType, race = u.race || 'man';
+  const row = A.findTroopType(target, { race });
+  const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
+  const n = unitActiveCount(u);
+  u.unitTypeKey = target;
+  u.monthlyWage = A.trainedTroopWage(target, race);
+  u.brPerSoldier = row ? row.brPerCreature : (u.brPerSoldier || 0);
+  if(row) u.displayName = (d && d.name ? d.name + ' ' : '') + (u.source === 'militia' ? 'Militia ' : 'Conscript ') + row.label;
+  u.trainingState = null;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  u.history.push({ turn, type: 'trained', text: 'Completed training — ' + n + ' now ' + (row ? row.label : target) });
+  return u;
+}
+
+// RR p.431 — train a levy unit into a professional troop type. Training TAKES TIME (W7 training timer):
+// the home-domain treasury is debited perTroopGp × the number trained UP FRONT (marshals/gear/equipment,
+// RR p.431), the unqualified remainder splits off as an untrained levy at once, and the unit enters
+// training (`trainingState`), staying an untrained levy until the 'levy-training' day-consumer completes
+// it after the type's training months (1 → 12; RR p.431). The Qualifying Number caps how many of the
+// pool can become the type — opts.count (default = the cap) sets how many, clamped to [1, the cap]; an
+// in-training cohort reserves the cap (`domainLevyTrainedOfType`). `opts.instant` completes immediately
+// (the legacy behaviour, kept for tests + a GM expedite). Returns { ok, cost, months, unit, trained,
+// qualMax, remainder (the new untrained unit's id|null), inTraining, completesAtOrd, reason }. Fails when
+// the unit isn't an untrained levy, is already in training, the race can't field the type, or too few qualify.
 function trainLevyUnit(campaign, unitOrId, opts){
   opts = opts || {};
   const u = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
   if(!campaign || !u) return { ok: false, reason: 'no-unit' };
   if(!_isLevyUnit(u)) return { ok: false, reason: 'not-a-levy' };
   if(_isTrainedLevy(u)) return { ok: false, reason: 'already-trained' };
+  if(u.trainingState) return { ok: false, reason: 'already-in-training' };   // W7 — one training at a time
   const A = global.ACKS;
   const target = opts.targetTroopType;
   const race = u.race || 'man';
@@ -4438,16 +4479,25 @@ function trainLevyUnit(campaign, unitOrId, opts){
   const cost = costRow.perTroopGp * n;                            // RR p.431 — per-troop cost × number trained
   const d = u.homeDomainId ? _resolveDomain(campaign, u.homeDomainId) : null;
   if(d && cost > 0) _applyDomainTreasuryDelta(campaign, d, -cost, { reason: 'troop-training', label: 'train ' + n + ' as ' + target });
-  // Convert the unit to the trained type (trained conscripts/militia = mercenaries of their type).
+  // Enter training — the troops drill until the 'levy-training' day-consumer completes them after the
+  // type's training months (RR p.431). The unit stays an untrained levy meanwhile (so it can't fight or
+  // be re-trained, and its in-training cohort reserves the pool cap). The cost is already debited.
   const row = A.findTroopType(target, { race });
-  u.unitTypeKey = target;
-  u.monthlyWage = A.trainedTroopWage(target, race);
-  u.brPerSoldier = row ? row.brPerCreature : (u.brPerSoldier || 0);
-  u.trainingState = null;
-  if(row) u.displayName = (d && d.name ? d.name + ' ' : '') + (u.source === 'militia' ? 'Militia ' : 'Conscript ') + row.label;
+  const months = costRow.months || 1;
   const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-  u.history.push({ turn, type: 'trained', text: 'Trained ' + n + ' as ' + (row ? row.label : target) + ' (' + cost.toLocaleString() + 'gp, ' + costRow.months + 'mo)' + (remainder ? '; ' + unitActiveCount(remainder) + ' unqualified stayed an untrained levy' : '') });
-  return { ok: true, cost, months: costRow.months, unit: u, trained: n, qualMax, remainder: remainder ? remainder.id : null };
+  const startOrd = _levyDayOrd(campaign);
+  u.trainingState = {
+    targetTroopType: target, count: n,
+    startedAtOrd: startOrd,
+    completesAtOrd: opts.instant ? startOrd : (startOrd + Math.max(1, Math.round(months * 30))),
+    costPaidGp: cost
+  };
+  if(opts.instant){                                                  // legacy/expedite — finish now
+    _completeTraining(campaign, u);
+    return { ok: true, cost, months, unit: u, trained: n, qualMax, remainder: remainder ? remainder.id : null, inTraining: false };
+  }
+  u.history.push({ turn, type: 'training-started', text: 'Began training ' + n + ' as ' + (row ? row.label : target) + ' (' + cost.toLocaleString() + 'gp, ' + months + 'mo)' + (remainder ? '; ' + unitActiveCount(remainder) + ' unqualified stayed an untrained levy' : '') });
+  return { ok: true, cost, months, unit: u, trained: n, qualMax, remainder: remainder ? remainder.id : null, inTraining: true, completesAtOrd: u.trainingState.completesAtOrd };
 }
 
 // RR p.432 — stand ALL of a domain's militia DOWN to the rolls: they leave the garrison but stay in the
@@ -10320,6 +10370,42 @@ function commitConstructionRecord(campaign, record){
   }
 }
 
+// ── 'levy-training' day-consumer (RR p.431; W7 training timer) ───────────────────────────────────────
+// PURE peek: one record per in-training levy whose training completes on/before the simulated day; the
+// commit converts it to its trained troop type via _completeTraining. Reads ctx.dayInMonth (the simulated
+// day during a multi-day propose — work.currentDayInMonth isn't advanced until after the handler runs).
+// Routine (no pauseTrigger). order 48 — after recruitment (45), before construction (50). commitTurn
+// drives it to month end via runDayTickToMonthEnd, so multi-month training completes across Advance-Months.
+function proposeLevyTrainingDay(campaign, ctx){
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  if(!campaign || !Array.isArray(campaign.units)) return out;
+  const dayInMonth = (ctx && ctx.dayInMonth) || (campaign.currentDayInMonth || 1);
+  const dayOrd = (((campaign.currentTurn) || 1) - 1) * 30 + dayInMonth;
+  const A = global.ACKS;
+  for(const u of campaign.units){
+    const ts = u && u.trainingState;
+    if(!ts || ts.completesAtOrd == null || ts.completesAtOrd > dayOrd) continue;
+    const row = (A && A.findTroopType) ? A.findTroopType(ts.targetTroopType, { race: u.race || 'man' }) : null;
+    const label = (row && row.label) || ts.targetTroopType;
+    out.pendingRecords.push({ kind: 'levy-training', unitId: u.id, targetTroopType: ts.targetTroopType, count: ts.count, label });
+    out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-training', transient: true, primaryHexId: u.homeHexId || null,
+      label: (u.displayName || 'A levy') + ': training complete — now ' + unitActiveCount(u) + ' ' + label,
+      payload: { unitId: u.id } });
+  }
+  return out;
+}
+function commitLevyTrainingRecord(campaign, record){
+  if(!record || record.kind !== 'levy-training') return;
+  const u = findUnit(campaign, record.unitId);
+  if(u && u.trainingState) _completeTraining(campaign, u);
+}
+registerDayConsumer('levy-training', {
+  handler: proposeLevyTrainingDay,
+  order: 48,
+  pauseTriggers: [],
+  commit: commitLevyTrainingRecord
+});
+
 // Register the construction consumer in the §14 shape (Calendar §14). The day-tick
 // orchestrator (proposeDayTick/commitDayTick) fans out to it; commitTurn drives it to
 // month end via runDayTickToMonthEnd. tickConstructionMonthly remains the non-day-aware
@@ -11114,6 +11200,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   levyMoraleAdjustmentForDomain, canLevyFromDomain, domainMilitiaTroopTypeKey,
   levyConscripts, levyMilitia, trainLevyUnit, sendMilitiaHome,
   levyEverRaised, levyAvailable, sendMilitiaUnitHome, callUpMilitia, releaseLevyUnit, processLevyReplenishmentForTurn,
+  // W7-continuation — the training timer (RR p.431): training takes its months; a day-consumer completes it
+  unitTrainingDaysLeft, proposeLevyTrainingDay, commitLevyTrainingRecord,
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
   groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
   groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,

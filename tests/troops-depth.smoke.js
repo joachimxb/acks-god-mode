@@ -117,12 +117,14 @@ section('Militia — penalty + revenue + the RR p.433 Marcus garrison credit (2,
   ok('revenue families = 1,200 − 240 = 960 (RR p.432)', A.effectivePeasantFamiliesForRevenue(camp, d) === 960);
   // train with the RR p.431 Qualifying-Number cap (W7 + the 2026-06-17 Train modal): only 50% of a
   // militia levy can become heavy infantry — the unqualified remainder splits off as an untrained levy.
+  // (instant:true asserts the converted END-STATE — type/wage/garrison-credit; the W7 training TIMER —
+  // training deferred to the 'levy-training' day-consumer — is exercised in its own section below.)
   const camp2 = mkCamp([mkDomain(1200, 1, 'dom-mil')], 1);
-  const mh = A.levyMilitia(camp2, 'dom-mil', { count: 120 }); const rh = A.trainLevyUnit(camp2, mh, { targetTroopType: 'heavy-infantry' });
+  const mh = A.levyMilitia(camp2, 'dom-mil', { count: 120 }); const rh = A.trainLevyUnit(camp2, mh, { targetTroopType: 'heavy-infantry', instant: true });
   ok('train 120 militia as heavy: capped at 60 (50%), cost 60×122 = 7,320gp', rh.ok && rh.trained === 60 && rh.cost === 7320 && rh.months === 1);
   ok('the trained unit is 60 heavy @ wage 12', mh.unitTypeKey === 'heavy-infantry' && A.unitActiveCount(mh) === 60 && mh.monthlyWage === 12);
   ok('the unqualified 60 split off as an untrained levy', rh.remainder && A.findUnit(camp2, rh.remainder).unitTypeKey === 'untrained-levy' && A.unitActiveCount(A.findUnit(camp2, rh.remainder)) === 60);
-  const ml = A.levyMilitia(camp2, 'dom-mil', { count: 120 }); const rl = A.trainLevyUnit(camp2, ml, { targetTroopType: 'light-infantry' });
+  const ml = A.levyMilitia(camp2, 'dom-mil', { count: 120 }); const rl = A.trainLevyUnit(camp2, ml, { targetTroopType: 'light-infantry', instant: true });
   ok('train 120 militia as light: all qualify (Q=120), cost 120×88.5 = 10,620gp, no remainder', rl.ok && rl.trained === 120 && rl.cost === 10620 && rl.remainder === null);
   ok('trained light now wage 6 / type light-infantry', ml.monthlyWage === 6 && ml.unitTypeKey === 'light-infantry' && A.unitActiveCount(ml) === 120);
   // an explicit count ≤ the qualifying max trains exactly that many; a count above it is clamped to it
@@ -186,8 +188,52 @@ section('Training qualifying cap is POOL-WIDE, not per-unit (RR p.431, 2026-06-1
   const rx = A.trainLevyUnit(camp2, x, { targetTroopType: 'heavy-infantry', count: 30 });
   const ry = A.trainLevyUnit(camp2, y, { targetTroopType: 'heavy-infantry', count: 30 });
   ok('two units 30+30 heavy = 60 total fits the shared 120-pool cap', rx.trained === 30 && ry.trained === 30 && A.domainLevyTrainedOfType(camp2, 'dom-share', 'conscript', 'heavy-infantry') === 60);
-  const leftover = camp2.units.find(u => u.homeDomainId === 'dom-share' && u.unitTypeKey === 'untrained-levy');
+  const leftover = camp2.units.find(u => u.homeDomainId === 'dom-share' && u.unitTypeKey === 'untrained-levy' && !u.trainingState);   // a true untrained remainder, not an in-training cohort (still typed untrained-levy until it completes)
   ok('a leftover untrained unit can’t add more heavy (pool cap 60 reached)', leftover && A.trainLevyUnit(camp2, leftover, { targetTroopType: 'heavy-infantry' }).reason === 'too-few-qualify');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Training takes TIME (RR p.431; W7 training timer)');
+{
+  ok('the training-timer helpers are exported', typeof A.unitTrainingDaysLeft === 'function' && typeof A.proposeLevyTrainingDay === 'function' && typeof A.commitLevyTrainingRecord === 'function');
+
+  // Training a levy now DEFERS: the cost is paid up front + the unqualified remainder splits off, but the
+  // unit stays an untrained levy (can't fight or be re-trained) until the 'levy-training' day-consumer
+  // completes it after the type's training months (heavy infantry = 1 month = 30 days).
+  const camp = mkCamp([mkDomain(1200, 1, 'dom-tt')], 1); const d = camp.domains[0]; d.treasury = { gp: 100000 };
+  const u = A.levyConscripts(camp, 'dom-tt', { count: 120 });
+  const r = A.trainLevyUnit(camp, u, { targetTroopType: 'heavy-infantry' });   // 60 qualify · heavy = 1 month
+  ok('train defers: inTraining true, trained 60, months 1', r.ok && r.inTraining === true && r.trained === 60 && r.months === 1);
+  ok('the unit is STILL an untrained levy @ wage 3 (not yet converted)', u.unitTypeKey === 'untrained-levy' && u.monthlyWage === 3);
+  ok('trainingState set: target heavy, count 60, completes 30 days out', u.trainingState && u.trainingState.targetTroopType === 'heavy-infantry' && u.trainingState.count === 60 && u.trainingState.completesAtOrd === u.trainingState.startedAtOrd + 30);
+  ok('the cost is debited UP FRONT (60 × 122 = 7,320gp)', d.treasury.gp === 100000 - 7320);
+  ok('days left at the start = 30', A.unitTrainingDaysLeft(camp, u) === 30);
+  ok('an in-training cohort RESERVES the pool cap — no more heavy can be started', A.conscriptQualifyingRemaining(camp, 'dom-tt', 'conscript', 'heavy-infantry', 'man') === 0);
+  ok('cannot re-train a unit that is already in training', A.trainLevyUnit(camp, u, { targetTroopType: 'light-infantry' }).reason === 'already-in-training');
+
+  // advance the Day Clock to the end of month 1 — heavy needs 30 days, so still in training
+  A.runDayTickToMonthEnd(camp);
+  ok('end of month 1 (day 30): still in training, not converted', camp.currentDayInMonth === 30 && u.unitTypeKey === 'untrained-levy' && !!u.trainingState);
+  ok('days left at day 30 = 1', A.unitTrainingDaysLeft(camp, u) === 1);
+
+  // the monthly commit rolls the clock to turn 2 / day 1 (commitTurn does this) → the consumer finishes it
+  camp.currentTurn = 2; camp.currentDayInMonth = 1;
+  A.runDayTickToMonthEnd(camp);
+  ok('month 2 → the levy-training consumer completes it: heavy @ wage 12, trainingState cleared', u.unitTypeKey === 'heavy-infantry' && u.monthlyWage === 12 && u.trainingState === null && A.unitActiveCount(u) === 60);
+  ok('days left after completion = null', A.unitTrainingDaysLeft(camp, u) === null);
+  ok('the completed heavy now counts toward the pool cap', A.domainLevyTrainedOfType(camp, 'dom-tt', 'conscript', 'heavy-infantry') === 60);
+
+  // opts.instant completes immediately (the legacy/expedite path the end-state tests above use)
+  const ci = mkCamp([mkDomain(1200, 1, 'dom-ti')], 1); ci.domains[0].treasury = { gp: 100000 };
+  const ui = A.levyConscripts(ci, 'dom-ti', { count: 120 });
+  const ri = A.trainLevyUnit(ci, ui, { targetTroopType: 'light-infantry', instant: true });
+  ok('instant:true converts at once (inTraining false, light @ wage 6, no trainingState)', ri.ok && ri.inTraining === false && ui.unitTypeKey === 'light-infantry' && ui.monthlyWage === 6 && ui.trainingState === null);
+
+  // a longer training carries the right completion ordinal: cataphract = 12 months = 360 days
+  const cl = mkCamp([mkDomain(2400, 1, 'dom-tl')], 1); cl.domains[0].treasury = { gp: 1000000 };
+  const ul = A.levyConscripts(cl, 'dom-tl', { count: 120 });   // cataphract Q=6 → 6 qualify
+  const rl2 = A.trainLevyUnit(cl, ul, { targetTroopType: 'cataphract-cavalry' });
+  ok('cataphract (12 mo): completesAtOrd = start + 360, months 12', rl2.ok && rl2.months === 12 && rl2.completesAtOrd === ul.trainingState.startedAtOrd + 360);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -313,7 +359,7 @@ section('Per-unit militia send-home / call-up + release (RR pp.430–432)');
 {
   const d = mkDomain(1200, 1, 'dom-set'); const camp = mkCamp([d], 1);
   const mil = A.levyMilitia(camp, 'dom-set', { count: 60 });
-  A.trainLevyUnit(camp, mil, { targetTroopType: 'light-infantry' });   // light: Q=120, all 60 qualify (no split — this block tests send-home, not the cap)
+  A.trainLevyUnit(camp, mil, { targetTroopType: 'light-infantry', instant: true });   // light: Q=120, all 60 qualify (instant — this block tests send-home + the trained at-home credit, not the timer)
   ok('called-up militia counts before send-home', A.militiaCalledUpCount(camp, d) === 60);
   const sh = A.sendMilitiaUnitHome(camp, mil);
   ok('sendMilitiaUnitHome: trained → sentHome, stays in campaign.units, calledUp false', sh.sentHome === 1 && mil.calledUp === false && camp.units.some(u => u.id === mil.id) && !mil.stationedAt);
