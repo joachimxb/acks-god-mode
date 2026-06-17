@@ -649,9 +649,119 @@
     if(!campaign || !voyageState || !voyageState.vesselId) return;
     const v = findVessel(campaign, voyageState.vesselId);
     if(!v) return;
-    if(typeof voyageState.newShp === 'number') v.shp = voyageState.newShp;
+    if(typeof voyageState.newShp === 'number') v.shp = voyageState.newShp;                       // V3b — hull
     if(voyageState.newCondition) v.condition = voyageState.newCondition;
     if('newGrounded' in voyageState) v.grounded = voyageState.newGrounded || null;
+    // V3c — the crew-provisioning ladder (ship stores / deficit / scurvy). Same replay path as the hull.
+    if(typeof voyageState.newShipStores === 'number') v.shipStores = voyageState.newShipStores;
+    if(typeof voyageState.newProvisionDeficitDays === 'number') v.provisionDeficitDays = voyageState.newProvisionDeficitDays;
+    if(typeof voyageState.newScurvyDays === 'number') v.daysAtSeaWithoutFreshFood = voyageState.newScurvyDays;
+    if('newScurvy' in voyageState) v.scurvy = !!voyageState.newScurvy;
+  }
+
+  // ===========================================================================
+  // V3c — Ship stores + deprivation + scurvy + fishing (RR p.321). The crew-
+  // provisioning ladder, layered on the V3b record.voyageState → applyVoyageDayState
+  // → _preDay.voyage replay machinery: the day's store consumption / deficit / scurvy
+  // counter are recorded as absolutes (computeShipProvisionDay, PURE) and applied on
+  // commit, so a reroll reverts. Fishing is a standalone GM verb that replenishes stores.
+  // OPT-IN BY DATA: vessel.shipStores must be a number (the GM provisioned the ship); an
+  // unprovisioned vessel runs none of this. Gated by the shipped `ignore-rations` opt-out
+  // (checked in the tick, the forageActivity precedent). Maritime_Voyages_RAW_Survey §8.
+  //
+  // 🔧 v1 abstractions: shipStores is in CREW-DAYS (1 consumed/voyage day, headcount-
+  // abstracted — the same abstraction the deprivation ladder makes; RR's per-individual
+  // "1 st = 6 meals" maps to 1 crew-day/store). The per-PC STR/CON scurvy ABILITY cascade
+  // is a Character-Lifecycle-coupled follow-on — v1 ships the vessel-level onset flag +
+  // notable + the cure-at-port reset (the GM applies the −1 STR/CON). The starvation morale
+  // calamity (mutiny) is surfaced as a flag/notable; the GM resolves it via the shipped
+  // loyalty/calamity machinery (§17). No new house rule / event kind / prefix / entity.
+  // ===========================================================================
+
+  const SHIP_SCURVY_ONSET_DAYS = 30;     // RR p.321 — one month at sea on iron rations/fish
+
+  // Is the crew-provisioning layer ON for this vessel? Opt-in: shipStores is a number (incl. 0 =
+  // tracked, the GM provisioned the ship); absent/null = untracked (no consumption/ladder/scurvy).
+  function shipStoresTracked(vessel){ return !!vessel && typeof vessel.shipStores === 'number'; }
+
+  // The deprivation ladder (RR p.321) — mirrors the shipped wilderness food ladder day-thresholds
+  // (hungry≥1 grace, underfed≥2, starving≥7) so a crew degrades in lockstep with what the per-
+  // character survival would do on land. underfed → ½ voyage speed; starving → ⅓ + a morale calamity.
+  function shipDeprivationLevel(deficitDays){
+    const d = Number(deficitDays) || 0;
+    if(d >= 7) return { level: 'starving', speedMult: 1/3, calamity: true };
+    if(d >= 2) return { level: 'underfed', speedMult: 1/2, calamity: false };
+    if(d >= 1) return { level: 'hungry',   speedMult: 1,   calamity: false };
+    return       { level: 'fed',      speedMult: 1,   calamity: false };
+  }
+
+  // A port/landfall hex (fresh food) — a GM-set hex.freshFood flag OR an embedded hex.settlement.
+  // At a fresh-food hex the crew eats ashore: the deficit clears, no ship-store is consumed, and
+  // scurvy is cured (RR p.321 — fresh food cures scurvy). The sea analog of a settlement's provisioning.
+  function voyageHexIsFreshFood(hex){ return !!(hex && (hex.freshFood || hex.settlement)); }
+
+  // PURE — the day's provisioning result for a voyage day (no mutation). The deprivation governing
+  // TODAY's speed reads the deficit ENTERING the day (RAW JJ p.70 sequence: starvation is checked
+  // before rations); consumption + the scurvy counter produce the new absolutes the commit applies.
+  // opts.hex = the day's hex (for the fresh-food/port check); opts.freshFood overrides it.
+  function computeShipProvisionDay(campaign, vessel, opts){
+    opts = opts || {};
+    if(!shipStoresTracked(vessel)) return { tracked: false, deprivation: { level: 'fed', speedMult: 1, calamity: false } };
+    const freshFood = !!opts.freshFood || voyageHexIsFreshFood(opts.hex);
+    const curStores = Number(vessel.shipStores) || 0;
+    const enteringDeficit = Number(vessel.provisionDeficitDays) || 0;
+    const curScurvyDays = Number(vessel.daysAtSeaWithoutFreshFood) || 0;
+    const wasScurvy = !!vessel.scurvy;
+    const deprivation = shipDeprivationLevel(enteringDeficit);   // governs TODAY's speed
+    let newStores, newDeficit, newScurvyDays, newScurvy = wasScurvy, scurvyOnset = false, scurvyCured = false, ate = false;
+    if(freshFood){
+      newStores = curStores;                 // eat ashore — no ship-store consumed
+      newDeficit = 0;                         // reprovisioned / fed at port
+      newScurvyDays = 0;                      // fresh food cures scurvy (RR p.321)
+      if(wasScurvy){ newScurvy = false; scurvyCured = true; }
+    } else {
+      if(curStores >= 1){ newStores = curStores - 1; newDeficit = 0; ate = true; }   // ate a ration
+      else { newStores = 0; newDeficit = enteringDeficit + 1; }                        // went without → deficit grows
+      newScurvyDays = curScurvyDays + 1;                                               // a day at sea on iron rations / fish
+      if(!wasScurvy && newScurvyDays >= SHIP_SCURVY_ONSET_DAYS){ newScurvy = true; scurvyOnset = true; }
+    }
+    const newLevel = shipDeprivationLevel(newDeficit);
+    const becameStarving = (newLevel.level === 'starving' && deprivation.level !== 'starving');
+    const becameUnderfed = (newLevel.level === 'underfed' && deprivation.level !== 'underfed' && deprivation.level !== 'starving');
+    return { tracked: true, freshFood, enteringDeficit, deprivation, newStores, newDeficit,
+             newScurvyDays, newScurvy, newLevel, scurvyOnset, scurvyCured, becameStarving, becameUnderfed, ate };
+  }
+
+  // Fishing (RR p.321) — a standalone GM provisioning verb (the sea Forage variant). Fishing 14+,
+  // +4 if the fisher (an officer, or opts.actorCharacterId) has Survival or Fishing; success = +1
+  // store (1 crew-day; RR's "1 st = 6 meals" at crew scale). No nat-1 auto-fail (autoFailBand 0,
+  // the forageActivity sibling, RR p.278). MUTATES vessel.shipStores immediately (a GM action,
+  // applied on the spot like forageActivity — not part of the tick replay) + logs to vessel.history.
+  function fishActivity(campaign, vessel, opts){
+    opts = opts || {};
+    if(!vessel) return { ok: false, error: 'no-vessel' };
+    const A = global.ACKS || ACKS;
+    const rng = opts.rng || Math.random;
+    let bonus = 0;
+    if(opts.actorCharacterId){
+      const ch = ((campaign && campaign.characters) || []).find(c => c && c.id === opts.actorCharacterId);
+      if(ch && _voyOfficerProfRanks(ch, /survival|fishing/i) >= 1) bonus = 4;
+    } else if(vesselOfficers(campaign, vessel).some(o => _voyOfficerProfRanks(o, /survival|fishing/i) >= 1)){
+      bonus = 4;
+    }
+    const fr = (typeof A.rollProficiencyThrow === 'function')
+      ? A.rollProficiencyThrow({ target: 14, modifiers: [{ source: 'survival', value: bonus }], autoFailBand: 0, proficient: false, rng: rng })
+      : (function(){ const nat = 1 + Math.floor(rng() * 20); return { natural: nat, total: nat + bonus, success: (nat + bonus) >= 14 }; })();
+    const out = { ok: true, success: fr.success, rolled: fr.natural, target: 14, bonus: bonus,
+                  storesGained: 0, newStores: (typeof vessel.shipStores === 'number') ? vessel.shipStores : 0 };
+    if(fr.success){
+      const cur = (typeof vessel.shipStores === 'number') ? vessel.shipStores : 0;
+      vessel.shipStores = cur + 1;
+      out.storesGained = 1; out.newStores = vessel.shipStores;
+      (vessel.history = vessel.history || []).push({ turn: (campaign && campaign.currentTurn) || null, type: 'fished',
+        narrative: 'The crew fished — +1 day of stores (Survival/Fishing ' + fr.natural + (bonus ? ('+' + bonus) : '') + ' vs 14+).' });
+    }
+    return out;
   }
 
   // ── Export onto window.ACKS ──
@@ -669,7 +779,9 @@
     // V3a — navigating & weathering the seas
     SEA_NAV_THROWS, seaZoneForHex, seaNavTarget, voyageWeatherEffects, seaNavBonus,
     // V3b — nautical hazards + gale damage (the SHP-mutating replay slice)
-    NAUTICAL_HAZARDS, nauticalHazardForHex, rollNauticalHazard, rollVoyageGale, applyVoyageDayState
+    NAUTICAL_HAZARDS, nauticalHazardForHex, rollNauticalHazard, rollVoyageGale, applyVoyageDayState,
+    // V3c — ship stores + deprivation + scurvy + fishing (the crew-provisioning ladder)
+    SHIP_SCURVY_ONSET_DAYS, shipStoresTracked, shipDeprivationLevel, voyageHexIsFreshFood, computeShipProvisionDay, fishActivity
   });
 
 })(typeof window !== 'undefined' ? window : global);

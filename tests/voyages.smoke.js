@@ -1,7 +1,8 @@
 // =============================================================================
 // voyages.smoke.js — Maritime / Voyages V1 (data layer) + V2 (wind/sailing speed)
 // + V3a (sea navigation + weathering the seas) + V3b (nautical hazards + gale damage —
-// the SHP-mutating record→commit→reroll slice). Phase 3 Voyages (#145).
+// the SHP-mutating record→commit→reroll slice) + V3c (ship stores + deprivation ladder +
+// scurvy + fishing — the crew-provisioning ladder on the same replay machinery). Phase 3 Voyages (#145).
 // Covers: the vsl- prefix; the VESSEL_CATALOG (20 RR p.316 classes — values cross-checked
 // EXACT vs the printed Sea Vessels table + the "—"→null handling + draft/deck-type from
 // RR pp.153–156/331); the catalog lookups; blankVessel / createVessel (init-on-write) + the
@@ -584,11 +585,124 @@ const cdr = ACKS.tickJourneyDay(cc, cj, { rng: () => 0.5, weather: { wind: 'Mode
 ok('a hazard-free, gale-free voyage day carries no voyageState (vessel untouched)', cdr.record.voyageState === null && cdr.record.dayRecord.voyage.shpDamage === 0 && cdr.record.dayRecord.voyage.hazards === null && cdr.record.dayRecord.voyage.gale === null && cv.shp === 200);
 
 // =============================================================================
+section('V3c — ship-stores tracking + the deprivation ladder (RR p.321)');
+// =============================================================================
+ok('SHIP_SCURVY_ONSET_DAYS = 30 (one month)', ACKS.SHIP_SCURVY_ONSET_DAYS === 30);
+ok('shipStoresTracked: a number (incl. 0) = opt-in; null/absent = off', ACKS.shipStoresTracked({ shipStores: 5 }) === true && ACKS.shipStoresTracked({ shipStores: 0 }) === true && ACKS.shipStoresTracked({}) === false && ACKS.shipStoresTracked(null) === false);
+ok('ladder: fed (0) ×1', (() => { const L = ACKS.shipDeprivationLevel(0); return L.level === 'fed' && L.speedMult === 1 && L.calamity === false; })());
+ok('ladder: hungry (1) ×1 — the grace day', (() => { const L = ACKS.shipDeprivationLevel(1); return L.level === 'hungry' && L.speedMult === 1; })());
+ok('ladder: underfed (2–6) ×½', (() => { const a = ACKS.shipDeprivationLevel(2), b = ACKS.shipDeprivationLevel(6); return a.level === 'underfed' && a.speedMult === 0.5 && b.level === 'underfed'; })());
+ok('ladder: starving (≥7) ×⅓ + a morale calamity', (() => { const L = ACKS.shipDeprivationLevel(7); return L.level === 'starving' && Math.abs(L.speedMult - 1/3) < 1e-9 && L.calamity === true; })());
+ok('voyageHexIsFreshFood: a freshFood flag OR an embedded settlement → port', ACKS.voyageHexIsFreshFood({ freshFood: true }) === true && ACKS.voyageHexIsFreshFood({ settlement: { name: 'Harbor' } }) === true);
+ok('voyageHexIsFreshFood: a plain sea hex / null → not a port', ACKS.voyageHexIsFreshFood({ terrain: 'water' }) === false && ACKS.voyageHexIsFreshFood(null) === false);
+
+// =============================================================================
+section('V3c — computeShipProvisionDay (PURE: consumption + deficit + scurvy)');
+// =============================================================================
+const _pc = ACKS.blankCampaign({ name: 'prov' });
+const _mkV = (over) => Object.assign(ACKS.blankVessel({ catalogKey: 'sailing-ship-large' }), over);
+ok('untracked vessel → tracked:false, no speed penalty', (() => { const r = ACKS.computeShipProvisionDay(_pc, ACKS.blankVessel({ catalogKey: 'longship' }), {}); return r.tracked === false && r.deprivation.speedMult === 1; })());
+ok('a fed day (stores 2) → eats 1, deficit stays 0, scurvy counter +1', (() => { const r = ACKS.computeShipProvisionDay(_pc, _mkV({ shipStores: 2 }), {}); return r.tracked && r.ate === true && r.newStores === 1 && r.newDeficit === 0 && r.deprivation.level === 'fed' && r.newScurvyDays === 1; })());
+ok('out of stores (0, deficit 1) → deficit→2, becomes underfed (entering hungry)', (() => { const r = ACKS.computeShipProvisionDay(_pc, _mkV({ shipStores: 0, provisionDeficitDays: 1 }), {}); return r.newStores === 0 && r.newDeficit === 2 && r.deprivation.level === 'hungry' && r.newLevel.level === 'underfed' && r.becameUnderfed === true; })());
+ok('the starving transition (deficit 6 → 7) sets becameStarving', (() => { const r = ACKS.computeShipProvisionDay(_pc, _mkV({ shipStores: 0, provisionDeficitDays: 6 }), {}); return r.newDeficit === 7 && r.newLevel.level === 'starving' && r.becameStarving === true && r.deprivation.level === 'underfed'; })());
+ok('scurvy onset at 30 days (counter 29 → 30)', (() => { const r = ACKS.computeShipProvisionDay(_pc, _mkV({ shipStores: 50, daysAtSeaWithoutFreshFood: 29, scurvy: false }), {}); return r.newScurvyDays === 30 && r.scurvyOnset === true && r.newScurvy === true; })());
+ok('scurvy onset fires only once (already scurvy → no re-onset)', (() => { const r = ACKS.computeShipProvisionDay(_pc, _mkV({ shipStores: 50, daysAtSeaWithoutFreshFood: 40, scurvy: true }), {}); return r.scurvyOnset === false && r.newScurvy === true; })());
+ok('fresh-food port: deficit→0, scurvy cured, NO ship-store consumed (eat ashore)', (() => { const r = ACKS.computeShipProvisionDay(_pc, _mkV({ shipStores: 7, provisionDeficitDays: 4, daysAtSeaWithoutFreshFood: 35, scurvy: true }), { hex: { settlement: {} } }); return r.freshFood === true && r.newDeficit === 0 && r.newScurvyDays === 0 && r.newScurvy === false && r.scurvyCured === true && r.newStores === 7; })());
+
+// =============================================================================
+section('V3c — fishing (RR p.321, the sea Forage variant; Fishing 14+, +4 Survival)');
+// =============================================================================
+const _fc = ACKS.blankCampaign({ name: 'fish' });
+_fc.characters = [ACKS.blankCharacter({ id: 'angler', name: 'Angler', proficiencies: [{ key: 'survival', ranks: 1 }] }), ACKS.blankCharacter({ id: 'deckhand', name: 'Deckhand' })];
+const _fv = ACKS.createVessel(_fc, { name: 'Netter', catalogKey: 'longship', officerCharacterIds: ['angler'], shipStores: 0 });
+ok('fishing SUCCESS (nat 11 + Survival 4 = 15 ≥ 14) → +1 store', (() => { const r = ACKS.fishActivity(_fc, _fv, { rng: () => 0.5 }); return r.ok && r.success && r.bonus === 4 && r.storesGained === 1 && _fv.shipStores === 1; })());
+ok('fishing logs to vessel.history', _fv.history.some(h => h.type === 'fished'));
+const _fv2 = ACKS.createVessel(_fc, { name: 'Bare', catalogKey: 'longship', officerCharacterIds: ['deckhand'] });   // no Survival officer; shipStores absent
+ok('no Survival aboard (nat 11, no bonus = 11 < 14) → fail, no store', (() => { const r = ACKS.fishActivity(_fc, _fv2, { rng: () => 0.5 }); return !r.success && r.bonus === 0 && r.storesGained === 0; })());
+ok('fishing an untracked vessel materializes stores on success (null → 1)', (() => { const r = ACKS.fishActivity(_fc, _fv2, { rng: () => 0.99 }); return r.success && _fv2.shipStores === 1; })());
+ok('fishing has NO nat-1 auto-fail (autoFailBand 0, like forage) — nat 1 just falls short', (() => { const r = ACKS.fishActivity(_fc, _fv, { rng: () => 0 }); return !r.success && r.rolled === 1; })());
+ok('fishing with no vessel → {ok:false}', ACKS.fishActivity(_fc, null, {}).ok === false);
+
+// =============================================================================
+section('V3c — applyVoyageDayState writes the provisioning ladder (commit-side)');
+// =============================================================================
+const _av3 = ACKS.createVessel(ACKS.blankCampaign({ name: 'a3' }), { catalogKey: 'sailing-ship-large' });
+const _ac3 = { vessels: [_av3] };
+ACKS.applyVoyageDayState(_ac3, null, { vesselId: _av3.id, newShipStores: 4, newProvisionDeficitDays: 2, newScurvyDays: 12, newScurvy: true });
+ok('applyVoyageDayState writes shipStores/deficit/scurvyDays/scurvy', _av3.shipStores === 4 && _av3.provisionDeficitDays === 2 && _av3.daysAtSeaWithoutFreshFood === 12 && _av3.scurvy === true);
+
+// =============================================================================
+section('V3c — integration: a voyage consumes stores; deprivation slows it; commit + reroll');
+// =============================================================================
+// a long open lane so the vessel is still in transit when deprivation bites
+function mkVoyage(stores, deficit, opts){
+  opts = opts || {};
+  const c = ACKS.blankCampaign({ name: 'v3c-int' });
+  c.characters = [ACKS.blankCharacter({ id: 'cap', name: 'Cap' })];
+  c.hexes = []; for(let r = 0; r <= 60; r++){ const hx = ACKS.blankHex({ id: 'l' + r, coord: { q: 0, r: r }, terrain: 'water' }); if(opts.portAt === r) hx.settlement = { name: 'Harbor', families: 100 }; c.hexes.push(hx); }
+  const v = ACKS.createVessel(c, { name: 'Runner', catalogKey: 'sailing-ship-large' });   // 72 mi/day = 12 hexes
+  if(stores != null) v.shipStores = stores;
+  if(deficit != null) v.provisionDeficitDays = deficit;
+  if(opts.scurvyDays != null) v.daysAtSeaWithoutFreshFood = opts.scurvyDays;
+  if(opts.scurvy != null) v.scurvy = opts.scurvy;
+  const j = ACKS.blankJourney({ name: 'Long Haul', mode: 'voyage-sail', shipId: v.id, participantCharacterIds: ['cap'], startHexId: 'l0', destinationHexId: 'l60', currentHexId: 'l0' });
+  c.journeys = [j]; ACKS.startJourney(c, j);
+  return { c, v, j };
+}
+const _WMod = { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' };
+const _fed = mkVoyage(3, 0);
+const _fedDr = ACKS.tickJourneyDay(_fed.c, _fed.j, { rng: () => 0.5, weather: _WMod });
+ok('a fed provisioned voyage sails full speed (72 mi) + records the consumption', _fedDr.record.dayRecord.milesTraveled === 72 && _fedDr.record.voyageState && _fedDr.record.voyageState.newShipStores === 2 && _fedDr.record.dayRecord.voyage.provision.level === 'fed');
+ok('the tick is PURE — stores unchanged until commit', _fed.v.shipStores === 3);
+ACKS.commitJourneyRecord(_fed.c, _fedDr.record);
+ok('commit applies the consumption (stores 3→2, scurvy counter 0→1)', _fed.v.shipStores === 2 && _fed.v.daysAtSeaWithoutFreshFood === 1);
+const _under = mkVoyage(0, 2);   // entering underfed
+const _underDr = ACKS.tickJourneyDay(_under.c, _under.j, { rng: () => 0.5, weather: _WMod });
+ok('an underfed crew → ½ voyage speed (72→36 = 6 hexes)', _underDr.record.dayRecord.milesTraveled === 36 && _underDr.record.dayRecord.hexesTraveled === 6 && _underDr.record.dayRecord.voyage.provision.level === 'underfed' && _underDr.record.dayRecord.voyage.provision.speedMult === 0.5);
+const _starv = mkVoyage(0, 7);   // entering starving
+const _starvDr = ACKS.tickJourneyDay(_starv.c, _starv.j, { rng: () => 0.5, weather: _WMod });
+ok('a starving crew → ⅓ voyage speed (72→24 = 4 hexes)', _starvDr.record.dayRecord.milesTraveled === 24 && _starvDr.record.dayRecord.hexesTraveled === 4 && _starvDr.record.dayRecord.voyage.provision.level === 'starving');
+// the underfed/starving transition notables
+const _toUnder = mkVoyage(0, 1);   // entering hungry → new underfed
+const _toUnderDr = ACKS.tickJourneyDay(_toUnder.c, _toUnder.j, { rng: () => 0.5, weather: _WMod });
+ok('crossing into underfed fires a supplies-low heads-up', _toUnderDr.record.dayRecord.notableEvents.some(n => n.type === 'voyage-underfed') && _toUnderDr.record.dayRecord.voyage.provision.becameUnderfed === true);
+const _toStarv = mkVoyage(0, 6);   // entering underfed → new starving
+const _toStarvDr = ACKS.tickJourneyDay(_toStarv.c, _toStarv.j, { rng: () => 0.5, weather: _WMod });
+ok('crossing into starving fires a morale-calamity heads-up', _toStarvDr.record.dayRecord.notableEvents.some(n => n.type === 'voyage-starvation') && _toStarvDr.record.dayRecord.voyage.provision.becameStarving === true);
+// reroll reverts the provisioning ladder to the pre-day snapshot, then re-runs
+const _rr = mkVoyage(3, 0);
+ACKS.commitJourneyRecord(_rr.c, ACKS.tickJourneyDay(_rr.c, _rr.j, { rng: () => 0.5, weather: _WMod }).record);
+_rr.v.shipStores = 99; _rr.v.daysAtSeaWithoutFreshFood = 88;   // corrupt the live state; the reroll must revert from _preDay (3 / 0), not these
+ACKS.rerollJourneyDay(_rr.c, _rr.j, { rng: () => 0.5 });
+ok('reroll reverts the provisioning ladder from _preDay (stores→3 then reconsumed to 2; counter→0 then 1)', _rr.v.shipStores === 2 && _rr.v.daysAtSeaWithoutFreshFood === 1);
+
+// =============================================================================
+section('V3c — scurvy onset in the tick + a fresh-food port cure');
+// =============================================================================
+const _sc = mkVoyage(50, 0, { scurvyDays: 29, scurvy: false });
+const _scDr = ACKS.tickJourneyDay(_sc.c, _sc.j, { rng: () => 0.5, weather: _WMod });   // counter 29 → 30 → onset
+ok('scurvy breaks out at one month at sea (counter → 30, scurvy flag set, a heads-up)', _scDr.record.voyageState.newScurvyDays === 30 && _scDr.record.voyageState.newScurvy === true && _scDr.record.dayRecord.notableEvents.some(n => n.type === 'voyage-scurvy'));
+const _port = mkVoyage(0, 4, { scurvyDays: 35, scurvy: true, portAt: 1 });   // a port at the entered hex
+const _portDr = ACKS.tickJourneyDay(_port.c, _port.j, { rng: () => 0.5, weather: _WMod });
+ok('reaching a fresh-food port cures the scurvy + clears the deficit', _portDr.record.dayRecord.voyage.provision.freshFood === true && _portDr.record.voyageState.newProvisionDeficitDays === 0 && _portDr.record.voyageState.newScurvyDays === 0 && _portDr.record.voyageState.newScurvy === false && _portDr.record.dayRecord.notableEvents.some(n => n.type === 'voyage-scurvy-cured'));
+
+// =============================================================================
+section('V3c — opt-out: an unprovisioned vessel + ignore-rations carry no provisioning');
+// =============================================================================
+const _unp = mkVoyage(null, null);   // no shipStores set → untracked
+const _unpDr = ACKS.tickJourneyDay(_unp.c, _unp.j, { rng: () => 0.5, weather: _WMod });
+ok('an unprovisioned voyage carries no provisioning (no voyageState, full 72 mi)', _unpDr.record.voyageState === null && _unpDr.record.dayRecord.voyage.provision === null && _unpDr.record.dayRecord.milesTraveled === 72);
+const _ig = mkVoyage(0, 0);   // provisioned (stores 0) but ignore-rations on
+_ig.c.houseRules = { 'ignore-rations': { enabled: true } };
+const _igDr = ACKS.tickJourneyDay(_ig.c, _ig.j, { rng: () => 0.5, weather: _WMod });
+ok('ignore-rations opts a provisioned vessel out (no provisioning, full speed)', _igDr.record.voyageState === null && _igDr.record.dayRecord.voyage.provision === null && _igDr.record.dayRecord.milesTraveled === 72 && _ig.v.shipStores === 0);
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Voyages V1 + V2 + V3a + V3b smoke checks passed.');
+  console.log('\nAll Voyages V1 + V2 + V3a + V3b + V3c smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

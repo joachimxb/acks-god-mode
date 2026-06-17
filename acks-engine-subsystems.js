@@ -2567,6 +2567,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // reduction, pace, and the 24h doubling. The §26 override still flows through (as a base rate). ──
   let voyageInfo = null;
   let _voyageSeaZone = null;   // V3a — the hex's sea zone (lake/river/coast/open-sea); drives the weathering ½ + the sea-nav target
+  let _voyProvision = null;    // V3c — the day's ship-stores provisioning result (null = not a voyage / untracked / ignore-rations)
   if(isVoyage){
     const _fromC = (curStep && curStep.coord) ? curStep.coord : curCoord;
     let _toC = (nextStep && nextStep.coord) ? nextStep.coord : null;
@@ -2580,6 +2581,15 @@ function tickJourneyDay(campaign, journey, ctx){
     _voyageSeaZone = (typeof A.seaZoneForHex === 'function') ? A.seaZoneForHex(nextHex || curHex) : 'coast';
     voyageInfo = A.voyageDayMiles(campaign, journey, _voyageVessel, { weather, pace, overrideMiles, headingDeg: _headingDeg, seaZone: _voyageSeaZone });
     milesBudget = voyageInfo.miles;
+    // V3c — ship-stores provisioning (RR p.321): the crew eats 1 store/day; the deprivation ENTERING the
+    // day governs TODAY's speed (underfed ½ / starving ⅓). Opt-in (the GM provisioned the vessel — shipStores
+    // tracked) + gated by the shipped `ignore-rations` opt-out. The day's consumption / deficit / scurvy-counter
+    // absolutes are recorded into record.voyageState below (commit applies; a reroll reverts). The hex being
+    // ENTERED decides fresh-food/port (cures scurvy + clears the deficit — RR p.321). A grounded crew still eats.
+    if(!A.isHouseRuleEnabled(campaign, 'ignore-rations') && typeof A.computeShipProvisionDay === 'function'){
+      _voyProvision = A.computeShipProvisionDay(campaign, _voyageVessel, { hex: nextHex || curHex });
+      if(_voyProvision.tracked && _voyProvision.deprivation.speedMult !== 1) milesBudget *= _voyProvision.deprivation.speedMult;
+    }
   }
 
   // ── navigation (§7 / RR p.275; V3a sea nav RR p.320): one Navigation throw per travel day. LAND:
@@ -2808,19 +2818,55 @@ function tickJourneyDay(campaign, journey, ctx){
         label: (journey.name || 'Voyage') + ': caught in a gale — ' + _galeResult.shpDamage + ' hull damage over ' + _galeResult.hoursCaught + 'h (Seafaring ' + _galeResult.rolled + (_galeResult.bonus ? ('+' + _galeResult.bonus) : '') + ' vs ' + _galeResult.target + '+)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex } });
     }
-    if(_voyShpDamage > 0 || (_voyGrounded !== (_voyageVessel.grounded || null))){
-      const _cls = (typeof A.vesselClass === 'function') ? A.vesselClass(_voyageVessel) : null;
-      const _curShp = (typeof _voyageVessel.shp === 'number') ? _voyageVessel.shp : (_cls ? _cls.shp : 0);
-      const _newShp = Math.max(0, _curShp - _voyShpDamage);
-      let _newCondition = _voyageVessel.condition || 'seaworthy';
-      if(_newShp <= 0) _newCondition = 'sinking';
-      else if(_cls && _newShp < _cls.shp) _newCondition = 'damaged';
-      _voyageState = { vesselId: _voyageVessel.id, newShp: _newShp, newCondition: _newCondition, newGrounded: _voyGrounded || null,
-                       shpDamage: _voyShpDamage, hazardEvents: _hazardResults, galeEvent: (_galeResult && !_galeResult.success) ? _galeResult : null };
-      if(_newShp <= 0){
-        notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-sinking', pauseTrigger: 'fording', primaryHexId: journey.currentHexId || journey.startHexId || null,
-          label: (journey.name || 'Voyage') + ': the hull is breached (0 SHP) — sinking, GM resolve (RR p.322)',
+    // V3c — ship-stores deprivation / scurvy heads-up notables (the consumption itself rides record.voyageState
+    // below). A 'supplies-low' pause (the journeys consumer's barrier-class trigger) stops the GM the day the
+    // crew first goes underfed / starving / breaks out in scurvy. Cure-at-port is good news (no pause).
+    if(_voyProvision && _voyProvision.tracked){
+      const _vHex = journey.currentHexId || journey.startHexId || null;
+      if(_voyProvision.becameStarving)
+        notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-starvation', pauseTrigger: 'supplies-low', primaryHexId: _vHex,
+          label: (journey.name || 'Voyage') + ': the crew is starving (' + _voyProvision.newDeficit + ' days without stores) — ⅓ speed + a morale calamity, mutiny risk (RR p.321)',
           payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+      else if(_voyProvision.becameUnderfed)
+        notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-underfed', pauseTrigger: 'supplies-low', primaryHexId: _vHex,
+          label: (journey.name || 'Voyage') + ': the crew goes underfed (ship stores exhausted) — ½ voyage speed (RR p.321)',
+          payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+      if(_voyProvision.scurvyOnset)
+        notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-scurvy', pauseTrigger: 'supplies-low', primaryHexId: _vHex,
+          label: (journey.name || 'Voyage') + ': scurvy breaks out — a month at sea without fresh food (GM applies −1 STR/CON, RR p.321)',
+          payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+      else if(_voyProvision.scurvyCured)
+        notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-scurvy-cured', primaryHexId: _vHex,
+          label: (journey.name || 'Voyage') + ': fresh food at port — the scurvy lifts (RR p.321)',
+          payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+    }
+    // Assemble record.voyageState when EITHER the hull changed (V3b) OR ship stores are tracked (V3c —
+    // every provisioned voyage day records its consumption/deficit/scurvy absolutes so a reroll reverts).
+    const _hasHullChange = (_voyShpDamage > 0 || (_voyGrounded !== (_voyageVessel.grounded || null)));
+    const _hasProvision = !!(_voyProvision && _voyProvision.tracked);
+    if(_hasHullChange || _hasProvision){
+      _voyageState = { vesselId: _voyageVessel.id };
+      if(_hasHullChange){
+        const _cls = (typeof A.vesselClass === 'function') ? A.vesselClass(_voyageVessel) : null;
+        const _curShp = (typeof _voyageVessel.shp === 'number') ? _voyageVessel.shp : (_cls ? _cls.shp : 0);
+        const _newShp = Math.max(0, _curShp - _voyShpDamage);
+        let _newCondition = _voyageVessel.condition || 'seaworthy';
+        if(_newShp <= 0) _newCondition = 'sinking';
+        else if(_cls && _newShp < _cls.shp) _newCondition = 'damaged';
+        _voyageState.newShp = _newShp; _voyageState.newCondition = _newCondition; _voyageState.newGrounded = _voyGrounded || null;
+        _voyageState.shpDamage = _voyShpDamage; _voyageState.hazardEvents = _hazardResults;
+        _voyageState.galeEvent = (_galeResult && !_galeResult.success) ? _galeResult : null;
+        if(_newShp <= 0){
+          notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-sinking', pauseTrigger: 'fording', primaryHexId: journey.currentHexId || journey.startHexId || null,
+            label: (journey.name || 'Voyage') + ': the hull is breached (0 SHP) — sinking, GM resolve (RR p.322)',
+            payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+        }
+      }
+      if(_hasProvision){
+        _voyageState.newShipStores = _voyProvision.newStores;
+        _voyageState.newProvisionDeficitDays = _voyProvision.newDeficit;
+        _voyageState.newScurvyDays = _voyProvision.newScurvyDays;
+        _voyageState.newScurvy = _voyProvision.newScurvy;
       }
     }
   }
@@ -2947,7 +2993,7 @@ function tickJourneyDay(campaign, journey, ctx){
                             summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then met ' + (armyContactRecord.opposingArmyName || 'an opposing army') + ' (day ' + newDayIndex + ')';
   else if(_voyageStuck)     summaryLabel = (journey.name || 'Voyage') + ': ' + (_voyageVessel.grounded === 'kelp' ? 'entangled in kelp' : 'aground on a ' + _voyageVessel.grounded) + ' — making no way (day ' + newDayIndex + ')';
   else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — strayed ' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' ' + (HEX_FACE_LABELS[strayHeading] || '') + ', unaware (day ' + newDayIndex + ')';
-  else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '') + (voyageInfo.weathering ? (' · ' + voyageInfo.weathering) : '')) : '') + (isLost ? ', off course' : '') + (_voyShpDamage > 0 ? (' · ' + _voyShpDamage + ' hull damage') : '') + (_voyGrounded && _voyGrounded !== (isVoyage && _voyageVessel.grounded || null) ? (' · ' + (_voyGrounded === 'kelp' ? 'entangled' : 'run aground') ) : '') + '), day ' + newDayIndex;
+  else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '') + (voyageInfo.weathering ? (' · ' + voyageInfo.weathering) : '')) : '') + (isLost ? ', off course' : '') + (_voyShpDamage > 0 ? (' · ' + _voyShpDamage + ' hull damage') : '') + (_voyGrounded && _voyGrounded !== (isVoyage && _voyageVessel.grounded || null) ? (' · ' + (_voyGrounded === 'kelp' ? 'entangled' : 'run aground') ) : '') + (_voyProvision && _voyProvision.tracked && _voyProvision.deprivation.speedMult !== 1 ? (' · ' + _voyProvision.deprivation.level) : '') + '), day ' + newDayIndex;
 
   // ── §4.2 Day record ──
   // Provisioning — a COMPACT per-member post-day survival snapshot (only the fields
@@ -2984,7 +3030,14 @@ function tickJourneyDay(campaign, journey, ctx){
       gale: (_galeResult && !_galeResult.success) ? { shpDamage: _galeResult.shpDamage, hoursCaught: _galeResult.hoursCaught } : null,
       shpDamage: _voyShpDamage,
       grounded: _voyGrounded || null,
-      stuck: !!_voyageStuck
+      stuck: !!_voyageStuck,
+      // V3c — ship stores / deprivation / scurvy this day (null = not tracked); level governs today's speed (entering deficit)
+      provision: (_voyProvision && _voyProvision.tracked) ? {
+        stores: _voyProvision.newStores, deficitDays: _voyProvision.newDeficit, level: _voyProvision.deprivation.level,
+        speedMult: _voyProvision.deprivation.speedMult, scurvyDays: _voyProvision.newScurvyDays, scurvy: _voyProvision.newScurvy,
+        scurvyOnset: _voyProvision.scurvyOnset, scurvyCured: _voyProvision.scurvyCured, becameUnderfed: _voyProvision.becameUnderfed,
+        becameStarving: _voyProvision.becameStarving, freshFood: _voyProvision.freshFood, ate: _voyProvision.ate
+      } : null
     } : null,
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,
@@ -3236,11 +3289,14 @@ function commitJourneyRecord(campaign, record){
     }
     dr._preDay.survival = { members: _pre, camp: _camp };
   }
-  // Voyages V3b — vessel pre-state snapshot (shp/condition/grounded), captured pre-apply so a reroll
-  // reverts the vessel too. Only when this day mutated the vessel (record.voyageState present).
+  // Voyages V3b/V3c — vessel pre-state snapshot (hull shp/condition/grounded + the V3c provisioning
+  // ladder: shipStores/deficit/scurvy-counter/scurvy), captured pre-apply so a reroll reverts the
+  // vessel too. Only when this day mutated the vessel (record.voyageState present).
   if(record.voyageState && record.voyageState.vesselId && global.ACKS && typeof global.ACKS.findVessel === 'function'){
     const _vv = global.ACKS.findVessel(campaign, record.voyageState.vesselId);
-    if(_vv) dr._preDay.voyage = { vesselId: _vv.id, shp: _vv.shp, condition: _vv.condition, grounded: _vv.grounded || null };
+    if(_vv) dr._preDay.voyage = { vesselId: _vv.id, shp: _vv.shp, condition: _vv.condition, grounded: _vv.grounded || null,
+                                  shipStores: _vv.shipStores, provisionDeficitDays: _vv.provisionDeficitDays,
+                                  daysAtSeaWithoutFreshFood: _vv.daysAtSeaWithoutFreshFood, scurvy: _vv.scurvy };
   }
   // World-date stamp: which world day this leg happened on, so the GM can reroll the LATEST
   // day only while the clock still stands on it (Journeys J2 feedback — once +1 day / Advance
@@ -3492,7 +3548,14 @@ function rerollJourneyDay(campaign, journey, ctx){
   // a hazard/gale day undoes the hull damage + any grounding (the world keeps nothing from a re-rolled day).
   if(pre.voyage && pre.voyage.vesselId && typeof A.findVessel === 'function'){
     const _vv = A.findVessel(campaign, pre.voyage.vesselId);
-    if(_vv){ _vv.shp = pre.voyage.shp; _vv.condition = pre.voyage.condition; _vv.grounded = pre.voyage.grounded || null; }
+    if(_vv){
+      _vv.shp = pre.voyage.shp; _vv.condition = pre.voyage.condition; _vv.grounded = pre.voyage.grounded || null;
+      // V3c — restore the ship-stores ladder (shipStores/deficit/scurvy-counter/scurvy) to its pre-day value
+      if('shipStores' in pre.voyage) _vv.shipStores = pre.voyage.shipStores;
+      if('provisionDeficitDays' in pre.voyage) _vv.provisionDeficitDays = pre.voyage.provisionDeficitDays;
+      if('daysAtSeaWithoutFreshFood' in pre.voyage) _vv.daysAtSeaWithoutFreshFood = pre.voyage.daysAtSeaWithoutFreshFood;
+      if('scurvy' in pre.voyage) _vv.scurvy = pre.voyage.scurvy;
+    }
   }
   // revert the party to its pre-day hex too (commitJourneyRecord now moves it every day); an arrival
   // reroll additionally re-links the activeJourneyId it had cleared.
