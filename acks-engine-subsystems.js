@@ -3225,8 +3225,12 @@ function commitJourneyRecord(campaign, record){
       if(army && A && typeof A.stationUnit === 'function'){
         A.stationUnit(campaign, unit, { kind: 'army', id: army.id });
         (army.history = army.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'reinforcement-arrived', narrative: (unit.displayName || unit.unitTypeKey || 'A unit') + ' marched in and joined ' + (army.name || 'the army') + '.' });
+      } else if(A && typeof A.stationUnit === 'function'){
+        // a FREE march (startUnitMarch / journey.unitMarch) — the unit halts at the hex it marched to
+        A.stationUnit(campaign, unit, { kind: 'hex', id: j.destinationHexId || record.newCurrentHexId || null });
+        (unit.history = unit.history || []).push({ turn: campaign.currentTurn || null, dayInMonth: campaign.currentDayInMonth || null, type: 'march-arrived', text: 'Marched to ' + (j.destinationHexId || 'its destination') + '.' });
       }
-      unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+      unit.rallyingToArmyId = null; unit.rallyJourneyId = null; unit.marchJourneyId = null;
     }
   }
 }
