@@ -1,6 +1,7 @@
 // =============================================================================
 // voyages.smoke.js — Maritime / Voyages V1 (data layer) + V2 (wind/sailing speed)
-// + V3a (sea navigation + weathering the seas). Phase 3 Voyages (#145).
+// + V3a (sea navigation + weathering the seas) + V3b (nautical hazards + gale damage —
+// the SHP-mutating record→commit→reroll slice). Phase 3 Voyages (#145).
 // Covers: the vsl- prefix; the VESSEL_CATALOG (20 RR p.316 classes — values cross-checked
 // EXACT vs the printed Sea Vessels table + the "—"→null handling + draft/deck-type from
 // RR pp.153–156/331); the catalog lookups; blankVessel / createVessel (init-on-write) + the
@@ -462,11 +463,132 @@ ok('the day record carries the fog weathering', fogDay.voyage && fogDay.voyage.w
 ok('the sea-nav target absorbed the fog penalty (coast 7 + 4 = 11)', fogDay.navigationThrow && fogDay.navigationThrow.target === 11 && fogDay.navigationThrow.result === 'success');
 
 // =============================================================================
+section('V3b — nautical hazards (RR p.320): the catalog + the traversal throw');
+// =============================================================================
+const hzShip = ACKS.blankVessel({ catalogKey: 'sailing-ship-large', shp: 200 });   // no officers → target 11, no shallow-draft bonus
+const hzGalley = ACKS.blankVessel({ catalogKey: 'galley-4-rower', shp: 65 });       // shallow → +4 vs sandbar/shoal
+ok('NAUTICAL_HAZARDS has the 8 RR p.320 kinds', Object.keys(ACKS.NAUTICAL_HAZARDS).length === 8 && !!ACKS.NAUTICAL_HAZARDS.rock && !!ACKS.NAUTICAL_HAZARDS.whirlpool && !!ACKS.NAUTICAL_HAZARDS.kelp);
+ok('NAUTICAL_HAZARDS is frozen', Object.isFrozen(ACKS.NAUTICAL_HAZARDS) && Object.isFrozen(ACKS.NAUTICAL_HAZARDS.rock));
+ok('hazard effects: rock=hull, sandbar=ground, kelp=entangle, whirlpool=whirlpool', ACKS.NAUTICAL_HAZARDS.rock.effect === 'hull' && ACKS.NAUTICAL_HAZARDS.sandbar.effect === 'ground' && ACKS.NAUTICAL_HAZARDS.kelp.effect === 'entangle' && ACKS.NAUTICAL_HAZARDS.whirlpool.effect === 'whirlpool');
+ok('nauticalHazardForHex reads a GM-flagged hex', !!ACKS.nauticalHazardForHex({ nauticalHazard: 'reef' }) && ACKS.nauticalHazardForHex({ nauticalHazard: 'reef' }).key === 'reef');
+ok('nauticalHazardForHex: no flag / bogus / null → null', ACKS.nauticalHazardForHex({ terrain: 'water' }) === null && ACKS.nauticalHazardForHex({ nauticalHazard: 'bogus' }) === null && ACKS.nauticalHazardForHex(null) === null);
+// success (nat 20) → no effect
+const _hRockOk = ACKS.rollNauticalHazard({}, hzShip, 'rock', { rng: () => 0.99 });
+ok('rock traverse SUCCESS (nat 20) → no SHP, no grounded, target 11', _hRockOk.success && _hRockOk.shpDamage === 0 && _hRockOk.grounded === null && _hRockOk.target === 11);
+// failure (nat 1) on a rock → 8d10 hull damage (min 8), effect hull, no grounded
+const _hRockFail = ACKS.rollNauticalHazard({}, hzShip, 'rock', { rng: () => 0 });
+ok('rock FAIL (nat 1) → 8d10 hull damage (=8 min), no grounded, effect hull', !_hRockFail.success && _hRockFail.naturalOne && _hRockFail.shpDamage === 8 && _hRockFail.grounded === null && _hRockFail.effect === 'hull');
+// sandbar fail → 4d10 + grounded sandbar
+const _hSand = ACKS.rollNauticalHazard({}, hzShip, 'sandbar', { rng: () => 0 });
+ok('sandbar FAIL → 4d10 (=4) + grounded "sandbar"', !_hSand.success && _hSand.shpDamage === 4 && _hSand.grounded === 'sandbar' && _hSand.effect === 'ground');
+// kelp fail → no SHP + entangled
+const _hKelp = ACKS.rollNauticalHazard({}, hzShip, 'kelp', { rng: () => 0 });
+ok('kelp FAIL → no SHP + entangled (grounded "kelp")', !_hKelp.success && _hKelp.shpDamage === 0 && _hKelp.grounded === 'kelp' && _hKelp.effect === 'entangle');
+// whirlpool fail → 6d10 + stuck
+const _hWp = ACKS.rollNauticalHazard({}, hzShip, 'whirlpool', { rng: () => 0 });
+ok('whirlpool FAIL → 6d10 (=6) + stuck', !_hWp.success && _hWp.shpDamage === 6 && _hWp.grounded === 'whirlpool');
+// master mariner lowers the target to 7 (RR p.320)
+ok('a master mariner aboard → target 7', ACKS.rollNauticalHazard(mc2, mmShip, 'rock', { rng: () => 0.5 }).target === 7);
+ok('no master → target 11', ACKS.rollNauticalHazard({}, hzShip, 'rock', { rng: () => 0.5 }).target === 11);
+// half-speed → +4 bonus + ½ damage (hull/ground)
+const _hHalf = ACKS.rollNauticalHazard({}, hzShip, 'rock', { rng: () => 0, atHalfSpeed: true });
+ok('at ≤½ speed → +4 bonus + ½ hull damage (ceil(8/2)=4)', _hHalf.bonus === 4 && _hHalf.shpDamage === 4);
+// galley/longship +4 vs sandbar/shoal only
+ok('a galley gets +4 vs a sandbar (shallow draft)', ACKS.rollNauticalHazard({}, hzGalley, 'sandbar', { rng: () => 0.5 }).bonus === 4);
+ok('a galley gets NO +4 vs a reef (only sandbar/shoal)', ACKS.rollNauticalHazard({}, hzGalley, 'reef', { rng: () => 0.5 }).bonus === 0);
+ok('a sailing ship gets no shallow-draft bonus vs a sandbar', ACKS.rollNauticalHazard({}, hzShip, 'sandbar', { rng: () => 0.5 }).bonus === 0);
+ok('an unknown hazard → null', ACKS.rollNauticalHazard({}, hzShip, 'bogus', { rng: () => 0.5 }) === null);
+
+// =============================================================================
+section('V3b — gale damage (RR p.319)');
+// =============================================================================
+const _gOk = ACKS.rollVoyageGale({}, hzShip, { rng: () => 0.99 });
+ok('ride out the gale SUCCESS (nat 20) → no damage', _gOk.success && _gOk.shpDamage === 0 && _gOk.hoursCaught === 0);
+const _gFail = ACKS.rollVoyageGale({}, hzShip, { rng: () => 0 });
+ok('caught in the gale FAIL (nat 1) → 2d8/hr × 1d4 h (1h × 2 min = 2)', !_gFail.success && _gFail.hoursCaught === 1 && _gFail.shpDamage === 2);
+ok('a master mariner adds +4 to ride out the gale', ACKS.rollVoyageGale(mc2, mmShip, { rng: () => 0.5 }).bonus === 4 && ACKS.rollVoyageGale({}, hzShip, { rng: () => 0.5 }).bonus === 0);
+
+// =============================================================================
+section('V3b — applyVoyageDayState (commit-side apply, pure-absolute)');
+// =============================================================================
+const _ac = ACKS.blankCampaign({ name: 'apply' });
+const _av = ACKS.createVessel(_ac, { catalogKey: 'sailing-ship-large', shp: 200 });
+ACKS.applyVoyageDayState(_ac, null, { vesselId: _av.id, newShp: 150, newCondition: 'damaged', newGrounded: 'sandbar' });
+ok('applyVoyageDayState writes shp/condition/grounded', _av.shp === 150 && _av.condition === 'damaged' && _av.grounded === 'sandbar');
+ACKS.applyVoyageDayState(_ac, null, { vesselId: _av.id, newShp: 0, newCondition: 'sinking', newGrounded: null });
+ok('applyVoyageDayState clears grounded + sets sinking at 0 SHP', _av.shp === 0 && _av.condition === 'sinking' && _av.grounded === null);
+
+// =============================================================================
+section('V3b — integration: a voyage strikes a reef (SHP damage) + commit applies + reroll reverts');
+// =============================================================================
+const hc = ACKS.blankCampaign({ name: 'reef-run' });
+hc.characters = [ACKS.blankCharacter({ id: 'chr-h', name: 'Helm' })];
+hc.hexes = [];
+for(let r = 0; r <= 13; r++){
+  const hx = ACKS.blankHex({ id: 'rf-' + r, coord: { q: 0, r: r }, terrain: 'water' });   // coast (default seaZone)
+  if(r === 5) hx.nauticalHazard = 'rock';                                                   // a reef on the route
+  hc.hexes.push(hx);
+}
+const hv = ACKS.createVessel(hc, { name: 'Hull Runner', catalogKey: 'sailing-ship-large' });   // 200 SHP, 72 sail
+const hj = ACKS.blankJourney({ name: 'Reef Run', mode: 'voyage-sail', shipId: hv.id, participantCharacterIds: ['chr-h'], startHexId: 'rf-0', destinationHexId: 'rf-13', currentHexId: 'rf-0' });
+hc.journeys = [hj]; ACKS.startJourney(hc, hj);
+// rng 0.4 → nav (coast 7+) natural 9 = success (not lost); the rock hazard (11+, no bonus) natural 9 = fail → 8d10 @ .4 = 40 SHP
+const hdr = ACKS.tickJourneyDay(hc, hj, { rng: () => 0.4, weather: { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' } });
+const hDay = hdr.record.dayRecord;
+ok('the voyage sailed the reef hex (12 hexes, coast nav passed)', hDay.hexesTraveled === 12 && hDay.navigationThrow.result === 'success');
+ok('record.voyageState carries the hull damage (rock, 40 SHP @ rng .4 → 160)', !!hdr.record.voyageState && hdr.record.voyageState.shpDamage === 40 && hdr.record.voyageState.newShp === 160 && hdr.record.voyageState.newCondition === 'damaged');
+ok('the day record logs the hazard + SHP loss', hDay.voyage && hDay.voyage.shpDamage === 40 && Array.isArray(hDay.voyage.hazards) && hDay.voyage.hazards.some(h => h.hazard === 'rock' && !h.success));
+ok('the tick is PURE — the vessel is unchanged until commit', hv.shp === 200 && hv.condition === 'seaworthy');
+ACKS.commitJourneyRecord(hc, hdr.record);
+ok('commit applies the hull damage to the vessel', hv.shp === 160 && hv.condition === 'damaged');
+// reroll reverts the vessel, then re-runs with no-damage luck (nat 20 passes the hazard)
+ACKS.rerollJourneyDay(hc, hj, { rng: () => 0.99 });
+ok('reroll reverts the hull damage (vessel restored; no damage on the re-roll)', hv.shp === 200 && hv.condition === 'seaworthy');
+
+// =============================================================================
+section('V3b — integration: a gale holes the hull; a grounded vessel makes no way');
+// =============================================================================
+const gc = ACKS.blankCampaign({ name: 'gale-run' });
+gc.characters = [ACKS.blankCharacter({ id: 'chr-g', name: 'Bosun' })];
+gc.hexes = []; for(let r = 0; r <= 13; r++) gc.hexes.push(ACKS.blankHex({ id: 'gl-' + r, coord: { q: 0, r: r }, terrain: 'water' }));   // coast
+const gv = ACKS.createVessel(gc, { name: 'Gale Rider', catalogKey: 'sailing-ship-large' });   // 200 SHP
+const gj = ACKS.blankJourney({ name: 'Storm Crossing', mode: 'voyage-sail', shipId: gv.id, participantCharacterIds: ['chr-g'], startHexId: 'gl-0', destinationHexId: 'gl-13', currentHexId: 'gl-0' });
+gc.journeys = [gj]; ACKS.startJourney(gc, gj);
+// Stormy wind = the Gale band → voyageInfo.gale; coast nav (7+) passes at .4; the gale throw (11+) natural 9 = fail
+// → 2d8 (@.4 = 8) × (1+floor(.4×4)=2) hours = 16 SHP
+const gdr = ACKS.tickJourneyDay(gc, gj, { rng: () => 0.4, weather: { wind: 'Stormy', windDirection: 0, condition: 'fair', temperature: 'moderate' } });
+ok('a gale day threatens the hull (gale throw fails → 16 SHP)', !!gdr.record.voyageState && !!gdr.record.voyageState.galeEvent && gdr.record.voyageState.shpDamage === 16 && gdr.record.dayRecord.voyage.gale && gdr.record.dayRecord.voyage.gale.shpDamage === 16);
+ACKS.commitJourneyRecord(gc, gdr.record);
+ok('commit applies the gale damage (200 → 184)', gv.shp === 184);
+// a grounded vessel makes no way until refloated
+gv.grounded = 'sandbar';
+const sdr = ACKS.tickJourneyDay(gc, gj, { rng: () => 0.5, weather: { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' } });
+ok('a grounded vessel travels 0 hexes (stuck)', sdr.record.dayRecord.hexesTraveled === 0 && sdr.record.dayRecord.voyage.stuck === true);
+ok('the stuck day records a grounded pause + an "aground" summary', sdr.record.dayRecord.notableEvents.some(n => n.type === 'voyage-grounded') && /aground/.test(sdr.record.label));
+ok('a stuck day mutates nothing (no voyageState — the GM must refloat)', sdr.record.voyageState === null);
+// clearing the grounding resumes movement
+gv.grounded = null;
+const rdr = ACKS.tickJourneyDay(gc, gj, { rng: () => 0.5, weather: { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' } });
+ok('clearing the grounding resumes the voyage (hexes > 0)', rdr.record.dayRecord.hexesTraveled > 0 && rdr.record.dayRecord.voyage.stuck === false);
+
+// =============================================================================
+section('V3b — a clear-water voyage carries NO voyageState (opt-in by data)');
+// =============================================================================
+const cc = ACKS.blankCampaign({ name: 'clear-run' });
+cc.characters = [ACKS.blankCharacter({ id: 'chr-c', name: 'Mate' })];
+cc.hexes = []; for(let r = 0; r <= 13; r++) cc.hexes.push(ACKS.blankHex({ id: 'cw-' + r, coord: { q: 0, r: r }, terrain: 'water' }));
+const cv = ACKS.createVessel(cc, { name: 'Calm Sailer', catalogKey: 'sailing-ship-large' });
+const cj = ACKS.blankJourney({ name: 'Calm Run', mode: 'voyage-sail', shipId: cv.id, participantCharacterIds: ['chr-c'], startHexId: 'cw-0', destinationHexId: 'cw-13', currentHexId: 'cw-0' });
+cc.journeys = [cj]; ACKS.startJourney(cc, cj);
+const cdr = ACKS.tickJourneyDay(cc, cj, { rng: () => 0.5, weather: { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' } });
+ok('a hazard-free, gale-free voyage day carries no voyageState (vessel untouched)', cdr.record.voyageState === null && cdr.record.dayRecord.voyage.shpDamage === 0 && cdr.record.dayRecord.voyage.hazards === null && cdr.record.dayRecord.voyage.gale === null && cv.shp === 200);
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Voyages V1 + V2 + V3a smoke checks passed.');
+  console.log('\nAll Voyages V1 + V2 + V3a + V3b smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

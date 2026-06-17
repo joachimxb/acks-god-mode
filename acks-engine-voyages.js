@@ -528,6 +528,132 @@
     return Math.max(officerBonus, _voyParticipantNavBonus(campaign, journey));
   }
 
+  // ===========================================================================
+  // V3b — Nautical hazards + gale damage (RR pp.319–320). The vessel-STATE-mutating
+  // slice: a Seafaring throw on entering a GM-flagged hazard hex (kelp/rock/reef/
+  // wreck/seamount/sandbar/shoal/whirlpool), or weathering a gale at sea, either holes
+  // the hull (SHP damage, the vessel sails on) or grounds/entangles it (stuck until
+  // refloated). MUTATIONS ride the record→commit→revert path (the survival precedent):
+  // tickJourneyDay ROLLS + records the absolutes (record.voyageState), commitJourneyRecord
+  // APPLIES them (applyVoyageDayState), rerollJourneyDay REVERTS from the _preDay.voyage
+  // snapshot. Ship stores / deprivation / scurvy / fishing (the crew-provisioning ladder)
+  // layer on this same machinery in V3c. Maritime_Voyages_RAW_Survey.md §7 / §9 / §10.
+  // OPT-IN BY DATA: hazards fire only on a GM-set hex.nauticalHazard, gale only on a gale
+  // weather day — so every existing voyage (+ the V2/V3a tests) stays byte-unchanged.
+  //
+  // IP (CLAUDE §13.6): mechanical values only, page-cited. The round-by-round whirlpool
+  // (25–40 SHP/round + Paralysis saves, RR p.320) is tactical-sea-combat OUT (survey §15);
+  // v1 models a per-day SHP proxy + a stuck flag (the GM resolves the overboard saves).
+  // ===========================================================================
+
+  // The nautical-hazard kinds (RR p.320) + the failure effect. effect: 'hull' = pierces the
+  // hull (SHP, sails on); 'ground' = runs aground (SHP + stuck until refloated); 'entangle' =
+  // kelp (no SHP, stuck until cut free); 'whirlpool' = heavy SHP + stuck. shpDice: the failure
+  // damage (½ at ≤½ speed for hull/ground, RR p.320). The full-strength dice are RR p.320's
+  // (8d10 rock/reef, 4d10 sandbar/shoal); whirlpool's 6d10 is the v1 per-day proxy for its
+  // round-by-round tactical figure.
+  const NAUTICAL_HAZARDS = Object.freeze({
+    kelp:      Object.freeze({ key:'kelp',      label:'kelp forest', effect:'entangle',  shpDice:null,  page:320 }),
+    rock:      Object.freeze({ key:'rock',      label:'rocks',       effect:'hull',      shpDice:'8d10', page:320 }),
+    reef:      Object.freeze({ key:'reef',      label:'a reef',      effect:'hull',      shpDice:'8d10', page:320 }),
+    wreck:     Object.freeze({ key:'wreck',     label:'a wreck',     effect:'hull',      shpDice:'8d10', page:320 }),
+    seamount:  Object.freeze({ key:'seamount',  label:'a seamount',  effect:'hull',      shpDice:'8d10', page:320 }),
+    sandbar:   Object.freeze({ key:'sandbar',   label:'a sandbar',   effect:'ground',    shpDice:'4d10', page:320 }),
+    shoal:     Object.freeze({ key:'shoal',     label:'a shoal',     effect:'ground',    shpDice:'4d10', page:320 }),
+    whirlpool: Object.freeze({ key:'whirlpool', label:'a whirlpool', effect:'whirlpool', shpDice:'6d10', page:320 })
+  });
+  // A hex's GM-set nautical hazard (a validated hex.nauticalHazard flag, like a road/river edge),
+  // or null. The GM flags chokepoints; known/charted routes are sailed around (the hazard map data).
+  function nauticalHazardForHex(hex){
+    const h = hex && hex.nauticalHazard;
+    return (h && NAUTICAL_HAZARDS[h]) || null;
+  }
+
+  // Roll a d20-vs-target Seafaring throw through the canonical Layer-1 resolver (PT-6 — the same
+  // path rollNavigation / journeyFordingThrow fold onto; nat-1 auto-fails, no nat-20). Returns the
+  // legacy {rolled,target,bonus,total,naturalOne,success} shape. Late-bound on ACKS (voyages.js is
+  // called BY the tick, so the resolver is present at call time).
+  function _voyThrow(target, bonus, rng){
+    const A = global.ACKS || ACKS;
+    if(typeof A.rollProficiencyThrow === 'function'){
+      const r = A.rollProficiencyThrow({ target: target, modifiers: [{ source: 'seafaring', value: bonus || 0 }], autoFailBand: 1, proficient: false, rng: rng || Math.random });
+      return { rolled: r.natural, target: target, bonus: bonus || 0, total: r.total, naturalOne: r.natural === 1, success: r.success };
+    }
+    const nat = 1 + Math.floor((rng || Math.random)() * 20);   // defensive fallback (resolver absent)
+    return { rolled: nat, target: target, bonus: bonus || 0, total: nat + (bonus || 0), naturalOne: nat === 1, success: nat !== 1 && (nat + (bonus || 0)) >= target };
+  }
+  // SHP-damage dice (e.g. '8d10') via the core roller, with a tiny rng-driven fallback. PURE.
+  function _voyDamageDice(spec, rng){
+    const A = global.ACKS || ACKS;
+    if(typeof A._rollDiceStr === 'function') return A._rollDiceStr(spec, rng) || 0;
+    const m = /^(\d+)d(\d+)$/.exec(String(spec || '')); if(!m) return 0;
+    const n = +m[1], faces = +m[2]; let t = 0; for(let i = 0; i < n; i++) t += 1 + Math.floor((rng || Math.random)() * faces); return t;
+  }
+
+  // Roll a nautical-hazard traversal (RR p.320). Seafaring 11+ (7+ master mariner); +4 at ≤½ speed;
+  // galley/longship +4 vs sandbar/shoal (shallow draft). On FAILURE: SHP damage (½ at ≤½ speed for
+  // hull/ground) and/or the stuck flag (ground/entangle/whirlpool). PURE (rng-driven, no mutation) —
+  // the SHP/grounded mutation is applied later via applyVoyageDayState. atHalfSpeed: the vessel is
+  // creeping carefully (pace half-speed/halted).
+  function rollNauticalHazard(campaign, vessel, hazard, opts){
+    opts = opts || {};
+    const rng = opts.rng || Math.random;
+    const hz = (typeof hazard === 'string') ? NAUTICAL_HAZARDS[hazard] : hazard;
+    if(!hz) return null;
+    const master = vesselHasMasterMariner(campaign, vessel);
+    const target = master ? 7 : 11;
+    let bonus = 0;
+    if(opts.atHalfSpeed) bonus += 4;
+    const ck = (vessel && vessel.catalogKey) || '';
+    const shallow = /^galley/.test(ck) || ck === 'longship';
+    if(shallow && (hz.key === 'sandbar' || hz.key === 'shoal')) bonus += 4;
+    const t = _voyThrow(target, bonus, rng);
+    const out = { hazard: hz.key, hazardLabel: hz.label, effect: hz.effect, target: t.target, bonus: bonus,
+                  rolled: t.rolled, total: t.total, success: t.success, naturalOne: t.naturalOne, masterMariner: master,
+                  atHalfSpeed: !!opts.atHalfSpeed, shpDamage: 0, grounded: null };
+    if(!t.success){
+      if(hz.shpDice){
+        let dmg = _voyDamageDice(hz.shpDice, rng);
+        if(opts.atHalfSpeed && (hz.effect === 'hull' || hz.effect === 'ground')) dmg = Math.ceil(dmg / 2);   // ½ at ≤½ speed (RR p.320)
+        out.shpDamage = dmg;
+      }
+      if(hz.effect === 'ground' || hz.effect === 'entangle' || hz.effect === 'whirlpool') out.grounded = hz.key;   // stuck until refloated/cut free
+    }
+    return out;
+  }
+
+  // Roll the gale (RR p.319): a gale day at sea threatens the hull. A Seafaring "ride out the gale"
+  // throw (11+, +4 master mariner, nat-1 fails); SUCCESS = beached / rode it out (no damage). FAILURE
+  // = caught at sea → 2d8/hour SHP for 1d4 hours exposed (RR p.319; v1 models a partial exposure, not
+  // the full 12h — the GM beaches/anchors). PURE. The speed effect of a gale is already V2 (×2/3 or 0).
+  function rollVoyageGale(campaign, vessel, opts){
+    opts = opts || {};
+    const rng = opts.rng || Math.random;
+    const master = vesselHasMasterMariner(campaign, vessel);
+    const t = _voyThrow(11, master ? 4 : 0, rng);
+    const out = { target: t.target, bonus: master ? 4 : 0, rolled: t.rolled, total: t.total, success: t.success, naturalOne: t.naturalOne,
+                  masterMariner: master, hoursCaught: 0, shpDamage: 0 };
+    if(!t.success){
+      const hours = 1 + Math.floor(rng() * 4);                 // 1d4 hours caught at sea
+      let dmg = 0; for(let h = 0; h < hours; h++) dmg += _voyDamageDice('2d8', rng);   // 2d8/hour (RR p.319)
+      out.hoursCaught = hours; out.shpDamage = dmg;
+    }
+    return out;
+  }
+
+  // Apply the recorded V3b vessel-state absolutes to the campaign (called by commitJourneyRecord —
+  // the applyDaySurvival precedent). PURE-ABSOLUTE (no rng — the tick already rolled): writes the
+  // vessel's new SHP / condition / grounded flag. A reroll reverts these from _preDay.voyage. Only
+  // the three mutated fields are written (no per-day history push, so revert stays a clean restore).
+  function applyVoyageDayState(campaign, journey, voyageState){
+    if(!campaign || !voyageState || !voyageState.vesselId) return;
+    const v = findVessel(campaign, voyageState.vesselId);
+    if(!v) return;
+    if(typeof voyageState.newShp === 'number') v.shp = voyageState.newShp;
+    if(voyageState.newCondition) v.condition = voyageState.newCondition;
+    if('newGrounded' in voyageState) v.grounded = voyageState.newGrounded || null;
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     VESSEL_CATALOG,
@@ -541,7 +667,9 @@
     vesselHasMasterMariner, vesselHasNavigator, vesselVoyageSpeedFactor, voyageContinuousSailEligible,
     voyageDayMiles,
     // V3a — navigating & weathering the seas
-    SEA_NAV_THROWS, seaZoneForHex, seaNavTarget, voyageWeatherEffects, seaNavBonus
+    SEA_NAV_THROWS, seaZoneForHex, seaNavTarget, voyageWeatherEffects, seaNavBonus,
+    // V3b — nautical hazards + gale damage (the SHP-mutating replay slice)
+    NAUTICAL_HAZARDS, nauticalHazardForHex, rollNauticalHazard, rollVoyageGale, applyVoyageDayState
   });
 
 })(typeof window !== 'undefined' ? window : global);

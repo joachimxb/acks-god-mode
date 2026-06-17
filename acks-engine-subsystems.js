@@ -2596,7 +2596,17 @@ function tickJourneyDay(campaign, journey, ctx){
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
   const _voyOnSafeWater = isVoyage && (_voyageSeaZone === 'lake' || _voyageSeaZone === 'river');
-  const _navActive = !restDay && !halted && !standDown && dist.remaining > 0 && (
+  // ── Voyages V3b (RR pp.319–320): a GROUNDED/ENTANGLED vessel (vessel.grounded set by a prior day's
+  // failed hazard) makes no way until it is refloated/cut free — it HOLDS this day (a pause for the GM
+  // to clear vessel.grounded). And on a GALE day at sea (V2's voyageInfo.gale, not on safe inland water,
+  // not under a §26 override), a Seafaring "ride out the gale" throw decides whether the hull takes 2d8/hr
+  // damage. Both ROLL here (pure) and ride record.voyageState → commit applies → reroll reverts. ──
+  const _voyageStuck = isVoyage && !!_voyageVessel.grounded;
+  let _galeResult = null;
+  if(isVoyage && !_voyageStuck && voyageInfo && voyageInfo.gale && !_voyOnSafeWater && voyageInfo.propulsion !== 'override' && typeof A.rollVoyageGale === 'function'){
+    _galeResult = A.rollVoyageGale(campaign, _voyageVessel, { atHalfSpeed: (pace === 'half-speed' || pace === 'halted'), rng });
+  }
+  const _navActive = !restDay && !halted && !_voyageStuck && !standDown && dist.remaining > 0 && (
     isVoyage ? (isLost || !_voyOnSafeWater)
              : (isLost || (!onRoadOrTrail && !followingTrail))
   );
@@ -2655,7 +2665,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // a travel day always advances at least one hex (RAW floors progress ≥1). ──
   let hexesToday = 0, dayAllRoaded = true, hardestNav = -1, representativeTerrain = baseTerrain, fordingRecord = null;
   let strayPath = null, strayLandingCoord = null, armyContactRecord = null;
-  if(!restDay && !halted && isLost && dist.remaining > 0){
+  if(!restDay && !halted && !_voyageStuck && isLost && dist.remaining > 0){
     // ── LOST (RR p.275): the party covers a full day's distance toward its random stray heading, OFF
     // the planned route and unaware. Terrain + ground pace each hex (looked up by coord, falling back to
     // the base environment where unauthored); NO road bonus (it isn't following one) and NO river fording
@@ -2679,7 +2689,7 @@ function tickJourneyDay(campaign, journey, ctx){
       { const nt = (A.JOURNEY_NAV_THROWS[terr] != null) ? A.JOURNEY_NAV_THROWS[terr] : 0; if(nt > hardestNav){ hardestNav = nt; representativeTerrain = terr; } }
     }
     strayLandingCoord = cur;
-  } else if(!restDay && !halted && !isLost && dist.remaining > 0 && route.length > 1){
+  } else if(!restDay && !halted && !_voyageStuck && !isLost && dist.remaining > 0 && route.length > 1){
     let pos = startPos;
     while(pos < route.length - 1 && (pos - startPos) < dist.remaining){
       const fromStep = route[pos], toStep = route[pos + 1];
@@ -2757,6 +2767,62 @@ function tickJourneyDay(campaign, journey, ctx){
     notableEvents.push({ kind: 'journey-day-tick', type: 'halted', primaryHexId: journey.startHexId || null,
       label: (journey.name || 'Journey') + ': halted — the day’s activities left no time to travel (0 miles)',
       payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+  }
+  // ── Voyages V3b — nautical hazards (RR p.320) + the day's vessel-state assembly. On entering a
+  // GM-flagged hazard hex this day, a Seafaring throw is rolled (post-walk on the day's hexPath, the
+  // encounter-check pattern); failure holes the hull (SHP) or grounds/entangles the vessel. The day's
+  // SHP loss (hazards + the gale throw above) and any new grounding are accumulated into record.voyageState
+  // (absolutes commitJourneyRecord applies + a reroll reverts). A STUCK vessel made no way (gated above) →
+  // record the pause. Opt-in by data (hex.nauticalHazard); a non-hazard, non-gale voyage day carries no
+  // voyageState. Both nautical hazards and a gale use pauseTrigger 'fording' (the journeys consumer's
+  // barrier-class trigger) so the GM is stopped to resolve the damage. ──
+  let _voyageState = null, _voyShpDamage = 0, _voyGrounded = isVoyage ? (_voyageVessel.grounded || null) : null;
+  const _hazardResults = [];
+  if(isVoyage){
+    if(_voyageStuck){
+      notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-grounded', pauseTrigger: 'fording', primaryHexId: journey.currentHexId || journey.startHexId || null,
+        label: (journey.name || 'Voyage') + ': ' + (_voyageVessel.grounded === 'kelp' ? 'entangled in kelp' : 'aground on a ' + _voyageVessel.grounded) + ' — making no way until freed (RR p.320)',
+        payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+    } else {
+      const _atHalf = (pace === 'half-speed' || pace === 'halted');
+      for(const _ph of hexPath){
+        if(!_ph || !_ph.hexId) continue;
+        const _hx = (typeof A.findHex === 'function') ? A.findHex(campaign, _ph.hexId) : null;
+        const _hz = (typeof A.nauticalHazardForHex === 'function') ? A.nauticalHazardForHex(_hx) : null;
+        if(!_hz) continue;
+        const _hr = A.rollNauticalHazard(campaign, _voyageVessel, _hz, { atHalfSpeed: _atHalf, rng });
+        if(!_hr) continue;
+        _hazardResults.push(_hr);
+        if(!_hr.success){
+          _voyShpDamage += _hr.shpDamage || 0;
+          if(_hr.grounded && !_voyGrounded) _voyGrounded = _hr.grounded;   // first grounding/entangle this day sticks (cleared by the GM)
+          notableEvents.push({ kind: 'journey-day-tick', type: 'nautical-hazard', pauseTrigger: 'fording', primaryHexId: _ph.hexId,
+            label: (journey.name || 'Voyage') + ': struck ' + _hz.label + (_hr.shpDamage ? (' — ' + _hr.shpDamage + ' hull damage') : '') + (_hr.grounded ? (_hr.grounded === 'kelp' ? ' — entangled' : ' — run aground') : '') + ' (Seafaring ' + _hr.rolled + (_hr.bonus ? ('+' + _hr.bonus) : '') + ' vs ' + _hr.target + '+' + (_hr.naturalOne ? ', natural 1' : '') + ')',
+            payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+        }
+      }
+    }
+    if(_galeResult && !_galeResult.success){
+      _voyShpDamage += _galeResult.shpDamage || 0;
+      notableEvents.push({ kind: 'journey-day-tick', type: 'gale-damage', pauseTrigger: 'fording', primaryHexId: journey.currentHexId || journey.startHexId || null,
+        label: (journey.name || 'Voyage') + ': caught in a gale — ' + _galeResult.shpDamage + ' hull damage over ' + _galeResult.hoursCaught + 'h (Seafaring ' + _galeResult.rolled + (_galeResult.bonus ? ('+' + _galeResult.bonus) : '') + ' vs ' + _galeResult.target + '+)',
+        payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+    }
+    if(_voyShpDamage > 0 || (_voyGrounded !== (_voyageVessel.grounded || null))){
+      const _cls = (typeof A.vesselClass === 'function') ? A.vesselClass(_voyageVessel) : null;
+      const _curShp = (typeof _voyageVessel.shp === 'number') ? _voyageVessel.shp : (_cls ? _cls.shp : 0);
+      const _newShp = Math.max(0, _curShp - _voyShpDamage);
+      let _newCondition = _voyageVessel.condition || 'seaworthy';
+      if(_newShp <= 0) _newCondition = 'sinking';
+      else if(_cls && _newShp < _cls.shp) _newCondition = 'damaged';
+      _voyageState = { vesselId: _voyageVessel.id, newShp: _newShp, newCondition: _newCondition, newGrounded: _voyGrounded || null,
+                       shpDamage: _voyShpDamage, hazardEvents: _hazardResults, galeEvent: (_galeResult && !_galeResult.success) ? _galeResult : null };
+      if(_newShp <= 0){
+        notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-sinking', pauseTrigger: 'fording', primaryHexId: journey.currentHexId || journey.startHexId || null,
+          label: (journey.name || 'Voyage') + ': the hull is breached (0 SHP) — sinking, GM resolve (RR p.322)',
+          payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+      }
+    }
   }
   const newCovered = dist.covered + hexesToday;
   // A LOST party can never "arrive" — it's moving the wrong way (and the re-anchor below nets covered to 0).
@@ -2879,8 +2945,9 @@ function tickJourneyDay(campaign, journey, ctx){
                             summaryLabel = (journey.name || 'Journey') + ': ' + (hexesToday > 0 ? ('+' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then ') : '') + 'blocked at a river (day ' + newDayIndex + ')';
   else if(armyContactRecord)
                             summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then met ' + (armyContactRecord.opposingArmyName || 'an opposing army') + ' (day ' + newDayIndex + ')';
+  else if(_voyageStuck)     summaryLabel = (journey.name || 'Voyage') + ': ' + (_voyageVessel.grounded === 'kelp' ? 'entangled in kelp' : 'aground on a ' + _voyageVessel.grounded) + ' — making no way (day ' + newDayIndex + ')';
   else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — strayed ' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' ' + (HEX_FACE_LABELS[strayHeading] || '') + ', unaware (day ' + newDayIndex + ')';
-  else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '') + (voyageInfo.weathering ? (' · ' + voyageInfo.weathering) : '')) : '') + (isLost ? ', off course' : '') + '), day ' + newDayIndex;
+  else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '') + (voyageInfo.weathering ? (' · ' + voyageInfo.weathering) : '')) : '') + (isLost ? ', off course' : '') + (_voyShpDamage > 0 ? (' · ' + _voyShpDamage + ' hull damage') : '') + (_voyGrounded && _voyGrounded !== (isVoyage && _voyageVessel.grounded || null) ? (' · ' + (_voyGrounded === 'kelp' ? 'entangled' : 'run aground') ) : '') + '), day ' + newDayIndex;
 
   // ── §4.2 Day record ──
   // Provisioning — a COMPACT per-member post-day survival snapshot (only the fields
@@ -2911,7 +2978,13 @@ function tickJourneyDay(campaign, journey, ctx){
       sailMiles: voyageInfo.sailMiles, oarMiles: voyageInfo.oarMiles,
       seaZone: _voyageSeaZone,                               // V3a — the day's sea zone (lake/river/coast/open-sea)
       weathering: voyageInfo.weathering || null,             // V3a — fog/rain/snow this day (null = none); slowed by weatheringSpeedMult
-      weatheringSpeedMult: (voyageInfo.weatheringSpeedMult != null) ? voyageInfo.weatheringSpeedMult : 1
+      weatheringSpeedMult: (voyageInfo.weatheringSpeedMult != null) ? voyageInfo.weatheringSpeedMult : 1,
+      // V3b — nautical hazards + gale damage this day (null/0 = none); the SHP/grounded mutation rides record.voyageState
+      hazards: _hazardResults.length ? _hazardResults.map(h => ({ hazard: h.hazard, success: h.success, shpDamage: h.shpDamage, grounded: h.grounded })) : null,
+      gale: (_galeResult && !_galeResult.success) ? { shpDamage: _galeResult.shpDamage, hoursCaught: _galeResult.hoursCaught } : null,
+      shpDamage: _voyShpDamage,
+      grounded: _voyGrounded || null,
+      stuck: !!_voyageStuck
     } : null,
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,
@@ -3004,6 +3077,7 @@ function tickJourneyDay(campaign, journey, ctx){
     newRations: rations, newWaterRations: waterRations,
     newHungerDays: hungerDays, newDehydrationDays: dehydrationDays,
     survival: survival.ignored ? null : survival,   // Provisioning V2/V3 — per-member absolutes (commit replays via applyJourneyDaySurvival)
+    voyageState: _voyageState,                       // Voyages V3b — vessel-state absolutes (shp/condition/grounded); commit applies via applyVoyageDayState (null on a non-hazard/non-gale day)
     newCurrentHexId, newStatus, primaryHexId: journey.startHexId || null,
     // §27 getting-lost post-state (commitJourneyRecord applies these; reroll-revert restores the pre-state)
     newStrayHeading, newRouteAnchorCoord, newRouteAnchorHexId, newCoveredBaseline, reanchored,
@@ -3162,6 +3236,12 @@ function commitJourneyRecord(campaign, record){
     }
     dr._preDay.survival = { members: _pre, camp: _camp };
   }
+  // Voyages V3b — vessel pre-state snapshot (shp/condition/grounded), captured pre-apply so a reroll
+  // reverts the vessel too. Only when this day mutated the vessel (record.voyageState present).
+  if(record.voyageState && record.voyageState.vesselId && global.ACKS && typeof global.ACKS.findVessel === 'function'){
+    const _vv = global.ACKS.findVessel(campaign, record.voyageState.vesselId);
+    if(_vv) dr._preDay.voyage = { vesselId: _vv.id, shp: _vv.shp, condition: _vv.condition, grounded: _vv.grounded || null };
+  }
   // World-date stamp: which world day this leg happened on, so the GM can reroll the LATEST
   // day only while the clock still stands on it (Journeys J2 feedback — once +1 day / Advance
   // month moves the world past, the leg is history and locks). The day-tick tags the record
@@ -3223,6 +3303,9 @@ function commitJourneyRecord(campaign, record){
   // changed inventories + camp), replacing the old uniform first-member mirror. Sets hungerDays/
   // dehydrationDays per traveller as a back-compat alias. No-op on a journey with ignore-rations.
   applyJourneyDaySurvival(campaign, j, record.survival);
+  // Voyages V3b — apply the day's vessel-state absolutes (SHP / condition / grounded). PURE-absolute
+  // (the tick already rolled), the applyDaySurvival precedent; a reroll reverts from _preDay.voyage.
+  if(record.voyageState && global.ACKS && typeof global.ACKS.applyVoyageDayState === 'function') global.ACKS.applyVoyageDayState(campaign, j, record.voyageState);
   // mirror fatigue + advance positions (survival persists across journeys — §10.4)
   const ids = j.participantCharacterIds || [];
   for(const c of (campaign.characters || [])){
@@ -3404,6 +3487,12 @@ function rerollJourneyDay(campaign, journey, ctx){
   if(pre.survival && pre.survival.camp && j.partyId && typeof A.partyCampStash === 'function'){
     const cp = A.partyCampStash(campaign, j.partyId);
     if(cp){ cp.items = JSON.parse(JSON.stringify(pre.survival.camp.items || [])); cp.waterDaysCarried = pre.survival.camp.waterDaysCarried || 0; }
+  }
+  // Voyages V3b — revert the vessel from the pre-day snapshot (shp/condition/grounded), so a reroll of
+  // a hazard/gale day undoes the hull damage + any grounding (the world keeps nothing from a re-rolled day).
+  if(pre.voyage && pre.voyage.vesselId && typeof A.findVessel === 'function'){
+    const _vv = A.findVessel(campaign, pre.voyage.vesselId);
+    if(_vv){ _vv.shp = pre.voyage.shp; _vv.condition = pre.voyage.condition; _vv.grounded = pre.voyage.grounded || null; }
   }
   // revert the party to its pre-day hex too (commitJourneyRecord now moves it every day); an arrival
   // reroll additionally re-links the activeJourneyId it had cleared.
