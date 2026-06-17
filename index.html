@@ -5290,12 +5290,13 @@ document.addEventListener('alpine:init', () => {
             <h2 class="font-bold text-lg mb-2">⚔ Active Threats</h2>
             <p class="text-xs opacity-60 italic mb-2">Bands abroad in the domain. Deploy a force from the garrison to meet one in the field — or leave it, and the garrison holds the stronghold while it loots (JJ p.104).</p>
             <table class="bookkeeping text-sm">
-              <thead><tr><th>Band</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
+              <thead><tr><th>Band</th><th title="Whether the ruler’s reconnaissance has detected this band — a deliberate sally requires detection (JJ p.103, RR p.452)">Aware?</th><th>Attitude</th><th>Disposition</th><th title="Platoon scale, JJ p.105">Garrison vs band BR</th><th>Likely</th><th></th></tr></thead>
               <tbody>
                 <template x-for="g in incursionBands(selectedDomain)" :key="'thr-'+g.id">
                   <tr>
                     <td x-text="(Math.max(0,(g.count||0)-(g.casualties||0))) + ' × ' + (g.name || 'monsters')"></td>
-                    <td><span x-text="(g.incursion && g.incursion.attitude) || '—'"></span><span x-show="g.incursion && g.incursion.rulerAware === false" class="accent-red" title="The ruler was unaware until it began pillaging (JJ p.103)"> ⚠</span></td>
+                    <td><span :class="rulerUnawareOfBand(g) ? 'accent-red font-semibold' : 'text-green-700'" x-text="rulerUnawareOfBand(g) ? '⚠ Unaware' : '✓ Aware'" :title="rulerUnawareOfBand(g) ? 'The ruler hasn’t detected this band — reconnaissance must locate it before a deliberate sally (JJ p.103, RR p.452)' : 'The ruler has detected this band and may sally against it (JJ p.103)'"></span></td>
+                    <td><span x-text="(g.incursion && g.incursion.attitude) || '—'"></span></td>
                     <td x-text="(g.incursion && g.incursion.disposition) || '—'"></td>
                     <td class="font-mono" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.forceBr.toFixed(2) + ' vs ' + (p.bandBr != null ? p.bandBr.toFixed(2) : 'GM')) : '—'; })()"></td>
                     <td><span :class="(() => { const p = threatReactionPreview(g); return p && p.outcome === 'driven-off' ? 'text-green-700' : (p && p.outcome === 'battle' ? 'accent-red' : ''); })()" x-text="(() => { const p = threatReactionPreview(g); return p ? (p.outcome === 'battle' ? 'they fight' : (p.outcome === 'driven-off' ? 'driven off' : 'GM prices')) : '—'; })()"></span></td>
