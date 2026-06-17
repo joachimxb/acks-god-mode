@@ -503,6 +503,126 @@ section('unit home garrison (2026-06-14) — default station + return-on-task-en
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('add / remove a unit from an army (the Garrison-table membership verbs, 2026-06-17)');
+{
+  const c = { currentTurn: 4, currentDayInMonth: 1,
+    characters: [{ schemaVersion: 2, id: 'chr-cmd', name: 'Cmdr', alive: true }],
+    domains: [{ id: 'dom-a', name: 'Hold', rulerCharacterId: 'chr-cmd', garrison: { units: [] } }],
+    journeys: [], armies: [], units: [],
+    hexes: [{ id: 'hex-seat', domainId: 'dom-a', coord: { q: 0, r: 0 }, terrain: 'grassland' },
+            { id: 'hex-away', domainId: 'dom-a', coord: { q: 4, r: 0 }, terrain: 'grassland' }] };
+  const army = ACKS.createArmy(c, { name: 'Field Host', leaderCharacterId: 'chr-cmd', currentHexId: 'hex-seat' });
+  ok('a fresh army (no roster) has no units + no divisions', ACKS.armyUnits(c, army).length === 0 && (army.divisions || []).length === 0);
+  const uFoot = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-foot', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-a' });
+
+  // armiesAtHex — the UI's co-located-army finder
+  ok('armiesAtHex finds the army at the seat, none away', ACKS.armiesAtHex(c, 'hex-seat').length === 1 && ACKS.armiesAtHex(c, 'hex-away').length === 0);
+  ok('the garrison unit sits at the seat (co-located with the army)', ACKS.unitCurrentHexId(c, uFoot) === 'hex-seat');
+
+  // addUnitToArmy — co-located join + division placement
+  const ar = ACKS.addUnitToArmy(c, 'unit-foot', army.id);
+  ok('addUnitToArmy: ok + stationed to the army', ar.ok === true && uFoot.stationedAt.kind === 'army' && uFoot.stationedAt.id === army.id);
+  ok('addUnitToArmy slots it into a Main Body division (org chart agrees with stationedAt)',
+     !!ACKS.armyDivisionForUnit(army, 'unit-foot') && army.divisions.find(d => d.role === 'main').unitIds.includes('unit-foot'));
+  ok('it now counts in the army strength', ACKS.armyUnits(c, army).length === 1);
+  ok('addUnitToArmy stamps unit + army history', uFoot.history.some(h => h.type === 'joined-army') && army.history.some(h => h.type === 'unit-joined'));
+  ok('addUnitToArmy refuses a unit already in the army', ACKS.addUnitToArmy(c, 'unit-foot', army.id).reason === 'already-in-army');
+
+  // not-co-located refusal (RR — no teleport; the army-card call-up marches distant troops in)
+  const uFar = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-far', displayName: 'Far Foot', unitTypeKey: 'light-infantry', count: 50 }), { kind: 'hex', id: 'hex-away' });
+  ok('addUnitToArmy refuses a unit NOT at the army\'s hex', ACKS.addUnitToArmy(c, 'unit-far', army.id).reason === 'not-co-located' && uFar.stationedAt.kind === 'hex');
+
+  // removeUnitFromArmy — LEFT WHERE THE ARMY STANDS (not marched home)
+  const rr = ACKS.removeUnitFromArmy(c, 'unit-foot');
+  ok('removeUnitFromArmy: ok + left at the army\'s hex as a free unit (NOT marched home)',
+     rr.ok === true && rr.leftAtHexId === 'hex-seat' && uFoot.stationedAt.kind === 'hex' && uFoot.stationedAt.id === 'hex-seat');
+  ok('removed unit drops out of the army strength', ACKS.armyUnits(c, army).length === 0);
+  ok('removed unit is pulled from the division org chart', !ACKS.armyDivisionForUnit(army, 'unit-foot'));
+  ok('removeUnitFromArmy plots NO return journey (left in place, not recalled)', !(c.journeys || []).some(j => j && j.unitId === 'unit-foot'));
+  ok('removeUnitFromArmy stamps unit + army history', uFoot.history.some(h => h.type === 'left-army') && army.history.some(h => h.type === 'unit-removed'));
+  ok('the army survives empty (a husk the GM may disband)', c.armies.some(a => a.id === army.id));
+  ok('removeUnitFromArmy refuses a unit not in an army', ACKS.removeUnitFromArmy(c, 'unit-far').reason === 'not-in-army');
+
+  // a leaderless army stations the unit (it fights) without inventing a division
+  const free = ACKS.createArmy(c, { name: 'Free Band', currentHexId: 'hex-seat' });   // no leader
+  const ar2 = ACKS.addUnitToArmy(c, 'unit-foot', free.id);   // unit-foot was just left at hex-seat
+  ok('addUnitToArmy to a leaderless army stations it (fights) without forcing a division',
+     ar2.ok === true && ACKS.armyUnits(c, free).length === 1 && (free.divisions || []).length === 0);
+
+  // marching-in (rallyingToArmyId) → remove CANCELS the call-up + falls home instantly
+  const cc = { currentTurn: 2, currentDayInMonth: 1, characters: [{ schemaVersion: 2, id: 'chr-z', alive: true }],
+    domains: [{ id: 'dom-z', name: 'Z', garrison: { units: [] } }], journeys: [], armies: [], units: [],
+    hexes: [{ id: 'hex-muster', domainId: null, coord: { q: 0, r: 0 }, terrain: 'grassland' },
+            { id: 'hex-zseat', domainId: 'dom-z', coord: { q: 3, r: 0 }, terrain: 'grassland' }] };
+  ACKS.stationUnit(cc, ACKS.blankUnit({ id: 'unit-march', displayName: 'Marchers', unitTypeKey: 'longbowman', count: 60 }), { kind: 'domain-garrison', id: 'dom-z' });
+  const zarmy = ACKS.createArmy(cc, { name: 'Z Host', leaderCharacterId: 'chr-z', currentHexId: 'hex-muster' });
+  const cu = ACKS.callUpUnit(cc, 'unit-march', zarmy.id);
+  ok('the unit is marching in (rallying, journey live)', cu.action === 'marching' && cc.units[0].rallyingToArmyId === zarmy.id);
+  const rrm = ACKS.removeUnitFromArmy(cc, 'unit-march');
+  ok('removeUnitFromArmy on a marching unit cancels the call-up', rrm.ok === true && rrm.cancelledRally === true && cc.units[0].rallyingToArmyId == null);
+  ok('… the rally journey is stopped (disbanded)', (cc.journeys || []).find(j => j && j.id === cu.journeyId).status === 'disbanded');
+  ok('… and the unit falls home to its garrison at once', cc.units[0].stationedAt && cc.units[0].stationedAt.kind === 'domain-garrison' && cc.units[0].stationedAt.id === 'dom-z');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('march a garrison unit (the Garrison-table "March" verb, 2026-06-17)');
+{
+  const c = { currentTurn: 4, currentDayInMonth: 1,
+    characters: [{ schemaVersion: 2, id: 'chr-m', name: 'Mcmd', alive: true }],
+    domains: [{ id: 'dom-m', name: 'March Hold', rulerCharacterId: 'chr-m', garrison: { units: [] } }],
+    journeys: [], armies: [], units: [],
+    hexes: [{ id: 'hex-m-seat', domainId: 'dom-m', coord: { q: 0, r: 0 }, terrain: 'grassland' },
+            { id: 'hex-m-near', domainId: 'dom-m', coord: { q: 1, r: 0 }, terrain: 'grassland' },
+            { id: 'hex-m-far',  domainId: 'dom-m', coord: { q: 5, r: 0 }, terrain: 'grassland' }] };
+  const u = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m', displayName: 'Marchers', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-m' });
+  ok('the unit starts in its garrison at the seat', ACKS.unitCurrentHexId(c, u) === 'hex-m-seat');
+
+  // startUnitMarch — the free march (a Journey at unit scale)
+  const r = ACKS.startUnitMarch(c, 'unit-m', { destinationHexId: 'hex-m-far', pace: 'normal' });
+  ok('startUnitMarch: ok + a journey is created', r.ok === true && !!r.journey);
+  const jm = r.journey;
+  ok('the journey is a unit march (unitId + unitMarch), in transit', jm.unitId === 'unit-m' && jm.unitMarch === true && jm.status === 'in-transit');
+  ok('it runs from the unit\'s location to the chosen destination', jm.startHexId === 'hex-m-seat' && jm.destinationHexId === 'hex-m-far');
+  ok('the unit leaves its garrison (un-stationed — troops take the road) + marchJourneyId set', u.stationedAt == null && u.marchJourneyId === jm.id);
+  ok('home is captured for the return trip', u.homeDomainId === 'dom-m');
+  ok('startUnitMarch stamps unit history', u.history.some(h => h.type === 'march-started'));
+  ok('groupForJourney resolves the unit (Detail panel is unit-scale → "the unit\'s march pace", no supply)', ACKS.groupForJourney(c, jm) === u && ACKS.groupKindOf(u) === 'unit');
+  ok('the marching unit stays home-attributed to its domain (still in the Garrison list)', ACKS.unitHomeDomainId(c, u) === 'dom-m');
+
+  // guards
+  ok('startUnitMarch refuses a unit already marching', ACKS.startUnitMarch(c, 'unit-m', { destinationHexId: 'hex-m-near' }).reason === 'already-marching');
+  const und = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-mnd', displayName: 'Idle', unitTypeKey: 'light-infantry', count: 10 }), { kind: 'domain-garrison', id: 'dom-m' });
+  ok('startUnitMarch refuses with no destination', ACKS.startUnitMarch(c, 'unit-mnd', {}).reason === 'no-destination');
+
+  // already-there + in-army guards
+  const u2 = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m2', displayName: 'Stayers', unitTypeKey: 'light-infantry', count: 40 }), { kind: 'hex', id: 'hex-m-near' });
+  ok('startUnitMarch refuses marching to the unit\'s own hex', ACKS.startUnitMarch(c, 'unit-m2', { destinationHexId: 'hex-m-near' }).reason === 'already-there');
+  ACKS.createArmy(c, { name: 'Host', leaderCharacterId: 'chr-m', currentHexId: 'hex-m-near', unitIds: ['unit-m2'] });
+  ok('startUnitMarch refuses a unit in a field army (it moves with the army)', ACKS.startUnitMarch(c, 'unit-m2', { destinationHexId: 'hex-m-far' }).reason === 'in-army');
+
+  // stopUnitMarch — halt where it stands
+  const sr = ACKS.stopUnitMarch(c, 'unit-m');
+  ok('stopUnitMarch: ok + the unit halts at a hex + marchJourneyId cleared', sr.ok === true && u.stationedAt && u.stationedAt.kind === 'hex' && !u.marchJourneyId);
+  ok('… the march journey is aborted', (c.journeys || []).find(j => j && j.id === jm.id).status === 'aborted');
+  ok('stopUnitMarch refuses a unit that is not marching', ACKS.stopUnitMarch(c, 'unit-m2').reason === 'not-marching');
+
+  // arrival — drive a fresh 1-hex garrison march to its destination via the journey day-tick
+  const u3 = ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-m3', displayName: 'Movers', unitTypeKey: 'light-infantry', count: 60 }), { kind: 'domain-garrison', id: 'dom-m' });
+  const r3 = ACKS.startUnitMarch(c, 'unit-m3', { destinationHexId: 'hex-m-near', pace: 'normal' });
+  let guard = 0;
+  while(c.journeys.find(j => j.id === r3.journey.id).status === 'in-transit' && guard++ < 8){
+    const p = ACKS.proposeJourneyDay(c, { dayInMonth: 1, rng: () => 0.5 });
+    const rec = (p.pendingRecords || []).find(x => x.journeyId === r3.journey.id);
+    if(!rec) break;
+    ACKS.commitJourneyRecord(c, rec);
+  }
+  const u3now = c.units.find(x => x.id === 'unit-m3');
+  ok('a unit march ARRIVES + halts the unit at the destination hex (the free-march arrival branch)',
+     r3.journey.status === 'arrived' && u3now.stationedAt && u3now.stationedAt.kind === 'hex' && u3now.stationedAt.id === 'hex-m-near');
+  ok('marchJourneyId cleared on arrival', !u3now.marchJourneyId);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('garrison reaction (2026-06-14) — deploy a force to meet a domain incursion (JJ pp.104–106)');
 {
   // A threatened realm: a seat hex (the default rally) + the hex the band stands on, both in

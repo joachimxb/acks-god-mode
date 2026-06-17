@@ -3911,6 +3911,158 @@ function armyIncomingUnits(campaign, army){
   });
 }
 
+// ─── Add / remove a unit from a field army (the Garrison-table membership verbs, 2026-06-17) ──
+// Add a unit to an army it is CO-LOCATED with — the quick join the Garrison Units table offers,
+// distinct from callUpUnit (which MARCHES a distant unit to the muster point). RAW: troops don't
+// teleport, so the add requires the unit to stand at the army's hex (the UI only offers armies at
+// the unit's location via armiesAtHex; the engine guards it too — a staging army with no hex set
+// yet is allowed). Stations the unit to the army (stationUnit handles the garrison/merc-company
+// mirror bookkeeping + the home-on-leaving-garrison capture), clears any rally flags, and slots it
+// into a division so the org chart agrees with stationedAt (the Main Body / first division, or a
+// fresh Main Body when the army has a leader but no divisions yet — else stationedAt alone suffices
+// and validateArmyOrganization flags the no-division unit, exactly as a called-up reinforcement
+// reads). Stamps unit + army history (the muster/levy convention — not a campaign event). Returns
+// {ok, reason?, unit, army}.
+function addUnitToArmy(campaign, unitOrId, armyOrId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  const army = (typeof armyOrId === 'string') ? findArmy(campaign, armyOrId) : armyOrId;
+  if(!campaign || !unit) return { ok: false, reason: 'no-unit' };
+  if(!army) return { ok: false, reason: 'no-army' };
+  if(unit.stationedAt && unit.stationedAt.kind === 'army' && unit.stationedAt.id === army.id) return { ok: false, reason: 'already-in-army' };
+  const unitHex = unitCurrentHexId(campaign, unit);
+  const armyHex = army.currentHexId || null;
+  if(armyHex && unitHex && unitHex !== armyHex) return { ok: false, reason: 'not-co-located' };
+  stationUnit(campaign, unit, { kind: 'army', id: army.id });   // mirror bookkeeping + home capture
+  unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+  if(!Array.isArray(army.divisions)) army.divisions = [];
+  let div = army.divisions.find(d => d && d.role === 'main') || army.divisions[0] || null;
+  if(!div && army.leaderCharacterId){
+    div = { name: 'Main Body', commanderCharacterId: army.leaderCharacterId, adjutantCharacterId: null, unitIds: [], role: 'main' };
+    army.divisions.push(div);
+  }
+  if(div){
+    if(!Array.isArray(div.unitIds)) div.unitIds = [];
+    if(!div.unitIds.includes(unit.id)) div.unitIds.push(unit.id);
+  }
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  const uname = unit.displayName || unit.unitTypeKey || 'a unit';
+  (army.history = army.history || []).push({ turn, type: 'unit-joined', text: uname + ' joined the army' });
+  (unit.history = unit.history || []).push({ turn, type: 'joined-army', text: 'Joined ' + (army.name || 'the army') });
+  return { ok: true, unit, army };
+}
+
+// Remove a unit from its army — the Garrison-table "leave army" verb. Per the GM's choice
+// (2026-06-17) the unit is LEFT WHERE THE ARMY STANDS: detached at the army's current hex as a
+// free-standing unit (stationedAt {kind:'hex'}), NOT marched home (the army-card Recall is the
+// march-home path); it is pulled from the army's division org chart too. A unit only MARCHING IN
+// (rallyingToArmyId, not yet arrived) has its call-up cancelled instead — the rally journey is
+// stopped and it returns to its home garrison at once (it never reached the army, so "where the
+// army stands" doesn't apply). "Remove anywhere": no co-location constraint. Stamps history.
+// Returns {ok, reason?, unit, army?, leftAtHexId?, cancelledRally?}.
+function removeUnitFromArmy(campaign, unitOrId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return { ok: false, reason: 'no-unit' };
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  const uname = unit.displayName || unit.unitTypeKey || 'a unit';
+  if(unit.rallyingToArmyId){   // marching in, not yet arrived → cancel the call-up + fall home
+    const army = findArmy(campaign, unit.rallyingToArmyId);
+    if(unit.rallyJourneyId && Array.isArray(campaign.journeys)){
+      const j = campaign.journeys.find(x => x && x.id === unit.rallyJourneyId);
+      if(j) j.status = 'disbanded';
+    }
+    unit.rallyingToArmyId = null; unit.rallyJourneyId = null;
+    returnUnitHome(campaign, unit, { instant: true });
+    (unit.history = unit.history || []).push({ turn, type: 'call-up-cancelled', text: 'Call-up cancelled — returned home' });
+    if(army) (army.history = army.history || []).push({ turn, type: 'unit-removed', text: uname + ' was recalled before it mustered' });
+    return { ok: true, unit, army, cancelledRally: true };
+  }
+  const st = unit.stationedAt;
+  if(!st || st.kind !== 'army') return { ok: false, reason: 'not-in-army' };
+  const army = findArmy(campaign, st.id);
+  const leftAtHexId = (army && army.currentHexId) || null;
+  if(army && Array.isArray(army.divisions)){
+    for(const d of army.divisions){
+      if(d && Array.isArray(d.unitIds)){
+        const i = d.unitIds.indexOf(unit.id);
+        if(i >= 0) d.unitIds.splice(i, 1);
+      }
+    }
+  }
+  stationUnit(campaign, unit, leftAtHexId ? { kind: 'hex', id: leftAtHexId } : null);   // left where the army stands
+  (unit.history = unit.history || []).push({ turn, type: 'left-army', text: 'Left ' + ((army && army.name) || 'the army') });
+  if(army) (army.history = army.history || []).push({ turn, type: 'unit-removed', text: uname + ' left the army' });
+  return { ok: true, unit, army, leftAtHexId };
+}
+
+// Send a lone unit on a free march — the Garrison-table "March" verb (2026-06-17). Like setting
+// up a Journey from the unit's current location to any destination hex, but at unit scale: no
+// participants (it's a formation, not a party) and no supply line (supply is army-only — a lone
+// unit just carries what it carries). It rides the SHARED journey engine (journey.unitId), so the
+// Journey Detail panel renders it group-aware (journeyGroupKind → 'unit' → "the unit's march
+// pace", no party rations / no army supplies) and the GM can re-route it on the map exactly like
+// any journey. The troops leave their garrison (un-stationed — the home is captured by stationUnit
+// for the return trip); on arrival commitJourneyRecord halts the unit at the destination hex (the
+// free-march arrival branch). Distinct from callUpUnit (marches to an ARMY's muster) and
+// returnUnitHome (marches to the HOME garrison) — this marches to a GM-chosen hex. opts:
+// {destinationHexId (required), waypointHexIds?, pace?}. Returns {ok, reason?, journey?}.
+function startUnitMarch(campaign, unitOrId, opts){
+  opts = opts || {};
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit) return { ok: false, reason: 'no-unit' };
+  if(unit.stationedAt && unit.stationedAt.kind === 'army') return { ok: false, reason: 'in-army' };  // moves with the army
+  if(unit.rallyingToArmyId) return { ok: false, reason: 'already-marching' };                         // called up to a muster
+  const liveMarch = unit.marchJourneyId && (campaign.journeys || []).some(j => j && j.id === unit.marchJourneyId && j.status === 'in-transit');
+  if(liveMarch) return { ok: false, reason: 'already-marching' };
+  const dest = opts.destinationHexId || null;
+  if(!dest) return { ok: false, reason: 'no-destination' };
+  const origin = unitCurrentHexId(campaign, unit);
+  if(!origin) return { ok: false, reason: 'no-position' };
+  if(origin === dest) return { ok: false, reason: 'already-there' };
+  const A = global.ACKS;
+  if(!A || typeof A.blankJourney !== 'function') return { ok: false, reason: 'no-engine' };
+  stationUnit(campaign, unit, null);   // the troops take the road (home captured for the return)
+  const destName = ((campaign.hexes || []).find(h => h && h.id === dest) || {});
+  const destLabel = (A.hexName ? A.hexName(destName.id ? destName : { id: dest }) : dest);
+  const journey = A.blankJourney({
+    unitId: unit.id, unitMarch: true,
+    name: (unit.displayName || unit.unitTypeKey || 'unit') + ' → ' + destLabel,
+    startHexId: origin, destinationHexId: dest,
+    waypoints: (opts.waypointHexIds || []).filter(Boolean).map(hid => ({ hexId: hid, label: '', plannedPurpose: null })),
+    pace: opts.pace || 'normal', purpose: 'military-campaign', participantCharacterIds: []
+  });
+  if(!Array.isArray(campaign.journeys)) campaign.journeys = [];
+  campaign.journeys.push(journey);
+  if(typeof A.startJourney === 'function') A.startJourney(campaign, journey);
+  else journey.status = 'in-transit';
+  unit.marchJourneyId = journey.id;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  (unit.history = unit.history || []).push({ turn, type: 'march-started', text: 'Set out on the march toward ' + destLabel });
+  return { ok: true, journey };
+}
+
+// Halt a unit's free march where it stands — the Garrison-table "Stop march" verb. Aborts the
+// march journey (the unit holds at the hex the journey has reached) and stations it there. No-op
+// for a unit that isn't free-marching (a rally / return / army move is managed elsewhere).
+function stopUnitMarch(campaign, unitOrId){
+  const unit = (typeof unitOrId === 'string') ? findUnit(campaign, unitOrId) : unitOrId;
+  if(!campaign || !unit || !unit.marchJourneyId) return { ok: false, reason: 'not-marching' };
+  const j = (campaign.journeys || []).find(x => x && x.id === unit.marchJourneyId);
+  const A = global.ACKS;
+  let haltHexId = null;
+  if(j){
+    haltHexId = j.currentHexId || (j.days && j.days.length ? j.days[j.days.length - 1].newCurrentHexId : null) || j.startHexId || null;
+    if(j.status === 'in-transit'){
+      if(A && typeof A.abortJourney === 'function') A.abortJourney(campaign, j, 'unit halted');
+      else j.status = 'aborted';
+    }
+  }
+  stationUnit(campaign, unit, haltHexId ? { kind: 'hex', id: haltHexId } : null);
+  unit.marchJourneyId = null;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  (unit.history = unit.history || []).push({ turn, type: 'march-halted', text: 'Halted the march' });
+  return { ok: true, unit, haltHexId };
+}
+
 // ─── Garrison reaction — deploy a force to meet a domain threat (2026-06-14) ──────────────
 // RAW JJ pp.104–106: a domain facing a violent encounter (an incursion band) may deploy a
 // force from the garrison to meet it in the field — "not every encounter requires the ruler
@@ -10952,7 +11104,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   leadershipAbility, strategicAbility, effectiveStrategicAbility, officerMoraleModifier,
   qualifiesAsOfficer, qualifiesAsCommander, qualifiesAsLieutenant,
   armyBattleRating, armyWageMonthly, armyWeeklySupplyCost, armyMaxDivisions,
-  validateArmyOrganization, stationUnit, disbandUnit, setUnitHome, returnUnitHome, unitHomeDomainId, createArmy, disbandArmy, callUpUnit, armyIncomingUnits, migrateGarrisonUnitsToUnits,
+  validateArmyOrganization, stationUnit, disbandUnit, setUnitHome, returnUnitHome, unitHomeDomainId, createArmy, disbandArmy, callUpUnit, addUnitToArmy, removeUnitFromArmy, startUnitMarch, stopUnitMarch, armyIncomingUnits, migrateGarrisonUnitsToUnits,
   // Garrison reaction — deploy a force to meet a domain threat (JJ pp.104–106, 2026-06-14)
   domainSeatHexId, reactionBandPlatoonBr, reactionForcePlatoonBr, garrisonReactionPreview, reactionForceOrgFindings, deployGarrisonReaction, recallReactionForce,
   // === Military W7 (burst4) — conscripts/militia/training + F&D call-to-arms/Troops materialization

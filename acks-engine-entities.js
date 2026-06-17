@@ -1760,6 +1760,11 @@ function blankJourney(opts={}){
     // call-up rally): on arrival the unit falls back into its home-domain garrison rather than
     // joining an army. Lazy field (default false; old saves read falsy). Set with journey.unitId.
     unitReturnHome: opts.unitReturnHome || false,
+    // The unit's march is a FREE march (startUnitMarch — the Garrison-table "March" verb): on
+    // arrival the unit halts at the destination hex (neither rallies to an army nor returns home).
+    // Lazy field (default false; old saves read falsy). Set with journey.unitId. No supply line —
+    // supply is army-only; a lone unit just carries what it carries. (2026-06-17)
+    unitMarch: opts.unitMarch || false,
     // Origin / destination / route
     startedAtTurn: opts.startedAtTurn || null,
     startedAtDayInMonth: opts.startedAtDayInMonth || null,
