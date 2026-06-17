@@ -2,7 +2,8 @@
 // voyages.smoke.js — Maritime / Voyages V1 (data layer) + V2 (wind/sailing speed)
 // + V3a (sea navigation + weathering the seas) + V3b (nautical hazards + gale damage —
 // the SHP-mutating record→commit→reroll slice) + V3c (ship stores + deprivation ladder +
-// scurvy + fishing — the crew-provisioning ladder on the same replay machinery). Phase 3 Voyages (#145).
+// scurvy + fishing — the crew-provisioning ladder on the same replay machinery) + V5 (river
+// voyages — the current ± mi/day after wind + the depth-vs-draft grounding). Phase 3 Voyages (#145).
 // Covers: the vsl- prefix; the VESSEL_CATALOG (20 RR p.316 classes — values cross-checked
 // EXACT vs the printed Sea Vessels table + the "—"→null handling + draft/deck-type from
 // RR pp.153–156/331); the catalog lookups; blankVessel / createVessel (init-on-write) + the
@@ -698,11 +699,124 @@ const _igDr = ACKS.tickJourneyDay(_ig.c, _ig.j, { rng: () => 0.5, weather: _WMod
 ok('ignore-rations opts a provisioned vessel out (no provisioning, full speed)', _igDr.record.voyageState === null && _igDr.record.dayRecord.voyage.provision === null && _igDr.record.dayRecord.milesTraveled === 72 && _ig.v.shipStores === 0);
 
 // =============================================================================
+section('V5 — river current (RR p.331): the speed table + the modifier');
+// =============================================================================
+ok('RIVER_CURRENT_SPEED is frozen with the 6 RR p.331 bands', Object.isFrozen(ACKS.RIVER_CURRENT_SPEED) && Object.keys(ACKS.RIVER_CURRENT_SPEED).length === 6);
+ok('RIVER_CURRENT_SPEED values exact (6/12/18/24/36/48 mi/day = 1..8 hexes)', ACKS.RIVER_CURRENT_SPEED.placid === 6 && ACKS.RIVER_CURRENT_SPEED.gentle === 12 && ACKS.RIVER_CURRENT_SPEED.slow === 18 && ACKS.RIVER_CURRENT_SPEED.moderate === 24 && ACKS.RIVER_CURRENT_SPEED.swift === 36 && ACKS.RIVER_CURRENT_SPEED.rapid === 48);
+ok('moderate downriver → +24 mi', (() => { const r = ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'moderate', heading: 'downriver' } }); return r.mi === 24 && r.heading === 'downriver' && r.speed === 'moderate'; })());
+ok('moderate upriver → −24 mi', ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'moderate', heading: 'upriver' } }).mi === -24);
+ok('rapid downriver → +48 mi (8 hexes)', ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'rapid', heading: 'downriver' } }).mi === 48);
+ok('default heading (none given) → downriver (+)', ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'gentle' } }).mi === 12);
+ok('unknown speed → mi 0', ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'torrential', heading: 'downriver' } }).mi === 0);
+ok('no riverCurrent set → mi 0', ACKS.riverCurrentModifierMi({}).mi === 0 && ACKS.riverCurrentModifierMi(null).mi === 0);
+ok('opts.riverCurrent overrides the journey', ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'placid' } }, { riverCurrent: { speed: 'swift', heading: 'upriver' } }).mi === -36);
+ok('the label reads sign + speed + heading', ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'moderate', heading: 'downriver' } }).label === '+24 mi (moderate, downriver)' && ACKS.riverCurrentModifierMi({ riverCurrent: { speed: 'slow', heading: 'upriver' } }).label === '−18 mi (slow, upriver)');
+
+// =============================================================================
+section('V5 — river depth vs draft (RR p.331): the clearance check');
+// =============================================================================
+const _bigShip = ACKS.blankVessel({ catalogKey: 'sailing-ship-large' });   // draft 10
+const _canoe = ACKS.blankVessel({ catalogKey: 'canoe' });                  // draft 0.5
+ok('safe: depth ≥ draft+2 (20 over a 10 draft)', ACKS.riverDepthClearance(_bigShip, { riverDepth: 20 }).status === 'safe');
+ok('safe at the exact boundary (depth = draft+2)', ACKS.riverDepthClearance(_bigShip, { riverDepth: 12 }).status === 'safe');
+ok('shallow: within 2′ of draft (depth 11 over a 10 draft)', ACKS.riverDepthClearance(_bigShip, { riverDepth: 11 }).status === 'shallow');
+ok('shallow at the lower boundary (depth = draft exactly)', ACKS.riverDepthClearance(_bigShip, { riverDepth: 10 }).status === 'shallow');
+ok('impassable: depth < draft (9 under a 10 draft)', (() => { const c = ACKS.riverDepthClearance(_bigShip, { riverDepth: 9 }); return c.status === 'impassable' && c.depthFt === 9 && c.draftFt === 10; })());
+ok('unknown: no riverDepth flag → treated as safe (opt-in by data)', ACKS.riverDepthClearance(_bigShip, { terrain: 'water' }).status === 'unknown' && ACKS.riverDepthClearance(_bigShip, null).status === 'unknown');
+ok('a shallow-draft canoe (0.5) clears 1′ as shallow, 3′ as safe', ACKS.riverDepthClearance(_canoe, { riverDepth: 1 }).status === 'shallow' && ACKS.riverDepthClearance(_canoe, { riverDepth: 3 }).status === 'safe');
+
+// =============================================================================
+section('V5 — rollNauticalHazard: suppressShallowBonus (the river depth-vs-draft case)');
+// =============================================================================
+const _v5galley = ACKS.blankVessel({ catalogKey: 'galley-4-rower' });   // shallow draft → +4 at sea
+ok('a galley sandbar with suppressShallowBonus → NO +4 (river depth case)', ACKS.rollNauticalHazard({}, _v5galley, 'sandbar', { suppressShallowBonus: true, rng: () => 0.5 }).bonus === 0);
+ok('a galley sandbar WITHOUT the flag still gets +4 (the sea case is unchanged)', ACKS.rollNauticalHazard({}, _v5galley, 'sandbar', { rng: () => 0.5 }).bonus === 4);
+ok('suppressShallowBonus on a reef is a no-op (a reef never gets the shallow bonus)', ACKS.rollNauticalHazard({}, _v5galley, 'reef', { suppressShallowBonus: true, rng: () => 0.5 }).bonus === 0);
+
+// =============================================================================
+section('V5 — integration: a river voyage with current + depth-vs-draft (tickJourneyDay)');
+// =============================================================================
+const _WRiv = { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' };
+function mkRiverVoyage(opts){
+  opts = opts || {};
+  const c = ACKS.blankCampaign({ name: 'v5-river' });
+  c.characters = [ACKS.blankCharacter({ id: 'pilot', name: 'Pilot' })];
+  c.hexes = [];
+  for(let r = 0; r <= 60; r++){
+    const hx = ACKS.blankHex({ id: 'rv' + r, coord: { q: 0, r: r }, terrain: 'water', seaZone: opts.seaZone || 'river' });
+    if(opts.depthAt && opts.depthAt[r] != null) hx.riverDepth = opts.depthAt[r];
+    c.hexes.push(hx);
+  }
+  const v = ACKS.createVessel(c, { name: 'Riverboat', catalogKey: opts.catalogKey || 'sailing-ship-large' });   // draft 10, 72 mi/day = 12 hexes
+  const j = ACKS.blankJourney({ name: 'River Run', mode: 'voyage-sail', shipId: v.id, participantCharacterIds: ['pilot'], startHexId: 'rv0', destinationHexId: 'rv60', currentHexId: 'rv0' });
+  if(opts.riverCurrent) j.riverCurrent = opts.riverCurrent;
+  if(opts.overrideMiles != null) j.speedOverrideMilesPerDay = opts.overrideMiles;
+  c.journeys = [j]; ACKS.startJourney(c, j);
+  return { c, v, j };
+}
+// downriver moderate: 72 + 24 = 96 mi = 16 hexes
+const _dn = mkRiverVoyage({ riverCurrent: { speed: 'moderate', heading: 'downriver' } });
+const _dnDr = ACKS.tickJourneyDay(_dn.c, _dn.j, { rng: () => 0.5, weather: _WRiv });
+ok('downriver moderate current adds +24 mi (72→96 = 16 hexes)', _dnDr.record.dayRecord.milesTraveled === 96 && _dnDr.record.dayRecord.hexesTraveled === 16);
+ok('the day record carries the river current (mi +24, downriver)', _dnDr.record.dayRecord.voyage.riverCurrent && _dnDr.record.dayRecord.voyage.riverCurrent.mi === 24 && _dnDr.record.dayRecord.voyage.riverCurrent.heading === 'downriver' && _dnDr.record.dayRecord.voyage.seaZone === 'river');
+// upriver moderate: 72 − 24 = 48 mi = 8 hexes
+const _up = mkRiverVoyage({ riverCurrent: { speed: 'moderate', heading: 'upriver' } });
+const _upDr = ACKS.tickJourneyDay(_up.c, _up.j, { rng: () => 0.5, weather: _WRiv });
+ok('upriver moderate current subtracts 24 mi (72→48 = 8 hexes)', _upDr.record.dayRecord.milesTraveled === 48 && _upDr.record.dayRecord.hexesTraveled === 8 && _upDr.record.dayRecord.voyage.riverCurrent.mi === -24);
+// rapid downriver: 72 + 48 = 120 = 20 hexes
+const _rap = mkRiverVoyage({ riverCurrent: { speed: 'rapid', heading: 'downriver' } });
+const _rapDr = ACKS.tickJourneyDay(_rap.c, _rap.j, { rng: () => 0.5, weather: _WRiv });
+ok('rapid downriver (+48) → 120 mi = 20 hexes', _rapDr.record.dayRecord.milesTraveled === 120 && _rapDr.record.dayRecord.hexesTraveled === 20);
+// clamp: a becalmed sailing ship (Still wind → 0 sail mi) fighting an upriver current → max(0, 0−24) = 0
+const _clamp = mkRiverVoyage({ riverCurrent: { speed: 'moderate', heading: 'upriver' } });
+const _clampDr = ACKS.tickJourneyDay(_clamp.c, _clamp.j, { rng: () => 0.5, weather: { wind: 'Still', windDirection: 0, condition: 'fair', temperature: 'moderate' } });
+ok('an upriver current clamps the budget at 0 (becalmed → the engine 1-hex creep, not 12)', _clampDr.record.dayRecord.hexesTraveled === 1 && _clampDr.record.dayRecord.voyage.riverCurrent.mi === -24);
+// no current on a river → byte-unchanged (72 mi, riverCurrent null)
+const _noc = mkRiverVoyage({});
+const _nocDr = ACKS.tickJourneyDay(_noc.c, _noc.j, { rng: () => 0.5, weather: _WRiv });
+ok('a river voyage with no current set is byte-unchanged (72 mi, riverCurrent null)', _nocDr.record.dayRecord.milesTraveled === 72 && _nocDr.record.dayRecord.voyage.riverCurrent === null);
+// §26 override is NOT current-boosted (the override is an exact GM rate)
+const _ovr = mkRiverVoyage({ riverCurrent: { speed: 'moderate', heading: 'downriver' }, overrideMiles: 50 });
+const _ovrDr = ACKS.tickJourneyDay(_ovr.c, _ovr.j, { rng: () => 0.5, weather: _WRiv });
+ok('a §26 override ignores the river current (8 hexes from 50 mi, not 12 from 74)', _ovrDr.record.dayRecord.hexesTraveled === 8 && _ovrDr.record.dayRecord.voyage.riverCurrent === null);
+
+// depth: an IMPASSABLE hex on the route grounds the vessel (no throw)
+const _imp = mkRiverVoyage({ depthAt: { 5: 9 } });   // 9′ < the 10′ draft at rv5 (12-hex day covers it)
+const _impDr = ACKS.tickJourneyDay(_imp.c, _imp.j, { rng: () => 0.5, weather: _WRiv });
+ok('an impassable river hex grounds the vessel "too-shallow" (record.voyageState)', !!_impDr.record.voyageState && _impDr.record.voyageState.newGrounded === 'too-shallow' && _impDr.record.dayRecord.voyage.grounded === 'too-shallow');
+ok('the impassable hex logs a river-too-shallow pause', _impDr.record.dayRecord.notableEvents.some(n => n.type === 'river-too-shallow'));
+ok('the tick is PURE — the vessel is not grounded until commit', _imp.v.grounded == null);
+ACKS.commitJourneyRecord(_imp.c, _impDr.record);
+ok('commit grounds the vessel; the next day it makes no way (stuck)', _imp.v.grounded === 'too-shallow' && (() => { const s = ACKS.tickJourneyDay(_imp.c, _imp.j, { rng: () => 0.5, weather: _WRiv }); return s.record.dayRecord.hexesTraveled === 0 && /shallows/.test(s.record.label); })());
+// depth: a SHALLOW hex (within 2′) → a sandbar throw; nat-1 fails → SHP + grounded
+const _sh = mkRiverVoyage({ depthAt: { 5: 11 } });   // 11′ over a 10′ draft = within 2′ → shallow
+const _shDr = ACKS.tickJourneyDay(_sh.c, _sh.j, { rng: () => 0, weather: _WRiv });   // rng 0 → nat 1 → the sandbar throw fails → 4d10@0 = 4 SHP
+ok('a failed shallow throw holes the hull (4 SHP) + grounds "too-shallow"', !!_shDr.record.voyageState && _shDr.record.voyageState.shpDamage === 4 && _shDr.record.voyageState.newGrounded === 'too-shallow' && _shDr.record.dayRecord.notableEvents.some(n => n.type === 'river-shallows'));
+// depth: a SHALLOW hex passed cleanly (nat 20) → no grounding, no SHP
+const _shOk = mkRiverVoyage({ depthAt: { 5: 11 } });
+const _shOkDr = ACKS.tickJourneyDay(_shOk.c, _shOk.j, { rng: () => 0.99, weather: _WRiv });   // nat 20 → sandbar throw passes
+ok('a shallow hex picked through cleanly (nat 20) → no grounding, no voyageState', _shOkDr.record.voyageState === null && !_shOkDr.record.dayRecord.notableEvents.some(n => n.type === 'river-shallows'));
+// depth: a SAFE hex → no depth event
+const _safe = mkRiverVoyage({ depthAt: { 5: 20 } });
+const _safeDr = ACKS.tickJourneyDay(_safe.c, _safe.j, { rng: () => 0.5, weather: _WRiv });
+ok('a safe-depth river hex fires no depth event', !_safeDr.record.dayRecord.notableEvents.some(n => n.type === 'river-shallows' || n.type === 'river-too-shallow') && _safe.v.shp === 200);
+// the depth check is gated on the river zone — a COAST hex with a stray riverDepth flag is ignored
+const _coast = mkRiverVoyage({ seaZone: 'coast', depthAt: { 5: 9 } });
+const _coastDr = ACKS.tickJourneyDay(_coast.c, _coast.j, { rng: () => 0.5, weather: _WRiv });
+ok('the depth check is river-gated (a coast hex ignores riverDepth)', !_coastDr.record.dayRecord.notableEvents.some(n => n.type === 'river-too-shallow') && _coast.v.grounded == null);
+// reroll reverts a depth grounding (the V3b replay path)
+const _rr5 = mkRiverVoyage({ depthAt: { 5: 11 } });
+ACKS.commitJourneyRecord(_rr5.c, ACKS.tickJourneyDay(_rr5.c, _rr5.j, { rng: () => 0, weather: _WRiv }).record);   // fail → grounded + SHP down
+ok('commit applied the shallow grounding + hull loss', _rr5.v.grounded === 'too-shallow' && _rr5.v.shp === 196);
+ACKS.rerollJourneyDay(_rr5.c, _rr5.j, { rng: () => 0.99 });   // reverts the grounding from _preDay (refloats), then re-ticks: nat 20 → the shallow passes → restored
+ok('reroll reverts the depth grounding + hull damage (refloated + restored on a clean re-roll)', _rr5.v.shp === 200 && _rr5.v.grounded == null);
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Voyages V1 + V2 + V3a + V3b + V3c smoke checks passed.');
+  console.log('\nAll Voyages V1 + V2 + V3a + V3b + V3c + V5 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

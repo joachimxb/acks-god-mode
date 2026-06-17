@@ -2624,6 +2624,7 @@ function tickJourneyDay(campaign, journey, ctx){
   let voyageInfo = null;
   let _voyageSeaZone = null;   // V3a — the hex's sea zone (lake/river/coast/open-sea); drives the weathering ½ + the sea-nav target
   let _voyProvision = null;    // V3c — the day's ship-stores provisioning result (null = not a voyage / untracked / ignore-rations)
+  let _riverCurrent = null;    // V5 — the day's river current modifier (null = not a river / no current set); a flat ± mi/day
   if(isVoyage){
     const _fromC = (curStep && curStep.coord) ? curStep.coord : curCoord;
     let _toC = (nextStep && nextStep.coord) ? nextStep.coord : null;
@@ -2645,6 +2646,14 @@ function tickJourneyDay(campaign, journey, ctx){
     if(!A.isHouseRuleEnabled(campaign, 'ignore-rations') && typeof A.computeShipProvisionDay === 'function'){
       _voyProvision = A.computeShipProvisionDay(campaign, _voyageVessel, { hex: nextHex || curHex });
       if(_voyProvision.tracked && _voyProvision.deprivation.speedMult !== 1) milesBudget *= _voyProvision.deprivation.speedMult;
+    }
+    // V5 — river current (RR p.331): a flat ± mi/day applied AFTER the wind model + crew deprivation
+    // (the river carries the hull regardless of wind/crew — downriver adds, upriver fights). Gated on
+    // a river zone + a GM-set journey.riverCurrent, and NOT under a §26 override (the override is an
+    // exact GM rate). Opt-in by data — a river voyage with no current set is byte-unchanged.
+    if(_voyageSeaZone === 'river' && voyageInfo.propulsion !== 'override' && typeof A.riverCurrentModifierMi === 'function'){
+      _riverCurrent = A.riverCurrentModifierMi(journey);
+      if(_riverCurrent && _riverCurrent.mi) milesBudget = Math.max(0, milesBudget + _riverCurrent.mi);
     }
   }
 
@@ -2847,24 +2856,54 @@ function tickJourneyDay(campaign, journey, ctx){
   if(isVoyage){
     if(_voyageStuck){
       notableEvents.push({ kind: 'journey-day-tick', type: 'voyage-grounded', pauseTrigger: 'fording', primaryHexId: journey.currentHexId || journey.startHexId || null,
-        label: (journey.name || 'Voyage') + ': ' + (_voyageVessel.grounded === 'kelp' ? 'entangled in kelp' : 'aground on a ' + _voyageVessel.grounded) + ' — making no way until freed (RR p.320)',
+        label: (journey.name || 'Voyage') + ': ' + (_voyageVessel.grounded === 'kelp' ? 'entangled in kelp' : _voyageVessel.grounded === 'too-shallow' ? 'grounded in the shallows (too shallow for its draft)' : 'aground on a ' + _voyageVessel.grounded) + ' — making no way until freed (RR p.320)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex } });
     } else {
       const _atHalf = (pace === 'half-speed' || pace === 'halted');
       for(const _ph of hexPath){
         if(!_ph || !_ph.hexId) continue;
         const _hx = (typeof A.findHex === 'function') ? A.findHex(campaign, _ph.hexId) : null;
+        // Sea nautical hazard (V3b) — a GM-flagged hex.nauticalHazard (kelp/rock/reef/…).
         const _hz = (typeof A.nauticalHazardForHex === 'function') ? A.nauticalHazardForHex(_hx) : null;
-        if(!_hz) continue;
-        const _hr = A.rollNauticalHazard(campaign, _voyageVessel, _hz, { atHalfSpeed: _atHalf, rng });
-        if(!_hr) continue;
-        _hazardResults.push(_hr);
-        if(!_hr.success){
-          _voyShpDamage += _hr.shpDamage || 0;
-          if(_hr.grounded && !_voyGrounded) _voyGrounded = _hr.grounded;   // first grounding/entangle this day sticks (cleared by the GM)
-          notableEvents.push({ kind: 'journey-day-tick', type: 'nautical-hazard', pauseTrigger: 'fording', primaryHexId: _ph.hexId,
-            label: (journey.name || 'Voyage') + ': struck ' + _hz.label + (_hr.shpDamage ? (' — ' + _hr.shpDamage + ' hull damage') : '') + (_hr.grounded ? (_hr.grounded === 'kelp' ? ' — entangled' : ' — run aground') : '') + ' (Seafaring ' + _hr.rolled + (_hr.bonus ? ('+' + _hr.bonus) : '') + ' vs ' + _hr.target + '+' + (_hr.naturalOne ? ', natural 1' : '') + ')',
-            payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+        if(_hz){
+          const _hr = A.rollNauticalHazard(campaign, _voyageVessel, _hz, { atHalfSpeed: _atHalf, rng });
+          if(_hr){
+            _hazardResults.push(_hr);
+            if(!_hr.success){
+              _voyShpDamage += _hr.shpDamage || 0;
+              if(_hr.grounded && !_voyGrounded) _voyGrounded = _hr.grounded;   // first grounding/entangle this day sticks (cleared by the GM)
+              notableEvents.push({ kind: 'journey-day-tick', type: 'nautical-hazard', pauseTrigger: 'fording', primaryHexId: _ph.hexId,
+                label: (journey.name || 'Voyage') + ': struck ' + _hz.label + (_hr.shpDamage ? (' — ' + _hr.shpDamage + ' hull damage') : '') + (_hr.grounded ? (_hr.grounded === 'kelp' ? ' — entangled' : ' — run aground') : '') + ' (Seafaring ' + _hr.rolled + (_hr.bonus ? ('+' + _hr.bonus) : '') + ' vs ' + _hr.target + '+' + (_hr.naturalOne ? ', natural 1' : '') + ')',
+                payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+            }
+          }
+        }
+        // V5 — river depth vs draft (RR p.331): on a river hex with a GM-set depth, a hull deeper than
+        // the water grounds. IMPASSABLE (< draft) → the vessel can go no further (no throw); SHALLOW
+        // (within 2′) → a sandbar/shoal-class Seafaring throw with the shallow-draft +4 SUPPRESSED (the
+        // galley's shallow draft is already why the hex reads "within 2′"). A depth grounding rides the
+        // same record.voyageState.newGrounded ('too-shallow') + reroll-revert path as a sea hazard.
+        const _isRiverHex = (typeof A.seaZoneForHex === 'function') ? (A.seaZoneForHex(_hx) === 'river') : (_voyageSeaZone === 'river');
+        if(_isRiverHex && typeof A.riverDepthClearance === 'function'){
+          const _dc = A.riverDepthClearance(_voyageVessel, _hx);
+          if(_dc.status === 'impassable'){
+            if(!_voyGrounded) _voyGrounded = 'too-shallow';
+            notableEvents.push({ kind: 'journey-day-tick', type: 'river-too-shallow', pauseTrigger: 'fording', primaryHexId: _ph.hexId,
+              label: (journey.name || 'Voyage') + ': the river is too shallow (' + _dc.depthFt + '′ < the ' + _dc.draftFt + '′ draft) — the vessel can go no further (RR p.331)',
+              payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+          } else if(_dc.status === 'shallow'){
+            const _sr = A.rollNauticalHazard(campaign, _voyageVessel, 'sandbar', { atHalfSpeed: _atHalf, suppressShallowBonus: true, rng });
+            if(_sr){
+              _hazardResults.push(_sr);
+              if(!_sr.success){
+                _voyShpDamage += _sr.shpDamage || 0;
+                if(!_voyGrounded) _voyGrounded = 'too-shallow';
+                notableEvents.push({ kind: 'journey-day-tick', type: 'river-shallows', pauseTrigger: 'fording', primaryHexId: _ph.hexId,
+                  label: (journey.name || 'Voyage') + ': scraped the shallows (' + _dc.depthFt + '′ over a ' + _dc.draftFt + '′ draft)' + (_sr.shpDamage ? (' — ' + _sr.shpDamage + ' hull damage') : '') + ' — run aground (Seafaring ' + _sr.rolled + (_sr.bonus ? ('+' + _sr.bonus) : '') + ' vs ' + _sr.target + '+' + (_sr.naturalOne ? ', natural 1' : '') + ')',
+                  payload: { journeyId: journey.id, dayIndex: newDayIndex } });
+              }
+            }
+          }
         }
       }
     }
@@ -3071,7 +3110,7 @@ function tickJourneyDay(campaign, journey, ctx){
                             summaryLabel = (journey.name || 'Journey') + ': ' + (hexesToday > 0 ? ('+' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then ') : '') + 'blocked at a river (day ' + newDayIndex + ')';
   else if(armyContactRecord)
                             summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then met ' + (armyContactRecord.opposingArmyName || 'an opposing army') + ' (day ' + newDayIndex + ')';
-  else if(_voyageStuck)     summaryLabel = (journey.name || 'Voyage') + ': ' + (_voyageVessel.grounded === 'kelp' ? 'entangled in kelp' : 'aground on a ' + _voyageVessel.grounded) + ' — making no way (day ' + newDayIndex + ')';
+  else if(_voyageStuck)     summaryLabel = (journey.name || 'Voyage') + ': ' + (_voyageVessel.grounded === 'kelp' ? 'entangled in kelp' : _voyageVessel.grounded === 'too-shallow' ? 'grounded in the shallows (too shallow for its draft)' : 'aground on a ' + _voyageVessel.grounded) + ' — making no way (day ' + newDayIndex + ')';
   else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — strayed ' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' ' + (HEX_FACE_LABELS[strayHeading] || '') + ', unaware (day ' + newDayIndex + ')';
   else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '') + (voyageInfo.weathering ? (' · ' + voyageInfo.weathering) : '')) : '') + (isLost ? ', off course' : '') + (_voyShpDamage > 0 ? (' · ' + _voyShpDamage + ' hull damage') : '') + (_voyGrounded && _voyGrounded !== (isVoyage && _voyageVessel.grounded || null) ? (' · ' + (_voyGrounded === 'kelp' ? 'entangled' : 'run aground') ) : '') + (_voyProvision && _voyProvision.tracked && _voyProvision.deprivation.speedMult !== 1 ? (' · ' + _voyProvision.deprivation.level) : '') + '), day ' + newDayIndex;
 
@@ -3103,6 +3142,7 @@ function tickJourneyDay(campaign, journey, ctx){
       continuousSailing: voyageInfo.continuousSailing, gale: voyageInfo.gale, crewDamageFactor: voyageInfo.crewDamageFactor,
       sailMiles: voyageInfo.sailMiles, oarMiles: voyageInfo.oarMiles,
       seaZone: _voyageSeaZone,                               // V3a — the day's sea zone (lake/river/coast/open-sea)
+      riverCurrent: (_riverCurrent && _riverCurrent.mi) ? { mi: _riverCurrent.mi, speed: _riverCurrent.speed, heading: _riverCurrent.heading } : null,  // V5 — the day's river current modifier (null = no current)
       weathering: voyageInfo.weathering || null,             // V3a — fog/rain/snow this day (null = none); slowed by weatheringSpeedMult
       weatheringSpeedMult: (voyageInfo.weatheringSpeedMult != null) ? voyageInfo.weatheringSpeedMult : 1,
       // V3b — nautical hazards + gale damage this day (null/0 = none); the SHP/grounded mutation rides record.voyageState

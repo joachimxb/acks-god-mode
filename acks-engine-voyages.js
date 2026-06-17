@@ -606,7 +606,10 @@
     if(opts.atHalfSpeed) bonus += 4;
     const ck = (vessel && vessel.catalogKey) || '';
     const shallow = /^galley/.test(ck) || ck === 'longship';
-    if(shallow && (hz.key === 'sandbar' || hz.key === 'shoal')) bonus += 4;
+    // Shallow-draft +4 vs sandbar/shoal (the SEA case). V5 suppresses it for the river depth-vs-draft
+    // hazard: there the galley's shallow draft is already WHY the hex reads only "within 2′" (not
+    // impassable), so granting the +4 again would double-count (Maritime_Voyages_RAW_Survey.md §16).
+    if(shallow && !opts.suppressShallowBonus && (hz.key === 'sandbar' || hz.key === 'shoal')) bonus += 4;
     const t = _voyThrow(target, bonus, rng);
     const out = { hazard: hz.key, hazardLabel: hz.label, effect: hz.effect, target: t.target, bonus: bonus,
                   rolled: t.rolled, total: t.total, success: t.success, naturalOne: t.naturalOne, masterMariner: master,
@@ -764,6 +767,59 @@
     return out;
   }
 
+  // ===========================================================================
+  // V5 — River voyages (RR pp.330–331). Two river-specific bits over the shipped
+  // wind model (V2) + the V3b hazard/replay machinery: (1) the river CURRENT — a
+  // flat ± mi/day applied after wind (downriver carries, upriver fights); (2) DEPTH
+  // vs DRAFT — a too-shallow river hex grounds a deep hull (impassable < draft;
+  // within 2′ of draft = a sandbar/shoal-class throw, the shallow-draft bonus
+  // suppressed). The current touches only the day's mile budget (no vessel-state
+  // mutation → no replay); a depth grounding rides the EXISTING V3b record.voyageState
+  // (newGrounded/newShp) → commit applies → reroll reverts. Reuses the shipped §24
+  // river-edge cartography conceptually (a river voyage travels ALONG the river; the
+  // depth check is the new per-hex bit). Maritime_Voyages_RAW_Survey.md §16.
+  // OPT-IN BY DATA: the current fires only on a GM-set journey.riverCurrent on a river
+  // zone; the depth check only on a GM-set hex.riverDepth → existing voyages are byte-
+  // unchanged. No new house rule / event kind / prefix / entity; no save migration
+  // (journey.riverCurrent + hex.riverDepth are defensive-read, not on the factories —
+  // the journey.tradeRoute / hex.seaZone / hex.nauticalHazard precedent).
+  // ===========================================================================
+
+  // River current speed → a flat voyage-speed modifier in miles/day, applied AFTER the
+  // wind model (RR p.331; ±1..±8 hexes/day at 6 mi/hex). Applies to both sail and oar.
+  const RIVER_CURRENT_SPEED = Object.freeze({ placid:6, gentle:12, slow:18, moderate:24, swift:36, rapid:48 });
+
+  // The signed current modifier (mi/day) for a journey on a river: DOWNRIVER adds (the
+  // river carries the hull), UPRIVER subtracts (it fights the flow). Reads a GM-set
+  // journey.riverCurrent = { speed:'placid'..'rapid', heading:'downriver'|'upriver' }
+  // (opts.riverCurrent overrides). No current set / unknown speed → mi 0 (no effect).
+  // Heading defaults to 'downriver' (the common case — going with the flow).
+  function riverCurrentModifierMi(journey, opts){
+    opts = opts || {};
+    const rc = opts.riverCurrent || (journey && journey.riverCurrent) || null;
+    if(!rc) return { mi:0, speed:null, heading:null, label:null };
+    const speed = String(rc.speed || '').toLowerCase();
+    const base = RIVER_CURRENT_SPEED[speed];
+    if(base == null) return { mi:0, speed:null, heading:null, label:null };
+    const heading = (rc.heading === 'upriver') ? 'upriver' : 'downriver';
+    const sign = (heading === 'upriver') ? -1 : 1;
+    return { mi: sign * base, speed, heading,
+             label: (heading === 'downriver' ? '+' : '−') + base + ' mi (' + speed + ', ' + heading + ')' };
+  }
+
+  // River depth vs the vessel's draft (RR p.331 + the per-class draft table): depth ≥ draft+2′ = safe;
+  // depth < draft = IMPASSABLE (the hull can go no further); draft ≤ depth < draft+2′ = SHALLOW (treat
+  // the hex as a sandbar/shoal hazard). Reads a GM-set hex.riverDepth (feet); an UNAUTHORED depth →
+  // 'unknown' (treated as safe — opt-in by data, so a river lane with no depths set is byte-unchanged).
+  function riverDepthClearance(vessel, hex){
+    const draft = vesselDraftFt(vessel);
+    const depth = (hex && typeof hex.riverDepth === 'number') ? hex.riverDepth : null;
+    if(draft == null || depth == null) return { status: 'unknown', depthFt: depth, draftFt: draft };
+    if(depth < draft)     return { status: 'impassable', depthFt: depth, draftFt: draft };
+    if(depth < draft + 2) return { status: 'shallow',     depthFt: depth, draftFt: draft };
+    return                        { status: 'safe',        depthFt: depth, draftFt: draft };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     VESSEL_CATALOG,
@@ -781,7 +837,9 @@
     // V3b — nautical hazards + gale damage (the SHP-mutating replay slice)
     NAUTICAL_HAZARDS, nauticalHazardForHex, rollNauticalHazard, rollVoyageGale, applyVoyageDayState,
     // V3c — ship stores + deprivation + scurvy + fishing (the crew-provisioning ladder)
-    SHIP_SCURVY_ONSET_DAYS, shipStoresTracked, shipDeprivationLevel, voyageHexIsFreshFood, computeShipProvisionDay, fishActivity
+    SHIP_SCURVY_ONSET_DAYS, shipStoresTracked, shipDeprivationLevel, voyageHexIsFreshFood, computeShipProvisionDay, fishActivity,
+    // V5 — river voyages (current + depth-vs-draft)
+    RIVER_CURRENT_SPEED, riverCurrentModifierMi, riverDepthClearance
   });
 
 })(typeof window !== 'undefined' ? window : global);
