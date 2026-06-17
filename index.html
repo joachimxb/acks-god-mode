@@ -93,6 +93,8 @@
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
+<!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
+<script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
@@ -637,6 +639,13 @@ document.addEventListener('alpine:init', () => {
                   <template x-if="r.kind === 'army-supply' && !r.inSupply && !r.rejected">
                     <div class="ml-3 pb-1">
                       <div class="text-xs opacity-80 leading-snug" x-text="'📦 cost ' + (r.cost || 0).toLocaleString() + 'gp/wk · base value ' + (r.baseValue != null ? r.baseValue.toLocaleString() + 'gp' : '—') + (r.line ? ' · line ' + r.line.status : '') + ' → ' + r.condition + ' (RR p.452)'"></div>
+                    </div>
+                  </template>
+                  <!-- W8 VAGARY-OF-WAR records (JJ pp.113–115): the rolled vagary's GM instruction. The
+                       self-contained omen ±10-to-next-roll mod is applied on commit; the rest the GM acts on. -->
+                  <template x-if="r.kind === 'army-vagary' && !r.rejected">
+                    <div class="ml-3 pb-1">
+                      <div class="text-xs opacity-80 leading-snug" x-text="'🎲 ' + r.vagaryName + ' — ' + (r.effect && r.effect.detail ? r.effect.detail : r.brief) + (r.siege ? ' [siege — worst of 2]' : '') + (r.nextMod ? ' · (' + (r.nextMod > 0 ? '+' : '') + r.nextMod + ' to this army\'s next Vagary of War roll, applied on commit)' : '')"></div>
                     </div>
                   </template>
                   <!-- SURVIVAL records (CoL-1): a per-member detail row — name + conditions (hunger/thirst
@@ -1938,6 +1947,15 @@ document.addEventListener('alpine:init', () => {
                     <p>They arrive in <span x-text="f.groups.length"></span> group(s): <span x-text="f.groups.map(g => g.creatures + ' at ' + g.distanceFt + 'ft').join(' · ')"></span> <span class="opacity-60" x-text="f.groups[0] && f.groups[0].diceLabel ? '(' + f.groups[0].diceLabel + ')' : ''"></span></p>
                   </template>
                   <p x-show="f.note" class="italic opacity-80" x-text="f.note"></p>
+                  <!-- W8 — Vagaries of Battle (JJ pp.116–117): the 1d4 complications rolled when this foray was declared (vagaries-of-battle rule). GM-resolve guidance for the at-the-table fight. -->
+                  <template x-if="f.vagaries && f.vagaries.length">
+                    <div class="mt-1 border-t border-ink/20 pt-1">
+                      <p class="font-semibold accent-red" x-text="'🎲 Vagaries of Battle (' + f.vagaries.length + ') — the GM resolves these at the table:'"></p>
+                      <template x-for="(v, vi) in f.vagaries" :key="vi">
+                        <p class="pl-3" x-text="'• ' + v.name + ' — ' + (v.effect && v.effect.detail ? v.effect.detail : v.brief)"></p>
+                      </template>
+                    </div>
+                  </template>
                   <p class="italic opacity-70">Resolve at the table under the standard combat rules — max 10 rounds; fleeing or withdrawing foes count as defeated.</p>
                   <div x-show="f.status === 'pending'" class="mt-1 flex flex-wrap gap-2 items-baseline">
                     <template x-if="!f.opposed">
