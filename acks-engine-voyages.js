@@ -444,6 +444,14 @@
     const reduction = vesselVoyageSpeedFactor(campaign, vessel, propulsion);
     let miles = Math.max(0, rawMiles) * reduction * paceMult;
 
+    // V3a — weathering the seas (RR pp.321–322): the PRECIPITATION axis (the shipped Weather
+    // `condition`, distinct from the wind-strength axis above) slows the vessel — fog ½ for a
+    // COASTAL vessel (20' vis; open sea unaffected), snow ½ (rare at sea); rain is nav-only. The
+    // §26 override path returns earlier, so an override base rate is NOT weathering-slowed (consistent
+    // with V2 — the GM set the exact rate). seaZone reaches here via opts (the tickJourneyDay voyage branch).
+    const weatherFx = voyageWeatherEffects(weather.condition, opts.seaZone);
+    if(weatherFx.speedMult !== 1) miles = miles * weatherFx.speedMult;
+
     // 24-hour open-sea sailing (RR p.318) — GM toggle gated on eligibility → ×2.
     const continuous = !!(journey && journey.continuousSailing) && propulsion === 'sail' && voyageContinuousSailEligible(campaign, journey, vessel);
     if(continuous) miles *= 2;
@@ -451,12 +459,73 @@
     return {
       miles: Math.max(0, miles), propulsion, paceMult,
       windName, windLabel: ws.label, gale: !!ws.gale,
+      weathering: weatherFx.label, weatheringSpeedMult: weatherFx.speedMult,
       windStrengthSailMult: ws.sail, windStrengthOarMult: ws.oar,
       windFromDeg, windDirectionLabel: weather.windDirectionLabel || null, headingDeg,
       pointOfSail: pos.band, pointOfSailLabel: pos.label, pointOfSailMult: pos.sailMult,
       progressFraction: pos.progressFraction, angleDeg: pos.angleDeg, beating: pos.beating,
       masterMariner, sailMiles, oarMiles, crewDamageFactor: reduction, continuousSailing: continuous
     };
+  }
+
+  // ===========================================================================
+  // V3a — Navigating & weathering the seas (RR pp.320–322). The sea-navigation
+  // targets fold into the shipped §27 getting-lost machinery (tickJourneyDay):
+  // a lost vessel strays exactly like a lost party (RR p.320 — "being lost at sea
+  // is treated as being lost in the wilderness"); the precipitation axis (fog/rain/
+  // snow) slows the vessel + raises the navigation difficulty. Nautical hazards +
+  // ship stores/scurvy/fishing + gale damage are V3b (they MUTATE vessel/crew state
+  // — a separate replay slice). Maritime_Voyages_RAW_Survey.md §5.1c / §7 / §9.
+  // ===========================================================================
+
+  // Sea-navigation staying-on-course targets by sea zone (RR p.320). Lake/River are
+  // low-risk (you follow the bank/shore — the sea analog of a road); the open sea is hard.
+  // A vessel's zone is the GM-set hex.seaZone (lake|river|coast|open-sea); auto-derivation
+  // from distance-to-shore is the V4 territory classification — v1 defaults to the forgiving
+  // 'coast' (7+), the survey's "coastal navigation gets the easier target" + the common case.
+  const SEA_NAV_THROWS = Object.freeze({ lake: 4, river: 4, coast: 7, 'open-sea': 11 });
+  function seaZoneForHex(hex){
+    const z = hex && hex.seaZone;
+    return (z === 'lake' || z === 'river' || z === 'coast' || z === 'open-sea') ? z : 'coast';
+  }
+  function seaNavTarget(seaZone){ const t = SEA_NAV_THROWS[seaZone]; return (t != null) ? t : SEA_NAV_THROWS.coast; }
+
+  // Weathering the seas (RR pp.321–322): the PRECIPITATION axis (the shipped Weather
+  // `condition` — fair|rainy|foggy|snowy|stormy) applies, DISTINCT from the wind-strength
+  // axis (V2). Fog slows a COASTAL vessel to ½ + a −4 nav penalty (20' vis, open sea
+  // unaffected); rain a −2 nav penalty (½ vis); snow (rare at sea) ½ speed. Stormy = the
+  // Gale wind band (V2 owns its speed; the gale-damage tail is V3b). Returns the speed
+  // multiplier + the nav-target penalty (a higher target = harder to stay on course).
+  function voyageWeatherEffects(weatherCondition, seaZone){
+    switch(weatherCondition){
+      case 'foggy': return { speedMult: (seaZone === 'coast' ? 0.5 : 1), navTargetPenalty: 4, label: 'fog' };
+      case 'rainy': return { speedMult: 1,   navTargetPenalty: 2, label: 'rain' };
+      case 'snowy': return { speedMult: 0.5, navTargetPenalty: 0, label: 'snow' };
+      default:      return { speedMult: 1,   navTargetPenalty: 0, label: null };
+    }
+  }
+
+  // A participant carrying Navigation / Pathfinding (the §27 land bonus, scanned over the
+  // PT-0 {key,ranks} shape + class powers). At sea this counts toward the crew's nav bonus.
+  function _voyParticipantNavBonus(campaign, journey){
+    const ids = (journey && journey.participantCharacterIds) || [];
+    let hasNav = false, hasPath = false;
+    const scan = (e) => { const n = (typeof e === 'string') ? e : ((e && (e.key || e.name || e.label || e.proficiency)) || ''); if(/\bnavigation\b/i.test(n)) hasNav = true; if(/\bpathfinding\b/i.test(n)) hasPath = true; };
+    for(const c of ((campaign && campaign.characters) || [])){
+      if(!c || ids.indexOf(c.id) < 0) continue;
+      for(const p of (c.proficiencies || [])) scan(p);
+      for(const cp of (c.classPowers || [])) scan(cp);
+    }
+    return (hasNav && hasPath) ? 8 : (hasNav || hasPath) ? 4 : 0;
+  }
+  // The sea-navigation throw bonus (RR p.320 — the same +4/+8 Navigation/Pathfinding the §27
+  // land model uses, gated through the Seafaring crew): a navigator aboard → +4, with a master
+  // mariner → +8; a participant carrying Navigation/Pathfinding also counts (whichever is larger).
+  function seaNavBonus(campaign, journey, vessel){
+    const hasNav = vesselHasNavigator(campaign, vessel);
+    const hasMaster = vesselHasMasterMariner(campaign, vessel);
+    const officerBonus = hasNav ? (hasMaster ? 8 : 4) : (hasMaster ? 4 : 0);
+    return Math.max(officerBonus, _voyParticipantNavBonus(campaign, journey));
   }
 
   // ── Export onto window.ACKS ──
@@ -470,7 +539,9 @@
     // V2 — the wind + sailing-speed model
     WIND_STRENGTH_VOYAGE, POINT_OF_SAIL_BANDS, windStrengthVoyage, pointOfSail, vesselBearingDeg,
     vesselHasMasterMariner, vesselHasNavigator, vesselVoyageSpeedFactor, voyageContinuousSailEligible,
-    voyageDayMiles
+    voyageDayMiles,
+    // V3a — navigating & weathering the seas
+    SEA_NAV_THROWS, seaZoneForHex, seaNavTarget, voyageWeatherEffects, seaNavBonus
   });
 
 })(typeof window !== 'undefined' ? window : global);

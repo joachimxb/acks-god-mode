@@ -1,5 +1,6 @@
 // =============================================================================
-// voyages.smoke.js — Maritime / Voyages V1 (data layer). Phase 3 Voyages (#145).
+// voyages.smoke.js — Maritime / Voyages V1 (data layer) + V2 (wind/sailing speed)
+// + V3a (sea navigation + weathering the seas). Phase 3 Voyages (#145).
 // Covers: the vsl- prefix; the VESSEL_CATALOG (20 RR p.316 classes — values cross-checked
 // EXACT vs the printed Sea Vessels table + the "—"→null handling + draft/deck-type from
 // RR pp.153–156/331); the catalog lookups; blankVessel / createVessel (init-on-write) + the
@@ -385,7 +386,7 @@ const iDay = idr.record.dayRecord;
 ok('voyage day record carries the voyage breakdown', !!iDay.voyage && iDay.voyage.propulsion === 'sail' && iDay.voyage.pointOfSail === 'running');
 ok('the SEA speed model governs (72 mi, not the land 24)', iDay.milesTraveled === 72 && iDay.hexesTraveled === 12);
 ok('still in transit (12 of 13 hexes)', idr.record.newStatus === 'in-transit');
-ok('NO getting-lost throw on a voyage (sea nav is V3)', iDay.navigationThrow === null);
+ok('V3a — a voyage now MAKES a sea-navigation throw (coast 7+, succeeds at rng .5)', !!iDay.navigationThrow && iDay.navigationThrow.result === 'success' && iDay.navigationThrow.target === 7);
 ok('NO ration survival on a voyage (ship stores are V3)', idr.record.survival === null && iDay.rationsConsumed.food === 0);
 ok('NO per-hex wandering encounter on a voyage (sea encounters are V4)', (idr.record.encounterProposals || []).length === 0);
 ok('NO party fatigue on a voyage (crewing is unstrenuous)', iDay.fatigueAccumulated === 0);
@@ -399,11 +400,73 @@ const ldr = ACKS.tickJourneyDay(lc, lj, { rng: () => 0.5, weather: { condition: 
 ok('a land journey is unaffected (voyage record null)', ldr.record.dayRecord.voyage === null);
 
 // =============================================================================
+section('V3a — sea-navigation targets + zones (RR p.320)');
+// =============================================================================
+ok('SEA_NAV_THROWS: lake/river 4, coast 7, open-sea 11', ACKS.SEA_NAV_THROWS.lake === 4 && ACKS.SEA_NAV_THROWS.river === 4 && ACKS.SEA_NAV_THROWS.coast === 7 && ACKS.SEA_NAV_THROWS['open-sea'] === 11);
+ok('SEA_NAV_THROWS is frozen', Object.isFrozen(ACKS.SEA_NAV_THROWS));
+ok('seaZoneForHex reads a valid hex.seaZone', ACKS.seaZoneForHex({ seaZone: 'open-sea' }) === 'open-sea' && ACKS.seaZoneForHex({ seaZone: 'lake' }) === 'lake');
+ok('seaZoneForHex defaults to coast (water hex, no zone, null)', ACKS.seaZoneForHex({ terrain: 'water' }) === 'coast' && ACKS.seaZoneForHex(null) === 'coast');
+ok('seaZoneForHex rejects a bogus zone → coast', ACKS.seaZoneForHex({ seaZone: 'nonsense' }) === 'coast');
+ok('seaNavTarget(open-sea)=11, bogus→coast 7', ACKS.seaNavTarget('open-sea') === 11 && ACKS.seaNavTarget('bogus') === 7);
+
+// =============================================================================
+section('V3a — weathering the seas (RR pp.321–322): the precipitation axis');
+// =============================================================================
+ok('fog on a COASTAL vessel → ½ speed + nav −4', (() => { const fx = ACKS.voyageWeatherEffects('foggy', 'coast'); return fx.speedMult === 0.5 && fx.navTargetPenalty === 4 && fx.label === 'fog'; })());
+ok('fog in the OPEN SEA → no speed effect (still nav −4)', (() => { const fx = ACKS.voyageWeatherEffects('foggy', 'open-sea'); return fx.speedMult === 1 && fx.navTargetPenalty === 4; })());
+ok('rain → nav −2, no speed effect', (() => { const fx = ACKS.voyageWeatherEffects('rainy', 'coast'); return fx.speedMult === 1 && fx.navTargetPenalty === 2 && fx.label === 'rain'; })());
+ok('snow → ½ speed (anywhere), no nav penalty', (() => { const fx = ACKS.voyageWeatherEffects('snowy', 'open-sea'); return fx.speedMult === 0.5 && fx.navTargetPenalty === 0 && fx.label === 'snow'; })());
+ok('fair → no effect', (() => { const fx = ACKS.voyageWeatherEffects('fair', 'coast'); return fx.speedMult === 1 && fx.navTargetPenalty === 0 && fx.label === null; })());
+// the speed effect folds into voyageDayMiles (sailing ship, Moderate, running = base 72)
+ok('voyageDayMiles: fog coast → 72×½ = 36', vdm(vc, {}, shipL, { wind: 'Moderate', windDirection: 0, condition: 'foggy' }, 180, { seaZone: 'coast' }).miles === 36);
+ok('voyageDayMiles: fog open-sea → unslowed 72', vdm(vc, {}, shipL, { wind: 'Moderate', windDirection: 0, condition: 'foggy' }, 180, { seaZone: 'open-sea' }).miles === 72);
+ok('voyageDayMiles: snow → 72×½ = 36', vdm(vc, {}, shipL, { wind: 'Moderate', windDirection: 0, condition: 'snowy' }, 180, { seaZone: 'coast' }).miles === 36);
+ok('voyageDayMiles: rain → unslowed 72', vdm(vc, {}, shipL, { wind: 'Moderate', windDirection: 0, condition: 'rainy' }, 180, { seaZone: 'coast' }).miles === 72);
+ok('voyageDayMiles carries the weathering label + mult', (() => { const r = vdm(vc, {}, shipL, { wind: 'Moderate', windDirection: 0, condition: 'foggy' }, 180, { seaZone: 'coast' }); return r.weathering === 'fog' && r.weatheringSpeedMult === 0.5; })());
+ok('§26 override is NOT weathering-slowed (GM set the rate)', vdm(vc, {}, shipL, { wind: 'Still', windDirection: 0, condition: 'foggy' }, 180, { seaZone: 'coast', overrideMiles: 50 }).miles === 50);
+
+// =============================================================================
+section('V3a — sea-navigation bonus (RR p.320, Seafaring-gated +4/+8)');
+// =============================================================================
+ok('a master mariner aboard → +8', ACKS.seaNavBonus(mc2, ACKS.blankJourney({}), mmShip) === 8);
+ok('a navigator aboard → +4', ACKS.seaNavBonus(mc2, ACKS.blankJourney({}), navShip) === 4);
+ok('no navigator/master → +0', ACKS.seaNavBonus(mc2, ACKS.blankJourney({}), plainShip) === 0);
+ok('a participant with Navigation also counts (+4) even on a plain ship', ACKS.seaNavBonus(mc2, ACKS.blankJourney({ participantCharacterIds: ['chr-nav'] }), plainShip) === 4);
+
+// =============================================================================
+section('V3a — integration: a voyage gets lost at sea + weathering slows it');
+// =============================================================================
+// (1) a failed sea-nav throw (natural 1) → the vessel drifts off course, unaware (the §27 stray machinery)
+const xc = ACKS.blankCampaign({ name: 'lost-at-sea' });
+xc.characters = [ACKS.blankCharacter({ id: 'chr-x', name: 'Pilot' })];
+xc.hexes = []; for(let r = 0; r <= 8; r++) xc.hexes.push(ACKS.blankHex({ id: 'os-' + r, coord: { q: 0, r: r }, terrain: 'water', seaZone: 'open-sea' }));
+const xv = ACKS.createVessel(xc, { name: 'Wanderer', catalogKey: 'sailing-ship-large' });
+const xj = ACKS.blankJourney({ name: 'Open Crossing', mode: 'voyage-sail', shipId: xv.id, participantCharacterIds: ['chr-x'], startHexId: 'os-0', destinationHexId: 'os-8', currentHexId: 'os-0' });
+xc.journeys = [xj]; ACKS.startJourney(xc, xj);
+const xdr = ACKS.tickJourneyDay(xc, xj, { rng: () => 0, weather: { wind: 'Moderate', windDirection: 0, condition: 'fair', temperature: 'moderate' } });   // rng 0 → natural 1 → auto-fail (open-sea 11+)
+const xDay = xdr.record.dayRecord;
+ok('open-sea voyage fails its nav throw (natural 1) → lost', xDay.navigationThrow && xDay.navigationThrow.result === 'fail-unknown-lost' && xDay.navigationThrow.naturalOne === true && xDay.navigationThrow.target === 11);
+ok('the vessel drifts off course, unaware (newIsLost)', xdr.record.newIsLost === true && typeof xDay.strayHeading === 'number');
+
+// (2) fog halves a coastal voyage's distance + records the weathering (nav target = coast 7 + fog 4 = 11)
+const fogc = ACKS.blankCampaign({ name: 'foggy-coast' });
+fogc.characters = [ACKS.blankCharacter({ id: 'chr-f', name: 'Skipper' })];
+fogc.hexes = []; for(let r = 0; r <= 8; r++) fogc.hexes.push(ACKS.blankHex({ id: 'co-' + r, coord: { q: 0, r: r }, terrain: 'water' }));   // no seaZone → default coast
+const fogv = ACKS.createVessel(fogc, { name: 'Mistral', catalogKey: 'sailing-ship-large' });
+const fogj = ACKS.blankJourney({ name: 'Foggy Run', mode: 'voyage-sail', shipId: fogv.id, participantCharacterIds: ['chr-f'], startHexId: 'co-0', destinationHexId: 'co-8', currentHexId: 'co-0' });
+fogc.journeys = [fogj]; ACKS.startJourney(fogc, fogj);
+const fogdr = ACKS.tickJourneyDay(fogc, fogj, { rng: () => 0.95, weather: { wind: 'Moderate', windDirection: 0, condition: 'foggy', temperature: 'moderate' } });   // rng .95 → natural 20 → passes nav 11+
+const fogDay = fogdr.record.dayRecord;
+ok('fog halves the coastal voyage (72→36 = 6 hexes)', fogDay.milesTraveled === 36 && fogDay.hexesTraveled === 6);
+ok('the day record carries the fog weathering', fogDay.voyage && fogDay.voyage.weathering === 'fog' && fogDay.voyage.weatheringSpeedMult === 0.5 && fogDay.voyage.seaZone === 'coast');
+ok('the sea-nav target absorbed the fog penalty (coast 7 + 4 = 11)', fogDay.navigationThrow && fogDay.navigationThrow.target === 11 && fogDay.navigationThrow.result === 'success');
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Voyages V1 smoke checks passed.');
+  console.log('\nAll Voyages V1 + V2 + V3a smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

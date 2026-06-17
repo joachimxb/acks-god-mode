@@ -2566,6 +2566,7 @@ function tickJourneyDay(campaign, journey, ctx){
   // resolves wind strength × point of sail (sail) / wind-oar, the oar-vs-sail pick, crew/damage
   // reduction, pace, and the 24h doubling. The §26 override still flows through (as a base rate). ──
   let voyageInfo = null;
+  let _voyageSeaZone = null;   // V3a — the hex's sea zone (lake/river/coast/open-sea); drives the weathering ½ + the sea-nav target
   if(isVoyage){
     const _fromC = (curStep && curStep.coord) ? curStep.coord : curCoord;
     let _toC = (nextStep && nextStep.coord) ? nextStep.coord : null;
@@ -2574,49 +2575,70 @@ function tickJourneyDay(campaign, journey, ctx){
       if(_dh && _dh.coord) _toC = _dh.coord;
     }
     const _headingDeg = (_toC && typeof A.vesselBearingDeg === 'function') ? A.vesselBearingDeg(_fromC, _toC) : null;
-    voyageInfo = A.voyageDayMiles(campaign, journey, _voyageVessel, { weather, pace, overrideMiles, headingDeg: _headingDeg });
+    // The day's sea zone = the hex being ENTERED (nextHex, falling back to the current hex). V3a:
+    // the GM-set hex.seaZone (default 'coast') keys the weathering speed effect + the sea-nav target.
+    _voyageSeaZone = (typeof A.seaZoneForHex === 'function') ? A.seaZoneForHex(nextHex || curHex) : 'coast';
+    voyageInfo = A.voyageDayMiles(campaign, journey, _voyageVessel, { weather, pace, overrideMiles, headingDeg: _headingDeg, seaZone: _voyageSeaZone });
     milesBudget = voyageInfo.miles;
   }
 
-  // ── navigation (§7 / RR p.275): one Navigation throw per travel day. Skipped only when NOT lost and
-  // following a road/trail (those routes are safe); a LOST party always throws — that's its chance to
-  // re-orient. +4 for the Navigation proficiency OR the Pathfinding class power, +8 for both; an
-  // unmodified natural 1 always fails. The Judge throws secretly on the party's behalf.
-  // E5 — a party FOLLOWING TRACKS makes no Navigation throw either (RR p.120: following the
-  // spoor needs no throw — the trail leads); a party already lost still throws to recover. ──
+  // ── navigation (§7 / RR p.275; V3a sea nav RR p.320): one Navigation throw per travel day. LAND:
+  // skipped only when NOT lost and following a road/trail (those routes are safe); a LOST party always
+  // throws — its chance to re-orient. +4 for Navigation OR Pathfinding, +8 for both; nat-1 always fails.
+  // VOYAGE (V3a): the SAME machinery with SEA targets (Lake/River 4+ / Coast 7+ / Open Sea 11+ — the
+  // GM-set hex.seaZone), the navigator/master-mariner-gated +4/+8 (seaNavBonus), and the fog −4 / rain −2
+  // weathering penalty; lake/river is "safe water" (you follow the bank — the sea analog of a road) and is
+  // skipped when not lost, coast/open-sea always throw. A lost VESSEL strays exactly like a lost party
+  // (RR p.320 — being lost at sea is treated as being lost in the wilderness), so the §27 stray machinery
+  // below runs unchanged. E5 — a party FOLLOWING TRACKS makes no Navigation throw (land only). Secret throw. ──
   const followingTrail = !!((typeof A.journeyTrackingPursuit === 'function') && A.journeyTrackingPursuit(campaign, journey.id));
   let navRecord = null;
   let strayHeading = (typeof journey.strayHeading === 'number') ? journey.strayHeading : null;
   const wasLost = isLost;
-  if(!restDay && !halted && !standDown && !isVoyage && dist.remaining > 0 && (isLost || (!onRoadOrTrail && !followingTrail))){
-    // Throw against where the party IS when lost (the strayed anchor), else the hex it's entering.
-    const navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
-    const navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
-    const bonus = _journeyNavBonus(campaign, journey);
+  const _voyOnSafeWater = isVoyage && (_voyageSeaZone === 'lake' || _voyageSeaZone === 'river');
+  const _navActive = !restDay && !halted && !standDown && dist.remaining > 0 && (
+    isVoyage ? (isLost || !_voyOnSafeWater)
+             : (isLost || (!onRoadOrTrail && !followingTrail))
+  );
+  if(_navActive){
+    // Throw against where the party/vessel IS when lost (the strayed anchor), else the hex it's entering.
+    let navTarget, bonus, navTerrain, navWeatherLabel = null;
+    if(isVoyage){
+      const zone = isLost ? ((typeof A.seaZoneForHex === 'function') ? A.seaZoneForHex(curHex) : 'coast') : _voyageSeaZone;
+      const fx = (typeof A.voyageWeatherEffects === 'function') ? A.voyageWeatherEffects(weather.condition, zone) : { navTargetPenalty: 0, label: null };
+      navTarget = ((A.SEA_NAV_THROWS && A.SEA_NAV_THROWS[zone] != null) ? A.SEA_NAV_THROWS[zone] : 7) + (fx.navTargetPenalty || 0);
+      bonus = (typeof A.seaNavBonus === 'function') ? A.seaNavBonus(campaign, journey, _voyageVessel) : 0;
+      navTerrain = 'the ' + String(zone).replace('-', ' ');   // "the coast" / "the open sea" / "the lake"
+      navWeatherLabel = fx.label;
+    } else {
+      navTerrain = isLost ? ((curHex && curHex.terrain) || baseTerrain) : (nextHex.terrain || baseTerrain);
+      navTarget = (A.JOURNEY_NAV_THROWS[navTerrain] != null) ? A.JOURNEY_NAV_THROWS[navTerrain] : 6;
+      bonus = _journeyNavBonus(campaign, journey);
+    }
     const nav = rollNavigation(navTarget, bonus, rng);
-    const bonusRec = bonus ? [{ source: 'party-proficiency', value: bonus }] : [];
+    const bonusRec = bonus ? [{ source: isVoyage ? 'crew-navigation' : 'party-proficiency', value: bonus }] : [];
     if(nav.success && wasLost){
-      // Recovered (RR p.275): the party realizes it was lost and resumes toward its destination. The
-      // route is already anchored at its strayed position (re-anchored each lost day), so clearing
-      // isLost lets the normal route walk below resume dest-ward from here.
+      // Recovered (RR p.275 / p.320): the party/crew realizes it strayed and resumes toward its
+      // destination. The route is already anchored at its strayed position (re-anchored each lost day),
+      // so clearing isLost lets the normal route walk below resume dest-ward from here.
       isLost = false; strayHeading = null;
       navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonusRec, result: 'success-recovered', naturalOne: nav.naturalOne };
       notableEvents.push({
         kind: 'journey-day-tick', type: 'navigation-recovered', primaryHexId: journey.currentHexId || journey.startHexId || null,
-        label: (journey.name || 'Journey') + ': found the way again (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
+        label: (journey.name || (isVoyage ? 'Voyage' : 'Journey')) + ': ' + (isVoyage ? 'regained its bearings' : 'found the way again') + ' (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+)',
         payload: { journeyId: journey.id, dayIndex: newDayIndex }
       });
     } else if(!nav.success){
-      // Lost (RR p.275). Crucially the party does NOT realize it — it strays toward a random hex face
-      // (1d6) and keeps moving, unaware, until a later successful throw. A heading already set persists
-      // ("blithely continues on"); a freshly-lost party rolls one. The pause is GM-facing — the Judge
-      // made the secret throw, so the fiction stays "the party doesn't know."
+      // Lost / off course (RR p.275 / p.320). Crucially the party/crew does NOT realize it — it strays
+      // toward a random hex face (1d6) and keeps moving, unaware, until a later successful throw. A heading
+      // already set persists ("blithely continues on"); a freshly-lost one rolls. The pause is GM-facing
+      // — the Judge made the secret throw, so the fiction stays "they don't know."
       isLost = true;
       if(strayHeading == null) strayHeading = Math.floor(rng() * 6);
       navRecord = { rolled: nav.rolled, target: nav.target, bonuses: bonusRec, result: 'fail-unknown-lost', naturalOne: nav.naturalOne, strayHeading: strayHeading };
       notableEvents.push({
         kind: 'journey-lost', type: 'navigation-fail', pauseTrigger: 'navigation-fail', primaryHexId: journey.currentHexId || journey.startHexId || null,
-        label: (journey.name || 'Journey') + ': lost in ' + navTerrain + ' — strays ' + (HEX_FACE_LABELS[strayHeading] || ('face ' + strayHeading)) + ', unaware (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+' + (nav.naturalOne ? ', natural 1' : '') + ')',
+        label: (journey.name || (isVoyage ? 'Voyage' : 'Journey')) + ': ' + (isVoyage ? ('drifts off course on ' + navTerrain) : ('lost in ' + navTerrain)) + ' — strays ' + (HEX_FACE_LABELS[strayHeading] || ('face ' + strayHeading)) + ', unaware (nav ' + nav.rolled + (bonus ? ('+' + bonus) : '') + ' vs ' + navTarget + '+' + (nav.naturalOne ? ', natural 1' : '') + (navWeatherLabel ? (', ' + navWeatherLabel) : '') + ')',
         payload: { journeyId: journey.id, dayIndex: newDayIndex, strayHeading: strayHeading }
       });
     } else {
@@ -2858,7 +2880,7 @@ function tickJourneyDay(campaign, journey, ctx){
   else if(armyContactRecord)
                             summaryLabel = (journey.name || 'Journey') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ', then met ' + (armyContactRecord.opposingArmyName || 'an opposing army') + ' (day ' + newDayIndex + ')';
   else if(isLost)           summaryLabel = (journey.name || 'Journey') + ': lost — strayed ' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' ' + (HEX_FACE_LABELS[strayHeading] || '') + ', unaware (day ' + newDayIndex + ')';
-  else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '')) : '') + '), day ' + newDayIndex;
+  else if(isVoyage)         summaryLabel = (journey.name || 'Voyage') + ': +' + hexesToday + ' hex' + (hexesToday === 1 ? '' : 'es') + ' (' + milesToday + ' mi' + (voyageInfo ? (' under ' + (voyageInfo.propulsion === 'oar' ? 'oar' : voyageInfo.propulsion === 'override' ? 'a set rate' : 'sail') + (voyageInfo.continuousSailing ? ', sailing through the night' : '') + (voyageInfo.gale && voyageInfo.propulsion !== 'override' ? ' (gale)' : '') + (voyageInfo.weathering ? (' · ' + voyageInfo.weathering) : '')) : '') + (isLost ? ', off course' : '') + '), day ' + newDayIndex;
 
   // ── §4.2 Day record ──
   // Provisioning — a COMPACT per-member post-day survival snapshot (only the fields
@@ -2882,11 +2904,14 @@ function tickJourneyDay(campaign, journey, ctx){
     weather: { condition: weather.condition, temperature: weather.temperature || 'moderate', rolledOrSet: weather.rolledOrSet || 'gm-fiat' },
     pace: restDay ? 'rest' : pace,
     speedOverrideMilesPerDay: (overrideMiles != null && !restDay) ? overrideMiles : null,  // §26 — GM speed override in effect this day (null ⇒ pace governed)
-    voyage: voyageInfo ? {                                   // Voyages V2 — the day's sailing/rowing breakdown (null on a land day)
+    voyage: voyageInfo ? {                                   // Voyages V2/V3a — the day's sailing/rowing breakdown (null on a land day)
       propulsion: voyageInfo.propulsion, windLabel: voyageInfo.windLabel, windDirectionLabel: voyageInfo.windDirectionLabel,
       pointOfSail: voyageInfo.pointOfSail, pointOfSailLabel: voyageInfo.pointOfSailLabel, masterMariner: voyageInfo.masterMariner,
       continuousSailing: voyageInfo.continuousSailing, gale: voyageInfo.gale, crewDamageFactor: voyageInfo.crewDamageFactor,
-      sailMiles: voyageInfo.sailMiles, oarMiles: voyageInfo.oarMiles
+      sailMiles: voyageInfo.sailMiles, oarMiles: voyageInfo.oarMiles,
+      seaZone: _voyageSeaZone,                               // V3a — the day's sea zone (lake/river/coast/open-sea)
+      weathering: voyageInfo.weathering || null,             // V3a — fog/rain/snow this day (null = none); slowed by weatheringSpeedMult
+      weatheringSpeedMult: (voyageInfo.weatheringSpeedMult != null) ? voyageInfo.weatheringSpeedMult : 1
     } : null,
     milesTraveled: milesToday,
     hexesTraveled: hexesToday,

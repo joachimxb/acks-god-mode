@@ -331,6 +331,12 @@ function blankHex(opts={}){
     // grants no drinking water. Additive optional flags — no coordinate migration (Provisioning §3.1).
     hasLake:    opts.hasLake === true,
     freshWater: opts.freshWater === true,
+    // Phase 3 Voyages (#145) V3a — the sea-navigation zone (RR p.320), meaningful only when
+    // terrain==='water': 'lake'|'river'|'coast'|'open-sea' → the staying-on-course target
+    // (4+/4+/7+/11+, ACKS.SEA_NAV_THROWS) + the fog/snow weathering ½. null = unset → read as
+    // 'coast' (the forgiving default; auto-derivation from distance-to-shore is V4). Additive
+    // optional — NOT lazy-injected into migrateCampaign, so the 6 templates + demo stay migrate-no-ops.
+    seaZone: (opts.seaZone === 'lake' || opts.seaZone === 'river' || opts.seaZone === 'coast' || opts.seaZone === 'open-sea') ? opts.seaZone : null,
     primaryStructure: opts.primaryStructure || '',
     settlement: opts.settlement || null,
     lairs: opts.lairs || [],
