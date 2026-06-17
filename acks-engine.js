@@ -4030,6 +4030,12 @@ function deployGarrisonReaction(campaign, opts){
   if(!campaign) return { ok: false, reason: 'no-campaign' };
   const group = findGroup(campaign, opts.groupId);
   if(!group || !group.incursion) return { ok: false, reason: 'no-band' };
+  // Awareness gate (JJ p.103, RR p.452): a deliberate sally requires the ruler to have DETECTED
+  // the band. An undetected incursion (failed reconnaissance, rulerAware===false) offers no target
+  // to march on — the garrison can't intercept a threat it hasn't located. Passive stronghold
+  // defence (the band reaching the seat) is a separate path and needs no prior knowledge. An unset
+  // rulerAware defaults to aware (pre-recon / GM-authored bands), matching the display convention.
+  if(group.incursion.rulerAware === false) return { ok: false, reason: 'ruler-unaware' };
   const dom = (campaign.domains || []).find(d => d && d.id === group.incursion.domainId) || null;
   let rallyHexId = opts.rallyHexId || (dom ? domainSeatHexId(campaign, dom) : null);
   const unitIds = (Array.isArray(opts.unitIds) ? opts.unitIds : []).filter(Boolean);
