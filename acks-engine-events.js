@@ -91,6 +91,10 @@ const EVENT_KINDS = Object.freeze([
   'construction-damaged',
   'construction-repair-started',
   'construction-demolished',
+  // Phase 4 Construction Wave C — follower attraction (RR p.334). Record-only audit emitted by
+  // acks-engine-followers.js (attractFollowers already minted the follower Characters + the troop Group
+  // + marked the ruler attracted-once). The Stronghold-tab card + review modal drive it.
+  'follower-arrival',
   // Phase 2.5 Journeys (#475 — J1) — overland travel day-tick events. Engine-emitted
   // (day-tick consumer + startJourney); opted out of the Event Wizard below.
   'journey-start',
@@ -555,6 +559,11 @@ const EVENT_SCHEMAS = Object.freeze({
   'construction-demolished': {
     R: { constructibleId: 'string' },
     O: { reason: 'string', narrative: 'string' }
+  },
+  // Phase 4 Construction Wave C — follower attraction (RR p.334).
+  'follower-arrival': {
+    R: { domainId: 'string', rulerCharacterId: 'string' },
+    O: { classKey: 'string', companionCharacterIds: 'object', troopGroupId: 'string', noviceGroupId: 'string', companionCount: 'number', troopCount: 'number', apprenticeCount: 'number', narrative: 'string' }
   },
   // Phase 2.5 Journeys (#475 — J1). All carry journeyId; context envelope carries the hex(es).
   'journey-start': {
@@ -2374,7 +2383,15 @@ function applyEvent_constructionCompleted(campaign, event){
   }
   const builtName = dungeon ? dungeon.name : (cst ? cst.name : proj.name);
   const builtValue = (dungeon ? dungeon.buildValueGp : (cst && cst.buildValue)) || 0;
-  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, dungeonId: dungeon ? dungeon.id : null, narrativeSummary: 'Completed construction of ' + builtName + ' — ' + builtValue.toLocaleString() + ' gp value.' } };
+  // Construction Wave C — follower attraction heads-up (RR p.334). A completed stronghold-component that
+  // grows a domain whose ruler is name-level (9th+) may now attract followers. We don't materialize here
+  // (the GM reviews + accepts via the Stronghold tab's Followers card) — just hint it in the narrative.
+  let followerHint = '';
+  if(cst && proj.constructibleKind === 'stronghold-component' && proj.ownerDomainId && !proj.isRepair && A && typeof A.domainFollowerEligibility === 'function'){
+    const dom = (campaign.domains || []).find(d => d && d.id === proj.ownerDomainId);
+    try { if(dom && A.domainFollowerEligibility(campaign, dom).ok) followerHint = ' Its ruler may now attract followers (RR p.334) — review on the Stronghold tab.'; } catch(_e){}
+  }
+  return { result: { projectId: proj.id, constructibleId: cst ? cst.id : null, dungeonId: dungeon ? dungeon.id : null, narrativeSummary: 'Completed construction of ' + builtName + ' — ' + builtValue.toLocaleString() + ' gp value.' + followerHint } };
 }
 registerEventHandler('construction-completed', applyEvent_constructionCompleted);
 
@@ -2479,6 +2496,15 @@ function applyEvent_constructionDemolished(campaign, event){
   return { result: { constructibleId: cst.id, narrativeSummary: 'Demolished ' + (cst.name || displayConstructibleKindLocal(cst)) + '.' } };
 }
 registerEventHandler('construction-demolished', applyEvent_constructionDemolished);
+
+// Phase 4 Construction Wave C — follower attraction (RR p.334). Record-only audit: attractFollowers
+// (acks-engine-followers.js) already minted the follower Characters + the troop Group + marked the ruler
+// attracted-once; this handler keeps the event well-formed on replay (the arcane/research audit posture).
+function applyEvent_followerArrival(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || 'followers arrive (RR p.334)' } };
+}
+registerEventHandler('follower-arrival', applyEvent_followerArrival);
 
 // ─── Phase 2.5 Journeys (#475 — J1) — defensive event handlers ───
 // The Journey day-tick consumer mutates journey state in its commit() and emits these
@@ -5772,7 +5798,10 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // AD-M3 — owned by acks-engine-magic-research.js (the ritual learn/cast result of a research throw).
   'ritual-learned', 'ritual-cast',
   // AD-M4 — owned by acks-engine-magic-research.js (the breakthrough/mishap of an experimental research throw).
-  'magic-experiment-breakthrough', 'magic-experiment-mishap'
+  'magic-experiment-breakthrough', 'magic-experiment-mishap',
+  // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
+  // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
+  'follower-arrival'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
