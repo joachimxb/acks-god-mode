@@ -994,6 +994,19 @@
     }
   ];
 
+  // RR p.434 — the realm tier (Vassal Troops by Realm Size) for a given realm-family count.
+  // VASSAL_TROOPS is ordered largest→smallest (Emperor → Viscount → Baron); return the largest
+  // tier whose realmFamilies.min the realm meets, flooring at the smallest (Baron). NB this keys
+  // on VASSAL_TROOPS' OWN family thresholds (the p.434 table), distinct from realmRecruitTier's
+  // MERC_AVAILABILITY_REALM thresholds (the p.428 recruitment table — a different tier set).
+  function vassalTroopsForRealmFamilies(families){
+    const f = Math.max(0, Number(families) || 0);
+    for(const tier of VASSAL_TROOPS){
+      if(f >= ((tier.realmFamilies && tier.realmFamilies.min) || 0)) return tier;
+    }
+    return VASSAL_TROOPS[VASSAL_TROOPS.length - 1] || null;
+  }
+
   // RR p.428 — realm-scale recruitment (availability replenishes after the 4th period;
   // arrivals ½ / ¼ / remainder per period; one recruiter per realm at a time).
   const MERC_AVAILABILITY_REALM = {
@@ -1927,6 +1940,66 @@
     return Object.keys(TRAINING_COSTS).filter(k => conscriptQualifyingNumber(k, r) > 0).sort();
   }
 
+  // ─── Military W7-continuation — realm-scale recruitment lookups (RR p.428) ───
+  /** RR p.428 — the realm recruitment tier for a realm of `families` (continent→barony), by the
+   *  catalog's own population-family thresholds. Floors at 'barony' (the smallest recruiting tier). */
+  function realmRecruitTier(families){
+    const f = Math.max(0, Number(families) || 0);
+    const pf = MERC_AVAILABILITY_REALM.populationFamilies;
+    for(const tier of MERC_AVAILABILITY_REALM.tiers){          // ordered continent→barony (largest first)
+      if(f >= (pf[tier] || 0)) return tier;
+    }
+    return 'barony';                                           // floor (RR p.428)
+  }
+  /** The recruitable mercenary type keys (RR p.428 realm-availability table). */
+  function realmRecruitMercTypes(){ return Object.keys(MERC_AVAILABILITY_REALM.types); }
+  /** RR p.428 — how many of `typeKey` a realm of `tier` can recruit per time period (0 = not fielded). */
+  function realmMercAvailable(tier, typeKey){
+    const row = MERC_AVAILABILITY_REALM.types[normalizeTroopTypeKey(typeKey)];
+    const v = row ? row[tier] : null;
+    return (typeof v === 'number') ? v : 0;
+  }
+  /** RR p.428 — the one-time recruitment fee spec ({dice, multiplierGp, text}) for a realm `tier`. */
+  function realmRecruitFeeSpec(tier){ return REALM_RECRUITMENT_FEES[tier] || null; }
+  /** RR p.428 — the length in days of a realm tier's recruitment time period (week/month/season/year). */
+  function realmRecruitPeriodDays(tier){
+    const p = (MERC_AVAILABILITY_REALM.timePeriod || {})[tier];
+    return p === 'year' ? 360 : p === 'season' ? 90 : p === 'month' ? 30 : 7;   // week (default)
+  }
+  /** The recruitable military-specialist type keys (RR p.428 — artillerists / armorers / creature
+   *  handlers / marshals / mercenary officers / quartermaster / siege engineer). */
+  function realmSpecialistTypes(){ return Object.keys(MILITARY_SPECIALIST_AVAILABILITY_REALM.types); }
+  /** RR p.428 — how many of military-specialist `typeKey` a realm of `tier` can recruit per period
+   *  (0 = not fielded at that tier). NB the specialist catalog nests counts under `.availability`
+   *  (unlike MERC_AVAILABILITY_REALM, which stores them directly on the type row). */
+  function realmSpecialistAvailable(tier, typeKey){
+    const row = MILITARY_SPECIALIST_AVAILABILITY_REALM.types[String(typeKey || '').toLowerCase()];
+    const v = (row && row.availability) ? row.availability[tier] : null;
+    return (typeof v === 'number') ? v : 0;
+  }
+  /** RR p.428 / p.171 — the hire profile for a military specialist `typeKey`:
+   *  { label, isOfficer, level, wageGp, proficiencies[], [leadershipAbility, strategicAbility, moraleModifier] }.
+   *  Mercenary officers (mercenary-officer-*) carry EXACT RR p.171 characteristics (OFFICER_RANKS — level /
+   *  wage / LA / SA / MM / Command + Military Strategy). Other specialists get level 0 + a best-effort wage
+   *  (an exact HIRELING_SPECIALISTS id match — e.g. armorer→75gp; else 0 = GM-set, the lightweight stub's
+   *  point). 🔧 v1: officer wages exact; the rest GM-set (the RR p.428 specialist wages aren't in the shipped
+   *  catalog — transcribing them is a follow-on, not invented here). Returns null for an unknown type. */
+  function realmSpecialistProfile(typeKey){
+    const key = String(typeKey || '').toLowerCase();
+    const cat = MILITARY_SPECIALIST_AVAILABILITY_REALM.types[key];
+    if(!cat) return null;
+    const officerKey = key.indexOf('mercenary-officer-') === 0 ? key.slice('mercenary-officer-'.length) : null;
+    const rank = officerKey ? findOfficerRank(officerKey) : null;
+    if(rank){
+      return { label: cat.label, isOfficer: true, level: rank.level, wageGp: rank.costGpMonth,
+               leadershipAbility: rank.leadershipAbility, strategicAbility: rank.strategicAbility,
+               moraleModifier: rank.moraleModifier, proficiencies: (rank.proficiencies || []).slice() };
+    }
+    const hs = ((ACKS && ACKS.HIRELING_SPECIALISTS) || []).find(s => s.id === key);
+    const wageGp = (hs && typeof hs.wage === 'number') ? hs.wage : 0;
+    return { label: cat.label, isOfficer: false, level: 0, wageGp: wageGp, proficiencies: [] };
+  }
+
   Object.assign(ACKS, {
     TROOP_CATALOG, TROOP_TYPE_ALIASES, BEAST_RIDER_BY_RACE,
     MERC_WAGES, MERC_MORALE, OFFICER_RANKS, ARMY_ORG_SCALE,
@@ -1938,7 +2011,12 @@
     unitScaleSupplyCost, unitLoyaltyBand,
     // W7 — conscripts/militia/training
     CONSCRIPT_QUALIFYING, TRAINING_COSTS,
-    conscriptQualifyingNumber, conscriptQualifyingMax, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes
+    conscriptQualifyingNumber, conscriptQualifyingMax, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes,
+    // W7-continuation — realm-scale recruitment (RR p.428)
+    realmRecruitTier, realmRecruitMercTypes, realmMercAvailable, realmRecruitFeeSpec, realmRecruitPeriodDays,
+    realmSpecialistTypes, realmSpecialistAvailable, realmSpecialistProfile,
+    // W7-continuation — standing-army capacity (RR p.434)
+    vassalTroopsForRealmFamilies
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = ACKS;

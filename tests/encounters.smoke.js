@@ -2663,6 +2663,112 @@ section('E10 — domain-morale banditry (RR pp.350–351): the monthly materiali
 }
 
 // =============================================================================
+section('E10 — banditry drawn from the trained militia (RR p.433)');
+{
+  ok('blankGroup emits groupTemplate.troopTypeKey (lazy null)', ACKS.blankGroup().groupTemplate.troopTypeKey === null);
+
+  const mkM = (militiaCount, opts) => {
+    const c = ACKS.blankCampaign({ name: 'E10 militia banditry' });
+    ACKS.migrateCampaign(c);
+    c.domains = [{ id: 'dom-m', name: 'Marchland',
+      demographics: { peasantFamilies: 1000, morale: 0 },
+      expenses: { tithePaid: true, liturgyPerFamily: 1 }, taxPolicy: {} }];
+    c.hexes = [];
+    const hx = (id, q, r, dom) => c.hexes.push(Object.assign(ACKS.blankHex({ id }), { coord: { q, r }, terrain: 'grassland', domainId: dom || null }));
+    hx('hx-a', 0, 0, 'dom-m'); hx('hx-b', 1, 0, 'dom-m'); hx('hx-c', 0, 1, 'dom-m'); hx('hx-d', 1, 1, 'dom-m');
+    c.units = [];
+    if(militiaCount > 0){
+      c.units.push(Object.assign(ACKS.blankUnit({ unitTypeKey: 'heavy-infantry', count: militiaCount }),
+        { source: 'militia', homeDomainId: 'dom-m', calledUp: (opts && opts.calledUp) === true }));
+    }
+    c.currentTurn = 5;
+    return c;
+  };
+  const bandsOf = (c) => ACKS.banditryBandsForDomain(c, 'dom-m');
+  const milBands = (c) => bandsOf(c).filter(g => g.groupTemplate && g.groupTemplate.troopTypeKey);
+  const rabBands = (c) => bandsOf(c).filter(g => !(g.groupTemplate && g.groupTemplate.troopTypeKey));
+  const sumOf = (bs) => bs.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+  const lastEvent = (c) => (c.eventLog || []).filter(e => e && e.event && e.event.kind === 'domain-banditry').slice(-1)[0];
+
+  // The W7 militia reads.
+  let c = mkM(120);
+  ok('domainTrainedMilitiaPool: at-home trained militia counted (120)', ACKS.domainTrainedMilitiaPool(c, c.domains[0]) === 120);
+  const row = ACKS.domainMilitiaTroopRow(c, c.domains[0]);
+  ok('domainMilitiaTroopRow: the man heavy-infantry catalog row, with brPerCreature',
+    !!row && row.typeKey === 'heavy-infantry' && row.race === 'man' && typeof row.brPerCreature === 'number' && row.brPerCreature > 0);
+
+  // The split — target 200, militia pool 120 → 120 militia-drawn + 80 rabble (RR p.433).
+  c.domains[0].demographics.morale = -2;
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('the rise splits: militia-drawn rebels sum to the pool (120), the surplus is rabble (80), total = banditCount (200)',
+    sumOf(milBands(c)) === 120 && sumOf(rabBands(c)) === 80 && sumOf(bandsOf(c)) === 200);
+  ok('militia bands carry the troop type (monsterCatalogKey stays bandit); rabble bands are generic', (() => {
+    const mb = milBands(c), rb = rabBands(c);
+    return mb.length > 0 && mb.every(g => g.groupTemplate.troopTypeKey === 'heavy-infantry' && g.groupTemplate.monsterCatalogKey === 'bandit' && /Rebel Heavy Infantry A of Marchland/.test(g.name))
+      && rb.length > 0 && rb.every(g => !g.groupTemplate.troopTypeKey && g.groupTemplate.monsterCatalogKey === 'bandit' && /Bandits of Marchland/.test(g.name));
+  })());
+
+  // The BR — a militia band fights as trained troops, not peasant rabble (RR p.433).
+  ok('groupBattleRating reads the TROOP_CATALOG for a militia band (brPerCreature × active)', (() => {
+    const mb = milBands(c)[0];
+    const expected = Math.round(row.brPerCreature * ACKS.groupActiveCount(mb) * 2) / 2;
+    return ACKS.groupBattleRating(c, mb) === expected;
+  })());
+  ok('a militia band out-rates a same-size rabble band (heavily armed, well trained)', (() => {
+    const mb = ACKS.blankGroup({ count: 60, groupTemplate: { monsterCatalogKey: 'bandit', troopTypeKey: 'heavy-infantry', troopRace: 'man', troopLoadout: 'A' } });
+    const rb = ACKS.blankGroup({ count: 60, groupTemplate: { monsterCatalogKey: 'bandit' } });
+    return ACKS.groupBattleRating(c, mb) > ACKS.groupBattleRating(c, rb) && ACKS.groupBattleRating(c, rb) > 0;
+  })());
+  ok('reactionBandPlatoonBr reads the troop type for a militia band', (() => {
+    const mb = milBands(c)[0];
+    return ACKS.reactionBandPlatoonBr(c, mb) === ACKS.monsterPlatoonBr(row.brPerCreature, ACKS.groupActiveCount(mb));
+  })());
+
+  // The event/narrative names the militia split (RR p.433).
+  ok('the domain-banditry event records militiaTarget + troopTypeKey + names the troop type', (() => {
+    const ev = lastEvent(c), lbl = milBands(c)[0].groupTemplate.troopLabel;
+    return ev && ev.event.payload.militiaTarget === 120 && ev.event.payload.troopTypeKey === 'heavy-infantry'
+      && ev.result.narrativeSummary.includes('120 drawn from the trained militia fight as ' + lbl)
+      && /RR p\.433/.test(ev.result.narrativeSummary);
+  })());
+
+  // Pool ≥ rebel count → every band is militia-drawn (no rabble).
+  c = mkM(250);
+  c.domains[0].demographics.morale = -2;     // target 200 ≤ pool 250
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('when the militia pool ≥ the rebel count, every band is militia-drawn (no rabble)',
+    sumOf(milBands(c)) === 200 && rabBands(c).length === 0 && sumOf(bandsOf(c)) === 200);
+
+  // No militia → all rabble (the rabble-only path).
+  c = mkM(0);
+  c.domains[0].demographics.morale = -2;
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('a domain with no at-home trained militia raises only rabble (no troopTypeKey)',
+    milBands(c).length === 0 && sumOf(rabBands(c)) === 200 && bandsOf(c).every(g => !g.groupTemplate.troopTypeKey));
+
+  // Called-up militia are actively serving — excluded from the at-home rebel pool.
+  c = mkM(120, { calledUp: true });
+  ok('called-up militia are excluded from the rebel pool', ACKS.domainTrainedMilitiaPool(c, c.domains[0]) === 0);
+  c.domains[0].demographics.morale = -2;
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('…so a domain whose militia is all called-up raises only rabble', milBands(c).length === 0 && sumOf(rabBands(c)) === 200);
+
+  // Reconcile across sub-populations — worsen morale: militia holds at the pool, rabble swells.
+  c = mkM(120);
+  c.domains[0].demographics.morale = -2;
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });            // 120 militia + 80 rabble
+  c.domains[0].demographics.morale = -3;                         // target 500 → 120 militia + 380 rabble
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('worsening morale holds the militia at the pool (120) and swells the rabble (380); total 500',
+    sumOf(milBands(c)) === 120 && sumOf(rabBands(c)) === 380 && sumOf(bandsOf(c)) === 500);
+
+  // Recovery disbands both sub-populations.
+  c.domains[0].demographics.morale = -1;
+  ACKS.processBanditryForTurn(c, { rng: seq(0.5) });
+  ok('recovery to −1 disbands every band — militia and rabble alike', bandsOf(c).length === 0);
+}
+
+// =============================================================================
 section('E10 — banditry bands in the world: the fenced wander + the encounter layer');
 {
   const mkB = () => {

@@ -240,6 +240,45 @@ section('IT-2 — marketSell: remove a held line, credit the purse (mirror gate)
 }
 
 // =============================================================================
+section('Buy in camp (RR p.452) — a settlement-less market via marketClassIdx + marketClassRoman');
+// =============================================================================
+{
+  // A 1,200+ army functions as its own market via its baggage train (the UI derives the class from
+  // armyMarketClass; the engine just takes the index + Roman — no settlement lookup). availableUnits
+  // is supplied as the wizard rolls it, so the assertions don't depend on the Class-VI band counts.
+  const { c } = fixture();
+  const buyer = c.characters.find(x => x.id === 'chr-buyer');
+  const res = ACKS.marketBuy(c, { actorCharacterId: 'chr-buyer', marketClassIdx: 5, marketClassRoman: 'VI', lines: [{ catalogId: 'sword', qty: 2, availableUnits: 99 }] });
+  ok('camp buy ok (no settlement)', res.ok, JSON.stringify(res));
+  ok('camp buy moved coins (1000→980)', buyer.coins.gp === 980);
+  ok('camp buy landed a real carry line', buyer.inventory.length === 1 && buyer.inventory[0].name === 'Sword' && buyer.inventory[0].qty === 2);
+  const ev = c.eventLog.find(e => e.event.kind === 'market-transaction');
+  ok('the camp transaction records NO settlement', !!ev && ev.event.payload.settlementId === null);
+  ok('the marketClassRoman passthrough records the camp class (VI)', !!ev && ev.event.payload.marketClass === 'VI');
+}
+{
+  // Without marketClassRoman the payload class is null — the camp class is the UI's to supply.
+  const { c } = fixture();
+  const res = ACKS.marketBuy(c, { actorCharacterId: 'chr-buyer', marketClassIdx: 5, lines: [{ catalogId: 'sword', qty: 1, availableUnits: 99 }] });
+  const ev = c.eventLog.find(e => e.event.kind === 'market-transaction');
+  ok('no marketClassRoman → marketClass null (settlement-less)', res.ok && ev.event.payload.marketClass === null, JSON.stringify(res));
+}
+{
+  // No RR p.124 10× monthly ceiling at a camp — it's not a fixed settlement market (the army's
+  // baggage train restocks); marketMonthlyRemaining returns Infinity with no settlement.
+  ok('marketMonthlyRemaining is Infinity with no settlement (camp)', ACKS.marketMonthlyRemaining(fixture().c, null, { name: 'Sword', listPriceGp: 10 }, 'buy') === Infinity);
+}
+{
+  const { c } = fixture();
+  const buyer = c.characters.find(x => x.id === 'chr-buyer');
+  buyer.inventory = [{ name: 'Plate Armor', stone: 6, notes: '' }];
+  const res = ACKS.marketSell(c, { actorCharacterId: 'chr-buyer', marketClassIdx: 5, marketClassRoman: 'VI', lines: [{ inventoryIndex: 0, priceGp: 60, availableUnits: 99 }] });
+  ok('camp sell ok (no settlement)', res.ok, JSON.stringify(res));
+  ok('camp sell credited the purse (1000→1060)', buyer.coins.gp === 1060);
+  ok('camp sell records the camp class (VI)', c.eventLog.some(e => e.event.kind === 'market-transaction' && e.event.payload.direction === 'sell' && e.event.payload.marketClass === 'VI'));
+}
+
+// =============================================================================
 section('IT-3 — activity cost: RAW default = 1 ancillary; M&M load-metering is a house rule');
 // =============================================================================
 {

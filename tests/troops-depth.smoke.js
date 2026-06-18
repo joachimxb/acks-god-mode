@@ -443,6 +443,199 @@ section('Levying takes TIME (RR p.430; W7 levy-arrival staging)');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Realm-scale mercenary recruitment (RR p.428; W7-continuation)');
+{
+  const seq = () => 0.5;   // deterministic rng for the fee roll
+
+  ok('realm-recruit helpers exported', typeof A.realmRecruitTier === 'function' && typeof A.realmMercAvailable === 'function' && typeof A.realmRecruitFeeSpec === 'function' && typeof A.realmRecruitPeriodDays === 'function' && typeof A.recruitRealmTroops === 'function' && typeof A.domainRealmRecruitAvailable === 'function' && typeof A.realmRecruitTierForDomain === 'function');
+
+  // tier by realm family count (the catalog's own populationFamilies thresholds, RR p.428)
+  ok('tier: 160 → barony (floor), 100 → barony', A.realmRecruitTier(160) === 'barony' && A.realmRecruitTier(100) === 'barony');
+  ok('tier: 960 → viscounty, 4600 → county', A.realmRecruitTier(960) === 'viscounty' && A.realmRecruitTier(4600) === 'county');
+  ok('tier: 20000 → duchy, 364000 → kingdom', A.realmRecruitTier(20000) === 'duchy' && A.realmRecruitTier(364000) === 'kingdom');
+  ok('tier: 1.5M → empire, 16M → continent', A.realmRecruitTier(1500000) === 'empire' && A.realmRecruitTier(16000000) === 'continent');
+
+  // per-period availability (RR p.428 table cells)
+  ok('county availability: light-inf 85 / heavy-inf 40 / horse-archers 10', A.realmMercAvailable('county', 'light-infantry') === 85 && A.realmMercAvailable('county', 'heavy-infantry') === 40 && A.realmMercAvailable('county', 'horse-archers') === 10);
+  ok('barony availability: light-inf 3 / heavy-inf 2 / horse-archers null → 0', A.realmMercAvailable('barony', 'light-infantry') === 3 && A.realmMercAvailable('barony', 'heavy-infantry') === 2 && A.realmMercAvailable('barony', 'horse-archers') === 0);
+  ok('continent light-infantry 340,000', A.realmMercAvailable('continent', 'light-infantry') === 340000);
+
+  // fee spec + period days
+  ok('fee spec: continent 6d10×1000, county 4d10×10, barony ×1', A.realmRecruitFeeSpec('continent').multiplierGp === 1000 && A.realmRecruitFeeSpec('continent').dice === '6d10' && A.realmRecruitFeeSpec('county').dice === '4d10' && A.realmRecruitFeeSpec('county').multiplierGp === 10 && A.realmRecruitFeeSpec('barony').multiplierGp === 1);
+  ok('period days: barony/county week=7, duchy month=30, kingdom season=90, continent year=360', A.realmRecruitPeriodDays('barony') === 7 && A.realmRecruitPeriodDays('county') === 7 && A.realmRecruitPeriodDays('duchy') === 30 && A.realmRecruitPeriodDays('kingdom') === 90 && A.realmRecruitPeriodDays('continent') === 360);
+
+  // a domain's tier from its realm families
+  const dc = mkDomain(4600, 1, 'dom-rc'); dc.treasury = { gp: 1000000 };
+  const camp = mkCamp([dc], 5);
+  ok('realmRecruitTierForDomain: a 4,600-family domain → county', A.realmRecruitTierForDomain(camp, 'dom-rc') === 'county');
+  ok('domainRealmRecruitAvailable: county light-infantry = 85 (fresh period)', A.domainRealmRecruitAvailable(camp, 'dom-rc', 'light-infantry') === 85);
+
+  // recruit (instant) — a real equipped mercenary unit + the fee debited from the treasury
+  const r = A.recruitRealmTroops(camp, 'dom-rc', { typeKey: 'light-infantry', count: 50, instant: true, rng: seq });
+  ok('recruited 50 — a real light-infantry mercenary unit (not untrained-levy)', r && r.recruited === 50 && r.unit.unitTypeKey === 'light-infantry' && r.unit.source === 'mercenary' && r.unit.count === 50);
+  ok('the merc unit draws the RAW mercenary wage (light-infantry = 6gp/mo)', r.unit.monthlyWage === 6);
+  ok('stationed in the garrison + homeDomainId set + calledUp', r.unit.homeDomainId === 'dom-rc' && r.unit.calledUp === true && r.unit.stationedAt && r.unit.stationedAt.kind === 'domain-garrison');
+  ok('a realm fee was rolled (4d10×10 = 40..400, multiple of 10) + debited from the treasury', r.feeGp >= 40 && r.feeGp <= 400 && r.feeGp % 10 === 0 && (1000000 - dc.treasury.gp) === r.feeGp);
+  ok('availability decremented: 85 − 50 = 35 left this period', A.domainRealmRecruitAvailable(camp, 'dom-rc', 'light-infantry') === 35);
+
+  // per-period cap: a second recruit clamps to what's left, then the period is exhausted
+  const r2 = A.recruitRealmTroops(camp, 'dom-rc', { typeKey: 'light-infantry', count: 40, instant: true, rng: seq });
+  ok('a 2nd recruit clamps to the 35 remaining this period', r2 && r2.recruited === 35);
+  ok('the period is now exhausted for light-infantry → null', A.recruitRealmTroops(camp, 'dom-rc', { typeKey: 'light-infantry', count: 10, instant: true, rng: seq }) === null);
+
+  // the availability REFRESHES next period (county period = a week)
+  camp.currentDayInMonth = 9;   // > periodStartOrd(day 1) + 7
+  ok('availability refreshes after the tier period — county light-infantry back to 85', A.domainRealmRecruitAvailable(camp, 'dom-rc', 'light-infantry') === 85);
+
+  // recruiting is NOT blocked by domain morale — you hire FOREIGN mercenaries (RR distinction vs a levy)
+  const reb = mkDomain(4600, -2, 'dom-reb'); reb.treasury = { gp: 100000 };
+  const campReb = mkCamp([reb], 1);
+  ok('a Turbulent realm (morale −2) can still recruit mercenaries (a levy could not)', A.canLevyFromDomain(reb) === false && !!A.recruitRealmTroops(campReb, 'dom-reb', { typeKey: 'heavy-infantry', count: 5, instant: true, rng: seq }));
+
+  // a type the tier cannot field → null
+  const bar = mkDomain(160, 1, 'dom-bar'); bar.treasury = { gp: 10000 };
+  const campBar = mkCamp([bar], 1);
+  ok('barony cannot field horse-archers (availability null) → recruit returns null', A.recruitRealmTroops(campBar, 'dom-bar', { typeKey: 'horse-archers', count: 1, instant: true, rng: seq }) === null);
+
+  // STAGED arrival (the default) — ½/¼/remainder, riding the slot-46 muster consumer
+  const dcS = mkDomain(4600, 1, 'dom-rs'); dcS.treasury = { gp: 1000000 };
+  const campS = mkCamp([dcS], 5);
+  const rs = A.recruitRealmTroops(campS, 'dom-rs', { typeKey: 'light-infantry', count: 50, rng: seq });
+  ok('staged recruit starts with 0 arrived (it takes time)', A.unitActiveCount(rs.unit) === 0 && rs.unit.count === 0 && rs.unit.musterPending === 50);
+  ok('county (week) schedule: 25/12/13 at +7/+14/+21', (() => { const s = rs.unit.musterState, st = s.startedAtOrd; return s.total === 50 && s.schedule.length === 3 && s.schedule[0].count === 25 && s.schedule[1].count === 12 && s.schedule[2].count === 13 && s.schedule[0].atOrd === st + 7 && s.schedule[1].atOrd === st + 14 && s.schedule[2].atOrd === st + 21; })());
+  A.runDayTickToMonthEnd(campS);   // the source-agnostic slot-46 muster consumer tops them up over the month
+  ok('after a month the recruited mercenaries are fully mustered (50 arrived)', A.unitActiveCount(rs.unit) === 50 && rs.unit.count === 50 && rs.unit.musterState === null);
+  ok('the muster history names them "mercenaries" (the generalized noun)', rs.unit.history.some(h => h.type === 'mustered' && /mercenaries/.test(h.text)));
+
+  // a DUCHY (month period) stages over MONTHS, not weeks — the period-aware schedule
+  const dd = mkDomain(20000, 1, 'dom-du'); dd.treasury = { gp: 1000000 };
+  const campD = mkCamp([dd], 1);
+  const rd = A.recruitRealmTroops(campD, 'dom-du', { typeKey: 'light-infantry', count: 100, rng: seq });
+  ok('duchy (month) schedule: 50/25/25 at +30/+60/+90', (() => { const s = rd.unit.musterState, st = s.startedAtOrd; return s.schedule[0].count === 50 && s.schedule[1].count === 25 && s.schedule[2].count === 25 && s.schedule[0].atOrd === st + 30 && s.schedule[1].atOrd === st + 60 && s.schedule[2].atOrd === st + 90; })());
+
+  // the levy schedule is UNCHANGED (byte-identical) — a barony levy still stages over weeks (+7/+14/+21)
+  const dl = mkDomain(1200, 1, 'dom-lvy'); const campL = mkCamp([dl], 5);
+  const lv = A.levyConscripts(campL, 'dom-lvy', { count: 48 });
+  ok('the levy path is unchanged: a 48-conscript levy still schedules 24/12/12 at +7/+14/+21', lv.musterState.schedule[0].count === 24 && lv.musterState.schedule[0].atOrd === lv.musterState.startedAtOrd + 7 && lv.musterState.schedule[2].atOrd === lv.musterState.startedAtOrd + 21);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Realm-scale military-specialist recruitment + the lightweight↔full NPC doctrine (RR p.428/p.171; W7-continuation)');
+{
+  const seq = () => 0.5;   // deterministic 3d6: floor(0.5*6)+1 = 4 each → an ability rolls to 12
+
+  ok('helpers exported', typeof A.realmSpecialistTypes === 'function' && typeof A.realmSpecialistAvailable === 'function' && typeof A.realmSpecialistProfile === 'function' && typeof A.recruitRealmSpecialist === 'function' && typeof A.domainRealmSpecialistAvailable === 'function' && typeof A.expandCharacterToFull === 'function');
+
+  // catalog reads (RR p.428 specialist-availability — counts NEST under .availability, unlike the merc table)
+  ok('realmSpecialistAvailable: county artillerist 10 / armorer 7; viscounty artillerist 2; barony armorer null→0', A.realmSpecialistAvailable('county', 'artillerist') === 10 && A.realmSpecialistAvailable('county', 'armorer') === 7 && A.realmSpecialistAvailable('viscounty', 'artillerist') === 2 && A.realmSpecialistAvailable('barony', 'armorer') === 0);
+  ok('realmSpecialistTypes lists officers + specialists', (() => { const t = A.realmSpecialistTypes(); return t.includes('artillerist') && t.includes('armorer') && t.includes('mercenary-officer-captain') && t.includes('siege-engineer'); })());
+
+  // the hire profile — mercenary officers carry EXACT RR p.171 characteristics (OFFICER_RANKS)
+  const cap = A.realmSpecialistProfile('mercenary-officer-captain');
+  ok('officer profile (Captain): isOfficer, L6, 800gp/mo, LA 4, SA 2 (RR p.171)', cap && cap.isOfficer === true && cap.level === 6 && cap.wageGp === 800 && cap.leadershipAbility === 4 && cap.strategicAbility === 2);
+  ok('officer profile carries Command + Military Strategy proficiencies', Array.isArray(cap.proficiencies) && cap.proficiencies.some(p => /Command/.test(p)) && cap.proficiencies.some(p => /Military Strategy/.test(p)));
+  const gen = A.realmSpecialistProfile('mercenary-officer-general');
+  ok('officer profile (General): L10, 12,000gp/mo, LA 5, SA 3', gen.level === 10 && gen.wageGp === 12000 && gen.leadershipAbility === 5 && gen.strategicAbility === 3);
+  // non-officer specialists: level 0 + best-effort wage (an exact HIRELING_SPECIALISTS id match → armorer 75; else 0/GM-set)
+  const arm = A.realmSpecialistProfile('armorer');
+  ok('armorer profile: not an officer, L0, wage 75 (HIRELING_SPECIALISTS match)', arm && arm.isOfficer === false && arm.level === 0 && arm.wageGp === 75);
+  const art = A.realmSpecialistProfile('artillerist');
+  ok('artillerist profile: not an officer, L0, wage 25 (best-effort HIRELING_SPECIALISTS match)', art && art.isOfficer === false && art.level === 0 && art.wageGp === 25);
+  const chg = A.realmSpecialistProfile('creature-handler-giant-prehistoric');
+  ok('an unmatched specialist → wage 0 (GM-set, not invented)', chg && chg.isOfficer === false && chg.level === 0 && chg.wageGp === 0);
+  ok('unknown specialist type → null profile', A.realmSpecialistProfile('not-a-specialist') === null);
+
+  // a domain's specialist availability (its own per-period ledger)
+  const d = mkDomain(4600, 1, 'dom-sp');     // county
+  const camp = mkCamp([d], 5); camp.specialistContracts = []; camp.currentDayInMonth = 1;
+  const ruler = A.blankCharacter({ id: 'chr-ruler', name: 'The Count' }); camp.characters.push(ruler); d.rulerCharacterId = 'chr-ruler';
+  ok('domainRealmSpecialistAvailable: county artillerist = 10 (fresh period)', A.domainRealmSpecialistAvailable(camp, 'dom-sp', 'artillerist') === 10);
+
+  // recruit a LIGHTWEIGHT officer — a Character stub + a specialist contract, availability decremented
+  const r = A.recruitRealmSpecialist(camp, 'dom-sp', { typeKey: 'mercenary-officer-captain', detailLevel: 'lightweight' });
+  ok('recruited a lightweight Captain — a Character stub (socialTier specialist)', r && r.character && r.detailLevel === 'lightweight' && r.character.detailLevel === 'lightweight' && r.character.socialTier === 'specialist');
+  ok('the captain stub carries the RAW wage (800) + level 6 + parsed officer profs', r.character.monthlyWage === 800 && r.character.level === 6 && Array.isArray(r.character.proficiencies) && r.character.proficiencies.some(p => p && p.key === 'command'));
+  ok('lightweight = abilities left at the 10-default (unrolled)', r.character.abilities && r.character.abilities.STR === 10 && r.character.abilities.CHA === 10);
+  ok('homed to the realm + lieged to the ruler', r.character.homeDomainId === 'dom-sp' && r.character.liegeCharacterId === 'chr-ruler');
+  ok('a specialistContract was created to the ruler (wage stream + military category)', r.contract && r.contract.specialistCharacterId === r.character.id && r.contract.employerCharacterId === 'chr-ruler' && r.contract.wageStreamGpMo === 800 && r.contract.serviceCategory === 'military' && r.contract.status === 'active');
+  ok('the character is on the campaign roster', camp.characters.includes(r.character));
+  ok('availability decremented: county captain = 1 → none left', A.domainRealmSpecialistAvailable(camp, 'dom-sp', 'mercenary-officer-captain') === 0);
+
+  // EXPAND the lightweight stub to full — the reusable doctrine primitive (seq 0.5 → each ability = 12)
+  A.expandCharacterToFull(camp, r.character, { rng: seq });
+  ok('expandCharacterToFull flips the flag to full', r.character.detailLevel === 'full');
+  ok('expand rolled the abilities (seq 0.5 → 12 each)', r.character.abilities.STR === 12 && r.character.abilities.WIL === 12 && r.character.abilities.CHA === 12);
+  ok('expand stamps the character history', r.character.history.some(h => h.type === 'expanded'));
+  const snap = r.character.abilities.STR; A.expandCharacterToFull(camp, r.character, { rng: () => 0.99 });
+  ok('expandCharacterToFull is idempotent on a full character (no re-roll)', r.character.abilities.STR === snap);
+
+  // recruit a FULL specialist — rolled at creation
+  const rf = A.recruitRealmSpecialist(camp, 'dom-sp', { typeKey: 'armorer', detailLevel: 'full', rng: seq });
+  ok('a full-chargen armorer is created already-full with rolled abilities (12 each)', rf && rf.detailLevel === 'full' && rf.character.detailLevel === 'full' && rf.character.abilities.STR === 12);
+  ok('the armorer carries the best-effort wage 75 + its own active contract', rf.character.monthlyWage === 75 && !!A.activeSpecialistContractFor(camp, rf.character.id));
+
+  // a type the tier cannot field → null
+  const bar = mkDomain(160, 1, 'dom-spb'); const campBar = mkCamp([bar], 1); campBar.specialistContracts = [];
+  ok('a barony cannot field an armorer (availability null) → recruit returns null', A.recruitRealmSpecialist(campBar, 'dom-spb', { typeKey: 'armorer', detailLevel: 'lightweight' }) === null);
+
+  // the specialist ledger is SEPARATE from the merc ledger — neither rollover wipes the other
+  const d2 = mkDomain(4600, 1, 'dom-both'); d2.treasury = { gp: 1000000 }; const campB = mkCamp([d2], 5); campB.specialistContracts = []; campB.currentDayInMonth = 1;
+  const r2 = A.blankCharacter({ id: 'chr-r2', name: 'Count Two' }); campB.characters.push(r2); d2.rulerCharacterId = 'chr-r2';
+  A.recruitRealmSpecialist(campB, 'dom-both', { typeKey: 'artillerist', detailLevel: 'lightweight' });
+  A.recruitRealmTroops(campB, 'dom-both', { typeKey: 'light-infantry', count: 50, instant: true, rng: seq });
+  ok('a merc recruit did not wipe the specialist ledger (artillerist 10 − 1 = 9 left)', A.domainRealmSpecialistAvailable(campB, 'dom-both', 'artillerist') === 9);
+  ok('a specialist recruit did not wipe the merc ledger (light-infantry 85 − 50 = 35 left)', A.domainRealmRecruitAvailable(campB, 'dom-both', 'light-infantry') === 35);
+
+  // per-period refresh (county = a week)
+  campB.currentDayInMonth = 9;
+  ok('specialist availability refreshes after the tier period (artillerist back to 10)', A.domainRealmSpecialistAvailable(campB, 'dom-both', 'artillerist') === 10);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('Standing-army capacity (RR p.434 — Vassal Troops by Realm Size)');
+{
+  // vassalTroopsForRealmFamilies — tier from realm-family count (VASSAL_TROOPS' own thresholds).
+  ok('1,150 families → Viscount (960 ≤ f < 4,600)', A.vassalTroopsForRealmFamilies(1150).key === 'viscount');
+  ok('4,600 (the min) → Earl/Count', A.vassalTroopsForRealmFamilies(4600).key === 'earl-count');
+  ok('20,000 → Duke', A.vassalTroopsForRealmFamilies(20000).key === 'duke');
+  ok('1,500,000 → Emperor', A.vassalTroopsForRealmFamilies(1500000).key === 'emperor');
+  ok('150 → Baron (120 ≤ f < 960)', A.vassalTroopsForRealmFamilies(150).key === 'baron');
+  ok('50 (below Baron min) → floors at Baron', A.vassalTroopsForRealmFamilies(50).key === 'baron');
+  const visc = A.vassalTroopsForRealmFamilies(1150);
+  ok('Viscount carries the RAW caps (army 130 / budget 2,560 / garrison 640)',
+     visc.maxStandingArmy.max === 130 && visc.maxRealmTroopsWages.max === 2560 && visc.avgPersonalGarrisonWages === 640);
+
+  // realmStandingArmyCapacity — tier caps + the realm's current fielded force.
+  const d = mkDomain(1150, 1, 'dom-realm'); const camp = mkCamp([d], 1);
+  const u1 = A.blankUnit({ unitTypeKey: 'light-infantry', count: 80, displayName: 'Foot' }); u1.homeDomainId = 'dom-realm'; u1.count = 80;
+  const u2 = A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 30, displayName: 'Heavy' }); u2.homeDomainId = 'dom-realm'; u2.count = 30;
+  camp.units.push(u1, u2);
+  const cap = A.realmStandingArmyCapacity(camp, 'dom-realm');
+  ok('capacity read: Viscount tier', cap && cap.tier === 'viscount' && cap.title === 'Viscount');
+  ok('capacity read: realm families 1,150', cap.realmFamilies === 1150);
+  ok('capacity read: RAW caps surfaced (army 130 / budget 2,560 / garrison 640)',
+     cap.maxStandingArmy === 130 && cap.maxRealmTroopsWages === 2560 && cap.avgPersonalGarrisonWages === 640);
+  ok('capacity read: current realm troops = 110 (80 + 30)', cap.currentRealmTroops === 110);
+  ok('capacity read: a positive monthly wage bill', cap.currentRealmTroopWages > 0);
+  ok('capacity read: 110 ≤ 130 fits the army cap', cap.fitsArmyCap === true);
+  ok('capacity read: text fields carried (maxStandingArmyText)', cap.maxStandingArmyText === '100 - 130');
+
+  // over the RAW capacity — a baron fielding 50 (max standing army 20).
+  const db = mkDomain(150, 1, 'dom-baron'); const campB = mkCamp([db], 1);
+  const ub = A.blankUnit({ unitTypeKey: 'light-infantry', count: 50 }); ub.homeDomainId = 'dom-baron'; ub.count = 50; campB.units.push(ub);
+  const capB = A.realmStandingArmyCapacity(campB, 'dom-baron');
+  ok('over-cap: Baron tier, 50 troops > the RAW max 20 → fitsArmyCap false',
+     capB.tier === 'baron' && capB.currentRealmTroops === 50 && capB.maxStandingArmy === 20 && capB.fitsArmyCap === false);
+
+  // a unit homed in a NON-realm domain is not counted.
+  const uOther = A.blankUnit({ unitTypeKey: 'light-infantry', count: 40 }); uOther.homeDomainId = 'dom-elsewhere'; uOther.count = 40; camp.units.push(uOther);
+  ok('a foreign-homed unit is not counted in the realm force (still 110)',
+     A.realmStandingArmyCapacity(camp, 'dom-realm').currentRealmTroops === 110);
+
+  ok('unknown domain → null', A.realmStandingArmyCapacity(camp, 'dom-nope') === null);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log(fail === 0 ? ('PASS troops-depth.smoke.js — ' + pass + ' assertions') : ('FAIL troops-depth.smoke.js — ' + fail + ' of ' + (pass + fail) + ' failed'));
 if(fail > 0){ failures.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

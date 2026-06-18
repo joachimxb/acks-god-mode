@@ -42,16 +42,16 @@
 <script src="acks-engine-catalogs.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
-<script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-17-w7muster"></script>
-<script src="acks-engine-entities.js?v=2026-06-17-garrison"></script>
+<script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
+<script src="acks-engine.js?v=2026-06-18-standingarmy"></script>
+<script src="acks-engine-entities.js?v=2026-06-18-w7spec"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-16-adf"></script>
+<script src="acks-engine-events.js?v=2026-06-18-camp"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-17-garrison"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-18-w7banditry"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
@@ -2573,6 +2573,87 @@ document.addEventListener('alpine:init', () => {
   </div>
 </div>
 
+<!-- 🪖 Recruit-mercenaries modal (Domain ▸ Military) — realm-scale recruitment (RR p.428): hire whole
+     mercenary units at the realm's tier. Per-period availability caps the count; a one-time fee is paid
+     from the treasury; the troops arrive ½/¼/remainder over the tier's time period (the slot-46 muster
+     consumer tops them up — advance the Day Clock). Distinct from the "+ Recruit unit" settlement-scale
+     Recruiting Wizard (RR pp.164–167). -->
+<div x-show="recruitModal.open" @keydown.escape.window="if(recruitModal.open){ closeRecruitModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:73; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecruitModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-12">
+    <template x-if="recruitModalDomain()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <h3 class="font-bold text-lg" x-text="'🪖 Recruit mercenaries — ' + (recruitModalDomain().name || '')"></h3>
+          <button @click="closeRecruitModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <p class="text-xs opacity-70">Realm-scale recruitment (RR p.428): hire whole mercenary units at your realm's tier. The troops arrive ½ the first period, ¼ the second, the rest the third — advance the Day Clock to muster them in.</p>
+          <p class="text-xs"><span class="opacity-70">Realm:</span> <span class="font-semibold capitalize" x-text="recruitModalTier()"></span> · <span class="opacity-70">availability period:</span> <span x-text="recruitModalPeriodWord()"></span> · <span class="opacity-70">treasury:</span> <span class="font-semibold" x-text="recruitModalTreasury().toLocaleString()"></span> gp</p>
+          <label class="flex items-center gap-2 flex-wrap">Troop type:
+            <select x-model="recruitModal.typeKey" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <template x-for="row in recruitModalTypeRows()" :key="'rmt-'+row.key"><option :value="row.key" :disabled="row.available < 1" x-text="row.label + ' — ' + row.available + '/period' + (row.wage != null ? ' · ' + row.wage + 'gp/mo' : '') + (row.available < 1 ? ' (none available)' : '')"></option></template>
+            </select>
+          </label>
+          <template x-if="recruitModalChosen()">
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 flex-wrap">Number to recruit:
+                <input type="number" min="1" :max="recruitModalAvailable()" x-model.number="recruitModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
+                <span class="text-xs opacity-60" x-text="'(1–' + recruitModalAvailable() + ' available this period)'"></span>
+              </label>
+              <p class="text-xs"><span class="opacity-70">Stats:</span> <span x-text="'BR ' + (recruitModalChosen().br || 0) + '/soldier · wage ' + (recruitModalChosen().wage != null ? recruitModalChosen().wage : '?') + 'gp/mo — a professional, equipped unit (no training step)'"></span></p>
+              <p class="text-xs"><span class="opacity-70">Recruitment fee (RR p.428):</span> <span x-text="recruitModalFeeText() + ' — rolled + paid from the treasury when you recruit'"></span></p>
+            </div>
+          </template>
+          <p class="text-xs opacity-60 italic" x-show="recruitModalTypeRows().every(r => r.available < 1)">No mercenaries available to recruit at this realm tier this period.</p>
+        </div>
+        <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+          <button @click="closeRecruitModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+          <button @click="submitRecruit()" :disabled="!recruitModalCanSubmit()" :class="recruitModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!recruitModalCanSubmit() ? 'Pick a type with availability and set a number from 1 to the available count' : ''" x-text="'🪖 Recruit ' + (Math.floor(recruitModal.count)||0)"></button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- 🎖 Recruit officer / specialist (realm scale, RR p.428) — the other half of realm recruitment. Each is an
+     INDIVIDUAL → the lightweight↔full NPC doctrine: a stub (flesh out later) or a full-rolled character now. -->
+<div x-show="recruitSpecialistModal.open" @keydown.escape.window="if(recruitSpecialistModal.open){ closeRecruitSpecialistModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:74; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecruitSpecialistModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-12">
+    <template x-if="recruitSpecialistDomain()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <h3 class="font-bold text-lg" x-text="'🎖 Recruit officer / specialist — ' + (recruitSpecialistDomain().name || '')"></h3>
+          <button @click="closeRecruitSpecialistModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <p class="text-xs opacity-70">Realm-scale recruitment (RR p.428): hire an officer or military specialist at your realm's tier. Each is an individual — recruit a lightweight stub (flesh out later) or roll a full character now.</p>
+          <p class="text-xs"><span class="opacity-70">Realm:</span> <span class="font-semibold capitalize" x-text="recruitSpecialistTier()"></span> · <span class="opacity-70">availability period:</span> <span x-text="recruitSpecialistPeriodWord()"></span></p>
+          <label class="flex items-center gap-2 flex-wrap">Type:
+            <select x-model="recruitSpecialistModal.typeKey" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <template x-for="row in recruitSpecialistTypeRows()" :key="'rst-'+row.key"><option :value="row.key" :disabled="row.available < 1" x-text="row.label + ' — ' + row.available + '/period' + (row.available < 1 ? ' (none available)' : '')"></option></template>
+            </select>
+          </label>
+          <template x-if="recruitSpecialistChosen()">
+            <div class="space-y-2">
+              <p class="text-xs"><span class="opacity-70">Profile:</span> <span x-text="recruitSpecialistProfileText()"></span></p>
+              <div class="flex items-center gap-4 text-xs">
+                <label class="flex items-center gap-1"><input type="radio" value="lightweight" x-model="recruitSpecialistModal.detailLevel"> Lightweight stub</label>
+                <label class="flex items-center gap-1"><input type="radio" value="full" x-model="recruitSpecialistModal.detailLevel"> Full chargen (roll stats)</label>
+              </div>
+              <p class="text-[11px] opacity-60" x-text="recruitSpecialistModal.detailLevel === 'full' ? 'Rolls the six abilities now (3d6 down the line); the GM fleshes out class/hp/saves.' : 'Creates a named stub (type · level · wage). Expand it to a full character on its sheet anytime — never a dead end.'"></p>
+            </div>
+          </template>
+          <p class="text-xs opacity-60 italic" x-show="recruitSpecialistTypeRows().every(r => r.available < 1)">No officers or specialists available to recruit at this realm tier this period.</p>
+        </div>
+        <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+          <button @click="closeRecruitSpecialistModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+          <button @click="submitRecruitSpecialist()" :disabled="!recruitSpecialistCanSubmit()" :class="recruitSpecialistCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!recruitSpecialistCanSubmit() ? 'Pick a type with availability this period' : ''">🎖 Recruit</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
 <!-- Train modal (Domain ▸ Military) — turn an untrained conscript/militia levy into a professional
      troop type. Shows the RR p.431 procedure: the Qualifying-Number cap per type, training time + cost,
      and the trained stats for the chosen type. ENFORCE — the count is capped to the qualifying max and
@@ -3748,12 +3829,15 @@ document.addEventListener('alpine:init', () => {
             <template x-for="c in tradeCharacters()" :key="c.id"><option :value="c.id" :selected="trade.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
           </select>
         </label>
-        <label class="text-sm">Market (settlement)<br>
+        <label class="text-sm" x-show="!tradeArmy()">Market (settlement)<br>
           <select @change="tradeSetSettlement($event.target.value)" class="text-sm" style="min-width:15rem">
             <option value="" :selected="!trade.settlementId">— pick a settlement —</option>
             <template x-for="s in tradeSettlements()" :key="s.id"><option :value="s.id" :selected="trade.settlementId===s.id" x-text="(s.name||'(unnamed)') + ' · Class ' + settlementMarketClass(s)"></option></template>
           </select>
         </label>
+        <div class="text-sm" x-show="tradeArmy()">Market<br>
+          <span class="inline-block mt-1 px-2 py-1 border border-ink/40 rounded bg-yellow-50">🎖 <span x-text="((tradeArmy()&&tradeArmy().name)||'Army')+'’s camp'"></span> · Class <span class="font-semibold" x-text="tradeMarketClassRoman()||'—'"></span></span>
+        </div>
         <div class="flex gap-1 text-sm">
           <button @click="tradeSetDir('buy')" :class="trade.dir==='buy' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Buy</button>
           <button @click="tradeSetDir('sell')" :class="trade.dir==='sell' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Sell</button>
@@ -3762,7 +3846,8 @@ document.addEventListener('alpine:init', () => {
       <div class="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1 items-center" x-show="tradeActor()">
         <span>🪙 Purse: <span class="font-mono" x-text="tradePurseGp().toLocaleString()+' gp'"></span></span>
         <span x-show="tradeSettlement()">🏛 Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
-        <label x-show="tradeActorIsVenturer()" class="flex items-center gap-1" title="Mercantile Network (RR p.43 — the Venturer class power): a venturer treats a market they've previously entered, by retail trade OR a mercantile venture, as one class larger. Auto-set from this character's history; toggle to override."><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (Mercantile Network, +1 class)</label>
+        <span x-show="tradeArmy()">🛒 Campaign market: <span class="font-semibold" x-text="'Class '+(tradeMarketClassRoman()||'—')"></span> <span class="opacity-60">— the baggage train (RR p.452)</span></span>
+        <label x-show="tradeActorIsVenturer() && !tradeArmy()" class="flex items-center gap-1" title="Mercantile Network (RR p.43 — the Venturer class power): a venturer treats a market they've previously entered, by retail trade OR a mercantile venture, as one class larger. Auto-set from this character's history; toggle to override."><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (Mercantile Network, +1 class)</label>
         <label class="flex items-center gap-1" :class="tradePartySize() < 12 ? 'opacity-40' : ''" :title="tradePartySize() < 12 ? ('Needs a party of 12+ adventurers — this character\'s party has '+tradePartySize()+' (RR p.124)') : 'A 12+ party devoting a DEDICATED activity to shopping gets double availability (RR p.124); the trip costs one dedicated activity'"><input type="checkbox" :disabled="tradePartySize() < 12" :checked="trade.partyOf12Dedicated && tradePartySize() >= 12" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2, dedicated)</label>
       </div>
 
@@ -4869,6 +4954,9 @@ document.addEventListener('alpine:init', () => {
                 (<span x-text="banditryBands(selectedDomain).reduce((s,g) => s + Math.max(0,(g.count||0)-(g.casualties||0)), 0).toLocaleString()"></span> raiders) —
                 <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
               </p>
+              <!-- #476 E10 / RR p.433 — the militia-drawn rebels fight as trained troops, not peasant rabble -->
+              <p class="text-sm mt-1 font-semibold accent-red" x-show="banditryMilitiaInfo(selectedDomain)"
+                 x-text="'⚔ ' + (banditryMilitiaInfo(selectedDomain)?.raiders || 0).toLocaleString() + ' of these are your own trained militia in revolt — they fight as ' + (banditryMilitiaInfo(selectedDomain)?.label || '') + ', not peasant rabble (RR p.433).'"></p>
               <p class="text-xs mt-1 opacity-90" x-show="(selectedDomain.banditryOccupationMonths || 0) >= 1 && isHouseRuleEnabled('domain-morale-banditry')"
                  x-text="'⚠ Enemy-army occupation, month ' + (selectedDomain.banditryOccupationMonths || 0)
                    + ((selectedDomain.banditryOccupationMonths || 0) >= 2 ? (' — −' + ((selectedDomain.banditryOccupationMonths || 0) - 1) + ' on the next morale roll') : ' — the penalty builds from next month')
@@ -5617,6 +5705,30 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <div x-show="activeTab==='military'">
+          <!-- 🏰 Realm forces — the RR p.434 Vassal Troops by Realm Size capacity (the realm = this
+               domain + its sub-vassals). A read-only strategic summary: the realm's RAW maximum standing
+               army + realm-troops wage budget + garrison baseline, vs what it currently fields. A standing
+               army is funded by Scutage from vassals + parceled across their domains via the Troops favor. -->
+          <template x-if="realmStandingArmy(selectedDomain)">
+            <div class="vellum border border-ink p-3 rounded mb-3">
+              <h2 class="font-bold text-lg mb-1">🏰 Realm forces</h2>
+              <p class="text-sm">
+                <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).title"></span>
+                — <span x-text="realmStandingArmy(selectedDomain).realmFamilies.toLocaleString()"></span> realm families
+                (this domain + its sub-vassals). RAW maximum standing army ≈
+                <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).maxStandingArmyText || realmStandingArmy(selectedDomain).maxStandingArmy.toLocaleString()"></span> troops;
+                realm-troops budget ≤ <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).maxRealmTroopsWagesText"></span>/mo;
+                garrison baseline ~<span x-text="realmStandingArmy(selectedDomain).avgPersonalGarrisonWages.toLocaleString()"></span>gp/mo.
+              </p>
+              <p class="text-sm mt-1">
+                Currently fielding
+                <span class="font-semibold" :class="realmStandingArmy(selectedDomain).fitsArmyCap ? '' : 'accent-red'" x-text="realmStandingArmy(selectedDomain).currentRealmTroops.toLocaleString()"></span> troops
+                at <span class="font-semibold" :class="realmStandingArmy(selectedDomain).fitsWageBudget ? '' : 'accent-red'" x-text="realmStandingArmy(selectedDomain).currentRealmTroopWages.toLocaleString()"></span>gp/mo<span
+                  x-show="!realmStandingArmy(selectedDomain).fitsArmyCap || !realmStandingArmy(selectedDomain).fitsWageBudget" class="accent-red text-xs"> — above the realm's RAW capacity (borderlands/outlands + total-war realms run 50–100% higher, RR p.434)</span>.
+              </p>
+              <p class="text-xs opacity-60 italic mt-1">RR p.434. A standing army is funded by Scutage from vassals (1gp+/family) and parceled across their domains via the Troops favor; vassal-reliant realms field conscripts, standing armies hire mercenaries (RR p.433).</p>
+            </div>
+          </template>
           <!-- ───── Garrison (RR pp.427–433) — ONE table, three sources: 🪖 Mercenaries (recruited),
                ⚒ Conscripts (≤1/10 families, no morale/revenue cost), 🛡 Militia (≤2/10, −1 family +
                morale each, until sent home). Shared columns. Type is read-only (set by recruiting /
@@ -5644,6 +5756,12 @@ document.addEventListener('alpine:init', () => {
                           :title="!rulerCharacter(selectedDomain) ? 'No ruler to recruit as patron' : 'Open the Recruit workflow for mercenary hires'"
                           :class="!rulerCharacter(selectedDomain) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-100'"
                           class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2">+ Recruit unit</button>
+                  <button @click="openRecruitModal(selectedDomain)"
+                          title="Realm-scale recruitment (RR p.428): hire whole mercenary units at your realm's tier — they arrive over the tier's time period"
+                          class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2 hover:bg-yellow-100">🪖 Recruit (realm)</button>
+                  <button @click="openRecruitSpecialistModal(selectedDomain)"
+                          title="Realm-scale recruitment (RR p.428): hire an officer or military specialist (artillerist, armorer, creature handler, marshal…) at your realm's tier — as a lightweight stub or a full character"
+                          class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2 hover:bg-yellow-100">🎖 Recruit (officer/specialist)</button>
                 </td></tr>
                 <template x-for="(u, i) in garrisonStandingUnits(selectedDomain)" :key="u.id || ('gu-'+i)">
                   <tr>
@@ -9853,6 +9971,7 @@ document.addEventListener('alpine:init', () => {
               <p x-show="!armySupply().inSupply" class="accent-red font-semibold">⚠ OUT OF SUPPLY — <span x-text="armySupplyReasonText(armySupply().reasons)"></span></p>
               <p x-show="!armySupply().inSupply" class="text-xs opacity-80" x-text="'cost ' + (armySupply().cost || 0).toLocaleString() + 'gp/wk · base value ' + (armySupply().baseValue != null ? armySupply().baseValue.toLocaleString() + 'gp' : '—') + (armySupply().line ? (' · line ' + armySupply().line.status) : '')"></p>
               <p class="text-xs opacity-60" x-show="armyMarketClassLabel()" x-text="'🛒 Campaign market: Class ' + armyMarketClassLabel() + ' — the baggage train (RR p.452)'"></p>
+              <button x-show="armyMarketClassLabel()" @click="openTrade({ armyId: armySelected().id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mt-1" title="Buy or sell equipment at the army's own baggage-train market (RR p.452)">🛒 Shop in camp</button>
             </div>
           </template>
           <!-- supply bases (the GM designates friendly domains; value chains through clear lines) -->
@@ -10555,6 +10674,13 @@ document.addEventListener('alpine:init', () => {
         </template>
       </div>
     </div>
+    <!-- Lightweight-NPC banner (2026-06-18 doctrine) — a stub created lightweight can be expanded to full anytime; never a dead end -->
+    <template x-if="characterEditing && characterEditing.detailLevel === 'lightweight'">
+      <div class="px-3 py-2 border-b border-ink/40 flex items-center justify-between gap-2" style="background:#f4ecd2">
+        <span class="text-xs"><span class="font-semibold">🪶 Lightweight NPC</span> — a stub (abilities unrolled). Never a dead end: expand it to a full character whenever you like.</span>
+        <button @click="expandCharacterUi(characterEditing)" class="text-xs px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold whitespace-nowrap" title="Roll the six abilities and promote this stub to a full character (recorded in History)">⬆ Expand to full</button>
+      </div>
+    </template>
     <!-- Sub-tab bar inside the modal -->
     <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
       <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
@@ -17331,6 +17457,95 @@ return {
     this.closeLevyModal();
   },
 
+  // ─── 🪖 Realm-scale mercenary recruitment (RR p.428; W7-continuation) — hire whole mercenary units
+  //      at the realm's tier; per-period availability caps the count; the troops arrive ½/¼/remainder
+  //      over the tier's time period (the slot-46 muster consumer tops them up). Distinct from the
+  //      settlement-scale "+ Recruit unit" Recruiting Wizard (RR pp.164–167). ───
+  openRecruitModal(domain){
+    if(!domain) return;
+    const rows = this.recruitTypeRowsFor(domain);
+    const first = ((rows.find(r => r.available > 0) || rows[0]) || {}).key || '';
+    this.recruitModal = { open: true, domainId: domain.id, typeKey: first, count: 1 };
+  },
+  closeRecruitModal(){ this.recruitModal.open = false; },
+  recruitModalDomain(){ const id = this.recruitModal && this.recruitModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
+  recruitModalTier(){ const d = this.recruitModalDomain(); return d ? (window.ACKS.realmRecruitTierForDomain(this.currentCampaign, d) || '—') : '—'; },
+  recruitModalPeriodWord(){ const p = window.ACKS.realmRecruitPeriodDays(this.recruitModalTier()); return p === 360 ? 'years' : p === 90 ? 'seasons' : p === 30 ? 'months' : 'weeks'; },
+  recruitModalTreasury(){ const d = this.recruitModalDomain(); if(!d) return 0; return window.ACKS.domainTreasuryGp ? window.ACKS.domainTreasuryGp(this.currentCampaign, d.id) : ((d.treasury && d.treasury.gp) || 0); },
+  recruitTypeRowsFor(domain){
+    const A = window.ACKS;
+    if(!domain || !A.realmRecruitMercTypes) return [];
+    return A.realmRecruitMercTypes().map(key => {
+      const row = A.findTroopType ? A.findTroopType(key, { race: 'man' }) : null;
+      return { key, label: key.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+               available: A.domainRealmRecruitAvailable(this.currentCampaign, domain, key),
+               wage: (A.mercWage ? A.mercWage(key, 'man') : null),
+               br: row ? row.brPerCreature : 0 };
+    });
+  },
+  recruitModalTypeRows(){ const d = this.recruitModalDomain(); return d ? this.recruitTypeRowsFor(d) : []; },
+  recruitModalChosen(){ return this.recruitModalTypeRows().find(r => r.key === this.recruitModal.typeKey) || null; },
+  recruitModalAvailable(){ const c = this.recruitModalChosen(); return c ? c.available : 0; },
+  recruitModalFeeText(){ const spec = window.ACKS.realmRecruitFeeSpec(this.recruitModalTier()); return spec ? spec.text : '—'; },
+  recruitModalCanSubmit(){ const c = this.recruitModalChosen(); if(!c) return false; const n = Math.floor(Number(this.recruitModal.count) || 0); return n >= 1 && n <= c.available; },
+  submitRecruit(){
+    const d = this.recruitModalDomain(); if(!d || !this.recruitModalCanSubmit()) return;
+    const n = Math.floor(Number(this.recruitModal.count) || 0); const key = this.recruitModal.typeKey; const A = window.ACKS;
+    const r = A.recruitRealmTroops(this.currentCampaign, d.id, { typeKey: key, count: n });
+    if(!r){ this.showToast && this.showToast('No ' + key.replace(/-/g, ' ') + ' available to recruit at the ' + this.recruitModalTier() + ' this period.', 4000); return; }
+    const word = this.recruitModalPeriodWord();
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Recruited ' + r.recruited + ' ' + key.replace(/-/g, ' ') + ' mercenaries (' + r.tier + ', fee ' + r.feeGp.toLocaleString() + 'gp) — they arrive over 3 ' + word + ' (RR p.428). Advance the Day Clock.');
+    this.closeRecruitModal();
+  },
+  // 🎖 Realm-scale officer/specialist recruitment (RR p.428) — the individual half. Mirrors the merc modal.
+  openRecruitSpecialistModal(domain){
+    if(!domain) return;
+    const rows = this.recruitSpecialistTypeRowsFor(domain);
+    const first = ((rows.find(r => r.available > 0) || rows[0]) || {}).key || '';
+    this.recruitSpecialistModal = { open: true, domainId: domain.id, typeKey: first, detailLevel: 'lightweight' };
+  },
+  closeRecruitSpecialistModal(){ this.recruitSpecialistModal.open = false; },
+  recruitSpecialistDomain(){ const id = this.recruitSpecialistModal && this.recruitSpecialistModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
+  recruitSpecialistTier(){ const d = this.recruitSpecialistDomain(); return d ? (window.ACKS.realmRecruitTierForDomain(this.currentCampaign, d) || '—') : '—'; },
+  recruitSpecialistPeriodWord(){ const p = window.ACKS.realmRecruitPeriodDays(this.recruitSpecialistTier()); return p === 360 ? 'years' : p === 90 ? 'seasons' : p === 30 ? 'months' : 'weeks'; },
+  recruitSpecialistTypeRowsFor(domain){
+    const A = window.ACKS;
+    if(!domain || !A.realmSpecialistTypes) return [];
+    return A.realmSpecialistTypes().map(key => {
+      const prof = A.realmSpecialistProfile(key) || {};
+      return { key, label: prof.label || key, available: A.domainRealmSpecialistAvailable(this.currentCampaign, domain, key) };
+    });
+  },
+  recruitSpecialistTypeRows(){ const d = this.recruitSpecialistDomain(); return d ? this.recruitSpecialistTypeRowsFor(d) : []; },
+  recruitSpecialistChosen(){ return this.recruitSpecialistTypeRows().find(r => r.key === this.recruitSpecialistModal.typeKey) || null; },
+  recruitSpecialistProfileText(){
+    const prof = window.ACKS.realmSpecialistProfile(this.recruitSpecialistModal.typeKey);
+    if(!prof) return '—';
+    const bits = [];
+    if(prof.level) bits.push('L' + prof.level);
+    bits.push(prof.wageGp ? prof.wageGp + 'gp/mo' : 'wage GM-set');
+    if(prof.isOfficer) bits.push('LA ' + prof.leadershipAbility + ' · SA +' + prof.strategicAbility + ' (RR p.171)');
+    return bits.join(' · ');
+  },
+  recruitSpecialistCanSubmit(){ const c = this.recruitSpecialistChosen(); return !!(c && c.available >= 1); },
+  submitRecruitSpecialist(){
+    const d = this.recruitSpecialistDomain(); if(!d || !this.recruitSpecialistCanSubmit()) return;
+    const key = this.recruitSpecialistModal.typeKey; const detail = this.recruitSpecialistModal.detailLevel; const A = window.ACKS;
+    const r = A.recruitRealmSpecialist(this.currentCampaign, d.id, { typeKey: key, detailLevel: detail });
+    if(!r){ this.showToast && this.showToast('None available to recruit at the ' + this.recruitSpecialistTier() + ' this period.', 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Recruited ' + (r.character.name || 'a specialist') + ' (' + r.tier + ', ' + (detail === 'full' ? 'full chargen' : 'lightweight stub') + ').');
+    this.closeRecruitSpecialistModal();
+  },
+  // Lightweight↔full NPC doctrine (2026-06-18) — promote a lightweight stub to a full character in place.
+  expandCharacterUi(c){
+    if(!c || c.detailLevel !== 'lightweight') return;
+    window.ACKS.expandCharacterToFull(this.currentCampaign, c);
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Expanded ' + (c.name || 'the NPC') + ' to a full character — abilities rolled.');
+  },
+
   // ─── #549 Add garrison unit with audit event (2026-05-30; W1: catalog defaults +
   //      first-class membership via stationUnit — campaign.units[] + the garrison mirror) ───
   addGarrisonUnit(domain){
@@ -18264,6 +18479,11 @@ return {
       return units.some(u => u && A.unitHomeDomainId && A.unitHomeDomainId(camp, u) === domain.id);
     };
     return this.armiesRows().filter(r => belongs(r.army) && (r.troops > 0 || r.army.journeyId || r.army.reactionTargetGroupId));
+  },
+  // RR p.434 — the realm's standing-army capacity readout (the Military tab summary). Derived; no stored field.
+  realmStandingArmy(domain){
+    if(!domain || !this.currentCampaign) return null;
+    try { return window.ACKS.realmStandingArmyCapacity(this.currentCampaign, domain); } catch(e){ return null; }
   },
   armySelected(){
     const camp = this.currentCampaign; if(!camp || !this.armiesSelectedId) return null;
@@ -22799,7 +23019,7 @@ return {
   stashTransferItemSel:{},   // deposit: inventory-index → bool · withdraw: stash-item-id → bool
   // Trade Wizard (Item Trade IT-4) — the retail buy/sell Action Wizard over ACKS.marketBuy/marketSell.
   trade:{
-    open:false, actorId:null, settlementId:null, dir:'buy',
+    open:false, actorId:null, settlementId:null, armyId:null, dir:'buy',   // armyId = a camp-seated trade (RR p.452 baggage-train market); mutually exclusive with settlementId
     search:'', category:'all',
     buyCart:[],                              // [{key, catalogId|null, name, unitPriceGp, stone, qty, availKind, availPercent, availableUnits, band}]
     sellRows:{},                             // inventoryIndex → { sel, qty, priceGp, name, heldQty, stone }
@@ -23054,6 +23274,15 @@ return {
     t.buyCart = []; t.sellRows = {};
     t.gName = ''; t.gPrice = null; t.gStone = null;
     t.visitedBefore = false; t.partyOf12Dedicated = false;
+    t.armyId = null;
+    // Camp-seated trade (RR p.452 — a 1,200+ army functions as its own market via its baggage train). No settlement.
+    if(opts.armyId){
+      const army = (this.currentCampaign?.armies||[]).find(a => a && a.id === opts.armyId);
+      t.armyId = opts.armyId; t.settlementId = null;
+      t.actorId = opts.actorCharacterId || (army && army.leaderCharacterId) || null;
+      if(t.actorId) this.tradeInitSellRows();
+      return;
+    }
     let settlementId = opts.settlementId || null;
     let actorId = opts.actorCharacterId || null;
     // Derive the local settlement from the actor's hex when not supplied (the "Shop here" case).
@@ -23404,6 +23633,7 @@ return {
   },
   tradeActor(){ return this.trade.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.trade.actorId) : null; },
   tradeSettlement(){ return this.trade.settlementId ? (this.currentCampaign?.settlements||[]).find(s => s && s.id === this.trade.settlementId) : null; },
+  tradeArmy(){ return this.trade.armyId ? (this.currentCampaign?.armies||[]).find(a => a && a.id === this.trade.armyId) : null; },   // a camp-seated trade (RR p.452)
   tradeCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
   tradeSettlements(){ return (this.currentCampaign?.settlements||[]).filter(s => s && s.id); },
   tradeCharactersAtSettlement(sid){
@@ -23417,9 +23647,13 @@ return {
     const ch = this.tradeActor(); if(!ch) return 0; if(!ch.partyId) return 1;
     return (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === ch.partyId).length;
   },
-  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.tradeRecomputeCart(); },
+  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.trade.armyId = null; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.tradeRecomputeCart(); },
   tradeSetDir(dir){ this.trade.dir = dir; if(dir === 'sell') this.tradeInitSellRows(); },
-  tradeMarketClassRoman(){ const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null; },
+  tradeMarketClassRoman(){
+    const army = this.tradeArmy();
+    if(army){ try { return window.ACKS.armyMarketClass(this.currentCampaign, army); } catch(e){ return null; } }   // the camp's baggage-train class (null below 1,200 or while the line is cut)
+    const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null;
+  },
   tradeMarketClassIdx(){
     const r = this.tradeMarketClassRoman(); const m = { 'I':0, 'II':1, 'III':2, 'IV':3, 'V':4, 'VI':5 };
     if(typeof r === 'string'){ const k = r.replace('*',''); if(m[k] != null) return m[k]; }
@@ -23536,7 +23770,9 @@ return {
   },
   tradeSubmitDisabledReason(){
     const ch = this.tradeActor(); if(!ch) return 'Pick a character.';
-    const s = this.tradeSettlement(); if(!s) return 'Pick a settlement (the market).';
+    const army = this.tradeArmy();
+    if(army){ if(!this.tradeMarketClassRoman()) return 'This army is too small to be its own market (needs 1,200+ troops, RR p.452) — or its supply line is cut.'; }
+    else { const s = this.tradeSettlement(); if(!s) return 'Pick a settlement (the market).'; }
     if(this.trade.dir === 'buy'){
       if(!this.trade.buyCart.length) return 'Add an item to buy.';
       for(const l of this.trade.buyCart){
@@ -23561,8 +23797,11 @@ return {
   tradeCanSubmit(){ return this.tradeSubmitDisabledReason() === ''; },
   tradeSubmit(){
     if(!this.tradeCanSubmit()){ this.showToast(this.tradeSubmitDisabledReason(), 4000); return; }
-    const ch = this.tradeActor(); const s = this.tradeSettlement();
-    const common = { actorCharacterId:ch.id, settlementId:s.id, visitedBefore:!!this.trade.visitedBefore, partyOf12Dedicated:!!this.trade.partyOf12Dedicated, submittedBy:'gm' };
+    const ch = this.tradeActor(); const s = this.tradeSettlement(); const army = this.tradeArmy();
+    const market = army
+      ? { marketClassIdx: this.tradeMarketClassIdx(), marketClassRoman: this.tradeMarketClassRoman() }   // a settlement-less camp market (RR p.452)
+      : { settlementId: s.id };
+    const common = { actorCharacterId:ch.id, ...market, visitedBefore:!!this.trade.visitedBefore, partyOf12Dedicated:!!this.trade.partyOf12Dedicated, submittedBy:'gm' };
     let res;
     if(this.trade.dir === 'buy'){
       const lines = this.trade.buyCart.map(l => l.catalogId
@@ -23775,6 +24014,8 @@ return {
   lairDetailId: null,            // open lair in the detail modal (null = closed)
   unitSheetUnitId: null,         // the clickable unit detail/edit modal (null = closed)
   levyModal: { open: false, domainId: null, source: 'conscript', count: 1, homeHexId: '' },  // ⚒/🛡 Levy modal
+  recruitModal: { open: false, domainId: null, typeKey: '', count: 1 },  // 🪖 Recruit-mercenaries (realm scale) modal
+  recruitSpecialistModal: { open: false, domainId: null, typeKey: '', detailLevel: 'lightweight' },  // 🎖 Recruit-officer/specialist (realm scale) modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
   marchModal: { open: false, unitId: null, originHexId: null, destHexId: '', pace: 'normal' },  // 🚶 March a garrison unit
@@ -25973,6 +26214,15 @@ return {
   banditryBands(d){
     if(!d || !this.currentCampaign || typeof window.ACKS.banditryBandsForDomain !== 'function') return [];
     return window.ACKS.banditryBandsForDomain(this.currentCampaign, d.id);
+  },
+  // #476 E10 — the militia-drawn portion of the banditry (RR p.433): bands whose template
+  // carries a troopTypeKey fight as trained troops, not peasant rabble. null = none.
+  banditryMilitiaInfo(d){
+    const bands = this.banditryBands(d).filter(g => g && g.groupTemplate && g.groupTemplate.troopTypeKey);
+    if(!bands.length) return null;
+    const raiders = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+    const t = bands[0].groupTemplate;
+    return { bands: bands.length, raiders, label: t.troopLabel || t.troopTypeKey };
   },
   // Phase 3 Military W2 — the Vagaries of Incursion domain-panel reads.
   incursionBands(d){

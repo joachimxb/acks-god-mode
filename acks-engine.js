@@ -3183,14 +3183,29 @@ function unitBattleRating(campaign, unit){
   return _roundHalfBr(row.brPerCreature * active);
 }
 
-// The Group side of the shared battle interface: per-creature battleRating from the
-// MONSTER_CATALOG (MM stat blocks) × active count. This is how a monster band, an E10
-// banditry band, or a lair's defenders price into the JJ pp.104–106 mass-combat layer —
-// no promotion to Unit needed.
+// Resolve a Group's TROOP_CATALOG row when it's drawn from trained militia in revolt
+// (groupTemplate.troopTypeKey set — RR p.433; #476 E10). Mirrors unitTroopRow(unit).
+function _groupTroopRow(group){
+  const tpl = group && group.groupTemplate;
+  if(!tpl || !tpl.troopTypeKey || !global.ACKS || typeof global.ACKS.findTroopType !== 'function') return null;
+  return global.ACKS.findTroopType(tpl.troopTypeKey, {
+    race: tpl.troopRace || 'man', veteran: !!tpl.troopVeteran, loadout: tpl.troopLoadout || null
+  });
+}
+// The Group side of the shared battle interface: per-creature battleRating × active count.
+// This is how a monster band, an E10 banditry band, or a lair's defenders price into the
+// JJ pp.104–106 mass-combat layer — no promotion to Unit needed. A militia-drawn banditry
+// band (RR p.433) reads the TROOP_CATALOG instead of the MM — "heavily armed, well trained
+// forces rather than peasant rabble"; an ordinary band reads the MM via monsterCatalogKey.
 function groupBattleRating(campaign, group){
   const active = groupActiveCount(group);
   if(!active) return 0;
-  const key = group && group.groupTemplate && group.groupTemplate.monsterCatalogKey;
+  const tpl = group && group.groupTemplate;
+  if(tpl && tpl.troopTypeKey){
+    const row = _groupTroopRow(group);
+    if(row && typeof row.brPerCreature === 'number') return _roundHalfBr(row.brPerCreature * active);
+  }
+  const key = tpl && tpl.monsterCatalogKey;
   const m = key && global.ACKS && typeof global.ACKS.findMonster === 'function' ? global.ACKS.findMonster(key) : null;
   if(!m || typeof m.battleRating !== 'number') return 0;
   return _roundHalfBr(m.battleRating * active);
@@ -4095,10 +4110,16 @@ function domainSeatHexId(campaign, dom){
 // platoon factor, by LIVING count. null when the band has no priced catalog BR (GM prices it).
 function reactionBandPlatoonBr(campaign, group){
   if(!campaign || !group) return null;
-  const key = group.groupTemplate && group.groupTemplate.monsterCatalogKey;
-  const entry = (key && global.ACKS && typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(key) : null;
+  const tpl = group.groupTemplate || {};
   const count = groupActiveCount(group);
-  if(!entry || typeof entry.battleRating !== 'number' || !count) return null;
+  if(!count) return null;
+  // A militia-drawn band (RR p.433) prices off its trained troop type, not the MM.
+  if(tpl.troopTypeKey){
+    const row = _groupTroopRow(group);
+    if(row && typeof row.brPerCreature === 'number') return monsterPlatoonBr(row.brPerCreature, count);
+  }
+  const entry = (tpl.monsterCatalogKey && global.ACKS && typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(tpl.monsterCatalogKey) : null;
+  if(!entry || typeof entry.battleRating !== 'number') return null;
   return monsterPlatoonBr(entry.battleRating, count);
 }
 
@@ -4313,6 +4334,27 @@ function domainMilitiaTroopTypeKey(campaign, d){
   for(const u of trained){ tally[u.unitTypeKey] = (tally[u.unitTypeKey] || 0) + unitActiveCount(u); }
   return Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0] || null;
 }
+// The E10 banditry hook (RR p.433: "any rebels will be drawn from the militia"). The POOL
+// is the AT-HOME trained-militia manpower (calledUp === false — the idle armed men who'd
+// turn rebel; a called-up militia is actively serving, its fate in a revolt a GM / army-
+// battle call) — it caps how many of the rebels fight as trained troops rather than rabble.
+function domainTrainedMilitiaPool(campaign, d){
+  return _levyActiveCount(campaign, d, 'militia', u => _isTrainedLevy(u) && u.calledUp === false);
+}
+// The representative at-home trained-militia troop ROW (the most-common type's catalog row,
+// resolving race/loadout/veteran via that type's largest unit) — what the militia-drawn
+// rebels fight as. 🔧 v1: a single representative type (the most common). null when the
+// domain fields no at-home trained militia (or the type isn't a catalog row) → all rabble.
+function domainMilitiaTroopRow(campaign, d){
+  const atHome = domainLevyUnits(campaign, d, 'militia').filter(u => _isTrainedLevy(u) && u.calledUp === false);
+  if(!atHome.length) return null;
+  const tally = {};
+  for(const u of atHome){ tally[u.unitTypeKey] = (tally[u.unitTypeKey] || 0) + unitActiveCount(u); }
+  const key = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+  if(!key) return null;
+  const rep = atHome.filter(u => u.unitTypeKey === key).sort((a, b) => unitActiveCount(b) - unitActiveCount(a))[0];
+  return unitTroopRow(rep);
+}
 
 // ─── Levy / train setters ───────────────────────────────────────────────────
 // Resolve a domain (id or object) on the campaign.
@@ -4327,18 +4369,27 @@ function _resolveDomain(campaign, domainOrId){
 // WEEK (RR p.434, Vassal Troops by Realm Size). (The Month/Season realm-scale periods are for a
 // multi-domain CALL TO ARMS — a different mechanic, the deferred F&D duty.) Returns [{atOrd, count}]
 // (non-zero batches only), the batches landing at startOrd+7/+14/+21.
-function _levyMusterSchedule(total, startOrd){
+// RR p.430 / p.428 — the ½/¼/remainder muster/recruitment arrival schedule over three time PERIODS.
+// periodDays sets the cadence: a barony levy = a week (7, RR p.434); a realm mercenary recruitment = the
+// realm tier's time period (week/month/season/year, RR p.428). Batches land at +1/+2/+3 periods from
+// startOrd. The slot-46 'levy-muster' day-consumer tops up the unit's `count` as each batch arrives —
+// it is source-agnostic, so it musters levies AND recruited mercenaries off the same schedule shape.
+function _musterSchedule(total, startOrd, periodDays){
   const n = Math.max(0, Math.floor(total || 0));
   if(n <= 0) return [];
-  const week1 = Math.ceil(n / 2);                                // ½, rounded up
-  const rem1 = n - week1;
-  const week2 = Math.min(rem1, Math.max(1, Math.floor(n / 4)));  // ¼, rounded down, min 1 (capped at what's left)
-  const week3 = n - week1 - week2;                               // the remainder
-  const PERIOD = 7;                                              // barony time period — a week (RR p.434)
-  return [{ atOrd: startOrd + PERIOD, count: week1 },
-          { atOrd: startOrd + PERIOD * 2, count: week2 },
-          { atOrd: startOrd + PERIOD * 3, count: week3 }].filter(b => b.count > 0);
+  const P = Math.max(1, Math.floor(periodDays || 7));
+  const b1 = Math.ceil(n / 2);                                   // ½, rounded up
+  const rem1 = n - b1;
+  const b2 = Math.min(rem1, Math.max(1, Math.floor(n / 4)));     // ¼, rounded down, min 1 (capped at what's left)
+  const b3 = n - b1 - b2;                                        // the remainder
+  return [{ atOrd: startOrd + P, count: b1 },
+          { atOrd: startOrd + P * 2, count: b2 },
+          { atOrd: startOrd + P * 3, count: b3 }].filter(b => b.count > 0);
 }
+// RR p.430/p.434 — the levy (barony) variant: a week per period.
+function _levyMusterSchedule(total, startOrd){ return _musterSchedule(total, startOrd, 7); }
+// The plural noun for a mustering unit's muster narration (RR p.430 levy / p.428 realm recruitment).
+function _levyMusterNoun(source){ return source === 'militia' ? 'militia' : source === 'mercenary' ? 'mercenaries' : 'conscripts'; }
 
 // Internal: create + station a levy unit (conscript/militia), clamped to its RAW cap. Returns the
 // unit, or null when the cap leaves no room / the domain can't levy. The one-time domain-morale
@@ -4390,6 +4441,195 @@ function levyConscripts(campaign, domainOrId, opts){
 // RR p.432 — levy a peasant militia (≤2 per 10 families; −1 family of revenue each + domain morale −1/−2).
 function levyMilitia(campaign, domainOrId, opts){
   return _createLevyUnit(campaign, _resolveDomain(campaign, domainOrId), 'militia', (opts || {}).count, opts);
+}
+
+// ─── Military W7-continuation — realm-scale mercenary recruitment (RR p.428) ──────────────────────────
+// A realm recruits mercenaries at a scale set by its TIER (continent→barony, by realm family count vs
+// MERC_AVAILABILITY_REALM.populationFamilies — the catalog's own thresholds, not the ruler's title). Each
+// tier's per-period availability caps how many of a type can be recruited per time period (week/month/
+// season/year); the troops arrive ½/¼/remainder over three periods — the SAME staging as a domain levy,
+// so they ride the slot-46 'levy-muster' day-consumer (source-agnostic). A one-time recruitment fee
+// (REALM_RECRUITMENT_FEES, rolled per recruit action) is paid from the realm treasury. Unlike a levy this
+// is NOT gated by domain morale — you hire FOREIGN mercenaries (a rebellious realm can still recruit).
+// 🔧 v1: the per-period cap is tracked + refreshes each period; RAW's "one recruiter per realm at a time"
+//        lock + the "availability exhausts after the 4th period" nuance are deferred (both make recruiting
+//        HARDER — the lenient direction). Mercenaries only — military specialists are a stacked follow-on.
+function realmRecruitTierForDomain(campaign, domainOrId){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return null;
+  return A.realmRecruitTier(realmFamiliesForDomain(campaign, d));
+}
+// The count of `typeKey` already recruited from this realm THIS period (0 once the period has rolled over
+// — a read; the period bookkeeping is materialized on the next recruit). Lazy/defensive (no migration).
+function domainRealmRecruitedThisPeriod(campaign, domainOrId, typeKey){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d || !d.realmRecruitment) return 0;
+  const tier = realmRecruitTierForDomain(campaign, d);
+  const periodDays = A.realmRecruitPeriodDays(tier);
+  if((d.realmRecruitment.periodStartOrd || 0) + periodDays <= _levyDayOrd(campaign)) return 0;  // fresh period
+  return Math.max(0, (d.realmRecruitment.recruited || {})[A.normalizeTroopTypeKey(typeKey)] || 0);
+}
+// RR p.428 — how many MORE of `typeKey` the realm can recruit this period (tier availability − taken).
+function domainRealmRecruitAvailable(campaign, domainOrId, typeKey){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return 0;
+  const max = A.realmMercAvailable(realmRecruitTierForDomain(campaign, d), typeKey);
+  return Math.max(0, max - domainRealmRecruitedThisPeriod(campaign, d, typeKey));
+}
+// RR p.428 — recruit `opts.count` mercenaries of `opts.typeKey` (race default 'man') into the domain's
+// garrison. Clamps to this period's remaining availability; rolls + debits the realm recruitment fee from
+// the treasury; by default the troops arrive ½/¼/remainder over three of the tier's time periods (the
+// slot-46 muster consumer tops them up). opts.instant gives them at once (tests / a GM expedite).
+// Returns { unit, recruited, feeGp, tier } or null (no availability / no domain).
+function recruitRealmTroops(campaign, domainOrId, opts){
+  opts = opts || {};
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return null;
+  if(!Array.isArray(campaign.units)) campaign.units = [];
+  const typeKey = A.normalizeTroopTypeKey(opts.typeKey);
+  const tier = realmRecruitTierForDomain(campaign, d);
+  const avail = domainRealmRecruitAvailable(campaign, d, typeKey);
+  const n = Math.min(Math.max(0, Math.floor(opts.count || 0)), avail);
+  if(n <= 0) return null;
+  const race = opts.race || 'man';
+  const periodDays = A.realmRecruitPeriodDays(tier);
+  const now = _levyDayOrd(campaign);
+  // roll the one-time recruitment fee (RR p.428) — consumes rng before the (deterministic) schedule
+  const feeSpec = A.realmRecruitFeeSpec(tier);
+  const feeGp = feeSpec ? Math.max(0, _rollDiceStr(feeSpec.dice, opts.rng) * (feeSpec.multiplierGp || 1)) : 0;
+  // mark the per-period ledger, rolling it over if a new period began
+  if(!d.realmRecruitment || (d.realmRecruitment.periodStartOrd || 0) + periodDays <= now){
+    d.realmRecruitment = { periodStartOrd: now, recruited: {} };
+  }
+  d.realmRecruitment.recruited[typeKey] = (d.realmRecruitment.recruited[typeKey] || 0) + n;
+  if(feeGp > 0) _applyDomainTreasuryDelta(campaign, d, -feeGp, { reason: 'realm-recruitment', label: 'recruit ' + n + ' ' + typeKey + ' (' + tier + ')' });
+  // the mercenaries are a real, equipped troop type (no training step) — blankUnit bakes catalog wage/BR
+  const label = String(typeKey || 'mercenaries').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const staged = !opts.instant;
+  const u = A.blankUnit({ unitTypeKey: typeKey, race, count: staged ? 0 : n, source: 'mercenary',
+    displayName: (d.name ? d.name + ' ' : '') + label });
+  const w = A.mercWage(typeKey, race);                            // RR p.429 mercenary wage (canonical)
+  if(typeof w === 'number') u.monthlyWage = w;
+  u.homeDomainId = d.id;
+  u.calledUp = true;
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  const periodWord = (periodDays === 7) ? 'weeks' : (periodDays === 30) ? 'months' : (periodDays === 90) ? 'seasons' : 'years';
+  if(staged){
+    u.musterPending = n;
+    u.musterState = { total: n, startedAtOrd: now, arrivedSoFar: 0, schedule: _musterSchedule(n, now, periodDays) };
+    u.history.push({ turn, type: 'recruited', text: 'Recruited ' + n + ' ' + label + ' mercenaries at the ' + tier + ' — arriving over 3 ' + periodWord + ' (½/¼/remainder, RR p.428) · fee ' + feeGp.toLocaleString() + 'gp' });
+  } else {
+    u.history.push({ turn, type: 'recruited', text: 'Recruited ' + n + ' ' + label + ' mercenaries at the ' + tier + ' · fee ' + feeGp.toLocaleString() + 'gp' });
+  }
+  stationUnit(campaign, u, { kind: 'domain-garrison', id: d.id });
+  return { unit: u, recruited: n, feeGp, tier };
+}
+
+// ─── NPC detail-level doctrine (2026-06-18) — lightweight ↔ full chargen ──────────────────────────────
+// An NPC may be created 'lightweight' (a named stub: type + wage + classification, abilities left at the
+// 10-default) or 'full' (rolled). A lightweight NPC is NEVER a dead end — this primitive upgrades it to a
+// full character IN PLACE: it rolls the six abilities (3d6 down the line) and flips detailLevel→'full'.
+// The reusable lightweight↔full primitive every NPC-creation surface shares (realm-specialist recruitment
+// is its first consumer; the recruit-hireling flow + the Inspector adopt it next). Idempotent on an
+// already-full (or unflagged ⇒ full) character — a no-op. hp / saves / class stay the GM's to flesh out in
+// the Inspector; expand fills the rolled abilities, not class-derived values we'd have to invent. Returns
+// the character (null if not found). `charOrId` may be a Character object or its id.
+function expandCharacterToFull(campaign, charOrId, opts){
+  opts = opts || {};
+  const rng = opts.rng || Math.random;
+  const c = (charOrId && typeof charOrId === 'object') ? charOrId
+    : ((campaign && Array.isArray(campaign.characters)) ? campaign.characters.find(x => x && x.id === charOrId) : null);
+  if(!c) return null;
+  if(c.detailLevel !== 'lightweight') return c;                  // idempotent — already full (unflagged ⇒ full)
+  const roll = () => (Math.floor(rng()*6)+1) + (Math.floor(rng()*6)+1) + (Math.floor(rng()*6)+1);   // 3d6 down the line
+  c.abilities = { STR: roll(), INT: roll(), WIL: roll(), DEX: roll(), CON: roll(), CHA: roll() };
+  c.detailLevel = 'full';
+  if(!Array.isArray(c.history)) c.history = [];
+  const turn = (campaign && campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  c.history.push({ turn, type: 'expanded', text: 'Expanded from a lightweight stub to a full character (abilities rolled)' });
+  return c;
+}
+
+// ─── Military W7-continuation — realm-scale military-specialist recruitment (RR p.428) ────────────────
+// The OTHER half of realm recruitment (the mercenary-troops half is recruitRealmTroops, above). A realm
+// recruits military SPECIALISTS + officers (artillerists / armorers / creature handlers / marshals /
+// mercenary officers / quartermaster / siege engineer) at its TIER, capped by MILITARY_SPECIALIST_-
+// AVAILABILITY_REALM. Each is an INDIVIDUAL (a Character + a specialistContract to the ruler), NOT a unit —
+// so hiring honours the lightweight↔full doctrine: a lightweight stub (GM fleshes out) or a full-rolled NPC.
+// Availability is tracked per period in a ledger SEPARATE from the merc one (its own period clock) so the
+// two never clobber each other's rollover. Not gated by domain morale (a foreign hire, like the merc half).
+function domainRealmSpecialistsRecruitedThisPeriod(campaign, domainOrId, typeKey){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d || !d.realmSpecialistRecruitment) return 0;
+  const tier = realmRecruitTierForDomain(campaign, d);
+  const periodDays = A.realmRecruitPeriodDays(tier);
+  if((d.realmSpecialistRecruitment.periodStartOrd || 0) + periodDays <= _levyDayOrd(campaign)) return 0;  // fresh period
+  return Math.max(0, (d.realmSpecialistRecruitment.recruited || {})[String(typeKey || '').toLowerCase()] || 0);
+}
+// RR p.428 — how many MORE of military-specialist `typeKey` the realm can recruit this period.
+function domainRealmSpecialistAvailable(campaign, domainOrId, typeKey){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return 0;
+  const max = A.realmSpecialistAvailable(realmRecruitTierForDomain(campaign, d), typeKey);
+  return Math.max(0, max - domainRealmSpecialistsRecruitedThisPeriod(campaign, d, typeKey));
+}
+// RR p.428 — recruit ONE military specialist of `opts.typeKey` into the realm. opts.detailLevel:
+// 'lightweight' (default — a stub) | 'full' (rolled via the doctrine primitive). Creates a Character
+// (socialTier 'specialist', homed to the realm, lieged to the ruler, profs from OFFICER_RANKS for officers
+// so LA/SA derive) + a specialistContract; decrements the per-period availability. Returns
+// { character, contract, tier, detailLevel } or null (no availability / unknown type / no domain).
+function recruitRealmSpecialist(campaign, domainOrId, opts){
+  opts = opts || {};
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return null;
+  if(!Array.isArray(campaign.characters)) campaign.characters = [];
+  const typeKey = String(opts.typeKey || '').toLowerCase();
+  const prof = A.realmSpecialistProfile(typeKey);
+  if(!prof) return null;                                          // unknown type
+  if(domainRealmSpecialistAvailable(campaign, d, typeKey) <= 0) return null;   // none available this period
+  const tier = realmRecruitTierForDomain(campaign, d);
+  const periodDays = A.realmRecruitPeriodDays(tier);
+  const now = _levyDayOrd(campaign);
+  // per-period ledger — its OWN clock (NOT the merc ledger's, so neither rollover wipes the other)
+  if(!d.realmSpecialistRecruitment || (d.realmSpecialistRecruitment.periodStartOrd || 0) + periodDays <= now){
+    d.realmSpecialistRecruitment = { periodStartOrd: now, recruited: {} };
+  }
+  d.realmSpecialistRecruitment.recruited[typeKey] = (d.realmSpecialistRecruitment.recruited[typeKey] || 0) + 1;
+  const ruler = d.rulerCharacterId || null;
+  const full = (opts.detailLevel === 'full');
+  const parse = A.parseProficiencyEntry || (s => ({ key: String(s).toLowerCase().replace(/\s+/g, '-'), ranks: 1 }));
+  const role = String(prof.label || 'Specialist').replace(/^Mercenary Officer - /, '');   // "Captain", "Marshal - Light Infantry"
+  const c = A.blankCharacter({
+    name: role + (d.name ? ' of ' + d.name : ''),
+    socialTier: 'specialist',
+    controlledBy: 'gm',
+    level: prof.level || 0,
+    detailLevel: 'lightweight',                  // always born lightweight; expandCharacterToFull (below) rolls it up when full
+    currentHexId: domainSeatHexId(campaign, d),
+    currentDomainId: d.id,
+    homeDomainId: d.id,
+    liegeCharacterId: ruler,
+    proficiencies: (prof.proficiencies || []).map(parse)
+  });
+  if(typeof prof.wageGp === 'number') c.monthlyWage = prof.wageGp;
+  if(full) expandCharacterToFull(campaign, c, { rng: opts.rng });
+  campaign.characters.push(c);
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  const contract = createSpecialistContract(campaign, {
+    specialistCharacterId: c.id, employerCharacterId: ruler,
+    hiredAtTurn: turn, wageStreamGpMo: c.monthlyWage || 0,
+    serviceCategory: 'military', reason: 'realm-specialist-recruited'
+  });
+  c.history.push({ turn, type: 'recruited',
+    text: 'Recruited as a ' + prof.label + ' at the ' + tier + ' (realm-scale, RR p.428)' + (full ? '' : ' — lightweight stub, expandable to full') });
+  return { character: c, contract: contract, tier: tier, detailLevel: c.detailLevel };
 }
 
 // RR p.431 — split off the soldiers of a levy `u` beyond `keepLiving` into a NEW untrained levy of the
@@ -6674,6 +6914,51 @@ function realmFamiliesForDomain(campaign, domain){
   let families = global.ACKS.totalFamilies(domain);
   for(const { domain:v } of global.ACKS.vassalChainUnder(campaign, domain.id)) families += global.ACKS.totalFamilies(v);
   return families;
+}
+
+// RR p.434 — the realm's standing-army capacity (the Vassal Troops by Realm Size table — the quick
+// "what armies can a realm of this size field" reference). The realm = this domain + its sub-vassal
+// chain (the same basis realmFamiliesForDomain sums). Returns the RAW tier caps (max standing army,
+// realm-troops wage budget, the avg garrison baseline) + a light comparison to the realm's CURRENT
+// fielded force (every Unit homed in a realm domain — garrisons + field armies). A standing army is
+// funded by Scutage from vassals (1gp+/family — shipped F&D-6) + parceled across their domains via
+// the Troops favor (shipped); vassal-reliant realms field conscripts, standing armies hire mercenaries
+// (RR p.433). Pure derived read — no stored field, no new entity/rule/event. Null if no domain.
+function realmStandingArmyCapacity(campaign, domainOrId){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return null;
+  const realmFamilies = realmFamiliesForDomain(campaign, d);
+  const tier = A.vassalTroopsForRealmFamilies(realmFamilies);
+  if(!tier) return null;
+  // The realm's domain set: this domain + every sub-vassal domain (the realmFamiliesForDomain basis).
+  const realmDomainIds = new Set([d.id]);
+  for(const { domain:v } of A.vassalChainUnder(campaign, d.id)) if(v && v.id) realmDomainIds.add(v.id);
+  // Current realm military force: every Unit homed in a realm domain (garrisoned or afield). Home
+  // is resolved via the canonical unitHomeDomainId accessor (the reference-unified garrison mirror —
+  // demo/legacy garrison units carry no raw homeDomainId field), falling back to the raw field.
+  let troops = 0, wages = 0;
+  for(const u of (campaign.units || [])){
+    if(!u) continue;
+    const home = (A.unitHomeDomainId ? A.unitHomeDomainId(campaign, u) : null) || u.homeDomainId || null;
+    if(home && realmDomainIds.has(home)){
+      troops += unitActiveCount(u);
+      wages  += unitWageMonthly(campaign, u);
+    }
+  }
+  const maxArmy  = (tier.maxStandingArmy && tier.maxStandingArmy.max) || 0;
+  const maxWages = (tier.maxRealmTroopsWages && tier.maxRealmTroopsWages.max) || 0;
+  return {
+    tier: tier.key, title: tier.title, page: tier.page || 434,
+    realmFamilies,
+    avgPersonalGarrisonWages: tier.avgPersonalGarrisonWages || 0,
+    maxStandingArmy: maxArmy,  maxStandingArmyText:  (tier.maxStandingArmy  || {}).text || '',
+    maxRealmTroopsWages: maxWages, maxRealmTroopsWagesText: (tier.maxRealmTroopsWages || {}).text || '',
+    currentRealmTroops: troops, currentRealmTroopWages: wages,
+    fitsArmyCap:    maxArmy  ? troops <= maxArmy  : true,
+    fitsWageBudget: maxWages ? wages  <= maxWages : true,
+    timePeriod: tier.timePeriod || 'season'
+  };
 }
 
 // The scutage rate in gp/family (RR p.347 — default 1gp/family; a lower rate is "demand less", RR p.345).
@@ -10437,7 +10722,7 @@ function proposeLevyMusterDay(campaign, ctx){
     const arriving = target - (ms.arrivedSoFar || 0);
     if(arriving <= 0) continue;
     const complete = (target >= ms.total);
-    const noun = (u.source === 'militia') ? 'militia' : 'conscripts';
+    const noun = _levyMusterNoun(u.source);
     out.pendingRecords.push({ kind: 'levy-muster', unitId: u.id, arriving });
     out.notableEvents.push({ kind: 'gm-narrative', type: 'levy-muster', transient: true, primaryHexId: u.homeHexId || null,
       label: (u.displayName || 'A levy') + ': ' + arriving + ' ' + noun + ' arrive' + (complete ? ' — muster complete (' + ms.total + ')' : ' (' + (ms.total - target) + ' still mustering)'),
@@ -10459,7 +10744,7 @@ function commitLevyMusterRecord(campaign, record){
     u.musterPending = 0;
     u.musterState = null;
     const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
-    u.history.push({ turn, type: 'mustered', text: 'Muster complete — ' + unitActiveCount(u) + ' ' + ((u.source === 'militia') ? 'militia' : 'conscripts') + ' assembled' });
+    u.history.push({ turn, type: 'mustered', text: 'Muster complete — ' + unitActiveCount(u) + ' ' + _levyMusterNoun(u.source) + ' assembled' });
   }
 }
 registerDayConsumer('levy-muster', {
@@ -11297,12 +11582,20 @@ const ACKS = Object.assign(global.ACKS || {}, {
   domainLevyPoolCount, domainLevyTrainedOfType, conscriptQualifyingRemaining,
   militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,
   levyMoraleAdjustmentForDomain, canLevyFromDomain, domainMilitiaTroopTypeKey,
+  domainMilitiaTroopRow, domainTrainedMilitiaPool,
   levyConscripts, levyMilitia, trainLevyUnit, sendMilitiaHome,
   levyEverRaised, levyAvailable, sendMilitiaUnitHome, callUpMilitia, releaseLevyUnit, processLevyReplenishmentForTurn,
   // W7-continuation — the training timer (RR p.431): training takes its months; a day-consumer completes it
   unitTrainingDaysLeft, proposeLevyTrainingDay, commitLevyTrainingRecord,
   // W7-continuation — the levy-arrival timer (RR p.430): levied troops arrive ½/¼/remainder over 3 weeks
   unitMusterDaysLeft, proposeLevyMusterDay, commitLevyMusterRecord,
+  // W7-continuation — realm-scale mercenary recruitment (RR p.428): tier-scaled availability, per-period
+  // cap, fee from the treasury, troops arrive ½/¼/remainder (ride the slot-46 muster consumer)
+  realmRecruitTierForDomain, domainRealmRecruitedThisPeriod, domainRealmRecruitAvailable, recruitRealmTroops,
+  // W7-continuation — standing-army capacity (RR p.434, the Vassal Troops by Realm Size table)
+  realmStandingArmyCapacity,
+  // W7-continuation — realm-scale military specialists + the lightweight↔full NPC doctrine primitive
+  expandCharacterToFull, recruitRealmSpecialist, domainRealmSpecialistAvailable, domainRealmSpecialistsRecruitedThisPeriod,
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
   groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
   groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,

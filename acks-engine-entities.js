@@ -1090,6 +1090,12 @@ function blankCharacter(opts={}){
     creatureTypes:  opts.creatureTypes || ['humanoid'],
     isEnchantedCreature: opts.isEnchantedCreature === true,
     hitDice: opts.hitDice || null,      // Per-class HD derivation deferred to Phase 6.
+    // Detail level (2026-06-18 doctrine) — an NPC may be created 'lightweight' (a named
+    // stub: type + wage + classification, abilities left at the 10-default) or 'full'
+    // (rolled). A lightweight NPC is never a dead end — ACKS.expandCharacterToFull upgrades
+    // it in place. Absent ⇒ 'full' (existing/template chars + PCs read as full; defensive,
+    // no migration). The reusable lightweight↔full primitive for every NPC-creation surface.
+    detailLevel: opts.detailLevel || 'full',
     id: opts.id || newId(ID_PREFIXES.character),
     name,
     alignment: opts.alignment || 'N',
@@ -1691,7 +1697,14 @@ function blankGroup(opts={}){
     groupTemplate: opts.groupTemplate || {
       monsterCatalogKey: null,           // Key into the planned MONSTER_CATALOG
       creatureTypes: ['humanoid'],       // Same multi-valued axis as Character.creatureTypes[]
-      hitDice: null                      // RAW HD string e.g. '1-1', '4+1'
+      hitDice: null,                     // RAW HD string e.g. '1-1', '4+1'
+      // #476 E10 — when set, this band is drawn from a domain's TRAINED MILITIA in revolt
+      // (RR p.433: "any rebels will be drawn from the militia"): its BR + identity read the
+      // TROOP_CATALOG, not the MM. troopRace/troopLoadout/troopVeteran resolve the row via
+      // findTroopType (mirroring unitTroopRow); troopLabel is the display name. Absent/null
+      // = an ordinary creature band (priced via monsterCatalogKey). monsterCatalogKey stays
+      // 'bandit' on a militia band so the encounter machinery still treats it as men.
+      troopTypeKey: null
     },
     count: opts.count || 0,              // Roster strength
     casualties: opts.casualties || 0,    // Combat losses to this group (active = count - casualties)
