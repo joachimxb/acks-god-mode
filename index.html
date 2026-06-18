@@ -39,7 +39,7 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-18-weatherwar"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-18-strongholdcat"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
@@ -6320,7 +6320,7 @@ document.addEventListener('alpine:init', () => {
                                       @change="commitStatEdit({entityType:'domain', entityId:selectedDomain.id, entity:selectedDomain, fieldPath:'stronghold.components.'+ci+'.structures.'+si+'.structureKey', label:'Structure #'+(si+1)+' kind', oldValue:row.structureKey, newValue:$event.target.value})"
                                       class="w-full">
                                 <option value="">— pick structure —</option>
-                                <template x-for="cat in ['Towers','Walls','Gates &amp; barriers','Buildings']" :key="cat">
+                                <template x-for="cat in [...new Set(STRONGHOLD_CATALOG.map(s => s.category))]" :key="cat">
                                   <optgroup :label="cat">
                                     <template x-for="s in STRONGHOLD_CATALOG.filter(x => x.category === cat)" :key="s.key">
                                       <option :value="s.key" x-text="s.name + ' — ' + s.cost.toLocaleString() + ' gp'"></option>
