@@ -1999,7 +1999,7 @@ document.addEventListener('alpine:init', () => {
                 <!-- officer outcome entry -->
                 <template x-if="battlePanel().aftermath.officers && battlePanel().aftermath.officers.length">
                   <div class="border border-ink/40 rounded p-2 mt-1">
-                    <p class="font-semibold text-xs mb-1">🩸 Officer &amp; hero casualties — roll the Mortal Wounds table at the table (net <span class="font-mono">0</span> victor / <span class="font-mono">−4</span> defeated), then enter each band:</p>
+                    <p class="font-semibold text-xs mb-1">🩸 Officer &amp; hero casualties — pick each band (net <span class="font-mono">0</span> victor / <span class="font-mono">−4</span> defeated); the Mortal Wounds table (RR p.470) is resolved + applied to the character on Apply:</p>
                     <template x-for="o in battlePanel().aftermath.officers" :key="'afo-' + o.characterId">
                       <div class="flex flex-wrap gap-2 items-baseline text-xs mb-0.5">
                         <span class="font-semibold" x-text="o.name"></span>
@@ -2009,14 +2009,20 @@ document.addEventListener('alpine:init', () => {
                           <template x-for="oc in battleOfficerOutcomes()" :key="'afoc-' + o.characterId + oc.key"><option :value="oc.key" :selected="o.outcome === oc.key" x-text="oc.label"></option></template>
                           <option value="captured-voluntarily" x-show="o.mayDeclineToCaptivity" :selected="o.outcome === 'captured-voluntarily'">Submits to capture (no roll — routed officers may)</option>
                         </select>
-                        <span x-show="o.woundRoll != null" class="opacity-80" x-text="'permanent-wound 1d6 = ' + o.woundRoll + ' (apply per the Mortal Wounds table)'"></span>
+                        <!-- the resolved Mortal Wound (Delves D1): killed / the actual permanent wound + bed rest / the disposition -->
+                        <template x-if="o.outcome === 'captured-voluntarily'"><span class="opacity-80">🏳 submitted to capture — no wound roll</span></template>
+                        <span x-show="o.outcome && o.outcome !== 'captured-voluntarily' && o.dies" class="accent-red font-semibold">☠ Killed</span>
+                        <template x-if="o.outcome && o.outcome !== 'captured-voluntarily' && !o.dies && o.mortalWound && o.mortalWound.permanentWound"><span class="accent-red" x-text="'⚑ 1d6 ' + o.mortalWound.d6 + ': ' + o.mortalWound.permanentWound.effect + (o.mortalWound.permanentWound.lasting ? ' (lasting — −1 loyalty until cured)' : '')"></span></template>
+                        <span x-show="o.outcome && !o.dies && o.mortalWound && o.mortalWound.bedRestDays > 0" class="opacity-70" x-text="'🛌 ' + o.mortalWound.bedRestLabel + ' of bed rest (' + o.mortalWound.conditionLabel + ')'"></span>
+                        <span x-show="o.captured" class="accent-red opacity-80">· captured</span>
+                        <span x-show="o.escaped" class="opacity-70">· escaped before capture</span>
                       </div>
                     </template>
                   </div>
                 </template>
                 <div class="mt-2" x-show="!battlePanel().aftermath.applied">
                   <button @click="battleApplyAftermath()" class="px-3 py-1 rounded border-2 font-bold text-sm" style="border-color:#1f4a7a; color:#1f4a7a">✓ Apply the aftermath to the world</button>
-                  <span class="text-xs opacity-70 ml-2">writes unit/group casualties, officer outcomes, commander XP, and per-troop XP</span>
+                  <span class="text-xs opacity-70 ml-2">writes unit/group casualties, the officers' Mortal Wounds (record + convalescence + loyalty penalty, or death), commander XP, and per-troop XP</span>
                 </div>
                 <p class="text-xs italic opacity-70" x-show="battlePanel().aftermath.applied">✓ Applied — the world carries the consequences.</p>
               </div>
@@ -19177,7 +19183,7 @@ return {
     const b = this.battlePanel(); if(!b) return;
     try {
       window.ACKS.applyBattleAftermath(this.currentCampaign, b.id);
-      this.showToast('⚖ Aftermath applied — casualties, spoils, and XP are recorded in the world.');
+      this.showToast('⚖ Aftermath applied — casualties, the officers\' Mortal Wounds (or death), spoils, and XP are recorded in the world.');
     } catch(e){ this.showToast('⚠ ' + e.message, 6000); }
   },
 

@@ -10200,6 +10200,11 @@ function dayTickActivityInFlight(campaign){
   // E8 — a KNOWINGLY-lost journey too: the world keeps ticking over the held party
   // (its camp checks + survival run on the Day Clock while it searches for the landmark).
   if(Array.isArray(campaign.journeys) && campaign.journeys.some(j => j && (j.status === 'in-transit' || j.status === 'resting' || j.status === 'lost'))) return true;
+  // Delves D1 — a convalescing (incapacitated) character is day-aware activity in flight: the
+  // slot-58 convalescence consumer (acks-engine-mortal-wounds.js, loads after this module —
+  // call-time lookup) needs the Day Clock engaged to heal them (e.g. an officer wounded in a battle).
+  const convFn = global.ACKS && typeof global.ACKS.anyConvalescing === 'function' ? global.ACKS.anyConvalescing : null;
+  if(convFn && convFn(campaign)) return true;
   // A funded-but-not-yet-projected agricultural improvement also counts as in flight: the panel
   // writes hex.improvementBudgetGp directly, and the Project is materialized just before the tick.
   const budgeted = (arr) => Array.isArray(arr) && arr.some(h => h && (h.improvementBudgetGp || 0) > 0);

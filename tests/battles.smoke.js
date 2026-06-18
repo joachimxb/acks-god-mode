@@ -21,7 +21,8 @@ global.window = global;
 [
   'acks-engine-catalogs.js', 'acks-engine-monsters.js', 'acks-engine-encounter-tables.js', 'acks-engine-troops.js',
   'acks-engine.js', 'acks-engine-entities.js', 'acks-engine-economy.js',
-  'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-battles.js', 'acks-engine-maneuvers.js', 'acks-engine-subsystems.js'
+  'acks-engine-entity-registry.js', 'acks-engine-field-schemas.js', 'acks-engine-events.js', 'acks-engine-battles.js', 'acks-engine-maneuvers.js', 'acks-engine-subsystems.js',
+  'acks-engine-mortal-wounds.js'   // Delves D1 — the officer-casualty Mortal Wounds resolver (RR p.470 aftermath wiring)
 ].forEach(f => require(path.join(DIR, f)));
 const ACKS = global.ACKS;
 
@@ -557,6 +558,103 @@ section('applyBattleAftermath — the one world-write step');
   } else {
     ok('(the band won — no character XP expected)', true);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('applyBattleAftermath — fallen officers resolve through the Mortal Wounds resolver (Delves D1, RR p.470)');
+// A minimal ENDED battle with a hand-authored aftermath carrying one fallen officer, so the
+// MW wiring (setOfficerOutcome → applyBattleAftermath) is driven deterministically (no full fight).
+function mkOfficerBattle(officer, victor){
+  const c = mkCampaign();
+  c.currentDayInMonth = 1;                  // isolate the convalescence Day-Clock check below
+  c.characters = [officer];
+  const battle = {
+    id: 'btl-mw', name: 'Test Clash', status: 'ended', attackerSide: 'a',
+    result: { winner: victor ? 'a' : 'b', loser: victor ? 'b' : 'a', endedBy: 'morale', endedAtTurn: 3 },
+    hexId: null, turnNumber: 3,
+    sides: {
+      a: { label: 'Side A', units: [], leaderCharacterId: null, commanders: [], startingBr: 10, stance: 'offensive', groupIds: [] },
+      b: { label: 'Side B', units: [], leaderCharacterId: null, commanders: [], startingBr: 10, stance: 'defensive', groupIds: [] }
+    },
+    aftermath: {
+      computedAtTurn: 1, retreatNote: '', pursuit: [], casualties: [], prisoners: 0,
+      officers: [{ characterId: officer.id, name: officer.name, unitLabel: '1st Cohort', unitStatus: 'destroyed',
+        side: 'a', victor: victor, netMod: victor ? 0 : -4, mayDeclineToCaptivity: true, outcome: null, woundRoll: null }],
+      spoils: { wageSpoils: 0, prisonerSpoils: 0, total: 0, monsterSpoilsNote: false },
+      xp: { commanderXpTotal: 0, commanderSplits: [], troopCombatXpEach: 0, spoilsLeaderGp: 0, troopShareGp: 0, perUnitGp: 0, troops: [] },
+      lines: [], applied: false
+    }
+  };
+  c.battles = [battle];
+  return c;
+}
+ok('the Delves D1 resolver is loaded into this suite', typeof ACKS.applyMortalWound === 'function' && typeof ACKS.rollMortalWound === 'function');
+
+// (1) a survivable wound on the VICTOR's side → wound record + permanent penalty + convalescence
+{
+  const off = ACKS.blankCharacter({ id: 'chr-off', name: 'Captain Vael', level: 5 });
+  const c = mkOfficerBattle(off, true);
+  const entry = ACKS.setOfficerOutcome(c, 'btl-mw', 'chr-off', 'grievously-wounded', { forcedD6: 4 });
+  ok('setOfficerOutcome builds the structured Mortal Wound (band key = MW condition id)',
+    entry.outcome === 'grievously-wounded' && entry.mortalWound && entry.mortalWound.conditionId === 'grievously-wounded' && entry.mortalWound.d6 === 4);
+  ok('the bare 1d6 wound report is preserved (back-compat / the panel)', entry.woundRoll === 4);
+  ok('a grievously-wounded VICTOR does not die (his troops save him)', entry.dies === false && entry.captured === false);
+  ACKS.applyBattleAftermath(c, 'btl-mw');
+  ok('the officer carries a Mortal Wounds record (incapacitated, not killed)',
+    (off.mortalWounds || []).length === 1 && off.mortalWounds[0].outcome === 'incapacitated');
+  ok('the savage 1d6=4 grievous wound is lasting → −1 permanentWoundPenalty (RR p.166 ledger)', off.permanentWoundPenalty === -1);
+  ok('lifecycleState is incapacitated (convalescing) — never the legacy bare "dead"',
+    off.lifecycleState === 'incapacitated' && off.lifecycleState !== 'dead' && off.alive !== false);
+  ok('the bed-rest clock started (grievous = 14 days)', off.mortalWounds[0].bedRestDaysRemaining === 14);
+  ok('a per-officer mortal-wound event landed (it surfaces in the character timeline)',
+    c.eventLog.some(e => e.event && e.event.kind === 'mortal-wound' && ((e.event.context || {}).relatedEntities || []).some(r => r.id === 'chr-off')));
+  ok('the battle note records the wound + the battle context', (off.history || []).some(h => /grievously/i.test(h.summary || '') && /Test Clash/.test(h.summary || '')));
+  ok('the convalescing officer engages the Day Clock (dayTickActivityInFlight)', ACKS.dayTickActivityInFlight(c) === true);
+}
+
+// (2) a grievous wound on the DEFEATED side → the officer dies (RR p.470: dies if defeated)
+{
+  const off = ACKS.blankCharacter({ id: 'chr-off', name: 'Sir Aldric', level: 6 });
+  const c = mkOfficerBattle(off, false);                 // his side lost
+  ACKS.setOfficerOutcome(c, 'btl-mw', 'chr-off', 'grievously-wounded', { forcedD6: 3 });
+  ACKS.applyBattleAftermath(c, 'btl-mw');
+  ok('a grievously-wounded officer on the LOSING side dies (deceased + alive:false)', off.lifecycleState === 'deceased' && off.alive === false);
+  ok('the death is a killed wound record + no loyalty penalty on a corpse',
+    (off.mortalWounds || []).some(w => w.outcome === 'killed') && (off.permanentWoundPenalty || 0) === 0);
+}
+
+// (3) a death band (mortally-wounded) → deceased + alive:false even on the WINNING side (fixes the legacy 'dead')
+{
+  const off = ACKS.blankCharacter({ id: 'chr-off', name: 'Marshal Cole', level: 7 });
+  const c = mkOfficerBattle(off, true);                  // victor side — mortally-wounded still always dies
+  ACKS.setOfficerOutcome(c, 'btl-mw', 'chr-off', 'mortally-wounded');
+  ok('a death band carries no 1d6 wound report (the officer simply dies)', ACKS.findBattle(c, 'btl-mw').aftermath.officers[0].woundRoll === null);
+  ACKS.applyBattleAftermath(c, 'btl-mw');
+  ok('mortally-wounded → the canonical death pair deceased + alive:false (not the legacy "dead")',
+    off.lifecycleState === 'deceased' && off.alive === false && off.lifecycleState !== 'dead');
+}
+
+// (4) captured-voluntarily → the officer submits, takes NO wound
+{
+  const off = ACKS.blankCharacter({ id: 'chr-off', name: 'Lt. Bryn', level: 4 });
+  const c = mkOfficerBattle(off, false);                 // routed → may submit
+  const entry = ACKS.setOfficerOutcome(c, 'btl-mw', 'chr-off', 'captured-voluntarily');
+  ok('captured-voluntarily stores no wound (he submitted to avoid the roll)', entry.outcome === 'captured-voluntarily' && entry.woundRoll === null && entry.mortalWound === null);
+  ACKS.applyBattleAftermath(c, 'btl-mw');
+  ok('a voluntarily-captured officer carries no Mortal Wound + stays alive',
+    (off.mortalWounds || []).length === 0 && off.alive !== false && off.lifecycleState !== 'deceased');
+  ok('… and the capture is recorded in history', (off.history || []).some(h => /captured/i.test(h.summary || '')));
+}
+
+// (5) a critically-wounded-AND-captured officer (defeated) gets BOTH the wound AND the capture (the gap fix)
+{
+  const off = ACKS.blankCharacter({ id: 'chr-off', name: 'Capt. Mira', level: 5 });
+  const c = mkOfficerBattle(off, false);
+  ACKS.setOfficerOutcome(c, 'btl-mw', 'chr-off', 'critically-wounded', { forcedD6: 4 });   // 1d6=4 → one hand lost (lasting)
+  ACKS.applyBattleAftermath(c, 'btl-mw');
+  ok('a critically-wounded + captured officer survives WITH the wound applied (not dropped)',
+    off.lifecycleState === 'incapacitated' && (off.mortalWounds || []).length === 1 && off.permanentWoundPenalty === -1);
+  ok('… and the capture disposition is recorded alongside the wound', (off.history || []).some(h => /captured/i.test(h.summary || '')));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

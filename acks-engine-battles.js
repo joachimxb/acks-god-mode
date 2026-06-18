@@ -1140,21 +1140,44 @@
     };
     return battle.aftermath;
   }
-  function setOfficerOutcome(campaign, battleId, characterId, outcomeKey){
+  function setOfficerOutcome(campaign, battleId, characterId, outcomeKey, opts){
+    opts = opts || {};
     const Ax = A();
     const battle = findBattle(campaign, battleId);
     const af = battle && battle.aftermath;
     if(!af || af.applied) return null;
     const entry = (af.officers || []).find(x => x.characterId === characterId);
     if(!entry) return null;
-    const band = (Ax.OFFICER_CASUALTY_OUTCOMES || []).find(b => b.key === outcomeKey) || null;
+    // A routed officer may SUBMIT to capture instead of risking the Mortal Wounds roll (RR p.470).
     if(outcomeKey === 'captured-voluntarily' && entry.mayDeclineToCaptivity){
-      entry.outcome = 'captured-voluntarily'; entry.woundRoll = null;
+      entry.outcome = 'captured-voluntarily';
+      entry.woundRoll = null; entry.mortalWound = null;
+      entry.dies = false; entry.captured = true; entry.escaped = false;
       return entry;
     }
+    const band = (Ax.OFFICER_CASUALTY_OUTCOMES || []).find(b => b.key === outcomeKey) || null;
     if(!band) return null;
     entry.outcome = band.key;
-    entry.woundRoll = band.woundRoll ? _d6() : null;
+    entry.dies = (band.dies === 'always' || (band.dies === 'if-defeated' && !entry.victor));
+    entry.captured = !!(band.capturedIfDefeated && !entry.victor);
+    entry.escaped = !!(band.escapedIfDefeated && !entry.victor);
+    // Resolve the casualty through the shipped Mortal Wounds resolver (Delves D1). The
+    // officer-casualty band key IS the MW condition id (RR p.470 sends fallen officers to the
+    // Mortal Wounds table); abstract:true → the mass-combat modifier subset (CON / HD / helm,
+    // JJ p.276). One roll here; applyBattleAftermath applies this stored result deterministically.
+    const ch = _char(campaign, characterId);
+    if(typeof Ax.rollMortalWound === 'function' && ch){
+      entry.mortalWound = Ax.rollMortalWound(ch, {
+        conditionId: band.key, damageType: 'savage', abstract: true,
+        forcedD6: (opts.forcedD6 != null ? opts.forcedD6 : undefined),
+        rng: opts.rng || Math.random
+      });
+      // keep the bare d6 report for the panel + back-compat, gated on the band's own woundRoll flag.
+      entry.woundRoll = band.woundRoll ? entry.mortalWound.d6 : null;
+    } else {
+      entry.mortalWound = null;
+      entry.woundRoll = band.woundRoll ? _d6(opts.rng) : null;   // D1 not loaded — the bare report
+    }
     return entry;
   }
   // applyBattleAftermath — the one world-write step: unit/group casualties, officer
@@ -1187,22 +1210,35 @@
       if(!Array.isArray(g.history)) g.history = [];
       g.history.push({ atTurn: campaign.currentTurn || 1, type: 'battle', summary: groupLoss[id] + ' lost at ' + battle.name });
     }
-    // 2) officers
+    // 2) officers — resolve each fallen officer through the shipped Mortal Wounds resolver
+    //    (Delves D1): the wound record + the standing permanentWoundPenalty + the convalescence
+    //    clock (or the death) + a per-officer mortal-wound event all flow from the one casualty
+    //    primitive. RR p.470 sends fallen officers to the Mortal Wounds table.
     for(const o of af.officers){
       const ch = _char(campaign, o.characterId);
       if(!ch) continue;
-      const band = (Ax.OFFICER_CASUALTY_OUTCOMES || []).find(b => b.key === o.outcome) || null;
-      const dies = band && (band.dies === 'always' || (band.dies === 'if-defeated' && !o.victor));
-      if(dies){
-        ch.lifecycleState = 'dead';
-        if(typeof Ax.addCharacterHistory === 'function') Ax.addCharacterHistory(campaign, ch, 'death', 'Fell at ' + battle.name + ' (' + (band ? band.label : o.outcome) + ')');
-      } else if(o.outcome === 'captured-voluntarily' || (band && band.capturedIfDefeated && !o.victor)){
-        if(typeof Ax.addCharacterHistory === 'function') Ax.addCharacterHistory(campaign, ch, 'note', 'Captured at ' + battle.name + (o.outcome === 'captured-voluntarily' ? ' (submitted rather than risk the wounds)' : ''));
-      } else if(band){
-        const escaped = band.escapedIfDefeated && !o.victor ? ' — escaped before capture' : '';
-        const wound = o.woundRoll != null ? '; permanent-wound roll 1d6 = ' + o.woundRoll + ' (apply per the Mortal Wounds table — the Combat layer owns it)' : '';
-        if(typeof Ax.addCharacterHistory === 'function') Ax.addCharacterHistory(campaign, ch, 'note', band.label + ' at ' + battle.name + escaped + wound);
+      // A routed officer who submitted to capture took no wound roll (RR p.470).
+      if(o.outcome === 'captured-voluntarily'){
+        if(typeof Ax.addCharacterHistory === 'function')
+          Ax.addCharacterHistory(campaign, ch, 'note', 'Captured at ' + battle.name + ' (submitted rather than risk the wounds)');
+        continue;
       }
+      const band = (Ax.OFFICER_CASUALTY_OUTCOMES || []).find(b => b.key === o.outcome) || null;
+      if(!band) continue;
+      const dies = (o.dies != null) ? o.dies : (band.dies === 'always' || (band.dies === 'if-defeated' && !o.victor));
+      // Apply the Mortal Wound: the battle decides death (per band + victor); pass it via
+      // healedToOneHp so the resolver records the death OR the survivable wound + bed rest +
+      // the permanentWoundPenalty + the convalescence clock (the slot-58 day consumer heals it).
+      if(typeof Ax.applyMortalWound === 'function' && o.mortalWound){
+        Ax.applyMortalWound(campaign, ch, o.mortalWound, { healedToOneHp: !dies });
+      } else if(dies){                                       // D1 not loaded — fall back to a bare death
+        ch.lifecycleState = 'deceased'; ch.alive = false;
+      }
+      // Battle-context note (where it happened + the disposition the resolver can't know).
+      const dispo = (o.captured || (band.capturedIfDefeated && !o.victor)) ? ' — captured by the enemy'
+                  : ((o.escaped || (band.escapedIfDefeated && !o.victor)) ? ' — escaped before capture' : '');
+      if(typeof Ax.addCharacterHistory === 'function')
+        Ax.addCharacterHistory(campaign, ch, dies ? 'death' : 'note', band.label + ' at ' + battle.name + dispo);
     }
     // 3) XP — commanders to characters, troops to the world units' per-troop accrual
     for(const s of af.xp.commanderSplits){

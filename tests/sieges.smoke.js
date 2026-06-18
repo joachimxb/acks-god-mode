@@ -216,6 +216,31 @@ section('launchSiegeAssault — hands off to the W3 battle engine');
   ok('siege-progress (assault) event names the battle', c.eventLog.some(e => e.event && e.event.kind === 'siege-progress' && e.event.payload.phase === 'assault' && e.event.payload.battleId === r.battle.id));
 }
 
+section('A siege assault’s officer casualties feed the Mortal Wounds resolver (RR p.485 → W3 → Delves D1)');
+{
+  // An assault IS a battle (RR p.485), so the defender's officers roll on the same Mortal Wounds
+  // table the W3 aftermath now drives — closing the deferral's "same for a siege assault" clause.
+  const { c, army, dom } = mkFixture({ besiegerUnits: 6, defenderUnits: 3 });
+  const castellan = ACKS.blankCharacter({ id: 'chr-castellan', name: 'Castellan Roht', level: 6 });
+  c.characters.push(castellan);
+  const s = ACKS.startSiege(c, { besiegerArmyId: army.id, defenderDomainId: dom.id, strongholdShp: 24000, unitCapacity: 24 }).siege;
+  const btl = ACKS.findBattle(c, ACKS.launchSiegeAssault(c, s.id).battle.id);
+  ok('the assault battle carries the garrison as defending units', (btl.sides.b.units || []).length > 0);
+  // the castellan leads a defending unit; the besieger storms the walls and that unit is overrun
+  btl.sides.b.units[0].officerCharacterId = 'chr-castellan';
+  btl.sides.b.units[0].status = 'destroyed';
+  btl.status = 'ended';
+  btl.result = { winner: 'a', loser: 'b', endedBy: 'assault', endedAtTurn: 1 };
+  const af = ACKS.computeBattleAftermath(c, btl.id);
+  ok('the aftermath flags the castellan as a fallen officer', (af.officers || []).some(o => o.characterId === 'chr-castellan'));
+  // critically wounded (survives even when the stronghold falls) + captured behind the walls
+  ACKS.setOfficerOutcome(c, btl.id, 'chr-castellan', 'critically-wounded', { forcedD6: 4 });   // 1d6=4 → one hand lost (lasting)
+  ACKS.applyBattleAftermath(c, btl.id);
+  ok('the defender officer took a real Mortal Wound from the assault (record + −1 penalty + convalescing)',
+    (castellan.mortalWounds || []).length === 1 && castellan.permanentWoundPenalty === -1 && castellan.lifecycleState === 'incapacitated');
+  ok('… captured behind the fallen walls (the disposition is recorded)', (castellan.history || []).some(h => /captured/i.test(h.summary || '')));
+}
+
 section('resolveSiege — capture / lift, status + event');
 {
   const { c, army, dom } = mkFixture({});
