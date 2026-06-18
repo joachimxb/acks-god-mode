@@ -630,6 +630,26 @@
     let ended = null;
     const surprisedKey = (t === 1) ? battle.surprisedSide : null;
 
+    // RR p.449 — severe weather penalizes MISSILE attack throws (rainy/snowy −2, windy −2,
+    // stormy −4): limited visibility / sandstorms hamper everyone's shooting, so it applies to
+    // BOTH sides' missile phases (not melee). Resolve the battle's hex weather from the committed
+    // cache (incl. a GM-set day); roll on demand only when the weather layer is generating.
+    let wxMissileMod = 0, wxMissileLabel = '';
+    (function(){
+      const hex = _hex(campaign, battle.hexId);
+      if(!hex || !hex.coord || typeof Ax.regionKeyForCoord !== 'function' || typeof Ax.weatherWarEffects !== 'function') return;
+      const k = Ax.regionKeyForCoord(hex.coord);
+      const cache = campaign._weatherByRegion || {};
+      let w = (k && cache[k] && cache[k].condition) ? cache[k] : null;
+      const gmSet = typeof Ax.isHouseRuleEnabled === 'function' && Ax.isHouseRuleEnabled(campaign, 'gm-set-weather');
+      if(!w && !gmSet && typeof Ax.weatherForHex === 'function') w = Ax.weatherForHex(campaign, hex);
+      if(!w || !w.condition) return;
+      const eff = Ax.weatherWarEffects(w.condition, w.temperatureBand || w.temperature);
+      wxMissileMod = eff.missileMod || 0;
+      if(wxMissileMod) wxMissileLabel = eff.conditionLabel || w.condition;
+    })();
+    if(wxMissileMod) lines.push('  Weather: ' + wxMissileLabel + ' \u{2014} ' + wxMissileMod + ' to missile attack throws (RR p.449)');
+
     for(let zi = 0; zi < _ZONE_PAIRS.length && !ended; zi++){
       const pair = _ZONE_PAIRS[zi];
       for(const phaseKind of ['missile', 'melee']){
@@ -666,6 +686,7 @@
           if(surprisedKey === sk) return { throws: 0, hits: 0, mod: 0, surprised: true };
           const pool = _attackPoolBr(side, myZone, phaseKind, t);
           let mod = side.gmAttackMod || 0;
+          if(phaseKind === 'missile') mod += wxMissileMod;   // RR p.449 — weather missile penalty (both sides)
           if(enemyBroken) mod += 2;
           if(surprisedKey && surprisedKey !== sk) mod += 2;
           const at = battle.options && battle.options.advantageousTerrain;

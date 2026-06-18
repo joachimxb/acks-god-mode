@@ -2310,6 +2310,31 @@ function armyWeatherSpeedMult(condition, temperature){
   const t = ARMY_WEATHER_EFFECTS.temperatures[temperature];
   return (c ? c.speedMult : 1) * (t ? t.speedMult : 1);
 }
+// weatherWarEffects(condition, temperature) — the single reader that turns a day's
+// weather (the lowercase JOURNEY_*_SPEED enums the weather layer hands down) into the
+// RR p.449 effects bundle the warfare layer consumes. Pure; both args default to ×1/no
+// effect when unkeyed (so 'fair'/'moderate' and unknown values are no-ops). The
+// sweltering supply/out-of-supply effects are temperature-axis (RR p.449); the missile/
+// recon/disease effects come straight off the catalog rows. (Speed already had its own
+// reader above; this is the rest of the table.)
+function weatherWarEffects(condition, temperature){
+  const c = ARMY_WEATHER_EFFECTS.conditions[condition] || null;
+  const t = ARMY_WEATHER_EFFECTS.temperatures[temperature] || null;
+  const sweltering = temperature === 'sweltering';
+  return {
+    condition: condition || null, temperature: temperature || null,
+    speedMult: (c ? c.speedMult : 1) * (t ? t.speedMult : 1),
+    supplyCostMult: sweltering ? 1.25 : 1,                 // RR p.449 — sweltering: +25% (more water consumption)
+    outOfSupplyDoubled: sweltering,                        // RR p.449 — sweltering: out-of-supply penalties doubled (heat exhaustion + dehydration)
+    missileMod: (c && c.missileMod) || 0,                  // RR p.449 — rainy/snowy −2, windy −2, stormy −4 to missile attack throws
+    reconMod: (c && c.reconMod) || 0,                      // RR p.449 — rainy/snowy −2; windy/stormy −4 (barrens/desert only)
+    reconBarrensDesertOnly: !!(c && c.reconBarrensDesertOnly),
+    conditionDiseasePctWeek: (c && c.diseasePctWeek) || 0, // RR p.449 — rainy/snowy 10% disease/week (wetness)
+    temperatureDiseasePctWeek: (t && t.diseasePctWeek) || 0, // RR p.449 — frigid 10% / cold 5% disease/week (exposure)
+    conditionLabel: (c && c.label) || null,
+    temperatureLabel: (t && t.label) || null
+  };
+}
 
 // Reconnaissance Range (RR p.452) — how close the observing army must be, by the
 // OPPOSING army's size, in 24-mile hexes. 🔧 The campaign map has no 24-mile super-
@@ -2574,7 +2599,7 @@ Object.assign(ACKS, {
   OFFICER_CASUALTY_MODS, OFFICER_CASUALTY_OUTCOMES,
   // Phase 3 Military W4 — the maneuvers catalogs (RR pp.447–460)
   ARMY_LARGE_MULTIPLIERS, armyLargeMultiplierRow, WAR_MACHINE_SPEED,
-  ARMY_WEATHER_EFFECTS, armyWeatherSpeedMult,
+  ARMY_WEATHER_EFFECTS, armyWeatherSpeedMult, weatherWarEffects,
   RECON_RANGE, reconRange24, RECON_SIZE_MODS, reconSizeMod, ARMY_SIZE_BANDS, armySizeBandLabel,
   reconProximityMod, reconTerrainMod, reconScoutingMod,
   RECON_RESULTS, reconProximityTier, reconResultsFor,

@@ -39,7 +39,7 @@
 <script src="vendor/tailwind-play-3.4.16.js"></script>
 <!-- ACKS engine module (v2). Defines window.ACKS namespace used by the Alpine app below. -->
 <!-- Foundation 4 is incremental: index.html still contains v1-style code paths until follow-up #168/#169 land. -->
-<script src="acks-engine-catalogs.js?v=2026-06-14-burst5"></script>
+<script src="acks-engine-catalogs.js?v=2026-06-18-weatherwar"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
@@ -48,10 +48,10 @@
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-18-camp"></script>
-<script src="acks-engine-battles.js?v=2026-06-12-a"></script>
-<script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-18-w7banditry"></script>
+<script src="acks-engine-events.js?v=2026-06-18-weatherwar"></script>
+<script src="acks-engine-battles.js?v=2026-06-18-weatherwar"></script>
+<script src="acks-engine-maneuvers.js?v=2026-06-18-weatherwar"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-18-weatherwar"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
@@ -635,10 +635,18 @@ document.addEventListener('alpine:init', () => {
                       <div class="text-xs opacity-80 leading-snug" x-text="'🔥 ' + r.results.gold.toLocaleString() + 'gp plundered · ' + r.results.supplies.toLocaleString() + 'gp supplies · ' + r.results.prisoners + ' prisoners · ' + r.results.familiesLost + ' families lost' + (r.results.destroyed ? ' · the domain is DESTROYED' : (r.morale ? ' · morale ' + r.morale.before + ' → ' + r.morale.after + ' (−4 roll)' : ''))"></div>
                     </div>
                   </template>
-                  <!-- W5 ARMY-SUPPLY records (out of supply): the cost / base value / line breakdown. -->
+                  <!-- W5 ARMY-SUPPLY records (out of supply): the cost / base value / line breakdown.
+                       The cost already folds the RR p.449 sweltering +25%; flag the doubled penalty. -->
                   <template x-if="r.kind === 'army-supply' && !r.inSupply && !r.rejected">
                     <div class="ml-3 pb-1">
-                      <div class="text-xs opacity-80 leading-snug" x-text="'📦 cost ' + (r.cost || 0).toLocaleString() + 'gp/wk · base value ' + (r.baseValue != null ? r.baseValue.toLocaleString() + 'gp' : '—') + (r.line ? ' · line ' + r.line.status : '') + ' → ' + r.condition + ' (RR p.452)'"></div>
+                      <div class="text-xs opacity-80 leading-snug" x-text="'📦 cost ' + (r.cost || 0).toLocaleString() + 'gp/wk' + (r.weatherSupplyMult > 1 ? ' (sweltering +25%)' : '') + ' · base value ' + (r.baseValue != null ? r.baseValue.toLocaleString() + 'gp' : '—') + (r.line ? ' · line ' + r.line.status : '') + ' → ' + r.condition + ' (RR p.452)' + (r.outOfSupplyDoubled ? ' · penalties DOUBLED — sweltering heat exhaustion + dehydration (RR p.449)' : '')"></div>
+                    </div>
+                  </template>
+                  <!-- ARMY-DISEASE records (RR p.449): a weather epidemic — the GM rolls each unit's
+                       Death save (JJ pp.113–114). A no-disease week shows only its quiet label above. -->
+                  <template x-if="r.kind === 'army-disease' && r.contracted && !r.rejected">
+                    <div class="ml-3 pb-1">
+                      <div class="text-xs text-red-700 leading-snug" x-text="'🦠 a disease breaks out (' + (r.causes || []).join(' + ') + ') — each unit makes a Death save (bonus per disease) or is incapacitated, then recovers or dies (JJ pp.113–114). GM-resolved.'"></div>
                     </div>
                   </template>
                   <!-- W8 VAGARY-OF-WAR records (JJ pp.113–115): the rolled vagary's GM instruction. The

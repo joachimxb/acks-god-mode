@@ -6355,6 +6355,20 @@ function proposeMilitaryDay(campaign, ctx){
   if(!active.length) return { pendingRecords, notableEvents };
   const effHex = a => { const m = stash.moves[a.id]; return (m && m.endHexId) ? m.endHexId : a.currentHexId; };
   const armyName = a => (a && a.name) || 'an army';
+  // The day's weather for an army's hex (RR p.449 weather→war coupling). Mirrors the army-
+  // march resolution (tickJourneyDay): the slot-1 weather consumer hands the day's per-region
+  // weather down via ctx.weatherByRegion (keyed by 24-mile region); prefer THIS army's region,
+  // fall back to the single ctx.weather (the common single-region case). The producer already
+  // skips generation under gm-set-weather, so an absent region ⇒ null (no effect) — no on-
+  // demand roll, so a static UI readout / an existing consumer test sees no phantom weather.
+  const armyDayWeather = (hex) => {
+    const byR = ctx.weatherByRegion;
+    if(byR && hex && hex.coord && typeof A.regionKeyForCoord === 'function'){
+      const k = A.regionKeyForCoord(hex.coord);
+      if(k && byR[k] && byR[k].condition) return byR[k];
+    }
+    return (ctx.weather && ctx.weather.condition) ? ctx.weather : null;
+  };
 
   // ── 1. initiative + initial reconnaissance (armies with an opposing army in range) ──
   const initiativeOf = {};
@@ -6576,7 +6590,7 @@ function proposeMilitaryDay(campaign, ctx){
     const dailyCheck = (baseT === 'barrens' || baseT === 'desert');     // RR p.451 — checked daily there
     const since = (army.lastSupplyCheckOrd != null) ? (ord - army.lastSupplyCheckOrd) : Infinity;
     if(since < (dailyCheck ? 1 : 7)) continue;
-    const sup = A.armyInSupply(campaign, army, { armyHexId: effHex(army) });
+    const sup = A.armyInSupply(campaign, army, { armyHexId: effHex(army), weather: armyDayWeather(armyHex) });
     if(sup.hungerless) continue;                                        // constructs/undead never check
     const hasWater = !!(armyHex && (baseT === 'water' || (Array.isArray(armyHex.riverSides) && armyHex.riverSides.length) || armyHex.hasLake || armyHex.freshWater));
     const dehydrated = !sup.inSupply && dailyCheck && !hasWater;
@@ -6586,13 +6600,18 @@ function proposeMilitaryDay(campaign, ctx){
       'cannot-pay': "can't pay the cost", 'insufficient-base': 'no base of sufficient value',
       'line-blocked': 'supply line cut', 'line-overextended': 'supply line overextended', 'line-no-base': 'no supply base'
     })[r] || r).join(', ');
+    // RR p.449 — sweltering raises the supply cost +25% (folded into sup.cost) and doubles
+    // the out-of-supply penalty; surface both on the record label.
+    const wxSupplyNote = (sup.weatherSupplyMult > 1) ? ' \u{00B7} sweltering +25% supply (RR p.449)' : '';
+    const wxDoubledNote = (!sup.inSupply && sup.outOfSupplyDoubled) ? ' \u{00B7} penalties DOUBLED (sweltering)' : '';
     const label = sup.inSupply
-      ? '\u{1F69A} ' + armyName(army) + ': in supply (' + (sup.cost || 0).toLocaleString() + 'gp/wk' + (sup.line && sup.line.status === 'simplified' ? ', simplified' : (sup.line && sup.line.weightedLength != null ? ', line ' + sup.line.weightedLength + '/16' : '')) + ')'
-      : '\u{26A0} ' + armyName(army) + ': OUT OF SUPPLY' + (reasonText ? ' — ' + reasonText : '') + ' → ' + condition + ' (RR p.452)';
+      ? '\u{1F69A} ' + armyName(army) + ': in supply (' + (sup.cost || 0).toLocaleString() + 'gp/wk' + (sup.line && sup.line.status === 'simplified' ? ', simplified' : (sup.line && sup.line.weightedLength != null ? ', line ' + sup.line.weightedLength + '/16' : '')) + ')' + wxSupplyNote
+      : '\u{26A0} ' + armyName(army) + ': OUT OF SUPPLY' + (reasonText ? ' — ' + reasonText : '') + ' → ' + condition + ' (RR p.452)' + wxSupplyNote + wxDoubledNote;
     pendingRecords.push({
       kind: 'army-supply', armyId: army.id, name: armyName(army),
       inSupply: sup.inSupply, cost: sup.cost, baseValue: sup.baseValue, line: sup.line || null,
       fraction: sup.fraction, dehydrated, condition, simplified: sup.simplified, simplifiedTrigger: sup.simplifiedTrigger,
+      weatherSupplyMult: sup.weatherSupplyMult, outOfSupplyDoubled: sup.outOfSupplyDoubled,
       reasons: sup.reasons, ord, payGold: sup.inSupply && !fedByReq, fedByReq, hasWater,
       label, status: 'pending'
     });
@@ -6645,6 +6664,51 @@ function proposeMilitaryDay(campaign, ctx){
                    roll: v.roll, mod: v.mod, total: v.total, pickBest: v.pickBest, pickWorst: v.pickWorst,
                    siege: v.siege, realmUnitScale: unit ? unit.scale : null, effect: v.row.effect, narrative: label }
       });
+    }
+  }
+
+  // ── 3d. weather disease (RR p.449, core RAW — NOT gated on vagaries-of-war) — each on-
+  //        campaign army runs a WEEKLY disease check: frigid/cold exposure (10%/5%) and
+  //        rainy/snowy wetness (10%) are separate causes, each its own roll. A hit = an
+  //        epidemic (each unit makes a Death save or is incapacitated, JJ pp.113–114; GM-
+  //        resolved). An ISOLATED per-army seeded rng keeps these draws out of the main
+  //        military stream (initiative/recon/contact/vagaries/pillage stay byte-stable);
+  //        placed after vagaries so its presence never shifts those draws either. ──
+  if(typeof A.rollArmyWeatherDisease === 'function'){
+    for(const army of active){
+      const armyHex = (campaign.hexes || []).find(h => h && h.id === effHex(army));
+      const dayWx = armyDayWeather(armyHex);
+      if(!dayWx) continue;
+      const since = (army.lastWeatherDiseaseOrd != null) ? (ord - army.lastWeatherDiseaseOrd) : Infinity;
+      if(since < 7) continue;                                            // weekly cadence
+      const diseaseRng = _jMulberry32(_jHash32('military-disease|' + ord + '|' + army.id));
+      const dz = A.rollArmyWeatherDisease(campaign, army, { weather: dayWx, rng: diseaseRng });
+      if(!dz.chance) continue;                                           // this weather carries no disease chance → no check
+      if(dz.contracted){
+        const causeText = (dz.causes || []).join(' + ');
+        const label = '\u{1F9A0} ' + armyName(army) + ': a disease breaks out (' + causeText + ', RR p.449) — each unit makes a Death save or is incapacitated (JJ pp.113\u{2013}114)';
+        pendingRecords.push({
+          kind: 'army-disease', armyId: army.id, name: armyName(army), contracted: true,
+          condPct: dz.condPct, tempPct: dz.tempPct, causes: dz.causes, condition: dz.condition, temperature: dz.temperature,
+          ord, label, status: 'pending'
+        });
+        notableEvents.push({
+          kind: 'army-disease', type: 'army-disease', pauseTrigger: 'encounter',   // a weather epidemic halts a multi-day advance for GM review
+          primaryHexId: effHex(army) || null,
+          relatedEntities: [{ kind: 'army', id: army.id, role: 'subject' }].concat(army.leaderCharacterId ? [{ kind: 'character', id: army.leaderCharacterId, role: 'commander' }] : []),
+          label,
+          payload: { armyId: army.id, contracted: true, causes: dz.causes, condPct: dz.condPct, tempPct: dz.tempPct,
+                     condition: dz.condition, temperature: dz.temperature, narrative: label }
+        });
+      } else {
+        // a quiet "checked, no disease" record carries the weekly cadence advance on commit;
+        // it fires only on disease-weather weeks (uncommon), so it's low-noise (no notable).
+        pendingRecords.push({
+          kind: 'army-disease', armyId: army.id, name: armyName(army), contracted: false,
+          condPct: dz.condPct, tempPct: dz.tempPct, ord, status: 'pending',
+          label: '\u{1F9A0} ' + armyName(army) + ': no disease this week (' + (dz.condPct ? dz.condPct + '% wetness' : '') + (dz.condPct && dz.tempPct ? ' + ' : '') + (dz.tempPct ? dz.tempPct + '% exposure' : '') + ', RR p.449)'
+        });
+      }
     }
   }
 
@@ -6850,9 +6914,18 @@ function commitMilitaryRecord(campaign, record){
     if(typeof A.applyArmySupplyOutcome === 'function'){
       A.applyArmySupplyOutcome(campaign, army, {
         inSupply: record.inSupply, cost: record.cost, fraction: record.fraction,
-        dehydrated: record.dehydrated, payGold: record.payGold, ord: record.ord
+        dehydrated: record.dehydrated, payGold: record.payGold, ord: record.ord,
+        outOfSupplyDoubled: record.outOfSupplyDoubled   // RR p.449 — sweltering doubles the out-of-supply penalty
       });
     }
+  } else if(record.kind === 'army-disease'){
+    // RR p.449 weather disease — advance the weekly disease cadence. A contracted epidemic
+    // is a GM-resolve event (the notable, emitted by the orchestrator); the per-unit Death
+    // saves are the GM's (like the W8 Disease vagary). (Reject = the cadence does NOT advance,
+    // so the army is re-checked the next due tick.)
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
+    if(!army) return;
+    army.lastWeatherDiseaseOrd = (record.ord != null) ? record.ord : ((campaign.currentTurn || 1) * 30 + (campaign.currentDayInMonth || 1));
   } else if(record.kind === 'army-vagary'){
     // Phase 3 Military W8 — the Vagaries of War (JJ pp.113–115). The vagary-of-war EVENT was emitted
     // by the orchestrator (the notable); here we only advance the weekly cadence + carry the self-
