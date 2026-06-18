@@ -5534,6 +5534,7 @@
                 "army-contact",
                 "domain-warfare",
                 "army-supply",
+                "army-disease",
                 "vagary-of-recruitment",
                 "vagary-of-war",
                 "vagary-of-battle",
@@ -5688,7 +5689,7 @@
     "schemaVersion": 2,
     "entityKinds": 51,
     "typedKinds": 34,
-    "eventKinds": 110,
+    "eventKinds": 111,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",

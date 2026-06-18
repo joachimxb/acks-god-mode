@@ -157,6 +157,11 @@ const EVENT_KINDS = Object.freeze([
   // army-out-of-supply). Owned by the slot-88 military consumer's commit (applyArmySupplyOutcome
   // pays the cost / sets the RR p.452 ladder); routine "in supply" records are campaign-log-hidden.
   'army-supply',
+  // Weather-on-war (RR p.449, 2026-06-18) — a weather epidemic befalls an army (the weekly
+  // disease check; frigid/cold exposure + rainy/snowy wetness). Record-only GM-resolve audit
+  // owned by the slot-88 military consumer (its commit advances the weekly cadence). Core RAW —
+  // NOT gated on the optional vagaries-of-war table. The per-unit Death saves are the GM's.
+  'army-disease',
   // Phase 3 Military W8 (2026-06-17) — the Vagaries of Recruitment / War / Battle (JJ pp.110–117),
   // record-only GM-resolve audits owned by acks-engine-vagaries.js. Each carries the rolled vagary's
   // name + brief + a structured effect descriptor (ready for a future auto-apply wave). Behind the
@@ -684,6 +689,12 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { armyId: 'string', inSupply: 'boolean' },
     O: { cost: 'number', baseValue: 'number', lineStatus: 'string', reasons: 'object',
          condition: 'string', narrative: 'string' }
+  },
+  // army-disease (RR p.449): a weather epidemic befell the army (the weekly disease check hit).
+  'army-disease': {
+    R: { armyId: 'string', contracted: 'boolean' },
+    O: { causes: 'object', condPct: 'number', tempPct: 'number',
+         condition: 'string', temperature: 'string', narrative: 'string' }
   },
   // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Record-only;
   // `effect` is the structured descriptor (effect.category + params). recruitment is keyed to the
@@ -2491,6 +2502,7 @@ function applyEvent_warfareAudit(campaign, event){
 registerEventHandler('army-contact', applyEvent_warfareAudit);
 registerEventHandler('domain-warfare', applyEvent_warfareAudit);
 registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
+registerEventHandler('army-disease', applyEvent_warfareAudit);  // RR p.449 weather epidemic — record-only (the GM resolves the Death saves)
 // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) share the audit
 // posture: acks-engine-vagaries.js rolls them + (for the self-contained omen mod) the consumer commit
 // applies; these handlers only keep the events well-formed on replay (the GM applies the rest).
@@ -5660,7 +5672,7 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
   // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
-  'army-contact', 'domain-warfare', 'army-supply',
+  'army-contact', 'domain-warfare', 'army-supply', 'army-disease',
   // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) are AUTO-ROLLED
   // at their RAW cadence (the monthly turn / the slot-88 weekly check / declareForay), not authored
   // raw — a hand emit would carry no real roll. Owned by acks-engine-vagaries.js + the consumers.

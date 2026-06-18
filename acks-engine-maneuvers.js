@@ -62,6 +62,21 @@
     });
   }
 
+  // ── weather → war effects (RR p.449) ─────────────────────────────────────────
+  // Resolve a day's weather into the RR p.449 effects bundle (weatherWarEffects). The
+  // slot-88 consumer hands the day's weather in via opts.weather — either the weather
+  // layer's consumer-normalized shape (.temperature = the lowercase band key) or a raw
+  // weatherForHex result (.temperatureBand). _wxTemp normalizes both to the lowercase key.
+  // No opts.weather ⇒ null (no effect): the coupling fires from the day-tick (where the
+  // day's weather is known), not from a static UI supply readout.
+  function _wxTemp(w){ return (w && (w.temperatureBand || w.temperature)) || null; }
+  function _armyWeatherEffects(campaign, army, opts){
+    const Ax = A();
+    const w = opts && opts.weather;
+    if(!w || typeof Ax.weatherWarEffects !== 'function') return null;
+    return Ax.weatherWarEffects(w.condition || null, _wxTemp(w));
+  }
+
   // ── army composition reads ──────────────────────────────────────────────────
   // Active soldiers across the army's units (count − casualties, floored at 0).
   function armyTroopCount(campaign, army){
@@ -1243,15 +1258,22 @@
   // fraction = the fed share (baseValue/cost, capped 1) — drives the underfed/starving ladder.
   function armyInSupply(campaign, army, opts){
     const Ax = A(); const o = opts || {};
-    const cost = (typeof Ax.armyWeeklySupplyCost === 'function') ? Ax.armyWeeklySupplyCost(campaign, army) : 0;
-    if(cost <= 0) return { inSupply: true, cost: 0, canPay: true, baseValue: 0, line: { status: 'clear' }, fraction: 1, simplified: army.supplySimplified !== false, simplifiedTrigger: false, hungerless: true, reasons: [] };
+    let cost = (typeof Ax.armyWeeklySupplyCost === 'function') ? Ax.armyWeeklySupplyCost(campaign, army) : 0;
+    // RR p.449 — sweltering weather raises supply cost +25% (more water consumption) and
+    // doubles out-of-supply penalties. opts.weather is the day's weather (the consumer); the
+    // UI status readout passes none ⇒ no weather adjustment (base economy on the card).
+    const wx = _armyWeatherEffects(campaign, army, o);
+    const weatherSupplyMult = (wx && wx.supplyCostMult) || 1;
+    const outOfSupplyDoubled = !!(wx && wx.outOfSupplyDoubled);
+    if(cost > 0 && weatherSupplyMult !== 1) cost = Math.ceil(cost * weatherSupplyMult);
+    if(cost <= 0) return { inSupply: true, cost: 0, canPay: true, baseValue: 0, line: { status: 'clear' }, fraction: 1, simplified: army.supplySimplified !== false, simplifiedTrigger: false, hungerless: true, weatherSupplyMult: 1, outOfSupplyDoubled, reasons: [] };
     const leader = _char(campaign, army && army.leaderCharacterId);
     const funds = _leaderAvailableFunds(campaign, leader);
     const canPay = funds >= cost;
     const simplified = army.supplySimplified !== false;
     const trig = o.forceFull ? { triggered: true, reasons: ['forced'] } : armySupplyTrigger(campaign, army, { armyHexId: o.armyHexId });
     if(simplified && !trig.triggered){
-      return { inSupply: canPay, cost, canPay, baseValue: null, line: { status: 'simplified' }, fraction: canPay ? 1 : 0, simplified: true, simplifiedTrigger: false, reasons: canPay ? [] : ['cannot-pay'] };
+      return { inSupply: canPay, cost, canPay, baseValue: null, line: { status: 'simplified' }, fraction: canPay ? 1 : 0, simplified: true, simplifiedTrigger: false, weatherSupplyMult, outOfSupplyDoubled, reasons: canPay ? [] : ['cannot-pay'] };
     }
     const line = supplyLineStatus(campaign, army, o);
     const baseValue = armySupplyBaseTotalValue(campaign, army);
@@ -1260,7 +1282,7 @@
     if(baseValue < cost) reasons.push('insufficient-base');
     if(line.status !== 'clear') reasons.push('line-' + line.status);
     const fraction = cost > 0 ? Math.min(1, baseValue / cost) : 1;
-    return { inSupply: reasons.length === 0, cost, canPay, baseValue, line, fraction, simplified, simplifiedTrigger: trig.triggered, reasons };
+    return { inSupply: reasons.length === 0, cost, canPay, baseValue, line, fraction, simplified, simplifiedTrigger: trig.triggered, weatherSupplyMult, outOfSupplyDoubled, reasons };
   }
 
   // armyMarketClass (RR p.452) — equipment availability from the army's baggage train
@@ -1302,10 +1324,12 @@
       return;
     }
     const state = outcome.dehydrated ? 'dehydrated' : ((outcome.fraction != null && outcome.fraction >= 0.5) ? 'underfed' : 'starving');
+    const doubled = !!outcome.outOfSupplyDoubled;   // RR p.449 — sweltering doubles the penalty (heat exhaustion + dehydration)
     for(const u of units){
       u.supplyState = state;
       u.calamities = u.calamities || [];
-      u.calamities.push({ kind: 'out-of-supply', atOrd: army.lastSupplyCheckOrd, note: 'Out of supply (' + state + ') — loyalty roll due (RR p.452)' });
+      u.calamities.push({ kind: 'out-of-supply', atOrd: army.lastSupplyCheckOrd, doubled,
+        note: 'Out of supply (' + state + ')' + (doubled ? ' — penalties DOUBLED (sweltering heat exhaustion + dehydration, RR p.449)' : '') + ' — loyalty roll due (RR p.452)' });
     }
   }
 
@@ -1356,6 +1380,30 @@
     return { ok: true, requisitionedGp: reqGp, lootedGp: lootGp, totalGp, familiesLost, domainId: dom.id };
   }
 
+  // rollArmyWeatherDisease (RR p.449) — the weekly weather-disease check. Severe weather
+  // gives a weekly % chance of a "disease vagary": frigid/cold EXPOSURE (10% / 5%) and
+  // rainy/snowy WETNESS (10%) are separate causes (RR p.449), each its own roll. Core RAW —
+  // NOT gated on the optional vagaries-of-war table. A hit = an epidemic befalls the army
+  // (each unit makes a Death save, or is incapacitated for the duration then recovers/dies —
+  // JJ pp.113–114; GM-resolved, like the W8 Disease vagary). Returns { chance, contracted,
+  // condHit, tempHit, condPct, tempPct, causes[], condition, temperature }. opts.weather =
+  // the day's {condition, temperature}; opts.rng = the (isolated) roll source.
+  function rollArmyWeatherDisease(campaign, army, opts){
+    const o = opts || {};
+    const wx = _armyWeatherEffects(campaign, army, o);
+    const condPct = (wx && wx.conditionDiseasePctWeek) || 0;
+    const tempPct = (wx && wx.temperatureDiseasePctWeek) || 0;
+    if(condPct <= 0 && tempPct <= 0) return { chance: false, contracted: false, condPct: 0, tempPct: 0, causes: [] };
+    const rng = o.rng || Math.random;
+    const condHit = condPct > 0 && (rng() * 100) < condPct;
+    const tempHit = tempPct > 0 && (rng() * 100) < tempPct;
+    const causes = [];
+    if(condHit) causes.push((wx.conditionLabel || wx.condition) + ' wetness');
+    if(tempHit) causes.push((wx.temperatureLabel || wx.temperature) + ' exposure');
+    return { chance: true, contracted: condHit || tempHit, condHit, tempHit, condPct, tempPct, causes,
+             condition: wx.condition, temperature: wx.temperature };
+  }
+
   // ── exports ─────────────────────────────────────────────────────────────────
   Object.assign(ACKS, {
     // composition + movement
@@ -1382,7 +1430,9 @@
     // supply (W5 — RR pp.450–452)
     supplyLineStatus, supplyBaseValue, armySupplyBaseTotalValue, armyInSupply,
     armySupplyTrigger, armyMarketClass, armySupplyTerrainTreatment,
-    applyArmySupplyOutcome, requisitionSupplies
+    applyArmySupplyOutcome, requisitionSupplies,
+    // weather-on-war (RR p.449)
+    rollArmyWeatherDisease
   });
 
   if(typeof module !== 'undefined' && module.exports){
