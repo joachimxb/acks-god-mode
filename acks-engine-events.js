@@ -3203,7 +3203,7 @@ function marketBuy(campaign, opts){
     targetTurn: campaign.currentTurn || 1,
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'buy', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
-               marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               marketClass: _marketClassRoman(set) || opts.marketClassRoman || null, totalGp, currency:'gp', lines,
                activityCost: _marketActivityCost(campaign, totalStone, { partyOf12Dedicated: effectiveDedicated }),
                partyOf12Dedicated: effectiveDedicated,
                payFrom: opts.payFrom || 'purse', itemTo: opts.itemTo || 'carry' }
@@ -3254,7 +3254,7 @@ function marketSell(campaign, opts){
     targetTurn: campaign.currentTurn || 1,
     context: { primaryHexId: (set && set.hexId) || ch.currentHexId || null, involvedHexIds: [], settlementId: opts.settlementId || null, domainId: (set && set.domainId) || null, relatedEntities: [{ kind:'character', id: ch.id, role:'subject' }] },
     payload: { direction:'sell', actorCharacterId: ch.id, settlementId: opts.settlementId || null,
-               marketClass: _marketClassRoman(set), totalGp, currency:'gp', lines,
+               marketClass: _marketClassRoman(set) || opts.marketClassRoman || null, totalGp, currency:'gp', lines,
                activityCost: _marketActivityCost(campaign, totalStone, { partyOf12Dedicated: effectiveDedicated }),
                partyOf12Dedicated: effectiveDedicated,
                payFrom: opts.payFrom || 'purse', itemFrom: opts.itemFrom || 'carry' }

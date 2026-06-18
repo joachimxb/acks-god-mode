@@ -48,7 +48,7 @@
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
-<script src="acks-engine-events.js?v=2026-06-16-adf"></script>
+<script src="acks-engine-events.js?v=2026-06-18-camp"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
 <script src="acks-engine-subsystems.js?v=2026-06-18-w7banditry"></script>
@@ -3829,12 +3829,15 @@ document.addEventListener('alpine:init', () => {
             <template x-for="c in tradeCharacters()" :key="c.id"><option :value="c.id" :selected="trade.actorId===c.id" x-text="(c.name||'(unnamed)') + ' · ' + characterLocationLabel(c)"></option></template>
           </select>
         </label>
-        <label class="text-sm">Market (settlement)<br>
+        <label class="text-sm" x-show="!tradeArmy()">Market (settlement)<br>
           <select @change="tradeSetSettlement($event.target.value)" class="text-sm" style="min-width:15rem">
             <option value="" :selected="!trade.settlementId">— pick a settlement —</option>
             <template x-for="s in tradeSettlements()" :key="s.id"><option :value="s.id" :selected="trade.settlementId===s.id" x-text="(s.name||'(unnamed)') + ' · Class ' + settlementMarketClass(s)"></option></template>
           </select>
         </label>
+        <div class="text-sm" x-show="tradeArmy()">Market<br>
+          <span class="inline-block mt-1 px-2 py-1 border border-ink/40 rounded bg-yellow-50">🎖 <span x-text="((tradeArmy()&&tradeArmy().name)||'Army')+'’s camp'"></span> · Class <span class="font-semibold" x-text="tradeMarketClassRoman()||'—'"></span></span>
+        </div>
         <div class="flex gap-1 text-sm">
           <button @click="tradeSetDir('buy')" :class="trade.dir==='buy' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Buy</button>
           <button @click="tradeSetDir('sell')" :class="trade.dir==='sell' ? 'tab-active font-semibold' : 'hover:bg-yellow-100'" class="px-3 py-1 border border-ink/40 rounded">Sell</button>
@@ -3843,7 +3846,8 @@ document.addEventListener('alpine:init', () => {
       <div class="text-sm opacity-80 flex flex-wrap gap-x-4 gap-y-1 items-center" x-show="tradeActor()">
         <span>🪙 Purse: <span class="font-mono" x-text="tradePurseGp().toLocaleString()+' gp'"></span></span>
         <span x-show="tradeSettlement()">🏛 Market: <span class="font-semibold" x-text="'Class '+tradeMarketClassRoman()"></span></span>
-        <label x-show="tradeActorIsVenturer()" class="flex items-center gap-1" title="Mercantile Network (RR p.43 — the Venturer class power): a venturer treats a market they've previously entered, by retail trade OR a mercantile venture, as one class larger. Auto-set from this character's history; toggle to override."><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (Mercantile Network, +1 class)</label>
+        <span x-show="tradeArmy()">🛒 Campaign market: <span class="font-semibold" x-text="'Class '+(tradeMarketClassRoman()||'—')"></span> <span class="opacity-60">— the baggage train (RR p.452)</span></span>
+        <label x-show="tradeActorIsVenturer() && !tradeArmy()" class="flex items-center gap-1" title="Mercantile Network (RR p.43 — the Venturer class power): a venturer treats a market they've previously entered, by retail trade OR a mercantile venture, as one class larger. Auto-set from this character's history; toggle to override."><input type="checkbox" :checked="trade.visitedBefore" @change="trade.visitedBefore=$event.target.checked; tradeRecomputeCart()"> visited before (Mercantile Network, +1 class)</label>
         <label class="flex items-center gap-1" :class="tradePartySize() < 12 ? 'opacity-40' : ''" :title="tradePartySize() < 12 ? ('Needs a party of 12+ adventurers — this character\'s party has '+tradePartySize()+' (RR p.124)') : 'A 12+ party devoting a DEDICATED activity to shopping gets double availability (RR p.124); the trip costs one dedicated activity'"><input type="checkbox" :disabled="tradePartySize() < 12" :checked="trade.partyOf12Dedicated && tradePartySize() >= 12" @change="trade.partyOf12Dedicated=$event.target.checked; tradeRecomputeCart()"> party of 12+ (×2, dedicated)</label>
       </div>
 
@@ -9943,6 +9947,7 @@ document.addEventListener('alpine:init', () => {
               <p x-show="!armySupply().inSupply" class="accent-red font-semibold">⚠ OUT OF SUPPLY — <span x-text="armySupplyReasonText(armySupply().reasons)"></span></p>
               <p x-show="!armySupply().inSupply" class="text-xs opacity-80" x-text="'cost ' + (armySupply().cost || 0).toLocaleString() + 'gp/wk · base value ' + (armySupply().baseValue != null ? armySupply().baseValue.toLocaleString() + 'gp' : '—') + (armySupply().line ? (' · line ' + armySupply().line.status) : '')"></p>
               <p class="text-xs opacity-60" x-show="armyMarketClassLabel()" x-text="'🛒 Campaign market: Class ' + armyMarketClassLabel() + ' — the baggage train (RR p.452)'"></p>
+              <button x-show="armyMarketClassLabel()" @click="openTrade({ armyId: armySelected().id })" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 mt-1" title="Buy or sell equipment at the army's own baggage-train market (RR p.452)">🛒 Shop in camp</button>
             </div>
           </template>
           <!-- supply bases (the GM designates friendly domains; value chains through clear lines) -->
@@ -22985,7 +22990,7 @@ return {
   stashTransferItemSel:{},   // deposit: inventory-index → bool · withdraw: stash-item-id → bool
   // Trade Wizard (Item Trade IT-4) — the retail buy/sell Action Wizard over ACKS.marketBuy/marketSell.
   trade:{
-    open:false, actorId:null, settlementId:null, dir:'buy',
+    open:false, actorId:null, settlementId:null, armyId:null, dir:'buy',   // armyId = a camp-seated trade (RR p.452 baggage-train market); mutually exclusive with settlementId
     search:'', category:'all',
     buyCart:[],                              // [{key, catalogId|null, name, unitPriceGp, stone, qty, availKind, availPercent, availableUnits, band}]
     sellRows:{},                             // inventoryIndex → { sel, qty, priceGp, name, heldQty, stone }
@@ -23240,6 +23245,15 @@ return {
     t.buyCart = []; t.sellRows = {};
     t.gName = ''; t.gPrice = null; t.gStone = null;
     t.visitedBefore = false; t.partyOf12Dedicated = false;
+    t.armyId = null;
+    // Camp-seated trade (RR p.452 — a 1,200+ army functions as its own market via its baggage train). No settlement.
+    if(opts.armyId){
+      const army = (this.currentCampaign?.armies||[]).find(a => a && a.id === opts.armyId);
+      t.armyId = opts.armyId; t.settlementId = null;
+      t.actorId = opts.actorCharacterId || (army && army.leaderCharacterId) || null;
+      if(t.actorId) this.tradeInitSellRows();
+      return;
+    }
     let settlementId = opts.settlementId || null;
     let actorId = opts.actorCharacterId || null;
     // Derive the local settlement from the actor's hex when not supplied (the "Shop here" case).
@@ -23590,6 +23604,7 @@ return {
   },
   tradeActor(){ return this.trade.actorId ? (this.currentCampaign?.characters||[]).find(c => c && c.id === this.trade.actorId) : null; },
   tradeSettlement(){ return this.trade.settlementId ? (this.currentCampaign?.settlements||[]).find(s => s && s.id === this.trade.settlementId) : null; },
+  tradeArmy(){ return this.trade.armyId ? (this.currentCampaign?.armies||[]).find(a => a && a.id === this.trade.armyId) : null; },   // a camp-seated trade (RR p.452)
   tradeCharacters(){ return (this.currentCampaign?.characters||[]).filter(c => c && c.id); },
   tradeSettlements(){ return (this.currentCampaign?.settlements||[]).filter(s => s && s.id); },
   tradeCharactersAtSettlement(sid){
@@ -23603,9 +23618,13 @@ return {
     const ch = this.tradeActor(); if(!ch) return 0; if(!ch.partyId) return 1;
     return (this.currentCampaign?.characters||[]).filter(c => c && c.partyId === ch.partyId).length;
   },
-  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.tradeRecomputeCart(); },
+  tradeSetSettlement(id){ this.trade.settlementId = id || null; this.trade.armyId = null; this.trade.visitedBefore = this._tradeDeriveVisited(this.trade.actorId, this.trade.settlementId); this.tradeRecomputeCart(); },
   tradeSetDir(dir){ this.trade.dir = dir; if(dir === 'sell') this.tradeInitSellRows(); },
-  tradeMarketClassRoman(){ const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null; },
+  tradeMarketClassRoman(){
+    const army = this.tradeArmy();
+    if(army){ try { return window.ACKS.armyMarketClass(this.currentCampaign, army); } catch(e){ return null; } }   // the camp's baggage-train class (null below 1,200 or while the line is cut)
+    const s = this.tradeSettlement(); return s ? this.settlementMarketClass(s) : null;
+  },
   tradeMarketClassIdx(){
     const r = this.tradeMarketClassRoman(); const m = { 'I':0, 'II':1, 'III':2, 'IV':3, 'V':4, 'VI':5 };
     if(typeof r === 'string'){ const k = r.replace('*',''); if(m[k] != null) return m[k]; }
@@ -23722,7 +23741,9 @@ return {
   },
   tradeSubmitDisabledReason(){
     const ch = this.tradeActor(); if(!ch) return 'Pick a character.';
-    const s = this.tradeSettlement(); if(!s) return 'Pick a settlement (the market).';
+    const army = this.tradeArmy();
+    if(army){ if(!this.tradeMarketClassRoman()) return 'This army is too small to be its own market (needs 1,200+ troops, RR p.452) — or its supply line is cut.'; }
+    else { const s = this.tradeSettlement(); if(!s) return 'Pick a settlement (the market).'; }
     if(this.trade.dir === 'buy'){
       if(!this.trade.buyCart.length) return 'Add an item to buy.';
       for(const l of this.trade.buyCart){
@@ -23747,8 +23768,11 @@ return {
   tradeCanSubmit(){ return this.tradeSubmitDisabledReason() === ''; },
   tradeSubmit(){
     if(!this.tradeCanSubmit()){ this.showToast(this.tradeSubmitDisabledReason(), 4000); return; }
-    const ch = this.tradeActor(); const s = this.tradeSettlement();
-    const common = { actorCharacterId:ch.id, settlementId:s.id, visitedBefore:!!this.trade.visitedBefore, partyOf12Dedicated:!!this.trade.partyOf12Dedicated, submittedBy:'gm' };
+    const ch = this.tradeActor(); const s = this.tradeSettlement(); const army = this.tradeArmy();
+    const market = army
+      ? { marketClassIdx: this.tradeMarketClassIdx(), marketClassRoman: this.tradeMarketClassRoman() }   // a settlement-less camp market (RR p.452)
+      : { settlementId: s.id };
+    const common = { actorCharacterId:ch.id, ...market, visitedBefore:!!this.trade.visitedBefore, partyOf12Dedicated:!!this.trade.partyOf12Dedicated, submittedBy:'gm' };
     let res;
     if(this.trade.dir === 'buy'){
       const lines = this.trade.buyCart.map(l => l.catalogId
