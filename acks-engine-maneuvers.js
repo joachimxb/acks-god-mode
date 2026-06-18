@@ -49,6 +49,10 @@
     if(!campaign || !domainId) return null;
     return (campaign.domains || []).find(d => d && d.id === domainId) || null;
   }
+  function _constructible(campaign, id){
+    if(!campaign || !id) return null;
+    return (campaign.constructibles || []).find(c => c && c.id === id) || null;
+  }
   // Absolute world ordinal (the lastTravelWorldOrd convention): turn*30 + dayInMonth.
   function worldOrd(campaign){
     return ((campaign && campaign.currentTurn) || 1) * 30 + ((campaign && campaign.currentDayInMonth) || 1);
@@ -562,15 +566,15 @@
     return { ok: true };
   }
 
-  // Emit a domain-warfare audit event directly (the GM-verb path — conquest, a
-  // cut-short pillage; the day consumer's records flow through the day-tick notable
-  // channel instead). The startJourney emission pattern.
-  function _emitWarfareEvent(campaign, payload, context, narrative){
+  // Emit a warfare audit event directly (the GM-verb path — conquest, a cut-short pillage, a
+  // border-fort build; the day consumer's records flow through the day-tick notable channel
+  // instead). The startJourney emission pattern. `kind` defaults to 'domain-warfare'.
+  function _emitWarfareEvent(campaign, payload, context, narrative, kind){
     try {
       const Ax = A();
       campaign.eventLog = campaign.eventLog || [];
       const cal = campaign.calendar || {};
-      const ev = Ax.newEvent('domain-warfare', {
+      const ev = Ax.newEvent(kind || 'domain-warfare', {
         submittedBy: 'engine', status: (Ax.EVENT_STATUS && Ax.EVENT_STATUS.APPLIED) || 'applied', cadence: 'daily',
         targetTurn: campaign.currentTurn || 1,
         gameTimeAt: { year: cal.year || 1, month: cal.month || 1, day: campaign.currentDayInMonth || 1 },
@@ -1099,14 +1103,19 @@
     return (treatment && treatment !== 'man') ? treatment : null;
   }
 
-  // The seat hex of a supply base. v1: a base id is a friendly DOMAIN id; the seat is its
-  // largest-settlement hex (else its first hex). Tolerates a bare hex id.
+  // The seat hex of a supply base. A base id may be a friendly/occupied DOMAIN (seat = its
+  // largest-settlement hex), a built-fort / captured-stronghold CONSTRUCTIBLE (seat = its site
+  // hex — RR p.451), or a bare hex id.
   function _supplyBaseHex(campaign, baseId){
     const dom = _domain(campaign, baseId);
-    if(!dom){ return _hex(campaign, baseId) || null; }
-    const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === dom.id);
-    if(!domHexes.length) return null;
-    return domHexes.find(h => h.settlement && (h.settlement.families > 0)) || domHexes[0];
+    if(dom){
+      const domHexes = (campaign.hexes || []).filter(h => h && h.domainId === dom.id);
+      if(!domHexes.length) return null;
+      return domHexes.find(h => h.settlement && (h.settlement.families > 0)) || domHexes[0];
+    }
+    const cst = _constructible(campaign, baseId);
+    if(cst) return _hex(campaign, cst.hexId) || null;
+    return _hex(campaign, baseId) || null;
   }
 
   // Weigh a candidate supply line army→base: route the hexes between them (the §24 line
@@ -1162,32 +1171,55 @@
     return best || { status: 'no-base', baseId: null, weightedLength: null, route: [] };
   }
 
-  // supplyBaseValue (RR p.450): a base's value = its domain's monthly net income + the net
-  // income of friendly domains in the same 24-mile hex (≈ axial distance ≤ 3). Chaining
-  // (base→base) is handled by armySupplyBaseTotalValue's connectivity flood, not here.
+  // supplyBaseValue (RR p.450): a base's value = its own monthly net income + the net income of
+  // friendly domains in the same 24-mile hex (≈ axial distance ≤ 3). Chaining (base→base) is
+  // handled by armySupplyBaseTotalValue's connectivity flood, not here.
+  //   • a DOMAIN base → its monthly net (the existing path).
+  //   • a fort / captured-stronghold CONSTRUCTIBLE base (RR p.451) → no income of its OWN (it is a
+  //     relay node + a Class VI market); its value comes from term 2 + the chaining flood, UNLESS
+  //     it stands inside a friendly/occupied domain, in which case that domain's net is its income.
   function supplyBaseValue(campaign, baseId){
     const Ax = A();
+    const net = d => (d && typeof Ax.monthlyNet === 'function') ? Math.max(0, Ax.monthlyNet(campaign, d)) : 0;
     const dom = _domain(campaign, baseId);
-    if(!dom) return 0;
-    let value = (typeof Ax.monthlyNet === 'function') ? Math.max(0, Ax.monthlyNet(campaign, dom)) : 0;
+    const cst = dom ? null : _constructible(campaign, baseId);
     const seat = _supplyBaseHex(campaign, baseId);
+    // Term 1 — the base's own monthly net income.
+    let baseDom = dom, value = 0;
+    if(dom){ value = net(dom); }
+    else if(cst && seat && seat.domainId){
+      const sitDom = _domain(campaign, seat.domainId);
+      if(sitDom && _constructibleControlledBy(campaign, cst, sitDom)){ baseDom = sitDom; value = net(sitDom); }
+    }
+    // Term 2 — the net of friendly domains in the same 24-mile hex (≈ axial distance ≤ 3) as the seat.
     if(seat && seat.coord){
       for(const other of (campaign.domains || [])){
-        if(!other || other.id === dom.id) continue;
+        if(!other || (baseDom && other.id === baseDom.id)) continue;
         const oh = _supplyBaseHex(campaign, other.id);
         if(!oh || !oh.coord) continue;
-        const d = (typeof Ax.hexAxialDistance === 'function') ? Ax.hexAxialDistance(seat.coord, oh.coord) : Infinity;
-        if(d <= 3 && _domainsFriendly(campaign, dom, other)) value += (typeof Ax.monthlyNet === 'function') ? Math.max(0, Ax.monthlyNet(campaign, other)) : 0;
+        const dist = (typeof Ax.hexAxialDistance === 'function') ? Ax.hexAxialDistance(seat.coord, oh.coord) : Infinity;
+        if(dist > 3) continue;
+        const friendly = baseDom ? _domainsFriendly(campaign, baseDom, other)
+                                 : (cst && cst.ownerCharacterId ? !leadersOpposed(campaign, cst.ownerCharacterId, other.rulerCharacterId) : false);
+        if(friendly) value += net(other);
       }
     }
     return value;
+  }
+  // Is a fort/stronghold Constructible controlled by the side that holds `dom`? (the fort's owner
+  // rules or occupies the domain, else the domain is at least non-opposed to the fort owner).
+  function _constructibleControlledBy(campaign, cst, dom){
+    if(!cst || !dom) return false;
+    if(cst.ownerCharacterId && cst.ownerCharacterId === dom.rulerCharacterId) return true;
+    if(dom.occupiedBy && cst.ownerCharacterId && dom.occupiedBy.leaderCharacterId === cst.ownerCharacterId) return true;
+    return !!(cst.ownerCharacterId && !leadersOpposed(campaign, cst.ownerCharacterId, dom.rulerCharacterId));
   }
 
   // armySupplyBaseTotalValue — the value the army can draw on: a connectivity flood from the
   // army through CLEAR lines (army→base, then base→base — RR p.450 chained bases), summing
   // each reached base's value once.
   function armySupplyBaseTotalValue(campaign, army){
-    const bases = ((army && army.supplyBaseIds) || []).filter(id => _domain(campaign, id));
+    const bases = ((army && army.supplyBaseIds) || []).filter(id => _domain(campaign, id) || _constructible(campaign, id));
     if(!bases.length) return 0;
     const treatment = armySupplyTerrainTreatment(campaign, army);
     const reached = new Set(), frontier = [];
@@ -1286,14 +1318,75 @@
   }
 
   // armyMarketClass (RR p.452) — equipment availability from the army's baggage train
-  // (1,200+ troops → Class VI…II); lost while the supply line is blocked or overextended.
+  // (1,200+ troops → Class VI…II); lost while the supply line is blocked or overextended. A built
+  // border fort base grants a Class VI market even to a small army (RR p.451): cls || fortClass —
+  // a large army's baggage class beats the fort's VI; a sub-1,200 army gets VI from the fort.
   function armyMarketClass(campaign, army){
     const Ax = A();
     const troops = (typeof Ax.armyTroopCount === 'function') ? Ax.armyTroopCount(campaign, army) : 0;
-    const cls = (typeof Ax.armyMarketClassForSize === 'function') ? Ax.armyMarketClassForSize(troops) : null;
-    if(!cls) return null;
+    let cls = (typeof Ax.armyMarketClassForSize === 'function') ? Ax.armyMarketClassForSize(troops) : null;
     const st = supplyLineStatus(campaign, army, {}).status;
-    return (st === 'blocked' || st === 'overextended') ? null : cls;
+    if(st === 'blocked' || st === 'overextended') cls = null;   // baggage market lost when cut off
+    return cls || _fortMarketClass(campaign, army);
+  }
+  // RR p.451 — a built border fort designated as a base + reachable via a clear line provides a
+  // Class VI market (🔧 v1: a direct clear line to the fort, not the full flood — a fort built to
+  // serve the army stands near it).
+  function _fortMarketClass(campaign, army){
+    for(const id of ((army && army.supplyBaseIds) || [])){
+      const cst = _constructible(campaign, id);
+      if(!cst || cst.constructibleKind !== 'field-fortification') continue;
+      if(cst.constructionState && cst.constructionState !== 'complete') continue;
+      if(supplyLineStatus(campaign, army, { candidateBaseIds: [id] }).status === 'clear') return 'VI';
+    }
+    return null;
+  }
+
+  // buildSupplyBaseFort (RR p.451) — "As a 10,000gp construction project, an army can build a
+  // small border fort that can serve as a Class VI market." The fast-path forward base: pay 10,000gp
+  // from the leader's pay handle (GP Wave B), mint a COMPLETE field-fortification Constructible at
+  // the army's hex (the GM may pass opts.hexId for a relay between the army and a capital), and
+  // auto-designate it as a supply base. 🔧 v1: instant (the Construction Wizard is the RAW-timed
+  // alternative — both mint a Constructible the supply resolvers accept).
+  function buildSupplyBaseFort(campaign, army, opts){
+    const Ax = A(); const o = opts || {};
+    if(!army) return { ok: false, reason: 'no-army' };
+    const COST = (o.cost != null) ? o.cost : 10000;
+    const hex = _hex(campaign, o.hexId || army.currentHexId);
+    if(!hex) return { ok: false, reason: 'no-hex' };
+    const factory = Ax.blankConstructible;
+    if(typeof factory !== 'function') return { ok: false, reason: 'no-factory' };
+    const leader = _char(campaign, army && army.leaderCharacterId);
+    const funds = _leaderAvailableFunds(campaign, leader);
+    if(funds < COST) return { ok: false, reason: 'cannot-pay', cost: COST, funds };
+    // Pay the build cost (GP Wave B; campaign-log-hidden, the supply convention).
+    if(leader && COST > 0){
+      const spec = { amount: COST, source: _leaderPayHandle(campaign, leader), destination: { kind: 'external', label: 'construction' }, reason: 'Border fort — ' + (army.name || 'army'), bucket: 'construction' };
+      try {
+        if(typeof Ax.applyWealthTransfer === 'function') Ax.applyWealthTransfer(campaign, spec);
+        if(typeof Ax.recordWealthTransfer === 'function') Ax.recordWealthTransfer(campaign, spec, { submittedBy: 'engine', campaignLogHidden: true });
+      } catch(e){ /* the army-supply-base-built event still records the build */ }
+    }
+    const label = (hex.coord ? ('(' + hex.coord.q + ',' + hex.coord.r + ')') : (hex.name || hex.id));
+    const cst = factory({
+      constructibleKind: 'field-fortification', constructibleSubtype: 'border-fort',
+      name: o.name || ('Border Fort ' + label), constructionState: 'complete',
+      hexId: hex.id, siteType: 'wilderness-hex',
+      ownership: 'character', ownerCharacterId: army.leaderCharacterId || null,
+      buildValue: COST, completedAtTurn: campaign.currentTurn || null
+    });
+    if(Array.isArray(cst.history)) cst.history.push({ turn: campaign.currentTurn || null, type: 'built',
+      narrative: (army.name || 'An army') + ' raised a border fort here as a forward supply base (10,000gp, RR p.451).' });
+    campaign.constructibles = campaign.constructibles || [];
+    campaign.constructibles.push(cst);
+    army.supplyBaseIds = Array.isArray(army.supplyBaseIds) ? army.supplyBaseIds : [];
+    if(army.supplyBaseIds.indexOf(cst.id) < 0) army.supplyBaseIds.push(cst.id);
+    const narrative = (army.name || 'The army') + ' builds ' + cst.name + ' — a Class VI forward supply base (RR p.451).';
+    _emitWarfareEvent(campaign,
+      { armyId: army.id, constructibleId: cst.id, hexId: hex.id, cost: COST },
+      { primaryHexId: hex.id, domainId: hex.domainId || null, relatedEntities: [{ kind: 'constructible', id: cst.id, role: 'produced' }, { kind: 'army', id: army.id, role: 'subject' }] },
+      narrative, 'army-supply-base-built');
+    return { ok: true, constructible: cst, cost: COST, narrative };
   }
 
   // Pay the weekly supply cost from the leader's pay handle (GP Wave B; campaign-log-hidden).
@@ -1430,7 +1523,7 @@
     // supply (W5 — RR pp.450–452)
     supplyLineStatus, supplyBaseValue, armySupplyBaseTotalValue, armyInSupply,
     armySupplyTrigger, armyMarketClass, armySupplyTerrainTreatment,
-    applyArmySupplyOutcome, requisitionSupplies,
+    applyArmySupplyOutcome, requisitionSupplies, buildSupplyBaseFort,
     // weather-on-war (RR p.449)
     rollArmyWeatherDisease
   });

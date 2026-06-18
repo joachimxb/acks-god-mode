@@ -166,6 +166,10 @@ const EVENT_KINDS = Object.freeze([
   // owned by the slot-88 military consumer (its commit advances the weekly cadence). Core RAW —
   // NOT gated on the optional vagaries-of-war table. The per-unit Death saves are the GM's.
   'army-disease',
+  // Forward supply base (RR p.451, Construction Wave C 2026-06-19) — an army built a 10,000gp
+  // border fort as a forward supply base (a Class VI market + a line-extending relay). Record-only
+  // audit; buildSupplyBaseFort mints the Constructible + designates it.
+  'army-supply-base-built',
   // Phase 3 Military W8 (2026-06-17) — the Vagaries of Recruitment / War / Battle (JJ pp.110–117),
   // record-only GM-resolve audits owned by acks-engine-vagaries.js. Each carries the rolled vagary's
   // name + brief + a structured effect descriptor (ready for a future auto-apply wave). Behind the
@@ -704,6 +708,11 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { armyId: 'string', contracted: 'boolean' },
     O: { causes: 'object', condPct: 'number', tempPct: 'number',
          condition: 'string', temperature: 'string', narrative: 'string' }
+  },
+  // army-supply-base-built (RR p.451): an army raised a 10,000gp border fort as a forward base.
+  'army-supply-base-built': {
+    R: { armyId: 'string', constructibleId: 'string' },
+    O: { hexId: 'string', cost: 'number', narrative: 'string' }
   },
   // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Record-only;
   // `effect` is the structured descriptor (effect.category + params). recruitment is keyed to the
@@ -2569,6 +2578,7 @@ registerEventHandler('army-contact', applyEvent_warfareAudit);
 registerEventHandler('domain-warfare', applyEvent_warfareAudit);
 registerEventHandler('army-supply', applyEvent_warfareAudit);   // W5 — record-only (the consumer commit owns state)
 registerEventHandler('army-disease', applyEvent_warfareAudit);  // RR p.449 weather epidemic — record-only (the GM resolves the Death saves)
+registerEventHandler('army-supply-base-built', applyEvent_warfareAudit); // RR p.451 forward fort — record-only (buildSupplyBaseFort owns the state)
 // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) share the audit
 // posture: acks-engine-vagaries.js rolls them + (for the self-contained omen mod) the consumer commit
 // applies; these handlers only keep the events well-formed on replay (the GM applies the rest).
@@ -5738,7 +5748,7 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // Phase 3 Military W4 + W5 — owned by the slot-88 military consumer + the conquest/pillage/
   // requisition verbs (their commits write the state; raw emit would narrate a campaign move the
   // armies/domains don't show).
-  'army-contact', 'domain-warfare', 'army-supply', 'army-disease',
+  'army-contact', 'domain-warfare', 'army-supply', 'army-disease', 'army-supply-base-built',
   // Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117) are AUTO-ROLLED
   // at their RAW cadence (the monthly turn / the slot-88 weekly check / declareForay), not authored
   // raw — a hand emit would carry no real roll. Owned by acks-engine-vagaries.js + the consumers.
