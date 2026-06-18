@@ -592,6 +592,50 @@ section('Realm-scale military-specialist recruitment + the lightweight↔full NP
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Standing-army capacity (RR p.434 — Vassal Troops by Realm Size)');
+{
+  // vassalTroopsForRealmFamilies — tier from realm-family count (VASSAL_TROOPS' own thresholds).
+  ok('1,150 families → Viscount (960 ≤ f < 4,600)', A.vassalTroopsForRealmFamilies(1150).key === 'viscount');
+  ok('4,600 (the min) → Earl/Count', A.vassalTroopsForRealmFamilies(4600).key === 'earl-count');
+  ok('20,000 → Duke', A.vassalTroopsForRealmFamilies(20000).key === 'duke');
+  ok('1,500,000 → Emperor', A.vassalTroopsForRealmFamilies(1500000).key === 'emperor');
+  ok('150 → Baron (120 ≤ f < 960)', A.vassalTroopsForRealmFamilies(150).key === 'baron');
+  ok('50 (below Baron min) → floors at Baron', A.vassalTroopsForRealmFamilies(50).key === 'baron');
+  const visc = A.vassalTroopsForRealmFamilies(1150);
+  ok('Viscount carries the RAW caps (army 130 / budget 2,560 / garrison 640)',
+     visc.maxStandingArmy.max === 130 && visc.maxRealmTroopsWages.max === 2560 && visc.avgPersonalGarrisonWages === 640);
+
+  // realmStandingArmyCapacity — tier caps + the realm's current fielded force.
+  const d = mkDomain(1150, 1, 'dom-realm'); const camp = mkCamp([d], 1);
+  const u1 = A.blankUnit({ unitTypeKey: 'light-infantry', count: 80, displayName: 'Foot' }); u1.homeDomainId = 'dom-realm'; u1.count = 80;
+  const u2 = A.blankUnit({ unitTypeKey: 'heavy-infantry', count: 30, displayName: 'Heavy' }); u2.homeDomainId = 'dom-realm'; u2.count = 30;
+  camp.units.push(u1, u2);
+  const cap = A.realmStandingArmyCapacity(camp, 'dom-realm');
+  ok('capacity read: Viscount tier', cap && cap.tier === 'viscount' && cap.title === 'Viscount');
+  ok('capacity read: realm families 1,150', cap.realmFamilies === 1150);
+  ok('capacity read: RAW caps surfaced (army 130 / budget 2,560 / garrison 640)',
+     cap.maxStandingArmy === 130 && cap.maxRealmTroopsWages === 2560 && cap.avgPersonalGarrisonWages === 640);
+  ok('capacity read: current realm troops = 110 (80 + 30)', cap.currentRealmTroops === 110);
+  ok('capacity read: a positive monthly wage bill', cap.currentRealmTroopWages > 0);
+  ok('capacity read: 110 ≤ 130 fits the army cap', cap.fitsArmyCap === true);
+  ok('capacity read: text fields carried (maxStandingArmyText)', cap.maxStandingArmyText === '100 - 130');
+
+  // over the RAW capacity — a baron fielding 50 (max standing army 20).
+  const db = mkDomain(150, 1, 'dom-baron'); const campB = mkCamp([db], 1);
+  const ub = A.blankUnit({ unitTypeKey: 'light-infantry', count: 50 }); ub.homeDomainId = 'dom-baron'; ub.count = 50; campB.units.push(ub);
+  const capB = A.realmStandingArmyCapacity(campB, 'dom-baron');
+  ok('over-cap: Baron tier, 50 troops > the RAW max 20 → fitsArmyCap false',
+     capB.tier === 'baron' && capB.currentRealmTroops === 50 && capB.maxStandingArmy === 20 && capB.fitsArmyCap === false);
+
+  // a unit homed in a NON-realm domain is not counted.
+  const uOther = A.blankUnit({ unitTypeKey: 'light-infantry', count: 40 }); uOther.homeDomainId = 'dom-elsewhere'; uOther.count = 40; camp.units.push(uOther);
+  ok('a foreign-homed unit is not counted in the realm force (still 110)',
+     A.realmStandingArmyCapacity(camp, 'dom-realm').currentRealmTroops === 110);
+
+  ok('unknown domain → null', A.realmStandingArmyCapacity(camp, 'dom-nope') === null);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log(fail === 0 ? ('PASS troops-depth.smoke.js — ' + pass + ' assertions') : ('FAIL troops-depth.smoke.js — ' + fail + ' of ' + (pass + fail) + ' failed'));
 if(fail > 0){ failures.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

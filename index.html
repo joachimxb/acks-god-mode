@@ -42,8 +42,8 @@
 <script src="acks-engine-catalogs.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
-<script src="acks-engine-troops.js?v=2026-06-18-w7spec"></script>
-<script src="acks-engine.js?v=2026-06-18-w7spec"></script>
+<script src="acks-engine-troops.js?v=2026-06-18-standingarmy"></script>
+<script src="acks-engine.js?v=2026-06-18-standingarmy"></script>
 <script src="acks-engine-entities.js?v=2026-06-18-w7spec"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
@@ -5705,6 +5705,30 @@ document.addEventListener('alpine:init', () => {
         </div>
 
         <div x-show="activeTab==='military'">
+          <!-- 🏰 Realm forces — the RR p.434 Vassal Troops by Realm Size capacity (the realm = this
+               domain + its sub-vassals). A read-only strategic summary: the realm's RAW maximum standing
+               army + realm-troops wage budget + garrison baseline, vs what it currently fields. A standing
+               army is funded by Scutage from vassals + parceled across their domains via the Troops favor. -->
+          <template x-if="realmStandingArmy(selectedDomain)">
+            <div class="vellum border border-ink p-3 rounded mb-3">
+              <h2 class="font-bold text-lg mb-1">🏰 Realm forces</h2>
+              <p class="text-sm">
+                <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).title"></span>
+                — <span x-text="realmStandingArmy(selectedDomain).realmFamilies.toLocaleString()"></span> realm families
+                (this domain + its sub-vassals). RAW maximum standing army ≈
+                <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).maxStandingArmyText || realmStandingArmy(selectedDomain).maxStandingArmy.toLocaleString()"></span> troops;
+                realm-troops budget ≤ <span class="font-semibold" x-text="realmStandingArmy(selectedDomain).maxRealmTroopsWagesText"></span>/mo;
+                garrison baseline ~<span x-text="realmStandingArmy(selectedDomain).avgPersonalGarrisonWages.toLocaleString()"></span>gp/mo.
+              </p>
+              <p class="text-sm mt-1">
+                Currently fielding
+                <span class="font-semibold" :class="realmStandingArmy(selectedDomain).fitsArmyCap ? '' : 'accent-red'" x-text="realmStandingArmy(selectedDomain).currentRealmTroops.toLocaleString()"></span> troops
+                at <span class="font-semibold" :class="realmStandingArmy(selectedDomain).fitsWageBudget ? '' : 'accent-red'" x-text="realmStandingArmy(selectedDomain).currentRealmTroopWages.toLocaleString()"></span>gp/mo<span
+                  x-show="!realmStandingArmy(selectedDomain).fitsArmyCap || !realmStandingArmy(selectedDomain).fitsWageBudget" class="accent-red text-xs"> — above the realm's RAW capacity (borderlands/outlands + total-war realms run 50–100% higher, RR p.434)</span>.
+              </p>
+              <p class="text-xs opacity-60 italic mt-1">RR p.434. A standing army is funded by Scutage from vassals (1gp+/family) and parceled across their domains via the Troops favor; vassal-reliant realms field conscripts, standing armies hire mercenaries (RR p.433).</p>
+            </div>
+          </template>
           <!-- ───── Garrison (RR pp.427–433) — ONE table, three sources: 🪖 Mercenaries (recruited),
                ⚒ Conscripts (≤1/10 families, no morale/revenue cost), 🛡 Militia (≤2/10, −1 family +
                morale each, until sent home). Shared columns. Type is read-only (set by recruiting /
@@ -18455,6 +18479,11 @@ return {
       return units.some(u => u && A.unitHomeDomainId && A.unitHomeDomainId(camp, u) === domain.id);
     };
     return this.armiesRows().filter(r => belongs(r.army) && (r.troops > 0 || r.army.journeyId || r.army.reactionTargetGroupId));
+  },
+  // RR p.434 — the realm's standing-army capacity readout (the Military tab summary). Derived; no stored field.
+  realmStandingArmy(domain){
+    if(!domain || !this.currentCampaign) return null;
+    try { return window.ACKS.realmStandingArmyCapacity(this.currentCampaign, domain); } catch(e){ return null; }
   },
   armySelected(){
     const camp = this.currentCampaign; if(!camp || !this.armiesSelectedId) return null;

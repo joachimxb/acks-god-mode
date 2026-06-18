@@ -994,6 +994,19 @@
     }
   ];
 
+  // RR p.434 — the realm tier (Vassal Troops by Realm Size) for a given realm-family count.
+  // VASSAL_TROOPS is ordered largest→smallest (Emperor → Viscount → Baron); return the largest
+  // tier whose realmFamilies.min the realm meets, flooring at the smallest (Baron). NB this keys
+  // on VASSAL_TROOPS' OWN family thresholds (the p.434 table), distinct from realmRecruitTier's
+  // MERC_AVAILABILITY_REALM thresholds (the p.428 recruitment table — a different tier set).
+  function vassalTroopsForRealmFamilies(families){
+    const f = Math.max(0, Number(families) || 0);
+    for(const tier of VASSAL_TROOPS){
+      if(f >= ((tier.realmFamilies && tier.realmFamilies.min) || 0)) return tier;
+    }
+    return VASSAL_TROOPS[VASSAL_TROOPS.length - 1] || null;
+  }
+
   // RR p.428 — realm-scale recruitment (availability replenishes after the 4th period;
   // arrivals ½ / ¼ / remainder per period; one recruiter per realm at a time).
   const MERC_AVAILABILITY_REALM = {
@@ -2001,7 +2014,9 @@
     conscriptQualifyingNumber, conscriptQualifyingMax, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes,
     // W7-continuation — realm-scale recruitment (RR p.428)
     realmRecruitTier, realmRecruitMercTypes, realmMercAvailable, realmRecruitFeeSpec, realmRecruitPeriodDays,
-    realmSpecialistTypes, realmSpecialistAvailable, realmSpecialistProfile
+    realmSpecialistTypes, realmSpecialistAvailable, realmSpecialistProfile,
+    // W7-continuation — standing-army capacity (RR p.434)
+    vassalTroopsForRealmFamilies
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = ACKS;

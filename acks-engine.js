@@ -6916,6 +6916,51 @@ function realmFamiliesForDomain(campaign, domain){
   return families;
 }
 
+// RR p.434 — the realm's standing-army capacity (the Vassal Troops by Realm Size table — the quick
+// "what armies can a realm of this size field" reference). The realm = this domain + its sub-vassal
+// chain (the same basis realmFamiliesForDomain sums). Returns the RAW tier caps (max standing army,
+// realm-troops wage budget, the avg garrison baseline) + a light comparison to the realm's CURRENT
+// fielded force (every Unit homed in a realm domain — garrisons + field armies). A standing army is
+// funded by Scutage from vassals (1gp+/family — shipped F&D-6) + parceled across their domains via
+// the Troops favor (shipped); vassal-reliant realms field conscripts, standing armies hire mercenaries
+// (RR p.433). Pure derived read — no stored field, no new entity/rule/event. Null if no domain.
+function realmStandingArmyCapacity(campaign, domainOrId){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return null;
+  const realmFamilies = realmFamiliesForDomain(campaign, d);
+  const tier = A.vassalTroopsForRealmFamilies(realmFamilies);
+  if(!tier) return null;
+  // The realm's domain set: this domain + every sub-vassal domain (the realmFamiliesForDomain basis).
+  const realmDomainIds = new Set([d.id]);
+  for(const { domain:v } of A.vassalChainUnder(campaign, d.id)) if(v && v.id) realmDomainIds.add(v.id);
+  // Current realm military force: every Unit homed in a realm domain (garrisoned or afield). Home
+  // is resolved via the canonical unitHomeDomainId accessor (the reference-unified garrison mirror —
+  // demo/legacy garrison units carry no raw homeDomainId field), falling back to the raw field.
+  let troops = 0, wages = 0;
+  for(const u of (campaign.units || [])){
+    if(!u) continue;
+    const home = (A.unitHomeDomainId ? A.unitHomeDomainId(campaign, u) : null) || u.homeDomainId || null;
+    if(home && realmDomainIds.has(home)){
+      troops += unitActiveCount(u);
+      wages  += unitWageMonthly(campaign, u);
+    }
+  }
+  const maxArmy  = (tier.maxStandingArmy && tier.maxStandingArmy.max) || 0;
+  const maxWages = (tier.maxRealmTroopsWages && tier.maxRealmTroopsWages.max) || 0;
+  return {
+    tier: tier.key, title: tier.title, page: tier.page || 434,
+    realmFamilies,
+    avgPersonalGarrisonWages: tier.avgPersonalGarrisonWages || 0,
+    maxStandingArmy: maxArmy,  maxStandingArmyText:  (tier.maxStandingArmy  || {}).text || '',
+    maxRealmTroopsWages: maxWages, maxRealmTroopsWagesText: (tier.maxRealmTroopsWages || {}).text || '',
+    currentRealmTroops: troops, currentRealmTroopWages: wages,
+    fitsArmyCap:    maxArmy  ? troops <= maxArmy  : true,
+    fitsWageBudget: maxWages ? wages  <= maxWages : true,
+    timePeriod: tier.timePeriod || 'season'
+  };
+}
+
 // The scutage rate in gp/family (RR p.347 — default 1gp/family; a lower rate is "demand less", RR p.345).
 function scutageRate(o){ return (o && o.scutageGpPerFamily != null) ? Number(o.scutageGpPerFamily) : 1; }
 // The LIVE monthly scutage for an obligation = rate × the vassal's CURRENT realm families (RR p.347 —
@@ -11547,6 +11592,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // W7-continuation — realm-scale mercenary recruitment (RR p.428): tier-scaled availability, per-period
   // cap, fee from the treasury, troops arrive ½/¼/remainder (ride the slot-46 muster consumer)
   realmRecruitTierForDomain, domainRealmRecruitedThisPeriod, domainRealmRecruitAvailable, recruitRealmTroops,
+  // W7-continuation — standing-army capacity (RR p.434, the Vassal Troops by Realm Size table)
+  realmStandingArmyCapacity,
   // W7-continuation — realm-scale military specialists + the lightweight↔full NPC doctrine primitive
   expandCharacterToFull, recruitRealmSpecialist, domainRealmSpecialistAvailable, domainRealmSpecialistsRecruitedThisPeriod,
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
