@@ -10036,7 +10036,7 @@ document.addEventListener('alpine:init', () => {
             <p class="text-sm" x-text="armyReactionStatusText()"></p>
             <div class="flex flex-wrap gap-2 mt-1">
               <template x-if="armyReactionCanReRoute()">
-                <button @click="armyReactionReRoute()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-target the march to the band's current hex (JJ p.104 — the band may have moved)">🧭 Re-route to the band</button>
+                <button @click="armyReactionReRoute()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Re-target the march to the band's current hex now (JJ p.104). The force already auto-follows a wandering band each day — use this to re-route at once, or to intercept ahead.">🧭 Re-route to the band</button>
               </template>
               <button @click="armyReactionRecall()" class="text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Recall the force — its units march home to their garrisons">🏠 Recall (march home)</button>
             </div>
@@ -18224,10 +18224,10 @@ return {
     if(a.reactionBattleId && (this.currentCampaign.battles || []).some(b => b && b.id === a.reactionBattleId))
       return 'In battle with ' + name + ' — resolve it in Review ▸ 🎌 Battles, then recall.';
     const marching = a.journeyId && (this.currentCampaign.journeys || []).some(j => j && j.id === a.journeyId && j.status === 'in-transit');
-    if(marching) return 'Marching to meet ' + name + (band.currentHexId ? (' at ' + this.hexLabelById(band.currentHexId)) : '') + '.';
+    if(marching) return 'Marching to meet ' + name + (band.currentHexId ? (' at ' + this.hexLabelById(band.currentHexId)) : '') + ' — it follows the band automatically if it moves.';
     if(a.currentHexId && band.currentHexId && a.currentHexId === band.currentHexId)
       return 'In position against ' + name + ' — the meeting resolves on the next day tick.';
-    return 'The band has moved' + (band.currentHexId ? (' to ' + this.hexLabelById(band.currentHexId)) : '') + ' — re-route to the band, or recall.';
+    return 'The band has moved' + (band.currentHexId ? (' to ' + this.hexLabelById(band.currentHexId)) : '') + ' — the force resumes the pursuit on the next day tick (or re-route / recall by hand).';
   },
   armyReactionCanReRoute(){
     const a = this.armySelected(); if(!a) return false;
