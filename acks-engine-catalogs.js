@@ -820,6 +820,20 @@ function totalDailyWageGp(workerCounts){
   return total;
 }
 
+// cf↔gp conversion for the day-tick labor model (Construction Wave C — 2026-06-18).
+// RR p.174's "Typical Laborer" simplification: 3,000 laborers build 500gp/day. A laborer is
+// 5 cf/day → 3,000 × 5 = 15,000 cf/day = 500gp/day → 30 cf per gp. So a structure's labor
+// requirement in cubic feet = totalCost × 30, and the day-tick's daily gp-equivalent progress
+// = totalDailyOutputCf / 30. This keeps a 3,000-laborer crew building at the same 500gp/day the
+// agricultural drip uses (AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY), so the two paths are consistent.
+const CONSTRUCTION_CF_PER_GP = 30;
+
+// Labor (cubic feet) required to build a structure of the given gp cost. The day-tick consumer
+// completes a Project when laborInvested (cf accrued from the crew) reaches this. Pure.
+function constructionLaborForGp(gp){
+  return Math.max(0, Math.round((Number(gp) || 0) * CONSTRUCTION_CF_PER_GP));
+}
+
 // =============================================================================
 // Phase 2.5 Journeys (#475) — overland travel catalogs (J1). RAW: RR ch.6
 // Wilderness Expeditions (pp.272-279) + JJ ch.3 (pp.84-95). Sea/air reserved.
@@ -2641,6 +2655,7 @@ Object.assign(ACKS, {
   wildernessSearchTargetForSpeed,
   // Phase 4 Construction Wave A (RR p.174 — 2026-05-30)
   CONSTRUCTION_WORKERS, lookupConstructionWorker, totalDailyOutputCf, totalDailyWageGp,
+  CONSTRUCTION_CF_PER_GP, constructionLaborForGp,
   // Phase 2.95 §4.2 — Hireling recruitment catalogs.
   HIRELING_MARKET_CLASSES, HIRELING_MERCENARIES, HIRELING_HENCHMEN, HIRELING_SPECIALISTS,
   // Phase 2.5 §16 CoL-2 — wage-by-level (RR p.168) + Living Expenses helpers (RR p.173).

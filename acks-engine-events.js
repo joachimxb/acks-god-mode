@@ -2318,6 +2318,46 @@ function applyEvent_constructionCompleted(campaign, event){
     type: 'completed',
     narrative: p.narrative || ('Constructed: ' + cst.name + ' (' + cst.buildValue + ' gp)')
   });
+  // Construction Wave C (2026-06-18) — a domain-owned stronghold-component Project adds a real component
+  // to the owner domain's stronghold (so strongholdValue, which reads the components, grows) and links
+  // the minted Constructible as that component's mirror — the SAME forward/back link pair
+  // migrateStrongholdComponentsToConstructibles makes (comp.constructibleId is the migration's dedup key,
+  // so on next load the migration treats the new component as already-mirrored → no double-mint; the
+  // economy reads the component, not the Constructible, so no double-count — zero-drift preserved).
+  if(cst && proj.constructibleKind === 'stronghold-component' && proj.ownerDomainId && !proj.isRepair){
+    const dom = (campaign.domains || []).find(d => d && d.id === proj.ownerDomainId);
+    const blankComp = A && A.blankStrongholdComponent;
+    if(dom && typeof blankComp === 'function'){
+      dom.stronghold = dom.stronghold || {};
+      if(!Array.isArray(dom.stronghold.components)){
+        // Legacy single-stronghold → seed a components array from the existing stronghold FIRST, so its
+        // buildValue isn't dropped (strongholdValue sums components only when the array is present, else
+        // it reads the legacy buildValue). Mirrors the migration's [s] treatment + carries any mirror link.
+        const s = dom.stronghold, seeded = [];
+        if(s.type || s.name || (s.buildValue || 0) > 0 || (Array.isArray(s.structures) && s.structures.length)){
+          const legacy = blankComp({ type: s.type || '', name: s.name || s.type || 'Stronghold',
+            buildValue: s.buildValue || 0, structures: Array.isArray(s.structures) ? s.structures : [] });
+          if(s.constructibleId) legacy.constructibleId = s.constructibleId;
+          seeded.push(legacy);
+        }
+        dom.stronghold.components = seeded;
+      }
+      const spec = proj.completionSpec || {};
+      const comp = blankComp({
+        type: spec.componentType || '',
+        name: proj.name || cst.name,
+        buildValue: proj.totalCost || cst.buildValue || 0,
+        structures: Array.isArray(spec.structures) ? spec.structures : []
+      });
+      comp.constructibleId = cst.id;                  // forward link — the migration's dedup key
+      cst.functionData = cst.functionData || {};
+      cst.functionData.legacyComponentId = comp.id;   // back link
+      cst.siteType = 'stronghold-courtyard';
+      dom.stronghold.components.push(comp);
+      _pushConstructionHistory(cst, { turn: campaign.currentTurn || null, type: 'added-to-stronghold',
+        narrative: 'Added as a component of ' + (dom.name || 'the domain') + "'s stronghold (+" + (comp.buildValue || 0).toLocaleString() + ' gp value).' });
+    }
+  }
   // AD-C (RR p.386) — a completed kind:'dungeon' Project mints a first-class Dungeon entity (dun-),
   // auto-attuning the arcane-L9+ owner. Try-guarded + late-bound (a missing module can never fail
   // construction completion); idempotent (onDungeonConstructed returns an existing build). Mirrors the sanctum hook.

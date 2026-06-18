@@ -10635,6 +10635,123 @@ function isSiteEligibleForKind(campaign, hex, kind, subtype){
   return { eligible:true, reason:null };
 }
 
+// ── Construction Wave C — Construction Wizard engine (the creation verb + forecast; 2026-06-18) ──
+// The day-tick consumer (proposeConstructionDay) already ADVANCES a structure Project — it accrues
+// totalDailyOutputCf(workerCounts) per day toward laborRequired, completes at laborRequired, and the
+// construction-completed event mints the Constructible. What was missing is the START: a setter that
+// CREATES the Project (computing laborRequired from totalCost) + a forecast the Wizard previews. These
+// fill that gap; the advance + completion machinery is unchanged.
+
+// RR p.174: a STRUCTURE or VESSEL construction must be overseen by a siege engineer (≤25,000gp) or
+// engineer (≤100,000gp). Land improvement (agricultural-improvement) is neither — it needs no engineer.
+function projectRequiresSupervisor(project){
+  return !!project && project.constructibleKind !== 'agricultural-improvement';
+}
+
+// Combined on-site supervisor COST cap (RR p.174 — engineer ≤100,000gp / siege engineer ≤25,000gp;
+// caps additive). On-site = supervisor.currentHexId unset OR === the project's site hex (the
+// agriculturalSupervisorAdequacy convention). Returns { ok, totalCap, report, blockReason }. The cap
+// must cover the project's total cost. (Distinct from supervisorCapTotal, which is the WORKER-COUNT
+// cap the day-tick uses to throttle output — N supervisors × 100 workers each.)
+function projectSupervisorCostAdequacy(campaign, project){
+  const ids = (project && Array.isArray(project.supervisorCharacterIds)) ? project.supervisorCharacterIds : [];
+  const cost = (project && project.totalCost) || 0;
+  const report = []; let totalCap = 0;
+  const findCh = (id) => ((campaign && campaign.characters) || []).find(c => c && c.id === id) || null;
+  if(!ids.length) return { ok:false, totalCap:0, report, blockReason:'no supervisor assigned' };
+  ids.forEach(sid => {
+    const sup = findCh(sid);
+    if(!sup){ report.push({ id:sid, name:'(missing)', onSite:false, cap:0, reason:'character not found' }); return; }
+    const cap = constructionSupervisorCapForCharacter(sup);
+    const onSite = !sup.currentHexId || sup.currentHexId === project.siteHexId;
+    if(cap <= 0){ report.push({ id:sid, name:sup.name, onSite, cap, reason:'not a construction supervisor (needs Engineering or Siege Engineering)' }); return; }
+    if(!onSite){ report.push({ id:sid, name:sup.name, onSite:false, cap, reason:'not on-site (at a different hex)' }); return; }
+    report.push({ id:sid, name:sup.name, onSite:true, cap }); totalCap += cap;
+  });
+  if(totalCap <= 0){
+    const issues = report.filter(r => r.reason).map(r => r.name + ': ' + r.reason).join('; ');
+    return { ok:false, totalCap:0, report, blockReason:'no eligible on-site supervisor (' + (issues || 'none') + ')' };
+  }
+  if(totalCap < cost) return { ok:false, totalCap, report, blockReason:'combined on-site supervisor cap (' + totalCap.toLocaleString() + 'gp) below project cost (' + cost.toLocaleString() + 'gp)' };
+  return { ok:true, totalCap, report, blockReason:'' };
+}
+
+// PURE forecast for a Project — the Wizard preview AND a project card read it. Mirrors the day-tick
+// math (proposeConstructionDay) exactly: crew cf/day, the worker-cap throttle when realistic, mage-assist
+// multiplier, days to completion from the cf remaining. Plus the RR p.174 supervisor-cost adequacy.
+function projectConstructionForecast(campaign, project){
+  const A = global.ACKS || {};
+  const out = { totalCost:0, laborRequired:0, laborInvested:0, remainingCf:0, pctComplete:0,
+    dailyCf:0, dailyGp:0, dailyWageGp:0, workerTotal:0, workerCap:0, capLimited:false,
+    daysToComplete:null, daysElapsed:0, requiresSupervisor:false, supervisorOk:true,
+    supervisorCostCap:0, supervisorReport:[], supervisorBlockReason:'', realistic:true };
+  if(!project) return out;
+  const cfPerGp = A.CONSTRUCTION_CF_PER_GP || 30;
+  const totalCost = project.totalCost || 0;
+  const laborRequired = project.laborRequired || Math.round(totalCost * cfPerGp);
+  const laborInvested = project.laborInvested || 0;
+  const wc = project.workerCounts || {};
+  const workerTotal = Object.values(wc).reduce((s,n) => s + (n||0), 0);
+  let dailyCf = A.totalDailyOutputCf ? A.totalDailyOutputCf(wc) : 0;
+  const realistic = !isHouseRuleEnabled(campaign, 'abstract-construction');
+  const workerCap = supervisorCapTotal(project);
+  let capLimited = false;
+  if(realistic && workerCap > 0 && workerTotal > workerCap){ dailyCf = dailyCf * (workerCap / workerTotal); capLimited = true; }
+  if(isHouseRuleEnabled(campaign, 'mage-assisted-construction') && project.magicAssist && project.magicAssist.multipliers){
+    const mult = Object.values(project.magicAssist.multipliers).reduce((s,n) => s + (n||0), 1);
+    dailyCf = dailyCf * mult;
+  }
+  const dailyWageGp = A.totalDailyWageGp ? A.totalDailyWageGp(wc) : 0;
+  const remainingCf = Math.max(0, laborRequired - laborInvested);
+  const daysToComplete = dailyCf > 0 ? Math.ceil(remainingCf / dailyCf) : null;   // null = never (no productive crew)
+  const pctComplete = laborRequired > 0 ? Math.min(100, Math.round(laborInvested / laborRequired * 100)) : 0;
+  const requiresSupervisor = projectRequiresSupervisor(project);
+  const sup = projectSupervisorCostAdequacy(campaign, project);
+  Object.assign(out, { totalCost, laborRequired, laborInvested, remainingCf, pctComplete,
+    dailyCf, dailyGp: dailyCf / cfPerGp, dailyWageGp, workerTotal, workerCap, capLimited,
+    daysToComplete, daysElapsed: project.daysElapsed || 0, requiresSupervisor,
+    supervisorOk: (!requiresSupervisor || !realistic) ? true : sup.ok,
+    supervisorCostCap: sup.totalCap, supervisorReport: sup.report, supervisorBlockReason: sup.blockReason, realistic });
+  return out;
+}
+
+// The creation verb the Construction Wizard calls (Architecture §10.8). Builds a Project, computes
+// laborRequired from totalCost (cf = gp × CONSTRUCTION_CF_PER_GP), and pushes it to campaign.projects
+// in 'under-construction' state so the day-tick advances it immediately. Returns the Project. Does NOT
+// emit an event (the UI emits construction-project-started for the audit trail + the 'started' history;
+// the handler is idempotent on an already-started project). opts.start === false leaves it 'planning'.
+function startConstructionProject(campaign, opts={}){
+  if(!campaign) return null;
+  if(!Array.isArray(campaign.projects)) campaign.projects = [];
+  const blank = (global.ACKS && global.ACKS.blankProject) || null;
+  if(typeof blank !== 'function') return null;
+  const totalCost = Math.max(0, Number(opts.totalCost) || 0);
+  const p = blank({
+    id: opts.id,
+    constructibleKind: opts.constructibleKind || 'stronghold-component',
+    constructibleSubtype: opts.constructibleSubtype || null,
+    name: opts.name || '',
+    siteHexId: opts.siteHexId || null,
+    siteSettlementId: opts.siteSettlementId || null,
+    siteConstructibleId: opts.siteConstructibleId || null,
+    ownerCharacterId: opts.ownerCharacterId || null,
+    ownerDomainId: opts.ownerDomainId || null,
+    isRepair: opts.isRepair === true,
+    repairTargetConstructibleId: opts.repairTargetConstructibleId || null,
+    totalCost,
+    workerCounts: opts.workerCounts || {},
+    supervisorCharacterIds: Array.isArray(opts.supervisorCharacterIds) ? opts.supervisorCharacterIds.filter(Boolean) : [],
+    completionSpec: opts.completionSpec || null,
+    notes: opts.notes || ''
+  });
+  p.laborRequired = (typeof opts.laborRequired === 'number') ? opts.laborRequired
+    : (global.ACKS && global.ACKS.constructionLaborForGp ? global.ACKS.constructionLaborForGp(totalCost) : Math.round(totalCost * 30));
+  p.lifecycleState = (opts.start === false) ? 'planning' : 'under-construction';
+  if(p.lifecycleState === 'under-construction') p.startedAtTurn = (campaign.currentTurn != null) ? campaign.currentTurn : null;
+  campaign.projects.push(p);
+  return p;
+}
+
 // ── A.6 — Day-tick consumer for construction (with monthly fallback) ──
 //
 // Advance every in-progress Project by N days. For each Project, compute laborInvested
@@ -11586,6 +11703,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Construction-specific helpers
   isEligibleSupervisor, supervisorCapTotal, projectExceedsSupervisor, isSiteEligibleForKind,
   tickConstructionByDays, tickConstructionMonthly,
+  // Wave Construction-C — the Construction Wizard engine (creation verb + forecast; 2026-06-18)
+  startConstructionProject, projectConstructionForecast, projectRequiresSupervisor, projectSupervisorCostAdequacy,
   // Construction predicates
   isProject, isConstructible, isConstructibleKind, isUnderConstruction, isComplete, isDamaged, isOperational, isInRepair,
   displayConstructibleKind,
@@ -11594,7 +11713,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // Wave Construction-B — agricultural-improvement on the unified Project model
   migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
   // Wave Construction-C — stronghold components lifted onto first-class Constructibles
-  migrateStrongholdComponentsToConstructibles,
+  migrateStrongholdComponentsToConstructibles, _strongholdSeatHexId,
   // Time-based construction (RR p.174) — rate + supervisor-adequacy + per-day drip
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
   constructionSupervisorCapForCharacter, computeAgriculturalDrip,

@@ -1918,6 +1918,11 @@ function blankProject(opts={}){
     estimatedCompletionTurn: opts.estimatedCompletionTurn || null,
     // Day cadence (consumed when Calendar C2 lands; monthly fallback used today)
     daysElapsed: opts.daysElapsed || 0,                                   // since startedAtTurn — used by day-tick consumer
+    // Completion spec (Construction Wave C — 2026-06-18). For a stronghold-component project, the
+    // Construction Wizard stashes {componentType, structures:[{structureKey,quantity}]} here so the
+    // construction-completed handler can rebuild the real stronghold component (so the domain's
+    // stronghold value grows) + link it to the minted Constructible mirror. null for other kinds.
+    completionSpec: opts.completionSpec || null,
     // History (DF-style "world remembers" per Architecture.md §10.10)
     history: opts.history || [],                                          // appended on key events (started, vagary, paused, completed)
     // Notes
