@@ -43,15 +43,15 @@
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
 <script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-17-w7muster"></script>
-<script src="acks-engine-entities.js?v=2026-06-17-garrison"></script>
+<script src="acks-engine.js?v=2026-06-18-w7banditry"></script>
+<script src="acks-engine-entities.js?v=2026-06-18-w7banditry"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-events.js?v=2026-06-16-adf"></script>
 <script src="acks-engine-battles.js?v=2026-06-12-a"></script>
 <script src="acks-engine-maneuvers.js?v=2026-06-12-a"></script>
-<script src="acks-engine-subsystems.js?v=2026-06-17-garrison"></script>
+<script src="acks-engine-subsystems.js?v=2026-06-18-w7banditry"></script>
 <!-- world-layer team session (2026-06-13): Religion R0 + Weather HW-1..3 + Domain Completion DC-0 engine modules -->
 <script src="acks-engine-religion.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-weather.js?v=2026-06-13-a"></script>
@@ -4869,6 +4869,9 @@ document.addEventListener('alpine:init', () => {
                 (<span x-text="banditryBands(selectedDomain).reduce((s,g) => s + Math.max(0,(g.count||0)-(g.casualties||0)), 0).toLocaleString()"></span> raiders) —
                 <button @click="currentView='world'; worldSubView='lairs'" class="underline">World ▸ 🐉 Monsters</button>
               </p>
+              <!-- #476 E10 / RR p.433 — the militia-drawn rebels fight as trained troops, not peasant rabble -->
+              <p class="text-sm mt-1 font-semibold accent-red" x-show="banditryMilitiaInfo(selectedDomain)"
+                 x-text="'⚔ ' + (banditryMilitiaInfo(selectedDomain)?.raiders || 0).toLocaleString() + ' of these are your own trained militia in revolt — they fight as ' + (banditryMilitiaInfo(selectedDomain)?.label || '') + ', not peasant rabble (RR p.433).'"></p>
               <p class="text-xs mt-1 opacity-90" x-show="(selectedDomain.banditryOccupationMonths || 0) >= 1 && isHouseRuleEnabled('domain-morale-banditry')"
                  x-text="'⚠ Enemy-army occupation, month ' + (selectedDomain.banditryOccupationMonths || 0)
                    + ((selectedDomain.banditryOccupationMonths || 0) >= 2 ? (' — −' + ((selectedDomain.banditryOccupationMonths || 0) - 1) + ' on the next morale roll') : ' — the penalty builds from next month')
@@ -25973,6 +25976,15 @@ return {
   banditryBands(d){
     if(!d || !this.currentCampaign || typeof window.ACKS.banditryBandsForDomain !== 'function') return [];
     return window.ACKS.banditryBandsForDomain(this.currentCampaign, d.id);
+  },
+  // #476 E10 — the militia-drawn portion of the banditry (RR p.433): bands whose template
+  // carries a troopTypeKey fight as trained troops, not peasant rabble. null = none.
+  banditryMilitiaInfo(d){
+    const bands = this.banditryBands(d).filter(g => g && g.groupTemplate && g.groupTemplate.troopTypeKey);
+    if(!bands.length) return null;
+    const raiders = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+    const t = bands[0].groupTemplate;
+    return { bands: bands.length, raiders, label: t.troopLabel || t.troopTypeKey };
   },
   // Phase 3 Military W2 — the Vagaries of Incursion domain-panel reads.
   incursionBands(d){

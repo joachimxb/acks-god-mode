@@ -6154,6 +6154,59 @@ function _banditryEmitEvent(campaign, d, payload, narrative){
     appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
   return ev;
 }
+// Reconcile ONE banditry sub-population (militia-drawn or rabble) to its target. Mutates
+// campaign.groups (rises new bands, removes disbanded/wiped). Returns { action, bands }.
+// rng is consumed ONLY on a rise (the hex shuffle) — a 0-target / no-bands no-op never
+// touches it, so a domain with no at-home trained militia leaves the rng stream for the
+// rabble reconcile exactly as the pre-split code saw it (byte-identical).
+function _reconcileBanditrySubset(campaign, d, bands, target, opts){
+  const A = _jACKS();
+  const rng = opts.rng, turn = opts.turn, moraleName = opts.moraleName;
+  const aliveNow = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+  if(target <= 0 && bands.length){
+    // Morale recovered (or this sub-population is gone) — the men return to their fields,
+    // WITHOUT population loss (RR p.351).
+    const ids = new Set(bands.map(g => g.id));
+    campaign.groups = campaign.groups.filter(g => !(g && ids.has(g.id)));
+    return { action: 'disbanded', bands: [] };
+  }
+  if(target > 0 && !bands.length){
+    // Rise — 🔧 one band per domain hex, at most 6, sized evenly (rng-placed).
+    const spots = (campaign.hexes || []).filter(h => h && h.domainId === d.id);
+    for(let i = spots.length - 1; i > 0; i--){ const j = Math.floor(rng() * (i + 1)); const t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
+    const nBands = Math.max(1, Math.min(6, spots.length || 1, target));
+    const base = Math.floor(target / nBands), rem = target % nBands;
+    const made = [];
+    for(let i = 0; i < nBands; i++){
+      const g = (typeof A.blankGroup === 'function') ? A.blankGroup({
+        name: opts.bandName(nBands, i),
+        groupTemplate: opts.template(),
+        count: base + (i < rem ? 1 : 0),
+        currentHexId: spots.length ? spots[i % spots.length].id : null,
+        currentDomainId: d.id
+      }) : null;
+      if(!g) break;
+      g.banditryDomainId = d.id;
+      g.history.push({ turn, type: 'banditry', reason: opts.riseReason(moraleName) });
+      campaign.groups.push(g);
+      made.push(g);
+    }
+    return { action: 'rise', bands: made };
+  }
+  if(target > 0 && bands.length && aliveNow !== target){
+    // Resize the existing set evenly (positions + histories kept); a share of 0 disbands
+    // that band (the target shrank below the band count).
+    const base = Math.floor(target / bands.length), rem = target % bands.length;
+    bands.forEach((g, i) => { g.count = base + (i < rem ? 1 : 0); g.casualties = 0; });
+    const empty = new Set(bands.filter(g => (g.count || 0) <= 0).map(g => g.id));
+    if(empty.size){
+      campaign.groups = campaign.groups.filter(g => !(g && empty.has(g.id)));
+      bands = bands.filter(g => !empty.has(g.id));
+    }
+    return { action: (target > aliveNow) ? 'swell' : 'wane', bands };
+  }
+  return { action: null, bands };
+}
 function processBanditryForTurn(campaign, options){
   const A = _jACKS();
   const o = options || {};
@@ -6167,6 +6220,7 @@ function processBanditryForTurn(campaign, options){
   const NAMES = A.MORALE_LEVEL_NAMES || {};
   for(const d of (campaign.domains || [])){
     if(!d || !d.demographics) continue;
+    const dn = d.name || d.id;
     let bands = banditryBandsForDomain(campaign, d.id);
     // 1) Casualty settlement — killed bandits are the domain's own men (RR p.351).
     let killed = 0;
@@ -6185,70 +6239,72 @@ function processBanditryForTurn(campaign, options){
     const wiped = new Set(bands.filter(g => (g.count || 0) <= 0).map(g => g.id));
     if(wiped.size) campaign.groups = campaign.groups.filter(g => !(g && wiped.has(g.id)));
     bands = bands.filter(g => !wiped.has(g.id));
-    // 2) The RAW target off the post-settlement morale + families.
+    // 2) The RAW target off the post-settlement morale + families, split into militia-drawn
+    // rebels (RR p.433 — "any rebels will be drawn from the militia": armed + trained, far
+    // more dangerous) + peasant rabble. The militia POOL caps how many fight as trained
+    // troops; the surplus are rabble (the Anárion example — rebels far exceed the militia).
     const target = (typeof A.banditCount === 'function') ? A.banditCount(d) : 0;
-    const aliveNow = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+    const aliveBefore = bands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
+    const bandsBefore = bands.length;
+    const militiaRow = (typeof A.domainMilitiaTroopRow === 'function') ? A.domainMilitiaTroopRow(campaign, d) : null;
+    const militiaPool = (militiaRow && typeof A.domainTrainedMilitiaPool === 'function') ? A.domainTrainedMilitiaPool(campaign, d) : 0;
+    const militiaTarget = (militiaRow && militiaPool > 0) ? Math.min(target, militiaPool) : 0;
+    const rabbleTarget = Math.max(0, target - militiaTarget);
+    const troopLabel = militiaRow ? (militiaRow.label || militiaRow.typeKey) : null;
     const morale = (d.demographics.morale != null) ? d.demographics.morale : 0;
     const moraleName = NAMES[String(morale)] || ('morale ' + morale);
-    let action = null;
-    if(target <= 0 && bands.length){
-      // Morale recovered (or no families remain) — the men return to their fields,
-      // WITHOUT population loss (RR p.351).
-      const ids = new Set(bands.map(g => g.id));
-      campaign.groups = campaign.groups.filter(g => !(g && ids.has(g.id)));
-      action = 'disbanded';
-    } else if(target > 0 && !bands.length){
-      // Rise — 🔧 one band per domain hex, at most 6, sized evenly (rng-placed).
-      const spots = (campaign.hexes || []).filter(h => h && h.domainId === d.id);
-      for(let i = spots.length - 1; i > 0; i--){ const j = Math.floor(rng() * (i + 1)); const t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
-      const nBands = Math.max(1, Math.min(6, spots.length || 1, target));
-      const base = Math.floor(target / nBands), rem = target % nBands;
-      for(let i = 0; i < nBands; i++){
-        const g = (typeof A.blankGroup === 'function') ? A.blankGroup({
-          name: 'Bandits of ' + (d.name || d.id) + (nBands > 1 ? ' · band ' + (i + 1) : ''),
-          groupTemplate: { monsterCatalogKey: 'bandit', creatureTypes: ['humanoid'], hitDice: '1' },
-          count: base + (i < rem ? 1 : 0),
-          currentHexId: spots.length ? spots[i % spots.length].id : null,
-          currentDomainId: d.id
-        }) : null;
-        if(!g) break;
-        g.banditryDomainId = d.id;
-        g.history.push({ turn, type: 'banditry',
-          reason: 'risen from ' + (d.name || 'the domain') + '’s disaffected families (morale ' + moraleName + ', RR pp.350–351)' });
-        campaign.groups.push(g);
-        bands.push(g);
-      }
-      action = 'rise';
-    } else if(target > 0 && bands.length && aliveNow !== target){
-      // Resize the existing set evenly (positions + histories kept); a share of 0 disbands
-      // that band (the target shrank below the band count).
-      const base = Math.floor(target / bands.length), rem = target % bands.length;
-      bands.forEach((g, i) => { g.count = base + (i < rem ? 1 : 0); g.casualties = 0; });
-      const empty = new Set(bands.filter(g => (g.count || 0) <= 0).map(g => g.id));
-      if(empty.size){
-        campaign.groups = campaign.groups.filter(g => !(g && empty.has(g.id)));
-        bands = bands.filter(g => !empty.has(g.id));
-      }
-      action = (target > aliveNow) ? 'swell' : 'wane';
-    }
+    // Partition the surviving bands by whether they're militia-drawn (troopTypeKey set).
+    const militiaBands = bands.filter(g => g.groupTemplate && g.groupTemplate.troopTypeKey);
+    const rabbleBands = bands.filter(g => !(g.groupTemplate && g.groupTemplate.troopTypeKey));
+    // Reconcile militia FIRST so a no-militia domain leaves the rng untouched for the rabble
+    // shuffle — the rabble-only path is then byte-identical to the pre-split code.
+    const milRes = _reconcileBanditrySubset(campaign, d, militiaBands, militiaTarget, {
+      rng, turn, moraleName,
+      template: () => ({ monsterCatalogKey: 'bandit', creatureTypes: ['humanoid'], hitDice: (militiaRow && militiaRow.hd) || '1',
+        troopTypeKey: militiaRow.typeKey, troopRace: militiaRow.race, troopLoadout: militiaRow.loadout || null,
+        troopVeteran: !!militiaRow.veteran, troopLabel }),
+      bandName: (n, i) => 'Rebel ' + troopLabel + ' of ' + dn + (n > 1 ? ' · band ' + (i + 1) : ''),
+      riseReason: (mn) => 'risen in armed revolt from ' + dn + '’s trained militia (morale ' + mn + ', RR p.433)'
+    });
+    const rabRes = _reconcileBanditrySubset(campaign, d, rabbleBands, rabbleTarget, {
+      rng, turn, moraleName,
+      template: () => ({ monsterCatalogKey: 'bandit', creatureTypes: ['humanoid'], hitDice: '1' }),
+      bandName: (n, i) => 'Bandits of ' + dn + (n > 1 ? ' · band ' + (i + 1) : ''),
+      riseReason: (mn) => 'risen from ' + dn + '’s disaffected families (morale ' + mn + ', RR pp.350–351)'
+    });
+    const allBands = milRes.bands.concat(rabRes.bands);
+    const aliveAfter = allBands.reduce((s, g) => s + Math.max(0, (g.count || 0) - (g.casualties || 0)), 0);
     // 3) The enemy-army occupation counter (RR p.349 + p.351; moraleModifiersFor reads it).
     d.banditryOccupationMonths = (target > 0) ? ((d.banditryOccupationMonths || 0) + 1) : 0;
-    // 4) Record what changed (a no-change plague month records nothing).
+    // 4) The combined action (totals-derived, matching the pre-split semantics; falls back to
+    // a sub-action so a militia uprising at a stable total still records).
+    let action = null;
+    if(target <= 0 && bandsBefore > 0) action = 'disbanded';
+    else if(target > 0 && bandsBefore === 0) action = 'rise';
+    else if(target > 0 && aliveAfter > aliveBefore) action = 'swell';
+    else if(target > 0 && aliveAfter < aliveBefore && allBands.length) action = 'wane';
+    if(!action) action = milRes.action || rabRes.action || null;
+    // 5) Record what changed (a no-change plague month records nothing).
     if(killed > 0 || wiped.size > 0 || action){
+      const milNote = militiaTarget > 0
+        ? (' — ' + militiaTarget.toLocaleString() + ' drawn from the trained militia fight as ' + troopLabel + ' (RR p.433)')
+        : '';
       const parts = [];
-      if(killed > 0) parts.push(killed.toLocaleString() + ' bandits were killed — ' + (d.name || 'the domain') + ' loses ' + killed.toLocaleString() + ' families (RR p.351)');
-      if(action === 'rise') parts.push('⚔ Banditry plagues ' + (d.name || 'the domain') + ' — ' + target.toLocaleString() + ' of its men have turned bandit (' + moraleName + ', RR pp.350–351); ' + bands.length + ' band' + (bands.length === 1 ? '' : 's') + ' now raid the domain');
-      else if(action === 'swell') parts.push('⚔ Banditry in ' + (d.name || 'the domain') + ' swells to ' + target.toLocaleString() + ' raiders (' + moraleName + ')');
-      else if(action === 'wane') parts.push('Banditry in ' + (d.name || 'the domain') + ' wanes to ' + target.toLocaleString() + ' raiders');
-      else if(action === 'disbanded') parts.push('\u{1F3F3} The bandits of ' + (d.name || 'the domain') + ' lay down their arms and return to their fields — morale has recovered');
+      if(killed > 0) parts.push(killed.toLocaleString() + ' bandits were killed — ' + dn + ' loses ' + killed.toLocaleString() + ' families (RR p.351)');
+      if(action === 'rise') parts.push('⚔ Banditry plagues ' + dn + ' — ' + target.toLocaleString() + ' of its men have turned bandit (' + moraleName + ', RR pp.350–351)' + milNote + '; ' + allBands.length + ' band' + (allBands.length === 1 ? '' : 's') + ' now raid the domain');
+      else if(action === 'swell') parts.push('⚔ Banditry in ' + dn + ' swells to ' + target.toLocaleString() + ' raiders (' + moraleName + ')' + milNote);
+      else if(action === 'wane') parts.push('Banditry in ' + dn + ' wanes to ' + target.toLocaleString() + ' raiders' + milNote);
+      else if(action === 'disbanded') parts.push('\u{1F3F3} The bandits of ' + dn + ' lay down their arms and return to their fields — morale has recovered');
       const narrative = parts.join('. ') + '.';
-      const bandRoster = bands.map(g => ({ groupId: g.id, count: g.count || 0, hexId: g.currentHexId || null }));
+      const bandRoster = allBands.map(g => ({ groupId: g.id, count: g.count || 0, hexId: g.currentHexId || null,
+        troopTypeKey: (g.groupTemplate && g.groupTemplate.troopTypeKey) || null }));
       _banditryEmitEvent(campaign, d, {
-        action: action || 'casualties-settled', morale, target, killed,
-        familiesLost: killed, occupationMonths: d.banditryOccupationMonths || 0, bands: bandRoster
+        action: action || 'casualties-settled', morale, target, killed, familiesLost: killed,
+        militiaTarget, troopTypeKey: militiaRow ? militiaRow.typeKey : null, troopLabel,
+        occupationMonths: d.banditryOccupationMonths || 0, bands: bandRoster
       }, narrative);
       out.logEntries.push(narrative);
-      out.domains.push({ domainId: d.id, action: action || 'casualties-settled', target, killed, bands: bandRoster });
+      out.domains.push({ domainId: d.id, action: action || 'casualties-settled', target, killed, militiaTarget, bands: bandRoster });
     }
   }
   return out;

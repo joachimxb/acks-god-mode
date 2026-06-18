@@ -3183,14 +3183,29 @@ function unitBattleRating(campaign, unit){
   return _roundHalfBr(row.brPerCreature * active);
 }
 
-// The Group side of the shared battle interface: per-creature battleRating from the
-// MONSTER_CATALOG (MM stat blocks) × active count. This is how a monster band, an E10
-// banditry band, or a lair's defenders price into the JJ pp.104–106 mass-combat layer —
-// no promotion to Unit needed.
+// Resolve a Group's TROOP_CATALOG row when it's drawn from trained militia in revolt
+// (groupTemplate.troopTypeKey set — RR p.433; #476 E10). Mirrors unitTroopRow(unit).
+function _groupTroopRow(group){
+  const tpl = group && group.groupTemplate;
+  if(!tpl || !tpl.troopTypeKey || !global.ACKS || typeof global.ACKS.findTroopType !== 'function') return null;
+  return global.ACKS.findTroopType(tpl.troopTypeKey, {
+    race: tpl.troopRace || 'man', veteran: !!tpl.troopVeteran, loadout: tpl.troopLoadout || null
+  });
+}
+// The Group side of the shared battle interface: per-creature battleRating × active count.
+// This is how a monster band, an E10 banditry band, or a lair's defenders price into the
+// JJ pp.104–106 mass-combat layer — no promotion to Unit needed. A militia-drawn banditry
+// band (RR p.433) reads the TROOP_CATALOG instead of the MM — "heavily armed, well trained
+// forces rather than peasant rabble"; an ordinary band reads the MM via monsterCatalogKey.
 function groupBattleRating(campaign, group){
   const active = groupActiveCount(group);
   if(!active) return 0;
-  const key = group && group.groupTemplate && group.groupTemplate.monsterCatalogKey;
+  const tpl = group && group.groupTemplate;
+  if(tpl && tpl.troopTypeKey){
+    const row = _groupTroopRow(group);
+    if(row && typeof row.brPerCreature === 'number') return _roundHalfBr(row.brPerCreature * active);
+  }
+  const key = tpl && tpl.monsterCatalogKey;
   const m = key && global.ACKS && typeof global.ACKS.findMonster === 'function' ? global.ACKS.findMonster(key) : null;
   if(!m || typeof m.battleRating !== 'number') return 0;
   return _roundHalfBr(m.battleRating * active);
@@ -4095,10 +4110,16 @@ function domainSeatHexId(campaign, dom){
 // platoon factor, by LIVING count. null when the band has no priced catalog BR (GM prices it).
 function reactionBandPlatoonBr(campaign, group){
   if(!campaign || !group) return null;
-  const key = group.groupTemplate && group.groupTemplate.monsterCatalogKey;
-  const entry = (key && global.ACKS && typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(key) : null;
+  const tpl = group.groupTemplate || {};
   const count = groupActiveCount(group);
-  if(!entry || typeof entry.battleRating !== 'number' || !count) return null;
+  if(!count) return null;
+  // A militia-drawn band (RR p.433) prices off its trained troop type, not the MM.
+  if(tpl.troopTypeKey){
+    const row = _groupTroopRow(group);
+    if(row && typeof row.brPerCreature === 'number') return monsterPlatoonBr(row.brPerCreature, count);
+  }
+  const entry = (tpl.monsterCatalogKey && global.ACKS && typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(tpl.monsterCatalogKey) : null;
+  if(!entry || typeof entry.battleRating !== 'number') return null;
   return monsterPlatoonBr(entry.battleRating, count);
 }
 
@@ -4312,6 +4333,27 @@ function domainMilitiaTroopTypeKey(campaign, d){
   const tally = {};
   for(const u of trained){ tally[u.unitTypeKey] = (tally[u.unitTypeKey] || 0) + unitActiveCount(u); }
   return Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0] || null;
+}
+// The E10 banditry hook (RR p.433: "any rebels will be drawn from the militia"). The POOL
+// is the AT-HOME trained-militia manpower (calledUp === false — the idle armed men who'd
+// turn rebel; a called-up militia is actively serving, its fate in a revolt a GM / army-
+// battle call) — it caps how many of the rebels fight as trained troops rather than rabble.
+function domainTrainedMilitiaPool(campaign, d){
+  return _levyActiveCount(campaign, d, 'militia', u => _isTrainedLevy(u) && u.calledUp === false);
+}
+// The representative at-home trained-militia troop ROW (the most-common type's catalog row,
+// resolving race/loadout/veteran via that type's largest unit) — what the militia-drawn
+// rebels fight as. 🔧 v1: a single representative type (the most common). null when the
+// domain fields no at-home trained militia (or the type isn't a catalog row) → all rabble.
+function domainMilitiaTroopRow(campaign, d){
+  const atHome = domainLevyUnits(campaign, d, 'militia').filter(u => _isTrainedLevy(u) && u.calledUp === false);
+  if(!atHome.length) return null;
+  const tally = {};
+  for(const u of atHome){ tally[u.unitTypeKey] = (tally[u.unitTypeKey] || 0) + unitActiveCount(u); }
+  const key = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+  if(!key) return null;
+  const rep = atHome.filter(u => u.unitTypeKey === key).sort((a, b) => unitActiveCount(b) - unitActiveCount(a))[0];
+  return unitTroopRow(rep);
 }
 
 // ─── Levy / train setters ───────────────────────────────────────────────────
@@ -11297,6 +11339,7 @@ const ACKS = Object.assign(global.ACKS || {}, {
   domainLevyPoolCount, domainLevyTrainedOfType, conscriptQualifyingRemaining,
   militiaDomainMoralePenalty, militiaRevenuePenaltyFamilies, domainTrainedMilitiaCredit,
   levyMoraleAdjustmentForDomain, canLevyFromDomain, domainMilitiaTroopTypeKey,
+  domainMilitiaTroopRow, domainTrainedMilitiaPool,
   levyConscripts, levyMilitia, trainLevyUnit, sendMilitiaHome,
   levyEverRaised, levyAvailable, sendMilitiaUnitHome, callUpMilitia, releaseLevyUnit, processLevyReplenishmentForTurn,
   // W7-continuation — the training timer (RR p.431): training takes its months; a day-consumer completes it
