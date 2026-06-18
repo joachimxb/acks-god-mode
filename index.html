@@ -42,8 +42,8 @@
 <script src="acks-engine-catalogs.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
-<script src="acks-engine-troops.js?v=2026-06-12-a"></script>
-<script src="acks-engine.js?v=2026-06-18-w7banditry"></script>
+<script src="acks-engine-troops.js?v=2026-06-18-w7recruit"></script>
+<script src="acks-engine.js?v=2026-06-18-w7recruit"></script>
 <script src="acks-engine-entities.js?v=2026-06-18-w7banditry"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
@@ -2567,6 +2567,48 @@ document.addEventListener('alpine:init', () => {
         <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
           <button @click="closeLevyModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
           <button @click="submitLevy()" :disabled="!levyModalCanSubmit()" :class="levyModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!levyModalCanSubmit() ? 'Set a number from 1 to the available count (and the realm must be content)' : ''" x-text="(levyModal.source==='militia' ? '🛡 Levy ' : '⚒ Levy ') + (Math.floor(levyModal.count)||0)"></button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- 🪖 Recruit-mercenaries modal (Domain ▸ Military) — realm-scale recruitment (RR p.428): hire whole
+     mercenary units at the realm's tier. Per-period availability caps the count; a one-time fee is paid
+     from the treasury; the troops arrive ½/¼/remainder over the tier's time period (the slot-46 muster
+     consumer tops them up — advance the Day Clock). Distinct from the "+ Recruit unit" settlement-scale
+     Recruiting Wizard (RR pp.164–167). -->
+<div x-show="recruitModal.open" @keydown.escape.window="if(recruitModal.open){ closeRecruitModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:73; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecruitModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-12">
+    <template x-if="recruitModalDomain()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <h3 class="font-bold text-lg" x-text="'🪖 Recruit mercenaries — ' + (recruitModalDomain().name || '')"></h3>
+          <button @click="closeRecruitModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <p class="text-xs opacity-70">Realm-scale recruitment (RR p.428): hire whole mercenary units at your realm's tier. The troops arrive ½ the first period, ¼ the second, the rest the third — advance the Day Clock to muster them in.</p>
+          <p class="text-xs"><span class="opacity-70">Realm:</span> <span class="font-semibold capitalize" x-text="recruitModalTier()"></span> · <span class="opacity-70">availability period:</span> <span x-text="recruitModalPeriodWord()"></span> · <span class="opacity-70">treasury:</span> <span class="font-semibold" x-text="recruitModalTreasury().toLocaleString()"></span> gp</p>
+          <label class="flex items-center gap-2 flex-wrap">Troop type:
+            <select x-model="recruitModal.typeKey" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <template x-for="row in recruitModalTypeRows()" :key="'rmt-'+row.key"><option :value="row.key" :disabled="row.available < 1" x-text="row.label + ' — ' + row.available + '/period' + (row.wage != null ? ' · ' + row.wage + 'gp/mo' : '') + (row.available < 1 ? ' (none available)' : '')"></option></template>
+            </select>
+          </label>
+          <template x-if="recruitModalChosen()">
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 flex-wrap">Number to recruit:
+                <input type="number" min="1" :max="recruitModalAvailable()" x-model.number="recruitModal.count" class="w-20 border border-ink rounded px-1 py-0.5">
+                <span class="text-xs opacity-60" x-text="'(1–' + recruitModalAvailable() + ' available this period)'"></span>
+              </label>
+              <p class="text-xs"><span class="opacity-70">Stats:</span> <span x-text="'BR ' + (recruitModalChosen().br || 0) + '/soldier · wage ' + (recruitModalChosen().wage != null ? recruitModalChosen().wage : '?') + 'gp/mo — a professional, equipped unit (no training step)'"></span></p>
+              <p class="text-xs"><span class="opacity-70">Recruitment fee (RR p.428):</span> <span x-text="recruitModalFeeText() + ' — rolled + paid from the treasury when you recruit'"></span></p>
+            </div>
+          </template>
+          <p class="text-xs opacity-60 italic" x-show="recruitModalTypeRows().every(r => r.available < 1)">No mercenaries available to recruit at this realm tier this period.</p>
+        </div>
+        <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+          <button @click="closeRecruitModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+          <button @click="submitRecruit()" :disabled="!recruitModalCanSubmit()" :class="recruitModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!recruitModalCanSubmit() ? 'Pick a type with availability and set a number from 1 to the available count' : ''" x-text="'🪖 Recruit ' + (Math.floor(recruitModal.count)||0)"></button>
         </div>
       </div>
     </template>
@@ -5647,6 +5689,9 @@ document.addEventListener('alpine:init', () => {
                           :title="!rulerCharacter(selectedDomain) ? 'No ruler to recruit as patron' : 'Open the Recruit workflow for mercenary hires'"
                           :class="!rulerCharacter(selectedDomain) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-100'"
                           class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2">+ Recruit unit</button>
+                  <button @click="openRecruitModal(selectedDomain)"
+                          title="Realm-scale recruitment (RR p.428): hire whole mercenary units at your realm's tier — they arrive over the tier's time period"
+                          class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2 hover:bg-yellow-100">🪖 Recruit (realm)</button>
                 </td></tr>
                 <template x-for="(u, i) in garrisonStandingUnits(selectedDomain)" :key="u.id || ('gu-'+i)">
                   <tr>
@@ -17334,6 +17379,48 @@ return {
     this.closeLevyModal();
   },
 
+  // ─── 🪖 Realm-scale mercenary recruitment (RR p.428; W7-continuation) — hire whole mercenary units
+  //      at the realm's tier; per-period availability caps the count; the troops arrive ½/¼/remainder
+  //      over the tier's time period (the slot-46 muster consumer tops them up). Distinct from the
+  //      settlement-scale "+ Recruit unit" Recruiting Wizard (RR pp.164–167). ───
+  openRecruitModal(domain){
+    if(!domain) return;
+    const rows = this.recruitTypeRowsFor(domain);
+    const first = ((rows.find(r => r.available > 0) || rows[0]) || {}).key || '';
+    this.recruitModal = { open: true, domainId: domain.id, typeKey: first, count: 1 };
+  },
+  closeRecruitModal(){ this.recruitModal.open = false; },
+  recruitModalDomain(){ const id = this.recruitModal && this.recruitModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
+  recruitModalTier(){ const d = this.recruitModalDomain(); return d ? (window.ACKS.realmRecruitTierForDomain(this.currentCampaign, d) || '—') : '—'; },
+  recruitModalPeriodWord(){ const p = window.ACKS.realmRecruitPeriodDays(this.recruitModalTier()); return p === 360 ? 'years' : p === 90 ? 'seasons' : p === 30 ? 'months' : 'weeks'; },
+  recruitModalTreasury(){ const d = this.recruitModalDomain(); if(!d) return 0; return window.ACKS.domainTreasuryGp ? window.ACKS.domainTreasuryGp(this.currentCampaign, d.id) : ((d.treasury && d.treasury.gp) || 0); },
+  recruitTypeRowsFor(domain){
+    const A = window.ACKS;
+    if(!domain || !A.realmRecruitMercTypes) return [];
+    return A.realmRecruitMercTypes().map(key => {
+      const row = A.findTroopType ? A.findTroopType(key, { race: 'man' }) : null;
+      return { key, label: key.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+               available: A.domainRealmRecruitAvailable(this.currentCampaign, domain, key),
+               wage: (A.mercWage ? A.mercWage(key, 'man') : null),
+               br: row ? row.brPerCreature : 0 };
+    });
+  },
+  recruitModalTypeRows(){ const d = this.recruitModalDomain(); return d ? this.recruitTypeRowsFor(d) : []; },
+  recruitModalChosen(){ return this.recruitModalTypeRows().find(r => r.key === this.recruitModal.typeKey) || null; },
+  recruitModalAvailable(){ const c = this.recruitModalChosen(); return c ? c.available : 0; },
+  recruitModalFeeText(){ const spec = window.ACKS.realmRecruitFeeSpec(this.recruitModalTier()); return spec ? spec.text : '—'; },
+  recruitModalCanSubmit(){ const c = this.recruitModalChosen(); if(!c) return false; const n = Math.floor(Number(this.recruitModal.count) || 0); return n >= 1 && n <= c.available; },
+  submitRecruit(){
+    const d = this.recruitModalDomain(); if(!d || !this.recruitModalCanSubmit()) return;
+    const n = Math.floor(Number(this.recruitModal.count) || 0); const key = this.recruitModal.typeKey; const A = window.ACKS;
+    const r = A.recruitRealmTroops(this.currentCampaign, d.id, { typeKey: key, count: n });
+    if(!r){ this.showToast && this.showToast('No ' + key.replace(/-/g, ' ') + ' available to recruit at the ' + this.recruitModalTier() + ' this period.', 4000); return; }
+    const word = this.recruitModalPeriodWord();
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Recruited ' + r.recruited + ' ' + key.replace(/-/g, ' ') + ' mercenaries (' + r.tier + ', fee ' + r.feeGp.toLocaleString() + 'gp) — they arrive over 3 ' + word + ' (RR p.428). Advance the Day Clock.');
+    this.closeRecruitModal();
+  },
+
   // ─── #549 Add garrison unit with audit event (2026-05-30; W1: catalog defaults +
   //      first-class membership via stationUnit — campaign.units[] + the garrison mirror) ───
   addGarrisonUnit(domain){
@@ -23778,6 +23865,7 @@ return {
   lairDetailId: null,            // open lair in the detail modal (null = closed)
   unitSheetUnitId: null,         // the clickable unit detail/edit modal (null = closed)
   levyModal: { open: false, domainId: null, source: 'conscript', count: 1, homeHexId: '' },  // ⚒/🛡 Levy modal
+  recruitModal: { open: false, domainId: null, typeKey: '', count: 1 },  // 🪖 Recruit-mercenaries (realm scale) modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
   marchModal: { open: false, unitId: null, originHexId: null, destHexId: '', pace: 'normal' },  // 🚶 March a garrison unit

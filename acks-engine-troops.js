@@ -1927,6 +1927,33 @@
     return Object.keys(TRAINING_COSTS).filter(k => conscriptQualifyingNumber(k, r) > 0).sort();
   }
 
+  // ─── Military W7-continuation — realm-scale recruitment lookups (RR p.428) ───
+  /** RR p.428 — the realm recruitment tier for a realm of `families` (continent→barony), by the
+   *  catalog's own population-family thresholds. Floors at 'barony' (the smallest recruiting tier). */
+  function realmRecruitTier(families){
+    const f = Math.max(0, Number(families) || 0);
+    const pf = MERC_AVAILABILITY_REALM.populationFamilies;
+    for(const tier of MERC_AVAILABILITY_REALM.tiers){          // ordered continent→barony (largest first)
+      if(f >= (pf[tier] || 0)) return tier;
+    }
+    return 'barony';                                           // floor (RR p.428)
+  }
+  /** The recruitable mercenary type keys (RR p.428 realm-availability table). */
+  function realmRecruitMercTypes(){ return Object.keys(MERC_AVAILABILITY_REALM.types); }
+  /** RR p.428 — how many of `typeKey` a realm of `tier` can recruit per time period (0 = not fielded). */
+  function realmMercAvailable(tier, typeKey){
+    const row = MERC_AVAILABILITY_REALM.types[normalizeTroopTypeKey(typeKey)];
+    const v = row ? row[tier] : null;
+    return (typeof v === 'number') ? v : 0;
+  }
+  /** RR p.428 — the one-time recruitment fee spec ({dice, multiplierGp, text}) for a realm `tier`. */
+  function realmRecruitFeeSpec(tier){ return REALM_RECRUITMENT_FEES[tier] || null; }
+  /** RR p.428 — the length in days of a realm tier's recruitment time period (week/month/season/year). */
+  function realmRecruitPeriodDays(tier){
+    const p = (MERC_AVAILABILITY_REALM.timePeriod || {})[tier];
+    return p === 'year' ? 360 : p === 'season' ? 90 : p === 'month' ? 30 : 7;   // week (default)
+  }
+
   Object.assign(ACKS, {
     TROOP_CATALOG, TROOP_TYPE_ALIASES, BEAST_RIDER_BY_RACE,
     MERC_WAGES, MERC_MORALE, OFFICER_RANKS, ARMY_ORG_SCALE,
@@ -1938,7 +1965,9 @@
     unitScaleSupplyCost, unitLoyaltyBand,
     // W7 — conscripts/militia/training
     CONSCRIPT_QUALIFYING, TRAINING_COSTS,
-    conscriptQualifyingNumber, conscriptQualifyingMax, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes
+    conscriptQualifyingNumber, conscriptQualifyingMax, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes,
+    // W7-continuation — realm-scale recruitment (RR p.428)
+    realmRecruitTier, realmRecruitMercTypes, realmMercAvailable, realmRecruitFeeSpec, realmRecruitPeriodDays
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = ACKS;

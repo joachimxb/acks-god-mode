@@ -443,6 +443,83 @@ section('Levying takes TIME (RR p.430; W7 levy-arrival staging)');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Realm-scale mercenary recruitment (RR p.428; W7-continuation)');
+{
+  const seq = () => 0.5;   // deterministic rng for the fee roll
+
+  ok('realm-recruit helpers exported', typeof A.realmRecruitTier === 'function' && typeof A.realmMercAvailable === 'function' && typeof A.realmRecruitFeeSpec === 'function' && typeof A.realmRecruitPeriodDays === 'function' && typeof A.recruitRealmTroops === 'function' && typeof A.domainRealmRecruitAvailable === 'function' && typeof A.realmRecruitTierForDomain === 'function');
+
+  // tier by realm family count (the catalog's own populationFamilies thresholds, RR p.428)
+  ok('tier: 160 → barony (floor), 100 → barony', A.realmRecruitTier(160) === 'barony' && A.realmRecruitTier(100) === 'barony');
+  ok('tier: 960 → viscounty, 4600 → county', A.realmRecruitTier(960) === 'viscounty' && A.realmRecruitTier(4600) === 'county');
+  ok('tier: 20000 → duchy, 364000 → kingdom', A.realmRecruitTier(20000) === 'duchy' && A.realmRecruitTier(364000) === 'kingdom');
+  ok('tier: 1.5M → empire, 16M → continent', A.realmRecruitTier(1500000) === 'empire' && A.realmRecruitTier(16000000) === 'continent');
+
+  // per-period availability (RR p.428 table cells)
+  ok('county availability: light-inf 85 / heavy-inf 40 / horse-archers 10', A.realmMercAvailable('county', 'light-infantry') === 85 && A.realmMercAvailable('county', 'heavy-infantry') === 40 && A.realmMercAvailable('county', 'horse-archers') === 10);
+  ok('barony availability: light-inf 3 / heavy-inf 2 / horse-archers null → 0', A.realmMercAvailable('barony', 'light-infantry') === 3 && A.realmMercAvailable('barony', 'heavy-infantry') === 2 && A.realmMercAvailable('barony', 'horse-archers') === 0);
+  ok('continent light-infantry 340,000', A.realmMercAvailable('continent', 'light-infantry') === 340000);
+
+  // fee spec + period days
+  ok('fee spec: continent 6d10×1000, county 4d10×10, barony ×1', A.realmRecruitFeeSpec('continent').multiplierGp === 1000 && A.realmRecruitFeeSpec('continent').dice === '6d10' && A.realmRecruitFeeSpec('county').dice === '4d10' && A.realmRecruitFeeSpec('county').multiplierGp === 10 && A.realmRecruitFeeSpec('barony').multiplierGp === 1);
+  ok('period days: barony/county week=7, duchy month=30, kingdom season=90, continent year=360', A.realmRecruitPeriodDays('barony') === 7 && A.realmRecruitPeriodDays('county') === 7 && A.realmRecruitPeriodDays('duchy') === 30 && A.realmRecruitPeriodDays('kingdom') === 90 && A.realmRecruitPeriodDays('continent') === 360);
+
+  // a domain's tier from its realm families
+  const dc = mkDomain(4600, 1, 'dom-rc'); dc.treasury = { gp: 1000000 };
+  const camp = mkCamp([dc], 5);
+  ok('realmRecruitTierForDomain: a 4,600-family domain → county', A.realmRecruitTierForDomain(camp, 'dom-rc') === 'county');
+  ok('domainRealmRecruitAvailable: county light-infantry = 85 (fresh period)', A.domainRealmRecruitAvailable(camp, 'dom-rc', 'light-infantry') === 85);
+
+  // recruit (instant) — a real equipped mercenary unit + the fee debited from the treasury
+  const r = A.recruitRealmTroops(camp, 'dom-rc', { typeKey: 'light-infantry', count: 50, instant: true, rng: seq });
+  ok('recruited 50 — a real light-infantry mercenary unit (not untrained-levy)', r && r.recruited === 50 && r.unit.unitTypeKey === 'light-infantry' && r.unit.source === 'mercenary' && r.unit.count === 50);
+  ok('the merc unit draws the RAW mercenary wage (light-infantry = 6gp/mo)', r.unit.monthlyWage === 6);
+  ok('stationed in the garrison + homeDomainId set + calledUp', r.unit.homeDomainId === 'dom-rc' && r.unit.calledUp === true && r.unit.stationedAt && r.unit.stationedAt.kind === 'domain-garrison');
+  ok('a realm fee was rolled (4d10×10 = 40..400, multiple of 10) + debited from the treasury', r.feeGp >= 40 && r.feeGp <= 400 && r.feeGp % 10 === 0 && (1000000 - dc.treasury.gp) === r.feeGp);
+  ok('availability decremented: 85 − 50 = 35 left this period', A.domainRealmRecruitAvailable(camp, 'dom-rc', 'light-infantry') === 35);
+
+  // per-period cap: a second recruit clamps to what's left, then the period is exhausted
+  const r2 = A.recruitRealmTroops(camp, 'dom-rc', { typeKey: 'light-infantry', count: 40, instant: true, rng: seq });
+  ok('a 2nd recruit clamps to the 35 remaining this period', r2 && r2.recruited === 35);
+  ok('the period is now exhausted for light-infantry → null', A.recruitRealmTroops(camp, 'dom-rc', { typeKey: 'light-infantry', count: 10, instant: true, rng: seq }) === null);
+
+  // the availability REFRESHES next period (county period = a week)
+  camp.currentDayInMonth = 9;   // > periodStartOrd(day 1) + 7
+  ok('availability refreshes after the tier period — county light-infantry back to 85', A.domainRealmRecruitAvailable(camp, 'dom-rc', 'light-infantry') === 85);
+
+  // recruiting is NOT blocked by domain morale — you hire FOREIGN mercenaries (RR distinction vs a levy)
+  const reb = mkDomain(4600, -2, 'dom-reb'); reb.treasury = { gp: 100000 };
+  const campReb = mkCamp([reb], 1);
+  ok('a Turbulent realm (morale −2) can still recruit mercenaries (a levy could not)', A.canLevyFromDomain(reb) === false && !!A.recruitRealmTroops(campReb, 'dom-reb', { typeKey: 'heavy-infantry', count: 5, instant: true, rng: seq }));
+
+  // a type the tier cannot field → null
+  const bar = mkDomain(160, 1, 'dom-bar'); bar.treasury = { gp: 10000 };
+  const campBar = mkCamp([bar], 1);
+  ok('barony cannot field horse-archers (availability null) → recruit returns null', A.recruitRealmTroops(campBar, 'dom-bar', { typeKey: 'horse-archers', count: 1, instant: true, rng: seq }) === null);
+
+  // STAGED arrival (the default) — ½/¼/remainder, riding the slot-46 muster consumer
+  const dcS = mkDomain(4600, 1, 'dom-rs'); dcS.treasury = { gp: 1000000 };
+  const campS = mkCamp([dcS], 5);
+  const rs = A.recruitRealmTroops(campS, 'dom-rs', { typeKey: 'light-infantry', count: 50, rng: seq });
+  ok('staged recruit starts with 0 arrived (it takes time)', A.unitActiveCount(rs.unit) === 0 && rs.unit.count === 0 && rs.unit.musterPending === 50);
+  ok('county (week) schedule: 25/12/13 at +7/+14/+21', (() => { const s = rs.unit.musterState, st = s.startedAtOrd; return s.total === 50 && s.schedule.length === 3 && s.schedule[0].count === 25 && s.schedule[1].count === 12 && s.schedule[2].count === 13 && s.schedule[0].atOrd === st + 7 && s.schedule[1].atOrd === st + 14 && s.schedule[2].atOrd === st + 21; })());
+  A.runDayTickToMonthEnd(campS);   // the source-agnostic slot-46 muster consumer tops them up over the month
+  ok('after a month the recruited mercenaries are fully mustered (50 arrived)', A.unitActiveCount(rs.unit) === 50 && rs.unit.count === 50 && rs.unit.musterState === null);
+  ok('the muster history names them "mercenaries" (the generalized noun)', rs.unit.history.some(h => h.type === 'mustered' && /mercenaries/.test(h.text)));
+
+  // a DUCHY (month period) stages over MONTHS, not weeks — the period-aware schedule
+  const dd = mkDomain(20000, 1, 'dom-du'); dd.treasury = { gp: 1000000 };
+  const campD = mkCamp([dd], 1);
+  const rd = A.recruitRealmTroops(campD, 'dom-du', { typeKey: 'light-infantry', count: 100, rng: seq });
+  ok('duchy (month) schedule: 50/25/25 at +30/+60/+90', (() => { const s = rd.unit.musterState, st = s.startedAtOrd; return s.schedule[0].count === 50 && s.schedule[1].count === 25 && s.schedule[2].count === 25 && s.schedule[0].atOrd === st + 30 && s.schedule[1].atOrd === st + 60 && s.schedule[2].atOrd === st + 90; })());
+
+  // the levy schedule is UNCHANGED (byte-identical) — a barony levy still stages over weeks (+7/+14/+21)
+  const dl = mkDomain(1200, 1, 'dom-lvy'); const campL = mkCamp([dl], 5);
+  const lv = A.levyConscripts(campL, 'dom-lvy', { count: 48 });
+  ok('the levy path is unchanged: a 48-conscript levy still schedules 24/12/12 at +7/+14/+21', lv.musterState.schedule[0].count === 24 && lv.musterState.schedule[0].atOrd === lv.musterState.startedAtOrd + 7 && lv.musterState.schedule[2].atOrd === lv.musterState.startedAtOrd + 21);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log(fail === 0 ? ('PASS troops-depth.smoke.js — ' + pass + ' assertions') : ('FAIL troops-depth.smoke.js — ' + fail + ' of ' + (pass + fail) + ' failed'));
 if(fail > 0){ failures.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }
