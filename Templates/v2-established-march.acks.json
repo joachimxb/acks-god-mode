@@ -343,7 +343,8 @@
             "quantity": 1,
             "notes": "Saltspur Keep — stone keep with curtain wall and gatehouse."
           }
-        ]
+        ],
+        "constructibleId": "cst-ewcz7a7"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -590,7 +591,8 @@
             "quantity": 1,
             "notes": "Tower of Northwatch — three stories, stone construction."
           }
-        ]
+        ],
+        "constructibleId": "cst-lekcdmg"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -803,7 +805,8 @@
             "quantity": 1,
             "notes": "Stone shrine with attached chapter dormitory."
           }
-        ]
+        ],
+        "constructibleId": "cst-vjjho07"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -4858,7 +4861,107 @@
       "notes": ""
     }
   ],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-ewcz7a7",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "castle-small",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Castle (small)",
+      "hexId": "hex-saltspur-keep",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-march-of-saltspur",
+      "buildValue": 75000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Castle (small)\" (75 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-lekcdmg",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "tower",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Tower",
+      "hexId": "hex-northwatch-tower",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-northwatch",
+      "buildValue": 15000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Tower\" (15 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-vjjho07",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "shrine-chapter",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Shrine-Chapter",
+      "hexId": "hex-saltcombe-shrine",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-saltcombe",
+      "buildValue": 18000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Shrine-Chapter\" (18 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [

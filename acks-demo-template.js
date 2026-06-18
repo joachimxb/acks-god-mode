@@ -1,7 +1,8 @@
 // Auto-generated from Templates/v2-established-march.acks.json, then run through
 // ACKS.migrateCampaign so the shipped demo matches exactly what the loader produces.
-// Regenerated 2026-06-15 — Phase 4 Sanctums AD-B: campaign.apprenticeships[] materialized
-// (empty) so the demo stays a migrate-no-op. Content unchanged otherwise.
+// Regenerated 2026-06-18 — Phase 4 Construction Wave C: each domain stronghold lifted onto a
+// first-class Constructible mirror (campaign.constructibles[]) so the demo stays a migrate-no-op.
+// Content unchanged otherwise (the economy still reads the stronghold value — zero drift).
 // migrateCampaign is a no-op on this file, asserted by tests/smoke.js. Exposes window.ACKS_DEMO_TEMPLATE.
 (function(global){
 global.ACKS_DEMO_TEMPLATE = {
@@ -350,7 +351,8 @@ global.ACKS_DEMO_TEMPLATE = {
             "quantity": 1,
             "notes": "Saltspur Keep — stone keep with curtain wall and gatehouse."
           }
-        ]
+        ],
+        "constructibleId": "cst-uqq35vj"
       },
       "specialists": [],
       "henchmenCharacterIds": [
@@ -597,7 +599,8 @@ global.ACKS_DEMO_TEMPLATE = {
             "quantity": 1,
             "notes": "Tower of Northwatch — three stories, stone construction."
           }
-        ]
+        ],
+        "constructibleId": "cst-gzvnfv4"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -810,7 +813,8 @@ global.ACKS_DEMO_TEMPLATE = {
             "quantity": 1,
             "notes": "Stone shrine with attached chapter dormitory."
           }
-        ]
+        ],
+        "constructibleId": "cst-7c2yc0j"
       },
       "specialists": [],
       "henchmenCharacterIds": [],
@@ -4865,7 +4869,107 @@ global.ACKS_DEMO_TEMPLATE = {
       "notes": ""
     }
   ],
-  "constructibles": [],
+  "constructibles": [
+    {
+      "schemaVersion": 2,
+      "id": "cst-uqq35vj",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "castle-small",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Castle (small)",
+      "hexId": "hex-saltspur-keep",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-march-of-saltspur",
+      "buildValue": 75000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Castle (small)\" (75 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-gzvnfv4",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "tower",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Tower",
+      "hexId": "hex-northwatch-tower",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-northwatch",
+      "buildValue": 15000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Tower\" (15 000gp)."
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "schemaVersion": 2,
+      "id": "cst-7c2yc0j",
+      "constructibleKind": "stronghold-component",
+      "constructibleSubtype": "shrine-chapter",
+      "constructionState": "complete",
+      "damageState": "intact",
+      "ownership": "domain",
+      "siteType": "stronghold-courtyard",
+      "operationalState": "operational",
+      "name": "Shrine-Chapter",
+      "hexId": "hex-saltcombe-shrine",
+      "settlementId": null,
+      "parentConstructibleId": null,
+      "ownerCharacterId": null,
+      "ownerDomainId": "dom-barony-saltcombe",
+      "buildValue": 18000,
+      "monthlyMaintenance": 0,
+      "maxShp": null,
+      "currentShp": null,
+      "armorClass": null,
+      "subStructures": [],
+      "functionData": {},
+      "completedAtTurn": null,
+      "history": [
+        {
+          "turn": 5,
+          "type": "migrated",
+          "narrative": "Lifted onto the unified Constructible model from the stronghold component \"Shrine-Chapter\" (18 000gp)."
+        }
+      ],
+      "notes": ""
+    }
+  ],
   "favorDutyObligations": [],
   "encounters": [],
   "stashes": [

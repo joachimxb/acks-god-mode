@@ -1016,7 +1016,10 @@ function blankStrongholdComponent(opts={}){
     type: opts.type || '',
     name: opts.name || '',
     buildValue: opts.buildValue || 0,
-    structures: opts.structures || []
+    structures: opts.structures || [],
+    // Phase 4 Construction Wave C — link to the first-class Constructible mirror
+    // (migrateStrongholdComponentsToConstructibles, acks-engine.js). null until mirrored.
+    constructibleId: opts.constructibleId || null
   };
 }
 
@@ -1029,19 +1032,25 @@ function migrateStrongholdToComponents(domain){
   const legacyType = s.type || '';
   const legacyBuildValue = s.buildValue || 0;
   const legacyStructures = Array.isArray(s.structures) ? s.structures : [];
+  // Wave C — carry the Constructible-mirror link forward, so a stronghold already mirrored in its
+  // legacy single-stronghold shape (s.constructibleId set by migrateStrongholdComponentsToConstructibles)
+  // keeps the link on its new component[0] — otherwise a load→convert→save→reload would mint a duplicate mirror.
+  const legacyConstructibleId = s.constructibleId || null;
   s.components = [];
   // Only create a component if there's anything to migrate (avoid spurious empty entries).
   if(legacyType || legacyBuildValue > 0 || legacyStructures.length > 0){
     s.components.push(blankStrongholdComponent({
       type: legacyType,
       buildValue: legacyBuildValue,
-      structures: legacyStructures
+      structures: legacyStructures,
+      constructibleId: legacyConstructibleId
     }));
   }
   // Drop the legacy fields so we don't carry duplicate state.
   delete s.type;
   delete s.buildValue;
   delete s.structures;
+  delete s.constructibleId;
 }
 
 // Total build value across all components.

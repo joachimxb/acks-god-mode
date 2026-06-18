@@ -896,6 +896,10 @@ function migrateCampaign(raw){
   // lazyDefaultV1ScopeReservations (which guarantees campaign.projects[]) and reads campaign.hexes
   // (canonical top-level collection). Idempotent. See migrateAgriculturalToProjects below.
   migrateAgriculturalToProjects(current);
+  // Phase 4 Construction Wave C — lift each domain's stronghold onto a first-class Constructible mirror
+  // (additive; the economy keeps reading the stronghold's own value — zero drift). Runs after the ag
+  // migration; both guarantee their collections via lazyDefaultV1ScopeReservations above. Idempotent.
+  migrateStrongholdComponentsToConstructibles(current);
   // #521 follow-up — rebuild each party's member mirror + validate leader from the
   // character.partyId truth (Architecture §3.3). Idempotent; no-op on party-less templates.
   reconcilePartyMembership(current);
@@ -1495,6 +1499,124 @@ function migrateAgriculturalToProjects(campaign){
         + (hex.landImprovementBonus || 0) + ', ' + invested.toLocaleString() + 'gp invested, '
         + budget.toLocaleString() + 'gp budget).'
     });
+  }
+  return campaign;
+}
+
+// =============================================================================
+// Phase 4 Construction Wave C — lift stronghold components onto first-class Constructibles
+// =============================================================================
+// Foundation #16 stores a domain's stronghold as domain.stronghold.components[] ({type, name,
+// buildValue, structures[]}) — or, for un-converted saves, the legacy single-stronghold shape
+// ({type, buildValue, structures} on the stronghold itself; the UI's migrateStrongholdToComponents
+// converts it on load). The economy's strongholdValue (acks-engine-economy.js) reads either shape.
+//
+// This migration lifts each content-bearing stronghold onto a first-class Constructible
+// (campaign.constructibles[], constructibleKind:'stronghold-component') as an ADDITIVE MIRROR:
+//   • the economy is UNTOUCHED — strongholdValue still sums the components/legacy value (zero drift
+//     by construction; this only ADDS a constructibleId pointer to the source, which the economy and
+//     the W4 pillage path — which writes s.buildValue directly, acks-engine-maneuvers.js — both ignore);
+//   • the Constructible is the first-class, Inspector-visible, Wizard-extensible record (Wave C+ build
+//     onto it);
+//   • linked forward (source.constructibleId → the dedup key) + back (constructible.functionData
+//     .legacyComponentId, best-effort); migrateStrongholdToComponents carries the forward link onto the
+//     new component when the UI converts legacy→components, so a load→convert→save→reload never duplicates;
+//   • the mirror is reconciled to its source on every load (resync buildValue/name/subtype), so a GM edit
+//     or a pillage that mutates the source value doesn't leave the mirror stale;
+//   • idempotent (an existing live mirror is reconciled, not duplicated) — the shipped templates stay
+//     migrate-no-ops (migrations.smoke §P3.6) once regenerated through migrateCampaign.
+// It does NOT restructure the stronghold (no migrateStrongholdToComponents call here) — that would delete
+// s.buildValue, which W4 pillage reads/writes directly. The canonical-setter wiring (the Construction
+// Wizard's "+ build a component" writing the component AND its mirror through one setter) lands with
+// Wave C's Wizard. See Phase_4_Construction_Plan.md Wave C.
+
+// The stronghold's seat hex — robust at migrateCampaign time (campaign.hexes may not be lifted yet), so
+// read the domain's own nested geography.hexes first, falling back to the lifted top-level copy.
+// Deterministic + lift-state-independent → no drift between the regen write and a later reload.
+function _strongholdSeatHexId(campaign, dom){
+  const byId = Object.create(null);
+  if(dom.geography && Array.isArray(dom.geography.hexes)){
+    for(const h of dom.geography.hexes){ if(h && h.id && !byId[h.id]) byId[h.id] = h; }
+  }
+  if(Array.isArray(campaign.hexes)){
+    for(const h of campaign.hexes){ if(h && h.id && h.domainId === dom.id && !byId[h.id]) byId[h.id] = h; }
+  }
+  const hexes = Object.keys(byId).map(k => byId[k]);
+  if(!hexes.length) return null;
+  const ruler = dom.rulerCharacterId ? (campaign.characters || []).find(c => c && c.id === dom.rulerCharacterId) : null;
+  if(ruler && ruler.currentHexId && hexes.some(h => h.id === ruler.currentHexId)) return ruler.currentHexId;
+  let best = null, bestPop = -1;
+  for(const h of hexes){
+    const s = h.settlement || null;
+    const pop = s ? (s.families || s.population || 0) : 0;
+    if(pop > bestPop){ bestPop = pop; best = h; }
+  }
+  return (best || hexes[0]).id;
+}
+
+function migrateStrongholdComponentsToConstructibles(campaign){
+  if(!campaign || typeof campaign !== 'object') return campaign;
+  if(!Array.isArray(campaign.constructibles)) campaign.constructibles = [];
+  if(!Array.isArray(campaign.domains)) return campaign;
+  const A = global.ACKS || {};
+  const blank = A.blankConstructible;
+  if(typeof blank !== 'function') return campaign;   // entities.js not loaded yet (never at runtime)
+  const byId = Object.create(null);
+  for(const c of campaign.constructibles){ if(c && c.id) byId[c.id] = c; }
+  for(const dom of campaign.domains){
+    if(!dom || !dom.stronghold) continue;
+    const s = dom.stronghold;
+    // Mirror BOTH shapes WITHOUT restructuring the stronghold: the Foundation-#16 components[] shape,
+    // and the legacy single-stronghold shape (the stronghold object itself is the one "component").
+    const refs = Array.isArray(s.components) ? s.components : [s];
+    let seatHexId = null, seatResolved = false;
+    for(const ref of refs){
+      if(!ref) continue;
+      const hasContent = ref.type || ref.name || (ref.buildValue || 0) > 0 ||
+        (Array.isArray(ref.structures) && ref.structures.length > 0);
+      if(!hasContent) continue;   // skip empty placeholder components — don't mint a Constructible for nothing
+      if(!seatResolved){ seatHexId = _strongholdSeatHexId(campaign, dom); seatResolved = true; }
+      const name = ref.name || ref.type || 'Stronghold component';
+      const subtype = ref.type ? slugify(ref.type) : null;
+      let cst = ref.constructibleId ? byId[ref.constructibleId] : null;
+      if(cst){
+        // Reconcile the mirror to its source (principle #10; resync-only, no history append). A no-op on
+        // already-synced data (the regenerated templates), so the migrate-no-op invariant holds; keeps the
+        // mirror correct after the source value changes (a GM edit, or a W4 pillage of s.buildValue).
+        cst.functionData = cst.functionData || {};
+        cst.buildValue = ref.buildValue || 0;
+        cst.name = name;
+        if(subtype) cst.constructibleSubtype = subtype;
+        cst.ownerDomainId = dom.id;
+        if(seatHexId && !cst.hexId) cst.hexId = seatHexId;
+        if(ref.id && !cst.functionData.legacyComponentId) cst.functionData.legacyComponentId = ref.id;
+        continue;
+      }
+      cst = blank({
+        constructibleKind: 'stronghold-component',
+        constructibleSubtype: subtype,
+        constructionState: 'complete',
+        damageState: 'intact',
+        ownership: 'domain',
+        siteType: 'stronghold-courtyard',
+        operationalState: 'operational',
+        name: name,
+        hexId: seatHexId,
+        ownerDomainId: dom.id,
+        buildValue: ref.buildValue || 0
+      });
+      cst.functionData = cst.functionData || {};
+      if(ref.id) cst.functionData.legacyComponentId = ref.id;
+      cst.history.push({
+        turn: (typeof campaign.currentTurn === 'number' ? campaign.currentTurn : null),
+        type: 'migrated',
+        narrative: 'Lifted onto the unified Constructible model from the stronghold component "' +
+          name + '" (' + (ref.buildValue || 0).toLocaleString() + 'gp).'
+      });
+      ref.constructibleId = cst.id;
+      campaign.constructibles.push(cst);
+      byId[cst.id] = cst;
+    }
   }
   return campaign;
 }
@@ -11471,6 +11593,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   findProject, findConstructible, projectsAtHex, constructiblesAtHex, projectsForDomain, constructiblesForDomain,
   // Wave Construction-B — agricultural-improvement on the unified Project model
   migrateAgriculturalToProjects, findAgriculturalProject, syncAgriculturalProject,
+  // Wave Construction-C — stronghold components lifted onto first-class Constructibles
+  migrateStrongholdComponentsToConstructibles,
   // Time-based construction (RR p.174) — rate + supervisor-adequacy + per-day drip
   AGRICULTURAL_CONSTRUCTION_RATE_PER_DAY, agriculturalConstructionRatePerDay, agriculturalSupervisorAdequacy,
   constructionSupervisorCapForCharacter, computeAgriculturalDrip,
