@@ -793,6 +793,75 @@ section('garrison reaction (2026-06-14) — deploy a force to meet a domain incu
   ACKS.recallReactionForce(cRec, depRec.army.id);
   ok('recall: disbands the sally force', !cRec.armies.some(a => a.id === depRec.army.id));
   ok('recall: returns the unit to its home garrison (it deployed from home)', (ACKS.findUnit(cRec, 'unit-g0').stationedAt || {}).kind === 'domain-garrison' && ACKS.findUnit(cRec, 'unit-g0').stationedAt.id === 'dom-r');
+
+  // ── AUTO-CHASE (v2, JJ p.104) — the sally re-routes to follow a band that wanders ──
+  // A contiguous authored hex row (hx0..hx5) so every march position is non-null. Wandering
+  // is OFF, so the band only moves when the test moves it (deterministic — no rng dependence).
+  function mkChase(o){
+    o = o || {};
+    const c = { currentTurn: 3, currentDayInMonth: 1, eventLog: [],
+      houseRules: { 'persistent-wandering-monsters': { enabled: false }, 'vagaries-of-incursion': { enabled: false } },
+      characters: [{ schemaVersion: 2, id: 'chr-cap', name: 'Captain Vael', alive: true, currentHexId: 'hx0', class: 'Fighter', level: 9, abilities: { STR: 13, INT: 10, WIL: 10, DEX: 12, CON: 12, CHA: 13 } }],
+      domains: [{ id: 'dom-r', name: 'March', rulerCharacterId: 'chr-cap', garrison: { units: [] }, demographics: { peasantFamilies: 500, morale: 0 } }],
+      journeys: [], armies: [], units: [], battles: [], groups: [],
+      hexes: Array.from({ length: 6 }, (_, q) => ({ id: 'hx' + q, domainId: 'dom-r', coord: { q, r: 0 }, terrain: 'grassland' })) };
+    ACKS.stationUnit(c, ACKS.blankUnit({ id: 'unit-g0', displayName: 'Foot', unitTypeKey: 'light-infantry', count: 120, homeHexId: 'hx0', homeDomainId: 'dom-r' }), { kind: 'domain-garrison', id: 'dom-r' });
+    const band = ACKS.blankGroup({ id: 'grp-threat', name: 'Orc raiders',
+      groupTemplate: { monsterCatalogKey: 'orc', creatureTypes: ['beastman', 'humanoid'], hitDice: '1' },
+      count: (o.count != null) ? o.count : 8, currentHexId: o.bandHexId || 'hx5', currentDomainId: 'dom-r', lifecycleState: 'wild' });
+    band.incursion = { domainId: 'dom-r', attitude: o.attitude || 'unfriendly', disposition: 'lingering', fullStrength: false, treasureType: '', rulerAware: true, monstersIntel: false, arrivedAtTurn: 3 };
+    c.groups.push(band);
+    return c;
+  }
+  const armyJourney = c => (c.journeys || []).find(j => j && c.armies[0] && j.armyId === c.armies[0].id) || null;
+  const chaseRec = p => (p.pendingRecords || []).find(r => r.kind === 'army-band-chase') || null;
+
+  // T1 — an in-transit march re-targets when the band moves off the destination (band 5 hexes
+  // off; foot covers 4/day so day 1 ends en route at hx4, not arrived → the journey re-targets).
+  const cMove = mkChase({ bandHexId: 'hx5' });
+  ACKS.deployGarrisonReaction(cMove, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hx0', commanderCharacterId: 'chr-cap' });
+  cMove.groups[0].currentHexId = 'hx1';                         // the band doubled back (a "wander")
+  const pMove = ACKS.proposeDayTick(cMove, {});
+  const recMove = chaseRec(pMove);
+  ok('auto-chase: a band off the march target proposes an army-band-chase record', !!recMove && recMove.groupId === 'grp-threat' && recMove.newDestinationHexId === 'hx1', JSON.stringify(recMove));
+  ACKS.commitDayTick(cMove, pMove);
+  ok('auto-chase: commit re-targets the march to the band’s hex', (armyJourney(cMove) || {}).destinationHexId === 'hx1' && armyJourney(cMove).status === 'in-transit' && !!cMove.armies[0].journeyId);
+  ok('auto-chase: commit stamps a reaction-chase history entry on the army', cMove.armies[0].history.some(h => h.type === 'reaction-chase'));
+
+  // T2 — a march toward a STATIONARY band on the destination produces no chase record.
+  const cStat = mkChase({ bandHexId: 'hx5' });
+  ACKS.deployGarrisonReaction(cStat, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hx0' });
+  ok('auto-chase: a march toward a stationary band proposes no chase record', !chaseRec(ACKS.proposeDayTick(cStat, {})));
+
+  // T3 — an ARRIVED force resumes the pursuit (the re-link path): the band sits 1 hex off, so
+  // the army arrives at the stale hex THIS tick (nulling army.journeyId); the chase finds the
+  // journey by the id captured at propose, resumes it, and re-links army.journeyId.
+  const cArr = mkChase({ bandHexId: 'hx1' });
+  ACKS.deployGarrisonReaction(cArr, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hx0', commanderCharacterId: 'chr-cap' });
+  cArr.groups[0].currentHexId = 'hx4';                          // the band fled onward before the force arrived
+  const pArr = ACKS.proposeDayTick(cArr, {});
+  ok('auto-chase: an arriving force still proposes the chase', (chaseRec(pArr) || {}).newDestinationHexId === 'hx4');
+  ACKS.commitDayTick(cArr, pArr);
+  ok('auto-chase: the arrived force re-links its journey and resumes toward the band', !!cArr.armies[0].journeyId && (armyJourney(cArr) || {}).destinationHexId === 'hx4' && armyJourney(cArr).status === 'in-transit');
+
+  // T4 — the re-routed pursuit converges to contact (the band wandered closer, mid-march).
+  const cConv = mkChase({ bandHexId: 'hx5', attitude: 'unfriendly', count: 8 });
+  ACKS.deployGarrisonReaction(cConv, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hx0', commanderCharacterId: 'chr-cap' });
+  cConv.groups[0].currentHexId = 'hx2';                         // wandered closer (one manual move; wandering OFF)
+  let caught = false, cguard = 0;
+  while(!caught && cguard++ < 20){
+    const p = ACKS.proposeDayTick(cConv, {});
+    if((p.pendingRecords || []).some(r => r.kind === 'army-band-contact')) caught = true;
+    ACKS.commitDayTick(cConv, p);
+  }
+  ok('auto-chase: the re-routed pursuit converges to contact', caught);
+  ok('auto-chase: the chased band is dealt with (driven off)', cConv.groups[0].currentHexId === null);
+
+  // T5 — a band with no hex (off-map, e.g. driven off elsewhere) is not chased (recall instead).
+  const cGone = mkChase({ bandHexId: 'hx5' });
+  ACKS.deployGarrisonReaction(cGone, { groupId: 'grp-threat', unitIds: ['unit-g0'], rallyHexId: 'hx0' });
+  cGone.groups[0].currentHexId = null;
+  ok('auto-chase: an off-map band (no hex) proposes no chase record', !chaseRec(ACKS.proposeDayTick(cGone, {})));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

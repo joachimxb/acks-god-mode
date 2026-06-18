@@ -6462,7 +6462,37 @@ function proposeMilitaryDay(campaign, ctx){
     const bandAlive = band && (typeof A.groupActiveCount === 'function' ? A.groupActiveCount(band) > 0 : true);
     if(!band || !bandAlive) continue;                              // gone — the army card prompts a recall
     const armyHex = effHex(army);
-    if(!armyHex || armyHex !== band.currentHexId) continue;        // not co-located (en route, or the band moved)
+    if(!armyHex || armyHex !== band.currentHexId){
+      // ── AUTO-CHASE (v2, JJ p.104) — not co-located: the sally force keeps after a band
+      //    that wanders before it arrives. Each day, if the band has moved off the army's
+      //    march target, re-route the march to the band's last-known hex (its move commits
+      //    THIS tick, so this is its committed position — a natural one-day stern-chase lag;
+      //    a faster force closes in over days → the contact resolution below). Mirrors the
+      //    E5 tracking re-target (commit → _quietRetargetJourney — no journey-rerouted spam;
+      //    the daily chase record narrates). An arrived force (its journeyId nulled on
+      //    arrival) starts a fresh march. Skips when the march already targets the band, so
+      //    a march toward a stationary band produces no chase records. The GM may still
+      //    re-route / recall by hand (the army card), or reject this record to hold the
+      //    heading — superseding the v1 "the army card prompts re-route" narrowing. ──
+      if(band.currentHexId){
+        const marchJourney = army.journeyId ? (campaign.journeys || []).find(j => j && j.id === army.journeyId) : null;
+        const marchingTo = marchJourney ? marchJourney.destinationHexId : null;
+        const haveStart = marchJourney || (army.currentHexId && army.currentHexId !== band.currentHexId);
+        if(marchingTo !== band.currentHexId && haveStart){
+          pendingRecords.push({
+            kind: 'army-band-chase', armyId: army.id, groupId: band.id,
+            domainId: (band.incursion && band.incursion.domainId) || null,
+            journeyId: marchJourney ? marchJourney.id : null, newDestinationHexId: band.currentHexId,
+            fromHexId: marchingTo || armyHex || army.currentHexId || null,
+            name: armyName(army) + ' \u{1F43E} ' + (band.name || 'band'),
+            label: '\u{1F43E} ' + armyName(army) + ' presses the pursuit — ' + (band.name || 'the band')
+              + ' moved to ' + band.currentHexId + '; re-routing to follow (JJ p.104)',
+            status: 'pending'
+          });
+        }
+      }
+      continue;                                                   // en route (or chasing) — no contact this tick
+    }
     const unitIds = (typeof A.armyUnits === 'function') ? A.armyUnits(campaign, army).map(u => u.id) : [];
     const prev = (typeof A.garrisonReactionPreview === 'function') ? A.garrisonReactionPreview(campaign, band, unitIds) : null;
     if(!prev) continue;
@@ -6778,6 +6808,28 @@ function commitMilitaryRecord(campaign, record){
       (army.history = army.history || []).push({ turn, type: 'reaction-driven-off',
         text: 'Drove off ' + (band.name || 'the band') + (dom ? (' from ' + (dom.name || dom.id)) : '') + ' (JJ p.104)' });
     }
+  } else if(record.kind === 'army-band-chase'){
+    // Garrison-reaction AUTO-CHASE (v2, JJ p.104): the band wandered before the sally force
+    // arrived — re-target its march to follow (the E5 _quietRetargetJourney pattern; no
+    // journey-rerouted spam — the daily chase record narrates). The journey is found by the
+    // id captured at propose: an arrival committed THIS same tick (the journeys consumer,
+    // slot 30) nulled army.journeyId + flipped the journey to 'arrived', so we re-link it and
+    // _quietRetargetJourney resumes it. A force with no journey at all (arrived before this
+    // record was raised) starts a fresh march from where it stands.
+    const army = (campaign.armies || []).find(a => a && a.id === record.armyId) || null;
+    const band = (campaign.groups || []).find(g => g && g.id === record.groupId) || null;
+    if(!army || !band || !record.newDestinationHexId) return;
+    const turn = campaign.currentTurn || 1;
+    let j = record.journeyId ? (campaign.journeys || []).find(x => x && x.id === record.journeyId) : null;
+    if(!j && army.journeyId) j = (campaign.journeys || []).find(x => x && x.id === army.journeyId);
+    if(j){
+      _quietRetargetJourney(campaign, j, record.newDestinationHexId);
+      army.journeyId = j.id;                                  // re-link — an arrival this same tick may have nulled it
+    } else if(army.currentHexId && army.currentHexId !== record.newDestinationHexId && typeof A.startArmyMarch === 'function'){
+      A.startArmyMarch(campaign, army.id, { destinationHexId: record.newDestinationHexId, pace: 'normal' });
+    }
+    (army.history = army.history || []).push({ turn, type: 'reaction-chase',
+      text: 'Pressed the pursuit — re-routed to follow ' + (band.name || 'the band') + ' to ' + record.newDestinationHexId + ' (JJ p.104)' });
   } else if(record.kind === 'domain-invasion'){
     const army = (campaign.armies || []).find(a => a && a.id === record.armyId);
     const dom = (campaign.domains || []).find(d => d && d.id === record.domainId);
