@@ -658,6 +658,124 @@ ok('the Delves D1 resolver is loaded into this suite', typeof ACKS.applyMortalWo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Bandit-army battle aftermath (RR p.351) — defeating a morale-banditry army heals the domain');
+// A hand-authored ENDED battle: the ruler's garrison (A) defeats the domain's own bandit army
+// (B, a group.banditryDomainId band). Reproduces the RR p.351 "Dealing with Bandits" rules +
+// the Anárion worked example (a 1,600-peasant domain at morale −3 → 800 bandits → defeat: 400
+// killed + 400 captured → morale −3→−2, prisoners freed → 1,200 families).
+function mkBanditBattle(opts){
+  opts = opts || {};
+  const c = mkCampaign();
+  const ruler = ACKS.blankCharacter({ id: 'chr-r', name: 'Anárion', level: 8 });
+  c.characters = [ruler];
+  const d = ACKS.blankDomain({ id: 'dom-march', name: 'March' });
+  d.rulerCharacterId = 'chr-r';
+  d.demographics = d.demographics || {};
+  d.demographics.morale = (opts.morale != null) ? opts.morale : -3;
+  d.demographics.peasantFamilies = (opts.families != null) ? opts.families : 1600;
+  c.domains = [d];
+  const bandCount = (opts.bandCount != null) ? opts.bandCount : 800;
+  const band = ACKS.blankGroup({ id: 'grp-bandit', name: 'Bandits of March',
+    groupTemplate: { monsterCatalogKey: 'bandit', creatureTypes: ['humanoid'], hitDice: '1' },
+    count: bandCount, currentHexId: 'hex-field' });
+  band.banditryDomainId = opts.notBandit ? null : d.id;
+  c.groups = [band];
+  const winner = opts.bandsWin ? 'b' : 'a';
+  const loser = opts.bandsWin ? 'a' : 'b';
+  const garrisonUnit = { key: 'a0', label: 'Heavy Infantry', sourceKind: 'unit', sourceId: 'unit-g',
+    creatures: 60, status: opts.bandsWin ? 'destroyed' : 'active', br: 5, wageMonthlyGp: 720, xpValue: 300, disordered: false };
+  const bandUnit = { key: 'b0', label: 'Bandits of March', sourceKind: 'group', sourceId: 'grp-bandit',
+    creatures: bandCount, status: opts.bandsWin ? 'active' : (opts.bandStatus || 'destroyed'), br: 0.4, wageMonthlyGp: 0, xpValue: bandCount, disordered: false };
+  const battle = {
+    id: 'btl-bandit', name: 'Repression of March', status: 'ended', attackerSide: 'a',
+    result: { winner, loser, endedBy: 'morale', endedAtTurn: 2 },
+    hexId: 'hex-field', turnNumber: 2,
+    sides: {
+      // side A carries no domainId (the garrison-reaction army shape) — the healed bandit domain
+      // is reachable in the resolved-event context ONLY via the bandit-aftermath 'beneficiary' add.
+      a: { label: 'Garrison', units: [garrisonUnit], leaderCharacterId: 'chr-r', commanders: [], startingBr: 5, stance: 'offensive', groupIds: [], domainId: null },
+      b: { label: 'Bandits of March', units: [bandUnit], leaderCharacterId: null, commanders: [], startingBr: bandCount * 0.4, stance: 'defensive', groupIds: ['grp-bandit'] }
+    }
+  };
+  c.battles = [battle];
+  return { c, d, band, battle, ruler };
+}
+
+// (1) the Anárion example EXACT — a destroyed bandit army at morale −3
+{
+  const { c, d, band } = mkBanditBattle({ morale: -3, families: 1600, bandCount: 800 });
+  const af = ACKS.computeBattleAftermath(c, 'btl-bandit', { rng: seq([d20v(1)]) });
+  ok('banditOutcome computed for the bandit domain', (af.banditOutcome || []).length === 1 && af.banditOutcome[0].domainId === 'dom-march');
+  const bo = af.banditOutcome[0];
+  ok('destroyed band → 400 slain + 400 captured (RR p.351 dead/wounded split)', bo.dead === 400 && bo.captured === 400);
+  ok('the victory raises current morale −3 → −2 (Anárion)', bo.moraleBefore === -3 && bo.moraleAfter === -2);
+  ok('freed bandit-peasants are excluded from the ransom spoils', af.spoils.prisonerSpoils === 0 && af.prisoners === 400);
+  ok('the aftermath lines name the quelled banditry', af.lines.some(l => /Banditry quelled in March/.test(l) && /RR p\.351/.test(l)));
+  ACKS.applyBattleAftermath(c, 'btl-bandit');
+  ok('apply bumps the domain current morale to −2', d.demographics.morale === -2);
+  ok('apply reduces families by the slain only → 1,200 (the freed return to work)', d.demographics.peasantFamilies === 1200);
+  ok('the wholly-defeated band is removed from the world', !(c.groups || []).some(g => g.id === 'grp-bandit'));
+  ok('battle-resolved narrates the bandit outcome', c.eventLog.some(e => e.event && e.event.kind === 'battle-resolved' && /Banditry quelled in March/.test(e.event.payload.narrative)));
+  ok('the healed domain is in the resolved event context (chronicle)', c.eventLog.some(e => e.event && e.event.kind === 'battle-resolved' && ((e.event.context || {}).relatedEntities || []).some(r => r.kind === 'domain' && r.id === 'dom-march' && r.role === 'beneficiary')));
+}
+
+// (2) the monthly processor does NOT double-deduct — and re-musters off the NEW morale (Anárion month 2)
+{
+  const { c, d } = mkBanditBattle({ morale: -3, families: 1600, bandCount: 800 });
+  ACKS.computeBattleAftermath(c, 'btl-bandit', { rng: seq([d20v(1)]) });
+  ACKS.applyBattleAftermath(c, 'btl-bandit');
+  const famBefore = d.demographics.peasantFamilies;   // 1200
+  c.currentTurn = (c.currentTurn || 1) + 1;
+  const res = ACKS.processBanditryForTurn(c, { rng: seq([0.5]) });
+  ok('the settled band did not double-deduct families at the monthly turn', d.demographics.peasantFamilies === famBefore);
+  ok('the monthly turn re-musters off the +1 morale (−2 → ~240 of 1,200, RR p.351)',
+    (typeof ACKS.banditCount === 'function') && ACKS.banditCount(d) === Math.floor(1200 / 5));
+  ok('fresh bands rose at the new lower strength', (c.groups || []).some(g => g.banditryDomainId === 'dom-march'));
+}
+
+// (3) recovery boundary — at morale −2, +1 → −1 means no bandits next month
+{
+  const { c, d } = mkBanditBattle({ morale: -2, families: 1000, bandCount: 200 });
+  const af = ACKS.computeBattleAftermath(c, 'btl-bandit', { rng: seq([d20v(1)]) });
+  ok('morale −2 → −1 on victory', af.banditOutcome[0].moraleAfter === -1);
+  ACKS.applyBattleAftermath(c, 'btl-bandit');
+  ok('at −1 the domain musters no bandits (banditCount 0)', ACKS.banditCount(d) === 0);
+}
+
+// (4) a routed (not destroyed) band — partial losses, count survives, families drop only by the slain
+{
+  const { c, d, band } = mkBanditBattle({ morale: -3, families: 1600, bandCount: 800, bandStatus: 'routed' });
+  const af = ACKS.computeBattleAftermath(c, 'btl-bandit', { rng: seq([d20v(1)]) });
+  const bo = af.banditOutcome[0];
+  // routed: dead = ceil(800*.25)=200, wounded=200, captured=ceil(200/2)=100, loss=dead+wounded=400
+  ok('routed band → 200 slain, 100 captured', bo.dead === 200 && bo.captured === 100);
+  ACKS.applyBattleAftermath(c, 'btl-bandit');
+  ok('families drop by the slain only (−200 → 1,400)', d.demographics.peasantFamilies === 1400);
+  ok('the routed band shrinks by its full combat loss (800 − 400 = 400) but survives', (c.groups || []).some(g => g.id === 'grp-bandit' && (g.count || 0) === 400));
+  ok('morale still bumped +1 on the (partial) victory', d.demographics.morale === -2);
+}
+
+// (5) the bandits WIN — no morale heal, no family change
+{
+  const { c, d } = mkBanditBattle({ morale: -3, families: 1600, bandCount: 800, bandsWin: true });
+  const af = ACKS.computeBattleAftermath(c, 'btl-bandit', { rng: seq([d20v(1)]) });
+  ok('no banditOutcome when the bandits win', (af.banditOutcome || []).length === 0);
+  ACKS.applyBattleAftermath(c, 'btl-bandit');
+  ok('a bandit victory leaves morale + families untouched', d.demographics.morale === -3 && d.demographics.peasantFamilies === 1600);
+}
+
+// (6) a regular (non-banditry) monster band loser → no bandit aftermath; prisoners ransom normally
+{
+  const { c, af } = (() => {
+    const r = mkBanditBattle({ morale: -3, families: 1600, bandCount: 60, notBandit: true });
+    const af = ACKS.computeBattleAftermath(r.c, 'btl-bandit', { rng: seq([d20v(1)]) });
+    return { c: r.c, af };
+  })();
+  ok('no banditOutcome for a plain monster band', (af.banditOutcome || []).length === 0);
+  ok('plain prisoners are still ransomed (40gp each, unchanged)', af.spoils.prisonerSpoils === af.prisoners * 40 && af.prisoners > 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 section('Registry + schema + prefix + collection plumbing');
 ok('ID prefix btl registered', ACKS.ID_PREFIXES.battle === 'btl');
 ok('the battle entity kind is registered (34th)', ACKS.entityKinds().some(k => k.kind === 'battle'));
