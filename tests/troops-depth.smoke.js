@@ -520,6 +520,78 @@ section('Realm-scale mercenary recruitment (RR p.428; W7-continuation)');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+section('Realm-scale military-specialist recruitment + the lightweight↔full NPC doctrine (RR p.428/p.171; W7-continuation)');
+{
+  const seq = () => 0.5;   // deterministic 3d6: floor(0.5*6)+1 = 4 each → an ability rolls to 12
+
+  ok('helpers exported', typeof A.realmSpecialistTypes === 'function' && typeof A.realmSpecialistAvailable === 'function' && typeof A.realmSpecialistProfile === 'function' && typeof A.recruitRealmSpecialist === 'function' && typeof A.domainRealmSpecialistAvailable === 'function' && typeof A.expandCharacterToFull === 'function');
+
+  // catalog reads (RR p.428 specialist-availability — counts NEST under .availability, unlike the merc table)
+  ok('realmSpecialistAvailable: county artillerist 10 / armorer 7; viscounty artillerist 2; barony armorer null→0', A.realmSpecialistAvailable('county', 'artillerist') === 10 && A.realmSpecialistAvailable('county', 'armorer') === 7 && A.realmSpecialistAvailable('viscounty', 'artillerist') === 2 && A.realmSpecialistAvailable('barony', 'armorer') === 0);
+  ok('realmSpecialistTypes lists officers + specialists', (() => { const t = A.realmSpecialistTypes(); return t.includes('artillerist') && t.includes('armorer') && t.includes('mercenary-officer-captain') && t.includes('siege-engineer'); })());
+
+  // the hire profile — mercenary officers carry EXACT RR p.171 characteristics (OFFICER_RANKS)
+  const cap = A.realmSpecialistProfile('mercenary-officer-captain');
+  ok('officer profile (Captain): isOfficer, L6, 800gp/mo, LA 4, SA 2 (RR p.171)', cap && cap.isOfficer === true && cap.level === 6 && cap.wageGp === 800 && cap.leadershipAbility === 4 && cap.strategicAbility === 2);
+  ok('officer profile carries Command + Military Strategy proficiencies', Array.isArray(cap.proficiencies) && cap.proficiencies.some(p => /Command/.test(p)) && cap.proficiencies.some(p => /Military Strategy/.test(p)));
+  const gen = A.realmSpecialistProfile('mercenary-officer-general');
+  ok('officer profile (General): L10, 12,000gp/mo, LA 5, SA 3', gen.level === 10 && gen.wageGp === 12000 && gen.leadershipAbility === 5 && gen.strategicAbility === 3);
+  // non-officer specialists: level 0 + best-effort wage (an exact HIRELING_SPECIALISTS id match → armorer 75; else 0/GM-set)
+  const arm = A.realmSpecialistProfile('armorer');
+  ok('armorer profile: not an officer, L0, wage 75 (HIRELING_SPECIALISTS match)', arm && arm.isOfficer === false && arm.level === 0 && arm.wageGp === 75);
+  const art = A.realmSpecialistProfile('artillerist');
+  ok('artillerist profile: not an officer, L0, wage 25 (best-effort HIRELING_SPECIALISTS match)', art && art.isOfficer === false && art.level === 0 && art.wageGp === 25);
+  const chg = A.realmSpecialistProfile('creature-handler-giant-prehistoric');
+  ok('an unmatched specialist → wage 0 (GM-set, not invented)', chg && chg.isOfficer === false && chg.level === 0 && chg.wageGp === 0);
+  ok('unknown specialist type → null profile', A.realmSpecialistProfile('not-a-specialist') === null);
+
+  // a domain's specialist availability (its own per-period ledger)
+  const d = mkDomain(4600, 1, 'dom-sp');     // county
+  const camp = mkCamp([d], 5); camp.specialistContracts = []; camp.currentDayInMonth = 1;
+  const ruler = A.blankCharacter({ id: 'chr-ruler', name: 'The Count' }); camp.characters.push(ruler); d.rulerCharacterId = 'chr-ruler';
+  ok('domainRealmSpecialistAvailable: county artillerist = 10 (fresh period)', A.domainRealmSpecialistAvailable(camp, 'dom-sp', 'artillerist') === 10);
+
+  // recruit a LIGHTWEIGHT officer — a Character stub + a specialist contract, availability decremented
+  const r = A.recruitRealmSpecialist(camp, 'dom-sp', { typeKey: 'mercenary-officer-captain', detailLevel: 'lightweight' });
+  ok('recruited a lightweight Captain — a Character stub (socialTier specialist)', r && r.character && r.detailLevel === 'lightweight' && r.character.detailLevel === 'lightweight' && r.character.socialTier === 'specialist');
+  ok('the captain stub carries the RAW wage (800) + level 6 + parsed officer profs', r.character.monthlyWage === 800 && r.character.level === 6 && Array.isArray(r.character.proficiencies) && r.character.proficiencies.some(p => p && p.key === 'command'));
+  ok('lightweight = abilities left at the 10-default (unrolled)', r.character.abilities && r.character.abilities.STR === 10 && r.character.abilities.CHA === 10);
+  ok('homed to the realm + lieged to the ruler', r.character.homeDomainId === 'dom-sp' && r.character.liegeCharacterId === 'chr-ruler');
+  ok('a specialistContract was created to the ruler (wage stream + military category)', r.contract && r.contract.specialistCharacterId === r.character.id && r.contract.employerCharacterId === 'chr-ruler' && r.contract.wageStreamGpMo === 800 && r.contract.serviceCategory === 'military' && r.contract.status === 'active');
+  ok('the character is on the campaign roster', camp.characters.includes(r.character));
+  ok('availability decremented: county captain = 1 → none left', A.domainRealmSpecialistAvailable(camp, 'dom-sp', 'mercenary-officer-captain') === 0);
+
+  // EXPAND the lightweight stub to full — the reusable doctrine primitive (seq 0.5 → each ability = 12)
+  A.expandCharacterToFull(camp, r.character, { rng: seq });
+  ok('expandCharacterToFull flips the flag to full', r.character.detailLevel === 'full');
+  ok('expand rolled the abilities (seq 0.5 → 12 each)', r.character.abilities.STR === 12 && r.character.abilities.WIL === 12 && r.character.abilities.CHA === 12);
+  ok('expand stamps the character history', r.character.history.some(h => h.type === 'expanded'));
+  const snap = r.character.abilities.STR; A.expandCharacterToFull(camp, r.character, { rng: () => 0.99 });
+  ok('expandCharacterToFull is idempotent on a full character (no re-roll)', r.character.abilities.STR === snap);
+
+  // recruit a FULL specialist — rolled at creation
+  const rf = A.recruitRealmSpecialist(camp, 'dom-sp', { typeKey: 'armorer', detailLevel: 'full', rng: seq });
+  ok('a full-chargen armorer is created already-full with rolled abilities (12 each)', rf && rf.detailLevel === 'full' && rf.character.detailLevel === 'full' && rf.character.abilities.STR === 12);
+  ok('the armorer carries the best-effort wage 75 + its own active contract', rf.character.monthlyWage === 75 && !!A.activeSpecialistContractFor(camp, rf.character.id));
+
+  // a type the tier cannot field → null
+  const bar = mkDomain(160, 1, 'dom-spb'); const campBar = mkCamp([bar], 1); campBar.specialistContracts = [];
+  ok('a barony cannot field an armorer (availability null) → recruit returns null', A.recruitRealmSpecialist(campBar, 'dom-spb', { typeKey: 'armorer', detailLevel: 'lightweight' }) === null);
+
+  // the specialist ledger is SEPARATE from the merc ledger — neither rollover wipes the other
+  const d2 = mkDomain(4600, 1, 'dom-both'); d2.treasury = { gp: 1000000 }; const campB = mkCamp([d2], 5); campB.specialistContracts = []; campB.currentDayInMonth = 1;
+  const r2 = A.blankCharacter({ id: 'chr-r2', name: 'Count Two' }); campB.characters.push(r2); d2.rulerCharacterId = 'chr-r2';
+  A.recruitRealmSpecialist(campB, 'dom-both', { typeKey: 'artillerist', detailLevel: 'lightweight' });
+  A.recruitRealmTroops(campB, 'dom-both', { typeKey: 'light-infantry', count: 50, instant: true, rng: seq });
+  ok('a merc recruit did not wipe the specialist ledger (artillerist 10 − 1 = 9 left)', A.domainRealmSpecialistAvailable(campB, 'dom-both', 'artillerist') === 9);
+  ok('a specialist recruit did not wipe the merc ledger (light-infantry 85 − 50 = 35 left)', A.domainRealmRecruitAvailable(campB, 'dom-both', 'light-infantry') === 35);
+
+  // per-period refresh (county = a week)
+  campB.currentDayInMonth = 9;
+  ok('specialist availability refreshes after the tier period (artillerist back to 10)', A.domainRealmSpecialistAvailable(campB, 'dom-both', 'artillerist') === 10);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log(fail === 0 ? ('PASS troops-depth.smoke.js — ' + pass + ' assertions') : ('FAIL troops-depth.smoke.js — ' + fail + ' of ' + (pass + fail) + ' failed'));
 if(fail > 0){ failures.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

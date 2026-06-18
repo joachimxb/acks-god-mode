@@ -4529,6 +4529,109 @@ function recruitRealmTroops(campaign, domainOrId, opts){
   return { unit: u, recruited: n, feeGp, tier };
 }
 
+// ─── NPC detail-level doctrine (2026-06-18) — lightweight ↔ full chargen ──────────────────────────────
+// An NPC may be created 'lightweight' (a named stub: type + wage + classification, abilities left at the
+// 10-default) or 'full' (rolled). A lightweight NPC is NEVER a dead end — this primitive upgrades it to a
+// full character IN PLACE: it rolls the six abilities (3d6 down the line) and flips detailLevel→'full'.
+// The reusable lightweight↔full primitive every NPC-creation surface shares (realm-specialist recruitment
+// is its first consumer; the recruit-hireling flow + the Inspector adopt it next). Idempotent on an
+// already-full (or unflagged ⇒ full) character — a no-op. hp / saves / class stay the GM's to flesh out in
+// the Inspector; expand fills the rolled abilities, not class-derived values we'd have to invent. Returns
+// the character (null if not found). `charOrId` may be a Character object or its id.
+function expandCharacterToFull(campaign, charOrId, opts){
+  opts = opts || {};
+  const rng = opts.rng || Math.random;
+  const c = (charOrId && typeof charOrId === 'object') ? charOrId
+    : ((campaign && Array.isArray(campaign.characters)) ? campaign.characters.find(x => x && x.id === charOrId) : null);
+  if(!c) return null;
+  if(c.detailLevel !== 'lightweight') return c;                  // idempotent — already full (unflagged ⇒ full)
+  const roll = () => (Math.floor(rng()*6)+1) + (Math.floor(rng()*6)+1) + (Math.floor(rng()*6)+1);   // 3d6 down the line
+  c.abilities = { STR: roll(), INT: roll(), WIL: roll(), DEX: roll(), CON: roll(), CHA: roll() };
+  c.detailLevel = 'full';
+  if(!Array.isArray(c.history)) c.history = [];
+  const turn = (campaign && campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  c.history.push({ turn, type: 'expanded', text: 'Expanded from a lightweight stub to a full character (abilities rolled)' });
+  return c;
+}
+
+// ─── Military W7-continuation — realm-scale military-specialist recruitment (RR p.428) ────────────────
+// The OTHER half of realm recruitment (the mercenary-troops half is recruitRealmTroops, above). A realm
+// recruits military SPECIALISTS + officers (artillerists / armorers / creature handlers / marshals /
+// mercenary officers / quartermaster / siege engineer) at its TIER, capped by MILITARY_SPECIALIST_-
+// AVAILABILITY_REALM. Each is an INDIVIDUAL (a Character + a specialistContract to the ruler), NOT a unit —
+// so hiring honours the lightweight↔full doctrine: a lightweight stub (GM fleshes out) or a full-rolled NPC.
+// Availability is tracked per period in a ledger SEPARATE from the merc one (its own period clock) so the
+// two never clobber each other's rollover. Not gated by domain morale (a foreign hire, like the merc half).
+function domainRealmSpecialistsRecruitedThisPeriod(campaign, domainOrId, typeKey){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d || !d.realmSpecialistRecruitment) return 0;
+  const tier = realmRecruitTierForDomain(campaign, d);
+  const periodDays = A.realmRecruitPeriodDays(tier);
+  if((d.realmSpecialistRecruitment.periodStartOrd || 0) + periodDays <= _levyDayOrd(campaign)) return 0;  // fresh period
+  return Math.max(0, (d.realmSpecialistRecruitment.recruited || {})[String(typeKey || '').toLowerCase()] || 0);
+}
+// RR p.428 — how many MORE of military-specialist `typeKey` the realm can recruit this period.
+function domainRealmSpecialistAvailable(campaign, domainOrId, typeKey){
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return 0;
+  const max = A.realmSpecialistAvailable(realmRecruitTierForDomain(campaign, d), typeKey);
+  return Math.max(0, max - domainRealmSpecialistsRecruitedThisPeriod(campaign, d, typeKey));
+}
+// RR p.428 — recruit ONE military specialist of `opts.typeKey` into the realm. opts.detailLevel:
+// 'lightweight' (default — a stub) | 'full' (rolled via the doctrine primitive). Creates a Character
+// (socialTier 'specialist', homed to the realm, lieged to the ruler, profs from OFFICER_RANKS for officers
+// so LA/SA derive) + a specialistContract; decrements the per-period availability. Returns
+// { character, contract, tier, detailLevel } or null (no availability / unknown type / no domain).
+function recruitRealmSpecialist(campaign, domainOrId, opts){
+  opts = opts || {};
+  const A = global.ACKS;
+  const d = _resolveDomain(campaign, domainOrId);
+  if(!d) return null;
+  if(!Array.isArray(campaign.characters)) campaign.characters = [];
+  const typeKey = String(opts.typeKey || '').toLowerCase();
+  const prof = A.realmSpecialistProfile(typeKey);
+  if(!prof) return null;                                          // unknown type
+  if(domainRealmSpecialistAvailable(campaign, d, typeKey) <= 0) return null;   // none available this period
+  const tier = realmRecruitTierForDomain(campaign, d);
+  const periodDays = A.realmRecruitPeriodDays(tier);
+  const now = _levyDayOrd(campaign);
+  // per-period ledger — its OWN clock (NOT the merc ledger's, so neither rollover wipes the other)
+  if(!d.realmSpecialistRecruitment || (d.realmSpecialistRecruitment.periodStartOrd || 0) + periodDays <= now){
+    d.realmSpecialistRecruitment = { periodStartOrd: now, recruited: {} };
+  }
+  d.realmSpecialistRecruitment.recruited[typeKey] = (d.realmSpecialistRecruitment.recruited[typeKey] || 0) + 1;
+  const ruler = d.rulerCharacterId || null;
+  const full = (opts.detailLevel === 'full');
+  const parse = A.parseProficiencyEntry || (s => ({ key: String(s).toLowerCase().replace(/\s+/g, '-'), ranks: 1 }));
+  const role = String(prof.label || 'Specialist').replace(/^Mercenary Officer - /, '');   // "Captain", "Marshal - Light Infantry"
+  const c = A.blankCharacter({
+    name: role + (d.name ? ' of ' + d.name : ''),
+    socialTier: 'specialist',
+    controlledBy: 'gm',
+    level: prof.level || 0,
+    detailLevel: 'lightweight',                  // always born lightweight; expandCharacterToFull (below) rolls it up when full
+    currentHexId: domainSeatHexId(campaign, d),
+    currentDomainId: d.id,
+    homeDomainId: d.id,
+    liegeCharacterId: ruler,
+    proficiencies: (prof.proficiencies || []).map(parse)
+  });
+  if(typeof prof.wageGp === 'number') c.monthlyWage = prof.wageGp;
+  if(full) expandCharacterToFull(campaign, c, { rng: opts.rng });
+  campaign.characters.push(c);
+  const turn = (campaign.currentTurn != null) ? campaign.currentTurn : 0;
+  const contract = createSpecialistContract(campaign, {
+    specialistCharacterId: c.id, employerCharacterId: ruler,
+    hiredAtTurn: turn, wageStreamGpMo: c.monthlyWage || 0,
+    serviceCategory: 'military', reason: 'realm-specialist-recruited'
+  });
+  c.history.push({ turn, type: 'recruited',
+    text: 'Recruited as a ' + prof.label + ' at the ' + tier + ' (realm-scale, RR p.428)' + (full ? '' : ' — lightweight stub, expandable to full') });
+  return { character: c, contract: contract, tier: tier, detailLevel: c.detailLevel };
+}
+
 // RR p.431 — split off the soldiers of a levy `u` beyond `keepLiving` into a NEW untrained levy of the
 // same source/home (the recruits who can't qualify for the type being trained), leaving `u` with exactly
 // `keepLiving` living. Casualties split proportionally (mirrors the UI domainSplitLevy). The new unit is
@@ -11444,6 +11547,8 @@ const ACKS = Object.assign(global.ACKS || {}, {
   // W7-continuation — realm-scale mercenary recruitment (RR p.428): tier-scaled availability, per-period
   // cap, fee from the treasury, troops arrive ½/¼/remainder (ride the slot-46 muster consumer)
   realmRecruitTierForDomain, domainRealmRecruitedThisPeriod, domainRealmRecruitAvailable, recruitRealmTroops,
+  // W7-continuation — realm-scale military specialists + the lightweight↔full NPC doctrine primitive
+  expandCharacterToFull, recruitRealmSpecialist, domainRealmSpecialistAvailable, domainRealmSpecialistsRecruitedThisPeriod,
   // §12 Group model — the shared interface over party/army/unit/band (Architecture.md §12)
   groupKindOf, groupKindMeta, groupDisplayName, groupMembers, groupLeader, groupFormations,
   groupHeadcount, groupPosition, groupJourney, groupSpeed, groupLogistics, groupContainer,

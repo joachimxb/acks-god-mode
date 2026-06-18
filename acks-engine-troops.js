@@ -1953,6 +1953,39 @@
     const p = (MERC_AVAILABILITY_REALM.timePeriod || {})[tier];
     return p === 'year' ? 360 : p === 'season' ? 90 : p === 'month' ? 30 : 7;   // week (default)
   }
+  /** The recruitable military-specialist type keys (RR p.428 — artillerists / armorers / creature
+   *  handlers / marshals / mercenary officers / quartermaster / siege engineer). */
+  function realmSpecialistTypes(){ return Object.keys(MILITARY_SPECIALIST_AVAILABILITY_REALM.types); }
+  /** RR p.428 — how many of military-specialist `typeKey` a realm of `tier` can recruit per period
+   *  (0 = not fielded at that tier). NB the specialist catalog nests counts under `.availability`
+   *  (unlike MERC_AVAILABILITY_REALM, which stores them directly on the type row). */
+  function realmSpecialistAvailable(tier, typeKey){
+    const row = MILITARY_SPECIALIST_AVAILABILITY_REALM.types[String(typeKey || '').toLowerCase()];
+    const v = (row && row.availability) ? row.availability[tier] : null;
+    return (typeof v === 'number') ? v : 0;
+  }
+  /** RR p.428 / p.171 — the hire profile for a military specialist `typeKey`:
+   *  { label, isOfficer, level, wageGp, proficiencies[], [leadershipAbility, strategicAbility, moraleModifier] }.
+   *  Mercenary officers (mercenary-officer-*) carry EXACT RR p.171 characteristics (OFFICER_RANKS — level /
+   *  wage / LA / SA / MM / Command + Military Strategy). Other specialists get level 0 + a best-effort wage
+   *  (an exact HIRELING_SPECIALISTS id match — e.g. armorer→75gp; else 0 = GM-set, the lightweight stub's
+   *  point). 🔧 v1: officer wages exact; the rest GM-set (the RR p.428 specialist wages aren't in the shipped
+   *  catalog — transcribing them is a follow-on, not invented here). Returns null for an unknown type. */
+  function realmSpecialistProfile(typeKey){
+    const key = String(typeKey || '').toLowerCase();
+    const cat = MILITARY_SPECIALIST_AVAILABILITY_REALM.types[key];
+    if(!cat) return null;
+    const officerKey = key.indexOf('mercenary-officer-') === 0 ? key.slice('mercenary-officer-'.length) : null;
+    const rank = officerKey ? findOfficerRank(officerKey) : null;
+    if(rank){
+      return { label: cat.label, isOfficer: true, level: rank.level, wageGp: rank.costGpMonth,
+               leadershipAbility: rank.leadershipAbility, strategicAbility: rank.strategicAbility,
+               moraleModifier: rank.moraleModifier, proficiencies: (rank.proficiencies || []).slice() };
+    }
+    const hs = ((ACKS && ACKS.HIRELING_SPECIALISTS) || []).find(s => s.id === key);
+    const wageGp = (hs && typeof hs.wage === 'number') ? hs.wage : 0;
+    return { label: cat.label, isOfficer: false, level: 0, wageGp: wageGp, proficiencies: [] };
+  }
 
   Object.assign(ACKS, {
     TROOP_CATALOG, TROOP_TYPE_ALIASES, BEAST_RIDER_BY_RACE,
@@ -1967,7 +2000,8 @@
     CONSCRIPT_QUALIFYING, TRAINING_COSTS,
     conscriptQualifyingNumber, conscriptQualifyingMax, trainingCostFor, trainingMonthsFor, trainedTroopWage, trainableTroopTypes,
     // W7-continuation — realm-scale recruitment (RR p.428)
-    realmRecruitTier, realmRecruitMercTypes, realmMercAvailable, realmRecruitFeeSpec, realmRecruitPeriodDays
+    realmRecruitTier, realmRecruitMercTypes, realmMercAvailable, realmRecruitFeeSpec, realmRecruitPeriodDays,
+    realmSpecialistTypes, realmSpecialistAvailable, realmSpecialistProfile
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = ACKS;

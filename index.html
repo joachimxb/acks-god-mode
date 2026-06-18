@@ -42,9 +42,9 @@
 <script src="acks-engine-catalogs.js?v=2026-06-14-burst5"></script>
 <script src="acks-engine-monsters.js?v=2026-06-11-a"></script>
 <script src="acks-engine-encounter-tables.js?v=2026-06-11-a"></script>
-<script src="acks-engine-troops.js?v=2026-06-18-w7recruit"></script>
-<script src="acks-engine.js?v=2026-06-18-w7recruit"></script>
-<script src="acks-engine-entities.js?v=2026-06-18-w7banditry"></script>
+<script src="acks-engine-troops.js?v=2026-06-18-w7spec"></script>
+<script src="acks-engine.js?v=2026-06-18-w7spec"></script>
+<script src="acks-engine-entities.js?v=2026-06-18-w7spec"></script>
 <script src="acks-engine-economy.js?v=2026-06-12-b"></script>
 <script src="acks-engine-entity-registry.js?v=2026-06-15-adb"></script>
 <script src="acks-engine-field-schemas.js?v=2026-06-15-adb"></script>
@@ -2609,6 +2609,45 @@ document.addEventListener('alpine:init', () => {
         <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
           <button @click="closeRecruitModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
           <button @click="submitRecruit()" :disabled="!recruitModalCanSubmit()" :class="recruitModalCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!recruitModalCanSubmit() ? 'Pick a type with availability and set a number from 1 to the available count' : ''" x-text="'🪖 Recruit ' + (Math.floor(recruitModal.count)||0)"></button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- 🎖 Recruit officer / specialist (realm scale, RR p.428) — the other half of realm recruitment. Each is an
+     INDIVIDUAL → the lightweight↔full NPC doctrine: a stub (flesh out later) or a full-rolled character now. -->
+<div x-show="recruitSpecialistModal.open" @keydown.escape.window="if(recruitSpecialistModal.open){ closeRecruitSpecialistModal(); $event.preventDefault() }" role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:74; background:rgba(0,0,0,.45)" x-cloak @click.self="closeRecruitSpecialistModal()">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-12">
+    <template x-if="recruitSpecialistDomain()">
+      <div>
+        <div class="flex justify-between items-start p-4 border-b border-ink/30">
+          <h3 class="font-bold text-lg" x-text="'🎖 Recruit officer / specialist — ' + (recruitSpecialistDomain().name || '')"></h3>
+          <button @click="closeRecruitSpecialistModal()" class="text-2xl leading-none px-2" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm">
+          <p class="text-xs opacity-70">Realm-scale recruitment (RR p.428): hire an officer or military specialist at your realm's tier. Each is an individual — recruit a lightweight stub (flesh out later) or roll a full character now.</p>
+          <p class="text-xs"><span class="opacity-70">Realm:</span> <span class="font-semibold capitalize" x-text="recruitSpecialistTier()"></span> · <span class="opacity-70">availability period:</span> <span x-text="recruitSpecialistPeriodWord()"></span></p>
+          <label class="flex items-center gap-2 flex-wrap">Type:
+            <select x-model="recruitSpecialistModal.typeKey" class="border border-ink rounded px-1 py-0.5 text-sm">
+              <template x-for="row in recruitSpecialistTypeRows()" :key="'rst-'+row.key"><option :value="row.key" :disabled="row.available < 1" x-text="row.label + ' — ' + row.available + '/period' + (row.available < 1 ? ' (none available)' : '')"></option></template>
+            </select>
+          </label>
+          <template x-if="recruitSpecialistChosen()">
+            <div class="space-y-2">
+              <p class="text-xs"><span class="opacity-70">Profile:</span> <span x-text="recruitSpecialistProfileText()"></span></p>
+              <div class="flex items-center gap-4 text-xs">
+                <label class="flex items-center gap-1"><input type="radio" value="lightweight" x-model="recruitSpecialistModal.detailLevel"> Lightweight stub</label>
+                <label class="flex items-center gap-1"><input type="radio" value="full" x-model="recruitSpecialistModal.detailLevel"> Full chargen (roll stats)</label>
+              </div>
+              <p class="text-[11px] opacity-60" x-text="recruitSpecialistModal.detailLevel === 'full' ? 'Rolls the six abilities now (3d6 down the line); the GM fleshes out class/hp/saves.' : 'Creates a named stub (type · level · wage). Expand it to a full character on its sheet anytime — never a dead end.'"></p>
+            </div>
+          </template>
+          <p class="text-xs opacity-60 italic" x-show="recruitSpecialistTypeRows().every(r => r.available < 1)">No officers or specialists available to recruit at this realm tier this period.</p>
+        </div>
+        <div class="flex justify-end gap-2 p-4 border-t border-ink/30">
+          <button @click="closeRecruitSpecialistModal()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-50">Cancel</button>
+          <button @click="submitRecruitSpecialist()" :disabled="!recruitSpecialistCanSubmit()" :class="recruitSpecialistCanSubmit() ? 'bg-yellow-100 hover:bg-yellow-200' : 'opacity-40 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded font-semibold" :title="!recruitSpecialistCanSubmit() ? 'Pick a type with availability this period' : ''">🎖 Recruit</button>
         </div>
       </div>
     </template>
@@ -5692,6 +5731,9 @@ document.addEventListener('alpine:init', () => {
                   <button @click="openRecruitModal(selectedDomain)"
                           title="Realm-scale recruitment (RR p.428): hire whole mercenary units at your realm's tier — they arrive over the tier's time period"
                           class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2 hover:bg-yellow-100">🪖 Recruit (realm)</button>
+                  <button @click="openRecruitSpecialistModal(selectedDomain)"
+                          title="Realm-scale recruitment (RR p.428): hire an officer or military specialist (artillerist, armorer, creature handler, marshal…) at your realm's tier — as a lightweight stub or a full character"
+                          class="text-xs px-1.5 py-0.5 border border-ink rounded ml-2 hover:bg-yellow-100">🎖 Recruit (officer/specialist)</button>
                 </td></tr>
                 <template x-for="(u, i) in garrisonStandingUnits(selectedDomain)" :key="u.id || ('gu-'+i)">
                   <tr>
@@ -10603,6 +10645,13 @@ document.addEventListener('alpine:init', () => {
         </template>
       </div>
     </div>
+    <!-- Lightweight-NPC banner (2026-06-18 doctrine) — a stub created lightweight can be expanded to full anytime; never a dead end -->
+    <template x-if="characterEditing && characterEditing.detailLevel === 'lightweight'">
+      <div class="px-3 py-2 border-b border-ink/40 flex items-center justify-between gap-2" style="background:#f4ecd2">
+        <span class="text-xs"><span class="font-semibold">🪶 Lightweight NPC</span> — a stub (abilities unrolled). Never a dead end: expand it to a full character whenever you like.</span>
+        <button @click="expandCharacterUi(characterEditing)" class="text-xs px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 font-semibold whitespace-nowrap" title="Roll the six abilities and promote this stub to a full character (recorded in History)">⬆ Expand to full</button>
+      </div>
+    </template>
     <!-- Sub-tab bar inside the modal -->
     <div class="vellum border-b border-ink/40 flex flex-wrap gap-1 px-3">
       <template x-for="tab in [{id:'identity',label:'Identity'},{id:'stats',label:'Stats'},{id:'skills',label:'Skills'},{id:'inventory',label:'Inventory'},{id:'survival',label:'Survival'},{id:'background',label:'Background'},{id:'retainers',label:'Retainers'},{id:'expenses',label:'Expenses'},{id:'sanctum',label:'🔮 Sanctum'},{id:'research',label:'⚗ Research'},{id:'location',label:'Location'},{id:'history',label:'History'}]" :key="tab.id">
@@ -17420,6 +17469,53 @@ return {
     this.showToast && this.showToast('Recruited ' + r.recruited + ' ' + key.replace(/-/g, ' ') + ' mercenaries (' + r.tier + ', fee ' + r.feeGp.toLocaleString() + 'gp) — they arrive over 3 ' + word + ' (RR p.428). Advance the Day Clock.');
     this.closeRecruitModal();
   },
+  // 🎖 Realm-scale officer/specialist recruitment (RR p.428) — the individual half. Mirrors the merc modal.
+  openRecruitSpecialistModal(domain){
+    if(!domain) return;
+    const rows = this.recruitSpecialistTypeRowsFor(domain);
+    const first = ((rows.find(r => r.available > 0) || rows[0]) || {}).key || '';
+    this.recruitSpecialistModal = { open: true, domainId: domain.id, typeKey: first, detailLevel: 'lightweight' };
+  },
+  closeRecruitSpecialistModal(){ this.recruitSpecialistModal.open = false; },
+  recruitSpecialistDomain(){ const id = this.recruitSpecialistModal && this.recruitSpecialistModal.domainId; return id ? (this.domains || []).find(d => d && d.id === id) : null; },
+  recruitSpecialistTier(){ const d = this.recruitSpecialistDomain(); return d ? (window.ACKS.realmRecruitTierForDomain(this.currentCampaign, d) || '—') : '—'; },
+  recruitSpecialistPeriodWord(){ const p = window.ACKS.realmRecruitPeriodDays(this.recruitSpecialistTier()); return p === 360 ? 'years' : p === 90 ? 'seasons' : p === 30 ? 'months' : 'weeks'; },
+  recruitSpecialistTypeRowsFor(domain){
+    const A = window.ACKS;
+    if(!domain || !A.realmSpecialistTypes) return [];
+    return A.realmSpecialistTypes().map(key => {
+      const prof = A.realmSpecialistProfile(key) || {};
+      return { key, label: prof.label || key, available: A.domainRealmSpecialistAvailable(this.currentCampaign, domain, key) };
+    });
+  },
+  recruitSpecialistTypeRows(){ const d = this.recruitSpecialistDomain(); return d ? this.recruitSpecialistTypeRowsFor(d) : []; },
+  recruitSpecialistChosen(){ return this.recruitSpecialistTypeRows().find(r => r.key === this.recruitSpecialistModal.typeKey) || null; },
+  recruitSpecialistProfileText(){
+    const prof = window.ACKS.realmSpecialistProfile(this.recruitSpecialistModal.typeKey);
+    if(!prof) return '—';
+    const bits = [];
+    if(prof.level) bits.push('L' + prof.level);
+    bits.push(prof.wageGp ? prof.wageGp + 'gp/mo' : 'wage GM-set');
+    if(prof.isOfficer) bits.push('LA ' + prof.leadershipAbility + ' · SA +' + prof.strategicAbility + ' (RR p.171)');
+    return bits.join(' · ');
+  },
+  recruitSpecialistCanSubmit(){ const c = this.recruitSpecialistChosen(); return !!(c && c.available >= 1); },
+  submitRecruitSpecialist(){
+    const d = this.recruitSpecialistDomain(); if(!d || !this.recruitSpecialistCanSubmit()) return;
+    const key = this.recruitSpecialistModal.typeKey; const detail = this.recruitSpecialistModal.detailLevel; const A = window.ACKS;
+    const r = A.recruitRealmSpecialist(this.currentCampaign, d.id, { typeKey: key, detailLevel: detail });
+    if(!r){ this.showToast && this.showToast('None available to recruit at the ' + this.recruitSpecialistTier() + ' this period.', 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Recruited ' + (r.character.name || 'a specialist') + ' (' + r.tier + ', ' + (detail === 'full' ? 'full chargen' : 'lightweight stub') + ').');
+    this.closeRecruitSpecialistModal();
+  },
+  // Lightweight↔full NPC doctrine (2026-06-18) — promote a lightweight stub to a full character in place.
+  expandCharacterUi(c){
+    if(!c || c.detailLevel !== 'lightweight') return;
+    window.ACKS.expandCharacterToFull(this.currentCampaign, c);
+    this.markDirty(); this.schedulePersist();
+    this.showToast && this.showToast('Expanded ' + (c.name || 'the NPC') + ' to a full character — abilities rolled.');
+  },
 
   // ─── #549 Add garrison unit with audit event (2026-05-30; W1: catalog defaults +
   //      first-class membership via stationUnit — campaign.units[] + the garrison mirror) ───
@@ -23866,6 +23962,7 @@ return {
   unitSheetUnitId: null,         // the clickable unit detail/edit modal (null = closed)
   levyModal: { open: false, domainId: null, source: 'conscript', count: 1, homeHexId: '' },  // ⚒/🛡 Levy modal
   recruitModal: { open: false, domainId: null, typeKey: '', count: 1 },  // 🪖 Recruit-mercenaries (realm scale) modal
+  recruitSpecialistModal: { open: false, domainId: null, typeKey: '', detailLevel: 'lightweight' },  // 🎖 Recruit-officer/specialist (realm scale) modal
   trainModal: { open: false, unitId: null, type: '', count: null },  // 🎓 Train modal (Domain ▸ Military)
   addToArmyModal: { open: false, unitId: null, hexId: null },  // 🎖 Add-to-army chooser (Garrison Units)
   marchModal: { open: false, unitId: null, originHexId: null, destHexId: '', pace: 'normal' },  // 🚶 March a garrison unit

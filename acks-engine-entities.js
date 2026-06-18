@@ -1090,6 +1090,12 @@ function blankCharacter(opts={}){
     creatureTypes:  opts.creatureTypes || ['humanoid'],
     isEnchantedCreature: opts.isEnchantedCreature === true,
     hitDice: opts.hitDice || null,      // Per-class HD derivation deferred to Phase 6.
+    // Detail level (2026-06-18 doctrine) — an NPC may be created 'lightweight' (a named
+    // stub: type + wage + classification, abilities left at the 10-default) or 'full'
+    // (rolled). A lightweight NPC is never a dead end — ACKS.expandCharacterToFull upgrades
+    // it in place. Absent ⇒ 'full' (existing/template chars + PCs read as full; defensive,
+    // no migration). The reusable lightweight↔full primitive for every NPC-creation surface.
+    detailLevel: opts.detailLevel || 'full',
     id: opts.id || newId(ID_PREFIXES.character),
     name,
     alignment: opts.alignment || 'N',
