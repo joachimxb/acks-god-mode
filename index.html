@@ -11698,6 +11698,72 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+        <!-- Character Lifecycle CL-4a (b8-lifecycle, burst8) — Lifecycle / Death & inheritance (RR pp.311–313).
+             Completes the "what happens to this person" cluster (Wounds / Diseases / Conditions above): plan
+             ahead while alive (Reserve XP / heir / will), mark a death (cause + heroism), then resolve
+             succession (promote a henchman · name an heir · start a back-up — with the Reserve XP + Heroic
+             Funeral + the will/heir inheritance). Death is event-driven; the succession flow is a GM action. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Lifecycle <span class="text-sm font-normal opacity-60">(death &amp; inheritance — RR pp.311–313)</span></h4>
+              <template x-if="!cl4aDeathInfo(characterEditing).deceased">
+                <button @click="cl4aOpenDeath(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-red-200 hover:bg-red-300 font-semibold" title="Mark this character dead (RR pp.311–313)">💀 Mark dead</button>
+              </template>
+              <template x-if="cl4aDeathInfo(characterEditing).deceased && !cl4aDeathInfo(characterEditing).successionResolved">
+                <button @click="cl4aOpenSuccession(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-green-200 hover:bg-green-300 font-semibold" title="Resolve the succession + inheritance (RR pp.311–313)">⚰ Resolve succession</button>
+              </template>
+            </div>
+
+            <!-- alive: planning (Reserve XP / heir / will) -->
+            <template x-if="!cl4aDeathInfo(characterEditing).deceased">
+              <div class="space-y-2 text-sm">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span>🏦 <span class="font-semibold">Reserve XP:</span> <span x-text="cl4aReserveXp(characterEditing)"></span></span>
+                  <span class="opacity-60">·</span>
+                  <span class="opacity-70">bank gp spent to no benefit:</span>
+                  <input type="number" min="0" x-model.number="cl4aAccrueGp" class="w-24 text-sm" placeholder="gp">
+                  <button @click="cl4aAccrueReserveXp(characterEditing)" :disabled="!(Number(cl4aAccrueGp)>0)" :class="(Number(cl4aAccrueGp)>0) ? 'hover:bg-yellow-100' : 'opacity-50 cursor-not-allowed'" class="px-2 py-0.5 border border-ink/40 rounded text-xs" title="Bank 90% of the spend as Reserve XP (RR p.311)">+ accrue 90%</button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold">Heir:</span>
+                  <select @change="cl4aSetHeir(characterEditing, $event.target.value)" class="text-sm">
+                    <option value="" :selected="!cl4aDeathInfo(characterEditing).heirCharacterId">— no heir —</option>
+                    <template x-for="h in cl4aHeirOptions(characterEditing)" :key="h.id">
+                      <option :value="h.id" :selected="cl4aDeathInfo(characterEditing).heirCharacterId === h.id" x-text="h.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <template x-if="cl4aOwnedStashes(characterEditing).length">
+                  <div>
+                    <span class="font-semibold">Will</span> <span class="opacity-60 text-xs">— bequeath stashes to the heir:</span>
+                    <ul class="mt-0.5">
+                      <template x-for="st in cl4aOwnedStashes(characterEditing)" :key="st.id">
+                        <li><label class="flex items-center gap-2 text-xs"><input type="checkbox" :checked="cl4aStashBequeathed(characterEditing, st.id)" @change="cl4aToggleBequest(characterEditing, st.id)"> <span x-text="st.name || st.id"></span></label></li>
+                      </template>
+                    </ul>
+                  </div>
+                </template>
+                <p class="text-xs italic opacity-60">Reserve XP (90% of money spent to no lasting benefit) carries to your next character; a will + an heir passes treasure on death. Set them now (RR pp.311–313).</p>
+              </div>
+            </template>
+
+            <!-- deceased -->
+            <template x-if="cl4aDeathInfo(characterEditing).deceased">
+              <div class="space-y-1 text-sm">
+                <p class="accent-red font-semibold">💀 Died<span x-show="cl4aDeathInfo(characterEditing).cause" x-text="' of ' + cl4aDeathInfo(characterEditing).causeLabel"></span><span x-show="cl4aDeathInfo(characterEditing).heroic"> · a heroic death</span><span x-show="cl4aDeathInfo(characterEditing).deceasedTurn != null" x-text="' · turn ' + cl4aDeathInfo(characterEditing).deceasedTurn"></span></p>
+                <p>🏦 Reserve XP carried on: <span class="font-semibold" x-text="cl4aReserveXp(characterEditing)"></span></p>
+                <template x-if="cl4aDeathInfo(characterEditing).successionResolved">
+                  <p class="accent-blue">⚰ Succeeded by <span class="font-semibold" x-text="cl4aCharName(cl4aDeathInfo(characterEditing).successorCharacterId)"></span>.</p>
+                </template>
+                <template x-if="!cl4aDeathInfo(characterEditing).successionResolved">
+                  <p class="text-xs italic opacity-60">Resolve the succession to choose a successor + carry over the Reserve XP, Heroic Funeral, and the will/heir inheritance (RR pp.311–313).</p>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -15803,6 +15869,89 @@ document.addEventListener('alpine:init', () => {
      A lane that only extends an existing tab edits that tab's region in-place instead. ─── -->
 <!-- === @b8-generators (team) — NPC Generator modal === -->
 <!-- === @b8-lifecycle  (team) — succession/inheritance modal === -->
+<!-- CL-4a death & inheritance (RR pp.311–313). z-[80] — above the character sheet. mode 'death'
+     (mark a death: cause + heroism) | 'succession' (resolve: successor + Reserve XP + Heroic Funeral
+     + the will/heir inheritance transfer). Driven entirely by the CL-4a engine. -->
+<template x-if="cl4aModal.open">
+  <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" @click.self="cl4aModal.open=false" @keydown.escape.window="cl4aModal.open=false">
+    <div class="vellum border-2 border-ink rounded-lg shadow-xl max-w-lg w-full max-h-[88vh] overflow-y-auto p-4">
+
+      <!-- ── mode: death ── -->
+      <template x-if="cl4aModal.mode === 'death'">
+        <div>
+          <h3 class="text-lg font-bold mb-1">💀 Mark a death</h3>
+          <p class="text-sm opacity-70 mb-3" x-text="cl4aModal.charName + ' dies. Tag the cause; a heroic death earns a Heroic-Funeral XP bonus for the successor (RR p.312).'"></p>
+          <label class="block text-sm font-semibold mb-1">Cause of death</label>
+          <select x-model="cl4aModal.cause" class="w-full mb-3 text-sm">
+            <template x-for="c in cl4aCauseOptions()" :key="c"><option :value="c" x-text="c"></option></template>
+          </select>
+          <label class="flex items-center gap-2 text-sm mb-4"><input type="checkbox" x-model="cl4aModal.heroic"> A heroic death (qualifies for the Heroic Funeral)</label>
+          <div class="flex justify-end gap-2">
+            <button @click="cl4aModal.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+            <button @click="cl4aConfirmDeath()" class="px-3 py-1 border border-ink rounded text-sm bg-red-200 hover:bg-red-300 font-semibold">💀 Confirm death</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── mode: succession ── -->
+      <template x-if="cl4aModal.mode === 'succession'">
+        <div>
+          <h3 class="text-lg font-bold mb-1">⚰ Resolve succession</h3>
+          <p class="text-sm opacity-70 mb-3" x-text="'The death of ' + cl4aModal.charName + ' (RR pp.311–313). Choose a successor; the Reserve XP + Heroic Funeral + the will/heir inheritance carry over.'"></p>
+
+          <!-- successor -->
+          <div class="mb-3 border border-ink/30 rounded p-2">
+            <div class="text-sm font-semibold mb-1">Successor</div>
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="radio" value="promote-henchman" x-model="cl4aModal.successorMode" :disabled="!cl4aModal.candidates.length"> Promote an existing character <span class="opacity-60" x-show="!cl4aModal.candidates.length">(none available)</span></label>
+            <template x-if="cl4aModal.successorMode === 'promote-henchman'">
+              <select @change="cl4aModal.successorCharacterId = $event.target.value" class="w-full mb-2 text-sm">
+                <template x-for="cand in cl4aModal.candidates" :key="cand.id"><option :value="cand.id" :selected="cl4aModal.successorCharacterId === cand.id" x-text="cand.name + ' (' + cand.relationship + ', L' + cand.level + ', ' + cand.xp + ' XP)'"></option></template>
+              </select>
+            </template>
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="radio" value="new-character" x-model="cl4aModal.successorMode"> Start a new / back-up character</label>
+            <template x-if="cl4aModal.successorMode === 'new-character'">
+              <input type="text" x-model="cl4aModal.newCharacterName" placeholder="successor name" class="w-full text-sm">
+            </template>
+          </div>
+
+          <!-- heroic funeral -->
+          <div class="mb-3 border border-ink/30 rounded p-2">
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="checkbox" x-model="cl4aModal.heroicDeath"> Heroic death — earns the Heroic Funeral (RR p.312)</label>
+            <label class="block text-sm" :class="cl4aModal.heroicDeath ? '' : 'opacity-50'">Funeral gp spent
+              <input type="number" min="0" x-model.number="cl4aModal.funeralGpSpent" :disabled="!cl4aModal.heroicDeath" class="w-28 text-sm ml-1">
+            </label>
+            <p class="text-xs mt-1 accent-blue" x-text="'Successor starts with ' + cl4aSuccessionPreview().startXp + ' XP (' + cl4aSuccessionPreview().reserveXpApplied + ' Reserve XP' + (cl4aSuccessionPreview().funeralXp ? (' + ' + cl4aSuccessionPreview().funeralXp + ' funeral XP') : '') + '). Reserve is capped at the prior character’s XP (RR p.311).'"></p>
+          </div>
+
+          <!-- inheritance -->
+          <div class="mb-4 border border-ink/30 rounded p-2">
+            <label class="flex items-center gap-2 text-sm mb-1"><input type="checkbox" x-model="cl4aModal.transferTreasure"> Transfer the deceased’s treasure to an heir (RR p.313)</label>
+            <template x-if="cl4aModal.transferTreasure">
+              <div>
+                <label class="block text-sm mb-1">Heir
+                  <select @change="cl4aModal.heirId = $event.target.value" class="w-full text-sm">
+                    <option value="" :selected="!cl4aModal.heirId">— none (banked treasure is lost) —</option>
+                    <template x-for="h in cl4aModal.heirOptions" :key="h.id"><option :value="h.id" :selected="cl4aModal.heirId === h.id" x-text="h.name"></option></template>
+                  </select>
+                </label>
+                <label class="block text-sm">Bank fee %
+                  <input type="number" min="0" max="100" x-model.number="cl4aModal.bankFeePct" class="w-20 text-sm ml-1">
+                </label>
+                <p class="text-xs opacity-60 mt-1">With no heir, banked treasure is seized; only personal property on the body passes to the looters (RR p.313).</p>
+              </div>
+            </template>
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <button @click="cl4aModal.open=false" class="px-3 py-1 border border-ink rounded text-sm hover:bg-gray-100">Cancel</button>
+            <button @click="cl4aResolveSuccession()" class="px-3 py-1 border border-ink rounded text-sm bg-green-200 hover:bg-green-300 font-semibold">⚰ Resolve succession</button>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </div>
+</template>
 <!-- === @b8-politics   (team) — senate influence modal === -->
 <!-- === @b8-magicitems (team) — commission modal === -->
 <!-- === @b8-sages      (team) — sage-commission modal === -->
@@ -16743,6 +16892,59 @@ return {
   //     `// === <Topic> (team) ===` header. Do NOT edit another lane's marker. ───
   // === @b8-generators (team) — NPC Generator G1: state + methods ===
   // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
+  // Death & inheritance (RR pp.311–313) — the char-sheet Health/Lifecycle-cluster surface: plan ahead
+  // while alive (Reserve XP / heir / will), mark a death (cause + heroism), then resolve succession
+  // (promote a henchman · name an heir · start a back-up — with the Reserve XP + Heroic Funeral XP + the
+  // will/heir inheritance transfer). One modal, mode 'death' | 'succession'. All over the CL-4a engine.
+  cl4aModal: { open:false, mode:null, charId:null, charName:'',
+    cause:'fiat', heroic:false,
+    successorMode:'promote-henchman', successorCharacterId:'', newCharacterName:'',
+    funeralGpSpent:0, heroicDeath:false, transferTreasure:true, heirId:'', bankFeePct:10,
+    candidates:[], heirOptions:[], reserveXp:0, deceasedXp:0 },
+  cl4aAccrueGp: 0,
+  cl4aDeathInfo(ch){ const A=window.ACKS; return (ch && A && A.characterDeathInfo) ? A.characterDeathInfo(ch) : { deceased:false }; },
+  cl4aReserveXp(ch){ const A=window.ACKS; return (ch && A && A.characterReserveXp) ? A.characterReserveXp(ch) : 0; },
+  cl4aCauseOptions(){ return (window.ACKS && window.ACKS.DEATH_CAUSES) || ['wounds','disease','old-age','battle','fiat','unknown']; },
+  cl4aCharName(id){ const c = (this.currentCampaign?.characters||[]).find(x => x && x.id === id); return c ? c.name : '—'; },
+  cl4aHeirOptions(ch){ return (this.currentCampaign?.characters||[]).filter(x => x && x.id !== ch.id && x.lifecycleState !== 'deceased' && x.alive !== false).map(x => ({ id:x.id, name:x.name })); },
+  cl4aOwnedStashes(ch){ const A=window.ACKS; return (ch && A && A.stashesOwnedByCharacter) ? (A.stashesOwnedByCharacter(this.currentCampaign, ch.id) || []) : []; },
+  cl4aStashBequeathed(ch, stashId){ return !!(ch && ch.will && Array.isArray(ch.will.bequests) && ch.will.bequests.some(b => b && b.kind === 'stash' && b.ref === stashId)); },
+  _cl4aTouch(msg){ if(this.markDirty) this.markDirty(); if(this.schedulePersist) this.schedulePersist(); if(msg && this.showToast) this.showToast(msg, 3000); },
+  cl4aSetHeir(ch, heirId){ const A=window.ACKS; if(!A||!A.setCharacterHeir) return; A.setCharacterHeir(this.currentCampaign, ch.id, heirId || null); this._cl4aTouch('Heir ' + (heirId ? ('set to ' + this.cl4aCharName(heirId)) : 'cleared') + '.'); },
+  cl4aAccrueReserveXp(ch){ const gp = Number(this.cl4aAccrueGp) || 0; if(gp <= 0) return; const A=window.ACKS; const total = A.addReserveXp(this.currentCampaign, ch.id, { gpSpent: gp, reason:'spent to no lasting benefit' }); this.cl4aAccrueGp = 0; this._cl4aTouch('Banked ' + Math.floor(gp * 0.9) + ' Reserve XP (now ' + total + ').'); },
+  cl4aToggleBequest(ch, stashId){ const A=window.ACKS; const will = ch.will || { bequests:[] }; if(!Array.isArray(will.bequests)) will.bequests = []; const i = will.bequests.findIndex(b => b && b.kind === 'stash' && b.ref === stashId); if(i >= 0) will.bequests.splice(i, 1); else will.bequests.push({ kind:'stash', ref:stashId }); A.setCharacterWill(this.currentCampaign, ch.id, will); this._cl4aTouch('Will updated.'); },
+  cl4aOpenDeath(ch){ this.cl4aModal = Object.assign({}, this.cl4aModal, { open:true, mode:'death', charId:ch.id, charName:ch.name, cause:'fiat', heroic:false }); },
+  cl4aConfirmDeath(){ const m=this.cl4aModal; const A=window.ACKS; A.recordCharacterDeath(this.currentCampaign, m.charId, { cause:m.cause, heroic:m.heroic }); this.cl4aModal.open=false; this._cl4aTouch(m.charName + ' has died (' + m.cause + ').'); },
+  cl4aOpenSuccession(ch){
+    const A=window.ACKS;
+    if(A.reconcileCharacterDeaths) A.reconcileCharacterDeaths(this.currentCampaign);   // back-fill any externally-set death
+    const cands = (A.successionCandidates && A.successionCandidates(this.currentCampaign, ch.id)) || [];
+    const info = A.characterDeathInfo ? A.characterDeathInfo(ch) : {};
+    this.cl4aModal = Object.assign({}, this.cl4aModal, {
+      open:true, mode:'succession', charId:ch.id, charName:ch.name,
+      successorMode: cands.length ? 'promote-henchman' : 'new-character',
+      successorCharacterId: cands.length ? cands[0].id : '',
+      newCharacterName: ch.name + "'s successor",
+      funeralGpSpent: 0, heroicDeath: info.heroic === true, transferTreasure: true,
+      heirId: info.heirCharacterId || ((cands.find(x => x.relationship === 'heir') || {}).id) || '',
+      bankFeePct: 10, candidates: cands, heirOptions: this.cl4aHeirOptions(ch),
+      reserveXp: (info.reserveXp || 0), deceasedXp: (Number(ch.xp) || 0)
+    });
+    this._cl4aTouch('');
+  },
+  cl4aSuccessionPreview(){ const m=this.cl4aModal; const reserveXpApplied = Math.min(Number(m.reserveXp)||0, Number(m.deceasedXp)||0); const funeralXp = (m.heroicDeath && Number(m.funeralGpSpent) > 0) ? Math.floor(0.9 * Number(m.funeralGpSpent)) : 0; return { reserveXpApplied, funeralXp, startXp: reserveXpApplied + funeralXp }; },
+  cl4aResolveSuccession(){
+    const m=this.cl4aModal; const A=window.ACKS;
+    const res = A.resolveSuccession(this.currentCampaign, m.charId, {
+      mode: m.successorMode, successorCharacterId: m.successorCharacterId || null,
+      newCharacterName: m.newCharacterName, funeralGpSpent: Number(m.funeralGpSpent) || 0,
+      heroic: m.heroicDeath, transferTreasure: m.transferTreasure,
+      heirId: m.heirId || null, bankFeePct: Number(m.bankFeePct) || 10
+    });
+    this.cl4aModal.open = false;
+    const who = (res && res.successor) ? res.successor.name : 'no successor';
+    this._cl4aTouch(m.charName + ' — succession resolved (' + who + ').');
+  },
   // === @b8-politics   (team) — Politics P-3: state + methods ===
   // === @b8-magicitems (team) — Magic Items W2: state + methods ===
   // === @b8-sages      (team) — Sages SG-2: state + methods ===
