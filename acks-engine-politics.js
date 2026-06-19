@@ -778,6 +778,453 @@
     return ev;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // P-3 — the influence-actions + dispute-lifecycle layer (burst8 2026-06-19).
+  //       Spec: Phase_4_Politics_Plan.md §5.4–§5.5 + §3 (RR pp.358–359);
+  //       Politics_RAW_Survey.md §4.5–§4.7. This POPULATES the standing
+  //       senatorship.influenceModifiers[] stack that the P-2 voting machinery
+  //       already READS (senatorVoteModifiers loops it) + converts part of the
+  //       anonymous independent bloc + extends the dispute lifecycle (retroactive-
+  //       approval escalation → 'replace-ruler', abandon-government penalties,
+  //       re-establish after 2d6 months). NO new entity/prefix/factory field: the
+  //       two new bits of senate state (the gift ledger + the re-establish cooldown)
+  //       are init-on-write + read defensively, so blankSenate + the field-schema /
+  //       registry / migrate-no-op invariants are untouched (the burst3 discipline).
+  //   ⚠ Wave-label note: the plan's §14 labels influence-actions "P-4" + homes the
+  //     gaining-influence-over-minors bullet under "P-3"; this burst8 lane is named
+  //     "P-3" and ships BOTH (the plan's P-3 tail + P-4) plus the dispute-lifecycle
+  //     extensions the P-2 ship deferred. The wave numbers drifted; the work is the
+  //     same. RESOLVERS REUSED (per the lane brief): the shipped Layer-1 proficiency
+  //     throw (rollProficiencyThrow) for the intimidate/seduce attempt, and the
+  //     shipped 2d6 voting machinery (senateVote) for the retroactive-approval consult.
+  //   Two record-only events (senate-influenced / senate-dispute-opened), the verb-
+  //     applies-state + emits-the-applied-event pattern; the events.js handler is a
+  //     record-only audit (the favor-duty / P-2 precedent).
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // n d6 (the dispute cooldown / honeymoon duration rolls — not a proficiency throw
+  // nor a vote, so no shipped resolver applies; a plain die, the reaction-roll idiom).
+  function _rollNd6(n, rng){
+    const r = (typeof rng === 'function') ? rng : Math.random;
+    let sum = 0; for(let i = 0; i < (n || 0); i++) sum += 1 + Math.floor(r() * 6);
+    return sum;
+  }
+  function _turnOf(campaign, opts){ return (opts && opts.turn != null) ? opts.turn : ((campaign && campaign.currentTurn) || 1); }
+  // The senate a senatorship sits in.
+  function _senateOfSenatorship(campaign, senatorship){
+    return senatorship ? findSenate(campaign, senatorship.senateId) : null;
+  }
+  // Upsert a standing influence modifier: replace a prior entry of the same kind from
+  // the same actor (so re-bribing the same senator UPDATES rather than stacking), else
+  // push. Keeps the signed { kind, value } shape senatorVoteModifiers already reads.
+  function _upsertInfluenceModifier(senatorship, mod){
+    if(!Array.isArray(senatorship.influenceModifiers)) senatorship.influenceModifiers = [];
+    const i = senatorship.influenceModifiers.findIndex(m => m && m.kind === mod.kind
+      && (m.byCharacterId || null) === (mod.byCharacterId || null));
+    if(i >= 0) senatorship.influenceModifiers[i] = mod; else senatorship.influenceModifiers.push(mod);
+    return mod;
+  }
+  // Best-effort spend of an influence gp cost from the actor's coin purse (RR pp.83–84
+  // multi-denom shape; coins.gp canonical, personalGp the synced mirror). Returns
+  // { paid, gp }. When the purse is absent / insufficient the cost is recorded but no
+  // coins move (paid:false) — the bribe's VOTING effect lands regardless; the GM settles
+  // the gp. Emits the GP-Wave-B wealth-transfer audit child when the helper is present.
+  function _spendInfluenceGp(campaign, byCharacterId, gp, opts){
+    gp = Math.max(0, Number(gp) || 0);
+    const A = _A();
+    const actor = _findChar(campaign, byCharacterId);
+    let paid = false;
+    if(gp > 0 && actor){
+      const have = (actor.coins && Number(actor.coins.gp)) || Number(actor.personalGp) || 0;
+      if(have >= gp){
+        if(actor.coins && typeof actor.coins === 'object') actor.coins.gp = have - gp;
+        else actor.personalGp = have - gp;
+        if(typeof A.reconcileCharacterCoins === 'function'){ try { A.reconcileCharacterCoins(actor); } catch(e){} }
+        paid = true;
+      }
+    }
+    if(gp > 0 && paid && typeof A.recordWealthTransfer === 'function'){
+      try { A.recordWealthTransfer(campaign, {
+        source: { kind:'character', id: byCharacterId || null },
+        destination: { kind:'external', label: (opts && opts.label) || 'senate influence' },
+        amount: gp, bucket: 'other', reason: (opts && opts.reason) || 'senate influence'
+      }, { campaignLogHidden: true }); } catch(e){}
+    }
+    return { paid, gp };
+  }
+
+  // ── Bribery (RR p.358; survey §4.5) — gp → a standing voting modifier. Any character
+  //    can bribe; the Bribery proficiency shifts the RATE (which income period buys which
+  //    bonus). NO throw (RAW is a payment). A rival bribe is the negative mirror.
+  //      proficient:    +1 = a day's bribe cost   · +2 = week  · +3 = month
+  //      non-proficient:+1 = a week's bribe cost   · +2 = month · +3 = year
+  //    opts: { senatorshipId, byCharacterId, value:1|2|3, byRival, turn, rng }
+  const _BRIBE_PERIOD = Object.freeze({
+    proficient:    { 1:'day',  2:'week',  3:'month' },
+    nonproficient: { 1:'week', 2:'month', 3:'year'  }
+  });
+  function bribeSenator(campaign, opts){
+    opts = opts || {};
+    const senatorship = findSenatorship(campaign, opts.senatorshipId);
+    if(!senatorship) return { ok:false, reason:'no-senatorship' };
+    const value = Math.min(3, Math.max(1, Math.round(Number(opts.value) || 1)));
+    const actor = _findChar(campaign, opts.byCharacterId);
+    const A = _A();
+    const proficient = !!(actor && typeof A.hasProficiency === 'function' && A.hasProficiency(actor, 'bribery'));
+    const period = _BRIBE_PERIOD[proficient ? 'proficient' : 'nonproficient'][value];
+    const costs = senatorship.bribeCostByPeriod || {};
+    const gp = Math.max(0, Number(costs[period]) || 0);
+    const byRival = !!opts.byRival;
+    const signed = byRival ? -value : value;
+    const kind = byRival ? 'rival-bribe' : 'bribe';
+    const turn = _turnOf(campaign, opts);
+    const spend = _spendInfluenceGp(campaign, opts.byCharacterId, gp, { reason: 'bribe', label: 'bribe of a senator' });
+    const mod = _upsertInfluenceModifier(senatorship, {
+      source: 'bribe', kind, value: signed, period, gp, byRival,
+      sinceTurn: turn, byCharacterId: opts.byCharacterId || null, proficient
+    });
+    const senate = _senateOfSenatorship(campaign, senatorship);
+    _emitPoliticsEvent(campaign, 'senate-influenced', {
+      senateId: senate ? senate.id : null, action: byRival ? 'rival-bribe' : 'bribe',
+      senatorshipId: senatorship.id, byCharacterId: opts.byCharacterId || null,
+      value: signed, period, gp, paid: spend.paid,
+      narrative: (byRival ? 'A rival bribes' : 'The ruler bribes') + ' a senator (' +
+        (signed >= 0 ? '+' : '') + signed + ' to his vote, ' + gp + 'gp / ' + period + ').'
+    }, senate, opts.byCharacterId, []);
+    return { ok:true, value: signed, period, gp, paid: spend.paid, proficient, modifier: mod };
+  }
+
+  // ── Intimidation (RR p.358) + Seduction (RR p.359) — gated social maneuvers resolved
+  //    via the SHIPPED Layer-1 proficiency throw (the lane brief). RAW gives the +1 vote
+  //    modifier as the effect of a SUCCESSFUL maneuver; the general proficiency mechanic
+  //    (RR p.102, target 11+, + the governing CHA modifier — Intimidation/Seduction are
+  //    CHA proficiencies, RR p.112/p.117) supplies the success throw. The GM may pass
+  //    autoSucceed:true for the pure-RAW "conditions met → +1" reading (the throw is
+  //    available, not imposed). Gates (RAW): intimidate needs the prof + a credible threat
+  //    + grossly out-ranking/out-numbering; seduce needs the prof + an attracted senator.
+  //    opts: { senatorshipId, byCharacterId, outranks, credibleThreat, attracted,
+  //            autoSucceed, extraModifiers:[{label,value}], turn, rng }
+  function _socialInfluence(campaign, opts, method){
+    opts = opts || {};
+    const senatorship = findSenatorship(campaign, opts.senatorshipId);
+    if(!senatorship) return { ok:false, reason:'no-senatorship' };
+    const actor = _findChar(campaign, opts.byCharacterId);
+    const A = _A();
+    const profKey = method === 'intimidate' ? 'intimidation' : 'seduction';
+    const proficient = !!(actor && typeof A.hasProficiency === 'function' && A.hasProficiency(actor, profKey));
+    if(!proficient) return { ok:false, reason:'lacks-' + profKey };
+    if(method === 'intimidate'){
+      if(!opts.outranks) return { ok:false, reason:'requires-outrank' };       // grossly out-ranks/out-numbers
+      if(opts.credibleThreat === false) return { ok:false, reason:'requires-threat' };
+    } else if(!opts.attracted){
+      return { ok:false, reason:'requires-attraction' };
+    }
+    const turn = _turnOf(campaign, opts);
+    let throwResult = null, success;
+    if(opts.autoSucceed){
+      success = true;                                                          // pure-RAW conditional reading
+    } else {
+      const chaMod = _abilityMod(actor);
+      const modifiers = [{ label:'CHA', value: chaMod }]
+        .concat(Array.isArray(opts.extraModifiers) ? opts.extraModifiers.filter(m => m && typeof m.value === 'number') : []);
+      throwResult = (typeof A.rollProficiencyThrow === 'function')
+        ? A.rollProficiencyThrow({ target: 11, modifiers, proficient: true, rng: opts.rng })  // RR p.102 default bar
+        : { success: true, total: null, target: 11, modifiers, natural: null };               // defensive (proficiencies module absent)
+      success = !!throwResult.success;
+    }
+    const kind = method === 'intimidate' ? 'intimidated' : 'seduced';
+    let mod = null;
+    if(success){
+      mod = _upsertInfluenceModifier(senatorship, {
+        source: method, kind, value: 1, sinceTurn: turn, byCharacterId: opts.byCharacterId || null
+      });
+    }
+    const senate = _senateOfSenatorship(campaign, senatorship);
+    _emitPoliticsEvent(campaign, 'senate-influenced', {
+      senateId: senate ? senate.id : null, action: method,
+      senatorshipId: senatorship.id, byCharacterId: opts.byCharacterId || null,
+      success, value: success ? 1 : 0,
+      natural: throwResult ? throwResult.natural : null, total: throwResult ? throwResult.total : null,
+      narrative: (method === 'intimidate' ? 'The ruler intimidates' : 'The ruler seduces') + ' a senator — ' +
+        (success ? 'it lands (+1 to his vote).' : 'the attempt fails.')
+    }, senate, opts.byCharacterId, []);
+    return { ok:true, success, throw: throwResult, modifier: mod };
+  }
+  function intimidateSenator(campaign, opts){ return _socialInfluence(campaign, opts, 'intimidate'); }
+  function seduceSenator(campaign, opts){ return _socialInfluence(campaign, opts, 'seduce'); }
+
+  // ── The −5 turn (RR p.358–359) — a once-intimidated senator who escapes the ruler's
+  //    dominance, or a once-seduced senator later ill-treated, now penalizes the ruler's
+  //    vote by −5 ("previously, no-longer … by the ruler"). Flips the standing +1 modifier
+  //    in place (intimidated → intimidated-escaped −5 / seduced → seduced-ill-treated −5);
+  //    if none was tracked, the −5 is created (the GM asserts the prior dominance).
+  //    opts: { senatorshipId, kind:'intimidated'|'seduced', byCharacterId, turn }
+  function flipSocialInfluence(campaign, opts){
+    opts = opts || {};
+    const senatorship = findSenatorship(campaign, opts.senatorshipId);
+    if(!senatorship) return { ok:false, reason:'no-senatorship' };
+    const baseKind = opts.kind === 'seduced' ? 'seduced' : 'intimidated';
+    const flippedKind = baseKind === 'intimidated' ? 'intimidated-escaped' : 'seduced-ill-treated';
+    const turn = _turnOf(campaign, opts);
+    if(!Array.isArray(senatorship.influenceModifiers)) senatorship.influenceModifiers = [];
+    const i = senatorship.influenceModifiers.findIndex(m => m && m.kind === baseKind
+      && (opts.byCharacterId ? (m.byCharacterId || null) === opts.byCharacterId : true));
+    const mod = { source: flippedKind, kind: flippedKind, value: -5, sinceTurn: turn, byCharacterId: opts.byCharacterId || null };
+    if(i >= 0) senatorship.influenceModifiers[i] = mod; else senatorship.influenceModifiers.push(mod);
+    const senate = _senateOfSenatorship(campaign, senatorship);
+    _emitPoliticsEvent(campaign, 'senate-influenced', {
+      senateId: senate ? senate.id : null, action: baseKind === 'intimidated' ? 'escaped' : 'ill-treated',
+      senatorshipId: senatorship.id, byCharacterId: opts.byCharacterId || null, value: -5,
+      narrative: 'A senator once ' + baseKind + ' by the ruler now turns against him (−5 to his vote, RR p.358).'
+    }, senate, opts.byCharacterId, []);
+    return { ok:true, modifier: mod };
+  }
+
+  // ── Reveal-on-an-unmodified-2 (RR p.358–359) — a senator whose vote rolls a NATURAL 2
+  //    while carrying secret bribe/intimidate/seduce/bewitch influence reveals it: his
+  //    influence becomes public (isSecretInfluence → false) AND the ruler is implicated
+  //    (character.implicatedInBribery → true), which drops the "Lawful & untainted" +1 on
+  //    the ruler's FUTURE votes (the UI passes rulerCleanRecord:!implicated). Run AFTER a
+  //    vote; leaves the shipped senateVote untouched. Returns the revealed senatorship ids.
+  //    opts: { rulerCharacterId, turn }
+  function applyInfluenceReveals(campaign, voteResult, opts){
+    opts = opts || {};
+    if(!voteResult || !Array.isArray(voteResult.rolls)) return { revealed: [] };
+    const senate = findSenate(campaign, voteResult.senateId);
+    const revealed = [];
+    for(const row of voteResult.rolls){
+      if(!row || !row.senatorshipId) continue;
+      if(!(row.roll && row.roll.natural === 2)) continue;                       // unmodified 2 only
+      const s = findSenatorship(campaign, row.senatorshipId);
+      if(!s) continue;
+      const im = Array.isArray(s.influenceModifiers) ? s.influenceModifiers : [];
+      const hasSecret = im.some(m => m && ['bribe','rival-bribe','intimidated','seduced','bewitched'].indexOf(m.kind) >= 0);
+      if(!hasSecret) continue;
+      s.isSecretInfluence = false;
+      revealed.push(s.id);
+    }
+    if(revealed.length){
+      const rulerId = opts.rulerCharacterId || (senate && senate.realmDomainId
+        && (((campaign.domains || []).find(d => d && d.id === senate.realmDomainId)) || {}).rulerCharacterId) || null;
+      const ruler = _findChar(campaign, rulerId);
+      if(ruler) ruler.implicatedInBribery = true;
+      _emitPoliticsEvent(campaign, 'senate-influenced', {
+        senateId: voteResult.senateId, action: 'revealed', byCharacterId: rulerId,
+        revealedCount: revealed.length,
+        narrative: revealed.length + ' bribed/intimidated/seduced senator(s) reveal the ruler’s hand on a natural 2 — he is now implicated.'
+      }, senate, rulerId, []);
+    }
+    return { revealed };
+  }
+
+  // ── Gifts → directing independent minor senators (RR p.359 §4.7) — converts part of the
+  //    anonymous independent-vote bloc to the ruler's control. A gift QUALIFIES to direct a
+  //    senator's votes when its reaction bonus is +3 (a high-value gift) OR +1 AND the
+  //    senator is Friendly. Competing gift-givers: the larger gift wins (tie → better
+  //    reactions → tie → no effect). The ledger is init-on-write senate.independentGifts[]
+  //    (defensive-read; NOT on blankSenate). controlledIndependentVotesFor() reads it and
+  //    feeds senateVote's controlledIndependentVotes (the FOR-side seed).
+  //    opts: { senateId, byCharacterId, votes, reactionBonus, friendly, gp, turn, rng }
+  function giftIndependentSenators(campaign, opts){
+    opts = opts || {};
+    const senate = findSenate(campaign, opts.senateId);
+    if(!senate) return { ok:false, reason:'no-senate' };
+    const pool = Math.max(0, Number(senate.independentMinorSenatorVotes) || 0);
+    const requested = Math.max(0, Math.min(pool, Math.round(Number(opts.votes) || 0)));
+    const reactionBonus = Number(opts.reactionBonus) || 0;
+    const friendly = !!opts.friendly;
+    const qualifies = reactionBonus >= 3 || (reactionBonus >= 1 && friendly);
+    const gp = Math.max(0, Number(opts.gp) || 0);
+    const turn = _turnOf(campaign, opts);
+    if(!Array.isArray(senate.independentGifts)) senate.independentGifts = [];    // init-on-write
+    // one gift per giver per month — replace a prior same-actor gift this turn
+    const i = senate.independentGifts.findIndex(g => g && g.byCharacterId === (opts.byCharacterId || null) && g.sinceTurn === turn);
+    const entry = { byCharacterId: opts.byCharacterId || null, votes: requested, reactionBonus, friendly, gp, qualifies, sinceTurn: turn };
+    if(i >= 0) senate.independentGifts[i] = entry; else senate.independentGifts.push(entry);
+    const spend = _spendInfluenceGp(campaign, opts.byCharacterId, gp, { reason: 'gift', label: 'gifts to independent senators' });
+    const controlled = controlledIndependentVotesFor(campaign, senate, opts.byCharacterId, turn);
+    _emitPoliticsEvent(campaign, 'senate-influenced', {
+      senateId: senate.id, action: 'gift', byCharacterId: opts.byCharacterId || null,
+      votes: requested, reactionBonus, gp, paid: spend.paid, qualifies, controlled,
+      narrative: 'The ruler gifts independent senators (' + gp + 'gp, +' + reactionBonus + ' reaction) — ' +
+        (qualifies ? 'directing ' + controlled + ' independent vote(s).' : 'not enough to direct their votes.')
+    }, senate, opts.byCharacterId, []);
+    return { ok:true, qualifies, controlled, gp, paid: spend.paid };
+  }
+  // How many independent votes the given ruler directs this month (RR p.359 §4.7). The
+  // qualifying gifts this turn; competing givers resolved by gp (tie → reactionBonus →
+  // tie → no winner). Capped at the independent pool.
+  function controlledIndependentVotesFor(campaign, senate, rulerId, turn){
+    if(!senate || !rulerId) return 0;
+    const pool = Math.max(0, Number(senate.independentMinorSenatorVotes) || 0);
+    if(pool <= 0) return 0;
+    const t = (turn != null) ? turn : ((campaign && campaign.currentTurn) || 1);
+    const gifts = (Array.isArray(senate.independentGifts) ? senate.independentGifts : [])
+      .filter(g => g && g.qualifies && g.sinceTurn === t);
+    if(gifts.length === 0) return 0;
+    // sum per giver
+    const byGiver = {};
+    for(const g of gifts){
+      const k = g.byCharacterId || '?';
+      const acc = byGiver[k] || (byGiver[k] = { id: g.byCharacterId, votes: 0, gp: 0, reactionBonus: 0 });
+      acc.votes += Number(g.votes) || 0; acc.gp += Number(g.gp) || 0; acc.reactionBonus = Math.max(acc.reactionBonus, Number(g.reactionBonus) || 0);
+    }
+    const givers = Object.values(byGiver);
+    // pick the winning giver (largest gp; tie → reactionBonus; tie → no winner)
+    let winner = null, tied = false;
+    for(const g of givers){
+      if(!winner){ winner = g; continue; }
+      if(g.gp > winner.gp){ winner = g; tied = false; }
+      else if(g.gp === winner.gp){
+        if(g.reactionBonus > winner.reactionBonus){ winner = g; tied = false; }
+        else if(g.reactionBonus === winner.reactionBonus){ tied = true; }
+      }
+    }
+    if(!winner || (tied && givers.length > 1)) return 0;
+    if(winner.id !== rulerId) return 0;
+    return Math.max(0, Math.min(pool, winner.votes));
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // Dispute lifecycle — the extensions P-2 deferred (RR p.359; survey §4.6). P-2
+  // shipped setSenateDispute/clearSenateDispute/enactPolicy (open + optimistic clear);
+  // P-3 adds the retroactive-approval CONSULT (which clears OR escalates), the abandon-
+  // government penalties, and the 2d6-month re-establish. The retroactive consult REUSES
+  // the shipped senateVote (the 2d6 voting machinery) — never reinvented.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // Resolve an open dispute by a retroactive-approval consult (RR p.359). Runs a per-senator
+  // senateVote on the defied topic; a majority FOR clears the dispute; a majority against (or
+  // no majority) ESCALATES — bumps attempts AND stamps 'replace-ruler' onto every against-
+  // voter's objectives (so each attempt is harder: a 'preserve-ruler' policy then hinders
+  // their objective −2). Returns { outcome:'cleared'|'escalated'|'no-dispute', vote, ... }.
+  //   opts: passes through the senateVote inputs (rulerCharacterId, domainMorale,
+  //         rulerFactionId, policyHelps[], policyHinders[], militaryLoyalty,
+  //         controlledIndependentVotes, rng) + turn.
+  function resolveDisputeByConsult(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return null;
+    if(senate.dispute == null) return { outcome:'no-dispute', senate };
+    const turn = _turnOf(campaign, opts);
+    const topic = senate.dispute.defiedTopic || 'a restricted matter';
+    const vote = senateVote(campaign, Object.assign({}, opts, {
+      senate, senateId: senate.id, matter: 'retroactive approval of ' + topic,
+      mode: 'per-senator', emit: true
+    }));
+    if(vote && vote.approved){
+      clearSenateDispute(campaign, senate.id, { turn, resolution: 'approved' });
+      _emitPoliticsEvent(campaign, 'senate-dispute-opened', {
+        senateId: senate.id, action: 'cleared', topic,
+        forVotes: vote.forVotes, againstVotes: vote.againstVotes,
+        narrative: 'The senate grants retroactive approval on ' + topic + ' — the dispute ends.'
+      }, senate, opts.rulerCharacterId, vote.rolls);
+      return { outcome: 'cleared', vote, senate };
+    }
+    // escalate: bump attempts + stamp 'replace-ruler' on the against-voters
+    senate.dispute.attempts = (senate.dispute.attempts || 1) + 1;
+    if(!Array.isArray(senate.history)) senate.history = [];
+    senate.history.push({ turn, type: 'dispute-escalated', topic, attempts: senate.dispute.attempts });
+    const newlyHostile = [];
+    for(const row of (vote && vote.rolls) || []){
+      if(!row || row.vote !== 'against' || !row.senatorshipId) continue;
+      const s = findSenatorship(campaign, row.senatorshipId);
+      if(!s) continue;
+      if(!Array.isArray(s.policyObjectives)) s.policyObjectives = [];
+      if(s.policyObjectives.indexOf('replace-ruler') < 0){ s.policyObjectives.push('replace-ruler'); newlyHostile.push(s.id); }
+    }
+    _emitPoliticsEvent(campaign, 'senate-dispute-opened', {
+      senateId: senate.id, action: 'escalated', topic, attempts: senate.dispute.attempts,
+      replaceRulerCount: newlyHostile.length,
+      forVotes: vote ? vote.forVotes : 0, againstVotes: vote ? vote.againstVotes : 0,
+      narrative: 'The retroactive-approval consult fails on ' + topic + ' — the dispute deepens, and ' +
+        newlyHostile.length + ' senator(s) now seek to replace the ruler.'
+    }, senate, opts.rulerCharacterId, (vote && vote.rolls) || []);
+    return { outcome: 'escalated', vote, replaceRulerSenatorships: newlyHostile, senate };
+  }
+
+  // Abandon senatorial government (RR p.359) — dissolve / permanently ignore the senate. The
+  // RAW penalties are SURFACED as a structured result (NOT auto-applied — no commitTurn hook;
+  // the GM applies the morale/loyalty rolls via the shipped machinery, the F&D-penalty pattern):
+  // permanent benefit loss; the personal domain's next morale roll at −2; henchman-senators +
+  // non-henchman vassals roll Loyalty at −2; any influential senator carrying 'replace-ruler'
+  // turns Hostile (attitude → 2). Sets a 2d6-month re-establish cooldown. Returns the penalties.
+  //   opts: { senateId | senate, rulerCharacterId, turn, rng }
+  function abandonSenatorialGovernment(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return null;
+    const turn = _turnOf(campaign, opts);
+    const cooldownMonths = _rollNd6(2, opts.rng);                               // re-establish after 2d6 months (RR p.359)
+    senate.status = 'dissolved';
+    senate.dispute = null;
+    senate.dissolvedAtTurn = turn;                                             // init-on-write (defensive-read)
+    senate.reestablishCooldownUntilTurn = turn + cooldownMonths;
+    if(!Array.isArray(senate.history)) senate.history = [];
+    senate.history.push({ turn, type: 'abandoned', cooldownMonths });
+    // any influential senator with 'replace-ruler' turns Hostile (attitude → 2)
+    const hostile = [];
+    for(const s of senatorshipsForSenate(campaign, senate.id)){
+      const influential = s.rank !== 'minor' && (Number(s.votes) || 0) > 0;
+      if(influential && Array.isArray(s.policyObjectives) && s.policyObjectives.indexOf('replace-ruler') >= 0){
+        s.attitudeTowardRuler = 2;                                             // Hostile (2–12 scale)
+        hostile.push({ senatorshipId: s.id, senatorCharacterId: s.senatorCharacterId });
+      }
+    }
+    const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    const rulerId = opts.rulerCharacterId || (apex && apex.rulerCharacterId) || null;
+    const henchmanSenators = senatorshipsForSenate(campaign, senate.id)
+      .filter(s => _senatorIsRulerHenchman(campaign, s, rulerId))
+      .map(s => s.senatorCharacterId);
+    const penalties = {
+      personalDomainMoraleNextAt: -2,
+      henchmanSenatorLoyaltyAt: -2, henchmanSenators,
+      vassalLoyaltyAt: -2,                                                     // atop the base −2 (net often −4)
+      hostileSenators: hostile,
+      reestablishCooldownUntilTurn: senate.reestablishCooldownUntilTurn, cooldownMonths
+    };
+    _emitPoliticsEvent(campaign, 'senate-dispute-opened', {
+      senateId: senate.id, action: 'abandoned', apexDomainId: apex ? apex.id : null,
+      hostileCount: hostile.length, cooldownMonths, reestablishAtTurn: senate.reestablishCooldownUntilTurn,
+      narrative: 'The ruler abandons senatorial government — benefits are lost, ' + hostile.length +
+        ' influential senator(s) turn Hostile, and a senate cannot be re-established for ' + cooldownMonths + ' months.'
+    }, senate, rulerId, hostile.map(h => ({ senatorCharacterId: h.senatorCharacterId })));
+    return { outcome: 'abandoned', senate, penalties };
+  }
+
+  // Can a survivor re-establish a senate yet? (RR p.359 — after the 2d6-month cooldown.)
+  function canReestablishSenate(campaign, senate, turn){
+    if(!senate || senate.status !== 'dissolved') return false;
+    const t = (turn != null) ? turn : ((campaign && campaign.currentTurn) || 1);
+    return senate.reestablishCooldownUntilTurn == null || t >= senate.reestablishCooldownUntilTurn;
+  }
+  // Re-establish a dissolved senate after the cooldown (RR p.359). A survivor restores it to
+  // active, clears the dispute, and starts a fresh 1d6-month honeymoon (RR p.357 — all senators
+  // vote for the ruler's policies). Gated on canReestablishSenate. Returns the senate or
+  // { ok:false, reason:'cooldown', readyAtTurn }. (The deeper re-generation — promote new leaders,
+  // re-roll objectives — is the Senate Wizard's, P-5; this re-opens the existing body.)
+  function reestablishSenate(campaign, opts){
+    opts = opts || {};
+    const senate = opts.senate || findSenate(campaign, opts.senateId);
+    if(!senate) return { ok:false, reason:'no-senate' };
+    const turn = _turnOf(campaign, opts);
+    if(senate.status !== 'dissolved') return { ok:false, reason:'not-dissolved', senate };
+    if(!canReestablishSenate(campaign, senate, turn)) return { ok:false, reason:'cooldown', readyAtTurn: senate.reestablishCooldownUntilTurn };
+    senate.status = 'active';
+    senate.dispute = null;
+    senate.establishedAtTurn = turn;
+    senate.honeymoonUntilTurn = turn + _rollNd6(1, opts.rng);                  // RR p.357 honeymoon
+    senate.reestablishCooldownUntilTurn = null;
+    if(!Array.isArray(senate.history)) senate.history = [];
+    senate.history.push({ turn, type: 'reestablished' });
+    const apex = senate.realmDomainId ? _findDomain(campaign, senate.realmDomainId) : null;
+    _emitPoliticsEvent(campaign, 'senate-dispute-opened', {
+      senateId: senate.id, action: 'reestablished', honeymoonUntilTurn: senate.honeymoonUntilTurn,
+      narrative: 'A survivor re-establishes the senate — a fresh honeymoon runs until turn ' + senate.honeymoonUntilTurn + '.'
+    }, senate, apex ? apex.rulerCharacterId : null, []);
+    return { ok:true, senate };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     POLICY_OBJECTIVES, SENATE_RESTRICTED_MATTERS,
@@ -796,7 +1243,11 @@
     senateVotingBand, senatorVoteModifiers, senateVote,
     isSenateConsultationRequired, senateBenefits,
     setSenateDispute, clearSenateDispute, enactPolicy,
-    syncOfficeSenateSeat
+    syncOfficeSenateSeat,
+    // P-3 — influence actions + the dispute-lifecycle extensions (burst8)
+    bribeSenator, intimidateSenator, seduceSenator, flipSocialInfluence, applyInfluenceReveals,
+    giftIndependentSenators, controlledIndependentVotesFor,
+    resolveDisputeByConsult, abandonSenatorialGovernment, canReestablishSenate, reestablishSenate
   });
 
 })(typeof window !== 'undefined' ? window : global);

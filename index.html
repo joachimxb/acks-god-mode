@@ -14848,6 +14848,20 @@ document.addEventListener('alpine:init', () => {
     </template>
   </div>
 
+  <!-- @b8-politics P-3: re-establish a dissolved senate (RR p.359 — after the 2d6-month cooldown).
+       Rendered at the view top level (not under senateSelected) so an abandoned senate stays reachable. -->
+  <template x-if="senateDissolvedRows().length > 0">
+    <div class="vellum border border-red-400 bg-red-50 rounded p-4 mb-4">
+      <h3 class="font-bold text-lg mb-2">Dissolved senates <span class="text-sm font-normal opacity-70">· abandoned (RR p.359)</span></h3>
+      <template x-for="d in senateDissolvedRows()" :key="d.id">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm py-1">
+          <span><strong x-text="d.name"></strong> — senatorial government abandoned. <span class="opacity-70" x-show="!d.canReestablish" x-text="'A survivor may re-establish it on/after turn ' + d.readyAtTurn + '.'"></span></span>
+          <button @click="senateReestablish(d.id)" :disabled="!d.canReestablish" :class="d.canReestablish ? 'bg-green-200 hover:bg-green-300' : 'opacity-50 cursor-not-allowed'" class="px-3 py-1 border border-ink rounded text-sm font-semibold">🏛 Re-establish</button>
+        </div>
+      </template>
+    </div>
+  </template>
+
   <template x-if="senateSelected()">
     <div class="space-y-4">
 
@@ -14879,7 +14893,13 @@ document.addEventListener('alpine:init', () => {
             ⚠ The realm is <strong>in dispute</strong> over <em x-text="senateSelected().dispute.defiedTopic"></em>
             (since turn <span x-text="senateSelected().dispute.sinceTurn"></span>, attempt <span x-text="senateSelected().dispute.attempts"></span>).
             All senate benefits are suspended until the ruler wins the senate's retroactive approval.
-            <button @click="senateResolveDispute()" class="ml-2 px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-xs font-semibold">Resolve (retroactive approval)</button>
+            <!-- @b8-politics P-3: the real RAW retroactive-approval consult (clears on a majority FOR,
+                 escalates → 'replace-ruler' on against) + the abandon-government path -->
+            <div class="flex flex-wrap gap-2 mt-2">
+              <button @click="senateDisputeResolveByConsult()" class="px-2 py-0.5 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-xs font-semibold" title="Roll 2d6 per senator on the defied topic — a majority FOR ends the dispute; against deepens it and the against-voters seek to replace the ruler (RR p.359)">🗳 Resolve by consult</button>
+              <button @click="senateResolveDispute()" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs" title="Assume the senate grants retroactive approval (GM fiat — no vote)">Clear (GM fiat)</button>
+              <button @click="senateDisputeAbandon()" class="px-2 py-0.5 border border-red-500 rounded bg-red-200 hover:bg-red-300 text-xs font-semibold" title="Dissolve the senate — permanent benefit loss, Hostile replace-ruler senators, a 2d6-month re-establish cooldown (RR p.359)">🏳 Abandon government</button>
+            </div>
           </div>
         </template>
         <ul class="text-sm space-y-0.5">
@@ -14921,7 +14941,7 @@ document.addEventListener('alpine:init', () => {
         </template>
         <template x-if="senateLeadingSenatorRows().length > 0">
           <table class="bookkeeping text-sm w-full">
-            <thead><tr><th>Senator</th><th>Faction</th><th class="text-right">Votes</th><th>Objectives</th><th>Attitude</th></tr></thead>
+            <thead><tr><th>Senator</th><th>Faction</th><th class="text-right">Votes</th><th>Objectives</th><th>Attitude</th><th>Influence</th></tr></thead>
             <tbody>
               <template x-for="s in senateLeadingSenatorRows()" :key="s.id">
                 <tr>
@@ -14932,11 +14952,44 @@ document.addEventListener('alpine:init', () => {
                   <td class="text-right" x-text="s.votes"></td>
                   <td class="text-xs opacity-80" x-text="s.objectives"></td>
                   <td x-text="s.attitude"></td>
+                  <!-- @b8-politics P-3: standing-influence chips + the 🎯 action + the −5 turn -->
+                  <td>
+                    <div class="flex flex-wrap items-center gap-1">
+                      <template x-for="chip in senateSenatorChips(s.id)" :key="chip.key">
+                        <span class="text-xs px-1 rounded" :class="chip.cls" x-text="chip.label"></span>
+                      </template>
+                      <span x-show="senateSenatorChips(s.id).length && senateSenatorSecret(s.id)" class="text-xs opacity-60" title="Secret until revealed (RR p.357)">🤫</span>
+                      <button @click="senateOpenInfluence(s.id)" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200" title="Bribe / intimidate / seduce (RR p.358)">🎯</button>
+                      <button x-show="senateSenatorChips(s.id).some(c => c.key==='intimidated')" @click="senateFlipInfluence(s.id, 'intimidated')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The senator escapes the ruler's dominance → −5 (RR p.358)">−5 escaped</button>
+                      <button x-show="senateSenatorChips(s.id).some(c => c.key==='seduced')" @click="senateFlipInfluence(s.id, 'seduced')" class="text-xs px-1.5 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200" title="The seduced senator is later ill-treated → −5 (RR p.359)">−5 ill-treated</button>
+                    </div>
+                  </td>
                 </tr>
               </template>
             </tbody>
           </table>
         </template>
+      </div>
+
+      <!-- @b8-politics P-3: gifts → directing the independent minor-senator bloc (RR p.359 §4.7) -->
+      <div class="vellum border border-ink rounded p-4">
+        <h3 class="font-bold text-lg mb-2">Gifts to independent senators <span class="text-sm font-normal opacity-70">· RR p.359</span></h3>
+        <p class="text-sm opacity-70 mb-2">The anonymous independent minor senators (<strong x-text="senateReadout().independentVotes"></strong> votes) can be directed by gifts: a <strong>+3</strong>-reaction gift, or a <strong>+1</strong>-reaction gift to a <strong>Friendly</strong> senator. The larger competing gift wins. The ruler now directs <strong x-text="senateControlledIndependents()"></strong> independent vote(s) this month.</p>
+        <div class="grid sm:grid-cols-2 gap-3 text-sm mb-2">
+          <label class="flex flex-col">Gift-giver
+            <select x-model="senateGift.byCharacterId" class="w-full">
+              <option value="">— the ruler —</option>
+              <template x-for="o in senateActorOptions()" :key="'g'+o.id"><option :value="o.id" x-text="o.name"></option></template>
+            </select></label>
+          <label class="flex flex-col">Independent votes to direct
+            <input type="number" min="0" :max="senateReadout().independentVotes" x-model.number="senateGift.votes" class="w-full"></label>
+          <label class="flex flex-col">Gift reaction bonus
+            <select x-model.number="senateGift.reactionBonus" class="w-full"><option :value="1">+1</option><option :value="2">+2</option><option :value="3">+3</option></select></label>
+          <label class="flex flex-col">Gift value (gp)
+            <input type="number" min="0" x-model.number="senateGift.gp" class="w-full"></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateGift.friendly"> The senators are Friendly <span class="opacity-60">(needed for a +1 gift)</span></label>
+        </div>
+        <button @click="senateGiftSubmit()" class="px-3 py-1 border border-ink rounded bg-yellow-200 hover:bg-yellow-300 text-sm font-semibold">🎁 Give gifts</button>
       </div>
 
       <!-- Consult the senate (the 2d6 vote) -->
@@ -14975,7 +15028,8 @@ document.addEventListener('alpine:init', () => {
           </label>
           <label class="flex flex-col">Controlled independent votes
             <input type="number" min="0" x-model.number="senateConsult.controlledIndependentVotes" class="w-full">
-            <span class="text-xs opacity-60">independents the ruler directs (RR p.359 §4.7) — start on the FOR side</span></label>
+            <span class="text-xs opacity-60">independents the ruler directs (RR p.359 §4.7) — start on the FOR side.
+              <button type="button" x-show="senateControlledIndependents() > 0" @click="senateUseControlledIndependents()" class="underline" x-text="'use ' + senateControlledIndependents() + ' gift-controlled'"></button></span></label>
           <label class="flex flex-col" x-show="!senateAutoVoteOn()">GM outcome (auto-vote off)
             <select x-model="senateConsult.gmOutcome" class="w-full"><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
         </div>
@@ -15030,6 +15084,10 @@ document.addEventListener('alpine:init', () => {
               </tbody>
             </table>
           </template>
+          <!-- @b8-politics P-3: reveal-on-a-natural-2 (a bribed/intimidated/seduced senator who rolled a 2 reveals the ruler's hand) -->
+          <div class="mb-2" x-show="senateConsultHasNaturalTwo()">
+            <button @click="senateApplyReveals()" class="px-3 py-1 border border-ink rounded bg-purple-200 hover:bg-purple-300 text-sm font-semibold" title="A senator carrying secret bribe/intimidate/seduce influence who rolled an unmodified 2 reveals it — the ruler is then implicated (RR p.358)">👁 Reveal influence (natural 2)</button>
+          </div>
           <div class="flex flex-wrap gap-2 items-center">
             <span class="text-sm opacity-70">Enact the policy:</span>
             <button @click="senateEnact(true)" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 text-sm font-semibold">Enact with the senate's sanction</button>
@@ -15804,6 +15862,80 @@ document.addEventListener('alpine:init', () => {
 <!-- === @b8-generators (team) — NPC Generator modal === -->
 <!-- === @b8-lifecycle  (team) — succession/inheritance modal === -->
 <!-- === @b8-politics   (team) — senate influence modal === -->
+<!-- Per-senator influence (bribe / intimidate / seduce) — RR pp.358–359. Bribery is a gp payment
+     (the Bribery prof shifts the rate); intimidation + seduction resolve via the shipped Layer-1
+     proficiency throw. Opened from the Leading-Senators roster's 🎯 button. -->
+<div x-show="senateInfluence.open" @keydown.escape.window="if(senateInfluence.open && !$event.defaultPrevented){ closeSenateInfluence(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeSenateInfluence()">
+  <template x-if="senateInfluence.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-lg my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🎯 Influence a senator <span class="text-sm font-normal opacity-70" x-text="'· ' + senateInfluenceSenator()"></span></h2>
+      <button @click="closeSenateInfluence()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3 text-sm">
+      <div class="grid sm:grid-cols-2 gap-3">
+        <label class="flex flex-col">Method
+          <select x-model="senateInfluence.method" @change="senateInfluence.result=null" class="w-full">
+            <option value="bribe">Bribery (gp — RR p.358)</option>
+            <option value="intimidate">Intimidation (a proficiency throw — RR p.358)</option>
+            <option value="seduce">Seduction (a proficiency throw — RR p.359)</option>
+          </select>
+        </label>
+        <label class="flex flex-col">Influencer
+          <select x-model="senateInfluence.byCharacterId" @change="senateInfluence.result=null" class="w-full">
+            <option value="">— pick —</option>
+            <template x-for="o in senateActorOptions()" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
+          </select>
+        </label>
+      </div>
+      <!-- bribe -->
+      <template x-if="senateInfluence.method === 'bribe'">
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="flex flex-col">Bonus to his vote
+            <select x-model.number="senateInfluence.value" @change="senateInfluence.result=null" class="w-28">
+              <option :value="1">+1</option><option :value="2">+2</option><option :value="3">+3</option>
+            </select></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.byRival" @change="senateInfluence.result=null"> Bribe against the ruler (a rival)</label>
+        </div>
+      </template>
+      <!-- intimidate -->
+      <template x-if="senateInfluence.method === 'intimidate'">
+        <div class="space-y-1">
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.outranks" @change="senateInfluence.result=null"> Grossly out-ranks / out-numbers the senator <span class="opacity-60">(required)</span></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.credibleThreat" @change="senateInfluence.result=null"> Carries a credible threat</label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.autoSucceed" @change="senateInfluence.result=null"> Auto-succeed <span class="opacity-60">(skip the die — the GM rules the conditions met)</span></label>
+        </div>
+      </template>
+      <!-- seduce -->
+      <template x-if="senateInfluence.method === 'seduce'">
+        <div class="space-y-1">
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.attracted" @change="senateInfluence.result=null"> The senator is attracted to the seducer <span class="opacity-60">(required)</span></label>
+          <label class="flex items-center gap-1"><input type="checkbox" x-model="senateInfluence.autoSucceed" @change="senateInfluence.result=null"> Auto-succeed <span class="opacity-60">(skip the die)</span></label>
+        </div>
+      </template>
+      <div class="wizard-forecast-row text-sm"><span x-text="senateInfluencePreview()"></span></div>
+      <!-- result -->
+      <template x-if="senateInfluence.result">
+        <div class="vellum border border-ink/40 rounded p-2 text-sm" :class="senateInfluence.result.ok === false ? 'bg-red-50' : (senateInfluence.result.success === false ? 'bg-yellow-50' : 'bg-green-50')">
+          <template x-if="senateInfluence.result.ok === false"><span class="text-red-800" x-text="'✗ Refused — ' + senateInfluence.result.reason"></span></template>
+          <template x-if="senateInfluence.result.ok !== false && senateInfluence.method === 'bribe'">
+            <span class="text-green-800" x-text="'💰 Bribed (' + (senateInfluence.result.value >= 0 ? '+' : '') + senateInfluence.result.value + ' to his vote, ' + senateInfluence.result.gp + 'gp' + (senateInfluence.result.paid ? '' : ' — purse short, track gp manually') + ').'"></span>
+          </template>
+          <template x-if="senateInfluence.result.ok !== false && senateInfluence.method !== 'bribe'">
+            <span :class="senateInfluence.result.success ? 'text-green-800' : 'text-yellow-800'"
+              x-text="(senateInfluence.result.success ? '✓ It lands (+1 to his vote).' : '✗ The attempt fails.') + (senateInfluence.result.throw ? ' (1d20 ' + senateInfluence.result.throw.natural + (senateInfluence.result.throw.modifierTotal ? (senateInfluence.result.throw.modifierTotal >= 0 ? '+' : '') + senateInfluence.result.throw.modifierTotal : '') + ' vs 11+)' : '')"></span>
+          </template>
+        </div>
+      </template>
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Bribery / intimidation / seduction stand as a voting modifier until the senator's allegiance changes.</span>
+        <button @click="senateInfluenceSubmit()" :disabled="!senateInfluenceCanSubmit()" :class="senateInfluenceCanSubmit() ? 'bg-green-300 hover:bg-green-400' : 'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">Apply influence</button>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
 <!-- === @b8-magicitems (team) — commission modal === -->
 <!-- === @b8-sages      (team) — sage-commission modal === -->
 <!-- === @b8-banking    (team) — loan modal === -->
@@ -16744,6 +16876,155 @@ return {
   // === @b8-generators (team) — NPC Generator G1: state + methods ===
   // === @b8-lifecycle  (team) — Lifecycle CL-4a: state + methods ===
   // === @b8-politics   (team) — Politics P-3: state + methods ===
+  // P-3 — senate influence actions (bribe/intimidate/seduce/gift), reveal-on-2, and the
+  // dispute-lifecycle extensions (resolve-by-consult / abandon / re-establish). Thin Alpine
+  // layer over acks-engine-politics.js; reuses the P-2 senate methods (senateSelected,
+  // senateReadout, senateConsult, …). The per-senator modal is at the @b8-politics modal marker.
+  senateInfluence: { open: false, senatorshipId: '', method: 'bribe', byCharacterId: '',
+    value: 1, byRival: false, outranks: true, credibleThreat: true, attracted: true, autoSucceed: false, result: null },
+  senateGift: { byCharacterId: '', votes: 0, reactionBonus: 3, friendly: false, gp: 0 },
+  // the apex ruler (the default influencer / gift-giver)
+  senateRulerId(){ const apex = this._senateApex(this.senateSelected()); return apex ? (apex.rulerCharacterId || '') : ''; },
+  // character options for the influencer/gift-giver picker (active characters; the ruler floats to the top)
+  senateActorOptions(){
+    const c = this.currentCampaign; if(!c || !Array.isArray(c.characters)) return [];
+    const rid = this.senateRulerId();
+    return c.characters.filter(ch => ch && (ch.alive !== false)).map(ch => ({ id: ch.id, name: (ch.name || ch.id) + (ch.id === rid ? ' (ruler)' : '') }))
+      .sort((a, b) => (a.name.includes('(ruler)') ? -1 : 0) - (b.name.includes('(ruler)') ? -1 : 0));
+  },
+  // the standing-influence chips shown beside each senator in the roster (bribe/intimidate/seduce/escaped/…)
+  senateSenatorChips(senatorshipId){
+    const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
+    if(!s || !Array.isArray(s.influenceModifiers)) return [];
+    const colour = { bribe: 'bg-yellow-200', 'rival-bribe': 'bg-red-200', intimidated: 'bg-orange-200',
+      seduced: 'bg-pink-200', 'intimidated-escaped': 'bg-red-300', 'seduced-ill-treated': 'bg-red-300', bewitched: 'bg-purple-200' };
+    return s.influenceModifiers.filter(m => m && m.kind).map(m => ({
+      key: m.kind, label: m.kind + ' ' + (m.value >= 0 ? '+' : '') + m.value, cls: colour[m.kind] || 'bg-gray-200' }));
+  },
+  senateSenatorSecret(senatorshipId){
+    const s = window.ACKS.findSenatorship(this.currentCampaign, senatorshipId);
+    return !!(s && s.isSecretInfluence);
+  },
+  // open the per-senator influence modal
+  senateOpenInfluence(senatorshipId){
+    this.senateInfluence = { open: true, senatorshipId, method: 'bribe', byCharacterId: this.senateRulerId(),
+      value: 1, byRival: false, outranks: true, credibleThreat: true, attracted: true, autoSucceed: false, result: null };
+  },
+  closeSenateInfluence(){ this.senateInfluence.open = false; this.senateInfluence.result = null; },
+  senateInfluenceSenator(){
+    const s = window.ACKS.findSenatorship(this.currentCampaign, this.senateInfluence.senatorshipId);
+    if(!s) return '(none)';
+    const ch = (this.currentCampaign.characters || []).find(x => x && x.id === s.senatorCharacterId);
+    return ch ? (ch.name || ch.id) : (s.senatorCharacterId || '(vacant)');
+  },
+  // a live preview of the chosen influence action (the bribe gp/period, or the throw chance)
+  senateInfluencePreview(){
+    const A = window.ACKS, f = this.senateInfluence;
+    const s = A.findSenatorship(this.currentCampaign, f.senatorshipId);
+    if(!s) return '';
+    if(f.method === 'bribe'){
+      const actor = (this.currentCampaign.characters || []).find(x => x && x.id === f.byCharacterId);
+      const prof = !!(actor && A.hasProficiency && A.hasProficiency(actor, 'bribery'));
+      const period = (prof ? { 1:'day', 2:'week', 3:'month' } : { 1:'week', 2:'month', 3:'year' })[Math.min(3, Math.max(1, f.value))];
+      const gp = (s.bribeCostByPeriod && Number(s.bribeCostByPeriod[period])) || 0;
+      return (f.byRival ? 'Rival bribe ' : 'Bribe ') + (f.byRival ? '−' : '+') + f.value + ' to his vote · ' + gp + 'gp (' + period + (prof ? ', Bribery prof' : '') + ')';
+    }
+    if(f.autoSucceed) return 'Auto-succeed (the GM rules the conditions met) → +1 to his vote.';
+    const actor = (this.currentCampaign.characters || []).find(x => x && x.id === f.byCharacterId);
+    const chaMod = actor ? Math.floor((((actor.abilities && actor.abilities.CHA) || 10) - 10) / 3) : 0;
+    return 'A proficiency throw: 1d20 + ' + (chaMod >= 0 ? '+' : '') + chaMod + ' (CHA) vs 11+ → success gives +1 to his vote.';
+  },
+  senateInfluenceCanSubmit(){
+    const f = this.senateInfluence;
+    if(!f.senatorshipId || !f.byCharacterId) return false;
+    return true;
+  },
+  senateInfluenceSubmit(){
+    const A = window.ACKS, c = this.currentCampaign, f = this.senateInfluence;
+    if(!A || !c) return;
+    let r;
+    if(f.method === 'bribe') r = A.bribeSenator(c, { senatorshipId: f.senatorshipId, byCharacterId: f.byCharacterId, value: Number(f.value) || 1, byRival: f.byRival });
+    else if(f.method === 'intimidate') r = A.intimidateSenator(c, { senatorshipId: f.senatorshipId, byCharacterId: f.byCharacterId, outranks: f.outranks, credibleThreat: f.credibleThreat, autoSucceed: f.autoSucceed });
+    else r = A.seduceSenator(c, { senatorshipId: f.senatorshipId, byCharacterId: f.byCharacterId, attracted: f.attracted, autoSucceed: f.autoSucceed });
+    f.result = r;
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok === false){ this.showToast('✗ ' + (f.method) + ' refused: ' + r.reason, 4000); }
+    else if(f.method === 'bribe'){ this.showToast('💰 Senator bribed (' + (r.value >= 0 ? '+' : '') + r.value + ', ' + r.gp + 'gp' + (r.paid ? '' : ' — purse short, track gp manually') + ')', 5000); }
+    else { this.showToast((r.success ? '✓ ' : '✗ ') + f.method + (r.success ? ' lands (+1 to his vote)' : ' fails'), 5000); }
+  },
+  // the −5 turn: a once-intimidated/seduced senator escapes the ruler's dominance / is ill-treated
+  senateFlipInfluence(senatorshipId, kind){
+    const A = window.ACKS;
+    A.flipSocialInfluence(this.currentCampaign, { senatorshipId, kind, byCharacterId: this.senateRulerId() });
+    this.markDirty(); this.schedulePersist();
+    this.showToast('A senator once ' + kind + ' turns against the ruler (−5 to his vote).', 5000);
+  },
+  // gifts → converting part of the independent bloc (RR p.359 §4.7)
+  senateControlledIndependents(){
+    const A = window.ACKS, senate = this.senateSelected(), rid = this.senateRulerId();
+    if(!A || !senate || !rid) return 0;
+    return A.controlledIndependentVotesFor(this.currentCampaign, senate, rid, this.currentCampaign.currentTurn || 1) || 0;
+  },
+  senateGiftSubmit(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected(), g = this.senateGift;
+    if(!A || !c || !senate) return;
+    const r = A.giftIndependentSenators(c, { senateId: senate.id, byCharacterId: g.byCharacterId || this.senateRulerId(),
+      votes: Number(g.votes) || 0, reactionBonus: Number(g.reactionBonus) || 0, friendly: g.friendly, gp: Number(g.gp) || 0 });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok) this.showToast(r.qualifies ? ('🎁 Gift directs ' + r.controlled + ' independent vote(s).') : '🎁 Gift recorded — not enough to direct votes.', 5000);
+  },
+  // apply the gift-controlled bloc to the consult's FOR seed
+  senateUseControlledIndependents(){ this.senateConsult.controlledIndependentVotes = this.senateControlledIndependents(); },
+  // reveal-on-2: after a consult, flag the natural-2 secret-influence senators
+  senateApplyReveals(){
+    const A = window.ACKS;
+    if(!this.senateConsultResult) return;
+    const r = A.applyInfluenceReveals(this.currentCampaign, this.senateConsultResult, { rulerCharacterId: this.senateRulerId() });
+    this.markDirty(); this.schedulePersist();
+    this.showToast(r.revealed.length ? ('👁 ' + r.revealed.length + ' senator(s) reveal the ruler’s hand — he is implicated.') : 'No secret influence revealed (no natural 2 on a bribed/etc. senator).', 5000);
+  },
+  // does the last consult have any natural-2 roll (so the reveal button is worth showing)?
+  senateConsultHasNaturalTwo(){ return !!(this.senateConsultResult && (this.senateConsultResult.rolls || []).some(r => r.roll && r.roll.natural === 2)); },
+  // --- dispute lifecycle (P-3 extensions) ---
+  // the real RAW retroactive-approval consult: clears on a majority FOR, escalates (replace-ruler) on against
+  senateDisputeResolveByConsult(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate || senate.dispute == null) return;
+    const r = A.resolveDisputeByConsult(c, {
+      senateId: senate.id, rulerCharacterId: this.senateRulerId(),
+      domainMorale: Number(this.senateConsult.domainMorale) || 0,
+      rulerFactionId: this.senateConsult.rulerFactionId || null,
+      militaryLoyalty: this.senateConsult.militaryLoyalty,
+      controlledIndependentVotes: Number(this.senateConsult.controlledIndependentVotes) || 0
+    });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.outcome === 'cleared') this.showToast('✓ The senate grants retroactive approval — the dispute ends.', 5000);
+    else if(r && r.outcome === 'escalated') this.showToast('⚠ The consult fails — the dispute deepens, and ' + (r.replaceRulerSenatorships || []).length + ' senator(s) now seek to replace the ruler.', 6000);
+  },
+  senateDisputeAbandon(){
+    const A = window.ACKS, c = this.currentCampaign, senate = this.senateSelected();
+    if(!A || !c || !senate) return;
+    if(!confirm('Abandon senatorial government? The senate is dissolved, all benefits are permanently lost, influential “replace-ruler” senators turn Hostile, and a senate cannot be re-established for 2d6 months.')) return;
+    const r = A.abandonSenatorialGovernment(c, { senateId: senate.id, rulerCharacterId: this.senateRulerId() });
+    this.markDirty(); this.schedulePersist();
+    if(r) this.showToast('🏳 Senatorial government abandoned — ' + r.penalties.hostileSenators.length + ' senator(s) turn Hostile; re-establish on/after turn ' + r.penalties.reestablishCooldownUntilTurn + '.', 7000);
+  },
+  // dissolved senates pending re-establishment (RR p.359 — after the 2d6-month cooldown)
+  senateDissolvedRows(){
+    const A = window.ACKS, c = this.currentCampaign;
+    if(!A || !c || !Array.isArray(c.senates)) return [];
+    const turn = c.currentTurn || 1;
+    return c.senates.filter(s => s && s.status === 'dissolved').map(s => ({
+      id: s.id, name: s.name || s.id, readyAtTurn: s.reestablishCooldownUntilTurn,
+      canReestablish: A.canReestablishSenate(c, s, turn) }));
+  },
+  senateReestablish(senateId){
+    const A = window.ACKS, c = this.currentCampaign;
+    const r = A.reestablishSenate(c, { senateId });
+    this.markDirty(); this.schedulePersist();
+    if(r && r.ok) this.showToast('🏛 The senate is re-established — a fresh honeymoon runs until turn ' + r.senate.honeymoonUntilTurn + '.', 6000);
+    else if(r && r.reason === 'cooldown') this.showToast('Still in the re-establish cooldown (ready on turn ' + r.readyAtTurn + ').', 5000);
+  },
   // === @b8-magicitems (team) — Magic Items W2: state + methods ===
   // === @b8-sages      (team) — Sages SG-2: state + methods ===
   // === @b8-banking    (team) — Banking B2: state + methods ===
