@@ -191,7 +191,12 @@ const ID_PREFIXES = Object.freeze({
   customRace:           'crc',
   // === Magic Research (AD-M1, 2026-06-15) — Phase 4 the Arcane-Domain consumer (RR pp.388–393).
   // The Research Project entity (campaign.researchProjects[]); resolved by acks-engine-magic-research.js. ===
-  researchProject:      'rsp'
+  researchProject:      'rsp',
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148). The shared Loan relation
+  // (campaign.loans[]; RR p.42 Access to Capital) + the BankAccount relation/wealth-handle
+  // (campaign.bankAccounts[]; RR p.313 custody). Resolved by acks-engine-banking.js.
+  loan:                 'lon',
+  bankAccount:          'bnk'
 });
 
 function newId(prefix){
@@ -1093,6 +1098,11 @@ function lazyDefaultV1ScopeReservations(campaign){
   if(!Array.isArray(campaign.researchProjects)) campaign.researchProjects = [];
   // Sanctums AD-B (2026-06-15) — the apprenticeship relation (an L0 apprentice ↔ a sanctum master, RR p.386).
   if(!Array.isArray(campaign.apprenticeships)) campaign.apprenticeships = [];
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148): campaign.loans[] (RR p.42) +
+  // campaign.bankAccounts[] (RR p.313). DELIBERATELY NOT lazy-injected here — the banking module
+  // (+ importer + UI) reads both arrays defensively (?? []) and seeds them on first write, so the
+  // 6 templates + demo stay TRUE migrate-no-ops with no template regen (the team-session enabler,
+  // burst4). blankCampaign seeds them for new campaigns.
   // v0.9.1 (#544) — Backfill garrison-unit ids on v0.9 saves (the "+ add unit" button
   // pre-fix shipped units without ids, which broke the gm-fiat editable-stat flow).
   if(Array.isArray(campaign.domains)){
@@ -9315,13 +9325,23 @@ function proposeMonthlyTurn(campaign, options){
     }
   } catch(e){ /* never let the aging preview fail the turn proposal */ }
 
+  // Banking B2 — preview the end-of-month interest accruals (read-only; dryRun moves no gp, mutates
+  // nothing). Late-bound (the banking module loads after this file). The propose half of the gate.
+  let bankingProposal = { ran: false };
+  try {
+    if(typeof global.ACKS.processBankingForTurn === 'function'){
+      bankingProposal = global.ACKS.processBankingForTurn(campaign, { dryRun: true }) || bankingProposal;
+    }
+  } catch(e){ /* never let the banking preview fail the turn proposal */ }
+
   return {
     error: null,
     turnEventProposals,
     turnVentureProposals,
     turnProposal,
     livingExpenseProposal,
-    agingProposal
+    agingProposal,
+    bankingProposal
   };
 }
 
@@ -9926,6 +9946,22 @@ function commitTurn(campaign, proposal, options){
       favorDutyResult = processFavorsAndDutiesForTurn(campaign, { rng }) || favorDutyResult;
       (favorDutyResult.logEntries || []).forEach(l => logEntries.push(l));
     } catch(e){ /* never let Favors & Duties fail the monthly commit */ }
+  }
+
+  // === BANKING — interest accrual (RR p.42 + p.313 — #148 B2) ===
+  // Bill monthly interest on active commercial/personal loans (3% / 1% RR p.42), capitalize the
+  // shortfall + flag disrepute / debt-over-XP, credit any deposit return, and reset each market's
+  // monthly capital pool. RAW-core, default-on, dormant-until-used (a no-op with no loans/accounts).
+  // Gated on committed > 0 (a real month rolled). Late-bound — the banking module loads after this
+  // file — and wrapped so a banking error never breaks the core monthly commit (cf. banditry/aging).
+  let bankingResult = { ran: false };
+  if(committed > 0){
+    try {
+      if(typeof global.ACKS.processBankingForTurn === 'function'){
+        bankingResult = global.ACKS.processBankingForTurn(campaign, { rng }) || bankingResult;
+        (bankingResult.logEntries || []).forEach(l => logEntries.push(l));
+      }
+    } catch(e){ /* never let Banking fail the monthly commit */ }
   }
 
   // === DOMAIN BANDITRY (RR pp.350–351 — #476 E10) ===

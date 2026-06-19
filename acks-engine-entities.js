@@ -141,7 +141,12 @@ function blankCampaign(opts={}){
     // Sanctums AD-B (2026-06-15) — the apprenticeship relation (apr-): an L0 apprentice studies under a
     // sanctum-owning master (RR p.386). Companions (L1+) reuse henchmanships; this is the L0 schooling
     // track. Also lazy-defaulted on load (lazyDefaultV1ScopeReservations) so old saves backfill.
-    apprenticeships: opts.apprenticeships || []
+    apprenticeships: opts.apprenticeships || [],
+    // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148). The shared Loan relation (RR p.42
+    // commercial credit) + the BankAccount relation (RR p.313 custody; also a GP Wave B wealth-handle).
+    // Lazy-defaulted on load too; the F&D feudal-loan reconcile onto the shared Loan is B2.
+    loans: opts.loans || [],
+    bankAccounts: opts.bankAccounts || []
   };
 }
 

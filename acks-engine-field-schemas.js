@@ -1163,6 +1163,70 @@
         // abilityRequirements / categoryModifiers / afterEighthIncrement are dynamic-key maps —
         // Raw-JSON-edited in W1 (the Race Builder W3 surfaces them); omitted here (schema⊆factory).
       ]
+    },
+
+    // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Every field is
+    // a blankLoan / blankBankAccount key (the global schema⊆factory invariant). creditor/debtor/
+    // collateral/owner/custodian default null in the factory, so their object sub-fields are not
+    // cross-checked (smoke.js only checks a non-null factory object). ventureId/fdObligationId are
+    // reserved (B5/B2) and intentionally omitted from the Inspector schema. ──
+    'loan': {
+      factory: 'blankLoan',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Counterparties', 'Terms', 'Lifecycle'],
+      fields: [
+        { name: 'id',     type: 'string', readonly: true, group: 'Identity' },
+        { name: 'kind',   type: 'enum', enumValues: ['commercial','personal','feudal'], group: 'Identity', description: 'commercial = RR p.42 Access to Capital; personal = a PC↔PC loan; feudal = the F&D liege↔vassal loan (B2 reconcile)' },
+        { name: 'creditor', type: 'object', group: 'Counterparties', description: 'The lender — a bank/merchant-guild (off-campaign capital) or a character/domain', fields: [
+          { name: 'kind',  type: 'string', description: "'character' | 'domain' | 'bank' | 'merchant-guild'" },
+          { name: 'id',    type: 'string', description: 'character/domain id (omit for a bank)' },
+          { name: 'label', type: 'string' }
+        ] },
+        { name: 'debtor', type: 'object', group: 'Counterparties', description: 'The borrower', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'principalGp',         type: 'gp', group: 'Terms', description: 'The original advance' },
+        { name: 'balanceGp',           type: 'gp', group: 'Terms', description: 'Current outstanding (interest capitalizes onto this when unpaid)' },
+        { name: 'interestRateMonthly', type: 'number', group: 'Terms', description: 'RR p.42 — 0.03 uncollateralized / 0.01 collateralized' },
+        { name: 'collateral', type: 'object', group: 'Terms', description: 'null for an uncollateralized loan', fields: [
+          { name: 'kind',        type: 'string' },
+          { name: 'label',       type: 'string' },
+          { name: 'stashItemId', type: 'string' }
+        ] },
+        { name: 'marketSettlementId',  type: 'id', idKind: 'settlement', group: 'Terms', description: 'The market the credit was drawn in (capital-pool accounting, RR p.42)' },
+        { name: 'status',              type: 'enum', enumValues: ['offered','active','repaid','defaulted','written-off'], group: 'Lifecycle' },
+        { name: 'contractedAtTurn',    type: 'number', group: 'Lifecycle' },
+        { name: 'settledAtTurn',       type: 'number', group: 'Lifecycle', description: 'Set when repaid/written-off — null while active' },
+        { name: 'missedInterestTurns', type: 'number', group: 'Lifecycle', description: 'Consecutive months interest went unpaid (RR p.42)' },
+        { name: 'disreputable',        type: 'boolean', group: 'Lifecycle', description: 'Unpaid interest built up → loses Mercantile-network powers (RR p.42)' },
+        { name: 'debtOverXp',          type: 'boolean', group: 'Lifecycle', description: 'Balance exceeds the debtor’s XP → bounty-hunter pursuit (RR p.42; flag only in B1)' },
+        { name: 'history',             type: 'history', readonly: true, group: 'Lifecycle' }
+      ]
+    },
+
+    'bankAccount': {
+      factory: 'blankBankAccount',
+      adminCreate: 'schemaForm',
+      groups: ['Identity', 'Ownership', 'Terms', 'Lifecycle'],
+      fields: [
+        { name: 'id', type: 'string', readonly: true, group: 'Identity' },
+        { name: 'owner', type: 'object', group: 'Ownership', description: 'The depositor', fields: [
+          { name: 'kind', type: 'string', description: "'character' | 'domain' | 'party'" },
+          { name: 'id',   type: 'string' }
+        ] },
+        { name: 'custodian', type: 'object', group: 'Ownership', description: 'The bank / merchant-guild holding the funds', fields: [
+          { name: 'kind',               type: 'string', description: "'bank' | 'merchant-guild'" },
+          { name: 'label',              type: 'string' },
+          { name: 'marketSettlementId', type: 'string' }
+        ] },
+        { name: 'balanceGp',                   type: 'gp', group: 'Terms' },
+        { name: 'custodyFeePctAtConsignment',  type: 'number', group: 'Terms', description: 'RR p.313 — 0.10 at heir-consignment; 0 for a working account' },
+        { name: 'depositInterestRateMonthly',  type: 'number', group: 'Terms', description: 'Off by default (no RAW deposit interest); set > 0 to credit a monthly return' },
+        { name: 'marketSettlementId',          type: 'id', idKind: 'settlement', group: 'Terms' },
+        { name: 'status',                      type: 'enum', enumValues: ['open','closed','forfeited'], group: 'Lifecycle' },
+        { name: 'history',                     type: 'history', readonly: true, group: 'Lifecycle' }
+      ]
     }
   };
 

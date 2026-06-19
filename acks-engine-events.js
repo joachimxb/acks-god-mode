@@ -331,7 +331,15 @@ const EVENT_KINDS = Object.freeze([
   'ritual-cast',              // cast a ritual → takes effect (GM-resolved) OR is stored as a single charge
   // === Phase 4 — Magic Research AD-M4 (experimentation; RR pp.408–411) ===
   'magic-experiment-breakthrough', // a successful experiment exceeds its target → a minor/major/revolutionary breakthrough
-  'magic-experiment-mishap'        // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
+  'magic-experiment-mishap',       // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Record-only
+  // audits — the verbs (takeLoan / repayLoan / depositToBankAccount / withdrawFromBankAccount) +
+  // the monthly processBankingForTurn already moved the gp through the GP Wave B grammar. ===
+  'loan-issued',       // a loan is taken — the principal advanced creditor → debtor
+  'loan-repaid',       // a loan repayment debtor → creditor (settled when balance hits 0)
+  'loan-interest',     // monthly interest billed (paid + the capitalized shortfall + default flags)
+  'bank-deposit',      // gp deposited into a bank account (+ any RR p.313 custody fee at consignment)
+  'bank-withdrawal'    // gp withdrawn from a bank account
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1053,6 +1061,31 @@ const EVENT_SCHEMAS = Object.freeze({
   'magic-experiment-mishap': {
     R: { projectId: 'string', tier: 'string' },
     O: { researcherCharacterId: 'string', kind: 'string', roll: 'number', assistantsTier: 'string', narrative: 'string' }
+  },
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Record-only
+  // audits of the gp the banking verbs / processBankingForTurn already moved through the grammar.
+  // creditor/debtor are typed counterparty objects { kind, id?, label? }. ===
+  'loan-issued': {
+    R: { loanId: 'string' },
+    O: { kind: 'string', principalGp: 'number', interestRateMonthly: 'number', collateralized: 'boolean',
+         creditor: 'object', debtor: 'object', marketSettlementId: 'string', narrative: 'string' }
+  },
+  'loan-repaid': {
+    R: { loanId: 'string' },
+    O: { amount: 'number', balanceGp: 'number', settled: 'boolean', narrative: 'string' }
+  },
+  'loan-interest': {
+    R: { loanId: 'string' },
+    O: { interestGp: 'number', paidGp: 'number', capitalizedGp: 'number', balanceGp: 'number',
+         disreputable: 'boolean', debtOverXp: 'boolean', narrative: 'string' }
+  },
+  'bank-deposit': {
+    R: { accountId: 'string' },
+    O: { amount: 'number', custodyFeeGp: 'number', balanceGp: 'number', narrative: 'string' }
+  },
+  'bank-withdrawal': {
+    R: { accountId: 'string' },
+    O: { amount: 'number', balanceGp: 'number', narrative: 'string' }
   }
 });
 
@@ -2760,6 +2793,19 @@ registerEventHandler('ritual-learned', applyEvent_researchAudit);
 registerEventHandler('ritual-cast', applyEvent_researchAudit);
 registerEventHandler('magic-experiment-breakthrough', applyEvent_researchAudit);
 registerEventHandler('magic-experiment-mishap', applyEvent_researchAudit);
+// === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313) === record-only
+// audit posture: takeLoan / repayLoan / depositToBankAccount / withdrawFromBankAccount + the monthly
+// processBankingForTurn (acks-engine-banking.js) already moved the gp through the GP Wave B grammar;
+// these handlers keep the events well-formed on replay (a no-op beyond the recorded narrative).
+function applyEvent_bankingAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'banking event' } };
+}
+registerEventHandler('loan-issued', applyEvent_bankingAudit);
+registerEventHandler('loan-repaid', applyEvent_bankingAudit);
+registerEventHandler('loan-interest', applyEvent_bankingAudit);
+registerEventHandler('bank-deposit', applyEvent_bankingAudit);
+registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -2784,7 +2830,8 @@ registerEventHandler('magic-experiment-mishap', applyEvent_researchAudit);
 //
 // gp only in v1; `currency` is carried on the payload but only 'gp' actually moves.
 
-const _WEALTH_HANDLE_KINDS = Object.freeze(['treasury','character-gp','character','character-stash','hex-stash','stash','party-stash','external']);
+const _WEALTH_HANDLE_KINDS = Object.freeze(['treasury','character-gp','character','character-stash','hex-stash','stash','party-stash','external',
+  'bank-account']);   // === Banking (team b7 2026-06-19) — a deposit account doubles as a wealth-handle (resolved late via A.findBankAccount)
 function _gpwACKS(){ return (typeof global !== 'undefined' && global.ACKS) || (typeof window !== 'undefined' && window.ACKS) || {}; }
 
 // How much gp a handle can currently provide. { available, gated } — gated:true means a
@@ -2809,6 +2856,11 @@ function _wealthLegAvailable(campaign, handle){
         if(it && (it.facets||[]).indexOf('coin') >= 0 && (it.denomination||'gp') === 'gp') gp += (Number(it.qty)||0);
       }
       return { available: gp, gated:true };
+    }
+    // === Banking (team b7 2026-06-19) — a deposit account's gp (resolved late via the banking module). ===
+    case 'bank-account': {
+      const acc = A.findBankAccount ? A.findBankAccount(campaign, handle.id) : null;
+      return { available: acc ? (Number(acc.balanceGp)||0) : 0, gated:true };
     }
     default: return { available: 0, gated:true };
   }
@@ -2845,6 +2897,15 @@ function _applyWealthLeg(campaign, handle, signedAmount, ctx){
         if(A.withdrawFromStash) A.withdrawFromStash(campaign, st.id, [{ itemId: coinLine.id, qty: -signedAmount }], { reason: label });
       }
       return { kind:'stash', id: handle.id, delta: signedAmount };
+    }
+    // === Banking (team b7 2026-06-19) — move gp into/out of a deposit account's balance (resolved
+    // late via the banking module; the account IS the canonical store, so a direct balance write). ===
+    case 'bank-account': {
+      const acc = A.findBankAccount ? A.findBankAccount(campaign, handle.id) : null;
+      if(!acc) throw new Error('wealth-transfer: unknown bank account '+handle.id);
+      const before = Number(acc.balanceGp)||0;
+      acc.balanceGp = before + signedAmount;
+      return { kind:'bank-account', id: handle.id, before, after: acc.balanceGp, delta: signedAmount };
     }
     default: return null;
   }
@@ -5824,7 +5885,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'magic-experiment-breakthrough', 'magic-experiment-mishap',
   // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
   // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
-  'follower-arrival'
+  'follower-arrival',
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) === — owned by acks-engine-banking.js
+  // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
+  // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
+  'loan-issued', 'loan-repaid', 'loan-interest', 'bank-deposit', 'bank-withdrawal'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }
