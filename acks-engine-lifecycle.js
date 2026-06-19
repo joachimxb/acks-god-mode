@@ -775,5 +775,418 @@ Object.assign(ACKS, {
 });
 // === end Character Lifecycle CL-2 (burst5) ===================================
 
+// =============================================================================
+// === Character Lifecycle CL-3 (burst7, team) — persistent conditions (RR pp.507–516) =========
+// The persistent half of the Conditions glossary — persistent-character-state class #9
+// (Character_Lifecycle_Plan §11 CL-3 / survey §6). A self-contained, timer-driven model: the GM
+// (or, later, the Weather/level-drain cause) APPLIES a persistent condition → a slot-59 day-tick
+// consumer advances it each day → it resolves (warmed / 3 successful saves / death). The DAILY
+// counterpart that completes the lifecycle trio (CL-1 aging monthly · CL-2 disease day · CL-3
+// conditions day).
+//
+// THE SCOPE CUT (survey §6, the load-bearing classification). A condition is IN scope iff it
+//   PERSISTS between sessions under its own duration (the world advancing a day is what changes it);
+//   a round/turn/effect-duration condition (Blinded/Stunned/Webbed/…) is COMBAT-ROUND state →
+//   Combat #140, out of scope. Of the persistent set, most are ALREADY homed — Provisioning owns
+//   hungry/underfed/starving/dehydrated; the activity budget owns fatigued; Delves D1 owns the
+//   wound-recovery conditions (a permanent wound that imposes "blinded/mute" rides the mortalWounds[]
+//   record, NOT a standalone condition — survey §13.8); CL-2 owns infected/symptomatic. That leaves
+//   exactly TWO unhomed persistent conditions for CL-3: HYPOTHERMIC and ENERVATED.
+//
+// SHAPE (the §2 persistent-state model, the CL-2 idiom): stored — character.conditions[] (init-on-
+//   write, like diseases[]/mortalWounds[]; NO blankCharacter seed, so the 6 templates + demo stay
+//   migrate-no-ops — the team-session discipline); driver — the slot-59 day-consumer; resolver — the
+//   RR per-condition rule (the 1d3 CON/hour exposure drain · the daily Death save); propose→ratify —
+//   the day-tick review (the dice are seeded-in-propose for a stable preview, the survival idiom);
+//   history — the two events + per-day character.history entries. Hypothermia ⇄ the `incapacitated`
+//   state is NOT set here (RR makes it a "can't force-march/heal" debuff, not incapacitation); a
+//   symptomatic disease / wound owns that flag (CL-2 / D1).
+//
+// Polarity (CLAUDE §6): conditions are CORE RAW — default-on, no master house-rule gate. Dormant
+//   until a condition is applied (the GM's "apply condition" action in v1; the Weather cold-exposure
+//   trigger + the level-drain cause wire later — survey §6 / §15 / Q7). The slot-59 consumer's pause
+//   is governed by the default-ON `auto-pause-on-condition` day-tick rule (no rule registration —
+//   it rides the isDayTickRuleOn absent⇒ON fallback, the auto-pause-* family).
+// =============================================================================
+const CONDITION_CITE = 'RR pp.507–516';
+
+// The persistent conditions CL-3 homes (the two unhomed members of the §6 persistent set). Mechanical
+// fields only (the RAW posture); `cite` is the glossary page, `effect` an own-words gloss.
+//   hypothermic — cannot force-march/heal; 1d3 CON lost per hour of continued exposure; death at 0
+//     effective CON; ENDS BY WARMING (clearCondition). v1 models the per-hour drain as one 1d3 tick
+//     per still-exposed day-tick (the day clock is the granularity; the hourly rate arrives with the
+//     hour loop — the same deferral disease/encounters make). The drain is a RECOVERABLE exposure
+//     accumulator (conLost on the record; effective CON = base − conLost), not permanent ability
+//     damage — warming clears the condition and restores it (survey §6; the Provisioning conLoss idiom).
+//   enervated — a Death save each day on waking; a FAILED save drains 1 MAXIMUM hp PERMANENTLY (level
+//     drain — restored only by Restore Life & Limb, a future #155/D1 wire); THREE successful saves
+//     end it; death at 0 maximum hp. Cause = undead/Magic level drain (Combat/Magic owns the trigger);
+//     the daily-save STATE is lifecycle.
+const PERSISTENT_CONDITIONS = Object.freeze([
+  { id:'hypothermic', label:'Hypothermic', cite:'RR p.510', cadence:'per-exposure-day',
+    conLossDice:'1d3', endsBy:'warming', recoverable:true, cause:'cold exposure (Weather)',
+    effect:'Cannot force-march or heal; loses 1d3 CON per hour of continued exposure (death at 0 effective CON); ends by warming for an hour.' },
+  { id:'enervated', label:'Enervated', cite:'RR p.508', cadence:'daily-save', requiresSaves:3,
+    permanentMaxHp:true, cause:'level drain (undead / Magic)',
+    effect:'A Death save each day on waking; a failed save permanently drains 1 maximum hit point; three successful saves end it; death at 0 maximum hp.' }
+]);
+const PERSISTENT_CONDITION_BY_ID = Object.freeze(PERSISTENT_CONDITIONS.reduce((m, c) => { m[c.id] = c; return m; }, {}));
+function persistentConditionById(id){ return PERSISTENT_CONDITION_BY_ID[id] || null; }
+
+// The §6 classification doctrine made data — every PERSISTENT (between-session) condition + where it
+// is homed, so the split is explicit + testable. `home:'cl3'` are the two CL-3 manages; the rest are
+// cross-references (already shipped). COMBAT_ROUND_CONDITIONS are a representative slice of the
+// round/effect-duration glossary that is OUT of scope (→ Combat #140) — deliberately not managed here.
+const CONDITION_CLASSIFICATION = Object.freeze({
+  persistent: Object.freeze([
+    Object.freeze({ id:'hungry',          home:'provisioning' }),
+    Object.freeze({ id:'underfed',        home:'provisioning' }),
+    Object.freeze({ id:'starving',        home:'provisioning' }),
+    Object.freeze({ id:'dehydrated',      home:'provisioning' }),
+    Object.freeze({ id:'fatigued',        home:'activity-budget' }),
+    Object.freeze({ id:'hypothermic',     home:'cl3' }),
+    Object.freeze({ id:'enervated',       home:'cl3' }),
+    Object.freeze({ id:'infected',        home:'cl2-disease' }),
+    Object.freeze({ id:'symptomatic',     home:'cl2-disease' }),
+    Object.freeze({ id:'incapacitated',   home:'delves-d1 / cl2-disease' }),
+    Object.freeze({ id:'mortally-wounded',home:'delves-d1' }),
+    Object.freeze({ id:'grievously-wounded',home:'delves-d1' }),
+    Object.freeze({ id:'critically-wounded',home:'delves-d1' })
+  ]),
+  // Round/turn/effect-duration — resolved live at the table; never carried between sessions.
+  combatRoundOutOfScope: Object.freeze([
+    'blinded','confused','cowering','deafened','disordered','dominated','drowning','engaged','enthralled',
+    'faltering','flanked','frightened','grabbed','helpless','hidden','mute','paralyzed','petrified','prone',
+    'restrained','slumbering','sneaking','stuck','stunned','surprised','vexed','vulnerable','webbed','winded','wrestled'
+  ])
+});
+
+// ── module-local seeded PRNG (FNV-1a + mulberry32) — kept self-contained (the subsystems.js
+//    _jHash32/_jMulberry32 are module-private). Used to make the slot-59 consumer's dice
+//    preview-stable: re-opening the day-tick review reproduces the IDENTICAL roll (the survival
+//    "don't pull from the future" fix), and it changes only when the committed state changes. ──
+function _lcHash32(str){
+  let h = 0x811c9dc5;
+  for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+function _lcMulberry32(seed){
+  let a = seed >>> 0;
+  return function(){ a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+// =============================================================================
+// applyCondition — the application verb (the contractDisease idiom). A DIRECT call (a trigger, not
+// the daily advance): the GM's "apply condition" action in v1 (the Weather cold-exposure trigger +
+// the level-drain cause wire later). Pushes a character.conditions[] record (init-on-write, no
+// blankCharacter seed) + emits `condition-applied`. Idempotent per condition id: an already-active
+// instance is returned without stacking a duplicate. Returns the record (or null on a bad ref).
+//   opts: { atDay, atTurn } (mostly for tests; defaults read the campaign clock).
+// =============================================================================
+function applyCondition(campaign, characterId, conditionId, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c) return null;
+  const def = persistentConditionById(conditionId);
+  if(!def) return null;
+  if(c.lifecycleState === 'deceased' || c.alive === false) return null;
+  if(!Array.isArray(c.conditions)) c.conditions = [];                 // init-on-write (no blankCharacter seed)
+  const existing = c.conditions.find(x => x && x.condition === conditionId && !x.resolved);
+  if(existing) return existing;                                       // no stacking — one instance per condition
+  const turn = (opts.atTurn != null) ? opts.atTurn : ((campaign && campaign.currentTurn) || 1);
+  const day  = (opts.atDay  != null) ? opts.atDay  : ((campaign && campaign.currentDayInMonth) || 1);
+  const rec = {
+    id: 'cond' + turn + '_' + day + '_' + c.conditions.length,       // internal record id (no top-level prefix)
+    condition: conditionId, conditionLabel: def.label,
+    incurredAtDay: day, incurredAtTurn: turn,
+    resolved: false, clearedAtDay: null, clearedReason: null, eventId: null
+  };
+  if(conditionId === 'hypothermic'){ rec.conLost = 0; rec.conBase = Number(c.abilities && c.abilities.CON) || 10; }
+  if(conditionId === 'enervated'){ rec.successes = 0; rec.maxHpLost = 0; }
+  c.conditions.push(rec);
+  const summary = c.name + ' is ' + def.label.toLowerCase() + ' (' + def.cite + ').';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-applied', summary, { condition: conditionId }); } catch(_e){}
+  const ev = _emitConditionEvent(campaign, c, 'condition-applied', {
+    characterId: c.id, condition: conditionId, conditionLabel: def.label, effect: def.effect, narrative: summary
+  }, summary);
+  if(ev) rec.eventId = ev.id;
+  return rec;
+}
+
+// =============================================================================
+// clearCondition — the resolution verb (the cureDisease idiom): the GM warms a hypothermic character
+// / a Restore ends enervation / a generic "this condition is over". Marks the record resolved, emits
+// `condition-cleared` (outcome 'warmed'|'cured'|'cleared'). For enervation the permanent max-hp loss
+// PERSISTS unless opts.restoreMaxHp (a future Restore-Life-and-Limb wire); for hypothermia the
+// recoverable CON drain is released (effective CON returns to base — nothing to undo, the accumulator
+// just no longer counts once resolved). Returns the record (or null on a bad ref).
+// =============================================================================
+function clearCondition(campaign, characterId, conditionRef, opts){
+  opts = opts || {};
+  const c = (characterId && typeof characterId === 'object') ? characterId : _findCharacterLC(campaign, characterId);
+  if(!c || !Array.isArray(c.conditions)) return null;
+  const rec = (conditionRef && typeof conditionRef === 'object') ? conditionRef
+            : (typeof conditionRef === 'number') ? c.conditions[conditionRef]
+            : c.conditions.find(x => x && (x.id === conditionRef || (x.condition === conditionRef && !x.resolved)));
+  if(!rec || rec.resolved) return null;
+  rec.resolved = true;
+  rec.clearedAtDay = (campaign && campaign.currentDayInMonth) || 1;
+  rec.clearedAtTurn = (campaign && campaign.currentTurn) || 1;
+  const outcome = opts.method === 'warmed' ? 'warmed' : opts.method === 'restore' ? 'cured' : (opts.method || 'cleared');
+  rec.clearedReason = outcome;
+  // Enervation: restore the drained max hp only on an explicit Restore (RAW — the −1/save is permanent).
+  if(rec.condition === 'enervated' && opts.restoreMaxHp && rec.maxHpLost > 0 && c.hp){
+    c.hp.max = (Number(c.hp.max) || 0) + rec.maxHpLost; rec.maxHpLost = 0;
+  }
+  const def = persistentConditionById(rec.condition) || { label: rec.conditionLabel || rec.condition };
+  const summary = c.name + ' is no longer ' + (def.label || rec.condition).toLowerCase() +
+    (outcome === 'warmed' ? ' (warmed)' : outcome === 'cured' ? ' (restored)' : '') + '.';
+  try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-cleared', summary, { condition: rec.condition, outcome }); } catch(_e){}
+  _emitConditionEvent(campaign, c, 'condition-cleared', {
+    characterId: c.id, condition: rec.condition, conditionLabel: def.label || rec.condition,
+    outcome, died: false, narrative: summary
+  }, summary);
+  return rec;
+}
+
+// =============================================================================
+// The slot-59 day-tick consumer (the conditions cluster: disease 57 / convalescence 58 / conditions 59).
+// PURE proposeConditionDay advances each active condition one day, carrying ABSOLUTE after-values (the
+// convalescence/disease idiom — safe under the multi-day clone-commit); commitConditionRecord applies
+// one ratified record. The dice (the 1d3 exposure drain · the daily Death save) are SEEDED in propose
+// from the character's committed pre-state (the survival "stable preview" fix) so re-opening the review
+// reproduces the identical day; an injected ctx.rng (tests / the reroll path) overrides.
+//   hypothermic — each still-exposed day: lose 1d3 CON; death at 0 effective CON. (The GM warms via
+//     clearCondition; the consumer is the backstop.) Pauses every day (deadly; the GM must decide).
+//   enervated — each day a Death save (1d20 ≥ death target; a natural 1 always fails, RR pp.9–10):
+//     fail → −1 max hp (permanent) + a pause; success → +1 toward the 3 needed (a routine non-final
+//     success doesn't pause); the 3rd success → cleared; 0 max hp → death.
+// =============================================================================
+function characterActiveConditions(character){
+  if(!character || !Array.isArray(character.conditions)) return [];
+  return character.conditions.filter(c => c && !c.resolved);
+}
+function anyConditioned(campaign){
+  return !!(campaign && Array.isArray(campaign.characters) && campaign.characters.some(c => characterActiveConditions(c).length));
+}
+// Effective CON = base − the CON drained by any active hypothermic condition (the recoverable
+// exposure accumulator; survey §6). Does NOT read Provisioning's conLossHunger/Thirst — each
+// subsystem tracks its own drain in v1 (cross-subsystem CON-loss stacking is a noted refinement).
+function characterEffectiveCon(character){
+  const base = Number(character && character.abilities && character.abilities.CON) || 10;
+  let lost = 0;
+  characterActiveConditions(character).forEach(c => { if(c.condition === 'hypothermic') lost += (Number(c.conLost) || 0); });
+  return base - lost;
+}
+function _conditionFingerprint(campaign, c, cond, ctx){
+  const cal = (campaign && campaign.calendar) || {};
+  return JSON.stringify({
+    d: (ctx && ctx.dayInMonth) || (campaign && campaign.currentDayInMonth) || 1, y: cal.year || 1, m: cal.month || 1,
+    id: c.id, k: cond.condition, cl: cond.conLost || 0, s: cond.successes || 0, mh: cond.maxHpLost || 0,
+    con: Number(c.abilities && c.abilities.CON) || 0, hp: Number(c.hp && c.hp.max) || 0
+  });
+}
+function _seededConditionRng(campaign, c, cond, ctx){
+  return _lcMulberry32(_lcHash32(_conditionFingerprint(campaign, c, cond, ctx)));
+}
+function proposeConditionDay(campaign, ctx){
+  ctx = ctx || {};
+  const out = { pendingRecords: [], notableEvents: [], encounters: [] };
+  (campaign && campaign.characters || []).forEach(c => {
+    if(c.lifecycleState === 'deceased' || c.alive === false) return;
+    characterActiveConditions(c).forEach((cond, ci) => {
+      const rng = (ctx.rng) || _seededConditionRng(campaign, c, cond, ctx);
+      if(cond.condition === 'hypothermic'){
+        const loss = _d(3, rng);                                        // 1d3 CON this exposure-day
+        const conBase = (cond.conBase != null) ? cond.conBase : (Number(c.abilities && c.abilities.CON) || 10);
+        const conLostAfter = (Number(cond.conLost) || 0) + loss;
+        const effConAfter = conBase - conLostAfter;
+        const died = effConAfter <= 0;
+        const label = c.name + ' — hypothermic (−' + loss + ' CON' + (died ? ' · dies of exposure' : ', effective CON ' + effConAfter) + ')';
+        out.pendingRecords.push({ kind:'condition', type:'condition', characterId:c.id, characterName:c.name,
+          conditionId:cond.id, conditionIndex:ci, conditionKind:'hypothermic',
+          conLossThisDay:loss, conLostAfter, effConAfter, outcome: died ? 'died' : 'advance', label });
+        if(died){
+          const s = c.name + ' dies of exposure (hypothermia — RR p.510)';
+          out.notableEvents.push({ kind:'condition-cleared', type:'condition', pauseTrigger:'condition', label:s, summary:s,
+            primaryHexId: c.currentHexId || null, relatedEntities:[{ kind:'character', id:c.id, role:'subject' }],
+            payload:{ characterId:c.id, condition:'hypothermic', conditionLabel:'Hypothermic', outcome:'died', died:true, narrative:s } });
+        } else {
+          // Still freezing — a transient pause line (deadly; the GM warms or rides it). Not its own eventLog entry.
+          const s = c.name + ' suffers hypothermia (−' + loss + ' CON; effective CON ' + effConAfter + ' — warm them or it kills)';
+          out.notableEvents.push({ type:'condition', transient:true, pauseTrigger:'condition', label:s, summary:s,
+            payload:{ characterId:c.id, condition:'hypothermic', effCon:effConAfter } });
+        }
+      } else if(cond.condition === 'enervated'){
+        const target = (c.savingThrows && c.savingThrows.death != null) ? Number(c.savingThrows.death) : 15;
+        const roll = _d(20, rng);
+        const saved = roll !== 1 && roll >= target;                    // a natural 1 always fails (RR pp.9–10)
+        let successesAfter = Number(cond.successes) || 0;
+        let maxHpLostAfter = Number(cond.maxHpLost) || 0;
+        const maxBefore = Number(c.hp && c.hp.max) || 0;
+        let hpMaxAfter = maxBefore, outcome = 'advance', died = false, cleared = false;
+        if(saved){
+          successesAfter += 1;
+          if(successesAfter >= 3){ outcome = 'recovered'; cleared = true; }
+        } else {
+          maxHpLostAfter += 1;
+          if(maxBefore > 0){ hpMaxAfter = maxBefore - 1; if(hpMaxAfter <= 0){ outcome = 'died'; died = true; } }
+        }
+        const label = c.name + ' — enervated (Death save ' + roll + ' vs ' + target + '+ → ' +
+          (saved ? (cleared ? 'recovers (3 saves)' : 'save ' + successesAfter + '/3') : (died ? 'dies — 0 max hp' : '−1 max hp')) + ')';
+        out.pendingRecords.push({ kind:'condition', type:'condition', characterId:c.id, characterName:c.name,
+          conditionId:cond.id, conditionIndex:ci, conditionKind:'enervated',
+          saveRoll:roll, saveTarget:target, saved, successesAfter, maxHpLostAfter, hpMaxAfter, outcome, label });
+        if(died){
+          const s = c.name + ' succumbs to enervation — drained to 0 maximum hp (RR p.508)';
+          out.notableEvents.push({ kind:'condition-cleared', type:'condition', pauseTrigger:'condition', label:s, summary:s,
+            primaryHexId: c.currentHexId || null, relatedEntities:[{ kind:'character', id:c.id, role:'subject' }],
+            payload:{ characterId:c.id, condition:'enervated', conditionLabel:'Enervated', outcome:'died', died:true, narrative:s } });
+        } else if(cleared){
+          const s = c.name + ' shakes off the enervation (three saves — RR p.508)';
+          out.notableEvents.push({ kind:'condition-cleared', type:'condition', pauseTrigger:'condition', label:s, summary:s,
+            primaryHexId: c.currentHexId || null, relatedEntities:[{ kind:'character', id:c.id, role:'subject' }],
+            payload:{ characterId:c.id, condition:'enervated', conditionLabel:'Enervated', outcome:'recovered', died:false, narrative:s } });
+        } else if(!saved){
+          // A permanent max-hp drain — pause + a transient line (the cumulative loss shows on the sheet).
+          const s = c.name + ' is drained by enervation (−1 maximum hp — RR p.508)';
+          out.notableEvents.push({ type:'condition', transient:true, pauseTrigger:'condition', label:s, summary:s,
+            payload:{ characterId:c.id, condition:'enervated', maxHpLost:maxHpLostAfter } });
+        }
+        // a routine non-final success: a pendingRecord only (no notable / no pause) — the disease-countdown idiom.
+      }
+    });
+  });
+  return out;
+}
+function commitConditionRecord(campaign, record){
+  if(!campaign || !record || record.type !== 'condition') return;
+  const c = _findCharacterLC(campaign, record.characterId);
+  if(!c || !Array.isArray(c.conditions)) return;
+  const cond = c.conditions.find(x => x && x.id === record.conditionId);
+  if(!cond || cond.resolved) return;
+  if(record.conditionKind === 'hypothermic'){
+    cond.conLost = record.conLostAfter;
+    if(record.outcome === 'died'){
+      cond.resolved = true; cond.clearedReason = 'died';
+      cond.resolvedAtTurn = campaign.currentTurn || 1; cond.resolvedAtDay = campaign.currentDayInMonth || 1;
+      c.lifecycleState = 'deceased'; c.alive = false; c.deceasedTurn = campaign.currentTurn || 1;
+      try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-cleared', c.name + ' dies of exposure.', { condition:'hypothermic', outcome:'died' }); } catch(_e){}
+    } else {
+      try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-applied', c.name + ' loses ' + record.conLossThisDay + ' CON to hypothermia (effective CON ' + record.effConAfter + ').', { condition:'hypothermic', conLost: cond.conLost }); } catch(_e){}
+    }
+  } else if(record.conditionKind === 'enervated'){
+    cond.successes = record.successesAfter;
+    cond.maxHpLost = record.maxHpLostAfter;
+    if(!record.saved && c.hp && (Number(c.hp.max) || 0) > 0){
+      c.hp.max = record.hpMaxAfter;
+      if((Number(c.hp.current) || 0) > c.hp.max) c.hp.current = c.hp.max;
+    }
+    if(record.outcome === 'died'){
+      cond.resolved = true; cond.clearedReason = 'died';
+      cond.resolvedAtTurn = campaign.currentTurn || 1; cond.resolvedAtDay = campaign.currentDayInMonth || 1;
+      c.lifecycleState = 'deceased'; c.alive = false; c.deceasedTurn = campaign.currentTurn || 1;
+      try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-cleared', c.name + ' succumbs to enervation.', { condition:'enervated', outcome:'died' }); } catch(_e){}
+    } else if(record.outcome === 'recovered'){
+      cond.resolved = true; cond.clearedReason = 'recovered';
+      cond.resolvedAtTurn = campaign.currentTurn || 1; cond.resolvedAtDay = campaign.currentDayInMonth || 1;
+      try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-cleared', c.name + ' shakes off the enervation (three saves).', { condition:'enervated', outcome:'recovered' }); } catch(_e){}
+    } else if(!record.saved){
+      try { if(typeof ACKS.addCharacterHistory === 'function') ACKS.addCharacterHistory(campaign, c, 'condition-applied', c.name + ' is drained by enervation (−1 maximum hp).', { condition:'enervated', maxHpLost: cond.maxHpLost }); } catch(_e){}
+    }
+  }
+}
+// Direct (non-day-tick) advance — a GM "rest N days" / a test helper. Mirrors advanceDiseases.
+function advanceConditions(campaign, days, opts){
+  days = (typeof days === 'number' && days > 0) ? days : 1;
+  let last = null;
+  for(let i = 0; i < days; i++){
+    const prop = proposeConditionDay(campaign, opts || {});
+    prop.pendingRecords.forEach(r => commitConditionRecord(campaign, r));
+    last = prop;
+  }
+  return last;
+}
+
+// A read accessor for the character-sheet Health panel — the active persistent conditions + their
+// progress (effective CON for hypothermia, saves/max-hp-drain for enervation) + a danger line.
+function characterConditionInfo(character){
+  const active = characterActiveConditions(character);
+  const effCon = characterEffectiveCon(character);
+  return {
+    count: active.length,
+    hypothermic: active.some(c => c.condition === 'hypothermic'),
+    enervated: active.some(c => c.condition === 'enervated'),
+    effectiveCon: effCon,
+    conditions: active.map(c => {
+      const def = persistentConditionById(c.condition) || { label: c.conditionLabel || c.condition, effect:'' };
+      const o = { id:c.id, condition:c.condition, label:def.label, effect:def.effect, cite:def.cite };
+      if(c.condition === 'hypothermic'){ o.conLost = Number(c.conLost) || 0; o.effectiveCon = effCon;
+        o.dangerLine = 'effective CON ' + effCon + ' (death at 0) — warm them to end it'; }
+      if(c.condition === 'enervated'){ o.successes = Number(c.successes) || 0; o.maxHpLost = Number(c.maxHpLost) || 0;
+        o.dangerLine = (Number(c.successes)||0) + ' / 3 saves · −' + (Number(c.maxHpLost)||0) + ' max hp so far'; }
+      return o;
+    })
+  };
+}
+
+// =============================================================================
+// Event emit — the record-only audit pattern (the disease/aging idiom). For the DIRECT verbs
+// (applyCondition / clearCondition); the day-tick resolution (death / 3-save recovery) rides the
+// pipeline's emit via the `condition-cleared` notable kind. cadence 'daily'; the character rides the
+// context envelope as subject.
+// =============================================================================
+function _emitConditionEvent(campaign, c, kind, payload, narrative){
+  const A = global.ACKS;
+  if(!A || typeof A.newEvent !== 'function') return null;
+  const cal = (campaign && campaign.calendar) || {};
+  let ev;
+  try {
+    ev = A.newEvent(kind, {
+      submittedBy:'engine', cadence:'daily', targetTurn:(campaign && campaign.currentTurn) || 1,
+      gameTimeAt:{ year:cal.year || 1, month:cal.month || 1, day:(campaign && campaign.currentDayInMonth) || 1 },
+      payload: Object.assign({ narrative }, payload || {})
+    });
+  } catch(_e){ return null; }
+  if(typeof A.setEventContext === 'function'){
+    A.setEventContext(ev, {
+      primaryHexId:(c && c.currentHexId) || null,
+      domainId:(c && c.currentDomainId) || null,
+      relatedEntities:[{ kind:'character', id:c && c.id, role:'subject' }]
+    });
+  }
+  ev.status = (A.EVENT_STATUS && A.EVENT_STATUS.APPLIED) || 'applied';
+  ev.appliedAtTurn = (campaign && campaign.currentTurn) || 1;
+  ev.appliedAtDay  = (campaign && campaign.currentDayInMonth) || 1;
+  if(!Array.isArray(campaign.eventLog)) campaign.eventLog = [];
+  campaign.eventLog.push({ event: ev, result:{ narrativeSummary:narrative },
+    appliedAtTurn: ev.appliedAtTurn, appliedAt: new Date().toISOString() });
+  return ev;
+}
+
+// ── self-register the slot-59 'conditions' day-consumer (disease 57 / convalescence 58 / conditions 59) ──
+if(typeof ACKS.registerDayConsumer === 'function'){
+  ACKS.registerDayConsumer('conditions', {
+    handler: proposeConditionDay,
+    order: 59,
+    pauseTriggers: ['condition'],
+    commit: commitConditionRecord
+  });
+}
+
+Object.assign(ACKS, {
+  // data
+  PERSISTENT_CONDITIONS, CONDITION_CLASSIFICATION, CONDITION_CITE,
+  // catalog lookup
+  persistentConditionById,
+  // verbs
+  applyCondition, clearCondition,
+  // reads
+  characterActiveConditions, anyConditioned, characterEffectiveCon, characterConditionInfo,
+  // the day-tick consumer (also self-registered above) + a direct advance
+  proposeConditionDay, commitConditionRecord, advanceConditions
+});
+// === end Character Lifecycle CL-3 (burst7, team) =============================
+
 if(typeof module !== 'undefined' && module.exports) module.exports = ACKS;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

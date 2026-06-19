@@ -439,7 +439,33 @@
         }
         return null;
       },
-      displayName: (c, obj) => (obj && obj.name) || (obj && obj.kind) || (obj && obj.id) }
+      displayName: (c, obj) => (obj && obj.name) || (obj && obj.kind) || (obj && obj.id) },
+
+    // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148). The shared Loan relation
+    // (lon-, campaign.loans[]; RR p.42) + the BankAccount relation (bnk-, campaign.bankAccounts[];
+    // RR p.313). displayName reads only blankLoan / blankBankAccount keys per the registry⊆factory
+    // invariant (a Loan has no `name` — describe it by its counterparties + balance). ──
+    { kind: 'loan', label: 'Loan', pluralLabel: 'Loans', icon: '💰',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.loans) || [],
+      find: (c, id) => ((c && c.loans) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => obj ? ((obj.kind || 'loan') + ': ' + ((obj.balanceGp != null ? obj.balanceGp : obj.principalGp) || 0) + 'gp'
+        + (obj.debtor && obj.debtor.id ? (' → ' + obj.debtor.id) : '')) : '' },
+
+    { kind: 'bankAccount', label: 'Bank Account', pluralLabel: 'Bank Accounts', icon: '🏦',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.bankAccounts) || [],
+      find: (c, id) => ((c && c.bankAccounts) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => obj ? ((obj.owner && obj.owner.id ? obj.owner.id : 'account') + ' · ' + (obj.balanceGp || 0) + 'gp') : '' },
+
+    // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore: a first-class fact (campaign.lore[]).
+    // rumors subsume in Wave B. The per-knower Knowledge relation (knw-) is accessor-only — NOT a
+    // registry kind (a join record surfaced via loreKnownBy / the Knowledge tab, not browsed). ===
+    { kind: 'lore', label: 'Lore', pluralLabel: 'Lore', icon: '📚',
+      addressable: true, chronicleable: true,
+      list: (c) => (c && c.lore) || [],
+      find: (c, id) => ((c && c.lore) || []).find(x => x && x.id === id),
+      displayName: (c, obj) => (obj && obj.text) || (obj && obj.topic) || (obj && obj.id) || '(lore)' }
   ];
 
   // Build lookup table

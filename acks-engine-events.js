@@ -277,12 +277,24 @@ const EVENT_KINDS = Object.freeze([
   // Carries the Event.context envelope (the dungeon as site + the delve + the casualties). Event
   // Wizard opt-out below — the GM runs a foray via the Foray Wizard, not the Event Wizard.
   'delve-foray',
+  // === Delves D4 (team) === — Phase 3.5 (JJ ch.13). The Abstract Wilderness foray (the most-
+  // abstract travel rung). Record-only audit: ACKS.commitWildernessForay applies the state
+  // (Mortal Wounds casualties, unit casualties, clearLair → hexSecuringBlockers, the GP Wave B
+  // adventure-result disbursement). Carries the Event.context envelope (the lair as site + the
+  // casualties + beneficiaries). Event Wizard opt-out below.
+  'wilderness-foray',
   // === Character Lifecycle CL-2 (burst5) === — disease (JJ p.84). Record-only audit emitted by
   // acks-engine-lifecycle.js (contractDisease + the slot-57 disease day-consumer's resolution).
   // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
   // death-from-old-age carrying died:bool); the eventLog narrative reads correctly either way.
   'disease-contracted',
   'disease-recovered',
+  // === Character Lifecycle CL-3 (burst7, team) === — persistent conditions (RR pp.507–516). Record-only
+  // audit emitted by acks-engine-lifecycle.js (applyCondition + the slot-59 conditions day-consumer's
+  // resolution). 'condition-cleared' is the resolution event — outcome ∈ cleared|warmed|cured|recovered|died
+  // (like disease-recovered carrying died:bool); the eventLog narrative reads correctly for each.
+  'condition-applied',
+  'condition-cleared',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   // Record-only audits emitted by acks-engine-sanctums.js (the attunement/sovereignty/arcane-power
   // verbs already applied state — the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds,
@@ -331,7 +343,27 @@ const EVENT_KINDS = Object.freeze([
   'ritual-cast',              // cast a ritual → takes effect (GM-resolved) OR is stored as a single charge
   // === Phase 4 — Magic Research AD-M4 (experimentation; RR pp.408–411) ===
   'magic-experiment-breakthrough', // a successful experiment exceeds its target → a minor/major/revolutionary breakthrough
-  'magic-experiment-mishap'        // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
+  'magic-experiment-mishap',       // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Record-only
+  // audits — the verbs (takeLoan / repayLoan / depositToBankAccount / withdrawFromBankAccount) +
+  // the monthly processBankingForTurn already moved the gp through the GP Wave B grammar. ===
+  'loan-issued',       // a loan is taken — the principal advanced creditor → debtor
+  'loan-repaid',       // a loan repayment debtor → creditor (settled when balance hits 0)
+  'loan-interest',     // monthly interest billed (paid + the capitalized shortfall + default flags)
+  'bank-deposit',      // gp deposited into a bank account (+ any RR p.313 custody fee at consignment)
+  'bank-withdrawal',   // gp withdrawn from a bank account
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
+  // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
+  // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
+  'lore-learned',                  // a Knower acquires/recalls a Lore item (creates/upgrades a Knowledge record)
+  'lore-shared',                   // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
+  // === Magic Items (team) === — #143 W1; owned by acks-engine-magic-items.js (the identify / use /
+  // appraise verbs apply the state — the identification write, the charge depletion, the appraisal
+  // record). Distinct from magic-item-created (Magic Research mints) / magic-item-sale (M&M) /
+  // item-transfer (GP Wave B): those move/create; these are the item ECONOMY over a found item.
+  'item-identified',     // a character identifies a magic item (a method-gated throw → knownProperties)
+  'item-charge-spent',   // a charged item's charges deplete (at 0 → non-magical)
+  'item-appraised'       // a character appraises a magic item (the TT p.28 price spread + rarity)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -929,6 +961,15 @@ const EVENT_SCHEMAS = Object.freeze({
          outcome: 'string', encountersCleared: 'number', treasureGp: 'number', xp: 'number',
          magicItemRolls: 'number', casualties: 'array', narrative: 'string' }
   },
+  // === Delves D4 (team) === (JJ ch.13; engine-emitted by ACKS.commitWildernessForay, record-only).
+  // An Abstract Wilderness foray resolved in one roll: the result, the character casualties + unit
+  // casualties, the treasure/XP, and whether a lair was cleared (Wilderness Clearing, JJ p.68).
+  'wilderness-foray': {
+    R: { result: 'string' },
+    O: { lairId: 'string', monster: 'string', defeated: 'boolean', monsterLevel: 'number',
+         expeditionLevel: 'number', treasureGp: 'number', magicItemRolls: 'number', combatXp: 'number',
+         casualties: 'array', unitCasualties: 'array', lairCleared: 'boolean', narrative: 'string' }
+  },
   // === Character Lifecycle CL-2 (burst5) === (JJ p.84; engine-emitted by acks-engine-lifecycle.js,
   // record-only). A character contracts a disease (infected); then the disease resolves.
   'disease-contracted': {
@@ -941,6 +982,18 @@ const EVENT_SCHEMAS = Object.freeze({
   'disease-recovered': {
     R: { characterId: 'string', diseaseType: 'string' },
     O: { diseaseLabel: 'string', outcome: 'string', died: 'boolean', cured: 'boolean', narrative: 'string' }
+  },
+  // === Character Lifecycle CL-3 (burst7, team) === (RR pp.507–516; engine-emitted by
+  // acks-engine-lifecycle.js, record-only). A persistent condition is applied; then it resolves.
+  'condition-applied': {
+    R: { characterId: 'string', condition: 'string' },
+    O: { conditionLabel: 'string', effect: 'string', narrative: 'string' }
+  },
+  // The condition's resolution. outcome ∈ cleared|warmed|cured|recovered|died; on death the consumer
+  // sets lifecycleState 'deceased'.
+  'condition-cleared': {
+    R: { characterId: 'string', condition: 'string' },
+    O: { conditionLabel: 'string', outcome: 'string', died: 'boolean', narrative: 'string' }
   },
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons, AD-D/AD-E; RR pp.386–388) ===
   'dungeon-attuned': {
@@ -1053,6 +1106,56 @@ const EVENT_SCHEMAS = Object.freeze({
   'magic-experiment-mishap': {
     R: { projectId: 'string', tier: 'string' },
     O: { researcherCharacterId: 'string', kind: 'string', roll: 'number', assistantsTier: 'string', narrative: 'string' }
+  },
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313). Record-only
+  // audits of the gp the banking verbs / processBankingForTurn already moved through the grammar.
+  // creditor/debtor are typed counterparty objects { kind, id?, label? }. ===
+  'loan-issued': {
+    R: { loanId: 'string' },
+    O: { kind: 'string', principalGp: 'number', interestRateMonthly: 'number', collateralized: 'boolean',
+         creditor: 'object', debtor: 'object', marketSettlementId: 'string', narrative: 'string' }
+  },
+  'loan-repaid': {
+    R: { loanId: 'string' },
+    O: { amount: 'number', balanceGp: 'number', settled: 'boolean', narrative: 'string' }
+  },
+  'loan-interest': {
+    R: { loanId: 'string' },
+    O: { interestGp: 'number', paidGp: 'number', capitalizedGp: 'number', balanceGp: 'number',
+         disreputable: 'boolean', debtOverXp: 'boolean', narrative: 'string' }
+  },
+  'bank-deposit': {
+    R: { accountId: 'string' },
+    O: { amount: 'number', custodyFeeGp: 'number', balanceGp: 'number', narrative: 'string' }
+  },
+  'bank-withdrawal': {
+    R: { accountId: 'string' },
+    O: { amount: 'number', balanceGp: 'number', narrative: 'string' }
+  },
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
+  // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
+  'lore-learned': {
+    R: { loreId: 'string', knowerId: 'string' },
+    O: { knowerKind: 'string', certainty: 'string', sourceKind: 'string', sourceById: 'string', believedText: 'string', learnedAtHexId: 'string', narrative: 'string' }
+  },
+  'lore-shared': {
+    R: { loreId: 'string', toKnowerId: 'string' },
+    O: { fromKnowerId: 'string', fromKnowerKind: 'string', toKnowerKind: 'string', certainty: 'string', narrative: 'string' }
+  },
+  // === Magic Items (team) === — #143 W1 (acks-engine-magic-items.js). knownProperties/learned/throw
+  // are objects/arrays (typed 'object', the kindResult/throwResult convention). characterId is REQUIRED
+  // for identify (you identify AS someone) but optional for charge-spend/appraise (the party may act).
+  'item-identified': {
+    R: { itemId: 'string', characterId: 'string', method: 'string' },
+    O: { rarity: 'string', full: 'boolean', success: 'boolean', knownProperties: 'object', learned: 'object', throw: 'object', narrative: 'string' }
+  },
+  'item-charge-spent': {
+    R: { itemId: 'string' },
+    O: { characterId: 'string', count: 'number', chargesBefore: 'number', chargesAfter: 'number', depleted: 'boolean', narrative: 'string' }
+  },
+  'item-appraised': {
+    R: { itemId: 'string' },
+    O: { characterId: 'string', baseCost: 'number', rarity: 'string', apparentValue: 'number', priceBuy: 'number', priceCommission: 'number', priceSellFound: 'number', priceSellCreated: 'number', created: 'boolean', narrative: 'string' }
   }
 });
 
@@ -2702,6 +2805,10 @@ function applyEvent_delveAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'delve foray' } };
 }
 registerEventHandler('delve-foray', applyEvent_delveAudit);
+// === Delves D4 (team) === — the Abstract Wilderness foray shares the same record-only audit posture:
+// ACKS.commitWildernessForay already applied the state (Mortal Wounds, unit casualties, clearLair, the
+// adventure-result disbursement); this keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('wilderness-foray', applyEvent_delveAudit);
 // === Character Lifecycle CL-2 (burst5) === — disease events share the record-only audit posture:
 // acks-engine-lifecycle.js already advanced the disease state; the handler keeps the event
 // well-formed on replay (records the narrative only). Mirrors aging / mortal-wound / survival.
@@ -2711,6 +2818,16 @@ function applyEvent_diseaseAudit(campaign, event){
 }
 registerEventHandler('disease-contracted', applyEvent_diseaseAudit);
 registerEventHandler('disease-recovered', applyEvent_diseaseAudit);
+// === Character Lifecycle CL-3 (burst7, team) === — condition events share the record-only audit
+// posture: acks-engine-lifecycle.js already applied the condition state (applyCondition + the slot-59
+// consumer's drain/save/resolution); the handler keeps the event well-formed on replay (records the
+// narrative only). Mirrors aging / disease / mortal-wound.
+function applyEvent_conditionAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'condition' } };
+}
+registerEventHandler('condition-applied', applyEvent_conditionAudit);
+registerEventHandler('condition-cleared', applyEvent_conditionAudit);
 // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — record-only audit posture: the
 // attunement / sovereignty / arcane-power / harvest verbs in acks-engine-sanctums.js already applied
 // state (the att- relation, dungeon.sovereignCharacterId/subjugatedGroupIds, the arcanePowerSpentThisMonth
@@ -2760,6 +2877,40 @@ registerEventHandler('ritual-learned', applyEvent_researchAudit);
 registerEventHandler('ritual-cast', applyEvent_researchAudit);
 registerEventHandler('magic-experiment-breakthrough', applyEvent_researchAudit);
 registerEventHandler('magic-experiment-mishap', applyEvent_researchAudit);
+// === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148; RR p.42 + p.313) === record-only
+// audit posture: takeLoan / repayLoan / depositToBankAccount / withdrawFromBankAccount + the monthly
+// processBankingForTurn (acks-engine-banking.js) already moved the gp through the GP Wave B grammar;
+// these handlers keep the events well-formed on replay (a no-op beyond the recorded narrative).
+function applyEvent_bankingAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'banking event' } };
+}
+registerEventHandler('loan-issued', applyEvent_bankingAudit);
+registerEventHandler('loan-repaid', applyEvent_bankingAudit);
+registerEventHandler('loan-interest', applyEvent_bankingAudit);
+registerEventHandler('bank-deposit', applyEvent_bankingAudit);
+registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
+// === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
+// shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
+// keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
+function applyEvent_loreAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'lore event' } };
+}
+registerEventHandler('lore-learned', applyEvent_loreAudit);
+registerEventHandler('lore-shared', applyEvent_loreAudit);
+
+// === Magic Items (team) === — #143 W1 record-only audits. acks-engine-magic-items.js owns the state
+// (the identifyMagicItem / useMagicItemCharge / appraiseMagicItem verbs already wrote the notableItem's
+// identification + intrinsic.charges + emitted the record); this handler keeps the events well-formed
+// on replay, mirroring applyEvent_researchAudit.
+function applyEvent_magicItemAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'magic item event' } };
+}
+registerEventHandler('item-identified', applyEvent_magicItemAudit);
+registerEventHandler('item-charge-spent', applyEvent_magicItemAudit);
+registerEventHandler('item-appraised', applyEvent_magicItemAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -2784,7 +2935,8 @@ registerEventHandler('magic-experiment-mishap', applyEvent_researchAudit);
 //
 // gp only in v1; `currency` is carried on the payload but only 'gp' actually moves.
 
-const _WEALTH_HANDLE_KINDS = Object.freeze(['treasury','character-gp','character','character-stash','hex-stash','stash','party-stash','external']);
+const _WEALTH_HANDLE_KINDS = Object.freeze(['treasury','character-gp','character','character-stash','hex-stash','stash','party-stash','external',
+  'bank-account']);   // === Banking (team b7 2026-06-19) — a deposit account doubles as a wealth-handle (resolved late via A.findBankAccount)
 function _gpwACKS(){ return (typeof global !== 'undefined' && global.ACKS) || (typeof window !== 'undefined' && window.ACKS) || {}; }
 
 // How much gp a handle can currently provide. { available, gated } — gated:true means a
@@ -2809,6 +2961,11 @@ function _wealthLegAvailable(campaign, handle){
         if(it && (it.facets||[]).indexOf('coin') >= 0 && (it.denomination||'gp') === 'gp') gp += (Number(it.qty)||0);
       }
       return { available: gp, gated:true };
+    }
+    // === Banking (team b7 2026-06-19) — a deposit account's gp (resolved late via the banking module). ===
+    case 'bank-account': {
+      const acc = A.findBankAccount ? A.findBankAccount(campaign, handle.id) : null;
+      return { available: acc ? (Number(acc.balanceGp)||0) : 0, gated:true };
     }
     default: return { available: 0, gated:true };
   }
@@ -2845,6 +3002,15 @@ function _applyWealthLeg(campaign, handle, signedAmount, ctx){
         if(A.withdrawFromStash) A.withdrawFromStash(campaign, st.id, [{ itemId: coinLine.id, qty: -signedAmount }], { reason: label });
       }
       return { kind:'stash', id: handle.id, delta: signedAmount };
+    }
+    // === Banking (team b7 2026-06-19) — move gp into/out of a deposit account's balance (resolved
+    // late via the banking module; the account IS the canonical store, so a direct balance write). ===
+    case 'bank-account': {
+      const acc = A.findBankAccount ? A.findBankAccount(campaign, handle.id) : null;
+      if(!acc) throw new Error('wealth-transfer: unknown bank account '+handle.id);
+      const before = Number(acc.balanceGp)||0;
+      acc.balanceGp = before + signedAmount;
+      return { kind:'bank-account', id: handle.id, before, after: acc.balanceGp, delta: signedAmount };
     }
     default: return null;
   }
@@ -5791,10 +5957,17 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
+  // === Delves D4 (team) === — owned by ACKS.commitWildernessForay (the Wilderness Foray modal);
+  // a raw emit would narrate a foray the casualties / treasure / lair state don't show.
+  'wilderness-foray',
   // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
   // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
   // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
   'disease-contracted', 'disease-recovered',
+  // === Character Lifecycle CL-3 (burst7, team) === — owned by acks-engine-lifecycle.js (applyCondition +
+  // the slot-59 conditions consumer); a raw emit would narrate a condition the character's conditions[]
+  // + lifecycleState don't show. The GM applies/clears a condition via the character sheet, not the Wizard.
+  'condition-applied', 'condition-cleared',
   // === Phase 4 — The Arcane Domain (Sanctums & Dungeons) === — owned by acks-engine-sanctums.js
   // (attuneToDungeon / establishSovereignty / processArcaneForTurn / harvestDungeon) + the dungeon
   // arcane panel's actions; a raw emit would record an attunement/sovereignty/extraction/harvest the
@@ -5824,7 +5997,19 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'magic-experiment-breakthrough', 'magic-experiment-mishap',
   // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
   // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
-  'follower-arrival'
+  'follower-arrival',
+  // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) === — owned by acks-engine-banking.js
+  // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
+  // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
+  'loan-issued', 'loan-repaid', 'loan-interest', 'bank-deposit', 'bank-withdrawal',
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
+  // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
+  // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
+  'lore-learned', 'lore-shared',
+  // === Magic Items (team) === — owned by acks-engine-magic-items.js (the identify / use / appraise verbs
+  // apply the state); a raw emit would record an identify / charge-spend / appraisal the notableItem's
+  // identification + intrinsic.charges don't show.
+  'item-identified', 'item-charge-spent', 'item-appraised'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

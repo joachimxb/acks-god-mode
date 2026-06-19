@@ -94,11 +94,16 @@
 <!-- b5-sages (#147): add the acks-engine-sages.js script tag here (cache-bust ?v=2026-06-14-b5) -->
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
+<!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
+<script src="acks-engine-magic-items.js?v=2026-06-19-b7"></script>
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
+<!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
+<script src="acks-engine-banking.js?v=2026-06-19-b7"></script>
+<script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
 <!-- Security hardening (appsec audit C1, 2026-05-31): freeze Object.prototype so a
@@ -1125,6 +1130,7 @@ document.addEventListener('alpine:init', () => {
         <span class="text-sm opacity-70" x-text="filteredDungeons().length + ' shown'"></span>
         <button @click="inspectorOpenCreate('dungeon')" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200" title="Author a dungeon (free-form Inspector form)">＋ Author a dungeon</button>
         <button @click="openBuildDungeon()" class="px-2 py-0.5 border border-ink rounded bg-purple-100 hover:bg-purple-200" title="Build a dungeon (RR p.386) — a Construction Project that mints a Dungeon entity + auto-attunes an arcane L9+ owner; monsters then auto-arrive + lair within it via Vagaries of Incursion">🏗 Build a dungeon</button>
+        <button @click="openWildForay()" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200" title="Abstract Wilderness foray (JJ ch.13) — resolve an expedition's combat against a lair or wandering monster on one roll; clearing a lair moves the hex toward secure (JJ p.68)">🗺 Wilderness foray</button>
       </div>
     </div>
     <template x-if="worldDungeons().length === 0">
@@ -5402,6 +5408,123 @@ document.addEventListener('alpine:init', () => {
               </div>
             </template>
           </div>
+
+          <!-- Settlement Demographics SD-4 — the rural / countryside census (T2, "A Typical Hex").
+               Domain-scoped: the leveled NPCs across the domain's rural hexes, expected (the scaled
+               "A Typical Hex" countryside roster) vs realized (homeHexId residents). Gated on the
+               living-census house rule (the deep tier, like SD-3). Reconciled by ACKS.domainRuralDemographics. -->
+          <template x-if="ruralCensusOn() && ruralCensus() && ruralCensus().hexCount>0">
+            <div class="vellum border border-ink p-3 rounded md:col-span-2" style="background:#f4ecd2">
+              <h3 class="font-bold mb-1">🌾 Countryside census — <span x-text="(selectedDomain&&selectedDomain.name)||'(domain)'"></span></h3>
+              <p class="text-sm opacity-70 mb-2">
+                “A Typical Hex” (JJ countryside roster) across
+                <span class="font-semibold" x-text="ruralCensus().hexCount"></span> rural hex(es) ·
+                <span x-text="Math.round(ruralCensus().ruralFamilies||0).toLocaleString()"></span> rural families
+                (<span x-text="ruralCensus().populationSource==='per-hex' ? 'per-hex' : 'domain-distributed'"></span>).
+                Each cell shows <em>residents / expected</em>. Set an NPC’s <strong>Home hex</strong> on its sheet to fill the realized side.
+              </p>
+              <div class="overflow-x-auto">
+                <table class="bookkeeping text-sm">
+                  <thead><tr><th>Level</th>
+                    <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b"><th class="capitalize" x-text="b"></th></template>
+                  </tr></thead>
+                  <tbody>
+                    <template x-for="r in ruralRosterRows()" :key="r.level">
+                      <tr>
+                        <td class="font-semibold" x-text="'L'+r.level"></td>
+                        <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                          <td :class="r[b].exceptional ? 'accent-red font-semibold' : (r[b].realized>0 ? 'text-green-800 font-semibold' : '')"
+                              :title="(r[b].names && r[b].names.length) ? r[b].names.map(n=>n.name+' (L'+n.level+' @ '+(n.hexName||'?')+')').join(', ') : ''">
+                            <template x-if="r[b].realized>0 || r[b].expected>=0.5">
+                              <span><span x-text="r[b].realized"></span><span class="opacity-50"> / <span x-text="fmtExpected(r[b].expected)"></span></span></span>
+                            </template>
+                            <template x-if="!(r[b].realized>0 || r[b].expected>=0.5)"><span class="opacity-30">—</span></template>
+                          </td>
+                        </template>
+                      </tr>
+                    </template>
+                    <tr class="total">
+                      <td>Totals</td>
+                      <template x-for="b in window.ACKS.DEMOGRAPHIC_BUCKETS" :key="b">
+                        <td><span x-text="ruralCensus().realizedTotals[b]"></span><span class="opacity-50"> / <span x-text="Math.round(ruralCensus().totals[b])"></span></span></td>
+                      </template>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-sm mt-2">
+                <span class="font-semibold" x-text="ruralCensus().realizedTotals.all"></span> rural residents
+                (of ~<span x-text="Math.round(ruralCensus().totals.all).toLocaleString()"></span> expected) ·
+                <span x-text="ruralCensus().openTotal.toLocaleString()"></span> open slots
+                <span class="accent-red" x-show="ruralCensus().exceptionalTotal>0"> · <span x-text="ruralCensus().exceptionalTotal"></span> exceptional</span>
+              </p>
+
+              <!-- per-hex breakdown -->
+              <details class="mt-2">
+                <summary class="text-sm cursor-pointer opacity-80">Per rural hex (<span x-text="ruralCensus().hexes.length"></span>)</summary>
+                <div class="overflow-x-auto mt-1">
+                  <table class="bookkeeping text-sm">
+                    <thead><tr><th>Hex</th><th>Rural families</th><th>~Expected</th><th>Residents</th><th>Open</th></tr></thead>
+                    <tbody>
+                      <template x-for="h in ruralCensus().hexes" :key="h.hexId">
+                        <tr>
+                          <td x-text="h.hexName"></td>
+                          <td x-text="Math.round(h.ruralFamilies)"></td>
+                          <td x-text="Math.round(h.expectedAll)"></td>
+                          <td :class="h.exceptionalTotal>0 ? 'accent-red font-semibold' : ''" x-text="h.realizedResidents + (h.exceptionalTotal>0 ? ' ⚠' : '')"></td>
+                          <td x-text="h.openTotal"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+
+              <!-- reconciliation workspace — the rural residents + settle-a-resident -->
+              <div class="mt-3 pt-2 border-t border-ink/30">
+                <h4 class="font-semibold text-sm mb-1">Rural residents <span class="opacity-60 font-normal" x-text="'(' + ruralResidentsList().length + ')'"></span></h4>
+                <template x-if="ruralResidentsList().length===0">
+                  <p class="text-sm opacity-60 italic">No NPC is rostered in the countryside yet — settle one below, or set a <strong>Home hex</strong> on a character sheet.</p>
+                </template>
+                <template x-if="ruralResidentsList().length>0">
+                  <div class="overflow-x-auto">
+                    <table class="bookkeeping text-sm">
+                      <thead><tr><th>Name</th><th>Class</th><th>Bucket</th><th>Hex</th><th></th></tr></thead>
+                      <tbody>
+                        <template x-for="c in ruralResidentsList()" :key="c.id">
+                          <tr>
+                            <td><button class="underline" @click="demoOpenResident(c.id)" x-text="(c.name||'(unnamed)') + ' · L' + (c.level||1)"></button></td>
+                            <td x-text="c.class||'—'"></td>
+                            <td class="capitalize" x-text="c.bucket||'—'"></td>
+                            <td x-text="c.hexName"></td>
+                            <td><button class="text-sm underline accent-red" @click="ruralRemoveResident(c.id)" title="Remove this NPC's rural home (un-roster it)">× un-home</button></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                  <span class="text-sm font-semibold">Settle a resident:</span>
+                  <select class="ed-input text-sm" style="width:14rem" x-model="ruralAssignPick">
+                    <option value="">— pick an unplaced NPC —</option>
+                    <template x-for="c in ruralUnhomedCandidates()" :key="c.id">
+                      <option :value="c.id" x-text="(c.name||'(unnamed)') + ' · ' + (c.class||'?') + ' L' + (c.level||1)"></option>
+                    </template>
+                  </select>
+                  <span class="text-sm">in</span>
+                  <select class="ed-input text-sm" style="width:12rem" x-model="ruralAssignHex">
+                    <option value="">— rural hex —</option>
+                    <template x-for="h in ruralHexOptions()" :key="h.id">
+                      <option :value="h.id" x-text="window.ACKS.hexName(h)"></option>
+                    </template>
+                  </select>
+                  <button class="px-2 py-1 border border-ink rounded hover:bg-yellow-100 text-sm" :class="(!ruralAssignPick||!ruralAssignHex) ? 'opacity-40 cursor-not-allowed' : ''" :disabled="!ruralAssignPick||!ruralAssignHex" @click="ruralAssignResident()">🏠 Settle here</button>
+                </div>
+                <p class="text-sm opacity-60 italic mt-1">Opt-in auto-fill (mint a robber band / hedge wizard / friars to fill the roster) waits on the NPC generator — SD-4 ships the expectation + reconciliation; place NPCs by hand for now.</p>
+              </div>
+            </div>
+          </template>
           </div>
         </div>
 
@@ -11544,6 +11667,37 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
+             Beside the Wounds + Diseases readouts — the "what's wrong with this person" cluster (Plan §9).
+             The two unhomed persistent conditions (hypothermic / enervated); each advances on the Day Clock
+             (the slot-59 conditions consumer). 🥶 applies a condition; per-condition 🔥 warm / ✚ end. -->
+        <template x-if="characterEditing">
+          <div class="vellum border border-ink/40 rounded p-3 mt-3">
+            <div class="flex items-center justify-between mb-1">
+              <h4 class="font-semibold">Conditions <span class="text-sm font-normal opacity-60">(persistent — RR pp.507–516)</span></h4>
+              <button @click="openApplyConditionModal(characterEditing)" class="px-2 py-1 border border-ink rounded text-sm bg-sky-200 hover:bg-sky-300 font-semibold" title="Apply a persistent condition (RR pp.507–516)">🥶 Apply condition</button>
+            </div>
+            <template x-if="characterConditionRows(characterEditing).length === 0">
+              <p class="text-sm italic opacity-60">No persistent conditions.</p>
+            </template>
+            <ul class="space-y-1 text-sm" x-show="characterConditionRows(characterEditing).length">
+              <template x-for="cond in characterConditionRows(characterEditing)" :key="cond.id">
+                <li class="flex items-start gap-2 py-0.5 border-b border-ink/10">
+                  <span class="text-base leading-tight" x-text="cond.condition === 'hypothermic' ? '🥶' : '🪫'"></span>
+                  <span class="flex-1">
+                    <span class="font-semibold" x-text="cond.label"></span>
+                    <span class="block text-xs accent-red" x-text="cond.dangerLine"></span>
+                    <span class="block text-xs opacity-60" x-text="cond.effect"></span>
+                    <div class="flex gap-1 mt-0.5">
+                      <button @click="clearConditionRow(characterEditing, cond)" class="text-xs px-1 border border-ink/30 rounded hover:bg-green-50" :title="cond.condition === 'hypothermic' ? 'Warm them for an hour — ends hypothermia' : 'End the enervation (the drained max hp returns only by Restore Life &amp; Limb)'" x-text="cond.condition === 'hypothermic' ? '🔥 warm' : '✚ end'"></button>
+                    </div>
+                  </span>
+                </li>
+              </template>
+            </ul>
+            <p class="text-xs italic opacity-60 mt-2">Hypothermia drains CON each day until warmed; enervation drains a maximum hit point on each failed daily save (three saves end it). Both advance on the Day Clock (RR pp.507–516).</p>
+          </div>
+        </template>
+
       </div>
 
       <!-- SKILLS tab — proficiencies + class powers as audited lists.
@@ -12327,6 +12481,28 @@ document.addEventListener('alpine:init', () => {
               </span></template>
             </span>
             <span class="text-sm opacity-60 italic">the realm this NPC serves at court (SD-3)</span>
+          </div>
+        </template>
+
+        <!-- Home hex (Settlement Demographics SD-4) — the rural/countryside home; gm-fiat. Gated on the
+             living-census house rule (the rural tier). Reconciled by ACKS.domainRuralDemographics. -->
+        <template x-if="isHouseRuleEnabled('living-census')">
+          <div class="text-sm flex items-center gap-2">
+            <span class="w-32">Home hex</span>
+            <span class="ed-stat" x-data="editableStat({entityType:'character', getEntity(){return window.acksApp?.characterEditing;}, fieldPath:'homeHexId', label:'Home hex', kind:'select', formatter(v){ if(!v) return '— none —'; const h=(window.acksApp?.currentCampaign?.hexes||[]).find(hh => hh.id === v); return h ? window.ACKS.hexName(h) : v; }})">
+              <template x-if="!editing"><span class="ed-stat"><span class="ed-val" x-text="displayValue"></span><button @click="start()" class="ed-edit" title="Edit (logged)" :aria-label="'Edit home hex (logged)'">✏</button></span></template>
+              <template x-if="editing"><span class="ed-stat">
+                <select x-model="draft" class="ed-input" style="width:18rem" x-init="$nextTick(() => $el.focus())">
+                  <option :value="null">— none —</option>
+                  <template x-for="h in (window.acksApp?.currentCampaign?.hexes||[])" :key="h.id">
+                    <option :value="h.id" x-text="window.ACKS.hexName(h)"></option>
+                  </template>
+                </select>
+                <button @click="save()" class="ed-btn" title="Save & log" :aria-label="'Save home hex'">✓</button>
+                <button @click="cancel()" class="ed-btn" title="Cancel" :aria-label="'Cancel editing home hex'">×</button>
+              </span></template>
+            </span>
+            <span class="text-sm opacity-60 italic">the countryside hex this NPC lives in (SD-4)</span>
           </div>
         </template>
 
@@ -15069,6 +15245,559 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- ===== end TEAM BURST5 modal tail ===== -->
 
+<!-- ═══ Banking & Loans (team b7 — B1, #148; RR p.42 + p.313) ═══ -->
+<div x-show="currentCampaign && currentView === 'banking'" class="p-4 space-y-4" x-cloak>
+
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg">🏦 Banking &amp; Loans</h3>
+    <p class="text-sm opacity-70 mt-1">Commercial &amp; personal credit and deposit custody (RR p.42 <em>Access to Capital</em> + RR p.313). Interest accrues each monthly turn (Advance Month): 3% / month uncollateralized, 1% collateralized; unpaid interest capitalizes onto the balance and the borrower becomes disreputable (RR p.42). A market lends up to its class's monthly capital pool. Core RAW — no house rule gates it.</p>
+  </div>
+
+  <!-- Loans -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg mb-2">💰 Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
+      <label class="flex flex-col">Borrower
+        <select x-model="bankLoanDebtorId" class="w-44">
+          <option value="">— pick —</option>
+          <template x-for="ch in bankingActiveChars()" :key="ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Lender
+        <select x-model="bankLoanCreditorId" class="w-44">
+          <option value="bank">🏦 Bank (market credit)</option>
+          <template x-for="ch in bankingActiveChars()" :key="'cr-'+ch.id"><option :value="ch.id" x-text="'👤 ' + (ch.name || ch.id)"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col" x-show="bankLoanCreditorId === 'bank'">Market
+        <select x-model="bankLoanMarketId" class="w-40">
+          <option value="">— none —</option>
+          <template x-for="s in bankingSettlements()" :key="s.id"><option :value="s.id" x-text="s.name || s.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Amount (gp)<input type="number" min="1" x-model="bankLoanAmount" class="w-28" placeholder="1000"></label>
+      <label class="flex items-center gap-1 self-center"><input type="checkbox" x-model="bankLoanCollateral"> Collateralized (1%)</label>
+      <button @click="bankingTakeLoan()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">+ Take loan</button>
+      <span class="opacity-60 self-center" x-text="bankingCapText()"></span>
+    </div>
+    <template x-if="bankingLoans().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No loans. Extend credit above (or via 🔍 Inspector ▸ Create ▸ Loan).</p>
+    </template>
+    <template x-if="bankingLoans().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Kind</th><th>Borrower</th><th>Lender</th><th class="text-right">Principal</th><th class="text-right">Balance</th><th>Rate</th><th>Status</th><th>Flags</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="loan in bankingLoans()" :key="loan.id">
+            <tr>
+              <td x-text="loan.kind"></td>
+              <td class="font-semibold" x-text="bankingPartyName(loan.debtor)"></td>
+              <td x-text="bankingPartyName(loan.creditor)"></td>
+              <td class="text-right" x-text="(loan.principalGp||0).toLocaleString()"></td>
+              <td class="text-right" x-text="(loan.balanceGp||0).toLocaleString()"></td>
+              <td x-text="bankingPct(loan.interestRateMonthly)"></td>
+              <td x-text="loan.status"></td>
+              <td class="text-xs">
+                <span x-show="loan.disreputable" class="text-red-700" title="Unpaid interest built up (RR p.42)">⚠ disreputable</span>
+                <span x-show="loan.debtOverXp" class="text-red-700" title="Balance exceeds the borrower's XP — bounty hunters (RR p.42)"> 🗡 debt&gt;XP</span>
+              </td>
+              <td><button x-show="loan.status === 'active'" @click="bankingRepay(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Repay</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+  <!-- Bank accounts -->
+  <div class="vellum border border-ink rounded p-4">
+    <h3 class="font-bold text-lg mb-2">🏦 Bank Accounts <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingAccounts().length"></span></h3>
+    <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
+      <label class="flex flex-col">Owner
+        <select x-model="bankAcctOwnerId" class="w-44">
+          <option value="">— pick —</option>
+          <template x-for="ch in bankingActiveChars()" :key="'ow-'+ch.id"><option :value="ch.id" x-text="ch.name || ch.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Market (custodian)
+        <select x-model="bankAcctMarketId" class="w-40">
+          <option value="">— none —</option>
+          <template x-for="s in bankingSettlements()" :key="'acct-'+s.id"><option :value="s.id" x-text="s.name || s.id"></option></template>
+        </select>
+      </label>
+      <label class="flex flex-col">Initial deposit (gp)<input type="number" min="0" x-model="bankAcctInitial" class="w-28" placeholder="0"></label>
+      <button @click="bankingOpenAccount()" class="px-3 py-1 border border-ink rounded bg-green-200 hover:bg-green-300 font-semibold">+ Open account</button>
+    </div>
+    <template x-if="bankingAccounts().length === 0">
+      <p class="text-sm italic opacity-60 py-3 text-center">No bank accounts. Open one above (or via 🔍 Inspector ▸ Create ▸ Bank Account).</p>
+    </template>
+    <template x-if="bankingAccounts().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr><th>Owner</th><th>Custodian</th><th class="text-right">Balance</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="acc in bankingAccounts()" :key="acc.id">
+            <tr>
+              <td class="font-semibold" x-text="bankingPartyName(acc.owner)"></td>
+              <td x-text="(acc.custodian && (acc.custodian.label || acc.custodian.kind)) || '—'"></td>
+              <td class="text-right" x-text="(acc.balanceGp||0).toLocaleString() + ' gp'"></td>
+              <td x-text="acc.status"></td>
+              <td>
+                <button x-show="acc.status === 'open'" @click="bankingDeposit(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-green-100 hover:bg-green-200 text-xs">Deposit</button>
+                <button x-show="acc.status === 'open'" @click="bankingWithdraw(acc.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Withdraw</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+  </div>
+
+</div>
+<div x-show="currentView === 'magic-items'" class="p-4" x-cloak>
+  <div class="vellum border border-ink rounded p-4">
+    <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
+      <h3 class="font-bold text-lg">🪄 Magic Items <span class="text-sm opacity-70 font-normal" x-text="'· ' + magicItemList().length + ' notable'"></span></h3>
+      <div class="flex gap-2 items-center text-sm flex-wrap">
+        <select x-model="magicItemAddKey" class="text-sm">
+          <option value="">+ Add from catalog…</option>
+          <template x-for="e in magicItemCatalogList()" :key="e.key">
+            <option :value="e.key" x-text="e.name + ' (' + e.rarity + ', ' + e.baseCost.toLocaleString() + 'gp)'"></option>
+          </template>
+        </select>
+        <select x-model="magicItemAddMakerId" class="text-sm" title="Optional maker — a created item sells at ×2 (TT p.28)">
+          <option value="">(found — no maker)</option>
+          <template x-for="c in magicItemCharacters()" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+        </select>
+        <button @click="addMagicItemFromCatalog()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Add</button>
+      </div>
+    </div>
+    <template x-if="magicItemList().length === 0">
+      <p class="text-sm italic opacity-60 py-6 text-center">No magic items yet. Add one from the catalog above (GM authoring), or promote a carried item from a character's inventory. A magic item is a <code>notableItem</code> carrying the catalog's mechanical fields + a book page-ref.</p>
+    </template>
+    <template x-if="magicItemList().length > 0">
+      <table class="bookkeeping text-sm w-full">
+        <thead><tr>
+          <th>Name</th><th>Kind</th><th>Rarity</th><th class="text-right">Base cost</th><th class="text-right">Charges</th><th>Identified</th><th class="text-right">Actions</th>
+        </tr></thead>
+        <tbody>
+          <template x-for="ni in magicItemList()" :key="ni.id">
+            <tr>
+              <td><button @click="openMagicItemDetail(ni.id)" class="underline font-semibold" x-text="ni.name || '(unnamed)'"></button></td>
+              <td x-text="ni.kind"></td>
+              <td x-text="magicItemRarityOf(ni)"></td>
+              <td class="text-right font-mono" x-text="magicItemBaseCostOf(ni)!=null ? magicItemBaseCostOf(ni).toLocaleString()+' gp' : '—'"></td>
+              <td class="text-right font-mono" x-text="magicItemChargesOf(ni)!=null ? magicItemChargesOf(ni) : '—'"></td>
+              <td class="text-sm" x-text="magicItemIdStatus(ni)"></td>
+              <td class="text-right"><button @click="openMagicItemDetail(ni.id)" class="underline">open</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </template>
+    <div class="mt-3">
+      <button @click="magicItemCatalogOpen=!magicItemCatalogOpen" class="text-sm underline" x-text="(magicItemCatalogOpen?'▾':'▸')+' Catalog ('+magicItemCatalogList().length+' archetypes)'"></button>
+      <div x-show="magicItemCatalogOpen" class="mt-2" x-cloak>
+        <table class="bookkeeping text-sm w-full">
+          <thead><tr><th>Name</th><th>Kind</th><th>Rarity</th><th class="text-right">Base cost</th><th class="text-right">Charges</th><th>Page</th></tr></thead>
+          <tbody>
+            <template x-for="e in magicItemCatalogList()" :key="e.key">
+              <tr><td x-text="e.name"></td><td x-text="e.kind"></td><td x-text="e.rarity"></td><td class="text-right font-mono" x-text="e.baseCost.toLocaleString()+' gp'"></td><td class="text-right" x-text="e.charges!=null?e.charges:'—'"></td><td x-text="e.pageRef"></td></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-sm opacity-60 mt-3 italic">The magic-item economy (#143) over <code>campaign.notableItems[]</code>: identify (5 RAW methods, rarity-gated), appraise (the TT p.28 price spread), and use charges. Buying/selling routes through the existing market verbs; item creation is Magic Research's. The catalog ships mechanical fields + a page-ref only — the effect text stays in your book.</p>
+  </div>
+
+  <!-- detail modal: appraise + identify + use-charge -->
+  <div x-show="magicItemDetailId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" x-cloak @click.self="closeMagicItemDetail()" @keydown.escape.window="closeMagicItemDetail()">
+    <div class="vellum border border-ink rounded p-4 max-w-2xl w-full max-h-[85vh] overflow-y-auto">
+      <template x-if="magicItemDetail()">
+        <div>
+          <div class="flex justify-between items-baseline mb-2">
+            <h3 class="font-bold text-lg" x-text="(magicItemDetail().name||magicItemDetail().kind)"></h3>
+            <button @click="closeMagicItemDetail()" class="text-sm underline">close ✕</button>
+          </div>
+          <p class="text-sm opacity-80 mb-3">
+            <span x-text="magicItemDetail().kind"></span> ·
+            <span x-text="magicItemRarityOf(magicItemDetail())"></span> ·
+            base <span class="font-mono" x-text="(magicItemBaseCostOf(magicItemDetail())!=null?magicItemBaseCostOf(magicItemDetail()).toLocaleString():'—')+' gp'"></span>
+            <template x-if="magicItemChargesOf(magicItemDetail())!=null"><span> · charges <span class="font-mono" x-text="magicItemChargesOf(magicItemDetail())"></span><span x-show="magicItemIsDepletedUi(magicItemDetail())" class="text-red-700"> (depleted — non-magical)</span></span></template>
+            <template x-if="magicItemDetail().intrinsic && magicItemDetail().intrinsic.pageRef"><span class="opacity-70"> · <span x-text="magicItemDetail().intrinsic.pageRef"></span></span></template>
+          </p>
+
+          <div class="flex flex-wrap gap-2 items-center text-sm mb-3">
+            <label>Character:
+              <select x-model="magicItemIdCharId" class="text-sm">
+                <option value="">(none / the party)</option>
+                <template x-for="c in magicItemCharacters()" :key="c.id"><option :value="c.id" x-text="c.name + ' (L'+(c.level||1)+')'"></option></template>
+              </select>
+            </label>
+          </div>
+
+          <div class="border border-ink/30 rounded p-2 mb-2">
+            <div class="flex justify-between items-center">
+              <strong class="text-sm">💰 Appraise</strong>
+              <button @click="runMagicItemAppraise()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-sm">Appraise</button>
+            </div>
+            <template x-if="magicItemSpread() && magicItemSpread().available">
+              <div class="text-sm mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                <span>Commission (×3): <span class="font-mono" x-text="magicItemSpread().commission.toLocaleString()+' gp'"></span></span>
+                <span>Buy (×2.25): <span class="font-mono" x-text="magicItemSpread().buy.toLocaleString()+' gp'"></span></span>
+                <span>Sell — found (×1): <span class="font-mono" x-text="magicItemSpread().sellFound.toLocaleString()+' gp'"></span></span>
+                <span>Sell — created (×2): <span class="font-mono" x-text="magicItemSpread().sellCreated.toLocaleString()+' gp'"></span></span>
+                <span>Apparent (XP): <span class="font-mono" x-text="magicItemSpread().apparentValue.toLocaleString()+' gp'"></span></span>
+                <span x-text="magicItemSpread().created ? '(provenanced → sells ×2)' : '(found → sells ×1)'"></span>
+              </div>
+            </template>
+          </div>
+
+          <div class="border border-ink/30 rounded p-2 mb-2">
+            <div class="flex flex-wrap justify-between items-center gap-2">
+              <strong class="text-sm">🔎 Identify</strong>
+              <div class="flex gap-2 items-center text-sm">
+                <select x-model="magicItemIdMethod" class="text-sm">
+                  <template x-for="m in magicItemDetailMethods()" :key="m.method">
+                    <option :value="m.method" x-text="m.label + (m.available ? (m.throw && m.successChance!=null ? ' ('+Math.round(m.successChance*100)+'%)' : '') : ' — '+m.reason)"></option>
+                  </template>
+                </select>
+                <button @click="runMagicItemIdentify()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Identify</button>
+              </div>
+            </div>
+            <template x-if="magicItemKnownList(magicItemDetail()).length">
+              <div class="text-sm mt-1">
+                <template x-for="k in magicItemKnownList(magicItemDetail())" :key="k.who">
+                  <div><span class="opacity-70" x-text="k.who+':'"></span> <span x-text="k.keys"></span></div>
+                </template>
+              </div>
+            </template>
+            <template x-if="!magicItemKnownList(magicItemDetail()).length"><p class="text-sm italic opacity-60 mt-1">Unidentified — pick a character + method (only applicable methods are offered).</p></template>
+          </div>
+
+          <template x-if="magicItemChargesOf(magicItemDetail())!=null">
+            <div class="border border-ink/30 rounded p-2 mb-2 flex justify-between items-center">
+              <strong class="text-sm">🔋 Use a charge</strong>
+              <button @click="runMagicItemUseCharge()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100 text-sm" :disabled="magicItemIsDepletedUi(magicItemDetail())">Spend 1</button>
+            </div>
+          </template>
+
+          <template x-if="magicItemResult">
+            <p class="text-sm mt-1 font-semibold" :class="magicItemResult.ok ? 'text-green-800' : 'text-red-700'" x-text="magicItemResult.msg"></p>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+<!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably. -->
+<div x-show="currentView === 'knowledge'" class="p-4" x-cloak>
+  <div class="max-w-screen-2xl mx-auto space-y-4">
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+      <h2 class="font-bold text-xl">📚 Knowledge <span class="text-sm opacity-70 font-normal">· the Lore your campaign tracks — who knows what, how reliably</span></h2>
+      <span class="text-sm opacity-70" x-text="knowledgeLoreList().length + ' fact' + (knowledgeLoreList().length===1?'':'s')"></span>
+    </div>
+
+    <!-- Record a fact -->
+    <div class="vellum border border-ink rounded p-4 space-y-2">
+      <h3 class="font-semibold">＋ Record a fact</h3>
+      <p class="text-xs opacity-70">A fact in the world (the true statement). Who holds it, and how reliably, is tracked separately below.</p>
+      <textarea x-model="knowledgeNewFact.text" rows="2" class="w-full text-sm border border-ink rounded px-2 py-1" placeholder="e.g. The Drowned Causeway holds a lizardfolk lair"></textarea>
+      <div class="flex flex-wrap gap-3 items-baseline text-sm">
+        <label class="flex items-baseline gap-1">Topic <input x-model="knowledgeNewFact.topic" class="border border-ink rounded px-2 py-1" style="min-width:9rem" placeholder="short tag"></label>
+        <label class="flex items-baseline gap-1">Kind
+          <select x-model="knowledgeNewFact.loreKind" class="border border-ink rounded px-2 py-1">
+            <template x-for="k in window.ACKS.LORE_KINDS" :key="k"><option :value="k" x-text="k"></option></template>
+          </select>
+        </label>
+        <label class="flex items-baseline gap-1">Truth
+          <select x-model="knowledgeNewFact.truthValue" class="border border-ink rounded px-2 py-1">
+            <template x-for="t in window.ACKS.LORE_TRUTH_VALUES" :key="t"><option :value="t" x-text="t"></option></template>
+          </select>
+        </label>
+        <label class="flex items-baseline gap-1">Subjects <input x-model="knowledgeNewFact.subjectIds" class="border border-ink rounded px-2 py-1" style="min-width:11rem" placeholder="entity ids, comma-separated" title="Entity ids the fact is about (a character/hex/settlement) — powers 'what is known about X'"></label>
+        <button @click="knowledgeRecordFact()" class="px-3 py-1 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Record fact</button>
+      </div>
+    </div>
+
+    <!-- Lore facts + the selected-fact detail -->
+    <div class="vellum border border-ink rounded p-4 space-y-3">
+      <h3 class="font-semibold">Lore</h3>
+      <template x-if="knowledgeLoreList().length === 0"><p class="text-sm italic opacity-60">No facts recorded yet. Record one above.</p></template>
+      <ul class="text-sm divide-y divide-ink/20" x-show="knowledgeLoreList().length">
+        <template x-for="l in knowledgeLoreList()" :key="l.id">
+          <li class="py-1.5">
+            <div class="flex justify-between items-start gap-2 cursor-pointer hover:bg-yellow-50 px-1 rounded" @click="knowledgeSelectedLoreId = (knowledgeSelectedLoreId===l.id ? null : l.id)">
+              <span>
+                <span class="font-semibold" x-text="l.text || l.topic || l.id"></span>
+                <span class="text-xs opacity-60" x-text="' · ' + l.loreKind + ' · ' + l.truthValue"></span>
+              </span>
+              <span class="text-xs shrink-0 opacity-70" x-text="knowledgeKnowersOf(l.id).length + ' know' + (knowledgeKnowersOf(l.id).length===1?'s':'')"></span>
+            </div>
+
+            <!-- selected-fact detail -->
+            <div x-show="knowledgeSelectedLoreId===l.id" class="mt-2 ml-1 pl-3 border-l-2 border-ink/30 space-y-3" x-cloak>
+              <template x-if="l.subjectIds && l.subjectIds.length"><p class="text-xs opacity-70">About: <span x-text="l.subjectIds.join(', ')"></span></p></template>
+
+              <!-- who knows this -->
+              <div>
+                <p class="text-xs font-semibold opacity-80 mb-1">Who knows this</p>
+                <template x-if="knowledgeKnowersOf(l.id).length === 0"><p class="text-xs italic opacity-60">Nobody holds this yet.</p></template>
+                <ul class="space-y-0.5">
+                  <template x-for="k in knowledgeKnowersOf(l.id)" :key="k.knowledgeId">
+                    <li class="flex items-center gap-2 text-xs">
+                      <span class="font-semibold" x-text="k.knowerKind==='character' ? knowledgeCharName(k.knowerId) : (k.knowerKind+' '+k.knowerId)"></span>
+                      <span class="px-1.5 rounded border" :class="knowledgeCertaintyClass(k.certainty)" x-text="k.certainty"></span>
+                      <span class="opacity-60" x-text="'· ' + (k.source && k.source.kind || '?') + (k.source && k.source.byId ? (' ' + knowledgeCharName(k.source.byId)) : '')"></span>
+                      <button @click="knowledgeForget(k.knowerKind, k.knowerId, l.id)" class="opacity-50 hover:opacity-100 hover:text-red-700" title="Forget (drop this record)">✕</button>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+
+              <!-- record / attempt -->
+              <div class="flex flex-wrap items-baseline gap-2 text-xs">
+                <span class="opacity-70">A knower:</span>
+                <select x-model="knowledgeLearnKnowerId" class="border border-ink rounded px-1.5 py-0.5">
+                  <option value="">— character —</option>
+                  <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option :value="c.id" x-text="c.name || c.id"></option></template>
+                </select>
+                <span class="opacity-70">learns at</span>
+                <select x-model="knowledgeLearnCertainty" class="border border-ink rounded px-1.5 py-0.5">
+                  <template x-for="c in window.ACKS.CERTAINTY_BANDS" :key="c"><option :value="c" x-text="c"></option></template>
+                </select>
+                <span class="opacity-70">via</span>
+                <select x-model="knowledgeLearnSourceKind" class="border border-ink rounded px-1.5 py-0.5">
+                  <template x-for="s in window.ACKS.LORE_SOURCE_KINDS" :key="s"><option :value="s" x-text="s"></option></template>
+                </select>
+                <button @click="knowledgeLearn()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100">Record</button>
+                <span class="opacity-40">|</span>
+                <span class="opacity-70">or roll</span>
+                <select x-model="knowledgeLearnTask" class="border border-ink rounded px-1.5 py-0.5" title="The shipped Knowledge/Loremastery proficiency throw sets the certainty">
+                  <option value="knowledge:recall">Knowledge</option>
+                  <option value="loremastery:decipher">Loremastery</option>
+                </select>
+                <button @click="knowledgeAttempt()" class="px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" title="Resolve a Knowledge/Loremastery throw — the margin sets the certainty (RR pp.9–10)">🎲 Attempt</button>
+              </div>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- What a character knows -->
+    <div class="vellum border border-ink rounded p-4 space-y-3">
+      <div class="flex flex-wrap items-baseline gap-2">
+        <h3 class="font-semibold">What a character knows</h3>
+        <select x-model="knowledgeViewCharId" class="text-sm border border-ink rounded px-2 py-1">
+          <option value="">— pick a character —</option>
+          <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option :value="c.id" x-text="c.name || c.id"></option></template>
+        </select>
+        <template x-if="knowledgeViewCharId">
+          <span class="text-sm flex items-baseline gap-1 ml-auto">tell
+            <select x-model="knowledgeShareToId" class="border border-ink rounded px-1.5 py-0.5">
+              <option value="">— someone —</option>
+              <template x-for="c in knowledgeActiveCharacters()" :key="c.id"><option x-show="c.id !== knowledgeViewCharId" :value="c.id" x-text="c.name || c.id"></option></template>
+            </select>
+          </span>
+        </template>
+      </div>
+      <template x-if="!knowledgeViewCharId"><p class="text-sm italic opacity-60">Pick a character to see their first-hand (witnessed) and second-hand (heard / learned) knowledge.</p></template>
+      <template x-if="knowledgeViewCharId">
+        <div>
+          <template x-if="knowledgeKnownByView().length === 0"><p class="text-sm italic opacity-60">They know nothing tracked yet.</p></template>
+          <ul class="text-sm divide-y divide-ink/20">
+            <template x-for="row in knowledgeKnownByView()" :key="row.firstHand ? ('fh-'+row.eventId) : ('kn-'+(row.knowledge && row.knowledge.id))">
+              <li class="py-1 flex items-center gap-2 flex-wrap">
+                <span x-text="knowledgeRowLoreText(row)" class="font-medium"></span>
+                <span class="text-xs px-1.5 rounded border" :class="knowledgeCertaintyClass(row.certainty)" x-text="row.certainty"></span>
+                <span class="text-xs px-1.5 rounded border" :class="row.firstHand ? 'border-ink/50 bg-stone-100' : 'border-ink/30 opacity-70'" x-text="row.firstHand ? '👁 first-hand' : '🗣 ' + (row.source && row.source.kind || 'recorded')"></span>
+                <template x-if="row.believedText"><span class="text-xs italic opacity-70" x-text="'— believes: “' + row.believedText + '”'"></span></template>
+                <template x-if="!row.firstHand && row.loreId">
+                  <button @click="knowledgeShareFrom(row.loreId)" class="ml-auto text-xs px-2 py-0.5 border border-ink rounded hover:bg-yellow-100" :disabled="!knowledgeShareToId" :class="!knowledgeShareToId ? 'opacity-40' : ''" title="Tell the chosen character — gossip degrades the certainty one band">🗣 Share</button>
+                </template>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+<!-- Apply-condition modal (RR pp.507–516) — the GM "apply a persistent condition" action, opened
+     from the character-sheet Conditions readout (stats tab). z-index:79 (above the character editor,
+     like the Expose-to-disease + Record-a-wound modals). The day advances it on the Day Clock — the
+     slot-59 conditions consumer (CL-3, b7-cl3 burst7). -->
+<div x-show="applyConditionModal.open" @keydown.escape.window="if(applyConditionModal.open && !$event.defaultPrevented){ closeApplyConditionModal(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeApplyConditionModal()">
+  <template x-if="applyConditionModal.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-md my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🥶 Apply a condition <span class="text-sm font-normal opacity-70">· RR pp.507–516</span></h2>
+      <button @click="closeApplyConditionModal()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <div class="vellum border border-ink/40 rounded p-2 text-sm">
+        <span class="font-semibold" x-text="applyConditionModal.charName || '(no character)'"></span>
+      </div>
+      <label class="block text-sm">Condition
+        <select x-model="applyConditionModal.conditionId" class="w-full text-sm">
+          <template x-for="cd in conditionTypeOptions()" :key="cd.id"><option :value="cd.id" x-text="cd.label"></option></template>
+        </select>
+      </label>
+      <template x-if="applyConditionDef()">
+        <p class="text-sm opacity-70" x-text="applyConditionDef().effect"></p>
+      </template>
+      <div class="wizard-submit-gate">
+        <span class="text-xs opacity-60">Advance the Day Clock to progress the condition.</span>
+        <div class="flex gap-2">
+          <button @click="closeApplyConditionModal()" class="px-4 py-1.5 border border-ink rounded hover:bg-yellow-100">Cancel</button>
+          <button @click="applyConditionRun()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-sky-300 hover:bg-sky-400">🥶 Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
+<!-- Delves D4 — the Abstract Wilderness Foray (JJ ch.13). Opened from World ▸ 🕳️ Dungeons
+     (🗺 Wilderness foray). Propose-compute-commit: resolveWildernessForay (PURE) → review /
+     ⟳ reroll → commitWildernessForay (Mortal Wounds + adventure-result + clearLair). z-index:79. -->
+<div x-show="wildForay.open" @keydown.escape.window="if(wildForay.open && !$event.defaultPrevented){ closeWildForay(); $event.preventDefault() }"
+     role="dialog" aria-modal="true" class="fixed inset-0 flex items-start justify-center overflow-y-auto p-4" style="z-index:79; background:rgba(0,0,0,.45)" x-cloak @click.self="closeWildForay()">
+  <template x-if="wildForay.open">
+  <div class="vellum border border-ink rounded shadow-lg w-full max-w-2xl my-8" style="background:#f7f1e2">
+    <div class="vellum border-b border-ink p-3 flex justify-between items-center">
+      <h2 class="font-bold text-lg">🗺 Abstract Wilderness Foray <span class="text-sm font-normal opacity-70">· JJ ch.13</span></h2>
+      <button @click="closeWildForay()" class="text-xl px-2">×</button>
+    </div>
+    <div class="p-4 space-y-3">
+      <!-- the committed summary supersedes the form -->
+      <template x-if="wildForay.lastCommit">
+        <div class="vellum border-2 border-ink rounded p-3 space-y-1">
+          <p class="font-semibold" x-text="(wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.result) ? ('Result: ' + wildForay.lastCommit.proposal.result.toUpperCase()) : 'Foray resolved'"></p>
+          <p class="text-sm" x-show="wildForay.lastCommit.lairCleared">✓ The lair was cleared — the hex is one step closer to secure (JJ p.68).</p>
+          <p class="text-sm" x-show="wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.treasureGp" x-text="'Treasure: ' + (wildForay.lastCommit.proposal ? wildForay.lastCommit.proposal.treasureGp : 0) + 'gp' + (wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.magicItemRolls ? (' · ' + wildForay.lastCommit.proposal.magicItemRolls + ' magic-item roll(s) [type ' + wildForay.lastCommit.proposal.magicItemType + ']') : '')"></p>
+          <p class="text-sm" x-show="wildForay.lastCommit.xpAwarded && wildForay.lastCommit.xpAwarded.length" x-text="(wildForay.lastCommit.proposal ? wildForay.lastCommit.proposal.combatXp : 0) + ' combat XP shared among the survivors'"></p>
+          <template x-if="wildForay.lastCommit.proposal && wildForay.lastCommit.proposal.casualties && wildForay.lastCommit.proposal.casualties.length">
+            <p class="text-sm font-semibold text-red-800" x-text="'⚑ ' + wildForay.lastCommit.proposal.casualties.length + ' adventurer(s) suffered a mortal wound.'"></p>
+          </template>
+          <div class="wizard-submit-gate"><span></span><button @click="closeWildForay()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">Done</button></div>
+        </div>
+      </template>
+
+      <template x-if="!wildForay.lastCommit">
+      <div class="space-y-3">
+        <!-- 1 · the expedition -->
+        <div>
+          <div class="wizard-step-header">1 · The expedition <span class="opacity-60 font-normal text-xs" x-text="'(expedition level ' + wildForayExpLevel() + ' · ' + wildForay.participantIds.length + ' adventurer(s))'"></span></div>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1 max-h-40 overflow-y-auto border border-ink/20 rounded p-2 text-sm">
+            <template x-for="c in wildForayCandidates()" :key="c.id">
+              <label class="flex items-center gap-1">
+                <input type="checkbox" :checked="wildForay.participantIds.includes(c.id)" @change="wildForayToggleParticipant(c.id)">
+                <span x-text="c.name + ' (L' + (c.level||1) + ')'"></span>
+              </label>
+            </template>
+            <template x-if="wildForayCandidates().length===0"><span class="opacity-60 italic col-span-2">No active characters.</span></template>
+          </div>
+        </div>
+
+        <!-- 2 · the foe -->
+        <div>
+          <div class="wizard-step-header">2 · The foe</div>
+          <div class="flex gap-3 text-sm pb-1">
+            <label class="flex items-center gap-1"><input type="radio" value="lair" x-model="wildForay.foeMode" @change="wildForay.proposal=null"> A monster lair</label>
+            <label class="flex items-center gap-1"><input type="radio" value="manual" x-model="wildForay.foeMode" @change="wildForay.proposal=null"> A wandering encounter</label>
+          </div>
+          <template x-if="wildForay.foeMode==='lair'">
+            <select x-model="wildForay.lairId" @change="wildForay.proposal=null" class="text-sm w-full">
+              <option value="">— pick an active lair —</option>
+              <template x-for="l in wildForayLairs()" :key="l.id"><option :value="l.id" :selected="wildForay.lairId === l.id" x-text="wildForayLairName(l)"></option></template>
+            </select>
+          </template>
+          <template x-if="wildForay.foeMode==='manual'">
+            <div class="flex gap-2 items-center text-sm">
+              <input type="text" x-model="wildForay.monsterKey" @input="wildForay.proposal=null" placeholder="monster catalog key (e.g. orc)" class="flex-1">
+              <span>×</span><input type="number" min="1" x-model.number="wildForay.monsterCount" @input="wildForay.proposal=null" class="w-20">
+            </div>
+          </template>
+          <template x-if="wildForayChallenge()">
+            <p class="text-xs opacity-70 pt-1" x-text="'Monster level ' + wildForayChallenge().monsterLevel + ' · XPV ' + wildForayChallenge().totalXPV + ' · quotient ' + wildForayChallenge().quotient.toFixed(2) + ' → challenge ' + (wildForayChallenge().challengeAdj>=0?'+':'') + wildForayChallenge().challengeAdj + ' step(s)'"></p>
+          </template>
+        </div>
+
+        <!-- 3 · army (optional) -->
+        <div>
+          <div class="wizard-step-header">3 · Army (optional) <span class="opacity-60 font-normal text-xs">(platoon units reduce the danger, JJ p.282)</span></div>
+          <div class="flex gap-2 items-center text-sm flex-wrap">
+            <label class="flex items-center gap-1">BR <input type="number" min="0" step="0.5" x-model.number="wildForay.armyBr" @input="wildForay.proposal=null" class="w-16"></label>
+            <span>×</span>
+            <label class="flex items-center gap-1">units <input type="number" min="0" x-model.number="wildForay.armyCount" @input="wildForay.proposal=null" class="w-16"></label>
+            <label class="flex items-center gap-1">army level <input type="number" min="1" x-model.number="wildForay.armyLevel" @input="wildForay.proposal=null" class="w-16"></label>
+          </div>
+          <template x-if="wildForayArmyPreview() && wildForayArmyPreview().participatingUnits>0">
+            <p class="text-xs opacity-70 pt-1" x-text="wildForayArmyPreview().participatingUnits + ' unit(s) participate (cap = leveled chars ≥3rd) · Army Adjustment +' + wildForayArmyPreview().rawAA + ' → modified +' + wildForayArmyPreview().modifiedAA + ' (halved ' + wildForayArmyPreview().halvings + '×)'"></p>
+          </template>
+        </div>
+
+        <!-- 4 · situational -->
+        <div>
+          <div class="wizard-step-header">4 · Situational difficulty steps <span class="opacity-60 font-normal text-xs">(GM ±, JJ p.285)</span></div>
+          <input type="number" min="-3" max="3" x-model.number="wildForay.situational" @input="wildForay.proposal=null" class="w-20 text-sm">
+        </div>
+
+        <!-- forecast -->
+        <template x-if="wildForayDifficultyPreview() && !wildForay.proposal">
+          <div class="wizard-forecast-row text-sm">
+            <span x-text="'Difficulty: ' + wildForayDifficultyPreview().difficultyLabel"></span>
+            <span class="font-mono" x-text="'roll 1d8+1d12 ' + (wildForayDifficultyPreview().modifier>=0?'+':'') + wildForayDifficultyPreview().modifier"></span>
+          </div>
+        </template>
+
+        <!-- resolve -->
+        <template x-if="!wildForay.proposal">
+          <div class="wizard-submit-gate">
+            <span class="text-xs opacity-60">Abstract Wilderness resolves the COMBAT in one roll (JJ ch.13).</span>
+            <button @click="wildForayResolve()" :disabled="!wildForayCanResolve()" :class="wildForayCanResolve()?'bg-yellow-300 hover:bg-yellow-400':'opacity-50 cursor-not-allowed'" class="px-4 py-1.5 border-2 border-ink rounded font-semibold">🎲 Resolve foray</button>
+          </div>
+        </template>
+
+        <!-- proposal review -->
+        <template x-if="wildForay.proposal">
+          <div class="vellum border border-ink/40 rounded p-3 space-y-1.5">
+            <div class="text-sm font-mono" x-text="'🎲 1d8(' + wildForay.proposal.roll.d8 + ') + 1d12(' + wildForay.proposal.roll.d12 + ') ' + (wildForay.proposal.modifier>=0?'+':'') + wildForay.proposal.modifier + ' = ' + wildForay.proposal.roll.total + ' → ' + wildForay.proposal.result.toUpperCase()"></div>
+            <details class="text-xs opacity-70"><summary>difficulty breakdown</summary>
+              <template x-for="(r,i) in wildForay.proposal.modifierBreakdown" :key="i"><div x-text="r.label + (r.value!=null ? (': ' + (r.value>=0?'+':'') + r.value) : (r.steps!=null ? (': ' + (r.steps>=0?'+':'') + r.steps + ' step(s)') : ''))"></div></template>
+            </details>
+            <p class="text-sm" x-text="(wildForay.proposal.defeated ? 'Defeated the foe' : 'The expedition is overcome') + ' · ' + wildForay.proposal.treasureGp + 'gp · ' + wildForay.proposal.combatXp + ' combat XP · scaling ×' + wildForay.proposal.scalingModifier.toFixed(2)"></p>
+            <template x-if="wildForay.proposal.casualties.length">
+              <div class="text-sm">
+                <p class="font-semibold text-red-800" x-text="'⚑ ' + wildForay.proposal.casualties.length + ' adventurer(s) suffer a mortal wound:'"></p>
+                <template x-for="cas in wildForay.proposal.casualties" :key="cas.characterId"><div class="pl-3" x-text="'• ' + cas.name + ' — ' + (cas.conditionLabel || 'wounded')"></div></template>
+                <label class="flex items-center gap-1 pt-1"><input type="checkbox" x-model="wildForay.healedToOneHp"> The party can heal / evacuate the wounded <span class="opacity-60">(else the 1–15 bands die)</span></label>
+              </div>
+            </template>
+            <template x-if="wildForay.proposal.unitCasualties && wildForay.proposal.unitCasualties.length">
+              <div class="text-sm"><template x-for="(uc,i) in wildForay.proposal.unitCasualties" :key="i"><div class="pl-3 opacity-80" x-text="'• ' + uc.label + ' — 50% casualties' + (uc.membersLost!=null ? (' (' + uc.membersLost + ' lost)') : '') + (uc.recover ? ', half recover in a week' : ', all slain')"></div></template></div>
+            </template>
+            <p class="text-xs opacity-60" x-show="wildForay.proposal.unitAttritionNote" x-text="wildForay.proposal.unitAttritionNote"></p>
+            <label class="block text-sm pt-1" x-show="wildForay.proposal.defeated && wildForay.proposal.treasureGp>0">Award treasure to
+              <select x-model="wildForay.treasureDest" class="text-sm">
+                <option value="">— first survivor's purse —</option>
+                <template x-for="id in wildForay.participantIds" :key="id"><option :value="id" x-text="wildForayCharName(id)"></option></template>
+              </select>
+            </label>
+            <div class="wizard-submit-gate">
+              <button @click="wildForayReroll()" class="px-3 py-1 border border-ink rounded hover:bg-yellow-100">⟳ Reroll</button>
+              <button @click="wildForayCommit()" class="px-4 py-1.5 border-2 border-ink rounded font-semibold bg-yellow-300 hover:bg-yellow-400">✓ Commit foray</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      </template>
+    </div>
+  </div>
+  </template>
+</div>
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -15574,6 +16303,251 @@ return {
   dayTickError:null,    // Phase 2.95 — last day-tick error string for inline display
   rawJsonError:'',toast:'',toastType:'',_toastTimer:null,
 
+  bankingSubView: 'loans',            // 'loans' | 'accounts'
+  bankLoanDebtorId: '', bankLoanCreditorId: 'bank', bankLoanAmount: '', bankLoanMarketId: '', bankLoanCollateral: false,
+  bankAcctOwnerId: '', bankAcctMarketId: '', bankAcctInitial: '',
+  bankingLoans(){ return (this.currentCampaign && this.currentCampaign.loans) || []; },
+  bankingAccounts(){ return (this.currentCampaign && this.currentCampaign.bankAccounts) || []; },
+  bankingActiveChars(){ return ((this.currentCampaign && this.currentCampaign.characters) || []).filter(c => c && c.alive !== false && c.lifecycleState !== 'deceased' && c.lifecycleState !== 'candidate'); },
+  bankingSettlements(){ return (this.currentCampaign && this.currentCampaign.settlements) || []; },
+  bankingPartyName(ref){
+    if(!ref) return '—';
+    if(ref.kind === 'character'){ const ch = ((this.currentCampaign && this.currentCampaign.characters) || []).find(x => x && x.id === ref.id); return ch ? ch.name : (ref.id || '?'); }
+    if(ref.kind === 'domain'){ const d = ((this.currentCampaign && this.currentCampaign.domains) || []).find(x => x && x.id === ref.id); return d ? d.name : (ref.id || '?'); }
+    return ref.label || ref.kind || '?';
+  },
+  bankingMarketName(id){ const s = this.bankingSettlements().find(x => x && x.id === id); return s ? s.name : '—'; },
+  bankingCapText(){ const id = this.bankLoanMarketId; if(!id || this.bankLoanCreditorId !== 'bank') return ''; return 'Market capital left here: ' + ((window.ACKS.marketCapitalRemaining(this.currentCampaign, id)) || 0).toLocaleString() + 'gp'; },
+  bankingPct(n){ return (Math.round((Number(n) || 0) * 1000) / 10) + '%'; },
+  bankingTakeLoan(){
+    if(!this.bankLoanDebtorId){ this.showToast('Pick a borrower first.'); return; }
+    const amt = Math.round(Number(this.bankLoanAmount) || 0);
+    if(amt <= 0){ this.showToast('Enter a loan amount.'); return; }
+    const isBank = (this.bankLoanCreditorId === 'bank' || !this.bankLoanCreditorId);
+    const opts = { debtor:{ kind:'character', id: this.bankLoanDebtorId }, principalGp: amt,
+      collateral: this.bankLoanCollateral ? { kind:'note', label:'collateral' } : null };
+    if(isBank){ opts.kind = 'commercial'; opts.creditor = { kind:'bank', label:'Bank' }; if(this.bankLoanMarketId) opts.marketSettlementId = this.bankLoanMarketId; }
+    else { opts.kind = 'personal'; opts.creditor = { kind:'character', id: this.bankLoanCreditorId }; }
+    const r = window.ACKS.takeLoan(this.currentCampaign, opts);
+    if(!r.ok){ this.showToast('Loan refused: ' + r.reason + (r.remaining != null ? (' (pool ' + r.remaining.toLocaleString() + 'gp left)') : ''), 4000); return; }
+    this.bankLoanAmount = ''; this.bankLoanCollateral = false;
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan issued: ' + amt.toLocaleString() + 'gp.');
+  },
+  bankingRepay(loanId){
+    const loan = this.bankingLoans().find(l => l && l.id === loanId); if(!loan) return;
+    const raw = window.prompt('Repay how much? (blank = full balance ' + (loan.balanceGp || 0).toLocaleString() + 'gp)', String(loan.balanceGp || 0));
+    if(raw === null) return;
+    const opts = {}; const n = Math.round(Number(raw) || 0); if(String(raw).trim() !== '' && n > 0) opts.amount = n;
+    const r = window.ACKS.repayLoan(this.currentCampaign, loanId, opts);
+    if(!r.ok){ this.showToast('Repayment failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Repaid ' + (r.paid || 0).toLocaleString() + 'gp' + (loan.status === 'repaid' ? ' — settled.' : '.'));
+  },
+  bankingOpenAccount(){
+    if(!this.bankAcctOwnerId){ this.showToast('Pick an account owner first.'); return; }
+    const opts = { owner:{ kind:'character', id: this.bankAcctOwnerId } };
+    if(this.bankAcctMarketId){ opts.marketSettlementId = this.bankAcctMarketId; opts.custodian = { kind:'bank', label:'Bank', marketSettlementId: this.bankAcctMarketId }; }
+    const init = Math.round(Number(this.bankAcctInitial) || 0); if(init > 0) opts.initialDepositGp = init;
+    const r = window.ACKS.openBankAccount(this.currentCampaign, opts);
+    if(!r.ok){ this.showToast('Could not open account: ' + r.reason, 4000); return; }
+    this.bankAcctInitial = '';
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Bank account opened.');
+  },
+  bankingDeposit(accId){
+    const raw = window.prompt('Deposit how much gp?'); if(raw === null) return;
+    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
+    const r = window.ACKS.depositToBankAccount(this.currentCampaign, accId, n, {});
+    if(!r.ok){ this.showToast('Deposit failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Deposited ' + n.toLocaleString() + 'gp.');
+  },
+  bankingWithdraw(accId){
+    const raw = window.prompt('Withdraw how much gp?'); if(raw === null) return;
+    const n = Math.round(Number(raw) || 0); if(n <= 0) return;
+    const r = window.ACKS.withdrawFromBankAccount(this.currentCampaign, accId, n, {});
+    if(!r.ok){ this.showToast('Withdrawal failed: ' + r.reason, 4000); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Withdrew ' + n.toLocaleString() + 'gp.');
+  },
+  magicItemAddKey: '', magicItemAddMakerId: '', magicItemDetailId: null,
+  magicItemIdCharId: '', magicItemIdMethod: 'equip', magicItemResult: null, magicItemCatalogOpen: false,
+  magicItemList(){ return (this.currentCampaign && this.currentCampaign.notableItems) || []; },
+  magicItemCatalogList(){ return (window.ACKS.magicItemCatalog && window.ACKS.magicItemCatalog()) || []; },
+  magicItemCharacters(){ return (this.currentCampaign && this.currentCampaign.characters) || []; },
+  magicItemRarityOf(ni){ const A=window.ACKS; const bc=A.magicItemBaseCost(this.currentCampaign, ni); return (ni && ni.intrinsic && ni.intrinsic.rarity) || (bc!=null ? A.magicItemRarity(bc) : '—'); },
+  magicItemBaseCostOf(ni){ const bc=window.ACKS.magicItemBaseCost(this.currentCampaign, ni); return bc!=null ? bc : null; },
+  magicItemChargesOf(ni){ return window.ACKS.magicItemCharges(this.currentCampaign, ni); },
+  magicItemIsDepletedUi(ni){ return window.ACKS.magicItemIsDepleted(ni); },
+  magicItemIdStatus(ni){ const A=window.ACKS; const m=(ni && ni.identification && ni.identification.knownProperties)||{}; const ids=Object.keys(m); if(!ids.length) return 'unidentified'; return ids.some(cid=>A.isItemFullyIdentifiedBy(ni, cid)) ? 'fully identified' : 'partly identified'; },
+  addMagicItemFromCatalog(){ const A=window.ACKS, key=this.magicItemAddKey; if(!key){ this.showToast('Pick a catalog item first.', 2500); return; } const ni=A.createNotableFromCatalog(this.currentCampaign, key, this.magicItemAddMakerId ? { makerCharacterId:this.magicItemAddMakerId } : {}); if(!ni){ this.showToast('Could not create that item.', 3000); return; } this.magicItemAddKey=''; this.magicItemAddMakerId=''; this.markDirty(); this.schedulePersist(); this.showToast('Added '+(ni.name||ni.kind)+'.', 3000); this.openMagicItemDetail(ni.id); },
+  openMagicItemDetail(id){ this.magicItemDetailId=id; this.magicItemResult=null; this.magicItemIdCharId=''; this.magicItemIdMethod='equip'; },
+  closeMagicItemDetail(){ this.magicItemDetailId=null; this.magicItemResult=null; },
+  magicItemDetail(){ const id=this.magicItemDetailId; if(!id) return null; return this.magicItemList().find(n=>n && n.id===id) || null; },
+  magicItemSpread(){ const ni=this.magicItemDetail(); return ni ? window.ACKS.magicItemPriceSpread(this.currentCampaign, ni) : null; },
+  magicItemDetailMethods(){ const ni=this.magicItemDetail(); if(!ni) return []; const ch=this.magicItemIdCharId ? this.magicItemCharacters().find(c=>c.id===this.magicItemIdCharId) : null; return window.ACKS.magicItemIdMethodsFor(this.currentCampaign, ni, ch); },
+  magicItemKnownList(ni){ if(!ni || !ni.identification || !ni.identification.knownProperties) return []; const m=ni.identification.knownProperties, out=[]; Object.keys(m).forEach(cid=>{ const c=this.magicItemCharacters().find(x=>x.id===cid); out.push({ who:(c&&c.name)||cid, keys:(m[cid]||[]).join(', ') }); }); return out; },
+  runMagicItemAppraise(){ const ni=this.magicItemDetail(); if(!ni) return; const r=window.ACKS.appraiseMagicItem(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId||null }); this.markDirty(); this.schedulePersist(); this.magicItemResult = r.ok ? { ok:true, msg:'Appraised: '+r.spread.rarityLabel+', base '+r.spread.baseCost+'gp · buy ~'+r.spread.buy+' · sell ~'+r.spread.sell+' · commission ~'+r.spread.commission } : { ok:false, msg:'Appraise failed: '+r.error }; this.showToast('Appraised '+(ni.name||ni.kind)+'.', 2500); },
+  runMagicItemIdentify(){ const ni=this.magicItemDetail(); if(!ni) return; if(!this.magicItemIdCharId){ this.showToast('Pick a character to identify.', 2500); return; } const r=window.ACKS.identifyMagicItem(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId, method:this.magicItemIdMethod }); if(!r.ok){ this.magicItemResult={ ok:false, msg:'Cannot identify: '+(r.error||'unavailable') }; return; } this.markDirty(); this.schedulePersist(); this.magicItemResult = { ok:r.success, msg: r.success ? ('Identified — learned: '+((r.learned&&r.learned.join(', '))||'(already known)')) : 'Identification FAILED — no retry until this character gains a level.' }; this.showToast(r.success?'Identified.':'Identification failed.', 2500); },
+  runMagicItemUseCharge(){ const ni=this.magicItemDetail(); if(!ni) return; const r=window.ACKS.useMagicItemCharge(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId||null, count:1 }); if(!r.ok){ this.magicItemResult={ ok:false, msg:'Cannot use a charge: '+r.error }; return; } this.markDirty(); this.schedulePersist(); this.magicItemResult = { ok:true, msg:'Spent 1 charge ('+r.chargesAfter+' left)'+(r.depleted?' — depleted; now non-magical.':'.') }; this.showToast('Charge spent.', 2000); },
+  // ─── 📚 Knowledge Layer Wave A (team burst7) — the Lore tab (who-knows-what over the eventLog) ───
+  knowledgeSelectedLoreId: null,
+  knowledgeNewFact: { text:'', topic:'', loreKind:'fact', truthValue:'unknown', subjectIds:'' },
+  knowledgeLearnKnowerId: '',
+  knowledgeLearnCertainty: 'suspected',
+  knowledgeLearnSourceKind: 'told-by',
+  knowledgeLearnTask: 'knowledge:recall',
+  knowledgeViewCharId: '',
+  knowledgeShareToId: '',
+  knowledgeLoreList(){ return (this.currentCampaign && this.currentCampaign.lore) || []; },
+  knowledgeSelectedLore(){ return this.knowledgeSelectedLoreId ? window.ACKS.findLore(this.currentCampaign, this.knowledgeSelectedLoreId) : null; },
+  knowledgeCharName(id){ if(!id) return '—'; const cs=(this.currentCampaign && this.currentCampaign.characters)||[]; const c=cs.find(x=>x&&x.id===id); return (c&&c.name)||id; },
+  knowledgeActiveCharacters(){ return ((this.currentCampaign && this.currentCampaign.characters)||[]).filter(c=>c && c.alive !== false); },
+  knowledgeKnowersOf(loreId){ return loreId ? window.ACKS.loreKnowers(this.currentCampaign, loreId) : []; },
+  knowledgeCertaintyClass(c){ return ({ certain:'text-green-800 border-green-700 bg-green-50', probable:'text-sky-800 border-sky-700 bg-sky-50', suspected:'text-amber-800 border-amber-700 bg-amber-50', rumored:'opacity-70 border-ink/40' })[c] || 'opacity-70 border-ink/40'; },
+  knowledgeKnownByView(){ return this.knowledgeViewCharId ? window.ACKS.loreKnownBy(this.currentCampaign, 'character', this.knowledgeViewCharId) : []; },
+  knowledgeRowLoreText(row){ const l = row && (row.lore || (row.loreId ? window.ACKS.findLore(this.currentCampaign, row.loreId) : null)); if(l) return l.topic || l.text || l.id; return (row && row.text) || (row && row.kind) || '(event)'; },
+  knowledgeRecordFact(){
+    const f = this.knowledgeNewFact;
+    if(!f.text || !f.text.trim()){ this.showToast('Fact text is required.', 3000); return; }
+    const subjects = (f.subjectIds||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const lore = window.ACKS.recordLore(this.currentCampaign, { text:f.text.trim(), topic:(f.topic||'').trim(), loreKind:f.loreKind, truthValue:f.truthValue, subjectIds:subjects });
+    this.knowledgeNewFact = { text:'', topic:'', loreKind:'fact', truthValue:'unknown', subjectIds:'' };
+    if(lore) this.knowledgeSelectedLoreId = lore.id;
+    this.markDirty(); this.schedulePersist(); this.showToast('Fact recorded.', 2500);
+  },
+  knowledgeLearn(){
+    if(!this.knowledgeSelectedLoreId || !this.knowledgeLearnKnowerId){ this.showToast('Pick a fact and a knower.', 3000); return; }
+    const r = window.ACKS.learnLore(this.currentCampaign, { knowerId:this.knowledgeLearnKnowerId, loreId:this.knowledgeSelectedLoreId, certainty:this.knowledgeLearnCertainty, source:{ kind:this.knowledgeLearnSourceKind, byId:null } });
+    if(!r.ok){ this.showToast('Could not record: '+(r.reason||'?'), 3500); return; }
+    this.markDirty(); this.schedulePersist(); this.showToast(this.knowledgeCharName(this.knowledgeLearnKnowerId)+' now knows it ('+r.knowledge.certainty+').', 3000);
+  },
+  knowledgeAttempt(){
+    if(!this.knowledgeSelectedLoreId || !this.knowledgeLearnKnowerId){ this.showToast('Pick a fact and a knower.', 3000); return; }
+    const r = window.ACKS.attemptLearnLore(this.currentCampaign, { knowerId:this.knowledgeLearnKnowerId, loreId:this.knowledgeSelectedLoreId, proficiencyTask:this.knowledgeLearnTask });
+    if(!r.ok){ this.showToast('Could not attempt: '+(r.reason||'?'), 3500); return; }
+    const t=r.throw; const rollTxt = (t && typeof t.natural==='number') ? (' (🎲 '+t.natural+(t.resolvedTarget!=null?(' vs '+t.resolvedTarget+'+'):'')+')') : (t && t.unavailable ? ' (no relevant proficiency)' : '');
+    this.markDirty(); this.schedulePersist(); this.showToast(this.knowledgeCharName(this.knowledgeLearnKnowerId)+' → '+r.certainty+rollTxt, 4500);
+  },
+  knowledgeForget(knowerKind, knowerId, loreId){
+    if(window.ACKS.forgetLore(this.currentCampaign, { knowerKind, knowerId, loreId })){ this.markDirty(); this.schedulePersist(); this.showToast('Forgotten.', 2000); }
+  },
+  knowledgeShareFrom(loreId){
+    if(!this.knowledgeViewCharId || !this.knowledgeShareToId){ this.showToast('Pick someone to tell.', 3000); return; }
+    const r = window.ACKS.shareLore(this.currentCampaign, { fromKnowerId:this.knowledgeViewCharId, toKnowerId:this.knowledgeShareToId, loreId });
+    if(!r.ok){ this.showToast('Could not share: '+(r.reason==='teller-does-not-know'?'they don’t hold this as a tracked fact':(r.reason||'?')), 3500); return; }
+    this.markDirty(); this.schedulePersist(); this.showToast('Told '+this.knowledgeCharName(this.knowledgeShareToId)+' ('+r.sharedCertainty+').', 3000);
+  },
+  // Character Lifecycle CL-3 — persistent conditions (RR pp.507–516). The character-sheet Conditions
+  // readout + the Apply-condition modal. The engine (applyCondition / clearCondition + the slot-59
+  // conditions day-consumer) lives in acks-engine-lifecycle.js; these are thin wrappers + modal state.
+  // Mutations go through the engine verbs (which find the live character on currentCampaign), so the
+  // readout re-renders like the Wounds (D1) + Diseases (CL-2) readouts beside it.
+  characterConditionRows(ch){
+    const A = window.ACKS;
+    if(!ch || !A || typeof A.characterConditionInfo !== 'function') return [];
+    return A.characterConditionInfo(ch).conditions || [];
+  },
+  conditionTypeOptions(){ return (window.ACKS && window.ACKS.PERSISTENT_CONDITIONS) || []; },
+  applyConditionModal: { open:false, characterId:null, charName:'', conditionId:'hypothermic' },
+  applyConditionDef(){
+    const A = window.ACKS;
+    return (A && typeof A.persistentConditionById === 'function') ? A.persistentConditionById(this.applyConditionModal.conditionId) : null;
+  },
+  openApplyConditionModal(ch){
+    if(!ch) return;
+    this.applyConditionModal = { open:true, characterId:ch.id, charName:ch.name, conditionId:'hypothermic' };
+  },
+  closeApplyConditionModal(){ this.applyConditionModal.open = false; },
+  applyConditionRun(){
+    const m = this.applyConditionModal; const camp = this.currentCampaign;
+    if(!camp){ this.showToast('No campaign loaded.'); return; }
+    try {
+      const r = window.ACKS.applyCondition(camp, m.characterId, m.conditionId);
+      if(r){ this.showToast('🥶 ' + m.charName + ' is ' + (r.conditionLabel || m.conditionId).toLowerCase() + '.', 4000); this.markDirty(); this.schedulePersist(); }
+      else { this.showToast('Could not apply that condition.'); }
+      this.closeApplyConditionModal();
+    } catch(e){ this.showToast('Apply failed: ' + e.message); }
+  },
+  clearConditionRow(ch, cond){
+    const camp = this.currentCampaign; if(!camp || !ch || !cond) return;
+    // Hypothermia: warming ends it (effective CON returns). Enervation: ending it stops the daily saves;
+    // the drained max hp is permanent (RR — restored only by Restore Life & Limb, a future wire).
+    const opts = cond.condition === 'hypothermic' ? { method:'warmed' } : { method:'cured' };
+    try { const r = window.ACKS.clearCondition(camp, ch.id, cond.id, opts);
+      if(r){ this.showToast((cond.condition === 'hypothermic' ? '🔥 ' : '✚ ') + ch.name + ' is no longer ' + (cond.label || cond.condition).toLowerCase() + '.', 4000); this.markDirty(); this.schedulePersist(); } }
+    catch(e){ this.showToast('Clear failed: ' + e.message); }
+  },
+  // Delves D4 — the Abstract Wilderness foray (JJ ch.13). The most-abstract travel rung: an
+  // expedition meets a lair / wandering monster → resolve the combat on one 1d8+1d12 roll.
+  // Propose-compute-commit over ACKS.resolveWildernessForay / commitWildernessForay (Mortal
+  // Wounds + adventure-result + clearLair). Thin wrappers; the engine owns the math.
+  wildForay: { open:false, participantIds:[], foeMode:'lair', lairId:'', monsterKey:'', monsterCount:6,
+    armyBr:0, armyCount:0, armyLevel:1, situational:0, healedToOneHp:true, treasureDest:'', proposal:null, lastCommit:null },
+  openWildForay(lairId){
+    this.wildForay = { open:true, participantIds:[], foeMode:'lair', lairId: lairId || '',
+      monsterKey:'', monsterCount:6, armyBr:0, armyCount:0, armyLevel:1, situational:0,
+      healedToOneHp:true, treasureDest:'', proposal:null, lastCommit:null };
+    if(!this.wildForay.lairId){ const ls = this.wildForayLairs(); if(ls.length) this.wildForay.lairId = ls[0].id; else this.wildForay.foeMode = 'manual'; }
+  },
+  closeWildForay(){ this.wildForay = { open:false, participantIds:[], foeMode:'lair', lairId:'', monsterKey:'', monsterCount:6, armyBr:0, armyCount:0, armyLevel:1, situational:0, healedToOneHp:true, treasureDest:'', proposal:null, lastCommit:null }; },
+  wildForayCandidates(){ return (this.currentCampaign?.characters || []).filter(c => c && (window.ACKS.isActive ? window.ACKS.isActive(c) : (c.alive !== false))); },
+  wildForayLairs(){ return (this.currentCampaign?.lairs || []).filter(l => l && l.status === 'active'); },
+  wildForayToggleParticipant(id){ const i = this.wildForay.participantIds.indexOf(id); if(i >= 0) this.wildForay.participantIds.splice(i, 1); else this.wildForay.participantIds.push(id); this.wildForay.proposal = null; },
+  wildForayCharName(id){ const c = (this.currentCampaign?.characters || []).find(x => x.id === id); return c ? c.name : id; },
+  wildForayLairName(l){ const n = (window.ACKS.lairInhabitantCount) ? window.ACKS.lairInhabitantCount(this.currentCampaign, l) : (l.totalInhabitantCount || 0); return (l.name || (l.monsterCatalogKey || 'lair')) + ' · ' + n + ' inhabitant(s)'; },
+  wildForayFoeDescriptor(){
+    if(this.wildForay.foeMode === 'lair'){
+      const l = (this.currentCampaign?.lairs || []).find(x => x.id === this.wildForay.lairId); if(!l) return null;
+      let count = (window.ACKS.lairInhabitantCount) ? window.ACKS.lairInhabitantCount(this.currentCampaign, l) : 0;
+      if(!count) count = l.totalInhabitantCount || 1;
+      return { monsterCatalogKey: l.monsterCatalogKey, count, isLair: true };
+    }
+    if(!this.wildForay.monsterKey) return null;
+    return { monsterCatalogKey: this.wildForay.monsterKey, count: Math.max(1, Number(this.wildForay.monsterCount) || 1) };
+  },
+  wildForayArmyUnits(){ return (this.wildForay.armyCount > 0 && this.wildForay.armyBr > 0) ? [{ br: Number(this.wildForay.armyBr), count: Number(this.wildForay.armyCount), armyLevel: Number(this.wildForay.armyLevel) || 1 }] : []; },
+  wildForayExpLevel(){ return window.ACKS.expeditionLevel(this.currentCampaign, this.wildForay.participantIds.slice()); },
+  wildForayChallenge(){ const f = this.wildForayFoeDescriptor(); return f ? window.ACKS.challengeAdjustment(f) : null; },
+  wildForayArmyPreview(){
+    const ca = this.wildForayChallenge(); if(!ca) return null;
+    const leveled3 = this.wildForay.participantIds.map(id => (this.currentCampaign.characters || []).find(c => c.id === id)).filter(c => c && (c.level || 1) >= 3).length;
+    return window.ACKS.armyAdjustment({ platoonUnits: this.wildForayArmyUnits(), maxUnits: leveled3, monsterLevel: ca.monsterLevel, armyLevel: this.wildForay.armyLevel });
+  },
+  wildForayDifficultyPreview(){
+    const ca = this.wildForayChallenge(); if(!ca) return null; const aa = this.wildForayArmyPreview();
+    return window.ACKS.wildernessForayDifficulty({ expeditionLevel: this.wildForayExpLevel(), monsterLevel: ca.monsterLevel, challengeAdj: ca.challengeAdj, modifiedArmyAdj: aa ? aa.modifiedAA : 0, situationalSteps: Number(this.wildForay.situational) || 0 });
+  },
+  wildForayCanResolve(){ return this.wildForay.participantIds.length > 0 && !!this.wildForayFoeDescriptor(); },
+  wildForayResolveOpts(){
+    const o = { participantCharacterIds: this.wildForay.participantIds.slice(), platoonUnits: this.wildForayArmyUnits(), situationalSteps: Number(this.wildForay.situational) || 0 };
+    if(this.wildForay.foeMode === 'lair') o.lairId = this.wildForay.lairId; else o.foe = this.wildForayFoeDescriptor();
+    return o;
+  },
+  wildForayResolve(){ if(!this.wildForayCanResolve()) return; this.wildForay.proposal = window.ACKS.resolveWildernessForay(this.currentCampaign, this.wildForayResolveOpts()); this.wildForay.lastCommit = null; },
+  wildForayReroll(){ this.wildForay.proposal = null; this.wildForayResolve(); },
+  wildForayCommit(){
+    if(!this.wildForay.proposal) return;
+    const out = window.ACKS.commitWildernessForay(this.currentCampaign, this.wildForay.proposal, { participantCharacterIds: this.wildForay.participantIds.slice(), treasureDestinationCharacterId: this.wildForay.treasureDest || null, healedToOneHp: this.wildForay.healedToOneHp });
+    this.wildForay.lastCommit = out; this.wildForay.proposal = null;
+    this.markDirty(); this.schedulePersist();
+    if(this.showToast) this.showToast(out ? ('Wilderness foray — ' + (out.proposal ? out.proposal.result : 'resolved') + (out.lairCleared ? ' · lair cleared' : '')) : 'Foray resolved');
+  },
+  // Settlement Demographics SD-4 — the rural / countryside census (T2, "A Typical Hex"). Domain-scoped:
+  // the leveled NPCs across the domain's rural hexes, expected (the scaled "A Typical Hex" template) vs
+  // realized (homeHexId residents). Gated on the living-census house rule (the deep tier, like SD-3);
+  // the engine accessor (ACKS.domainRuralDemographics) is a pure derived read. Mirrors SD-1/SD-3.
+  ruralCensusOn(){ return this.isHouseRuleEnabled('living-census'); },
+  ruralCensus(){ const d=this.selectedDomain; return (d&&d.id) ? window.ACKS.domainRuralDemographics(this.currentCampaign, d) : null; },
+  ruralRosterRows(){ const c=this.ruralCensus(); if(!c) return []; return c.byLevel.filter(r => window.ACKS.DEMOGRAPHIC_BUCKETS.some(b => r[b].expected>=0.5 || r[b].realized>0)); },
+  ruralResidentsList(){ const c=this.ruralCensus(); return c ? c.residents : []; },
+  ruralHexOptions(){ const d=this.selectedDomain; if(!d||!d.id) return []; return (this.currentCampaign?.hexes||[]).filter(h => h && h.domainId===d.id && !h.settlement && !window.ACKS.settlementForHex(this.currentCampaign, h.id)); },
+  ruralAssignPick: '', ruralAssignHex: '',
+  ruralUnhomedCandidates(){ return (this.currentCampaign?.characters||[]).filter(c => !c.homeHexId && c.lifecycleState!=='deceased').sort((a,b)=>(a.name||'').localeCompare(b.name||'')); },
+  ruralAssignResident(){ const id=this.ruralAssignPick, hx=this.ruralAssignHex; if(!id||!hx) return; const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeHexId', label:'Home hex', oldValue:(c.homeHexId||null), newValue:hx}); this.ruralAssignPick=''; },
+  ruralRemoveResident(id){ const c=(this.currentCampaign?.characters||[]).find(x=>x.id===id); if(!c) return; this.commitStatEdit({entityType:'character', entityId:c.id, entity:c, fieldPath:'homeHexId', label:'Home hex', oldValue:(c.homeHexId||null), newValue:null}); },
+
   init(){
     // Expose the root Alpine proxy on `window.acksApp` so reusable sub-components
     // (e.g. editableStat) can reach the root campaign + selectedDomain reactively
@@ -15744,6 +16718,9 @@ return {
       // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
       // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
       ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
+      { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
+      { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
+      { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
@@ -26194,6 +27171,10 @@ return {
       'researchProjects',
       // Sanctums AD-B (2026-06-15) — the apprenticeship relation (L0 apprentice ↔ sanctum master) (§8.9 importer mandate)
       'apprenticeships',
+      // === Banking (team b7 2026-06-19) — Banking & Loans B1 (#148) — the shared Loan + BankAccount relations (§8.9 importer mandate)
+      'loans', 'bankAccounts',
+      // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore facts + the per-knower Knowledge relation (§8.9 importer mandate)
+      'lore', 'knowledge',
     ];
     // eventLog has 'id' inside event.id (one level nested). We skip wrap mismatch for now; handled inline below.
 
@@ -26289,7 +27270,8 @@ return {
       attunements:'attunement', settlementVisits:'settlement visit',
       oaths:'oath', vagaryOfIncursionEvents:'incursion event', eventLog:'event-log entry',
       units:'unit', armies:'army',
-      researchProjects:'research project', apprenticeships:'apprenticeship'
+      researchProjects:'research project', apprenticeships:'apprenticeship',
+      loans:'loan', bankAccounts:'bank account'
     };
     const parts = [];
     for(const [key, n] of Object.entries(counts)){
