@@ -1,6 +1,14 @@
-/* tests/lifecycle.smoke.js — Character Lifecycle CL-1 aging (RR p.19) + CL-2 disease (JJ p.84).
+/* tests/lifecycle.smoke.js — Character Lifecycle CL-1 aging (RR p.19) + CL-2 disease (JJ p.84)
+ *   + CL-3 persistent conditions (RR pp.507–516).
  *
  *   node tests/lifecycle.smoke.js   (or via `npm test`)
+ *
+ * CL-3 locks the §6 persistent-vs-combat-round classification (the doctrine made data), the two
+ * unhomed persistent conditions (hypothermic 1d3 CON/exposure-day → death at 0 effective CON, ends
+ * by warming; enervated daily Death save → −1 max hp on a fail, 3 successes end it, death at 0 max hp),
+ * the apply/clear verbs (no stacking, warm/restore), the seeded slot-59 day-consumer (the
+ * propose-mutates-nothing + stable-preview discipline + the full proposeDayTick→commitDayTick
+ * pipeline), the reads, the two record-only events, and the migrate-no-op (the demo carries none).
  *
  * Locks the RR p.19 RAW: the five age-category boundaries per race (incl. the ageless
  * Elf/Nobiran + the open-ended-past-maximum band), the progressive attribute adjustments on
@@ -429,6 +437,180 @@ section('CL-2 disease — migrate-no-op (the demo carries no diseases)');
   const elBefore = demo.eventLog.length;
   ACKS.advanceDiseases(demo, 5);
   ok('advancing diseases on the demo is a no-op (no disease events)', demo.eventLog.length===elBefore && !demo.eventLog.some(e=>e.event.kind && /disease/.test(e.event.kind)));
+}
+
+// =============================================================================
+// CL-3 — persistent conditions (RR pp.507–516). Locks the §6 classification (only hypothermic +
+// enervated are unhomed → CL-3; the rest are Provisioning/D1/CL-2; combat-round conditions are
+// Combat #140, out of scope), the apply/clear verbs, the seeded slot-59 day-consumer, the reads,
+// the two events, and the migrate-no-op.
+// =============================================================================
+section('CL-3 conditions — data layer + registries');
+{
+  ok('PERSISTENT_CONDITIONS homes exactly hypothermic + enervated', ACKS.PERSISTENT_CONDITIONS.length===2 && !!ACKS.persistentConditionById('hypothermic') && !!ACKS.persistentConditionById('enervated'));
+  ok('persistentConditionById returns null for a combat-round condition', ACKS.persistentConditionById('blinded')===null);
+  const cl3 = ACKS.CONDITION_CLASSIFICATION.persistent.filter(p=>p.home==='cl3').map(p=>p.id);
+  ok('the §6 classification marks hypothermic + enervated as cl3-homed', cl3.length===2 && cl3.indexOf('hypothermic')>=0 && cl3.indexOf('enervated')>=0);
+  ok('the persistent set cross-refs the already-homed conditions', ACKS.CONDITION_CLASSIFICATION.persistent.some(p=>p.id==='dehydrated'&&p.home==='provisioning') && ACKS.CONDITION_CLASSIFICATION.persistent.some(p=>p.id==='symptomatic'&&p.home==='cl2-disease') && ACKS.CONDITION_CLASSIFICATION.persistent.some(p=>p.id==='mortally-wounded'&&p.home==='delves-d1'));
+  ok('combat-round conditions are OUT of scope (→ Combat #140) + exclude the CL-3 pair', ACKS.CONDITION_CLASSIFICATION.combatRoundOutOfScope.indexOf('blinded')>=0 && ACKS.CONDITION_CLASSIFICATION.combatRoundOutOfScope.indexOf('webbed')>=0 && ACKS.CONDITION_CLASSIFICATION.combatRoundOutOfScope.indexOf('hypothermic')<0);
+}
+ok("event kind 'condition-applied' is registered", ACKS.isEventKindKnown('condition-applied'));
+ok("event kind 'condition-cleared' is registered", ACKS.isEventKindKnown('condition-cleared'));
+ok('both condition events opt out of the Event Wizard', !ACKS.isWizardEmittable('condition-applied') && !ACKS.isWizardEmittable('condition-cleared'));
+ok('exports the condition verbs + reads + consumer', typeof ACKS.applyCondition==='function' && typeof ACKS.clearCondition==='function' && typeof ACKS.characterConditionInfo==='function' && typeof ACKS.characterEffectiveCon==='function' && typeof ACKS.anyConditioned==='function' && typeof ACKS.proposeConditionDay==='function' && typeof ACKS.advanceConditions==='function');
+ok('blankCharacter does NOT seed conditions (init-on-write → migrate-no-op)', ACKS.blankCharacter({}).conditions === undefined);
+
+section('CL-3 conditions — applyCondition (RR pp.507–516)');
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Frostbit', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:12,CHA:10} });
+  ok('a fresh character has no conditions[] (init-on-write)', ch.conditions === undefined);
+  const rec = ACKS.applyCondition(c, ch.id, 'hypothermic');
+  ok('applyCondition pushes a record + emits condition-applied', Array.isArray(ch.conditions) && ch.conditions.length===1 && rec.condition==='hypothermic' && rec.conLost===0 && rec.conBase===12 && c.eventLog.some(e=>e.event.kind==='condition-applied'));
+  ok('the condition-applied event carries the subject context', (()=>{ const e=c.eventLog.find(x=>x.event.kind==='condition-applied'); return e && e.event.context.relatedEntities[0].id===ch.id && e.event.context.relatedEntities[0].role==='subject'; })());
+  const same = ACKS.applyCondition(c, ch.id, 'hypothermic');
+  ok('applyCondition does NOT stack a duplicate (returns the active instance)', same===rec && ch.conditions.length===1 && c.eventLog.filter(e=>e.event.kind==='condition-applied').length===1);
+  ok('applyCondition returns null for an unknown condition', ACKS.applyCondition(c, ch.id, 'blinded')===null);
+}
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Drained', savingThrows:{death:15} });
+  const rec = ACKS.applyCondition(c, ch.id, 'enervated');
+  ok('applyCondition(enervated) seeds successes:0 + maxHpLost:0', rec.condition==='enervated' && rec.successes===0 && rec.maxHpLost===0);
+  ch.lifecycleState='deceased'; ch.alive=false;
+  ok('applyCondition on a deceased character → null', ACKS.applyCondition(c, ch.id, 'hypothermic')===null);
+}
+
+section('CL-3 conditions — clearCondition (warm / restore, RR pp.507–516)');
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Warmed', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:12,CHA:10} });
+  ACKS.applyCondition(c, ch.id, 'hypothermic');
+  ACKS.commitConditionRecord(c, ACKS.proposeConditionDay(c, { rng:()=>0.99 }).pendingRecords[0]); // 1d3=3 → conLost 3
+  ok('effective CON drops while hypothermic', ACKS.characterEffectiveCon(ch)===9);
+  const cl = ACKS.clearCondition(c, ch.id, 'hypothermic', { method:'warmed' });
+  ok('warming resolves the condition + restores effective CON', cl.resolved===true && cl.clearedReason==='warmed' && ACKS.characterEffectiveCon(ch)===12 && c.eventLog.some(e=>e.event.kind==='condition-cleared' && e.event.payload.outcome==='warmed'));
+  ok('clearCondition on a bad ref → null', ACKS.clearCondition(c, ch.id, 'no-such-id')===null);
+}
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Restored', savingThrows:{death:15}, extra:{ hp:{ current:18, max:18, hitDice:'3d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  ACKS.commitConditionRecord(c, ACKS.proposeConditionDay(c, { rng:()=>0.0 }).pendingRecords[0]); // nat-1 fail → −1 max hp
+  ok('enervation drains a max hp on a fail', ch.hp.max===17 && ch.conditions[0].maxHpLost===1);
+  ACKS.clearCondition(c, ch.id, 'enervated', { method:'restore', restoreMaxHp:true });
+  ok('clear with restoreMaxHp gives the drained max hp back', ch.hp.max===18 && ch.conditions[0].maxHpLost===0);
+}
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Permadrain', savingThrows:{death:15}, extra:{ hp:{ current:18, max:18, hitDice:'3d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  ACKS.commitConditionRecord(c, ACKS.proposeConditionDay(c, { rng:()=>0.0 }).pendingRecords[0]);
+  ACKS.clearCondition(c, ch.id, 'enervated'); // no restoreMaxHp → the drain is permanent (RR — Restore only)
+  ok('clearing without restoreMaxHp leaves the max-hp drain permanent', ch.hp.max===17);
+}
+
+section('CL-3 conditions — hypothermia (1d3 CON/exposure-day → death at 0, RR p.510)');
+ok('slot-59 conditions day-consumer registered with the condition pause trigger', ACKS.dayConsumersInOrder().some(x=>x.name==='conditions' && x.order===59 && (x.pauseTriggers||[]).indexOf('condition')>=0));
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Chill', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:12,CHA:10} });
+  ACKS.applyCondition(c, ch.id, 'hypothermic');
+  const before = ch.conditions[0].conLost;
+  const prop = ACKS.proposeConditionDay(c, { rng:()=>0.99 }); // 1d3 → 3
+  ok('proposeConditionDay does NOT mutate + labels the record', ch.conditions[0].conLost===before && prop.pendingRecords.length===1 && prop.pendingRecords[0].conLossThisDay===3 && prop.pendingRecords[0].effConAfter===9 && /hypothermic/.test(prop.pendingRecords[0].label));
+  ok('a still-freezing day raises a transient pause notable (deadly)', prop.notableEvents.some(e=>e.pauseTrigger==='condition' && e.transient));
+  ACKS.commitConditionRecord(c, prop.pendingRecords[0]);
+  ok('commit applies the CON drain (effective CON 9)', ch.conditions[0].conLost===3 && ACKS.characterEffectiveCon(ch)===9);
+}
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Freezing', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:3,CHA:10} });
+  ACKS.applyCondition(c, ch.id, 'hypothermic');
+  const prop = ACKS.proposeConditionDay(c, { rng:()=>0.99 }); // 1d3=3 → effCon 3−3 = 0 → death
+  ok('effective CON dropping to 0 → outcome died + a condition-cleared death notable', prop.pendingRecords[0].outcome==='died' && prop.notableEvents.some(e=>e.kind==='condition-cleared' && e.payload.died===true));
+  ACKS.commitConditionRecord(c, prop.pendingRecords[0]);
+  ok('commit → deceased + alive:false', ch.lifecycleState==='deceased' && ch.alive===false && ch.conditions[0].resolved===true);
+}
+
+section('CL-3 conditions — enervation (daily Death save → −1 max hp; 3 saves end it, RR p.508)');
+{
+  // nat-1 always fails (RR pp.9–10) even against a trivially low target.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'NatOne', savingThrows:{death:2}, extra:{ hp:{ current:10, max:10, hitDice:'2d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  const prop = ACKS.proposeConditionDay(c, { rng:()=>0.0 }); // roll 1 → auto-fail
+  ok('a natural 1 fails the enervation save even vs a 2+ target', prop.pendingRecords[0].saveRoll===1 && prop.pendingRecords[0].saved===false && prop.pendingRecords[0].maxHpLostAfter===1 && prop.pendingRecords[0].hpMaxAfter===9);
+  ok('a failed save raises a max-hp-drain pause notable', prop.notableEvents.some(e=>e.pauseTrigger==='condition' && /maximum hp/.test(e.label)));
+  ACKS.commitConditionRecord(c, prop.pendingRecords[0]);
+  ok('commit drops max hp + clamps current', ch.hp.max===9 && ch.hp.current<=9 && ch.conditions[0].maxHpLost===1);
+}
+{
+  // three successful saves end it.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Survivor', savingThrows:{death:15}, extra:{ hp:{ current:20, max:20, hitDice:'4d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  ACKS.advanceConditions(c, 2, { rng:()=>0.99 }); // 2 successes (roll 20)
+  ok('two successes do NOT yet end it (no pause, routine progress)', ch.conditions[0].successes===2 && ch.conditions[0].resolved!==true);
+  const p3 = ACKS.proposeConditionDay(c, { rng:()=>0.99 });
+  ok('the 3rd success → recovered + a recovery notable', p3.pendingRecords[0].outcome==='recovered' && p3.notableEvents.some(e=>e.kind==='condition-cleared' && e.payload.outcome==='recovered'));
+  ACKS.commitConditionRecord(c, p3.pendingRecords[0]);
+  ok('commit resolves the condition (max hp intact — all saves made)', ch.conditions[0].resolved===true && ch.hp.max===20);
+}
+{
+  // a routine (non-final) success raises NO pause notable (the disease-countdown idiom).
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Routine', savingThrows:{death:15}, extra:{ hp:{ current:20, max:20, hitDice:'4d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  const prop = ACKS.proposeConditionDay(c, { rng:()=>0.99 });
+  ok('a routine save success records progress without a pause notable', prop.pendingRecords[0].saved===true && prop.pendingRecords[0].successesAfter===1 && prop.notableEvents.length===0);
+}
+{
+  // 0 max hp → death.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Brink', savingThrows:{death:15}, extra:{ hp:{ current:1, max:1, hitDice:'1d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  const prop = ACKS.proposeConditionDay(c, { rng:()=>0.0 }); // fail → max 1−1 = 0 → death
+  ok('draining to 0 max hp → outcome died', prop.pendingRecords[0].outcome==='died' && prop.notableEvents.some(e=>e.kind==='condition-cleared' && e.payload.died===true));
+  ACKS.commitConditionRecord(c, prop.pendingRecords[0]);
+  ok('commit → deceased', ch.lifecycleState==='deceased' && ch.alive===false);
+}
+
+section('CL-3 conditions — the reads + anyConditioned');
+{
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Reader', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:12,CHA:10}, savingThrows:{death:15}, extra:{ hp:{ current:20, max:20, hitDice:'4d8' } } });
+  ok('anyConditioned false on a clean campaign', ACKS.anyConditioned(c)===false);
+  ACKS.applyCondition(c, ch.id, 'hypothermic');
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  ACKS.commitConditionRecord(c, ACKS.proposeConditionDay(c, { rng:()=>0.99 }).pendingRecords.find(r=>r.conditionKind==='hypothermic')); // drain 3
+  ok('anyConditioned true once a condition is active', ACKS.anyConditioned(c)===true);
+  const info = ACKS.characterConditionInfo(ch);
+  ok('characterConditionInfo reports count + flags + effective CON + danger lines', info.count===2 && info.hypothermic===true && info.enervated===true && info.effectiveCon===9 && info.conditions.every(x=>typeof x.dangerLine==='string'));
+  ok('characterEffectiveCon = base − the hypothermia drain', ACKS.characterEffectiveCon(ch)===9);
+}
+
+section('CL-3 conditions — the slot-59 day-tick pipeline + stable preview');
+{
+  // the full propose→commit pipeline emits condition-cleared (died) with the subject hex context.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Exposed', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:3,CHA:10}, hexId:'hex-b' });
+  ACKS.applyCondition(c, ch.id, 'hypothermic');
+  ACKS.commitDayTick(c, ACKS.proposeDayTick(c, 1, { force:true, rng:()=>0.99 }), null); // 1d3=3 → effCon 0 → dies
+  ok('the day-tick pipeline emits condition-cleared (died) with the subject hex context', (()=>{ const e=c.eventLog.find(x=>x.event.kind==='condition-cleared'); return e && e.event.payload.died===true && e.event.context.primaryHexId==='hex-b' && ch.lifecycleState==='deceased'; })());
+}
+{
+  // a non-forced multi-day advance PAUSES on a condition (auto-pause-on-condition default-on).
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Pauser', abilities:{STR:10,INT:10,WIL:10,DEX:10,CON:12,CHA:10} });
+  ACKS.applyCondition(c, ch.id, 'hypothermic');
+  const p = ACKS.proposeDayTick(c, 7, {});
+  ok('a multi-day advance pauses on the condition (auto-pause-on-condition default-on)', p.paused===true && p.daysAdvanced<7 && p.pauseReasons.some(r=>r.trigger==='condition'));
+}
+{
+  // stable preview: re-proposing the SAME committed state reproduces the IDENTICAL seeded roll.
+  const c = mkCampaign(); const ch = mkChar(c, { name:'Stable', savingThrows:{death:15}, extra:{ hp:{ current:20, max:20, hitDice:'4d8' } } });
+  ACKS.applyCondition(c, ch.id, 'enervated');
+  const a = ACKS.proposeConditionDay(c, {}).pendingRecords[0].saveRoll;
+  const b = ACKS.proposeConditionDay(c, {}).pendingRecords[0].saveRoll;
+  ok('the seeded preview is stable (re-opening reproduces the same roll)', a===b && typeof a==='number');
+}
+
+section('CL-3 conditions — migrate-no-op (the demo carries no conditions)');
+{
+  require(path.join(__dirname, '..', 'acks-demo-template.js'));
+  const demo = ACKS.migrateCampaign(JSON.parse(JSON.stringify(global.ACKS_DEMO_TEMPLATE)));
+  ok('no demo character carries a conditions[] field after migrate (init-on-write)', demo.characters.every(c => c.conditions === undefined));
+  ok('anyConditioned(demo) is false', ACKS.anyConditioned(demo)===false);
+  const elBefore = demo.eventLog.length;
+  ACKS.advanceConditions(demo, 5);
+  ok('advancing conditions on the demo is a no-op (no condition events)', demo.eventLog.length===elBefore && !demo.eventLog.some(e=>e.event.kind && /condition/.test(e.event.kind)));
 }
 
 // =============================================================================
