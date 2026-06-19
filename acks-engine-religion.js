@@ -226,9 +226,22 @@
     const morale = (d.demographics && d.demographics.morale != null) ? d.demographics.morale : 0;
     return Math.floor(congregationDomainFamilies(campaign, cong) / 10) * domainWorshipRateForMorale(morale);
   }
-  // Total weekly divine power a congregation generates for its high priest (personal + domain stacking).
+  // Co-extraction (Wave E, RR p.388 — Balbus the chaplain): a divine caster ministering to a usurped
+  // settlement draws divine power at the domain-worship rate over its families. Gated on the settlement
+  // being CURRENTLY usurped (yields 0 once cleared). 🔧 v1: morale 0 flat (the worked example's basis —
+  // 200 families → 80 gp/wk); tying it to the embedding domain's morale is a noted refinement.
+  // (_findSettlement is hoisted from the Wave-E section below.)
+  function congregationUsurpedSettlementWeeklyGp(campaign, cong){
+    if(!cong || !cong.usurpedSettlementId) return 0;
+    const s = _findSettlement(campaign, cong.usurpedSettlementId);
+    if(!s || !s.arcaneUsurpedByCharacterId) return 0;
+    return Math.floor((Number(s.families) || 0) / 10) * domainWorshipRateForMorale(0);
+  }
+  // Total weekly divine power a congregation generates for its high priest (personal + domain-worship +
+  // co-extraction over a usurped settlement — all stacking, RR p.421 / p.388).
   function congregationWeeklyDivinePowerGp(campaign, cong){
-    return congregationPersonalWeeklyGp(cong) + congregationDomainWorshipWeeklyGp(campaign, cong);
+    return congregationPersonalWeeklyGp(cong) + congregationDomainWorshipWeeklyGp(campaign, cong)
+      + congregationUsurpedSettlementWeeklyGp(campaign, cong);
   }
   // Weeks of faithful maintenance credited this month (0..4). A congregation is tended as a matter
   // of course (autoMaintain, the default) unless the GM unticks it — then the GM-/day-tick-tracked
@@ -375,6 +388,8 @@
       domainWorshipDomainId: opts.domainWorshipDomainId || null,
       foundedAtTurn: campaign.currentTurn || 1
     });
+    // Co-extraction over a usurped settlement (Wave E, RR p.388) — a defensive field, not on the factory.
+    if(opts.usurpedSettlementId) cong.usurpedSettlementId = opts.usurpedSettlementId;
     if(!Array.isArray(campaign.congregations)) campaign.congregations = [];
     campaign.congregations.push(cong);
     if(opts.highPriestCharacterId && opts.deityId) ensureDivineFavor(campaign, opts.highPriestCharacterId, opts.deityId);
@@ -553,7 +568,9 @@
       if(monthly > 0 && priestId){
         const personal = congregationPersonalWeeklyGp(cong) > 0;
         const domain = congregationDomainWorshipWeeklyGp(campaign, cong) > 0;
-        const source = (domain && !personal) ? 'domain-worship' : 'congregation';
+        const coExtract = congregationUsurpedSettlementWeeklyGp(campaign, cong) > 0;
+        const source = (coExtract && !personal && !domain) ? 'co-extraction'   // Wave E (RR p.388, Balbus)
+          : (domain && !personal) ? 'domain-worship' : 'congregation';
         accrueDivinePower(campaign, priestId, monthly, source, cong.deityId,
           { accruedAtTurn: turn + 1, expiresAtTurn: turn + 2 });
         out.accruedGp += monthly;
@@ -599,6 +616,16 @@
     if(prayerAwarded && typeof A.checkAllCharacterLevelUps === 'function'){
       try { A.checkAllCharacterLevelUps(campaign); } catch(_){}
     }
+
+    // 3) Divine wrath — the consequence of arcane usurpation (RR p.388, Wave E). Escalates the gods' wrath
+    // on each usurped settlement (one GM-resolved divine-wrath manifestation per month) + fades it where the
+    // usurpation has ended. Runs after the morale/revenue passes (commitTurn settles them before this hook).
+    try {
+      const wrath = processDivineWrathForTurn(campaign, { rng });
+      (wrath.logEntries || []).forEach(l => out.logEntries.push(l));
+      out.wrathManifestations = wrath.manifestations;
+      out.wrathFaded = wrath.faded;
+    } catch(_){ /* never let the wrath pass fail the religion consumer */ }
     return out;
   }
 
@@ -753,6 +780,128 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // Religion Wave E — the divine consequence of arcane usurpation (RR p.388)
+  // ════════════════════════════════════════════════════════════════════════════
+  // The Arcane Domain's AD-F seam (acks-engine-sanctums.js) lets a mage designate a settlement his
+  // "dungeon," terrify the peasants, and extract arcane power — stamping settlement.arcaneUsurpedByCharacterId
+  // + emitting `arcane-usurpation`. This is the Religion-side CONSUMER. RR p.388: "deities … do not
+  // appreciate having their worship usurped … casters who … extract arcane power from human and demi-human
+  // realms will certainly be confronted by the servants and soldiers of the gods." The producer ships NO
+  // divine mechanics (clearArcaneUsurpation emits no event — "the divine lifecycle is Religion's").
+  //
+  // (A) Divine WRATH — RAW gives the PRINCIPLE, no mechanic (no dice/save/force) → a faithful 🔧 model:
+  // wrath escalates monthly while the usurpation persists (settlement.divineWrath — defensive, the
+  // arcaneUsurpedByCharacterId precedent: init-on-write, read defensively, NO factory/schema/migration),
+  // manifesting one GM-resolved `divine-wrath` event per month sized by the settlement's families-XP (the
+  // magnitude of the offended faithful). The engine proposes + sizes; the GM stages the confrontation (the
+  // incursion / E10-banditry idiom — principle #1). Wrath FADES once the usurpation is cleared (the gods'
+  // anger cools a step per month). Apotheosis upkeep (the seam's third item) stays R6 (the Phase 4.6 ritual).
+  //
+  // (B) Divine CO-EXTRACTION — congregationUsurpedSettlementWeeklyGp (folded into the accrual above) owns
+  // the chaplain-profits half; this section owns the wrath.
+
+  const FAMILY_XP_RELIGION = 5; // a peasant family ≈ a 0-level Man, Common (MM); mirrors sanctums' FAMILY_XP
+
+  function _settlements(campaign){ return (campaign && Array.isArray(campaign.settlements)) ? campaign.settlements : []; }
+  function _findSettlement(campaign, id){
+    if(id && typeof id === 'object') return id;
+    const A = _A();
+    if(typeof A.findSettlement === 'function'){ const s = A.findSettlement(campaign, id); if(s) return s; }
+    return _settlements(campaign).find(s => s && s.id === id) || null;
+  }
+  // The XP value of a settlement's peasant families (the offense magnitude). Prefer the producer's
+  // settlementFamiliesXp (DRY — the same FAMILY_XP basis even if it later refines), else families × 5.
+  function _settlementFamiliesXp(campaign, settlement){
+    const A = _A();
+    if(typeof A.settlementFamiliesXp === 'function') return A.settlementFamiliesXp(campaign, settlement) || 0;
+    const s = (typeof settlement === 'string') ? _findSettlement(campaign, settlement) : settlement;
+    return s ? Math.max(0, Math.round((Number(s.families) || 0) * FAMILY_XP_RELIGION)) : 0;
+  }
+  // The settlement's embedding hex (for the event's Event.context) — settlements store no hexId of their own.
+  function _settlementHexId(campaign, settlement){
+    if(settlement && settlement.hexId) return settlement.hexId;
+    const sid = settlement && settlement.id;
+    if(!sid || !campaign || !Array.isArray(campaign.hexes)) return null;
+    const h = campaign.hexes.find(x => x && ((x.settlement && x.settlement.id === sid) || x.settlementId === sid));
+    return h ? h.id : null;
+  }
+
+  // The wrath severity at a given level (RR p.388 — "the servants AND soldiers of the gods"). 🔧 escalation
+  // model: 1 = portent (a warning + a month's grace), 2 = servants, 3+ = soldiers. RAW gives the principle.
+  function wrathSeverityForLevel(level){
+    const n = Math.max(0, Math.round(Number(level) || 0));
+    if(n <= 0) return 'none';
+    if(n === 1) return 'portent';
+    if(n === 2) return 'servants';
+    return 'soldiers';
+  }
+  // The XP value of the divine retribution force the GM stages — scaled by the offense magnitude (familiesXp)
+  // and how long the usurpation has persisted (level). Level 1 = 0 (the portent + a month's grace); level 2
+  // = familiesXp (the servants come); level 3+ = familiesXp × (level − 1) (escalating soldiers). 🔧.
+  function divineWrathForceXp(familiesXp, level){
+    const fx = Math.max(0, Math.round(Number(familiesXp) || 0));
+    const n = Math.max(0, Math.round(Number(level) || 0));
+    return fx * Math.max(0, n - 1);
+  }
+  // Read a settlement's current divine-wrath state (defensive — absent ⇒ null).
+  function settlementDivineWrath(campaign, settlement){
+    const s = (typeof settlement === 'string') ? _findSettlement(campaign, settlement) : settlement;
+    return (s && s.divineWrath) || null;
+  }
+
+  // The monthly divine-wrath pass (called from processReligionForTurn). For each settlement: if currently
+  // usurped, escalate the wrath one step + manifest one GM-resolved `divine-wrath` event (sized by
+  // familiesXp); else, if it carries lingering wrath, fade it a step (cleared at 0). Returns
+  // { ran, logEntries, manifestations, faded }.
+  function processDivineWrathForTurn(campaign, options){
+    options = options || {};
+    const out = { ran: false, logEntries: [], manifestations: 0, faded: 0 };
+    if(!campaign) return out;
+    out.ran = true;
+    const turn = campaign.currentTurn || 1;
+    for(const s of _settlements(campaign)){
+      if(!s) continue;
+      const usurperId = s.arcaneUsurpedByCharacterId || null;
+      if(usurperId){
+        // Escalate (RR p.388 — the longer the usurpation persists, the harder the gods come).
+        let w = s.divineWrath;
+        if(!w || typeof w !== 'object'){ w = s.divineWrath = { level: 0, sinceTurn: turn, usurperCharacterId: usurperId, lastManifestTurn: null }; }
+        w.usurperCharacterId = usurperId;
+        w.level = Math.max(0, Number(w.level) || 0) + 1;
+        w.lastManifestTurn = turn;
+        const familiesXp = _settlementFamiliesXp(campaign, s);
+        const severity = wrathSeverityForLevel(w.level);
+        const forceXp = divineWrathForceXp(familiesXp, w.level);
+        const usurper = _findChar(campaign, usurperId);
+        const who = (usurper && usurper.name) || usurperId;
+        const sLabel = s.name || s.id;
+        const narrative = (severity === 'portent')
+          ? 'The gods stir against ' + who + '’s usurpation of ' + sLabel + ' — dire portents (RR p.388)'
+          : 'The ' + severity + ' of the gods confront ' + who + ' at ' + sLabel + ' — a divine retribution worth ' + forceXp.toLocaleString() + ' XP (RR p.388; the GM stages the confrontation)';
+        _recordReligionEvent(campaign, 'divine-wrath',
+          { settlementId: s.id, usurperCharacterId: usurperId, level: w.level, severity, familiesXp, forceXp },
+          { narrative,
+            context: { primaryHexId: _settlementHexId(campaign, s), settlementId: s.id,
+              relatedEntities: [{ kind: 'character', id: usurperId, role: 'subject' }, { kind: 'settlement', id: s.id, role: 'site' }] } });
+        out.manifestations++;
+        out.logEntries.push('⚖ Divine wrath at ' + sLabel + ': ' + severity
+          + (forceXp > 0 ? ' — a ' + forceXp.toLocaleString() + ' XP retribution confronts ' + who : ' — the gods give warning'));
+      } else if(s.divineWrath && (Number(s.divineWrath.level) || 0) > 0){
+        // The usurpation has ended — the gods' anger cools a step (cleared at 0; a quiet record).
+        s.divineWrath.level = Math.max(0, (Number(s.divineWrath.level) || 0) - 1);
+        out.faded++;
+        if(s.divineWrath.level <= 0){
+          s.divineWrath = null;
+          out.logEntries.push('⚖ The gods are appeased at ' + (s.name || s.id) + ' — the usurpation has ended');
+        } else {
+          out.logEntries.push('⚖ The gods’ wrath cools at ' + (s.name || s.id) + ' (level ' + s.divineWrath.level + ')');
+        }
+      }
+    }
+    return out;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // Religion R1.5 — the day-tick weekly grain (Phase_4_Religion_Plan.md §5.7)
   // ════════════════════════════════════════════════════════════════════════════
   // The shipped day-tick pipeline (Calendar #478) lets congregation accrual run at its true WEEKLY
@@ -858,7 +1007,10 @@
     // ── Religion R2 (team 2026-06-14) — blood sacrifice (the Chaotic path, RR pp.421–422) ──
     SACRIFICE_MULTIPLIERS, hasPowerOfSacrifice, sacrificeComponentValue, sacrificeMultiplierSum, bloodSacrifice,
     // ── Religion R1.5 (team 2026-06-14) — the day-tick weekly grain (slot 52) ──
-    proposeReligionDay, commitReligionWeek
+    proposeReligionDay, commitReligionWeek,
+    // ── Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ──
+    settlementDivineWrath, wrathSeverityForLevel, divineWrathForceXp, processDivineWrathForTurn,
+    congregationUsurpedSettlementWeeklyGp
   });
 
 })(typeof window !== 'undefined' ? window : global);
