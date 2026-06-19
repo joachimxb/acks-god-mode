@@ -678,6 +678,410 @@
     return ev;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // Delves D4 — the Abstract Wilderness foray resolver (JJ ch.13, pp.281–286).
+  //
+  // RAW: "Abstract Wilderness only abstracts the COMBAT." Movement + exploration stay the
+  // shipped Journey rules; the hexes are stocked with Lairs (LAIRS_PER_HEX). When an
+  // expedition meets a monster, group, or lair, this resolves that combat (or evasion) on a
+  // single 1d8+1d12 roll — the most-abstract rung of the travel/exploration continuum, the
+  // wilderness sibling of the D3 Abstract Dungeon foray.
+  //
+  // It REUSES the D3 spine wholesale (verified against the JJ p.283 tables):
+  //   - the Base Resolution Modifier grid is BYTE-IDENTICAL to BASE_RESOLUTION_GRID
+  //     (JJ p.283 == JJ p.275), so the base difficulty reuses that grid — but the wilderness
+  //     Challenge + Army adjustments are COLUMN shifts (a "difficulty step"), and the band
+  //     values [-8,-4,-2,0,+2,+4,+8] are NOT evenly spaced, so D4 works in COLUMN space
+  //     (_wildernessBaseCol + _bandValueForCol) rather than adding flat modifiers like D3.
+  //   - the 7-band 1d8+1d12 Resolution table is the SAME bands / woundsDie / treasurePct as
+  //     DUNGEON_RESOLUTION — reuse dungeonResolutionBand. The wilderness twist is the SCALING
+  //     MODIFIER: the rolled wounds are multiplied by (participants / 6) (JJ p.284).
+  //   - the Magic Items table is DUNGEON_MAGIC_ITEMS, keyed by MONSTER level (JJ p.284 == p.276).
+  //
+  // Casualties route through the SHIPPED Mortal Wounds resolver (D1, ACKS.rollMortalWound /
+  // applyMortalWound — the abstract subset: only CON / HD / equipment, JJ p.284). Treasure +
+  // XP realize immediately via the shipped adventure-result event (a wilderness encounter is
+  // one roll — no withdraw/clear multiplier). On-demand only: a GM-run foray (NOT a day-tick
+  // consumer; the Journey resolutionStyle swap that auto-routes a DRAWN journey encounter to
+  // this resolver lives in the journeys day-consumer — acks-engine-subsystems.js — and is
+  // DEFERRED to a future slice, out of this lane's files).
+  //
+  // All values are mechanical facts transcribed from the JJ tables (no RAW prose) — verified
+  // against the worked examples: expedition level (58/6→9, 32/6→5); the orc encounter quotient
+  // (490 XPV / 90 → 5.44 → -2; 540 → 6 → -3); the two Army-Adjustment expeditions (+3 vs ML4 →
+  // 0; +24 vs ML4 → 3; +24 vs ML1 → +2 cap); and the scaling example (8 chars + 6 units = 14
+  // participants → 2.33 × 3 wounds → 7).
+  //
+  // ⚠ One RAW-prose-vs-example discrepancy, decided + documented: the Encounter Quotient table's
+  // ">2" row reads (prose) "Divide encounter quotient by -2, round down, times -1", which
+  // computes to +3 for q=5.44 — but the WORKED EXAMPLE is explicit: "5.44 divided by 2 yields
+  // 2.72; 2.72 rounds down to 2; 2 × -1 = -2." We match the example: challengeAdj = -1 ×
+  // floor(quotient / 2). (The prose is garbled; the example governs — cartography before mechanics.)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Monster Level (JJ p.281) — the ORDINARY monster's per-creature XPV → {level, divisor}.
+  //    Printed ranges have gaps (16–19, 48–49, 151–174, 476–499, 1141–1199); a gap value folds
+  //    DOWN to the lower band (documented). Real catalog XPVs land on exact ranges, so the gap
+  //    policy never affects a tested value. ──
+  const MONSTER_LEVEL_TABLE = Object.freeze([
+    { level:1, minXpv:1,    maxXpv:15,   divisor:90 },
+    { level:2, minXpv:20,   maxXpv:47,   divisor:140 },
+    { level:3, minXpv:50,   maxXpv:150,  divisor:320 },
+    { level:4, minXpv:175,  maxXpv:475,  divisor:625 },
+    { level:5, minXpv:500,  maxXpv:1140, divisor:1835 },
+    { level:6, minXpv:1200, maxXpv:null, divisor:4795 }
+  ]);
+  function monsterLevelForXpv(xpv){
+    xpv = Math.max(0, Number(xpv) || 0);
+    let pick = MONSTER_LEVEL_TABLE[0];
+    for(const b of MONSTER_LEVEL_TABLE){
+      if(xpv >= b.minXpv && (b.maxXpv == null || xpv <= b.maxXpv)) return b;
+      if(xpv >= b.minXpv) pick = b;                 // gap fallback: highest band whose min ≤ xpv
+    }
+    return pick;
+  }
+
+  // ── Expedition level (JJ p.281): Σ levels of all leveled chars / 6, round DOWN. ──
+  function expeditionLevel(campaign, charIds){
+    const ids = Array.isArray(charIds) ? charIds : [];
+    const sum = ids.map(id => _findCharacter(campaign, id)).filter(Boolean)
+      .reduce((s, c) => s + (Number(c.level) || 1), 0);
+    return Math.floor(sum / 6);
+  }
+  // Scaling modifier (JJ p.284): participants / 6 (NOT rounded; the modified wound count rounds).
+  function expeditionScalingModifier(participantCount){
+    participantCount = Math.max(0, Number(participantCount) || 0);
+    return participantCount / 6;
+  }
+
+  // ── Encounter XPV (JJ p.281): Σ XPV of all monsters (ordinary + champions + leaders).
+  //    foe = { monsterCatalogKey, count, extras:[{key|xp, count}], ordinaryXpv? }. ──
+  function _monsterXp(key){
+    if(!key) return 0;
+    const m = (typeof global.ACKS.findMonster === 'function') ? global.ACKS.findMonster(key) : null;
+    return m ? (Number(m.xp) || 0) : 0;
+  }
+  function ordinaryMonsterXpv(foe){
+    if(!foe) return 0;
+    return (foe.ordinaryXpv != null) ? (Number(foe.ordinaryXpv) || 0) : _monsterXp(foe.monsterCatalogKey);
+  }
+  function encounterXPV(foe){
+    if(!foe) return 0;
+    let total = ordinaryMonsterXpv(foe) * Math.max(0, Number(foe.count) || 0);
+    (foe.extras || []).forEach(e => {
+      const xp = (e.xp != null) ? (Number(e.xp) || 0) : _monsterXp(e.key);
+      total += xp * Math.max(0, Number(e.count) || 0);
+    });
+    return Math.round(total);
+  }
+
+  // ── Challenge Adjustment (JJ p.281). Encounter Quotient → a difficulty-step adjustment. ──
+  function challengeAdjustmentForQuotient(q){
+    q = Number(q) || 0;
+    if(q <= 0.25) return 2;                 // 0.25 or less → +2
+    if(q <= 0.99) return 1;                 // 0.26–0.99   → +1
+    if(q <= 1.5)  return 0;                 // 1–1.5       → +0
+    if(q <= 2)    return -1;                // 1.51–2      → -1
+    return -1 * Math.floor(q / 2);          // >2 (worked-example formula; see the ⚠ note above)
+  }
+  function challengeAdjustment(foe){
+    const totalXPV = encounterXPV(foe);
+    const ord = ordinaryMonsterXpv(foe);
+    const ml = monsterLevelForXpv(ord);
+    const quotient = ml.divisor > 0 ? (totalXPV / ml.divisor) : 0;
+    return { totalXPV, ordinaryXpv: ord, monsterLevel: ml.level, divisor: ml.divisor,
+             quotient, challengeAdj: challengeAdjustmentForQuotient(quotient) };
+  }
+
+  // ── Army Adjustment (JJ p.282). Descriptor-driven (RAW-faithful + testable):
+  //    platoonUnits = [{ br, armyLevel?, count?, ref? }] — br = the unit's Battle Rating (LI 1,
+  //    HC 6 in the RAW examples), count = how many platoon-scale units at that BR. The expedition
+  //    benefits from the best `maxUnits` units (= # leveled chars ≥3rd level), highest BR first.
+  //    Halve the SUMMED BR once per (monsterLevel − armyLevel) > 0 (a single army level — RAW
+  //    halves "the Army Adjustment", the total), round 0.5+ up. The contribution to difficulty is
+  //    capped at +2 by the resolver (JJ p.282). ──
+  function _expandPlatoons(platoonUnits){
+    const out = [];
+    (platoonUnits || []).forEach(u => {
+      const n = Math.max(1, Math.round(Number(u.count) || 1));
+      for(let i = 0; i < n; i++) out.push({ br: Math.max(0, Number(u.br) || 0), armyLevel: Math.max(1, Math.round(Number(u.armyLevel) || 1)), ref: u.ref || null, label: u.label || null });
+    });
+    return out;
+  }
+  function armyAdjustment(opts){
+    opts = opts || {};
+    const monsterLevel = Math.max(1, Math.round(Number(opts.monsterLevel) || 1));
+    const maxUnits = Math.max(0, Math.round(Number(opts.maxUnits) || 0));
+    let units = _expandPlatoons(opts.platoonUnits);
+    units = units.sort((a, b) => b.br - a.br).slice(0, maxUnits);   // "benefit only from the best N units"
+    const rawAA = units.reduce((s, u) => s + u.br, 0);
+    // A single Army Level halves the total (RAW examples are uniform; default = the highest
+    // participating unit's army level — best case; caller may override via opts.armyLevel).
+    const armyLevel = (opts.armyLevel != null) ? Math.max(1, Math.round(Number(opts.armyLevel)))
+      : (units.length ? Math.max.apply(null, units.map(u => u.armyLevel)) : 1);
+    const halvings = Math.max(0, monsterLevel - armyLevel);
+    let modifiedAA = rawAA;
+    for(let i = 0; i < halvings; i++) modifiedAA = modifiedAA / 2;
+    return { rawAA, participatingUnits: units.length, keptUnits: units, armyLevel, halvings,
+             modifiedAA: Math.round(modifiedAA), modifiedAARaw: modifiedAA };
+  }
+
+  // ── Base difficulty in COLUMN space (the wilderness adjustments shift columns, JJ p.283).
+  //    Reuses BASE_RESOLUTION_GRID (identical to JJ p.283) + the same off-table row-walk rule
+  //    as the dungeon baseResolutionModifier, but returns the column index + any off-left extra
+  //    so the Challenge/Army/situational column shifts can be applied before reading the band. ──
+  function _wildernessBaseCol(expeditionLevel_, monsterLevel){
+    const EL = Math.max(0, Math.round(Number(expeditionLevel_) || 0));
+    const ML = Math.max(1, Math.min(6, Math.round(Number(monsterLevel) || 1)));
+    const grid = BASE_RESOLUTION_GRID;                   // reuse the D3 grid (== JJ p.283)
+    const colOf = (ml, el) => { const r = grid[ml]; if(!r) return null; for(let c = 0; c < 7; c++){ const cell = r[c]; if(cell && el >= cell.plMin && el <= cell.plMax) return c; } return null; };
+    const rowMax = ml => { const r = grid[ml]; let m = -Infinity; for(const c of r) if(c) m = Math.max(m, c.plMax); return m; };
+    const rightmost = ml => { const r = grid[ml]; let rc = 6; while(rc >= 0 && !r[rc]) rc--; return rc; };
+    let c = colOf(ML, EL);
+    if(c !== null) return { col: c, extraLeft: 0, offTable: false };
+    // Off the right (expedition too strong): walk DOWN rows (+1 col/row), clamp at +8 Effortless.
+    if(EL > rowMax(ML)){
+      let ml = ML, rowsDown = 0;
+      while(ml < 6){ ml++; rowsDown++; const cc = colOf(ml, EL); if(cc !== null){ const ec = cc + rowsDown; return { col: Math.min(6, ec), extraLeft: 0, offTable: true, offRight: true }; } }
+      return { col: rightmost(ML), extraLeft: 0, offTable: true, offRight: true };
+    }
+    // Off the left (expedition too weak): walk UP rows (-1 col/row); each col past the left edge = an extra -8.
+    let ml = ML, rowsUp = 0;
+    while(ml > 1){ ml--; rowsUp++; const cc = colOf(ml, EL); if(cc !== null){ const ec = cc - rowsUp; if(ec >= 0) return { col: ec, extraLeft: 0, offTable: true, offLeft: true }; return { col: 0, extraLeft: -ec, offTable: true, offLeft: true }; } }
+    return { col: 0, extraLeft: (ML - 1), offTable: true, offLeft: true };
+  }
+  function _bandValueForCol(col, extraLeft){
+    col = Math.max(0, Math.min(6, Math.round(Number(col) || 0)));
+    extraLeft = Math.max(0, Math.round(Number(extraLeft) || 0));
+    return DUNGEON_DIFFICULTY_BANDS[col] - 8 * extraLeft;
+  }
+  // Compose the wilderness foray difficulty: base column + min(challengeAdj + modifiedArmyAdj, +2)
+  // + situational steps, clamped so it's never easier than Effortless (+8). Returns the band value
+  // (added to 1d8+1d12) + a breakdown. (JJ p.283–285.)
+  function wildernessForayDifficulty(opts){
+    opts = opts || {};
+    const expL = Math.max(0, Math.round(Number(opts.expeditionLevel) || 0));
+    const monL = Math.max(1, Math.min(6, Math.round(Number(opts.monsterLevel) || 1)));
+    const challengeAdj = Math.round(Number(opts.challengeAdj) || 0);
+    const armyAdj = Math.round(Number(opts.modifiedArmyAdj) || 0);
+    const situational = Math.round(Number(opts.situationalSteps) || 0);
+    const base = _wildernessBaseCol(expL, monL);
+    const combinedCA = Math.min(challengeAdj + armyAdj, 2);   // CA + AA capped at +2 (JJ p.282)
+    let col = base.col + combinedCA + situational;
+    let extraLeft = base.extraLeft;
+    if(col > 6) col = 6;                                       // never easier than Effortless (+8)
+    if(col < 0){ extraLeft += -col; col = 0; }
+    const modifier = _bandValueForCol(col, extraLeft);
+    const breakdown = [
+      { key:'base', label:'Base difficulty — expedition ' + expL + ' vs monster level ' + monL + ' (' + (DUNGEON_DIFFICULTY_LABELS[base.col] || '') + ')', value: _bandValueForCol(base.col, base.extraLeft) }
+    ];
+    if(combinedCA) breakdown.push({ key:'challenge-army', label:'Challenge ' + (challengeAdj>=0?'+':'') + challengeAdj + ' + Army ' + (armyAdj>=0?'+':'') + armyAdj + (challengeAdj+armyAdj>2?' (capped +2)':'') + ' (difficulty steps)', value: null, steps: combinedCA });
+    if(situational) breakdown.push({ key:'situational', label:'Situational (' + (situational>=0?'+':'') + situational + ' steps)', value: null, steps: situational });
+    return { modifier, finalCol: col, extraLeft, difficultyLabel: DUNGEON_DIFFICULTY_LABELS[col] || '', combinedCA, base, breakdown };
+  }
+
+  // ── Foe descriptor from a Lair (Wilderness Clearing — JJ p.68 / §6.7). ──
+  function _foeFromLair(campaign, lair){
+    if(!lair) return null;
+    const A = global.ACKS;
+    let count = (typeof A.lairInhabitantCount === 'function') ? A.lairInhabitantCount(campaign, lair) : 0;
+    if(!count) count = Math.max(1, Number(lair.totalInhabitantCount) || 1);
+    return { monsterCatalogKey: lair.monsterCatalogKey || '', count, isLair: true, treasureType: lair.treasureType || '', lairId: lair.id };
+  }
+  // Normalize the army input → platoon descriptors. opts.platoonUnits (canonical) OR opts.unitIds
+  // (live units, best-effort: each as one platoon contributor with br = unitBattleRating — the
+  // platoon-counting nuance is a v1 simplification, noted in the SUMMARY).
+  function _normalizeArmyInput(campaign, opts){
+    if(Array.isArray(opts.platoonUnits) && opts.platoonUnits.length) return opts.platoonUnits;
+    const A = global.ACKS;
+    return (opts.unitIds || []).map(id => {
+      const u = (id && typeof id === 'object') ? id : (typeof A.findUnit === 'function' ? A.findUnit(campaign, id) : null);
+      if(!u) return null;
+      const br = (typeof A.unitBattleRating === 'function') ? A.unitBattleRating(campaign, u) : 0;
+      return { br, armyLevel: 1, count: 1, ref: u, label: u.name || 'unit' };
+    }).filter(Boolean);
+  }
+  // Assign N wounds across a participant pool, no entry taking a 2nd until all have one (JJ p.284).
+  function _assignWoundCounts(poolSize, totalWounds, rng){
+    const counts = new Array(poolSize).fill(0);
+    if(poolSize <= 0) return counts;
+    for(let w = 0; w < totalWounds; w++){
+      const minC = Math.min.apply(null, counts);
+      const cand = []; counts.forEach((c, i) => { if(c === minC) cand.push(i); });
+      counts[cand[Math.floor(_rng(rng) * cand.length)]]++;
+    }
+    return counts;
+  }
+
+  // ── resolveWildernessForay — the PURE proposal (rolls; does NOT mutate). ──
+  // opts: { participantCharacterIds, foe | lairId, platoonUnits | unitIds, armyLevel?,
+  //         situationalSteps?, rng }
+  function resolveWildernessForay(campaign, opts){
+    opts = opts || {};
+    const rng = opts.rng;
+    const participants = (opts.participantCharacterIds || []).map(id => _findCharacter(campaign, id)).filter(Boolean);
+    // Resolve the foe (a lair, or a {monsterCatalogKey, count, extras} descriptor).
+    let lair = null, foe = opts.foe ? Object.assign({}, opts.foe) : null;
+    if(opts.lairId){ lair = _lairs(campaign).find(l => l && l.id === opts.lairId) || null; if(lair) foe = _foeFromLair(campaign, lair); }
+    if(!foe) return null;
+    const isLair = !!opts.lairId || foe.isLair === true || !!lair;
+
+    const ca = challengeAdjustment(foe);
+    const expL = expeditionLevel(campaign, participants.map(c => c.id));
+    const leveled3plus = participants.filter(c => (Number(c.level) || 1) >= 3).length;
+    const aa = armyAdjustment({ platoonUnits: _normalizeArmyInput(campaign, opts), maxUnits: leveled3plus, monsterLevel: ca.monsterLevel, armyLevel: opts.armyLevel });
+    const participantCount = participants.length + aa.participatingUnits;
+    const scaling = expeditionScalingModifier(participantCount);
+
+    const diff = wildernessForayDifficulty({ expeditionLevel: expL, monsterLevel: ca.monsterLevel, challengeAdj: ca.challengeAdj, modifiedArmyAdj: aa.modifiedAA, situationalSteps: opts.situationalSteps });
+    const d8 = _rollOne(8, rng), d12 = _rollOne(12, rng);
+    const total = d8 + d12 + diff.modifier;
+    const band = dungeonResolutionBand(total);
+    const defeated = band.result !== 'catastrophic';            // catastrophic = the expedition is wiped
+
+    // Wounds: woundsDie × scaling modifier, rounded (JJ p.284). Catastrophic = every participant.
+    let woundBase = 0;
+    if(band.woundsDie === 'all') woundBase = participantCount;
+    else if(band.woundsDie && band.woundsDie !== 0) woundBase = Math.max(0, _rollDice(band.woundsDie, rng));
+    let totalWounds = (band.woundsDie === 'all') ? participantCount : Math.round(woundBase * scaling);
+    totalWounds = Math.max(0, Math.min(totalWounds, participantCount));
+
+    // Pool = leveled adventurers + the participating platoon units; assign wounds (no 2nd until all).
+    const pool = participants.map(c => ({ kind: 'char', char: c }))
+      .concat(aa.keptUnits.map(u => ({ kind: 'unit', ref: u.ref || null, label: u.label || 'platoon unit' })));
+    const woundCounts = _assignWoundCounts(pool.length, totalWounds, rng);
+
+    const casualties = [];        // character mortal wounds
+    const unitCasualties = [];    // unit casualties (wounded units: 50% of members)
+    pool.forEach((p, i) => {
+      const n = woundCounts[i];
+      if(n <= 0) return;
+      if(p.kind === 'char'){
+        let wound = null;
+        if(typeof global.ACKS.rollMortalWound === 'function') wound = global.ACKS.rollMortalWound(p.char, { table: 'savage', abstract: true, rng });
+        casualties.push({ characterId: p.char.id, name: p.char.name, wound, conditionLabel: wound ? wound.conditionLabel : null, killed: wound ? !!wound.killed : false });
+      } else {
+        // A unit that suffers a mortal wound → 50% of its members are casualties; if the
+        // resolution was Indifferent or better, 50% of those recover in a week, else all slain.
+        const active = (p.ref && typeof global.ACKS.unitActiveCount === 'function') ? global.ACKS.unitActiveCount(p.ref) : null;
+        const membersLost = active != null ? Math.ceil(active * 0.5) : null;
+        const recoverRoll = (total >= 9);     // ≥ Indifferent (9–12 band floor)
+        unitCasualties.push({ unitId: p.ref ? p.ref.id : null, label: p.label, membersLost, fractionLost: 0.5, recover: recoverRoll, slain: !recoverRoll, source: 'mortal-wound' });
+      }
+    });
+
+    // Treasure (JJ p.284): a lair holds treasure ≈ 4× its XPV (the simple option), band-scaled.
+    // A non-lair wandering encounter carries no hoard in v1 (the simple path). Magic items by
+    // monster level (DUNGEON_MAGIC_ITEMS) — one roll per full GP/Roll (JJ p.284).
+    const treasureGp = (isLair && defeated) ? Math.round(4 * ca.totalXPV * (band.treasurePct / 100)) : 0;
+    const mi = DUNGEON_MAGIC_ITEMS[ca.monsterLevel] || DUNGEON_MAGIC_ITEMS[1];
+    const magicItemRolls = (isLair && defeated && treasureGp > 0) ? Math.floor(treasureGp / mi.gpPerRoll) : 0;
+    const combatXp = defeated ? ca.totalXPV : 0;                // the encounter's XP value (JJ p.284)
+    const troopXpEach = (defeated && expL > 0) ? Math.round(75 * ca.monsterLevel / expL) : 0;  // per-troop, units (info)
+
+    return {
+      foe, isLair, lairId: foe.lairId || (lair ? lair.id : null),
+      participantCount, adventurerCount: participants.length,
+      expeditionLevel: expL, scalingModifier: scaling,
+      challenge: ca, army: aa,
+      modifier: diff.modifier, modifierBreakdown: diff.breakdown, difficultyLabel: diff.difficultyLabel,
+      roll: { d8, d12, total },
+      band: { result: band.result, treasurePct: band.treasurePct, woundsDie: band.woundsDie }, result: band.result, treasurePct: band.treasurePct,
+      woundBase, totalWounds, defeated, wipes: band.result === 'catastrophic',
+      casualties, casualtyCount: casualties.length,
+      unitCasualties,
+      unitAttritionNote: aa.participatingUnits ? ('Each unwounded participating unit (' + Math.max(0, aa.participatingUnits - unitCasualties.length) + ') must make a Death save or suffer 5% casualties (JJ p.284) — GM-resolved.') : null,
+      treasureGp, magicItemRolls, magicItemType: mi.type,
+      combatXp, troopXpEach
+    };
+  }
+
+  // ── commitWildernessForay — apply a ratified proposal (mutates). ──
+  // Applies the Mortal Wounds to characters, unit casualties to live units, clears a fully-
+  // defeated lair (feeding hexSecuringBlockers), emits the record-only `wilderness-foray` event,
+  // and disburses treasure + combat XP via the shipped adventure-result grammar.
+  function commitWildernessForay(campaign, proposal, opts){
+    opts = opts || {};
+    if(!proposal) return null;
+    const A = global.ACKS;
+    const lair = proposal.lairId ? (_lairs(campaign).find(l => l && l.id === proposal.lairId) || null) : null;
+
+    // Character casualties → the Mortal Wounds resolver (D1).
+    const woundRecords = [];
+    (proposal.casualties || []).forEach(cas => {
+      if(cas.wound && typeof A.applyMortalWound === 'function'){
+        const rec = A.applyMortalWound(campaign, cas.characterId, cas.wound, { healedToOneHp: opts.healedToOneHp !== false });
+        woundRecords.push({ characterId: cas.characterId, outcome: rec ? rec.outcome : null, conditionLabel: rec ? rec.conditionLabel : null });
+      }
+    });
+    // Unit casualties → decrement live units (50% members; if not recovering, those are slain —
+    // v1 records the loss as casualties; the recover/slain split + the unwounded-unit Death-save
+    // attrition are surfaced for the GM, the henchman-calamity precedent).
+    (proposal.unitCasualties || []).forEach(uc => {
+      if(uc.unitId && uc.membersLost){
+        const u = (typeof A.findUnit === 'function') ? A.findUnit(campaign, uc.unitId) : null;
+        if(u){ u.casualties = (Number(u.casualties) || 0) + uc.membersLost; }
+      }
+    });
+
+    // Realize treasure + XP (a wilderness encounter resolves in one roll — immediate).
+    const survivors = (proposal.casualties || []).reduce((set, c) => { if(c.killed) set.add(c.characterId); return set; }, new Set());
+    const allParticipants = (opts.participantCharacterIds || (proposal.foe && proposal.foe.participantCharacterIds) || []);
+    // XP shares (JJ p.284): PC = 1 share, henchman = ½; all-henchman → ½ combat XP.
+    const livingParticipantIds = (opts.participantCharacterIds || []).filter(id => !survivors.has(id));
+    let xpAwarded = [];
+    if(proposal.combatXp > 0 && livingParticipantIds.length){
+      const livingChars = livingParticipantIds.map(id => _findCharacter(campaign, id)).filter(Boolean);
+      const isHench = (typeof A.isHenchman === 'function') ? (c => A.isHenchman(c)) : (() => false);
+      const allHench = livingChars.length > 0 && livingChars.every(isHench);
+      const shares = livingChars.map(c => (allHench ? 0.5 : (isHench(c) ? 0.5 : 1)));
+      const totalShares = shares.reduce((s, v) => s + v, 0) || 1;
+      const xpPerShare = proposal.combatXp / totalShares;
+      xpAwarded = livingChars.map((c, i) => ({ characterId: c.id, xp: Math.floor(xpPerShare * shares[i]) }));
+    }
+    const treasureAwarded = [];
+    if(proposal.treasureGp > 0){
+      const dest = opts.treasureDestinationCharacterId || (livingParticipantIds[0] || null);
+      treasureAwarded.push({ kind: 'gp', amount: proposal.treasureGp,
+        destinationCharacterId: opts.treasureDestinationDomainId ? null : dest,
+        destinationDomainId: opts.treasureDestinationDomainId || null,
+        label: 'Wilderness foray: ' + ((lair && lair.name) || (proposal.foe && proposal.foe.monsterCatalogKey) || 'encounter') });
+    }
+
+    // Clear a fully-defeated lair (feeds hexSecuringBlockers → Wilderness Clearing, §6.7).
+    let lairCleared = false;
+    if(lair && proposal.defeated && typeof A.clearLair === 'function'){
+      A.clearLair(campaign, lair.id, { reason: 'wilderness-foray', clearedByEventId: null });
+      lairCleared = true;
+    }
+
+    const monName = (lair && lair.name) || (proposal.foe && proposal.foe.monsterCatalogKey) || 'the foe';
+    const narrative = 'Wilderness foray vs ' + monName + ' — ' + proposal.result
+      + ' (' + (proposal.casualties || []).length + ' wounded'
+      + (proposal.treasureGp ? (', ' + proposal.treasureGp + 'gp') : '') + (lairCleared ? ', lair cleared' : '') + ')';
+
+    const relatedEntities = [];
+    if(lair) relatedEntities.push({ kind: 'lair', id: lair.id, role: 'site' });
+    (proposal.casualties || []).forEach(c => relatedEntities.push({ kind: 'character', id: c.characterId, role: 'casualty' }));
+    livingParticipantIds.forEach(id => relatedEntities.push({ kind: 'character', id, role: 'beneficiary' }));
+
+    const ev = _emitDelveEvent(campaign, 'wilderness-foray', {
+      lairId: lair ? lair.id : null, monster: (proposal.foe && proposal.foe.monsterCatalogKey) || null,
+      result: proposal.result, defeated: proposal.defeated, monsterLevel: proposal.challenge.monsterLevel,
+      expeditionLevel: proposal.expeditionLevel, treasureGp: proposal.treasureGp, magicItemRolls: proposal.magicItemRolls,
+      combatXp: proposal.combatXp, casualties: (proposal.casualties || []).map(c => c.characterId),
+      unitCasualties: (proposal.unitCasualties || []).map(u => ({ unitId: u.unitId, membersLost: u.membersLost })),
+      lairCleared
+    }, { primaryHexId: lair ? lair.hexId : null, narrative, relatedEntities });
+
+    // Disburse treasure + XP via the shipped adventure-result (the GP Wave B grammar).
+    if(treasureAwarded.length || xpAwarded.length){
+      _emitDelveEvent(campaign, 'adventure-result', { outcome: proposal.defeated ? 'cleared' : 'partial', treasureAwarded, xpAwarded, narrativeSummary: narrative },
+        { primaryHexId: lair ? lair.hexId : null, narrative, relatedEntities: livingParticipantIds.map(id => ({ kind: 'character', id, role: 'beneficiary' })) });
+    }
+    return { proposal, woundRecords, lairCleared, eventId: ev ? ev.id : null, xpAwarded, treasureAwarded };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // factories
@@ -711,7 +1115,14 @@
     dungeonResolutionBand, dungeonForayResolutionModifier, rollDungeonEncounters,
     // resolver + lifecycle setters
     resolveDungeonForay, commitDungeonForay, realizeDelve, restockDungeon,
-    rollRandomDungeon, startDelve
+    rollRandomDungeon, startDelve,
+    // ── D4 — Abstract Wilderness foray resolver (JJ ch.13) ──
+    MONSTER_LEVEL_TABLE,
+    monsterLevelForXpv, expeditionLevel, expeditionScalingModifier,
+    encounterXPV, ordinaryMonsterXpv,
+    challengeAdjustmentForQuotient, challengeAdjustment,
+    armyAdjustment, wildernessForayDifficulty,
+    resolveWildernessForay, commitWildernessForay
   });
 
 })(typeof window !== 'undefined' ? window : global);

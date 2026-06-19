@@ -277,6 +277,12 @@ const EVENT_KINDS = Object.freeze([
   // Carries the Event.context envelope (the dungeon as site + the delve + the casualties). Event
   // Wizard opt-out below — the GM runs a foray via the Foray Wizard, not the Event Wizard.
   'delve-foray',
+  // === Delves D4 (team) === — Phase 3.5 (JJ ch.13). The Abstract Wilderness foray (the most-
+  // abstract travel rung). Record-only audit: ACKS.commitWildernessForay applies the state
+  // (Mortal Wounds casualties, unit casualties, clearLair → hexSecuringBlockers, the GP Wave B
+  // adventure-result disbursement). Carries the Event.context envelope (the lair as site + the
+  // casualties + beneficiaries). Event Wizard opt-out below.
+  'wilderness-foray',
   // === Character Lifecycle CL-2 (burst5) === — disease (JJ p.84). Record-only audit emitted by
   // acks-engine-lifecycle.js (contractDisease + the slot-57 disease day-consumer's resolution).
   // 'disease-recovered' is the resolution event — outcome ∈ recovered|cured|died (like
@@ -928,6 +934,15 @@ const EVENT_SCHEMAS = Object.freeze({
     O: { dungeonId: 'string', phase: 'string', forayIndex: 'number', result: 'string',
          outcome: 'string', encountersCleared: 'number', treasureGp: 'number', xp: 'number',
          magicItemRolls: 'number', casualties: 'array', narrative: 'string' }
+  },
+  // === Delves D4 (team) === (JJ ch.13; engine-emitted by ACKS.commitWildernessForay, record-only).
+  // An Abstract Wilderness foray resolved in one roll: the result, the character casualties + unit
+  // casualties, the treasure/XP, and whether a lair was cleared (Wilderness Clearing, JJ p.68).
+  'wilderness-foray': {
+    R: { result: 'string' },
+    O: { lairId: 'string', monster: 'string', defeated: 'boolean', monsterLevel: 'number',
+         expeditionLevel: 'number', treasureGp: 'number', magicItemRolls: 'number', combatXp: 'number',
+         casualties: 'array', unitCasualties: 'array', lairCleared: 'boolean', narrative: 'string' }
   },
   // === Character Lifecycle CL-2 (burst5) === (JJ p.84; engine-emitted by acks-engine-lifecycle.js,
   // record-only). A character contracts a disease (infected); then the disease resolves.
@@ -2702,6 +2717,10 @@ function applyEvent_delveAudit(campaign, event){
   return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'delve foray' } };
 }
 registerEventHandler('delve-foray', applyEvent_delveAudit);
+// === Delves D4 (team) === — the Abstract Wilderness foray shares the same record-only audit posture:
+// ACKS.commitWildernessForay already applied the state (Mortal Wounds, unit casualties, clearLair, the
+// adventure-result disbursement); this keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('wilderness-foray', applyEvent_delveAudit);
 // === Character Lifecycle CL-2 (burst5) === — disease events share the record-only audit posture:
 // acks-engine-lifecycle.js already advanced the disease state; the handler keeps the event
 // well-formed on replay (records the narrative only). Mirrors aging / mortal-wound / survival.
@@ -5791,6 +5810,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',
+  // === Delves D4 (team) === — owned by ACKS.commitWildernessForay (the Wilderness Foray modal);
+  // a raw emit would narrate a foray the casualties / treasure / lair state don't show.
+  'wilderness-foray',
   // === Character Lifecycle CL-2 (burst5) === — owned by acks-engine-lifecycle.js (contractDisease +
   // the slot-57 disease consumer); a raw emit would narrate a contraction/recovery the character's
   // diseases[] + lifecycleState don't show. The GM exposes a character via the sheet, not the Wizard.
