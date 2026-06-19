@@ -6369,6 +6369,9 @@ function proposeMilitaryDay(campaign, ctx){
     }
     return (ctx.weather && ctx.weather.condition) ? ctx.weather : null;
   };
+  // The day's weather for an army by its hex id (recon reads the OBSERVING army's hex —
+  // RR p.449). Resolves the hex object so armyDayWeather can key the 24-mile region.
+  const armyDayWeatherFor = (hexId) => armyDayWeather((campaign.hexes || []).find(h => h && h.id === hexId));
 
   // ── 1. initiative + initial reconnaissance (armies with an opposing army in range) ──
   const initiativeOf = {};
@@ -6379,8 +6382,9 @@ function proposeMilitaryDay(campaign, ctx){
     const initiative = A.rollArmyInitiative(campaign, army, { rng });
     initiativeOf[army.id] = initiative.total;
     const recons = [];
+    const obsWx = armyDayWeatherFor(effHex(army));   // the observing army's day weather (RR p.449 recon penalty)
     for(const o of oppos){
-      const rr = A.armyReconRoll(campaign, army, o, { rng, obsHexId: effHex(army), oppHexId: effHex(o) });
+      const rr = A.armyReconRoll(campaign, army, o, { rng, obsHexId: effHex(army), oppHexId: effHex(o), weather: obsWx });
       const report = A.buildIntelReport(campaign, army, o, rr, { rng, atOrd: ord });
       recons.push({ opposingArmyId: o.id, opposingName: armyName(o), recon: { roll: rr.roll, total: rr.total, mods: rr.mods, result: rr.result, resultLabel: rr.resultLabel }, report });
     }
@@ -6424,8 +6428,9 @@ function proposeMilitaryDay(campaign, ctx){
   }
   for(const c of contacts){
     if(_militaryBattleBetween(campaign, c.acting, c.other)) continue;
-    const reconActing = A.armyReconRoll(campaign, c.acting, c.other, { rng, obsHexId: c.hexId, oppHexId: c.hexId });
-    const reconOther = A.armyReconRoll(campaign, c.other, c.acting, { rng, obsHexId: c.hexId, oppHexId: c.hexId });
+    const contactWx = armyDayWeatherFor(c.hexId);   // both armies stand at the contact hex (RR p.449 recon penalty)
+    const reconActing = A.armyReconRoll(campaign, c.acting, c.other, { rng, obsHexId: c.hexId, oppHexId: c.hexId, weather: contactWx });
+    const reconOther = A.armyReconRoll(campaign, c.other, c.acting, { rng, obsHexId: c.hexId, oppHexId: c.hexId, weather: contactWx });
     const reportActing = A.buildIntelReport(campaign, c.acting, c.other, reconActing, { rng, atOrd: ord });
     const reportOther = A.buildIntelReport(campaign, c.other, c.acting, reconOther, { rng, atOrd: ord });
     const awareness = A.contactAwareness(reconActing, reconOther);
