@@ -135,6 +135,66 @@
     const s = Number(shp) || 0;
     return s <= 0 ? 0 : Math.ceil(s / 1000);
   }
+  // Sum the RAW-exact per-structure shp + unit capacity from the domain's stronghold components (RR r10
+  // p.132 STRONGHOLD_CATALOG) instead of the gp÷10 / shp÷1,000 estimates. A component's authored
+  // structures[] carry the catalog key — populated regardless of the stronghold-by-buildings rule (that
+  // rule governs *value*, not shp/capacity) — so we read them directly; a mixed-material stronghold sums
+  // each structure's own values. Falls back to the gp/material estimate for a component/legacy stronghold
+  // with no resolvable key. Returns { shp, unitCapacity }; shp and capacity are read together (one
+  // traversal) so the siege can't carry a real shp with a stale capacity (a keep's RAW capacity is 6, not
+  // ⌈16,000/1,000⌉ = 16).
+  function strongholdRawProfile(campaign, dom, material){
+    const Ax = A();
+    if(!dom || !dom.stronghold) return { shp: 0, unitCapacity: 0 };
+    const lookup = (typeof Ax.lookupStrongholdStructure === 'function')
+      ? Ax.lookupStrongholdStructure
+      : (key => (Ax.STRONGHOLD_CATALOG || []).find(s => s && s.key === key) || null);
+    // Σ a structures[] list → { resolved, shp, cap }. quantity defaults to 1 (a resolved structure is one
+    // structure — deliberately NOT strongholdValue's defensive `||0`, which is safe for skipping value but
+    // would wrongly zero a real structure). `resolved` is tracked explicitly because a structure may RAW-
+    // legitimately defend 0 units (battlement / moat / wall-walk / drawbridge), so cap 0 ≠ "unresolved".
+    const sumStructures = rows => {
+      let shp = 0, cap = 0, resolved = false;
+      for(const row of (rows || [])){
+        const r = lookup(row && row.structureKey);
+        if(!r) continue;
+        resolved = true;
+        const q = Number(row.quantity) || 1;
+        shp += (Number(r.shp) || 0) * q;
+        cap += (Number(r.unitCapacity) || 0) * q;
+      }
+      return { resolved, shp, cap };
+    };
+    // one component → { shp, cap }: prefer its structures' real values; else a key on the component itself;
+    // else estimate both from its value (gp÷10 / shp÷1,000).
+    const compProfile = c => {
+      if(c && Array.isArray(c.structures) && c.structures.length > 0){
+        const s = sumStructures(c.structures);
+        if(s.resolved) return { shp: s.shp, cap: s.cap };
+      }
+      const r = (c && c.structureKey) ? lookup(c.structureKey) : null;
+      if(r) return { shp: Number(r.shp) || 0, cap: Number(r.unitCapacity) || 0 };
+      const est = strongholdShpEstimate((c && c.buildValue) || 0, material);
+      return { shp: est, cap: unitCapacityEstimate(est) };
+    };
+    const comps = Array.isArray(dom.stronghold.components) ? dom.stronghold.components : null;
+    if(comps){
+      const f = comps.reduce((acc, c) => {
+        const p = compProfile(c);
+        return { shp: acc.shp + p.shp, cap: acc.cap + p.cap };
+      }, { shp: 0, cap: 0 });
+      return { shp: f.shp, unitCapacity: Math.ceil(f.cap) };   // walls store their RAW 1.5 floor → ceil the sum
+    }
+    // Legacy single-stronghold shape (components not migrated).
+    if((dom.stronghold.structures || []).length > 0){
+      const s = sumStructures(dom.stronghold.structures);
+      if(s.resolved) return { shp: s.shp, unitCapacity: Math.ceil(s.cap) };
+    }
+    const est = strongholdShpEstimate(dom.stronghold.buildValue || 0, material);
+    return { shp: est, unitCapacity: unitCapacityEstimate(est) };
+  }
+  function strongholdRawShp(campaign, dom, material){ return strongholdRawProfile(campaign, dom, material).shp; }
+  function strongholdRawCapacity(campaign, dom, material){ return strongholdRawProfile(campaign, dom, material).unitCapacity; }
 
   // ── artillery → bonus units / bombardment ───────────────────────────────────
   function artilleryBonusUnits(artilleryMap){
@@ -378,12 +438,17 @@
     const hexId = spec.hexId || (dom && (dom.geography && (dom.geography.hexes || [])[0] && (dom.geography.hexes || [])[0].id))
       || army.currentHexId || null;
     const material = (spec.material === 'wood') ? 'wood' : 'stone';
-    // Estimate the stronghold from the domain's value when not authored.
+    // Derive shp + unit capacity from the stronghold's actual components (RAW-exact catalog values, RR r10
+    // p.132) when not authored — read together so a real shp never carries a stale capacity (a keep is 6
+    // units, not 16); strongholdRawProfile falls back to the gp÷10 / shp÷1,000 estimate for an unkeyed stronghold.
     let shp = Number(spec.strongholdShp) || 0;
-    if(shp <= 0 && dom && typeof Ax.strongholdValue === 'function'){
-      shp = strongholdShpEstimate(Ax.strongholdValue(campaign, dom), material);
+    let cap = Number(spec.unitCapacity) || 0;
+    if((shp <= 0 || cap <= 0) && dom){
+      const prof = strongholdRawProfile(campaign, dom, material);
+      if(shp <= 0) shp = prof.shp;
+      if(cap <= 0) cap = prof.unitCapacity;
     }
-    const cap = Number(spec.unitCapacity) || unitCapacityEstimate(shp);
+    if(cap <= 0) cap = unitCapacityEstimate(shp);   // an authored-shp-only siege (no dom) keeps the estimate
     const siege = Ax.blankSiege({
       id: spec.id, name: spec.name || ((army.name || 'An army') + ' besieges ' + ((dom && dom.name) || (darmy && darmy.name) || 'a stronghold')),
       besiegerArmyId: army.id, defenderDomainId: dom ? dom.id : null, defenderArmyId: darmy ? darmy.id : null,
@@ -629,7 +694,7 @@
     SIEGE_DURATION_TABLE, SIEGE_DURATION_SHP_BANDS, SIEGE_DURATION_ADV_BANDS,
     SIEGE_SITE_MODIFIER, SIEGE_BONUS_UNITS, SIEGE_BOMBARDMENT,
     // estimation + math
-    strongholdShpEstimate, unitCapacityEstimate, artilleryBonusUnits, bombardmentPerDay,
+    strongholdShpEstimate, strongholdRawProfile, strongholdRawShp, strongholdRawCapacity, unitCapacityEstimate, artilleryBonusUnits, bombardmentPerDay,
     siegeBreaches, assaultUnitsAllowed, defendUnitsAllowed,
     blockadeUnitsRequired, blockadeUnitsAfterCircumvallation, circumvallationFeetToEncircle,
     circumvallationCostGp, siegeStoredSupplies, siegeWeeksOfSupply, siegeDurationDays,

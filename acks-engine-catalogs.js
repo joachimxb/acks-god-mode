@@ -25,8 +25,9 @@
 //   - unitCapacity `0` is the RAW "–" (no defenders, e.g. battlement/moat/drawbridge/wall-walk).
 //   - Walls' RAW capacity is a range that scales with height ("1.5 – N"); the stored value is the
 //     1.5 base (the floor); the height-scaled max is left to the GM / a future siege read.
-// shp is RAW-exact here — the W6 siege engine currently *estimates* shp = buildValue÷10; it can be
-//   wired to read these real values instead (a future siege-engine touch, flagged in the plan).
+// shp + unitCapacity are RAW-exact here — the W6 siege engine reads them (strongholdRawProfile, sieges.js):
+//   it sums a stronghold's components' structure shp + unit capacity, falling back to the gp÷10 / shp÷1,000
+//   estimate only for a stronghold with no keyed structures.
 // This catalog is ATOMIC RAW structures. Composite whole-stronghold descriptors used as flavor tags
 //   on template components (citadel-stone, castle-stone, cathedral-fortified, keep-stone-small,
 //   bridge-keep) and the dwarven vault structures (vault-*) are deliberately NOT catalog entries —

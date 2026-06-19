@@ -62,7 +62,7 @@
 <script src="acks-engine-hijinks.js?v=2026-06-14-pt5"></script>
 <!-- ════ TEAM SESSION (burst3 2026-06-13) — NEW engine-module script-src tags; Lead removes this block at integration ════ -->
 <!-- agent-1 (Military W6 Sieges): add your acks-engine-sieges.js tag immediately below this line -->
-<script src="acks-engine-sieges.js?v=2026-06-13-a"></script>
+<script src="acks-engine-sieges.js?v=2026-06-19-siegeprofile"></script>
 <!-- agent-2 (Delves D1 Mortal Wounds): add your acks-engine-mortal-wounds.js tag immediately below this line -->
 <script src="acks-engine-mortal-wounds.js?v=2026-06-13-a"></script>
 <!-- agent-3 (Hex Scales HW-4): add your acks-engine-hex-scales.js tag immediately below this line -->
@@ -28160,8 +28160,13 @@ return {
       const A = window.ACKS, c = this.currentCampaign;
       const dom = (c.domains || []).find(d => d && d.id === w.defenderDomainId);
       let shp = parseInt(w.shpOverride, 10) || 0;
-      if(shp <= 0 && dom) shp = A.strongholdShpEstimate(A.strongholdValue(c, dom), w.material);
-      const cap = parseInt(w.unitCapacityOverride, 10) || A.unitCapacityEstimate(shp);
+      let cap = parseInt(w.unitCapacityOverride, 10) || 0;
+      if((shp <= 0 || cap <= 0) && dom){
+        const prof = A.strongholdRawProfile(c, dom, w.material);
+        if(shp <= 0) shp = prof.shp;
+        if(cap <= 0) cap = prof.unitCapacity;
+      }
+      if(cap <= 0) cap = A.unitCapacityEstimate(shp);
       const tmp = A.blankSiege({ besiegerArmyId: w.besiegerArmyId, defenderDomainId: w.defenderDomainId, stronghold: { material: w.material, strongholdShp: shp, unitCapacity: cap, siteType: w.siteType } });
       const adv = A.siegeUnitAdvantage(c, tmp);
       const dur = A.siegeDurationDays(shp, adv, w.siteType);
