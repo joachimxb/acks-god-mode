@@ -226,6 +226,8 @@ const EVENT_KINDS = Object.freeze([
   'divine-favor-changed',   // the character↔deity relation changes (favor established / standing / pray-and-sacrifice)
   // === Religion R2 (team 2026-06-14) — blood sacrifice (the Chaotic path, RR pp.421–422) ===
   'blood-sacrifice',        // a divine/arcane caster sacrifices a victim for divine/arcane power
+  // === Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ===
+  'divine-wrath',           // the gods confront an arcane usurper of a settlement (Religion-emitted; GM-resolved)
   // === Hijinks HJ-1 (team) ===
   // Phase 2.7 (RR pp.360–370) — hijink lifecycle, engine-emitted by startHijink (launch)
   // + the slot-60 'hijinks' day-consumer commit (resolution). Record-only audit; Event
@@ -832,6 +834,11 @@ const EVENT_SCHEMAS = Object.freeze({
   'blood-sacrifice': {
     R: { casterCharacterId: 'string', componentValueGp: 'number' },
     O: { victimRef: 'object', multipliers: 'object', throwResult: 'object', divinePowerGained: 'number', arcaneStoredGp: 'number', yieldsNothing: 'boolean', deityId: 'string' }
+  },
+  // === Religion Wave E (2026-06-19) — the divine consequence of arcane usurpation (RR p.388) ===
+  'divine-wrath': {
+    R: { settlementId: 'string', usurperCharacterId: 'string', level: 'number', severity: 'string' },
+    O: { familiesXp: 'number', forceXp: 'number' }
   },
   // === Hijinks HJ-1 (team) === (RR pp.360–370; engine-emitted, record-only)
   'hijink-attempted': {
@@ -2632,6 +2639,9 @@ registerEventHandler('divine-favor-changed', applyEvent_religionAudit);
 // === Religion R2 (team 2026-06-14) — blood sacrifice shares the record-only audit posture
 // (bloodSacrifice already applied the ledger/arcane store; the handler keeps the event well-formed). ===
 registerEventHandler('blood-sacrifice', applyEvent_religionAudit);
+// === Religion Wave E (2026-06-19) — divine-wrath shares the record-only audit posture (the monthly
+// processDivineWrathForTurn already escalated/faded the wrath; the handler keeps the event well-formed). ===
+registerEventHandler('divine-wrath', applyEvent_religionAudit);
 // === Hijinks HJ-1 (team) === — the hijink lifecycle events share the audit posture:
 // startHijink / the 'hijinks' day-consumer commit already applied the reward + state; the
 // handler keeps the event well-formed on replay (a no-op beyond recording the narrative).
@@ -5733,6 +5743,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Religion R2 (team 2026-06-14) — owned by bloodSacrifice (raw emit would record a sacrifice
   // the divine/arcane ledgers don't show; the GM performs it via the ⛪ Religion view's action). ===
   'blood-sacrifice',
+  // === Religion Wave E (2026-06-19) — owned by the monthly processDivineWrathForTurn (raw emit would
+  // record a divine-wrath the settlement.divineWrath state + usurpation don't show). ===
+  'divine-wrath',
   // === Hijinks HJ-1 (team) === — owned by startHijink / the 'hijinks' day-consumer (raw emit
   // would record a hijink the campaign.hijinks[] lifecycle doesn't show).
   'hijink-attempted', 'hijink-resolved',

@@ -815,11 +815,156 @@ section('R2 + R1.5 GUARD — templates + demo STAY migrate-no-ops (no lazy-injec
 })();
 
 // =============================================================================
+// Wave E — the divine consequence of the AD-F arcane-usurpation seam (RR p.388).
+// =============================================================================
+
+// =============================================================================
+section('Wave E — divine wrath escalates portent → servants → soldiers (RR p.388)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Wrath' }); c.currentTurn = 5;
+  const mage = ACKS.blankCharacter({ id: 'chr-q', name: 'Quintus', class: 'Mage', level: 11 }); c.characters.push(mage);
+  const set = ACKS.blankSettlement({ id: 'set-1', name: 'Aethon', families: 200 }); c.settlements.push(set);
+  const hex = { id: 'hex-1', settlementId: 'set-1' }; (c.hexes = c.hexes || []).push(hex); // exercises _settlementHexId
+
+  const u = ACKS.flagArcaneUsurpation(c, { characterId: 'chr-q', settlementId: 'set-1' });
+  ok('flagArcaneUsurpation ok (arcane caster + settlement)', u.ok === true);
+  const familiesXp = ACKS.settlementFamiliesXp(c, set);
+  ok('settlementFamiliesXp = families × 5 = 1000', familiesXp === 1000);
+
+  // Month 1 → level 1 portent (a warning + a month's grace; force 0)
+  const r1 = ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  const w1 = ACKS.settlementDivineWrath(c, set);
+  ok('month 1 → wrath level 1', !!w1 && w1.level === 1);
+  ok('w1 tracks the usurper', w1.usurperCharacterId === 'chr-q');
+  ok('level 1 severity = portent', ACKS.wrathSeverityForLevel(1) === 'portent');
+  ok('portent force 0 (a warning, RR p.388)', ACKS.divineWrathForceXp(familiesXp, 1) === 0);
+  ok('month 1 reports 1 manifestation', r1.wrathManifestations === 1);
+  const ev1 = (c.eventLog || []).find(x => x.event && x.event.kind === 'divine-wrath');
+  ok('a divine-wrath event emitted', !!ev1);
+  ok('event payload: settlement + usurper + level + severity', ev1.event.payload.settlementId === 'set-1'
+    && ev1.event.payload.usurperCharacterId === 'chr-q' && ev1.event.payload.level === 1 && ev1.event.payload.severity === 'portent');
+  ok('event context tags the hex(site) + settlement + usurper(subject)', ev1.event.context
+    && ev1.event.context.primaryHexId === 'hex-1' && ev1.event.context.settlementId === 'set-1'
+    && (ev1.event.context.relatedEntities || []).some(r => r.id === 'chr-q' && r.role === 'subject'));
+  ok('divine-wrath is NOT campaignLogHidden (the gods coming is narrative)', !ev1.campaignLogHidden && !ev1.event.campaignLogHidden);
+
+  // Month 2 → level 2 servants (force = familiesXp = 1000)
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  const w2 = ACKS.settlementDivineWrath(c, set);
+  ok('month 2 → wrath level 2 (servants)', w2.level === 2 && ACKS.wrathSeverityForLevel(2) === 'servants');
+  ok('servants force = familiesXp = 1000', ACKS.divineWrathForceXp(familiesXp, 2) === 1000);
+  const ev2 = (c.eventLog || []).filter(x => x.event && x.event.kind === 'divine-wrath').pop();
+  ok('month-2 event: servants, force 1000', ev2.event.payload.forceXp === 1000 && ev2.event.payload.severity === 'servants');
+
+  // Month 3 → level 3 soldiers (force = familiesXp × 2 = 2000) — escalation mounts
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  const w3 = ACKS.settlementDivineWrath(c, set);
+  ok('month 3 → wrath level 3 (soldiers)', w3.level === 3 && ACKS.wrathSeverityForLevel(3) === 'soldiers');
+  ok('soldiers force = familiesXp × (3−1) = 2000', ACKS.divineWrathForceXp(familiesXp, 3) === 2000);
+  ok('three monthly manifestations logged', (c.eventLog || []).filter(x => x.event && x.event.kind === 'divine-wrath').length === 3);
+})();
+
+// =============================================================================
+section('Wave E — divine wrath fades when the usurpation is cleared');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'Fade' }); c.currentTurn = 5;
+  ACKS.blankCharacter && c.characters.push(ACKS.blankCharacter({ id: 'chr-q', class: 'Mage', level: 11 }));
+  const set = ACKS.blankSettlement({ id: 'set-1', name: 'Aethon', families: 200 }); c.settlements.push(set);
+  ACKS.flagArcaneUsurpation(c, { characterId: 'chr-q', settlementId: 'set-1' });
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 }); // level 1
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 }); // level 2
+  ok('built to wrath level 2', ACKS.settlementDivineWrath(c, set).level === 2);
+
+  const cl = ACKS.clearArcaneUsurpation(c, 'set-1');
+  ok('clearArcaneUsurpation unsets the flag', cl.ok === true && !set.arcaneUsurpedByCharacterId);
+  const wrathEventsBefore = (c.eventLog || []).filter(x => x.event && x.event.kind === 'divine-wrath').length;
+  const f1 = ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  ok('after clear → wrath fades to 1 (the gods’ anger cools)', ACKS.settlementDivineWrath(c, set).level === 1 && f1.wrathFaded === 1);
+  ok('a faded month emits NO new divine-wrath event', (c.eventLog || []).filter(x => x.event && x.event.kind === 'divine-wrath').length === wrathEventsBefore);
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  ok('next month → wrath fully cleared (state nulled)', ACKS.settlementDivineWrath(c, set) === null);
+
+  // re-usurping escalates from level 1 again
+  ACKS.flagArcaneUsurpation(c, { characterId: 'chr-q', settlementId: 'set-1' });
+  ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  ok('a re-usurp escalates from level 1 again', ACKS.settlementDivineWrath(c, set).level === 1);
+})();
+
+// =============================================================================
+section('Wave E GUARD — no usurpation ⇒ the wrath pass is inert (no event spam)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'NoWrath' }); c.currentTurn = 5;
+  const set = ACKS.blankSettlement({ id: 'set-1', families: 200 }); c.settlements.push(set); // a free settlement
+  const before = (c.eventLog || []).length;
+  const r = ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  ok('un-usurped settlement → 0 manifestations', (r.wrathManifestations || 0) === 0);
+  ok('no divine-wrath event emitted, no divineWrath state written', (c.eventLog || []).length === before && !set.divineWrath);
+  const empty = ACKS.processDivineWrathForTurn(ACKS.blankCampaign({ name: 'e' }), {});
+  ok('processDivineWrathForTurn on an empty campaign → ran, 0 manifestations', empty.ran === true && empty.manifestations === 0);
+})();
+
+// =============================================================================
+section('Wave E — co-extraction: a chaplain draws DP from a usurped settlement (RR p.388, Balbus)');
+// =============================================================================
+(function(){
+  const c = ACKS.blankCampaign({ name: 'CoExtract' }); c.currentTurn = 5;
+  const dei = ACKS.blankDeity({ id: 'dei-1', alignment: 'Lawful' }); c.deities.push(dei);
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-q', class: 'Mage', level: 11 }));        // the usurper
+  c.characters.push(ACKS.blankCharacter({ id: 'chr-b', name: 'Balbus', class: 'Crusader', level: 9 })); // the chaplain
+  const set = ACKS.blankSettlement({ id: 'set-1', name: 'Aethon', families: 200 }); c.settlements.push(set);
+
+  const cong = ACKS.foundCongregation(c, { name: 'Chaplaincy', deityId: 'dei-1', highPriestCharacterId: 'chr-b', usurpedSettlementId: 'set-1' });
+  ok('foundCongregation stored usurpedSettlementId (defensive field)', cong.usurpedSettlementId === 'set-1');
+  ok('NOT usurped yet → co-extraction yields 0', ACKS.congregationUsurpedSettlementWeeklyGp(c, cong) === 0);
+
+  ACKS.flagArcaneUsurpation(c, { characterId: 'chr-q', settlementId: 'set-1' });
+  ok('co-extraction weekly = floor(200/10) × 4 = 80 gp/wk (Balbus, RR p.388)', ACKS.congregationUsurpedSettlementWeeklyGp(c, cong) === 80);
+  ok('co-extraction folds into congregationWeeklyDivinePowerGp (80; personal 0)', ACKS.congregationWeeklyDivinePowerGp(c, cong) === 80);
+
+  const r = ACKS.processReligionForTurn(c, { rng: () => 0.5 });
+  ok('monthly consumer accrues co-extraction DP (80 × 4 = 320)', r.accruedGp === 320 && ACKS.divinePowerAvailable(c, 'chr-b') === 320);
+  const e = (c.characters.find(x => x.id === 'chr-b').divinePower.entries || [])[0];
+  ok('co-extraction accrual is source-tagged "co-extraction"', !!e && e.source === 'co-extraction');
+  ok('the usurper draws divine WRATH while the chaplain co-extracts (separate characters)',
+    !!ACKS.settlementDivineWrath(c, set) && ACKS.settlementDivineWrath(c, set).usurperCharacterId === 'chr-q');
+
+  ACKS.clearArcaneUsurpation(c, 'set-1');
+  ok('cleared usurpation → co-extraction yields 0 again', ACKS.congregationUsurpedSettlementWeeklyGp(c, cong) === 0);
+})();
+
+// =============================================================================
+section('Wave E GUARD — the divine-wrath event kind + no factory/migrate drift');
+// =============================================================================
+(function(){
+  const k = 'divine-wrath';
+  ok('EVENT_KINDS includes divine-wrath', ACKS.EVENT_KINDS.includes(k));
+  ok('EVENT_SCHEMAS has divine-wrath', !!ACKS.EVENT_SCHEMAS[k]);
+  ok('isEventKindKnown divine-wrath', ACKS.isEventKindKnown(k) === true);
+  ok('divine-wrath is Wizard-opted-out (engine-emitted)', ACKS.isWizardEmittable(k) === false && ACKS.EVENT_WIZARD_OPTOUT.has(k));
+  ok('divine-wrath dispatches through its handler (not the stub)', (function(){
+    try {
+      const ev = ACKS.newEvent(k, { submittedBy: 'engine', targetTurn: 1, payload: { settlementId: 'set-1', usurperCharacterId: 'chr-x', level: 1, severity: 'portent' } });
+      const out = ACKS.applyEvent(ACKS.blankCampaign({ name: 'd' }), ev);
+      return !!out && !!out.result && typeof out.result.narrativeSummary === 'string' && !/handler not yet implemented/.test(out.result.narrativeSummary);
+    } catch(e){ return false; }
+  })());
+  // Wave E added NO factory/migrate field (settlement.divineWrath + congregation.usurpedSettlementId are
+  // defensive — written only by the wrath pass / the co-extraction founder). The demo stays a no-op.
+  const migratedDemo = ACKS.migrateCampaign(clone(DEMO));
+  ok('migrate(demo) STILL a TRUE no-op after Wave E', JSON.stringify(migratedDemo) === JSON.stringify(clone(DEMO)));
+  ok('no demo settlement gained divineWrath', (migratedDemo.settlements || []).every(s => !('divineWrath' in s)));
+  ok('no demo congregation gained usurpedSettlementId', (migratedDemo.congregations || []).every(cg => !('usurpedSettlementId' in cg)));
+})();
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Religion R0 + R1 + R1.5 + R2 smoke checks passed.');
+  console.log('\nAll Religion R0 + R1 + R1.5 + R2 + Wave E smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));

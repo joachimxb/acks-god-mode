@@ -5556,6 +5556,7 @@
                 "consecration",
                 "divine-favor-changed",
                 "blood-sacrifice",
+                "divine-wrath",
                 "hijink-attempted",
                 "hijink-resolved",
                 "mortal-wound",
@@ -5691,7 +5692,7 @@
     "schemaVersion": 2,
     "entityKinds": 51,
     "typedKinds": 34,
-    "eventKinds": 113,
+    "eventKinds": 114,
     "nestedSubEntityKinds": [
       "bout",
       "gladiator-school",
