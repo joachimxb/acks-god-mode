@@ -270,6 +270,11 @@ const EVENT_KINDS = Object.freeze([
   // + carry the Event.context envelope (apex hex + ruler + the voting senators). Wizard opt-out below.
   'senate-vote',
   'policy-enacted',
+  // === Politics P-3 (team) === — RR pp.358–359; engine-emitted by acks-engine-politics.js, record-only.
+  // senate-influenced: bribe/intimidate/seduce/gift/escaped/ill-treated/reveal. senate-dispute-opened:
+  // the dispute-lifecycle transitions (opened/escalated/cleared/abandoned/reestablished — action-discriminated).
+  'senate-influenced',
+  'senate-dispute-opened',
   // === Delves D3 (team) === — Phase 3.5 (JJ ch.12). The Abstract Dungeon foray + the delve
   // realize (withdraw/clear). Record-only audit: ACKS.commitDungeonForay / realizeDelve apply the
   // state (dungeon.encountersRemaining, the Delve running tally, casualties via applyMortalWound,
@@ -964,6 +969,22 @@ const EVENT_SCHEMAS = Object.freeze({
     R: { senateId: 'string' },
     O: { matter: 'string', restricted: 'boolean', consulted: 'boolean', approved: 'boolean',
          outcome: 'string', disputed: 'boolean', cleared: 'boolean', narrative: 'string' }
+  },
+  // === Politics P-3 (team) === (RR pp.358–359; engine-emitted by acks-engine-politics.js, record-only)
+  // A senate-influence action (bribe/intimidate/seduce/gift/escaped/ill-treated/reveal). action discriminates.
+  'senate-influenced': {
+    R: { senateId: 'string' },
+    O: { action: 'string', senatorshipId: 'string', byCharacterId: 'string', value: 'number',
+         period: 'string', gp: 'number', paid: 'boolean', success: 'boolean', natural: 'number', total: 'number',
+         votes: 'number', reactionBonus: 'number', qualifies: 'boolean', controlled: 'number',
+         revealedCount: 'number', narrative: 'string' }
+  },
+  // A dispute-lifecycle transition. action ∈ opened|escalated|cleared|abandoned|reestablished.
+  'senate-dispute-opened': {
+    R: { senateId: 'string' },
+    O: { action: 'string', topic: 'string', attempts: 'number', replaceRulerCount: 'number',
+         forVotes: 'number', againstVotes: 'number', hostileCount: 'number', cooldownMonths: 'number',
+         reestablishAtTurn: 'number', honeymoonUntilTurn: 'number', apexDomainId: 'string', narrative: 'string' }
   },
   // === Delves D3 (team) === (JJ ch.12; engine-emitted by commitDungeonForay / realizeDelve, record-only)
   // phase ∈ foray|realized. A foray carries its result/cleared/treasure/xp/casualties; a realize
@@ -2830,6 +2851,12 @@ function applyEvent_senateAudit(campaign, event){
 }
 registerEventHandler('senate-vote', applyEvent_senateAudit);
 registerEventHandler('policy-enacted', applyEvent_senateAudit);
+// === Politics P-3 (team) === — the influence + dispute-lifecycle events share the same record-only
+// audit posture: ACKS.bribeSenator / intimidate / seduce / gift / resolveDisputeByConsult / abandon /
+// reestablish (acks-engine-politics.js) already applied the state (the standing influenceModifiers[] /
+// the dispute transition); the handler keeps the event well-formed on replay (records the narrative only).
+registerEventHandler('senate-influenced', applyEvent_senateAudit);
+registerEventHandler('senate-dispute-opened', applyEvent_senateAudit);
 // === Delves D3 (team) === — record-only audit posture: ACKS.commitDungeonForay / realizeDelve
 // already applied the state (dungeon/Delve mutation, Mortal Wounds casualties, the adventure-result
 // disbursement); this handler keeps the event well-formed on replay (records the narrative only).
@@ -6006,6 +6033,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Politics P-2 (burst5 2026-06-14) === — owned by ACKS.senateVote / ACKS.enactPolicy (the Senate
   // tab's Consult + Enact actions); a raw emit would record a vote/dispute the senate state doesn't show.
   'senate-vote', 'policy-enacted',
+  // === Politics P-3 (team) === — owned by the Senate tab's influence + dispute actions (acks-engine-
+  // politics.js); a raw Wizard emit would record an influence/dispute the senate state doesn't show.
+  'senate-influenced', 'senate-dispute-opened',
   // === Delves D3 (team) === — owned by ACKS.commitDungeonForay / realizeDelve (the Foray Wizard);
   // a raw emit would narrate a foray the Delve/Dungeon state doesn't show.
   'delve-foray',

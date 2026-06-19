@@ -500,6 +500,208 @@ section('P-2 — F&D Office → senate-seat hook (Phase_4_Politics_Plan.md §10)
 })();
 
 // =============================================================================
+// P-3 — the influence-actions + dispute-lifecycle layer (burst8 2026-06-19).
+// RR pp.358–359; survey §4.5–§4.7. Bribery (gp by income period) / intimidation +
+// seduction (the shipped Layer-1 proficiency throw) / the −5 escaped-or-ill-treated
+// turn / reveal-on-a-natural-2 / gifts converting the independent bloc; and the
+// dispute extensions (resolve-by-consult → clear|escalate, abandon, re-establish).
+// =============================================================================
+
+section('P-3 — events + exports registered');
+(function(){
+  ok('senate-influenced + senate-dispute-opened in EVENT_KINDS', ACKS.EVENT_KINDS.includes('senate-influenced') && ACKS.EVENT_KINDS.includes('senate-dispute-opened'));
+  ok('both have schemas', !!ACKS.EVENT_SCHEMAS['senate-influenced'] && !!ACKS.EVENT_SCHEMAS['senate-dispute-opened']);
+  ok('both are Wizard-opt-out (engine-owned)', !ACKS.isWizardEmittable('senate-influenced') && !ACKS.isWizardEmittable('senate-dispute-opened'));
+  for(const fn of ['bribeSenator','intimidateSenator','seduceSenator','flipSocialInfluence','applyInfluenceReveals',
+    'giftIndependentSenators','controlledIndependentVotesFor','resolveDisputeByConsult','abandonSenatorialGovernment',
+    'canReestablishSenate','reestablishSenate']){
+    ok('export ' + fn, typeof ACKS[fn] === 'function');
+  }
+  // the new senate state is init-on-write — NOT on the factory (the burst3 discipline)
+  const blank = ACKS.blankSenate({});
+  ok('blankSenate does NOT gain independentGifts / reestablishCooldownUntilTurn (init-on-write)',
+    !('independentGifts' in blank) && !('reestablishCooldownUntilTurn' in blank) && !('dissolvedAtTurn' in blank));
+})();
+
+// a fixture senatorship carrying a real bribe-cost row (RR p.357, level-3) + a briber with coins
+function inflFixture(){
+  const c = fixture();
+  c.currentTurn = 5;
+  c.eventLog = [];
+  // the top senator (snr-4, 12 votes) gets a populated bribe-cost row
+  c.senatorships.find(s => s.id === 'snr-4').bribeCostByPeriod = { day: 4, week: 25, month: 100, year: 1200 };
+  // a proficient briber (Bribery) + a CHA-13 social actor with Intimidation + Seduction, both with coins
+  c.characters.push({ id: 'chr-briber', name: 'Briber', abilities: { CHA: 13 }, coins: { gp: 5000 },
+    proficiencies: ['Bribery'] });
+  c.characters.push({ id: 'chr-social', name: 'Social', abilities: { CHA: 13 }, coins: { gp: 100 },
+    proficiencies: ['Intimidation', 'Seduction'] });
+  c.characters.push({ id: 'chr-plain', name: 'Plain', abilities: { CHA: 13 } });   // no social proficiencies
+  return c;
+}
+
+section('P-3 — bribery (gp by income period; Bribery prof shifts the rate, RR p.358)');
+(function(){
+  // proficient: +1=day(4) / +2=week(25) / +3=month(100)
+  const c = inflFixture();
+  const r1 = ACKS.bribeSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-briber', value: 1 });
+  ok('proficient +1 → period day, gp 4', r1.ok && r1.value === 1 && r1.period === 'day' && r1.gp === 4 && r1.proficient === true);
+  ok('the standing bribe modifier landed on the senatorship (+1)', ACKS.findSenatorship(c, 'snr-4').influenceModifiers.some(m => m.kind === 'bribe' && m.value === 1));
+  ok('coins debited (5000 → 4996)', c.characters.find(x => x.id === 'chr-briber').coins.gp === 4996 && r1.paid === true);
+  ok('a senate-influenced event was emitted', (c.eventLog || []).some(e => e.event && e.event.kind === 'senate-influenced'));
+  // re-bribe REPLACES (no stacking): +3 → period month, gp 100
+  const r3 = ACKS.bribeSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-briber', value: 3 });
+  ok('proficient +3 → period month, gp 100', r3.period === 'month' && r3.gp === 100);
+  const bribes = ACKS.findSenatorship(c, 'snr-4').influenceModifiers.filter(m => m.kind === 'bribe');
+  ok('re-bribe replaces (one bribe modifier, now +3)', bribes.length === 1 && bribes[0].value === 3);
+  // the bribe is READ by the P-2 voting modifier stack
+  const ctx = { rulerId: 'chr-r', domainMorale: 0, hasDiplomacy: true, policyHelps: [], policyHinders: [], militaryLoyalty: 'none', controlledIndependentVotes: 0 };
+  const mods = ACKS.senatorVoteModifiers(c, c.senates[0], ACKS.findSenatorship(c, 'snr-4'), ctx, {}, false);
+  ok('senatorVoteModifiers reads the bribe (+3 row)', mods.modifiers.some(x => x.label === 'bribe' && x.value === 3));
+  // non-proficient: +1=week(25) / +2=month(100) / +3=year(1200)
+  const c2 = inflFixture();
+  const rn = ACKS.bribeSenator(c2, { senatorshipId: 'snr-4', byCharacterId: 'chr-plain', value: 1 });
+  ok('non-proficient +1 → period week, gp 25', rn.proficient === false && rn.period === 'week' && rn.gp === 25);
+  ok('non-proficient +3 → year (1200)', ACKS.bribeSenator(inflFixture(), { senatorshipId: 'snr-4', byCharacterId: 'chr-plain', value: 3 }).gp === 1200);
+  // rival bribe → negative mirror ('rival-bribe', −value)
+  const c3 = inflFixture();
+  const rr = ACKS.bribeSenator(c3, { senatorshipId: 'snr-4', byCharacterId: 'chr-briber', value: 2, byRival: true });
+  ok('rival bribe → kind rival-bribe, value −2', rr.value === -2 && ACKS.findSenatorship(c3, 'snr-4').influenceModifiers.some(m => m.kind === 'rival-bribe' && m.value === -2));
+  // insufficient coins → modifier still lands, paid:false
+  const c4 = inflFixture();
+  c4.characters.find(x => x.id === 'chr-briber').coins.gp = 0;
+  const rp = ACKS.bribeSenator(c4, { senatorshipId: 'snr-4', byCharacterId: 'chr-briber', value: 1 });
+  ok('insufficient coins → paid:false but the modifier lands', rp.paid === false && ACKS.findSenatorship(c4, 'snr-4').influenceModifiers.some(m => m.kind === 'bribe'));
+  ok('bribe on a missing senatorship → ok:false', ACKS.bribeSenator(inflFixture(), { senatorshipId: 'snr-none' }).ok === false);
+})();
+
+section('P-3 — intimidation + seduction (the shipped Layer-1 proficiency throw, RR p.358/p.359)');
+(function(){
+  // gates: no proficiency → refused
+  const c = inflFixture();
+  ok('intimidate without the prof → lacks-intimidation', ACKS.intimidateSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-plain', outranks: true }).reason === 'lacks-intimidation');
+  ok('seduce without the prof → lacks-seduction', ACKS.seduceSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-plain', attracted: true }).reason === 'lacks-seduction');
+  // intimidate requires grossly out-ranking/out-numbering
+  ok('intimidate without outrank → requires-outrank', ACKS.intimidateSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-social' }).reason === 'requires-outrank');
+  // seduce requires an attracted senator
+  ok('seduce without attraction → requires-attraction', ACKS.seduceSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-social' }).reason === 'requires-attraction');
+  // success via the throw (nat-20, proficient auto-success) → +1 'intimidated' modifier
+  const cS = inflFixture();
+  const ri = ACKS.intimidateSenator(cS, { senatorshipId: 'snr-4', byCharacterId: 'chr-social', outranks: true, credibleThreat: true, rng: rngConst(0.99) });
+  ok('intimidate success → +1 intimidated modifier', ri.ok && ri.success === true && ACKS.findSenatorship(cS, 'snr-4').influenceModifiers.some(m => m.kind === 'intimidated' && m.value === 1));
+  ok('the throw used the Layer-1 die (natural 20)', ri.throw && ri.throw.natural === 20 && ri.throw.die === 'd20');
+  // failure (nat-1 botch) → no modifier
+  const cF = inflFixture();
+  const rf = ACKS.intimidateSenator(cF, { senatorshipId: 'snr-4', byCharacterId: 'chr-social', outranks: true, rng: rngConst(0.01) });
+  ok('intimidate fail (nat-1) → no modifier', rf.success === false && !ACKS.findSenatorship(cF, 'snr-4').influenceModifiers.some(m => m.kind === 'intimidated'));
+  // the throw is target 11 + CHA mod (chr-social CHA 13 → +1): natural 11 (rng .5) +1 = 12 ≥ 11 → success
+  const cM = inflFixture();
+  const rm = ACKS.intimidateSenator(cM, { senatorshipId: 'snr-4', byCharacterId: 'chr-social', outranks: true, rng: rngConst(0.5) });
+  ok('throw is target 11 + CHA mod → nat 11 + 1 = 12 success', rm.success === true && rm.throw.target === 11 && rm.throw.modifiers.some(x => x.label === 'CHA' && x.value === 1));
+  // autoSucceed skips the die (the pure-RAW conditional reading)
+  const cA = inflFixture();
+  const ra = ACKS.seduceSenator(cA, { senatorshipId: 'snr-4', byCharacterId: 'chr-social', attracted: true, autoSucceed: true });
+  ok('seduce autoSucceed → success, no throw', ra.success === true && ra.throw === null && ACKS.findSenatorship(cA, 'snr-4').influenceModifiers.some(m => m.kind === 'seduced' && m.value === 1));
+})();
+
+section('P-3 — the −5 escaped/ill-treated turn (RR p.358)');
+(function(){
+  const c = inflFixture();
+  ACKS.intimidateSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-social', outranks: true, autoSucceed: true });
+  const f = ACKS.flipSocialInfluence(c, { senatorshipId: 'snr-4', kind: 'intimidated', byCharacterId: 'chr-social' });
+  ok('flip intimidated → intimidated-escaped, value −5', f.ok && f.modifier.kind === 'intimidated-escaped' && f.modifier.value === -5);
+  const im = ACKS.findSenatorship(c, 'snr-4').influenceModifiers;
+  ok('the +1 is replaced by the −5 (no lingering intimidated)', !im.some(m => m.kind === 'intimidated') && im.some(m => m.kind === 'intimidated-escaped' && m.value === -5));
+  // the vote stack reads the −5
+  const ctx = { rulerId: 'chr-r', domainMorale: 0, hasDiplomacy: true, policyHelps: [], policyHinders: [], militaryLoyalty: 'none' };
+  ok('senatorVoteModifiers reads the −5', ACKS.senatorVoteModifiers(c, c.senates[0], ACKS.findSenatorship(c, 'snr-4'), ctx, {}, false).modifiers.some(x => x.value === -5));
+  // a flip with no prior modifier still creates the −5 (the GM asserts prior dominance)
+  const c2 = inflFixture();
+  const f2 = ACKS.flipSocialInfluence(c2, { senatorshipId: 'snr-2', kind: 'seduced' });
+  ok('flip with no prior → creates seduced-ill-treated −5', f2.modifier.kind === 'seduced-ill-treated' && f2.modifier.value === -5);
+})();
+
+section('P-3 — reveal on an unmodified 2 (RR p.358–359)');
+(function(){
+  const c = inflFixture();
+  // bribe the top senator (snr-4, 12 votes — rolls first) then run an all-natural-2 vote
+  ACKS.bribeSenator(c, { senatorshipId: 'snr-4', byCharacterId: 'chr-briber', value: 1 });
+  ok('the bribed senator starts secret', ACKS.findSenatorship(c, 'snr-4').isSecretInfluence === true);
+  const vote = ACKS.senateVote(c, { senateId: 'sen-1', matter: 'change-taxes', rng: rngConst(0.01), emit: false });
+  const rev = ACKS.applyInfluenceReveals(c, vote, { rulerCharacterId: 'chr-r' });
+  ok('the bribed senator who rolled a natural 2 is revealed', rev.revealed.includes('snr-4') && ACKS.findSenatorship(c, 'snr-4').isSecretInfluence === false);
+  ok('the ruler is now implicated in bribery', c.characters.find(x => x.id === 'chr-r').implicatedInBribery === true);
+  // a senator with NO secret influence rolling a 2 is not "revealed"
+  ok('a clean senator rolling a 2 is not flagged', !rev.revealed.includes('snr-1'));
+})();
+
+section('P-3 — gifts → directing independent minor senators (RR p.359 §4.7)');
+(function(){
+  // fixture senate has independentMinorSenatorVotes 9
+  const c = inflFixture();
+  const g = ACKS.giftIndependentSenators(c, { senateId: 'sen-1', byCharacterId: 'chr-briber', votes: 6, reactionBonus: 3, gp: 500 });
+  ok('+3 reaction gift qualifies, directs 6 votes', g.ok && g.qualifies === true && g.controlled === 6);
+  ok('the gift ledger is init-on-write on the senate', Array.isArray(c.senates[0].independentGifts) && c.senates[0].independentGifts.length === 1);
+  ok('controlledIndependentVotesFor reads it', ACKS.controlledIndependentVotesFor(c, c.senates[0], 'chr-briber', 5) === 6);
+  ok('gift gp debited', c.characters.find(x => x.id === 'chr-briber').coins.gp === 4500 && g.paid === true);
+  // requested over the pool → capped at 9
+  const c2 = inflFixture();
+  ok('gift capped at the independent pool (9)', ACKS.giftIndependentSenators(c2, { senateId: 'sen-1', byCharacterId: 'chr-briber', votes: 20, reactionBonus: 3 }).controlled === 9);
+  // +1 reaction needs Friendly
+  const c3 = inflFixture();
+  ok('+1 reaction, not friendly → does not qualify (0 controlled)', ACKS.giftIndependentSenators(c3, { senateId: 'sen-1', byCharacterId: 'chr-briber', votes: 5, reactionBonus: 1, friendly: false }).controlled === 0);
+  ok('+1 reaction AND friendly → qualifies', ACKS.giftIndependentSenators(inflFixture(), { senateId: 'sen-1', byCharacterId: 'chr-briber', votes: 5, reactionBonus: 1, friendly: true }).qualifies === true);
+  // competing givers: the larger gift wins control of the contested bloc
+  const c4 = inflFixture();
+  ACKS.giftIndependentSenators(c4, { senateId: 'sen-1', byCharacterId: 'chr-briber', votes: 9, reactionBonus: 3, gp: 200 });
+  ACKS.giftIndependentSenators(c4, { senateId: 'sen-1', byCharacterId: 'chr-r', votes: 9, reactionBonus: 3, gp: 800 });
+  ok('competing givers → the larger gift (chr-r, 800gp) wins', ACKS.controlledIndependentVotesFor(c4, c4.senates[0], 'chr-r', 5) === 9 && ACKS.controlledIndependentVotesFor(c4, c4.senates[0], 'chr-briber', 5) === 0);
+})();
+
+section('P-3 — dispute: resolve-by-consult (clear vs escalate, RR p.359)');
+(function(){
+  // CLEAR: an existing dispute + an all-FOR retroactive consult → cleared
+  const c = inflFixture();
+  ACKS.setSenateDispute(c, 'sen-1', { topic: 'change-taxes', turn: 5 });
+  const rc = ACKS.resolveDisputeByConsult(c, { senateId: 'sen-1', rulerCharacterId: 'chr-r', rng: rngConst(0.99) });
+  ok('all-FOR retroactive consult → cleared', rc.outcome === 'cleared' && ACKS.findSenate(c, 'sen-1').dispute == null);
+  ok('benefits restored after a cleared dispute', ACKS.senateBenefitsActive(c, c.domains[0]) === true);
+  ok('a senate-vote + a senate-dispute-opened(cleared) event were emitted', (c.eventLog || []).some(e => e.event.kind === 'senate-vote') && (c.eventLog || []).some(e => e.event.kind === 'senate-dispute-opened' && e.event.payload.action === 'cleared'));
+  // ESCALATE: an all-AGAINST retroactive consult → dispute deepens + against-voters gain 'replace-ruler'
+  const c2 = inflFixture();
+  ACKS.setSenateDispute(c2, 'sen-1', { topic: 'change-taxes', turn: 5 });
+  const re = ACKS.resolveDisputeByConsult(c2, { senateId: 'sen-1', rulerCharacterId: 'chr-r', rng: rngConst(0.01) });
+  ok('all-AGAINST retroactive consult → escalated', re.outcome === 'escalated' && ACKS.findSenate(c2, 'sen-1').dispute != null);
+  ok('attempts bumped to 2', ACKS.findSenate(c2, 'sen-1').dispute.attempts === 2);
+  ok('against-voters gained the replace-ruler objective', re.replaceRulerSenatorships.length > 0
+    && re.replaceRulerSenatorships.every(id => ACKS.findSenatorship(c2, id).policyObjectives.includes('replace-ruler')));
+  // no dispute → no-op
+  ok('resolve on a non-disputed senate → no-dispute', ACKS.resolveDisputeByConsult(inflFixture(), { senateId: 'sen-1' }).outcome === 'no-dispute');
+})();
+
+section('P-3 — dispute: abandon government + re-establish (RR p.359)');
+(function(){
+  const c = inflFixture();
+  // make snr-4 an influential replace-ruler senator (so abandon turns him Hostile)
+  ACKS.findSenatorship(c, 'snr-4').policyObjectives = ['replace-ruler'];
+  // a henchman senator of the ruler (so the penalty list catches him)
+  c.characters.push({ id: 'chr-hench', socialTier: 'henchman', liegeCharacterId: 'chr-r' });
+  c.senatorships.push(ACKS.blankSenatorship({ id: 'snr-h', senatorCharacterId: 'chr-hench', senateId: 'sen-1', factionId: 'fac-a', votes: 3 }));
+  const ab = ACKS.abandonSenatorialGovernment(c, { senateId: 'sen-1', rulerCharacterId: 'chr-r', turn: 5, rng: rngConst(0.5) });
+  ok('abandon → senate dissolved', ab.outcome === 'abandoned' && ACKS.findSenate(c, 'sen-1').status === 'dissolved');
+  ok('penalties surfaced: morale −2, henchman/vassal loyalty −2', ab.penalties.personalDomainMoraleNextAt === -2 && ab.penalties.henchmanSenatorLoyaltyAt === -2 && ab.penalties.vassalLoyaltyAt === -2);
+  ok('the replace-ruler senator turns Hostile (attitude 2)', ab.penalties.hostileSenators.some(h => h.senatorshipId === 'snr-4') && ACKS.findSenatorship(c, 'snr-4').attitudeTowardRuler === 2);
+  ok('the henchman senator is listed in the loyalty penalty', ab.penalties.henchmanSenators.includes('chr-hench'));
+  ok('2d6-month re-establish cooldown set (turn 5 + 8 = 13)', ACKS.findSenate(c, 'sen-1').reestablishCooldownUntilTurn === 13);
+  ok('a senate-dispute-opened(abandoned) event was emitted', (c.eventLog || []).some(e => e.event.kind === 'senate-dispute-opened' && e.event.payload.action === 'abandoned'));
+  // a dissolved senate drops from the dormant-until-used presence + cannot re-establish during cooldown
+  ok('canReestablishSenate false during cooldown (turn 10)', ACKS.canReestablishSenate(c, ACKS.findSenate(c, 'sen-1'), 10) === false);
+  ok('reestablish refused during cooldown', ACKS.reestablishSenate(c, { senateId: 'sen-1', turn: 10 }).reason === 'cooldown');
+  ok('canReestablishSenate true after cooldown (turn 13)', ACKS.canReestablishSenate(c, ACKS.findSenate(c, 'sen-1'), 13) === true);
+  const rr = ACKS.reestablishSenate(c, { senateId: 'sen-1', turn: 13, rng: rngConst(0.5) });
+  ok('reestablish after the cooldown → active + a fresh honeymoon', rr.ok === true && ACKS.findSenate(c, 'sen-1').status === 'active' && ACKS.findSenate(c, 'sen-1').honeymoonUntilTurn === 17);
+})();
+
+// =============================================================================
 section('Importer wiring (index.html SIMPLE_ID_COLLECTIONS — §8.9 mandate)');
 // =============================================================================
 (function(){
