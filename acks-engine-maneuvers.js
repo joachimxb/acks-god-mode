@@ -353,6 +353,19 @@
       const tv = Ax.reconTerrainMod(tk);
       if(tv) mods.push({ label: 'their terrain (' + (oppHex.terrain || '?') + ')', value: tv });
     }
+    // weather (RR p.449) — foul weather over the OBSERVING army hampers its scouting:
+    // rainy/snowy −2 anywhere; windy/stormy −4 ONLY in barrens/desert (blowing sand/snow
+    // blinds the watch). Fires only when the day-tick hands the day's weather down via
+    // opts.weather (no on-demand roll → a weatherless recon / a static readout sees no
+    // effect, so the seeded 2d6 stream is unchanged unless weather is actually present).
+    const wx = _armyWeatherEffects(campaign, observer, opts);
+    if(wx && wx.reconMod){
+      const obsHex = _hex(campaign, (opts && opts.obsHexId) || (observer && observer.currentHexId));
+      const obsBase = (obsHex && typeof Ax.terrainBase === 'function') ? Ax.terrainBase(obsHex.terrain) : ((obsHex && obsHex.terrain) || '');
+      if(!wx.reconBarrensDesertOnly || obsBase === 'barrens' || obsBase === 'desert'){
+        mods.push({ label: (wx.conditionLabel || 'severe') + ' weather' + (wx.reconBarrensDesertOnly ? ' (barrens/desert)' : ''), value: wx.reconMod });
+      }
+    }
     // region familiarity — derived from whose realm the ground belongs to.
     const obsFam = _armyFamiliarWithHex(campaign, observer, oppHex);
     const oppFam = _armyFamiliarWithHex(campaign, opposing, oppHex);

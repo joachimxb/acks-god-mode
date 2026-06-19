@@ -21,6 +21,7 @@ let pass = 0, fail = 0; const failures = [];
 function ok(label, cond, detail){ if(cond){ pass++; } else { fail++; failures.push(label + (detail ? ' — ' + detail : '')); console.log('  FAIL ' + label + (detail ? ' — ' + detail : '')); } }
 function section(t){ console.log('— ' + t); }
 function d20v(r){ return (r - 0.5) / 20; }
+function d6v(r){ return (r - 0.5) / 6; }
 function seq(values){ let i = 0; return () => values[Math.min(i++, values.length - 1)]; }
 
 // A minimal on-campaign army at a coord-bearing hex, with a paying leader + one company.
@@ -36,6 +37,24 @@ function mkArmy(opts){
   return { c, ar };
 }
 function ctxFor(c, weather){ const k = A.regionKeyForCoord({ q: 0, r: 0 }); return { dayInMonth: c.currentDayInMonth, weatherByRegion: { [k]: weather }, weather }; }
+// Two opposing 120-troop armies one hex apart (axial distance 1 ≤ recon range 4) — for the
+// RR p.449 recon penalty. obsTerrain governs the barrens/desert gate (the OBSERVER's hex).
+function mkTwoArmies(opts){
+  const o = opts || {};
+  const c = A.blankCampaign(); c.hexes = []; c.domains = []; c.characters = []; c.armies = []; c.units = [];
+  c.currentTurn = 1; c.currentDayInMonth = 10;
+  c.hexes.push(A.blankHex({ id: 'obs', coord: { q: 0, r: 0 }, terrain: o.obsTerrain || 'grassland' }));
+  c.hexes.push(A.blankHex({ id: 'opp', coord: { q: 1, r: 0 }, terrain: o.oppTerrain || 'grassland' }));
+  const la = A.blankCharacter({ name: 'Aelric' }); la.id = 'la'; c.characters.push(la);
+  const lb = A.blankCharacter({ name: 'Brand' });  lb.id = 'lb'; c.characters.push(lb);
+  const ua = A.blankUnit({ unitTypeKey: 'heavy-infantry', scale: 'company', count: 120 }); c.units.push(ua);
+  const ub = A.blankUnit({ unitTypeKey: 'heavy-infantry', scale: 'company', count: 120 }); c.units.push(ub);
+  const obs = A.createArmy(c, { name: 'Watch',  leaderCharacterId: 'la', currentHexId: 'obs', unitIds: [ua.id] });
+  const opp = A.createArmy(c, { name: 'Quarry', leaderCharacterId: 'lb', currentHexId: 'opp', unitIds: [ub.id] });
+  return { c, obs, opp };
+}
+function reconWeatherMod(rr){ const m = rr.mods.find(x => /weather/.test(x.label)); return m ? m.value : 0; }
+function hasReconWeatherMod(rec){ return (rec.recons || []).some(rc => (rc.recon.mods || []).some(m => /weather/.test(m.label))); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 section('weatherWarEffects — the RR p.449 catalog reader');
@@ -255,6 +274,61 @@ function missileLine(rec){
   A.beginBattle(c, b.id);
   const rec = A.runBattleTurn(c, b.id, { rng: seq([d20v(17)]) });
   ok('gm-set-weather + no committed weather: no phantom weather line', !rec.lines.some(l => /to missile attack throws \(RR p\.449\)/.test(l)));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('armyReconRoll — RR p.449 weather hampers the OBSERVING army\'s scouting');
+{
+  // rainy/snowy −2 anywhere; the seeded 2d6 roll (4+4=8) is unchanged by adding the mod.
+  const { c, obs, opp } = mkTwoArmies();
+  const fair  = A.armyReconRoll(c, obs, opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp' });
+  const rainy = A.armyReconRoll(c, obs, opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp', weather: { condition: 'rainy', temperature: 'moderate' } });
+  ok('fair: no weather recon mod', reconWeatherMod(fair) === 0);
+  ok('rainy: −2 recon mod with a "Rainy weather" label', reconWeatherMod(rainy) === -2 && /Rainy weather/.test(rainy.mods.find(m => /weather/.test(m.label)).label));
+  ok('the seeded 2d6 roll is unchanged by adding the mod (4+4=8)', fair.roll === 8 && rainy.roll === 8);
+  ok('rainy total = fair total − 2 (the weather mod is the only delta)', rainy.total === fair.total - 2);
+  const snowy = A.armyReconRoll(c, obs, opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp', weather: { condition: 'snowy', temperature: 'frigid' } });
+  ok('snowy −2 recon (the temperature axis adds no recon mod)', reconWeatherMod(snowy) === -2);
+}
+{
+  // windy/stormy −4 — but ONLY in barrens/desert (the gate reads the OBSERVER's hex).
+  const grass = mkTwoArmies({ obsTerrain: 'grassland' });
+  const inGrass = A.armyReconRoll(grass.c, grass.obs, grass.opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp', weather: { condition: 'stormy', temperature: 'moderate' } });
+  ok('stormy in grassland: NO recon mod (gated to barrens/desert)', reconWeatherMod(inGrass) === 0);
+  const desert = mkTwoArmies({ obsTerrain: 'desert' });
+  const inDesert = A.armyReconRoll(desert.c, desert.obs, desert.opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp', weather: { condition: 'stormy', temperature: 'moderate' } });
+  const dm = inDesert.mods.find(m => /weather/.test(m.label));
+  ok('stormy in desert: −4 recon mod, labelled (barrens/desert)', dm && dm.value === -4 && /\(barrens\/desert\)/.test(dm.label));
+  const barrens = mkTwoArmies({ obsTerrain: 'barrens' });
+  const inBarrens = A.armyReconRoll(barrens.c, barrens.obs, barrens.opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp', weather: { condition: 'windy', temperature: 'moderate' } });
+  ok('windy in barrens: −4 recon mod', reconWeatherMod(inBarrens) === -4);
+  // the gate reads the OBSERVER's hex, not the opposing army's
+  const split = mkTwoArmies({ obsTerrain: 'grassland', oppTerrain: 'desert' });
+  const r2 = A.armyReconRoll(split.c, split.obs, split.opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp', weather: { condition: 'windy', temperature: 'moderate' } });
+  ok('the barrens/desert gate reads the OBSERVER hex (grassland obs vs desert opp → no mod)', reconWeatherMod(r2) === 0);
+  // sub-typed desert still resolves to base 'desert' through the gate
+  const subDesert = mkTwoArmies(); subDesert.c.hexes[0].terrainSubtype = 'sandy';
+  const sd = A.armyReconRoll(subDesert.c, subDesert.obs, subDesert.opp, { rng: seq([d6v(4), d6v(4)]), obsHexId: 'obs', oppHexId: 'opp', weather: { condition: 'stormy', temperature: 'moderate' } });
+  // (obsTerrain default = grassland here, so no mod — sanity that a non-desert sub-type stays gated)
+  ok('a grassland obs with a stray sub-type stays gated under stormy', reconWeatherMod(sd) === 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('slot-88 consumer — the recon penalty threads through the observing army (RR p.449)');
+{
+  // two opposing armies in recon range; a rainy day → the army-day recon record carries the mod.
+  const { c } = mkTwoArmies();
+  const res = A.proposeMilitaryDay(c, { dayInMonth: 10, weather: { condition: 'rainy', temperature: 'moderate' } });
+  const dayRecs = res.pendingRecords.filter(r => r.kind === 'army-day');
+  ok('army-day recon records produced (both armies are in range)', dayRecs.length >= 1);
+  const got = dayRecs.some(r => (r.recons || []).some(rc => (rc.recon.mods || []).some(m => /Rainy weather/.test(m.label) && m.value === -2)));
+  ok('a recon record carries the Rainy −2 mod (the consumer threads the observer\'s weather)', got);
+  // fair weather: no recon weather mod anywhere
+  const fair = A.proposeMilitaryDay(mkTwoArmies().c, { dayInMonth: 10, weather: { condition: 'fair', temperature: 'moderate' } });
+  ok('fair weather: no recon weather mod in any record', fair.pendingRecords.filter(r => r.kind === 'army-day').every(r => !hasReconWeatherMod(r)));
+  // no ctx weather at all: no on-demand roll → no recon weather mod
+  const bare = A.proposeMilitaryDay(mkTwoArmies().c, { dayInMonth: 10 });
+  ok('no ctx weather: no recon weather mod (no on-demand roll)', bare.pendingRecords.filter(r => r.kind === 'army-day').every(r => !hasReconWeatherMod(r)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
