@@ -191,7 +191,13 @@ const ID_PREFIXES = Object.freeze({
   customRace:           'crc',
   // === Magic Research (AD-M1, 2026-06-15) — Phase 4 the Arcane-Domain consumer (RR pp.388–393).
   // The Research Project entity (campaign.researchProjects[]); resolved by acks-engine-magic-research.js. ===
-  researchProject:      'rsp'
+  researchProject:      'rsp',
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore data layer (Knowledge_Layer_Plan.md /
+  // Sages_Knowledge_RAW_Survey.md §6/§16). `lore` = a first-class fact (campaign.lore[]; rumors subsume in
+  // Wave B); `knowledge` = the per-knower relation (campaign.knowledge[]; character ↔ lore, the
+  // believed-vs-true / confidence + provenance link). Resolved by acks-engine-knowledge.js. ===
+  lore:                 'lor',
+  knowledge:            'knw'
 });
 
 function newId(prefix){

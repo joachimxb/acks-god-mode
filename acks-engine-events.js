@@ -331,7 +331,12 @@ const EVENT_KINDS = Object.freeze([
   'ritual-cast',              // cast a ritual → takes effect (GM-resolved) OR is stored as a single charge
   // === Phase 4 — Magic Research AD-M4 (experimentation; RR pp.408–411) ===
   'magic-experiment-breakthrough', // a successful experiment exceeds its target → a minor/major/revolutionary breakthrough
-  'magic-experiment-mishap'        // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
+  'magic-experiment-mishap',       // a failed experiment → a minor/major/catastrophic mishap (GM resolves) on top of the loss
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
+  // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
+  // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
+  'lore-learned',                  // a Knower acquires/recalls a Lore item (creates/upgrades a Knowledge record)
+  'lore-shared'                    // a Knower tells another Knower a Lore item (the manual single-share; the diffusion tick is a later wave)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1053,6 +1058,16 @@ const EVENT_SCHEMAS = Object.freeze({
   'magic-experiment-mishap': {
     R: { projectId: 'string', tier: 'string' },
     O: { researcherCharacterId: 'string', kind: 'string', roll: 'number', assistantsTier: 'string', narrative: 'string' }
+  },
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
+  // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
+  'lore-learned': {
+    R: { loreId: 'string', knowerId: 'string' },
+    O: { knowerKind: 'string', certainty: 'string', sourceKind: 'string', sourceById: 'string', believedText: 'string', learnedAtHexId: 'string', narrative: 'string' }
+  },
+  'lore-shared': {
+    R: { loreId: 'string', toKnowerId: 'string' },
+    O: { fromKnowerId: 'string', fromKnowerKind: 'string', toKnowerKind: 'string', certainty: 'string', narrative: 'string' }
   }
 });
 
@@ -2760,6 +2775,15 @@ registerEventHandler('ritual-learned', applyEvent_researchAudit);
 registerEventHandler('ritual-cast', applyEvent_researchAudit);
 registerEventHandler('magic-experiment-breakthrough', applyEvent_researchAudit);
 registerEventHandler('magic-experiment-mishap', applyEvent_researchAudit);
+// === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
+// shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
+// keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
+function applyEvent_loreAudit(campaign, event){
+  const p = (event && event.payload) || {};
+  return { result: { narrativeSummary: p.narrative || (event && event.kind) || 'lore event' } };
+}
+registerEventHandler('lore-learned', applyEvent_loreAudit);
+registerEventHandler('lore-shared', applyEvent_loreAudit);
 
 // =============================================================================
 // GP Wave B — the wealth/item movement grammar (Architecture.md §4.3, 2026-06-04)
@@ -5824,7 +5848,11 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   'magic-experiment-breakthrough', 'magic-experiment-mishap',
   // Construction Wave C — owned by acks-engine-followers.js (attractFollowers, driven by the Stronghold-tab
   // card + review modal); a raw emit would record a follower arrival the minted Characters + Group don't show.
-  'follower-arrival'
+  'follower-arrival',
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
+  // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
+  // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.
+  'lore-learned', 'lore-shared'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

@@ -141,7 +141,13 @@ function blankCampaign(opts={}){
     // Sanctums AD-B (2026-06-15) — the apprenticeship relation (apr-): an L0 apprentice studies under a
     // sanctum-owning master (RR p.386). Companions (L1+) reuse henchmanships; this is the L0 schooling
     // track. Also lazy-defaulted on load (lazyDefaultV1ScopeReservations) so old saves backfill.
-    apprenticeships: opts.apprenticeships || []
+    apprenticeships: opts.apprenticeships || [],
+    // === Knowledge Layer Wave A (team burst7 2026-06-19) === — the Lore data layer. `lore` = first-class
+    // facts (a fact possibly partial/stale/false; rumors subsume in Wave B); `knowledge` = the per-knower
+    // relation (character ↔ lore, confidence + provenance — the believed-vs-true link). Read DEFENSIVELY
+    // everywhere (campaign.lore ?? []); NOT lazy-injected by migrateCampaign, so templates stay migrate-no-ops.
+    lore: opts.lore || [],
+    knowledge: opts.knowledge || []
   };
 }
 
@@ -2047,6 +2053,46 @@ function blankDivineFavor(opts={}){
 }
 // === end Religion R0 ===
 
+// === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore + Knowledge factories ===
+// Knowledge_Layer_Plan.md §6 / Sages_Knowledge_RAW_Survey.md §6+§16. Lore = a first-class fact
+// (rumors subsume in Wave B); Knowledge = the per-knower relation (the believed-vs-true link,
+// confidence + provenance). FIRST-hand Lore is DERIVED from the eventLog (acks-engine-knowledge.js
+// firstHandLore); a stored Knowledge record is SECOND-hand (heard/read/deduced/gossip).
+function blankLore(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.lore),
+    // The fact as the GM states it (the TRUE statement of the fact). A Knower's distorted
+    // belief lives on the Knowledge record's believedText (the secret-identity case), not here.
+    text: opts.text || '',
+    loreKind: opts.loreKind || 'fact',          // fact|rumor|secret|identity ('rumor' reserved for the Wave-B Rumors migration)
+    truthValue: opts.truthValue || 'unknown',   // true|false|partial|unknown — is the statement actually true in the world?
+    topic: opts.topic || '',                    // a short subject tag for grouping/search
+    subjectIds: opts.subjectIds || [],          // entity ids the fact is ABOUT (mixed-kind) → powers loreOnSubject
+    qualityDimensions: opts.qualityDimensions || [], // the What's-the-Word 6 dimensions (GM-filled; empty in v1)
+    createdAtTurn: opts.createdAtTurn || 1,
+    createdByCharacterId: opts.createdByCharacterId || null,
+    notes: opts.notes || '',
+    history: opts.history || []
+  };
+}
+function blankKnowledge(opts={}){
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: opts.id || newId(ID_PREFIXES.knowledge),
+    knowerKind: opts.knowerKind || 'character', // character|group|faction|domain|settlement (a ROLE, read via predicates)
+    knowerId: opts.knowerId || null,
+    loreId: opts.loreId || null,
+    certainty: opts.certainty || 'rumored',     // rumored|suspected|probable|certain (the DF suspicion dimension, not a bool)
+    source: opts.source || { kind: 'told-by', byId: null }, // provenance: witnessed|told-by|sage|treatise|deduced|gossip|rumor|gm
+    believedText: opts.believedText || '',      // what THIS Knower believes (may differ from Lore.text); '' = the true text
+    learnedAtTurn: opts.learnedAtTurn || 1,
+    learnedAtHexId: opts.learnedAtHexId || null,
+    status: opts.status || 'active',            // active|forgotten
+    history: opts.history || []
+  };
+}
+
 Object.assign(ACKS, {
   blankCampaign, blankDomain, blankHex, blankSettlement, blankLair, blankEncounter, blankPointOfInterest, blankLandImprovementProject, blankGarrisonUnit, blankSpecialist, blankStrongholdStructure, blankStrongholdComponent, migrateStrongholdToComponents, strongholdTotalValue, AGRICULTURAL_IMPROVEMENT_COST_PER_STEP, AGRICULTURAL_IMPROVEMENT_MAX_BONUS, AGRICULTURAL_IMPROVEMENT_VALUE_CAP, migrateHexToAccumulatedImprovement, migrateHexToMultiSupervisor, ratchetAgriculturalImprovement, blankCharacter, blankParty, blankVenture, blankPassiveInvestment,
   // Phase 2.95 Stash A + Wave A relation factories (2026-05-29)
@@ -2069,6 +2115,8 @@ Object.assign(ACKS, {
   blankProject, blankConstructible,
   // === Religion R0 (team 2026-06-13) — Wave E: Deity + Congregation + DivineFavor factories ===
   blankDeity, blankCongregation, blankDivineFavor,
+  // === Knowledge Layer Wave A (team burst7 2026-06-19) — Lore fact + Knowledge per-knower relation ===
+  blankLore, blankKnowledge,
   MAGISTRATE_ROLES, MAGISTRATE_ROLE_KEYS, MAGISTRATE_SALARY_FRACTION, emptyMagistrates, ensureMagistratesShape, isCharacterQualifiedForRole,
   LOYALTY_BANDS, loyaltyBandFor, applyLoyaltyFloors, rollLoyalty
 });
