@@ -530,11 +530,159 @@ section('D3 — catastrophic wipes the delve');
 })();
 
 // =============================================================================
+// D4 — Abstract Wilderness foray resolver (JJ ch.13, pp.281–286). Locked against the JJ
+// worked examples: expedition level (58/6→9, 32/6→5), the orc encounter quotient (490→-2,
+// 540→-3), the two Army-Adjustment expeditions (+3 vs ML4 → 0, +24 vs ML4 → 3, +24 vs ML1 →
+// +2 cap), and the scaling modifier (14 participants → 2.33 × 3 → 7 wounds). The base grid +
+// the resolution bands + the magic-item table are the SAME D3 catalogs (JJ p.283 == p.275/276).
+// =============================================================================
+section('D4 — exports present');
+['monsterLevelForXpv','expeditionLevel','expeditionScalingModifier','encounterXPV','ordinaryMonsterXpv',
+ 'challengeAdjustmentForQuotient','challengeAdjustment','armyAdjustment','wildernessForayDifficulty',
+ 'resolveWildernessForay','commitWildernessForay'].forEach(fn => ok('ACKS.' + fn + ' is a function', typeof ACKS[fn] === 'function'));
+ok('MONSTER_LEVEL_TABLE has 6 bands', Array.isArray(ACKS.MONSTER_LEVEL_TABLE) && ACKS.MONSTER_LEVEL_TABLE.length === 6);
+
+section('D4 — Monster Level table (JJ p.281)');
+ok('XPV 10 → L1 / divisor 90', ACKS.monsterLevelForXpv(10).level === 1 && ACKS.monsterLevelForXpv(10).divisor === 90);
+ok('XPV 15 → L1 (upper edge)', ACKS.monsterLevelForXpv(15).level === 1);
+ok('XPV 20 → L2 / 140', ACKS.monsterLevelForXpv(20).level === 2 && ACKS.monsterLevelForXpv(20).divisor === 140);
+ok('XPV 50 → L3 / 320', ACKS.monsterLevelForXpv(50).level === 3 && ACKS.monsterLevelForXpv(50).divisor === 320);
+ok('XPV 175 → L4 / 625', ACKS.monsterLevelForXpv(175).level === 4 && ACKS.monsterLevelForXpv(175).divisor === 625);
+ok('XPV 500 → L5 / 1835', ACKS.monsterLevelForXpv(500).level === 5 && ACKS.monsterLevelForXpv(500).divisor === 1835);
+ok('XPV 1200 → L6 / 4795', ACKS.monsterLevelForXpv(1200).level === 6 && ACKS.monsterLevelForXpv(1200).divisor === 4795);
+ok('XPV 5000 → L6', ACKS.monsterLevelForXpv(5000).level === 6);
+ok('gap XPV 17 folds down → L1', ACKS.monsterLevelForXpv(17).level === 1);
+
+section('D4 — Expedition level + scaling (JJ p.281, p.284)');
+(function(){
+  const ex1 = { characters: [
+    {id:'a',level:6},{id:'b',level:6},{id:'c',level:6},{id:'d',level:5},{id:'e',level:4},
+    {id:'f',level:4},{id:'g',level:4},{id:'h',level:4},{id:'i',level:3},{id:'j',level:3},
+    {id:'k',level:3},{id:'l',level:3},{id:'m',level:3},{id:'n',level:2},{id:'o',level:2}] };
+  ok('Example 1: Σ58 / 6 → 9 (round down from 9.67)', ACKS.expeditionLevel(ex1, ex1.characters.map(c=>c.id)) === 9);
+  const ex2 = { characters: [{id:'p',level:10},{id:'q',level:10},{id:'r',level:6},{id:'s',level:6}] };
+  ok('Example 2: Σ32 / 6 → 5 (round down from 5.33)', ACKS.expeditionLevel(ex2, ['p','q','r','s']) === 5);
+  ok('empty expedition → 0', ACKS.expeditionLevel({characters:[]}, []) === 0);
+  ok('scaling 14 participants → 2.33', Math.abs(ACKS.expeditionScalingModifier(14) - (14/6)) < 1e-9);
+  ok('scaling example: round(3 × 14/6) = 7 wounds', Math.round(3 * ACKS.expeditionScalingModifier(14)) === 7);
+  ok('scaling 6 participants → 1.0 (neutral)', ACKS.expeditionScalingModifier(6) === 1);
+})();
+
+section('D4 — Encounter XPV + Challenge Adjustment (JJ p.281)');
+(function(){
+  // The orc warband worked example: 35 ordinary (10) + 8 champions (15) + 1 sub-chieftain (20) = 490.
+  const orc = { ordinaryXpv:10, count:35, extras:[{xp:15,count:8},{xp:20,count:1}] };
+  ok('encounterXPV orc warband = 490', ACKS.encounterXPV(orc) === 490);
+  ok('ordinaryMonsterXpv = 10', ACKS.ordinaryMonsterXpv(orc) === 10);
+  const ca = ACKS.challengeAdjustment(orc);
+  ok('orc → monster level 1, divisor 90', ca.monsterLevel === 1 && ca.divisor === 90);
+  ok('orc quotient ≈ 5.44', Math.abs(ca.quotient - 490/90) < 1e-9);
+  ok('orc challenge adjustment = -2 (worked example)', ca.challengeAdj === -2);
+  // 540 XPV → 6.0 → -3 (the "what if more orcs" example).
+  const orc540 = { ordinaryXpv:10, count:54 };
+  ok('540 XPV → CA -3', ACKS.challengeAdjustment(orc540).challengeAdj === -3);
+  // encounterXPV via the live catalog (orc xp:10).
+  ok('encounterXPV via catalog key (10 orcs) = 100', ACKS.encounterXPV({monsterCatalogKey:'orc', count:10}) === 100);
+  // Encounter Quotient bands.
+  ok('quotient 0.25 → +2', ACKS.challengeAdjustmentForQuotient(0.25) === 2);
+  ok('quotient 0.5 → +1', ACKS.challengeAdjustmentForQuotient(0.5) === 1);
+  ok('quotient 1.0 → 0', ACKS.challengeAdjustmentForQuotient(1.0) === 0);
+  ok('quotient 1.5 → 0', ACKS.challengeAdjustmentForQuotient(1.5) === 0);
+  ok('quotient 1.51 → -1', ACKS.challengeAdjustmentForQuotient(1.51) === -1);
+  ok('quotient 2 → -1', ACKS.challengeAdjustmentForQuotient(2) === -1);
+  ok('quotient 5.44 → -2', ACKS.challengeAdjustmentForQuotient(5.44) === -2);
+  ok('quotient 6 → -3', ACKS.challengeAdjustmentForQuotient(6) === -3);
+})();
+
+section('D4 — Army Adjustment (JJ p.282)');
+(function(){
+  // Example 1: 6 leveled chars, 90 light infantry = 3 platoon units BR 1; ML4 encounter, AL 1.
+  const aa1 = ACKS.armyAdjustment({ platoonUnits:[{br:1,count:3}], maxUnits:6, monsterLevel:4, armyLevel:1 });
+  ok('Ex1 rawAA = +3', aa1.rawAA === 3);
+  ok('Ex1 modifiedAA = 0 (halved 3× → 0.375 → 0)', aa1.modifiedAA === 0);
+  ok('Ex1 participating units = 3', aa1.participatingUnits === 3);
+  // Example 2: 4 leveled chars, best 4 units of heavy cavalry BR 6; ML4, AL 1.
+  const aa2 = ACKS.armyAdjustment({ platoonUnits:[{br:6,count:4}], maxUnits:4, monsterLevel:4, armyLevel:1 });
+  ok('Ex2 rawAA = +24', aa2.rawAA === 24);
+  ok('Ex2 modifiedAA = 3 (24 halved 3× = 3)', aa2.modifiedAA === 3);
+  // Example 3: AA +24 vs a ML1 encounter (AL 1) → no halving → 24.
+  const aa3 = ACKS.armyAdjustment({ platoonUnits:[{br:6,count:4}], maxUnits:4, monsterLevel:1, armyLevel:1 });
+  ok('Ex3 modifiedAA = 24 (no halving, AL == ML)', aa3.modifiedAA === 24);
+  // maxUnits cap: 6 units offered (BR 6,6,6,6,1,1), only 4 may participate → best 4 = 24.
+  const cap = ACKS.armyAdjustment({ platoonUnits:[{br:6,count:4},{br:1,count:2}], maxUnits:4, monsterLevel:1 });
+  ok('maxUnits cap keeps the best 4 (rawAA 24, not 26)', cap.rawAA === 24 && cap.participatingUnits === 4);
+})();
+
+section('D4 — foray difficulty in column space (JJ p.283)');
+(function(){
+  // Base reuse: the wilderness base grid is identical to the dungeon BASE_RESOLUTION_GRID.
+  const w = ACKS.wildernessForayDifficulty({ expeditionLevel:3, monsterLevel:1, challengeAdj:0, modifiedArmyAdj:0 });
+  const d = ACKS.baseResolutionModifier(3, 1);
+  ok('base reuse: expL3 vs ML1 == baseResolutionModifier(3,1)', w.modifier === d.modifier);
+  // The CA+AA contribution is capped at +2 steps (JJ p.282).
+  const capped = ACKS.wildernessForayDifficulty({ expeditionLevel:1, monsterLevel:1, challengeAdj:-13, modifiedArmyAdj:24 });
+  ok('CA(-13)+AA(+24) capped at +2 steps → Accessible(col3)+2 = Simple(+4)', capped.modifier === 4 && capped.combinedCA === 2);
+  // Never easier than Effortless (+8).
+  const eff = ACKS.wildernessForayDifficulty({ expeditionLevel:6, monsterLevel:1, challengeAdj:2, modifiedArmyAdj:0, situationalSteps:2 });
+  ok('never easier than Effortless (+8)', eff.modifier === 8);
+  // Off-left: a weak expedition vs a strong, negative-CA monster goes past Apocalyptic (extra -8).
+  const grim = ACKS.wildernessForayDifficulty({ expeditionLevel:5, monsterLevel:4, challengeAdj:-3, modifiedArmyAdj:0 });
+  ok('off-left past Apocalyptic → -16', grim.modifier === -16);
+})();
+
+section('D4 — resolve + commit pipeline');
+(function(){
+  function mk(){ const c = ACKS.blankCampaign({ name:'AW' }); c.eventLog = []; c.currentTurn = 1; c.currentDayInMonth = 1;
+    c.characters = [
+      {id:'pc',name:'Aelric',level:5,abilities:{CON:12},hp:{hitDice:'5d8'},lifecycleState:'active',alive:true},
+      {id:'h1',name:'Borin',level:3,abilities:{CON:10},hp:{hitDice:'3d8'},lifecycleState:'active',alive:true,socialTier:'henchman'}];
+    return c; }
+  // STUPENDOUS vs a weak lair (force d8=8, d12=12 → high total). Treasure = 4 × XPV × 200%.
+  let c = mk();
+  c.lairs = [ ACKS.blankLair({ id:'lai-1', name:'Orc Warren', monsterCatalogKey:'orc', hexId:'hex-1', status:'active', totalInhabitantCount:2, treasureType:'G' }) ];
+  let p = ACKS.resolveWildernessForay(c, { participantCharacterIds:['pc','h1'], lairId:'lai-1', rng: rngOf([rFor(8,8), rFor(12,12)]) });
+  ok('lair foe is flagged isLair', p.isLair === true);
+  ok('stupendous result', p.result === 'stupendous', 'got ' + p.result + ' (total ' + p.roll.total + ')');
+  ok('stupendous → 0 wounds', p.totalWounds === 0 && p.casualtyCount === 0);
+  ok('lair treasure = 4 × XPV(20) × 200% = 160', p.treasureGp === 160);
+  ok('combat XP = encounter XPV (20)', p.combatXp === 20);
+  let r = ACKS.commitWildernessForay(c, p, { participantCharacterIds:['pc','h1'], treasureDestinationCharacterId:'pc' });
+  ok('commit clears the lair (Wilderness Clearing → securing)', r.lairCleared === true && c.lairs[0].status === 'cleared');
+  ok('commit emits wilderness-foray', c.eventLog.some(e => e.event.kind === 'wilderness-foray'));
+  ok('commit disburses via adventure-result', c.eventLog.some(e => e.event.kind === 'adventure-result'));
+  ok('henchman XP = ½ share (pc 13, h1 6 from 20 / 1.5 shares)', JSON.stringify(r.xpAwarded) === JSON.stringify([{characterId:'pc',xp:13},{characterId:'h1',xp:6}]));
+
+  // Non-lair wandering encounter → no hoard treasure (v1 simple path).
+  c = mk();
+  p = ACKS.resolveWildernessForay(c, { participantCharacterIds:['pc','h1'], foe:{ monsterCatalogKey:'orc', count:2 }, rng: rngOf([rFor(8,8), rFor(12,12)]) });
+  ok('non-lair foe → no treasure', p.isLair === false && p.treasureGp === 0);
+
+  // CATASTROPHIC (force d8=1, d12=1 vs a strong foe) → every participant wounded.
+  c = mk();
+  p = ACKS.resolveWildernessForay(c, { participantCharacterIds:['pc','h1'], foe:{ monsterCatalogKey:'orc', count:35 }, rng: rngOf([rFor(1,8), rFor(1,12)]) });
+  ok('catastrophic result', p.result === 'catastrophic', 'got ' + p.result + ' (total ' + p.roll.total + ')');
+  ok('catastrophic wounds all participants', p.casualtyCount === 2);
+  r = ACKS.commitWildernessForay(c, p, { participantCharacterIds:['pc','h1'] });
+  ok('commit applies Mortal Wounds (pc no longer active)', c.characters[0].lifecycleState !== 'active' && (c.characters[0].mortalWounds||[]).length === 1);
+
+  // Army participation lifts participant count (units join the wound pool).
+  c = mk();
+  p = ACKS.resolveWildernessForay(c, { participantCharacterIds:['pc','h1'], foe:{ monsterCatalogKey:'orc', count:2 }, platoonUnits:[{br:6,count:2,armyLevel:1}], rng: rngOf([rFor(4,8), rFor(4,12)]) });
+  ok('participant count = adventurers + participating units', p.participantCount === p.adventurerCount + p.army.participatingUnits);
+  ok('only leveled chars ≥3rd cap the units (pc L5 + h1 L3 → ≤2 units)', p.army.participatingUnits <= 2);
+})();
+
+section('D4 — event registration');
+ok("'wilderness-foray' in EVENT_KINDS", ACKS.EVENT_KINDS.includes('wilderness-foray'));
+ok("'wilderness-foray' has a schema", !!(ACKS.EVENT_SCHEMAS && ACKS.EVENT_SCHEMAS['wilderness-foray']));
+ok("'wilderness-foray' is Event-Wizard opt-out", ACKS.EVENT_WIZARD_OPTOUT.has('wilderness-foray'));
+
+// =============================================================================
 section('Summary');
 console.log('  Passed: ' + pass);
 console.log('  Failed: ' + fail);
 if(fail === 0){
-  console.log('\nAll Delves D2 + D3 smoke checks passed.');
+  console.log('\nAll Delves D2 + D3 + D4 smoke checks passed.');
   process.exit(0);
 } else {
   console.log('\nFAILURES:\n  - ' + failures.join('\n  - '));
