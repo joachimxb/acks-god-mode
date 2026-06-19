@@ -364,6 +364,10 @@ const EVENT_KINDS = Object.freeze([
   'loan-interest',     // monthly interest billed (paid + the capitalized shortfall + default flags)
   'bank-deposit',      // gp deposited into a bank account (+ any RR p.313 custody fee at consignment)
   'bank-withdrawal',   // gp withdrawn from a bank account
+  // === Banking B2 (team burst8 2026-06-19) — the F&D feudal-loan reconcile (Phase_4_Banking_Plan.md B3).
+  // Record-only: reconcileFeudalLoans (acks-engine-banking.js) materializes a kind:'feudal' Loan from a
+  // GIVEN F&D loan obligation (it moves no gp — the principal already moved in giveLoanObligation). ===
+  'loan-reconciled',   // a shipped F&D feudal loan promoted onto the shared Loan relation (fdObligationId link)
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (Knowledge_Layer_Plan.md §6).
   // Record-only audits emitted by acks-engine-knowledge.js (learnLore / shareLore already applied the
   // per-knower Knowledge record). The GM authors Lore + records who knows it via the 📚 Knowledge tab. ===
@@ -1183,6 +1187,12 @@ const EVENT_SCHEMAS = Object.freeze({
   'bank-withdrawal': {
     R: { accountId: 'string' },
     O: { amount: 'number', balanceGp: 'number', narrative: 'string' }
+  },
+  // === Banking B2 (team burst8 2026-06-19) — the F&D feudal-loan reconcile (record-only; the
+  // principal already moved in giveLoanObligation — this only materializes the shared Loan record). ===
+  'loan-reconciled': {
+    R: { loanId: 'string', fdObligationId: 'string' },
+    O: { kind: 'string', principalGp: 'number', creditor: 'object', debtor: 'object', narrative: 'string' }
   },
   // === Knowledge Layer Wave A (team burst7 2026-06-19) — the Lore I/O (record-only; the
   // per-knower Knowledge record was already written by acks-engine-knowledge.js learnLore/shareLore). ===
@@ -2974,6 +2984,8 @@ registerEventHandler('loan-repaid', applyEvent_bankingAudit);
 registerEventHandler('loan-interest', applyEvent_bankingAudit);
 registerEventHandler('bank-deposit', applyEvent_bankingAudit);
 registerEventHandler('bank-withdrawal', applyEvent_bankingAudit);
+// === Banking B2 (team burst8 2026-06-19) === — the feudal-loan reconcile reuses the same record-only audit.
+registerEventHandler('loan-reconciled', applyEvent_bankingAudit);
 // === Knowledge Layer Wave A (team burst7 2026-06-19) === — record-only audit posture: learnLore /
 // shareLore in acks-engine-knowledge.js already wrote the per-knower Knowledge record; this handler
 // keeps the event well-formed on replay (records the narrative only). Mirrors religion / aging / disease.
@@ -6107,6 +6119,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // (takeLoan / repayLoan / deposit / withdraw + the monthly processBankingForTurn). A raw emit would
   // record a loan/deposit/interest move the campaign.loans[] / bankAccounts[] + the gp don't show.
   'loan-issued', 'loan-repaid', 'loan-interest', 'bank-deposit', 'bank-withdrawal',
+  // === Banking B2 (team burst8 2026-06-19) === — owned by acks-engine-banking.js (reconcileFeudalLoans);
+  // a raw emit would record a feudal-loan link the campaign.loans[] entry doesn't actually carry.
+  'loan-reconciled',
   // === Knowledge Layer Wave A (team burst7 2026-06-19) === — owned by acks-engine-knowledge.js
   // (learnLore / shareLore); a raw emit would record knowledge the per-knower Knowledge record + the
   // derived first-hand history don't show. The GM authors Lore + records who knows it via the 📚 Knowledge tab.

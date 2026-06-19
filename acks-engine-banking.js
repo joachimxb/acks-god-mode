@@ -365,8 +365,12 @@
   function processBankingForTurn(c, opts){
     opts = opts || {};
     const dryRun = !!opts.dryRun;
-    const out = { ran: true, dryRun, accruals: [], totalInterestGp: 0, logEntries: [] };
+    const out = { ran: true, dryRun, accruals: [], totalInterestGp: 0, logEntries: [], feudalReconciled: 0, feudalSynced: 0 };
     if(!c){ out.ran = false; return out; }
+    // B2 — materialize/sync the shipped F&D feudal loan onto the shared Loan FIRST (idempotent;
+    // moves no gp — the principal already moved in giveLoanObligation). The accrual loop below then
+    // skips feudal loans (interest-free, RR p.348). Skipped in a dry-run preview (no mutation).
+    if(!dryRun){ const rec = reconcileFeudalLoans(c, { rng: opts.rng }); out.feudalReconciled = rec.created; out.feudalSynced = rec.synced; if(rec.created > 0) out.logEntries.push('Banking: ' + rec.created + ' feudal loan' + (rec.created === 1 ? '' : 's') + ' reconciled from Favors & Duties'); }
     for(const loan of activeLoans(c)){
       if(!loan || loan.kind === 'feudal') continue;   // feudal = interest-free (RR p.348); the B2 reconcile owns it
       const balance = Number(loan.balanceGp) || 0;
@@ -468,6 +472,199 @@
     const ch = _chars(c).find(x => x && x.id === debtor.id); return ch ? (ch.name || ch.id) : debtor.id;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // B2 — the F&D feudal-loan reconcile (promote-and-link; Phase_4_Banking_Plan.md B3, Option A)
+  // ════════════════════════════════════════════════════════════════════════════
+  // RR p.348 — the shipped Favors & Duties Loan duty (F&D-4): a lord *demands* a loan; the vassal
+  // *gives* it (giveLoanObligation moves the principal vassal → lord), and it is repaid (lord →
+  // vassal) on revoke or the monthly CHA% check. That whole lifecycle stays in the F&D consumer.
+  // B2 PROMOTES each given F&D loan onto the shared Loan relation as a `kind:'feudal'` Loan that
+  // POINTS BACK via fdObligationId, so the 🏦 Banking view shows feudal credit alongside commercial.
+  //
+  // Counterparties (RR p.348 — the vassal advanced the principal, the lord owes it back):
+  //   creditor = the vassal's realm (it is owed) · debtor = the liege's realm (it owes).
+  //   interestRateMonthly = 0 (feudal is interest-free) → processBankingForTurn's accrual loop skips it.
+  //
+  // ADDITIVE + DECOUPLED — this does NOT touch acks-engine.js / the F&D obligation code at all
+  // (no give-hook, no migrateCampaign hook). It runs from processBankingForTurn (monthly, !dryRun)
+  // + the 🏦 Banking-tab "🔗 Reconcile" button. So giveLoanObligation stays byte-for-byte pristine
+  // (its eventLog stays exactly the one favor-duty event — the F&D smoke is untouched). The reconcile
+  // moves ZERO gp (the principal already moved in giveLoanObligation) — it only materializes the record.
+
+  // Resolve (vassalDomain, liegeDomain) for a loan obligation from its active vassalage — replicates
+  // the F&D private _favorDutyDomainsFor (kept decoupled: no dependency on an F&D private export).
+  function _feudalDomainsFor(c, obl){
+    const domains = (c && c.domains) || [];
+    const vassalDomain = domains.find(d => d && d.id === obl.vassalDomainId) || null;
+    const v = ((c && c.vassalages) || []).find(x => x && x.status === 'active'
+      && x.vassalDomainId === obl.vassalDomainId && x.suzerainCharacterId === obl.liegeCharacterId);
+    const liegeDomain = v ? (domains.find(d => d && d.id === v.suzerainDomainId) || null) : null;
+    return { vassalDomain, liegeDomain };
+  }
+  // The materialized feudal Loan linked to a given F&D obligation (the idempotency key).
+  function feudalLoanForObligation(c, obligationId){
+    if(!obligationId) return null;
+    return _loans(c).find(l => l && l.kind === 'feudal' && l.fdObligationId === obligationId) || null;
+  }
+
+  // Reconcile ONE F&D loan obligation: mint its linked feudal Loan (if given + active + not yet
+  // materialized), or sync an existing one (active → repaid when the obligation has been closed).
+  // Idempotent. Returns { loan, created, synced } or null (not a given loan obligation).
+  function reconcileFeudalLoan(c, obligation, opts){
+    opts = opts || {};
+    if(!c || !obligation || obligation.kind !== 'loan') return null;
+    if(obligation.loanGivenAtTurn == null) return null;       // not yet given — nothing to materialize
+    let loan = feudalLoanForObligation(c, obligation.id);
+    const active = obligation.status === 'active';
+    if(!loan){
+      if(!active) return null;                                // given-then-closed before any sweep saw it active — no ghost row
+      const { vassalDomain, liegeDomain } = _feudalDomainsFor(c, obligation);
+      const principal = _round(obligation.gpPerMonth);        // the F&D loan principal (gpPerMonth is its legacy field name)
+      const creditor = vassalDomain ? { kind:'domain', id: vassalDomain.id }
+        : (obligation.vassalDomainId ? { kind:'domain', id: obligation.vassalDomainId } : null);   // vassal = owed
+      const debtor = liegeDomain ? { kind:'domain', id: liegeDomain.id }
+        : (obligation.liegeCharacterId ? { kind:'character', id: obligation.liegeCharacterId } : null);  // lord = owes
+      loan = blankLoan({ kind:'feudal', creditor, debtor, principalGp: principal, balanceGp: principal,
+        interestRateMonthly: 0, status:'active', fdObligationId: obligation.id,
+        contractedAtTurn: obligation.loanGivenAtTurn || obligation.grantedAtTurn || _currentTurn(c) });
+      loan.history.push({ turn: _currentTurn(c), type:'reconciled',
+        reason: 'feudal loan reconciled from F&D obligation ' + obligation.id + ' (' + principal.toLocaleString() + 'gp, interest-free, RR p.348)' });
+      if(!Array.isArray(c.loans)) c.loans = [];
+      c.loans.push(loan);
+      _recordBankingEvent(c, 'loan-reconciled',
+        { loanId: loan.id, fdObligationId: obligation.id, kind:'feudal', principalGp: principal, creditor, debtor },
+        { narrative: 'Feudal loan reconciled onto Banking: ' + principal.toLocaleString() + 'gp from ' + (debtorName(c, creditor) || 'the vassal') + ' to its liege (interest-free, RR p.348)',
+          campaignLogHidden: true, relatedEntities: _loanEntities(loan) });
+      return { loan, created: true, synced: false };
+    }
+    // sync an existing linked loan to the obligation's lifecycle (no event; history audit only)
+    let synced = false;
+    if(loan.status === 'active' && !active){
+      // the F&D obligation was revoked / one-time-spent → the principal was returned (lord → vassal); settle.
+      loan.balanceGp = 0; loan.status = 'repaid'; loan.settledAtTurn = _currentTurn(c);
+      loan.disreputable = false; loan.debtOverXp = false;
+      loan.history.push({ turn: _currentTurn(c), type:'repaid', reason: 'F&D obligation closed (' + obligation.status + ') — principal returned (RR p.348)' });
+      synced = true;
+    }
+    return { loan, created: false, synced };
+  }
+
+  // Bulk-reconcile every given F&D feudal loan (idempotent). Called from processBankingForTurn
+  // (monthly) + the Banking-tab "🔗 Reconcile feudal loans" button. Returns { created, synced, loans }.
+  function reconcileFeudalLoans(c, opts){
+    opts = opts || {};
+    const out = { created: 0, synced: 0, loans: [] };
+    if(!c || !Array.isArray(c.favorDutyObligations)) return out;
+    for(const obl of c.favorDutyObligations){
+      if(!obl || obl.kind !== 'loan' || obl.loanGivenAtTurn == null) continue;
+      const r = reconcileFeudalLoan(c, obl, opts);
+      if(!r) continue;
+      if(r.created) out.created++;
+      if(r.synced) out.synced++;
+      if(r.loan) out.loans.push(r.loan);
+    }
+    return out;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // B2 — commercial-loan depth (the lifecycle + the GM/portfolio reads, RR p.42)
+  // ════════════════════════════════════════════════════════════════════════════
+  // B1 issues / repays / accrues / capitalizes / flags disrepute + debt-over-XP. B2 completes the
+  // lifecycle (offered → active → repaid | defaulted | written-off all reachable) + the derived reads
+  // the panel renders. History-only audits (no new event kinds beyond loan-reconciled; loan-defaulted
+  // / loan-written-off are deferred event kinds — see the SUMMARY). Feudal loans are F&D-owned + skip
+  // these (interest-free; their lifecycle is reconcileFeudalLoan above).
+
+  // Renegotiate an active commercial/personal loan: post collateral → 1%, drop collateral → 3% (RR
+  // p.42), or set an explicit rate. opts: { collateral?, interestRateMonthly? }. History-only.
+  function restructureLoan(c, loanId, opts){
+    opts = opts || {};
+    const loan = findLoan(c, loanId);
+    if(!loan) return { ok:false, reason:'no-loan' };
+    if(loan.status !== 'active') return { ok:false, reason:'not-active' };
+    if(loan.kind === 'feudal') return { ok:false, reason:'feudal-loan' };   // interest-free, F&D-owned
+    const beforeRate = Number(loan.interestRateMonthly) || 0;
+    if('collateral' in opts){
+      loan.collateral = opts.collateral || null;
+      if(opts.interestRateMonthly == null) loan.interestRateMonthly = loan.collateral ? INTEREST_COLLATERALIZED : INTEREST_UNCOLLATERALIZED;
+    }
+    if(opts.interestRateMonthly != null) loan.interestRateMonthly = Number(opts.interestRateMonthly);
+    loan.history.push({ turn: _currentTurn(c), type:'restructured',
+      reason: 'rate ' + (beforeRate*100) + '% → ' + ((Number(loan.interestRateMonthly)||0)*100) + '%' + (loan.collateral ? ' (collateralized, RR p.42)' : ' (uncollateralized)') });
+    return { ok:true, loan };
+  }
+
+  // The creditor writes off a bad/defaulted loan (status → 'written-off'; it stops accruing — the
+  // accrual loop only touches 'active' loans). History-only. opts: { reason? }.
+  function writeOffLoan(c, loanId, opts){
+    opts = opts || {};
+    const loan = findLoan(c, loanId);
+    if(!loan) return { ok:false, reason:'no-loan' };
+    if(loan.status === 'repaid' || loan.status === 'written-off') return { ok:false, reason:'already-settled' };
+    if(loan.kind === 'feudal') return { ok:false, reason:'feudal-loan' };
+    loan.status = 'written-off'; loan.settledAtTurn = _currentTurn(c);
+    loan.history.push({ turn: _currentTurn(c), type:'written-off',
+      reason: (opts.reason || 'creditor wrote off the debt') + ' (balance ' + (Number(loan.balanceGp)||0).toLocaleString() + 'gp forgiven)' });
+    return { ok:true, loan };
+  }
+
+  // Call an active commercial loan in default (status → 'defaulted'; stops accruing). Surfaces the
+  // RR p.42 bounty-hunter enforcement (the spawned force is the deferred Encounter/Military seam,
+  // OQ8 flag-only). History-only. Returns the loan + the bounty note.
+  function markLoanDefaulted(c, loanId, opts){
+    opts = opts || {};
+    const loan = findLoan(c, loanId);
+    if(!loan) return { ok:false, reason:'no-loan' };
+    if(loan.status !== 'active') return { ok:false, reason:'not-active' };
+    if(loan.kind === 'feudal') return { ok:false, reason:'feudal-loan' };
+    loan.status = 'defaulted'; loan.disreputable = true; loan.settledAtTurn = _currentTurn(c);
+    loan.history.push({ turn: _currentTurn(c), type:'defaulted', reason: opts.reason || 'loan called in default (RR p.42)' });
+    return { ok:true, loan, bountyNote: loanBountyNote(c, loan) };
+  }
+
+  // ── Derived reads (pure; drive the panel + integrators) ──
+  function loanStatusLabel(loan){
+    if(!loan) return '—';
+    if(loan.status === 'repaid') return 'repaid';
+    if(loan.status === 'written-off') return 'written off';
+    if(loan.status === 'defaulted') return 'defaulted';
+    if(loan.status === 'offered') return 'offered';
+    if(loan.kind === 'feudal') return 'active (feudal)';
+    if(loan.debtOverXp) return 'active — default risk';
+    if(loan.disreputable) return 'active — disreputable';
+    return 'active';
+  }
+  function loanInterestDueNextMonth(loan){
+    if(!loan || loan.status !== 'active' || loan.kind === 'feudal') return 0;
+    return _round((Number(loan.balanceGp)||0) * (Number(loan.interestRateMonthly)||0));
+  }
+  // RR p.42 — when a debtor's balance exceeds his XP the creditor may send bounty hunters (a force at
+  // wages-by-level ≈ the monthly interest). v1 surfaces the trigger; the spawned force is the deferred
+  // Encounter/Military seam (OQ8). null when the loan isn't over-XP.
+  function loanBountyNote(c, loan){
+    if(!loan || !loan.debtOverXp) return null;
+    const monthly = loanInterestDueNextMonth(loan) || _round((Number(loan.balanceGp)||0) * (Number(loan.interestRateMonthly)||0));
+    return { balanceGp: Number(loan.balanceGp)||0, monthlyWagesGp: monthly,
+      note: "Balance exceeds the borrower's XP — the creditor may send bounty hunters at wages ≈ " + monthly.toLocaleString() + 'gp/mo (RR p.42).' };
+  }
+  // A portfolio summary over the loans (optionally scoped to one debtor / creditor). Pure.
+  function loanLedgerFor(c, opts){
+    opts = opts || {};
+    let loans = _loans(c);
+    if(opts.debtorId)   loans = loans.filter(l => l && l.debtor   && l.debtor.id   === opts.debtorId);
+    if(opts.creditorId) loans = loans.filter(l => l && l.creditor && l.creditor.id === opts.creditorId);
+    const active = loans.filter(l => l && l.status === 'active');
+    return {
+      count: loans.length,
+      activeCount: active.length,
+      totalOutstandingGp: active.reduce((s,l) => s + (Number(l.balanceGp)||0), 0),
+      totalMonthlyInterestGp: active.reduce((s,l) => s + loanInterestDueNextMonth(l), 0),
+      disreputableCount: active.filter(l => l.disreputable).length,
+      debtOverXpCount: active.filter(l => l.debtOverXp).length,
+      feudalCount: loans.filter(l => l.kind === 'feudal').length
+    };
+  }
+
   // ── Export onto window.ACKS ──
   Object.assign(ACKS, {
     // constants
@@ -483,7 +680,12 @@
     // setters — bank accounts
     openBankAccount, depositToBankAccount, withdrawFromBankAccount,
     // the monthly consumer
-    processBankingForTurn
+    processBankingForTurn,
+    // B2 — F&D feudal-loan reconcile (promote-link)
+    reconcileFeudalLoans, reconcileFeudalLoan, feudalLoanForObligation,
+    // B2 — commercial-loan depth (lifecycle + derived reads)
+    restructureLoan, writeOffLoan, markLoanDefaulted,
+    loanStatusLabel, loanInterestDueNextMonth, loanBountyNote, loanLedgerFor
   });
 
 })(typeof window !== 'undefined' ? window : global);
