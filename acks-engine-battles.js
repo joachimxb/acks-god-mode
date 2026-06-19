@@ -1304,6 +1304,17 @@
             summary: 'Defeated at ' + battle.name + ' — ' + (x.dead || 0) + ' slain, ' + (x.captured || 0) + ' freed to ' + (d.name || d.id) });
           if((g.count || 0) <= 0) wipedBands.add(g.id);
         }
+        // The ruler met the bandit lord in battle (RR p.351) — his challenge is broken (the
+        // domain-level state cleared here; if he was statted as a unit officer the Mortal-Wounds
+        // pass above already set his fate, so don't overwrite a death).
+        if(d.banditryChallenger){
+          const lord = (campaign.characters || []).find(c => c && c.id === d.banditryChallenger.characterId);
+          if(lord && lord.lifecycleState !== 'deceased' && lord.lifecycleState !== 'departed'){
+            lord.lifecycleState = 'departed';
+            if(typeof A().addCharacterHistory === 'function') A().addCharacterHistory(campaign, lord, 'note', 'Defeated at ' + battle.name + ' — his bandit revolt in ' + (d.name || d.id) + ' is broken (RR p.351)');
+          }
+          d.banditryChallenger = null;
+        }
       }
       if(wipedBands.size) campaign.groups = (campaign.groups || []).filter(g => !(g && wipedBands.has(g.id)));
     }
