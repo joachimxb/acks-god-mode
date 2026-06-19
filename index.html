@@ -102,7 +102,7 @@
 <!-- Settlement Demographics SD-1 (2026-06-16) — the derived JJ Step-3 census read (Settlement_Demographics_Plan.md). Loads after acks-engine.js + custom-classes; before player-view. -->
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
-<script src="acks-engine-banking.js?v=2026-06-19-b7"></script>
+<script src="acks-engine-banking.js?v=2026-06-19-b8"></script>
 <script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
@@ -15255,7 +15255,11 @@ document.addEventListener('alpine:init', () => {
 
   <!-- Loans -->
   <div class="vellum border border-ink rounded p-4">
-    <h3 class="font-bold text-lg mb-2">💰 Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+      <h3 class="font-bold text-lg">💰 Loans <span class="text-sm opacity-70 font-normal" x-text="'· ' + bankingLoans().length"></span></h3>
+      <button @click="bankingReconcileFeudal()" class="px-2 py-1 border border-ink rounded bg-amber-100 hover:bg-amber-200 text-sm font-semibold" title="Promote any given Favors &amp; Duties feudal loan (RR p.348) onto this shared ledger as a kind:'feudal' loan linking back to its obligation. Idempotent — also runs automatically each Advance Month.">🔗 Reconcile F&amp;D feudal loans</button>
+    </div>
+    <p class="text-sm opacity-70 mb-2" x-show="bankingLoans().length > 0" x-text="bankingLedgerText()"></p>
     <div class="flex flex-wrap items-end gap-2 mb-3 text-sm border-b border-ink/30 pb-3">
       <label class="flex flex-col">Borrower
         <select x-model="bankLoanDebtorId" class="w-44">
@@ -15285,22 +15289,33 @@ document.addEventListener('alpine:init', () => {
     </template>
     <template x-if="bankingLoans().length > 0">
       <table class="bookkeeping text-sm w-full">
-        <thead><tr><th>Kind</th><th>Borrower</th><th>Lender</th><th class="text-right">Principal</th><th class="text-right">Balance</th><th>Rate</th><th>Status</th><th>Flags</th><th></th></tr></thead>
+        <thead><tr><th>Kind</th><th>Borrower</th><th>Lender</th><th class="text-right">Principal</th><th class="text-right">Balance</th><th>Rate</th><th class="text-right">Interest/mo</th><th>Status</th><th>Flags</th><th></th></tr></thead>
         <tbody>
           <template x-for="loan in bankingLoans()" :key="loan.id">
             <tr>
-              <td x-text="loan.kind"></td>
+              <td x-text="bankingLoanKindLabel(loan)" :title="loan.kind === 'feudal' ? ('Feudal loan promoted from a Favors &amp; Duties obligation (RR p.348) — interest-free' + (loan.fdObligationId ? (' · ' + loan.fdObligationId) : '')) : loan.kind"></td>
               <td class="font-semibold" x-text="bankingPartyName(loan.debtor)"></td>
               <td x-text="bankingPartyName(loan.creditor)"></td>
               <td class="text-right" x-text="(loan.principalGp||0).toLocaleString()"></td>
               <td class="text-right" x-text="(loan.balanceGp||0).toLocaleString()"></td>
               <td x-text="bankingPct(loan.interestRateMonthly)"></td>
-              <td x-text="loan.status"></td>
+              <td class="text-right opacity-80" x-text="bankingLoanInterest(loan)"></td>
+              <td x-text="bankingLoanStatus(loan)"></td>
               <td class="text-xs">
                 <span x-show="loan.disreputable" class="text-red-700" title="Unpaid interest built up (RR p.42)">⚠ disreputable</span>
-                <span x-show="loan.debtOverXp" class="text-red-700" title="Balance exceeds the borrower's XP — bounty hunters (RR p.42)"> 🗡 debt&gt;XP</span>
+                <span x-show="loan.debtOverXp" class="text-red-700" :title="bankingBountyTip(loan)"> 🗡 debt&gt;XP</span>
               </td>
-              <td><button x-show="loan.status === 'active'" @click="bankingRepay(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Repay</button></td>
+              <td class="whitespace-nowrap">
+                <template x-if="loan.status === 'active' && loan.kind !== 'feudal'">
+                  <span class="inline-flex gap-1">
+                    <button @click="bankingRepay(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-yellow-100 hover:bg-yellow-200 text-xs">Repay</button>
+                    <button @click="bankingRestructure(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-sky-100 hover:bg-sky-200 text-xs" :title="loan.collateral ? 'Drop collateral → 3%/mo (RR p.42)' : 'Post collateral → 1%/mo (RR p.42)'">Restructure</button>
+                    <button @click="bankingDefault(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-orange-100 hover:bg-orange-200 text-xs" title="Call the loan in default — bounty hunters (RR p.42)">Default</button>
+                    <button @click="bankingWriteOff(loan.id)" class="px-2 py-0.5 border border-ink rounded bg-red-100 hover:bg-red-200 text-xs" title="Creditor forgives the remaining balance">Write off</button>
+                  </span>
+                </template>
+                <span x-show="loan.kind === 'feudal'" class="text-xs opacity-60 italic" title="Owned by Favors &amp; Duties — repaid on revoke / the monthly CHA% check">F&amp;D-managed</span>
+              </td>
             </tr>
           </template>
         </tbody>
@@ -16747,6 +16762,50 @@ return {
   // === @b8-magicitems (team) — Magic Items W2: state + methods ===
   // === @b8-sages      (team) — Sages SG-2: state + methods ===
   // === @b8-banking    (team) — Banking B2: state + methods ===
+  // F&D feudal-loan reconcile (promote-link) + commercial-loan depth (Phase_4_Banking_Plan.md B3, RR p.42 + p.348).
+  bankingReconcileFeudal(){
+    const r = window.ACKS.reconcileFeudalLoans(this.currentCampaign, {});
+    this.markDirty(); this.schedulePersist();
+    if(r.created > 0) this.showToast('🔗 Reconciled ' + r.created + ' feudal loan' + (r.created === 1 ? '' : 's') + ' from Favors & Duties.', 3500);
+    else if(r.synced > 0) this.showToast('Synced ' + r.synced + ' feudal loan' + (r.synced === 1 ? '' : 's') + '.', 3000);
+    else this.showToast('No new feudal loans to reconcile (demand + give a Loan duty on a vassal first).', 4000);
+  },
+  bankingLedgerText(){
+    const L = window.ACKS.loanLedgerFor(this.currentCampaign, {});
+    const parts = [L.activeCount + ' active', (L.totalOutstandingGp || 0).toLocaleString() + 'gp outstanding'];
+    if(L.totalMonthlyInterestGp > 0) parts.push((L.totalMonthlyInterestGp).toLocaleString() + 'gp interest/mo');
+    if(L.feudalCount > 0) parts.push('🤝 ' + L.feudalCount + ' feudal');
+    if(L.disreputableCount > 0) parts.push('⚠ ' + L.disreputableCount + ' disreputable');
+    if(L.debtOverXpCount > 0) parts.push('🗡 ' + L.debtOverXpCount + ' debt>XP');
+    return parts.join(' · ');
+  },
+  bankingLoanKindLabel(loan){ if(!loan) return '—'; if(loan.kind === 'feudal') return '🤝 feudal'; if(loan.kind === 'personal') return '👤 personal'; return '🏦 commercial'; },
+  bankingLoanStatus(loan){ return window.ACKS.loanStatusLabel(loan); },
+  bankingLoanInterest(loan){ const n = window.ACKS.loanInterestDueNextMonth(loan); return n > 0 ? (n.toLocaleString() + ' gp') : '—'; },
+  bankingBountyTip(loan){ const b = window.ACKS.loanBountyNote(this.currentCampaign, loan); return b ? b.note : "Balance exceeds the borrower's XP — bounty hunters (RR p.42)"; },
+  bankingRestructure(loanId){
+    const loan = this.bankingLoans().find(l => l && l.id === loanId); if(!loan) return;
+    const has = !!loan.collateral;
+    if(!window.confirm(has ? 'Drop the collateral on this loan? The rate returns to 3%/mo (RR p.42).' : 'Post collateral on this loan? The rate drops to 1%/mo (RR p.42).')) return;
+    const r = window.ACKS.restructureLoan(this.currentCampaign, loanId, { collateral: has ? null : { kind:'note', label:'collateral' } });
+    if(!r.ok){ this.showToast('Restructure failed: ' + r.reason, 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan restructured → ' + this.bankingPct(r.loan.interestRateMonthly) + '/mo.', 3000);
+  },
+  bankingDefault(loanId){
+    if(!window.confirm('Call this loan in default? It stops accruing interest; the creditor may send bounty hunters (RR p.42).')) return;
+    const r = window.ACKS.markLoanDefaulted(this.currentCampaign, loanId, {});
+    if(!r.ok){ this.showToast('Could not mark default: ' + r.reason, 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan called in default' + (r.bountyNote ? ' — bounty hunters at ~' + r.bountyNote.monthlyWagesGp.toLocaleString() + 'gp/mo (RR p.42).' : '.'), 4500);
+  },
+  bankingWriteOff(loanId){
+    if(!window.confirm('Write off this loan? The creditor forgives the remaining balance.')) return;
+    const r = window.ACKS.writeOffLoan(this.currentCampaign, loanId, {});
+    if(!r.ok){ this.showToast('Could not write off: ' + r.reason, 3500); return; }
+    this.markDirty(); this.schedulePersist();
+    this.showToast('Loan written off.', 3000);
+  },
 
   // Events log — sub-tab toggle. Campaign log is the default (Joachim 2026-05-28).
   eventsSubView: 'campaign-log',

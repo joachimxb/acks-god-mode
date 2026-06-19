@@ -284,6 +284,176 @@ ok('bank-account is a registered GP-Wave-B wealth handle', (() => {
 }
 
 // =============================================================================
+// B2 — the F&D feudal-loan reconcile (promote-link) + commercial-loan depth
+// =============================================================================
+
+// A liege ↔ vassal realm with an active vassalage and a GIVEN F&D loan obligation (kind:'loan',
+// the principal in its legacy gpPerMonth field). The reconcile reads the obligation + vassalage +
+// domains; it does NOT depend on the give flow (set loanGivenAtTurn directly).
+function mkFeudalCampaign(opts){
+  opts = opts || {};
+  const liege = ACKS.blankCharacter({ id:'chr-liege', name:'Liege' });
+  const vassal = ACKS.blankCharacter({ id:'chr-vassal', name:'Vassal' });
+  const liegeDom = ACKS.blankDomain({ id:'dom-liege', name:'Liege Realm' }); liegeDom.treasury = { gp: 50000 };
+  const vassalDom = ACKS.blankDomain({ id:'dom-vassal', name:'Vassal Realm' }); vassalDom.treasury = { gp: 20000 };
+  const vassalage = { id:'vas-1', schemaVersion:2, status:'active', vassalDomainId:'dom-vassal',
+    suzerainDomainId:'dom-liege', suzerainCharacterId:'chr-liege', vassalRulerCharacterId:'chr-vassal' };
+  const c = { schemaVersion:2, kind:'campaign', id:'cmp-feud', name:'Feud', createdAt:'2026-01-01', lastModifiedAt:'2026-01-01',
+    currentTurn: opts.turn || 1, currentDayInMonth: 1, houseRules:{},
+    characters:[liege, vassal], domains:[liegeDom, vassalDom], vassalages:[vassalage],
+    favorDutyObligations:[], loans:[], bankAccounts:[], eventLog:[], settlements:[], parties:[], rumors:[], hexes:[] };
+  const obl = ACKS.createFavorDutyObligation(c, { kind:'loan', liegeCharacterId:'chr-liege',
+    vassalDomainId:'dom-vassal', vassalRulerCharacterId:'chr-vassal',
+    gpPerMonth: opts.principal != null ? opts.principal : 1500, grantedAtTurn: opts.turn || 1 });
+  if(opts.given !== false) obl.loanGivenAtTurn = opts.turn || 1;
+  return { c, obl };
+}
+const treasuryGp = (c, id) => ((c.domains.find(d => d && d.id === id) || {}).treasury || {}).gp;
+
+// =============================================================================
+section('B2 event registry — loan-reconciled (record-only, opted out of the Event Wizard)');
+// =============================================================================
+ok('EVENT_KINDS knows "loan-reconciled"', ACKS.isEventKindKnown('loan-reconciled'));
+ok('"loan-reconciled" is in EVENT_SCHEMAS', !!ACKS.EVENT_SCHEMAS['loan-reconciled']);
+ok('"loan-reconciled" is opted out of the Event Wizard (record-only)', ACKS.EVENT_WIZARD_OPTOUT.has('loan-reconciled'));
+
+// =============================================================================
+section('B2 reconcileFeudalLoans — promote a given F&D loan onto the shared Loan');
+// =============================================================================
+{
+  const { c, obl } = mkFeudalCampaign({ principal: 1500 });
+  const liegeBefore = treasuryGp(c, 'dom-liege'), vassalBefore = treasuryGp(c, 'dom-vassal');
+  const r = ACKS.reconcileFeudalLoans(c, {});
+  ok('reconcile created one feudal loan', r.created === 1 && r.synced === 0);
+  ok('the feudal loan landed in campaign.loans[]', c.loans.length === 1);
+  const fl = c.loans[0];
+  ok('loan kind = feudal', fl.kind === 'feudal');
+  ok('interest-free (RR p.348)', fl.interestRateMonthly === 0);
+  ok('creditor = the vassal realm (it is owed)', fl.creditor && fl.creditor.kind === 'domain' && fl.creditor.id === 'dom-vassal');
+  ok('debtor = the liege realm (it owes)', fl.debtor && fl.debtor.kind === 'domain' && fl.debtor.id === 'dom-liege');
+  ok('balance = the F&D principal (1500)', fl.principalGp === 1500 && fl.balanceGp === 1500);
+  ok('status active', fl.status === 'active');
+  ok('fdObligationId links back to the obligation', fl.fdObligationId === obl.id);
+  ok('reconcile moves NO gp (the principal already moved in giveLoanObligation)', treasuryGp(c,'dom-liege') === liegeBefore && treasuryGp(c,'dom-vassal') === vassalBefore);
+  ok('a loan-reconciled event was recorded (campaignLogHidden)', (() => { const e = c.eventLog.find(x => x.event.kind === 'loan-reconciled'); return e && e.event.campaignLogHidden === true && e.event.payload.fdObligationId === obl.id; })());
+  ok('the reconcile event carries the Event.context counterparties', (() => { const e = c.eventLog.find(x => x.event.kind === 'loan-reconciled'); const re = (e.event.context.relatedEntities)||[]; return re.some(x => x.role === 'creditor' && x.id === 'dom-vassal') && re.some(x => x.role === 'debtor' && x.id === 'dom-liege'); })());
+  // idempotency
+  const evBefore = c.eventLog.length;
+  const r2 = ACKS.reconcileFeudalLoans(c, {});
+  ok('second reconcile is a no-op (idempotent)', r2.created === 0 && c.loans.length === 1 && c.eventLog.length === evBefore);
+  ok('feudalLoanForObligation finds the linked loan', ACKS.feudalLoanForObligation(c, obl.id) === fl);
+}
+{
+  // an UNGIVEN loan obligation is not reconciled (nothing to materialize)
+  const { c } = mkFeudalCampaign({ given: false });
+  const r = ACKS.reconcileFeudalLoans(c, {});
+  ok('an ungiven F&D loan is not reconciled', r.created === 0 && c.loans.length === 0);
+}
+{
+  // sync — a revoked/closed obligation settles its linked feudal loan (principal returned, RR p.348)
+  const { c, obl } = mkFeudalCampaign({});
+  ACKS.reconcileFeudalLoans(c, {});
+  const fl = c.loans[0];
+  ok('feudal loan active before the obligation closes', fl.status === 'active');
+  obl.status = 'revoked';   // the lord revoked the loan duty → principal returned lord → vassal
+  const r = ACKS.reconcileFeudalLoans(c, {});
+  ok('reconcile syncs the closed obligation', r.synced === 1 && r.created === 0);
+  ok('the feudal loan is settled (status repaid, balance 0, settledAtTurn set)', fl.status === 'repaid' && fl.balanceGp === 0 && fl.settledAtTurn != null);
+  ok('no second feudal loan was minted', c.loans.length === 1);
+}
+{
+  // a non-loan F&D obligation is never reconciled
+  const { c } = mkFeudalCampaign({});
+  ACKS.createFavorDutyObligation(c, { kind:'scutage', liegeCharacterId:'chr-liege', vassalDomainId:'dom-vassal', gpPerMonth: 100, grantedAtTurn: 1 });
+  const before = c.loans.length;
+  ACKS.reconcileFeudalLoans(c, {});
+  ok('only the loan obligation produced a feudal loan (scutage ignored)', c.loans.filter(l => l.kind === 'feudal').length === 1);
+}
+
+// =============================================================================
+section('B2 processBankingForTurn — reconciles feudal loans on the monthly tick (+ skips their interest)');
+// =============================================================================
+{
+  const { c, obl } = mkFeudalCampaign({ principal: 2000 });
+  const out = ACKS.processBankingForTurn(c, {});
+  ok('the monthly consumer reconciled the given feudal loan', out.feudalReconciled === 1 && c.loans.length === 1);
+  ok('the reconciled feudal loan accrues NO interest (RR p.348)', c.loans[0].balanceGp === 2000 && out.totalInterestGp === 0);
+  ok('the consumer reports the reconcile in its log entries', out.logEntries.some(s => /feudal loan/.test(s)));
+}
+{
+  // dryRun (the proposeMonthlyTurn preview) does NOT materialize the feudal loan
+  const { c } = mkFeudalCampaign({});
+  const out = ACKS.processBankingForTurn(c, { dryRun: true });
+  ok('dryRun does not reconcile (no mutation in a preview)', out.feudalReconciled === 0 && c.loans.length === 0);
+}
+{
+  // a feudal loan minted via the reconcile is left alone by the accrual loop even when a commercial
+  // loan in the same campaign accrues normally
+  const { c } = mkFeudalCampaign({ principal: 1000 });
+  c.characters.push(Object.assign(ACKS.blankCharacter({ id:'chr-borrow', name:'Borrower' }), { coins:{ pp:0, gp:5000, ep:0, sp:0, cp:0 }, xp: 50000 }));
+  ACKS.takeLoan(c, { debtor:{ kind:'character', id:'chr-borrow' }, principalGp: 1000 });  // commercial 3%
+  const out = ACKS.processBankingForTurn(c, {});
+  ok('the commercial loan accrues 30gp interest', out.totalInterestGp === 30);
+  ok('the feudal loan still carries its full balance (no interest)', c.loans.find(l => l.kind === 'feudal').balanceGp === 1000);
+}
+
+// =============================================================================
+section('B2 commercial-loan depth — restructure / write-off / default + derived reads');
+// =============================================================================
+{
+  // restructure: post collateral → 1%, remove → 3% (RR p.42); feudal refused
+  const c = mkCampaign({ families: 1000 });
+  const lr = ACKS.takeLoan(c, { debtor:{ kind:'character', id:'chr-d' }, principalGp: 1000 });   // 3% uncollateralized
+  const r1 = ACKS.restructureLoan(c, lr.loan.id, { collateral: { kind:'note', label:'deed' } });
+  ok('posting collateral drops the rate to 1%', r1.ok && lr.loan.interestRateMonthly === 0.01 && !!lr.loan.collateral);
+  const r2 = ACKS.restructureLoan(c, lr.loan.id, { collateral: null });
+  ok('removing collateral restores 3%', r2.ok && lr.loan.interestRateMonthly === 0.03 && lr.loan.collateral === null);
+  const r3 = ACKS.restructureLoan(c, lr.loan.id, { interestRateMonthly: 0.02 });
+  ok('an explicit rate is honored', r3.ok && lr.loan.interestRateMonthly === 0.02);
+}
+{
+  // write-off: creditor forgives → 'written-off'; stops accruing
+  const c = mkCampaign();
+  const lr = ACKS.takeLoan(c, { debtor:{ kind:'character', id:'chr-d' }, principalGp: 1000 });
+  const w = ACKS.writeOffLoan(c, lr.loan.id, { reason:'uncollectable' });
+  ok('write-off sets status written-off', w.ok && lr.loan.status === 'written-off' && lr.loan.settledAtTurn != null);
+  ok('a written-off loan drops out of activeLoans', ACKS.activeLoans(c).length === 0);
+  ok('writing off a settled loan → refused', !ACKS.writeOffLoan(c, lr.loan.id, {}).ok);
+}
+{
+  // default: GM calls the loan in default; surfaces the RR p.42 bounty note
+  const c = mkCampaign({ debtorGp: 5000, debtorXp: 500 });
+  const lr = ACKS.takeLoan(c, { debtor:{ kind:'character', id:'chr-d' }, principalGp: 2000 });
+  ACKS.processBankingForTurn(c, {});   // balance 2000 > xp 500 → debtOverXp
+  const d = ACKS.markLoanDefaulted(c, lr.loan.id, {});
+  ok('markLoanDefaulted sets status defaulted', d.ok && lr.loan.status === 'defaulted');
+  ok('default surfaces the RR p.42 bounty note', d.bountyNote && d.bountyNote.monthlyWagesGp > 0 && /bounty/.test(d.bountyNote.note));
+}
+{
+  // feudal loans refuse the commercial-depth setters (F&D-owned, interest-free)
+  const { c } = mkFeudalCampaign({});
+  ACKS.reconcileFeudalLoans(c, {});
+  const fl = c.loans[0];
+  ok('restructure refuses a feudal loan', !ACKS.restructureLoan(c, fl.id, { interestRateMonthly: 0.05 }).ok);
+  ok('write-off refuses a feudal loan', !ACKS.writeOffLoan(c, fl.id, {}).ok);
+  ok('mark-defaulted refuses a feudal loan', !ACKS.markLoanDefaulted(c, fl.id, {}).ok);
+}
+{
+  // derived reads
+  const c = mkCampaign({ debtorGp: 5000, debtorXp: 500 });
+  const lr = ACKS.takeLoan(c, { debtor:{ kind:'character', id:'chr-d' }, principalGp: 2000 });
+  ok('loanStatusLabel = active for a clean loan', ACKS.loanStatusLabel(lr.loan) === 'active');
+  ok('loanInterestDueNextMonth = balance × rate (60)', ACKS.loanInterestDueNextMonth(lr.loan) === 60);
+  ok('loanBountyNote is null before debt > XP', ACKS.loanBountyNote(c, lr.loan) === null);
+  ACKS.processBankingForTurn(c, {});   // debt 2000 > xp 500 → debtOverXp
+  ok('loanStatusLabel flags default risk once debtOverXp', ACKS.loanStatusLabel(lr.loan) === 'active — default risk');
+  ok('loanBountyNote populated once debt > XP', ACKS.loanBountyNote(c, lr.loan) != null);
+  const led = ACKS.loanLedgerFor(c, {});
+  ok('loanLedgerFor reports the portfolio', led.activeCount === 1 && led.totalOutstandingGp === 2000 && led.debtOverXpCount === 1);
+  ok('loanLedgerFor scopes by debtor', ACKS.loanLedgerFor(c, { debtorId:'chr-d' }).activeCount === 1 && ACKS.loanLedgerFor(c, { debtorId:'chr-nope' }).activeCount === 0);
+}
+
+// =============================================================================
 console.log('\n=============================================');
 console.log('banking.smoke.js — Passed: ' + pass + ', Failed: ' + fail);
 console.log('=============================================');
