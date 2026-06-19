@@ -95,9 +95,7 @@
 <script src="acks-engine-sages.js?v=2026-06-14-burst5"></script>
 <!-- ===== end TEAM BURST5 script tags ===== -->
 <!-- ===== TEAM BURST7 — new-module script tags · each new-module builder adds ONLY its own tag here, before player-view (which must stay last) ===== -->
-<!-- b7-magicitems (#143): the magic-item economy over the shipped Notable Items + `magical` facet. Late-binds blankNotableItem / promoteLineToNotableItem / rollProficiencyThrow / newEvent at call time. -->
 <script src="acks-engine-magic-items.js?v=2026-06-19-b7"></script>
-<!-- ===== end TEAM BURST7 script tags ===== -->
 <!-- (agent-4 DC-3 extends acks-engine-domain-completion.js + acks-engine-economy.js · agent-5 HJ-2 extends acks-engine-hijinks.js — they add no tag here) -->
 <!-- Phase 3 Military W8 — the Vagaries of Recruitment / War / Battle (JJ pp.110–117). Loads after the military modules (battles / maneuvers / subsystems / troops) + the engine core; late-binds them at call time. Behind the three vagaries-of-* rules (default OFF). -->
 <script src="acks-engine-vagaries.js?v=2026-06-17-w8"></script>
@@ -105,7 +103,6 @@
 <script src="acks-engine-demographics.js?v=2026-06-16-sd3"></script>
 <!-- Banking & Loans B1 (team b7 2026-06-19, #148) — the credit/custody layer over the GP Wave B grammar + the monthly-turn consumer. Loads after the core (newId / settlementMarketClass / applyWealthTransfer / newEvent); before player-view. -->
 <script src="acks-engine-banking.js?v=2026-06-19-b7"></script>
-<!-- b7-knowledge (team burst7 2026-06-19): the Knowledge Layer Wave A (Lore over the eventLog). Loads after the core + proficiencies (the throw die) + acks-engine.js (characterHistory/setEventContext/newEvent); before player-view. -->
 <script src="acks-engine-knowledge.js?v=2026-06-19-b7"></script>
 <!-- T8 (audit 2026-06-14): the redacting player-view serializer (ACKS.toPlayerView / projectCampaignForPlayer). Loads LAST — depends on every entity/predicate module. -->
 <script src="acks-engine-player-view.js?v=2026-06-14-t8"></script>
@@ -11670,7 +11667,6 @@ document.addEventListener('alpine:init', () => {
           </div>
         </template>
 
-        <!-- b7-cl3 (conditions): Character Lifecycle CL-3 — persistent-conditions readout (RR pp.507–516).
              Beside the Wounds + Diseases readouts — the "what's wrong with this person" cluster (Plan §9).
              The two unhomed persistent conditions (hypothermic / enervated); each advances on the Day Clock
              (the slot-59 conditions consumer). 🥶 applies a condition; per-condition 🔥 warm / ✚ end. -->
@@ -15249,10 +15245,6 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- ===== end TEAM BURST5 modal tail ===== -->
 
-<!-- ═══ TEAM BURST b7 — per-agent template region (top-level panels + modals) ═══
-     Each lane appends its <div x-show="currentView==='<id>'"> panel AND its modal(s) right
-     AFTER its own marker line below. Disjoint markers ⇒ clean 6-way merge. Lead strips at integration. -->
-<!-- b7-banking: panel + modals -->
 <!-- ═══ Banking & Loans (team b7 — B1, #148; RR p.42 + p.313) ═══ -->
 <div x-show="currentCampaign && currentView === 'banking'" class="p-4 space-y-4" x-cloak>
 
@@ -15360,8 +15352,6 @@ document.addEventListener('alpine:init', () => {
   </div>
 
 </div>
-<!-- b7-magicitems: panel + modals -->
-<!-- b7-magicitems (#143 W1) — the 🪄 Magic Items economy tab (over campaign.notableItems[]). -->
 <div x-show="currentView === 'magic-items'" class="p-4" x-cloak>
   <div class="vellum border border-ink rounded p-4">
     <div class="flex flex-wrap justify-between items-baseline mb-2 gap-2">
@@ -15499,7 +15489,6 @@ document.addEventListener('alpine:init', () => {
     </div>
   </div>
 </div>
-<!-- b7-knowledge: panel + modals -->
 <!-- 📚 Knowledge Layer Wave A (team burst7) — the Lore tab: who knows what, how reliably. -->
 <div x-show="currentView === 'knowledge'" class="p-4" x-cloak>
   <div class="max-w-screen-2xl mx-auto space-y-4">
@@ -15634,7 +15623,6 @@ document.addEventListener('alpine:init', () => {
     </div>
   </div>
 </div>
-<!-- b7-cl3: modal(s) (Health panel extends an existing region) -->
 <!-- Apply-condition modal (RR pp.507–516) — the GM "apply a persistent condition" action, opened
      from the character-sheet Conditions readout (stats tab). z-index:79 (above the character editor,
      like the Expose-to-disease + Record-a-wound modals). The day advances it on the Day Clock — the
@@ -15670,7 +15658,6 @@ document.addEventListener('alpine:init', () => {
   </div>
   </template>
 </div>
-<!-- b7-delves: modal(s) (delve sub-view extends an existing region) -->
 <!-- Delves D4 — the Abstract Wilderness Foray (JJ ch.13). Opened from World ▸ 🕳️ Dungeons
      (🗺 Wilderness foray). Propose-compute-commit: resolveWildernessForay (PURE) → review /
      ⟳ reroll → commitWildernessForay (Mortal Wounds + adventure-result + clearLair). z-index:79. -->
@@ -15810,7 +15797,6 @@ document.addEventListener('alpine:init', () => {
   </div>
   </template>
 </div>
-<!-- b7-demographics: modal(s) (demographics panel extends an existing region) -->
 
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
@@ -16317,10 +16303,6 @@ return {
   dayTickError:null,    // Phase 2.95 — last day-tick error string for inline display
   rawJsonError:'',toast:'',toastType:'',_toastTimer:null,
 
-  // ═══ TEAM BURST b7 — per-agent Alpine state + methods (inside the domainApp() return object) ═══
-  //   Add your state props AND methods (comma-terminated object members) right after YOUR marker line.
-  //   Disjoint markers ⇒ clean 6-way merge. Lead strips this block at integration.
-  // --- b7-banking ---  (Banking & Loans B1, #148 — RR p.42 Access to Capital + RR p.313 custody)
   bankingSubView: 'loans',            // 'loans' | 'accounts'
   bankLoanDebtorId: '', bankLoanCreditorId: 'bank', bankLoanAmount: '', bankLoanMarketId: '', bankLoanCollateral: false,
   bankAcctOwnerId: '', bankAcctMarketId: '', bankAcctInitial: '',
@@ -16389,7 +16371,6 @@ return {
     this.markDirty(); this.schedulePersist();
     this.showToast('Withdrew ' + n.toLocaleString() + 'gp.');
   },
-  // --- b7-magicitems ---  (#143 W1 — Magic Items economy tab: catalog + appraise + identify + charges)
   magicItemAddKey: '', magicItemAddMakerId: '', magicItemDetailId: null,
   magicItemIdCharId: '', magicItemIdMethod: 'equip', magicItemResult: null, magicItemCatalogOpen: false,
   magicItemList(){ return (this.currentCampaign && this.currentCampaign.notableItems) || []; },
@@ -16410,7 +16391,6 @@ return {
   runMagicItemAppraise(){ const ni=this.magicItemDetail(); if(!ni) return; const r=window.ACKS.appraiseMagicItem(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId||null }); this.markDirty(); this.schedulePersist(); this.magicItemResult = r.ok ? { ok:true, msg:'Appraised: '+r.spread.rarityLabel+', base '+r.spread.baseCost+'gp · buy ~'+r.spread.buy+' · sell ~'+r.spread.sell+' · commission ~'+r.spread.commission } : { ok:false, msg:'Appraise failed: '+r.error }; this.showToast('Appraised '+(ni.name||ni.kind)+'.', 2500); },
   runMagicItemIdentify(){ const ni=this.magicItemDetail(); if(!ni) return; if(!this.magicItemIdCharId){ this.showToast('Pick a character to identify.', 2500); return; } const r=window.ACKS.identifyMagicItem(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId, method:this.magicItemIdMethod }); if(!r.ok){ this.magicItemResult={ ok:false, msg:'Cannot identify: '+(r.error||'unavailable') }; return; } this.markDirty(); this.schedulePersist(); this.magicItemResult = { ok:r.success, msg: r.success ? ('Identified — learned: '+((r.learned&&r.learned.join(', '))||'(already known)')) : 'Identification FAILED — no retry until this character gains a level.' }; this.showToast(r.success?'Identified.':'Identification failed.', 2500); },
   runMagicItemUseCharge(){ const ni=this.magicItemDetail(); if(!ni) return; const r=window.ACKS.useMagicItemCharge(this.currentCampaign, { itemId:ni.id, characterId:this.magicItemIdCharId||null, count:1 }); if(!r.ok){ this.magicItemResult={ ok:false, msg:'Cannot use a charge: '+r.error }; return; } this.markDirty(); this.schedulePersist(); this.magicItemResult = { ok:true, msg:'Spent 1 charge ('+r.chargesAfter+' left)'+(r.depleted?' — depleted; now non-magical.':'.') }; this.showToast('Charge spent.', 2000); },
-  // --- b7-knowledge ---
   // ─── 📚 Knowledge Layer Wave A (team burst7) — the Lore tab (who-knows-what over the eventLog) ───
   knowledgeSelectedLoreId: null,
   knowledgeNewFact: { text:'', topic:'', loreKind:'fact', truthValue:'unknown', subjectIds:'' },
@@ -16459,7 +16439,6 @@ return {
     if(!r.ok){ this.showToast('Could not share: '+(r.reason==='teller-does-not-know'?'they don’t hold this as a tracked fact':(r.reason||'?')), 3500); return; }
     this.markDirty(); this.schedulePersist(); this.showToast('Told '+this.knowledgeCharName(this.knowledgeShareToId)+' ('+r.sharedCertainty+').', 3000);
   },
-  // --- b7-cl3 ---
   // Character Lifecycle CL-3 — persistent conditions (RR pp.507–516). The character-sheet Conditions
   // readout + the Apply-condition modal. The engine (applyCondition / clearCondition + the slot-59
   // conditions day-consumer) lives in acks-engine-lifecycle.js; these are thin wrappers + modal state.
@@ -16500,7 +16479,6 @@ return {
       if(r){ this.showToast((cond.condition === 'hypothermic' ? '🔥 ' : '✚ ') + ch.name + ' is no longer ' + (cond.label || cond.condition).toLowerCase() + '.', 4000); this.markDirty(); this.schedulePersist(); } }
     catch(e){ this.showToast('Clear failed: ' + e.message); }
   },
-  // --- b7-delves ---
   // Delves D4 — the Abstract Wilderness foray (JJ ch.13). The most-abstract travel rung: an
   // expedition meets a lair / wandering monster → resolve the combat on one 1d8+1d12 roll.
   // Propose-compute-commit over ACKS.resolveWildernessForay / commitWildernessForay (Mortal
@@ -16556,7 +16534,6 @@ return {
     this.markDirty(); this.schedulePersist();
     if(this.showToast) this.showToast(out ? ('Wilderness foray — ' + (out.proposal ? out.proposal.result : 'resolved') + (out.lairCleared ? ' · lair cleared' : '')) : 'Foray resolved');
   },
-  // --- b7-demographics ---
   // Settlement Demographics SD-4 — the rural / countryside census (T2, "A Typical Hex"). Domain-scoped:
   // the leveled NPCs across the domain's rural hexes, expected (the scaled "A Typical Hex" template) vs
   // realized (homeHexId residents). Gated on the living-census house rule (the deep tier, like SD-3);
@@ -16741,12 +16718,8 @@ return {
       // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
       // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
       ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
-      // ═══ TEAM BURST b7 — per-agent top-level tab entries (new-tab lanes only; extend-lanes add none) ═══
-      // --- b7-banking ---  (add { id:'banking', label:'🏦 Banking', count:… } after this line)
       { id:'banking', label:'🏦 Banking', count: (((this.currentCampaign?.loans||[]).filter(l => l && l.status === 'active').length) + ((this.currentCampaign?.bankAccounts||[]).length)) || null },
-      // --- b7-magicitems ---  (add { id:'magic-items', label:'🪄 Magic Items', count:… })
       { id:'magic-items',  label:'🪄 Magic Items',     count: (this.currentCampaign?.notableItems||[]).length || null },
-      // --- b7-knowledge ---  (add { id:'knowledge', label:'📚 Knowledge', count:… })
       { id:'knowledge',    label:'📚 Knowledge',      count: (this.currentCampaign?.lore||[]).length || null },
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
