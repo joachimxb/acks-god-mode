@@ -381,7 +381,11 @@ const EVENT_KINDS = Object.freeze([
   // Record-only, owned by acks-engine-generators.js (generateAndLandNPC already pushed the produced
   // Character); the event carries the run's params + seed + the produced ids (context.relatedEntities)
   // so "what did the generator make here, and how" is one eventLog filter (the derived-history pattern).
-  'generation'           // a generator run produced one or more entities (NPC Generator; the Wizards family later)
+  'generation',          // a generator run produced one or more entities (NPC Generator; the Wizards family later)
+  // === Magic Items W2 (burst8, team) === — #143 W2 commissioning (the Command exemplar; routes into
+  // Magic Research's item-creation kind). Record-only; the commission verbs own the state. TT p.28.
+  'magic-item-commissioned',       // a patron commissions a magic item (pays up front; an NPC caster researches)
+  'magic-item-commission-resolved' // the commission's research throw resolves (item delivered | up-front lost)
 ]);
 
 // 9.5.2 — Status lifecycle. Events progress pending → accepted/rejected → applied (or stay rejected).
@@ -1210,6 +1214,16 @@ const EVENT_SCHEMAS = Object.freeze({
   'generation': {
     R: { generator: 'string', producedCharacterIds: 'array' },
     O: { occupation: 'string', classKey: 'string', bucket: 'string', level: 'number', race: 'string', attributeMethod: 'string', detailLevel: 'string', wealthGp: 'number', magicItemValue: 'number', seed: 'string', narrative: 'string' }
+  },
+  // === Magic Items W2 (burst8, team) === — #143 commissioning (acks-engine-magic-items.js). projectId =
+  // the routed Magic Research item-creation project; notableItemId is set on a successful delivery.
+  'magic-item-commissioned': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string' },
+    O: { itemName: 'string', baseCost: 'number', commissionPriceGp: 'number', upFrontGp: 'number', researchFeeGp: 'number', narrative: 'string' }
+  },
+  'magic-item-commission-resolved': {
+    R: { projectId: 'string', commissionerCharacterId: 'string', casterCharacterId: 'string', success: 'boolean' },
+    O: { notableItemId: 'string', researchFeeGp: 'number', feePaid: 'boolean', feeOwedGp: 'number', lostGp: 'number', throw: 'object', narrative: 'string' }
   }
 });
 
@@ -2981,6 +2995,10 @@ function applyEvent_magicItemAudit(campaign, event){
 registerEventHandler('item-identified', applyEvent_magicItemAudit);
 registerEventHandler('item-charge-spent', applyEvent_magicItemAudit);
 registerEventHandler('item-appraised', applyEvent_magicItemAudit);
+// === Magic Items W2 (burst8, team) === — commissioning events share the record-only audit posture
+// (the commissionMagicItem / resolveCommission verbs own the gp + state; this keeps replay well-formed).
+registerEventHandler('magic-item-commissioned', applyEvent_magicItemAudit);
+registerEventHandler('magic-item-commission-resolved', applyEvent_magicItemAudit);
 
 // === Generators G1 (team burst8 2026-06-19) === — record-only audit. acks-engine-generators.js
 // (generateAndLandNPC) already pushed the produced Character + emitted the applied event; this keeps
@@ -6100,7 +6118,9 @@ const EVENT_WIZARD_OPTOUT = Object.freeze(new Set([
   // === Generators G1 (team burst8 2026-06-19) === — owned by acks-engine-generators.js (generateAndLandNPC
   // produces the Character + emits the run record). A raw Event-Wizard emit would record a generation
   // that produced nothing — the Generators tab is the real surface.
-  'generation'
+  'generation',
+  // === Magic Items W2 (burst8, team) === — owned by the commissioning verbs (acks-engine-magic-items.js)
+  'magic-item-commissioned', 'magic-item-commission-resolved'
 ]));
 
 function isWizardEmittable(kind){ return isEventKindKnown(kind) && !EVENT_WIZARD_OPTOUT.has(kind); }

@@ -366,6 +366,10 @@ const HOUSERULES_REGISTRY = Object.freeze([
   { id:'notable-items-tracking', category:'characters', name:'Notable items + custody (Wave B.5)',
     source:'Architecture.md §3.7 (JJ p.130 + AXIOMS Issue 14 "Codex & Scroll, Part I")',
     description:"Master switch for tracking magic items, AXIOMS books, regalia, and masterworks as first-class entities with intrinsic state, provenance (knownMakeAndAuthenticity affects sale price 2× per JJ p.130), and per-character identification. Custody is an explicit relation supporting unscavenged hoards, merchant stock, lost caches, inheritance lines. Mundane items continue to live in character.inventory[] free-text. When OFF, the tracking collections are stripped on save and ignored on load; promotion buttons hidden." },
+  // === Magic Items W2 / MI-5 (burst8, team) === — the optional Magic Item Traits content pack (#143).
+  { id:'magic-item-traits', category:'characters', name:'Magic item traits (optional quirks)',
+    source:'JJ p.172 (Magic Item Traits) · Phase_3_Magic_Items_Plan.md §6 (MI-5)',
+    description:"Optional per-item quirks — sensory tells (glimmering, resonant), behavioral leanings (temperamental, eager), minor boons/banes, and a flicker of will (the intelligent-item seam). A trait rides on the item's intrinsic state and never alters its core function. Default OFF (a content variant, not RAW core); when OFF the Traits panel is hidden and trait assignment is a no-op. The tool ships ARCHETYPES (our wording + a page-ref); the full named JJ d% table is the GM's book." },
   // ----- Cultural variants -----
   { id:'slavery', category:'cultural', name:'Slavery — slave families and slave-soldiers',
     source:'ACKS II RR (multiple sections — Phase 2 / cultural variant)',

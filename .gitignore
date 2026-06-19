@@ -33,3 +33,6 @@ package-lock.json
 # Recovery / dev scripts that aren't part of the tool
 outputs/
 *.tmp.js
+
+# DEV-root handoff channel lives outside the repo; a team-builder worktree write must not get tracked
+_handoffs/
