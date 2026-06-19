@@ -1158,6 +1158,12 @@ function blankCharacter(opts={}){
     // which part of the settlement this NPC belongs to (tower-of-knowledge / temple / …). null =
     // use the bucket-derived suggestion (ACKS.effectivePlacementRole). Additive + defensive.
     placementRole: opts.placementRole || null,
+    // Settlement Demographics SD-4 (2026-06-19) — the RURAL home pointer: the wilderness/countryside
+    // HEX this NPC lives in (the realized side of ACKS.domainRuralDemographics — "A Typical Hex").
+    // Distinct from homeSettlementId (an urban resident) + currentHexId (where it stands now). The
+    // rural tier is gated by the `living-census` house rule. Additive + defensive; migration-free.
+    // (Note: blankUnit also has a homeHexId — a unit's home garrison; a different entity, no collision.)
+    homeHexId: opts.homeHexId || null,
     partyId: opts.partyId || null,
     travelDestination: opts.travelDestination || null,
     travelPace: opts.travelPace || 'walking',

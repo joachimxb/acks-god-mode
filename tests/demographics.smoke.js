@@ -434,6 +434,96 @@ ok('realm: a vacant baron realm uses the title floor (ruler level 6)',
 ok('realm: baron captain expected L3 (6−3)', rcs4.offices.find(o => o.key === 'captainOfGuard').expectedLevel === 3);
 ok('realm: unknown domainId → null', ACKS.realmCommandStructure(rcm, 'dom-nope') === null);
 
+// ── 12. SD-4 — the rural / countryside census (T2, "A Typical Hex") ────────────────────────────────
+section('SD-4 — the rural / countryside census (T2)');
+
+['expectedRuralDemographics','realizedRuralDemographics','ruralDemographicDelta','ruralResidents','domainRuralDemographics'].forEach(fn =>
+  ok('ACKS.' + fn + ' exported', typeof ACKS[fn] === 'function'));
+ok('RURAL_HEX_TEMPLATE = 4 RAW level rows', Array.isArray(ACKS.RURAL_HEX_TEMPLATE) && ACKS.RURAL_HEX_TEMPLATE.length === 4);
+ok('RURAL_HEX_REF_FAMILIES = 114', ACKS.RURAL_HEX_REF_FAMILIES === 114);
+ok('blankCharacter carries homeHexId (default null)', ACKS.blankCharacter({}).homeHexId === null);
+ok('blankCharacter honors opts.homeHexId', ACKS.blankCharacter({ homeHexId:'hex-x' }).homeHexId === 'hex-x');
+
+// EXPECTED — the "A Typical Hex" template (survey §5). A 114-family hex = scale 1.0 = the full template.
+section('SD-4 — expectedRuralDemographics (the "A Typical Hex" oracle)');
+const rE = ACKS.expectedRuralDemographics({ id:'hex-1', families:114 });
+ok('114-family rural hex → scale 1.0', Math.abs(rE.scale - 1) < 1e-9, 'got ' + rE.scale);
+ok('rural grid spans MAX_NPC_LEVEL (14 rows)', rE.byLevel.length === 14 && rE.maxLevel === 14);
+ok('rural L1 = RAW dice [5.5,4.5,4.5,0.87,0(no explorer),2.5] (1d10/1d8/1d8/87%/—/1d4)',
+  [rE.byLevel[0].fighter,rE.byLevel[0].crusader,rE.byLevel[0].thief,rE.byLevel[0].mage,rE.byLevel[0].explorer,rE.byLevel[0].venturer].join(',') === '5.5,4.5,4.5,0.87,0,2.5');
+ok('rural L2 = RAW dice [2.5,2.5,2.5,0.5,0,1] (1d4×3/50%/1)',
+  [rE.byLevel[1].fighter,rE.byLevel[1].crusader,rE.byLevel[1].thief,rE.byLevel[1].mage,rE.byLevel[1].explorer,rE.byLevel[1].venturer].join(',') === '2.5,2.5,2.5,0.5,0,1');
+ok('rural L3 = the 1d4 total (2.5) split via the JJ split (sum 2.5)', Math.abs(rE.byLevel[2].all - 2.5) < 1e-9, 'got ' + rE.byLevel[2].all);
+ok('rural L3 split is fighter-led, mage<fighter (renormalized JJ split, explorer 0)',
+  rE.byLevel[2].fighter > rE.byLevel[2].mage && rE.byLevel[2].explorer === 0 && Math.round(rE.byLevel[2].fighter*1000) === 772);
+ok('rural L4 = the 20%-of-one total (0.2) split (sum 0.2)', Math.abs(rE.byLevel[3].all - 0.2) < 1e-9, 'got ' + rE.byLevel[3].all);
+ok('rural L5+ is zero (template tops out at L4)', rE.byLevel[4].all === 0 && rE.byLevel[13].all === 0);
+ok('rural explorer = 0 at every level (RAW omits the countryside explorer)', rE.byLevel.every(r => r.explorer === 0));
+ok('rural template grand total ≈ 29.57', Math.abs(rE.totals.all - 29.57) < 0.01, 'got ' + rE.totals.all);
+
+// pro-rata scaling + overrides (the JJ p.214 rule SD-1 uses)
+const rHalf = ACKS.expectedRuralDemographics({ id:'hex-h', families:57 });
+ok('57-family hex → scale 0.5, L1 fighter = 2.75', Math.abs(rHalf.scale - 0.5) < 1e-9 && Math.abs(rHalf.byLevel[0].fighter - 2.75) < 1e-9);
+ok('a 0-family hex → empty census (no countryside)', ACKS.expectedRuralDemographics({ id:'hex-empty', families:0 }).totals.all === 0);
+const rOv = ACKS.expectedRuralDemographics({ id:'hex-o', families:114, demographicOverrides:{ mage:3 } });
+ok('hex demographicOverrides {mage:3} triples mages (0.87→2.61), fighter untouched',
+  Math.abs(rOv.byLevel[0].mage - 2.61) < 1e-9 && rOv.byLevel[0].fighter === 5.5);
+ok('opts.ruralFamilies overrides hex.families (the domain-aggregate fallback path)',
+  ACKS.expectedRuralDemographics({ id:'hex-z', families:0 }, { ruralFamilies:114 }).byLevel[0].fighter === 5.5);
+
+// REALIZED + DELTA — homeHexId residents reconciled against the template
+section('SD-4 — realized + delta (homeHexId residents, open / exceptional)');
+const ruc = ACKS.blankCampaign({ name:'rural' });
+const HEX = 'hex-wild';
+ruc.characters.push(ACKS.blankCharacter({ name:'Hedge-Witch Mab', class:'Mage',    level:3, homeHexId:HEX }));        // a hedge wizard
+ruc.characters.push(ACKS.blankCharacter({ name:'Old Sarge',      class:'Fighter', level:7, homeHexId:HEX }));        // retired veteran — exceptional (L7 > template L4)
+ruc.characters.push(ACKS.blankCharacter({ name:'Silk',           class:'Assassin',level:1, homeHexId:HEX }));        // → thief bucket (OQ-9)
+ruc.characters.push(ACKS.blankCharacter({ name:'The Brute',      class:'',         level:1, homeHexId:HEX }));        // unclassed → other
+ruc.characters.push(ACKS.blankCharacter({ name:'Elsewhere',      class:'Thief',   level:1, homeHexId:'hex-other' })); // different hex
+const ghost = ACKS.blankCharacter({ name:'Ghost', class:'Mage', level:1, homeHexId:HEX }); ghost.lifecycleState = 'deceased'; ruc.characters.push(ghost);
+const rReal = ACKS.realizedRuralDemographics(ruc, HEX);
+ok('rural realized: 1 mage + 1 fighter + 1 thief (Assassin demographic) homed here', rReal.totals.mage === 1 && rReal.totals.fighter === 1 && rReal.totals.thief === 1);
+ok('rural realized: excludes other-hex + deceased; counts 3 bucketed + 1 other', rReal.totals.all === 3 && rReal.otherCount === 1 && rReal.residents === 4);
+ok('rural realized: the L3 mage is Hedge-Witch Mab', rReal.byLevel[2].mage === 1 && rReal.byLevel[2].mageNames[0].name === 'Hedge-Witch Mab');
+const rD = ACKS.ruralDemographicDelta(ruc, { id:HEX, families:114 });
+ok('rural delta: L3 mage is exceptional (template expects <0.5, realized 1)', rD.byLevel[2].mage.exceptional === true && rD.byLevel[2].mage.realized === 1);
+ok('rural delta: the L7 fighter is exceptional (template expects 0 above L4)', rD.byLevel[6].fighter.exceptional === true && rD.byLevel[6].fighter.realized === 1);
+ok('rural delta: open L1 slots remain (114-fam hex expects ~5 fighters)', rD.byLevel[0].fighter.open >= 4, 'open=' + rD.byLevel[0].fighter.open);
+ok('rural delta: exceptionalTotal counts both outliers', rD.exceptionalTotal >= 2);
+
+// THE DOMAIN AGGREGATE — the countryside census across a domain's rural hexes
+section('SD-4 — domainRuralDemographics (the countryside census)');
+// (a) even-distribution fallback: peasantFamilies 75 over 3 rural hexes (no per-hex authored); a town-hex excluded.
+const da = ACKS.blankCampaign({ name:'frontier' });
+da.domains.push({ id:'dom-1', name:'Frontier March', demographics:{ peasantFamilies:75 } });
+da.hexes.push({ id:'h1', coord:{q:0,r:0}, domainId:'dom-1', families:0 });
+da.hexes.push({ id:'h2', coord:{q:1,r:0}, domainId:'dom-1', families:0 });
+da.hexes.push({ id:'h3', coord:{q:2,r:0}, domainId:'dom-1', families:0 });
+da.hexes.push({ id:'h-town', coord:{q:3,r:0}, domainId:'dom-1', families:200, settlement:{ name:'Saltspur' } });
+da.characters.push(ACKS.blankCharacter({ name:'Friar Tom', class:'Cleric', level:3, homeHexId:'h2' }));
+da.characters.push(ACKS.blankCharacter({ name:'Townsman',  class:'Venturer', level:2, homeHexId:'h-town' }));   // homed to the town-hex — NOT rural
+const agg = ACKS.domainRuralDemographics(da, da.domains[0]);
+ok('aggregate: excludes the settlement-hex (3 rural hexes, not 4)', agg.hexCount === 3);
+ok('aggregate: even-distribution fallback (no per-hex families authored)', agg.populationSource === 'domain-distributed' && agg.ruralFamilies === 75);
+ok('aggregate: expected total ≈ 75/114 × 29.57 ≈ 19', Math.round(agg.totals.all) === 19, 'got ' + agg.totals.all);
+ok('aggregate: counts the rural resident (Friar Tom), not the townsman', agg.realizedTotals.all === 1 && agg.byLevel[2].crusader.realized === 1);
+ok('aggregate: residents list carries the home-hex name', agg.residents.length === 1 && agg.residents[0].name === 'Friar Tom' && /0100|h2/.test(agg.residents[0].hexName + agg.residents[0].hexId));
+ok('aggregate: realized name in the grid is tagged with its hex', (agg.byLevel[2].crusader.names[0] || {}).hexId === 'h2');
+ok('aggregate: per-hex summary rows for each rural hex', agg.hexes.length === 3 && agg.hexes.every(h => h.ruralFamilies === 25));
+// (b) authored per-hex path: a 114-family rural hex = the full template; a 0-family sibling adds nothing.
+const db = ACKS.blankCampaign({ name:'settled' });
+db.domains.push({ id:'dom-2', name:'Settled Vale', demographics:{ peasantFamilies:0 } });
+db.hexes.push({ id:'ha', coord:{q:0,r:0}, domainId:'dom-2', families:114 });
+db.hexes.push({ id:'hb', coord:{q:1,r:0}, domainId:'dom-2', families:0 });
+const agg2 = ACKS.domainRuralDemographics(db, db.domains[0]);
+ok('aggregate (authored): per-hex families win when any are authored', agg2.populationSource === 'per-hex' && agg2.ruralFamilies === 114);
+ok('aggregate (authored): inhabitedHexCount counts only the populated hex', agg2.inhabitedHexCount === 1);
+ok('aggregate (authored): a 114-family hex = the full template (~30)', Math.round(agg2.totals.all) === 30);
+// (c) ruralResidents — the flat workspace list
+ok('ruralResidents: lists the domain\'s rural residents, level-sorted', (() => { const r = ACKS.ruralResidents(da, da.domains[0]); return r.length === 1 && r[0].name === 'Friar Tom' && r[0].bucket === 'crusader'; })());
+ok('domainRuralDemographics: a domain with no rural hexes → 0 hexCount, no crash',
+  (() => { const c = ACKS.blankCampaign({ name:'empty' }); c.domains.push({ id:'dom-e', name:'Empty', demographics:{ peasantFamilies:50 } }); const a = ACKS.domainRuralDemographics(c, c.domains[0]); return a.hexCount === 0 && a.totals.all === 0; })());
+
 console.log('\n=============================================');
 console.log('demographics.smoke.js — Passed: ' + passed + ', Failed: ' + failed);
 console.log('=============================================');
