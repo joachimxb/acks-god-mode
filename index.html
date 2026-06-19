@@ -15069,6 +15069,16 @@ document.addEventListener('alpine:init', () => {
 </div>
 <!-- ===== end TEAM BURST5 modal tail ===== -->
 
+<!-- ═══ TEAM BURST b7 — per-agent template region (top-level panels + modals) ═══
+     Each lane appends its <div x-show="currentView==='<id>'"> panel AND its modal(s) right
+     AFTER its own marker line below. Disjoint markers ⇒ clean 6-way merge. Lead strips at integration. -->
+<!-- b7-banking: panel + modals -->
+<!-- b7-magicitems: panel + modals -->
+<!-- b7-knowledge: panel + modals -->
+<!-- b7-cl3: modal(s) (Health panel extends an existing region) -->
+<!-- b7-delves: modal(s) (delve sub-view extends an existing region) -->
+<!-- b7-demographics: modal(s) (demographics panel extends an existing region) -->
+
 <script>
 const SCHEMA_VERSION = window.ACKS.SCHEMA_VERSION; // v2 — clean break, refuses pre-v2 saves
 const DEFAULT_TAX_RATES = window.ACKS.DEFAULT_TAX_RATES;
@@ -15574,6 +15584,16 @@ return {
   dayTickError:null,    // Phase 2.95 — last day-tick error string for inline display
   rawJsonError:'',toast:'',toastType:'',_toastTimer:null,
 
+  // ═══ TEAM BURST b7 — per-agent Alpine state + methods (inside the domainApp() return object) ═══
+  //   Add your state props AND methods (comma-terminated object members) right after YOUR marker line.
+  //   Disjoint markers ⇒ clean 6-way merge. Lead strips this block at integration.
+  // --- b7-banking ---
+  // --- b7-magicitems ---
+  // --- b7-knowledge ---
+  // --- b7-cl3 ---
+  // --- b7-delves ---
+  // --- b7-demographics ---
+
   init(){
     // Expose the root Alpine proxy on `window.acksApp` so reusable sub-components
     // (e.g. editableStat) can reach the root campaign + selectedDomain reactively
@@ -15744,6 +15764,10 @@ return {
       // Politics P-2 (burst5 2026-06-14) — the 🏛 Senate top-level tab, DORMANT-UNTIL-USED
       // (only present once a senate exists; the senate is RAW-core but hidden until you have one).
       ...(this.campaignHasSenate() ? [{ id:'senate', label:'🏛 Senate', count: (this.currentCampaign?.senates||[]).length || null }] : []),
+      // ═══ TEAM BURST b7 — per-agent top-level tab entries (new-tab lanes only; extend-lanes add none) ═══
+      // --- b7-banking ---  (add { id:'banking', label:'🏦 Banking', count:… } after this line)
+      // --- b7-magicitems ---  (add { id:'magic-items', label:'🪄 Magic Items', count:… })
+      // --- b7-knowledge ---  (add { id:'knowledge', label:'📚 Knowledge', count:… })
       // 📋 Review (2026-06-13) — LAST + alignRight: the work-queue tab sits flush right.
       { id:'review',       label:'📋 Review',          count: reviewCount || null, alignRight: true }
     ];
